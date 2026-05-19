@@ -25,19 +25,14 @@ def test_editorial_design_context_is_documented() -> None:
     assert "traceability" in source.lower() or "trazabilidad" in source.lower()
 
 
-def test_dashboard_entrypoint_uses_modular_react_app() -> None:
-    entry = WEB / "dashboard-client.jsx"
-    source = read(entry)
-
-    assert "from './src/app/App.jsx'" in source
-    assert len(source.splitlines()) < 80
-
+def test_dashboard_entrypoint_uses_vite_typescript_app() -> None:
     expected_paths = [
-        SRC / "app" / "App.jsx",
-        SRC / "api" / "platform-api.js",
-        SRC / "api" / "usePlatformData.js",
-        SRC / "components" / "primitives.jsx",
-        SRC / "motion" / "useGsapMotion.js",
+        SRC / "main.tsx",
+        SRC / "app" / "App.tsx",
+        SRC / "api" / "client.ts",
+        SRC / "api" / "types.ts",
+        SRC / "components" / "primitives.tsx",
+        SRC / "motion" / "useControlMotion.ts",
         SRC / "design-system" / "tokens.css",
         SRC / "design-system" / "base.css",
         SRC / "design-system" / "layout.css",
@@ -51,35 +46,33 @@ def test_dashboard_entrypoint_uses_modular_react_app() -> None:
 def test_frontend_feature_slices_are_explicit() -> None:
     expected = [
         "overview",
-        "jobs",
-        "memory-retrieval",
-        "agents-runtime",
-        "sandbox-security",
-        "pipelines",
-        "workspaces-sessions",
+        "jobs-approvals",
+        "memory",
+        "agents",
+        "workflows",
         "integrations",
-        "settings",
-        "design-lab",
     ]
 
     for feature in expected:
         assert (SRC / "features" / feature).is_dir(), feature
 
 
-def test_dashboard_reads_operational_overview_instead_of_legacy_state_endpoint() -> None:
+def test_dashboard_reads_v1_overview_without_removed_state_contract() -> None:
     web_sources = "\n".join(
         read(path)
         for path in SRC.rglob("*")
-        if path.is_file() and path.suffix in {".js", ".jsx"}
+        if path.is_file() and path.suffix in {".ts", ".tsx"}
     )
+    removed_state_route = "/api/" + "state"
+    removed_workspace_key = "workspace" + "State"
 
-    assert "/api/state" not in web_sources
+    assert removed_state_route not in web_sources
     assert "getLegacyState" not in web_sources
-    assert "workspaceState" in web_sources
+    assert removed_workspace_key not in web_sources
 
 
 def test_visual_guardrails_reject_generic_ai_dashboard_patterns() -> None:
-    css_paths = list((SRC / "design-system").glob("*.css")) + [WEB / "dashboard.css"]
+    css_paths = list((SRC / "design-system").glob("*.css"))
     combined = "\n".join(read(path) for path in css_paths if path.exists())
 
     forbidden_literals = [
@@ -96,7 +89,7 @@ def test_visual_guardrails_reject_generic_ai_dashboard_patterns() -> None:
         assert literal not in combined, literal
 
     assert "oklch(" in combined
-    assert "Sitka Display" in combined
+    assert "Bahnschrift" in combined
     assert "Aptos" in combined
     assert "Cascadia Code" in combined
 
@@ -107,8 +100,10 @@ def test_visual_guardrails_reject_generic_ai_dashboard_patterns() -> None:
 def test_web_tooling_has_motion_and_visual_smoke_scripts() -> None:
     package = json.loads(read(ROOT / "package.json"))
 
-    assert "gsap" in package["dependencies"]
+    assert "gsap" not in package["dependencies"]
+    assert "@gsap/react" not in package["dependencies"]
     assert "@playwright/test" in package["devDependencies"]
+    assert "vite" in package["devDependencies"]
     assert package["scripts"]["test:web"] == "corepack pnpm@10.24.0 run build:control-center && playwright test"
 
     playwright_config = ROOT / "playwright.config.mjs"
@@ -118,6 +113,6 @@ def test_web_tooling_has_motion_and_visual_smoke_scripts() -> None:
     smoke = ROOT / "tests_web" / "control-center.spec.js"
     assert smoke.exists()
     smoke_source = read(smoke)
-    assert "Jobs/Approvals" in smoke_source
-    assert "Memory/Retrieval" in smoke_source
+    assert "Jobs & Approvals" in smoke_source
+    assert "Memory & Retrieval" in smoke_source
     assert "reduced motion" in smoke_source.lower()

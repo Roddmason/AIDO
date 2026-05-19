@@ -1,32 +1,23 @@
 from __future__ import annotations
 
-import json
 import sqlite3
 import uuid
 from typing import Any
 
-from local_control_center.store import utc_now
+from local_control_center.shared.serialization import json_dumps, json_loads
+from local_control_center.shared.telemetry import record_agent_run, record_model_call
 
-
-def json_dumps(value: Any) -> str:
-    return json.dumps(value if value is not None else {}, ensure_ascii=False, sort_keys=True)
-
-
-def json_loads(value: str | None, fallback: Any = None) -> Any:
-    if value in (None, ""):
-        return {} if fallback is None else fallback
-    try:
-        return json.loads(value)
-    except json.JSONDecodeError:
-        return {} if fallback is None else fallback
+from local_control_center.shared.time import utc_now
 
 
 def row_to_agent_profile(row: sqlite3.Row) -> dict[str, Any]:
+    runtime_mode = row["runtime_type"]
     return {
         "id": row["id"],
         "name": row["name"],
         "role": row["role"],
-        "runtimeType": row["runtime_type"],
+        "runtimeType": runtime_mode,
+        "runtimeMode": runtime_mode,
         "modelPolicyId": row["model_policy_id"],
         "allowedSkills": json_loads(row["allowed_skills"], []),
         "allowedTools": json_loads(row["allowed_tools"], []),
@@ -64,6 +55,8 @@ def row_to_agent_run(row: sqlite3.Row) -> dict[str, Any]:
         "id": row["id"],
         "projectId": row["project_id"],
         "jobId": row["job_id"],
+        "workflowRunId": row["workflow_run_id"],
+        "workflowStepId": row["workflow_step_id"],
         "status": row["status"],
         "input": json_loads(row["input"]),
         "output": json_loads(row["output"]),
@@ -113,6 +106,19 @@ def row_to_cost_usage(row: sqlite3.Row) -> dict[str, Any]:
     }
 
 
+def row_to_model_provider(row: sqlite3.Row) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "provider": row["provider"],
+        "label": row["label"],
+        "status": row["status"],
+        "allowRemote": bool(row["allow_remote"]),
+        "metadata": json_loads(row["metadata"]),
+        "createdAt": row["created_at"],
+        "updatedAt": row["updated_at"],
+    }
+
+
 class AgentsRepository:
     def __init__(self, connection: sqlite3.Connection):
         self.connection = connection
@@ -147,7 +153,7 @@ class AgentsRepository:
                 profile_id,
                 body.get("name", profile_id),
                 body.get("role", "implementer"),
-                body.get("runtimeType", "internal_mock"),
+                body.get("runtimeMode") or body.get("runtimeType", "internal_mock"),
                 body.get("modelPolicyId"),
                 json_dumps(body.get("allowedSkills") or []),
                 json_dumps(body.get("allowedTools") or []),
@@ -222,52 +228,33 @@ class AgentsRepository:
         rows = self.connection.execute("SELECT * FROM model_policies ORDER BY id ASC").fetchall()
         return [row_to_model_policy(row) for row in rows]
 
-    def create_agent_run(
+    def list_model_providers(self) -> list[dict[str, Any]]:
+        rows = self.connection.execute("SELECT * FROM model_providers ORDER BY id ASC").fetchall()
+        return [row_to_model_provider(row) for row in rows]
+
+    def total_cost_usage(self, *, project_id: str, scope: str = "model_call") -> float:
+        row = self.connection.execute(
+            "SELECT COALESCE(SUM(amount_usd), 0) AS total FROM cost_usage WHERE project_id = ? AND scope = ?",
+            (project_id, scope),
+        ).fetchone()
+        return float(row["total"] or 0)
+
+    def record_model_call(
         self,
         *,
         project_id: str,
-        agent_profile_id: str,
-        task_id: str,
-        input_payload: dict[str, Any],
-        output_payload: dict[str, Any],
-        status: str = "completed",
-    ) -> dict[str, Any]:
-        profile = self.get_agent_profile(agent_profile_id)
+        provider: str,
+        model: str,
+        status: str,
+        model_policy_id: str | None = None,
+        agent_run_id: str | None = None,
+        prompt_tokens: int = 0,
+        completion_tokens: int = 0,
+        cost_usd: float = 0.0,
+        metadata: dict[str, Any] | None = None,
+        ) -> dict[str, Any]:
         timestamp = utc_now()
-        run_id = f"agent-run-{uuid.uuid4()}"
-        self.connection.execute(
-            """
-            INSERT INTO agent_runs (id, project_id, job_id, status, input, output, metadata, created_at, updated_at)
-            VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                run_id,
-                project_id,
-                status,
-                json_dumps(input_payload),
-                json_dumps(output_payload),
-                json_dumps({"agentProfileId": agent_profile_id, "taskId": task_id, "runtimeType": profile["runtimeType"]}),
-                timestamp,
-                timestamp,
-            ),
-        )
-        self.connection.execute(
-            """
-            INSERT INTO agent_tool_calls
-                (id, agent_run_id, tool_name, status, payload, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                f"agent-tool-call-{uuid.uuid4()}",
-                run_id,
-                "internal_mock.complete",
-                "completed",
-                json_dumps({"taskId": task_id}),
-                timestamp,
-                timestamp,
-            ),
-        )
-        policy_id = profile.get("modelPolicyId")
+        call_id = f"model-call-{uuid.uuid4()}"
         self.connection.execute(
             """
             INSERT INTO model_calls
@@ -276,7 +263,93 @@ class AgentsRepository:
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                f"model-call-{uuid.uuid4()}",
+                call_id,
+                project_id,
+                agent_run_id,
+                model_policy_id,
+                provider,
+                model,
+                status,
+                prompt_tokens,
+                completion_tokens,
+                cost_usd,
+                json_dumps(metadata or {}),
+                timestamp,
+            ),
+        )
+        if cost_usd:
+            self.connection.execute(
+                """
+                INSERT INTO cost_usage (id, project_id, scope, amount_usd, metadata, created_at)
+                VALUES (?, ?, 'model_call', ?, ?, ?)
+                """,
+                (
+                    f"cost-{uuid.uuid4()}",
+                    project_id,
+                    cost_usd,
+                    json_dumps({"modelCallId": call_id, "modelPolicyId": model_policy_id}),
+                    timestamp,
+                ),
+            )
+        row = self.connection.execute("SELECT * FROM model_calls WHERE id = ?", (call_id,)).fetchone()
+        return row_to_model_call(row)
+
+    def create_agent_run(
+        self,
+        *,
+        project_id: str,
+        agent_profile_id: str,
+        task_id: str,
+        input_payload: dict[str, Any],
+        output_payload: dict[str, Any],
+        job_id: str | None = None,
+        workflow_run_id: str | None = None,
+        workflow_step_id: str | None = None,
+        status: str = "completed",
+    ) -> dict[str, Any]:
+        profile = self.get_agent_profile(agent_profile_id)
+        timestamp = utc_now()
+        run_id = f"agent-run-{uuid.uuid4()}"
+        self.connection.execute(
+            """
+            INSERT INTO agent_runs
+                (id, project_id, job_id, workflow_run_id, workflow_step_id, status,
+                 input, output, metadata, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                run_id,
+                project_id,
+                job_id,
+                workflow_run_id or input_payload.get("workflowRunId"),
+                workflow_step_id or input_payload.get("workflowStepId"),
+                status,
+                json_dumps(input_payload),
+                json_dumps(output_payload),
+                json_dumps({"agentProfileId": agent_profile_id, "taskId": task_id, "runtimeType": profile["runtimeType"]}),
+                timestamp,
+                timestamp,
+            ),
+        )
+        if profile["runtimeType"] == "internal_mock":
+            self.record_agent_tool_call(
+                agent_run_id=run_id,
+                tool_name="internal_mock.complete",
+                status="completed",
+                payload={"taskId": task_id},
+                timestamp=timestamp,
+            )
+        policy_id = profile.get("modelPolicyId")
+        model_call_id = f"model-call-{uuid.uuid4()}"
+        self.connection.execute(
+            """
+            INSERT INTO model_calls
+                (id, project_id, agent_run_id, model_policy_id, provider, model, status,
+                 prompt_tokens, completion_tokens, cost_usd, metadata, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                model_call_id,
                 project_id,
                 run_id,
                 policy_id,
@@ -290,6 +363,8 @@ class AgentsRepository:
                 timestamp,
             ),
         )
+        model_call_row = self.connection.execute("SELECT * FROM model_calls WHERE id = ?", (model_call_id,)).fetchone()
+        record_model_call(self.connection, row_to_model_call(model_call_row))
         self.connection.execute(
             """
             INSERT INTO cost_usage (id, project_id, scope, amount_usd, metadata, created_at)
@@ -297,7 +372,50 @@ class AgentsRepository:
             """,
             (f"cost-{uuid.uuid4()}", project_id, json_dumps({"agentRunId": run_id}), timestamp),
         )
+        agent_run = self.get_agent_run(run_id)
+        record_agent_run(self.connection, agent_run)
+        return agent_run
+
+    def update_agent_run_status(self, run_id: str, *, status: str, output_payload: dict[str, Any]) -> dict[str, Any]:
+        self.connection.execute(
+            """
+            UPDATE agent_runs
+            SET status = ?, output = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (status, json_dumps(output_payload), utc_now(), run_id),
+        )
         return self.get_agent_run(run_id)
+
+    def record_agent_tool_call(
+        self,
+        *,
+        agent_run_id: str,
+        tool_name: str,
+        status: str,
+        payload: dict[str, Any],
+        timestamp: str | None = None,
+    ) -> dict[str, Any]:
+        now = timestamp or utc_now()
+        call_id = f"agent-tool-call-{uuid.uuid4()}"
+        self.connection.execute(
+            """
+            INSERT INTO agent_tool_calls
+                (id, agent_run_id, tool_name, status, payload, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                call_id,
+                agent_run_id,
+                tool_name,
+                status,
+                json_dumps(payload),
+                now,
+                now,
+            ),
+        )
+        row = self.connection.execute("SELECT * FROM agent_tool_calls WHERE id = ?", (call_id,)).fetchone()
+        return row_to_agent_tool_call(row)
 
     def get_agent_run(self, run_id: str) -> dict[str, Any]:
         row = self.connection.execute("SELECT * FROM agent_runs WHERE id = ?", (run_id,)).fetchone()
@@ -307,6 +425,16 @@ class AgentsRepository:
 
     def list_agent_runs(self) -> list[dict[str, Any]]:
         rows = self.connection.execute("SELECT * FROM agent_runs ORDER BY created_at DESC").fetchall()
+        return [row_to_agent_run(row) for row in rows]
+
+    def list_agent_runs_for_workflow_runs(self, workflow_run_ids: list[str]) -> list[dict[str, Any]]:
+        if not workflow_run_ids:
+            return []
+        placeholders = ",".join("?" for _ in workflow_run_ids)
+        rows = self.connection.execute(
+            f"SELECT * FROM agent_runs WHERE workflow_run_id IN ({placeholders}) ORDER BY created_at DESC",
+            tuple(workflow_run_ids),
+        ).fetchall()
         return [row_to_agent_run(row) for row in rows]
 
     def list_agent_tool_calls(self) -> list[dict[str, Any]]:
@@ -320,3 +448,5 @@ class AgentsRepository:
     def list_cost_usage(self) -> list[dict[str, Any]]:
         rows = self.connection.execute("SELECT * FROM cost_usage ORDER BY created_at DESC").fetchall()
         return [row_to_cost_usage(row) for row in rows]
+
+

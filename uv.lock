@@ -678,6 +678,10 @@ dev = [
 faiss = [
     { name = "faiss-cpu" },
 ]
+otel = [
+    { name = "opentelemetry-exporter-otlp-proto-http" },
+    { name = "opentelemetry-sdk" },
+]
 test = [
     { name = "httpx" },
     { name = "pytest" },
@@ -690,6 +694,8 @@ requires-dist = [
     { name = "httpx", marker = "extra == 'test'", specifier = ">=0.28.0" },
     { name = "numpy", specifier = ">=1.26.0" },
     { name = "openai-agents", marker = "extra == 'agents'", specifier = ">=0.4.0" },
+    { name = "opentelemetry-exporter-otlp-proto-http", marker = "extra == 'otel'", specifier = ">=1.30.0" },
+    { name = "opentelemetry-sdk", marker = "extra == 'otel'", specifier = ">=1.30.0" },
     { name = "pip-licenses", marker = "extra == 'dev'", specifier = ">=5.5.0" },
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=4.5.0" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=9.0.0" },
@@ -697,7 +703,7 @@ requires-dist = [
     { name = "semgrep", marker = "extra == 'dev'", specifier = ">=1.145.0" },
     { name = "uvicorn", specifier = ">=0.37.0" },
 ]
-provides-extras = ["agents", "faiss", "dev", "test"]
+provides-extras = ["agents", "faiss", "otel", "dev", "test"]
 
 [[package]]
 name = "markdown-it-py"

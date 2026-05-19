@@ -10,7 +10,8 @@ from pathlib import Path
 import uvicorn
 
 from .app import create_app
-from .store import PlatformStore, default_db_path
+from .control_plane.runtime import ControlCenterRuntime
+from .shared.settings import default_db_path
 from .worker import ConcurrentWorker
 
 
@@ -46,15 +47,12 @@ def main() -> None:
     cwd = Path(args.workspace)
     db_path = Path(args.db_path)
 
-    def store_factory() -> PlatformStore:
-        return PlatformStore(cwd=cwd, db_path=db_path)
-
-    store = store_factory()
-    store.init()
-    store.ensure_runtime_project()
+    runtime = ControlCenterRuntime(cwd=cwd, db_path=db_path)
+    runtime.init()
+    runtime.ensure_runtime_project()
 
     def worker_loop() -> None:
-        worker = ConcurrentWorker(store_factory=store_factory)
+        worker = ConcurrentWorker(db_path=db_path)
         while True:
             worker.run_batch(worker_count=args.worker_count, max_jobs=args.worker_count)
             time.sleep(max(args.worker_interval_ms, 100) / 1000)
@@ -65,7 +63,7 @@ def main() -> None:
         if args.worker and not args.no_worker:
             thread = threading.Thread(target=worker_loop, name="local-control-center-worker", daemon=True)
             thread.start()
-        app = create_app(store=store, static_dir=args.static_dir)
+        app = create_app(runtime=runtime, static_dir=args.static_dir)
         uvicorn.run(app, host=args.dashboard_host, port=args.dashboard_port)
 
 

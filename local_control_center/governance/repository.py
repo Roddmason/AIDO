@@ -1,24 +1,12 @@
 from __future__ import annotations
 
-import json
 import sqlite3
 import uuid
 from typing import Any
 
-from local_control_center.store import utc_now
+from local_control_center.shared.serialization import json_dumps, json_loads
 
-
-def json_dumps(value: Any) -> str:
-    return json.dumps(value if value is not None else {}, ensure_ascii=False, sort_keys=True)
-
-
-def json_loads(value: str | None, fallback: Any = None) -> Any:
-    if value in (None, ""):
-        return {} if fallback is None else fallback
-    try:
-        return json.loads(value)
-    except json.JSONDecodeError:
-        return {} if fallback is None else fallback
+from local_control_center.shared.time import utc_now
 
 
 def row_to_architecture_decision(row: sqlite3.Row) -> dict[str, Any]:
@@ -248,3 +236,5 @@ class GovernanceRepository:
             ),
         )
         return self.get_next_step(step_id)
+
+

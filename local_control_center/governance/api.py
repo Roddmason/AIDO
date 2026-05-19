@@ -5,6 +5,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 
+from ..shared.event_bus import EventBus
 from .repository import GovernanceRepository
 
 
@@ -29,6 +30,9 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     def repository() -> GovernanceRepository:
         return GovernanceRepository(platform.connection)
 
+    def event_bus() -> EventBus:
+        return EventBus(platform.connection)
+
     @router.get("/api/v1/governance")
     async def governance() -> dict[str, Any]:
         repo = repository()
@@ -50,13 +54,13 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         if body.get("status") == "accepted" and not (body.get("context") and body.get("decision")):
             raise HTTPException(status_code=422, detail="Accepted decisions require context and decision text.")
         decision = repository().create_architecture_decision(body)
-        platform.record_audit(
+        event_bus().record_audit(
             project_id=decision["projectId"],
             action="architecture_decision.create",
             target=decision["id"],
             payload={"status": decision["status"]},
         )
-        platform.record_event(
+        event_bus().record_event(
             project_id=decision["projectId"],
             event_type="architecture_decision.created",
             payload={"architectureDecisionId": decision["id"], "status": decision["status"]},
@@ -76,13 +80,13 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         if body["severity"] in HIGH_RISK_SEVERITIES and not body.get("mitigation"):
             raise HTTPException(status_code=422, detail="High and critical risks require a mitigation.")
         risk = repository().create_risk(body)
-        platform.record_audit(
+        event_bus().record_audit(
             project_id=risk["projectId"],
             action="risk.create",
             target=risk["id"],
             payload={"severity": risk["severity"], "status": risk["status"]},
         )
-        platform.record_event(
+        event_bus().record_event(
             project_id=risk["projectId"],
             event_type="risk.created",
             payload={"riskId": risk["id"], "severity": risk["severity"]},
@@ -101,7 +105,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             risk = repository().update_risk(risk_id, body)
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
-        platform.record_audit(
+        event_bus().record_audit(
             project_id=risk["projectId"],
             action="risk.update",
             target=risk["id"],
@@ -120,7 +124,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         body["priority"] = validate_choice("priority", body.get("priority", "medium"), ALLOWED_NEXT_STEP_PRIORITIES)
         body["status"] = validate_choice("status", body.get("status", "planned"), ALLOWED_NEXT_STEP_STATUSES)
         next_step = repository().create_next_step(body)
-        platform.record_audit(
+        event_bus().record_audit(
             project_id=next_step["projectId"],
             action="next_step.create",
             target=next_step["id"],
@@ -140,7 +144,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             next_step = repository().update_next_step(step_id, body)
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
-        platform.record_audit(
+        event_bus().record_audit(
             project_id=next_step["projectId"],
             action="next_step.update",
             target=next_step["id"],

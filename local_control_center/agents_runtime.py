@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
-from .store import PlatformStore
+from .jobs_approvals.repository import JobsRepository
 
 
 @dataclass
@@ -20,8 +20,8 @@ class GatedAgentsPlanner:
     approval layer. It may propose actions, but it does not execute commands.
     """
 
-    def __init__(self, *, store: PlatformStore):
-        self.store = store
+    def __init__(self, *, jobs: JobsRepository):
+        self.jobs = jobs
 
     def available(self) -> bool:
         if not os.environ.get("OPENAI_API_KEY"):
@@ -38,7 +38,7 @@ class GatedAgentsPlanner:
                 enabled=False,
                 summary="OpenAI Agents SDK is disabled until OPENAI_API_KEY and openai-agents are available.",
             )
-        action = self.store.create_action_request(
+        action = self.jobs.create_action_request(
             project_id=project_id,
             job_id=job_id,
             action_type="agent.proposed_action",

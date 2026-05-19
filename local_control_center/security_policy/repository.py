@@ -1,24 +1,14 @@
 from __future__ import annotations
 
-import json
 import sqlite3
 import uuid
+from pathlib import Path
 from typing import Any
 
-from local_control_center.store import utc_now
+from local_control_center.shared.serialization import json_dumps, json_loads
+from local_control_center.shared.telemetry import record_policy_decision
 
-
-def json_dumps(value: Any) -> str:
-    return json.dumps(value if value is not None else {}, ensure_ascii=False, sort_keys=True)
-
-
-def json_loads(value: str | None, fallback: Any = None) -> Any:
-    if value in (None, ""):
-        return {} if fallback is None else fallback
-    try:
-        return json.loads(value)
-    except json.JSONDecodeError:
-        return {} if fallback is None else fallback
+from local_control_center.shared.time import utc_now
 
 
 def row_to_policy(row: sqlite3.Row) -> dict[str, Any]:
@@ -47,6 +37,72 @@ def row_to_decision(row: sqlite3.Row) -> dict[str, Any]:
         "reason": row["reason"],
         "payload": json_loads(row["payload"]),
         "createdAt": row["created_at"],
+    }
+
+
+def row_to_grant(row: sqlite3.Row) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "projectId": row["project_id"],
+        "jobId": row["job_id"],
+        "actionRequestId": row["action_request_id"],
+        "permissionDecisionId": row["permission_decision_id"],
+        "agentId": row["agent_id"],
+        "tool": row["tool"],
+        "command": row["command"],
+        "path": row["path"],
+        "status": row["status"],
+        "reason": row["reason"],
+        "grantedBy": row["granted_by"],
+        "grantedAt": row["granted_at"],
+        "consumedAt": row["consumed_at"],
+        "consumedByAgentRunId": row["consumed_by_agent_run_id"],
+        "revokedAt": row["revoked_at"],
+        "revokedBy": row["revoked_by"],
+        "revokeReason": row["revoke_reason"],
+        "payload": json_loads(row["payload"]),
+    }
+
+
+def row_to_sandbox_profile(row: sqlite3.Row) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "name": row["name"],
+        "allowedImages": json_loads(row["allowed_images"], []),
+        "allowedNetworks": json_loads(row["allowed_networks"], []),
+        "defaultNetwork": row["default_network"],
+        "memory": row["memory"],
+        "cpus": row["cpus"],
+        "timeoutSeconds": row["timeout_seconds"],
+        "status": row["status"],
+        "revokedAt": row["revoked_at"],
+        "revokedBy": row["revoked_by"],
+        "revokeReason": row["revoke_reason"],
+        "createdAt": row["created_at"],
+        "updatedAt": row["updated_at"],
+    }
+
+
+def _paths_match(left: str | None, right: str | None) -> bool:
+    if not left or not right:
+        return True
+    try:
+        return Path(left).resolve(strict=False) == Path(right).resolve(strict=False)
+    except OSError:
+        return left == right
+
+
+def _merged_sandbox_body(current: dict[str, Any], body: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": current["id"],
+        "name": body.get("name", current["name"]),
+        "allowedImages": body.get("allowedImages", current["allowedImages"]),
+        "allowedNetworks": body.get("allowedNetworks", current["allowedNetworks"]),
+        "defaultNetwork": body.get("defaultNetwork", current["defaultNetwork"]),
+        "memory": body.get("memory", current["memory"]),
+        "cpus": body.get("cpus", current["cpus"]),
+        "timeoutSeconds": body.get("timeoutSeconds", current["timeoutSeconds"]),
+        "status": body.get("status", current["status"]),
     }
 
 
@@ -98,7 +154,9 @@ class SecurityPolicyRepository:
             ),
         )
         row = self.connection.execute("SELECT * FROM permission_decisions WHERE id = ?", (decision_id,)).fetchone()
-        return row_to_decision(row)
+        decision_record = row_to_decision(row)
+        record_policy_decision(self.connection, decision_record)
+        return decision_record
 
     def list_decisions(self, project_id: str | None = None) -> list[dict[str, Any]]:
         if project_id:
@@ -109,3 +167,236 @@ class SecurityPolicyRepository:
         else:
             rows = self.connection.execute("SELECT * FROM permission_decisions ORDER BY created_at DESC").fetchall()
         return [row_to_decision(row) for row in rows]
+
+    def upsert_sandbox_profile(self, body: dict[str, Any]) -> dict[str, Any]:
+        profile_id = body["id"]
+        timestamp = utc_now()
+        self.connection.execute(
+            """
+            INSERT INTO sandbox_profiles
+                (id, name, allowed_images, allowed_networks, default_network, memory,
+                 cpus, timeout_seconds, status, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                name = excluded.name,
+                allowed_images = excluded.allowed_images,
+                allowed_networks = excluded.allowed_networks,
+                default_network = excluded.default_network,
+                memory = excluded.memory,
+                cpus = excluded.cpus,
+                timeout_seconds = excluded.timeout_seconds,
+                status = excluded.status,
+                updated_at = excluded.updated_at
+            """,
+            (
+                profile_id,
+                body.get("name", profile_id),
+                json_dumps(body.get("allowedImages") or []),
+                json_dumps(body.get("allowedNetworks") or ["none"]),
+                body.get("defaultNetwork", "none"),
+                body.get("memory", "2g"),
+                body.get("cpus", "2"),
+                int(body.get("timeoutSeconds", 120)),
+                body.get("status", "active"),
+                timestamp,
+                timestamp,
+            ),
+        )
+        return self.get_sandbox_profile(profile_id)
+
+    def get_sandbox_profile(self, profile_id: str = "default_docker") -> dict[str, Any]:
+        row = self.connection.execute("SELECT * FROM sandbox_profiles WHERE id = ?", (profile_id,)).fetchone()
+        if not row:
+            raise KeyError(f"Sandbox profile not found: {profile_id}")
+        return row_to_sandbox_profile(row)
+
+    def list_sandbox_profiles(self) -> list[dict[str, Any]]:
+        rows = self.connection.execute("SELECT * FROM sandbox_profiles ORDER BY id ASC").fetchall()
+        return [row_to_sandbox_profile(row) for row in rows]
+
+    def update_sandbox_profile(self, profile_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        current = self.get_sandbox_profile(profile_id)
+        next_body = _merged_sandbox_body(current, body)
+        timestamp = utc_now()
+        self.connection.execute(
+            """
+            UPDATE sandbox_profiles
+            SET name = ?,
+                allowed_images = ?,
+                allowed_networks = ?,
+                default_network = ?,
+                memory = ?,
+                cpus = ?,
+                timeout_seconds = ?,
+                status = ?,
+                updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                next_body["name"],
+                json_dumps(next_body["allowedImages"]),
+                json_dumps(next_body["allowedNetworks"]),
+                next_body["defaultNetwork"],
+                next_body["memory"],
+                next_body["cpus"],
+                int(next_body["timeoutSeconds"]),
+                next_body["status"],
+                timestamp,
+                profile_id,
+            ),
+        )
+        return self.get_sandbox_profile(profile_id)
+
+    def revoke_sandbox_profile(
+        self,
+        profile_id: str,
+        *,
+        reason: str,
+        actor: str = "operator",
+    ) -> dict[str, Any]:
+        profile = self.get_sandbox_profile(profile_id)
+        timestamp = utc_now()
+        if profile["status"] == "active":
+            self.connection.execute(
+                """
+                UPDATE sandbox_profiles
+                SET status = 'revoked', revoked_at = ?, revoked_by = ?, revoke_reason = ?, updated_at = ?
+                WHERE id = ? AND status = 'active'
+                """,
+                (timestamp, actor, reason, timestamp, profile_id),
+            )
+        return self.get_sandbox_profile(profile_id)
+
+    def create_grant_from_action_request(
+        self,
+        *,
+        action_request: dict[str, Any],
+        reason: str,
+        granted_by: str = "operator",
+    ) -> dict[str, Any]:
+        payload = action_request.get("payload") or {}
+        grant_id = f"permission-grant-{uuid.uuid4()}"
+        timestamp = utc_now()
+        self.connection.execute(
+            """
+            INSERT INTO permission_grants
+                (id, project_id, job_id, action_request_id, permission_decision_id,
+                 agent_id, tool, command, path, status, reason, granted_by,
+                 granted_at, consumed_at, consumed_by_agent_run_id, payload)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, NULL, NULL, ?)
+            """,
+            (
+                grant_id,
+                action_request["projectId"],
+                action_request.get("jobId"),
+                action_request["id"],
+                payload.get("permissionDecisionId"),
+                payload.get("agentId"),
+                str(payload.get("tool") or action_request["actionType"]),
+                action_request.get("command") or "",
+                payload.get("path"),
+                reason,
+                granted_by,
+                timestamp,
+                json_dumps(
+                    {
+                        **payload,
+                        "actionType": action_request["actionType"],
+                        "riskLevel": action_request["riskLevel"],
+                    }
+                ),
+            ),
+        )
+        return self.get_grant(grant_id)
+
+    def get_grant(self, grant_id: str) -> dict[str, Any]:
+        row = self.connection.execute("SELECT * FROM permission_grants WHERE id = ?", (grant_id,)).fetchone()
+        if not row:
+            raise KeyError(f"Permission grant not found: {grant_id}")
+        return row_to_grant(row)
+
+    def list_grants(self, project_id: str | None = None) -> list[dict[str, Any]]:
+        if project_id:
+            rows = self.connection.execute(
+                "SELECT * FROM permission_grants WHERE project_id = ? ORDER BY granted_at DESC",
+                (project_id,),
+            ).fetchall()
+        else:
+            rows = self.connection.execute("SELECT * FROM permission_grants ORDER BY granted_at DESC").fetchall()
+        return [row_to_grant(row) for row in rows]
+
+    def validate_and_consume_grant(
+        self,
+        *,
+        grant_id: str,
+        project_id: str,
+        job_id: str | None,
+        agent_id: str | None,
+        tool: str,
+        command: str,
+        path: str | None,
+        agent_run_id: str,
+    ) -> dict[str, Any]:
+        try:
+            grant = self.get_grant(grant_id)
+        except KeyError:
+            return {"valid": False, "reason": "Permission grant not found.", "grant": None}
+
+        if grant["status"] != "active":
+            return {
+                "valid": False,
+                "reason": f"Permission grant is already {grant['status']}.",
+                "grant": grant,
+            }
+        if grant["projectId"] != project_id:
+            return {"valid": False, "reason": "Permission grant project mismatch.", "grant": grant}
+        if grant.get("jobId") and job_id and grant["jobId"] != job_id:
+            return {"valid": False, "reason": "Permission grant job mismatch.", "grant": grant}
+        if grant.get("agentId") and agent_id and grant["agentId"] != agent_id:
+            return {"valid": False, "reason": "Permission grant agent mismatch.", "grant": grant}
+        if grant["tool"] != tool:
+            return {"valid": False, "reason": "Permission grant tool mismatch.", "grant": grant}
+        if grant["command"] != command:
+            return {"valid": False, "reason": "Permission grant command mismatch.", "grant": grant}
+        if not _paths_match(grant.get("path"), path):
+            return {"valid": False, "reason": "Permission grant path mismatch.", "grant": grant}
+
+        timestamp = utc_now()
+        cursor = self.connection.execute(
+            """
+            UPDATE permission_grants
+            SET status = 'consumed', consumed_at = ?, consumed_by_agent_run_id = ?
+            WHERE id = ? AND status = 'active'
+            """,
+            (timestamp, agent_run_id, grant_id),
+        )
+        if cursor.rowcount != 1:
+            refreshed = self.get_grant(grant_id)
+            return {
+                "valid": False,
+                "reason": f"Permission grant is already {refreshed['status']}.",
+                "grant": refreshed,
+            }
+        return {"valid": True, "reason": "Permission grant consumed.", "grant": self.get_grant(grant_id)}
+
+    def revoke_grant(
+        self,
+        grant_id: str,
+        *,
+        reason: str,
+        actor: str = "operator",
+    ) -> dict[str, Any]:
+        grant = self.get_grant(grant_id)
+        timestamp = utc_now()
+        if grant["status"] == "active":
+            self.connection.execute(
+                """
+                UPDATE permission_grants
+                SET status = 'revoked', revoked_at = ?, revoked_by = ?, revoke_reason = ?
+                WHERE id = ? AND status = 'active'
+                """,
+                (timestamp, actor, reason, grant_id),
+            )
+        return self.get_grant(grant_id)
+
+

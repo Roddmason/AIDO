@@ -6,7 +6,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from local_control_center.app import create_app
-from local_control_center.store import PlatformStore
+from tests_py.control_plane_fixture import ControlPlaneFixture
 
 
 def auth_headers(client: TestClient) -> dict[str, str]:
@@ -14,16 +14,16 @@ def auth_headers(client: TestClient) -> dict[str, str]:
     return {"X-Local-Control-Token": token, "Origin": "http://127.0.0.1"}
 
 
-def make_app(tmp_path: Path, monkeypatch) -> tuple[PlatformStore, TestClient, dict[str, str]]:
+def make_app(tmp_path: Path, monkeypatch) -> tuple[ControlPlaneFixture, TestClient, dict[str, str]]:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = PlatformStore(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
     store.init()
-    client = TestClient(create_app(store=store, static_dir=None))
+    client = TestClient(create_app(runtime=store, static_dir=None))
     return store, client, auth_headers(client)
 
 
 def test_governance_schema_adds_architecture_risks_and_next_steps(tmp_path: Path) -> None:
-    store = PlatformStore(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
     store.init()
 
     with sqlite3.connect(tmp_path / "platform.sqlite") as connection:

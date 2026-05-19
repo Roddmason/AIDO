@@ -1,0 +1,2 @@
+"""Project catalog slice."""
+

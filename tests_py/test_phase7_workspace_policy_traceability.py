@@ -9,7 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from local_control_center.app import create_app
-from local_control_center.store import PlatformStore
+from tests_py.control_plane_fixture import ControlPlaneFixture
 
 
 def auth_headers(client: TestClient) -> dict[str, str]:
@@ -17,11 +17,11 @@ def auth_headers(client: TestClient) -> dict[str, str]:
     return {"X-Local-Control-Token": token, "Origin": "http://127.0.0.1"}
 
 
-def make_app(tmp_path: Path, monkeypatch) -> tuple[PlatformStore, TestClient, dict[str, str]]:
+def make_app(tmp_path: Path, monkeypatch) -> tuple[ControlPlaneFixture, TestClient, dict[str, str]]:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = PlatformStore(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
     store.init()
-    client = TestClient(create_app(store=store, static_dir=None))
+    client = TestClient(create_app(runtime=store, static_dir=None))
     return store, client, auth_headers(client)
 
 
@@ -229,6 +229,68 @@ def test_workflow_workspace_evidence_traceability_is_exposed(tmp_path: Path, mon
     body = detail.json()
     assert any(item["id"] == workspace["id"] for item in body["workspaces"])
     assert any(item["id"] == evidence["id"] for item in body["evidencePackages"])
+
+
+def test_workflow_detail_exposes_linked_jobs_and_agent_runs(tmp_path: Path, monkeypatch) -> None:
+    store, client, headers = make_app(tmp_path, monkeypatch)
+    project = store.create_project(name="Workflow Links", path=tmp_path / "links", template_id="other")
+    workflow = client.post(
+        "/api/v1/workflows",
+        json={"projectId": project["id"], "title": "Link story"},
+        headers=headers,
+    ).json()["workflow"]
+    started = client.post(f"/api/v1/workflows/{workflow['id']}/start", json={"reason": "link"}, headers=headers).json()
+    workflow_run = started["workflowRun"]
+    implementation_step = next(step for step in started["workflowSteps"] if step["name"] == "implementation")
+
+    job = client.post(
+        "/api/v1/jobs",
+        json={
+            "projectId": project["id"],
+            "kind": "chat.route",
+            "workflowRunId": workflow_run["id"],
+            "workflowStepId": implementation_step["id"],
+            "payload": {"prompt": "implement story"},
+        },
+        headers=headers,
+    ).json()["job"]
+    assert job["workflowRunId"] == workflow_run["id"]
+    assert job["workflowStepId"] == implementation_step["id"]
+
+    client.post(
+        "/api/v1/agent-profiles",
+        json={
+            "id": "implementer_default",
+            "name": "Implementer",
+            "role": "implementer",
+            "runtimeMode": "internal_mock",
+            "allowedSkills": ["backend-api-contract"],
+            "allowedTools": [],
+            "permissionProfile": "dev_safe",
+        },
+        headers=headers,
+    )
+    agent_run = client.post(
+        "/api/v1/agent-runs",
+        json={
+            "projectId": project["id"],
+            "agentProfileId": "implementer_default",
+            "taskId": "story-link",
+            "jobId": job["id"],
+            "workflowRunId": workflow_run["id"],
+            "workflowStepId": implementation_step["id"],
+            "input": {"story": "link"},
+        },
+        headers=headers,
+    ).json()["agentRun"]
+    assert agent_run["workflowRunId"] == workflow_run["id"]
+    assert agent_run["workflowStepId"] == implementation_step["id"]
+
+    detail = client.get(f"/api/v1/workflows/{workflow['id']}")
+    assert detail.status_code == 200
+    body = detail.json()
+    assert any(item["id"] == job["id"] for item in body["jobs"])
+    assert any(item["id"] == agent_run["id"] for item in body["agentRuns"])
 
 
 def test_evidence_detail_exposes_persisted_test_result_records(tmp_path: Path, monkeypatch) -> None:

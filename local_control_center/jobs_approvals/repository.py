@@ -1,41 +1,24 @@
 from __future__ import annotations
 
-import json
 import sqlite3
 import uuid
-from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable
 
+from local_control_center.security_policy.repository import SecurityPolicyRepository
+from local_control_center.shared.event_bus import EventBus
+from local_control_center.shared.time import add_millis, utc_now
+
+from local_control_center.shared.serialization import json_dumps, json_loads
+
 from .models import SENSITIVE_JOB_KINDS
-
-
-def utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
-
-
-def add_millis(ms: int) -> str:
-    return (datetime.now(timezone.utc) + timedelta(milliseconds=ms)).isoformat(
-        timespec="milliseconds"
-    ).replace("+00:00", "Z")
-
-
-def json_dumps(value: Any) -> str:
-    return json.dumps(value if value is not None else {}, ensure_ascii=False, sort_keys=True)
-
-
-def json_loads(value: str | None, fallback: Any = None) -> Any:
-    if value in (None, ""):
-        return {} if fallback is None else fallback
-    try:
-        return json.loads(value)
-    except json.JSONDecodeError:
-        return {} if fallback is None else fallback
 
 
 def row_to_job(row: sqlite3.Row) -> dict[str, Any]:
     return {
         "id": row["id"],
         "projectId": row["project_id"],
+        "workflowRunId": row["workflow_run_id"],
+        "workflowStepId": row["workflow_step_id"],
         "kind": row["kind"],
         "status": row["status"],
         "payload": json_loads(row["payload"]),
@@ -57,29 +40,6 @@ def row_to_job_run(row: sqlite3.Row) -> dict[str, Any]:
         "completedAt": row["completed_at"],
         "summary": row["summary"],
         "metadata": json_loads(row["metadata"]),
-    }
-
-
-def row_to_event(row: sqlite3.Row) -> dict[str, Any]:
-    return {
-        "id": row["id"],
-        "jobId": row["job_id"],
-        "projectId": row["project_id"],
-        "type": row["type"],
-        "payload": json_loads(row["payload"]),
-        "createdAt": row["created_at"],
-    }
-
-
-def row_to_audit(row: sqlite3.Row) -> dict[str, Any]:
-    return {
-        "id": row["id"],
-        "projectId": row["project_id"],
-        "action": row["action"],
-        "actor": row["actor"],
-        "target": row["target"],
-        "payload": json_loads(row["payload"]),
-        "createdAt": row["created_at"],
     }
 
 
@@ -118,6 +78,8 @@ class JobsRepository:
         payload: dict[str, Any] | None = None,
         status: str | None = None,
         idempotency_key: str | None = None,
+        workflow_run_id: str | None = None,
+        workflow_step_id: str | None = None,
     ) -> dict[str, Any]:
         payload = payload or {}
         timestamp = utc_now()
@@ -127,11 +89,22 @@ class JobsRepository:
         self.connection.execute(
             """
             INSERT INTO jobs
-                (id, project_id, kind, status, payload, lease_owner, lease_expires_at,
+                (id, project_id, workflow_run_id, workflow_step_id, kind, status, payload, lease_owner, lease_expires_at,
                  idempotency_key, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?)
             """,
-            (job_id, project_id, kind, resolved_status, json_dumps(payload), idempotency_key, timestamp, timestamp),
+            (
+                job_id,
+                project_id,
+                workflow_run_id or payload.get("workflowRunId"),
+                workflow_step_id or payload.get("workflowStepId"),
+                kind,
+                resolved_status,
+                json_dumps(payload),
+                idempotency_key,
+                timestamp,
+                timestamp,
+            ),
         )
         events = [self.record_event(project_id=project_id, job_id=job_id, event_type="job.created", payload={"kind": kind})]
         action_requests: list[dict[str, Any]] = []
@@ -172,6 +145,16 @@ class JobsRepository:
             rows = self._query("SELECT * FROM jobs WHERE project_id = ? ORDER BY created_at DESC", (project_id,))
         else:
             rows = self._query("SELECT * FROM jobs ORDER BY created_at DESC")
+        return [row_to_job(row) for row in rows]
+
+    def list_jobs_for_workflow_runs(self, workflow_run_ids: list[str]) -> list[dict[str, Any]]:
+        if not workflow_run_ids:
+            return []
+        placeholders = ",".join("?" for _ in workflow_run_ids)
+        rows = self._query(
+            f"SELECT * FROM jobs WHERE workflow_run_id IN ({placeholders}) ORDER BY created_at DESC",
+            tuple(workflow_run_ids),
+        )
         return [row_to_job(row) for row in rows]
 
     def create_action_request(
@@ -287,6 +270,17 @@ class JobsRepository:
             target=action_id,
             payload={"jobId": job_id, "reason": reason},
         )
+        permission_grant = SecurityPolicyRepository(self.connection).create_grant_from_action_request(
+            action_request=self.get_action_request(action_id),
+            reason=reason or action["reason"],
+            granted_by=actor,
+        )
+        self.record_event(
+            project_id=job["projectId"],
+            job_id=job_id,
+            event_type="permission.grant.created",
+            payload={"permissionGrantId": permission_grant["id"], "actionRequestId": action_id},
+        )
         if job["status"] == "approval_required" and not self._pending_actions(job_id):
             self.connection.execute(
                 "UPDATE jobs SET status = 'queued', updated_at = ? WHERE id = ?",
@@ -296,6 +290,7 @@ class JobsRepository:
         return {
             "job": self.get_job(job_id),
             "actionRequest": self.get_action_request(action_id),
+            "permissionGrant": permission_grant,
             "auditEvent": audit,
         }
 
@@ -500,22 +495,15 @@ class JobsRepository:
         project_id: str | None = None,
         job_id: str | None = None,
     ) -> dict[str, Any]:
-        event_id = f"event-{uuid.uuid4()}"
-        self.connection.execute(
-            """
-            INSERT INTO events (id, job_id, project_id, type, payload, created_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            (event_id, job_id, project_id, event_type, json_dumps(payload or {}), utc_now()),
+        return EventBus(self.connection).record_event(
+            event_type=event_type,
+            payload=payload,
+            project_id=project_id,
+            job_id=job_id,
         )
-        return row_to_event(self._query_one("SELECT * FROM events WHERE id = ?", (event_id,)))
 
     def list_events(self, project_id: str | None = None) -> list[dict[str, Any]]:
-        if project_id:
-            rows = self._query("SELECT * FROM events WHERE project_id = ? ORDER BY created_at DESC", (project_id,))
-        else:
-            rows = self._query("SELECT * FROM events ORDER BY created_at DESC")
-        return [row_to_event(row) for row in rows]
+        return EventBus(self.connection).list_events(project_id=project_id)
 
     def record_audit(
         self,
@@ -526,19 +514,15 @@ class JobsRepository:
         project_id: str | None = None,
         actor: str = "system",
     ) -> dict[str, Any]:
-        audit_id = f"audit-{uuid.uuid4()}"
-        self.connection.execute(
-            """
-            INSERT INTO audit_events (id, project_id, action, actor, target, payload, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-            (audit_id, project_id, action, actor, target, json_dumps(payload or {}), utc_now()),
+        return EventBus(self.connection).record_audit(
+            action=action,
+            target=target,
+            payload=payload,
+            project_id=project_id,
+            actor=actor,
         )
-        return row_to_audit(self._query_one("SELECT * FROM audit_events WHERE id = ?", (audit_id,)))
 
     def list_audit_events(self, project_id: str | None = None) -> list[dict[str, Any]]:
-        if project_id:
-            rows = self._query("SELECT * FROM audit_events WHERE project_id = ? ORDER BY created_at DESC", (project_id,))
-        else:
-            rows = self._query("SELECT * FROM audit_events ORDER BY created_at DESC")
-        return [row_to_audit(row) for row in rows]
+        return EventBus(self.connection).list_audit_events(project_id=project_id)
+
+

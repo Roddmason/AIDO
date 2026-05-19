@@ -16,6 +16,8 @@ moves into feature repositories.
 - `agents`: agent profiles, internal mock runtime, model policies, model/cost
   records, versionable skills.
 - `evidence`: evidence packages, test results, and QA verdict gates.
+- `governance`: architecture decisions, risk register, and execution next
+  steps with audit-backed updates.
 
 ## Store Direction
 
@@ -40,3 +42,4 @@ Current migration versions:
 - v2: workflows, policy decisions, evidence, agents, model policies.
 - v3: workspaces, skills, artifacts, test results, QA verdicts, model providers.
 - v4: workflow traceability columns for allocated workspaces.
+- v5: architecture decisions, risk register, and next steps.

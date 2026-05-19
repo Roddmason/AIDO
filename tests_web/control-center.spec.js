@@ -68,6 +68,56 @@ async function createWorkflowEvidence(page) {
 	return workflow;
 }
 
+async function createGovernanceState(page) {
+	const handshake = await page.request.get('/api/v1/security/handshake');
+	const { token } = await handshake.json();
+	const projectsResponse = await page.request.get('/api/v1/projects');
+	const { projects } = await projectsResponse.json();
+	const projectId = projects[0].id;
+	const suffix = Date.now();
+	const riskTitle = `Policy bypass risk ${suffix}`;
+	const nextStepTitle = `Tighten approval telemetry ${suffix}`;
+	const decisionTitle = `Keep policy decisions in SQLite ${suffix}`;
+
+	const riskResponse = await page.request.post('/api/v1/risks', {
+		headers: { 'X-Local-Control-Token': token },
+		data: {
+			projectId,
+			title: riskTitle,
+			severity: 'high',
+			mitigation: 'Require mitigation before high risk can be accepted.',
+			owner: 'technical_lead',
+			tags: ['policy', 'audit'],
+		},
+	});
+	const { risk } = await riskResponse.json();
+	const stepResponse = await page.request.post('/api/v1/next-steps', {
+		headers: { 'X-Local-Control-Token': token },
+		data: {
+			projectId,
+			title: nextStepTitle,
+			priority: 'high',
+			owner: 'technical_lead',
+			sourceRiskId: risk.id,
+		},
+	});
+	const { nextStep } = await stepResponse.json();
+	await page.request.post('/api/v1/architecture-decisions', {
+		headers: { 'X-Local-Control-Token': token },
+		data: {
+			projectId,
+			title: decisionTitle,
+			status: 'accepted',
+			context: 'Governance must be queryable by the dashboard.',
+			decision: 'Persist architecture decisions, risks and next steps in SQLite.',
+			consequences: 'The operational UI can expose engineering governance as state.',
+			linkedRiskIds: [risk.id],
+			nextStepIds: [nextStep.id],
+		},
+	});
+	return { decisionTitle, riskTitle, nextStepTitle };
+}
+
 test('shell renders the editorial control plane', async ({ page }) => {
 	await page.goto('/');
 	await expect(page.getByRole('heading', { name: 'Overview' })).toBeVisible();
@@ -132,4 +182,15 @@ test('Evidence and QA shows persisted test result records', async ({ page }) => 
 	await expect(page.getByRole('heading', { name: 'Evidence & QA' })).toBeVisible();
 	await expect(page.getByText('uv run pytest tests_py -q').first()).toBeVisible();
 	await expect(page.getByText('passed').first()).toBeVisible();
+});
+
+test('Governance shows architecture decisions, risks and next steps', async ({ page }) => {
+	const governance = await createGovernanceState(page);
+	await page.goto('/#governance');
+	await page.getByRole('button', { name: 'Governance' }).click();
+
+	await expect(page.getByRole('heading', { name: 'Governance' })).toBeVisible();
+	await expect(page.getByText(governance.decisionTitle)).toBeVisible();
+	await expect(page.getByText(governance.riskTitle)).toBeVisible();
+	await expect(page.getByText(governance.nextStepTitle)).toBeVisible();
 });

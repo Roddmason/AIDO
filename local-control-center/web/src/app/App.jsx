@@ -5,6 +5,7 @@ import {
 	Database,
 	FileCheck2,
 	FolderKanban,
+	Landmark,
 	LayoutDashboard,
 	LockKeyhole,
 	Paintbrush2,
@@ -27,6 +28,7 @@ import { PipelinesPage } from '../features/pipelines/PipelinesPage.jsx';
 import { SandboxSecurityPage } from '../features/sandbox-security/SandboxSecurityPage.jsx';
 import { SettingsPage } from '../features/settings/SettingsPage.jsx';
 import { EvidencePage } from '../features/evidence/EvidencePage.jsx';
+import { GovernancePage } from '../features/governance/GovernancePage.jsx';
 import { WorkflowsPage } from '../features/workflows/WorkflowsPage.jsx';
 import { WorkspacesSessionsPage } from '../features/workspaces-sessions/WorkspacesSessionsPage.jsx';
 import { asArray, formatDate } from '../features/common/format.js';
@@ -38,6 +40,7 @@ const SECTIONS = [
 	{ id: 'agents', label: 'Agents Runtime', icon: Bot, component: AgentsRuntimePage, description: 'planner visibility' },
 	{ id: 'security', label: 'Sandbox/Security', icon: LockKeyhole, component: SandboxSecurityPage, description: 'policy posture' },
 	{ id: 'workflows', label: 'Workflows', icon: Workflow, component: WorkflowsPage, description: 'runs and steps' },
+	{ id: 'governance', label: 'Governance', icon: Landmark, component: GovernancePage, description: 'decisions, risks and next steps' },
 	{ id: 'pipelines', label: 'Pipelines', icon: Workflow, component: PipelinesPage, description: 'stages and branches' },
 	{ id: 'workspaces', label: 'Workspaces/Sessions', icon: FolderKanban, component: WorkspacesSessionsPage, description: 'project context' },
 	{ id: 'evidence', label: 'Evidence & QA', icon: FileCheck2, component: EvidencePage, description: 'proof and verdicts' },

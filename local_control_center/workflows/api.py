@@ -14,6 +14,33 @@ from ..workspaces_projects.repository import WorkspacesRepository
 from .repository import WorkflowsRepository
 
 
+ALLOWED_WORKFLOW_KINDS = {
+    "idea_to_pr",
+    "project_discovery",
+    "issue_to_pr",
+    "qa_validation",
+    "release_candidate",
+}
+
+
+def validate_workflow_create_body(body: dict[str, Any]) -> dict[str, Any]:
+    kind = str(body.get("kind") or "idea_to_pr").strip().lower()
+    if kind not in ALLOWED_WORKFLOW_KINDS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"kind must be one of: {', '.join(sorted(ALLOWED_WORKFLOW_KINDS))}.",
+        )
+    title = str(body.get("title") or body.get("idea") or "").strip()
+    if not title:
+        raise HTTPException(status_code=422, detail="Workflow title is required.")
+    if len(title) > 180:
+        raise HTTPException(status_code=422, detail="Workflow title must be 180 characters or fewer.")
+    metadata = body.get("metadata") or {}
+    if not isinstance(metadata, dict):
+        raise HTTPException(status_code=422, detail="metadata must be an object.")
+    return {"project_id": body["projectId"], "kind": kind, "title": title, "metadata": metadata}
+
+
 def create_router(*, platform: Any, require_write: Callable[[Request], None]) -> APIRouter:
     router = APIRouter()
 
@@ -47,12 +74,12 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     @router.post("/api/v1/workflows", status_code=201)
     async def create_workflow(request: Request) -> dict[str, Any]:
         require_write(request)
-        body = await request.json()
+        body = validate_workflow_create_body(await request.json())
         workflow = repository().create_workflow(
-            project_id=body["projectId"],
-            kind=body.get("kind", "idea_to_pr"),
-            title=body.get("title") or body.get("idea") or "Untitled workflow",
-            metadata=body.get("metadata") or {},
+            project_id=body["project_id"],
+            kind=body["kind"],
+            title=body["title"],
+            metadata=body["metadata"],
         )
         event_bus().record_event(project_id=workflow["projectId"], event_type="workflow.created", payload={"workflowId": workflow["id"]})
         return {"workflow": workflow}

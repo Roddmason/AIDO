@@ -14,6 +14,8 @@ agents edit the same working tree for the same task.
   a Git repository.
 - If Git is unavailable or the project is not a repo, the request degrades to a
   normal directory workspace with explicit `metadata.gitWorktree.status`.
+- Archiving a real Git worktree calls the allowlisted Git runner to remove that
+  worktree and marks the `git_branches` row archived.
 
 ## Current Git Modes
 
@@ -30,7 +32,6 @@ Policy evaluation uses the allocated workspace path when a request includes
 
 ## Next Steps
 
-- Remove worktrees on archive when safe.
-- Capture dirty state and diff refs.
+- Capture dirty state and diff refs before archive.
 - Link workspace ownership to agent runs and job runs.
 - Add devcontainer metadata without making Docker mandatory.

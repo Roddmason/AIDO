@@ -8,7 +8,7 @@ from typing import Any
 
 from local_control_center.store import utc_now
 
-from .git_worktrees import create_git_worktree
+from .git_worktrees import create_git_worktree, remove_git_worktree
 
 
 ACTIVE_WORKSPACE_STATUSES = {"allocated", "preparing", "ready", "locked", "running", "dirty"}
@@ -181,15 +181,31 @@ class WorkspacesRepository:
         return [row_to_workspace(row) for row in rows]
 
     def archive_workspace(self, workspace_id: str, *, reason: str = "") -> dict[str, Any]:
-        self.get_workspace(workspace_id)
+        workspace = self.get_workspace(workspace_id)
         timestamp = utc_now()
+        metadata = dict(workspace["metadata"] or {})
+        if workspace["isolationType"] == "git_worktree":
+            cleanup = remove_git_worktree(
+                repo_path=self._project_path(workspace["projectId"]),
+                worktree_path=Path(workspace["path"]),
+            )
+            metadata["gitWorktreeCleanup"] = cleanup
+            if cleanup["status"] == "removed":
+                self.connection.execute(
+                    """
+                    UPDATE git_branches
+                    SET status = 'archived', updated_at = ?
+                    WHERE workspace_id = ?
+                    """,
+                    (timestamp, workspace_id),
+                )
         self.connection.execute(
             """
             UPDATE workspaces
-            SET status = 'archived', updated_at = ?, archived_at = ?
+            SET status = 'archived', updated_at = ?, archived_at = ?, metadata = ?
             WHERE id = ?
             """,
-            (timestamp, timestamp, workspace_id),
+            (timestamp, timestamp, json_dumps(metadata), workspace_id),
         )
         self.connection.execute(
             """

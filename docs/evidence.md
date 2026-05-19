@@ -20,6 +20,10 @@ signal:
 
 This prevents a reviewer or agent from approving work without recorded proof.
 
+`GET /api/v1/evidence/{id}` returns both the package and normalized
+`testResultRecords` from SQLite. The package JSON is useful for UI rendering;
+the table records are the queryable operational evidence.
+
 ## Next Steps
 
 - Ingest JUnit/pytest output directly.

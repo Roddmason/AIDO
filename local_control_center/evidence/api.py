@@ -53,7 +53,11 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     @router.get("/api/v1/evidence/{evidence_id}")
     async def get_evidence(evidence_id: str) -> dict[str, Any]:
         try:
-            return {"evidencePackage": repository().get_evidence_package(evidence_id)}
+            repo = repository()
+            return {
+                "evidencePackage": repo.get_evidence_package(evidence_id),
+                "testResultRecords": repo.list_test_results(evidence_id),
+            }
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
 

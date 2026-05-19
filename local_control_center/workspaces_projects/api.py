@@ -28,6 +28,10 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
                 task_id=body["taskId"],
                 agent_id=body["agentId"],
                 reason=body.get("reason", ""),
+                isolation_type=body.get("isolationType", "directory"),
+                workflow_run_id=body.get("workflowRunId"),
+                workflow_step_id=body.get("workflowStepId"),
+                base_branch=body.get("baseBranch", "HEAD"),
             )
         except WorkspaceConflictError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error

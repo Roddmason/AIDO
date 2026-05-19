@@ -40,6 +40,20 @@ def row_to_evidence_package(row: sqlite3.Row) -> dict[str, Any]:
     }
 
 
+def row_to_test_result(row: sqlite3.Row) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "projectId": row["project_id"],
+        "evidencePackageId": row["evidence_package_id"],
+        "command": row["command"],
+        "status": row["status"],
+        "durationMs": row["duration_ms"],
+        "outputRef": row["output_ref"],
+        "metadata": json_loads(row["metadata"]),
+        "createdAt": row["created_at"],
+    }
+
+
 class EvidenceRepository:
     def __init__(self, connection: sqlite3.Connection):
         self.connection = connection
@@ -128,6 +142,13 @@ class EvidenceRepository:
             raise KeyError(f"Evidence package not found: {evidence_id}")
         return row_to_evidence_package(row)
 
+    def list_test_results(self, evidence_id: str) -> list[dict[str, Any]]:
+        rows = self.connection.execute(
+            "SELECT * FROM test_results WHERE evidence_package_id = ? ORDER BY created_at ASC",
+            (evidence_id,),
+        ).fetchall()
+        return [row_to_test_result(row) for row in rows]
+
     def list_evidence_packages(self, project_id: str | None = None) -> list[dict[str, Any]]:
         if project_id:
             rows = self.connection.execute(
@@ -136,4 +157,18 @@ class EvidenceRepository:
             ).fetchall()
         else:
             rows = self.connection.execute("SELECT * FROM evidence_packages ORDER BY created_at DESC").fetchall()
+        return [row_to_evidence_package(row) for row in rows]
+
+    def list_evidence_for_workflow_runs(self, workflow_run_ids: list[str]) -> list[dict[str, Any]]:
+        if not workflow_run_ids:
+            return []
+        placeholders = ",".join("?" for _ in workflow_run_ids)
+        rows = self.connection.execute(
+            f"""
+            SELECT * FROM evidence_packages
+            WHERE workflow_run_id IN ({placeholders})
+            ORDER BY created_at DESC
+            """,
+            tuple(workflow_run_ids),
+        ).fetchall()
         return [row_to_evidence_package(row) for row in rows]

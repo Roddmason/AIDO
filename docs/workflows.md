@@ -17,6 +17,8 @@ API coverage:
 - create/list workflows
 - get a workflow
 - start, pause, resume, and cancel workflow runs
+- workflow detail includes linked workspaces and evidence packages by
+  `workflow_run_id`
 
 ## Target Lifecycle
 
@@ -37,3 +39,9 @@ idea_intake
 
 Workflow execution should use the existing job queue until distributed durable
 execution is justified. Temporal is not needed for the local MVP.
+
+## Traceability
+
+Workspace allocation can carry `workflowRunId` and `workflowStepId`. Evidence
+packages carry `workflowRunId`. `GET /api/v1/workflows/{id}` aggregates these
+links so the UI can inspect a workflow without inventing client-side joins.

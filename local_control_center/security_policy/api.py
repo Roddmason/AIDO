@@ -7,6 +7,7 @@ from fastapi import APIRouter, Request
 
 from .policy_engine import evaluate_action
 from .repository import SecurityPolicyRepository
+from ..workspaces_projects.repository import WorkspacesRepository
 
 
 def create_router(*, platform: Any, require_write: Callable[[Request], None]) -> APIRouter:
@@ -14,6 +15,9 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
 
     def repository() -> SecurityPolicyRepository:
         return SecurityPolicyRepository(platform.connection)
+
+    def workspaces() -> WorkspacesRepository:
+        return WorkspacesRepository(platform.connection, root=platform.cwd)
 
     @router.get("/api/v1/policies")
     async def list_policies() -> dict[str, Any]:
@@ -24,7 +28,14 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     async def evaluate_policy(request: Request) -> dict[str, Any]:
         require_write(request)
         body = await request.json()
+        if body.get("workspaceId"):
+            try:
+                workspace = workspaces().get_workspace(body["workspaceId"])
+                body = {**body, "workspacePath": workspace["path"], "workspaceStatus": workspace["status"]}
+            except KeyError:
+                body = {**body, "workspacePath": None, "workspaceStatus": "unknown"}
         result = evaluate_action(body)
+        decision_payload = {**body, "categories": result.get("categories", [])}
         decision = repository().record_decision(
             project_id=body.get("projectId"),
             workspace_id=body.get("workspaceId"),
@@ -36,7 +47,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             decision=result["decision"],
             risk_level=result["riskLevel"],
             reason=result["reason"],
-            payload=body,
+            payload=decision_payload,
         )
         platform.record_event(
             project_id=body.get("projectId"),

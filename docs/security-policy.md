@@ -36,6 +36,15 @@ Low-risk examples:
 
 ## Current Limits
 
-The classifier is intentionally conservative. It is not a sandbox. The next
-hardening step is path-aware allowlisting so low-risk commands are only allowed
-inside an allocated workspace when they can mutate outputs.
+The evaluator is now workspace-aware when the request references an allocated
+workspace. Low-risk shell commands are allowed only when the requested path is
+inside the workspace root. The same command outside that root is downgraded to
+`requires_approval` with `path_outside_workspace`.
+
+Git worktree commands are routed through `security_policy/git_command_runner.py`
+as an allowlisted internal helper. Feature modules must not call `subprocess`
+directly.
+
+The classifier is intentionally conservative. It is still not a sandbox. The
+next hardening step is command-argument allowlisting for writes, installs,
+network access, and test/build commands that can execute arbitrary hooks.

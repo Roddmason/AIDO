@@ -118,32 +118,130 @@ async function createGovernanceState(page) {
 	return { decisionTitle, riskTitle, nextStepTitle };
 }
 
+async function createRuntimeTrace(page) {
+	const handshake = await page.request.get('/api/v1/security/handshake');
+	const { token } = await handshake.json();
+	const projectsResponse = await page.request.get('/api/v1/projects');
+	const { projects } = await projectsResponse.json();
+	const project = projects[0];
+	const profileId = `web-cli-${Date.now()}`;
+
+	await page.request.post('/api/v1/agent-profiles', {
+		headers: { 'X-Local-Control-Token': token },
+		data: {
+			id: profileId,
+			name: 'Web CLI Runtime',
+			role: 'implementer',
+			runtimeMode: 'cli',
+			modelPolicyId: 'implementation_default',
+			permissionProfile: 'dev_safe',
+			allowedTools: ['shell'],
+		},
+	});
+	await page.request.post('/api/v1/agent-runs', {
+		headers: { 'X-Local-Control-Token': token },
+		data: {
+			projectId: project.id,
+			agentProfileId: profileId,
+			taskId: 'web-policy-trace',
+			input: {
+				toolCalls: [
+					{
+						tool: 'shell',
+						command: 'python --version',
+						path: project.path,
+						workspacePath: project.path,
+					},
+				],
+			},
+		},
+	});
+}
+
+async function createModelGatewayTrace(page) {
+	const handshake = await page.request.get('/api/v1/security/handshake');
+	const { token } = await handshake.json();
+	const projectsResponse = await page.request.get('/api/v1/projects');
+	const { projects } = await projectsResponse.json();
+	const projectId = projects[0].id;
+	const profileId = `web-mock-${Date.now()}`;
+
+	await page.request.post('/api/v1/agent-profiles', {
+		headers: { 'X-Local-Control-Token': token },
+		data: {
+			id: profileId,
+			name: 'Web Mock Runtime',
+			role: 'implementer',
+			runtimeType: 'internal_mock',
+			modelPolicyId: 'implementation_default',
+			allowedTools: ['policy.evaluate'],
+			permissionProfile: 'dev_safe',
+		},
+	});
+	await page.request.post('/api/v1/model-policies', {
+		headers: { 'X-Local-Control-Token': token },
+		data: {
+			id: 'implementation_default',
+			name: 'Implementation Default',
+			preferred: [{ provider: 'internal_mock', model: 'mock' }],
+			fallback: [],
+			maxCostUsd: 1,
+			maxTokens: 4000,
+			allowRemote: false,
+			allowLocal: true,
+		},
+	});
+	await page.request.post('/api/v1/agent-runs', {
+		headers: { 'X-Local-Control-Token': token },
+		data: {
+			projectId,
+			agentProfileId: profileId,
+			taskId: 'web-model-trace',
+			input: { goal: 'record model trace for UI' },
+		},
+	});
+}
+
 test('shell renders the editorial control plane', async ({ page }) => {
 	await page.goto('/');
-	await expect(page.getByRole('heading', { name: 'Overview' })).toBeVisible();
-	await expect(page.getByRole('button', { name: 'Jobs/Approvals' })).toBeVisible();
-	await expect(page.getByText('Local Control Center')).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'AIDO control plane' })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Jobs & Approvals' })).toBeVisible();
+	await expect(page.getByText('AIDO Control Center')).toBeVisible();
 });
 
 test('Jobs/Approvals shows queue, pending actions and buttons', async ({ page }) => {
 	await createApprovalJob(page);
 	await page.goto('/#jobs');
-	await page.getByRole('button', { name: 'Jobs/Approvals' }).click();
+	await page.getByRole('button', { name: 'Jobs & Approvals' }).click();
 
-	await expect(page.getByRole('heading', { name: 'Jobs/Approvals' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Jobs & Approvals' })).toBeVisible();
 	await expect(page.getByText('pipeline.start').first()).toBeVisible();
 	await expect(page.getByRole('button', { name: 'Approve action' }).first()).toBeVisible();
 	await expect(page.getByRole('button', { name: 'Deny' }).first()).toBeVisible();
+	await page.getByRole('button', { name: 'Open approvals drawer' }).click();
+	await expect(page.getByRole('dialog', { name: 'Approval drawer' })).toBeVisible();
+	await expect(page.getByText('pipeline.start').first()).toBeVisible();
+	await page.keyboard.press('Escape');
+	await expect(page.getByRole('dialog', { name: 'Approval drawer' })).toBeHidden();
 });
 
-test('Memory/Retrieval shows FAISS status, search and reindex', async ({ page }) => {
-	await page.goto('/#memory');
-	await page.getByRole('button', { name: 'Memory/Retrieval' }).click();
+test('Event drawer exposes recent operational events', async ({ page }) => {
+	await createApprovalJob(page);
+	await page.goto('/');
 
-	await expect(page.getByRole('heading', { name: 'Memory/Retrieval' })).toBeVisible();
+	await page.getByRole('button', { name: 'Open event drawer' }).click();
+	await expect(page.getByRole('dialog', { name: 'Event drawer' })).toBeVisible();
+	await expect(page.getByText('job.created').first()).toBeVisible();
+});
+
+test('Memory & Retrieval shows backend status and memory records', async ({ page }) => {
+	await page.goto('/#memory');
+	await page.getByRole('button', { name: 'Memory & Retrieval' }).click();
+
+	await expect(page.getByRole('heading', { name: 'Memory & Retrieval' })).toBeVisible();
 	await expect(page.getByText('Retrieval Backend')).toBeVisible();
-	await expect(page.getByRole('button', { name: 'Reindex' })).toBeVisible();
-	await expect(page.getByLabel('Search memory')).toBeVisible();
+	await expect(page.getByText('SQLite is canonical')).toBeVisible();
+	await expect(page.getByText('Memory items')).toBeVisible();
 });
 
 test('mobile layout has no horizontal overflow', async ({ page }) => {
@@ -153,12 +251,12 @@ test('mobile layout has no horizontal overflow', async ({ page }) => {
 	expect(overflow).toBe(false);
 });
 
-test('reduced motion disables GSAP timelines', async ({ browser }) => {
+test('reduced motion disables non-essential motion', async ({ browser }) => {
 	const context = await browser.newContext({ reducedMotion: 'reduce' });
 	const page = await context.newPage();
 	await page.goto('/');
 	await expect(page.locator('html')).toHaveAttribute('data-motion', 'reduced');
-	await expect(page.evaluate(() => window.__lccMotionReduced)).resolves.toBe(true);
+	await expect(page.evaluate(() => window.__aidoMotionReduced)).resolves.toBe(true);
 	await context.close();
 });
 
@@ -169,9 +267,8 @@ test('Workflows shows runs, steps, workspaces and evidence from backend', async 
 
 	await expect(page.getByRole('heading', { name: 'Workflows' })).toBeVisible();
 	await expect(page.getByRole('cell', { name: workflow.title })).toBeVisible();
-	await expect(page.getByText('workspace_create')).toBeVisible();
-	await expect(page.getByText('Linked Workspaces')).toBeVisible();
-	await expect(page.getByText('Evidence Packages')).toBeVisible();
+	await expect(page.getByText('workspace_create').first()).toBeVisible();
+	await expect(page.getByText('Workflow graph')).toBeVisible();
 });
 
 test('Evidence and QA shows persisted test result records', async ({ page }) => {
@@ -193,4 +290,66 @@ test('Governance shows architecture decisions, risks and next steps', async ({ p
 	await expect(page.getByText(governance.decisionTitle)).toBeVisible();
 	await expect(page.getByText(governance.riskTitle)).toBeVisible();
 	await expect(page.getByText(governance.nextStepTitle)).toBeVisible();
+});
+
+test('Policy & Security exposes tool-call execution state', async ({ page }) => {
+	await createRuntimeTrace(page);
+	await page.goto('/#policy');
+	await page.getByRole('button', { name: 'Policy & Security' }).click();
+
+	await expect(page.getByRole('heading', { name: 'Policy & Security' })).toBeVisible();
+	await expect(page.getByText('Tool-call execution')).toBeVisible();
+	await expect(page.getByText('python --version').first()).toBeVisible();
+	await expect(page.getByText('not_executed').first()).toBeVisible();
+});
+
+test('Model Gateway exposes model calls and cost ledger', async ({ page }) => {
+	await createModelGatewayTrace(page);
+	await page.goto('/#models');
+	await page.getByRole('button', { name: 'Model Gateway' }).click();
+
+	await expect(page.getByRole('heading', { name: 'Model Gateway' })).toBeVisible();
+	await expect(page.getByText('Model calls')).toBeVisible();
+	await expect(page.getByText('Cost ledger')).toBeVisible();
+	await expect(page.getByText('internal_mock').first()).toBeVisible();
+});
+
+test('strict configuration forms prevent manual JSON edits', async ({ page }) => {
+	await page.goto('/#agents');
+	await page.getByRole('button', { name: 'Agents' }).click();
+
+	await expect(page.getByLabel('Profile id')).toBeVisible();
+	await expect(page.locator('textarea')).toHaveCount(0);
+	await page.getByLabel('Profile id').fill('Bad Profile!');
+	await page.getByRole('button', { name: 'Save agent profile' }).click();
+	await expect(page.getByText('Use lowercase letters, numbers, dashes or underscores.')).toBeVisible();
+
+	const suffix = Date.now();
+	const profileId = `web_form_${suffix}`;
+	const profileName = `Web Form Agent ${suffix}`;
+	await page.getByLabel('Profile id').fill(profileId);
+	await page.getByLabel('Display name').fill(profileName);
+	await page.getByLabel('Role').selectOption('implementer');
+	await page.getByLabel('Runtime mode').selectOption('internal_mock');
+	await page.getByLabel('Permission profile').selectOption('dev_safe');
+	await page.getByLabel('Allowed tool').selectOption('shell');
+	await page.getByRole('button', { name: 'Save agent profile' }).click();
+	await expect(page.getByRole('cell', { name: profileName })).toBeVisible();
+
+	await page.getByRole('button', { name: 'Model Gateway' }).click();
+	await expect(page.getByLabel('Policy id')).toBeVisible();
+	await expect(page.locator('textarea')).toHaveCount(0);
+	await page.getByLabel('Policy id').fill('Bad Policy!');
+	await page.getByRole('button', { name: 'Save model policy' }).click();
+	await expect(page.getByText('Policy id must use lowercase letters, numbers, dashes or underscores.')).toBeVisible();
+
+	const policyId = `web_policy_${suffix}`;
+	await page.getByLabel('Policy id').fill(policyId);
+	await page.getByLabel('Policy name').fill('Web Policy');
+	await page.getByLabel('Preferred provider').selectOption('internal_mock');
+	await page.getByLabel('Model').selectOption('mock');
+	await page.getByLabel('Maximum cost USD').fill('1');
+	await page.getByLabel('Maximum tokens').fill('4000');
+	await page.getByRole('button', { name: 'Save model policy' }).click();
+	await expect(page.getByRole('cell', { name: policyId })).toBeVisible();
 });

@@ -5,6 +5,21 @@ stabilized. The next frontend migration should be TypeScript-first and should
 not start until workflows, policy decisions, evidence, agents, and model gateway
 endpoints expose real data.
 
+Current JavaScript dashboard coverage now includes:
+
+- Overview
+- Jobs/Approvals
+- Memory/Retrieval
+- Agents Runtime
+- Sandbox/Security
+- Workflows
+- Pipelines
+- Workspaces/Sessions
+- Evidence & QA
+- Integrations
+- Design Lab
+- Settings
+
 ## Target Structure
 
 ```text

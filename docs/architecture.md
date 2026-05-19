@@ -68,9 +68,8 @@ flowchart LR
   intent clearer. The product package no longer contains
   `local_control_center/store.py`, and the previous test store harness has been
   deleted.
-- Add installed-runtime smoke fixtures for MCP/OpenHands/SWE-agent in isolated
-  CI profiles. The broker path is implemented; real adapters remain optional.
-- Add local OTEL collector smoke tests for the optional exporter path when
-  Docker is available.
+- Promote the optional smoke scripts for MCP/OpenHands/SWE-agent and OTLP/HTTP
+  exporters into isolated CI profiles. The scripts are checked in and opt-in;
+  the default suite remains optional-runtime safe.
 - Generate a typed frontend client from OpenAPI once the v1 schema stops
   changing daily.

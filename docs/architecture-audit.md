@@ -255,8 +255,8 @@ PNPM is configured through `packageManager`.
 2. Define explicit approved flows for package installs, writes, and network
    access; low-risk shell allowance is now argument-level and package lifecycle
    hooks require approval.
-3. Add installed-runtime smoke fixtures for MCP/OpenHands/SWE-agent and a local
-   OTEL collector profile without making those tools required for startup.
-4. Add strict forms for the remaining mutable settings: workflows, governance,
-   sandbox profiles, provider settings, and telemetry environment guidance.
+3. Promote the opt-in runtime adapter and OTEL exporter smoke scripts into
+   isolated CI profiles without making those tools required for startup.
+4. Add command palette actions and workflow node inspectors over existing v1
+   endpoints.
 5. Generate a typed OpenAPI client once the v1 schema stabilizes.

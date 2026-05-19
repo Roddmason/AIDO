@@ -91,6 +91,9 @@ $env:AIDO_SERVICE_NAME = "aido-local-control-center"
 `AIDO_OTEL_HEADERS` can override the defaults. Export failures are recorded in
 telemetry status and must not break local operation. The current status is
 available at `GET /api/v1/telemetry/status`.
+`local-control-center/scripts/smoke-otel-exporter.ps1` provides an opt-in local
+collector smoke path. It skips cleanly unless `AIDO_OTEL_SMOKE=1` is set and
+does not make Docker a startup requirement.
 
 ## API Composition
 
@@ -131,6 +134,12 @@ operations such as `tools/list` can run after policy allow; MCP tool execution
 and sensitive OpenHands/SWE-agent commands require approval. Adapter output is
 persisted as `agent_tool_calls` and feeds evidence generation just like shell or
 Docker execution.
+Runtime adapter smokes are opt-in through
+`local-control-center/scripts/smoke-runtime-adapters.ps1`. The default path
+always verifies `internal_mock`; MCP, OpenHands, and SWE-agent execute only when
+their `AIDO_*_SMOKE` environment variables are supplied. OpenHands/SWE-agent
+version commands are treated as low-risk diagnostics, while implementation
+commands still go through approval and evidence.
 
 Workspace archive captures a lightweight evidence snapshot of non-ignored
 workspace files. The snapshot is stored as a diff reference in an evidence

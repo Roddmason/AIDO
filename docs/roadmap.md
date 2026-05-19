@@ -101,23 +101,25 @@
   agent `allowedTools`, policy decisions, approvals, and evidence records.
 - Agent profile and model policy configuration is available through strict
   TypeScript forms and backend catalog validation instead of manual JSON edits.
+- Workflow, governance, sandbox profile, and MCP registry configuration is
+  available through strict TypeScript forms and backend validation.
+- Opt-in runtime adapter and OTEL exporter smoke scripts exist for local/CI
+  profiles without making Docker, OpenHands, SWE-agent, or MCP core
+  dependencies.
 
 ## Next Backend Work
 
 1. Keep tightening tests around direct repositories and
    `tests_py/control_plane_fixture.py` where broad fixture setup is still
    noisier than the behavior under test.
-2. Expand real adapter test coverage with installed MCP/OpenHands/SWE-agent
-   fixtures in an isolated CI profile; keep the default suite optional-runtime
-   safe.
-3. Add exporter-specific smoke tests against a local OTEL collector container
-   when Docker is available, without making Docker required for startup.
+2. Wire the opt-in MCP/OpenHands/SWE-agent smoke scripts into an isolated CI
+   profile that runs only when those runtimes are installed.
+3. Wire the opt-in OTEL exporter smoke script into an isolated CI profile that
+   starts a collector only when Docker is available.
 
 ## Next Frontend Work
 
-1. Add strict create/edit forms for workflows, governance records, sandbox
-   profiles, and provider settings.
-2. Add command palette actions backed by v1 endpoints.
-3. Add workflow node inspector drawers with tool calls, logs, artifacts, and
+1. Add command palette actions backed by v1 endpoints.
+2. Add workflow node inspector drawers with tool calls, logs, artifacts, and
    approval requests.
-4. Generate typed API clients from OpenAPI once the v1 schema stabilizes.
+3. Generate typed API clients from OpenAPI once the v1 schema stabilizes.

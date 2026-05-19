@@ -27,6 +27,20 @@ The Python FastAPI backend must cover these Node dashboard contracts before the 
 - `GET /api/v1/retrieval/status`
 - `POST /api/v1/retrieval/search`
 - `POST /api/v1/retrieval/reindex`
+- `GET|POST /api/v1/workflows`
+- `GET /api/v1/workflows/:id`
+- `POST /api/v1/workflows/:id/start`
+- `POST /api/v1/workflows/:id/pause`
+- `POST /api/v1/workflows/:id/resume`
+- `POST /api/v1/workflows/:id/cancel`
+- `GET /api/v1/policies`
+- `POST /api/v1/policies/evaluate`
+- `GET|POST /api/v1/evidence`
+- `GET /api/v1/evidence/:id`
+- `GET|POST /api/v1/agent-profiles`
+- `GET /api/v1/agent-runs`
+- `GET /api/v1/model-providers`
+- `GET|POST /api/v1/model-policies`
 
 ## Legacy Dashboard API
 
@@ -63,4 +77,5 @@ The Python FastAPI backend must cover these Node dashboard contracts before the 
 - `POST /api/pipelines/:id/stages/assign`
 - `POST /api/pipelines/:id/stages/override`
 
-The active Python coverage is enforced by `tests_py/test_python_control_center.py`.
+The active Python coverage is enforced by `tests_py/test_python_control_center.py`
+and `tests_py/test_phase2_control_plane_foundation.py`.

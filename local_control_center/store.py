@@ -489,7 +489,184 @@ class PlatformStore:
             "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
             (1, utc_now()),
         )
+        self._init_phase2_schema()
         self._seed_providers()
+
+    def _init_phase2_schema(self) -> None:
+        self.connection.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS workflows (
+                id TEXT PRIMARY KEY,
+                project_id TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                title TEXT NOT NULL,
+                status TEXT NOT NULL,
+                metadata TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS workflow_runs (
+                id TEXT PRIMARY KEY,
+                workflow_id TEXT NOT NULL,
+                project_id TEXT NOT NULL,
+                status TEXT NOT NULL,
+                started_at TEXT NOT NULL,
+                completed_at TEXT,
+                metadata TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS workflow_steps (
+                id TEXT PRIMARY KEY,
+                workflow_run_id TEXT NOT NULL,
+                workflow_id TEXT NOT NULL,
+                project_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                status TEXT NOT NULL,
+                agent_profile_id TEXT,
+                input TEXT NOT NULL,
+                output TEXT NOT NULL,
+                metadata TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS workflow_edges (
+                id TEXT PRIMARY KEY,
+                workflow_id TEXT NOT NULL,
+                from_step_id TEXT NOT NULL,
+                to_step_id TEXT NOT NULL,
+                metadata TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS workflow_events (
+                id TEXT PRIMARY KEY,
+                workflow_id TEXT NOT NULL,
+                workflow_run_id TEXT,
+                step_id TEXT,
+                project_id TEXT,
+                type TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                severity TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                correlation_id TEXT,
+                causation_id TEXT
+            );
+            CREATE TABLE IF NOT EXISTS permission_policies (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                profile TEXT NOT NULL,
+                rules TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS permission_decisions (
+                id TEXT PRIMARY KEY,
+                project_id TEXT,
+                workspace_id TEXT,
+                agent_id TEXT,
+                role TEXT,
+                tool TEXT,
+                command TEXT,
+                path TEXT,
+                decision TEXT NOT NULL,
+                risk_level TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS evidence_packages (
+                id TEXT PRIMARY KEY,
+                project_id TEXT NOT NULL,
+                workflow_run_id TEXT,
+                agent_id TEXT,
+                task_id TEXT NOT NULL,
+                test_plan TEXT NOT NULL,
+                acceptance_checklist TEXT NOT NULL,
+                test_results TEXT NOT NULL,
+                logs TEXT NOT NULL,
+                diff_refs TEXT NOT NULL,
+                screenshot_refs TEXT NOT NULL,
+                risk_notes TEXT NOT NULL,
+                qa_verdict TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS agent_profiles (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                role TEXT NOT NULL,
+                runtime_type TEXT NOT NULL,
+                model_policy_id TEXT,
+                allowed_skills TEXT NOT NULL,
+                allowed_tools TEXT NOT NULL,
+                permission_profile TEXT NOT NULL,
+                memory_scope TEXT NOT NULL,
+                max_cost_per_run REAL NOT NULL,
+                max_runtime_seconds INTEGER NOT NULL,
+                output_schema TEXT NOT NULL,
+                quality_gates TEXT NOT NULL,
+                status TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS model_policies (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                preferred TEXT NOT NULL,
+                fallback TEXT NOT NULL,
+                max_cost_usd REAL NOT NULL,
+                max_tokens INTEGER NOT NULL,
+                temperature REAL NOT NULL,
+                allow_remote INTEGER NOT NULL,
+                allow_local INTEGER NOT NULL,
+                status TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS model_calls (
+                id TEXT PRIMARY KEY,
+                project_id TEXT,
+                agent_run_id TEXT,
+                model_policy_id TEXT,
+                provider TEXT NOT NULL,
+                model TEXT NOT NULL,
+                status TEXT NOT NULL,
+                prompt_tokens INTEGER NOT NULL,
+                completion_tokens INTEGER NOT NULL,
+                cost_usd REAL NOT NULL,
+                metadata TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS cost_usage (
+                id TEXT PRIMARY KEY,
+                project_id TEXT,
+                scope TEXT NOT NULL,
+                amount_usd REAL NOT NULL,
+                metadata TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_workflows_project_status ON workflows(project_id, status, updated_at);
+            CREATE INDEX IF NOT EXISTS idx_workflow_runs_workflow_status ON workflow_runs(workflow_id, status);
+            CREATE INDEX IF NOT EXISTS idx_permission_decisions_project_created ON permission_decisions(project_id, created_at);
+            CREATE INDEX IF NOT EXISTS idx_evidence_project_created ON evidence_packages(project_id, created_at);
+            """
+        )
+        self.connection.execute(
+            "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+            (2, utc_now()),
+        )
+        timestamp = utc_now()
+        default_policies = [
+            ("plan", "Plan", "plan", [{"tool": "filesystem", "effect": "read"}, {"tool": "shell", "effect": "deny"}]),
+            ("dev_safe", "Dev Safe", "dev_safe", [{"tool": "shell", "effect": "approval_required"}]),
+            ("release", "Release", "release", [{"tool": "deploy_prod", "effect": "human_required"}]),
+        ]
+        for policy_id, name, profile, rules in default_policies:
+            self.connection.execute(
+                """
+                INSERT OR IGNORE INTO permission_policies
+                    (id, name, profile, rules, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (policy_id, name, profile, json_dumps(rules), timestamp, timestamp),
+            )
 
     def _seed_providers(self) -> None:
         providers = [
@@ -1131,6 +1308,41 @@ class PlatformStore:
             for row in rows
         ]
 
+    def list_workflows(self) -> list[dict[str, Any]]:
+        from .workflows.repository import WorkflowsRepository
+
+        return WorkflowsRepository(self.connection).list_workflows()
+
+    def list_workflow_runs(self) -> list[dict[str, Any]]:
+        from .workflows.repository import WorkflowsRepository
+
+        return WorkflowsRepository(self.connection).list_workflow_runs()
+
+    def list_workflow_steps(self) -> list[dict[str, Any]]:
+        from .workflows.repository import WorkflowsRepository
+
+        return WorkflowsRepository(self.connection).list_workflow_steps()
+
+    def list_permission_decisions(self) -> list[dict[str, Any]]:
+        from .security_policy.repository import SecurityPolicyRepository
+
+        return SecurityPolicyRepository(self.connection).list_decisions()
+
+    def list_evidence_packages(self) -> list[dict[str, Any]]:
+        from .evidence.repository import EvidenceRepository
+
+        return EvidenceRepository(self.connection).list_evidence_packages()
+
+    def list_agent_profiles(self) -> list[dict[str, Any]]:
+        from .agents.repository import AgentsRepository
+
+        return AgentsRepository(self.connection).list_agent_profiles()
+
+    def list_model_policies(self) -> list[dict[str, Any]]:
+        from .agents.repository import AgentsRepository
+
+        return AgentsRepository(self.connection).list_model_policies()
+
     def ensure_runtime_project(self) -> dict[str, Any]:
         existing = self._get_project_by_path(self.cwd)
         if existing:
@@ -1163,6 +1375,14 @@ class PlatformStore:
             "promptTemplates": self.list_prompt_templates(),
             "actionRequests": self.list_action_requests(),
             "ideConnections": self.list_ide_connections(),
+            "workflows": self.list_workflows(),
+            "workflowRuns": self.list_workflow_runs(),
+            "workflowSteps": self.list_workflow_steps(),
+            "permissionDecisions": self.list_permission_decisions(),
+            "evidencePackages": self.list_evidence_packages(),
+            "agentProfiles": self.list_agent_profiles(),
+            "modelPolicies": self.list_model_policies(),
+            "modelProviders": self.list_providers(),
             "openDesign": {"status": "python-backend"},
             "security": {"loopbackOnly": True, "writeTokenRequired": True},
         }

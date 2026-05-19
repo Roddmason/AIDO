@@ -11,9 +11,13 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
+from .agents.api import create_router as create_agents_router
+from .evidence.api import create_router as create_evidence_router
 from .jobs_approvals.api import create_router as create_jobs_approvals_router
 from .memory_retrieval.api import create_router as create_memory_retrieval_router
+from .security_policy.api import create_router as create_security_policy_router
 from .store import PlatformStore, json_dumps, utc_now
+from .workflows.api import create_router as create_workflows_router
 
 
 def default_config_catalog() -> dict[str, Any]:
@@ -69,6 +73,10 @@ def create_app(*, store: PlatformStore | None = None, static_dir: str | Path | N
 
     app.include_router(create_jobs_approvals_router(platform=platform, require_write=require_write))
     app.include_router(create_memory_retrieval_router(platform=platform, require_write=require_write))
+    app.include_router(create_workflows_router(platform=platform, require_write=require_write))
+    app.include_router(create_security_policy_router(platform=platform, require_write=require_write))
+    app.include_router(create_evidence_router(platform=platform, require_write=require_write))
+    app.include_router(create_agents_router(platform=platform, require_write=require_write))
 
     def load_state() -> dict[str, Any]:
         platform.ensure_runtime_project()

@@ -6,6 +6,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 
 from ..evidence.repository import EvidenceRepository
+from ..governance.signals import record_governance_risk
 from ..workspaces_projects.repository import WorkspacesRepository
 from .repository import WorkflowsRepository
 
@@ -98,6 +99,24 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         body = await request.json()
         workflow = repository().update_workflow_status(workflow_id, status="cancelled", reason=body.get("reason", ""))
         platform.record_event(project_id=workflow["projectId"], event_type="workflow.cancelled", payload={"workflowId": workflow_id})
+        risk = record_governance_risk(
+            platform.connection,
+            project_id=workflow["projectId"],
+            title=f"Workflow cancelled: {workflow['title']}",
+            source_type="workflow_status",
+            source_id=workflow["id"],
+            severity="medium",
+            description=body.get("reason", "Workflow was cancelled before completion."),
+            mitigation="Review workflow events, open approvals, and evidence gaps before retrying.",
+            owner="technical_lead",
+            metadata={"status": workflow["status"]},
+        )
+        if risk:
+            platform.record_event(
+                project_id=risk["projectId"],
+                event_type="risk.created",
+                payload={"riskId": risk["id"], "sourceType": "workflow_status"},
+            )
         return {"workflow": workflow}
 
     return router

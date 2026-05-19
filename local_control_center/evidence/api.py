@@ -5,6 +5,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 
+from ..governance.signals import record_governance_risk
 from .repository import EvidenceRepository
 
 
@@ -48,6 +49,25 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             event_type="qa.evidence.created",
             payload={"evidencePackageId": evidence["id"], "qaVerdict": evidence["qaVerdict"]},
         )
+        if evidence["qaVerdict"] in {"failed", "blocked", "needs_human_review"}:
+            risk = record_governance_risk(
+                platform.connection,
+                project_id=evidence["projectId"],
+                title=f"QA verdict requires follow-up: {evidence['taskId']}",
+                source_type="qa_verdict",
+                source_id=evidence["id"],
+                severity="high" if evidence["qaVerdict"] == "failed" else "medium",
+                description="QA evidence did not pass the acceptance gate.",
+                mitigation="Review the evidence package, classify the failure, and create a remediation step before approval.",
+                owner=evidence.get("agentId") or "qa_reviewer",
+                metadata={"qaVerdict": evidence["qaVerdict"], "riskNotes": evidence.get("riskNotes", [])},
+            )
+            if risk:
+                platform.record_event(
+                    project_id=risk["projectId"],
+                    event_type="risk.created",
+                    payload={"riskId": risk["id"], "sourceType": "qa_verdict"},
+                )
         return {"evidencePackage": evidence}
 
     @router.get("/api/v1/evidence/{evidence_id}")

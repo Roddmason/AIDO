@@ -28,6 +28,32 @@ PROJECT_TEMPLATES = [
 ]
 
 
+def default_config_catalog() -> dict[str, Any]:
+    return {
+        "pipelinePolicy": {"mode": "auto", "runQaAndPentestInParallel": False},
+        "gitPolicy": {"mode": "local-only", "ticketPrefix": "PIPE", "baseBranch": ""},
+    }
+
+
+def default_workspace_state(workspace_path: Path) -> dict[str, Any]:
+    return {
+        "version": 4,
+        "activeTeamId": None,
+        "activeSessionId": None,
+        "activeChatId": None,
+        "activePipelineId": None,
+        "activeWorkspacePath": str(workspace_path),
+        "teams": [],
+        "sessions": [],
+        "chats": [],
+        "promptPacks": [],
+        "pipelines": [],
+        "configCatalog": default_config_catalog(),
+        "memoryByTeamId": {},
+        "dashboard": {"collapsedWorkspaceIds": [], "pinnedWorkspaceIds": []},
+    }
+
+
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
@@ -1172,6 +1198,16 @@ class PlatformStore:
             },
         }
 
+    def ensure_workspace_state(self, cwd: str | Path | None = None) -> dict[str, Any]:
+        workspace = Path(cwd) if cwd is not None else self.cwd
+        self.ensure_runtime_project()
+        try:
+            return self.load_workspace_state(workspace)
+        except KeyError:
+            state = default_workspace_state(workspace)
+            self.save_workspace_state(workspace, state, source="python-runtime")
+            return self.load_workspace_state(workspace)
+
     def list_providers(self) -> list[dict[str, Any]]:
         return [row_to_provider(row) for row in self._query("SELECT * FROM providers ORDER BY id ASC")]
 
@@ -1645,6 +1681,7 @@ class PlatformStore:
 
     def get_overview(self) -> dict[str, Any]:
         self.ensure_runtime_project()
+        workspace_state = self.ensure_workspace_state(self.cwd)
         return {
             "projectTemplates": self.list_project_templates(),
             "projects": self.list_projects(),
@@ -1676,6 +1713,8 @@ class PlatformStore:
             "architectureDecisions": self.list_architecture_decisions(),
             "riskRegister": self.list_risks(),
             "nextSteps": self.list_next_steps(),
+            "workspaceState": workspace_state["state"],
+            "workspaceStateMetadata": workspace_state["metadata"],
             "openDesign": {"status": "python-backend"},
             "security": {"loopbackOnly": True, "writeTokenRequired": True},
         }

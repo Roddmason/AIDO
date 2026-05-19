@@ -69,10 +69,11 @@ High-level status:
 
 ## Legacy/Provenance Risks
 
-The root `src/` tree contains many Claude Code and Anthropic references plus
-`src/node_modules`. It should be treated as legacy/audit material, not AIDO
-core. Do not copy implementation from it into Python/React core without proving
-license provenance.
+The removed root `src/` tree contained many Claude Code and Anthropic references
+plus `src/node_modules`. It was deleted from the clean workspace because it was
+not active AIDO source and had unclear provenance. Do not restore or copy
+implementation from it into Python/React core without proving license
+provenance.
 
 ## Required Audit Commands
 
@@ -87,5 +88,6 @@ uv run --extra dev semgrep scan --config .semgrep.yml
 
 The active Python/FastAPI and React dashboard code can continue under the
 private AIDO license. The dependency policy is compatible with future
-open-source release work, but the root `src/` legacy tree must be separated or
-removed before any public release.
+open-source release work. The root `src/` legacy tree has been removed from the
+clean workspace and must stay out of the product repository unless separately
+audited.

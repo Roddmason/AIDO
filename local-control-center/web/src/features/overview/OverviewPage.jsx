@@ -21,6 +21,7 @@ export function OverviewPage({ data }) {
 	const overview = data.overview || {};
 	const retrieval = data.retrievalStatus || {};
 	const jobs = asArray(overview.jobs);
+	const workspaceState = overview.workspaceState || {};
 	const actionRequests = asArray(overview.actionRequests);
 	const events = asArray(overview.events).slice(0, 8);
 	const pendingActions = actionRequests.filter((action) => action.status === 'pending');
@@ -88,7 +89,7 @@ export function OverviewPage({ data }) {
 							<Workflow size={18} aria-hidden="true" />
 							<div className="timeline-content">
 								<strong>Pipelines</strong>
-								<span className="muted">{asArray(data.legacyState?.state?.pipelines).length} legacy-compatible records exposed by Python</span>
+								<span className="muted">{asArray(workspaceState.pipelines).length} workspace records exposed by Python</span>
 							</div>
 						</div>
 						<div className="timeline-item">

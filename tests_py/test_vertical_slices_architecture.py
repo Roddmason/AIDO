@@ -63,6 +63,16 @@ def test_active_python_backend_does_not_import_legacy_node_backend() -> None:
                 assert not any(token in source for token in forbidden), str(path)
 
 
+def test_legacy_dashboard_routes_are_isolated_in_legacy_compat_slice() -> None:
+    root_api = read("local_control_center/api.py")
+    legacy_api = ROOT / "local_control_center" / "legacy_compat" / "api.py"
+
+    assert legacy_api.exists()
+    assert '"/api/state"' not in root_api
+    assert "def legacy_" not in root_api
+    assert '"/api/state"' in legacy_api.read_text(encoding="utf-8")
+
+
 def test_memory_retrieval_slice_owns_http_index_and_memory_sql() -> None:
     memory_api = ROOT / "local_control_center" / "memory_retrieval" / "api.py"
     memory_repository = ROOT / "local_control_center" / "memory_retrieval" / "repository.py"

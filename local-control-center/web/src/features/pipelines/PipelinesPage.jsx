@@ -16,9 +16,9 @@ function flattenStages(pipeline) {
 }
 
 export function PipelinesPage({ data }) {
-	const legacy = data.legacyState?.state || {};
-	const pipelines = asArray(legacy.pipelines);
-	const activePipelineId = legacy.activePipelineId;
+	const workspaceState = data.overview?.workspaceState || {};
+	const pipelines = asArray(workspaceState.pipelines);
+	const activePipelineId = workspaceState.activePipelineId;
 	const activePipeline = pipelines.find((pipeline) => pipeline.id === activePipelineId) || pipelines[0];
 	const stages = activePipeline ? flattenStages(activePipeline) : [];
 	const corrections = asArray(activePipeline?.modules?.[0]?.corrections);

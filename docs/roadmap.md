@@ -14,17 +14,19 @@
   with safe directory fallback when it is not.
 - Governance ledger for architecture decisions, mitigated risks, and
   prioritized next steps exposed through API and dashboard.
+- Removed ignored root TypeScript legacy tree from the clean workspace.
+- Isolated old dashboard `/api/*` routes under `legacy_compat`.
+- Automatic governance risks for policy-gated actions, blocked/failed QA, and
+  cancelled workflows.
 
 ## Next Backend Work
 
 1. Move remaining `PlatformStore` SQL into owned repositories.
-2. Link policy denials, workflow failures, and QA verdicts to governance risks
-   automatically.
-3. Add command-argument allowlists for write/install/network commands.
-4. Capture dirty state and diff refs before workspace archive.
-5. Link workflows to jobs and agent runs in addition to workspaces/evidence.
-6. Add MCP gateway and optional OpenHands/SWE-agent adapters.
-7. Add artifact ingestion and QA report export.
+2. Add command-argument allowlists for write/install/network commands.
+3. Capture dirty state and diff refs before workspace archive.
+4. Link workflows to jobs and agent runs in addition to workspaces/evidence.
+5. Add MCP gateway and optional OpenHands/SWE-agent adapters.
+6. Add artifact ingestion and QA report export.
 
 ## Frontend Work
 

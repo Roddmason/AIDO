@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { getHandshake, getLegacyState, getOverview, getRetrievalStatus } from './platform-api.js';
+import { getHandshake, getOverview, getRetrievalStatus } from './platform-api.js';
 
 const INITIAL_STATE = {
 	handshake: null,
 	overview: null,
-	legacyState: null,
 	retrievalStatus: null,
 	loading: true,
 	error: '',
@@ -24,10 +23,9 @@ export function usePlatformData() {
 			setState((current) => ({ ...current, loading: true, error: '' }));
 		}
 		try {
-			const [handshake, overview, legacyState, retrievalStatus] = await Promise.all([
+			const [handshake, overview, retrievalStatus] = await Promise.all([
 				getHandshake(controller.signal),
 				getOverview(controller.signal),
-				getLegacyState(controller.signal),
 				getRetrievalStatus(controller.signal),
 			]);
 			if (!mountedRef.current) return;
@@ -35,7 +33,6 @@ export function usePlatformData() {
 				...current,
 				handshake,
 				overview,
-				legacyState,
 				retrievalStatus,
 				loading: false,
 				error: '',

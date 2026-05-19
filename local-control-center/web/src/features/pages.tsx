@@ -1,6 +1,14 @@
 import { useMemo, useState } from 'react';
 
-import { createModelPolicy, createWorkflow } from '../api/client';
+import {
+	createArchitectureDecision,
+	createModelPolicy,
+	createNextStep,
+	createRisk,
+	createWorkflowWithBody,
+	registerMcpServer,
+	updateSandboxProfile,
+} from '../api/client';
 import type { Overview, RuntimeProviders } from '../api/types';
 import { Badge, DataTable, EmptyState, PageHeader, Surface } from '../components/primitives';
 import { toneForStatus } from '../lib/format';
@@ -9,20 +17,63 @@ type Mutate = <T>(operation: (token: string) => Promise<T>) => Promise<T>;
 
 export function CommandCenterPage({ overview, mutate }: { overview: Overview; mutate: Mutate }) {
 	const project = overview.projects[0];
+	const [workflowTitle, setWorkflowTitle] = useState(`AIDO workflow ${new Date().toISOString()}`);
+	const [workflowKind, setWorkflowKind] = useState('idea_to_pr');
+	const [error, setError] = useState('');
+	const saveWorkflow = () => {
+		const title = workflowTitle.trim();
+		if (!title) {
+			setError('Workflow title is required.');
+			return;
+		}
+		if (!project) {
+			setError('A project is required before creating a workflow.');
+			return;
+		}
+		setError('');
+		void mutate((token) =>
+			createWorkflowWithBody(token, {
+				projectId: project.id,
+				title,
+				kind: workflowKind,
+				metadata: { source: 'command_center_form' },
+			}),
+		);
+	};
 	return (
 		<>
 			<PageHeader kicker="Operator lane" title="Command Center" summary="Start safe SDLC workflows and inspect pending human decisions without bypassing policy." />
 			<Surface title="Workflow intake">
-				<div className="inline">
-					<button
-						className="button primary"
-						disabled={!project}
-						onClick={() => project && void mutate((token) => createWorkflow(token, project.id, `AIDO workflow ${new Date().toISOString()}`))}
-					>
-						Create workflow
-					</button>
-					<Badge>{project ? project.name : 'no project'}</Badge>
+				<div className="form-grid">
+					<div className="field">
+						<label htmlFor="workflow-title">Workflow title</label>
+						<input id="workflow-title" className="input" value={workflowTitle} maxLength={180} onChange={(event) => setWorkflowTitle(event.target.value)} />
+					</div>
+					<div className="field">
+						<label htmlFor="workflow-kind">Workflow kind</label>
+						<select id="workflow-kind" className="select" value={workflowKind} onChange={(event) => setWorkflowKind(event.target.value)}>
+							<option value="idea_to_pr">idea_to_pr</option>
+							<option value="project_discovery">project_discovery</option>
+							<option value="issue_to_pr">issue_to_pr</option>
+							<option value="qa_validation">qa_validation</option>
+							<option value="release_candidate">release_candidate</option>
+						</select>
+					</div>
+					<div className="inline">
+						<button className="button primary" type="button" disabled={!project} onClick={saveWorkflow}>
+							Create workflow
+						</button>
+						<Badge>{project ? project.name : 'no project'}</Badge>
+					</div>
+					{error ? <div className="form-error" role="alert">{error}</div> : null}
 				</div>
+			</Surface>
+			<Surface title="Recent workflows">
+				<DataTable rows={overview.workflows.slice(0, 6)} empty={<EmptyState title="No workflows" body="Create an intake workflow to start the SDLC lane." />} columns={[
+					{ key: 'title', label: 'Workflow', render: (row) => String(row.title ?? '') },
+					{ key: 'kind', label: 'Kind', render: (row) => <span className="mono">{String(row.kind ?? '')}</span> },
+					{ key: 'status', label: 'Status', render: (row) => <Badge tone={toneForStatus(String(row.status ?? ''))}>{String(row.status ?? '')}</Badge> },
+				]} />
 			</Surface>
 			<Surface title="Critical queue">
 				<DataTable
@@ -62,11 +113,81 @@ export function WorkspacesPage({ overview }: { overview: Overview }) {
 	);
 }
 
-export function PolicySecurityPage({ overview }: { overview: Overview }) {
+export function PolicySecurityPage({ overview, mutate }: { overview: Overview; mutate: Mutate }) {
+	const defaultProfile = String(overview.sandboxProfiles[0]?.id ?? 'default_docker');
+	const [profileId, setProfileId] = useState(defaultProfile);
+	const [sandboxReason, setSandboxReason] = useState('');
+	const [sandboxImage, setSandboxImage] = useState('python:3.12-slim');
+	const [sandboxMemory, setSandboxMemory] = useState('512m');
+	const [sandboxCpus, setSandboxCpus] = useState('1');
+	const [sandboxTimeout, setSandboxTimeout] = useState('120');
+	const [error, setError] = useState('');
+	const saveSandboxProfile = () => {
+		if (!sandboxReason.trim()) {
+			setError('Sandbox update reason is required.');
+			return;
+		}
+		if (!sandboxImage.trim() || /\s/.test(sandboxImage)) {
+			setError('Sandbox allowed image must be a catalog image without spaces.');
+			return;
+		}
+		const timeoutSeconds = Number(sandboxTimeout);
+		if (!Number.isInteger(timeoutSeconds) || timeoutSeconds < 1 || timeoutSeconds > 900) {
+			setError('Sandbox timeout seconds must be between 1 and 900.');
+			return;
+		}
+		setError('');
+		void mutate((token) =>
+			updateSandboxProfile(token, profileId, {
+				reason: sandboxReason.trim(),
+				allowedImages: [sandboxImage.trim()],
+				allowedNetworks: ['none'],
+				defaultNetwork: 'none',
+				memory: sandboxMemory.trim(),
+				cpus: sandboxCpus.trim(),
+				timeoutSeconds,
+				status: 'active',
+			}),
+		);
+	};
 	return (
 		<>
 			<PageHeader kicker="Permission engine" title="Policy & Security" summary="Command classification, path boundaries, human gates and sandbox posture for every sensitive action." />
 			<div className="grid two">
+				<Surface title="Strict sandbox profile form">
+					<div className="form-grid">
+						<div className="field">
+							<label htmlFor="sandbox-profile">Sandbox profile</label>
+							<select id="sandbox-profile" className="select" value={profileId} onChange={(event) => setProfileId(event.target.value)}>
+								{overview.sandboxProfiles.map((profile) => (
+									<option key={String(profile.id)} value={String(profile.id)}>{String(profile.id)}</option>
+								))}
+							</select>
+						</div>
+						<div className="field">
+							<label htmlFor="sandbox-reason">Sandbox update reason</label>
+							<input id="sandbox-reason" className="input" value={sandboxReason} onChange={(event) => setSandboxReason(event.target.value)} />
+						</div>
+						<div className="field">
+							<label htmlFor="sandbox-image">Sandbox allowed image</label>
+							<input id="sandbox-image" className="input" value={sandboxImage} onChange={(event) => setSandboxImage(event.target.value)} />
+						</div>
+						<div className="field">
+							<label htmlFor="sandbox-memory">Sandbox memory limit</label>
+							<input id="sandbox-memory" className="input" value={sandboxMemory} onChange={(event) => setSandboxMemory(event.target.value)} />
+						</div>
+						<div className="field">
+							<label htmlFor="sandbox-cpus">Sandbox CPU limit</label>
+							<input id="sandbox-cpus" className="input" value={sandboxCpus} onChange={(event) => setSandboxCpus(event.target.value)} />
+						</div>
+						<div className="field">
+							<label htmlFor="sandbox-timeout">Sandbox timeout seconds</label>
+							<input id="sandbox-timeout" className="input" type="number" min="1" max="900" value={sandboxTimeout} onChange={(event) => setSandboxTimeout(event.target.value)} />
+						</div>
+						{error ? <div className="form-error" role="alert">{error}</div> : null}
+						<button className="button primary" type="button" onClick={saveSandboxProfile}>Save sandbox profile</button>
+					</div>
+				</Surface>
 				<Surface title="Policy decisions">
 					<DataTable rows={overview.permissionDecisions} empty={<EmptyState title="No policy decisions" body="Tool calls and command evaluations are recorded here." />} columns={[
 						{ key: 'decision', label: 'Decision', render: (row) => <Badge tone={toneForStatus(String(row.decision ?? ''))}>{String(row.decision ?? '')}</Badge> },
@@ -347,7 +468,88 @@ export function ModelGatewayPage({
 	);
 }
 
-export function GovernancePage({ overview }: { overview: Overview }) {
+export function GovernancePage({ overview, mutate }: { overview: Overview; mutate: Mutate }) {
+	const project = overview.projects[0];
+	const [riskTitle, setRiskTitle] = useState('');
+	const [riskSeverity, setRiskSeverity] = useState('medium');
+	const [riskMitigation, setRiskMitigation] = useState('');
+	const [decisionTitle, setDecisionTitle] = useState('');
+	const [decisionStatus, setDecisionStatus] = useState('proposed');
+	const [decisionContext, setDecisionContext] = useState('');
+	const [decisionText, setDecisionText] = useState('');
+	const [nextStepTitle, setNextStepTitle] = useState('');
+	const [nextStepPriority, setNextStepPriority] = useState('medium');
+	const [error, setError] = useState('');
+	const saveRisk = () => {
+		if (!riskTitle.trim()) {
+			setError('Risk title is required.');
+			return;
+		}
+		if (['high', 'critical'].includes(riskSeverity) && !riskMitigation.trim()) {
+			setError('High and critical risks require mitigation.');
+			return;
+		}
+		if (!project) {
+			setError('A project is required before creating governance records.');
+			return;
+		}
+		setError('');
+		void mutate((token) =>
+			createRisk(token, {
+				projectId: project.id,
+				title: riskTitle.trim(),
+				severity: riskSeverity,
+				status: 'open',
+				mitigation: riskMitigation.trim(),
+				owner: 'technical_lead',
+			}),
+		);
+	};
+	const saveDecision = () => {
+		if (!decisionTitle.trim()) {
+			setError('Decision title is required.');
+			return;
+		}
+		if (decisionStatus === 'accepted' && (!decisionContext.trim() || !decisionText.trim())) {
+			setError('Accepted decisions require context and decision text.');
+			return;
+		}
+		if (!project) {
+			setError('A project is required before creating governance records.');
+			return;
+		}
+		setError('');
+		void mutate((token) =>
+			createArchitectureDecision(token, {
+				projectId: project.id,
+				title: decisionTitle.trim(),
+				status: decisionStatus,
+				context: decisionContext.trim(),
+				decision: decisionText.trim(),
+				consequences: [],
+			}),
+		);
+	};
+	const saveNextStep = () => {
+		if (!nextStepTitle.trim()) {
+			setError('Next step title is required.');
+			return;
+		}
+		if (!project) {
+			setError('A project is required before creating governance records.');
+			return;
+		}
+		setError('');
+		void mutate((token) =>
+			createNextStep(token, {
+				projectId: project.id,
+				title: nextStepTitle.trim(),
+				priority: nextStepPriority,
+				status: 'planned',
+				owner: 'technical_lead',
+			}),
+		);
+	};
 	return (
 		<>
 			<PageHeader kicker="Engineering judgement" title="Governance" summary="Risks, decisions and next steps are operational records, not comments buried in chat." />
@@ -356,6 +558,72 @@ export function GovernancePage({ overview }: { overview: Overview }) {
 				<Surface title="Decisions"><div className="metric-value">{overview.architectureDecisions.length}</div></Surface>
 				<Surface title="Next steps"><div className="metric-value">{overview.nextSteps.length}</div></Surface>
 			</div>
+			<Surface title="Strict record forms">
+				<div className="grid three">
+					<div className="form-grid">
+						<div className="field">
+							<label htmlFor="risk-title">Risk title</label>
+							<input id="risk-title" className="input" value={riskTitle} onChange={(event) => setRiskTitle(event.target.value)} />
+						</div>
+						<div className="field">
+							<label htmlFor="risk-severity">Risk severity</label>
+							<select id="risk-severity" className="select" value={riskSeverity} onChange={(event) => setRiskSeverity(event.target.value)}>
+								<option value="low">low</option>
+								<option value="medium">medium</option>
+								<option value="high">high</option>
+								<option value="critical">critical</option>
+							</select>
+						</div>
+						<div className="field">
+							<label htmlFor="risk-mitigation">Risk mitigation</label>
+							<input id="risk-mitigation" className="input" value={riskMitigation} onChange={(event) => setRiskMitigation(event.target.value)} />
+						</div>
+						<button className="button primary" type="button" onClick={saveRisk}>Save risk</button>
+					</div>
+					<div className="form-grid">
+						<div className="field">
+							<label htmlFor="decision-title">Decision title</label>
+							<input id="decision-title" className="input" value={decisionTitle} onChange={(event) => setDecisionTitle(event.target.value)} />
+						</div>
+						<div className="field">
+							<label htmlFor="decision-status">Decision status</label>
+							<select id="decision-status" className="select" value={decisionStatus} onChange={(event) => setDecisionStatus(event.target.value)}>
+								<option value="proposed">proposed</option>
+								<option value="accepted">accepted</option>
+								<option value="rejected">rejected</option>
+								<option value="superseded">superseded</option>
+								<option value="deprecated">deprecated</option>
+							</select>
+						</div>
+						<div className="field">
+							<label htmlFor="decision-context">Decision context</label>
+							<input id="decision-context" className="input" value={decisionContext} onChange={(event) => setDecisionContext(event.target.value)} />
+						</div>
+						<div className="field">
+							<label htmlFor="decision-text">Decision text</label>
+							<input id="decision-text" className="input" value={decisionText} onChange={(event) => setDecisionText(event.target.value)} />
+						</div>
+						<button className="button primary" type="button" onClick={saveDecision}>Save decision</button>
+					</div>
+					<div className="form-grid">
+						<div className="field">
+							<label htmlFor="next-step-title">Next step title</label>
+							<input id="next-step-title" className="input" value={nextStepTitle} onChange={(event) => setNextStepTitle(event.target.value)} />
+						</div>
+						<div className="field">
+							<label htmlFor="next-step-priority">Next step priority</label>
+							<select id="next-step-priority" className="select" value={nextStepPriority} onChange={(event) => setNextStepPriority(event.target.value)}>
+								<option value="low">low</option>
+								<option value="medium">medium</option>
+								<option value="high">high</option>
+								<option value="urgent">urgent</option>
+							</select>
+						</div>
+						<button className="button primary" type="button" onClick={saveNextStep}>Save next step</button>
+					</div>
+				</div>
+				{error ? <div className="form-error" role="alert">{error}</div> : null}
+			</Surface>
 			<div className="grid three">
 				<Surface title="Risk register">
 					<DataTable rows={overview.riskRegister} empty={<EmptyState title="No risks" body="Open technical and product risks appear here." />} columns={[
@@ -380,16 +648,66 @@ export function GovernancePage({ overview }: { overview: Overview }) {
 	);
 }
 
-export function IntegrationsPage({ overview }: { overview: Overview }) {
+export function IntegrationsPage({ overview, mutate }: { overview: Overview; mutate: Mutate }) {
+	const [serverId, setServerId] = useState('mcp_local');
+	const [command, setCommand] = useState('python -m local_mcp_server');
+	const [transport, setTransport] = useState('stdio');
+	const [error, setError] = useState('');
+	const registerServer = () => {
+		if (!/^[a-z0-9][a-z0-9_-]{2,63}$/.test(serverId)) {
+			setError('MCP server id must use lowercase letters, numbers, dashes or underscores.');
+			return;
+		}
+		if (!command.trim()) {
+			setError('MCP command is required.');
+			return;
+		}
+		if (/[;&|<>`\r\n]/.test(command)) {
+			setError('MCP command must be a single argv-style command without shell operators.');
+			return;
+		}
+		setError('');
+		void mutate((token) => registerMcpServer(token, { id: serverId, command: command.trim(), transport, metadata: { source: 'integrations_form' } }));
+	};
 	return (
 		<>
 			<PageHeader kicker="External tools" title="Integrations" summary="MCP, IDE, Git and automation integrations are optional adapters, never hidden core dependencies." />
-			<Surface title="IDE connections">
-				<DataTable rows={overview.auditEvents.filter((row) => String(row.action ?? '').includes('ide'))} empty={<EmptyState title="No integration events" body="Integration activity appears in audit records." />} columns={[
-					{ key: 'action', label: 'Action', render: (row) => <span className="mono">{String(row.action ?? '')}</span> },
-					{ key: 'target', label: 'Target', render: (row) => String(row.target ?? '') },
-				]} />
-			</Surface>
+			<div className="grid two">
+				<Surface title="Strict MCP registration form">
+					<div className="form-grid">
+						<div className="field">
+							<label htmlFor="mcp-server-id">MCP server id</label>
+							<input id="mcp-server-id" className="input" value={serverId} pattern="[a-z0-9][a-z0-9_-]{2,63}" onChange={(event) => setServerId(event.target.value)} />
+						</div>
+						<div className="field">
+							<label htmlFor="mcp-command">MCP command</label>
+							<input id="mcp-command" className="input" value={command} onChange={(event) => setCommand(event.target.value)} />
+							<div className="field-help">Stored as argv-style config; execution still goes through broker, policy and sandbox.</div>
+						</div>
+						<div className="field">
+							<label htmlFor="mcp-transport">MCP transport</label>
+							<select id="mcp-transport" className="select" value={transport} onChange={(event) => setTransport(event.target.value)}>
+								<option value="stdio">stdio</option>
+							</select>
+						</div>
+						{error ? <div className="form-error" role="alert">{error}</div> : null}
+						<button className="button primary" type="button" onClick={registerServer}>Register MCP server</button>
+					</div>
+				</Surface>
+				<Surface title="Registered MCP servers">
+					<DataTable rows={overview.mcpServers} empty={<EmptyState title="No MCP servers" body="Register local stdio MCP servers before runtime adapters can call them." />} columns={[
+						{ key: 'id', label: 'Server', render: (row) => <span className="mono">{String(row.id ?? '')}</span> },
+						{ key: 'transport', label: 'Transport', render: (row) => String(row.transport ?? '') },
+						{ key: 'status', label: 'Status', render: (row) => <Badge tone={toneForStatus(String(row.status ?? ''))}>{String(row.status ?? '')}</Badge> },
+					]} />
+				</Surface>
+				<Surface title="IDE connections">
+					<DataTable rows={overview.auditEvents.filter((row) => String(row.action ?? '').includes('ide'))} empty={<EmptyState title="No integration events" body="Integration activity appears in audit records." />} columns={[
+						{ key: 'action', label: 'Action', render: (row) => <span className="mono">{String(row.action ?? '')}</span> },
+						{ key: 'target', label: 'Target', render: (row) => String(row.target ?? '') },
+					]} />
+				</Surface>
+			</div>
 		</>
 	);
 }

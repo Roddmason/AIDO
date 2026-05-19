@@ -353,3 +353,69 @@ test('strict configuration forms prevent manual JSON edits', async ({ page }) =>
 	await page.getByRole('button', { name: 'Save model policy' }).click();
 	await expect(page.getByRole('cell', { name: policyId })).toBeVisible();
 });
+
+test('strict operational forms cover workflows governance sandbox and MCP settings', async ({ page }) => {
+	await page.goto('/#command');
+	await page.getByRole('button', { name: 'Command Center' }).click();
+
+	await expect(page.getByLabel('Workflow title')).toBeVisible();
+	await expect(page.locator('textarea')).toHaveCount(0);
+	await page.getByLabel('Workflow title').fill('');
+	await page.getByRole('button', { name: 'Create workflow' }).click();
+	await expect(page.getByText('Workflow title is required.')).toBeVisible();
+
+	const suffix = Date.now();
+	const workflowTitle = `Strict workflow ${suffix}`;
+	await page.getByLabel('Workflow title').fill(workflowTitle);
+	await page.getByLabel('Workflow kind').selectOption('idea_to_pr');
+	await page.getByRole('button', { name: 'Create workflow' }).click();
+	await expect(page.getByText(workflowTitle)).toBeVisible();
+
+	await page.getByRole('button', { name: 'Governance' }).click();
+	await expect(page.getByLabel('Risk title')).toBeVisible();
+	await page.getByLabel('Risk title').fill(`High risk ${suffix}`);
+	await page.getByLabel('Risk severity').selectOption('high');
+	await page.getByRole('button', { name: 'Save risk' }).click();
+	await expect(page.getByText('High and critical risks require mitigation.')).toBeVisible();
+	await page.getByLabel('Risk mitigation').fill('Track owner, date and validation evidence before closing.');
+	await page.getByRole('button', { name: 'Save risk' }).click();
+	await expect(page.getByRole('cell', { name: `High risk ${suffix}` })).toBeVisible();
+
+	await page.getByLabel('Decision title').fill(`Decision ${suffix}`);
+	await page.getByLabel('Decision status').selectOption('accepted');
+	await page.getByRole('button', { name: 'Save decision' }).click();
+	await expect(page.getByText('Accepted decisions require context and decision text.')).toBeVisible();
+	await page.getByLabel('Decision context').fill('Configuration must be edited through controlled forms.');
+	await page.getByLabel('Decision text').fill('Keep JSON out of operator workflows.');
+	await page.getByRole('button', { name: 'Save decision' }).click();
+	await expect(page.getByRole('cell', { name: `Decision ${suffix}` })).toBeVisible();
+
+	await page.getByLabel('Next step title').fill(`Next step ${suffix}`);
+	await page.getByLabel('Next step priority').selectOption('urgent');
+	await page.getByRole('button', { name: 'Save next step' }).click();
+	await expect(page.getByRole('cell', { name: `Next step ${suffix}` })).toBeVisible();
+
+	await page.getByRole('button', { name: 'Policy & Security' }).click();
+	await page.getByLabel('Sandbox update reason').fill('');
+	await page.getByRole('button', { name: 'Save sandbox profile' }).click();
+	await expect(page.getByText('Sandbox update reason is required.')).toBeVisible();
+	await page.getByLabel('Sandbox update reason').fill('Constrain post-MVP smoke runtime resources.');
+	await page.getByLabel('Sandbox memory limit').fill('768m');
+	await page.getByLabel('Sandbox CPU limit').fill('1');
+	await page.getByLabel('Sandbox timeout seconds').fill('120');
+	await page.getByLabel('Sandbox allowed image').fill('python:3.12-slim');
+	await page.getByRole('button', { name: 'Save sandbox profile' }).click();
+	await expect(page.getByText('768m').first()).toBeVisible();
+
+	await page.getByRole('button', { name: 'Integrations' }).click();
+	await expect(page.getByLabel('MCP server id')).toBeVisible();
+	await page.getByLabel('MCP server id').fill('Bad Server!');
+	await page.getByRole('button', { name: 'Register MCP server' }).click();
+	await expect(page.getByText('MCP server id must use lowercase letters, numbers, dashes or underscores.')).toBeVisible();
+	const mcpId = `mcp_form_${suffix}`;
+	await page.getByLabel('MCP server id').fill(mcpId);
+	await page.getByLabel('MCP command').fill('python -m local_mcp_server');
+	await page.getByLabel('MCP transport').selectOption('stdio');
+	await page.getByRole('button', { name: 'Register MCP server' }).click();
+	await expect(page.getByRole('cell', { name: mcpId })).toBeVisible();
+});

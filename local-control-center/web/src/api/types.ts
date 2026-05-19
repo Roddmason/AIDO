@@ -117,6 +117,7 @@ export type Overview = {
 	actionRequests: ActionRequest[];
 	events: EventRecord[];
 	auditEvents: Dictionary[];
+	mcpServers: Dictionary[];
 	memoryItems: Dictionary[];
 	retrievalStatus?: Dictionary;
 	workflows: Workflow[];

@@ -80,7 +80,15 @@ export function createWorkflow(token: string, projectId: string, title: string) 
 	return apiRequest<Dictionary>('/api/v1/workflows', {
 		method: 'POST',
 		token,
-		body: { projectId, title },
+		body: { projectId, title, kind: 'idea_to_pr' },
+	});
+}
+
+export function createWorkflowWithBody(token: string, body: Dictionary) {
+	return apiRequest<Dictionary>('/api/v1/workflows', {
+		method: 'POST',
+		token,
+		body,
 	});
 }
 
@@ -94,6 +102,46 @@ export function createAgentProfile(token: string, body: Dictionary) {
 
 export function createModelPolicy(token: string, body: Dictionary) {
 	return apiRequest<Dictionary>('/api/v1/model-policies', {
+		method: 'POST',
+		token,
+		body,
+	});
+}
+
+export function createRisk(token: string, body: Dictionary) {
+	return apiRequest<Dictionary>('/api/v1/risks', {
+		method: 'POST',
+		token,
+		body,
+	});
+}
+
+export function createArchitectureDecision(token: string, body: Dictionary) {
+	return apiRequest<Dictionary>('/api/v1/architecture-decisions', {
+		method: 'POST',
+		token,
+		body,
+	});
+}
+
+export function createNextStep(token: string, body: Dictionary) {
+	return apiRequest<Dictionary>('/api/v1/next-steps', {
+		method: 'POST',
+		token,
+		body,
+	});
+}
+
+export function updateSandboxProfile(token: string, profileId: string, body: Dictionary) {
+	return apiRequest<Dictionary>(`/api/v1/sandbox/profiles/${encodeURIComponent(profileId)}`, {
+		method: 'PATCH',
+		token,
+		body,
+	});
+}
+
+export function registerMcpServer(token: string, body: Dictionary) {
+	return apiRequest<Dictionary>('/api/v1/integrations/mcp/register', {
 		method: 'POST',
 		token,
 		body,

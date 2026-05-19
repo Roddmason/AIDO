@@ -115,7 +115,7 @@ export function App() {
 			case 'workspaces':
 				return <WorkspacesPage overview={overview} />;
 			case 'policy':
-				return <PolicySecurityPage overview={overview} />;
+				return <PolicySecurityPage overview={overview} mutate={state.mutate} />;
 			case 'memory':
 				return <MemoryPage overview={overview} retrievalStatus={state.retrievalStatus} />;
 			case 'evidence':
@@ -123,11 +123,11 @@ export function App() {
 			case 'models':
 				return <ModelGatewayPage overview={overview} runtimeProviders={state.runtimeProviders} mutate={state.mutate} />;
 			case 'governance':
-				return <GovernancePage overview={overview} />;
+				return <GovernancePage overview={overview} mutate={state.mutate} />;
 			case 'audit':
 				return <AuditPage overview={overview} />;
 			case 'integrations':
-				return <IntegrationsPage overview={overview} />;
+				return <IntegrationsPage overview={overview} mutate={state.mutate} />;
 			case 'settings':
 				return <SettingsPage />;
 			default:

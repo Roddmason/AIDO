@@ -137,6 +137,54 @@ def test_git_worktree_request_creates_branch_and_records_metadata(tmp_path: Path
     assert branch["status"] == "active"
 
 
+@pytest.mark.skipif(shutil.which("git") is None, reason="git CLI is not available")
+def test_archiving_git_worktree_removes_workspace_and_archives_branch_metadata(tmp_path: Path, monkeypatch) -> None:
+    store, client, headers = make_app(tmp_path, monkeypatch)
+    repo = tmp_path / "cleanup-repo"
+    repo.mkdir()
+    subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True, text=True)
+    (repo / "README.md").write_text("# Cleanup Repo\n", encoding="utf-8")
+    subprocess.run(["git", "add", "README.md"], cwd=repo, check=True, capture_output=True, text=True)
+    subprocess.run(
+        ["git", "-c", "user.name=AIDO", "-c", "user.email=aido@example.invalid", "commit", "-m", "init"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    project = store.create_project(name="Git Cleanup", path=repo, template_id="other")
+    workspace = client.post(
+        "/api/v1/workspaces",
+        json={
+            "projectId": project["id"],
+            "taskId": "story-cleanup",
+            "agentId": "implementer",
+            "isolationType": "git_worktree",
+        },
+        headers=headers,
+    ).json()["workspace"]
+    workspace_path = Path(workspace["path"])
+    assert workspace_path.exists()
+
+    archived = client.post(
+        f"/api/v1/workspaces/{workspace['id']}/archive",
+        json={"reason": "cleanup"},
+        headers=headers,
+    )
+    assert archived.status_code == 202
+    assert archived.json()["workspace"]["status"] == "archived"
+    assert not workspace_path.exists()
+
+    with sqlite3.connect(tmp_path / "platform.sqlite") as connection:
+        connection.row_factory = sqlite3.Row
+        branch = connection.execute(
+            "SELECT * FROM git_branches WHERE workspace_id = ?",
+            (workspace["id"],),
+        ).fetchone()
+    assert branch is not None
+    assert branch["status"] == "archived"
+
+
 def test_workflow_workspace_evidence_traceability_is_exposed(tmp_path: Path, monkeypatch) -> None:
     store, client, headers = make_app(tmp_path, monkeypatch)
     project = store.create_project(name="Trace", path=tmp_path / "trace", template_id="other")

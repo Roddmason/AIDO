@@ -45,3 +45,12 @@ def create_git_worktree(
         "branchName": branch_name,
         "baseBranch": base_branch,
     }
+
+
+def remove_git_worktree(*, repo_path: Path, worktree_path: Path) -> dict[str, Any]:
+    if not git_available():
+        return {"status": "cleanup_failed_git_unavailable"}
+    result = run_git(["-C", str(repo_path), "worktree", "remove", "--force", str(worktree_path)])
+    if result.returncode != 0:
+        return {"status": "cleanup_failed", "stderr": result.stderr.strip()[:1000]}
+    return {"status": "removed"}

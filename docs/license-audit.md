@@ -1,6 +1,6 @@
 # License Audit
 
-Date: 2026-05-18
+Date: 2026-05-19  
 Project license strategy: proprietary/private, no commercial use.
 
 ## Decision
@@ -9,17 +9,18 @@ AIDO is not open source at this stage. The repository uses a private
 no-commercial-use license while preserving a dependency policy compatible with a
 future Apache-2.0 or dual-license release.
 
-The package metadata must not declare `ISC` because that would grant rights that
-do not match the current product decision.
+Package metadata must not declare `ISC` because that grants rights that do not
+match the current product decision.
 
 ## Core Dependency Policy
 
-- Core embedded dependencies must be OSI-compatible.
+- Core embedded dependencies must be OSI-compatible unless explicitly isolated
+  as private UI-only or optional adapter code.
 - AGPL dependencies are allowed only as separately configured optional services
   after an architecture decision.
 - Source-available, fair-code, no-commercial-use, or ambiguous-license projects
   must not become core dependencies.
-- n8n is explicitly not a core dependency.
+- n8n is not a core dependency.
 
 ## Python Dependencies
 
@@ -28,66 +29,60 @@ Runtime:
 - `fastapi`: open source, compatible.
 - `uvicorn`: open source, compatible.
 - `numpy`: BSD-style, compatible.
-- `faiss-cpu`: MIT-style upstream project; optional because Windows wheels and
-  CPU support can vary. AIDO must work in NumPy mode without FAISS.
+- `faiss-cpu`: optional; AIDO must work in NumPy mode without FAISS.
 
 Optional:
 
 - `openai-agents`: optional integration; audit exact license and transitive
   dependencies before making it core.
+- `opentelemetry-sdk` and `opentelemetry-exporter-otlp-proto-http`: optional
+  Apache-2.0 telemetry exporters; AIDO must run without them unless
+  `AIDO_OTEL_EXPORTER=otlp_http` is configured.
 
 Development/security:
 
 - `ruff`: MIT, compatible.
 - `pre-commit`: MIT, compatible.
 - `pip-licenses`: MIT, compatible.
-- `semgrep`: LGPL-2.1 for the open source CLI/runtime components; acceptable as
-  a development tool, not embedded runtime.
-- `peewee`: appears as `UNKNOWN` in `pip-licenses` as a Semgrep transitive
-  dependency. Treat as a dev-tool audit item before public release; do not embed
-  it in AIDO runtime.
+- `semgrep`: acceptable as a development/security tool, not embedded runtime.
 
 ## JavaScript Dependencies
 
-Current frontend/build dependencies are managed by PNPM and should be audited
-with:
+Managed by PNPM and audited with:
 
 ```powershell
 corepack pnpm@10.24.0 licenses list
 ```
 
-High-level status:
+Current status:
 
-- React, ReactDOM, Radix, Playwright, esbuild, lucide-react, and
-  `@xyflow/react` are compatible for this private project, subject to generated
-  notices before public release.
-- GSAP is currently present for dashboard motion and reports a standard
-  no-charge license rather than a clear OSI license. Keep it out of core backend
-  logic and replace it or isolate it before any open-source release.
-- Avoid adding TanStack packages until supply-chain review is documented.
+- React, ReactDOM, Vite, TypeScript, Radix primitives, Playwright,
+  lucide-react, and `@xyflow/react` are compatible for this private project,
+  subject to generated notices before public release.
+- `gsap` and `@gsap/react` were removed from core dependencies after PNPM
+  reported the GSAP standard license rather than an OSI license. Semantic UI
+  motion now uses React/CSS primitives.
+- Avoid adding TanStack packages until a supply-chain review is documented.
 - Do not add CDN-hosted fonts, scripts, or styles.
-
-## Legacy/Provenance Risks
-
-The removed root `src/` tree contained many Claude Code and Anthropic references
-plus `src/node_modules`. It was deleted from the clean workspace because it was
-not active AIDO source and had unclear provenance. Do not restore or copy
-implementation from it into Python/React core without proving license
-provenance.
 
 ## Required Audit Commands
 
 ```powershell
-uv run --extra dev pip-licenses --format=markdown
+uv run --extra dev python -X utf8 -m piplicenses --format=markdown
 corepack pnpm@10.24.0 licenses list
 gitleaks detect --no-git --source . --config .gitleaks.toml --redact
-uv run --extra dev semgrep scan --config .semgrep.yml
+uv run --extra dev semgrep scan --config .semgrep.yml --no-git-ignore local_control_center tests_py local-control-center/web/src tests_web
 ```
 
 ## Current Conclusion
 
-The active Python/FastAPI and React dashboard code can continue under the
-private AIDO license. The dependency policy is compatible with future
-open-source release work. The root `src/` legacy tree has been removed from the
-clean workspace and must stay out of the product repository unless separately
-audited.
+The active Python/FastAPI and React console code can continue under the private
+AIDO license. The dependency policy remains compatible with later public
+release work; the known GSAP license blocker has been removed from the core
+frontend.
+
+`pip-licenses` currently reports `peewee` as `UNKNOWN` because its installed
+metadata omits a license field. Manual local verification found
+`.venv/Lib/site-packages/peewee-3.19.0.dist-info/licenses/LICENSE` with MIT
+license text. It is pulled through development/security tooling rather than
+AIDO runtime code, so it is not a core dependency blocker.

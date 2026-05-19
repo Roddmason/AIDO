@@ -1,87 +1,102 @@
-# Local Control Center API Contract Matrix
+# AIDO API Contract Matrix
 
-The Python FastAPI backend must cover these Node dashboard contracts before the Node backend is archived.
+This matrix documents the active Python/FastAPI v1 surface after the clean
+cutover. Removed compatibility routes are intentionally not part of the product
+contract.
 
-## Platform API
+## Platform
 
 - `GET /healthz`
+- `GET /api/v1/health`
 - `GET /api/v1/security/handshake`
 - `GET /api/v1/overview`
 - `GET /api/v1/events`
+
+## Projects, Workspaces, Sessions
+
 - `GET /api/v1/project-templates`
 - `GET|POST /api/v1/projects`
-- `GET /api/v1/providers`
-- `GET /api/v1/teams`
-- `GET /api/v1/agents`
+- `GET /api/v1/projects/{id}`
+- `PATCH /api/v1/projects/{id}`
+- `POST /api/v1/projects/{id}/discover`
+- `GET|POST /api/v1/workspaces`
+- `POST /api/v1/workspaces/{id}/archive`
+- `GET /api/v1/sessions`
+- `GET /api/v1/chats`
+- `GET /api/v1/pipelines`
+
+## Jobs And Approvals
+
 - `GET|POST /api/v1/jobs`
-- `POST /api/v1/jobs/:id/approve`
-- `POST /api/v1/jobs/:id/cancel`
-- `POST /api/v1/jobs/:id/retry`
+- `POST /api/v1/jobs/{id}/approve`
+- `POST /api/v1/jobs/{id}/cancel`
+- `POST /api/v1/jobs/{id}/retry`
 - `GET /api/v1/approvals`
-- `POST /api/v1/jobs/:jobId/actions/:actionId/approve`
-- `POST /api/v1/jobs/:jobId/actions/:actionId/deny`
+- `POST /api/v1/jobs/{job_id}/actions/{action_id}/approve` requires non-empty `reason` and returns `permissionGrant`
+- `POST /api/v1/jobs/{job_id}/actions/{action_id}/deny`
+- `POST /api/v1/permissions/grants/{grant_id}/revoke` requires local token and non-empty `reason`
+
+## Workflows
+
+- `GET|POST /api/v1/workflows`
+- `GET /api/v1/workflows/{id}`
+- `POST /api/v1/workflows/{id}/start`
+- `POST /api/v1/workflows/{id}/pause`
+- `POST /api/v1/workflows/{id}/resume`
+- `POST /api/v1/workflows/{id}/cancel`
+
+## Agents And Runtime
+
+- `GET /api/v1/agents`
+- `GET|POST /api/v1/agent-profiles`
+- `GET|POST /api/v1/agent-runs`
+- `GET /api/v1/runtime/providers`
+- `GET /api/v1/model-providers`
+- `GET|POST /api/v1/model-policies`
+- `GET /api/v1/skills`
+- `POST /api/v1/skills/sync`
+
+## Policy, Evidence, Governance
+
+- `GET /api/v1/policies` returns policies, permission decisions, one-use permission grants, and sandbox profiles
+- `POST /api/v1/policies/evaluate`
+- `GET /api/v1/sandbox/status` returns Docker availability and the active Docker sandbox profile
+- `PATCH /api/v1/sandbox/profiles/{profile_id}` requires local token and non-empty `reason`, validates resource/network limits, and records event/audit entries
+- `POST /api/v1/sandbox/profiles/{profile_id}/revoke` requires local token and non-empty `reason`
+- `GET|POST /api/v1/evidence`
+- `POST /api/v1/evidence` accepts `testResultReports` in `junit` and `pytest` formats and persists normalized `test_results` records
+- `POST /api/v1/evidence/artifacts/cleanup` requires local token and deletes only unreferenced artifact files when `dryRun=false`
+- `POST /api/v1/evidence/artifacts/retention` requires local token and surfaces expired referenced artifacts as governance risks
+- `POST /api/v1/evidence/artifacts/retention/actions` requires local token and non-empty `reason`; `export` records an audit manifest and `delete` removes only verified expired physical files while preserving SQLite artifact rows
+- `GET /api/v1/evidence/{id}` returns package, test result records, and artifacts
+- `GET /api/v1/evidence/{id}/report` requires local token and exports a Markdown QA report without leaking local artifact paths
+- `POST /api/v1/evidence/{id}/artifacts` requires local token and ingests bounded text/base64 artifacts without accepting client-supplied filesystem paths
+- `GET /api/v1/evidence/{id}/artifacts/{artifactId}` requires local token and returns a verified artifact file
+- `GET|POST /api/v1/architecture-decisions`
+- `GET|POST /api/v1/risks`
+- `PATCH /api/v1/risks/{id}`
+- `GET|POST /api/v1/next-steps`
+- `PATCH /api/v1/next-steps/{id}`
+
+## Memory And Retrieval
+
 - `GET|POST /api/v1/memory`
 - `GET|POST /api/v1/prompts`
-- `GET|POST /api/v1/ide-connections`
-- `GET /api/v1/open-design`
 - `GET /api/v1/retrieval/status`
 - `POST /api/v1/retrieval/search`
 - `POST /api/v1/retrieval/reindex`
-- `GET|POST /api/v1/workflows`
-- `GET /api/v1/workflows/:id`
-- `POST /api/v1/workflows/:id/start`
-- `POST /api/v1/workflows/:id/pause`
-- `POST /api/v1/workflows/:id/resume`
-- `POST /api/v1/workflows/:id/cancel`
-- `GET /api/v1/policies`
-- `POST /api/v1/policies/evaluate`
-- `GET|POST /api/v1/evidence`
-- `GET /api/v1/evidence/:id`
-- `GET|POST /api/v1/agent-profiles`
-- `GET|POST /api/v1/agent-runs`
-- `GET /api/v1/skills`
-- `POST /api/v1/skills/sync`
-- `GET|POST /api/v1/workspaces`
-- `POST /api/v1/workspaces/:id/archive`
-- `GET /api/v1/model-providers`
-- `GET|POST /api/v1/model-policies`
 
-## Legacy Dashboard API
+## Integrations
 
-- `GET /api/state`
-- `GET /api/workspaces`
-- `POST /api/workspaces/select`
-- `POST /api/workspaces/:id/collapse`
-- `POST /api/workspaces/:id/expand`
-- `POST /api/workspaces/:id/pin`
-- `POST /api/workspaces/:id/unpin`
-- `GET /api/git`
-- `POST /api/git/checkout`
-- `GET|POST /api/sessions`
-- `POST /api/sessions/select`
-- `POST /api/sessions/:id/clone`
-- `POST /api/sessions/:id/pin`
-- `POST /api/sessions/:id/unpin`
-- `PATCH|DELETE /api/sessions/:id`
-- `GET|PATCH /api/config`
-- `GET /api/config/options`
-- `GET /api/extensions/catalog`
-- `POST /api/extensions/marketplaces`
-- `POST /api/extensions/plugins/install`
-- `POST /api/extensions/plugins/sync-skills`
-- `POST /api/extensions/skills/install`
-- `POST /api/idea/intake`
-- `POST /api/chats/send`
-- `GET /api/chats/:id`
-- `GET /api/pipelines/:id`
-- `POST /api/pipelines/:id/start`
-- `POST /api/pipelines/:id/retry`
-- `POST /api/pipelines/:id/archive`
-- `POST /api/pipelines/:id/stages/retry`
-- `POST /api/pipelines/:id/stages/assign`
-- `POST /api/pipelines/:id/stages/override`
+- `GET /api/v1/providers`
+- `GET /api/v1/teams`
+- `GET /api/v1/integrations`
+- `POST /api/v1/integrations/mcp/register`
+- `GET|POST /api/v1/ide-connections`
+- `GET /api/v1/open-design`
 
-The active Python coverage is enforced by `tests_py/test_python_control_center.py`
-and `tests_py/test_phase2_control_plane_foundation.py`.
-Phase 3-6 foundation coverage is enforced by
-`tests_py/test_phase3_to_6_control_plane_runtime.py`.
+Coverage is enforced by `tests_py/test_python_control_center.py`,
+`tests_py/test_phase2_control_plane_foundation.py`,
+`tests_py/test_phase3_to_6_control_plane_runtime.py`,
+`tests_py/test_hard_cutover_no_removed_compat.py`, and Playwright smoke tests under
+`tests_web/`.

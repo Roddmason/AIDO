@@ -1,23 +1,27 @@
 # Python Control Center Architecture
 
-This cut introduces a Windows-native Python backend while keeping the existing React dashboard.
+AIDO is a Windows-native Python/FastAPI control plane with a Vite + React +
+TypeScript console.
 
 ## Runtime
 
-- `uv run python -m local_control_center` starts FastAPI and serves the built React dashboard from `local-control-center/dist/web`.
-- `local-control-center/scripts/start-control-center.ps1` is the Windows entrypoint used by `pnpm start` and Task Scheduler.
-- `local-control-center/scripts/register-autostart.ps1` registers a user-scoped scheduled task. This is intentional: user-profile CLI auth and direct project access are more reliable than a Windows Service for this local agent.
-- `local-control-center/scripts/register-local-dns.ps1` registers local Windows hosts aliases for testing: `local-control-center.test` and `lcc.test`.
-- `local-control-center/scripts/unregister-local-dns.ps1` removes only the marked Local Control Center DNS block.
-- The previous Node.js backend source is archived under `Legacy/Node.js/local-control-center`. Node remains only as the React/esbuild toolchain.
+- `uv run python -m local_control_center` starts FastAPI and serves the built
+  React console from `local-control-center/dist/web`.
+- `local-control-center/scripts/start-control-center.ps1` is the Windows
+  entrypoint used by PNPM scripts and Task Scheduler.
+- `local-control-center/scripts/register-autostart.ps1` registers a user-scoped
+  scheduled task. This preserves user-profile CLI auth, PATH, mapped drives,
+  and direct access to local projects.
+- `local-control-center/scripts/register-local-dns.ps1` optionally registers
+  `local-control-center.test` and `lcc.test` in the Windows hosts file for
+  browser testing.
+- Node is only the frontend build toolchain. Backend business logic is Python.
 
 ## Local DNS For Testing
 
-Use a reserved `.test` hostname through the Windows hosts file:
-
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File local-control-center/scripts/register-local-dns.ps1
-pnpm start
+corepack pnpm@10.24.0 run start
 ```
 
 Then open:
@@ -25,18 +29,8 @@ Then open:
 - `http://local-control-center.test:4310`
 - `http://lcc.test:4310`
 
-The registration script is idempotent, flushes the DNS resolver cache, and self-elevates with UAC because `C:\Windows\System32\drivers\etc\hosts` requires Administrator rights. It writes a marked block only:
-
-```text
-# BEGIN Local Control Center DNS
-127.0.0.1    local-control-center.test
-127.0.0.1    lcc.test
-::1          local-control-center.test
-::1          lcc.test
-# END Local Control Center DNS
-```
-
-To remove it:
+The registration script writes only a marked block and flushes the DNS resolver
+cache. Remove it with:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File local-control-center/scripts/unregister-local-dns.ps1
@@ -44,46 +38,71 @@ powershell -NoProfile -ExecutionPolicy Bypass -File local-control-center/scripts
 
 ## Package Management
 
-- JavaScript dependencies are managed with PNPM through Corepack: `corepack pnpm@10.24.0 install`.
-- Do not use `npm install` in this repository. `package-lock.json` is intentionally absent; `pnpm-lock.yaml` is authoritative.
-- Python dependencies are managed with uv: `uv sync --extra test`.
-- Useful commands:
-  - `pnpm run build:control-center`
-  - `pnpm run test:py`
-  - `pnpm run test:all`
-  - `pnpm start`
+- JavaScript dependencies: `corepack pnpm@10.24.0 install`.
+- Python dependencies: `uv sync --extra dev --extra test`.
+- Optional FAISS: `uv sync --extra faiss --extra dev --extra test`.
+- Do not use `npm install`; `pnpm-lock.yaml` is authoritative.
 
 ## Store
 
-SQLite remains canonical at `%USERPROFILE%\.claude\local-control-center\platform.sqlite` unless `LOCAL_CONTROL_CENTER_DB` or `--db-path` overrides it. Legacy `.claude/team-workspace.json` is imported into SQLite and then treated as backup/export material.
+SQLite remains canonical at
+`%USERPROFILE%\.claude\local-control-center\platform.sqlite` unless
+`LOCAL_CONTROL_CENTER_DB` or `--db-path` overrides it.
+
+Runtime startup no longer imports JSON state. Historical JSON migration should
+be a manual utility outside the normal server path.
 
 ## Vertical Slices
 
-The backend is moving away from horizontal framework modules. New business logic should live in domain slices:
+- `jobs_approvals`: job queue, leases, runs, events, audit, and granular action
+  approvals.
+- `memory_retrieval`: memory records, embedding metadata, FAISS/NumPy index,
+  and retrieval APIs.
+- `sessions_chats`: v1 session and chat read models.
+- `pipelines`: v1 pipeline read models.
+- `prompts`: prompt templates and append-only prompt version history.
+- `workflows`: SDLC workflow graph, runs, steps, and transition state.
+- `agents`: agent profiles, runtime modes, model policies, providers, calls,
+  costs, and skills.
+- `security_policy`: deterministic policy engine, command classifier, sandbox
+  posture, and permission decisions.
+- `workspaces_projects`: task-scoped workspace allocation and Git worktree
+  support.
+- `evidence`: evidence packages, test result records, and QA verdict gates.
+- `governance`: risks, decisions, next steps, and ownership.
+- `integrations`: IDE connections, MCP server registry, and optional adapter
+  status for external runtimes such as OpenHands and SWE-agent.
 
-- `local_control_center/jobs_approvals`: job queue, leases, runs, events, audit, and granular action approvals.
-- `local_control_center/memory_retrieval`: memory records, embedding metadata, FAISS/NumPy retrieval index, and retrieval APIs.
-- `local_control_center/workspaces_projects`, `sessions_chats`, `pipelines`, `runtime_integrations`, `security_policy`, and `legacy_compat`: explicit domain boundaries reserved for the next extraction passes.
-- `local_control_center/app.py`: FastAPI composition entrypoint used by the CLI.
-
-Keep route handlers thin. `api.py` files should parse HTTP input and call `commands.py`; repositories own SQL for their slice. Do not add new generic `services.py`, `helpers.py`, or cross-domain SQL in `local_control_center/store.py`. `PlatformStore` may remain as a compatibility facade while slices are extracted.
-
-Core tables include:
-
-- `projects`, `teams`, `agents`, `sessions`, `workspace_states`
-- `jobs`, `job_runs`, `events`, `audit_events`
-- `action_requests` for granular approvals
-- `memory_items`, `memory_embeddings` for retrieval metadata
-- `agent_runs`, `agent_tool_calls` for gated Agents SDK integration
+Route handlers stay thin. `api.py` files parse transport input and call command
+or repository functions. Slice repositories own operational SQL, while SQLite
+connection setup, additive schema bootstrap, time helpers, and JSON/hash helpers
+live in `shared/db.py`, `shared/migrations.py`, `shared/time.py`, and
+`shared/serialization.py`. Memory/retrieval commands compose
+`MemoryRepository`, `EventBus`, and `RetrievalIndex` directly. Project/catalog
+routes live in the `projects` slice, and routers use `EventBus` instead of the
+store facade for events/audit records. FastAPI and CLI bootstrap use
+`ControlCenterRuntime`, which exposes only cwd, DB connection, schema init,
+loopback token, and runtime project creation. The former store facade and its
+transitional test harness have been removed.
 
 ## Workers
 
-Workers claim queued jobs with SQLite `BEGIN IMMEDIATE`, leases, and `job_runs`. Expired leases are requeued before each batch. Sensitive jobs create `action_requests` and remain blocked until each pending action is explicitly approved.
+Workers open SQLite directly, use `JobsRepository` for leases and `job_runs`,
+emit events through the jobs repository/event bus, and requeue expired leases
+during recovery. Sensitive work creates action requests and stops until the
+specific action receives an approval reason.
 
 ## Retrieval
 
-`RetrievalIndex` rebuilds from `memory_items`. FAISS is a runtime dependency through `faiss-cpu`; `/api/v1/retrieval/status` reports `degraded: true` only if FAISS cannot be imported and the NumPy fallback is active.
+FAISS is optional. `/api/v1/retrieval/status` reports the active mode:
+`faiss`, `numpy`, `pgvector`, or `qdrant` when future adapters are introduced.
+SQLite metadata remains canonical.
 
 ## Security
 
-Mutating API routes require `X-Local-Control-Token` from `/api/v1/security/handshake`. Job-level approval is preserved for compatibility, but it does not bypass pending granular `action_requests`.
+Mutating routes require `X-Local-Control-Token` from
+`/api/v1/security/handshake`. Shell, CLI, API, and Ollama-driven agent actions
+must go through policy, approvals, sandbox decisions, audit, and evidence.
+Low-risk shell allowance is argument-level: `dev_safe` can run approved test,
+build, lint, diagnostics, and read-only commands inside the workspace, while
+package-manager installs, unknown scripts, and lifecycle hooks require approval.

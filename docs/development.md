@@ -40,6 +40,5 @@ Do not commit:
 - `.tmp`
 - `test-results`
 
-The root `src/` tree was removed from the clean workspace after audit because it
-was ignored legacy TypeScript material with unclear provenance. Do not restore
-it as product source unless it has a separate license review and migration plan.
+The removed root `src/` tree had unclear provenance. Do not restore it as
+product source unless it has a separate license review and migration plan.

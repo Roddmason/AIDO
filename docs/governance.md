@@ -45,7 +45,8 @@ All mutating routes require the loopback write token from
 
 ## Current Limitations
 
-- There is no form UI yet. Records are created through API calls and rendered in
-  the dashboard.
-- `PlatformStore` still aggregates governance state for overview compatibility;
-  future work should move aggregation into a slice-owned query facade.
+- Governance forms are intentionally strict and still basic; most rich editing
+  happens through API-backed records rendered in the dashboard.
+- Remaining cleanup is ordinary UX depth: richer edit forms and filtering. The
+  old store-based fixture harness has been removed; product overview
+  aggregation lives in `control_plane`.

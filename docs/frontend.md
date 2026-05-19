@@ -13,6 +13,7 @@ Current JavaScript dashboard coverage now includes:
 - Agents Runtime
 - Sandbox/Security
 - Workflows
+- Governance
 - Pipelines
 - Workspaces/Sessions
 - Evidence & QA
@@ -61,6 +62,7 @@ local-control-center/web/
 │   │   ├── workspaces/
 │   │   ├── memory/
 │   │   ├── evidence/
+│   │   ├── governance/
 │   │   ├── integrations/
 │   │   ├── settings/
 │   │   └── audit/

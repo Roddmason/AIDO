@@ -492,6 +492,7 @@ class PlatformStore:
         self._init_phase2_schema()
         self._init_phase3_schema()
         self._init_phase4_schema()
+        self._init_phase5_schema()
         self._seed_providers()
 
     def _init_phase2_schema(self) -> None:
@@ -852,6 +853,64 @@ class PlatformStore:
         self.connection.execute(
             "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
             (4, utc_now()),
+        )
+
+    def _init_phase5_schema(self) -> None:
+        self.connection.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS architecture_decisions (
+                id TEXT PRIMARY KEY,
+                project_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                status TEXT NOT NULL,
+                context TEXT NOT NULL,
+                decision TEXT NOT NULL,
+                consequences TEXT NOT NULL,
+                linked_risk_ids TEXT NOT NULL,
+                next_step_ids TEXT NOT NULL,
+                metadata TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS risk_register (
+                id TEXT PRIMARY KEY,
+                project_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                severity TEXT NOT NULL,
+                status TEXT NOT NULL,
+                description TEXT NOT NULL,
+                mitigation TEXT NOT NULL,
+                owner TEXT NOT NULL,
+                evidence_refs TEXT NOT NULL,
+                metadata TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS next_steps (
+                id TEXT PRIMARY KEY,
+                project_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                status TEXT NOT NULL,
+                priority TEXT NOT NULL,
+                source_risk_id TEXT,
+                source_decision_id TEXT,
+                owner TEXT NOT NULL,
+                due_at TEXT,
+                metadata TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_architecture_decisions_project_status
+                ON architecture_decisions(project_id, status, updated_at);
+            CREATE INDEX IF NOT EXISTS idx_risk_register_project_status
+                ON risk_register(project_id, status, severity);
+            CREATE INDEX IF NOT EXISTS idx_next_steps_project_status
+                ON next_steps(project_id, status, priority);
+            """
+        )
+        self.connection.execute(
+            "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+            (5, utc_now()),
         )
 
     def _seed_providers(self) -> None:
@@ -1554,6 +1613,21 @@ class PlatformStore:
 
         return SkillRegistry(self.connection).list_skills()
 
+    def list_architecture_decisions(self) -> list[dict[str, Any]]:
+        from .governance.repository import GovernanceRepository
+
+        return GovernanceRepository(self.connection).list_architecture_decisions()
+
+    def list_risks(self) -> list[dict[str, Any]]:
+        from .governance.repository import GovernanceRepository
+
+        return GovernanceRepository(self.connection).list_risks()
+
+    def list_next_steps(self) -> list[dict[str, Any]]:
+        from .governance.repository import GovernanceRepository
+
+        return GovernanceRepository(self.connection).list_next_steps()
+
     def ensure_runtime_project(self) -> dict[str, Any]:
         existing = self._get_project_by_path(self.cwd)
         if existing:
@@ -1599,6 +1673,9 @@ class PlatformStore:
             "costUsage": self.list_cost_usage(),
             "runtimeWorkspaces": self.list_runtime_workspaces(),
             "skills": self.list_skills(),
+            "architectureDecisions": self.list_architecture_decisions(),
+            "riskRegister": self.list_risks(),
+            "nextSteps": self.list_next_steps(),
             "openDesign": {"status": "python-backend"},
             "security": {"loopbackOnly": True, "writeTokenRequired": True},
         }

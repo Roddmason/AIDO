@@ -21,6 +21,8 @@ cost records, and audit events around agent-assisted engineering.
 - Policy-gated command and tool execution foundation.
 - Workflow, workspace, agent, model-policy, skill, memory, and evidence backend
   foundation.
+- Governance ledger for architecture decisions, risk register entries, and
+  prioritized next steps.
 - Workspace-aware path policy and task-scoped Git worktree allocation when the
   project is a Git repository.
 
@@ -80,6 +82,7 @@ or generated artifacts.
 - `docs/workspaces.md`
 - `docs/agents.md`
 - `docs/evidence.md`
+- `docs/governance.md`
 - `docs/frontend.md`
 - `docs/license-audit.md`
 - `docs/development.md`

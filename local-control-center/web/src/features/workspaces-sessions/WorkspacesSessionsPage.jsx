@@ -6,10 +6,10 @@ import { asArray, formatDate, shortId } from '../common/format.js';
 
 export function WorkspacesSessionsPage({ data }) {
 	const overview = data.overview || {};
-	const legacy = data.legacyState?.state || {};
+	const workspaceState = overview.workspaceState || {};
 	const projects = asArray(overview.projects);
 	const sessions = asArray(overview.sessions);
-	const chats = asArray(legacy.chats);
+	const chats = asArray(workspaceState.chats);
 
 	return (
 		<div className="page-stack" data-motion="section">
@@ -33,10 +33,10 @@ export function WorkspacesSessionsPage({ data }) {
 				<Surface title="Active Context" kicker="Pointers">
 					<div className="timeline">
 						{[
-							['active team', legacy.activeTeamId],
-							['active session', legacy.activeSessionId],
-							['active chat', legacy.activeChatId],
-							['active pipeline', legacy.activePipelineId],
+							['active team', workspaceState.activeTeamId],
+							['active session', workspaceState.activeSessionId],
+							['active chat', workspaceState.activeChatId],
+							['active pipeline', workspaceState.activePipelineId],
 						].map(([label, value]) => (
 							<div className="timeline-item" key={label}>
 								<FolderKanban size={18} aria-hidden="true" />

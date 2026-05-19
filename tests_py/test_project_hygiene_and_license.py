@@ -56,6 +56,10 @@ def test_gitignore_excludes_generated_artifacts_and_keeps_env_example() -> None:
         assert pattern in gitignore
 
 
+def test_legacy_typescript_source_tree_is_not_present_in_clean_workspace() -> None:
+    assert not (ROOT / "src").exists()
+
+
 def test_quality_and_security_scripts_are_declared() -> None:
     package = json.loads(read("package.json"))
     scripts = package["scripts"]

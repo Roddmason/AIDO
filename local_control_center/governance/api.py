@@ -9,6 +9,18 @@ from .repository import GovernanceRepository
 
 
 HIGH_RISK_SEVERITIES = {"high", "critical"}
+ALLOWED_DECISION_STATUSES = {"proposed", "accepted", "rejected", "superseded", "deprecated"}
+ALLOWED_RISK_SEVERITIES = {"low", "medium", "high", "critical"}
+ALLOWED_RISK_STATUSES = {"open", "monitoring", "mitigating", "mitigated", "accepted", "closed"}
+ALLOWED_NEXT_STEP_PRIORITIES = {"low", "medium", "high", "urgent"}
+ALLOWED_NEXT_STEP_STATUSES = {"planned", "in_progress", "blocked", "completed", "cancelled"}
+
+
+def validate_choice(field: str, value: str | None, allowed: set[str]) -> str:
+    normalized = (value or "").lower()
+    if normalized not in allowed:
+        raise HTTPException(status_code=422, detail=f"{field} must be one of: {', '.join(sorted(allowed))}.")
+    return normalized
 
 
 def create_router(*, platform: Any, require_write: Callable[[Request], None]) -> APIRouter:
@@ -34,6 +46,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     async def create_architecture_decision(request: Request) -> dict[str, Any]:
         require_write(request)
         body = await request.json()
+        body["status"] = validate_choice("status", body.get("status", "proposed"), ALLOWED_DECISION_STATUSES)
         if body.get("status") == "accepted" and not (body.get("context") and body.get("decision")):
             raise HTTPException(status_code=422, detail="Accepted decisions require context and decision text.")
         decision = repository().create_architecture_decision(body)
@@ -58,7 +71,9 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     async def create_risk(request: Request) -> dict[str, Any]:
         require_write(request)
         body = await request.json()
-        if body.get("severity", "").lower() in HIGH_RISK_SEVERITIES and not body.get("mitigation"):
+        body["severity"] = validate_choice("severity", body.get("severity", "medium"), ALLOWED_RISK_SEVERITIES)
+        body["status"] = validate_choice("status", body.get("status", "open"), ALLOWED_RISK_STATUSES)
+        if body["severity"] in HIGH_RISK_SEVERITIES and not body.get("mitigation"):
             raise HTTPException(status_code=422, detail="High and critical risks require a mitigation.")
         risk = repository().create_risk(body)
         platform.record_audit(
@@ -78,6 +93,10 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     async def update_risk(risk_id: str, request: Request) -> dict[str, Any]:
         require_write(request)
         body = await request.json()
+        if "severity" in body:
+            body["severity"] = validate_choice("severity", body.get("severity"), ALLOWED_RISK_SEVERITIES)
+        if "status" in body:
+            body["status"] = validate_choice("status", body.get("status"), ALLOWED_RISK_STATUSES)
         try:
             risk = repository().update_risk(risk_id, body)
         except KeyError as error:
@@ -98,6 +117,8 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     async def create_next_step(request: Request) -> dict[str, Any]:
         require_write(request)
         body = await request.json()
+        body["priority"] = validate_choice("priority", body.get("priority", "medium"), ALLOWED_NEXT_STEP_PRIORITIES)
+        body["status"] = validate_choice("status", body.get("status", "planned"), ALLOWED_NEXT_STEP_STATUSES)
         next_step = repository().create_next_step(body)
         platform.record_audit(
             project_id=next_step["projectId"],
@@ -111,6 +132,10 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     async def update_next_step(step_id: str, request: Request) -> dict[str, Any]:
         require_write(request)
         body = await request.json()
+        if "priority" in body:
+            body["priority"] = validate_choice("priority", body.get("priority"), ALLOWED_NEXT_STEP_PRIORITIES)
+        if "status" in body:
+            body["status"] = validate_choice("status", body.get("status"), ALLOWED_NEXT_STEP_STATUSES)
         try:
             next_step = repository().update_next_step(step_id, body)
         except KeyError as error:

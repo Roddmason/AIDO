@@ -5,6 +5,7 @@ from typing import Any
 
 from fastapi import APIRouter, Request
 
+from ..governance.signals import record_governance_risk
 from .policy_engine import evaluate_action
 from .repository import SecurityPolicyRepository
 from ..workspaces_projects.repository import WorkspacesRepository
@@ -60,6 +61,25 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             target=decision["id"],
             payload={"decision": decision["decision"], "riskLevel": decision["riskLevel"]},
         )
+        if decision["decision"] in {"deny", "requires_approval", "requires_human"}:
+            risk = record_governance_risk(
+                platform.connection,
+                project_id=decision.get("projectId"),
+                title=f"Policy gated action: {decision.get('tool') or 'unknown tool'}",
+                source_type="policy_decision",
+                source_id=decision["id"],
+                severity=decision["riskLevel"],
+                description=decision["reason"],
+                mitigation="Review the policy decision, approve only with a reason, and keep execution inside the allocated workspace.",
+                owner=decision.get("role") or "",
+                metadata={"decision": decision["decision"], "command": decision.get("command")},
+            )
+            if risk:
+                platform.record_event(
+                    project_id=risk["projectId"],
+                    event_type="risk.created",
+                    payload={"riskId": risk["id"], "sourceType": "policy_decision"},
+                )
         return {"decision": decision}
 
     return router

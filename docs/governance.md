@@ -9,8 +9,8 @@ work required to reduce it.
 
 - `architecture_decisions`: ADR-style records with status, context, decision,
   consequences, linked risks, and linked next steps.
-- `risk_register`: open, monitoring, mitigated, accepted, and closed risks.
-  High and critical risks require a mitigation at creation time.
+- `risk_register`: open, monitoring, mitigating, mitigated, accepted, and
+  closed risks. High and critical risks require a mitigation at creation time.
 - `next_steps`: prioritized execution items linked to risks or architecture
   decisions.
 
@@ -32,15 +32,19 @@ All mutating routes require the loopback write token from
 ## Rules
 
 - Accepted architecture decisions require both `context` and `decision`.
+- Architecture decision status is limited to `proposed`, `accepted`,
+  `rejected`, `superseded`, and `deprecated`.
+- Risk severity is limited to `low`, `medium`, `high`, and `critical`.
+- Next-step status and priority use explicit enums rather than free text.
 - High and critical risks require a non-empty `mitigation`.
 - Risk and next-step updates write audit events.
+- Policy gated actions, failed/blocked QA verdicts, and cancelled workflows
+  create risk-register entries automatically.
 - The dashboard reads governance state from `/api/v1/overview` and does not
   invent client-only state.
 
 ## Current Limitations
 
-- Governance records are not yet linked automatically to workflow failures or
-  policy denials.
 - There is no form UI yet. Records are created through API calls and rendered in
   the dashboard.
 - `PlatformStore` still aggregates governance state for overview compatibility;

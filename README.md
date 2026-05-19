@@ -23,6 +23,8 @@ cost records, and audit events around agent-assisted engineering.
   foundation.
 - Governance ledger for architecture decisions, risk register entries, and
   prioritized next steps.
+- Automatic risk creation from policy-gated actions, failed/blocked QA, and
+  cancelled workflows.
 - Workspace-aware path policy and task-scoped Git worktree allocation when the
   project is a Git repository.
 

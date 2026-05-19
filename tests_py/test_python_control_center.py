@@ -371,60 +371,64 @@ def test_fastapi_covers_legacy_dashboard_routes_with_real_state(tmp_path: Path, 
     project = store.create_project(name="Legacy", path=tmp_path / "legacy", template_id="other")
     app = create_app(store=store, static_dir=None)
     client = TestClient(app)
+    token = client.get("/api/v1/security/handshake").json()["token"]
+    headers = {"X-Local-Control-Token": token, "Origin": "http://127.0.0.1"}
 
     state = client.get("/api/state").json()
     assert "state" in state
     assert state["dashboard"]["backend"] == "python"
 
-    workspace_select = client.post("/api/workspaces/select", json={"path": project["path"]})
+    assert client.post("/api/sessions", json={"name": "Rejected"}).status_code == 403
+
+    workspace_select = client.post("/api/workspaces/select", json={"path": project["path"]}, headers=headers)
     assert workspace_select.status_code == 202
     assert workspace_select.json()["state"]["activeWorkspacePath"] == project["path"]
 
     for action in ("collapse", "expand", "pin", "unpin"):
-        response = client.post(f"/api/workspaces/{project['id']}/{action}", json={})
+        response = client.post(f"/api/workspaces/{project['id']}/{action}", json={}, headers=headers)
         assert response.status_code == 200
         assert "snapshot" in response.json()
 
-    session_response = client.post("/api/sessions", json={"name": "Python Session"})
+    session_response = client.post("/api/sessions", json={"name": "Python Session"}, headers=headers)
     assert session_response.status_code == 201
     session = session_response.json()["activeSession"]
     assert session["name"] == "Python Session"
 
-    assert client.post("/api/sessions/select", json={"sessionId": session["id"]}).status_code == 200
-    assert client.post(f"/api/sessions/{session['id']}/pin", json={}).status_code == 200
-    assert client.post(f"/api/sessions/{session['id']}/unpin", json={}).status_code == 200
-    patched = client.patch(f"/api/sessions/{session['id']}", json={"name": "Renamed"})
+    assert client.post("/api/sessions/select", json={"sessionId": session["id"]}, headers=headers).status_code == 200
+    assert client.post(f"/api/sessions/{session['id']}/pin", json={}, headers=headers).status_code == 200
+    assert client.post(f"/api/sessions/{session['id']}/unpin", json={}, headers=headers).status_code == 200
+    patched = client.patch(f"/api/sessions/{session['id']}", json={"name": "Renamed"}, headers=headers)
     assert patched.status_code == 200
     assert patched.json()["activeSession"]["name"] == "Renamed"
-    cloned = client.post(f"/api/sessions/{session['id']}/clone", json={"name": "Clone"})
+    cloned = client.post(f"/api/sessions/{session['id']}/clone", json={"name": "Clone"}, headers=headers)
     assert cloned.status_code == 201
     assert cloned.json()["activeSession"]["name"] == "Clone"
 
-    config = client.patch("/api/config", json={"pipelinePolicy": {"mode": "manual"}})
+    config = client.patch("/api/config", json={"pipelinePolicy": {"mode": "manual"}}, headers=headers)
     assert config.status_code == 202
     assert config.json()["state"]["configCatalog"]["pipelinePolicy"]["mode"] == "manual"
 
-    chat = client.post("/api/chats/send", json={"prompt": "Route this prompt", "mode": "auto"})
+    chat = client.post("/api/chats/send", json={"prompt": "Route this prompt", "mode": "auto"}, headers=headers)
     assert chat.status_code == 202
     chat_id = chat.json()["activeChat"]["id"]
     assert client.get(f"/api/chats/{chat_id}").status_code == 200
 
-    intake = client.post("/api/idea/intake", json={"idea": "Build a Python parity route"})
+    intake = client.post("/api/idea/intake", json={"idea": "Build a Python parity route"}, headers=headers)
     assert intake.status_code == 202
     pipeline_id = intake.json()["activePipeline"]["id"]
     assert client.get(f"/api/pipelines/{pipeline_id}").status_code == 200
 
     for suffix in ("start", "retry", "archive"):
-        assert client.post(f"/api/pipelines/{pipeline_id}/{suffix}", json={}).status_code == 202
+        assert client.post(f"/api/pipelines/{pipeline_id}/{suffix}", json={}, headers=headers).status_code == 202
     for suffix in ("stages/retry", "stages/assign", "stages/override"):
-        assert client.post(f"/api/pipelines/{pipeline_id}/{suffix}", json={"stageName": "analyze"}).status_code == 202
+        assert client.post(f"/api/pipelines/{pipeline_id}/{suffix}", json={"stageName": "analyze"}, headers=headers).status_code == 202
 
-    assert client.post("/api/extensions/marketplaces", json={"target": "claude", "source": "local"}).status_code == 202
-    assert client.post("/api/extensions/plugins/install", json={"pluginRef": "local/plugin"}).status_code == 202
-    assert client.post("/api/extensions/plugins/sync-skills", json={"pluginKey": "local"}).status_code == 202
-    assert client.post("/api/extensions/skills/install", json={"sourcePath": str(tmp_path)}).status_code == 202
-    assert client.post("/api/git/checkout", json={"branch": "feature/test"}).status_code == 202
-    assert client.delete(f"/api/sessions/{session['id']}").status_code == 200
+    assert client.post("/api/extensions/marketplaces", json={"target": "claude", "source": "local"}, headers=headers).status_code == 202
+    assert client.post("/api/extensions/plugins/install", json={"pluginRef": "local/plugin"}, headers=headers).status_code == 202
+    assert client.post("/api/extensions/plugins/sync-skills", json={"pluginKey": "local"}, headers=headers).status_code == 202
+    assert client.post("/api/extensions/skills/install", json={"sourcePath": str(tmp_path)}, headers=headers).status_code == 202
+    assert client.post("/api/git/checkout", json={"branch": "feature/test"}, headers=headers).status_code == 202
+    assert client.delete(f"/api/sessions/{session['id']}", headers=headers).status_code == 200
 
 
 def test_retrieval_status_reports_faiss_or_explicit_degraded_fallback(tmp_path: Path, monkeypatch) -> None:
@@ -448,6 +452,12 @@ def test_package_manager_is_pnpm_only() -> None:
     assert all(not command.strip().startswith("npm ") for command in scripts.values())
     start_script = Path("local-control-center/scripts/start-control-center.ps1").read_text(encoding="utf-8")
     assert re.search(r"(?<!p)npm\s+run", start_script) is None
+
+
+def test_cli_configures_windows_selector_event_loop_policy() -> None:
+    from local_control_center import cli
+
+    assert cli.configure_windows_event_loop_policy(platform_name="nt") is True
     assert Path("pnpm-lock.yaml").exists()
     assert not Path("package-lock.json").exists()
 

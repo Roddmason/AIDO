@@ -21,6 +21,10 @@ Current JavaScript dashboard coverage now includes:
 - Design Lab
 - Settings
 
+The active dashboard reads operational state from `/api/v1/overview` and
+`/api/v1/retrieval/status`. It no longer calls `/api/state`; that route remains
+only as isolated legacy compatibility for older clients and contract tests.
+
 ## Target Structure
 
 ```text

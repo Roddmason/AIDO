@@ -66,6 +66,18 @@ def test_frontend_feature_slices_are_explicit() -> None:
         assert (SRC / "features" / feature).is_dir(), feature
 
 
+def test_dashboard_reads_operational_overview_instead_of_legacy_state_endpoint() -> None:
+    web_sources = "\n".join(
+        read(path)
+        for path in SRC.rglob("*")
+        if path.is_file() and path.suffix in {".js", ".jsx"}
+    )
+
+    assert "/api/state" not in web_sources
+    assert "getLegacyState" not in web_sources
+    assert "workspaceState" in web_sources
+
+
 def test_visual_guardrails_reject_generic_ai_dashboard_patterns() -> None:
     css_paths = list((SRC / "design-system").glob("*.css")) + [WEB / "dashboard.css"]
     combined = "\n".join(read(path) for path in css_paths if path.exists())

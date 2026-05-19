@@ -31,10 +31,6 @@ export function getOverview(signal) {
 	return apiRequest('/api/v1/overview', { signal });
 }
 
-export function getLegacyState(signal) {
-	return apiRequest('/api/state', { signal });
-}
-
 export function getRetrievalStatus(signal) {
 	return apiRequest('/api/v1/retrieval/status', { signal });
 }

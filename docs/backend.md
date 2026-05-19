@@ -18,6 +18,7 @@ moves into feature repositories.
 - `evidence`: evidence packages, test results, and QA verdict gates.
 - `governance`: architecture decisions, risk register, and execution next
   steps with audit-backed updates.
+- `legacy_compat`: isolated adapters for old dashboard `/api/*` contracts.
 
 ## Store Direction
 
@@ -30,6 +31,12 @@ not through new generic methods on `PlatformStore`.
 `local_control_center.api.create_app()` composes routers and should be the only
 FastAPI creation path. The package intentionally avoids creating a global app at
 import time so tests and CLI runs can inject an isolated store safely.
+
+Legacy dashboard routes are no longer embedded in the root API module. They are
+mounted from `legacy_compat` so active v1 development does not accumulate
+compatibility code in the composition layer. Mutating compatibility routes also
+require the loopback write token; compatibility is not allowed to bypass local
+security policy.
 
 ## Migration Policy
 

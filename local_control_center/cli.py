@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import os
 import threading
 import time
@@ -11,6 +12,16 @@ import uvicorn
 from .app import create_app
 from .store import PlatformStore, default_db_path
 from .worker import ConcurrentWorker
+
+
+def configure_windows_event_loop_policy(platform_name: str = os.name) -> bool:
+    if platform_name != "nt":
+        return False
+    selector_policy = getattr(asyncio, "WindowsSelectorEventLoopPolicy", None)
+    if selector_policy is None:
+        return False
+    asyncio.set_event_loop_policy(selector_policy())
+    return True
 
 
 def parse_args() -> argparse.Namespace:
@@ -30,6 +41,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    configure_windows_event_loop_policy()
     args = parse_args()
     cwd = Path(args.workspace)
     db_path = Path(args.db_path)

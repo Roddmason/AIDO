@@ -8,11 +8,10 @@ Runtime target: Windows-native Python/FastAPI backend with React dashboard.
 
 The repository contains a working Python/FastAPI Local Control Center with SQLite
 state, jobs, granular action approvals, worker leasing, memory/retrieval, and a
-React dashboard. It also contains a large root `src/` tree that appears to be
-Claude Code/Anthropic TypeScript CLI source or extracted legacy material. That
-tree is not part of the Python backend or the active React dashboard and should
-be treated as legacy/audit material until ownership and license provenance are
-proven.
+React dashboard. A large ignored root `src/` tree with Claude Code/Anthropic
+TypeScript CLI material was observed during the initial audit and has now been
+removed from the clean workspace. It was not part of the Python backend or the
+active React dashboard and must not be reintroduced without license provenance.
 
 The highest-priority issues are source hygiene, license clarity, `store.py`
 coupling, FAISS being mandatory, and the lack of first-class workflow/evidence
@@ -21,7 +20,9 @@ tables.
 ## Current Module Map
 
 - `local_control_center/app.py`: FastAPI composition entrypoint.
-- `local_control_center/api.py`: root v1 and legacy compatibility routes.
+- `local_control_center/api.py`: root v1 composition and active Python routes.
+- `local_control_center/legacy_compat/`: isolated compatibility adapter for old
+  dashboard `/api/*` routes.
 - `local_control_center/store.py`: SQLite facade and remaining god object.
 - `local_control_center/worker.py`: compatibility import for the concurrent worker.
 - `local_control_center/jobs_approvals/`: jobs, leases, action requests, audit,
@@ -44,7 +45,8 @@ tables.
   slice placeholders that need real ownership in later phases.
 - `local-control-center/web/`: active React dashboard, currently JavaScript/JSX.
 - `local-control-center/scripts/`: Windows PowerShell launch/autostart/DNS scripts.
-- `src/`: legacy or third-party TypeScript CLI surface. Not active core.
+- root `src/`: removed legacy or third-party TypeScript CLI surface. Not active
+  core and not allowed back into source without provenance.
 
 ## Current Endpoints
 
@@ -93,7 +95,7 @@ Core v1:
 - `GET /api/v1/model-providers`
 - `GET|POST /api/v1/model-policies`
 
-Legacy dashboard compatibility:
+Legacy dashboard compatibility, isolated under `local_control_center/legacy_compat`:
 
 - `/api/state`
 - `/api/workspaces`, `/api/workspaces/select`, `/api/workspaces/{workspace_ref}/{action}`
@@ -240,12 +242,12 @@ PNPM is already configured through `packageManager`.
 
 - `package.json` declared `ISC`; that conflicts with the chosen private/no
   commercial strategy and is now treated as incorrect metadata.
-- The root `src/` tree contains many Claude Code/Anthropic references and a
-  nested `src/node_modules`. Its provenance is not clear enough for AIDO core.
-- Do not use the root `src/` tree as implementation source until license and
-  ownership are audited. Recommended physical treatment in a later phase:
-  `legacy/anthropic-cli-audit/` or remove from the clean repo if it is only
-  extracted reference material.
+- The removed root `src/` tree contained many Claude Code/Anthropic references
+  and a nested `src/node_modules`. Its provenance was not clear enough for AIDO
+  core, so it was physically deleted from the workspace rather than archived
+  into the product repository.
+- Do not use or restore the removed root `src/` tree as implementation source
+  unless license and ownership are audited separately.
 - `faiss-cpu` is OSI-compatible but operationally optional on Windows; it should
   not be a mandatory install for local MVP tests.
 
@@ -254,8 +256,8 @@ PNPM is already configured through `packageManager`.
 Observed source artifacts:
 
 - `node_modules/`
-- `src/node_modules/`
-- `src/` until license provenance and ownership are proven
+- removed root `src/node_modules/`
+- removed root `src/` until license provenance and ownership are proven
 - `local-control-center/dist/`
 - `__pycache__/`
 - `.pytest_cache/`
@@ -269,12 +271,12 @@ inside dependency folders during this audit, not as active root source files.
 
 ## Prioritized Technical Debt
 
-1. Isolate or remove the root `src/` TypeScript CLI tree from AIDO core.
-2. Reduce `PlatformStore` to a facade and move schema ownership into migrations
+1. Reduce `PlatformStore` to a facade and move schema ownership into migrations
    plus vertical repositories.
-3. Replace broad legacy `/api/*` handlers with `legacy_compat` delegators.
-4. Add real git worktree/devcontainer workspace execution after the current
+2. Keep legacy `/api/*` compatibility isolated in `legacy_compat` until React
+   stops needing those contracts and the API matrix marks them removable.
+3. Add real git worktree/devcontainer workspace execution after the current
    logical allocation API is stable.
-5. Migrate frontend to TypeScript/Vite after the new control-plane endpoints are
+4. Migrate frontend to TypeScript/Vite after the new control-plane endpoints are
    fully represented in the current dashboard.
-6. Add recurring license/security scans to quality checks.
+5. Add recurring license/security scans to quality checks.

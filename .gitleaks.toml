@@ -1,0 +1,18 @@
+title = "AIDO gitleaks baseline"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Documentation and sample environment files"
+paths = [
+  '''\.env\.example$''',
+  '''docs/.*\.md$''',
+  '''^\.venv/''',
+  '''^node_modules/''',
+  '''^src/''',
+  '''^local-control-center/dist/''',
+  '''^\.claude/''',
+  '''^\.tmp/''',
+  '''^test-results/''',
+]

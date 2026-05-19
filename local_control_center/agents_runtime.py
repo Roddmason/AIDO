@@ -1,0 +1,54 @@
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass
+
+from .store import PlatformStore
+
+
+@dataclass
+class PlannerResult:
+    enabled: bool
+    summary: str
+    action_request_id: str | None = None
+
+
+class GatedAgentsPlanner:
+    """Thin optional integration point for the OpenAI Agents SDK.
+
+    The first Python cut deliberately keeps the SDK behind the local policy and
+    approval layer. It may propose actions, but it does not execute commands.
+    """
+
+    def __init__(self, *, store: PlatformStore):
+        self.store = store
+
+    def available(self) -> bool:
+        if not os.environ.get("OPENAI_API_KEY"):
+            return False
+        try:
+            import agents  # noqa: F401
+        except Exception:
+            return False
+        return True
+
+    def propose_action(self, *, project_id: str, job_id: str, prompt: str) -> PlannerResult:
+        if not self.available():
+            return PlannerResult(
+                enabled=False,
+                summary="OpenAI Agents SDK is disabled until OPENAI_API_KEY and openai-agents are available.",
+            )
+        action = self.store.create_action_request(
+            project_id=project_id,
+            job_id=job_id,
+            action_type="agent.proposed_action",
+            risk_level="medium",
+            command="agents-sdk-plan",
+            payload={"prompt": prompt},
+            reason="Agents SDK proposed an action that requires local policy approval.",
+        )
+        return PlannerResult(
+            enabled=True,
+            summary="Agents SDK proposal recorded behind the approval gate.",
+            action_request_id=action["id"],
+        )

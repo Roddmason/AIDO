@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Python virtual environments and local tooling
+.venv/
+venv/
+.uv-cache/
+
+# JavaScript / frontend
+/node_modules/
+/src/
+/src/node_modules/
+local-control-center/dist/
+/dist/
+coverage/
+playwright-report/
+test-results/
+
+# Local runtime state
+.claude/
+.tmp/
+*.sqlite
+*.sqlite3
+*.db
+*.db-wal
+*.db-shm
+*.log
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

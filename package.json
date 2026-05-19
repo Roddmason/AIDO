@@ -1,0 +1,56 @@
+{
+  "name": "claude-rebuild",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "cli.js",
+  "packageManager": "pnpm@10.24.0",
+  "engines": {
+    "node": ">=18.20.0"
+  },
+  "scripts": {
+    "prestart": "corepack pnpm@10.24.0 run build:control-center",
+    "start": "powershell -NoProfile -ExecutionPolicy Bypass -File local-control-center/scripts/start-control-center.ps1 -DashboardHost 127.0.0.1 -DashboardPort 4310",
+    "start:py": "uv run python -m local_control_center --dashboard-host 127.0.0.1 --dashboard-port 4310",
+    "build:control-center": "node local-control-center/build.mjs",
+    "test": "uv run pytest tests_py -q",
+    "test:py": "uv run pytest tests_py -q",
+    "test:all": "corepack pnpm@10.24.0 run build:control-center && corepack pnpm@10.24.0 run test:py",
+    "test:web": "corepack pnpm@10.24.0 run build:control-center && playwright test",
+    "lint": "corepack pnpm@10.24.0 run lint:py",
+    "lint:py": "uv run --extra dev ruff check .",
+    "security:licenses:py": "uv run --extra dev pip-licenses --format=markdown",
+    "security:licenses:js": "corepack pnpm@10.24.0 licenses list",
+    "security:secrets": "gitleaks detect --no-git --source . --config .gitleaks.toml --redact",
+    "security:sast": "uv run --extra dev semgrep scan --config .semgrep.yml",
+    "quality": "corepack pnpm@10.24.0 run lint && corepack pnpm@10.24.0 run test:all && corepack pnpm@10.24.0 run security:secrets && corepack pnpm@10.24.0 run security:sast"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "UNLICENSED",
+  "description": "",
+  "dependencies": {
+    "@inkjs/ui": "^2.0.0",
+    "@radix-ui/react-dialog": "^1.1.15",
+    "@radix-ui/react-dropdown-menu": "^2.1.16",
+    "@radix-ui/react-tooltip": "^1.2.8",
+    "@xyflow/react": "^12.10.2",
+    "dagre": "^0.8.5",
+    "gsap": "^3.15.0",
+    "ink": "^5.2.1",
+    "ink-text-input": "^6.0.0",
+    "lucide-react": "^1.16.0",
+    "react": "^18.3.1",
+    "react-devtools-core": "^4.28.5",
+    "react-dom": "^18.3.1",
+    "sileo": "^0.1.5",
+    "source-map": "^0.7.6",
+    "sql.js": "^1.14.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.60.0",
+    "@types/node": "^25.5.0",
+    "esbuild": "^0.27.4",
+    "typescript": "^6.0.2"
+  }
+}

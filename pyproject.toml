@@ -1,0 +1,38 @@
+[project]
+name = "local-control-center"
+version = "0.1.0"
+description = "Windows-native Python backend for the Local Control Center."
+requires-python = ">=3.11"
+dependencies = [
+	"fastapi>=0.136.0",
+	"uvicorn>=0.37.0",
+	"numpy>=1.26.0",
+]
+
+[project.optional-dependencies]
+agents = ["openai-agents>=0.4.0"]
+faiss = ["faiss-cpu>=1.13.0"]
+dev = [
+	"ruff>=0.14.9",
+	"pre-commit>=4.5.0",
+	"pip-licenses>=5.5.0",
+	"semgrep>=1.145.0",
+]
+test = ["pytest>=9.0.0", "httpx>=0.28.0"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests_py"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+extend-exclude = [
+	"node_modules",
+	"src",
+	"local-control-center/dist",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "B"]
+ignore = ["E501"]

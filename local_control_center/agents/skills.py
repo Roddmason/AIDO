@@ -5,7 +5,8 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from local_control_center.store import json_dumps, json_loads, utc_now
+from local_control_center.shared.serialization import json_dumps, json_loads
+from local_control_center.shared.time import utc_now
 
 
 REQUIRED_SKILL_KEYS = {
@@ -118,3 +119,4 @@ class SkillRegistry:
     def list_skills(self) -> list[dict[str, Any]]:
         rows = self.connection.execute("SELECT * FROM skills ORDER BY name ASC").fetchall()
         return [row_to_skill(row) for row in rows]
+

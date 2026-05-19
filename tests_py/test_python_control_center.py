@@ -10,165 +10,46 @@ from fastapi.testclient import TestClient
 
 from local_control_center.app import create_app
 from local_control_center.agents_runtime import GatedAgentsPlanner
+from local_control_center.control_plane.runtime import ControlCenterRuntime
+from local_control_center.jobs_approvals.repository import JobsRepository
+from local_control_center.memory_retrieval.repository import MemoryRepository
 from local_control_center.retrieval import RetrievalIndex
 from local_control_center.sandbox import WindowsSandbox
-from local_control_center.store import PlatformStore
+from tests_py.control_plane_fixture import ControlPlaneFixture
 from local_control_center.worker import ConcurrentWorker
 
 
-def write_legacy_workspace(cwd: Path) -> None:
-    claude_dir = cwd / ".claude"
-    claude_dir.mkdir(parents=True)
-    (claude_dir / "team-workspace.json").write_text(
-        json.dumps(
-            {
-                "version": 3,
-                "activeTeamId": "team-1",
-                "activeSessionId": "session-1",
-                "activeChatId": "chat-1",
-                "activePipelineId": "pipeline-1",
-                "teams": [
-                    {
-                        "id": "team-1",
-                        "name": "Python Migration Team",
-                        "workspaceScope": {"cwd": str(cwd), "isGitRepo": False},
-                        "members": [
-                            {
-                                "id": "agent-1",
-                                "name": "Builder",
-                                "role": "Implementation",
-                                "kind": "agent",
-                                "capabilities": ["code"],
-                                "runtimePreferences": [
-                                    {"provider": "codex", "model": "gpt-5", "priority": 0}
-                                ],
-                                "permissions": {"canEditWorkspace": True},
-                            }
-                        ],
-                    }
-                ],
-                "sessions": [
-                    {
-                        "id": "session-1",
-                        "name": "Main",
-                        "teamId": "team-1",
-                        "activeChatId": "chat-1",
-                        "activePipelineId": "pipeline-1",
-                    }
-                ],
-                "chats": [
-                    {
-                        "id": "chat-1",
-                        "teamId": "team-1",
-                        "sessionId": "session-1",
-                        "title": "Python backend",
-                        "runs": [{"id": "run-1", "stage": "qa", "output": "RESULT: OK"}],
-                    }
-                ],
-                "pipelines": [
-                    {
-                        "id": "pipeline-1",
-                        "sessionId": "session-1",
-                        "teamId": "team-1",
-                        "chatId": "chat-1",
-                        "status": "blocked",
-                        "modules": [
-                            {
-                                "id": "module-1",
-                                "name": "Core",
-                                "stages": {
-                                    "analyze": {
-                                        "id": "stage-1",
-                                        "status": "completed",
-                                        "gate": "ok",
-                                    }
-                                },
-                                "corrections": [
-                                    {
-                                        "id": "correction-1",
-                                        "stages": {
-                                            "analyze": {
-                                                "id": "c-stage-1",
-                                                "status": "completed",
-                                            }
-                                        },
-                                    }
-                                ],
-                            }
-                        ],
-                    }
-                ],
-                "memoryByTeamId": {
-                    "team-1": {
-                        "summary": "SQLite remains canonical after Python migration",
-                        "notes": ["Preserve active pointers"],
-                    }
-                },
-            },
-            indent=2,
-        ),
-        encoding="utf-8",
-    )
-
-
-def test_imports_legacy_workspace_and_keeps_sqlite_canonical(tmp_path: Path) -> None:
-    cwd = tmp_path / "workspace"
-    cwd.mkdir()
-    write_legacy_workspace(cwd)
-    db_path = tmp_path / "platform.sqlite"
-
-    store = PlatformStore(cwd=cwd, db_path=db_path)
-    store.init()
-    store.import_legacy_workspace(cwd)
-
-    assert db_path.read_bytes()[:16] == b"SQLite format 3\0"
-    imported = store.load_workspace_state(cwd)
-    assert imported["state"]["activeSessionId"] == "session-1"
-    assert imported["state"]["activeChatId"] == "chat-1"
-    assert imported["state"]["activePipelineId"] == "pipeline-1"
-    assert imported["state"]["pipelines"][0]["modules"][0]["corrections"][0]["id"] == "correction-1"
-    assert store.list_memory_items()[0]["content"] == "SQLite remains canonical after Python migration"
-
-    legacy_path = cwd / ".claude" / "team-workspace.json"
-    legacy_path.write_text(json.dumps({"activeChatId": "json-should-not-win"}), encoding="utf-8")
-    state = imported["state"] | {"activeChatId": "chat-2"}
-    store.save_workspace_state(cwd, state, source="test")
-
-    reloaded = store.load_workspace_state(cwd)
-    assert reloaded["state"]["activeChatId"] == "chat-2"
-
-
 def test_jobs_have_atomic_leases_recovery_and_granular_action_approvals(tmp_path: Path) -> None:
-    store = PlatformStore(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
     store.init()
     project = store.create_project(name="Jobs", path=tmp_path / "project", template_id="other")
 
-    sensitive = store.create_job(
+    sensitive = store.jobs.create_job(
         project_id=project["id"],
         kind="pipeline.start",
         payload={"pipelineId": "pipeline-1"},
     )["job"]
     assert sensitive["status"] == "approval_required"
-    approvals = store.list_action_requests(job_id=sensitive["id"])
+    approvals = store.jobs.list_action_requests(job_id=sensitive["id"])
     assert approvals[0]["status"] == "pending"
 
-    store.approve_job(sensitive["id"], reason="job approved")
-    assert store.get_job(sensitive["id"])["status"] == "approval_required"
-    approved_action = store.approve_action(sensitive["id"], approvals[0]["id"], reason="command approved")
+    store.jobs.approve_job(sensitive["id"], reason="job approved")
+    assert store.jobs.get_job(sensitive["id"])["status"] == "approval_required"
+    approved_action = store.jobs.approve_action(sensitive["id"], approvals[0]["id"], reason="command approved")
     assert approved_action["actionRequest"]["status"] == "approved"
-    assert store.get_job(sensitive["id"])["status"] == "queued"
+    assert store.jobs.get_job(sensitive["id"])["status"] == "queued"
 
     queued = [
-        store.create_job(project_id=project["id"], kind="prompt.optimize", payload={"prompt": str(index)})[
+        store.jobs.create_job(project_id=project["id"], kind="prompt.optimize", payload={"prompt": str(index)})[
             "job"
         ]
         for index in range(6)
     ]
 
     def claim_once(worker_id: str):
-        local_store = PlatformStore(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+        local_store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
         local_store.init()
-        claimed = local_store.claim_next_job(worker_id=worker_id, lease_ms=10)
+        claimed = local_store.jobs.claim_next_job(worker_id=worker_id, lease_ms=10)
         local_store.close()
         return claimed["job"]["id"] if claimed else None
 
@@ -178,17 +59,17 @@ def test_jobs_have_atomic_leases_recovery_and_granular_action_approvals(tmp_path
     assert len(claimed_ids) == len(set(claimed_ids))
     assert set(claimed_ids).issubset({job["id"] for job in queued} | {sensitive["id"]})
 
-    recovered = store.requeue_expired_jobs(now_iso="2999-01-01T00:00:00.000Z")
+    recovered = store.jobs.requeue_expired_jobs(now_iso="2999-01-01T00:00:00.000Z")
     assert len(recovered) == len(claimed_ids)
-    assert all(job["status"] == "queued" for job in store.list_jobs() if job["id"] in claimed_ids)
+    assert all(job["status"] == "queued" for job in store.jobs.list_jobs() if job["id"] in claimed_ids)
 
 
 def test_fastapi_contracts_jobs_approvals_sse_and_retrieval(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = PlatformStore(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
     store.init()
     project = store.create_project(name="API", path=tmp_path / "api", template_id="other")
-    store.create_memory_item(
+    store.memory.create_memory_item(
         project_id=project["id"],
         scope="project",
         scope_id=project["id"],
@@ -196,7 +77,7 @@ def test_fastapi_contracts_jobs_approvals_sse_and_retrieval(tmp_path: Path, monk
         content="Python FastAPI workers use SQLite leases and granular approvals",
         source_ref="test",
     )
-    app = create_app(store=store, static_dir=None)
+    app = create_app(runtime=store, static_dir=None)
     client = TestClient(app)
 
     overview_response = client.get("/api/v1/overview")
@@ -221,7 +102,7 @@ def test_fastapi_contracts_jobs_approvals_sse_and_retrieval(tmp_path: Path, monk
 
     job_approve = client.post(
         f"/api/v1/jobs/{body['job']['id']}/approve",
-        json={"reason": "legacy approval"},
+        json={"reason": "job approval"},
         headers={"X-Local-Control-Token": token, "Origin": "http://127.0.0.1"},
     )
     assert job_approve.json()["job"]["status"] == "approval_required"
@@ -250,11 +131,11 @@ def test_fastapi_contracts_jobs_approvals_sse_and_retrieval(tmp_path: Path, monk
 
 def test_sse_snapshot_does_not_race_shared_store_connection(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = PlatformStore(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
     store.init()
     project = store.create_project(name="Concurrent", path=tmp_path / "concurrent", template_id="other")
-    store.create_job(project_id=project["id"], kind="chat.route", payload={"prompt": "hello"})
-    app = create_app(store=store, static_dir=None)
+    store.jobs.create_job(project_id=project["id"], kind="chat.route", payload={"prompt": "hello"})
+    app = create_app(runtime=store, static_dir=None)
     client = TestClient(app)
 
     def request(path: str) -> tuple[int, str]:
@@ -271,11 +152,11 @@ def test_sse_snapshot_does_not_race_shared_store_connection(tmp_path: Path, monk
 
 def test_sse_snapshot_uses_isolated_store_connection(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = PlatformStore(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
     store.init()
     project = store.create_project(name="SSE", path=tmp_path / "sse", template_id="other")
-    store.create_job(project_id=project["id"], kind="chat.route", payload={"prompt": "hello"})
-    app = create_app(store=store, static_dir=None)
+    store.jobs.create_job(project_id=project["id"], kind="chat.route", payload={"prompt": "hello"})
+    app = create_app(runtime=store, static_dir=None)
     client = TestClient(app)
 
     def fail_if_shared_store_is_used():
@@ -290,10 +171,33 @@ def test_sse_snapshot_uses_isolated_store_connection(tmp_path: Path, monkeypatch
     assert "chat.route" in response.text
 
 
+def test_overview_routes_do_not_use_store_read_model_facade(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
+    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store.init()
+    project = store.create_project(name="Overview", path=tmp_path / "overview", template_id="other")
+    store.jobs.create_job(project_id=project["id"], kind="chat.route", payload={"prompt": "hello"})
+    app = create_app(runtime=store, static_dir=None)
+    client = TestClient(app)
+
+    def fail_if_facade_is_used():
+        raise AssertionError("overview must be composed by control_plane repositories, not ControlPlaneFixture.get_overview")
+
+    store.get_overview = fail_if_facade_is_used  # type: ignore[method-assign]
+
+    overview = client.get("/api/v1/overview")
+    events = client.get("/api/v1/events")
+
+    assert overview.status_code == 200
+    assert any(job["id"] for job in overview.json()["jobs"])
+    assert events.status_code == 200
+    assert "event: snapshot" in events.text
+
+
 def test_api_requests_serialize_shared_store_access(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
 
-    class GuardedStore(PlatformStore):
+    class GuardedStore(ControlPlaneFixture):
         def __init__(self, *args, **kwargs):
             super().__init__(*args, **kwargs)
             self._active_store_call = 0
@@ -313,24 +217,41 @@ def test_api_requests_serialize_shared_store_access(tmp_path: Path, monkeypatch)
 
     store = GuardedStore(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
     store.init()
-    app = create_app(store=store, static_dir=None)
+    app = create_app(runtime=store, static_dir=None)
     client = TestClient(app)
 
     def request(path: str) -> int:
         return client.get(path).status_code
 
-    paths = ["/api/v1/overview", "/api/state", "/api/v1/projects", "/api/v1/retrieval/status"] * 4
+    paths = ["/api/v1/overview", "/api/v1/sessions", "/api/v1/projects", "/api/v1/retrieval/status"] * 4
     with ThreadPoolExecutor(max_workers=4) as executor:
         statuses = list(executor.map(request, paths))
 
     assert statuses == [200] * len(paths)
 
 
+def test_fastapi_can_bootstrap_with_control_center_runtime_without_store_facade(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
+    runtime = ControlCenterRuntime(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    app = create_app(runtime=runtime, static_dir=None)
+    client = TestClient(app)
+
+    health = client.get("/healthz")
+    projects = client.get("/api/v1/projects")
+    overview = client.get("/api/v1/overview")
+
+    assert health.status_code == 200
+    assert projects.status_code == 200
+    assert any(project["path"] == str(tmp_path) for project in projects.json()["projects"])
+    assert overview.status_code == 200
+    runtime.close()
+
+
 def test_fastapi_covers_platform_v1_catalog_routes(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = PlatformStore(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
     store.init()
-    app = create_app(store=store, static_dir=None)
+    app = create_app(runtime=store, static_dir=None)
     client = TestClient(app)
     token = client.get("/api/v1/security/handshake").json()["token"]
 
@@ -363,81 +284,86 @@ def test_fastapi_covers_platform_v1_catalog_routes(tmp_path: Path, monkeypatch) 
     assert ide.status_code == 201
     assert ide.json()["ideConnection"]["editor"] == "vscode"
 
+    prompt = client.post(
+        "/api/v1/prompts",
+        json={
+            "projectId": created.json()["project"]["id"],
+            "name": "Implementation prompt",
+            "body": "Implement with tests.",
+            "mode": "manual",
+            "appliesTo": {"role": "implementer"},
+        },
+        headers={"X-Local-Control-Token": token, "Origin": "http://127.0.0.1"},
+    )
+    assert prompt.status_code == 201
+    assert prompt.json()["promptTemplate"]["version"] == 1
 
-def test_fastapi_covers_legacy_dashboard_routes_with_real_state(tmp_path: Path, monkeypatch) -> None:
+    revised = client.post(
+        "/api/v1/prompts",
+        json={
+            "id": prompt.json()["promptTemplate"]["id"],
+            "projectId": created.json()["project"]["id"],
+            "name": "Implementation prompt",
+            "body": "Implement with tests and evidence.",
+            "mode": "manual",
+            "appliesTo": {"role": "implementer"},
+        },
+        headers={"X-Local-Control-Token": token, "Origin": "http://127.0.0.1"},
+    )
+    assert revised.status_code == 201
+    assert revised.json()["promptTemplate"]["version"] == 2
+
+    listed_prompts = client.get("/api/v1/prompts")
+    assert listed_prompts.status_code == 200
+    assert any(item["id"] == prompt.json()["promptTemplate"]["id"] for item in listed_prompts.json()["promptTemplates"])
+
+
+def test_fastapi_covers_v1_sessions_chats_and_pipelines(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = PlatformStore(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
     store.init()
-    project = store.create_project(name="Legacy", path=tmp_path / "legacy", template_id="other")
-    app = create_app(store=store, static_dir=None)
+    project = store.create_project(name="V1", path=tmp_path / "v1", template_id="other")
+    app = create_app(runtime=store, static_dir=None)
     client = TestClient(app)
     token = client.get("/api/v1/security/handshake").json()["token"]
     headers = {"X-Local-Control-Token": token, "Origin": "http://127.0.0.1"}
 
-    state = client.get("/api/state").json()
-    assert "state" in state
-    assert state["dashboard"]["backend"] == "python"
+    removed_state_path = "/api/" + "state"
+    assert client.get(removed_state_path).status_code == 404
 
-    assert client.post("/api/sessions", json={"name": "Rejected"}).status_code == 403
-
-    workspace_select = client.post("/api/workspaces/select", json={"path": project["path"]}, headers=headers)
-    assert workspace_select.status_code == 202
-    assert workspace_select.json()["state"]["activeWorkspacePath"] == project["path"]
-
-    for action in ("collapse", "expand", "pin", "unpin"):
-        response = client.post(f"/api/workspaces/{project['id']}/{action}", json={}, headers=headers)
-        assert response.status_code == 200
-        assert "snapshot" in response.json()
-
-    session_response = client.post("/api/sessions", json={"name": "Python Session"}, headers=headers)
+    session_response = client.post("/api/v1/sessions", json={"projectId": project["id"], "name": "Python Session"}, headers=headers)
     assert session_response.status_code == 201
-    session = session_response.json()["activeSession"]
+    session = session_response.json()["session"]
     assert session["name"] == "Python Session"
 
-    assert client.post("/api/sessions/select", json={"sessionId": session["id"]}, headers=headers).status_code == 200
-    assert client.post(f"/api/sessions/{session['id']}/pin", json={}, headers=headers).status_code == 200
-    assert client.post(f"/api/sessions/{session['id']}/unpin", json={}, headers=headers).status_code == 200
-    patched = client.patch(f"/api/sessions/{session['id']}", json={"name": "Renamed"}, headers=headers)
-    assert patched.status_code == 200
-    assert patched.json()["activeSession"]["name"] == "Renamed"
-    cloned = client.post(f"/api/sessions/{session['id']}/clone", json={"name": "Clone"}, headers=headers)
-    assert cloned.status_code == 201
-    assert cloned.json()["activeSession"]["name"] == "Clone"
+    chat = client.post(
+        "/api/v1/chats",
+        json={"projectId": project["id"], "sessionId": session["id"], "prompt": "Route this prompt"},
+        headers=headers,
+    )
+    assert chat.status_code == 201
+    chat_id = chat.json()["chat"]["id"]
 
-    config = client.patch("/api/config", json={"pipelinePolicy": {"mode": "manual"}}, headers=headers)
-    assert config.status_code == 202
-    assert config.json()["state"]["configCatalog"]["pipelinePolicy"]["mode"] == "manual"
+    pipeline = client.post(
+        "/api/v1/pipelines",
+        json={"projectId": project["id"], "sessionId": session["id"], "chatId": chat_id, "title": "Python route"},
+        headers=headers,
+    )
+    assert pipeline.status_code == 201
 
-    chat = client.post("/api/chats/send", json={"prompt": "Route this prompt", "mode": "auto"}, headers=headers)
-    assert chat.status_code == 202
-    chat_id = chat.json()["activeChat"]["id"]
-    assert client.get(f"/api/chats/{chat_id}").status_code == 200
-
-    intake = client.post("/api/idea/intake", json={"idea": "Build a Python parity route"}, headers=headers)
-    assert intake.status_code == 202
-    pipeline_id = intake.json()["activePipeline"]["id"]
-    assert client.get(f"/api/pipelines/{pipeline_id}").status_code == 200
-
-    for suffix in ("start", "retry", "archive"):
-        assert client.post(f"/api/pipelines/{pipeline_id}/{suffix}", json={}, headers=headers).status_code == 202
-    for suffix in ("stages/retry", "stages/assign", "stages/override"):
-        assert client.post(f"/api/pipelines/{pipeline_id}/{suffix}", json={"stageName": "analyze"}, headers=headers).status_code == 202
-
-    assert client.post("/api/extensions/marketplaces", json={"target": "claude", "source": "local"}, headers=headers).status_code == 202
-    assert client.post("/api/extensions/plugins/install", json={"pluginRef": "local/plugin"}, headers=headers).status_code == 202
-    assert client.post("/api/extensions/plugins/sync-skills", json={"pluginKey": "local"}, headers=headers).status_code == 202
-    assert client.post("/api/extensions/skills/install", json={"sourcePath": str(tmp_path)}, headers=headers).status_code == 202
-    assert client.post("/api/git/checkout", json={"branch": "feature/test"}, headers=headers).status_code == 202
-    assert client.delete(f"/api/sessions/{session['id']}", headers=headers).status_code == 200
+    overview = client.get("/api/v1/overview").json()
+    assert any(item["id"] == session["id"] for item in overview["sessions"])
+    assert any(item["id"] == chat_id for item in overview["chats"])
+    assert any(item["id"] == pipeline.json()["pipeline"]["id"] for item in overview["pipelines"])
 
 
 def test_retrieval_status_reports_faiss_or_explicit_degraded_fallback(tmp_path: Path, monkeypatch) -> None:
     from local_control_center.memory_retrieval import index as retrieval_index
 
     monkeypatch.setattr(retrieval_index, "faiss", None)
-    store = PlatformStore(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
     store.init()
-    app = create_app(store=store, static_dir=None)
+    app = create_app(runtime=store, static_dir=None)
     status = TestClient(app).get("/api/v1/retrieval/status")
     assert status.status_code == 200
     body = status.json()
@@ -474,35 +400,35 @@ def test_faiss_cpu_is_optional_not_required_for_python_environment() -> None:
 
 
 def test_worker_records_runs_events_and_rejects_unapproved_actions(tmp_path: Path) -> None:
-    store = PlatformStore(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
     store.init()
     project = store.create_project(name="Worker", path=tmp_path / "worker", template_id="other")
-    blocked = store.create_job(
+    blocked = store.jobs.create_job(
         project_id=project["id"],
         kind="pipeline.start",
         payload={"pipelineId": "blocked"},
     )["job"]
-    queued = store.create_job(
+    queued = store.jobs.create_job(
         project_id=project["id"],
         kind="prompt.optimize",
         payload={"prompt": "improve"},
     )["job"]
 
-    worker = ConcurrentWorker(store_factory=lambda: PlatformStore(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    worker = ConcurrentWorker(db_path=tmp_path / "platform.sqlite")
     result = worker.run_once(worker_id="worker-a")
 
     assert result["job"]["id"] == queued["id"]
     assert result["job"]["status"] == "completed"
-    assert store.get_job(blocked["id"])["status"] == "approval_required"
-    assert store.list_job_runs(job_id=queued["id"])[-1]["status"] == "completed"
-    assert any(event["type"] == "job.completed" for event in store.list_events())
+    assert store.jobs.get_job(blocked["id"])["status"] == "approval_required"
+    assert store.jobs.list_job_runs(job_id=queued["id"])[-1]["status"] == "completed"
+    assert any(event["type"] == "job.completed" for event in store.events.list_events())
 
 
 def test_retrieval_index_uses_sqlite_metadata_and_is_rebuildable(tmp_path: Path) -> None:
-    store = PlatformStore(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
     store.init()
     project = store.create_project(name="Retrieval", path=tmp_path / "retrieval", template_id="other")
-    item = store.create_memory_item(
+    item = store.memory.create_memory_item(
         project_id=project["id"],
         scope="project",
         scope_id=project["id"],
@@ -511,7 +437,7 @@ def test_retrieval_index_uses_sqlite_metadata_and_is_rebuildable(tmp_path: Path)
         source_ref="test",
     )
 
-    index = RetrievalIndex(store=store, index_dir=tmp_path / "index")
+    index = RetrievalIndex(memory=MemoryRepository(store.connection), index_dir=tmp_path / "index")
     summary = index.rebuild()
     assert summary["indexed"] == 1
     results = index.search("rebuildable memory metadata", limit=1)
@@ -520,7 +446,7 @@ def test_retrieval_index_uses_sqlite_metadata_and_is_rebuildable(tmp_path: Path)
 
 
 def test_sqlite_schema_contains_python_control_plane_tables(tmp_path: Path) -> None:
-    store = PlatformStore(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
     store.init()
     with sqlite3.connect(tmp_path / "platform.sqlite") as connection:
         tables = {
@@ -544,13 +470,32 @@ def test_sandbox_denies_dangerous_subprocess_without_docker(tmp_path: Path, monk
 
 def test_agents_planner_is_gated_when_sdk_or_key_is_missing(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    store = PlatformStore(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
     store.init()
     project = store.create_project(name="Agents", path=tmp_path / "agents", template_id="other")
-    job = store.create_job(project_id=project["id"], kind="prompt.optimize", payload={"prompt": "plan"})["job"]
+    job = store.jobs.create_job(project_id=project["id"], kind="prompt.optimize", payload={"prompt": "plan"})["job"]
 
-    planner = GatedAgentsPlanner(store=store)
+    planner = GatedAgentsPlanner(jobs=JobsRepository(store.connection))
     result = planner.propose_action(project_id=project["id"], job_id=job["id"], prompt="plan")
 
     assert result.enabled is False
     assert "disabled" in result.summary
+
+
+def test_agents_planner_records_proposals_through_jobs_repository(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store.init()
+    project = store.create_project(name="Agents Proposal", path=tmp_path / "agents-proposal", template_id="other")
+    job = store.jobs.create_job(project_id=project["id"], kind="prompt.optimize", payload={"prompt": "plan"})["job"]
+
+    planner = GatedAgentsPlanner(jobs=JobsRepository(store.connection))
+    monkeypatch.setattr(planner, "available", lambda: True)
+
+    result = planner.propose_action(project_id=project["id"], job_id=job["id"], prompt="plan next step")
+
+    assert result.enabled is True
+    assert result.action_request_id
+    action = store.jobs.get_action_request(result.action_request_id)
+    assert action["actionType"] == "agent.proposed_action"
+    assert action["status"] == "pending"

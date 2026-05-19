@@ -1,80 +1,96 @@
 from __future__ import annotations
 
-from typing import Any, Protocol
+import sqlite3
+from pathlib import Path
+from typing import Any
+
+from local_control_center.agents.repository import AgentsRepository
+from local_control_center.agents.skills import SkillRegistry
+from local_control_center.evidence.repository import EvidenceRepository
+from local_control_center.governance.repository import GovernanceRepository
+from local_control_center.integrations.repository import IntegrationsRepository
+from local_control_center.jobs_approvals.repository import JobsRepository
+from local_control_center.memory_retrieval.repository import MemoryRepository
+from local_control_center.pipelines.repository import PipelinesRepository
+from local_control_center.projects.repository import ProjectsRepository
+from local_control_center.prompts.repository import PromptsRepository
+from local_control_center.security_policy.repository import SecurityPolicyRepository
+from local_control_center.sessions_chats.repository import SessionsChatsRepository
+from local_control_center.shared.event_bus import EventBus
+from local_control_center.workflows.repository import WorkflowsRepository
+from local_control_center.workspaces_projects.repository import WorkspacesRepository
 
 
-class OverviewStore(Protocol):
-    cwd: Any
-
-    def ensure_runtime_project(self) -> dict[str, Any]: ...
-    def ensure_workspace_state(self, cwd: Any = None) -> dict[str, Any]: ...
-    def list_project_templates(self) -> list[dict[str, Any]]: ...
-    def list_projects(self) -> list[dict[str, Any]]: ...
-    def list_providers(self) -> list[dict[str, Any]]: ...
-    def list_teams(self) -> list[dict[str, Any]]: ...
-    def list_agents(self) -> list[dict[str, Any]]: ...
-    def list_sessions(self) -> list[dict[str, Any]]: ...
-    def list_jobs(self) -> list[dict[str, Any]]: ...
-    def list_job_runs(self) -> list[dict[str, Any]]: ...
-    def list_events(self) -> list[dict[str, Any]]: ...
-    def list_audit_events(self) -> list[dict[str, Any]]: ...
-    def list_memory_items(self) -> list[dict[str, Any]]: ...
-    def list_prompt_templates(self) -> list[dict[str, Any]]: ...
-    def list_action_requests(self) -> list[dict[str, Any]]: ...
-    def list_ide_connections(self) -> list[dict[str, Any]]: ...
-    def list_workflows(self) -> list[dict[str, Any]]: ...
-    def list_workflow_runs(self) -> list[dict[str, Any]]: ...
-    def list_workflow_steps(self) -> list[dict[str, Any]]: ...
-    def list_permission_decisions(self) -> list[dict[str, Any]]: ...
-    def list_evidence_packages(self) -> list[dict[str, Any]]: ...
-    def list_agent_profiles(self) -> list[dict[str, Any]]: ...
-    def list_model_policies(self) -> list[dict[str, Any]]: ...
-    def list_agent_tool_calls(self) -> list[dict[str, Any]]: ...
-    def list_model_calls(self) -> list[dict[str, Any]]: ...
-    def list_cost_usage(self) -> list[dict[str, Any]]: ...
-    def list_runtime_workspaces(self) -> list[dict[str, Any]]: ...
-    def list_skills(self) -> list[dict[str, Any]]: ...
-    def list_architecture_decisions(self) -> list[dict[str, Any]]: ...
-    def list_risks(self) -> list[dict[str, Any]]: ...
-    def list_next_steps(self) -> list[dict[str, Any]]: ...
+def ensure_runtime_project(connection: sqlite3.Connection, cwd: str | Path) -> dict[str, Any]:
+    projects = ProjectsRepository(connection)
+    existing = projects.get_project_by_path(cwd)
+    if existing:
+        return existing
+    runtime_path = Path(cwd)
+    return projects.create_project(
+        name=runtime_path.name or "Local Control Center",
+        path=runtime_path,
+        template_id="other",
+        create_directory=True,
+        source="runtime",
+    )
 
 
-def build_overview(store: OverviewStore) -> dict[str, Any]:
-    store.ensure_runtime_project()
-    workspace_state = store.ensure_workspace_state(store.cwd)
+def build_overview_from_connection(*, connection: sqlite3.Connection, cwd: str | Path) -> dict[str, Any]:
+    ensure_runtime_project(connection, cwd)
+
+    projects = ProjectsRepository(connection)
+    sessions_chats = SessionsChatsRepository(connection)
+    pipelines = PipelinesRepository(connection)
+    jobs = JobsRepository(connection)
+    events = EventBus(connection)
+    memory = MemoryRepository(connection)
+    prompts = PromptsRepository(connection)
+    integrations = IntegrationsRepository(connection)
+    workflows = WorkflowsRepository(connection)
+    security_policy = SecurityPolicyRepository(connection)
+    evidence = EvidenceRepository(connection)
+    agents = AgentsRepository(connection)
+    workspaces = WorkspacesRepository(connection, root=Path(cwd))
+    skills = SkillRegistry(connection)
+    governance = GovernanceRepository(connection)
+
     return {
-        "projectTemplates": store.list_project_templates(),
-        "projects": store.list_projects(),
-        "providers": store.list_providers(),
-        "teams": store.list_teams(),
-        "agents": store.list_agents(),
-        "sessions": store.list_sessions(),
-        "jobs": store.list_jobs(),
-        "jobRuns": store.list_job_runs(),
-        "events": store.list_events(),
-        "auditEvents": store.list_audit_events(),
-        "memoryItems": store.list_memory_items(),
-        "promptTemplates": store.list_prompt_templates(),
-        "actionRequests": store.list_action_requests(),
-        "ideConnections": store.list_ide_connections(),
-        "workflows": store.list_workflows(),
-        "workflowRuns": store.list_workflow_runs(),
-        "workflowSteps": store.list_workflow_steps(),
-        "permissionDecisions": store.list_permission_decisions(),
-        "evidencePackages": store.list_evidence_packages(),
-        "agentProfiles": store.list_agent_profiles(),
-        "modelPolicies": store.list_model_policies(),
-        "modelProviders": store.list_providers(),
-        "agentToolCalls": store.list_agent_tool_calls(),
-        "modelCalls": store.list_model_calls(),
-        "costUsage": store.list_cost_usage(),
-        "runtimeWorkspaces": store.list_runtime_workspaces(),
-        "skills": store.list_skills(),
-        "architectureDecisions": store.list_architecture_decisions(),
-        "riskRegister": store.list_risks(),
-        "nextSteps": store.list_next_steps(),
-        "workspaceState": workspace_state["state"],
-        "workspaceStateMetadata": workspace_state["metadata"],
+        "projectTemplates": projects.list_project_templates(),
+        "projects": projects.list_projects(),
+        "providers": projects.list_providers(),
+        "teams": projects.list_teams(),
+        "agents": projects.list_agents(),
+        "sessions": sessions_chats.list_sessions(),
+        "chats": sessions_chats.list_chats(),
+        "pipelines": pipelines.list_pipelines(),
+        "jobs": jobs.list_jobs(),
+        "jobRuns": jobs.list_job_runs(),
+        "events": events.list_events(),
+        "auditEvents": events.list_audit_events(),
+        "memoryItems": memory.list_memory_items(),
+        "promptTemplates": prompts.list_prompt_templates(),
+        "actionRequests": jobs.list_action_requests(),
+        "ideConnections": integrations.list_ide_connections(),
+        "workflows": workflows.list_workflows(),
+        "workflowRuns": workflows.list_workflow_runs(),
+        "workflowSteps": workflows.list_workflow_steps(),
+        "permissionDecisions": security_policy.list_decisions(),
+        "permissionGrants": security_policy.list_grants(),
+        "sandboxProfiles": security_policy.list_sandbox_profiles(),
+        "evidencePackages": evidence.list_evidence_packages(),
+        "testResultRecords": evidence.list_all_test_results(),
+        "agentProfiles": agents.list_agent_profiles(),
+        "modelPolicies": agents.list_model_policies(),
+        "modelProviders": agents.list_model_providers(),
+        "agentToolCalls": agents.list_agent_tool_calls(),
+        "modelCalls": agents.list_model_calls(),
+        "costUsage": agents.list_cost_usage(),
+        "runtimeWorkspaces": workspaces.list_workspaces(),
+        "skills": skills.list_skills(),
+        "architectureDecisions": governance.list_architecture_decisions(),
+        "riskRegister": governance.list_risks(),
+        "nextSteps": governance.list_next_steps(),
         "openDesign": {"status": "python-backend"},
         "security": {"loopbackOnly": True, "writeTokenRequired": True},
     }

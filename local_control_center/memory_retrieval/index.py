@@ -4,12 +4,11 @@ import json
 import math
 import re
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import numpy as np
 
-if TYPE_CHECKING:
-    from local_control_center.store import PlatformStore
+from .repository import MemoryRepository
 
 try:  # pragma: no cover - exercised only when faiss-cpu is installed.
     import faiss  # type: ignore
@@ -32,9 +31,9 @@ def text_embedding(text: str, dimensions: int = 128) -> np.ndarray:
 
 
 class RetrievalIndex:
-    def __init__(self, *, store: "PlatformStore", index_dir: str | Path | None = None, dimensions: int = 128):
-        self.store = store
-        self.index_dir = Path(index_dir or (store.db_path.parent / "faiss-index"))
+    def __init__(self, *, memory: MemoryRepository, index_dir: str | Path, dimensions: int = 128):
+        self.memory = memory
+        self.index_dir = Path(index_dir)
         self.dimensions = dimensions
 
     @property
@@ -57,14 +56,14 @@ class RetrievalIndex:
 
     def rebuild(self) -> dict[str, Any]:
         self.index_dir.mkdir(parents=True, exist_ok=True)
-        memory_items = self.store.list_memory_items()
+        memory_items = self.memory.list_memory_items()
         ids: list[str] = []
         vectors: list[np.ndarray] = []
         for item in memory_items:
             vector = text_embedding(item["content"], self.dimensions)
             ids.append(item["id"])
             vectors.append(vector)
-            self.store.upsert_memory_embedding(
+            self.memory.upsert_memory_embedding(
                 memory_item_id=item["id"],
                 provider="local",
                 model="hashing-bow",
@@ -108,6 +107,6 @@ class RetrievalIndex:
             score = float(scores[index])
             if math.isclose(score, 0.0):
                 continue
-            memory_item = self.store.get_memory_item(ids[int(index)])
+            memory_item = self.memory.get_memory_item(ids[int(index)])
             results.append({"score": score, "memoryItem": memory_item})
         return results

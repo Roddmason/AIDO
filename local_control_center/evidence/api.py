@@ -1,50 +1,245 @@
 from __future__ import annotations
 
+import base64
 from collections.abc import Callable
+import hashlib
+from pathlib import Path
 from typing import Any
+import uuid
 
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import FileResponse, PlainTextResponse
 
 from ..governance.signals import record_governance_risk
+from ..shared.event_bus import EventBus
+from ..shared.time import utc_now
+from .artifacts import (
+    cleanup_unreferenced_artifacts,
+    promote_large_logs,
+    promote_screenshots,
+    resolved_artifact_root,
+    write_binary_artifact,
+    write_text_artifact,
+)
+from .qa_reports import build_markdown_report
 from .repository import EvidenceRepository
+from .test_results import TestReportError, normalize_test_result_reports
 
 
 def create_router(*, platform: Any, require_write: Callable[[Request], None]) -> APIRouter:
     router = APIRouter()
+    allowed_artifact_kinds = {"execution_log", "screenshot", "test_report", "qa_report", "generic_artifact"}
+    max_ingested_artifact_bytes = 2_000_000
 
     def repository() -> EvidenceRepository:
         return EvidenceRepository(platform.connection)
+
+    def event_bus() -> EventBus:
+        return EventBus(platform.connection)
 
     @router.get("/api/v1/evidence")
     async def list_evidence() -> dict[str, Any]:
         return {"evidencePackages": repository().list_evidence_packages()}
 
+    @router.post("/api/v1/evidence/artifacts/cleanup", status_code=202)
+    async def cleanup_artifacts(request: Request) -> dict[str, Any]:
+        require_write(request)
+        body = await request.json()
+        dry_run = bool(body.get("dryRun", True))
+        repo = repository()
+        referenced_paths = {artifact["path"] for artifact in repo.list_all_artifacts()}
+        result = cleanup_unreferenced_artifacts(
+            root=platform.cwd,
+            referenced_paths=referenced_paths,
+            dry_run=dry_run,
+        )
+        event_bus().record_event(
+            event_type="evidence.artifacts.cleanup",
+            payload={
+                "dryRun": dry_run,
+                "orphanFiles": len(result["orphanFiles"]),
+                "deletedFiles": len(result["deletedFiles"]),
+                "artifactRoot": result["artifactRoot"],
+            },
+        )
+        event_bus().record_audit(
+            action="evidence.artifacts.cleanup",
+            target=result["artifactRoot"],
+            payload={
+                "dryRun": dry_run,
+                "orphanFiles": len(result["orphanFiles"]),
+                "deletedFiles": len(result["deletedFiles"]),
+            },
+        )
+        return result
+
+    @router.post("/api/v1/evidence/artifacts/retention", status_code=202)
+    async def plan_artifact_retention(request: Request) -> dict[str, Any]:
+        require_write(request)
+        body = await request.json()
+        dry_run = bool(body.get("dryRun", True))
+        now_iso = str(body.get("now") or utc_now())
+        expired_artifacts = repository().list_expired_referenced_artifacts(now_iso=now_iso)
+        project_ids = sorted({artifact["projectId"] for artifact in expired_artifacts if artifact.get("projectId")})
+        created_risk_ids: list[str] = []
+        for project_id in project_ids:
+            project_artifacts = [artifact for artifact in expired_artifacts if artifact["projectId"] == project_id]
+            risk = record_governance_risk(
+                platform.connection,
+                project_id=project_id,
+                title="Expired evidence artifacts require retention review",
+                source_type="artifact_retention",
+                source_id=",".join(artifact["id"] for artifact in project_artifacts[:10]),
+                severity="medium",
+                description="Referenced evidence artifacts have passed their retention expiry and need an explicit keep/delete decision.",
+                mitigation="Review the evidence packages, export anything required, then delete only through an audited retention action.",
+                owner="qa_reviewer",
+                metadata={
+                    "artifactIds": [artifact["id"] for artifact in project_artifacts],
+                    "dryRun": dry_run,
+                    "now": now_iso,
+                },
+            )
+            if risk:
+                created_risk_ids.append(risk["id"])
+                event_bus().record_event(
+                    project_id=project_id,
+                    event_type="risk.created",
+                    payload={"riskId": risk["id"], "sourceType": "artifact_retention"},
+                )
+        event_bus().record_event(
+            event_type="evidence.artifacts.retention_reviewed",
+            payload={"dryRun": dry_run, "expiredArtifacts": len(expired_artifacts), "riskIds": created_risk_ids},
+        )
+        event_bus().record_audit(
+            action="evidence.artifacts.retention",
+            target="artifact_retention",
+            payload={"dryRun": dry_run, "expiredArtifacts": len(expired_artifacts), "riskIds": created_risk_ids},
+        )
+        return {
+            "dryRun": dry_run,
+            "now": now_iso,
+            "expiredArtifacts": expired_artifacts,
+            "riskIds": created_risk_ids,
+        }
+
+    @router.post("/api/v1/evidence/artifacts/retention/actions", status_code=202)
+    async def apply_artifact_retention_action(request: Request) -> dict[str, Any]:
+        require_write(request)
+        body = await request.json()
+        reason = str(body.get("reason") or "").strip()
+        if not reason:
+            raise HTTPException(status_code=422, detail="Retention action reason is required.")
+        action = str(body.get("action") or "").strip().lower()
+        if action not in {"export", "delete"}:
+            raise HTTPException(status_code=422, detail="Retention action must be export or delete.")
+        artifact_ids = body.get("artifactIds")
+        if not isinstance(artifact_ids, list) or not artifact_ids or not all(isinstance(item, str) for item in artifact_ids):
+            raise HTTPException(status_code=422, detail="artifactIds must be a non-empty list of artifact IDs.")
+        now_iso = str(body.get("now") or utc_now())
+
+        repo = repository()
+        artifact_root = resolved_artifact_root(platform.cwd)
+        acted: list[dict[str, Any]] = []
+        for artifact_id in artifact_ids:
+            try:
+                artifact = repo.get_artifact_by_id(artifact_id)
+            except KeyError as error:
+                raise HTTPException(status_code=404, detail=str(error)) from error
+            if not artifact.get("evidencePackageId"):
+                raise HTTPException(status_code=422, detail=f"Artifact is not referenced by an evidence package: {artifact_id}")
+            metadata = artifact.get("metadata") or {}
+            expires_at = metadata.get("expiresAt")
+            if not isinstance(expires_at, str) or expires_at > now_iso:
+                raise HTTPException(status_code=422, detail=f"Artifact is not expired: {artifact_id}")
+
+            artifact_path = Path(artifact["path"]).resolve(strict=False)
+            try:
+                artifact_path.relative_to(artifact_root)
+            except ValueError as error:
+                raise HTTPException(status_code=403, detail="Artifact path is outside the evidence artifact root.") from error
+
+            deleted = False
+            if action == "delete" and artifact_path.exists():
+                if not artifact_path.is_file():
+                    raise HTTPException(status_code=409, detail=f"Artifact path is not a file: {artifact_id}")
+                expected_hash = artifact.get("hash")
+                if expected_hash and hashlib.sha256(artifact_path.read_bytes()).hexdigest() != expected_hash:
+                    raise HTTPException(status_code=409, detail=f"Artifact hash does not match recorded metadata: {artifact_id}")
+                artifact_path.unlink()
+                deleted = True
+
+            retention_action = {
+                "action": action,
+                "reason": reason,
+                "actedAt": now_iso,
+                "physicalFileDeleted": deleted,
+            }
+            updated = repo.update_artifact_metadata(
+                artifact_id=artifact_id,
+                metadata={**metadata, "retentionAction": retention_action},
+            )
+            acted.append({**updated, "retentionAction": retention_action})
+            event_bus().record_event(
+                project_id=updated["projectId"],
+                event_type=f"evidence.artifact.retention_{action}",
+                payload={"artifactId": artifact_id, "evidencePackageId": updated["evidencePackageId"]},
+            )
+
+        event_bus().record_audit(
+            action=f"evidence.artifact.retention.{action}",
+            target=",".join(artifact_ids),
+            payload={"reason": reason, "artifactIds": artifact_ids, "now": now_iso},
+        )
+        return {"action": action, "artifacts": acted}
+
     @router.post("/api/v1/evidence", status_code=201)
     async def create_evidence(request: Request) -> dict[str, Any]:
         require_write(request)
         body = await request.json()
+        try:
+            normalized_report_results = normalize_test_result_reports(body.get("testResultReports") or [])
+        except TestReportError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        test_results = [*(body.get("testResults") or []), *normalized_report_results]
         if body.get("qaVerdict") == "passed" and not (
-            body.get("testResults") or body.get("diffRefs") or body.get("screenshotRefs")
+            test_results or body.get("diffRefs") or body.get("screenshotRefs")
         ):
             raise HTTPException(
                 status_code=422,
                 detail="QA cannot pass without test results, diff refs, or screenshot/artifact refs.",
             )
-        evidence = repository().create_evidence_package(
+        logs, log_artifacts = promote_large_logs(root=platform.cwd, logs=body.get("logs") or [])
+        screenshot_refs, screenshot_artifacts = promote_screenshots(
+            root=platform.cwd,
+            screenshot_refs=body.get("screenshotRefs") or [],
+        )
+        repo = repository()
+        evidence = repo.create_evidence_package(
             project_id=body["projectId"],
             workflow_run_id=body.get("workflowRunId"),
             agent_id=body.get("agentId"),
             task_id=body.get("taskId", "task"),
             test_plan=body.get("testPlan", ""),
             acceptance_checklist=body.get("acceptanceChecklist") or [],
-            test_results=body.get("testResults") or [],
-            logs=body.get("logs") or [],
+            test_results=test_results,
+            logs=logs,
             diff_refs=body.get("diffRefs") or [],
-            screenshot_refs=body.get("screenshotRefs") or [],
+            screenshot_refs=screenshot_refs,
             risk_notes=body.get("riskNotes") or [],
             qa_verdict=body.get("qaVerdict", "not_started"),
         )
-        platform.record_event(
+        for artifact in [*log_artifacts, *screenshot_artifacts]:
+            repo.create_artifact(
+                project_id=evidence["projectId"],
+                evidence_package_id=evidence["id"],
+                kind=artifact["kind"],
+                path=artifact["path"],
+                content_hash=artifact["hash"],
+                metadata=artifact["metadata"],
+                artifact_id=artifact["id"],
+            )
+        event_bus().record_event(
             project_id=evidence["projectId"],
             event_type="qa.evidence.created",
             payload={"evidencePackageId": evidence["id"], "qaVerdict": evidence["qaVerdict"]},
@@ -63,7 +258,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
                 metadata={"qaVerdict": evidence["qaVerdict"], "riskNotes": evidence.get("riskNotes", [])},
             )
             if risk:
-                platform.record_event(
+                event_bus().record_event(
                     project_id=risk["projectId"],
                     event_type="risk.created",
                     payload={"riskId": risk["id"], "sourceType": "qa_verdict"},
@@ -77,8 +272,129 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             return {
                 "evidencePackage": repo.get_evidence_package(evidence_id),
                 "testResultRecords": repo.list_test_results(evidence_id),
+                "artifacts": repo.list_artifacts(evidence_id),
             }
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
+
+    @router.get("/api/v1/evidence/{evidence_id}/report")
+    async def export_evidence_report(evidence_id: str, request: Request) -> PlainTextResponse:
+        require_write(request)
+        try:
+            repo = repository()
+            evidence = repo.get_evidence_package(evidence_id)
+            test_results = repo.list_test_results(evidence_id)
+            artifacts = repo.list_artifacts(evidence_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        report = build_markdown_report(evidence=evidence, test_results=test_results, artifacts=artifacts)
+        event_bus().record_audit(
+            project_id=evidence["projectId"],
+            action="evidence.report.export",
+            target=evidence["id"],
+            payload={"format": "markdown", "artifactCount": len(artifacts), "testResultCount": len(test_results)},
+        )
+        response = PlainTextResponse(report, media_type="text/markdown")
+        response.headers["X-AIDO-Evidence-Id"] = evidence["id"]
+        return response
+
+    @router.post("/api/v1/evidence/{evidence_id}/artifacts", status_code=201)
+    async def ingest_artifact(evidence_id: str, request: Request) -> dict[str, Any]:
+        require_write(request)
+        body = await request.json()
+        kind = str(body.get("kind") or "").strip()
+        if kind not in allowed_artifact_kinds:
+            raise HTTPException(status_code=422, detail="Unsupported artifact kind.")
+        name = str(body.get("name") or f"{kind}.artifact").strip()
+        if not name or any(separator in name for separator in ("/", "\\", ":")):
+            raise HTTPException(status_code=422, detail="Artifact name must be a simple filename.")
+        repo = repository()
+        try:
+            evidence = repo.get_evidence_package(evidence_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+
+        artifact_id = f"artifact-{uuid.uuid4()}"
+        if isinstance(body.get("content"), str):
+            content = body["content"]
+            if len(content.encode("utf-8")) > max_ingested_artifact_bytes:
+                raise HTTPException(status_code=422, detail="Artifact content exceeds maximum accepted size.")
+            suffix = Path(name).suffix or ".txt"
+            artifact_file = write_text_artifact(root=platform.cwd, artifact_id=artifact_id, suffix=suffix, content=content)
+            mime_type = str(body.get("mimeType") or "text/plain")
+        elif isinstance(body.get("contentBase64"), str):
+            try:
+                content_bytes = base64.b64decode(body["contentBase64"], validate=True)
+            except ValueError as error:
+                raise HTTPException(status_code=422, detail="contentBase64 is not valid base64.") from error
+            if len(content_bytes) > max_ingested_artifact_bytes:
+                raise HTTPException(status_code=422, detail="Artifact content exceeds maximum accepted size.")
+            suffix = Path(name).suffix or ".bin"
+            artifact_file = write_binary_artifact(
+                root=platform.cwd,
+                artifact_id=artifact_id,
+                suffix=suffix,
+                content=content_bytes,
+            )
+            mime_type = str(body.get("mimeType") or "application/octet-stream")
+        else:
+            raise HTTPException(status_code=422, detail="Artifact requires content or contentBase64.")
+
+        artifact = repo.create_artifact(
+            artifact_id=artifact_id,
+            project_id=evidence["projectId"],
+            evidence_package_id=evidence["id"],
+            kind=kind,
+            path=artifact_file["path"],
+            content_hash=artifact_file["hash"],
+            metadata={
+                "name": name,
+                "source": "artifact_ingestion",
+                "mimeType": mime_type,
+                "sizeBytes": artifact_file["sizeBytes"],
+            },
+        )
+        event_bus().record_event(
+            project_id=evidence["projectId"],
+            event_type="evidence.artifact.ingested",
+            payload={"evidencePackageId": evidence["id"], "artifactId": artifact["id"], "kind": kind},
+        )
+        event_bus().record_audit(
+            project_id=evidence["projectId"],
+            action="evidence.artifact.ingest",
+            target=artifact["id"],
+            payload={"evidencePackageId": evidence["id"], "kind": kind, "name": name},
+        )
+        return {"artifact": artifact}
+
+    @router.get("/api/v1/evidence/{evidence_id}/artifacts/{artifact_id}")
+    async def get_artifact(evidence_id: str, artifact_id: str, request: Request) -> FileResponse:
+        require_write(request)
+        try:
+            artifact = repository().get_artifact(evidence_id=evidence_id, artifact_id=artifact_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+
+        artifact_root = resolved_artifact_root(platform.cwd)
+        artifact_path = Path(artifact["path"]).resolve(strict=False)
+        try:
+            artifact_path.relative_to(artifact_root)
+        except ValueError as error:
+            raise HTTPException(status_code=403, detail="Artifact path is outside the evidence artifact root.") from error
+        if not artifact_path.exists() or not artifact_path.is_file():
+            raise HTTPException(status_code=404, detail="Artifact file is missing.")
+        expected_hash = artifact.get("hash")
+        if expected_hash:
+            actual_hash = hashlib.sha256(artifact_path.read_bytes()).hexdigest()
+            if actual_hash != expected_hash:
+                raise HTTPException(status_code=409, detail="Artifact hash does not match the recorded metadata.")
+
+        metadata = artifact.get("metadata") or {}
+        media_type = str(metadata.get("mimeType") or "text/plain")
+        filename = str(metadata.get("name") or artifact_path.name)
+        response = FileResponse(path=artifact_path, media_type=media_type, filename=filename)
+        response.headers["X-AIDO-Artifact-Id"] = artifact["id"]
+        response.headers["X-AIDO-Artifact-Hash"] = expected_hash or ""
+        return response
 
     return router

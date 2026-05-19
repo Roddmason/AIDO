@@ -1,0 +1,116 @@
+from __future__ import annotations
+
+import shlex
+from dataclasses import dataclass
+
+
+ALLOWED_PNPM_TEST_SCRIPTS = frozenset({"test", "test:py", "test:web", "test:e2e"})
+ALLOWED_PNPM_BUILD_SCRIPTS = frozenset({"build", "build:web", "build:control-center"})
+ALLOWED_PNPM_LINT_SCRIPTS = frozenset({"lint", "lint:py", "lint:web"})
+PACKAGE_SCRIPT_HOOKS = frozenset(
+    {
+        "preinstall",
+        "install",
+        "postinstall",
+        "prepare",
+        "prepublish",
+        "prepublishOnly",
+        "publish",
+        "deploy",
+        "release",
+    }
+)
+
+PACKAGE_MANAGER_INSTALL_VERBS = frozenset({"install", "add", "remove", "uninstall", "update", "upgrade"})
+NETWORK_EXECUTABLES = frozenset({"curl", "curl.exe", "invoke-webrequest", "wget", "wget.exe", "ssh", "scp"})
+READ_ONLY_EXECUTABLES = frozenset({"rg", "rg.exe", "get-content", "ls", "dir"})
+
+
+@dataclass(frozen=True)
+class ParsedCommand:
+    executable: str
+    args: tuple[str, ...]
+
+
+def parse_command(command: str | None) -> ParsedCommand | None:
+    text = (command or "").strip()
+    if not text:
+        return None
+    try:
+        words = shlex.split(text, posix=False)
+    except ValueError:
+        return ParsedCommand(executable="", args=())
+    if not words:
+        return None
+    return ParsedCommand(executable=words[0].strip("\"'").lower(), args=tuple(word.strip("\"'") for word in words[1:]))
+
+
+def _is_corepack_pnpm(parsed: ParsedCommand) -> tuple[bool, tuple[str, ...]]:
+    if parsed.executable != "corepack":
+        return False, ()
+    if not parsed.args:
+        return False, ()
+    pnpm_token = parsed.args[0].lower()
+    if not pnpm_token.startswith("pnpm"):
+        return False, ()
+    return True, parsed.args[1:]
+
+
+def _is_pnpm(parsed: ParsedCommand) -> tuple[bool, tuple[str, ...]]:
+    if parsed.executable in {"pnpm", "pnpm.cmd", "pnpm.exe"}:
+        return True, parsed.args
+    return _is_corepack_pnpm(parsed)
+
+
+def pnpm_script_category(parsed: ParsedCommand) -> str | None:
+    is_pnpm, args = _is_pnpm(parsed)
+    if not is_pnpm or len(args) < 2 or args[0] != "run":
+        return None
+    script = args[1]
+    if script in PACKAGE_SCRIPT_HOOKS or script.startswith(("pre", "post")):
+        return "package_script_hook"
+    if script in ALLOWED_PNPM_TEST_SCRIPTS:
+        return "test"
+    if script in ALLOWED_PNPM_BUILD_SCRIPTS:
+        return "build"
+    if script in ALLOWED_PNPM_LINT_SCRIPTS:
+        return "lint"
+    return "package_script"
+
+
+def package_manager_category(parsed: ParsedCommand) -> str | None:
+    executable = parsed.executable
+    args = parsed.args
+    if executable in {"pnpm", "pnpm.cmd", "pnpm.exe", "npm", "npm.cmd", "npm.exe"}:
+        if args and args[0] in PACKAGE_MANAGER_INSTALL_VERBS:
+            return "install"
+    if executable == "corepack":
+        is_pnpm, pnpm_args = _is_corepack_pnpm(parsed)
+        if is_pnpm and pnpm_args and pnpm_args[0] in PACKAGE_MANAGER_INSTALL_VERBS:
+            return "install"
+    if executable in {"uv", "uv.exe", "pip", "pip.exe", "winget", "choco"} and args:
+        if args[0] in PACKAGE_MANAGER_INSTALL_VERBS:
+            return "install"
+    return None
+
+
+def low_risk_shell_category(parsed: ParsedCommand) -> str | None:
+    pnpm_category = pnpm_script_category(parsed)
+    if pnpm_category in {"test", "build", "lint"}:
+        return pnpm_category
+    if parsed.executable in {"uv", "uv.exe"} and len(parsed.args) >= 2 and parsed.args[0] == "run":
+        if parsed.args[1] == "pytest":
+            return "test"
+        if parsed.args[1] == "ruff" and len(parsed.args) >= 3 and parsed.args[2] == "check":
+            return "lint"
+    if parsed.executable in {"pytest", "pytest.exe", "vitest", "vitest.cmd", "vitest.exe"}:
+        return "test"
+    if parsed.executable in {"playwright", "playwright.cmd", "playwright.exe"} and parsed.args[:1] == ("test",):
+        return "test"
+    if parsed.executable in {"python", "python.exe", "python3", "py", "py.exe"} and parsed.args == ("--version",):
+        return "interpreter_version"
+    if parsed.executable in READ_ONLY_EXECUTABLES:
+        return "read_only"
+    if parsed.executable == "git" and parsed.args[:1] in {("status",), ("diff",)}:
+        return "read_only"
+    return None

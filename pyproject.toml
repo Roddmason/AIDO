@@ -12,6 +12,10 @@ dependencies = [
 [project.optional-dependencies]
 agents = ["openai-agents>=0.4.0"]
 faiss = ["faiss-cpu>=1.13.0"]
+otel = [
+	"opentelemetry-sdk>=1.30.0",
+	"opentelemetry-exporter-otlp-proto-http>=1.30.0",
+]
 dev = [
 	"ruff>=0.14.9",
 	"pre-commit>=4.5.0",

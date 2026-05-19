@@ -2,39 +2,41 @@ from __future__ import annotations
 
 import concurrent.futures
 from pathlib import Path
-from typing import Callable
 
-from local_control_center.store import PlatformStore
+from local_control_center.jobs_approvals.repository import JobsRepository
+from local_control_center.shared.db import open_sqlite_connection
+from local_control_center.shared.migrations import initialize_platform_schema
 
 
 class ConcurrentWorker:
     def __init__(
         self,
         *,
-        store_factory: Callable[[], PlatformStore],
+        db_path: str | Path,
         lease_ms: int = 300000,
     ):
-        self.store_factory = store_factory
+        self.db_path = Path(db_path)
         self.lease_ms = lease_ms
 
     def recover(self) -> list[dict]:
-        store = self.store_factory()
+        connection = open_sqlite_connection(self.db_path)
         try:
-            store.init()
-            return store.requeue_expired_jobs()
+            initialize_platform_schema(connection)
+            return JobsRepository(connection).requeue_expired_jobs()
         finally:
-            store.close()
+            connection.close()
 
     def run_once(self, *, worker_id: str) -> dict | None:
-        store = self.store_factory()
+        connection = open_sqlite_connection(self.db_path)
         try:
-            store.init()
-            claimed = store.claim_next_job(worker_id=worker_id, lease_ms=self.lease_ms)
+            initialize_platform_schema(connection)
+            jobs = JobsRepository(connection)
+            claimed = jobs.claim_next_job(worker_id=worker_id, lease_ms=self.lease_ms)
             if not claimed:
                 return None
             try:
                 execution = execute_job(claimed["job"])
-                return store.complete_job_run(
+                return jobs.complete_job_run(
                     job_id=claimed["job"]["id"],
                     run_id=claimed["run"]["id"],
                     status="completed",
@@ -42,7 +44,7 @@ class ConcurrentWorker:
                     metadata=execution["metadata"],
                 )
             except Exception as error:
-                return store.complete_job_run(
+                return jobs.complete_job_run(
                     job_id=claimed["job"]["id"],
                     run_id=claimed["run"]["id"],
                     status="failed",
@@ -50,7 +52,7 @@ class ConcurrentWorker:
                     metadata={"error": str(error)},
                 )
         finally:
-            store.close()
+            connection.close()
 
     def run_batch(self, *, worker_count: int = 2, max_jobs: int | None = None) -> list[dict]:
         self.recover()
@@ -68,15 +70,15 @@ class ConcurrentWorker:
 def run_process_pool(*, db_path: str | Path, cwd: str | Path, worker_count: int = 2, lease_ms: int = 300000) -> list[dict]:
     with concurrent.futures.ProcessPoolExecutor(max_workers=worker_count) as pool:
         futures = [
-            pool.submit(_process_worker_once, str(db_path), str(cwd), f"process-worker-{index}", lease_ms)
+            pool.submit(_process_worker_once, str(db_path), f"process-worker-{index}", lease_ms)
             for index in range(worker_count)
         ]
         return [result for result in (future.result() for future in futures) if result]
 
 
-def _process_worker_once(db_path: str, cwd: str, worker_id: str, lease_ms: int) -> dict | None:
+def _process_worker_once(db_path: str, worker_id: str, lease_ms: int) -> dict | None:
     worker = ConcurrentWorker(
-        store_factory=lambda: PlatformStore(cwd=Path(cwd), db_path=Path(db_path)),
+        db_path=Path(db_path),
         lease_ms=lease_ms,
     )
     return worker.run_once(worker_id=worker_id)

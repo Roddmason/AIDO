@@ -1,33 +1,12 @@
 from __future__ import annotations
 
-import hashlib
-import json
 import sqlite3
 import uuid
-from datetime import datetime, timezone
 from typing import Any, Iterable
 
+from local_control_center.shared.time import utc_now
 
-def utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
-
-
-def stable_hash(value: Any) -> str:
-    payload = value if isinstance(value, str) else json.dumps(value, sort_keys=True, ensure_ascii=False)
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
-
-
-def json_dumps(value: Any) -> str:
-    return json.dumps(value if value is not None else {}, ensure_ascii=False, sort_keys=True)
-
-
-def json_loads(value: str | None, fallback: Any = None) -> Any:
-    if value in (None, ""):
-        return {} if fallback is None else fallback
-    try:
-        return json.loads(value)
-    except json.JSONDecodeError:
-        return {} if fallback is None else fallback
+from local_control_center.shared.serialization import json_dumps, json_loads, stable_hash
 
 
 def row_to_memory(row: sqlite3.Row) -> dict[str, Any]:
@@ -138,3 +117,5 @@ class MemoryRepository:
             """,
             (memory_item_id, provider, model, len(embedding), json_dumps(embedding), utc_now()),
         )
+
+

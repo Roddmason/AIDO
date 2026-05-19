@@ -24,7 +24,6 @@ def test_private_license_and_audit_docs_are_explicit() -> None:
     assert "AIDO" in notice
     assert "third-party" in third_party.lower()
     assert "source artifacts" in architecture_audit.lower()
-    assert "src/node_modules" in architecture_audit
     assert "local-control-center/dist" in architecture_audit
     assert "faiss-cpu" in license_audit
     assert "optional" in license_audit.lower()
@@ -56,7 +55,7 @@ def test_gitignore_excludes_generated_artifacts_and_keeps_env_example() -> None:
         assert pattern in gitignore
 
 
-def test_legacy_typescript_source_tree_is_not_present_in_clean_workspace() -> None:
+def test_removed_typescript_source_tree_is_not_present_in_clean_workspace() -> None:
     assert not (ROOT / "src").exists()
 
 
@@ -76,7 +75,7 @@ def test_quality_and_security_scripts_are_declared() -> None:
         assert script in scripts
 
     assert "ruff check" in scripts["lint:py"]
-    assert "pip-licenses" in scripts["security:licenses:py"]
+    assert "python -X utf8 -m piplicenses" in scripts["security:licenses:py"]
     assert "licenses list" in scripts["security:licenses:js"]
     assert "gitleaks detect" in scripts["security:secrets"]
     assert "semgrep scan" in scripts["security:sast"]

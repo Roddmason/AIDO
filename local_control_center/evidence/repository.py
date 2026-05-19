@@ -1,24 +1,12 @@
 from __future__ import annotations
 
-import json
 import sqlite3
 import uuid
 from typing import Any
 
-from local_control_center.store import utc_now
+from local_control_center.shared.serialization import json_dumps, json_loads
 
-
-def json_dumps(value: Any) -> str:
-    return json.dumps(value if value is not None else {}, ensure_ascii=False, sort_keys=True)
-
-
-def json_loads(value: str | None, fallback: Any = None) -> Any:
-    if value in (None, ""):
-        return {} if fallback is None else fallback
-    try:
-        return json.loads(value)
-    except json.JSONDecodeError:
-        return {} if fallback is None else fallback
+from local_control_center.shared.time import utc_now
 
 
 def row_to_evidence_package(row: sqlite3.Row) -> dict[str, Any]:
@@ -49,6 +37,19 @@ def row_to_test_result(row: sqlite3.Row) -> dict[str, Any]:
         "status": row["status"],
         "durationMs": row["duration_ms"],
         "outputRef": row["output_ref"],
+        "metadata": json_loads(row["metadata"]),
+        "createdAt": row["created_at"],
+    }
+
+
+def row_to_artifact(row: sqlite3.Row) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "projectId": row["project_id"],
+        "evidencePackageId": row["evidence_package_id"],
+        "kind": row["kind"],
+        "path": row["path"],
+        "hash": row["hash"],
         "metadata": json_loads(row["metadata"]),
         "createdAt": row["created_at"],
     }
@@ -116,7 +117,7 @@ class EvidenceRepository:
                     str(result.get("status", "unknown")),
                     result.get("durationMs"),
                     result.get("outputRef"),
-                    json_dumps(result),
+                    json_dumps(result.get("metadata") or {}),
                     utc_now(),
                 ),
             )
@@ -149,6 +150,98 @@ class EvidenceRepository:
         ).fetchall()
         return [row_to_test_result(row) for row in rows]
 
+    def create_artifact(
+        self,
+        *,
+        project_id: str,
+        evidence_package_id: str | None,
+        kind: str,
+        path: str,
+        content_hash: str | None = None,
+        metadata: dict[str, Any] | None = None,
+        artifact_id: str | None = None,
+    ) -> dict[str, Any]:
+        resolved_id = artifact_id or f"artifact-{uuid.uuid4()}"
+        self.connection.execute(
+            """
+            INSERT INTO artifacts
+                (id, project_id, evidence_package_id, kind, path, hash, metadata, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                resolved_id,
+                project_id,
+                evidence_package_id,
+                kind,
+                path,
+                content_hash,
+                json_dumps(metadata or {}),
+                utc_now(),
+            ),
+        )
+        row = self.connection.execute("SELECT * FROM artifacts WHERE id = ?", (resolved_id,)).fetchone()
+        return row_to_artifact(row)
+
+    def list_artifacts(self, evidence_id: str) -> list[dict[str, Any]]:
+        rows = self.connection.execute(
+            "SELECT * FROM artifacts WHERE evidence_package_id = ? ORDER BY created_at ASC",
+            (evidence_id,),
+        ).fetchall()
+        return [row_to_artifact(row) for row in rows]
+
+    def list_all_artifacts(self) -> list[dict[str, Any]]:
+        rows = self.connection.execute("SELECT * FROM artifacts ORDER BY created_at ASC").fetchall()
+        return [row_to_artifact(row) for row in rows]
+
+    def list_expired_referenced_artifacts(self, *, now_iso: str) -> list[dict[str, Any]]:
+        expired: list[dict[str, Any]] = []
+        for artifact in self.list_all_artifacts():
+            if not artifact.get("evidencePackageId"):
+                continue
+            metadata = artifact.get("metadata") or {}
+            expires_at = metadata.get("expiresAt")
+            if isinstance(expires_at, str) and expires_at <= now_iso:
+                expired.append({**artifact, "retentionStatus": "expired", "expiresAt": expires_at})
+        return expired
+
+    def get_artifact(self, *, evidence_id: str, artifact_id: str) -> dict[str, Any]:
+        row = self.connection.execute(
+            "SELECT * FROM artifacts WHERE id = ? AND evidence_package_id = ?",
+            (artifact_id, evidence_id),
+        ).fetchone()
+        if not row:
+            raise KeyError(f"Artifact not found for evidence package: {artifact_id}")
+        return row_to_artifact(row)
+
+    def get_artifact_by_id(self, artifact_id: str) -> dict[str, Any]:
+        row = self.connection.execute("SELECT * FROM artifacts WHERE id = ?", (artifact_id,)).fetchone()
+        if not row:
+            raise KeyError(f"Artifact not found: {artifact_id}")
+        return row_to_artifact(row)
+
+    def update_artifact_metadata(self, *, artifact_id: str, metadata: dict[str, Any]) -> dict[str, Any]:
+        self.connection.execute(
+            "UPDATE artifacts SET metadata = ? WHERE id = ?",
+            (json_dumps(metadata), artifact_id),
+        )
+        return self.get_artifact_by_id(artifact_id)
+
+    def attach_artifact_to_evidence(self, *, artifact_id: str, evidence_package_id: str) -> None:
+        self.connection.execute(
+            "UPDATE artifacts SET evidence_package_id = ? WHERE id = ?",
+            (evidence_package_id, artifact_id),
+        )
+
+    def list_all_test_results(self, project_id: str | None = None) -> list[dict[str, Any]]:
+        if project_id:
+            rows = self.connection.execute(
+                "SELECT * FROM test_results WHERE project_id = ? ORDER BY created_at DESC",
+                (project_id,),
+            ).fetchall()
+        else:
+            rows = self.connection.execute("SELECT * FROM test_results ORDER BY created_at DESC").fetchall()
+        return [row_to_test_result(row) for row in rows]
+
     def list_evidence_packages(self, project_id: str | None = None) -> list[dict[str, Any]]:
         if project_id:
             rows = self.connection.execute(
@@ -172,3 +265,5 @@ class EvidenceRepository:
             tuple(workflow_run_ids),
         ).fetchall()
         return [row_to_evidence_package(row) for row in rows]
+
+

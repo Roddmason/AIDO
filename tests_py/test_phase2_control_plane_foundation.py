@@ -6,7 +6,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from local_control_center.app import create_app
-from local_control_center.store import PlatformStore
+from tests_py.control_plane_fixture import ControlPlaneFixture
 
 
 def auth_headers(client: TestClient) -> dict[str, str]:
@@ -15,7 +15,7 @@ def auth_headers(client: TestClient) -> dict[str, str]:
 
 
 def test_phase2_schema_adds_control_plane_foundation_tables(tmp_path: Path) -> None:
-    store = PlatformStore(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
     store.init()
 
     with sqlite3.connect(tmp_path / "platform.sqlite") as connection:
@@ -45,10 +45,10 @@ def test_phase2_schema_adds_control_plane_foundation_tables(tmp_path: Path) -> N
 
 def test_workflows_policy_evidence_agents_and_model_policy_routes_are_real(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = PlatformStore(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
     store.init()
     project = store.create_project(name="Phase 2", path=tmp_path / "phase2", template_id="other")
-    app = create_app(store=store, static_dir=None)
+    app = create_app(runtime=store, static_dir=None)
     client = TestClient(app)
     headers = auth_headers(client)
 
@@ -152,10 +152,10 @@ def test_workflows_policy_evidence_agents_and_model_policy_routes_are_real(tmp_p
 
 def test_phase2_write_routes_require_loopback_token(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = PlatformStore(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
     store.init()
     project = store.create_project(name="Auth", path=tmp_path / "auth", template_id="other")
-    app = create_app(store=store, static_dir=None)
+    app = create_app(runtime=store, static_dir=None)
     client = TestClient(app)
 
     response = client.post(

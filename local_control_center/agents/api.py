@@ -1,13 +1,175 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+import re
 from typing import Any
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
+
+from local_control_center.evidence.repository import EvidenceRepository
+from local_control_center.shared.event_bus import EventBus
 
 from .executor import run_internal_mock_agent
+from .model_gateway import LOCAL_MODEL_PROVIDERS, REMOTE_MODEL_PROVIDERS, RUNTIME_MODES, runtime_provider_status
 from .repository import AgentsRepository
 from .skills import SkillRegistry
+from .tool_broker import ToolBroker
+
+
+EXECUTION_MODES_WITH_EVIDENCE = {"restricted_subprocess", "docker"}
+ID_RE = re.compile(r"^[a-z0-9_-]{3,64}$")
+TOOL_ID_RE = re.compile(r"^[a-z0-9_.:-]{2,80}$")
+VALID_AGENT_ROLES = {"product_owner", "technical_lead", "implementer", "qa_reviewer", "security_reviewer"}
+VALID_PERMISSION_PROFILES = {"plan", "dev_safe", "qa", "release"}
+VALID_POLICY_STATUS = {"active", "disabled"}
+
+
+def _require_id(value: Any, *, label: str) -> str:
+    candidate = str(value or "")
+    if not ID_RE.match(candidate):
+        raise HTTPException(
+            status_code=422,
+            detail=f"{label} must use lowercase letters, numbers, dashes or underscores.",
+        )
+    return candidate
+
+
+def validate_agent_profile_body(body: dict[str, Any]) -> dict[str, Any]:
+    _require_id(body.get("id"), label="Agent profile id")
+    role = str(body.get("role") or "implementer")
+    runtime_mode = str(body.get("runtimeMode") or body.get("runtimeType") or "internal_mock")
+    permission_profile = str(body.get("permissionProfile") or "plan")
+    allowed_tools = body.get("allowedTools") or []
+    if role not in VALID_AGENT_ROLES:
+        raise HTTPException(status_code=422, detail="Agent role is not in the allowed catalog.")
+    if runtime_mode not in RUNTIME_MODES:
+        raise HTTPException(status_code=422, detail="Runtime mode is not in the allowed catalog.")
+    if permission_profile not in VALID_PERMISSION_PROFILES:
+        raise HTTPException(status_code=422, detail="Permission profile is not in the allowed catalog.")
+    if not isinstance(allowed_tools, list) or not all(isinstance(item, str) and TOOL_ID_RE.match(item) for item in allowed_tools):
+        raise HTTPException(status_code=422, detail="Allowed tools must be catalog ids, not free-form JSON.")
+    return body
+
+
+def validate_model_policy_body(body: dict[str, Any]) -> dict[str, Any]:
+    _require_id(body.get("id"), label="Model policy id")
+    provider_catalog = LOCAL_MODEL_PROVIDERS | REMOTE_MODEL_PROVIDERS
+    for field in ("preferred", "fallback"):
+        candidates = body.get(field) or []
+        if not isinstance(candidates, list):
+            raise HTTPException(status_code=422, detail=f"{field} must be a provider catalog list.")
+        for candidate in candidates:
+            if not isinstance(candidate, dict):
+                raise HTTPException(status_code=422, detail=f"{field} entries must be objects.")
+            provider = str(candidate.get("provider") or "")
+            model = str(candidate.get("model") or "")
+            if provider not in provider_catalog:
+                raise HTTPException(status_code=422, detail="Model provider is not in the allowed catalog.")
+            if not model or len(model) > 160 or any(char.isspace() for char in model):
+                raise HTTPException(status_code=422, detail="Model id must be a compact catalog value.")
+    try:
+        max_cost = float(body.get("maxCostUsd", 0))
+        max_tokens = int(body.get("maxTokens", 0))
+        temperature = float(body.get("temperature", 0.2))
+    except (TypeError, ValueError) as error:
+        raise HTTPException(status_code=422, detail="Model policy numeric fields are invalid.") from error
+    if max_cost < 0:
+        raise HTTPException(status_code=422, detail="maxCostUsd must be zero or positive.")
+    if max_tokens < 0 or max_tokens > 200000:
+        raise HTTPException(status_code=422, detail="maxTokens must be between 0 and 200000.")
+    if temperature < 0 or temperature > 2:
+        raise HTTPException(status_code=422, detail="temperature must be between 0 and 2.")
+    if body.get("status", "active") not in VALID_POLICY_STATUS:
+        raise HTTPException(status_code=422, detail="Model policy status is invalid.")
+    return body
+
+
+def _execution_test_result(tool_call: dict[str, Any]) -> dict[str, Any]:
+    payload = tool_call.get("payload") or {}
+    execution_result = payload.get("executionResult") or {}
+    output_refs = [
+        artifact_id
+        for artifact_id in (execution_result.get("stdoutArtifactId"), execution_result.get("stderrArtifactId"))
+        if artifact_id
+    ]
+    return {
+        "command": payload.get("command") or tool_call.get("toolName"),
+        "status": tool_call.get("status"),
+        "execution": payload.get("execution"),
+        "returnCode": execution_result.get("returnCode"),
+        "timedOut": bool(execution_result.get("timedOut", False)),
+        "durationMs": execution_result.get("durationMs"),
+        "blocked": bool(execution_result.get("blocked", False)),
+        "reason": execution_result.get("reason"),
+        "toolCallId": tool_call.get("id"),
+        "outputRef": output_refs[0] if output_refs else None,
+        "outputRefs": output_refs,
+    }
+
+
+def _execution_artifact_ids(tool_calls: list[dict[str, Any]]) -> list[str]:
+    artifact_ids: list[str] = []
+    for tool_call in tool_calls:
+        payload = tool_call.get("payload") or {}
+        execution_result = payload.get("executionResult") or {}
+        for key in ("stdoutArtifactId", "stderrArtifactId"):
+            artifact_id = execution_result.get(key)
+            if isinstance(artifact_id, str) and artifact_id:
+                artifact_ids.append(artifact_id)
+    return artifact_ids
+
+
+def _create_execution_evidence(
+    *,
+    platform: Any,
+    project_id: str,
+    workflow_run_id: str | None,
+    agent_id: str,
+    task_id: str,
+    tool_calls: list[dict[str, Any]],
+) -> list[str]:
+    executed_tool_calls = [
+        tool_call
+        for tool_call in tool_calls
+        if (tool_call.get("payload") or {}).get("execution") in EXECUTION_MODES_WITH_EVIDENCE
+    ]
+    if not executed_tool_calls:
+        return []
+
+    test_results = [_execution_test_result(tool_call) for tool_call in executed_tool_calls]
+    failed = any(result["status"] in {"denied", "failed"} or result["returnCode"] not in {0, None} for result in test_results)
+    evidence_repo = EvidenceRepository(platform.connection)
+    evidence = evidence_repo.create_evidence_package(
+        project_id=project_id,
+        workflow_run_id=workflow_run_id,
+        agent_id=agent_id,
+        task_id=task_id,
+        test_plan="Capture policy-gated agent tool-call execution.",
+        test_results=test_results,
+        risk_notes=[
+            {
+                "severity": "low",
+                "description": "Tool execution was mediated by policy and sandbox adapters.",
+                "mitigation": "Keep command stdout/stderr redacted and attach larger logs as artifacts in a later hardening pass.",
+            }
+        ],
+        qa_verdict="failed" if failed else "evidence_collected",
+    )
+    for artifact_id in _execution_artifact_ids(executed_tool_calls):
+        evidence_repo.attach_artifact_to_evidence(
+            artifact_id=artifact_id,
+            evidence_package_id=evidence["id"],
+        )
+    EventBus(platform.connection).record_event(
+        project_id=project_id,
+        event_type="qa.evidence.created",
+        payload={
+            "evidencePackageId": evidence["id"],
+            "source": "agent_tool_execution",
+            "workflowRunId": workflow_run_id,
+        },
+    )
+    return [evidence["id"]]
 
 
 def create_router(*, platform: Any, require_write: Callable[[Request], None]) -> APIRouter:
@@ -19,6 +181,9 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     def skill_registry() -> SkillRegistry:
         return SkillRegistry(platform.connection)
 
+    def event_bus() -> EventBus:
+        return EventBus(platform.connection)
+
     @router.get("/api/v1/agent-profiles")
     async def list_agent_profiles() -> dict[str, Any]:
         return {"agentProfiles": repository().list_agent_profiles()}
@@ -26,9 +191,9 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     @router.post("/api/v1/agent-profiles", status_code=201)
     async def upsert_agent_profile(request: Request) -> dict[str, Any]:
         require_write(request)
-        body = await request.json()
+        body = validate_agent_profile_body(await request.json())
         profile = repository().upsert_agent_profile(body)
-        platform.record_event(event_type="agent.profile.upserted", payload={"agentProfileId": profile["id"]})
+        event_bus().record_event(event_type="agent.profile.upserted", payload={"agentProfileId": profile["id"]})
         return {"agentProfile": profile}
 
     @router.get("/api/v1/agent-runs")
@@ -42,29 +207,127 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         repo = repository()
         profile = repo.get_agent_profile(body["agentProfileId"])
         task_id = body.get("taskId", "task")
-        if profile["runtimeType"] != "internal_mock":
+        input_payload = body.get("input") or {}
+        tool_calls = input_payload.get("toolCalls") or []
+        if tool_calls:
+            output = {
+                "agent_id": profile["id"],
+                "task_id": task_id,
+                "verdict": "evaluating_tools",
+                "summary": f"Runtime {profile['runtimeMode']} requested policy-gated tool calls.",
+                "evidence_refs": [],
+                "risks": [],
+                "next_actions": [],
+            }
+            status = "running"
+        elif profile["runtimeMode"] != "internal_mock":
             output = {
                 "agent_id": profile["id"],
                 "task_id": task_id,
                 "verdict": "blocked",
-                "summary": f"Runtime {profile['runtimeType']} is optional and not installed.",
+                "summary": f"Runtime {profile['runtimeMode']} has no executable adapter configured for this run.",
                 "evidence_refs": [],
-                "risks": [{"severity": "medium", "description": "Runtime unavailable.", "mitigation": "Install adapter."}],
+                "risks": [
+                    {
+                        "severity": "medium",
+                        "description": "Runtime adapter unavailable.",
+                        "mitigation": "Route tool calls through the broker or install the adapter explicitly.",
+                    }
+                ],
                 "next_actions": [],
             }
             status = "failed"
         else:
-            output = run_internal_mock_agent(agent_profile=profile, task_id=task_id, input_payload=body.get("input") or {})
+            output = run_internal_mock_agent(agent_profile=profile, task_id=task_id, input_payload=input_payload)
             status = "completed"
         run = repo.create_agent_run(
             project_id=body["projectId"],
             agent_profile_id=profile["id"],
             task_id=task_id,
-            input_payload=body.get("input") or {},
+            input_payload=input_payload,
             output_payload=output,
+            job_id=body.get("jobId"),
+            workflow_run_id=body.get("workflowRunId"),
+            workflow_step_id=body.get("workflowStepId"),
             status=status,
         )
-        platform.record_event(
+        if tool_calls:
+            broker_results = ToolBroker(platform.connection, artifact_root=platform.cwd).evaluate_tool_calls(
+                project_id=body["projectId"],
+                agent_run_id=run["id"],
+                agent_profile=profile,
+                tool_calls=tool_calls,
+                job_id=body.get("jobId"),
+            )
+            decisions = [result["decision"]["decision"] for result in broker_results]
+            tool_statuses = [result["toolCall"]["status"] for result in broker_results]
+            tool_call_records = [result["toolCall"] for result in broker_results]
+            executed = any(
+                result["toolCall"]["payload"].get("execution") in EXECUTION_MODES_WITH_EVIDENCE
+                for result in broker_results
+            )
+            evidence_refs = _create_execution_evidence(
+                platform=platform,
+                project_id=body["projectId"],
+                workflow_run_id=body.get("workflowRunId"),
+                agent_id=profile["id"],
+                task_id=task_id,
+                tool_calls=tool_call_records,
+            )
+            if any(decision == "deny" for decision in decisions) or any(
+                tool_status in {"denied", "failed"} for tool_status in tool_statuses
+            ):
+                status = "failed"
+                verdict = "blocked"
+                summary = "At least one tool call was denied by policy or failed sandbox execution."
+            elif any(decision in {"requires_approval", "requires_human"} for decision in decisions):
+                status = "awaiting_permission"
+                verdict = "awaiting_permission"
+                summary = "Tool calls are waiting for granular approval."
+            else:
+                status = "completed"
+                verdict = "approved_with_risks"
+                summary = (
+                    "Tool calls were executed through sandboxed adapters."
+                    if executed
+                    else "Tool calls were policy-allowed but not executed by the control plane."
+                )
+            output = {
+                "agent_id": profile["id"],
+                "task_id": task_id,
+                "verdict": verdict,
+                "summary": summary,
+                "evidence_refs": evidence_refs,
+                "risks": [
+                    {
+                        "severity": "low",
+                        "description": "Broker records decisions before execution.",
+                        "mitigation": "Execute only through sandboxed adapters after evidence capture.",
+                    }
+                ],
+                "next_actions": [],
+                "tool_calls": tool_call_records,
+            }
+            run = repo.update_agent_run_status(run["id"], status=status, output_payload=output)
+            for result in broker_results:
+                decision = result["decision"]
+                event_type = {
+                    "allow": "tool.call.allowed",
+                    "deny": "tool.call.denied",
+                    "requires_approval": "approval.created",
+                    "requires_human": "approval.created",
+                }.get(decision["decision"], "tool.call.requested")
+                event_bus().record_event(
+                    project_id=body["projectId"],
+                    event_type=event_type,
+                    payload={
+                        "agentRunId": run["id"],
+                        "toolCallId": result["toolCall"]["id"],
+                        "permissionDecisionId": decision["id"],
+                        "actionRequestId": result["actionRequest"]["id"] if result["actionRequest"] else None,
+                    },
+                )
+        event_bus().record_event(
             project_id=body["projectId"],
             event_type=f"agent.run.{status}",
             payload={"agentRunId": run["id"], "agentProfileId": profile["id"]},
@@ -73,7 +336,11 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
 
     @router.get("/api/v1/model-providers")
     async def list_model_providers() -> dict[str, Any]:
-        return {"modelProviders": platform.list_providers()}
+        return {"modelProviders": repository().list_model_providers()}
+
+    @router.get("/api/v1/runtime/providers")
+    async def list_runtime_providers() -> dict[str, Any]:
+        return runtime_provider_status()
 
     @router.get("/api/v1/skills")
     async def list_skills() -> dict[str, Any]:
@@ -84,7 +351,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         require_write(request)
         body = await request.json()
         count = skill_registry().sync(body.get("skillsPath", "skills"))
-        platform.record_event(event_type="skills.synced", payload={"synced": count})
+        event_bus().record_event(event_type="skills.synced", payload={"synced": count})
         return {"synced": count, "skills": skill_registry().list_skills()}
 
     @router.get("/api/v1/model-policies")
@@ -94,9 +361,9 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     @router.post("/api/v1/model-policies", status_code=201)
     async def upsert_model_policy(request: Request) -> dict[str, Any]:
         require_write(request)
-        body = await request.json()
+        body = validate_model_policy_body(await request.json())
         policy = repository().upsert_model_policy(body)
-        platform.record_event(event_type="model.policy.upserted", payload={"modelPolicyId": policy["id"]})
+        event_bus().record_event(event_type="model.policy.upserted", payload={"modelPolicyId": policy["id"]})
         return {"modelPolicy": policy}
 
     return router

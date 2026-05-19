@@ -490,6 +490,7 @@ class PlatformStore:
             (1, utc_now()),
         )
         self._init_phase2_schema()
+        self._init_phase3_schema()
         self._seed_providers()
 
     def _init_phase2_schema(self) -> None:
@@ -667,6 +668,173 @@ class PlatformStore:
                 """,
                 (policy_id, name, profile, json_dumps(rules), timestamp, timestamp),
             )
+
+    def _init_phase3_schema(self) -> None:
+        self.connection.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS workspaces (
+                id TEXT PRIMARY KEY,
+                project_id TEXT NOT NULL,
+                task_id TEXT NOT NULL,
+                owner_agent_id TEXT NOT NULL,
+                path TEXT NOT NULL UNIQUE,
+                status TEXT NOT NULL,
+                isolation_type TEXT NOT NULL,
+                metadata TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                archived_at TEXT
+            );
+            CREATE TABLE IF NOT EXISTS workspace_allocations (
+                id TEXT PRIMARY KEY,
+                workspace_id TEXT NOT NULL,
+                project_id TEXT NOT NULL,
+                task_id TEXT NOT NULL,
+                agent_id TEXT NOT NULL,
+                status TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                released_at TEXT
+            );
+            CREATE TABLE IF NOT EXISTS workspace_files (
+                id TEXT PRIMARY KEY,
+                workspace_id TEXT NOT NULL,
+                path TEXT NOT NULL,
+                role TEXT NOT NULL,
+                hash TEXT,
+                metadata TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS workspace_sessions (
+                id TEXT PRIMARY KEY,
+                workspace_id TEXT NOT NULL,
+                session_id TEXT,
+                agent_id TEXT,
+                status TEXT NOT NULL,
+                metadata TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS git_branches (
+                id TEXT PRIMARY KEY,
+                workspace_id TEXT,
+                project_id TEXT NOT NULL,
+                branch_name TEXT NOT NULL,
+                base_branch TEXT NOT NULL,
+                status TEXT NOT NULL,
+                metadata TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS pull_requests (
+                id TEXT PRIMARY KEY,
+                workspace_id TEXT,
+                project_id TEXT NOT NULL,
+                provider TEXT NOT NULL,
+                url TEXT NOT NULL,
+                status TEXT NOT NULL,
+                metadata TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS skills (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL UNIQUE,
+                description TEXT NOT NULL,
+                license TEXT NOT NULL,
+                compatibility TEXT NOT NULL,
+                risk_level TEXT NOT NULL,
+                path TEXT NOT NULL,
+                metadata TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS skill_versions (
+                id TEXT PRIMARY KEY,
+                skill_id TEXT NOT NULL,
+                version TEXT NOT NULL,
+                instructions_hash TEXT NOT NULL,
+                content TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS skill_bindings (
+                id TEXT PRIMARY KEY,
+                skill_id TEXT NOT NULL,
+                agent_profile_id TEXT,
+                workflow_id TEXT,
+                status TEXT NOT NULL,
+                metadata TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS artifacts (
+                id TEXT PRIMARY KEY,
+                project_id TEXT NOT NULL,
+                evidence_package_id TEXT,
+                kind TEXT NOT NULL,
+                path TEXT NOT NULL,
+                hash TEXT,
+                metadata TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS test_results (
+                id TEXT PRIMARY KEY,
+                project_id TEXT NOT NULL,
+                evidence_package_id TEXT,
+                command TEXT NOT NULL,
+                status TEXT NOT NULL,
+                duration_ms INTEGER,
+                output_ref TEXT,
+                metadata TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS qa_verdicts (
+                id TEXT PRIMARY KEY,
+                project_id TEXT NOT NULL,
+                evidence_package_id TEXT NOT NULL,
+                verdict TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS model_providers (
+                id TEXT PRIMARY KEY,
+                provider TEXT NOT NULL,
+                label TEXT NOT NULL,
+                status TEXT NOT NULL,
+                allow_remote INTEGER NOT NULL,
+                metadata TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_workspaces_task_active
+                ON workspaces(project_id, task_id, status);
+            CREATE INDEX IF NOT EXISTS idx_workspace_allocations_workspace
+                ON workspace_allocations(workspace_id, status);
+            CREATE INDEX IF NOT EXISTS idx_test_results_evidence
+                ON test_results(evidence_package_id, status);
+            """
+        )
+        self.connection.execute(
+            "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+            (3, utc_now()),
+        )
+        timestamp = utc_now()
+        self.connection.execute(
+            """
+            INSERT OR IGNORE INTO model_providers
+                (id, provider, label, status, allow_remote, metadata, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "internal_mock",
+                "internal_mock",
+                "Internal Mock",
+                "available",
+                0,
+                json_dumps({"runtime": "test"}),
+                timestamp,
+                timestamp,
+            ),
+        )
 
     def _seed_providers(self) -> None:
         providers = [
@@ -1343,6 +1511,31 @@ class PlatformStore:
 
         return AgentsRepository(self.connection).list_model_policies()
 
+    def list_agent_tool_calls(self) -> list[dict[str, Any]]:
+        from .agents.repository import AgentsRepository
+
+        return AgentsRepository(self.connection).list_agent_tool_calls()
+
+    def list_model_calls(self) -> list[dict[str, Any]]:
+        from .agents.repository import AgentsRepository
+
+        return AgentsRepository(self.connection).list_model_calls()
+
+    def list_cost_usage(self) -> list[dict[str, Any]]:
+        from .agents.repository import AgentsRepository
+
+        return AgentsRepository(self.connection).list_cost_usage()
+
+    def list_runtime_workspaces(self) -> list[dict[str, Any]]:
+        from .workspaces_projects.repository import WorkspacesRepository
+
+        return WorkspacesRepository(self.connection, root=self.cwd).list_workspaces()
+
+    def list_skills(self) -> list[dict[str, Any]]:
+        from .agents.skills import SkillRegistry
+
+        return SkillRegistry(self.connection).list_skills()
+
     def ensure_runtime_project(self) -> dict[str, Any]:
         existing = self._get_project_by_path(self.cwd)
         if existing:
@@ -1383,6 +1576,11 @@ class PlatformStore:
             "agentProfiles": self.list_agent_profiles(),
             "modelPolicies": self.list_model_policies(),
             "modelProviders": self.list_providers(),
+            "agentToolCalls": self.list_agent_tool_calls(),
+            "modelCalls": self.list_model_calls(),
+            "costUsage": self.list_cost_usage(),
+            "runtimeWorkspaces": self.list_runtime_workspaces(),
+            "skills": self.list_skills(),
             "openDesign": {"status": "python-backend"},
             "security": {"loopbackOnly": True, "writeTokenRequired": True},
         }

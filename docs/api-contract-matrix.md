@@ -38,7 +38,11 @@ The Python FastAPI backend must cover these Node dashboard contracts before the 
 - `GET|POST /api/v1/evidence`
 - `GET /api/v1/evidence/:id`
 - `GET|POST /api/v1/agent-profiles`
-- `GET /api/v1/agent-runs`
+- `GET|POST /api/v1/agent-runs`
+- `GET /api/v1/skills`
+- `POST /api/v1/skills/sync`
+- `GET|POST /api/v1/workspaces`
+- `POST /api/v1/workspaces/:id/archive`
 - `GET /api/v1/model-providers`
 - `GET|POST /api/v1/model-policies`
 
@@ -79,3 +83,5 @@ The Python FastAPI backend must cover these Node dashboard contracts before the 
 
 The active Python coverage is enforced by `tests_py/test_python_control_center.py`
 and `tests_py/test_phase2_control_plane_foundation.py`.
+Phase 3-6 foundation coverage is enforced by
+`tests_py/test_phase3_to_6_control_plane_runtime.py`.

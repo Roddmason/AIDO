@@ -22,6 +22,13 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     async def create_evidence(request: Request) -> dict[str, Any]:
         require_write(request)
         body = await request.json()
+        if body.get("qaVerdict") == "passed" and not (
+            body.get("testResults") or body.get("diffRefs") or body.get("screenshotRefs")
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail="QA cannot pass without test results, diff refs, or screenshot/artifact refs.",
+            )
         evidence = repository().create_evidence_package(
             project_id=body["projectId"],
             workflow_run_id=body.get("workflowRunId"),

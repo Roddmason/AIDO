@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import uuid
 from typing import Any
 
 from local_control_center.store import utc_now
@@ -55,6 +56,60 @@ def row_to_model_policy(row: sqlite3.Row) -> dict[str, Any]:
         "status": row["status"],
         "createdAt": row["created_at"],
         "updatedAt": row["updated_at"],
+    }
+
+
+def row_to_agent_run(row: sqlite3.Row) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "projectId": row["project_id"],
+        "jobId": row["job_id"],
+        "status": row["status"],
+        "input": json_loads(row["input"]),
+        "output": json_loads(row["output"]),
+        "metadata": json_loads(row["metadata"]),
+        "createdAt": row["created_at"],
+        "updatedAt": row["updated_at"],
+    }
+
+
+def row_to_agent_tool_call(row: sqlite3.Row) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "agentRunId": row["agent_run_id"],
+        "toolName": row["tool_name"],
+        "status": row["status"],
+        "payload": json_loads(row["payload"]),
+        "createdAt": row["created_at"],
+        "updatedAt": row["updated_at"],
+    }
+
+
+def row_to_model_call(row: sqlite3.Row) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "projectId": row["project_id"],
+        "agentRunId": row["agent_run_id"],
+        "modelPolicyId": row["model_policy_id"],
+        "provider": row["provider"],
+        "model": row["model"],
+        "status": row["status"],
+        "promptTokens": row["prompt_tokens"],
+        "completionTokens": row["completion_tokens"],
+        "costUsd": row["cost_usd"],
+        "metadata": json_loads(row["metadata"]),
+        "createdAt": row["created_at"],
+    }
+
+
+def row_to_cost_usage(row: sqlite3.Row) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "projectId": row["project_id"],
+        "scope": row["scope"],
+        "amountUsd": row["amount_usd"],
+        "metadata": json_loads(row["metadata"]),
+        "createdAt": row["created_at"],
     }
 
 
@@ -166,3 +221,102 @@ class AgentsRepository:
     def list_model_policies(self) -> list[dict[str, Any]]:
         rows = self.connection.execute("SELECT * FROM model_policies ORDER BY id ASC").fetchall()
         return [row_to_model_policy(row) for row in rows]
+
+    def create_agent_run(
+        self,
+        *,
+        project_id: str,
+        agent_profile_id: str,
+        task_id: str,
+        input_payload: dict[str, Any],
+        output_payload: dict[str, Any],
+        status: str = "completed",
+    ) -> dict[str, Any]:
+        profile = self.get_agent_profile(agent_profile_id)
+        timestamp = utc_now()
+        run_id = f"agent-run-{uuid.uuid4()}"
+        self.connection.execute(
+            """
+            INSERT INTO agent_runs (id, project_id, job_id, status, input, output, metadata, created_at, updated_at)
+            VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                run_id,
+                project_id,
+                status,
+                json_dumps(input_payload),
+                json_dumps(output_payload),
+                json_dumps({"agentProfileId": agent_profile_id, "taskId": task_id, "runtimeType": profile["runtimeType"]}),
+                timestamp,
+                timestamp,
+            ),
+        )
+        self.connection.execute(
+            """
+            INSERT INTO agent_tool_calls
+                (id, agent_run_id, tool_name, status, payload, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                f"agent-tool-call-{uuid.uuid4()}",
+                run_id,
+                "internal_mock.complete",
+                "completed",
+                json_dumps({"taskId": task_id}),
+                timestamp,
+                timestamp,
+            ),
+        )
+        policy_id = profile.get("modelPolicyId")
+        self.connection.execute(
+            """
+            INSERT INTO model_calls
+                (id, project_id, agent_run_id, model_policy_id, provider, model, status,
+                 prompt_tokens, completion_tokens, cost_usd, metadata, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                f"model-call-{uuid.uuid4()}",
+                project_id,
+                run_id,
+                policy_id,
+                "internal_mock",
+                "mock",
+                "completed",
+                0,
+                0,
+                0.0,
+                json_dumps({"redacted": True}),
+                timestamp,
+            ),
+        )
+        self.connection.execute(
+            """
+            INSERT INTO cost_usage (id, project_id, scope, amount_usd, metadata, created_at)
+            VALUES (?, ?, 'model_call', 0.0, ?, ?)
+            """,
+            (f"cost-{uuid.uuid4()}", project_id, json_dumps({"agentRunId": run_id}), timestamp),
+        )
+        return self.get_agent_run(run_id)
+
+    def get_agent_run(self, run_id: str) -> dict[str, Any]:
+        row = self.connection.execute("SELECT * FROM agent_runs WHERE id = ?", (run_id,)).fetchone()
+        if not row:
+            raise KeyError(f"Agent run not found: {run_id}")
+        return row_to_agent_run(row)
+
+    def list_agent_runs(self) -> list[dict[str, Any]]:
+        rows = self.connection.execute("SELECT * FROM agent_runs ORDER BY created_at DESC").fetchall()
+        return [row_to_agent_run(row) for row in rows]
+
+    def list_agent_tool_calls(self) -> list[dict[str, Any]]:
+        rows = self.connection.execute("SELECT * FROM agent_tool_calls ORDER BY created_at DESC").fetchall()
+        return [row_to_agent_tool_call(row) for row in rows]
+
+    def list_model_calls(self) -> list[dict[str, Any]]:
+        rows = self.connection.execute("SELECT * FROM model_calls ORDER BY created_at DESC").fetchall()
+        return [row_to_model_call(row) for row in rows]
+
+    def list_cost_usage(self) -> list[dict[str, Any]]:
+        rows = self.connection.execute("SELECT * FROM cost_usage ORDER BY created_at DESC").fetchall()
+        return [row_to_cost_usage(row) for row in rows]

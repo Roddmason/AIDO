@@ -32,10 +32,14 @@ tables.
 - `local_control_center/sandbox.py`: Windows command-risk sandbox assessment.
 - `local_control_center/workflows/`: workflow definitions, runs, steps, and
   events foundation.
-- `local_control_center/security_policy/`: deterministic policy evaluator and
-  persisted permission decisions.
-- `local_control_center/evidence/`: evidence package creation and query API.
-- `local_control_center/agents/`: agent profiles and model policy catalog.
+- `local_control_center/security_policy/`: deterministic policy evaluator,
+  command classifier, and persisted permission decisions.
+- `local_control_center/evidence/`: evidence package creation, QA verdict
+  gating, and test-result persistence.
+- `local_control_center/agents/`: agent profiles, internal mock runtime,
+  model policy catalog, model/cost records, and versionable skill registry.
+- `local_control_center/workspaces_projects/`: isolated workspace allocation
+  and archive endpoints for task/agent ownership.
 - `local_control_center/{pipelines,runtime_integrations,sessions_chats,shared,workspaces_projects}/`:
   slice placeholders that need real ownership in later phases.
 - `local-control-center/web/`: active React dashboard, currently JavaScript/JSX.
@@ -80,7 +84,12 @@ Core v1:
 - `GET|POST /api/v1/evidence`
 - `GET /api/v1/evidence/{id}`
 - `GET|POST /api/v1/agent-profiles`
-- `GET /api/v1/agent-runs`
+- `GET|POST /api/v1/agent-runs`
+- `GET /api/v1/skills`
+- `POST /api/v1/skills/sync`
+- `GET /api/v1/workspaces`
+- `POST /api/v1/workspaces`
+- `POST /api/v1/workspaces/{id}/archive`
 - `GET /api/v1/model-providers`
 - `GET|POST /api/v1/model-policies`
 
@@ -132,13 +141,25 @@ Current schema tables:
 - `model_policies`
 - `model_calls`
 - `cost_usage`
+- `workspaces`
+- `workspace_allocations`
+- `workspace_files`
+- `workspace_sessions`
+- `git_branches`
+- `pull_requests`
+- `skills`
+- `skill_versions`
+- `skill_bindings`
+- `artifacts`
+- `test_results`
+- `qa_verdicts`
+- `model_providers`
 
-Still missing target entities after Phase 2:
+Still missing target entities after Phase 3-6 foundation:
 
-- workspace allocation/worktree lifecycle tables
-- full artifact/test-result tables beyond the first evidence package table
 - deployment/release/risk register tables
 - MCP server/tool-call tables
+- devcontainer metadata and real git worktree lifecycle records
 
 ## `store.py` Coupling
 
@@ -251,8 +272,9 @@ inside dependency folders during this audit, not as active root source files.
 1. Isolate or remove the root `src/` TypeScript CLI tree from AIDO core.
 2. Reduce `PlatformStore` to a facade and move schema ownership into migrations
    plus vertical repositories.
-3. Add first-class workflow, policy decision, evidence, model policy, and
-   workspace allocation tables.
-4. Replace broad legacy `/api/*` handlers with `legacy_compat` delegators.
-5. Migrate frontend to TypeScript/Vite only after backend data contracts are real.
+3. Replace broad legacy `/api/*` handlers with `legacy_compat` delegators.
+4. Add real git worktree/devcontainer workspace execution after the current
+   logical allocation API is stable.
+5. Migrate frontend to TypeScript/Vite after the new control-plane endpoints are
+   fully represented in the current dashboard.
 6. Add recurring license/security scans to quality checks.

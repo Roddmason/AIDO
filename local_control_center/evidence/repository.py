@@ -86,6 +86,40 @@ class EvidenceRepository:
                 utc_now(),
             ),
         )
+        for result in test_results or []:
+            self.connection.execute(
+                """
+                INSERT INTO test_results
+                    (id, project_id, evidence_package_id, command, status, duration_ms,
+                     output_ref, metadata, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    f"test-result-{uuid.uuid4()}",
+                    project_id,
+                    evidence_id,
+                    str(result.get("command", "")),
+                    str(result.get("status", "unknown")),
+                    result.get("durationMs"),
+                    result.get("outputRef"),
+                    json_dumps(result),
+                    utc_now(),
+                ),
+            )
+        self.connection.execute(
+            """
+            INSERT INTO qa_verdicts (id, project_id, evidence_package_id, verdict, reason, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                f"qa-verdict-{uuid.uuid4()}",
+                project_id,
+                evidence_id,
+                qa_verdict,
+                "Evidence package created",
+                utc_now(),
+            ),
+        )
         return self.get_evidence_package(evidence_id)
 
     def get_evidence_package(self, evidence_id: str) -> dict[str, Any]:

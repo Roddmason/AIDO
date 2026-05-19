@@ -123,6 +123,7 @@ def test_fastapi_composition_entrypoint_is_named_app() -> None:
 
 def test_screaming_architecture_domain_packages_are_explicit() -> None:
     expected_packages = [
+        "control_plane",
         "jobs_approvals",
         "memory_retrieval",
         "workspaces_projects",
@@ -138,3 +139,13 @@ def test_screaming_architecture_domain_packages_are_explicit() -> None:
         package_dir = ROOT / "local_control_center" / package
         assert package_dir.is_dir(), package
         assert (package_dir / "__init__.py").exists(), package
+
+
+def test_overview_read_model_is_not_embedded_in_platform_store() -> None:
+    store_source = read("local_control_center/store.py")
+    overview_source = ROOT / "local_control_center" / "control_plane" / "overview.py"
+
+    assert overview_source.exists()
+    assert "def build_overview" in overview_source.read_text(encoding="utf-8")
+    assert '"workspaceState"' not in store_source
+    assert '"architectureDecisions"' not in store_source

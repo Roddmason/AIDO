@@ -1680,41 +1680,6 @@ class PlatformStore:
         )
 
     def get_overview(self) -> dict[str, Any]:
-        self.ensure_runtime_project()
-        workspace_state = self.ensure_workspace_state(self.cwd)
-        return {
-            "projectTemplates": self.list_project_templates(),
-            "projects": self.list_projects(),
-            "providers": self.list_providers(),
-            "teams": self.list_teams(),
-            "agents": self.list_agents(),
-            "sessions": self.list_sessions(),
-            "jobs": self.list_jobs(),
-            "jobRuns": self.list_job_runs(),
-            "events": self.list_events(),
-            "auditEvents": self.list_audit_events(),
-            "memoryItems": self.list_memory_items(),
-            "promptTemplates": self.list_prompt_templates(),
-            "actionRequests": self.list_action_requests(),
-            "ideConnections": self.list_ide_connections(),
-            "workflows": self.list_workflows(),
-            "workflowRuns": self.list_workflow_runs(),
-            "workflowSteps": self.list_workflow_steps(),
-            "permissionDecisions": self.list_permission_decisions(),
-            "evidencePackages": self.list_evidence_packages(),
-            "agentProfiles": self.list_agent_profiles(),
-            "modelPolicies": self.list_model_policies(),
-            "modelProviders": self.list_providers(),
-            "agentToolCalls": self.list_agent_tool_calls(),
-            "modelCalls": self.list_model_calls(),
-            "costUsage": self.list_cost_usage(),
-            "runtimeWorkspaces": self.list_runtime_workspaces(),
-            "skills": self.list_skills(),
-            "architectureDecisions": self.list_architecture_decisions(),
-            "riskRegister": self.list_risks(),
-            "nextSteps": self.list_next_steps(),
-            "workspaceState": workspace_state["state"],
-            "workspaceStateMetadata": workspace_state["metadata"],
-            "openDesign": {"status": "python-backend"},
-            "security": {"loopbackOnly": True, "writeTokenRequired": True},
-        }
+        from .control_plane.overview import build_overview
+
+        return build_overview(self)

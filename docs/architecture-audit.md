@@ -21,6 +21,8 @@ tables.
 
 - `local_control_center/app.py`: FastAPI composition entrypoint.
 - `local_control_center/api.py`: root v1 composition and active Python routes.
+- `local_control_center/control_plane/`: operational read models such as
+  `/api/v1/overview`.
 - `local_control_center/legacy_compat/`: isolated compatibility adapter for old
   dashboard `/api/*` routes.
 - `local_control_center/store.py`: SQLite facade and remaining god object.
@@ -171,11 +173,11 @@ Still missing target entities after Phase 3-6 foundation:
 - project/provider/team/agent/session CRUD.
 - workspace JSON import/export compatibility.
 - prompt and IDE connection operations.
-- overview aggregation.
 - facade methods that delegate jobs and memory to slice repositories.
 
 The job and memory SQL ownership has started moving to slices, which is the
-right direction. The next extraction should be `shared/db.py` plus focused
+right direction. The overview read model has moved to `control_plane`. The next
+extraction should be `shared/db.py` plus focused
 repositories for projects, workflows, security decisions, evidence, agents, and
 model policies. Do not move `pipelines` first; it is still the most coupled area.
 

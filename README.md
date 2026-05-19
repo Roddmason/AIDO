@@ -8,7 +8,7 @@ cost records, and audit events around agent-assisted engineering.
 ## Current Status
 
 - Backend: Python/FastAPI with SQLite as the canonical local store.
-- Frontend: React dashboard built with the existing esbuild/PNPM toolchain.
+- Frontend: Vite + React + TypeScript console built with PNPM.
 - Package management: PNPM for JavaScript, `uv` for Python.
 - License: private/proprietary for now. Core dependencies are kept compatible
   with a possible future open-source release.
@@ -23,6 +23,8 @@ cost records, and audit events around agent-assisted engineering.
   foundation.
 - Governance ledger for architecture decisions, risk register entries, and
   prioritized next steps.
+- Hybrid agent runtime catalog per agent: API, CLI, Ollama, manual, or internal
+  mock, always behind policy and evidence controls.
 - Automatic risk creation from policy-gated actions, failed/blocked QA, and
   cancelled workflows.
 - Workspace-aware path policy and task-scoped Git worktree allocation when the
@@ -35,6 +37,7 @@ cost records, and audit events around agent-assisted engineering.
 - It does not permit dangerous shell execution without policy gates.
 - It does not require WSL.
 - It does not use Node as backend business runtime.
+- It does not keep compatibility routes as active product surface.
 
 ## Setup
 

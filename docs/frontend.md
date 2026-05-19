@@ -1,97 +1,91 @@
 # Frontend Architecture
 
-The current React dashboard remains active while the backend foundation is
-stabilized. The next frontend migration should be TypeScript-first and should
-not start until workflows, policy decisions, evidence, agents, and model gateway
-endpoints expose real data.
+The active console is Vite + React + TypeScript. Node remains only the frontend
+toolchain; business runtime and state belong to Python/FastAPI.
 
-Current JavaScript dashboard coverage now includes:
-
-- Overview
-- Jobs/Approvals
-- Memory/Retrieval
-- Agents Runtime
-- Sandbox/Security
-- Workflows
-- Governance
-- Pipelines
-- Workspaces/Sessions
-- Evidence & QA
-- Integrations
-- Design Lab
-- Settings
-
-The active dashboard reads operational state from `/api/v1/overview` and
-`/api/v1/retrieval/status`. It no longer calls `/api/state`; that route remains
-only as isolated legacy compatibility for older clients and contract tests.
-
-## Target Structure
+## Active Structure
 
 ```text
 local-control-center/web/
 ├── index.html
-├── src/
-│   ├── main.tsx
-│   ├── app/
-│   │   ├── App.tsx
-│   │   ├── router.tsx
-│   │   ├── providers.tsx
-│   │   └── error-boundary.tsx
-│   ├── api/
-│   │   ├── client.ts
-│   │   ├── generated/
-│   │   ├── events.ts
-│   │   └── types.ts
-│   ├── design-system/
-│   │   ├── tokens.css
-│   │   ├── base.css
-│   │   ├── layout.css
-│   │   ├── components.css
-│   │   └── motion.css
-│   ├── components/
-│   │   ├── shell/
-│   │   ├── data/
-│   │   ├── forms/
-│   │   ├── feedback/
-│   │   ├── charts/
-│   │   └── primitives/
-│   ├── features/
-│   │   ├── overview/
-│   │   ├── command-center/
-│   │   ├── workflows/
-│   │   ├── jobs-approvals/
-│   │   ├── agents/
-│   │   ├── model-gateway/
-│   │   ├── policy-security/
-│   │   ├── workspaces/
-│   │   ├── memory/
-│   │   ├── evidence/
-│   │   ├── governance/
-│   │   ├── integrations/
-│   │   ├── settings/
-│   │   └── audit/
-│   ├── stores/
-│   ├── hooks/
-│   ├── lib/
-│   └── test/
 ├── vite.config.ts
 ├── tsconfig.json
-└── package.json
+└── src/
+    ├── main.tsx
+    ├── app/App.tsx
+    ├── api/client.ts
+    ├── api/types.ts
+    ├── components/primitives.tsx
+    ├── design-system/
+    ├── features/
+    ├── hooks/
+    ├── lib/
+    └── motion/useControlMotion.ts
 ```
 
-## Migration Rules
+## Product Surfaces
 
-- Keep the existing dashboard operational until the TypeScript shell passes
-  Playwright smoke tests.
-- Migrate by feature slice, not by visual page rewrite.
-- Do not move business rules into React. The UI renders backend state and sends
-  explicit commands.
-- Use local fonts only; no CDN dependencies.
-- Preserve keyboard navigation, visible focus, reduced motion, and status text
-  that does not rely on color alone.
+- Overview
+- Command Center
+- Workflows
+- Jobs & Approvals
+- Agents
+- Workspaces
+- Policy & Security
+- Memory & Retrieval
+- Evidence & QA
+- Model Gateway
+- Governance
+- Integrations
+- Audit Log
+- Settings
+
+## Data Rules
+
+- The console consumes `/api/v1/overview`, `/api/v1/retrieval/status`, and
+  `/api/v1/runtime/providers`.
+- Mutations use the loopback handshake token.
+- React does not decide policy, approval, workspace, agent, or evidence
+  outcomes. It renders backend state and submits explicit commands.
+- Missing backend state must be added to the API rather than fabricated in the
+  client.
+- Approval and event drawers render overview state directly. They are
+  inspection/control surfaces; policy decisions remain backend-owned.
+- Configuration changes must use strict forms with controlled inputs. Agent
+  profiles and model policies are edited through labeled inputs, selects,
+  checkboxes, and numeric fields; raw JSON editing is not a supported operator
+  path.
 
 ## Visual Direction
 
-Editorial operational control room: graphite, parchment, off-white, muted moss,
-amber, and oxblood. Avoid neon terminal styling, liquid glass, heavy gradients,
-and generic SaaS dashboards.
+AIDO uses an operational control-room style: graphite, off-white, muted moss,
+amber, and oxblood. The UI should read as an engineering ledger, not a SaaS
+marketing dashboard. Avoid neon palettes, liquid-glass effects, decorative
+glows, gradient text, and external font/CDN dependencies.
+
+## Motion
+
+Motion uses a small React/CSS layer, not a non-OSI animation runtime:
+
+- section transitions;
+- new events;
+- approval drawer state;
+- workflow focus;
+- command-palette and drawer movement.
+
+The implementation animates only `opacity` and `transform`, keeps transitions
+short, and must respect `prefers-reduced-motion`. The smoke suite asserts the
+reduced-motion path. `gsap`/`@gsap/react` were removed from core dependencies
+because the package license is not OSI-compatible.
+
+## Validation
+
+```powershell
+corepack pnpm@10.24.0 run build:control-center
+corepack pnpm@10.24.0 run test:web
+```
+
+The Playwright suite covers strict configuration forms on desktop and mobile:
+invalid ids must show inline errors, valid agent profiles and model policies
+must persist through v1 APIs, and the configuration pages must not expose
+`textarea` JSON editors.

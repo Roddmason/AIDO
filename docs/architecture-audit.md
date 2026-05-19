@@ -1,124 +1,89 @@
 # Architecture Audit
 
-Date: 2026-05-18
-Project: AIDO / Local Control Center
-Runtime target: Windows-native Python/FastAPI backend with React dashboard.
+Date: 2026-05-19  
+Project: AIDO / Local Control Center  
+Runtime target: Windows-native Python/FastAPI backend with Vite + React +
+TypeScript console.
 
 ## Executive Summary
 
-The repository contains a working Python/FastAPI Local Control Center with SQLite
-state, jobs, granular action approvals, worker leasing, memory/retrieval, and a
-React dashboard. A large ignored root `src/` tree with Claude Code/Anthropic
-TypeScript CLI material was observed during the initial audit and has now been
-removed from the clean workspace. It was not part of the Python backend or the
-active React dashboard and must not be reintroduced without license provenance.
+The repository now contains a hard-cutover Python/FastAPI control plane with a
+TypeScript frontend. The active product contract is `/api/v1/*` plus `/healthz`.
+Removed compatibility routes, JSON runtime imports, JSX entrypoints, esbuild
+build script, dependency folders, build outputs, caches, and generated test
+artifacts are not source.
 
-The highest-priority issues are source hygiene, license clarity, `store.py`
-coupling, FAISS being mandatory, and the lack of first-class workflow/evidence
-tables.
+The prior store-facade risk is closed. SQLite connection setup, schema
+bootstrap, and shared utilities live in `shared/`; FastAPI/CLI runtime
+bootstrap uses `control_plane.runtime.ControlCenterRuntime`; active slice APIs
+use repositories plus `EventBus` directly. The product `store.py` and the
+transitional test store harness have both been removed. Guardrail tests fail if
+that pattern reappears in product code or tests.
 
-## Current Module Map
+## Module Map
 
-- `local_control_center/app.py`: FastAPI composition entrypoint.
-- `local_control_center/api.py`: root v1 composition and active Python routes.
-- `local_control_center/control_plane/`: operational read models such as
-  `/api/v1/overview`.
-- `local_control_center/legacy_compat/`: isolated compatibility adapter for old
-  dashboard `/api/*` routes.
-- `local_control_center/store.py`: SQLite facade and remaining god object.
-- `local_control_center/worker.py`: compatibility import for the concurrent worker.
-- `local_control_center/jobs_approvals/`: jobs, leases, action requests, audit,
-  and worker implementation.
-- `local_control_center/memory_retrieval/`: memory API, repository, hashing
-  embeddings, FAISS/NumPy rebuildable index.
-- `local_control_center/agents_runtime.py`: gated planner placeholder.
-- `local_control_center/sandbox.py`: Windows command-risk sandbox assessment.
-- `local_control_center/workflows/`: workflow definitions, runs, steps, and
-  events foundation.
-- `local_control_center/security_policy/`: deterministic policy evaluator,
-  command classifier, and persisted permission decisions.
-- `local_control_center/evidence/`: evidence package creation, QA verdict
-  gating, and test-result persistence.
-- `local_control_center/agents/`: agent profiles, internal mock runtime,
-  model policy catalog, model/cost records, and versionable skill registry.
-- `local_control_center/workspaces_projects/`: isolated workspace allocation
-  and archive endpoints for task/agent ownership.
-- `local_control_center/{pipelines,runtime_integrations,sessions_chats,shared,workspaces_projects}/`:
-  slice placeholders that need real ownership in later phases.
-- `local-control-center/web/`: active React dashboard, currently JavaScript/JSX.
-- `local-control-center/scripts/`: Windows PowerShell launch/autostart/DNS scripts.
-- root `src/`: removed legacy or third-party TypeScript CLI surface. Not active
-  core and not allowed back into source without provenance.
+- `local_control_center/api.py`: FastAPI composition for active v1 routers.
+- `local_control_center/app.py`: package entrypoint.
+- `local_control_center/cli.py`: Windows/local CLI runner.
+- `local_control_center/control_plane/runtime.py`: FastAPI/CLI runtime boundary
+  for cwd, DB connection, schema bootstrap, token, and runtime project creation.
+- `local_control_center/shared/db.py`: SQLite connection setup, PRAGMAs, and
+  transaction helper.
+- `local_control_center/shared/time.py`: UTC timestamp helpers.
+- `local_control_center/shared/serialization.py`: JSON and stable hash helpers.
+- `local_control_center/shared/migrations.py`: additive SQLite schema bootstrap
+  and technical seed records.
+- `local_control_center/control_plane/`: overview read-model composition.
+- `local_control_center/projects/`: project catalog, provider catalog, teams,
+  and agent listing repository.
+- `local_control_center/jobs_approvals/`: jobs, leases, action requests,
+  approvals, audit, worker behavior.
+- `local_control_center/memory_retrieval/`: memory metadata and NumPy/FAISS
+  retrieval.
+- `local_control_center/workflows/`: workflow definitions, runs, steps, edges,
+  and workflow events.
+- `local_control_center/security_policy/`: command classifier, policy engine,
+  permission decisions, sandbox/secrets boundaries.
+- `local_control_center/workspaces_projects/`: project discovery and
+  task-scoped workspaces.
+- `local_control_center/agents/`: profiles, runtime modes, model providers,
+  model policies, calls, cost usage, skills, and tool broker.
+- `local_control_center/evidence/`: evidence packages, test results, verdicts,
+  artifacts.
+- `local_control_center/governance/`: risks, decisions, next steps.
+- `local_control_center/sessions_chats/`: v1 session and chat read models.
+- `local_control_center/pipelines/`: v1 pipeline read models.
+- `local_control_center/prompts/`: prompt templates and version records.
+- `local-control-center/web/`: active Vite + React + TypeScript console.
+- `local-control-center/scripts/`: Windows PowerShell launch, autostart, and
+  local DNS helpers.
 
-## Current Endpoints
+## Active Endpoints
 
-Core v1:
+See `docs/api-contract-matrix.md` for the maintained v1 matrix.
 
-- `GET /healthz`
-- `GET /api/v1/security/handshake`
-- `GET /api/v1/overview`
-- `GET /api/v1/events`
-- `GET /api/v1/project-templates`
-- `GET|POST /api/v1/projects`
-- `GET /api/v1/providers`
-- `GET /api/v1/teams`
-- `GET /api/v1/agents`
-- `GET|POST /api/v1/prompts`
-- `GET|POST /api/v1/ide-connections`
-- `GET /api/v1/open-design`
-- `GET|POST /api/v1/jobs`
-- `POST /api/v1/jobs/{job_id}/approve`
-- `POST /api/v1/jobs/{job_id}/cancel`
-- `POST /api/v1/jobs/{job_id}/retry`
-- `GET /api/v1/approvals`
-- `POST /api/v1/jobs/{job_id}/actions/{action_id}/approve`
-- `POST /api/v1/jobs/{job_id}/actions/{action_id}/deny`
-- `GET|POST /api/v1/memory`
-- `GET /api/v1/retrieval/status`
-- `POST /api/v1/retrieval/reindex`
-- `POST /api/v1/retrieval/search`
-- `GET|POST /api/v1/workflows`
-- `GET /api/v1/workflows/{id}`
-- `POST /api/v1/workflows/{id}/start`
-- `POST /api/v1/workflows/{id}/pause`
-- `POST /api/v1/workflows/{id}/resume`
-- `POST /api/v1/workflows/{id}/cancel`
-- `GET /api/v1/policies`
-- `POST /api/v1/policies/evaluate`
-- `GET|POST /api/v1/evidence`
-- `GET /api/v1/evidence/{id}`
-- `GET|POST /api/v1/agent-profiles`
-- `GET|POST /api/v1/agent-runs`
-- `GET /api/v1/skills`
-- `POST /api/v1/skills/sync`
-- `GET /api/v1/workspaces`
-- `POST /api/v1/workspaces`
-- `POST /api/v1/workspaces/{id}/archive`
-- `GET /api/v1/model-providers`
-- `GET|POST /api/v1/model-policies`
+Key surfaces:
 
-Legacy dashboard compatibility, isolated under `local_control_center/legacy_compat`:
-
-- `/api/state`
-- `/api/workspaces`, `/api/workspaces/select`, `/api/workspaces/{workspace_ref}/{action}`
-- `/api/git`, `/api/git/checkout`
-- `/api/sessions`, `/api/sessions/select`, session clone/action/patch/delete
-- `/api/config/options`, `/api/extensions/catalog`, `/api/config`
-- extension marketplace/plugin/skill mutation routes
-- `/api/chats/send`, `/api/chats/{chat_id}`
-- `/api/idea/intake`
-- `/api/pipelines/{pipeline_id}` and pipeline/stage actions
+- health, handshake, overview, events;
+- projects, workspaces, sessions, chats, pipelines;
+- jobs, approvals, action requests;
+- workflows and workflow transitions;
+- agents, runtime providers, model providers, model policies;
+- policies, evidence, governance;
+- memory and retrieval;
+- integrations, MCP registry, and IDE/provider records.
 
 ## SQLite Tables
 
-Current schema tables:
+The current schema includes:
 
 - `schema_migrations`
 - `projects`
-- `workspace_states`
 - `teams`
 - `agents`
 - `sessions`
+- `chats`
+- `pipelines`
 - `providers`
 - `prompt_templates`
 - `prompt_versions`
@@ -158,60 +123,78 @@ Current schema tables:
 - `test_results`
 - `qa_verdicts`
 - `model_providers`
+- `architecture_decisions`
+- `risk_register`
+- `next_steps`
+- `integrations`
+- `mcp_servers`
+- `mcp_tool_calls`
 
-Still missing target entities after Phase 3-6 foundation:
+Planned but not yet complete:
 
-- deployment/release/risk register tables
-- MCP server/tool-call tables
-- devcontainer metadata and real git worktree lifecycle records
+- deployment and release records;
+- devcontainer metadata;
+- richer file/diff snapshots before workspace archive.
 
-## `store.py` Coupling
+## Former `store.py` Coupling
 
-`PlatformStore` remains a compatibility facade but is still too large. It owns:
+`local_control_center/store.py` has been removed from the product package, and
+the transitional test store harness has been deleted. Tests now use
+`tests_py/control_plane_fixture.py`, which composes `ControlCenterRuntime` and
+explicit slice repositories instead of exposing a product-like store facade.
 
-- SQLite connection setup, schema creation, and seed data.
-- project/provider/team/agent/session CRUD.
-- workspace JSON import/export compatibility.
-- prompt and IDE connection operations.
-- facade methods that delegate jobs and memory to slice repositories.
+Schema creation and migration seed records now live in
+`shared/migrations.py`. SQLite connection PRAGMAs live in `shared/db.py`.
+Shared time and JSON/hash helpers live in `shared/time.py` and
+`shared/serialization.py`.
+Project/provider/team/agent catalog SQL has moved to `projects.repository`.
+Project/catalog HTTP routing has moved to `projects.api` and
+`projects.commands`; the root `api.py` only composes this router.
+IDE connection SQL and HTTP routing have moved to `integrations.repository`
+and `integrations.api`.
+Prompt template/version SQL and HTTP routing have moved to `prompts.repository`
+and `prompts.api`.
+Memory/retrieval HTTP commands and the rebuildable NumPy/FAISS index now use
+`memory_retrieval.repository.MemoryRepository` and `shared.event_bus.EventBus`
+directly instead of routing through a store facade.
+Slice routers no longer call `platform.record_event`, `platform.record_audit`,
+or `platform.get_project`; a guardrail test enforces use of `EventBus` and
+owned repositories. The concurrent worker opens SQLite and uses
+`JobsRepository` directly. The gated agents planner records proposed actions
+through `JobsRepository`. `api.py` and `cli.py` import `ControlCenterRuntime`.
 
-The job and memory SQL ownership has started moving to slices, which is the
-right direction. The overview read model has moved to `control_plane`. The next
-extraction should be `shared/db.py` plus focused
-repositories for projects, workflows, security decisions, evidence, agents, and
-model policies. Do not move `pipelines` first; it is still the most coupled area.
+Direction:
+
+1. keep `control_plane` as the read-model composer;
+2. keep tests on explicit repositories rather than a product-like facade;
+3. keep the guardrail that blocks reintroducing a store facade.
 
 ## Frontend State
 
-The active dashboard is a modular React/JSX app under `local-control-center/web`
-with feature folders for overview, jobs, memory, agents, sandbox/security,
-pipelines, workspaces/sessions, integrations, settings, and design lab. It has
-an editorial operational visual direction and avoids external fonts/CDNs.
+The active console is TypeScript and Vite. It includes Overview, Command Center,
+Workflows, Jobs & Approvals, Agents, Workspaces, Policy & Security, Memory &
+Retrieval, Evidence & QA, Model Gateway, Governance, Integrations, Audit Log,
+and Settings.
 
-It is not yet the requested TypeScript/Vite console. The correct next step is to
-document the TypeScript target structure, keep the current app passing smoke
-tests, and migrate feature-by-feature after backend Phase 2 provides real data.
+The console uses local fonts, no CDNs, semantic React/CSS motion with
+reduced-motion support, dense tables, drawers, status strips, and backend-driven
+state. It does not contain business policy rules.
 
 ## Tests
 
-Existing tests cover:
+Current coverage includes:
 
-- Python control center API contracts.
-- legacy JSON-to-SQLite migration.
-- jobs, leases, approvals, worker behavior.
-- retrieval rebuild/search.
-- vertical slice architecture guardrails.
+- Python API contracts and hard-cutover guardrails.
+- jobs, leases, approvals, and worker behavior.
+- workflows, policy decisions, permission profiles, tool-brokered agent calls,
+  evidence, agents, model policies, workspaces, skills, and governance.
+- local telemetry for HTTP requests, policy decisions, tool calls, model calls,
+  and agent runs.
+- retrieval rebuild/search with FAISS optional.
 - frontend architecture/design guardrails.
+- Playwright dashboard smoke tests for desktop/mobile, reduced motion,
+  workflows, evidence, and governance.
 - Windows local DNS scripts.
-- Playwright dashboard smoke tests.
-
-Required additions after this audit:
-
-- workflow creation and step transitions.
-- policy decisions and command classification.
-- evidence package creation and QA gating.
-- agent profile/model policy CRUD.
-- frontend TypeScript migration smoke tests when Vite is introduced.
 
 ## Dependencies
 
@@ -220,9 +203,9 @@ Python runtime:
 - `fastapi`
 - `uvicorn`
 - `numpy`
-- optional: `faiss-cpu`, `openai-agents`
+- optional: `faiss-cpu`, `openai-agents`, OpenTelemetry OTLP/HTTP exporters
 
-Python development/security tooling:
+Python development/security:
 
 - `ruff`
 - `pre-commit`
@@ -232,53 +215,48 @@ Python development/security tooling:
 JavaScript runtime/build:
 
 - React/ReactDOM
+- Vite
+- TypeScript
 - Radix primitives
 - `@xyflow/react`
-- `gsap`
-- esbuild
 - Playwright
+- lucide-react
 
-PNPM is already configured through `packageManager`.
+PNPM is configured through `packageManager`.
 
 ## License And Provenance Risks
 
-- `package.json` declared `ISC`; that conflicts with the chosen private/no
-  commercial strategy and is now treated as incorrect metadata.
-- The removed root `src/` tree contained many Claude Code/Anthropic references
-  and a nested `src/node_modules`. Its provenance was not clear enough for AIDO
-  core, so it was physically deleted from the workspace rather than archived
-  into the product repository.
-- Do not use or restore the removed root `src/` tree as implementation source
-  unless license and ownership are audited separately.
-- `faiss-cpu` is OSI-compatible but operationally optional on Windows; it should
-  not be a mandatory install for local MVP tests.
+- The project is private/no-commercial-use for now.
+- Core dependencies must remain OSI-compatible or be isolated as optional
+  adapters before public release.
+- GSAP was removed from the core frontend after license audit because the
+  standard GSAP license is not OSI-compatible.
+- Optional external runtimes such as OpenHands, SWE-agent, Node-RED, Windmill,
+  or Activepieces require separate license and deployment review before
+  integration.
 
 ## Source Artifacts That Must Not Be Versioned
 
-Observed source artifacts:
-
 - `node_modules/`
-- removed root `src/node_modules/`
-- removed root `src/` until license provenance and ownership are proven
 - `local-control-center/dist/`
 - `__pycache__/`
 - `.pytest_cache/`
+- `.ruff_cache/`
 - `.tmp/`
 - `test-results/`
 - `.venv/`
-- local SQLite or WAL files if generated
+- `.env`
+- local SQLite, WAL, and SHM files.
 
-No root `package-lock.json` was found. `cli.js`/`cli.js.map` were only observed
-inside dependency folders during this audit, not as active root source files.
+## Prioritized Debt
 
-## Prioritized Technical Debt
-
-1. Reduce `PlatformStore` to a facade and move schema ownership into migrations
-   plus vertical repositories.
-2. Keep legacy `/api/*` compatibility isolated in `legacy_compat` until React
-   stops needing those contracts and the API matrix marks them removable.
-3. Add real git worktree/devcontainer workspace execution after the current
-   logical allocation API is stable.
-4. Migrate frontend to TypeScript/Vite after the new control-plane endpoints are
-   fully represented in the current dashboard.
-5. Add recurring license/security scans to quality checks.
+1. Continue slimming broad test setup around `tests_py/control_plane_fixture.py`
+   where direct repository setup makes test intent clearer.
+2. Define explicit approved flows for package installs, writes, and network
+   access; low-risk shell allowance is now argument-level and package lifecycle
+   hooks require approval.
+3. Add installed-runtime smoke fixtures for MCP/OpenHands/SWE-agent and a local
+   OTEL collector profile without making those tools required for startup.
+4. Add strict forms for the remaining mutable settings: workflows, governance,
+   sandbox profiles, provider settings, and telemetry environment guidance.
+5. Generate a typed OpenAPI client once the v1 schema stabilizes.

@@ -72,6 +72,7 @@ def build_overview_from_connection(*, connection: sqlite3.Connection, cwd: str |
         "promptTemplates": prompts.list_prompt_templates(),
         "actionRequests": jobs.list_action_requests(),
         "ideConnections": integrations.list_ide_connections(),
+        "mcpServers": integrations.list_mcp_servers(),
         "workflows": workflows.list_workflows(),
         "workflowRuns": workflows.list_workflow_runs(),
         "workflowSteps": workflows.list_workflow_steps(),

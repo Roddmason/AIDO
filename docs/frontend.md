@@ -52,7 +52,8 @@ local-control-center/web/
 - Approval and event drawers render overview state directly. They are
   inspection/control surfaces; policy decisions remain backend-owned.
 - Configuration changes must use strict forms with controlled inputs. Agent
-  profiles and model policies are edited through labeled inputs, selects,
+  profiles, model policies, workflows, governance records, sandbox profiles,
+  and MCP registry entries are edited through labeled inputs, selects,
   checkboxes, and numeric fields; raw JSON editing is not a supported operator
   path.
 
@@ -86,6 +87,7 @@ corepack pnpm@10.24.0 run test:web
 ```
 
 The Playwright suite covers strict configuration forms on desktop and mobile:
-invalid ids must show inline errors, valid agent profiles and model policies
-must persist through v1 APIs, and the configuration pages must not expose
-`textarea` JSON editors.
+invalid ids must show inline errors, valid agent profiles, model policies,
+workflows, governance records, sandbox edits, and MCP registrations must
+persist through v1 APIs, and the configuration pages must not expose `textarea`
+JSON editors.

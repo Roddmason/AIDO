@@ -69,6 +69,20 @@ Direct backend:
 uv run python -m local_control_center --dashboard-host 127.0.0.1 --dashboard-port 4310
 ```
 
+Optional local smokes:
+
+```powershell
+$env:AIDO_RUNTIME_SMOKE = "1"
+local-control-center/scripts/smoke-runtime-adapters.ps1
+
+$env:AIDO_OTEL_SMOKE = "1"
+local-control-center/scripts/smoke-otel-exporter.ps1
+```
+
+The smoke scripts skip unless explicitly opted in. OpenHands, SWE-agent, MCP
+servers, Docker, and external OTEL collectors are optional adapters, not startup
+requirements.
+
 ## Security
 
 Mutating API calls require the loopback handshake token. Shell and tool actions

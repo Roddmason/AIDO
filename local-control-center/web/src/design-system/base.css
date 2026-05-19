@@ -3,29 +3,24 @@
 }
 
 html {
-	min-width: 320px;
-	background: var(--bg);
-	color: var(--ink);
+	min-height: 100%;
+	background: var(--surface-page);
 	font-family: var(--font-ui);
-	font-size: 16px;
-	letter-spacing: 0;
+	color: var(--ink);
 }
 
 body {
+	min-width: 320px;
+	min-height: 100vh;
 	margin: 0;
-	min-height: 100dvh;
-	background: var(--bg);
-	color: var(--ink);
-	font-family: var(--font-ui);
-	line-height: 1.5;
+	background: var(--surface-page);
 }
 
 button,
 input,
-textarea,
-select {
+select,
+textarea {
 	font: inherit;
-	letter-spacing: 0;
 }
 
 button {
@@ -34,68 +29,16 @@ button {
 
 button:disabled {
 	cursor: not-allowed;
+	opacity: 0.55;
 }
 
 a {
 	color: inherit;
-	text-decoration-color: color-mix(in oklch, currentColor 35%, transparent);
-	text-underline-offset: 0.18em;
-}
-
-code,
-pre,
-.mono {
-	font-family: var(--font-mono);
-	font-variant-numeric: tabular-nums;
-}
-
-h1,
-h2,
-h3,
-p {
-	margin: 0;
-}
-
-h1,
-.editorial-title {
-	font-family: var(--font-display);
-	font-weight: 600;
-	line-height: 0.96;
-	letter-spacing: 0;
-}
-
-h2,
-h3 {
-	font-weight: 650;
-	line-height: 1.15;
-	letter-spacing: 0;
-}
-
-::selection {
-	background: var(--amber-soft);
-	color: var(--ink);
 }
 
 :focus-visible {
-	outline: 3px solid var(--focus);
-	outline-offset: 3px;
-}
-
-.skip-link {
-	position: fixed;
-	top: var(--space-sm);
-	left: var(--space-sm);
-	z-index: 100;
-	transform: translateY(-140%);
-	background: var(--bg-panel);
-	border: 1px solid var(--line-strong);
-	border-radius: var(--radius-sm);
-	padding: var(--space-sm) var(--space-md);
-	box-shadow: var(--shadow-soft);
-}
-
-.skip-link:focus {
-	transform: translateY(0);
+	outline: 3px solid color-mix(in oklch, var(--focus) 72%, transparent);
+	outline-offset: 2px;
 }
 
 .sr-only {
@@ -108,4 +51,8 @@ h3 {
 	clip: rect(0, 0, 0, 0);
 	white-space: nowrap;
 	border: 0;
+}
+
+#root {
+	min-height: 100vh;
 }

@@ -491,6 +491,7 @@ class PlatformStore:
         )
         self._init_phase2_schema()
         self._init_phase3_schema()
+        self._init_phase4_schema()
         self._seed_providers()
 
     def _init_phase2_schema(self) -> None:
@@ -834,6 +835,23 @@ class PlatformStore:
                 timestamp,
                 timestamp,
             ),
+        )
+
+    def _init_phase4_schema(self) -> None:
+        workspace_columns = {
+            row["name"]
+            for row in self.connection.execute("PRAGMA table_info(workspaces)").fetchall()
+        }
+        if "workflow_run_id" not in workspace_columns:
+            self.connection.execute("ALTER TABLE workspaces ADD COLUMN workflow_run_id TEXT")
+        if "workflow_step_id" not in workspace_columns:
+            self.connection.execute("ALTER TABLE workspaces ADD COLUMN workflow_step_id TEXT")
+        self.connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_workspaces_workflow_run ON workspaces(workflow_run_id)"
+        )
+        self.connection.execute(
+            "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+            (4, utc_now()),
         )
 
     def _seed_providers(self) -> None:

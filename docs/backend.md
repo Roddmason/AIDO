@@ -11,7 +11,8 @@ moves into feature repositories.
 - `workflows`: workflow definitions, runs, steps, edges, and workflow events.
 - `security_policy`: command classification, deterministic decisions, persisted
   permission decisions.
-- `workspaces_projects`: task-scoped workspace allocation and archive lifecycle.
+- `workspaces_projects`: task-scoped workspace allocation, safe Git worktree
+  creation/degradation, and archive lifecycle.
 - `agents`: agent profiles, internal mock runtime, model policies, model/cost
   records, versionable skills.
 - `evidence`: evidence packages, test results, and QA verdict gates.
@@ -32,3 +33,10 @@ import time so tests and CLI runs can inject an isolated store safely.
 
 Migrations are additive. Existing tables are not dropped. Rebuildable indexes
 such as FAISS are not source of truth; SQLite remains canonical.
+
+Current migration versions:
+
+- v1: baseline platform schema.
+- v2: workflows, policy decisions, evidence, agents, model policies.
+- v3: workspaces, skills, artifacts, test results, QA verdicts, model providers.
+- v4: workflow traceability columns for allocated workspaces.

@@ -21,6 +21,8 @@ cost records, and audit events around agent-assisted engineering.
 - Policy-gated command and tool execution foundation.
 - Workflow, workspace, agent, model-policy, skill, memory, and evidence backend
   foundation.
+- Workspace-aware path policy and task-scoped Git worktree allocation when the
+  project is a Git repository.
 
 ## What It Is Not
 
@@ -75,6 +77,7 @@ or generated artifacts.
 - `docs/backend.md`
 - `docs/security-policy.md`
 - `docs/workflows.md`
+- `docs/workspaces.md`
 - `docs/agents.md`
 - `docs/evidence.md`
 - `docs/frontend.md`

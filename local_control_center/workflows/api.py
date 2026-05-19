@@ -5,6 +5,8 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 
+from ..evidence.repository import EvidenceRepository
+from ..workspaces_projects.repository import WorkspacesRepository
 from .repository import WorkflowsRepository
 
 
@@ -13,6 +15,12 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
 
     def repository() -> WorkflowsRepository:
         return WorkflowsRepository(platform.connection)
+
+    def workspaces() -> WorkspacesRepository:
+        return WorkspacesRepository(platform.connection, root=platform.cwd)
+
+    def evidence() -> EvidenceRepository:
+        return EvidenceRepository(platform.connection)
 
     @router.get("/api/v1/workflows")
     async def list_workflows() -> dict[str, Any]:
@@ -40,9 +48,18 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     async def get_workflow(workflow_id: str) -> dict[str, Any]:
         repo = repository()
         try:
+            workflow_runs = repo.list_workflow_runs(workflow_id=workflow_id)
+            workflow_run_ids = [run["id"] for run in workflow_runs]
             return {
                 "workflow": repo.get_workflow(workflow_id),
-                "workflowRuns": repo.list_workflow_runs(workflow_id=workflow_id),
+                "workflowRuns": workflow_runs,
+                "workflowSteps": [
+                    step
+                    for run_id in workflow_run_ids
+                    for step in repo.list_workflow_steps(workflow_run_id=run_id)
+                ],
+                "workspaces": workspaces().list_workspaces_for_workflow(workflow_run_ids),
+                "evidencePackages": evidence().list_evidence_for_workflow_runs(workflow_run_ids),
             }
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error

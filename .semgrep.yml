@@ -1,0 +1,14 @@
+rules:
+  - id: python-dangerous-shell-without-policy-comment
+    message: "Shell execution should be routed through the policy/sandbox layer."
+    severity: WARNING
+    languages: [python]
+    pattern-either:
+      - pattern: subprocess.run(...)
+      - pattern: subprocess.Popen(...)
+      - pattern: os.system(...)
+    paths:
+      exclude:
+        - "**/tests_py/**"
+        - "/local_control_center/sandbox.py"
+        - "/local_control_center/security_policy/**"

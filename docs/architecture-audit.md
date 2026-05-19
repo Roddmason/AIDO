@@ -30,7 +30,13 @@ tables.
   embeddings, FAISS/NumPy rebuildable index.
 - `local_control_center/agents_runtime.py`: gated planner placeholder.
 - `local_control_center/sandbox.py`: Windows command-risk sandbox assessment.
-- `local_control_center/{pipelines,runtime_integrations,security_policy,sessions_chats,shared,workspaces_projects}/`:
+- `local_control_center/workflows/`: workflow definitions, runs, steps, and
+  events foundation.
+- `local_control_center/security_policy/`: deterministic policy evaluator and
+  persisted permission decisions.
+- `local_control_center/evidence/`: evidence package creation and query API.
+- `local_control_center/agents/`: agent profiles and model policy catalog.
+- `local_control_center/{pipelines,runtime_integrations,sessions_chats,shared,workspaces_projects}/`:
   slice placeholders that need real ownership in later phases.
 - `local-control-center/web/`: active React dashboard, currently JavaScript/JSX.
 - `local-control-center/scripts/`: Windows PowerShell launch/autostart/DNS scripts.
@@ -63,6 +69,20 @@ Core v1:
 - `GET /api/v1/retrieval/status`
 - `POST /api/v1/retrieval/reindex`
 - `POST /api/v1/retrieval/search`
+- `GET|POST /api/v1/workflows`
+- `GET /api/v1/workflows/{id}`
+- `POST /api/v1/workflows/{id}/start`
+- `POST /api/v1/workflows/{id}/pause`
+- `POST /api/v1/workflows/{id}/resume`
+- `POST /api/v1/workflows/{id}/cancel`
+- `GET /api/v1/policies`
+- `POST /api/v1/policies/evaluate`
+- `GET|POST /api/v1/evidence`
+- `GET /api/v1/evidence/{id}`
+- `GET|POST /api/v1/agent-profiles`
+- `GET /api/v1/agent-runs`
+- `GET /api/v1/model-providers`
+- `GET|POST /api/v1/model-policies`
 
 Legacy dashboard compatibility:
 
@@ -100,14 +120,25 @@ Current schema tables:
 - `workers`
 - `agent_runs`
 - `agent_tool_calls`
+- `workflows`
+- `workflow_runs`
+- `workflow_steps`
+- `workflow_edges`
+- `workflow_events`
+- `permission_policies`
+- `permission_decisions`
+- `evidence_packages`
+- `agent_profiles`
+- `model_policies`
+- `model_calls`
+- `cost_usage`
 
-Missing target entities for Phase 2:
+Still missing target entities after Phase 2:
 
-- workflows and workflow graph/run/step/event tables
-- permission policy and decision tables
-- evidence packages, artifacts, QA verdicts, and test results
-- model providers/policies/calls/cost usage
 - workspace allocation/worktree lifecycle tables
+- full artifact/test-result tables beyond the first evidence package table
+- deployment/release/risk register tables
+- MCP server/tool-call tables
 
 ## `store.py` Coupling
 

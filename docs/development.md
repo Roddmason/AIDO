@@ -29,8 +29,20 @@ corepack pnpm@10.24.0 run quality
 ```
 
 `openapi:generate` is local-only and imports the FastAPI app directly; it does
-not fetch schemas over the network. CI checks that the generated endpoint map is
-committed.
+not fetch schemas over the network. There is no GitHub quality workflow in this
+repo; run the verification commands locally before pushing.
+
+## Main Branch Blocking
+
+`main` must be blocked in GitHub settings, not by a product CI workflow. The
+repo includes a helper that creates or updates a repository ruleset targeting
+`refs/heads/main`, without required status checks:
+
+```powershell
+local-control-center/scripts/protect-main-branch.ps1
+```
+
+Use `-DryRun` to inspect the GitHub API payload before applying it.
 
 ## Source Hygiene
 

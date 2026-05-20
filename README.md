@@ -84,9 +84,13 @@ The smoke scripts skip unless explicitly opted in. OpenHands, SWE-agent, MCP
 servers, Docker, and external OTEL collectors are optional adapters, not startup
 requirements.
 
-CI mirrors that split: the default quality workflow runs tests, build, lint and
-OpenAPI client drift checks; runtime/OTEL smokes run only through explicit
-`workflow_dispatch` inputs.
+This repository intentionally does not ship a GitHub quality workflow. Run
+quality checks locally before pushing. Block `main` with a GitHub repository
+ruleset instead:
+
+```powershell
+local-control-center/scripts/protect-main-branch.ps1
+```
 
 ## Security
 

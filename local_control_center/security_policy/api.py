@@ -5,6 +5,7 @@ import re
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
+from starlette.requests import ClientDisconnect
 
 from ..governance.signals import record_governance_risk
 from ..shared.event_bus import EventBus
@@ -24,6 +25,16 @@ def required_reason(body: dict[str, Any]) -> str:
 IMAGE_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._:/@-]{0,127}$")
 RESOURCE_RE = re.compile(r"^\d+(?:\.\d+)?[kKmMgG]?$")
 SAFE_DOCKER_NETWORKS = {"none"}
+
+
+async def read_json_body(request: Request) -> dict[str, Any]:
+    try:
+        body = await request.json()
+    except ClientDisconnect as error:
+        raise HTTPException(status_code=499, detail="Client disconnected while sending request body.") from error
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=422, detail="Request body must be a JSON object.")
+    return body
 
 
 def validate_sandbox_profile_patch(body: dict[str, Any]) -> dict[str, Any]:
@@ -103,7 +114,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     @router.post("/api/v1/permissions/grants/{grant_id}/revoke", status_code=202)
     async def revoke_permission_grant(grant_id: str, request: Request) -> dict[str, Any]:
         require_write(request)
-        reason = required_reason(await request.json())
+        reason = required_reason(await read_json_body(request))
         try:
             grant = repository().revoke_grant(grant_id, reason=reason)
         except KeyError as error:
@@ -125,7 +136,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     @router.post("/api/v1/sandbox/profiles/{profile_id}/revoke", status_code=202)
     async def revoke_sandbox_profile(profile_id: str, request: Request) -> dict[str, Any]:
         require_write(request)
-        reason = required_reason(await request.json())
+        reason = required_reason(await read_json_body(request))
         try:
             profile = repository().revoke_sandbox_profile(profile_id, reason=reason)
         except KeyError as error:
@@ -144,7 +155,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     @router.patch("/api/v1/sandbox/profiles/{profile_id}", status_code=202)
     async def update_sandbox_profile(profile_id: str, request: Request) -> dict[str, Any]:
         require_write(request)
-        body = await request.json()
+        body = await read_json_body(request)
         reason = required_reason(body)
         patch = validate_sandbox_profile_patch(body)
         try:
@@ -182,7 +193,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     @router.post("/api/v1/policies/evaluate")
     async def evaluate_policy(request: Request) -> dict[str, Any]:
         require_write(request)
-        body = await request.json()
+        body = await read_json_body(request)
         if body.get("workspaceId"):
             try:
                 workspace = workspaces().get_workspace(body["workspaceId"])

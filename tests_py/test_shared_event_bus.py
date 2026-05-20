@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from tests_py.control_plane_fixture import ControlPlaneFixture
+from local_control_center.projects.repository import ProjectsRepository
+from local_control_center.shared.db import open_sqlite_connection
+from local_control_center.shared.migrations import initialize_platform_schema
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -15,25 +17,32 @@ def read(path: str) -> str:
 def test_shared_event_bus_records_and_lists_events_and_audit(tmp_path: Path) -> None:
     from local_control_center.shared.event_bus import EventBus
 
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
-    store.init()
-    project = store.create_project(name="Events", path=tmp_path / "events", template_id="other")
-    bus = EventBus(store.connection)
+    connection = open_sqlite_connection(tmp_path / "platform.sqlite")
+    try:
+        initialize_platform_schema(connection)
+        project = ProjectsRepository(connection).create_project(
+            name="Events",
+            path=tmp_path / "events",
+            template_id="other",
+        )
+        bus = EventBus(connection)
 
-    event = bus.record_event(project_id=project["id"], event_type="risk.created", payload={"riskId": "risk-1"})
-    audit = bus.record_audit(
-        project_id=project["id"],
-        action="risk.create",
-        target="risk-1",
-        actor="operator",
-        payload={"reason": "test"},
-    )
+        event = bus.record_event(project_id=project["id"], event_type="risk.created", payload={"riskId": "risk-1"})
+        audit = bus.record_audit(
+            project_id=project["id"],
+            action="risk.create",
+            target="risk-1",
+            actor="operator",
+            payload={"reason": "test"},
+        )
 
-    assert event["id"].startswith("event-")
-    assert event["type"] == "risk.created"
-    assert bus.list_events(project_id=project["id"])[0]["payload"] == {"riskId": "risk-1"}
-    assert audit["id"].startswith("audit-")
-    assert bus.list_audit_events(project_id=project["id"])[0]["payload"] == {"reason": "test"}
+        assert event["id"].startswith("event-")
+        assert event["type"] == "risk.created"
+        assert bus.list_events(project_id=project["id"])[0]["payload"] == {"riskId": "risk-1"}
+        assert audit["id"].startswith("audit-")
+        assert bus.list_audit_events(project_id=project["id"])[0]["payload"] == {"reason": "test"}
+    finally:
+        connection.close()
 
 
 def test_shared_event_bus_owns_events_and_audit_sql() -> None:

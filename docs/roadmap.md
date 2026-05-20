@@ -158,6 +158,8 @@
   generated `OperationResponseBodies` map no longer falls back to raw
   `JsonObject` operation responses. A guardrail test fails if a route regresses
   to an untyped response body.
+- Shared event-bus tests now use direct SQLite/repository setup instead of the
+  broad app fixture; an architecture guardrail prevents that regression.
 - Command palette and workflow inspector are backed by FastAPI v1 state rather
   than client-invented data.
 - The command palette can create workflows, focus pending approvals, and open a
@@ -179,9 +181,9 @@
 
 ## Next Backend Work
 
-1. Keep tightening tests around direct repositories and
-   `tests_py/control_plane_fixture.py` where broad fixture setup is still
-   noisier than the behavior under test.
+1. Continue converting repository/infrastructure tests away from
+   `tests_py/control_plane_fixture.py` when they do not need FastAPI middleware,
+   handshake, or app composition.
 2. Replace dict-based row payloads inside high-traffic response models with
    narrower row DTOs where the schema is stable enough to enforce without
    freezing still-evolving internal metadata.

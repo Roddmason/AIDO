@@ -28,14 +28,30 @@ class WorkspaceArchiveRequest(BaseModel):
     reason: str = ""
 
 
+class WorkspaceRecord(BaseModel):
+    id: str
+    project_id: str = Field(alias="projectId")
+    task_id: str = Field(alias="taskId")
+    owner_agent_id: str = Field(alias="ownerAgentId")
+    path: str
+    status: str
+    isolation_type: WorkspaceIsolationType = Field(alias="isolationType")
+    workflow_run_id: str | None = Field(default=None, alias="workflowRunId")
+    workflow_step_id: str | None = Field(default=None, alias="workflowStepId")
+    metadata: dict[str, Any]
+    created_at: str = Field(alias="createdAt")
+    updated_at: str = Field(alias="updatedAt")
+    archived_at: str | None = Field(default=None, alias="archivedAt")
+
+
 class WorkspaceResponse(BaseModel):
-    workspace: dict[str, Any]
+    workspace: WorkspaceRecord
 
 
 class WorkspacesListResponse(BaseModel):
-    workspaces: list[dict[str, Any]]
+    workspaces: list[WorkspaceRecord]
 
 
 class WorkspaceArchiveResponse(BaseModel):
-    workspace: dict[str, Any]
+    workspace: WorkspaceRecord
     evidence_package: dict[str, Any] = Field(alias="evidencePackage")

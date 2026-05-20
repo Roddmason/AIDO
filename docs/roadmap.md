@@ -169,6 +169,9 @@
 - Jobs, granular action requests, events, and audit events now have row-level
   DTOs for list and mutation responses, tightening the highest-traffic
   operational lane in the generated client.
+- Project catalog and workspace allocation/archive responses now use row-level
+  DTOs, including project templates, providers, teams, catalog agents, and
+  isolated workspace records.
 - Shared event-bus tests now use direct SQLite/repository setup instead of the
   broad app fixture; an architecture guardrail prevents that regression.
 - Command palette and workflow inspector are backed by FastAPI v1 state rather

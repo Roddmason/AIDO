@@ -27,6 +27,25 @@ class TelemetryStatusResponse(BaseModel):
     external_exporter: dict[str, Any] = Field(alias="externalExporter")
 
 
+class EventRecord(BaseModel):
+    id: str
+    job_id: str | None = Field(default=None, alias="jobId")
+    project_id: str | None = Field(default=None, alias="projectId")
+    type: str
+    payload: dict[str, Any]
+    created_at: str = Field(alias="createdAt")
+
+
+class AuditEventRecord(BaseModel):
+    id: str
+    project_id: str | None = Field(default=None, alias="projectId")
+    action: str
+    actor: str
+    target: str
+    payload: dict[str, Any]
+    created_at: str = Field(alias="createdAt")
+
+
 class OverviewResponse(BaseModel):
     project_templates: list[dict[str, Any]] = Field(alias="projectTemplates")
     projects: list[dict[str, Any]]

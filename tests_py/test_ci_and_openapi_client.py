@@ -81,6 +81,11 @@ def test_generated_openapi_client_is_checked_in_and_v1_only() -> None:
     assert '"overview_api_v1_overview_get": OverviewResponse' in content
     assert '"list_jobs_api_v1_jobs_get": JobsListResponse' in content
     assert '"approvals_api_v1_approvals_get": ApprovalsListResponse' in content
+    assert "export type JobRecord" in content
+    assert "export type ActionRequestRecord" in content
+    assert "export type EventRecord" in content
+    assert "export type AuditEventRecord" in content
+    assert 'JobsListResponse = { "events"?: Array<EventRecord>; "jobs": Array<JobRecord>' in content
     assert '"governance_api_v1_governance_get": GovernanceResponse' in content
     assert "export type ArchitectureDecisionRecord" in content
     assert "export type RiskRecord" in content

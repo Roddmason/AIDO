@@ -117,6 +117,7 @@ or generated artifacts.
 - `docs/frontend.md`
 - `docs/license-audit.md`
 - `docs/development.md`
+- `docs/credentials.md`
 
 ## Contributing
 

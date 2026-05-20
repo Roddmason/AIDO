@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import os
 import sqlite3
 import uuid
 from typing import Any
 
+from local_control_center.agents.credentials import CredentialResolver, validate_credential_ref
 from local_control_center.agents.model_gateway import redact_secrets
 from local_control_center.shared.serialization import json_dumps, json_loads
 from local_control_center.shared.time import utc_now
@@ -16,9 +16,7 @@ def _bool(value: Any) -> bool:
 
 def credential_status(row: sqlite3.Row) -> str:
     ref = str(row["credential_ref"] or "")
-    if not ref:
-        return "unknown"
-    return "configured" if os.environ.get(ref) else "missing"
+    return CredentialResolver().status(ref)
 
 
 def row_to_provider_account(row: sqlite3.Row) -> dict[str, Any]:
@@ -88,6 +86,8 @@ class ProviderAccountStore:
 
     def upsert_provider_account(self, body: dict[str, Any]) -> dict[str, Any]:
         provider_id = str(body["providerId"])
+        credential_ref = str(body.get("credentialRef", "") or "")
+        validate_credential_ref(credential_ref)
         now = utc_now()
         self.connection.execute(
             """
@@ -115,7 +115,7 @@ class ProviderAccountStore:
                 body.get("providerType", "api"),
                 body.get("apiFormat", "openai_compatible"),
                 body.get("baseUrl", ""),
-                body.get("credentialRef", ""),
+                credential_ref,
                 1 if body.get("enabled", False) else 0,
                 body.get("quotaMode", "none"),
                 body.get("healthStatus", "unknown"),

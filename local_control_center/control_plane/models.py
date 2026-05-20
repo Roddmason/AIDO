@@ -15,9 +15,11 @@ from local_control_center.agents.contracts import (
 )
 from local_control_center.evidence.models import ArtifactRecord, EvidencePackageRecord, TestResultRecord
 from local_control_center.governance.models import ArchitectureDecisionRecord, NextStepRecord, RiskRecord
+from local_control_center.integrations.models import IdeConnectionRecord, McpServerRecord
 from local_control_center.jobs_approvals.models import ActionRequestRecord, JobRecord, JobRunRecord
 from local_control_center.memory_retrieval.models import MemoryItemRecord
 from local_control_center.pipelines.models import PipelineRecord
+from local_control_center.prompts.models import PromptTemplateRecord
 from local_control_center.projects.models import (
     CatalogAgentRecord,
     ProjectRecord,
@@ -51,10 +53,10 @@ class OverviewResponse(BaseModel):
     events: list[EventRecord]
     audit_events: list[AuditEventRecord] = Field(alias="auditEvents")
     memory_items: list[MemoryItemRecord] = Field(alias="memoryItems")
-    prompt_templates: list[dict[str, Any]] = Field(alias="promptTemplates")
+    prompt_templates: list[PromptTemplateRecord] = Field(alias="promptTemplates")
     action_requests: list[ActionRequestRecord] = Field(alias="actionRequests")
-    ide_connections: list[dict[str, Any]] = Field(alias="ideConnections")
-    mcp_servers: list[dict[str, Any]] = Field(alias="mcpServers")
+    ide_connections: list[IdeConnectionRecord] = Field(alias="ideConnections")
+    mcp_servers: list[McpServerRecord] = Field(alias="mcpServers")
     workflows: list[WorkflowRecord]
     workflow_runs: list[WorkflowRunRecord] = Field(alias="workflowRuns")
     workflow_steps: list[WorkflowStepRecord] = Field(alias="workflowSteps")

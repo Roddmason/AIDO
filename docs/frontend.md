@@ -77,6 +77,9 @@ local-control-center/web/
   `OperationResponse` contracts. Form state for workflow kind, agent role,
   runtime mode, permission profile, risk severity, decision status, next-step
   priority, and MCP transport is typed against those generated unions.
+- Governance records can be filtered in the dashboard, and risk status updates
+  use the typed `PATCH /api/v1/risks/{id}` helper instead of manual API or JSON
+  edits.
 - `pnpm run typecheck:web` runs `tsc --noEmit` against the Vite TypeScript
   project. This is separate from the Vite production build because esbuild
   transpilation alone does not prove the contracts are type-safe.

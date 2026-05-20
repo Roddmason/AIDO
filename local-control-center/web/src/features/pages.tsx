@@ -8,6 +8,7 @@ import {
 	createWorkflowWithBody,
 	fetchEvidenceArtifact,
 	registerMcpServer,
+	updateRisk,
 	updateSandboxProfile,
 } from '../api/client';
 import type { ArtifactPayload } from '../api/client';
@@ -21,6 +22,7 @@ import type {
 	PolicyRevision,
 	RetrievalStatus,
 	RiskSeverity,
+	RiskStatus,
 	RuntimeProviders,
 	WorkflowKind,
 } from '../api/types';
@@ -631,7 +633,26 @@ export function GovernancePage({ overview, mutate }: { overview: Overview; mutat
 	const [decisionText, setDecisionText] = useState('');
 	const [nextStepTitle, setNextStepTitle] = useState('');
 	const [nextStepPriority, setNextStepPriority] = useState<NextStepPriority>('medium');
+	const [governanceFilter, setGovernanceFilter] = useState('');
+	const [riskStatusFilter, setRiskStatusFilter] = useState<'all' | RiskStatus>('all');
+	const [riskUpdateId, setRiskUpdateId] = useState('');
+	const [riskUpdateStatus, setRiskUpdateStatus] = useState<RiskStatus>('monitoring');
 	const [error, setError] = useState('');
+	const query = governanceFilter.trim().toLowerCase();
+	const matchesQuery = (...values: Array<string | null | undefined>) =>
+		!query || values.some((value) => String(value ?? '').toLowerCase().includes(query));
+	const filteredRisks = overview.riskRegister.filter(
+		(risk) =>
+			(riskStatusFilter === 'all' || risk.status === riskStatusFilter) &&
+			matchesQuery(risk.title, risk.severity, risk.status, risk.owner, risk.mitigation),
+	);
+	const filteredDecisions = overview.architectureDecisions.filter((decision) =>
+		matchesQuery(decision.title, decision.status, decision.context, decision.decision),
+	);
+	const filteredNextSteps = overview.nextSteps.filter((step) =>
+		matchesQuery(step.title, step.priority, step.status, step.owner),
+	);
+	const selectedRiskId = riskUpdateId || overview.riskRegister[0]?.id || '';
 	const saveRisk = () => {
 		if (!riskTitle.trim()) {
 			setError('Risk title is required.');
@@ -656,6 +677,14 @@ export function GovernancePage({ overview, mutate }: { overview: Overview; mutat
 				owner: 'technical_lead',
 			}),
 		);
+	};
+	const saveRiskUpdate = () => {
+		if (!selectedRiskId) {
+			setError('A risk is required before updating status.');
+			return;
+		}
+		setError('');
+		void mutate((token) => updateRisk(token, selectedRiskId, { status: riskUpdateStatus }));
 	};
 	const saveDecision = () => {
 		if (!decisionTitle.trim()) {
@@ -776,21 +805,90 @@ export function GovernancePage({ overview, mutate }: { overview: Overview; mutat
 				</div>
 				{error ? <div className="form-error" role="alert">{error}</div> : null}
 			</Surface>
+			<div className="grid two">
+				<Surface title="Governance filters">
+					<div className="form-grid">
+						<div className="field">
+							<label htmlFor="governance-filter">Governance filter</label>
+							<input
+								id="governance-filter"
+								className="input"
+								value={governanceFilter}
+								onChange={(event) => setGovernanceFilter(event.target.value)}
+								placeholder="Filter risks, decisions, and next steps"
+							/>
+						</div>
+						<div className="field">
+							<label htmlFor="risk-status-filter">Risk status filter</label>
+							<select
+								id="risk-status-filter"
+								className="select"
+								value={riskStatusFilter}
+								onChange={(event) => setRiskStatusFilter(event.target.value as 'all' | RiskStatus)}
+							>
+								<option value="all">all</option>
+								<option value="open">open</option>
+								<option value="monitoring">monitoring</option>
+								<option value="mitigating">mitigating</option>
+								<option value="mitigated">mitigated</option>
+								<option value="accepted">accepted</option>
+								<option value="closed">closed</option>
+							</select>
+						</div>
+					</div>
+				</Surface>
+				<Surface title="Risk update form">
+					<div className="form-grid">
+						<div className="field">
+							<label htmlFor="risk-update-id">Risk to update</label>
+							<select
+								id="risk-update-id"
+								className="select"
+								value={selectedRiskId}
+								disabled={!overview.riskRegister.length}
+								onChange={(event) => setRiskUpdateId(event.target.value)}
+							>
+								{overview.riskRegister.map((risk) => (
+									<option key={risk.id} value={risk.id}>{risk.title}</option>
+								))}
+							</select>
+						</div>
+						<div className="field">
+							<label htmlFor="risk-update-status">Risk update status</label>
+							<select
+								id="risk-update-status"
+								className="select"
+								value={riskUpdateStatus}
+								onChange={(event) => setRiskUpdateStatus(event.target.value as RiskStatus)}
+							>
+								<option value="open">open</option>
+								<option value="monitoring">monitoring</option>
+								<option value="mitigating">mitigating</option>
+								<option value="mitigated">mitigated</option>
+								<option value="accepted">accepted</option>
+								<option value="closed">closed</option>
+							</select>
+						</div>
+						<button className="button primary" type="button" disabled={!selectedRiskId} onClick={saveRiskUpdate}>Update risk status</button>
+					</div>
+				</Surface>
+			</div>
 			<div className="grid three">
 				<Surface title="Risk register">
-					<DataTable rows={overview.riskRegister} empty={<EmptyState title="No risks" body="Open technical and product risks appear here." />} columns={[
+					<DataTable rows={filteredRisks} empty={<EmptyState title="No risks" body="Open technical and product risks appear here." />} columns={[
 						{ key: 'title', label: 'Risk', render: (row) => String(row.title ?? '') },
 						{ key: 'severity', label: 'Severity', render: (row) => <Badge tone={toneForStatus(String(row.severity ?? ''))}>{String(row.severity ?? '')}</Badge> },
+						{ key: 'status', label: 'Status', render: (row) => <Badge tone={toneForStatus(String(row.status ?? ''))}>{String(row.status ?? '')}</Badge> },
 					]} />
 				</Surface>
 				<Surface title="Decision records">
-					<DataTable rows={overview.architectureDecisions} empty={<EmptyState title="No decisions" body="Architecture decisions should be explicit and linked to risks." />} columns={[
+					<DataTable rows={filteredDecisions} empty={<EmptyState title="No decisions" body="Architecture decisions should be explicit and linked to risks." />} columns={[
 						{ key: 'title', label: 'Decision', render: (row) => String(row.title ?? '') },
 						{ key: 'status', label: 'Status', render: (row) => <Badge tone={toneForStatus(String(row.status ?? ''))}>{String(row.status ?? '')}</Badge> },
 					]} />
 				</Surface>
 				<Surface title="Next steps">
-					<DataTable rows={overview.nextSteps} empty={<EmptyState title="No next steps" body="Mitigations and follow-up work appear here." />} columns={[
+					<DataTable rows={filteredNextSteps} empty={<EmptyState title="No next steps" body="Mitigations and follow-up work appear here." />} columns={[
 						{ key: 'title', label: 'Step', render: (row) => String(row.title ?? '') },
 						{ key: 'priority', label: 'Priority', render: (row) => <Badge tone={toneForStatus(String(row.priority ?? ''))}>{String(row.priority ?? '')}</Badge> },
 					]} />

@@ -150,6 +150,14 @@ export function createRisk(token: string, body: MutationBody<'create_risk_api_v1
 	});
 }
 
+export function updateRisk(token: string, riskId: string, body: MutationBody<'update_risk_api_v1_risks__risk_id__patch'>) {
+	return requestGeneratedOperation('update_risk_api_v1_risks__risk_id__patch', {
+		token,
+		pathParams: { risk_id: riskId },
+		body,
+	});
+}
+
 export function createArchitectureDecision(token: string, body: MutationBody<'create_architecture_decision_api_v1_architecture_decisions_post'>) {
 	return requestGeneratedOperation('create_architecture_decision_api_v1_architecture_decisions_post', {
 		token,

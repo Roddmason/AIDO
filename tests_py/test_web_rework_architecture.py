@@ -76,12 +76,14 @@ def test_frontend_domain_types_are_generated_openapi_aliases() -> None:
 
     assert "from './generated/openapi'" in source
     assert "export type Overview = OverviewResponse" in source
+    assert "export type RuntimeProviders = RuntimeProvidersResponse" in source
     for stale_manual_type in [
         "export type Project = {",
         "export type Job = {",
         "export type Workflow = {",
         "export type AgentProfile = {",
         "export type Pipeline = {",
+        "export type RuntimeProviders = {",
     ]:
         assert stale_manual_type not in source
 

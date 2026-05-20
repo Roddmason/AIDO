@@ -108,13 +108,26 @@ class SkillsSyncRequest(BaseModel):
     skills_path: str = Field(default="skills", alias="skillsPath")
 
 
+class SkillRecord(BaseModel):
+    id: str
+    name: str
+    description: str
+    license: str
+    compatibility: str
+    risk_level: str = Field(alias="riskLevel")
+    path: str
+    metadata: dict[str, Any]
+    created_at: str = Field(alias="createdAt")
+    updated_at: str = Field(alias="updatedAt")
+
+
 class SkillsSyncResponse(BaseModel):
     synced: int
-    skills: list[dict[str, Any]]
+    skills: list[SkillRecord]
 
 
 class SkillsListResponse(BaseModel):
-    skills: list[dict[str, Any]]
+    skills: list[SkillRecord]
 
 
 class ModelPolicyUpsertRequest(BaseModel):
@@ -188,11 +201,35 @@ class ModelProvidersListResponse(BaseModel):
     model_providers: list[ModelProviderRecord] = Field(alias="modelProviders")
 
 
+class OllamaRuntimeProviderStatus(BaseModel):
+    provider: str
+    available: bool
+    models: list[str]
+    reason: str = ""
+
+
+class CliAdaptersStatus(BaseModel):
+    cli_codex: bool
+    cli_claude: bool
+
+
+class CliRuntimeProviderStatus(BaseModel):
+    provider: str
+    available: bool
+    adapters: CliAdaptersStatus
+
+
+class ApiRuntimeProviderStatus(BaseModel):
+    provider: str
+    available: bool
+    adapters: list[str]
+
+
 class RuntimeProvidersResponse(BaseModel):
-    runtime_modes: list[str] = Field(alias="runtimeModes")
-    ollama: dict[str, Any]
-    cli: dict[str, Any]
-    api: dict[str, Any]
+    runtime_modes: list[RuntimeMode] = Field(alias="runtimeModes")
+    ollama: OllamaRuntimeProviderStatus
+    cli: CliRuntimeProviderStatus
+    api: ApiRuntimeProviderStatus
 
 
 class ModelPoliciesListResponse(BaseModel):

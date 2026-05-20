@@ -4,6 +4,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from local_control_center.shared.schemas import AuditEventRecord
+
 
 class ProjectCreateRequest(BaseModel):
     name: str | None = None
@@ -69,7 +71,7 @@ class CatalogAgentRecord(BaseModel):
 
 class ProjectResponse(BaseModel):
     project: ProjectRecord
-    audit_event: dict[str, Any] | None = Field(default=None, alias="auditEvent")
+    audit_event: AuditEventRecord | None = Field(default=None, alias="auditEvent")
 
 
 class ProjectTemplatesResponse(BaseModel):

@@ -8,6 +8,7 @@ import type {
 	OverviewResponse,
 	PipelineRecord,
 	ProjectRecord,
+	RuntimeProvidersResponse,
 	SessionRecord,
 	WorkflowRecord,
 	WorkflowStepRecord,
@@ -27,10 +28,4 @@ export type Session = SessionRecord;
 export type Chat = ChatRecord;
 export type Pipeline = PipelineRecord;
 export type Overview = OverviewResponse;
-
-export type RuntimeProviders = {
-	runtimeModes: string[];
-	ollama: { provider: string; available: boolean; models: string[]; reason?: string };
-	cli: { provider: string; available: boolean; adapters: Record<string, boolean> };
-	api: { provider: string; available: boolean; adapters: string[] };
-};
+export type RuntimeProviders = RuntimeProvidersResponse;

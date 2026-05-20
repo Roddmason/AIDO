@@ -73,6 +73,8 @@ def _ts_type_from_schema(schema: dict[str, Any] | None) -> str:
         return " | ".join(sorted({_ts_type_from_schema({**schema, "type": item}) for item in schema_type}))
     if schema_type == "string":
         return "string"
+    if schema_type == "null":
+        return "null"
     if schema_type in {"integer", "number"}:
         return "number"
     if schema_type == "boolean":

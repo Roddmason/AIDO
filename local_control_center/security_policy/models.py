@@ -150,9 +150,29 @@ class SandboxProfileResponse(BaseModel):
     sandbox_profile: SandboxProfileRecord = Field(alias="sandboxProfile")
 
 
+class DockerSandboxStatus(BaseModel):
+    mode: str
+    available: bool
+    required: bool
+    fallback: str
+    executable: str | None = None
+    default_network: str = Field(alias="defaultNetwork")
+    host_mount: str = Field(alias="hostMount")
+    writes: str
+    policy: SandboxProfileRecord
+
+
+class RestrictedSubprocessStatus(BaseModel):
+    available: bool
+    shell: bool
+    requires_argv: bool = Field(alias="requiresArgv")
+    workspace_bound: bool = Field(alias="workspaceBound")
+    fallback_only_for_low_risk: bool = Field(alias="fallbackOnlyForLowRisk")
+
+
 class SandboxStatusResponse(BaseModel):
-    docker: dict[str, Any]
-    restricted_subprocess: dict[str, Any] = Field(alias="restrictedSubprocess")
+    docker: DockerSandboxStatus
+    restricted_subprocess: RestrictedSubprocessStatus = Field(alias="restrictedSubprocess")
 
 
 class SandboxProfileMutationResponse(BaseModel):

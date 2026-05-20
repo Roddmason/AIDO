@@ -500,6 +500,12 @@ test('command palette executes v1 actions and workflow inspector shows linked re
 	await expect(page.getByText('allowlisted_diagnostic').first()).toBeVisible();
 	await expect(page.getByText('Artifacts')).toBeVisible();
 	await expect(page.getByText(workflow.artifactName).first()).toBeVisible();
+	await page.getByRole('button', { name: `Preview workflow artifact ${workflow.artifactName}` }).click();
+	await expect(page.getByRole('dialog', { name: 'Workflow artifact preview' })).toBeVisible();
+	await expect(page.getByText('Workflow inspector artifact smoke.')).toBeVisible();
+	await expect(page.getByRole('button', { name: `Download workflow artifact ${workflow.artifactName}` })).toBeVisible();
+	await page.keyboard.press('Escape');
+	await expect(page.getByRole('dialog', { name: 'Workflow artifact preview' })).toBeHidden();
 	await page.keyboard.press('Escape');
 	await expect(page.getByRole('dialog', { name: 'Workflow inspector' })).toBeHidden();
 

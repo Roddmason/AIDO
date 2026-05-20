@@ -13,6 +13,7 @@ import {
 import type { ArtifactPayload } from '../api/client';
 import type { Dictionary, Overview, RuntimeProviders } from '../api/types';
 import { Badge, DataTable, Drawer, EmptyState, PageHeader, Surface } from '../components/primitives';
+import { artifactDisplayName, artifactMimeType, artifactSizeLabel } from '../lib/artifacts';
 import { toneForStatus } from '../lib/format';
 
 type Mutate = <T>(operation: (token: string) => Promise<T>) => Promise<T>;
@@ -248,25 +249,6 @@ export function MemoryPage({ overview, retrievalStatus }: { overview: Overview; 
 			</div>
 		</>
 	);
-}
-
-function artifactMetadata(artifact: Dictionary): Dictionary {
-	return (artifact.metadata && typeof artifact.metadata === 'object' ? artifact.metadata : {}) as Dictionary;
-}
-
-function artifactDisplayName(artifact: Dictionary): string {
-	const metadata = artifactMetadata(artifact);
-	return String(metadata.name ?? artifact.id ?? 'artifact');
-}
-
-function artifactMimeType(artifact: Dictionary, preview?: ArtifactPayload | null): string {
-	const metadata = artifactMetadata(artifact);
-	return String(preview?.contentType ?? metadata.mimeType ?? 'application/octet-stream');
-}
-
-function artifactSizeLabel(artifact: Dictionary): string {
-	const size = Number(artifactMetadata(artifact).sizeBytes ?? 0);
-	return Number.isFinite(size) && size > 0 ? `${size} bytes` : 'not recorded';
 }
 
 export function EvidencePage({ overview, token }: { overview: Overview; token: string }) {

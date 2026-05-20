@@ -1,8 +1,10 @@
 import { Background, Controls, ReactFlow, type Edge, type Node } from '@xyflow/react';
 import { useEffect, useMemo, useState } from 'react';
 
-import type { Overview, WorkflowStep } from '../../api/types';
+import { fetchEvidenceArtifact, type ArtifactPayload } from '../../api/client';
+import type { Dictionary, Overview, WorkflowStep } from '../../api/types';
 import { Badge, DataTable, Drawer, EmptyState, PageHeader, Surface } from '../../components/primitives';
+import { artifactDisplayName, artifactMimeType, artifactSizeLabel } from '../../lib/artifacts';
 import { shortId, toneForStatus } from '../../lib/format';
 
 function nodesFromSteps(steps: WorkflowStep[]): Node[] {
@@ -30,19 +32,60 @@ function edgesFromNodes(nodes: Node[]): Edge[] {
 	}));
 }
 
-export function WorkflowsPage({ overview }: { overview: Overview }) {
+export function WorkflowsPage({ overview, token }: { overview: Overview; token: string }) {
 	const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(null);
+	const [previewArtifact, setPreviewArtifact] = useState<Dictionary | null>(null);
+	const [previewPayload, setPreviewPayload] = useState<ArtifactPayload | null>(null);
+	const [previewLoadingId, setPreviewLoadingId] = useState('');
+	const [previewError, setPreviewError] = useState('');
 	const nodes = nodesFromSteps(overview.workflowSteps);
 	const edges = edgesFromNodes(nodes);
 	useEffect(() => {
 		const onKeyDown = (event: KeyboardEvent) => {
 			if (event.key === 'Escape') {
+				if (previewArtifact) {
+					setPreviewArtifact(null);
+					setPreviewPayload(null);
+					setPreviewError('');
+					return;
+				}
 				setSelectedWorkflowId(null);
 			}
 		};
 		window.addEventListener('keydown', onKeyDown);
 		return () => window.removeEventListener('keydown', onKeyDown);
-	}, []);
+	}, [previewArtifact]);
+	const openPreview = async (artifact: Dictionary) => {
+		const artifactId = String(artifact.id ?? '');
+		const evidenceId = String(artifact.evidencePackageId ?? '');
+		if (!artifactId || !evidenceId) {
+			setPreviewError('Artifact metadata is incomplete.');
+			return;
+		}
+		setPreviewArtifact(artifact);
+		setPreviewPayload(null);
+		setPreviewError('');
+		setPreviewLoadingId(artifactId);
+		try {
+			const payload = await fetchEvidenceArtifact(token, evidenceId, artifactId);
+			setPreviewPayload(payload);
+		} catch (error) {
+			setPreviewError(error instanceof Error ? error.message : 'Artifact preview failed.');
+		} finally {
+			setPreviewLoadingId('');
+		}
+	};
+	const downloadPreview = () => {
+		if (!previewArtifact || !previewPayload) return;
+		const url = URL.createObjectURL(previewPayload.blob);
+		const link = document.createElement('a');
+		link.href = url;
+		link.download = artifactDisplayName(previewArtifact);
+		document.body.appendChild(link);
+		link.click();
+		link.remove();
+		URL.revokeObjectURL(url);
+	};
 	const selectedWorkflow = overview.workflows.find((workflow) => workflow.id === selectedWorkflowId) ?? overview.workflows[0];
 	const linked = useMemo(() => {
 		if (!selectedWorkflow) {
@@ -172,13 +215,24 @@ export function WorkflowsPage({ overview }: { overview: Overview }) {
 									{
 										key: 'name',
 										label: 'Name',
-										render: (row) => {
-											const metadata = row.metadata as Record<string, unknown> | undefined;
-											return <span className="mono">{String(metadata?.name ?? row.id ?? '')}</span>;
-										},
+										render: (row) => <span className="mono">{artifactDisplayName(row)}</span>,
 									},
 									{ key: 'kind', label: 'Kind', render: (row) => <Badge>{String(row.kind ?? 'artifact')}</Badge> },
+									{ key: 'size', label: 'Size', render: (row) => artifactSizeLabel(row) },
 									{ key: 'hash', label: 'Hash', render: (row) => <span className="mono">{shortId(String(row.hash ?? ''))}</span> },
+									{
+										key: 'action',
+										label: 'Action',
+										render: (row) => {
+											const name = artifactDisplayName(row);
+											const loading = previewLoadingId === String(row.id ?? '');
+											return (
+												<button className="button" type="button" aria-label={`Preview workflow artifact ${name}`} disabled={loading} onClick={() => void openPreview(row)}>
+													{loading ? 'Opening' : 'Preview'}
+												</button>
+											);
+										},
+									},
 								]} />
 							</Surface>
 							<Surface title="Policy decisions" flat>
@@ -225,6 +279,36 @@ export function WorkflowsPage({ overview }: { overview: Overview }) {
 					) : (
 						<EmptyState title="No workflow selected" body="Choose a workflow to inspect its linked records." />
 					)}
+				</div>
+			</Drawer>
+			<Drawer label="Workflow artifact preview" open={Boolean(previewArtifact)} onClose={() => {
+				setPreviewArtifact(null);
+				setPreviewPayload(null);
+				setPreviewError('');
+			}}>
+				<div className="drawer-body">
+					{previewArtifact ? (
+						<>
+							<div className="stack">
+								<div className="inline">
+									<Badge>{String(previewArtifact.kind ?? 'artifact')}</Badge>
+									<Badge>{artifactMimeType(previewArtifact, previewPayload)}</Badge>
+									<Badge>{artifactSizeLabel(previewArtifact)}</Badge>
+								</div>
+								<h3 className="artifact-title">{artifactDisplayName(previewArtifact)}</h3>
+								<div className="mono">sha256 {String(previewPayload?.hash || previewArtifact.hash || 'not recorded')}</div>
+							</div>
+							{previewError ? <div className="form-error" role="alert">{previewError}</div> : null}
+							{previewPayload?.text ? (
+								<pre className="artifact-preview">{previewPayload.text}</pre>
+							) : (
+								<EmptyState title={previewLoadingId ? 'Loading artifact' : 'Binary or empty artifact'} body="Non-text artifacts remain downloadable, but are not rendered inline." />
+							)}
+							<button className="button primary" type="button" disabled={!previewPayload} aria-label={`Download workflow artifact ${artifactDisplayName(previewArtifact)}`} onClick={downloadPreview}>
+								Download artifact
+							</button>
+						</>
+					) : null}
 				</div>
 			</Drawer>
 		</>

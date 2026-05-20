@@ -82,6 +82,12 @@ export function App() {
 
 	useEffect(() => {
 		const onKeyDown = (event: KeyboardEvent) => {
+			const target = event.target as HTMLElement | null;
+			const editableTarget =
+				target?.isContentEditable ||
+				target?.tagName === 'INPUT' ||
+				target?.tagName === 'TEXTAREA' ||
+				target?.tagName === 'SELECT';
 			if (event.key === 'Escape') {
 				setApprovalDrawerOpen(false);
 				setEventDrawerOpen(false);
@@ -90,6 +96,22 @@ export function App() {
 			if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
 				event.preventDefault();
 				setCommandPaletteOpen((open) => !open);
+			}
+			if (!editableTarget && event.ctrlKey && event.altKey) {
+				const key = event.key.toLowerCase();
+				if (key === 'a') {
+					event.preventDefault();
+					setApprovalDrawerOpen(true);
+				}
+				if (key === 'e') {
+					event.preventDefault();
+					setEventDrawerOpen(true);
+				}
+				if (key === 'w') {
+					event.preventDefault();
+					window.location.hash = 'workflows';
+					setPage('workflows');
+				}
 			}
 		};
 		window.addEventListener('keydown', onKeyDown);

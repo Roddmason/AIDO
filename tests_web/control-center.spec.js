@@ -261,6 +261,24 @@ test('command palette opens searchable event drawer', async ({ page }) => {
 	await expect(page.getByText('No events')).toBeVisible();
 });
 
+test('keyboard shortcuts open operational surfaces without mouse navigation', async ({ page }) => {
+	await createApprovalJob(page);
+	await page.goto('/');
+
+	await page.keyboard.press('Control+Alt+A');
+	await expect(page.getByRole('dialog', { name: 'Approval drawer' })).toBeVisible();
+	await page.keyboard.press('Escape');
+	await expect(page.getByRole('dialog', { name: 'Approval drawer' })).toBeHidden();
+
+	await page.keyboard.press('Control+Alt+E');
+	await expect(page.getByRole('dialog', { name: 'Event drawer' })).toBeVisible();
+	await page.keyboard.press('Escape');
+	await expect(page.getByRole('dialog', { name: 'Event drawer' })).toBeHidden();
+
+	await page.keyboard.press('Control+Alt+W');
+	await expect(page.getByRole('heading', { name: 'Workflows' })).toBeVisible();
+});
+
 test('Memory & Retrieval shows backend status and memory records', async ({ page }) => {
 	await page.goto('/#memory');
 	await page.getByRole('button', { name: 'Memory & Retrieval' }).click();

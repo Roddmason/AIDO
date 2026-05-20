@@ -121,6 +121,7 @@ client includes operation-id lookup, typed operation aliases, path parameter
 interpolation, query serialization, loopback-token headers, and JSON error
 handling. It also emits `OperationRequestBody<T>` and
 `OperationResponse<T>` aliases from the OpenAPI schemas. The active API client
-now routes JSON calls through generated operation IDs; domain-specific frontend
-interfaces remain as refinements until every FastAPI endpoint exposes explicit
-Pydantic request/response models.
+now routes JSON calls through generated operation IDs. Health, handshake, and
+retrieval status already generate named DTOs from Pydantic response models;
+domain-specific frontend interfaces remain as refinements for routes that still
+return generic dictionaries.

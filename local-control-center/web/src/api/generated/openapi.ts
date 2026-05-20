@@ -5,6 +5,12 @@ export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonObject | JsonValue[];
 export type JsonObject = { [key: string]: JsonValue };
 
+export type HTTPValidationError = { "detail"?: Array<ValidationError> };
+export type HandshakeResponse = { "loopbackOnly": boolean; "token": string };
+export type HealthResponse = { "ok": boolean };
+export type RetrievalStatusResponse = { "backend": string; "degraded": boolean; "dimensions": number; "faissAvailable": boolean; "indexDir": string; "indexed": number };
+export type ValidationError = { "ctx"?: JsonObject; "input"?: JsonValue; "loc": Array<number | string>; "msg": string; "type": string };
+
 export const OPENAPI_TITLE = "Local Control Center" as const;
 export const OPENAPI_VERSION = "0.1.0" as const;
 
@@ -215,8 +221,8 @@ export type OperationResponseBodies = {
 	"get_evidence_api_v1_evidence__evidence_id__get": JsonObject,
 	"get_workflow_api_v1_workflows__workflow_id__get": JsonObject,
 	"governance_api_v1_governance_get": JsonObject,
-	"handshake_api_v1_security_handshake_get": JsonObject,
-	"healthz_healthz_get": JsonObject,
+	"handshake_api_v1_security_handshake_get": HandshakeResponse,
+	"healthz_healthz_get": HealthResponse,
 	"ingest_artifact_api_v1_evidence__evidence_id__artifacts_post": JsonObject,
 	"list_agent_profiles_api_v1_agent_profiles_get": JsonObject,
 	"list_agent_runs_api_v1_agent_runs_get": JsonObject,
@@ -250,7 +256,7 @@ export type OperationResponseBodies = {
 	"resume_workflow_api_v1_workflows__workflow_id__resume_post": JsonObject,
 	"retrieval_reindex_api_v1_retrieval_reindex_post": JsonObject,
 	"retrieval_search_api_v1_retrieval_search_post": JsonObject,
-	"retrieval_status_api_v1_retrieval_status_get": JsonObject,
+	"retrieval_status_api_v1_retrieval_status_get": RetrievalStatusResponse,
 	"retry_job_api_v1_jobs__job_id__retry_post": JsonObject,
 	"revoke_permission_grant_api_v1_permissions_grants__grant_id__revoke_post": JsonObject,
 	"revoke_sandbox_profile_api_v1_sandbox_profiles__profile_id__revoke_post": JsonObject,

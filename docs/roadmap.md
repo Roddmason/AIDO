@@ -124,6 +124,10 @@
   `OperationRequestBody<T>` and `OperationResponse<T>` aliases, and the active
   frontend API client uses generated operation IDs for JSON API calls instead
   of raw route literals.
+- High-traffic read endpoints now have explicit Pydantic response models for
+  health, loopback handshake, and retrieval status, so the generated frontend
+  DTOs use `HealthResponse`, `HandshakeResponse`, and
+  `RetrievalStatusResponse` instead of `JsonObject` fallbacks.
 - Command palette and workflow inspector are backed by FastAPI v1 state rather
   than client-invented data.
 - The command palette can create workflows, focus pending approvals, and open a
@@ -145,8 +149,9 @@
 1. Keep tightening tests around direct repositories and
    `tests_py/control_plane_fixture.py` where broad fixture setup is still
    noisier than the behavior under test.
-2. Add explicit Pydantic request/response models to high-traffic FastAPI routes
-   so generated DTOs become domain-specific instead of `JsonObject` fallbacks.
+2. Continue adding explicit Pydantic request/response models to mutating
+   FastAPI routes and larger overview subresources so generated DTOs become
+   domain-specific instead of `JsonObject` fallbacks.
 3. Add installed-runtime issue-to-patch smoke fixtures for OpenHands/SWE-agent
    in a release validation profile when those CLIs are available on the runner.
 

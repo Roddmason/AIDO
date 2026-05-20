@@ -17,6 +17,10 @@ def _literal(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True)
 
 
+def _ref_type_name(ref: str) -> str:
+    return ref.rsplit("/", 1)[-1]
+
+
 def _endpoint_rows(openapi: dict[str, Any]) -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
     for path, methods in sorted(openapi.get("paths", {}).items()):
@@ -53,7 +57,11 @@ def _ts_type_from_schema(schema: dict[str, Any] | None) -> str:
     if not schema:
         return "never"
     if "$ref" in schema:
-        return "JsonObject"
+        return _ref_type_name(str(schema["$ref"]))
+    if "const" in schema:
+        return _literal(schema["const"])
+    if "enum" in schema and isinstance(schema["enum"], list):
+        return " | ".join(_literal(item) for item in schema["enum"])
     if "anyOf" in schema:
         return " | ".join(sorted({_ts_type_from_schema(item) for item in schema["anyOf"]}))
     if "oneOf" in schema:
@@ -82,6 +90,14 @@ def _ts_type_from_schema(schema: dict[str, Any] | None) -> str:
     return "JsonValue"
 
 
+def _component_type_lines(openapi: dict[str, Any]) -> str:
+    schemas = openapi.get("components", {}).get("schemas", {})
+    lines: list[str] = []
+    for name, schema in sorted(schemas.items()):
+        lines.append(f"export type {name} = {_ts_type_from_schema(schema)};")
+    return "\n".join(lines)
+
+
 def _operation_schema_maps(openapi: dict[str, Any]) -> tuple[dict[str, str], dict[str, str]]:
     request_bodies: dict[str, str] = {}
     response_bodies: dict[str, str] = {}
@@ -107,6 +123,7 @@ def _operation_schema_maps(openapi: dict[str, Any]) -> tuple[dict[str, str], dic
 def render_client(openapi: dict[str, Any]) -> str:
     endpoints = _endpoint_rows(openapi)
     request_bodies, response_bodies = _operation_schema_maps(openapi)
+    component_type_lines = _component_type_lines(openapi)
     endpoint_lines = ",\n".join(f"\t{_literal(endpoint)}" for endpoint in endpoints)
     operation_lines = ",\n".join(
         f"\t{_literal(endpoint['operationId'])}: {_literal(endpoint)}" for endpoint in endpoints if endpoint["operationId"]
@@ -123,6 +140,8 @@ def render_client(openapi: dict[str, Any]) -> str:
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonObject | JsonValue[];
 export type JsonObject = {{ [key: string]: JsonValue }};
+
+{component_type_lines}
 
 export const OPENAPI_TITLE = {_literal(openapi.get("info", {}).get("title", ""))} as const;
 export const OPENAPI_VERSION = {_literal(openapi.get("info", {}).get("version", ""))} as const;

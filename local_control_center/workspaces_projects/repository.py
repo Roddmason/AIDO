@@ -53,6 +53,7 @@ class WorkspacesRepository:
         workflow_run_id: str | None = None,
         workflow_step_id: str | None = None,
         base_branch: str = "HEAD",
+        devcontainer: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         placeholders = ",".join("?" for _ in ACTIVE_WORKSPACE_STATUSES)
         existing = self.connection.execute(
@@ -70,6 +71,8 @@ class WorkspacesRepository:
         workspace_path = self.root / ".tmp" / "workspaces" / workspace_id
         resolved_isolation = "directory"
         metadata: dict[str, Any] = {"reason": reason}
+        if devcontainer:
+            metadata["devcontainer"] = {**devcontainer, "status": "metadata_only"}
         if isolation_type == "git_worktree":
             repo_path = self._project_path(project_id)
             result = create_git_worktree(

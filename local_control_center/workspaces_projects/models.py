@@ -10,6 +10,13 @@ from local_control_center.evidence.models import EvidencePackageRecord
 WorkspaceIsolationType = Literal["directory", "git_worktree"]
 
 
+class DevcontainerMetadata(BaseModel):
+    enabled: bool = False
+    template_id: str = Field(default="", alias="templateId")
+    image: str = ""
+    features: list[str] = Field(default_factory=list)
+
+
 class WorkspaceAllocateRequest(BaseModel):
     project_id: str = Field(alias="projectId")
     task_id: str = Field(alias="taskId")
@@ -19,6 +26,7 @@ class WorkspaceAllocateRequest(BaseModel):
     workflow_run_id: str | None = Field(default=None, alias="workflowRunId")
     workflow_step_id: str | None = Field(default=None, alias="workflowStepId")
     base_branch: str = Field(default="HEAD", alias="baseBranch")
+    devcontainer: DevcontainerMetadata | None = None
 
     @field_validator("isolation_type", mode="before")
     @classmethod

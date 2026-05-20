@@ -22,6 +22,10 @@ agents edit the same working tree for the same task.
 - Workspace ownership is explicit through `ownerAgentId`, `taskId`,
   `workflowRunId`, and `workflowStepId`; jobs and agent runs use the same
   workflow run/step IDs for UI traceability without sharing a working tree.
+- Workspace allocation accepts optional `devcontainer` metadata with
+  `enabled`, `templateId`, `image`, and `features`. The control plane stores it
+  as `metadata.devcontainer.status=metadata_only`; it does not require Docker
+  or start containers during MVP allocation.
 
 ## Current Git Modes
 
@@ -38,4 +42,5 @@ Policy evaluation uses the allocated workspace path when a request includes
 
 ## Next Steps
 
-- Add devcontainer metadata without making Docker mandatory.
+- Add devcontainer execution only after sandbox policy, image catalog review,
+  evidence capture, and explicit approval semantics are defined.

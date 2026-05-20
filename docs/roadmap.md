@@ -166,6 +166,9 @@
   decisions, risks, and next steps; the generated client also rejects
   `Array<never>` regressions for schema arrays with intentionally flexible JSON
   values.
+- Jobs, granular action requests, events, and audit events now have row-level
+  DTOs for list and mutation responses, tightening the highest-traffic
+  operational lane in the generated client.
 - Shared event-bus tests now use direct SQLite/repository setup instead of the
   broad app fixture; an architecture guardrail prevents that regression.
 - Command palette and workflow inspector are backed by FastAPI v1 state rather

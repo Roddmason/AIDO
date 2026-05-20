@@ -10,6 +10,11 @@ if ($env:AIDO_RUNTIME_SMOKE -ne "1") {
     Write-Host "Skip optional runtime adapter smoke. Set AIDO_RUNTIME_SMOKE=1 to run."
     exit 0
 }
+if ($env:AIDO_RUNTIME_RELEASE_VALIDATION -eq "1") {
+    # Release validation requires AIDO_OPENHANDS_ISSUE_TO_PATCH_ARGV_JSON and AIDO_OPENHANDS_ISSUE_TEXT.
+    # Release validation requires AIDO_SWE_AGENT_ISSUE_TO_PATCH_ARGV_JSON and AIDO_SWE_AGENT_ISSUE_TEXT.
+    $env:AIDO_RUNTIME_ISSUE_TO_PATCH_SMOKE = "1"
+}
 
 function Invoke-AidoJson {
     param(
@@ -71,6 +76,43 @@ function Resolve-OptionalCommand {
         }
     }
     return ""
+}
+
+function Read-ArgvJsonEnv {
+    param(
+        [Parameter(Mandatory = $true)][string]$Name
+    )
+    $value = [Environment]::GetEnvironmentVariable($Name)
+    if (-not $value) {
+        return $null
+    }
+    $argv = @($value | ConvertFrom-Json)
+    if ($argv.Count -lt 1) {
+        throw "$Name must be a non-empty JSON array."
+    }
+    return $argv
+}
+
+function Assert-ReleaseIssueToPatchConfigured {
+    param(
+        [Parameter(Mandatory = $true)][string]$AdapterName,
+        [Parameter(Mandatory = $true)][string]$ArgvEnvName,
+        [Parameter(Mandatory = $true)][string]$IssueEnvName
+    )
+    if ($env:AIDO_RUNTIME_RELEASE_VALIDATION -ne "1") {
+        return
+    }
+    $argv = Read-ArgvJsonEnv -Name $ArgvEnvName
+    if (-not $argv) {
+        throw "Release validation requires $ArgvEnvName for $AdapterName issue_to_patch smoke."
+    }
+    if (-not [Environment]::GetEnvironmentVariable($IssueEnvName)) {
+        throw "Release validation requires $IssueEnvName for $AdapterName issue_to_patch smoke."
+    }
+    $executable = [string]$argv[0]
+    if (-not (Test-Path -LiteralPath $executable) -and -not (Get-Command $executable -ErrorAction SilentlyContinue)) {
+        throw "Release validation runtime command not found for $AdapterName issue_to_patch smoke: $executable"
+    }
 }
 
 Invoke-AidoJson -Method "GET" -Path "/healthz" | Out-Null
@@ -136,9 +178,13 @@ if ($argv) {
 }
 
 if ($env:AIDO_RUNTIME_ISSUE_TO_PATCH_SMOKE -eq "1") {
+    Assert-ReleaseIssueToPatchConfigured `
+        -AdapterName "OpenHands" `
+        -ArgvEnvName "AIDO_OPENHANDS_ISSUE_TO_PATCH_ARGV_JSON" `
+        -IssueEnvName "AIDO_OPENHANDS_ISSUE_TEXT"
     $issueArgv = $null
     if ($env:AIDO_OPENHANDS_ISSUE_TO_PATCH_ARGV_JSON) {
-        $issueArgv = @($env:AIDO_OPENHANDS_ISSUE_TO_PATCH_ARGV_JSON | ConvertFrom-Json)
+        $issueArgv = Read-ArgvJsonEnv -Name "AIDO_OPENHANDS_ISSUE_TO_PATCH_ARGV_JSON"
     }
     if ($issueArgv) {
         $issueText = $env:AIDO_OPENHANDS_ISSUE_TEXT
@@ -184,9 +230,13 @@ if ($argv) {
 }
 
 if ($env:AIDO_RUNTIME_ISSUE_TO_PATCH_SMOKE -eq "1") {
+    Assert-ReleaseIssueToPatchConfigured `
+        -AdapterName "SWE-agent" `
+        -ArgvEnvName "AIDO_SWE_AGENT_ISSUE_TO_PATCH_ARGV_JSON" `
+        -IssueEnvName "AIDO_SWE_AGENT_ISSUE_TEXT"
     $issueArgv = $null
     if ($env:AIDO_SWE_AGENT_ISSUE_TO_PATCH_ARGV_JSON) {
-        $issueArgv = @($env:AIDO_SWE_AGENT_ISSUE_TO_PATCH_ARGV_JSON | ConvertFrom-Json)
+        $issueArgv = Read-ArgvJsonEnv -Name "AIDO_SWE_AGENT_ISSUE_TO_PATCH_ARGV_JSON"
     }
     if ($issueArgv) {
         $issueText = $env:AIDO_SWE_AGENT_ISSUE_TEXT

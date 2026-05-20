@@ -178,6 +178,10 @@
 - The primary overview read model now reuses row-level DTOs for projects,
   jobs, action requests, runtime workspaces, evidence, and governance records,
   reducing frontend refinement risk on the dashboard's highest-traffic query.
+- Sessions, chats, pipelines, memory items, workflows, policy records, agent
+  profiles, model policies/providers, and agent/model run telemetry now expose
+  row-level DTOs in v1 read responses and the generated client instead of broad
+  `JsonObject` rows where their schema is stable.
 - Shared event-bus tests now use direct SQLite/repository setup instead of the
   broad app fixture; an architecture guardrail prevents that regression.
 - Repository-level telemetry tests now use direct SQLite/repository setup while

@@ -13,9 +13,22 @@ class PipelineCreateRequest(BaseModel):
     stages: list[dict[str, Any]] | None = None
 
 
+class PipelineRecord(BaseModel):
+    id: str
+    project_id: str = Field(alias="projectId")
+    session_id: str | None = Field(default=None, alias="sessionId")
+    chat_id: str | None = Field(default=None, alias="chatId")
+    title: str
+    status: str
+    stages: list[dict[str, Any]]
+    metadata: dict[str, Any]
+    created_at: str = Field(alias="createdAt")
+    updated_at: str = Field(alias="updatedAt")
+
+
 class PipelineResponse(BaseModel):
-    pipeline: dict[str, Any]
+    pipeline: PipelineRecord
 
 
 class PipelinesListResponse(BaseModel):
-    pipelines: list[dict[str, Any]]
+    pipelines: list[PipelineRecord]

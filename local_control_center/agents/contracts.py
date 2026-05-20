@@ -34,12 +34,32 @@ class AgentProfileUpsertRequest(BaseModel):
     status: PolicyStatus = "active"
 
 
+class AgentProfileRecord(BaseModel):
+    id: str
+    name: str
+    role: AgentRole
+    runtime_type: RuntimeMode = Field(alias="runtimeType")
+    runtime_mode: RuntimeMode = Field(alias="runtimeMode")
+    model_policy_id: str | None = Field(default=None, alias="modelPolicyId")
+    allowed_skills: list[str] = Field(alias="allowedSkills")
+    allowed_tools: list[str] = Field(alias="allowedTools")
+    permission_profile: PermissionProfile = Field(alias="permissionProfile")
+    memory_scope: str = Field(alias="memoryScope")
+    max_cost_per_run: float = Field(alias="maxCostPerRun")
+    max_runtime_seconds: int = Field(alias="maxRuntimeSeconds")
+    output_schema: dict[str, Any] = Field(alias="outputSchema")
+    quality_gates: list[Any] = Field(alias="qualityGates")
+    status: PolicyStatus
+    created_at: str = Field(alias="createdAt")
+    updated_at: str = Field(alias="updatedAt")
+
+
 class AgentProfileResponse(BaseModel):
-    agent_profile: dict[str, Any] = Field(alias="agentProfile")
+    agent_profile: AgentProfileRecord = Field(alias="agentProfile")
 
 
 class AgentProfilesListResponse(BaseModel):
-    agent_profiles: list[dict[str, Any]] = Field(alias="agentProfiles")
+    agent_profiles: list[AgentProfileRecord] = Field(alias="agentProfiles")
 
 
 class AgentRunCreateRequest(BaseModel):
@@ -52,12 +72,36 @@ class AgentRunCreateRequest(BaseModel):
     workflow_step_id: str | None = Field(default=None, alias="workflowStepId")
 
 
+class AgentRunRecord(BaseModel):
+    id: str
+    project_id: str = Field(alias="projectId")
+    job_id: str | None = Field(default=None, alias="jobId")
+    workflow_run_id: str | None = Field(default=None, alias="workflowRunId")
+    workflow_step_id: str | None = Field(default=None, alias="workflowStepId")
+    status: str
+    input: dict[str, Any]
+    output: dict[str, Any]
+    metadata: dict[str, Any]
+    created_at: str = Field(alias="createdAt")
+    updated_at: str = Field(alias="updatedAt")
+
+
+class AgentToolCallRecord(BaseModel):
+    id: str
+    agent_run_id: str = Field(alias="agentRunId")
+    tool_name: str = Field(alias="toolName")
+    status: str
+    payload: dict[str, Any]
+    created_at: str = Field(alias="createdAt")
+    updated_at: str = Field(alias="updatedAt")
+
+
 class AgentRunResponse(BaseModel):
-    agent_run: dict[str, Any] = Field(alias="agentRun")
+    agent_run: AgentRunRecord = Field(alias="agentRun")
 
 
 class AgentRunsListResponse(BaseModel):
-    agent_runs: list[dict[str, Any]] = Field(alias="agentRuns")
+    agent_runs: list[AgentRunRecord] = Field(alias="agentRuns")
 
 
 class SkillsSyncRequest(BaseModel):
@@ -86,12 +130,62 @@ class ModelPolicyUpsertRequest(BaseModel):
     status: PolicyStatus = "active"
 
 
+class ModelPolicyRecord(BaseModel):
+    id: str
+    name: str
+    preferred: list[ModelProviderCandidate]
+    fallback: list[ModelProviderCandidate]
+    max_cost_usd: float = Field(alias="maxCostUsd")
+    max_tokens: int = Field(alias="maxTokens")
+    temperature: float
+    allow_remote: bool = Field(alias="allowRemote")
+    allow_local: bool = Field(alias="allowLocal")
+    status: PolicyStatus
+    created_at: str = Field(alias="createdAt")
+    updated_at: str = Field(alias="updatedAt")
+
+
+class ModelProviderRecord(BaseModel):
+    id: str
+    provider: str
+    label: str
+    status: str
+    allow_remote: bool = Field(alias="allowRemote")
+    metadata: dict[str, Any]
+    created_at: str = Field(alias="createdAt")
+    updated_at: str = Field(alias="updatedAt")
+
+
+class ModelCallRecord(BaseModel):
+    id: str
+    project_id: str = Field(alias="projectId")
+    agent_run_id: str | None = Field(default=None, alias="agentRunId")
+    model_policy_id: str | None = Field(default=None, alias="modelPolicyId")
+    provider: str
+    model: str
+    status: str
+    prompt_tokens: int = Field(alias="promptTokens")
+    completion_tokens: int = Field(alias="completionTokens")
+    cost_usd: float = Field(alias="costUsd")
+    metadata: dict[str, Any]
+    created_at: str = Field(alias="createdAt")
+
+
+class CostUsageRecord(BaseModel):
+    id: str
+    project_id: str = Field(alias="projectId")
+    scope: str
+    amount_usd: float = Field(alias="amountUsd")
+    metadata: dict[str, Any]
+    created_at: str = Field(alias="createdAt")
+
+
 class ModelPolicyResponse(BaseModel):
-    model_policy: dict[str, Any] = Field(alias="modelPolicy")
+    model_policy: ModelPolicyRecord = Field(alias="modelPolicy")
 
 
 class ModelProvidersListResponse(BaseModel):
-    model_providers: list[dict[str, Any]] = Field(alias="modelProviders")
+    model_providers: list[ModelProviderRecord] = Field(alias="modelProviders")
 
 
 class RuntimeProvidersResponse(BaseModel):
@@ -102,4 +196,4 @@ class RuntimeProvidersResponse(BaseModel):
 
 
 class ModelPoliciesListResponse(BaseModel):
-    model_policies: list[dict[str, Any]] = Field(alias="modelPolicies")
+    model_policies: list[ModelPolicyRecord] = Field(alias="modelPolicies")

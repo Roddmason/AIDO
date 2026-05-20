@@ -11,12 +11,23 @@ class SessionCreateRequest(BaseModel):
     team_id: str | None = Field(default=None, alias="teamId")
 
 
+class SessionRecord(BaseModel):
+    id: str
+    project_id: str = Field(alias="projectId")
+    team_id: str | None = Field(default=None, alias="teamId")
+    name: str
+    status: str
+    metadata: dict[str, Any]
+    created_at: str = Field(alias="createdAt")
+    updated_at: str = Field(alias="updatedAt")
+
+
 class SessionResponse(BaseModel):
-    session: dict[str, Any]
+    session: SessionRecord
 
 
 class SessionsListResponse(BaseModel):
-    sessions: list[dict[str, Any]]
+    sessions: list[SessionRecord]
 
 
 class ChatCreateRequest(BaseModel):
@@ -26,9 +37,21 @@ class ChatCreateRequest(BaseModel):
     title: str | None = None
 
 
+class ChatRecord(BaseModel):
+    id: str
+    project_id: str = Field(alias="projectId")
+    session_id: str | None = Field(default=None, alias="sessionId")
+    title: str
+    prompt: str
+    status: str
+    metadata: dict[str, Any]
+    created_at: str = Field(alias="createdAt")
+    updated_at: str = Field(alias="updatedAt")
+
+
 class ChatResponse(BaseModel):
-    chat: dict[str, Any]
+    chat: ChatRecord
 
 
 class ChatsListResponse(BaseModel):
-    chats: list[dict[str, Any]]
+    chats: list[ChatRecord]

@@ -1,0 +1,146 @@
+name: Quality
+
+on:
+  push:
+    branches:
+      - dev
+      - main
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      runtime_smoke:
+        description: "Run optional runtime adapter smoke profile"
+        required: false
+        type: boolean
+        default: false
+      otel_smoke:
+        description: "Run optional OTEL exporter smoke profile"
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  quality:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Enable pnpm
+        shell: pwsh
+        run: corepack enable
+      - name: Install uv
+        shell: pwsh
+        run: python -m pip install uv
+      - name: Install Python dependencies
+        shell: pwsh
+        run: uv sync --extra dev --extra test
+      - name: Install web dependencies
+        shell: pwsh
+        run: corepack pnpm@10.24.0 install --frozen-lockfile
+      - name: Verify generated OpenAPI client
+        shell: pwsh
+        run: |
+          corepack pnpm@10.24.0 run openapi:generate
+          git diff --exit-code -- local-control-center/web/src/api/generated/openapi.ts
+      - name: Python tests
+        shell: pwsh
+        run: uv run pytest tests_py -q
+      - name: Ruff
+        shell: pwsh
+        run: uv run --extra dev ruff check .
+      - name: Web tests
+        shell: pwsh
+        run: corepack pnpm@10.24.0 run test:web
+
+  runtime-smoke:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.runtime_smoke == true }}
+    runs-on: windows-latest
+    needs: quality
+    env:
+      AIDO_RUNTIME_SMOKE: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install uv
+        shell: pwsh
+        run: python -m pip install uv
+      - name: Install Python dependencies
+        shell: pwsh
+        run: uv sync --extra dev --extra test
+      - name: Start control center and run runtime smoke
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path .tmp | Out-Null
+          $server = Start-Process -FilePath "uv" -ArgumentList @(
+            "run", "python", "-m", "local_control_center",
+            "--dashboard-only",
+            "--dashboard-host", "127.0.0.1",
+            "--dashboard-port", "4310",
+            "--db-path", ".tmp/runtime-smoke.sqlite",
+            "--workspace", "."
+          ) -PassThru -WindowStyle Hidden
+          try {
+            for ($i = 0; $i -lt 60; $i++) {
+              try {
+                Invoke-RestMethod -Method GET -Uri "http://127.0.0.1:4310/healthz" | Out-Null
+                break
+              } catch {
+                Start-Sleep -Seconds 1
+              }
+            }
+            local-control-center/scripts/smoke-runtime-adapters.ps1 -BaseUrl "http://127.0.0.1:4310"
+          } finally {
+            Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue
+          }
+
+  otel-smoke:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.otel_smoke == true }}
+    runs-on: windows-latest
+    needs: quality
+    env:
+      AIDO_OTEL_SMOKE: "1"
+      AIDO_OTEL_EXPORTER: "otlp_http"
+      AIDO_OTEL_ENDPOINT: "http://127.0.0.1:4318"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install uv
+        shell: pwsh
+        run: python -m pip install uv
+      - name: Install Python dependencies with OTEL
+        shell: pwsh
+        run: uv sync --extra dev --extra test --extra otel
+      - name: Start control center and run OTEL smoke
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path .tmp | Out-Null
+          $server = Start-Process -FilePath "uv" -ArgumentList @(
+            "run", "python", "-m", "local_control_center",
+            "--dashboard-only",
+            "--dashboard-host", "127.0.0.1",
+            "--dashboard-port", "4310",
+            "--db-path", ".tmp/otel-smoke.sqlite",
+            "--workspace", "."
+          ) -PassThru -WindowStyle Hidden
+          try {
+            for ($i = 0; $i -lt 60; $i++) {
+              try {
+                Invoke-RestMethod -Method GET -Uri "http://127.0.0.1:4310/healthz" | Out-Null
+                break
+              } catch {
+                Start-Sleep -Seconds 1
+              }
+            }
+            local-control-center/scripts/smoke-otel-exporter.ps1 -BaseUrl "http://127.0.0.1:4310"
+          } finally {
+            Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue
+          }

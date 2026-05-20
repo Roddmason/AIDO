@@ -6,11 +6,13 @@ import {
 	createNextStep,
 	createRisk,
 	createWorkflowWithBody,
+	fetchEvidenceArtifact,
 	registerMcpServer,
 	updateSandboxProfile,
 } from '../api/client';
-import type { Overview, RuntimeProviders } from '../api/types';
-import { Badge, DataTable, EmptyState, PageHeader, Surface } from '../components/primitives';
+import type { ArtifactPayload } from '../api/client';
+import type { Dictionary, Overview, RuntimeProviders } from '../api/types';
+import { Badge, DataTable, Drawer, EmptyState, PageHeader, Surface } from '../components/primitives';
 import { toneForStatus } from '../lib/format';
 
 type Mutate = <T>(operation: (token: string) => Promise<T>) => Promise<T>;
@@ -248,7 +250,61 @@ export function MemoryPage({ overview, retrievalStatus }: { overview: Overview; 
 	);
 }
 
-export function EvidencePage({ overview }: { overview: Overview }) {
+function artifactMetadata(artifact: Dictionary): Dictionary {
+	return (artifact.metadata && typeof artifact.metadata === 'object' ? artifact.metadata : {}) as Dictionary;
+}
+
+function artifactDisplayName(artifact: Dictionary): string {
+	const metadata = artifactMetadata(artifact);
+	return String(metadata.name ?? artifact.id ?? 'artifact');
+}
+
+function artifactMimeType(artifact: Dictionary, preview?: ArtifactPayload | null): string {
+	const metadata = artifactMetadata(artifact);
+	return String(preview?.contentType ?? metadata.mimeType ?? 'application/octet-stream');
+}
+
+function artifactSizeLabel(artifact: Dictionary): string {
+	const size = Number(artifactMetadata(artifact).sizeBytes ?? 0);
+	return Number.isFinite(size) && size > 0 ? `${size} bytes` : 'not recorded';
+}
+
+export function EvidencePage({ overview, token }: { overview: Overview; token: string }) {
+	const [previewArtifact, setPreviewArtifact] = useState<Dictionary | null>(null);
+	const [previewPayload, setPreviewPayload] = useState<ArtifactPayload | null>(null);
+	const [previewLoadingId, setPreviewLoadingId] = useState('');
+	const [previewError, setPreviewError] = useState('');
+	const openPreview = async (artifact: Dictionary) => {
+		const artifactId = String(artifact.id ?? '');
+		const evidenceId = String(artifact.evidencePackageId ?? '');
+		if (!artifactId || !evidenceId) {
+			setPreviewError('Artifact metadata is incomplete.');
+			return;
+		}
+		setPreviewArtifact(artifact);
+		setPreviewPayload(null);
+		setPreviewError('');
+		setPreviewLoadingId(artifactId);
+		try {
+			const payload = await fetchEvidenceArtifact(token, evidenceId, artifactId);
+			setPreviewPayload(payload);
+		} catch (error) {
+			setPreviewError(error instanceof Error ? error.message : 'Artifact preview failed.');
+		} finally {
+			setPreviewLoadingId('');
+		}
+	};
+	const downloadPreview = () => {
+		if (!previewArtifact || !previewPayload) return;
+		const url = URL.createObjectURL(previewPayload.blob);
+		const link = document.createElement('a');
+		link.href = url;
+		link.download = artifactDisplayName(previewArtifact);
+		document.body.appendChild(link);
+		link.click();
+		link.remove();
+		URL.revokeObjectURL(url);
+	};
 	return (
 		<>
 			<PageHeader kicker="Proof before approval" title="Evidence & QA" summary="QA cannot be accepted without test results, artifacts and explicit verdict records." />
@@ -268,7 +324,58 @@ export function EvidencePage({ overview }: { overview: Overview }) {
 						{ key: 'evidence', label: 'Evidence', render: (row) => <span className="mono">{String(row.evidencePackageId ?? '')}</span> },
 					]} />
 				</Surface>
+				<Surface title="Artifacts">
+					<DataTable rows={overview.artifacts} empty={<EmptyState title="No artifacts" body="Evidence artifacts can be previewed only through token-protected v1 endpoints." />} columns={[
+						{ key: 'name', label: 'Name', render: (row) => artifactDisplayName(row) },
+						{ key: 'kind', label: 'Kind', render: (row) => <span className="mono">{String(row.kind ?? '')}</span> },
+						{ key: 'size', label: 'Size', render: (row) => artifactSizeLabel(row) },
+						{ key: 'hash', label: 'Hash', render: (row) => <span className="mono">{String(row.hash ?? '').slice(0, 12)}</span> },
+						{
+							key: 'action',
+							label: 'Action',
+							render: (row) => {
+								const name = artifactDisplayName(row);
+								const loading = previewLoadingId === String(row.id ?? '');
+								return (
+									<button className="button" type="button" aria-label={`Preview artifact ${name}`} disabled={loading} onClick={() => void openPreview(row)}>
+										{loading ? 'Opening' : 'Preview'}
+									</button>
+								);
+							},
+						},
+					]} />
+				</Surface>
 			</div>
+			<Drawer label="Artifact preview" open={Boolean(previewArtifact)} onClose={() => {
+				setPreviewArtifact(null);
+				setPreviewPayload(null);
+				setPreviewError('');
+			}}>
+				<div className="drawer-body">
+					{previewArtifact ? (
+						<>
+							<div className="stack">
+								<div className="inline">
+									<Badge>{String(previewArtifact.kind ?? 'artifact')}</Badge>
+									<Badge>{artifactMimeType(previewArtifact, previewPayload)}</Badge>
+									<Badge>{artifactSizeLabel(previewArtifact)}</Badge>
+								</div>
+								<h3 className="artifact-title">{artifactDisplayName(previewArtifact)}</h3>
+								<div className="mono">sha256 {String(previewPayload?.hash || previewArtifact.hash || 'not recorded')}</div>
+							</div>
+							{previewError ? <div className="form-error" role="alert">{previewError}</div> : null}
+							{previewPayload?.text ? (
+								<pre className="artifact-preview">{previewPayload.text}</pre>
+							) : (
+								<EmptyState title={previewLoadingId ? 'Loading artifact' : 'Binary or empty artifact'} body="Non-text artifacts remain downloadable, but are not rendered inline." />
+							)}
+							<button className="button primary" type="button" disabled={!previewPayload} aria-label={`Download artifact ${artifactDisplayName(previewArtifact)}`} onClick={downloadPreview}>
+								Download artifact
+							</button>
+						</>
+					) : null}
+				</div>
+			</Drawer>
 		</>
 	);
 }

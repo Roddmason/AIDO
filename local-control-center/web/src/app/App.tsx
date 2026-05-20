@@ -179,7 +179,7 @@ export function App() {
 			case 'memory':
 				return <MemoryPage overview={overview} retrievalStatus={state.retrievalStatus} />;
 			case 'evidence':
-				return <EvidencePage overview={overview} />;
+				return <EvidencePage overview={overview} token={state.token} />;
 			case 'models':
 				return <ModelGatewayPage overview={overview} runtimeProviders={state.runtimeProviders} mutate={state.mutate} />;
 			case 'governance':

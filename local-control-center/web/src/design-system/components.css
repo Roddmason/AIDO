@@ -194,6 +194,29 @@
 	color: var(--ink-muted);
 }
 
+.artifact-title {
+	margin: 0;
+	font-size: 1rem;
+	font-weight: 760;
+	overflow-wrap: anywhere;
+}
+
+.artifact-preview {
+	max-height: min(32rem, 54vh);
+	overflow: auto;
+	margin: 0;
+	padding: var(--space-3);
+	border: 1px solid var(--line);
+	border-radius: var(--radius-md);
+	background: var(--surface-panel-strong);
+	color: var(--ink);
+	font-family: var(--font-data);
+	font-size: 0.82rem;
+	line-height: 1.55;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+
 .form-grid {
 	display: grid;
 	gap: var(--space-3);

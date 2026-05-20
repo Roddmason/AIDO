@@ -79,6 +79,7 @@ def test_frontend_domain_types_are_generated_openapi_aliases() -> None:
     assert "export type RuntimeProviders = RuntimeProvidersResponse" in source
     assert "export type Artifact = ArtifactRecord" in source
     assert "export type RetrievalStatus = RetrievalStatusResponse" in source
+    assert "export type PolicyRevision = PolicyRevisionRecord" in source
     for stale_manual_type in [
         "export type Project = {",
         "export type Job = {",
@@ -106,6 +107,17 @@ def test_stable_frontend_artifact_and_retrieval_surfaces_are_not_dictionary_type
     assert "useState<Artifact | null>" in workflows_source
     assert "const openPreview = async (artifact: Artifact)" in pages_source
     assert "const openPreview = async (artifact: Artifact)" in workflows_source
+
+
+def test_stable_frontend_policy_revision_surface_is_not_dictionary_typed() -> None:
+    types_source = read(SRC / "api" / "types.ts")
+    pages_source = read(SRC / "features" / "pages.tsx")
+
+    assert "PolicyRevisionRecord" in types_source
+    assert "export type PolicyRevision = PolicyRevisionRecord" in types_source
+    assert "PolicyRevision" in pages_source
+    assert "useState<PolicyRevision | null>" in pages_source
+    assert "useState<Dictionary | null>" not in pages_source
 
 
 def test_visual_guardrails_reject_generic_ai_dashboard_patterns() -> None:

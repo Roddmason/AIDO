@@ -8,6 +8,7 @@ import type {
 	ModelProviderRecord,
 	OverviewResponse,
 	PipelineRecord,
+	PolicyRevisionRecord,
 	ProjectRecord,
 	RetrievalStatusResponse,
 	RuntimeProvidersResponse,
@@ -30,6 +31,7 @@ export type Session = SessionRecord;
 export type Chat = ChatRecord;
 export type Pipeline = PipelineRecord;
 export type Artifact = ArtifactRecord;
+export type PolicyRevision = PolicyRevisionRecord;
 export type Overview = OverviewResponse;
 export type RuntimeProviders = RuntimeProvidersResponse;
 export type RetrievalStatus = RetrievalStatusResponse;

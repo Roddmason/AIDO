@@ -6,27 +6,68 @@ AIDO does not store provider API keys in SQLite, code, logs, prompts, snapshots
 or model gateway payloads. Provider accounts store only a `credentialRef`.
 Runtime code resolves that reference immediately before a real provider call.
 
+For real provider keys, prefer an external OpenBao/Vault-compatible secrets
+service. Environment variables remain supported for development and bootstrap
+tokens, but they are not the recommended place to keep long-lived model API
+keys.
+
 ## Supported Refs
 
 - `env:NAME`: resolves `NAME` from the process environment.
 - `NAME`: legacy shorthand for `env:NAME`.
 - `keyring:service/account`: optional local OS/keyring-backed lookup when the
   Python `keyring` package and a compatible backend are installed outside core.
+- `openbao:mount/path#field`: resolves a field from a remote OpenBao KV v2
+  secret using the Vault-compatible HTTP API.
+- `vault:mount/path#field`: compatibility alias for Vault-compatible services.
 
-Environment variables are the default and remain the recommended local-first
-path for development:
+Environment variables are acceptable for local development:
 
 ```powershell
 $env:NVIDIA_NIM_API_KEY = "<real key outside repo>"
 ```
 
-Then store only:
+For a real setup, store the provider key in OpenBao or a compatible remote
+service and keep only the ref in AIDO:
 
 ```json
 {
-  "credentialRef": "env:NVIDIA_NIM_API_KEY"
+  "credentialRef": "openbao:secret/providers/nvidia_nim#api_key"
 }
 ```
+
+The resolver reads KV v2 from:
+
+```text
+GET {AIDO_SECRET_VAULT_ADDR}/v1/{mount}/data/{path}
+```
+
+For the example above, that is:
+
+```text
+GET https://vault.example/v1/secret/data/providers/nvidia_nim
+```
+
+and extracts `data.data.api_key`.
+
+## Vault Configuration
+
+Configure the remote secret endpoint with:
+
+```powershell
+$env:AIDO_SECRET_VAULT_ADDR = "https://vault.example"
+$env:AIDO_SECRET_VAULT_TOKEN_REF = "keyring:aido/openbao-token"
+```
+
+`AIDO_SECRET_VAULT_TOKEN_REF` may point to `keyring:` or `env:`. As a fallback,
+the resolver also checks `AIDO_SECRET_VAULT_TOKEN`, `OPENBAO_TOKEN`, and
+`VAULT_TOKEN`.
+
+This does not eliminate secret-zero. Nothing can: the local process still needs
+some identity to authenticate to the remote service. The security improvement is
+that long-lived model provider keys are centralized in the remote secrets
+manager, where they can be audited, rotated, revoked, and scoped separately
+from the AIDO process.
 
 ## Endpoints
 
@@ -42,11 +83,14 @@ Credential refs are configured through provider accounts:
 - Raw values such as `sk-...`, `Bearer ...`, `api_key=...`, `secret=...` or
   `token=...` are rejected as invalid `credentialRef` values.
 - Public API responses expose only credential status: `configured`, `missing`,
-  `unknown`, `invalid`, or `unsupported`.
+  `unknown`, `invalid`, `unsupported`, or `unavailable`.
 - Health checks and route execution must not include secret values in messages,
   audit payloads, usage records or raw provider responses.
 - Real provider calls still require `AIDO_ENABLE_REAL_PROVIDER_CALLS=true` plus
   policy, budget and quota clearance.
+- Provider listing and health checks validate ref shape and remote vault
+  configuration without fetching secret values. The secret value is fetched only
+  at execution time.
 
 ## Testing
 
@@ -59,9 +103,9 @@ corepack pnpm@10.24.0 run security:secrets
 
 - `keyring:` is intentionally optional. The core project does not depend on a
   vault service or a fair-code secret manager.
-- AIDO does not migrate secrets from environment variables into a local vault.
-  That would create plaintext persistence risk unless a trusted OS-backed
+- HashiCorp Vault-compatible services can be used as external infrastructure,
+  but AIDO does not embed HashiCorp Vault or depend on its client packages as
+  core runtime. OpenBao-compatible KV v2 is the preferred open-source path.
+- AIDO does not migrate secrets from environment variables into a local store.
+  That would create plaintext persistence risk unless a trusted external
   adapter is configured.
-- If a deployment needs centralized secret rotation, integrate an external
-  vault as an adapter that returns a short-lived environment variable or
-  keyring-backed credential reference.

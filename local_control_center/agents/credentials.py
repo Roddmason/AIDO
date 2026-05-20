@@ -2,7 +2,12 @@ from __future__ import annotations
 
 import os
 import re
+import json
+import urllib.error
+import urllib.request
+from collections.abc import Callable
 from dataclasses import dataclass
+from urllib.parse import quote
 
 
 ENV_REF_PATTERN = re.compile(r"^[A-Z_][A-Z0-9_]*$")
@@ -43,7 +48,10 @@ class CredentialResolution:
 class CredentialResolver:
     """Resolve credential references without persisting raw credential values."""
 
-    def resolve(self, credential_ref: str | None) -> CredentialResolution:
+    def __init__(self, *, http_json_get: Callable[[str, dict[str, str], float], dict[str, object]] | None = None):
+        self.http_json_get = http_json_get or self._default_http_json_get
+
+    def resolve(self, credential_ref: str | None, *, fetch: bool = True) -> CredentialResolution:
         ref = (credential_ref or "").strip()
         if not ref:
             return CredentialResolution(ref="", status="unknown", source="none", message="No credential ref configured")
@@ -52,14 +60,21 @@ class CredentialResolver:
                 ref="[redacted]",
                 status="invalid",
                 source="invalid",
-                message="credential_ref must reference env:NAME or keyring:service/account, never a raw secret",
-            )
+                message=(
+                    "credential_ref must reference env:NAME, keyring:service/account, "
+                    "openbao:mount/path#field or vault:mount/path#field, never a raw secret"
+                ),
+        )
         if ref.startswith("env:"):
-            return self._resolve_env(ref.removeprefix("env:"), public_ref=ref)
+            return self._resolve_env(ref.removeprefix("env:"), public_ref=ref, fetch=fetch)
         if ref.startswith("keyring:"):
-            return self._resolve_keyring(ref.removeprefix("keyring:"), public_ref=ref)
+            return self._resolve_keyring(ref.removeprefix("keyring:"), public_ref=ref, fetch=fetch)
+        if ref.startswith("openbao:"):
+            return self._resolve_vault_compatible(ref.removeprefix("openbao:"), public_ref=ref, source="openbao", fetch=fetch)
+        if ref.startswith("vault:"):
+            return self._resolve_vault_compatible(ref.removeprefix("vault:"), public_ref=ref, source="vault", fetch=fetch)
         if ENV_REF_PATTERN.match(ref):
-            return self._resolve_env(ref, public_ref=ref)
+            return self._resolve_env(ref, public_ref=ref, fetch=fetch)
         return CredentialResolution(
             ref=ref,
             status="invalid",
@@ -68,10 +83,10 @@ class CredentialResolver:
         )
 
     def status(self, credential_ref: str | None) -> str:
-        return self.resolve(credential_ref).status
+        return self.resolve(credential_ref, fetch=False).status
 
     def validate_ref(self, credential_ref: str | None) -> None:
-        result = self.resolve(credential_ref)
+        result = self.resolve(credential_ref, fetch=False)
         if result.status == "invalid":
             raise ValueError(result.message)
 
@@ -80,7 +95,7 @@ class CredentialResolver:
         return bool(SECRET_LIKE_PATTERN.search(value.strip()))
 
     @staticmethod
-    def _resolve_env(name: str, *, public_ref: str) -> CredentialResolution:
+    def _resolve_env(name: str, *, public_ref: str, fetch: bool) -> CredentialResolution:
         if not ENV_REF_PATTERN.match(name):
             return CredentialResolution(
                 ref=public_ref,
@@ -90,11 +105,11 @@ class CredentialResolver:
             )
         value = os.environ.get(name)
         if value:
-            return CredentialResolution(ref=public_ref, status="configured", source="env", value=value)
+            return CredentialResolution(ref=public_ref, status="configured", source="env", value=value if fetch else None)
         return CredentialResolution(ref=public_ref, status="missing", source="env", message=f"Environment variable {name} is not set")
 
     @staticmethod
-    def _resolve_keyring(target: str, *, public_ref: str) -> CredentialResolution:
+    def _resolve_keyring(target: str, *, public_ref: str, fetch: bool) -> CredentialResolution:
         if "/" not in target:
             return CredentialResolution(
                 ref=public_ref,
@@ -119,6 +134,13 @@ class CredentialResolver:
                 source="keyring",
                 message="Python keyring is not installed; use env:NAME or install an optional keyring adapter",
             )
+        if not fetch:
+            return CredentialResolution(
+                ref=public_ref,
+                status="configured",
+                source="keyring",
+                message="Keyring ref is valid; value was not fetched during status check",
+            )
         try:
             value = keyring.get_password(service, account)
         except Exception as error:  # pragma: no cover - backend-specific keyring failure
@@ -131,6 +153,132 @@ class CredentialResolver:
         if value:
             return CredentialResolution(ref=public_ref, status="configured", source="keyring", value=value)
         return CredentialResolution(ref=public_ref, status="missing", source="keyring", message="Keyring credential is missing")
+
+    def _resolve_vault_compatible(
+        self,
+        target: str,
+        *,
+        public_ref: str,
+        source: str,
+        fetch: bool,
+    ) -> CredentialResolution:
+        parsed = self._parse_vault_ref(target, public_ref=public_ref, source=source)
+        if parsed.status == "invalid":
+            return parsed
+        address = self._vault_address()
+        token = self._vault_token(fetch=fetch)
+        token_ready = token.configured if fetch else token.status == "configured"
+        if not address or not token_ready:
+            return CredentialResolution(
+                ref=public_ref,
+                status="missing",
+                source=source,
+                message=f"{source} address or token is not configured",
+            )
+        if not fetch:
+            return CredentialResolution(ref=public_ref, status="configured", source=source)
+        mount, secret_path, field = parsed.message.split("|", 2)
+        url = self._vault_kv2_url(address, mount, secret_path)
+        try:
+            payload = self.http_json_get(
+                url,
+                {"X-Vault-Token": token.value or "", "Accept": "application/json"},
+                10,
+            )
+        except (OSError, TimeoutError, urllib.error.URLError, json.JSONDecodeError) as error:
+            return CredentialResolution(
+                ref=public_ref,
+                status="unavailable",
+                source=source,
+                message=f"{source} secret lookup failed: {error.__class__.__name__}",
+            )
+        secret_data = self._extract_vault_data(payload)
+        if field not in secret_data or secret_data[field] in {None, ""}:
+            return CredentialResolution(
+                ref=public_ref,
+                status="missing",
+                source=source,
+                message=f"{source} secret field is missing",
+            )
+        return CredentialResolution(ref=public_ref, status="configured", source=source, value=str(secret_data[field]))
+
+    @staticmethod
+    def _parse_vault_ref(target: str, *, public_ref: str, source: str) -> CredentialResolution:
+        if "#" not in target:
+            return CredentialResolution(
+                ref=public_ref,
+                status="invalid",
+                source=source,
+                message="Vault-compatible credential refs must include a #field suffix",
+            )
+        secret_ref, field = target.rsplit("#", 1)
+        secret_ref = secret_ref.strip("/")
+        field = field.strip()
+        if "/" not in secret_ref or not field:
+            return CredentialResolution(
+                ref=public_ref,
+                status="invalid",
+                source=source,
+                message="Vault-compatible credential refs must use mount/path#field",
+            )
+        mount, secret_path = secret_ref.split("/", 1)
+        if not mount or not secret_path:
+            return CredentialResolution(
+                ref=public_ref,
+                status="invalid",
+                source=source,
+                message="Vault-compatible credential refs require mount and path",
+            )
+        return CredentialResolution(ref=public_ref, status="configured", source=source, message=f"{mount}|{secret_path}|{field}")
+
+    def _vault_token(self, *, fetch: bool) -> CredentialResolution:
+        token_ref = os.environ.get("AIDO_SECRET_VAULT_TOKEN_REF", "").strip()
+        if token_ref:
+            if token_ref.startswith(("openbao:", "vault:")):
+                return CredentialResolution(
+                    ref="[redacted]",
+                    status="invalid",
+                    source="vault_auth",
+                    message="Vault auth token refs cannot recursively use a vault-compatible credential ref",
+                )
+            return self.resolve(token_ref, fetch=fetch)
+        for name in ("AIDO_SECRET_VAULT_TOKEN", "OPENBAO_TOKEN", "VAULT_TOKEN"):
+            value = os.environ.get(name)
+            if value:
+                return CredentialResolution(ref=f"env:{name}", status="configured", source="env", value=value if fetch else None)
+        return CredentialResolution(ref="", status="missing", source="vault_auth", message="Vault token is not configured")
+
+    @staticmethod
+    def _vault_address() -> str:
+        return (
+            os.environ.get("AIDO_SECRET_VAULT_ADDR")
+            or os.environ.get("OPENBAO_ADDR")
+            or os.environ.get("VAULT_ADDR")
+            or ""
+        ).rstrip("/")
+
+    @staticmethod
+    def _vault_kv2_url(address: str, mount: str, secret_path: str) -> str:
+        safe_mount = quote(mount.strip("/"), safe="")
+        safe_path = "/".join(quote(part, safe="") for part in secret_path.strip("/").split("/"))
+        return f"{address}/v1/{safe_mount}/data/{safe_path}"
+
+    @staticmethod
+    def _extract_vault_data(payload: dict[str, object]) -> dict[str, object]:
+        data = payload.get("data")
+        if not isinstance(data, dict):
+            return {}
+        nested = data.get("data")
+        if isinstance(nested, dict):
+            return nested
+        return data
+
+    @staticmethod
+    def _default_http_json_get(url: str, headers: dict[str, str], timeout: float) -> dict[str, object]:
+        request = urllib.request.Request(url, headers=headers, method="GET")
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        return payload if isinstance(payload, dict) else {}
 
 
 def resolve_credential(credential_ref: str | None) -> CredentialResolution:

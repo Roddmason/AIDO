@@ -50,9 +50,21 @@ class RetrievalSearchRequest(BaseModel):
     limit: int = 5
 
 
+class RetrievalSearchResultRecord(BaseModel):
+    score: float
+    memory_item: MemoryItemRecord = Field(alias="memoryItem")
+
+
 class RetrievalSearchResponse(BaseModel):
-    results: list[dict[str, Any]]
+    results: list[RetrievalSearchResultRecord]
+
+
+class RetrievalIndexSummary(BaseModel):
+    backend: str
+    dimensions: int
+    ids: list[str]
+    indexed: int
 
 
 class RetrievalReindexResponse(BaseModel):
-    index: dict[str, Any]
+    index: RetrievalIndexSummary

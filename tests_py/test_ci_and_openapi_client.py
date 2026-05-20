@@ -138,6 +138,17 @@ def test_generated_openapi_client_is_checked_in_and_v1_only() -> None:
     assert '"list_agent_profiles_api_v1_agent_profiles_get": AgentProfilesListResponse' in content
     assert '"list_model_policies_api_v1_model_policies_get": ModelPoliciesListResponse' in content
     assert '"list_workspaces_api_v1_workspaces_get": WorkspacesListResponse' in content
+    assert "export type PromptTemplateRecord" in content
+    assert 'PromptTemplatesListResponse = { "promptTemplates": Array<PromptTemplateRecord> }' in content
+    assert "export type McpServerRecord" in content
+    assert 'McpServerResponse = { "mcpServer": McpServerRecord }' in content
+    assert 'IntegrationsListResponse = { "integrations": Array<IntegrationRecord>; "mcpServers": Array<McpServerRecord>' in content
+    assert "export type IdeConnectionRecord" in content
+    assert 'IdeConnectionsListResponse = { "ideConnections": Array<IdeConnectionRecord> }' in content
+    assert "export type RetrievalSearchResultRecord" in content
+    assert "export type RetrievalIndexSummary" in content
+    assert 'RetrievalSearchResponse = { "results": Array<RetrievalSearchResultRecord> }' in content
+    assert 'RetrievalReindexResponse = { "index": RetrievalIndexSummary }' in content
     response_section = content.split("export type OperationResponseBodies = {", 1)[1].split("};", 1)[0]
     assert ": JsonObject," not in response_section
     assert "export function buildApiPath" in content

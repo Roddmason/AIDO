@@ -227,6 +227,9 @@
   SWE-agent CLIs are not installed and no `AIDO_*_SMOKE_ARGV_JSON` override is
   supplied, so optional-adapter validation is auditable instead of silently
   skipped.
+- Stable prompt, IDE connection, MCP server, integration, retrieval search, and
+  retrieval reindex records now have generated OpenAPI DTOs instead of
+  front-end `JsonObject` fallbacks.
 
 ## Next Backend Work
 
@@ -241,6 +244,6 @@
 
 ## Next Frontend Work
 
-1. Type remaining intentionally flexible integration, prompt, and retrieval
-   payloads only after those schemas are stable enough to avoid freezing
-   adapter-specific metadata too early.
+1. Keep only adapter-specific metadata, skills, security posture, and artifact
+   cleanup/retention payloads flexible until their schemas are stable enough to
+   avoid freezing extension-specific fields too early.

@@ -35,8 +35,16 @@ def test_generated_openapi_client_is_checked_in_and_v1_only() -> None:
     assert "export type ApiEndpoint" in content
     assert "export const OPERATIONS_BY_ID" in content
     assert "export type OperationById" in content
+    assert "export type OperationResponse" in content
+    assert "export type OperationRequestBody" in content
+    assert "export type OperationResponseBodies" in content
     assert "export function buildApiPath" in content
     assert "export async function requestGeneratedOperation" in content
+
+    api_client = (ROOT / "local-control-center" / "web" / "src" / "api" / "client.ts").read_text(encoding="utf-8")
+    assert "requestGeneratedOperation" in api_client
+    assert "overview_api_v1_overview_get" in api_client
+    assert '"/api/v1/overview"' not in api_client
 
 
 def test_openapi_generation_script_documents_no_network_dependency() -> None:

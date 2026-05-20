@@ -255,9 +255,8 @@ PNPM is configured through `packageManager`.
 2. Define explicit approved flows for package installs, writes, and network
    access; low-risk shell allowance is now argument-level and package lifecycle
    hooks require approval.
-3. Add operation-level generated OpenAPI request/response types after the v1
-   schema freezes; the current generated endpoint map already guards route
-   drift.
-4. Policy revision diffs are now implemented for sandbox profile changes. The
-   remaining schema-derived DTO work is intentionally deferred until the v1 API
-   shape stabilizes further.
+3. Operation-level OpenAPI request/response aliases are generated and the active
+   JSON API client uses generated operation IDs. Remaining DTO precision depends
+   on adding explicit Pydantic models to routes that still expose generic
+   `dict[str, Any]` schemas.
+4. Policy revision diffs are implemented for sandbox profile changes.

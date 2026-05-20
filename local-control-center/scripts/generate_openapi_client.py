@@ -36,14 +36,93 @@ def _endpoint_rows(openapi: dict[str, Any]) -> list[dict[str, str]]:
     return rows
 
 
+def _json_schema_for_response(spec: dict[str, Any]) -> dict[str, Any] | None:
+    responses = spec.get("responses", {})
+    for status in ("200", "201", "202", "204", "default"):
+        schema = responses.get(status, {}).get("content", {}).get("application/json", {}).get("schema")
+        if schema:
+            return schema
+    return None
+
+
+def _json_schema_for_request(spec: dict[str, Any]) -> dict[str, Any] | None:
+    return spec.get("requestBody", {}).get("content", {}).get("application/json", {}).get("schema")
+
+
+def _ts_type_from_schema(schema: dict[str, Any] | None) -> str:
+    if not schema:
+        return "never"
+    if "$ref" in schema:
+        return "JsonObject"
+    if "anyOf" in schema:
+        return " | ".join(sorted({_ts_type_from_schema(item) for item in schema["anyOf"]}))
+    if "oneOf" in schema:
+        return " | ".join(sorted({_ts_type_from_schema(item) for item in schema["oneOf"]}))
+    schema_type = schema.get("type")
+    if isinstance(schema_type, list):
+        return " | ".join(sorted({_ts_type_from_schema({**schema, "type": item}) for item in schema_type}))
+    if schema_type == "string":
+        return "string"
+    if schema_type in {"integer", "number"}:
+        return "number"
+    if schema_type == "boolean":
+        return "boolean"
+    if schema_type == "array":
+        return f"Array<{_ts_type_from_schema(schema.get('items') or {})}>"
+    if schema_type == "object" or schema.get("additionalProperties") is not None or schema.get("properties"):
+        properties = schema.get("properties") or {}
+        required = set(schema.get("required") or [])
+        if not properties:
+            return "JsonObject"
+        fields = []
+        for name, value in sorted(properties.items()):
+            optional = "" if name in required else "?"
+            fields.append(f"{_literal(name)}{optional}: {_ts_type_from_schema(value)}")
+        return "{ " + "; ".join(fields) + " }"
+    return "JsonValue"
+
+
+def _operation_schema_maps(openapi: dict[str, Any]) -> tuple[dict[str, str], dict[str, str]]:
+    request_bodies: dict[str, str] = {}
+    response_bodies: dict[str, str] = {}
+    for path, methods in sorted(openapi.get("paths", {}).items()):
+        if not path.startswith("/api/v1/") and path != "/healthz":
+            continue
+        for method, spec in sorted(methods.items()):
+            if method.lower() not in {"get", "post", "patch", "put", "delete"}:
+                continue
+            operation_id = str(spec.get("operationId") or "")
+            if not operation_id:
+                continue
+            request_schema = _json_schema_for_request(spec)
+            request_bodies[operation_id] = (
+                _ts_type_from_schema(request_schema)
+                if request_schema
+                else ("unknown" if method.lower() in {"post", "patch", "put"} else "never")
+            )
+            response_bodies[operation_id] = _ts_type_from_schema(_json_schema_for_response(spec))
+    return request_bodies, response_bodies
+
+
 def render_client(openapi: dict[str, Any]) -> str:
     endpoints = _endpoint_rows(openapi)
+    request_bodies, response_bodies = _operation_schema_maps(openapi)
     endpoint_lines = ",\n".join(f"\t{_literal(endpoint)}" for endpoint in endpoints)
     operation_lines = ",\n".join(
         f"\t{_literal(endpoint['operationId'])}: {_literal(endpoint)}" for endpoint in endpoints if endpoint["operationId"]
     )
+    request_body_lines = ",\n".join(
+        f"\t{_literal(operation_id)}: {body}" for operation_id, body in sorted(request_bodies.items())
+    )
+    response_body_lines = ",\n".join(
+        f"\t{_literal(operation_id)}: {body}" for operation_id, body in sorted(response_bodies.items())
+    )
     return f"""// Generated from FastAPI OpenAPI. Do not edit by hand.
 // No network access is required; run `corepack pnpm@10.24.0 run openapi:generate`.
+
+export type JsonPrimitive = string | number | boolean | null;
+export type JsonValue = JsonPrimitive | JsonObject | JsonValue[];
+export type JsonObject = {{ [key: string]: JsonValue }};
 
 export const OPENAPI_TITLE = {_literal(openapi.get("info", {}).get("title", ""))} as const;
 export const OPENAPI_VERSION = {_literal(openapi.get("info", {}).get("version", ""))} as const;
@@ -60,15 +139,26 @@ export type OperationById<T extends ApiOperationId> = Extract<ApiEndpoint, {{ op
 export type OperationPath<T extends ApiOperationId> = OperationById<T>["path"];
 export type OperationMethod<T extends ApiOperationId> = OperationById<T>["method"];
 
+export type OperationRequestBodies = {{
+{request_body_lines}
+}};
+
+export type OperationResponseBodies = {{
+{response_body_lines}
+}};
+
+export type OperationRequestBody<T extends ApiOperationId> = OperationRequestBodies[T];
+export type OperationResponse<T extends ApiOperationId> = OperationResponseBodies[T];
+
 export const OPERATIONS_BY_ID = {{
 {operation_lines}
 }} as const satisfies Record<ApiOperationId, ApiEndpoint>;
 
-export type GeneratedRequestOptions = {{
+export type GeneratedRequestOptions<TBody = unknown> = {{
 \tpathParams?: Record<string, string | number>;
 \tquery?: Record<string, string | number | boolean | null | undefined>;
 \ttoken?: string;
-\tbody?: unknown;
+\tbody?: TBody;
 \tsignal?: AbortSignal;
 }};
 
@@ -96,9 +186,12 @@ export function buildApiPath(
 \treturn queryString ? `${{resolvedPath}}?${{queryString}}` : resolvedPath;
 }}
 
-export async function requestGeneratedOperation<TResponse = unknown>(
-\toperationId: ApiOperationId,
-\toptions: GeneratedRequestOptions = {{}},
+export async function requestGeneratedOperation<
+\tTOperationId extends ApiOperationId,
+\tTResponse = OperationResponse<TOperationId>,
+>(
+\toperationId: TOperationId,
+\toptions: GeneratedRequestOptions<OperationRequestBody<TOperationId>> = {{}},
 ): Promise<TResponse> {{
 \tconst endpoint = OPERATIONS_BY_ID[operationId];
 \tconst headers: Record<string, string> = {{ Accept: "application/json" }};

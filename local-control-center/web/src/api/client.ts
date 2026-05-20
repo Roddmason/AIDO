@@ -1,4 +1,5 @@
 import type { Dictionary, Overview, RuntimeProviders } from './types';
+import { requestGeneratedOperation } from './generated/openapi';
 
 const WRITE_HEADER = 'X-Local-Control-Token';
 
@@ -37,19 +38,19 @@ export async function apiRequest<T>(
 }
 
 export function getHandshake(signal?: AbortSignal) {
-	return apiRequest<{ token: string }>('/api/v1/security/handshake', { signal });
+	return requestGeneratedOperation<'handshake_api_v1_security_handshake_get', { token: string }>('handshake_api_v1_security_handshake_get', { signal });
 }
 
 export function getOverview(signal?: AbortSignal) {
-	return apiRequest<Overview>('/api/v1/overview', { signal });
+	return requestGeneratedOperation<'overview_api_v1_overview_get', Overview>('overview_api_v1_overview_get', { signal });
 }
 
 export function getRetrievalStatus(signal?: AbortSignal) {
-	return apiRequest<Dictionary>('/api/v1/retrieval/status', { signal });
+	return requestGeneratedOperation<'retrieval_status_api_v1_retrieval_status_get', Dictionary>('retrieval_status_api_v1_retrieval_status_get', { signal });
 }
 
 export function getRuntimeProviders(signal?: AbortSignal) {
-	return apiRequest<RuntimeProviders>('/api/v1/runtime/providers', { signal });
+	return requestGeneratedOperation<'list_runtime_providers_api_v1_runtime_providers_get', RuntimeProviders>('list_runtime_providers_api_v1_runtime_providers_get', { signal });
 }
 
 export async function fetchEvidenceArtifact(token: string, evidenceId: string, artifactId: string): Promise<ArtifactPayload> {
@@ -80,104 +81,96 @@ export async function fetchEvidenceArtifact(token: string, evidenceId: string, a
 }
 
 export function approveAction(token: string, jobId: string, actionId: string, reason: string) {
-	return apiRequest<Dictionary>(`/api/v1/jobs/${encodeURIComponent(jobId)}/actions/${encodeURIComponent(actionId)}/approve`, {
-		method: 'POST',
+	return requestGeneratedOperation<'approve_action_api_v1_jobs__job_id__actions__action_id__approve_post', Dictionary>('approve_action_api_v1_jobs__job_id__actions__action_id__approve_post', {
 		token,
+		pathParams: { job_id: jobId, action_id: actionId },
 		body: { reason },
 	});
 }
 
 export function denyAction(token: string, jobId: string, actionId: string, reason: string) {
-	return apiRequest<Dictionary>(`/api/v1/jobs/${encodeURIComponent(jobId)}/actions/${encodeURIComponent(actionId)}/deny`, {
-		method: 'POST',
+	return requestGeneratedOperation<'deny_action_api_v1_jobs__job_id__actions__action_id__deny_post', Dictionary>('deny_action_api_v1_jobs__job_id__actions__action_id__deny_post', {
 		token,
+		pathParams: { job_id: jobId, action_id: actionId },
 		body: { reason },
 	});
 }
 
 export function cancelJob(token: string, jobId: string, reason: string) {
-	return apiRequest<Dictionary>(`/api/v1/jobs/${encodeURIComponent(jobId)}/cancel`, {
-		method: 'POST',
+	return requestGeneratedOperation<'cancel_job_api_v1_jobs__job_id__cancel_post', Dictionary>('cancel_job_api_v1_jobs__job_id__cancel_post', {
 		token,
+		pathParams: { job_id: jobId },
 		body: { reason },
 	});
 }
 
 export function retryJob(token: string, jobId: string, reason: string) {
-	return apiRequest<Dictionary>(`/api/v1/jobs/${encodeURIComponent(jobId)}/retry`, {
-		method: 'POST',
+	return requestGeneratedOperation<'retry_job_api_v1_jobs__job_id__retry_post', Dictionary>('retry_job_api_v1_jobs__job_id__retry_post', {
 		token,
+		pathParams: { job_id: jobId },
 		body: { reason },
 	});
 }
 
 export function createWorkflow(token: string, projectId: string, title: string) {
-	return apiRequest<Dictionary>('/api/v1/workflows', {
-		method: 'POST',
+	return requestGeneratedOperation<'create_workflow_api_v1_workflows_post', Dictionary>('create_workflow_api_v1_workflows_post', {
 		token,
 		body: { projectId, title, kind: 'idea_to_pr' },
 	});
 }
 
 export function createWorkflowWithBody(token: string, body: Dictionary) {
-	return apiRequest<Dictionary>('/api/v1/workflows', {
-		method: 'POST',
+	return requestGeneratedOperation<'create_workflow_api_v1_workflows_post', Dictionary>('create_workflow_api_v1_workflows_post', {
 		token,
 		body,
 	});
 }
 
 export function createAgentProfile(token: string, body: Dictionary) {
-	return apiRequest<Dictionary>('/api/v1/agent-profiles', {
-		method: 'POST',
+	return requestGeneratedOperation<'upsert_agent_profile_api_v1_agent_profiles_post', Dictionary>('upsert_agent_profile_api_v1_agent_profiles_post', {
 		token,
 		body,
 	});
 }
 
 export function createModelPolicy(token: string, body: Dictionary) {
-	return apiRequest<Dictionary>('/api/v1/model-policies', {
-		method: 'POST',
+	return requestGeneratedOperation<'upsert_model_policy_api_v1_model_policies_post', Dictionary>('upsert_model_policy_api_v1_model_policies_post', {
 		token,
 		body,
 	});
 }
 
 export function createRisk(token: string, body: Dictionary) {
-	return apiRequest<Dictionary>('/api/v1/risks', {
-		method: 'POST',
+	return requestGeneratedOperation<'create_risk_api_v1_risks_post', Dictionary>('create_risk_api_v1_risks_post', {
 		token,
 		body,
 	});
 }
 
 export function createArchitectureDecision(token: string, body: Dictionary) {
-	return apiRequest<Dictionary>('/api/v1/architecture-decisions', {
-		method: 'POST',
+	return requestGeneratedOperation<'create_architecture_decision_api_v1_architecture_decisions_post', Dictionary>('create_architecture_decision_api_v1_architecture_decisions_post', {
 		token,
 		body,
 	});
 }
 
 export function createNextStep(token: string, body: Dictionary) {
-	return apiRequest<Dictionary>('/api/v1/next-steps', {
-		method: 'POST',
+	return requestGeneratedOperation<'create_next_step_api_v1_next_steps_post', Dictionary>('create_next_step_api_v1_next_steps_post', {
 		token,
 		body,
 	});
 }
 
 export function updateSandboxProfile(token: string, profileId: string, body: Dictionary) {
-	return apiRequest<Dictionary>(`/api/v1/sandbox/profiles/${encodeURIComponent(profileId)}`, {
-		method: 'PATCH',
+	return requestGeneratedOperation<'update_sandbox_profile_api_v1_sandbox_profiles__profile_id__patch', Dictionary>('update_sandbox_profile_api_v1_sandbox_profiles__profile_id__patch', {
 		token,
+		pathParams: { profile_id: profileId },
 		body,
 	});
 }
 
 export function registerMcpServer(token: string, body: Dictionary) {
-	return apiRequest<Dictionary>('/api/v1/integrations/mcp/register', {
-		method: 'POST',
+	return requestGeneratedOperation<'register_mcp_server_api_v1_integrations_mcp_register_post', Dictionary>('register_mcp_server_api_v1_integrations_mcp_register_post', {
 		token,
 		body,
 	});

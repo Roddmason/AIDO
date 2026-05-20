@@ -388,7 +388,9 @@ test('Policy & Security shows sandbox policy revision diffs', async ({ page }) =
 	await page.getByRole('button', { name: 'Save sandbox profile' }).click();
 
 	await expect(page.getByText('Policy revisions')).toBeVisible();
-	await page.getByRole('button', { name: 'View policy revision diff for default_docker' }).first().click();
+	const revisionRow = page.getByRole('row', { name: /default_docker v\d+ memory, timeoutSeconds/ }).first();
+	await expect(revisionRow).toBeVisible();
+	await revisionRow.getByRole('button', { name: 'View policy revision diff for default_docker' }).click();
 	const diffDialog = page.getByRole('dialog', { name: 'Policy revision diff' });
 	await expect(diffDialog).toBeVisible();
 	await expect(diffDialog.getByRole('cell', { name: 'memory' })).toBeVisible();

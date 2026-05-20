@@ -1,16 +1,33 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
+import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
+from starlette.requests import ClientDisconnect
 
 from local_control_center.app import create_app
+from local_control_center.security_policy.api import read_json_body
 from tests_py.control_plane_fixture import ControlPlaneFixture
 
 
 def auth_headers(client: TestClient) -> dict[str, str]:
     token = client.get("/api/v1/security/handshake").json()["token"]
     return {"X-Local-Control-Token": token, "Origin": "http://127.0.0.1"}
+
+
+def test_security_policy_json_reader_handles_client_disconnect() -> None:
+    class DisconnectingRequest:
+        async def json(self) -> dict[str, object]:
+            raise ClientDisconnect()
+
+    with pytest.raises(HTTPException) as error:
+        asyncio.run(read_json_body(DisconnectingRequest()))  # type: ignore[arg-type]
+
+    assert error.value.status_code == 499
+    assert error.value.detail == "Client disconnected while sending request body."
 
 
 def test_sandbox_profile_edit_is_validated_and_audited(tmp_path: Path, monkeypatch) -> None:

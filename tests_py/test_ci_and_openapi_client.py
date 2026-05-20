@@ -54,3 +54,12 @@ def test_openapi_generation_script_documents_no_network_dependency() -> None:
     assert "create_app" in content
     assert "No network access" in content
     assert "openapi.ts" in content
+
+
+def test_playwright_uses_isolated_state_for_mutating_e2e() -> None:
+    config = ROOT / "playwright.config.mjs"
+    assert config.exists()
+    content = config.read_text(encoding="utf-8")
+    assert "playwright-control-center-${process.pid}.sqlite" in content
+    assert "workers: 1" in content
+    assert "reuseExistingServer: false" in content

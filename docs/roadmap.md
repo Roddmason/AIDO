@@ -227,6 +227,10 @@
   SWE-agent CLIs are not installed and no `AIDO_*_SMOKE_ARGV_JSON` override is
   supplied, so optional-adapter validation is auditable instead of silently
   skipped.
+- Runtime adapter release validation now has an explicit preflight mode and
+  GitHub Actions workflow inputs for OpenHands/SWE-agent argv and issue text,
+  so misconfigured issue-to-patch validation fails before server startup with
+  an adapter-level JSON report.
 - Stable prompt, IDE connection, MCP server, integration, retrieval search, and
   retrieval reindex records now have generated OpenAPI DTOs instead of
   front-end `JsonObject` fallbacks.
@@ -249,10 +253,11 @@
    handshake, and app-composition tests; the new architecture guardrail now
    blocks non-HTTP regressions automatically.
 2. Run the strict installed-runtime issue-to-patch smoke on a release
-   validation runner with OpenHands/SWE-agent installed and exact argv/issue
-   env vars supplied. The current Windows workstation has no OpenHands or
-   SWE-agent CLI on PATH, so local validation is limited to broker/API smoke
-   and explicit skip reporting.
+   validation runner with OpenHands/SWE-agent installed. The workflow now has
+   release-validation inputs and preflight reporting; the current Windows
+   workstation still has no OpenHands or SWE-agent CLI on PATH, so local
+   validation remains limited to preflight, broker/API smoke, and explicit skip
+   reporting.
 
 ## Next Frontend Work
 

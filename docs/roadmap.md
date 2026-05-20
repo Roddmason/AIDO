@@ -103,7 +103,7 @@
   TypeScript forms and backend catalog validation instead of manual JSON edits.
 - Workflow, governance, sandbox profile, and MCP registry configuration is
   available through strict TypeScript forms and backend validation.
-- Opt-in runtime adapter and OTEL exporter smoke scripts exist for local/CI
+- Opt-in runtime adapter and OTEL exporter smoke scripts exist for local/release
   profiles without making Docker, OpenHands, SWE-agent, or MCP core
   dependencies.
 - Runtime adapter smoke now auto-detects installed OpenHands and SWE-agent CLIs
@@ -120,10 +120,12 @@
 - The optional runtime smoke profile can run OpenHands/SWE-agent
   `issue_to_patch` through the broker when release validation explicitly
   provides the installed CLI argv and issue text.
-- GitHub Actions quality workflow runs default tests/build/lint and exposes
-  explicit workflow-dispatch switches for runtime and OTEL smokes.
+- GitHub Actions quality workflow has been removed by policy; quality checks are
+  local/release-runner commands, and `main` is blocked by a GitHub repository
+  ruleset applied by `protect-main-branch.ps1`.
 - The frontend has a generated OpenAPI endpoint map checked in at
-  `web/src/api/generated/openapi.ts`, with CI drift detection.
+  `web/src/api/generated/openapi.ts`, with local drift detection through
+  `pnpm run openapi:generate` plus `git diff`.
 - The generated OpenAPI client now exposes operation-id lookup, path
   interpolation, token-aware request helpers, and operation-level type aliases
   for v1 routes.
@@ -227,10 +229,9 @@
   SWE-agent CLIs are not installed and no `AIDO_*_SMOKE_ARGV_JSON` override is
   supplied, so optional-adapter validation is auditable instead of silently
   skipped.
-- Runtime adapter release validation now has an explicit preflight mode and
-  GitHub Actions workflow inputs for OpenHands/SWE-agent argv and issue text,
-  so misconfigured issue-to-patch validation fails before server startup with
-  an adapter-level JSON report.
+- Runtime adapter release validation now has an explicit preflight mode for
+  OpenHands/SWE-agent argv and issue text, so misconfigured issue-to-patch
+  validation fails before server startup with an adapter-level JSON report.
 - Stable prompt, IDE connection, MCP server, integration, retrieval search, and
   retrieval reindex records now have generated OpenAPI DTOs instead of
   front-end `JsonObject` fallbacks.
@@ -253,11 +254,9 @@
    handshake, and app-composition tests; the new architecture guardrail now
    blocks non-HTTP regressions automatically.
 2. Run the strict installed-runtime issue-to-patch smoke on a release
-   validation runner with OpenHands/SWE-agent installed. The workflow now has
-   release-validation inputs and preflight reporting; the current Windows
-   workstation still has no OpenHands or SWE-agent CLI on PATH, so local
-   validation remains limited to preflight, broker/API smoke, and explicit skip
-   reporting.
+   validation runner with OpenHands/SWE-agent installed. There is no GitHub
+   quality workflow now; use the local smoke script preflight and explicit
+   environment variables on that runner.
 
 ## Next Frontend Work
 

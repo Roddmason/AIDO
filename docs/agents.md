@@ -102,14 +102,12 @@ argv variables and their matching issue text variables are supplied:
 `AIDO_SWE_AGENT_ISSUE_TEXT`. The first argv element must resolve to an
 installed command or an existing executable path on the runner.
 
-The GitHub Actions workflow exposes these as manual `workflow_dispatch` inputs:
-`runtime_release_validation`, `openhands_issue_to_patch_argv_json`,
-`openhands_issue_text`, `swe_agent_issue_to_patch_argv_json`, and
-`swe_agent_issue_text`. When issue-to-patch or release validation is selected,
-the workflow runs `smoke-runtime-adapters.ps1 -PreflightOnly` before starting
-the control center. That preflight emits a JSON report per adapter and fails
-before server startup if any required argv, issue text, or executable is
-missing.
+Release validation runners should export those environment variables and run
+`local-control-center/scripts/smoke-runtime-adapters.ps1 -PreflightOnly` before
+starting the control center. That preflight emits a JSON report per adapter and
+fails before server startup if any required argv, issue text, or executable is
+missing. The repo does not ship a GitHub quality workflow; optional runtime
+validation remains an explicit local or release-runner action.
 
 ## Runtime Adapter Execution
 

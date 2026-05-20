@@ -6,32 +6,26 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_quality_workflow_has_default_and_optional_smoke_profiles() -> None:
-    workflow = ROOT / ".github" / "workflows" / "quality.yml"
-    assert workflow.exists()
-    content = workflow.read_text(encoding="utf-8")
-    assert "pull_request:" in content
-    assert "push:" in content
-    assert "workflow_dispatch:" in content
-    assert "runtime-smoke:" in content
-    assert "otel-smoke:" in content
-    assert "AIDO_RUNTIME_SMOKE: \"1\"" in content
-    assert "AIDO_RUNTIME_ISSUE_TO_PATCH_SMOKE:" in content
-    assert "AIDO_RUNTIME_RELEASE_VALIDATION:" in content
-    assert "openhands_issue_to_patch_argv_json:" in content
-    assert "openhands_issue_text:" in content
-    assert "swe_agent_issue_to_patch_argv_json:" in content
-    assert "swe_agent_issue_text:" in content
-    assert "AIDO_OPENHANDS_ISSUE_TO_PATCH_ARGV_JSON:" in content
-    assert "AIDO_OPENHANDS_ISSUE_TEXT:" in content
-    assert "AIDO_SWE_AGENT_ISSUE_TO_PATCH_ARGV_JSON:" in content
-    assert "AIDO_SWE_AGENT_ISSUE_TEXT:" in content
-    assert "AIDO_OTEL_SMOKE: \"1\"" in content
-    assert "issue_to_patch_smoke:" in content
-    assert "-PreflightOnly" in content
-    assert "if: ${{ github.event_name == 'workflow_dispatch'" in content
-    assert "smoke-runtime-adapters.ps1" in content
-    assert "smoke-otel-exporter.ps1" in content
+def test_github_workflows_are_removed_and_main_protection_is_explicit() -> None:
+    workflows_dir = ROOT / ".github" / "workflows"
+    if workflows_dir.exists():
+        assert not list(workflows_dir.glob("*.yml"))
+        assert not list(workflows_dir.glob("*.yaml"))
+
+    script = ROOT / "local-control-center" / "scripts" / "protect-main-branch.ps1"
+    assert script.exists()
+    content = script.read_text(encoding="utf-8")
+    assert "/repos/$Owner/$Repo/rulesets" in content
+    assert "refs/heads/$Branch" in content
+    assert "Assert-GhSuccess" in content
+    assert "$LASTEXITCODE" in content
+    assert '"type" = "creation"' in content
+    assert '"type" = "update"' in content
+    assert '"type" = "deletion"' in content
+    assert '"type" = "pull_request"' in content
+    assert "required_approving_review_count = 1" in content
+    assert "required_status_checks" not in content
+    assert '"type" = "non_fast_forward"' in content
 
 
 def test_generated_openapi_client_is_checked_in_and_v1_only() -> None:

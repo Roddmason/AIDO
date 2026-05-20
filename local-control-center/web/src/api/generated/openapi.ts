@@ -8,6 +8,8 @@ export type JsonObject = { [key: string]: JsonValue };
 export type AgentProfileResponse = { "agentProfile": JsonObject };
 export type AgentProfileUpsertRequest = { "allowedSkills"?: Array<string>; "allowedTools"?: Array<string>; "id": string; "maxCostPerRun"?: number; "maxRuntimeSeconds"?: number; "memoryScope"?: string; "modelPolicyId"?: JsonValue | string; "name"?: JsonValue | string; "outputSchema"?: JsonObject; "permissionProfile"?: "plan" | "dev_safe" | "qa" | "release"; "qualityGates"?: Array<never>; "role"?: "product_owner" | "technical_lead" | "implementer" | "qa_reviewer" | "security_reviewer"; "runtimeMode"?: "api" | "cli" | "ollama" | "hybrid" | "manual" | "internal_mock"; "runtimeType"?: "api" | "cli" | "ollama" | "hybrid" | "manual" | "internal_mock" | JsonValue; "status"?: "active" | "disabled" };
 export type ApprovalReasonRequest = { "reason": string };
+export type ArchitectureDecisionCreateRequest = { "consequences"?: Array<never>; "context"?: string; "decision"?: string; "linkedRiskIds"?: Array<string>; "metadata"?: JsonObject; "nextStepIds"?: Array<string>; "projectId": string; "status"?: "proposed" | "accepted" | "rejected" | "superseded" | "deprecated"; "title": string };
+export type ArchitectureDecisionResponse = { "architectureDecision": JsonObject };
 export type HTTPValidationError = { "detail"?: Array<ValidationError> };
 export type HandshakeResponse = { "loopbackOnly": boolean; "token": string };
 export type HealthResponse = { "ok": boolean };
@@ -16,8 +18,14 @@ export type JobMutationResponse = { "actionRequest"?: JsonObject | JsonValue; "a
 export type ModelPolicyResponse = { "modelPolicy": JsonObject };
 export type ModelPolicyUpsertRequest = { "allowLocal"?: boolean; "allowRemote"?: boolean; "fallback"?: Array<ModelProviderCandidate>; "id": string; "maxCostUsd"?: number; "maxTokens"?: number; "name"?: JsonValue | string; "preferred"?: Array<ModelProviderCandidate>; "status"?: "active" | "disabled"; "temperature"?: number };
 export type ModelProviderCandidate = { "model": string; "provider": string };
+export type NextStepCreateRequest = { "dueAt"?: JsonValue | string; "metadata"?: JsonObject; "owner"?: string; "priority"?: "low" | "medium" | "high" | "urgent"; "projectId": string; "sourceDecisionId"?: JsonValue | string; "sourceRiskId"?: JsonValue | string; "status"?: "planned" | "in_progress" | "blocked" | "completed" | "cancelled"; "title": string };
+export type NextStepResponse = { "nextStep": JsonObject };
+export type NextStepUpdateRequest = { "dueAt"?: JsonValue | string; "metadata"?: JsonObject | JsonValue; "owner"?: JsonValue | string; "priority"?: "low" | "medium" | "high" | "urgent" | JsonValue; "status"?: "planned" | "in_progress" | "blocked" | "completed" | "cancelled" | JsonValue };
 export type OptionalReasonRequest = { "reason"?: string };
 export type RetrievalStatusResponse = { "backend": string; "degraded": boolean; "dimensions": number; "faissAvailable": boolean; "indexDir": string; "indexed": number };
+export type RiskCreateRequest = { "description"?: string; "evidenceRefs"?: Array<string>; "metadata"?: JsonObject; "mitigation"?: string; "owner"?: string; "projectId": string; "severity"?: "low" | "medium" | "high" | "critical"; "status"?: "open" | "monitoring" | "mitigating" | "mitigated" | "accepted" | "closed"; "title": string };
+export type RiskResponse = { "risk": JsonObject };
+export type RiskUpdateRequest = { "evidenceRefs"?: Array<string> | JsonValue; "metadata"?: JsonObject | JsonValue; "mitigation"?: JsonValue | string; "owner"?: JsonValue | string; "severity"?: "low" | "medium" | "high" | "critical" | JsonValue; "status"?: "open" | "monitoring" | "mitigating" | "mitigated" | "accepted" | "closed" | JsonValue };
 export type ValidationError = { "ctx"?: JsonObject; "input"?: JsonValue; "loc": Array<number | string>; "msg": string; "type": string };
 export type WorkflowCreateRequest = { "idea"?: JsonValue | string; "kind"?: "idea_to_pr" | "project_discovery" | "issue_to_pr" | "qa_validation" | "release_candidate"; "metadata"?: JsonObject; "projectId": string; "title"?: JsonValue | string };
 export type WorkflowResponse = { "workflow": JsonObject };
@@ -131,15 +139,15 @@ export type OperationRequestBodies = {
 	"cancel_workflow_api_v1_workflows__workflow_id__cancel_post": WorkflowStatusChangeRequest,
 	"cleanup_artifacts_api_v1_evidence_artifacts_cleanup_post": unknown,
 	"create_agent_run_api_v1_agent_runs_post": unknown,
-	"create_architecture_decision_api_v1_architecture_decisions_post": unknown,
+	"create_architecture_decision_api_v1_architecture_decisions_post": ArchitectureDecisionCreateRequest,
 	"create_chat_api_v1_chats_post": unknown,
 	"create_evidence_api_v1_evidence_post": unknown,
 	"create_job_api_v1_jobs_post": JobCreateRequest,
 	"create_memory_api_v1_memory_post": unknown,
-	"create_next_step_api_v1_next_steps_post": unknown,
+	"create_next_step_api_v1_next_steps_post": NextStepCreateRequest,
 	"create_pipeline_api_v1_pipelines_post": unknown,
 	"create_project_api_v1_projects_post": unknown,
-	"create_risk_api_v1_risks_post": unknown,
+	"create_risk_api_v1_risks_post": RiskCreateRequest,
 	"create_session_api_v1_sessions_post": unknown,
 	"create_workflow_api_v1_workflows_post": WorkflowCreateRequest,
 	"deny_action_api_v1_jobs__job_id__actions__action_id__deny_post": OptionalReasonRequest,
@@ -194,8 +202,8 @@ export type OperationRequestBodies = {
 	"sync_skills_api_v1_skills_sync_post": unknown,
 	"teams_api_v1_teams_get": never,
 	"telemetry_status_api_v1_telemetry_status_get": never,
-	"update_next_step_api_v1_next_steps__step_id__patch": unknown,
-	"update_risk_api_v1_risks__risk_id__patch": unknown,
+	"update_next_step_api_v1_next_steps__step_id__patch": NextStepUpdateRequest,
+	"update_risk_api_v1_risks__risk_id__patch": RiskUpdateRequest,
 	"update_sandbox_profile_api_v1_sandbox_profiles__profile_id__patch": unknown,
 	"upsert_agent_profile_api_v1_agent_profiles_post": AgentProfileUpsertRequest,
 	"upsert_ide_connection_api_v1_ide_connections_post": unknown,
@@ -215,15 +223,15 @@ export type OperationResponseBodies = {
 	"cancel_workflow_api_v1_workflows__workflow_id__cancel_post": WorkflowResponse,
 	"cleanup_artifacts_api_v1_evidence_artifacts_cleanup_post": JsonObject,
 	"create_agent_run_api_v1_agent_runs_post": JsonObject,
-	"create_architecture_decision_api_v1_architecture_decisions_post": JsonObject,
+	"create_architecture_decision_api_v1_architecture_decisions_post": ArchitectureDecisionResponse,
 	"create_chat_api_v1_chats_post": JsonObject,
 	"create_evidence_api_v1_evidence_post": JsonObject,
 	"create_job_api_v1_jobs_post": JobMutationResponse,
 	"create_memory_api_v1_memory_post": JsonObject,
-	"create_next_step_api_v1_next_steps_post": JsonObject,
+	"create_next_step_api_v1_next_steps_post": NextStepResponse,
 	"create_pipeline_api_v1_pipelines_post": JsonObject,
 	"create_project_api_v1_projects_post": JsonObject,
-	"create_risk_api_v1_risks_post": JsonObject,
+	"create_risk_api_v1_risks_post": RiskResponse,
 	"create_session_api_v1_sessions_post": JsonObject,
 	"create_workflow_api_v1_workflows_post": WorkflowResponse,
 	"deny_action_api_v1_jobs__job_id__actions__action_id__deny_post": JobMutationResponse,
@@ -278,8 +286,8 @@ export type OperationResponseBodies = {
 	"sync_skills_api_v1_skills_sync_post": JsonObject,
 	"teams_api_v1_teams_get": JsonObject,
 	"telemetry_status_api_v1_telemetry_status_get": JsonObject,
-	"update_next_step_api_v1_next_steps__step_id__patch": JsonObject,
-	"update_risk_api_v1_risks__risk_id__patch": JsonObject,
+	"update_next_step_api_v1_next_steps__step_id__patch": NextStepResponse,
+	"update_risk_api_v1_risks__risk_id__patch": RiskResponse,
 	"update_sandbox_profile_api_v1_sandbox_profiles__profile_id__patch": JsonObject,
 	"upsert_agent_profile_api_v1_agent_profiles_post": AgentProfileResponse,
 	"upsert_ide_connection_api_v1_ide_connections_post": JsonObject,

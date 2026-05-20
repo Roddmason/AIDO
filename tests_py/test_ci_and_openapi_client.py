@@ -50,6 +50,11 @@ def test_generated_openapi_client_is_checked_in_and_v1_only() -> None:
     assert '"create_job_api_v1_jobs_post": JobCreateRequest' in content
     assert '"approve_action_api_v1_jobs__job_id__actions__action_id__approve_post": ApprovalReasonRequest' in content
     assert '"cancel_job_api_v1_jobs__job_id__cancel_post": OptionalReasonRequest' in content
+    assert '"create_architecture_decision_api_v1_architecture_decisions_post": ArchitectureDecisionCreateRequest' in content
+    assert '"create_risk_api_v1_risks_post": RiskCreateRequest' in content
+    assert '"update_risk_api_v1_risks__risk_id__patch": RiskUpdateRequest' in content
+    assert '"create_next_step_api_v1_next_steps_post": NextStepCreateRequest' in content
+    assert '"update_next_step_api_v1_next_steps__step_id__patch": NextStepUpdateRequest' in content
     assert "export function buildApiPath" in content
     assert "export async function requestGeneratedOperation" in content
 
@@ -65,6 +70,7 @@ def test_openapi_generation_script_documents_no_network_dependency() -> None:
     content = script.read_text(encoding="utf-8")
     assert "create_app" in content
     assert "No network access" in content
+    assert "ignore_cleanup_errors=True" in content
     assert "openapi.ts" in content
 
 

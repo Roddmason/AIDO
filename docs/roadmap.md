@@ -136,6 +136,11 @@
   contracts, so generated operation request bodies are no longer `unknown`.
 - Jobs and approvals mutations now expose Pydantic contracts for job creation,
   job approve/cancel/retry, and granular action approve/deny operations.
+- Governance mutations now expose Pydantic contracts for architecture
+  decisions, risks, and next steps, so generated operation request bodies no
+  longer fall back to `unknown`.
+- The OpenAPI client generator tolerates Windows temporary-directory cleanup
+  races after closing SQLite-backed runtime state.
 - Command palette and workflow inspector are backed by FastAPI v1 state rather
   than client-invented data.
 - The command palette can create workflows, focus pending approvals, and open a
@@ -160,9 +165,9 @@
 1. Keep tightening tests around direct repositories and
    `tests_py/control_plane_fixture.py` where broad fixture setup is still
    noisier than the behavior under test.
-2. Continue adding explicit Pydantic request/response models to remaining
-   mutating FastAPI routes and larger overview subresources so generated DTOs
-   become domain-specific instead of `JsonObject` fallbacks.
+2. Continue adding explicit Pydantic request/response models to workspace,
+   integration, policy, evidence, and session/chat mutations so generated DTOs
+   become domain-specific instead of `unknown`/`JsonObject` fallbacks.
 3. Run the installed-runtime issue-to-patch smoke on a release validation
    runner with OpenHands/SWE-agent installed and exact argv env vars supplied.
 

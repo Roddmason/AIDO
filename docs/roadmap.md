@@ -195,6 +195,8 @@
   repository construction instead of the full control-plane fixture.
 - Retrieval-index and base schema tests now use direct SQLite/migration setup
   with owned repositories instead of the full app fixture.
+- Gated agents planner tests now construct `JobsRepository` on direct SQLite
+  setup instead of relying on the full control-plane fixture.
 - Command palette and workflow inspector are backed by FastAPI v1 state rather
   than client-invented data.
 - The command palette can create workflows, focus pending approvals, and open a

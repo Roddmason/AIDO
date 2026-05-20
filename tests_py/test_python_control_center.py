@@ -476,32 +476,38 @@ def test_sandbox_denies_dangerous_subprocess_without_docker(tmp_path: Path, monk
 
 def test_agents_planner_is_gated_when_sdk_or_key_is_missing(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
-    store.init()
-    project = store.create_project(name="Agents", path=tmp_path / "agents", template_id="other")
-    job = store.jobs.create_job(project_id=project["id"], kind="prompt.optimize", payload={"prompt": "plan"})["job"]
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        project = ProjectsRepository(connection).create_project(name="Agents", path=tmp_path / "agents", template_id="other")
+        jobs = JobsRepository(connection)
+        job = jobs.create_job(project_id=project["id"], kind="prompt.optimize", payload={"prompt": "plan"})["job"]
 
-    planner = GatedAgentsPlanner(jobs=JobsRepository(store.connection))
-    result = planner.propose_action(project_id=project["id"], job_id=job["id"], prompt="plan")
+        planner = GatedAgentsPlanner(jobs=jobs)
+        result = planner.propose_action(project_id=project["id"], job_id=job["id"], prompt="plan")
 
-    assert result.enabled is False
-    assert "disabled" in result.summary
+        assert result.enabled is False
+        assert "disabled" in result.summary
 
 
 def test_agents_planner_records_proposals_through_jobs_repository(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
-    store.init()
-    project = store.create_project(name="Agents Proposal", path=tmp_path / "agents-proposal", template_id="other")
-    job = store.jobs.create_job(project_id=project["id"], kind="prompt.optimize", payload={"prompt": "plan"})["job"]
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        project = ProjectsRepository(connection).create_project(
+            name="Agents Proposal",
+            path=tmp_path / "agents-proposal",
+            template_id="other",
+        )
+        jobs = JobsRepository(connection)
+        job = jobs.create_job(project_id=project["id"], kind="prompt.optimize", payload={"prompt": "plan"})["job"]
 
-    planner = GatedAgentsPlanner(jobs=JobsRepository(store.connection))
-    monkeypatch.setattr(planner, "available", lambda: True)
+        planner = GatedAgentsPlanner(jobs=jobs)
+        monkeypatch.setattr(planner, "available", lambda: True)
 
-    result = planner.propose_action(project_id=project["id"], job_id=job["id"], prompt="plan next step")
+        result = planner.propose_action(project_id=project["id"], job_id=job["id"], prompt="plan next step")
 
-    assert result.enabled is True
-    assert result.action_request_id
-    action = store.jobs.get_action_request(result.action_request_id)
-    assert action["actionType"] == "agent.proposed_action"
-    assert action["status"] == "pending"
+        assert result.enabled is True
+        assert result.action_request_id
+        action = jobs.get_action_request(result.action_request_id)
+        assert action["actionType"] == "agent.proposed_action"
+        assert action["status"] == "pending"

@@ -60,6 +60,19 @@ function New-AgentRun {
     }
 }
 
+function Resolve-OptionalCommand {
+    param(
+        [Parameter(Mandatory = $true)][string[]]$Names
+    )
+    foreach ($name in $Names) {
+        $command = Get-Command $name -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($command) {
+            return $command.Source
+        }
+    }
+    return ""
+}
+
 Invoke-AidoJson -Method "GET" -Path "/healthz" | Out-Null
 $token = (Invoke-AidoJson -Method "GET" -Path "/api/v1/security/handshake").token
 $projects = Invoke-AidoJson -Method "GET" -Path "/api/v1/projects"
@@ -100,8 +113,17 @@ if ($env:AIDO_MCP_SMOKE_COMMAND) {
     }) | Out-Null
 }
 
+$argv = $null
 if ($env:AIDO_OPENHANDS_SMOKE_ARGV_JSON) {
     $argv = @($env:AIDO_OPENHANDS_SMOKE_ARGV_JSON | ConvertFrom-Json)
+} else {
+    $openhandsCommand = Resolve-OptionalCommand -Names @("openhands", "openhands.exe")
+    if ($openhandsCommand) {
+        Write-Host "Detected OpenHands CLI; running openhands --version through broker/policy."
+        $argv = @($openhandsCommand, "--version")
+    }
+}
+if ($argv) {
     New-AgentProfile -Id "smoke_openhands_$suffix" -RuntimeMode "hybrid" -AllowedTools @("openhands")
     New-AgentRun -AgentProfileId "smoke_openhands_$suffix" -TaskId "openhands_smoke" -ToolCalls @(@{
         tool = "openhands"
@@ -113,8 +135,17 @@ if ($env:AIDO_OPENHANDS_SMOKE_ARGV_JSON) {
     }) | Out-Null
 }
 
+$argv = $null
 if ($env:AIDO_SWE_AGENT_SMOKE_ARGV_JSON) {
     $argv = @($env:AIDO_SWE_AGENT_SMOKE_ARGV_JSON | ConvertFrom-Json)
+} else {
+    $sweAgentCommand = Resolve-OptionalCommand -Names @("swe-agent", "swe-agent.exe", "sweagent", "sweagent.exe")
+    if ($sweAgentCommand) {
+        Write-Host "Detected SWE-agent CLI; running swe-agent --version through broker/policy."
+        $argv = @($sweAgentCommand, "--version")
+    }
+}
+if ($argv) {
     New-AgentProfile -Id "smoke_swe_agent_$suffix" -RuntimeMode "hybrid" -AllowedTools @("swe_agent")
     New-AgentRun -AgentProfileId "smoke_swe_agent_$suffix" -TaskId "swe_agent_smoke" -ToolCalls @(@{
         tool = "swe_agent"

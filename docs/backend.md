@@ -136,10 +136,12 @@ persisted as `agent_tool_calls` and feeds evidence generation just like shell or
 Docker execution.
 Runtime adapter smokes are opt-in through
 `local-control-center/scripts/smoke-runtime-adapters.ps1`. The default path
-always verifies `internal_mock`; MCP, OpenHands, and SWE-agent execute only when
-their `AIDO_*_SMOKE` environment variables are supplied. OpenHands/SWE-agent
-version commands are treated as low-risk diagnostics, while implementation
-commands still go through approval and evidence.
+always verifies `internal_mock`. MCP still executes only when
+`AIDO_MCP_SMOKE_COMMAND` is supplied. OpenHands and SWE-agent use
+`AIDO_OPENHANDS_SMOKE_ARGV_JSON`/`AIDO_SWE_AGENT_SMOKE_ARGV_JSON` when supplied,
+or auto-detect installed CLIs and run `--version` through the broker, policy,
+and restricted sandbox. Version commands are treated as low-risk diagnostics,
+while implementation commands still go through approval and evidence.
 
 Workspace archive captures a lightweight evidence snapshot of non-ignored
 workspace files. The snapshot is stored as a diff reference in an evidence

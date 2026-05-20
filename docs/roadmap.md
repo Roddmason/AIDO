@@ -106,6 +106,9 @@
 - Opt-in runtime adapter and OTEL exporter smoke scripts exist for local/CI
   profiles without making Docker, OpenHands, SWE-agent, or MCP core
   dependencies.
+- Runtime adapter smoke now auto-detects installed OpenHands and SWE-agent CLIs
+  and routes `--version` checks through broker, policy, and sandbox before any
+  deeper release profile runs.
 - GitHub Actions quality workflow runs default tests/build/lint and exposes
   explicit workflow-dispatch switches for runtime and OTEL smokes.
 - The frontend has a generated OpenAPI endpoint map checked in at
@@ -128,8 +131,9 @@
 2. Replace the remaining hand-written frontend response shapes with
    schema-derived request/response DTOs once the v1 schema stops changing
    daily.
-3. Add deeper installed-runtime fixtures for OpenHands/SWE-agent in a separate
-   release validation profile.
+3. Add deeper issue-to-patch installed-runtime fixtures for OpenHands/SWE-agent
+   in a separate release validation profile after their local CLI contracts are
+   pinned.
 
 ## Next Frontend Work
 

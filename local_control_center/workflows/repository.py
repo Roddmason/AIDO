@@ -59,6 +59,11 @@ def row_to_workflow_step(row: sqlite3.Row) -> dict[str, Any]:
         "name": row["name"],
         "status": row["status"],
         "agentProfileId": row["agent_profile_id"],
+        "role": row["role"] if "role" in row.keys() else None,
+        "taskType": row["task_type"] if "task_type" in row.keys() else None,
+        "riskLevel": row["risk_level"] if "risk_level" in row.keys() else None,
+        "modelMode": row["model_mode"] if "model_mode" in row.keys() else None,
+        "manualModelOverride": row["manual_model_override"] if "manual_model_override" in row.keys() else None,
         "input": json_loads(row["input"]),
         "output": json_loads(row["output"]),
         "metadata": json_loads(row["metadata"]),
@@ -119,8 +124,9 @@ class WorkflowsRepository:
                 """
                 INSERT INTO workflow_steps
                     (id, workflow_run_id, workflow_id, project_id, name, status, agent_profile_id,
+                     role, task_type, risk_level, model_mode, manual_model_override,
                      input, output, metadata, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?)
                 """,
                 (
                     f"workflow-step-{uuid.uuid4()}",
@@ -129,6 +135,9 @@ class WorkflowsRepository:
                     workflow["projectId"],
                     step_name,
                     "ready" if index == 0 else "pending",
+                    self._default_role_for_step(step_name),
+                    step_name,
+                    "medium",
                     json_dumps({}),
                     json_dumps({}),
                     json_dumps({"order": index}),
@@ -148,6 +157,22 @@ class WorkflowsRepository:
             "workflowRun": self.get_workflow_run(run_id),
             "workflowSteps": self.list_workflow_steps(workflow_run_id=run_id),
         }
+
+    def _default_role_for_step(self, step_name: str) -> str:
+        return {
+            "idea_intake": "product_owner",
+            "project_discovery": "analyst",
+            "backlog_generation": "analyst",
+            "architecture_review": "technical_lead",
+            "sprint_plan": "product_owner",
+            "workspace_create": "developer",
+            "implementation": "developer",
+            "local_tests": "qa",
+            "qa_validation": "qa",
+            "technical_review": "technical_lead",
+            "pr_creation": "developer",
+            "release_candidate": "release_manager",
+        }.get(step_name, "developer")
 
     def update_workflow_status(self, workflow_id: str, *, status: str, reason: str = "") -> dict[str, Any]:
         workflow = self.get_workflow(workflow_id)

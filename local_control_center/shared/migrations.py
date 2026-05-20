@@ -18,6 +18,7 @@ def initialize_platform_schema(connection: sqlite3.Connection) -> None:
     init_phase9_schema(connection)
     init_phase10_schema(connection)
     init_phase11_schema(connection)
+    init_phase12_schema(connection)
     seed_platform_catalogs(connection)
 
 
@@ -924,6 +925,450 @@ def init_phase11_schema(connection: sqlite3.Connection) -> None:
     connection.execute(
         "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
         (11, utc_now()),
+    )
+
+
+def _add_column_if_missing(connection: sqlite3.Connection, table: str, column: str, ddl: str) -> None:
+    columns = {row["name"] for row in connection.execute(f"PRAGMA table_info({table})").fetchall()}
+    if column not in columns:
+        connection.execute(f"ALTER TABLE {table} ADD COLUMN {ddl}")
+
+
+def init_phase12_schema(connection: sqlite3.Connection) -> None:
+    connection.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS provider_accounts (
+            id TEXT PRIMARY KEY,
+            provider_id TEXT NOT NULL UNIQUE,
+            display_name TEXT NOT NULL,
+            provider_type TEXT NOT NULL,
+            api_format TEXT NOT NULL,
+            base_url TEXT,
+            credential_ref TEXT,
+            enabled INTEGER NOT NULL,
+            quota_mode TEXT NOT NULL,
+            health_status TEXT NOT NULL,
+            last_health_check_at TEXT,
+            last_error TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS model_catalog (
+            id TEXT PRIMARY KEY,
+            provider_id TEXT NOT NULL,
+            model TEXT NOT NULL,
+            display_name TEXT NOT NULL,
+            model_family TEXT NOT NULL,
+            context_window INTEGER NOT NULL,
+            max_output_tokens INTEGER NOT NULL,
+            supports_tools INTEGER NOT NULL,
+            supports_json INTEGER NOT NULL,
+            supports_streaming INTEGER NOT NULL,
+            supports_vision INTEGER NOT NULL,
+            supports_embeddings INTEGER NOT NULL,
+            supports_rerank INTEGER NOT NULL,
+            supports_reasoning INTEGER NOT NULL,
+            supports_thinking INTEGER NOT NULL,
+            effort_levels_json TEXT NOT NULL,
+            input_price_per_mtok REAL,
+            cached_input_price_per_mtok REAL,
+            output_price_per_mtok REAL,
+            reasoning_price_per_mtok REAL,
+            free_tier INTEGER NOT NULL,
+            free_tier_notes TEXT NOT NULL,
+            enabled INTEGER NOT NULL,
+            source TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(provider_id, model)
+        );
+        CREATE TABLE IF NOT EXISTS routing_profiles (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL UNIQUE,
+            mode TEXT NOT NULL,
+            objective TEXT NOT NULL,
+            rules_json TEXT NOT NULL,
+            enabled INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS role_model_policies (
+            id TEXT PRIMARY KEY,
+            role TEXT NOT NULL UNIQUE,
+            routing_profile_id TEXT NOT NULL,
+            preferred_json TEXT NOT NULL,
+            fallback_json TEXT NOT NULL,
+            escalation_json TEXT NOT NULL,
+            blocked_json TEXT NOT NULL,
+            max_cost_per_task_usd REAL NOT NULL,
+            max_tokens_per_run INTEGER NOT NULL,
+            requires_approval_over_usd REAL,
+            requires_approval_for_reasoning_max INTEGER NOT NULL,
+            allow_remote INTEGER NOT NULL,
+            allow_local INTEGER NOT NULL,
+            allow_cli INTEGER NOT NULL,
+            allow_api INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS usage_ledger (
+            id TEXT PRIMARY KEY,
+            provider_id TEXT NOT NULL,
+            model TEXT NOT NULL,
+            runtime_type TEXT NOT NULL,
+            agent_id TEXT,
+            role TEXT,
+            workflow_run_id TEXT,
+            workflow_step_id TEXT,
+            job_id TEXT,
+            task_id TEXT,
+            request_id TEXT,
+            session_id TEXT,
+            input_tokens INTEGER NOT NULL,
+            cached_input_tokens INTEGER NOT NULL,
+            output_tokens INTEGER NOT NULL,
+            reasoning_tokens INTEGER NOT NULL,
+            tool_tokens INTEGER NOT NULL,
+            total_tokens INTEGER NOT NULL,
+            estimated_cost_usd REAL,
+            actual_cost_usd REAL,
+            currency TEXT NOT NULL,
+            latency_ms INTEGER,
+            raw_usage_json TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS provider_limits (
+            id TEXT PRIMARY KEY,
+            provider_id TEXT NOT NULL,
+            model TEXT NOT NULL,
+            rpm INTEGER,
+            tpm INTEGER,
+            daily_requests INTEGER,
+            daily_tokens INTEGER,
+            monthly_requests INTEGER,
+            monthly_tokens INTEGER,
+            monthly_budget_usd REAL,
+            current_window_json TEXT NOT NULL,
+            cooldown_until TEXT,
+            last_429_at TEXT,
+            last_limit_error_at TEXT,
+            unknown_limit_strategy TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(provider_id, model)
+        );
+        CREATE TABLE IF NOT EXISTS routing_decisions (
+            id TEXT PRIMARY KEY,
+            role TEXT NOT NULL,
+            task_type TEXT NOT NULL,
+            mode TEXT NOT NULL,
+            selected_provider TEXT,
+            selected_model TEXT,
+            selected_runtime TEXT,
+            selected_effort TEXT,
+            estimated_cost_usd REAL,
+            estimated_tokens INTEGER,
+            candidates_json TEXT NOT NULL,
+            rejected_json TEXT NOT NULL,
+            decision_reason TEXT NOT NULL,
+            score_breakdown_json TEXT NOT NULL,
+            policy_result_json TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS cli_sessions (
+            id TEXT PRIMARY KEY,
+            runtime TEXT NOT NULL,
+            executable TEXT NOT NULL,
+            workspace_id TEXT NOT NULL,
+            workflow_run_id TEXT,
+            workflow_step_id TEXT,
+            agent_id TEXT,
+            command_json TEXT NOT NULL,
+            env_policy_json TEXT NOT NULL,
+            status TEXT NOT NULL,
+            started_at TEXT,
+            finished_at TEXT,
+            usage_ledger_id TEXT,
+            stdout_artifact_id TEXT,
+            stderr_artifact_id TEXT,
+            logs_artifact_id TEXT,
+            error TEXT,
+            created_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS runtime_capabilities (
+            id TEXT PRIMARY KEY,
+            runtime TEXT NOT NULL,
+            capability TEXT NOT NULL,
+            enabled INTEGER NOT NULL,
+            metadata TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(runtime, capability)
+        );
+        CREATE TABLE IF NOT EXISTS provider_health_checks (
+            id TEXT PRIMARY KEY,
+            provider_id TEXT NOT NULL,
+            status TEXT NOT NULL,
+            payload TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS budget_rules (
+            id TEXT PRIMARY KEY,
+            scope_type TEXT NOT NULL,
+            scope_id TEXT,
+            max_cost_usd REAL,
+            max_tokens INTEGER,
+            period TEXT NOT NULL,
+            action_on_exceed TEXT NOT NULL,
+            enabled INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS model_benchmarks (
+            id TEXT PRIMARY KEY,
+            provider_id TEXT NOT NULL,
+            model TEXT NOT NULL,
+            role TEXT,
+            tasks_attempted INTEGER NOT NULL,
+            success_rate REAL,
+            qa_pass_rate REAL,
+            avg_cost REAL,
+            avg_latency_ms INTEGER,
+            rework_rate REAL,
+            last_used_at TEXT,
+            metadata TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_usage_ledger_provider_created
+            ON usage_ledger(provider_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_routing_decisions_role_created
+            ON routing_decisions(role, created_at);
+        CREATE INDEX IF NOT EXISTS idx_cli_sessions_runtime_status
+            ON cli_sessions(runtime, status, created_at);
+        """
+    )
+    _add_column_if_missing(connection, "agent_profiles", "routing_profile_id", "routing_profile_id TEXT")
+    _add_column_if_missing(connection, "agent_profiles", "role_model_policy_id", "role_model_policy_id TEXT")
+    _add_column_if_missing(connection, "agent_profiles", "allowed_providers", "allowed_providers TEXT NOT NULL DEFAULT '[]'")
+    _add_column_if_missing(connection, "agent_profiles", "allowed_runtimes", "allowed_runtimes TEXT NOT NULL DEFAULT '[]'")
+    _add_column_if_missing(connection, "agent_profiles", "max_tokens_per_run", "max_tokens_per_run INTEGER NOT NULL DEFAULT 0")
+    _add_column_if_missing(connection, "agent_profiles", "allow_remote", "allow_remote INTEGER NOT NULL DEFAULT 1")
+    _add_column_if_missing(connection, "agent_profiles", "allow_cli", "allow_cli INTEGER NOT NULL DEFAULT 1")
+    _add_column_if_missing(connection, "agent_profiles", "allow_api", "allow_api INTEGER NOT NULL DEFAULT 1")
+    _add_column_if_missing(connection, "agent_profiles", "requires_approval_over_usd", "requires_approval_over_usd REAL")
+    _add_column_if_missing(connection, "workflow_steps", "role", "role TEXT")
+    _add_column_if_missing(connection, "workflow_steps", "task_type", "task_type TEXT")
+    _add_column_if_missing(connection, "workflow_steps", "risk_level", "risk_level TEXT")
+    _add_column_if_missing(connection, "workflow_steps", "model_mode", "model_mode TEXT")
+    _add_column_if_missing(connection, "workflow_steps", "manual_model_override", "manual_model_override TEXT")
+
+    timestamp = utc_now()
+    provider_accounts = [
+        ("internal_mock", "internal_mock", "Internal Mock", "local", "custom", "", "", 1, "none", "healthy"),
+        ("nvidia_nim", "nvidia_nim", "NVIDIA NIM / Build", "api", "openai_compatible", "https://integrate.api.nvidia.com/v1", "NVIDIA_NIM_API_KEY", 0, "trial_rate_limited", "unknown"),
+        ("ollama", "ollama", "Ollama Local", "local", "custom", "http://localhost:11434", "", 0, "none", "unknown"),
+        ("openai_api", "openai_api", "OpenAI API", "api", "responses", "https://api.openai.com/v1", "OPENAI_API_KEY", 0, "provider_reported", "unknown"),
+        ("anthropic_api", "anthropic_api", "Anthropic API", "api", "anthropic", "", "ANTHROPIC_API_KEY", 0, "provider_reported", "unknown"),
+        ("openai_compatible", "openai_compatible", "OpenAI-compatible API", "api", "openai_compatible", "", "OPENAI_API_KEY", 0, "manual", "unknown"),
+        ("openrouter", "openrouter", "OpenRouter", "gateway", "openai_compatible", "https://openrouter.ai/api/v1", "OPENROUTER_API_KEY", 0, "provider_reported", "unknown"),
+        ("litellm", "litellm", "LiteLLM Proxy", "gateway", "openai_compatible", "", "LITELLM_API_KEY", 0, "manual", "unknown"),
+        ("codex_cli", "codex_cli", "Codex CLI", "cli", "cli", "", "", 0, "manual", "unknown"),
+        ("claude_code_cli", "claude_code_cli", "Claude Code CLI", "cli", "cli", "", "", 0, "manual", "unknown"),
+        ("openhands", "openhands", "OpenHands", "cli", "cli", "", "", 0, "manual", "unknown"),
+        ("swe_agent", "swe_agent", "SWE-agent", "cli", "cli", "", "", 0, "manual", "unknown"),
+        ("manual", "manual", "Manual Operator", "manual", "cli", "", "", 1, "none", "healthy"),
+    ]
+    for row in provider_accounts:
+        connection.execute(
+            """
+            INSERT OR IGNORE INTO provider_accounts
+                (id, provider_id, display_name, provider_type, api_format, base_url, credential_ref,
+                 enabled, quota_mode, health_status, last_health_check_at, last_error, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, '', ?, ?)
+            """,
+            (*row, timestamp, timestamp),
+        )
+
+    model_catalog = [
+        ("internal_mock:mock", "internal_mock", "mock", "Internal mock", "mock", 200000, 8192, 1, 1, 0, 0, 0, 0, 0, 0, [], 0.0, 0.0, 0.0, 0.0, 1, "free local mock", 1),
+        ("nvidia_nim:auto_best_available", "nvidia_nim", "auto_best_available", "NVIDIA NIM auto best available", "nim", 128000, 4096, 0, 1, 1, 0, 0, 0, 0, 0, ["low", "medium"], 0.0, 0.0, 0.0, 0.0, 1, "trial/free-limited; exact quota unknown", 1),
+        ("ollama:local_default", "ollama", "local_default", "Ollama local default", "local", 32000, 4096, 0, 1, 1, 0, 0, 0, 0, 0, ["low", "medium"], 0.0, 0.0, 0.0, 0.0, 1, "local runtime cost only", 1),
+        ("openai_compatible:configured_model", "openai_compatible", "configured_model", "Configured OpenAI-compatible model", "configured", 128000, 4096, 1, 1, 1, 0, 0, 0, 1, 1, ["low", "medium", "high"], 0.25, 0.05, 1.0, 1.0, 0, "manual seed, staleness unknown", 0),
+        ("openrouter:configured_model", "openrouter", "configured_model", "Configured OpenRouter model", "configured", 128000, 4096, 1, 1, 1, 0, 0, 0, 1, 1, ["low", "medium", "high"], 0.25, 0.05, 1.0, 1.0, 0, "manual seed, staleness unknown", 0),
+        ("litellm:configured_model", "litellm", "configured_model", "Configured LiteLLM model", "configured", 128000, 4096, 1, 1, 1, 0, 0, 0, 1, 1, ["low", "medium", "high"], None, None, None, None, 0, "manual seed, price unknown", 0),
+        ("codex_cli:gpt-5.5", "codex_cli", "gpt-5.5", "Codex CLI GPT-5.5", "gpt", 400000, 8192, 1, 1, 1, 1, 0, 0, 1, 1, ["medium", "high", "xhigh"], 1.0, 0.25, 5.0, 5.0, 0, "manual_seed; staleness unknown", 1),
+        ("claude_code_cli:sonnet", "claude_code_cli", "sonnet", "Claude Code Sonnet", "claude", 200000, 8192, 1, 1, 1, 1, 0, 0, 1, 1, ["medium", "high"], 1.0, 0.25, 5.0, 5.0, 0, "manual_seed; staleness unknown", 1),
+        ("claude_code_cli:opus", "claude_code_cli", "opus", "Claude Code Opus", "claude", 200000, 8192, 1, 1, 1, 1, 0, 0, 1, 1, ["high", "xhigh", "max"], 3.0, 0.5, 15.0, 15.0, 0, "manual_seed; staleness unknown", 1),
+        ("openhands:auto", "openhands", "auto", "OpenHands auto", "runtime", 200000, 8192, 1, 1, 1, 0, 0, 0, 1, 1, ["medium", "high"], None, None, None, None, 0, "manual_seed; runtime cost unknown", 1),
+        ("swe_agent:auto", "swe_agent", "auto", "SWE-agent auto", "runtime", 200000, 8192, 1, 1, 1, 0, 0, 0, 1, 1, ["medium", "high"], None, None, None, None, 0, "manual_seed; runtime cost unknown", 1),
+        ("manual:manual_selection", "manual", "manual_selection", "Manual selection", "manual", 0, 0, 1, 1, 0, 1, 0, 0, 1, 1, ["manual"], 0.0, 0.0, 0.0, 0.0, 1, "manual operator", 1),
+    ]
+    for row in model_catalog:
+        connection.execute(
+            """
+            INSERT OR IGNORE INTO model_catalog
+                (id, provider_id, model, display_name, model_family, context_window, max_output_tokens,
+                 supports_tools, supports_json, supports_streaming, supports_vision, supports_embeddings,
+                 supports_rerank, supports_reasoning, supports_thinking, effort_levels_json,
+                 input_price_per_mtok, cached_input_price_per_mtok, output_price_per_mtok,
+                 reasoning_price_per_mtok, free_tier, free_tier_notes, enabled, source, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'manual_seed', ?, ?)
+            """,
+            (
+                row[0],
+                row[1],
+                row[2],
+                row[3],
+                row[4],
+                row[5],
+                row[6],
+                row[7],
+                row[8],
+                row[9],
+                row[10],
+                row[11],
+                row[12],
+                row[13],
+                row[14],
+                json_dumps(row[15]),
+                row[16],
+                row[17],
+                row[18],
+                row[19],
+                row[20],
+                row[21],
+                row[22],
+                timestamp,
+                timestamp,
+            ),
+        )
+
+    routing_profiles = [
+        ("free_first", "free_first", "free_first", "minimize paid usage", {"paidEscalationRequiresApproval": True, "providerOrder": ["nvidia_nim", "ollama", "openrouter"]}),
+        ("cost_controlled", "cost_controlled", "cost_controlled", "acceptable quality under low cost", {"maxThinkingEffort": "medium", "allowPremiumModels": False}),
+        ("balanced_best_value", "balanced_best_value", "balanced_best_value", "best performance/cost", {"default": True, "maxThinkingEffort": "high"}),
+        ("max_performance", "max_performance", "max_performance", "maximum quality within explicit budget", {"allowThinkingMax": True, "requiresApprovalOverUsd": 3.0}),
+        ("manual_by_profile", "manual_by_profile", "manual_by_profile", "user selected provider/model/runtime", {"automaticFallback": False}),
+        ("local_private", "local_private", "local_private", "no remote data", {"allowRemoteProviders": False}),
+    ]
+    for row in routing_profiles:
+        connection.execute(
+            """
+            INSERT OR IGNORE INTO routing_profiles (id, name, mode, objective, rules_json, enabled, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, 1, ?, ?)
+            """,
+            (row[0], row[1], row[2], row[3], json_dumps(row[4]), timestamp, timestamp),
+        )
+
+    role_policies = [
+        ("analyst", "analyst", "free_first", [{"provider": "nvidia_nim", "model": "auto_best_available"}, {"provider": "ollama", "model": "local_default"}], [{"provider": "openai_compatible", "model": "configured_model", "requiresApproval": True}], [{"provider": "codex_cli", "model": "gpt-5.5", "effort": "high", "requiresApproval": True}], [], 0.10, 64000, 0.10, 0, 1, 1, 1, 1),
+        ("product_owner", "product_owner", "balanced_best_value", [{"provider": "nvidia_nim", "model": "auto_best_available"}, {"provider": "openai_compatible", "model": "configured_model"}], [], [], [], 0.75, 128000, 0.75, 0, 1, 1, 0, 1),
+        ("technical_lead", "technical_lead", "balanced_best_value", [{"provider": "codex_cli", "model": "gpt-5.5", "effort": "xhigh"}, {"provider": "claude_code_cli", "model": "opus", "effort": "xhigh"}, {"provider": "claude_code_cli", "model": "sonnet", "effort": "high"}], [], [{"provider": "codex_cli", "model": "gpt-5.5", "effort": "xhigh", "requiresApproval": True}], [], 3.00, 240000, 3.00, 1, 1, 1, 1, 1),
+        ("developer", "developer", "balanced_best_value", [{"provider": "codex_cli", "model": "gpt-5.5", "effort": "high"}, {"provider": "claude_code_cli", "model": "sonnet", "effort": "medium"}, {"provider": "openhands", "model": "auto"}], [{"provider": "swe_agent", "model": "auto"}], [{"provider": "codex_cli", "model": "gpt-5.5", "effort": "xhigh", "condition": "repeated_failure"}], [], 2.00, 200000, 2.00, 0, 1, 1, 1, 1),
+        ("qa", "qa", "cost_controlled", [{"provider": "nvidia_nim", "model": "auto_best_available"}, {"provider": "ollama", "model": "local_default"}, {"provider": "claude_code_cli", "model": "sonnet"}], [], [], [], 0.50, 128000, 0.50, 0, 1, 1, 1, 1),
+        ("security_reviewer", "security_reviewer", "balanced_best_value", [{"provider": "codex_cli", "model": "gpt-5.5", "effort": "high"}, {"provider": "claude_code_cli", "model": "sonnet", "effort": "high"}], [], [{"provider": "codex_cli", "model": "gpt-5.5", "effort": "xhigh", "condition": "high_risk"}], [], 2.50, 200000, 2.50, 1, 1, 1, 1, 1),
+        ("release_manager", "release_manager", "cost_controlled", [{"provider": "claude_code_cli", "model": "sonnet"}, {"provider": "openai_compatible", "model": "configured_model"}], [{"provider": "manual", "model": "manual_selection"}], [], [], 1.00, 128000, 1.00, 0, 1, 1, 1, 1),
+    ]
+    for row in role_policies:
+        connection.execute(
+            """
+            INSERT OR IGNORE INTO role_model_policies
+                (id, role, routing_profile_id, preferred_json, fallback_json, escalation_json, blocked_json,
+                 max_cost_per_task_usd, max_tokens_per_run, requires_approval_over_usd,
+                 requires_approval_for_reasoning_max, allow_remote, allow_local, allow_cli, allow_api,
+                 created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                row[0],
+                row[1],
+                row[2],
+                json_dumps(row[3]),
+                json_dumps(row[4]),
+                json_dumps(row[5]),
+                json_dumps(row[6]),
+                row[7],
+                row[8],
+                row[9],
+                row[10],
+                row[11],
+                row[12],
+                row[13],
+                row[14],
+                timestamp,
+                timestamp,
+            ),
+        )
+
+    provider_limits = [
+        ("nvidia_nim:*", "nvidia_nim", "*", None, None, None, None, None, None, 0.0, "conservative"),
+        ("openai_compatible:*", "openai_compatible", "*", None, None, None, None, None, None, None, "conservative"),
+    ]
+    for row in provider_limits:
+        connection.execute(
+            """
+            INSERT OR IGNORE INTO provider_limits
+                (id, provider_id, model, rpm, tpm, daily_requests, daily_tokens, monthly_requests,
+                 monthly_tokens, monthly_budget_usd, current_window_json, cooldown_until, last_429_at,
+                 last_limit_error_at, unknown_limit_strategy, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '{}', NULL, NULL, NULL, ?, ?, ?)
+            """,
+            (*row, timestamp, timestamp),
+        )
+
+    budget_rules = [
+        ("global-monthly-default", "global", None, 50.0, None, "month", "require_approval", 1),
+        ("analyst-task-default", "role", "analyst", 0.10, 64000, "task", "fallback", 1),
+        ("developer-task-default", "role", "developer", 2.00, 200000, "task", "require_approval", 1),
+    ]
+    for row in budget_rules:
+        connection.execute(
+            """
+            INSERT OR IGNORE INTO budget_rules
+                (id, scope_type, scope_id, max_cost_usd, max_tokens, period, action_on_exceed, enabled, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (*row, timestamp, timestamp),
+        )
+
+    runtime_capabilities = [
+        ("codex_cli:code_edit", "codex_cli", "code_edit", 1, {"workspaceBound": True}),
+        ("claude_code_cli:code_edit", "claude_code_cli", "code_edit", 1, {"workspaceBound": True}),
+        ("openhands:issue_to_patch", "openhands", "issue_to_patch", 1, {"optional": True}),
+        ("swe_agent:issue_to_patch", "swe_agent", "issue_to_patch", 1, {"optional": True}),
+        ("manual:approval", "manual", "approval", 1, {"operator": True}),
+    ]
+    for row in runtime_capabilities:
+        connection.execute(
+            """
+            INSERT OR IGNORE INTO runtime_capabilities
+                (id, runtime, capability, enabled, metadata, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (row[0], row[1], row[2], row[3], json_dumps(row[4]), timestamp, timestamp),
+        )
+
+    for provider_id, provider, label, status, allow_remote, metadata in [
+        ("nvidia_nim", "nvidia_nim", "NVIDIA NIM / Build", "optional", 1, {"runtime": "api", "quotaMode": "trial_rate_limited"}),
+        ("codex_cli", "codex_cli", "Codex CLI", "optional", 0, {"runtime": "cli"}),
+        ("claude_code_cli", "claude_code_cli", "Claude Code CLI", "optional", 0, {"runtime": "cli"}),
+        ("openhands", "openhands", "OpenHands", "optional", 0, {"runtime": "cli"}),
+        ("swe_agent", "swe_agent", "SWE-agent", "optional", 0, {"runtime": "cli"}),
+        ("litellm", "litellm", "LiteLLM Proxy", "optional", 1, {"runtime": "gateway"}),
+    ]:
+        connection.execute(
+            """
+            INSERT OR IGNORE INTO model_providers
+                (id, provider, label, status, allow_remote, metadata, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (provider_id, provider, label, status, allow_remote, json_dumps(metadata), timestamp, timestamp),
+        )
+
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (12, utc_now()),
     )
 
 

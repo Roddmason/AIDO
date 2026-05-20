@@ -21,6 +21,8 @@ SECRET_KEY_PATTERN = re.compile(r"(api[_-]?key|authorization|credential|secret|t
 
 
 def redact_secrets(value: Any, *, key: str = "") -> Any:
+    if key.lower().endswith(("tokens", "_tokens", "token_count")) and isinstance(value, int | float):
+        return value
     if SECRET_KEY_PATTERN.search(key):
         return "[redacted]"
     if isinstance(value, dict):

@@ -5,7 +5,17 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 
-AgentRole = Literal["product_owner", "technical_lead", "implementer", "qa_reviewer", "security_reviewer"]
+AgentRole = Literal[
+    "analyst",
+    "product_owner",
+    "technical_lead",
+    "developer",
+    "implementer",
+    "qa",
+    "qa_reviewer",
+    "security_reviewer",
+    "release_manager",
+]
 PermissionProfile = Literal["plan", "dev_safe", "qa", "release"]
 RuntimeMode = Literal["api", "cli", "ollama", "hybrid", "manual", "internal_mock"]
 PolicyStatus = Literal["active", "disabled"]
@@ -23,12 +33,21 @@ class AgentProfileUpsertRequest(BaseModel):
     runtime_mode: RuntimeMode = Field(default="internal_mock", alias="runtimeMode")
     runtime_type: RuntimeMode | None = Field(default=None, alias="runtimeType")
     model_policy_id: str | None = Field(default=None, alias="modelPolicyId")
+    routing_profile_id: str | None = Field(default=None, alias="routingProfileId")
+    role_model_policy_id: str | None = Field(default=None, alias="roleModelPolicyId")
+    allowed_providers: list[str] = Field(default_factory=list, alias="allowedProviders")
+    allowed_runtimes: list[str] = Field(default_factory=list, alias="allowedRuntimes")
     allowed_skills: list[str] = Field(default_factory=list, alias="allowedSkills")
     allowed_tools: list[str] = Field(default_factory=list, alias="allowedTools")
     permission_profile: PermissionProfile = Field(default="plan", alias="permissionProfile")
     memory_scope: str = Field(default="project", alias="memoryScope")
     max_cost_per_run: float = Field(default=0, alias="maxCostPerRun")
+    max_tokens_per_run: int = Field(default=0, alias="maxTokensPerRun")
     max_runtime_seconds: int = Field(default=900, alias="maxRuntimeSeconds")
+    allow_remote: bool = Field(default=True, alias="allowRemote")
+    allow_cli: bool = Field(default=True, alias="allowCli")
+    allow_api: bool = Field(default=True, alias="allowApi")
+    requires_approval_over_usd: float | None = Field(default=None, alias="requiresApprovalOverUsd")
     output_schema: dict[str, Any] = Field(default_factory=dict, alias="outputSchema")
     quality_gates: list[Any] = Field(default_factory=list, alias="qualityGates")
     status: PolicyStatus = "active"
@@ -41,12 +60,21 @@ class AgentProfileRecord(BaseModel):
     runtime_type: RuntimeMode = Field(alias="runtimeType")
     runtime_mode: RuntimeMode = Field(alias="runtimeMode")
     model_policy_id: str | None = Field(default=None, alias="modelPolicyId")
+    routing_profile_id: str | None = Field(default=None, alias="routingProfileId")
+    role_model_policy_id: str | None = Field(default=None, alias="roleModelPolicyId")
+    allowed_providers: list[str] = Field(alias="allowedProviders")
+    allowed_runtimes: list[str] = Field(alias="allowedRuntimes")
     allowed_skills: list[str] = Field(alias="allowedSkills")
     allowed_tools: list[str] = Field(alias="allowedTools")
     permission_profile: PermissionProfile = Field(alias="permissionProfile")
     memory_scope: str = Field(alias="memoryScope")
     max_cost_per_run: float = Field(alias="maxCostPerRun")
+    max_tokens_per_run: int = Field(alias="maxTokensPerRun")
     max_runtime_seconds: int = Field(alias="maxRuntimeSeconds")
+    allow_remote: bool = Field(alias="allowRemote")
+    allow_cli: bool = Field(alias="allowCli")
+    allow_api: bool = Field(alias="allowApi")
+    requires_approval_over_usd: float | None = Field(default=None, alias="requiresApprovalOverUsd")
     output_schema: dict[str, Any] = Field(alias="outputSchema")
     quality_gates: list[Any] = Field(alias="qualityGates")
     status: PolicyStatus

@@ -11,6 +11,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from .agents.api import create_router as create_agents_router
+from .agents.model_gateway_api import create_router as create_model_gateway_router
 from .control_plane.models import OverviewResponse
 from .control_plane.overview import build_overview_from_connection
 from .evidence.api import create_router as create_evidence_router
@@ -87,6 +88,7 @@ def create_app(
     app.include_router(create_security_policy_router(platform=platform, require_write=require_write))
     app.include_router(create_evidence_router(platform=platform, require_write=require_write))
     app.include_router(create_agents_router(platform=platform, require_write=require_write))
+    app.include_router(create_model_gateway_router(platform=platform, require_write=require_write))
     app.include_router(create_workspaces_router(platform=platform, require_write=require_write))
     app.include_router(create_governance_router(platform=platform, require_write=require_write))
     app.include_router(create_sessions_chats_router(platform=platform, require_write=require_write))

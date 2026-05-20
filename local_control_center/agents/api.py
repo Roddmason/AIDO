@@ -35,7 +35,17 @@ from .tool_broker import ToolBroker
 EXECUTION_MODES_WITH_EVIDENCE = {"restricted_subprocess", "docker"}
 ID_RE = re.compile(r"^[a-z0-9_-]{3,64}$")
 TOOL_ID_RE = re.compile(r"^[a-z0-9_.:-]{2,80}$")
-VALID_AGENT_ROLES = {"product_owner", "technical_lead", "implementer", "qa_reviewer", "security_reviewer"}
+VALID_AGENT_ROLES = {
+    "analyst",
+    "product_owner",
+    "technical_lead",
+    "developer",
+    "implementer",
+    "qa",
+    "qa_reviewer",
+    "security_reviewer",
+    "release_manager",
+}
 VALID_PERMISSION_PROFILES = {"plan", "dev_safe", "qa", "release"}
 VALID_POLICY_STATUS = {"active", "disabled"}
 

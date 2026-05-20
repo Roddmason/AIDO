@@ -54,6 +54,11 @@ class WorkflowStepRecord(BaseModel):
     name: str
     status: str
     agent_profile_id: str | None = Field(default=None, alias="agentProfileId")
+    role: str | None = None
+    task_type: str | None = Field(default=None, alias="taskType")
+    risk_level: str | None = Field(default=None, alias="riskLevel")
+    model_mode: str | None = Field(default=None, alias="modelMode")
+    manual_model_override: str | None = Field(default=None, alias="manualModelOverride")
     input: dict[str, Any]
     output: dict[str, Any]
     metadata: dict[str, Any]

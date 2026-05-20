@@ -41,11 +41,18 @@ def test_open_source_governance_files_require_owner_review() -> None:
     contributing = read("CONTRIBUTING.md")
     security = read("SECURITY.md")
     codeowners = read(".github/CODEOWNERS")
+    pull_request_template = read(".github/PULL_REQUEST_TEMPLATE.md")
+    bug_report = read(".github/ISSUE_TEMPLATE/bug_report.yml")
+    feature_request = read(".github/ISSUE_TEMPLATE/feature_request.yml")
 
     assert "pull requests" in contributing.lower()
     assert "owner review" in contributing.lower()
     assert "report security issues privately" in security.lower()
     assert codeowners.strip() == "* @Roddmason"
+    assert "testing" in pull_request_template.lower()
+    assert "no secrets" in pull_request_template.lower()
+    assert "labels:" in bug_report
+    assert "labels:" in feature_request
 
 
 def test_gitignore_excludes_generated_artifacts_and_keeps_env_example() -> None:

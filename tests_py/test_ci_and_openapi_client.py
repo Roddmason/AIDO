@@ -93,6 +93,11 @@ def test_generated_openapi_client_is_checked_in_and_v1_only() -> None:
     assert 'GovernanceResponse = { "architectureDecisions": Array<ArchitectureDecisionRecord>' in content
     assert "Array<never>" not in content
     assert '"projects_api_v1_projects_get": ProjectsListResponse' in content
+    assert "export type ProjectRecord" in content
+    assert "export type ProjectTemplateRecord" in content
+    assert "export type WorkspaceRecord" in content
+    assert 'ProjectsListResponse = { "projects": Array<ProjectRecord>' in content
+    assert 'WorkspacesListResponse = { "workspaces": Array<WorkspaceRecord>' in content
     assert '"list_workflows_api_v1_workflows_get": WorkflowsListResponse' in content
     assert '"get_workflow_api_v1_workflows__workflow_id__get": WorkflowDetailResponse' in content
     assert '"list_agent_profiles_api_v1_agent_profiles_get": AgentProfilesListResponse' in content

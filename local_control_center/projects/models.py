@@ -13,26 +13,80 @@ class ProjectCreateRequest(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class ProjectRecord(BaseModel):
+    id: str
+    name: str
+    path: str
+    template_id: str = Field(alias="templateId")
+    source: str
+    status: str
+    metadata: dict[str, Any]
+    created_at: str = Field(alias="createdAt")
+    updated_at: str = Field(alias="updatedAt")
+
+
+class ProjectTemplateRecord(BaseModel):
+    id: str
+    name: str
+    kind: str
+
+
+class ProviderRecord(BaseModel):
+    id: str
+    kind: str
+    label: str
+    capabilities: list[Any]
+    models: list[Any]
+    status: str
+    metadata: dict[str, Any]
+    updated_at: str = Field(alias="updatedAt")
+
+
+class TeamRecord(BaseModel):
+    id: str
+    project_id: str = Field(alias="projectId")
+    name: str
+    version: str
+    capabilities: list[Any]
+    metadata: dict[str, Any]
+    created_at: str = Field(alias="createdAt")
+    updated_at: str = Field(alias="updatedAt")
+
+
+class CatalogAgentRecord(BaseModel):
+    id: str
+    team_id: str = Field(alias="teamId")
+    name: str
+    role: str
+    kind: str
+    provider_id: str = Field(alias="providerId")
+    model: str
+    capabilities: list[Any]
+    permissions: dict[str, Any]
+    created_at: str = Field(alias="createdAt")
+    updated_at: str = Field(alias="updatedAt")
+
+
 class ProjectResponse(BaseModel):
-    project: dict[str, Any]
+    project: ProjectRecord
     audit_event: dict[str, Any] | None = Field(default=None, alias="auditEvent")
 
 
 class ProjectTemplatesResponse(BaseModel):
-    project_templates: list[dict[str, Any]] = Field(alias="projectTemplates")
+    project_templates: list[ProjectTemplateRecord] = Field(alias="projectTemplates")
 
 
 class ProjectsListResponse(BaseModel):
-    projects: list[dict[str, Any]]
+    projects: list[ProjectRecord]
 
 
 class ProvidersListResponse(BaseModel):
-    providers: list[dict[str, Any]]
+    providers: list[ProviderRecord]
 
 
 class TeamsListResponse(BaseModel):
-    teams: list[dict[str, Any]]
+    teams: list[TeamRecord]
 
 
 class AgentsListResponse(BaseModel):
-    agents: list[dict[str, Any]]
+    agents: list[CatalogAgentRecord]

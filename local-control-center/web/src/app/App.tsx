@@ -189,7 +189,7 @@ export function App() {
 			case 'command':
 				return <CommandCenterPage overview={overview} mutate={state.mutate} />;
 			case 'workflows':
-				return <WorkflowsPage overview={overview} />;
+				return <WorkflowsPage overview={overview} token={state.token} />;
 			case 'jobs':
 				return <JobsApprovalsPage overview={overview} mutate={state.mutate} />;
 			case 'agents':

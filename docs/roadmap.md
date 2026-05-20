@@ -212,14 +212,12 @@
 1. Continue converting repository/infrastructure tests away from
    `tests_py/control_plane_fixture.py` when they do not need FastAPI middleware,
    handshake, or app composition.
-2. Replace dict-based row payloads inside high-traffic response models with
-   narrower row DTOs where the schema is stable enough to enforce without
-   freezing still-evolving internal metadata.
-3. Run the strict installed-runtime issue-to-patch smoke on a release
+2. Run the strict installed-runtime issue-to-patch smoke on a release
    validation runner with OpenHands/SWE-agent installed and exact argv/issue
    env vars supplied.
 
 ## Next Frontend Work
 
-1. Replace remaining hand-written domain refinements as backend row DTOs become
-   stable enough to generate directly from OpenAPI.
+1. Type remaining intentionally flexible integration, prompt, and retrieval
+   payloads only after those schemas are stable enough to avoid freezing
+   adapter-specific metadata too early.

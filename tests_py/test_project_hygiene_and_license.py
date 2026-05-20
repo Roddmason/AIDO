@@ -81,6 +81,15 @@ def test_quality_and_security_scripts_are_declared() -> None:
     assert "semgrep scan" in scripts["security:sast"]
 
 
+def test_quality_scripts_include_web_typecheck() -> None:
+    package = json.loads(read("package.json"))
+    scripts = package["scripts"]
+
+    assert "typecheck:web" in scripts
+    assert "typecheck:web" in scripts["test:all"]
+    assert "typecheck:web" in scripts["quality"]
+
+
 def test_python_quality_tooling_is_declared_for_uv() -> None:
     import tomllib
 

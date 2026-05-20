@@ -262,6 +262,9 @@
 - Web TypeScript typechecking is now an explicit script using Vite-compatible
   module resolution, and event records expose a backend `severity` field for
   typed operational ledgers.
+- Governance now has dashboard filters and a strict risk status update form
+  backed by the typed risk PATCH endpoint, closing the basic filtering/editing
+  UX gap without adding raw JSON editing.
 
 ## Next Backend Work
 

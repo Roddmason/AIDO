@@ -136,6 +136,18 @@ def test_frontend_mutation_helpers_use_generated_request_response_types() -> Non
     assert "body: MutationBody<'upsert_agent_profile_api_v1_agent_profiles_post'>" in client_source
     assert "body: MutationBody<'upsert_model_policy_api_v1_model_policies_post'>" in client_source
     assert "body: MutationBody<'register_mcp_server_api_v1_integrations_mcp_register_post'>" in client_source
+    assert "body: MutationBody<'update_risk_api_v1_risks__risk_id__patch'>" in client_source
+
+
+def test_governance_surface_has_filtering_and_risk_update_controls() -> None:
+    pages_source = read(SRC / "features" / "pages.tsx")
+
+    assert 'id="governance-filter"' in pages_source
+    assert 'id="risk-status-filter"' in pages_source
+    assert 'id="risk-update-id"' in pages_source
+    assert 'id="risk-update-status"' in pages_source
+    assert "filteredRisks" in pages_source
+    assert "updateRisk(token" in pages_source
 
 
 def test_visual_guardrails_reject_generic_ai_dashboard_patterns() -> None:

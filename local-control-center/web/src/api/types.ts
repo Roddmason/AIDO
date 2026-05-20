@@ -16,6 +16,7 @@ import type {
 	ProjectRecord,
 	RetrievalStatusResponse,
 	RiskCreateRequest,
+	RiskRecord as GeneratedRiskRecord,
 	RuntimeProvidersResponse,
 	SessionRecord,
 	WorkflowCreateRequest,
@@ -46,6 +47,7 @@ export type AgentRuntimeMode = NonNullable<AgentProfileUpsertRequest['runtimeMod
 export type PermissionProfile = NonNullable<AgentProfileUpsertRequest['permissionProfile']>;
 export type WorkflowKind = NonNullable<WorkflowCreateRequest['kind']>;
 export type RiskSeverity = NonNullable<RiskCreateRequest['severity']>;
+export type RiskStatus = GeneratedRiskRecord['status'];
 export type ArchitectureDecisionStatus = NonNullable<ArchitectureDecisionCreateRequest['status']>;
 export type NextStepPriority = NonNullable<NextStepCreateRequest['priority']>;
 export type McpTransport = NonNullable<McpServerRegisterRequest['transport']>;

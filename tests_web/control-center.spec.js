@@ -344,10 +344,28 @@ test('Governance shows architecture decisions, risks and next steps', async ({ p
 	await page.goto('/#governance');
 	await page.getByRole('button', { name: 'Governance' }).click();
 
-	await expect(page.getByRole('heading', { name: 'Governance' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Governance', exact: true })).toBeVisible();
 	await expect(page.getByText(governance.decisionTitle)).toBeVisible();
-	await expect(page.getByText(governance.riskTitle)).toBeVisible();
+	await expect(page.getByRole('cell', { name: governance.riskTitle })).toBeVisible();
 	await expect(page.getByText(governance.nextStepTitle)).toBeVisible();
+});
+
+test('Governance filters records and updates risk status through strict controls', async ({ page }) => {
+	const governance = await createGovernanceState(page);
+	await page.goto('/#governance');
+	await page.getByRole('button', { name: 'Governance' }).click();
+
+	await page.getByLabel('Governance filter').fill(governance.riskTitle);
+	await expect(page.getByRole('cell', { name: governance.riskTitle })).toBeVisible();
+	await page.getByLabel('Risk status filter').selectOption('open');
+	await expect(page.getByRole('cell', { name: governance.riskTitle })).toBeVisible();
+
+	await page.getByLabel('Risk to update').selectOption({ label: governance.riskTitle });
+	await page.getByLabel('Risk update status').selectOption('mitigating');
+	await page.getByRole('button', { name: 'Update risk status' }).click();
+	await page.getByLabel('Risk status filter').selectOption('mitigating');
+	await expect(page.getByRole('cell', { name: governance.riskTitle })).toBeVisible();
+	await expect(page.getByRole('cell', { name: 'mitigating' }).first()).toBeVisible();
 });
 
 test('Policy & Security exposes tool-call execution state', async ({ page }) => {

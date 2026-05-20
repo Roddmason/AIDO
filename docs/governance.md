@@ -45,8 +45,9 @@ All mutating routes require the loopback write token from
 
 ## Current Limitations
 
-- Governance forms are intentionally strict and still basic; most rich editing
-  happens through API-backed records rendered in the dashboard.
-- Remaining cleanup is ordinary UX depth: richer edit forms and filtering. The
-  old store-based fixture harness has been removed; product overview
-  aggregation lives in `control_plane`.
+- Governance filtering and risk status updates are now available through
+  strict dashboard controls. Architecture-decision and next-step inline editing
+  remain intentionally deferred until their review workflows require it; their
+  create/update APIs are already token-protected and audited.
+- Remaining cleanup is ordinary UX depth. The old store-based fixture harness
+  has been removed; product overview aggregation lives in `control_plane`.

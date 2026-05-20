@@ -71,6 +71,13 @@ def test_generated_openapi_client_is_checked_in_and_v1_only() -> None:
     assert '"retrieval_search_api_v1_retrieval_search_post": RetrievalSearchRequest' in content
     assert '"retrieval_reindex_api_v1_retrieval_reindex_post": EmptyObjectRequest' in content
     assert '"upsert_prompt_api_v1_prompts_post": PromptUpsertRequest' in content
+    assert '"create_agent_run_api_v1_agent_runs_post": AgentRunCreateRequest' in content
+    assert '"sync_skills_api_v1_skills_sync_post": SkillsSyncRequest' in content
+    assert '"create_evidence_api_v1_evidence_post": EvidenceCreateRequest' in content
+    assert '"ingest_artifact_api_v1_evidence__evidence_id__artifacts_post": ArtifactIngestRequest' in content
+    assert '"cleanup_artifacts_api_v1_evidence_artifacts_cleanup_post": ArtifactCleanupRequest' in content
+    assert '"plan_artifact_retention_api_v1_evidence_artifacts_retention_post": ArtifactRetentionPlanRequest' in content
+    assert '"apply_artifact_retention_action_api_v1_evidence_artifacts_retention_actions_post": ArtifactRetentionActionRequest' in content
     assert "export function buildApiPath" in content
     assert "export async function requestGeneratedOperation" in content
 

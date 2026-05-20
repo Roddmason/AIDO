@@ -12,8 +12,12 @@ from local_control_center.shared.event_bus import EventBus
 from .contracts import (
     AgentProfileResponse,
     AgentProfileUpsertRequest,
+    AgentRunCreateRequest,
+    AgentRunResponse,
     ModelPolicyResponse,
     ModelPolicyUpsertRequest,
+    SkillsSyncRequest,
+    SkillsSyncResponse,
 )
 from .executor import run_internal_mock_agent
 from .model_gateway import LOCAL_MODEL_PROVIDERS, REMOTE_MODEL_PROVIDERS, RUNTIME_MODES, runtime_provider_status
@@ -206,14 +210,14 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     async def list_agent_runs() -> dict[str, Any]:
         return {"agentRuns": repository().list_agent_runs()}
 
-    @router.post("/api/v1/agent-runs", status_code=202)
-    async def create_agent_run(request: Request) -> dict[str, Any]:
+    @router.post("/api/v1/agent-runs", status_code=202, response_model=AgentRunResponse)
+    async def create_agent_run(body: AgentRunCreateRequest, request: Request) -> AgentRunResponse:
         require_write(request)
-        body = await request.json()
+        payload = body.model_dump(by_alias=True)
         repo = repository()
-        profile = repo.get_agent_profile(body["agentProfileId"])
-        task_id = body.get("taskId", "task")
-        input_payload = body.get("input") or {}
+        profile = repo.get_agent_profile(payload["agentProfileId"])
+        task_id = payload.get("taskId", "task")
+        input_payload = payload.get("input") or {}
         tool_calls = input_payload.get("toolCalls") or []
         if tool_calls:
             output = {
@@ -247,23 +251,23 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             output = run_internal_mock_agent(agent_profile=profile, task_id=task_id, input_payload=input_payload)
             status = "completed"
         run = repo.create_agent_run(
-            project_id=body["projectId"],
+            project_id=payload["projectId"],
             agent_profile_id=profile["id"],
             task_id=task_id,
             input_payload=input_payload,
             output_payload=output,
-            job_id=body.get("jobId"),
-            workflow_run_id=body.get("workflowRunId"),
-            workflow_step_id=body.get("workflowStepId"),
+            job_id=payload.get("jobId"),
+            workflow_run_id=payload.get("workflowRunId"),
+            workflow_step_id=payload.get("workflowStepId"),
             status=status,
         )
         if tool_calls:
             broker_results = ToolBroker(platform.connection, artifact_root=platform.cwd).evaluate_tool_calls(
-                project_id=body["projectId"],
+                project_id=payload["projectId"],
                 agent_run_id=run["id"],
                 agent_profile=profile,
                 tool_calls=tool_calls,
-                job_id=body.get("jobId"),
+                job_id=payload.get("jobId"),
             )
             decisions = [result["decision"]["decision"] for result in broker_results]
             tool_statuses = [result["toolCall"]["status"] for result in broker_results]
@@ -274,8 +278,8 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             )
             evidence_refs = _create_execution_evidence(
                 platform=platform,
-                project_id=body["projectId"],
-                workflow_run_id=body.get("workflowRunId"),
+                project_id=payload["projectId"],
+                workflow_run_id=payload.get("workflowRunId"),
                 agent_id=profile["id"],
                 task_id=task_id,
                 tool_calls=tool_call_records,
@@ -324,7 +328,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
                     "requires_human": "approval.created",
                 }.get(decision["decision"], "tool.call.requested")
                 event_bus().record_event(
-                    project_id=body["projectId"],
+                    project_id=payload["projectId"],
                     event_type=event_type,
                     payload={
                         "agentRunId": run["id"],
@@ -334,11 +338,11 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
                     },
                 )
         event_bus().record_event(
-            project_id=body["projectId"],
+            project_id=payload["projectId"],
             event_type=f"agent.run.{status}",
             payload={"agentRunId": run["id"], "agentProfileId": profile["id"]},
         )
-        return {"agentRun": run}
+        return AgentRunResponse(agentRun=run)
 
     @router.get("/api/v1/model-providers")
     async def list_model_providers() -> dict[str, Any]:
@@ -352,13 +356,12 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     async def list_skills() -> dict[str, Any]:
         return {"skills": skill_registry().list_skills()}
 
-    @router.post("/api/v1/skills/sync", status_code=202)
-    async def sync_skills(request: Request) -> dict[str, Any]:
+    @router.post("/api/v1/skills/sync", status_code=202, response_model=SkillsSyncResponse)
+    async def sync_skills(body: SkillsSyncRequest, request: Request) -> SkillsSyncResponse:
         require_write(request)
-        body = await request.json()
-        count = skill_registry().sync(body.get("skillsPath", "skills"))
+        count = skill_registry().sync(body.skills_path)
         event_bus().record_event(event_type="skills.synced", payload={"synced": count})
-        return {"synced": count, "skills": skill_registry().list_skills()}
+        return SkillsSyncResponse(synced=count, skills=skill_registry().list_skills())
 
     @router.get("/api/v1/model-policies")
     async def list_model_policies() -> dict[str, Any]:

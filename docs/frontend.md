@@ -134,4 +134,6 @@ client boundary while the backend still owns the decision and audit rules.
 Project, session, chat, pipeline, memory, retrieval, and prompt mutation
 requests are also generated from backend schemas. Domain-specific frontend
 interfaces remain as refinements for routes that still return generic
-dictionaries.
+dictionaries. Active v1 mutating operations no longer generate `unknown`
+request bodies; remaining frontend refinements are primarily read-model and
+overview-shape work.

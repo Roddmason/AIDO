@@ -7,12 +7,24 @@ export type JsonObject = { [key: string]: JsonValue };
 
 export type AgentProfileResponse = { "agentProfile": JsonObject };
 export type AgentProfileUpsertRequest = { "allowedSkills"?: Array<string>; "allowedTools"?: Array<string>; "id": string; "maxCostPerRun"?: number; "maxRuntimeSeconds"?: number; "memoryScope"?: string; "modelPolicyId"?: JsonValue | string; "name"?: JsonValue | string; "outputSchema"?: JsonObject; "permissionProfile"?: "plan" | "dev_safe" | "qa" | "release"; "qualityGates"?: Array<never>; "role"?: "product_owner" | "technical_lead" | "implementer" | "qa_reviewer" | "security_reviewer"; "runtimeMode"?: "api" | "cli" | "ollama" | "hybrid" | "manual" | "internal_mock"; "runtimeType"?: "api" | "cli" | "ollama" | "hybrid" | "manual" | "internal_mock" | JsonValue; "status"?: "active" | "disabled" };
+export type AgentRunCreateRequest = { "agentProfileId": string; "input"?: JsonObject; "jobId"?: JsonValue | string; "projectId": string; "taskId"?: string; "workflowRunId"?: JsonValue | string; "workflowStepId"?: JsonValue | string };
+export type AgentRunResponse = { "agentRun": JsonObject };
 export type ApprovalReasonRequest = { "reason": string };
 export type ArchitectureDecisionCreateRequest = { "consequences"?: Array<never>; "context"?: string; "decision"?: string; "linkedRiskIds"?: Array<string>; "metadata"?: JsonObject; "nextStepIds"?: Array<string>; "projectId": string; "status"?: "proposed" | "accepted" | "rejected" | "superseded" | "deprecated"; "title": string };
 export type ArchitectureDecisionResponse = { "architectureDecision": JsonObject };
+export type ArtifactCleanupRequest = { "dryRun"?: boolean };
+export type ArtifactCleanupResponse = { "artifactRoot": string; "deletedFiles": Array<JsonObject>; "dryRun": boolean; "keptReferencedFiles": number; "orphanFiles": Array<JsonObject> };
+export type ArtifactIngestRequest = { "content"?: JsonValue | string; "contentBase64"?: JsonValue | string; "kind": "execution_log" | "screenshot" | "test_report" | "qa_report" | "generic_artifact"; "mimeType"?: JsonValue | string; "name"?: JsonValue | string };
+export type ArtifactResponse = { "artifact": JsonObject };
+export type ArtifactRetentionActionRequest = { "action": string; "artifactIds": Array<string>; "now"?: JsonValue | string; "reason": string };
+export type ArtifactRetentionActionResponse = { "action": string; "artifacts": Array<JsonObject> };
+export type ArtifactRetentionPlanRequest = { "dryRun"?: boolean; "now"?: JsonValue | string };
+export type ArtifactRetentionPlanResponse = { "dryRun": boolean; "expiredArtifacts": Array<JsonObject>; "now": string; "riskIds": Array<string> };
 export type ChatCreateRequest = { "projectId": string; "prompt": string; "sessionId"?: JsonValue | string; "title"?: JsonValue | string };
 export type ChatResponse = { "chat": JsonObject };
 export type EmptyObjectRequest = JsonObject;
+export type EvidenceCreateRequest = { "acceptanceChecklist"?: Array<never>; "agentId"?: JsonValue | string; "diffRefs"?: Array<never>; "logs"?: Array<never>; "projectId": string; "qaVerdict"?: string; "riskNotes"?: Array<never>; "screenshotRefs"?: Array<never>; "taskId"?: string; "testPlan"?: string; "testResultReports"?: Array<JsonObject>; "testResults"?: Array<JsonObject>; "workflowRunId"?: JsonValue | string };
+export type EvidencePackageResponse = { "evidencePackage": JsonObject };
 export type HTTPValidationError = { "detail"?: Array<ValidationError> };
 export type HandshakeResponse = { "loopbackOnly": boolean; "token": string };
 export type HealthResponse = { "ok": boolean };
@@ -53,6 +65,8 @@ export type SandboxProfilePatchRequest = { "allowedImages"?: Array<string> | Jso
 export type SandboxProfileResponse = { "sandboxProfile": JsonObject };
 export type SessionCreateRequest = { "name"?: JsonValue | string; "projectId": string; "teamId"?: JsonValue | string };
 export type SessionResponse = { "session": JsonObject };
+export type SkillsSyncRequest = { "skillsPath"?: string };
+export type SkillsSyncResponse = { "skills": Array<JsonObject>; "synced": number };
 export type ValidationError = { "ctx"?: JsonObject; "input"?: JsonValue; "loc": Array<number | string>; "msg": string; "type": string };
 export type WorkflowCreateRequest = { "idea"?: JsonValue | string; "kind"?: "idea_to_pr" | "project_discovery" | "issue_to_pr" | "qa_validation" | "release_candidate"; "metadata"?: JsonObject; "projectId": string; "title"?: JsonValue | string };
 export type WorkflowResponse = { "workflow": JsonObject };
@@ -161,18 +175,18 @@ export type OperationMethod<T extends ApiOperationId> = OperationById<T>["method
 export type OperationRequestBodies = {
 	"agents_api_v1_agents_get": never,
 	"allocate_workspace_api_v1_workspaces_post": WorkspaceAllocateRequest,
-	"apply_artifact_retention_action_api_v1_evidence_artifacts_retention_actions_post": unknown,
+	"apply_artifact_retention_action_api_v1_evidence_artifacts_retention_actions_post": ArtifactRetentionActionRequest,
 	"approvals_api_v1_approvals_get": never,
 	"approve_action_api_v1_jobs__job_id__actions__action_id__approve_post": ApprovalReasonRequest,
 	"approve_job_api_v1_jobs__job_id__approve_post": ApprovalReasonRequest,
 	"archive_workspace_api_v1_workspaces__workspace_id__archive_post": WorkspaceArchiveRequest,
 	"cancel_job_api_v1_jobs__job_id__cancel_post": OptionalReasonRequest,
 	"cancel_workflow_api_v1_workflows__workflow_id__cancel_post": WorkflowStatusChangeRequest,
-	"cleanup_artifacts_api_v1_evidence_artifacts_cleanup_post": unknown,
-	"create_agent_run_api_v1_agent_runs_post": unknown,
+	"cleanup_artifacts_api_v1_evidence_artifacts_cleanup_post": ArtifactCleanupRequest,
+	"create_agent_run_api_v1_agent_runs_post": AgentRunCreateRequest,
 	"create_architecture_decision_api_v1_architecture_decisions_post": ArchitectureDecisionCreateRequest,
 	"create_chat_api_v1_chats_post": ChatCreateRequest,
-	"create_evidence_api_v1_evidence_post": unknown,
+	"create_evidence_api_v1_evidence_post": EvidenceCreateRequest,
 	"create_job_api_v1_jobs_post": JobCreateRequest,
 	"create_memory_api_v1_memory_post": MemoryCreateRequest,
 	"create_next_step_api_v1_next_steps_post": NextStepCreateRequest,
@@ -191,7 +205,7 @@ export type OperationRequestBodies = {
 	"governance_api_v1_governance_get": never,
 	"handshake_api_v1_security_handshake_get": never,
 	"healthz_healthz_get": never,
-	"ingest_artifact_api_v1_evidence__evidence_id__artifacts_post": unknown,
+	"ingest_artifact_api_v1_evidence__evidence_id__artifacts_post": ArtifactIngestRequest,
 	"list_agent_profiles_api_v1_agent_profiles_get": never,
 	"list_agent_runs_api_v1_agent_runs_get": never,
 	"list_architecture_decisions_api_v1_architecture_decisions_get": never,
@@ -216,7 +230,7 @@ export type OperationRequestBodies = {
 	"open_design_api_v1_open_design_get": never,
 	"overview_api_v1_overview_get": never,
 	"pause_workflow_api_v1_workflows__workflow_id__pause_post": WorkflowStatusChangeRequest,
-	"plan_artifact_retention_api_v1_evidence_artifacts_retention_post": unknown,
+	"plan_artifact_retention_api_v1_evidence_artifacts_retention_post": ArtifactRetentionPlanRequest,
 	"project_templates_api_v1_project_templates_get": never,
 	"projects_api_v1_projects_get": never,
 	"providers_api_v1_providers_get": never,
@@ -230,7 +244,7 @@ export type OperationRequestBodies = {
 	"revoke_sandbox_profile_api_v1_sandbox_profiles__profile_id__revoke_post": RequiredReasonRequest,
 	"sandbox_status_api_v1_sandbox_status_get": never,
 	"start_workflow_api_v1_workflows__workflow_id__start_post": WorkflowStatusChangeRequest,
-	"sync_skills_api_v1_skills_sync_post": unknown,
+	"sync_skills_api_v1_skills_sync_post": SkillsSyncRequest,
 	"teams_api_v1_teams_get": never,
 	"telemetry_status_api_v1_telemetry_status_get": never,
 	"update_next_step_api_v1_next_steps__step_id__patch": NextStepUpdateRequest,
@@ -245,18 +259,18 @@ export type OperationRequestBodies = {
 export type OperationResponseBodies = {
 	"agents_api_v1_agents_get": JsonObject,
 	"allocate_workspace_api_v1_workspaces_post": WorkspaceResponse,
-	"apply_artifact_retention_action_api_v1_evidence_artifacts_retention_actions_post": JsonObject,
+	"apply_artifact_retention_action_api_v1_evidence_artifacts_retention_actions_post": ArtifactRetentionActionResponse,
 	"approvals_api_v1_approvals_get": JsonObject,
 	"approve_action_api_v1_jobs__job_id__actions__action_id__approve_post": JobMutationResponse,
 	"approve_job_api_v1_jobs__job_id__approve_post": JobMutationResponse,
 	"archive_workspace_api_v1_workspaces__workspace_id__archive_post": WorkspaceArchiveResponse,
 	"cancel_job_api_v1_jobs__job_id__cancel_post": JobMutationResponse,
 	"cancel_workflow_api_v1_workflows__workflow_id__cancel_post": WorkflowResponse,
-	"cleanup_artifacts_api_v1_evidence_artifacts_cleanup_post": JsonObject,
-	"create_agent_run_api_v1_agent_runs_post": JsonObject,
+	"cleanup_artifacts_api_v1_evidence_artifacts_cleanup_post": ArtifactCleanupResponse,
+	"create_agent_run_api_v1_agent_runs_post": AgentRunResponse,
 	"create_architecture_decision_api_v1_architecture_decisions_post": ArchitectureDecisionResponse,
 	"create_chat_api_v1_chats_post": ChatResponse,
-	"create_evidence_api_v1_evidence_post": JsonObject,
+	"create_evidence_api_v1_evidence_post": EvidencePackageResponse,
 	"create_job_api_v1_jobs_post": JobMutationResponse,
 	"create_memory_api_v1_memory_post": MemoryResponse,
 	"create_next_step_api_v1_next_steps_post": NextStepResponse,
@@ -275,7 +289,7 @@ export type OperationResponseBodies = {
 	"governance_api_v1_governance_get": JsonObject,
 	"handshake_api_v1_security_handshake_get": HandshakeResponse,
 	"healthz_healthz_get": HealthResponse,
-	"ingest_artifact_api_v1_evidence__evidence_id__artifacts_post": JsonObject,
+	"ingest_artifact_api_v1_evidence__evidence_id__artifacts_post": ArtifactResponse,
 	"list_agent_profiles_api_v1_agent_profiles_get": JsonObject,
 	"list_agent_runs_api_v1_agent_runs_get": JsonObject,
 	"list_architecture_decisions_api_v1_architecture_decisions_get": JsonObject,
@@ -300,7 +314,7 @@ export type OperationResponseBodies = {
 	"open_design_api_v1_open_design_get": JsonObject,
 	"overview_api_v1_overview_get": JsonObject,
 	"pause_workflow_api_v1_workflows__workflow_id__pause_post": WorkflowResponse,
-	"plan_artifact_retention_api_v1_evidence_artifacts_retention_post": JsonObject,
+	"plan_artifact_retention_api_v1_evidence_artifacts_retention_post": ArtifactRetentionPlanResponse,
 	"project_templates_api_v1_project_templates_get": JsonObject,
 	"projects_api_v1_projects_get": JsonObject,
 	"providers_api_v1_providers_get": JsonObject,
@@ -314,7 +328,7 @@ export type OperationResponseBodies = {
 	"revoke_sandbox_profile_api_v1_sandbox_profiles__profile_id__revoke_post": SandboxProfileResponse,
 	"sandbox_status_api_v1_sandbox_status_get": JsonObject,
 	"start_workflow_api_v1_workflows__workflow_id__start_post": WorkflowStartResponse,
-	"sync_skills_api_v1_skills_sync_post": JsonObject,
+	"sync_skills_api_v1_skills_sync_post": SkillsSyncResponse,
 	"teams_api_v1_teams_get": JsonObject,
 	"telemetry_status_api_v1_telemetry_status_get": JsonObject,
 	"update_next_step_api_v1_next_steps__step_id__patch": NextStepResponse,

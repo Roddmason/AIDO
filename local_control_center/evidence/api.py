@@ -21,6 +21,18 @@ from .artifacts import (
     write_binary_artifact,
     write_text_artifact,
 )
+from .models import (
+    ArtifactCleanupRequest,
+    ArtifactCleanupResponse,
+    ArtifactIngestRequest,
+    ArtifactResponse,
+    ArtifactRetentionActionRequest,
+    ArtifactRetentionActionResponse,
+    ArtifactRetentionPlanRequest,
+    ArtifactRetentionPlanResponse,
+    EvidenceCreateRequest,
+    EvidencePackageResponse,
+)
 from .qa_reports import build_markdown_report
 from .repository import EvidenceRepository
 from .test_results import TestReportError, normalize_test_result_reports
@@ -41,11 +53,10 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     async def list_evidence() -> dict[str, Any]:
         return {"evidencePackages": repository().list_evidence_packages()}
 
-    @router.post("/api/v1/evidence/artifacts/cleanup", status_code=202)
-    async def cleanup_artifacts(request: Request) -> dict[str, Any]:
+    @router.post("/api/v1/evidence/artifacts/cleanup", status_code=202, response_model=ArtifactCleanupResponse)
+    async def cleanup_artifacts(body: ArtifactCleanupRequest, request: Request) -> ArtifactCleanupResponse:
         require_write(request)
-        body = await request.json()
-        dry_run = bool(body.get("dryRun", True))
+        dry_run = body.dry_run
         repo = repository()
         referenced_paths = {artifact["path"] for artifact in repo.list_all_artifacts()}
         result = cleanup_unreferenced_artifacts(
@@ -71,14 +82,25 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
                 "deletedFiles": len(result["deletedFiles"]),
             },
         )
-        return result
+        return ArtifactCleanupResponse(
+            dryRun=result["dryRun"],
+            artifactRoot=result["artifactRoot"],
+            orphanFiles=result["orphanFiles"],
+            deletedFiles=result["deletedFiles"],
+            keptReferencedFiles=result["keptReferencedFiles"],
+        )
 
-    @router.post("/api/v1/evidence/artifacts/retention", status_code=202)
-    async def plan_artifact_retention(request: Request) -> dict[str, Any]:
+    @router.post(
+        "/api/v1/evidence/artifacts/retention",
+        status_code=202,
+        response_model=ArtifactRetentionPlanResponse,
+    )
+    async def plan_artifact_retention(
+        body: ArtifactRetentionPlanRequest, request: Request
+    ) -> ArtifactRetentionPlanResponse:
         require_write(request)
-        body = await request.json()
-        dry_run = bool(body.get("dryRun", True))
-        now_iso = str(body.get("now") or utc_now())
+        dry_run = body.dry_run
+        now_iso = str(body.now or utc_now())
         expired_artifacts = repository().list_expired_referenced_artifacts(now_iso=now_iso)
         project_ids = sorted({artifact["projectId"] for artifact in expired_artifacts if artifact.get("projectId")})
         created_risk_ids: list[str] = []
@@ -116,27 +138,32 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             target="artifact_retention",
             payload={"dryRun": dry_run, "expiredArtifacts": len(expired_artifacts), "riskIds": created_risk_ids},
         )
-        return {
-            "dryRun": dry_run,
-            "now": now_iso,
-            "expiredArtifacts": expired_artifacts,
-            "riskIds": created_risk_ids,
-        }
+        return ArtifactRetentionPlanResponse(
+            dryRun=dry_run,
+            now=now_iso,
+            expiredArtifacts=expired_artifacts,
+            riskIds=created_risk_ids,
+        )
 
-    @router.post("/api/v1/evidence/artifacts/retention/actions", status_code=202)
-    async def apply_artifact_retention_action(request: Request) -> dict[str, Any]:
+    @router.post(
+        "/api/v1/evidence/artifacts/retention/actions",
+        status_code=202,
+        response_model=ArtifactRetentionActionResponse,
+    )
+    async def apply_artifact_retention_action(
+        body: ArtifactRetentionActionRequest, request: Request
+    ) -> ArtifactRetentionActionResponse:
         require_write(request)
-        body = await request.json()
-        reason = str(body.get("reason") or "").strip()
+        reason = body.reason.strip()
         if not reason:
             raise HTTPException(status_code=422, detail="Retention action reason is required.")
-        action = str(body.get("action") or "").strip().lower()
+        action = body.action.strip().lower()
         if action not in {"export", "delete"}:
             raise HTTPException(status_code=422, detail="Retention action must be export or delete.")
-        artifact_ids = body.get("artifactIds")
+        artifact_ids = body.artifact_ids
         if not isinstance(artifact_ids, list) or not artifact_ids or not all(isinstance(item, str) for item in artifact_ids):
             raise HTTPException(status_code=422, detail="artifactIds must be a non-empty list of artifact IDs.")
-        now_iso = str(body.get("now") or utc_now())
+        now_iso = str(body.now or utc_now())
 
         repo = repository()
         artifact_root = resolved_artifact_root(platform.cwd)
@@ -191,43 +218,43 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             target=",".join(artifact_ids),
             payload={"reason": reason, "artifactIds": artifact_ids, "now": now_iso},
         )
-        return {"action": action, "artifacts": acted}
+        return ArtifactRetentionActionResponse(action=action, artifacts=acted)
 
-    @router.post("/api/v1/evidence", status_code=201)
-    async def create_evidence(request: Request) -> dict[str, Any]:
+    @router.post("/api/v1/evidence", status_code=201, response_model=EvidencePackageResponse)
+    async def create_evidence(body: EvidenceCreateRequest, request: Request) -> EvidencePackageResponse:
         require_write(request)
-        body = await request.json()
+        payload = body.model_dump(by_alias=True)
         try:
-            normalized_report_results = normalize_test_result_reports(body.get("testResultReports") or [])
+            normalized_report_results = normalize_test_result_reports(payload.get("testResultReports") or [])
         except TestReportError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
-        test_results = [*(body.get("testResults") or []), *normalized_report_results]
-        if body.get("qaVerdict") == "passed" and not (
-            test_results or body.get("diffRefs") or body.get("screenshotRefs")
+        test_results = [*(payload.get("testResults") or []), *normalized_report_results]
+        if payload.get("qaVerdict") == "passed" and not (
+            test_results or payload.get("diffRefs") or payload.get("screenshotRefs")
         ):
             raise HTTPException(
                 status_code=422,
                 detail="QA cannot pass without test results, diff refs, or screenshot/artifact refs.",
             )
-        logs, log_artifacts = promote_large_logs(root=platform.cwd, logs=body.get("logs") or [])
+        logs, log_artifacts = promote_large_logs(root=platform.cwd, logs=payload.get("logs") or [])
         screenshot_refs, screenshot_artifacts = promote_screenshots(
             root=platform.cwd,
-            screenshot_refs=body.get("screenshotRefs") or [],
+            screenshot_refs=payload.get("screenshotRefs") or [],
         )
         repo = repository()
         evidence = repo.create_evidence_package(
-            project_id=body["projectId"],
-            workflow_run_id=body.get("workflowRunId"),
-            agent_id=body.get("agentId"),
-            task_id=body.get("taskId", "task"),
-            test_plan=body.get("testPlan", ""),
-            acceptance_checklist=body.get("acceptanceChecklist") or [],
+            project_id=payload["projectId"],
+            workflow_run_id=payload.get("workflowRunId"),
+            agent_id=payload.get("agentId"),
+            task_id=payload.get("taskId", "task"),
+            test_plan=payload.get("testPlan", ""),
+            acceptance_checklist=payload.get("acceptanceChecklist") or [],
             test_results=test_results,
             logs=logs,
-            diff_refs=body.get("diffRefs") or [],
+            diff_refs=payload.get("diffRefs") or [],
             screenshot_refs=screenshot_refs,
-            risk_notes=body.get("riskNotes") or [],
-            qa_verdict=body.get("qaVerdict", "not_started"),
+            risk_notes=payload.get("riskNotes") or [],
+            qa_verdict=payload.get("qaVerdict", "not_started"),
         )
         for artifact in [*log_artifacts, *screenshot_artifacts]:
             repo.create_artifact(
@@ -263,7 +290,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
                     event_type="risk.created",
                     payload={"riskId": risk["id"], "sourceType": "qa_verdict"},
                 )
-        return {"evidencePackage": evidence}
+        return EvidencePackageResponse(evidencePackage=evidence)
 
     @router.get("/api/v1/evidence/{evidence_id}")
     async def get_evidence(evidence_id: str) -> dict[str, Any]:
@@ -298,14 +325,14 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         response.headers["X-AIDO-Evidence-Id"] = evidence["id"]
         return response
 
-    @router.post("/api/v1/evidence/{evidence_id}/artifacts", status_code=201)
-    async def ingest_artifact(evidence_id: str, request: Request) -> dict[str, Any]:
+    @router.post("/api/v1/evidence/{evidence_id}/artifacts", status_code=201, response_model=ArtifactResponse)
+    async def ingest_artifact(evidence_id: str, body: ArtifactIngestRequest, request: Request) -> ArtifactResponse:
         require_write(request)
-        body = await request.json()
-        kind = str(body.get("kind") or "").strip()
+        payload = body.model_dump(by_alias=True, exclude_none=True)
+        kind = str(payload.get("kind") or "").strip()
         if kind not in allowed_artifact_kinds:
             raise HTTPException(status_code=422, detail="Unsupported artifact kind.")
-        name = str(body.get("name") or f"{kind}.artifact").strip()
+        name = str(payload.get("name") or f"{kind}.artifact").strip()
         if not name or any(separator in name for separator in ("/", "\\", ":")):
             raise HTTPException(status_code=422, detail="Artifact name must be a simple filename.")
         repo = repository()
@@ -315,16 +342,16 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             raise HTTPException(status_code=404, detail=str(error)) from error
 
         artifact_id = f"artifact-{uuid.uuid4()}"
-        if isinstance(body.get("content"), str):
-            content = body["content"]
+        if isinstance(payload.get("content"), str):
+            content = payload["content"]
             if len(content.encode("utf-8")) > max_ingested_artifact_bytes:
                 raise HTTPException(status_code=422, detail="Artifact content exceeds maximum accepted size.")
             suffix = Path(name).suffix or ".txt"
             artifact_file = write_text_artifact(root=platform.cwd, artifact_id=artifact_id, suffix=suffix, content=content)
-            mime_type = str(body.get("mimeType") or "text/plain")
-        elif isinstance(body.get("contentBase64"), str):
+            mime_type = str(payload.get("mimeType") or "text/plain")
+        elif isinstance(payload.get("contentBase64"), str):
             try:
-                content_bytes = base64.b64decode(body["contentBase64"], validate=True)
+                content_bytes = base64.b64decode(payload["contentBase64"], validate=True)
             except ValueError as error:
                 raise HTTPException(status_code=422, detail="contentBase64 is not valid base64.") from error
             if len(content_bytes) > max_ingested_artifact_bytes:
@@ -336,7 +363,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
                 suffix=suffix,
                 content=content_bytes,
             )
-            mime_type = str(body.get("mimeType") or "application/octet-stream")
+            mime_type = str(payload.get("mimeType") or "application/octet-stream")
         else:
             raise HTTPException(status_code=422, detail="Artifact requires content or contentBase64.")
 
@@ -365,7 +392,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             target=artifact["id"],
             payload={"evidencePackageId": evidence["id"], "kind": kind, "name": name},
         )
-        return {"artifact": artifact}
+        return ArtifactResponse(artifact=artifact)
 
     @router.get("/api/v1/evidence/{evidence_id}/artifacts/{artifact_id}")
     async def get_artifact(evidence_id: str, artifact_id: str, request: Request) -> FileResponse:

@@ -78,5 +78,6 @@ flowchart LR
   revocations, project creation, session/chat creation, pipeline creation,
   memory creation, retrieval search/reindex, and prompt upserts now generate
   named OpenAPI DTOs. Evidence mutations, artifact retention operations, skill
-  sync, agent-run creation, and larger overview subresources still need
-  narrower schemas.
+  sync, and agent-run creation are also typed. Active v1 mutating routes no
+  longer produce `unknown` request bodies; larger read models and overview
+  subresources still need narrower schemas.

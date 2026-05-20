@@ -148,6 +148,10 @@
 - Project creation, session/chat creation, pipeline creation, memory creation,
   retrieval search/reindex, and prompt upserts now expose Pydantic contracts,
   reducing the remaining operator-facing JSON-free configuration gap.
+- Agent-run creation, skill sync, evidence package creation, artifact ingest,
+  artifact cleanup, and artifact retention actions now expose Pydantic
+  contracts. The generated OpenAPI client no longer has `unknown` request-body
+  entries for active v1 routes.
 - The OpenAPI client generator tolerates Windows temporary-directory cleanup
   races after closing SQLite-backed runtime state.
 - Command palette and workflow inspector are backed by FastAPI v1 state rather
@@ -174,10 +178,9 @@
 1. Keep tightening tests around direct repositories and
    `tests_py/control_plane_fixture.py` where broad fixture setup is still
    noisier than the behavior under test.
-2. Continue adding explicit Pydantic request/response models to evidence
-   mutations, artifact retention operations, skill sync, agent-run creation, and
-   larger overview subresources so generated DTOs become domain-specific
-   instead of `unknown`/`JsonObject` fallbacks.
+2. Continue narrowing read response models and larger overview subresources so
+   generated DTOs become domain-specific instead of broad `JsonObject`
+   fallbacks.
 3. Run the installed-runtime issue-to-patch smoke on a release validation
    runner with OpenHands/SWE-agent installed and exact argv env vars supplied.
 

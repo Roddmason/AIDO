@@ -86,6 +86,14 @@ runs. Dangerous runtime flags such as `--no-sandbox`, `--privileged`,
 detection or subprocess execution. This prevents an unavailable local runtime
 from hiding malformed or unsafe adapter payloads.
 
+The optional runtime smoke script runs version checks automatically when a
+runtime CLI is detected. Deeper `issue_to_patch` smoke is intentionally
+release-profile only: set `AIDO_RUNTIME_ISSUE_TO_PATCH_SMOKE=1` plus
+`AIDO_OPENHANDS_ISSUE_TO_PATCH_ARGV_JSON` or
+`AIDO_SWE_AGENT_ISSUE_TO_PATCH_ARGV_JSON` with the exact installed CLI syntax.
+The script still submits the run through the agent profile, tool broker,
+policy, sandbox, and evidence path; it never launches those runtimes directly.
+
 ## Runtime Adapter Execution
 
 The broker has executable adapter hooks for:

@@ -113,6 +113,9 @@
   contracts and reject missing `issueText`, missing workspace path, malformed
   `argv`, wrong executable, and dangerous runtime flags before install
   detection or execution.
+- The optional runtime smoke profile can run OpenHands/SWE-agent
+  `issue_to_patch` through the broker when release validation explicitly
+  provides the installed CLI argv and issue text.
 - GitHub Actions quality workflow runs default tests/build/lint and exposes
   explicit workflow-dispatch switches for runtime and OTEL smokes.
 - The frontend has a generated OpenAPI endpoint map checked in at
@@ -152,8 +155,8 @@
 2. Continue adding explicit Pydantic request/response models to mutating
    FastAPI routes and larger overview subresources so generated DTOs become
    domain-specific instead of `JsonObject` fallbacks.
-3. Add installed-runtime issue-to-patch smoke fixtures for OpenHands/SWE-agent
-   in a release validation profile when those CLIs are available on the runner.
+3. Run the installed-runtime issue-to-patch smoke on a release validation
+   runner with OpenHands/SWE-agent installed and exact argv env vars supplied.
 
 ## Next Frontend Work
 

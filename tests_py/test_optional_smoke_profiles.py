@@ -18,6 +18,9 @@ def test_optional_runtime_smoke_script_is_explicitly_opt_in() -> None:
     assert "openhands" in content
     assert "swe_agent" in content
     assert "mcp" in content
+    assert "Resolve-OptionalCommand" in content
+    assert "openhands --version" in content
+    assert "swe-agent --version" in content
     assert "X-Local-Control-Token" in content
     assert "exit 0" in content
 

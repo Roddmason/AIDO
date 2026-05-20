@@ -53,7 +53,7 @@ async function createWorkflowEvidence(page) {
 			isolationType: 'git_worktree',
 		},
 	});
-	await page.request.post('/api/v1/evidence', {
+	const evidenceResponse = await page.request.post('/api/v1/evidence', {
 		headers: { 'X-Local-Control-Token': token },
 		data: {
 			projectId,
@@ -65,7 +65,18 @@ async function createWorkflowEvidence(page) {
 			testResults: [{ command: 'uv run pytest tests_py -q', status: 'passed' }],
 		},
 	});
-	return { ...workflow, workflowRunId: started.workflowRun.id };
+	const { evidencePackage } = await evidenceResponse.json();
+	const artifactName = `web-qa-report-${Date.now()}.md`;
+	await page.request.post(`/api/v1/evidence/${evidencePackage.id}/artifacts`, {
+		headers: { 'X-Local-Control-Token': token },
+		data: {
+			kind: 'qa_report',
+			name: artifactName,
+			content: '# Web QA report\n\nWorkflow inspector artifact smoke.',
+			mimeType: 'text/markdown',
+		},
+	});
+	return { ...workflow, workflowRunId: started.workflowRun.id, evidenceId: evidencePackage.id, artifactName };
 }
 
 async function createGovernanceState(page) {
@@ -233,6 +244,21 @@ test('Event drawer exposes recent operational events', async ({ page }) => {
 	await page.getByRole('button', { name: 'Open event drawer' }).click();
 	await expect(page.getByRole('dialog', { name: 'Event drawer' })).toBeVisible();
 	await expect(page.getByText('job.created').first()).toBeVisible();
+});
+
+test('command palette opens searchable event drawer', async ({ page }) => {
+	await createApprovalJob(page);
+	await page.goto('/');
+
+	await page.getByRole('button', { name: 'Open command palette' }).click();
+	await page.getByLabel('Command palette filter').fill('search events');
+	await page.getByRole('button', { name: 'Search Events' }).click();
+
+	await expect(page.getByRole('dialog', { name: 'Event drawer' })).toBeVisible();
+	await page.getByLabel('Event filter').fill('job.created');
+	await expect(page.getByText('job.created').first()).toBeVisible();
+	await page.getByLabel('Event filter').fill('no-such-event-type');
+	await expect(page.getByText('No events')).toBeVisible();
 });
 
 test('Memory & Retrieval shows backend status and memory records', async ({ page }) => {
@@ -439,6 +465,10 @@ test('command palette executes v1 actions and workflow inspector shows linked re
 	await expect(page.getByText('workspace_create').first()).toBeVisible();
 	await expect(page.getByText('web-story-evidence').first()).toBeVisible();
 	await expect(page.getByText('python --version').first()).toBeVisible();
+	await expect(page.getByText('Policy decisions')).toBeVisible();
+	await expect(page.getByText('allowlisted_diagnostic').first()).toBeVisible();
+	await expect(page.getByText('Artifacts')).toBeVisible();
+	await expect(page.getByText(workflow.artifactName).first()).toBeVisible();
 	await page.keyboard.press('Escape');
 	await expect(page.getByRole('dialog', { name: 'Workflow inspector' })).toBeHidden();
 
@@ -446,4 +476,15 @@ test('command palette executes v1 actions and workflow inspector shows linked re
 	await page.getByLabel('Command palette filter').fill('approval');
 	await page.getByRole('button', { name: 'Open Pending Approvals' }).click();
 	await expect(page.getByRole('dialog', { name: 'Approval drawer' })).toBeVisible();
+});
+
+test('command palette can create a workflow through typed v1 mutation', async ({ page }) => {
+	await page.goto('/');
+
+	await page.getByRole('button', { name: 'Open command palette' }).click();
+	await page.getByLabel('Command palette filter').fill('create workflow');
+	await page.getByRole('button', { name: 'Create Workflow' }).click();
+
+	await expect(page.getByRole('heading', { name: 'Workflows' })).toBeVisible();
+	await expect(page.getByText('Palette workflow').first()).toBeVisible();
 });

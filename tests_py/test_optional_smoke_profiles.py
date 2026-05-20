@@ -24,6 +24,11 @@ def test_optional_runtime_smoke_script_is_explicitly_opt_in() -> None:
     assert "Resolve-OptionalCommand" in content
     assert "openhands --version" in content
     assert "swe-agent --version" in content
+    assert "AIDO_RUNTIME_ISSUE_TO_PATCH_SMOKE" in content
+    assert "AIDO_OPENHANDS_ISSUE_TO_PATCH_ARGV_JSON" in content
+    assert "AIDO_SWE_AGENT_ISSUE_TO_PATCH_ARGV_JSON" in content
+    assert 'operation = "issue_to_patch"' in content
+    assert "issueText" in content
     assert "X-Local-Control-Token" in content
     assert "exit 0" in content
 

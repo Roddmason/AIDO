@@ -135,6 +135,32 @@ if ($argv) {
     }) | Out-Null
 }
 
+if ($env:AIDO_RUNTIME_ISSUE_TO_PATCH_SMOKE -eq "1") {
+    $issueArgv = $null
+    if ($env:AIDO_OPENHANDS_ISSUE_TO_PATCH_ARGV_JSON) {
+        $issueArgv = @($env:AIDO_OPENHANDS_ISSUE_TO_PATCH_ARGV_JSON | ConvertFrom-Json)
+    }
+    if ($issueArgv) {
+        $issueText = $env:AIDO_OPENHANDS_ISSUE_TEXT
+        if (-not $issueText) {
+            $issueText = "Create a minimal no-op validation patch only if required by the release smoke profile."
+        }
+        New-AgentProfile -Id "smoke_openhands_issue_$suffix" -RuntimeMode "hybrid" -AllowedTools @("openhands")
+        New-AgentRun -AgentProfileId "smoke_openhands_issue_$suffix" -TaskId "openhands_issue_to_patch_smoke" -ToolCalls @(@{
+            tool = "openhands"
+            operation = "issue_to_patch"
+            argv = $issueArgv
+            issueText = $issueText
+            workspacePath = $projectPath
+            path = $projectPath
+            execute = $true
+            timeoutSeconds = 900
+        }) | Out-Null
+    } else {
+        Write-Host "Skip OpenHands issue_to_patch smoke. Set AIDO_OPENHANDS_ISSUE_TO_PATCH_ARGV_JSON for the installed CLI syntax."
+    }
+}
+
 $argv = $null
 if ($env:AIDO_SWE_AGENT_SMOKE_ARGV_JSON) {
     $argv = @($env:AIDO_SWE_AGENT_SMOKE_ARGV_JSON | ConvertFrom-Json)
@@ -155,6 +181,32 @@ if ($argv) {
         execute = $true
         timeoutSeconds = 60
     }) | Out-Null
+}
+
+if ($env:AIDO_RUNTIME_ISSUE_TO_PATCH_SMOKE -eq "1") {
+    $issueArgv = $null
+    if ($env:AIDO_SWE_AGENT_ISSUE_TO_PATCH_ARGV_JSON) {
+        $issueArgv = @($env:AIDO_SWE_AGENT_ISSUE_TO_PATCH_ARGV_JSON | ConvertFrom-Json)
+    }
+    if ($issueArgv) {
+        $issueText = $env:AIDO_SWE_AGENT_ISSUE_TEXT
+        if (-not $issueText) {
+            $issueText = "Create a minimal no-op validation patch only if required by the release smoke profile."
+        }
+        New-AgentProfile -Id "smoke_swe_agent_issue_$suffix" -RuntimeMode "hybrid" -AllowedTools @("swe_agent")
+        New-AgentRun -AgentProfileId "smoke_swe_agent_issue_$suffix" -TaskId "swe_agent_issue_to_patch_smoke" -ToolCalls @(@{
+            tool = "swe_agent"
+            operation = "issue_to_patch"
+            argv = $issueArgv
+            issueText = $issueText
+            workspacePath = $projectPath
+            path = $projectPath
+            execute = $true
+            timeoutSeconds = 900
+        }) | Out-Null
+    } else {
+        Write-Host "Skip SWE-agent issue_to_patch smoke. Set AIDO_SWE_AGENT_ISSUE_TO_PATCH_ARGV_JSON for the installed CLI syntax."
+    }
 }
 
 Write-Host "Runtime adapter smoke completed. Optional adapters skipped unless their AIDO_*_SMOKE variables were set."

@@ -4,6 +4,7 @@ import {
 	createModelPolicy,
 	discoverModelGatewayProviderModels,
 	getModelGatewayBudgetRules,
+	getModelGatewayBenchmarks,
 	getModelGatewayCliRuntimes,
 	getModelGatewayCliSessions,
 	getModelGatewayModels,
@@ -37,6 +38,7 @@ type ModelGatewayState = {
 	budgetRules: Dictionary[];
 	cliRuntimes: Dictionary[];
 	cliSessions: Dictionary[];
+	benchmarks: Dictionary[];
 };
 
 const emptyGatewayState: ModelGatewayState = {
@@ -52,6 +54,7 @@ const emptyGatewayState: ModelGatewayState = {
 	budgetRules: [],
 	cliRuntimes: [],
 	cliSessions: [],
+	benchmarks: [],
 };
 
 function text(value: unknown, fallback = 'n/a') {
@@ -143,6 +146,7 @@ export function ModelGatewayPage({
 				budgetRules,
 				cliRuntimes,
 				cliSessions,
+				benchmarks,
 			] = await Promise.all([
 				getModelGatewayOverview(),
 				getModelGatewayProviders(),
@@ -156,6 +160,7 @@ export function ModelGatewayPage({
 				getModelGatewayBudgetRules(),
 				getModelGatewayCliRuntimes(),
 				getModelGatewayCliSessions(),
+				getModelGatewayBenchmarks(),
 			]);
 			setGateway({
 				overview: gatewayOverview.overview,
@@ -170,6 +175,7 @@ export function ModelGatewayPage({
 				budgetRules: budgetRules.budgetRules,
 				cliRuntimes: cliRuntimes.cliRuntimes,
 				cliSessions: cliSessions.cliSessions,
+				benchmarks: benchmarks.benchmarks,
 			});
 		} catch (loadError) {
 			setError(loadError instanceof Error ? loadError.message : 'Model Gateway state failed to load.');
@@ -654,7 +660,18 @@ export function ModelGatewayPage({
 			</Surface>
 
 			<Surface title="Benchmarks">
-				<EmptyState title="insufficient data" body="Benchmarks require repeated task outcomes before success rate, QA pass rate, cost, latency or rework rate can be shown." />
+				<DataTable rows={gateway.benchmarks} empty={<EmptyState title="insufficient data" body="Benchmarks require repeated task outcomes before success rate, QA pass rate, cost, latency or rework rate can be shown." />} columns={[
+					{ key: 'provider', label: 'Provider', render: (row) => text(row.providerId) },
+					{ key: 'model', label: 'Model', render: (row) => text(row.model) },
+					{ key: 'role', label: 'Role', render: (row) => text(row.role) },
+					{ key: 'attempts', label: 'Tasks attempted', render: (row) => text(row.tasksAttempted, '0') },
+					{ key: 'success', label: 'Success rate', render: (row) => row.successRate === null || row.successRate === undefined ? 'insufficient data' : `${Number(row.successRate).toFixed(2)}%` },
+					{ key: 'qa', label: 'QA pass rate', render: (row) => row.qaPassRate === null || row.qaPassRate === undefined ? 'insufficient data' : `${Number(row.qaPassRate).toFixed(2)}%` },
+					{ key: 'cost', label: 'Avg cost', render: (row) => row.avgCost === null || row.avgCost === undefined ? 'unknown' : money(row.avgCost) },
+					{ key: 'latency', label: 'Avg latency', render: (row) => text(row.avgLatencyMs) },
+					{ key: 'rework', label: 'Rework rate', render: (row) => row.reworkRate === null || row.reworkRate === undefined ? 'insufficient data' : `${Number(row.reworkRate).toFixed(2)}%` },
+					{ key: 'last', label: 'Last used', render: (row) => text(row.lastUsedAt) },
+				]} />
 			</Surface>
 
 			<Surface title="Settings">

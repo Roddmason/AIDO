@@ -264,6 +264,7 @@ class RoutingPolicyResult(BaseModel):
 
 
 class RoutingPreviewRequest(GatewayFlexibleModel):
+    project_id: str | None = Field(default=None, alias="projectId")
     role: str = "developer"
     task_type: str = Field(default="task", alias="taskType")
     mode: str = "balanced_best_value"

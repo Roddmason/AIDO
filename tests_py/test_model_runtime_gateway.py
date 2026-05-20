@@ -493,6 +493,59 @@ def test_benchmark_outcome_endpoint_records_success_qa_and_rework_rates(
     assert benchmark["avgLatencyMs"] == 1200
 
 
+def test_evidence_creation_ingests_benchmark_outcome_from_usage_ledger(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    headers = auth_headers(client)
+    with client:
+        store = client.app.state.runtime  # type: ignore[attr-defined]
+        project = store.create_project(name="Benchmark Evidence", path=tmp_path / "benchmark-evidence", template_id="other")
+        usage = UsageLedger(store.connection).record_usage(
+            provider_id="codex_cli",
+            model="gpt-5.5",
+            runtime_type="cli",
+            role="developer",
+            workflow_run_id="workflow-run-benchmark",
+            workflow_step_id="workflow-step-benchmark",
+            agent_id="agent-dev",
+            task_id="implementation",
+            estimated_cost_usd=0.33,
+            latency_ms=900,
+            raw_usage={"usage_source": "estimated"},
+        )
+
+    created = client.post(
+        "/api/v1/evidence",
+        headers=headers,
+        json={
+            "projectId": project["id"],
+            "workflowRunId": "workflow-run-benchmark",
+            "workflowStepId": "workflow-step-benchmark",
+            "agentId": "agent-dev",
+            "taskId": "implementation",
+            "usageLedgerId": usage["id"],
+            "testPlan": "Verify routed implementation",
+            "testResults": [{"command": "pytest", "status": "passed", "durationMs": 900}],
+            "qaVerdict": "passed",
+        },
+    )
+    outcomes = client.get("/api/v1/model-gateway/benchmark-outcomes")
+
+    assert created.status_code == 201
+    assert outcomes.status_code == 200
+    outcome = next(item for item in outcomes.json()["outcomes"] if item["usageLedgerId"] == usage["id"])
+    assert outcome["providerId"] == "codex_cli"
+    assert outcome["model"] == "gpt-5.5"
+    assert outcome["runtimeType"] == "cli"
+    assert outcome["workflowStepId"] == "workflow-step-benchmark"
+    assert outcome["success"] is True
+    assert outcome["qaPass"] is True
+    assert outcome["rework"] is False
+    assert outcome["estimatedCostUsd"] == 0.33
+    assert outcome["latencyMs"] == 900
+
+
 def test_nvidia_provider_mock_parses_usage_and_handles_429(tmp_path: Path) -> None:
     with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
         initialize_platform_schema(connection)
@@ -694,6 +747,13 @@ def test_route_execute_real_is_blocked_by_default_and_requires_approval_when_cos
     )
     assert approval.status_code == 409
     assert "approval" in approval.json()["detail"].lower()
+    action_requests = client.get("/api/v1/approvals").json()["actionRequests"]
+    model_route_actions = [item for item in action_requests if item["actionType"] == "model.route.execute"]
+    assert len(model_route_actions) == 1
+    assert model_route_actions[0]["status"] == "pending"
+    assert model_route_actions[0]["payload"]["routing"]["selected"]["provider"] == "codex_cli"
+    overview = client.get("/api/v1/model-gateway/overview").json()["overview"]
+    assert overview["pendingModelApprovals"] == 1
 
 
 def test_workflow_start_records_model_router_decisions_for_each_step(

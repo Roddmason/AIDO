@@ -194,12 +194,92 @@ class ModelBenchmarkStore:
         row = self.connection.execute("SELECT * FROM model_benchmark_outcomes WHERE id = ?", (outcome_id,)).fetchone()
         return _row_to_outcome(row)
 
+    def record_evidence_outcome(
+        self,
+        *,
+        evidence: dict[str, Any],
+        payload: dict[str, Any],
+        test_results: list[dict[str, Any]],
+    ) -> dict[str, Any] | None:
+        usage = self._usage_for_outcome(payload.get("usageLedgerId"))
+        provider_id = payload.get("providerId") or (usage or {}).get("providerId")
+        model = payload.get("model") or (usage or {}).get("model")
+        if not provider_id or not model:
+            return None
+        usage_ledger_id = payload.get("usageLedgerId") or (usage or {}).get("id")
+        if usage_ledger_id and self._outcome_exists_for_usage(usage_ledger_id):
+            return None
+        verdict = str(evidence.get("qaVerdict") or "").lower()
+        failed_statuses = {"failed", "error", "denied", "blocked", "timeout"}
+        any_failed = any(str(result.get("status") or "").lower() in failed_statuses for result in test_results)
+        qa_pass = True if verdict == "passed" else False if verdict in {"failed", "blocked", "needs_human_review"} or any_failed else None
+        success = True if qa_pass is True else False if qa_pass is False else None
+        rework = False if qa_pass is True else True if qa_pass is False else None
+        return self.record_outcome(
+            {
+                "providerId": provider_id,
+                "model": model,
+                "runtimeType": payload.get("runtimeType") or (usage or {}).get("runtimeType") or "api",
+                "role": payload.get("role") or (usage or {}).get("role"),
+                "workflowRunId": evidence.get("workflowRunId") or (usage or {}).get("workflowRunId"),
+                "workflowStepId": payload.get("workflowStepId") or (usage or {}).get("workflowStepId"),
+                "agentId": evidence.get("agentId") or (usage or {}).get("agentId"),
+                "jobId": payload.get("jobId") or (usage or {}).get("jobId"),
+                "taskId": evidence.get("taskId") or (usage or {}).get("taskId"),
+                "usageLedgerId": usage_ledger_id,
+                "success": success,
+                "qaPass": qa_pass,
+                "rework": rework if payload.get("rework") is None else payload.get("rework"),
+                "estimatedCostUsd": _value_or_default(payload.get("estimatedCostUsd"), (usage or {}).get("estimatedCostUsd")),
+                "actualCostUsd": _value_or_default(payload.get("actualCostUsd"), (usage or {}).get("actualCostUsd")),
+                "latencyMs": _value_or_default(payload.get("latencyMs"), (usage or {}).get("latencyMs")),
+                "metadata": {
+                    "source": "evidence_ingestion",
+                    "evidencePackageId": evidence.get("id"),
+                    "qaVerdict": evidence.get("qaVerdict"),
+                },
+            }
+        )
+
     def list_outcomes(self) -> list[dict[str, Any]]:
         rows = self.connection.execute("SELECT * FROM model_benchmark_outcomes ORDER BY created_at DESC").fetchall()
         return [_row_to_outcome(row) for row in rows]
+
+    def _usage_for_outcome(self, usage_ledger_id: Any) -> dict[str, Any] | None:
+        if not usage_ledger_id:
+            return None
+        row = self.connection.execute("SELECT * FROM usage_ledger WHERE id = ?", (str(usage_ledger_id),)).fetchone()
+        if not row:
+            return None
+        return {
+            "id": row["id"],
+            "providerId": row["provider_id"],
+            "model": row["model"],
+            "runtimeType": row["runtime_type"],
+            "role": row["role"],
+            "workflowRunId": row["workflow_run_id"],
+            "workflowStepId": row["workflow_step_id"],
+            "agentId": row["agent_id"],
+            "jobId": row["job_id"],
+            "taskId": row["task_id"],
+            "estimatedCostUsd": row["estimated_cost_usd"],
+            "actualCostUsd": row["actual_cost_usd"],
+            "latencyMs": row["latency_ms"],
+        }
+
+    def _outcome_exists_for_usage(self, usage_ledger_id: str) -> bool:
+        row = self.connection.execute(
+            "SELECT 1 FROM model_benchmark_outcomes WHERE usage_ledger_id = ? LIMIT 1",
+            (usage_ledger_id,),
+        ).fetchone()
+        return row is not None
 
 
 def _bool_to_int(value: Any) -> int | None:
     if value is None:
         return None
     return 1 if bool(value) else 0
+
+
+def _value_or_default(value: Any, default: Any) -> Any:
+    return default if value is None else value

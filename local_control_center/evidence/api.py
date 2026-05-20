@@ -10,6 +10,7 @@ import uuid
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, PlainTextResponse
 
+from ..agents.model_benchmarks import ModelBenchmarkStore
 from ..governance.signals import record_governance_risk
 from ..shared.event_bus import EventBus
 from ..shared.time import utc_now
@@ -292,6 +293,23 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
                     event_type="risk.created",
                     payload={"riskId": risk["id"], "sourceType": "qa_verdict"},
                 )
+        outcome = ModelBenchmarkStore(platform.connection).record_evidence_outcome(
+            evidence=evidence,
+            payload=payload,
+            test_results=test_results,
+        )
+        if outcome:
+            event_bus().record_audit(
+                project_id=evidence["projectId"],
+                action="model_gateway.benchmark_outcome.ingest",
+                target=outcome["id"],
+                payload={
+                    "evidencePackageId": evidence["id"],
+                    "usageLedgerId": outcome.get("usageLedgerId"),
+                    "providerId": outcome["providerId"],
+                    "model": outcome["model"],
+                },
+            )
         return EvidencePackageResponse(evidencePackage=evidence)
 
     @router.get("/api/v1/evidence/{evidence_id}", response_model=EvidenceDetailResponse)

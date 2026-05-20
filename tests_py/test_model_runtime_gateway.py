@@ -172,7 +172,7 @@ def test_provider_accounts_reject_raw_credential_refs_and_support_env_scheme(
     assert "sk-testsecret" not in str(provider)
 
 
-def test_credential_resolver_is_env_first_optional_keyring_and_redacted(
+def test_credential_resolver_supports_env_keyring_fallbacks_and_redaction(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("AIDO_PROVIDER_SECRET", "sk-testsecret123456")
@@ -194,6 +194,48 @@ def test_credential_resolver_is_env_first_optional_keyring_and_redacted(
     assert keyring_result.status in {"configured", "missing", "unsupported"}
     assert "sk-testsecret" not in repr(env_result)
     assert "sk-testsecret" not in str(env_result.to_public_dict())
+
+
+def test_credential_resolver_fetches_remote_openbao_kv2_secret_without_persistence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    requests: list[tuple[str, dict[str, str]]] = []
+
+    def fake_http_json_get(url: str, headers: dict[str, str], timeout: float) -> dict[str, object]:
+        requests.append((url, headers))
+        return {"data": {"data": {"api_key": "sk-remote-secret123456"}}}
+
+    monkeypatch.setenv("AIDO_SECRET_VAULT_ADDR", "https://vault.example")
+    monkeypatch.setenv("AIDO_SECRET_VAULT_TOKEN", "vault-session-token")
+    resolver = CredentialResolver(http_json_get=fake_http_json_get)
+
+    status = resolver.status("openbao:secret/providers/nvidia_nim#api_key")
+    result = resolver.resolve("openbao:secret/providers/nvidia_nim#api_key")
+
+    assert status == "configured"
+    assert result.status == "configured"
+    assert result.source == "openbao"
+    assert result.value == "sk-remote-secret123456"
+    assert requests == [
+        (
+            "https://vault.example/v1/secret/data/providers/nvidia_nim",
+            {"X-Vault-Token": "vault-session-token", "Accept": "application/json"},
+        )
+    ]
+    assert "remote-secret" not in repr(result)
+    assert "vault-session-token" not in repr(result)
+
+
+def test_remote_vault_refs_validate_format_and_configuration(monkeypatch: pytest.MonkeyPatch) -> None:
+    resolver = CredentialResolver(http_json_get=lambda url, headers, timeout: {})
+
+    missing = resolver.resolve("openbao:secret/providers/nvidia_nim#api_key")
+    invalid = resolver.resolve("openbao:secret/providers/nvidia_nim")
+
+    assert missing.status == "missing"
+    assert "not configured" in missing.message
+    assert invalid.status == "invalid"
+    assert "field" in invalid.message
 
 
 def test_openai_compatible_provider_uses_credential_resolver(monkeypatch: pytest.MonkeyPatch) -> None:

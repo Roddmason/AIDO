@@ -8,8 +8,9 @@ The Model Gateway is the local-first control surface for model API providers, CL
 
 - Keep real calls disabled by default: `AIDO_ENABLE_REAL_PROVIDER_CALLS=false`.
 - Enable providers through `/api/v1/model-gateway/providers/{id}`.
-- Store only `credential_ref` values such as `env:NVIDIA_NIM_API_KEY`; never
-  store raw keys. See `docs/credentials.md`.
+- Store only `credential_ref` values such as
+  `openbao:secret/providers/nvidia_nim#api_key`; never store raw keys. See
+  `docs/credentials.md`.
 
 ## Endpoints
 
@@ -45,8 +46,9 @@ corepack pnpm@10.24.0 run openapi:generate
 ## Risks
 
 - Real provider execution remains disabled unless explicitly enabled.
-- Credential resolution is env-first with optional `keyring:service/account`
-  adapter refs; AIDO does not persist raw API keys.
+- Credential resolution prefers external OpenBao/Vault-compatible refs for real
+  provider keys, with `env:` and `keyring:` kept as development/bootstrap
+  options. AIDO does not persist raw API keys.
 - Pricing seeds are marked `manual_seed`; treat them as editable estimates, not current truth.
 
 ## Limitations

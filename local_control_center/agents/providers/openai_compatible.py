@@ -39,7 +39,7 @@ class OpenAICompatibleProvider(ModelProvider):
             return ProviderHealth(providerId=self.provider_id, status="available", healthStatus="healthy", message="mock provider healthy")
         if not self.base_url:
             return ProviderHealth(providerId=self.provider_id, status="misconfigured", healthStatus="misconfigured", message="Base URL is not configured")
-        credential = self.credential_resolver.resolve(self.credential_ref)
+        credential = self.credential_resolver.resolve(self.credential_ref, fetch=False)
         if credential.status == "invalid":
             return ProviderHealth(providerId=self.provider_id, status="misconfigured", healthStatus="misconfigured", message=credential.message)
         if credential.status in {"missing", "unsupported", "unknown"}:

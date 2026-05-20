@@ -68,8 +68,7 @@ flowchart LR
   intent clearer. The product package no longer contains
   `local_control_center/store.py`, and the previous test store harness has been
   deleted.
-- Promote the optional smoke scripts for MCP/OpenHands/SWE-agent and OTLP/HTTP
-  exporters into isolated CI profiles. The scripts are checked in and opt-in;
-  the default suite remains optional-runtime safe.
-- Generate a typed frontend client from OpenAPI once the v1 schema stops
-  changing daily.
+- Keep expanding repository-level tests where broad fixture setup is still
+  noisier than direct slice construction.
+- Expand generated OpenAPI coverage from the current endpoint map into
+  operation-specific request/response types when the schema stabilizes further.

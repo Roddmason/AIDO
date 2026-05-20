@@ -151,3 +151,4 @@ Fecha: 2026-05-20
 - `POST /api/v1/model-gateway/route/execute` existe y falla cerrado por defecto; requiere enablement explícito, credenciales configuradas, routing válido y ausencia de approval pendiente. Cuando el routing requiere aprobación, crea un `action_request` `model.route.execute` antes de devolver `409`.
 - `POST /api/v1/evidence` ingiere automáticamente outcomes de benchmark cuando recibe `usageLedgerId` o identidad explícita de provider/model/runtime.
 - Los parsers CLI reconocen aliases estructurados comunes (`usage`, `token_usage`, `tokens`, `message.usage`, `metrics.token_usage`, `llm_metrics`) y devuelven `None` para texto libre.
+- La migración fase 3 ahora actualiza tablas `workspaces`, `workspace_allocations` y `test_results` legacy con columnas requeridas antes de crear índices, manteniendo arranque sobre DBs locales antiguas sin destruir datos.

@@ -12,6 +12,7 @@ from local_control_center.shared.event_bus import EventBus
 
 from .cleanup import capture_workspace_snapshot
 from .git_worktrees import capture_git_diff
+from .models import WorkspaceAllocateRequest, WorkspaceArchiveRequest, WorkspaceArchiveResponse, WorkspaceResponse
 from .repository import WorkspaceConflictError, WorkspacesRepository
 
 
@@ -28,20 +29,19 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     async def list_workspaces() -> dict[str, Any]:
         return {"workspaces": repository().list_workspaces()}
 
-    @router.post("/api/v1/workspaces", status_code=201)
-    async def allocate_workspace(request: Request) -> dict[str, Any]:
+    @router.post("/api/v1/workspaces", status_code=201, response_model=WorkspaceResponse)
+    async def allocate_workspace(body: WorkspaceAllocateRequest, request: Request) -> WorkspaceResponse:
         require_write(request)
-        body = await request.json()
         try:
             workspace = repository().allocate_workspace(
-                project_id=body["projectId"],
-                task_id=body["taskId"],
-                agent_id=body["agentId"],
-                reason=body.get("reason", ""),
-                isolation_type=body.get("isolationType", "directory"),
-                workflow_run_id=body.get("workflowRunId"),
-                workflow_step_id=body.get("workflowStepId"),
-                base_branch=body.get("baseBranch", "HEAD"),
+                project_id=body.project_id,
+                task_id=body.task_id,
+                agent_id=body.agent_id,
+                reason=body.reason,
+                isolation_type=body.isolation_type,
+                workflow_run_id=body.workflow_run_id,
+                workflow_step_id=body.workflow_step_id,
+                base_branch=body.base_branch,
             )
         except WorkspaceConflictError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
@@ -50,19 +50,20 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             event_type="workspace.created",
             payload={"workspaceId": workspace["id"], "taskId": workspace["taskId"], "agentId": workspace["ownerAgentId"]},
         )
-        return {"workspace": workspace}
+        return WorkspaceResponse(workspace=workspace)
 
-    @router.post("/api/v1/workspaces/{workspace_id}/archive", status_code=202)
-    async def archive_workspace(workspace_id: str, request: Request) -> dict[str, Any]:
+    @router.post("/api/v1/workspaces/{workspace_id}/archive", status_code=202, response_model=WorkspaceArchiveResponse)
+    async def archive_workspace(
+        workspace_id: str, body: WorkspaceArchiveRequest, request: Request
+    ) -> WorkspaceArchiveResponse:
         require_write(request)
-        body = await request.json()
         repo = repository()
         pre_archive = repo.get_workspace(workspace_id)
         diff_refs = []
         if pre_archive["isolationType"] == "git_worktree":
             diff_refs.append(capture_git_diff(Path(pre_archive["path"])))
         diff_refs.append(capture_workspace_snapshot(pre_archive["path"]))
-        workspace = repo.archive_workspace(workspace_id, reason=body.get("reason", ""))
+        workspace = repo.archive_workspace(workspace_id, reason=body.reason)
         diff_refs, artifact_specs = promote_large_git_patches(root=platform.cwd, diff_refs=diff_refs)
         evidence_repo = EvidenceRepository(platform.connection)
         evidence = evidence_repo.create_evidence_package(
@@ -72,7 +73,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             task_id=workspace["taskId"],
             test_plan="Workspace archive snapshot",
             diff_refs=diff_refs,
-            logs=[{"event": "workspace.archived", "reason": body.get("reason", "")}],
+            logs=[{"event": "workspace.archived", "reason": body.reason}],
             qa_verdict="evidence_collected",
         )
         for artifact in artifact_specs:
@@ -90,7 +91,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             event_type="workspace.archived",
             payload={
                 "workspaceId": workspace["id"],
-                "reason": body.get("reason", ""),
+                "reason": body.reason,
                 "evidencePackageId": evidence["id"],
             },
         )
@@ -99,6 +100,6 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             event_type="qa.evidence.created",
             payload={"evidencePackageId": evidence["id"], "qaVerdict": evidence["qaVerdict"]},
         )
-        return {"workspace": workspace, "evidencePackage": evidence}
+        return WorkspaceArchiveResponse(workspace=workspace, evidencePackage=evidence)
 
     return router

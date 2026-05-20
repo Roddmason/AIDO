@@ -132,4 +132,13 @@ Fecha: 2026-05-20
 - Se amplió el frontend Model Gateway como consola operacional.
 - Se mantuvo compatibilidad con `model_policies`, `model_calls`, `cost_usage` y formularios estrictos existentes.
 - Las llamadas reales de proveedores y runtimes CLI quedan desactivadas por defecto.
-- Benchmarks, parsing profundo de eventos CLI y descubrimiento remoto real quedan como siguientes fases controladas.
+
+## Cierre de riesgos posteriores
+
+- OpenAPI ya no queda desalineado: los endpoints del Model Gateway tienen `response_model` Pydantic, el cliente generado incluye los tipos nuevos y el frontend usa operaciones generadas para leer/mutar el gateway.
+- `routing_decisions` ahora puede enlazar `workflowRunId`, `workflowStepId`, `agentId`, `jobId` y `taskId` mediante migración aditiva.
+- `Workflows` invoca `ModelRouter` al iniciar un workflow y registra una decisión por step en modo local/mock, sin ejecutar proveedores reales.
+- `Agent Profiles` expone y persiste `routingProfileId`, `roleModelPolicyId`, providers/runtimes permitidos, límites de tokens, flags remote/CLI/API y umbral de approval.
+- `CLI runtimes` parsean usage desde JSON/JSONL cuando el runtime lo emite; si no hay usage exacto, se conserva `None` y no se inventa precisión.
+- `Benchmarks` ya exponen datos derivados de `usage_ledger` para intentos, coste medio, latencia y último uso; success/QA/rework siguen como `insufficient data` hasta que exista outcome collection real.
+- Descubrimiento remoto real sigue deshabilitado por defecto y protegido por `AIDO_ENABLE_REAL_PROVIDER_CALLS=false`.

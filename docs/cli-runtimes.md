@@ -21,16 +21,17 @@ Execution is disabled by default. Detection and health checks are safe.
 
 ## Testing
 
-Tests verify missing Codex/Claude binaries return `not_installed`, dangerous flags are blocked and sessions list as JSON.
+Tests verify missing Codex/Claude binaries return `not_installed`, dangerous flags are blocked, JSON/JSONL usage events are parsed and sessions list as JSON.
 
 ## Risks
 
 - Real CLI execution must stay workspace-bound and policy-approved.
 - Output artifacts are currently planned for real execution; mock execution does not create logs.
+- Usage parsing only trusts structured usage payloads; plain text output is not token-counted to avoid false precision.
 
 ## Limitations
 
-- The adapters build safe command lines and detect binaries; full event-stream parsing is stubbed until real runtime contracts are finalized.
+- The adapters build safe command lines, detect binaries and parse generic JSON/JSONL usage events. Runtime-specific event streams still need contract-level parsers before real execution should be treated as high-fidelity telemetry.
 
 ## Example
 

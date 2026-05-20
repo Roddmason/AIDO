@@ -4,6 +4,8 @@
 
 `local_control_center.agents.model_router.ModelRouter` selects a provider, model and runtime from catalog data, role policy, routing mode, privacy, budget, quota, health and capability filters.
 
+Workflow start now calls the router once per materialized workflow step. The decision is recorded with `workflowRunId`, `workflowStepId` and `taskId`, but no real provider or CLI execution is triggered by starting a workflow.
+
 ## Configuration
 
 The default mode is `balanced_best_value`. Seeds live in SQLite and an editable example is available at `config/model-routing.example.yaml`.
@@ -14,10 +16,11 @@ The default mode is `balanced_best_value`. Seeds live in SQLite and an editable 
 - `GET /api/v1/model-gateway/role-policies`
 - `POST /api/v1/model-gateway/route/preview`
 - `GET /api/v1/model-gateway/routing-decisions`
+- `GET /api/v1/model-gateway/benchmarks`
 
 ## Testing
 
-Tests cover NVIDIA-first free routing, `local_private` remote blocking, CLI preference for developer code edits, technical lead xhigh escalation, and approval thresholds.
+Tests cover NVIDIA-first free routing, `local_private` remote blocking, CLI preference for developer code edits, technical lead xhigh escalation, approval thresholds and workflow-step routing decision linkage.
 
 ## Risks
 
@@ -26,7 +29,7 @@ Tests cover NVIDIA-first free routing, `local_private` remote blocking, CLI pref
 
 ## Limitations
 
-- Past performance is represented by schema now; benchmark-driven scoring is not active until outcome data exists.
+- Benchmark-derived scoring is not active yet. The benchmark endpoint exposes usage-derived attempts/cost/latency, while outcome metrics remain empty until QA/success/rework collection is implemented.
 
 ## Example
 

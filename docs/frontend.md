@@ -131,5 +131,7 @@ steps. Workspace allocation/archive, MCP registration, and IDE connection
 upserts also use generated request DTOs. Policy evaluation, sandbox profile
 edits/revocations, and permission-grant revocations are typed at the generated
 client boundary while the backend still owns the decision and audit rules.
-Domain-specific frontend interfaces remain as refinements for routes that still
-return generic dictionaries.
+Project, session, chat, pipeline, memory, retrieval, and prompt mutation
+requests are also generated from backend schemas. Domain-specific frontend
+interfaces remain as refinements for routes that still return generic
+dictionaries.

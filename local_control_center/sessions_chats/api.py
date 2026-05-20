@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Request
 
 from local_control_center.shared.event_bus import EventBus
 
+from .models import ChatCreateRequest, ChatResponse, SessionCreateRequest, SessionResponse
 from .repository import SessionsChatsRepository
 
 
@@ -23,44 +24,42 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     async def list_sessions() -> dict[str, Any]:
         return {"sessions": repository().list_sessions()}
 
-    @router.post("/api/v1/sessions", status_code=201)
-    async def create_session(request: Request) -> dict[str, Any]:
+    @router.post("/api/v1/sessions", status_code=201, response_model=SessionResponse)
+    async def create_session(body: SessionCreateRequest, request: Request) -> SessionResponse:
         require_write(request)
-        body = await request.json()
         session = repository().create_session(
-            project_id=body["projectId"],
-            name=body.get("name") or "Session",
-            team_id=body.get("teamId"),
+            project_id=body.project_id,
+            name=body.name or "Session",
+            team_id=body.team_id,
         )
         event_bus().record_event(
             project_id=session["projectId"],
             event_type="session.created",
             payload={"sessionId": session["id"]},
         )
-        return {"session": session}
+        return SessionResponse(session=session)
 
     @router.get("/api/v1/chats")
     async def list_chats() -> dict[str, Any]:
         return {"chats": repository().list_chats()}
 
-    @router.post("/api/v1/chats", status_code=201)
-    async def create_chat(request: Request) -> dict[str, Any]:
+    @router.post("/api/v1/chats", status_code=201, response_model=ChatResponse)
+    async def create_chat(body: ChatCreateRequest, request: Request) -> ChatResponse:
         require_write(request)
-        body = await request.json()
-        prompt = body.get("prompt")
+        prompt = body.prompt
         if not isinstance(prompt, str) or not prompt.strip():
             raise HTTPException(status_code=400, detail="prompt is required.")
         chat = repository().create_chat(
-            project_id=body["projectId"],
-            session_id=body.get("sessionId"),
+            project_id=body.project_id,
+            session_id=body.session_id,
             prompt=prompt,
-            title=body.get("title"),
+            title=body.title,
         )
         event_bus().record_event(
             project_id=chat["projectId"],
             event_type="chat.created",
             payload={"chatId": chat["id"], "sessionId": chat["sessionId"]},
         )
-        return {"chat": chat}
+        return ChatResponse(chat=chat)
 
     return router

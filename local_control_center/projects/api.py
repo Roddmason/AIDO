@@ -8,6 +8,7 @@ from fastapi import APIRouter, Request
 from local_control_center.shared.event_bus import EventBus
 
 from . import commands
+from .models import ProjectCreateRequest, ProjectResponse
 from .repository import ProjectsRepository
 
 
@@ -28,10 +29,16 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     async def projects() -> dict[str, Any]:
         return commands.list_projects(repository())
 
-    @router.post("/api/v1/projects", status_code=201)
-    async def create_project(request: Request) -> dict[str, Any]:
+    @router.post("/api/v1/projects", status_code=201, response_model=ProjectResponse)
+    async def create_project(body: ProjectCreateRequest, request: Request) -> ProjectResponse:
         require_write(request)
-        return commands.create_project(repository(), event_bus(), cwd=platform.cwd, body=await request.json())
+        payload = commands.create_project(
+            repository(),
+            event_bus(),
+            cwd=platform.cwd,
+            body=body.model_dump(by_alias=True, exclude_none=True),
+        )
+        return ProjectResponse(project=payload["project"], auditEvent=payload.get("auditEvent"))
 
     @router.get("/api/v1/providers")
     async def providers() -> dict[str, Any]:

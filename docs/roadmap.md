@@ -120,8 +120,13 @@
   than client-invented data.
 - The command palette can create workflows, focus pending approvals, and open a
   searchable operational event ledger.
+- Keyboard shortcuts now open operational surfaces without hidden mutations:
+  `Ctrl+Alt+A` for approvals, `Ctrl+Alt+E` for events, and `Ctrl+Alt+W` for
+  workflows.
 - Workflow inspection now includes linked policy decisions and evidence
   artifacts, including artifact names, kind, and hashes.
+- Evidence and workflow inspectors can preview and download artifacts through
+  the authenticated, root-confined artifact endpoint.
 
 ## Next Backend Work
 
@@ -137,9 +142,5 @@
 
 ## Next Frontend Work
 
-1. Add keyboard shortcuts that trigger existing command-palette actions without
-   adding hidden mutation paths.
-2. Add authenticated artifact preview/download affordances in the workflow and
-   evidence inspectors.
-3. Add visual diffs for policy decision changes once policy versions are stored
+1. Add visual diffs for policy decision changes once policy versions are stored
    as explicit revision records.

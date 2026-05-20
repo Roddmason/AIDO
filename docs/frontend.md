@@ -54,9 +54,16 @@ local-control-center/web/
 - The command palette uses only v1-backed actions. It can create workflows,
   navigate to operational surfaces, focus pending approvals, and open searchable
   event state; it does not bypass policy.
+- Keyboard shortcuts mirror existing read/control surfaces without adding
+  hidden mutation paths: `Ctrl+Alt+A` opens approvals, `Ctrl+Alt+E` opens the
+  event ledger, and `Ctrl+Alt+W` navigates to workflows. Shortcuts are ignored
+  while focus is inside editable form controls.
 - Workflow inspectors read linked workflow runs, steps, workspaces, jobs, agent
   runs, tool calls, policy decisions, evidence packages, artifacts, test
   results, and approvals from `/api/v1/overview`.
+- Evidence and workflow inspectors preview and download artifacts only through
+  `GET /api/v1/evidence/{evidenceId}/artifacts/{artifactId}` with the local
+  control token. The UI never reads local artifact paths directly.
 - Configuration changes must use strict forms with controlled inputs. Agent
   profiles, model policies, workflows, governance records, sandbox profiles,
   and MCP registry entries are edited through labeled inputs, selects,

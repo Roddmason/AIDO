@@ -127,5 +127,6 @@ workflow create/status mutations, agent profile upserts, and model policy
 upserts now generate named request DTOs as well. Jobs, approvals, and
 governance mutations also generate strict request DTOs for creation, approval
 reasons, optional cancel/retry reasons, architecture decisions, risks, and next
-steps. Domain-specific frontend interfaces remain as refinements for routes
-that still return generic dictionaries.
+steps. Workspace allocation/archive, MCP registration, and IDE connection
+upserts also use generated request DTOs. Domain-specific frontend interfaces
+remain as refinements for routes that still return generic dictionaries.

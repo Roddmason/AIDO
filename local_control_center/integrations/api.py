@@ -11,6 +11,7 @@ from ..agents.swe_agent_adapter import swe_agent_status
 from ..projects.repository import ProjectsRepository
 from ..shared.event_bus import EventBus
 from .mcp_gateway import mcp_gateway_status
+from .models import IdeConnectionResponse, IdeConnectionUpsertRequest, McpServerRegisterRequest, McpServerResponse
 from .repository import IntegrationsRepository
 
 
@@ -70,15 +71,15 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             },
         }
 
-    @router.post("/api/v1/integrations/mcp/register", status_code=201)
-    async def register_mcp_server(request: Request) -> dict[str, Any]:
+    @router.post("/api/v1/integrations/mcp/register", status_code=201, response_model=McpServerResponse)
+    async def register_mcp_server(body: McpServerRegisterRequest, request: Request) -> McpServerResponse:
         require_write(request)
-        body = validate_mcp_registration(await request.json())
+        payload = validate_mcp_registration(body.model_dump(by_alias=True))
         server = repository().register_mcp_server(
-            server_id=body["id"],
-            command=body["command"],
-            transport=body["transport"],
-            metadata=body["metadata"],
+            server_id=payload["id"],
+            command=payload["command"],
+            transport=payload["transport"],
+            metadata=payload["metadata"],
         )
         event_bus().record_event(event_type="mcp.server.registered", payload={"mcpServerId": server["id"]})
         event_bus().record_audit(
@@ -86,29 +87,28 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             target=server["id"],
             payload={"transport": server["transport"], "status": server["status"]},
         )
-        return {"mcpServer": server}
+        return McpServerResponse(mcpServer=server)
 
-    @router.post("/api/v1/ide-connections", status_code=201)
-    async def upsert_ide_connection(request: Request) -> dict[str, Any]:
+    @router.post("/api/v1/ide-connections", status_code=201, response_model=IdeConnectionResponse)
+    async def upsert_ide_connection(body: IdeConnectionUpsertRequest, request: Request) -> IdeConnectionResponse:
         require_write(request)
-        body = await request.json()
-        project = projects().get_project(body["projectId"])
+        project = projects().get_project(body.project_id)
         connection = repository().upsert_ide_connection(
             project_id=project["id"],
-            editor=body.get("editor", "unknown"),
-            workspace_root=body.get("workspaceRoot") or body.get("workspace_root") or project["path"],
-            status=body.get("status", "connected"),
-            open_files=body.get("openFiles") or [],
-            diagnostics=body.get("diagnostics") or [],
-            selection=body.get("selection") or {},
-            terminal_context=body.get("terminalContext") or {},
+            editor=body.editor,
+            workspace_root=body.workspace_root or project["path"],
+            status=body.status,
+            open_files=body.open_files,
+            diagnostics=body.diagnostics,
+            selection=body.selection,
+            terminal_context=body.terminal_context,
         )
         event_bus().record_event(
             project_id=project["id"],
             event_type="ide.connection.upserted",
             payload={"ideConnectionId": connection["id"]},
         )
-        return {"ideConnection": connection}
+        return IdeConnectionResponse(ideConnection=connection)
 
     @router.get("/api/v1/open-design")
     async def open_design() -> dict[str, Any]:

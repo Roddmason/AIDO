@@ -72,7 +72,8 @@ flowchart LR
   noisier than direct slice construction.
 - Continue adding explicit Pydantic request/response models to high-traffic
   routes. Health, handshake, retrieval status, workflow mutations, agent
-  profile upserts, model policy upserts, jobs/approvals mutations, and
-  governance mutations now generate named OpenAPI DTOs. Workspace, integration,
-  policy, evidence, session/chat, and larger overview subresources still need
-  narrower schemas.
+  profile upserts, model policy upserts, jobs/approvals mutations, governance
+  mutations, workspace allocation/archive, MCP registration, and IDE connection
+  upserts now generate named OpenAPI DTOs. Policy, evidence, session/chat,
+  project, pipeline, and larger overview subresources still need narrower
+  schemas.

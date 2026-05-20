@@ -17,6 +17,7 @@ def initialize_platform_schema(connection: sqlite3.Connection) -> None:
     init_phase8_schema(connection)
     init_phase9_schema(connection)
     init_phase10_schema(connection)
+    init_phase11_schema(connection)
     seed_platform_catalogs(connection)
 
 
@@ -897,6 +898,32 @@ def init_phase10_schema(connection: sqlite3.Connection) -> None:
     connection.execute(
         "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
         (10, utc_now()),
+    )
+
+
+def init_phase11_schema(connection: sqlite3.Connection) -> None:
+    connection.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS policy_revisions (
+            id TEXT PRIMARY KEY,
+            subject_type TEXT NOT NULL,
+            subject_id TEXT NOT NULL,
+            version INTEGER NOT NULL,
+            reason TEXT NOT NULL,
+            actor TEXT NOT NULL,
+            previous_json TEXT NOT NULL,
+            updated_json TEXT NOT NULL,
+            changed_fields TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE(subject_type, subject_id, version)
+        );
+        CREATE INDEX IF NOT EXISTS idx_policy_revisions_subject
+            ON policy_revisions(subject_type, subject_id, version);
+        """
+    )
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (11, utc_now()),
     )
 
 

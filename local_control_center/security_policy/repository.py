@@ -83,6 +83,27 @@ def row_to_sandbox_profile(row: sqlite3.Row) -> dict[str, Any]:
     }
 
 
+def row_to_policy_revision(row: sqlite3.Row) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "subjectType": row["subject_type"],
+        "subjectId": row["subject_id"],
+        "version": row["version"],
+        "reason": row["reason"],
+        "actor": row["actor"],
+        "previous": json_loads(row["previous_json"]),
+        "updated": json_loads(row["updated_json"]),
+        "changedFields": json_loads(row["changed_fields"], []),
+        "createdAt": row["created_at"],
+    }
+
+
+def changed_fields(previous: dict[str, Any], updated: dict[str, Any]) -> list[str]:
+    ignored = {"createdAt", "updatedAt", "revokedAt", "revokedBy", "revokeReason"}
+    keys = sorted((set(previous) | set(updated)) - ignored)
+    return [key for key in keys if previous.get(key) != updated.get(key)]
+
+
 def _paths_match(left: str | None, right: str | None) -> bool:
     if not left or not right:
         return True
@@ -113,6 +134,73 @@ class SecurityPolicyRepository:
     def list_policies(self) -> list[dict[str, Any]]:
         rows = self.connection.execute("SELECT * FROM permission_policies ORDER BY id ASC").fetchall()
         return [row_to_policy(row) for row in rows]
+
+    def record_policy_revision(
+        self,
+        *,
+        subject_type: str,
+        subject_id: str,
+        previous: dict[str, Any],
+        updated: dict[str, Any],
+        reason: str,
+        actor: str = "operator",
+    ) -> dict[str, Any] | None:
+        fields = changed_fields(previous, updated)
+        if not fields:
+            return None
+        row = self.connection.execute(
+            """
+            SELECT COALESCE(MAX(version), 0) + 1 AS next_version
+            FROM policy_revisions
+            WHERE subject_type = ? AND subject_id = ?
+            """,
+            (subject_type, subject_id),
+        ).fetchone()
+        revision_id = f"policy-revision-{uuid.uuid4()}"
+        version = int(row["next_version"])
+        self.connection.execute(
+            """
+            INSERT INTO policy_revisions
+                (id, subject_type, subject_id, version, reason, actor, previous_json,
+                 updated_json, changed_fields, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                revision_id,
+                subject_type,
+                subject_id,
+                version,
+                reason,
+                actor,
+                json_dumps(previous),
+                json_dumps(updated),
+                json_dumps(fields),
+                utc_now(),
+            ),
+        )
+        return self.get_policy_revision(revision_id)
+
+    def get_policy_revision(self, revision_id: str) -> dict[str, Any]:
+        row = self.connection.execute("SELECT * FROM policy_revisions WHERE id = ?", (revision_id,)).fetchone()
+        if not row:
+            raise KeyError(f"Policy revision not found: {revision_id}")
+        return row_to_policy_revision(row)
+
+    def list_policy_revisions(self, subject_id: str | None = None) -> list[dict[str, Any]]:
+        if subject_id:
+            rows = self.connection.execute(
+                """
+                SELECT * FROM policy_revisions
+                WHERE subject_id = ?
+                ORDER BY created_at DESC, version DESC
+                """,
+                (subject_id,),
+            ).fetchall()
+        else:
+            rows = self.connection.execute(
+                "SELECT * FROM policy_revisions ORDER BY created_at DESC, version DESC"
+            ).fetchall()
+        return [row_to_policy_revision(row) for row in rows]
 
     def record_decision(
         self,

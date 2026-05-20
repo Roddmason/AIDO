@@ -79,6 +79,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         repo = repository()
         return {
             "policies": repo.list_policies(),
+            "policyRevisions": repo.list_policy_revisions(),
             "permissionDecisions": repo.list_decisions(),
             "permissionGrants": repo.list_grants(),
             "sandboxProfiles": repo.list_sandbox_profiles(),
@@ -149,11 +150,22 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         try:
             previous = repository().get_sandbox_profile(profile_id)
             profile = repository().update_sandbox_profile(profile_id, patch)
+            revision = repository().record_policy_revision(
+                subject_type="sandbox_profile",
+                subject_id=profile["id"],
+                previous=previous,
+                updated=profile,
+                reason=reason,
+            )
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
         event_bus().record_event(
             event_type="sandbox.profile.updated",
-            payload={"sandboxProfileId": profile["id"], "reason": reason},
+            payload={
+                "sandboxProfileId": profile["id"],
+                "reason": reason,
+                "policyRevisionId": revision["id"] if revision else None,
+            },
         )
         event_bus().record_audit(
             action="sandbox.profile.update",
@@ -162,9 +174,10 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
                 "reason": reason,
                 "previous": previous,
                 "updated": profile,
+                "policyRevisionId": revision["id"] if revision else None,
             },
         )
-        return {"sandboxProfile": profile}
+        return {"sandboxProfile": profile, "policyRevision": revision}
 
     @router.post("/api/v1/policies/evaluate")
     async def evaluate_policy(request: Request) -> dict[str, Any]:

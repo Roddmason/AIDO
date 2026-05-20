@@ -258,6 +258,6 @@ PNPM is configured through `packageManager`.
 3. Add operation-level generated OpenAPI request/response types after the v1
    schema freezes; the current generated endpoint map already guards route
    drift.
-4. Policy decision visual diffs remain blocked until policy versions are stored
-   as explicit revision records. Keyboard shortcuts and authenticated evidence
-   artifact previews/downloads are implemented and covered by Playwright.
+4. Policy revision diffs are now implemented for sandbox profile changes. The
+   remaining schema-derived DTO work is intentionally deferred until the v1 API
+   shape stabilizes further.

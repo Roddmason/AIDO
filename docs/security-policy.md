@@ -132,9 +132,12 @@ PATCH /api/v1/sandbox/profiles/{profileId}
 Edits require the local write token and a non-empty reason. The endpoint
 validates catalog image strings, Docker resource values, timeout limits, and
 keeps MVP network mode locked to `none`. Each edit records an operational event
-and an audit payload containing the previous and updated profile snapshots.
-Broader network access must be modeled as a separate policy decision rather
-than a quiet profile change.
+and an audit payload containing the previous and updated profile snapshots. It
+also writes a `policy_revisions` record with subject, version, reason, actor,
+previous snapshot, updated snapshot, and changed-field list. The dashboard uses
+those revision records to render policy diffs without raw JSON editing or direct
+SQLite inspection. Broader network access must be modeled as a separate policy
+decision rather than a quiet profile change.
 
 The classifier is intentionally conservative. It is still not a sandbox. The
 next hardening step is explicit approved delete/export actions for expired

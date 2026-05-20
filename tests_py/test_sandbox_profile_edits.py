@@ -44,6 +44,43 @@ def test_sandbox_profile_edit_is_validated_and_audited(tmp_path: Path, monkeypat
     assert any(event["action"] == "sandbox.profile.update" for event in store.events.list_audit_events())
 
 
+def test_sandbox_profile_edit_records_policy_revision_diff(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
+    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store.init()
+    client = TestClient(create_app(runtime=store, static_dir=None))
+    headers = auth_headers(client)
+
+    response = client.patch(
+        "/api/v1/sandbox/profiles/default_docker",
+        json={
+            "reason": "Make policy changes reviewable in the UI.",
+            "allowedImages": ["python:3.13-slim"],
+            "allowedNetworks": ["none"],
+            "defaultNetwork": "none",
+            "memory": "768m",
+            "cpus": "1",
+            "timeoutSeconds": 75,
+            "status": "active",
+        },
+        headers=headers,
+    )
+
+    assert response.status_code == 202
+    policies = client.get("/api/v1/policies").json()
+    revisions = policies["policyRevisions"]
+    revision = next(item for item in revisions if item["subjectId"] == "default_docker")
+    assert revision["subjectType"] == "sandbox_profile"
+    assert revision["version"] == 1
+    assert revision["reason"] == "Make policy changes reviewable in the UI."
+    assert {"memory", "cpus", "timeoutSeconds", "allowedImages"} <= set(revision["changedFields"])
+    assert revision["previous"]["memory"] == "2g"
+    assert revision["updated"]["memory"] == "768m"
+
+    overview = client.get("/api/v1/overview").json()
+    assert any(item["id"] == revision["id"] for item in overview["policyRevisions"])
+
+
 def test_sandbox_profile_edit_rejects_network_escape_and_missing_reason(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
     store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")

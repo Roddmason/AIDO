@@ -77,6 +77,7 @@ def build_overview_from_connection(*, connection: sqlite3.Connection, cwd: str |
         "workflowRuns": workflows.list_workflow_runs(),
         "workflowSteps": workflows.list_workflow_steps(),
         "permissionDecisions": security_policy.list_decisions(),
+        "policyRevisions": security_policy.list_policy_revisions(),
         "permissionGrants": security_policy.list_grants(),
         "sandboxProfiles": security_policy.list_sandbox_profiles(),
         "evidencePackages": evidence.list_evidence_packages(),

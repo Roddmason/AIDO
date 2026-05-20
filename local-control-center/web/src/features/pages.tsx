@@ -119,6 +119,7 @@ export function WorkspacesPage({ overview }: { overview: Overview }) {
 export function PolicySecurityPage({ overview, mutate }: { overview: Overview; mutate: Mutate }) {
 	const defaultProfile = String(overview.sandboxProfiles[0]?.id ?? 'default_docker');
 	const [profileId, setProfileId] = useState(defaultProfile);
+	const [selectedRevision, setSelectedRevision] = useState<Dictionary | null>(null);
 	const [sandboxReason, setSandboxReason] = useState('');
 	const [sandboxImage, setSandboxImage] = useState('python:3.12-slim');
 	const [sandboxMemory, setSandboxMemory] = useState('512m');
@@ -198,6 +199,22 @@ export function PolicySecurityPage({ overview, mutate }: { overview: Overview; m
 						{ key: 'command', label: 'Command', render: (row) => <span className="mono">{String(row.command ?? '')}</span> },
 					]} />
 				</Surface>
+				<Surface title="Policy revisions">
+					<DataTable rows={overview.policyRevisions} empty={<EmptyState title="No revisions" body="Policy and sandbox changes will create explicit revision records." />} columns={[
+						{ key: 'subject', label: 'Subject', render: (row) => <span className="mono">{String(row.subjectId ?? '')}</span> },
+						{ key: 'version', label: 'Version', render: (row) => <Badge>v{String(row.version ?? '')}</Badge> },
+						{ key: 'fields', label: 'Changed', render: (row) => Array.isArray(row.changedFields) ? row.changedFields.join(', ') : '' },
+						{
+							key: 'diff',
+							label: 'Diff',
+							render: (row) => (
+								<button className="button" type="button" aria-label={`View policy revision diff for ${String(row.subjectId ?? '')}`} onClick={() => setSelectedRevision(row)}>
+									View diff
+								</button>
+							),
+						},
+					]} />
+				</Surface>
 				<Surface title="Permission grants">
 					<DataTable rows={overview.permissionGrants} empty={<EmptyState title="No grants" body="Approved sensitive actions create one-use execution grants." />} columns={[
 						{ key: 'status', label: 'Status', render: (row) => <Badge tone={toneForStatus(String(row.status ?? ''))}>{String(row.status ?? '')}</Badge> },
@@ -229,6 +246,40 @@ export function PolicySecurityPage({ overview, mutate }: { overview: Overview; m
 					]} />
 				</Surface>
 			</div>
+			<Drawer label="Policy revision diff" open={Boolean(selectedRevision)} onClose={() => setSelectedRevision(null)}>
+				<div className="drawer-body">
+					{selectedRevision ? (
+						<>
+							<div className="stack">
+								<div className="inline">
+									<Badge>{String(selectedRevision.subjectType ?? '')}</Badge>
+									<Badge>v{String(selectedRevision.version ?? '')}</Badge>
+								</div>
+								<h3 className="artifact-title">{String(selectedRevision.subjectId ?? '')}</h3>
+								<div className="muted">{String(selectedRevision.reason ?? '')}</div>
+							</div>
+							<div className="diff-grid" role="table" aria-label="Policy revision changed fields">
+								<div className="diff-row diff-head" role="row">
+									<div role="columnheader">Field</div>
+									<div role="columnheader">Before</div>
+									<div role="columnheader">After</div>
+								</div>
+								{(Array.isArray(selectedRevision.changedFields) ? selectedRevision.changedFields : []).map((field) => {
+									const previous = selectedRevision.previous as Record<string, unknown> | undefined;
+									const updated = selectedRevision.updated as Record<string, unknown> | undefined;
+									return (
+										<div className="diff-row" role="row" key={String(field)}>
+											<div role="cell" className="mono">{String(field)}</div>
+											<div role="cell" className="diff-before">{JSON.stringify(previous?.[String(field)] ?? null)}</div>
+											<div role="cell" className="diff-after">{JSON.stringify(updated?.[String(field)] ?? null)}</div>
+										</div>
+									);
+								})}
+							</div>
+						</>
+					) : null}
+				</div>
+			</Drawer>
 		</>
 	);
 }

@@ -127,6 +127,10 @@
   artifacts, including artifact names, kind, and hashes.
 - Evidence and workflow inspectors can preview and download artifacts through
   the authenticated, root-confined artifact endpoint.
+- Sandbox policy edits create explicit `policy_revisions` records with
+  previous/updated snapshots and changed-field lists.
+- Policy & Security shows visual policy revision diffs for sandbox profile
+  changes.
 
 ## Next Backend Work
 
@@ -142,5 +146,5 @@
 
 ## Next Frontend Work
 
-1. Add visual diffs for policy decision changes once policy versions are stored
-   as explicit revision records.
+1. Replace remaining hand-written frontend response shapes with schema-derived
+   request/response DTOs once the v1 schema stops changing daily.

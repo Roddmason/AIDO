@@ -15,3 +15,7 @@ class PipelineCreateRequest(BaseModel):
 
 class PipelineResponse(BaseModel):
     pipeline: dict[str, Any]
+
+
+class PipelinesListResponse(BaseModel):
+    pipelines: list[dict[str, Any]]

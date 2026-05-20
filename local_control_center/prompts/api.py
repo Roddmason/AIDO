@@ -5,7 +5,7 @@ from typing import Any
 
 from fastapi import APIRouter, Request
 
-from .models import PromptResponse, PromptUpsertRequest
+from .models import PromptResponse, PromptTemplatesListResponse, PromptUpsertRequest
 from .repository import PromptsRepository
 
 
@@ -15,7 +15,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     def repository() -> PromptsRepository:
         return PromptsRepository(platform.connection)
 
-    @router.get("/api/v1/prompts")
+    @router.get("/api/v1/prompts", response_model=PromptTemplatesListResponse)
     async def list_prompts() -> dict[str, Any]:
         return {"promptTemplates": repository().list_prompt_templates()}
 

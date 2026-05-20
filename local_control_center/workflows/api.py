@@ -11,7 +11,14 @@ from ..governance.signals import record_governance_risk
 from ..jobs_approvals.repository import JobsRepository
 from ..shared.event_bus import EventBus
 from ..workspaces_projects.repository import WorkspacesRepository
-from .models import WorkflowCreateRequest, WorkflowResponse, WorkflowStartResponse, WorkflowStatusChangeRequest
+from .models import (
+    WorkflowCreateRequest,
+    WorkflowDetailResponse,
+    WorkflowResponse,
+    WorkflowsListResponse,
+    WorkflowStartResponse,
+    WorkflowStatusChangeRequest,
+)
 from .repository import WorkflowsRepository
 
 
@@ -64,7 +71,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     def event_bus() -> EventBus:
         return EventBus(platform.connection)
 
-    @router.get("/api/v1/workflows")
+    @router.get("/api/v1/workflows", response_model=WorkflowsListResponse)
     async def list_workflows() -> dict[str, Any]:
         repo = repository()
         return {
@@ -86,7 +93,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         event_bus().record_event(project_id=workflow["projectId"], event_type="workflow.created", payload={"workflowId": workflow["id"]})
         return {"workflow": workflow}
 
-    @router.get("/api/v1/workflows/{workflow_id}")
+    @router.get("/api/v1/workflows/{workflow_id}", response_model=WorkflowDetailResponse)
     async def get_workflow(workflow_id: str) -> dict[str, Any]:
         repo = repository()
         try:

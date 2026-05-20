@@ -32,6 +32,10 @@ class WorkspaceResponse(BaseModel):
     workspace: dict[str, Any]
 
 
+class WorkspacesListResponse(BaseModel):
+    workspaces: list[dict[str, Any]]
+
+
 class WorkspaceArchiveResponse(BaseModel):
     workspace: dict[str, Any]
     evidence_package: dict[str, Any] = Field(alias="evidencePackage")

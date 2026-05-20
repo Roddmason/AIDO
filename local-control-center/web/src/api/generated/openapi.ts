@@ -7,11 +7,16 @@ export type JsonObject = { [key: string]: JsonValue };
 
 export type AgentProfileResponse = { "agentProfile": JsonObject };
 export type AgentProfileUpsertRequest = { "allowedSkills"?: Array<string>; "allowedTools"?: Array<string>; "id": string; "maxCostPerRun"?: number; "maxRuntimeSeconds"?: number; "memoryScope"?: string; "modelPolicyId"?: JsonValue | string; "name"?: JsonValue | string; "outputSchema"?: JsonObject; "permissionProfile"?: "plan" | "dev_safe" | "qa" | "release"; "qualityGates"?: Array<never>; "role"?: "product_owner" | "technical_lead" | "implementer" | "qa_reviewer" | "security_reviewer"; "runtimeMode"?: "api" | "cli" | "ollama" | "hybrid" | "manual" | "internal_mock"; "runtimeType"?: "api" | "cli" | "ollama" | "hybrid" | "manual" | "internal_mock" | JsonValue; "status"?: "active" | "disabled" };
+export type AgentProfilesListResponse = { "agentProfiles": Array<JsonObject> };
 export type AgentRunCreateRequest = { "agentProfileId": string; "input"?: JsonObject; "jobId"?: JsonValue | string; "projectId": string; "taskId"?: string; "workflowRunId"?: JsonValue | string; "workflowStepId"?: JsonValue | string };
 export type AgentRunResponse = { "agentRun": JsonObject };
+export type AgentRunsListResponse = { "agentRuns": Array<JsonObject> };
+export type AgentsListResponse = { "agents": Array<JsonObject> };
 export type ApprovalReasonRequest = { "reason": string };
+export type ApprovalsListResponse = { "actionRequests": Array<JsonObject> };
 export type ArchitectureDecisionCreateRequest = { "consequences"?: Array<never> | string; "context"?: string; "decision"?: string; "linkedRiskIds"?: Array<string>; "metadata"?: JsonObject; "nextStepIds"?: Array<string>; "projectId": string; "status"?: "proposed" | "accepted" | "rejected" | "superseded" | "deprecated"; "title": string };
 export type ArchitectureDecisionResponse = { "architectureDecision": JsonObject };
+export type ArchitectureDecisionsListResponse = { "architectureDecisions": Array<JsonObject> };
 export type ArtifactCleanupRequest = { "dryRun"?: boolean };
 export type ArtifactCleanupResponse = { "artifactRoot": string; "deletedFiles": Array<JsonObject>; "dryRun": boolean; "keptReferencedFiles": number; "orphanFiles": Array<JsonObject> };
 export type ArtifactIngestRequest = { "content"?: JsonValue | string; "contentBase64"?: JsonValue | string; "kind": "execution_log" | "screenshot" | "test_report" | "qa_report" | "generic_artifact"; "mimeType"?: JsonValue | string; "name"?: JsonValue | string };
@@ -22,36 +27,55 @@ export type ArtifactRetentionPlanRequest = { "dryRun"?: boolean; "now"?: JsonVal
 export type ArtifactRetentionPlanResponse = { "dryRun": boolean; "expiredArtifacts": Array<JsonObject>; "now": string; "riskIds": Array<string> };
 export type ChatCreateRequest = { "projectId": string; "prompt": string; "sessionId"?: JsonValue | string; "title"?: JsonValue | string };
 export type ChatResponse = { "chat": JsonObject };
+export type ChatsListResponse = { "chats": Array<JsonObject> };
 export type EmptyObjectRequest = JsonObject;
 export type EvidenceCreateRequest = { "acceptanceChecklist"?: Array<never>; "agentId"?: JsonValue | string; "diffRefs"?: Array<never>; "logs"?: Array<never>; "projectId": string; "qaVerdict"?: string; "riskNotes"?: Array<never>; "screenshotRefs"?: Array<never>; "taskId"?: string; "testPlan"?: string; "testResultReports"?: Array<JsonObject>; "testResults"?: Array<JsonObject>; "workflowRunId"?: JsonValue | string };
+export type EvidenceDetailResponse = { "artifacts": Array<JsonObject>; "evidencePackage": JsonObject; "testResultRecords": Array<JsonObject> };
+export type EvidenceListResponse = { "evidencePackages": Array<JsonObject> };
 export type EvidencePackageResponse = { "evidencePackage": JsonObject };
+export type GovernanceResponse = { "architectureDecisions": Array<JsonObject>; "nextSteps": Array<JsonObject>; "risks": Array<JsonObject> };
 export type HTTPValidationError = { "detail"?: Array<ValidationError> };
 export type HandshakeResponse = { "loopbackOnly": boolean; "token": string };
 export type HealthResponse = { "ok": boolean };
 export type IdeConnectionResponse = { "ideConnection": JsonObject };
 export type IdeConnectionUpsertRequest = { "diagnostics"?: Array<never>; "editor"?: string; "openFiles"?: Array<never>; "projectId": string; "selection"?: JsonObject; "status"?: string; "terminalContext"?: JsonObject; "workspaceRoot"?: JsonValue | string };
+export type IdeConnectionsListResponse = { "ideConnections": Array<JsonObject> };
+export type IntegrationsListResponse = { "integrations": Array<JsonObject>; "mcpServers": Array<JsonObject>; "optionalAdapters": JsonObject };
 export type JobCreateRequest = { "idempotencyKey"?: JsonValue | string; "kind": string; "payload"?: JsonObject; "projectId": string; "workflowRunId"?: JsonValue | string; "workflowStepId"?: JsonValue | string };
 export type JobMutationResponse = { "actionRequest"?: JsonObject | JsonValue; "actionRequests"?: Array<JsonObject>; "auditEvent"?: JsonObject | JsonValue; "events"?: Array<JsonObject>; "job": JsonObject; "permissionGrant"?: JsonObject | JsonValue };
+export type JobsListResponse = { "events"?: Array<JsonObject>; "jobs": Array<JsonObject> };
 export type McpServerRegisterRequest = { "command": string; "id": string; "metadata"?: JsonObject; "transport"?: "stdio" };
 export type McpServerResponse = { "mcpServer": JsonObject };
 export type MemoryCreateRequest = { "content": string; "kind"?: string; "metadata"?: JsonObject; "projectId": string; "scope"?: string; "scopeId"?: JsonValue | string; "sourceRef"?: string };
+export type MemoryListResponse = { "memoryItems": Array<JsonObject> };
 export type MemoryResponse = { "memoryItem": JsonObject };
+export type ModelPoliciesListResponse = { "modelPolicies": Array<JsonObject> };
 export type ModelPolicyResponse = { "modelPolicy": JsonObject };
 export type ModelPolicyUpsertRequest = { "allowLocal"?: boolean; "allowRemote"?: boolean; "fallback"?: Array<ModelProviderCandidate>; "id": string; "maxCostUsd"?: number; "maxTokens"?: number; "name"?: JsonValue | string; "preferred"?: Array<ModelProviderCandidate>; "status"?: "active" | "disabled"; "temperature"?: number };
 export type ModelProviderCandidate = { "model": string; "provider": string };
+export type ModelProvidersListResponse = { "modelProviders": Array<JsonObject> };
 export type NextStepCreateRequest = { "dueAt"?: JsonValue | string; "metadata"?: JsonObject; "owner"?: string; "priority"?: "low" | "medium" | "high" | "urgent"; "projectId": string; "sourceDecisionId"?: JsonValue | string; "sourceRiskId"?: JsonValue | string; "status"?: "planned" | "in_progress" | "blocked" | "completed" | "cancelled"; "title": string };
 export type NextStepResponse = { "nextStep": JsonObject };
 export type NextStepUpdateRequest = { "dueAt"?: JsonValue | string; "metadata"?: JsonObject | JsonValue; "owner"?: JsonValue | string; "priority"?: "low" | "medium" | "high" | "urgent" | JsonValue; "status"?: "planned" | "in_progress" | "blocked" | "completed" | "cancelled" | JsonValue };
+export type NextStepsListResponse = { "nextSteps": Array<JsonObject> };
+export type OpenDesignResponse = { "backend": string; "runtime": string; "status": string };
 export type OptionalReasonRequest = { "reason"?: string };
+export type OverviewResponse = { "actionRequests": Array<JsonObject>; "agentProfiles": Array<JsonObject>; "agentRuns": Array<JsonObject>; "agentToolCalls": Array<JsonObject>; "agents": Array<JsonObject>; "architectureDecisions": Array<JsonObject>; "artifacts": Array<JsonObject>; "auditEvents": Array<JsonObject>; "chats": Array<JsonObject>; "costUsage": Array<JsonObject>; "events": Array<JsonObject>; "evidencePackages": Array<JsonObject>; "ideConnections": Array<JsonObject>; "jobRuns": Array<JsonObject>; "jobs": Array<JsonObject>; "mcpServers": Array<JsonObject>; "memoryItems": Array<JsonObject>; "modelCalls": Array<JsonObject>; "modelPolicies": Array<JsonObject>; "modelProviders": Array<JsonObject>; "nextSteps": Array<JsonObject>; "openDesign": JsonObject; "permissionDecisions": Array<JsonObject>; "permissionGrants": Array<JsonObject>; "pipelines": Array<JsonObject>; "policyRevisions": Array<JsonObject>; "projectTemplates": Array<JsonObject>; "projects": Array<JsonObject>; "promptTemplates": Array<JsonObject>; "providers": Array<JsonObject>; "riskRegister": Array<JsonObject>; "runtimeWorkspaces": Array<JsonObject>; "sandboxProfiles": Array<JsonObject>; "security": JsonObject; "sessions": Array<JsonObject>; "skills": Array<JsonObject>; "teams": Array<JsonObject>; "testResultRecords": Array<JsonObject>; "workflowRuns": Array<JsonObject>; "workflowSteps": Array<JsonObject>; "workflows": Array<JsonObject> };
 export type PermissionGrantResponse = { "permissionGrant": JsonObject };
 export type PipelineCreateRequest = { "chatId"?: JsonValue | string; "projectId": string; "sessionId"?: JsonValue | string; "stages"?: Array<JsonObject> | JsonValue; "title"?: JsonValue | string };
 export type PipelineResponse = { "pipeline": JsonObject };
+export type PipelinesListResponse = { "pipelines": Array<JsonObject> };
+export type PoliciesListResponse = { "permissionDecisions": Array<JsonObject>; "permissionGrants": Array<JsonObject>; "policies": Array<JsonObject>; "policyRevisions": Array<JsonObject>; "sandboxProfiles": Array<JsonObject> };
 export type PolicyEvaluateRequest = { "agentId"?: JsonValue | string; "command"?: JsonValue | string; "deploymentTarget"?: JsonValue | string; "environment"?: JsonValue | string; "gitOperation"?: JsonValue | string; "networkRequired"?: JsonValue | boolean; "operation"?: JsonValue | string; "path"?: JsonValue | string; "permissionProfile"?: JsonValue | string; "projectId"?: JsonValue | string; "riskLevel"?: JsonValue | string; "role"?: JsonValue | string; "secretsRequired"?: JsonValue | boolean; "tool"?: JsonValue | string; "workspaceId"?: JsonValue | string };
 export type PolicyEvaluationResponse = { "decision": JsonObject };
 export type ProjectCreateRequest = { "createDirectory"?: boolean; "metadata"?: JsonObject; "name"?: JsonValue | string; "path"?: JsonValue | string; "templateId"?: JsonValue | string };
 export type ProjectResponse = { "auditEvent"?: JsonObject | JsonValue; "project": JsonObject };
+export type ProjectTemplatesResponse = { "projectTemplates": Array<JsonObject> };
+export type ProjectsListResponse = { "projects": Array<JsonObject> };
 export type PromptResponse = { "promptTemplate": JsonObject };
+export type PromptTemplatesListResponse = { "promptTemplates": Array<JsonObject> };
 export type PromptUpsertRequest = { "appliesTo"?: JsonObject; "body": string; "id"?: JsonValue | string; "mode"?: string; "name": string; "optimizer"?: string; "projectId": string };
+export type ProvidersListResponse = { "providers": Array<JsonObject> };
 export type RequiredReasonRequest = { "reason": string };
 export type RetrievalReindexResponse = { "index": JsonObject };
 export type RetrievalSearchRequest = { "limit"?: number; "query"?: string };
@@ -60,22 +84,32 @@ export type RetrievalStatusResponse = { "backend": string; "degraded": boolean; 
 export type RiskCreateRequest = { "description"?: string; "evidenceRefs"?: Array<string>; "metadata"?: JsonObject; "mitigation"?: string; "owner"?: string; "projectId": string; "severity"?: "low" | "medium" | "high" | "critical"; "status"?: "open" | "monitoring" | "mitigating" | "mitigated" | "accepted" | "closed"; "title": string };
 export type RiskResponse = { "risk": JsonObject };
 export type RiskUpdateRequest = { "evidenceRefs"?: Array<string> | JsonValue; "metadata"?: JsonObject | JsonValue; "mitigation"?: JsonValue | string; "owner"?: JsonValue | string; "severity"?: "low" | "medium" | "high" | "critical" | JsonValue; "status"?: "open" | "monitoring" | "mitigating" | "mitigated" | "accepted" | "closed" | JsonValue };
+export type RisksListResponse = { "risks": Array<JsonObject> };
+export type RuntimeProvidersResponse = { "api": JsonObject; "cli": JsonObject; "ollama": JsonObject; "runtimeModes": Array<string> };
 export type SandboxProfileMutationResponse = { "policyRevision"?: JsonObject | JsonValue; "sandboxProfile": JsonObject };
 export type SandboxProfilePatchRequest = { "allowedImages"?: Array<string> | JsonValue; "allowedNetworks"?: Array<string> | JsonValue; "cpus"?: JsonValue | string; "defaultNetwork"?: JsonValue | string; "memory"?: JsonValue | string; "name"?: JsonValue | string; "reason": string; "status"?: JsonValue | string; "timeoutSeconds"?: JsonValue | number };
 export type SandboxProfileResponse = { "sandboxProfile": JsonObject };
+export type SandboxStatusResponse = { "docker": JsonObject; "restrictedSubprocess": JsonObject };
 export type SessionCreateRequest = { "name"?: JsonValue | string; "projectId": string; "teamId"?: JsonValue | string };
 export type SessionResponse = { "session": JsonObject };
+export type SessionsListResponse = { "sessions": Array<JsonObject> };
+export type SkillsListResponse = { "skills": Array<JsonObject> };
 export type SkillsSyncRequest = { "skillsPath"?: string };
 export type SkillsSyncResponse = { "skills": Array<JsonObject>; "synced": number };
+export type TeamsListResponse = { "teams": Array<JsonObject> };
+export type TelemetryStatusResponse = { "externalExporter": JsonObject };
 export type ValidationError = { "ctx"?: JsonObject; "input"?: JsonValue; "loc": Array<number | string>; "msg": string; "type": string };
 export type WorkflowCreateRequest = { "idea"?: JsonValue | string; "kind"?: "idea_to_pr" | "project_discovery" | "issue_to_pr" | "qa_validation" | "release_candidate"; "metadata"?: JsonObject; "projectId": string; "title"?: JsonValue | string };
+export type WorkflowDetailResponse = { "agentRuns": Array<JsonObject>; "evidencePackages": Array<JsonObject>; "jobs": Array<JsonObject>; "workflow": JsonObject; "workflowRuns": Array<JsonObject>; "workflowSteps": Array<JsonObject>; "workspaces": Array<JsonObject> };
 export type WorkflowResponse = { "workflow": JsonObject };
 export type WorkflowStartResponse = { "workflow": JsonObject; "workflowRun": JsonObject; "workflowSteps": Array<JsonObject> };
 export type WorkflowStatusChangeRequest = { "reason"?: string };
+export type WorkflowsListResponse = { "workflowRuns": Array<JsonObject>; "workflowSteps": Array<JsonObject>; "workflows": Array<JsonObject> };
 export type WorkspaceAllocateRequest = { "agentId": string; "baseBranch"?: string; "isolationType"?: "directory" | "git_worktree"; "projectId": string; "reason"?: string; "taskId": string; "workflowRunId"?: JsonValue | string; "workflowStepId"?: JsonValue | string };
 export type WorkspaceArchiveRequest = { "reason"?: string };
 export type WorkspaceArchiveResponse = { "evidencePackage": JsonObject; "workspace": JsonObject };
 export type WorkspaceResponse = { "workspace": JsonObject };
+export type WorkspacesListResponse = { "workspaces": Array<JsonObject> };
 
 export const OPENAPI_TITLE = "Local Control Center" as const;
 export const OPENAPI_VERSION = "0.1.0" as const;
@@ -257,10 +291,10 @@ export type OperationRequestBodies = {
 };
 
 export type OperationResponseBodies = {
-	"agents_api_v1_agents_get": JsonObject,
+	"agents_api_v1_agents_get": AgentsListResponse,
 	"allocate_workspace_api_v1_workspaces_post": WorkspaceResponse,
 	"apply_artifact_retention_action_api_v1_evidence_artifacts_retention_actions_post": ArtifactRetentionActionResponse,
-	"approvals_api_v1_approvals_get": JsonObject,
+	"approvals_api_v1_approvals_get": ApprovalsListResponse,
 	"approve_action_api_v1_jobs__job_id__actions__action_id__approve_post": JobMutationResponse,
 	"approve_job_api_v1_jobs__job_id__approve_post": JobMutationResponse,
 	"archive_workspace_api_v1_workspaces__workspace_id__archive_post": WorkspaceArchiveResponse,
@@ -284,40 +318,40 @@ export type OperationResponseBodies = {
 	"events_api_v1_events_get": never,
 	"export_evidence_report_api_v1_evidence__evidence_id__report_get": never,
 	"get_artifact_api_v1_evidence__evidence_id__artifacts__artifact_id__get": never,
-	"get_evidence_api_v1_evidence__evidence_id__get": JsonObject,
-	"get_workflow_api_v1_workflows__workflow_id__get": JsonObject,
-	"governance_api_v1_governance_get": JsonObject,
+	"get_evidence_api_v1_evidence__evidence_id__get": EvidenceDetailResponse,
+	"get_workflow_api_v1_workflows__workflow_id__get": WorkflowDetailResponse,
+	"governance_api_v1_governance_get": GovernanceResponse,
 	"handshake_api_v1_security_handshake_get": HandshakeResponse,
 	"healthz_healthz_get": HealthResponse,
 	"ingest_artifact_api_v1_evidence__evidence_id__artifacts_post": ArtifactResponse,
-	"list_agent_profiles_api_v1_agent_profiles_get": JsonObject,
-	"list_agent_runs_api_v1_agent_runs_get": JsonObject,
-	"list_architecture_decisions_api_v1_architecture_decisions_get": JsonObject,
-	"list_chats_api_v1_chats_get": JsonObject,
-	"list_evidence_api_v1_evidence_get": JsonObject,
-	"list_ide_connections_api_v1_ide_connections_get": JsonObject,
-	"list_integrations_api_v1_integrations_get": JsonObject,
-	"list_jobs_api_v1_jobs_get": JsonObject,
-	"list_memory_api_v1_memory_get": JsonObject,
-	"list_model_policies_api_v1_model_policies_get": JsonObject,
-	"list_model_providers_api_v1_model_providers_get": JsonObject,
-	"list_next_steps_api_v1_next_steps_get": JsonObject,
-	"list_pipelines_api_v1_pipelines_get": JsonObject,
-	"list_policies_api_v1_policies_get": JsonObject,
-	"list_prompts_api_v1_prompts_get": JsonObject,
-	"list_risks_api_v1_risks_get": JsonObject,
-	"list_runtime_providers_api_v1_runtime_providers_get": JsonObject,
-	"list_sessions_api_v1_sessions_get": JsonObject,
-	"list_skills_api_v1_skills_get": JsonObject,
-	"list_workflows_api_v1_workflows_get": JsonObject,
-	"list_workspaces_api_v1_workspaces_get": JsonObject,
-	"open_design_api_v1_open_design_get": JsonObject,
-	"overview_api_v1_overview_get": JsonObject,
+	"list_agent_profiles_api_v1_agent_profiles_get": AgentProfilesListResponse,
+	"list_agent_runs_api_v1_agent_runs_get": AgentRunsListResponse,
+	"list_architecture_decisions_api_v1_architecture_decisions_get": ArchitectureDecisionsListResponse,
+	"list_chats_api_v1_chats_get": ChatsListResponse,
+	"list_evidence_api_v1_evidence_get": EvidenceListResponse,
+	"list_ide_connections_api_v1_ide_connections_get": IdeConnectionsListResponse,
+	"list_integrations_api_v1_integrations_get": IntegrationsListResponse,
+	"list_jobs_api_v1_jobs_get": JobsListResponse,
+	"list_memory_api_v1_memory_get": MemoryListResponse,
+	"list_model_policies_api_v1_model_policies_get": ModelPoliciesListResponse,
+	"list_model_providers_api_v1_model_providers_get": ModelProvidersListResponse,
+	"list_next_steps_api_v1_next_steps_get": NextStepsListResponse,
+	"list_pipelines_api_v1_pipelines_get": PipelinesListResponse,
+	"list_policies_api_v1_policies_get": PoliciesListResponse,
+	"list_prompts_api_v1_prompts_get": PromptTemplatesListResponse,
+	"list_risks_api_v1_risks_get": RisksListResponse,
+	"list_runtime_providers_api_v1_runtime_providers_get": RuntimeProvidersResponse,
+	"list_sessions_api_v1_sessions_get": SessionsListResponse,
+	"list_skills_api_v1_skills_get": SkillsListResponse,
+	"list_workflows_api_v1_workflows_get": WorkflowsListResponse,
+	"list_workspaces_api_v1_workspaces_get": WorkspacesListResponse,
+	"open_design_api_v1_open_design_get": OpenDesignResponse,
+	"overview_api_v1_overview_get": OverviewResponse,
 	"pause_workflow_api_v1_workflows__workflow_id__pause_post": WorkflowResponse,
 	"plan_artifact_retention_api_v1_evidence_artifacts_retention_post": ArtifactRetentionPlanResponse,
-	"project_templates_api_v1_project_templates_get": JsonObject,
-	"projects_api_v1_projects_get": JsonObject,
-	"providers_api_v1_providers_get": JsonObject,
+	"project_templates_api_v1_project_templates_get": ProjectTemplatesResponse,
+	"projects_api_v1_projects_get": ProjectsListResponse,
+	"providers_api_v1_providers_get": ProvidersListResponse,
 	"register_mcp_server_api_v1_integrations_mcp_register_post": McpServerResponse,
 	"resume_workflow_api_v1_workflows__workflow_id__resume_post": WorkflowResponse,
 	"retrieval_reindex_api_v1_retrieval_reindex_post": RetrievalReindexResponse,
@@ -326,11 +360,11 @@ export type OperationResponseBodies = {
 	"retry_job_api_v1_jobs__job_id__retry_post": JobMutationResponse,
 	"revoke_permission_grant_api_v1_permissions_grants__grant_id__revoke_post": PermissionGrantResponse,
 	"revoke_sandbox_profile_api_v1_sandbox_profiles__profile_id__revoke_post": SandboxProfileResponse,
-	"sandbox_status_api_v1_sandbox_status_get": JsonObject,
+	"sandbox_status_api_v1_sandbox_status_get": SandboxStatusResponse,
 	"start_workflow_api_v1_workflows__workflow_id__start_post": WorkflowStartResponse,
 	"sync_skills_api_v1_skills_sync_post": SkillsSyncResponse,
-	"teams_api_v1_teams_get": JsonObject,
-	"telemetry_status_api_v1_telemetry_status_get": JsonObject,
+	"teams_api_v1_teams_get": TeamsListResponse,
+	"telemetry_status_api_v1_telemetry_status_get": TelemetryStatusResponse,
 	"update_next_step_api_v1_next_steps__step_id__patch": NextStepResponse,
 	"update_risk_api_v1_risks__risk_id__patch": RiskResponse,
 	"update_sandbox_profile_api_v1_sandbox_profiles__profile_id__patch": SandboxProfileMutationResponse,

@@ -33,6 +33,16 @@ class ArchitectureDecisionResponse(BaseModel):
     architecture_decision: dict[str, Any] = Field(alias="architectureDecision")
 
 
+class GovernanceResponse(BaseModel):
+    architecture_decisions: list[dict[str, Any]] = Field(alias="architectureDecisions")
+    risks: list[dict[str, Any]]
+    next_steps: list[dict[str, Any]] = Field(alias="nextSteps")
+
+
+class ArchitectureDecisionsListResponse(BaseModel):
+    architecture_decisions: list[dict[str, Any]] = Field(alias="architectureDecisions")
+
+
 class RiskCreateRequest(BaseModel):
     project_id: str = Field(alias="projectId")
     title: str
@@ -68,6 +78,10 @@ class RiskResponse(BaseModel):
     risk: dict[str, Any]
 
 
+class RisksListResponse(BaseModel):
+    risks: list[dict[str, Any]]
+
+
 class NextStepCreateRequest(BaseModel):
     project_id: str = Field(alias="projectId")
     title: str
@@ -100,3 +114,7 @@ class NextStepUpdateRequest(BaseModel):
 
 class NextStepResponse(BaseModel):
     next_step: dict[str, Any] = Field(alias="nextStep")
+
+
+class NextStepsListResponse(BaseModel):
+    next_steps: list[dict[str, Any]] = Field(alias="nextSteps")

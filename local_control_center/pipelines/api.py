@@ -7,7 +7,7 @@ from fastapi import APIRouter, Request
 
 from local_control_center.shared.event_bus import EventBus
 
-from .models import PipelineCreateRequest, PipelineResponse
+from .models import PipelineCreateRequest, PipelineResponse, PipelinesListResponse
 from .repository import PipelinesRepository
 
 
@@ -20,7 +20,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     def event_bus() -> EventBus:
         return EventBus(platform.connection)
 
-    @router.get("/api/v1/pipelines")
+    @router.get("/api/v1/pipelines", response_model=PipelinesListResponse)
     async def list_pipelines() -> dict[str, Any]:
         return {"pipelines": repository().list_pipelines()}
 

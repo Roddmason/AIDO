@@ -10,12 +10,18 @@ from local_control_center.evidence.repository import EvidenceRepository
 from local_control_center.shared.event_bus import EventBus
 
 from .contracts import (
+    AgentProfilesListResponse,
     AgentProfileResponse,
     AgentProfileUpsertRequest,
     AgentRunCreateRequest,
+    AgentRunsListResponse,
     AgentRunResponse,
+    ModelPoliciesListResponse,
     ModelPolicyResponse,
     ModelPolicyUpsertRequest,
+    ModelProvidersListResponse,
+    RuntimeProvidersResponse,
+    SkillsListResponse,
     SkillsSyncRequest,
     SkillsSyncResponse,
 )
@@ -194,7 +200,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     def event_bus() -> EventBus:
         return EventBus(platform.connection)
 
-    @router.get("/api/v1/agent-profiles")
+    @router.get("/api/v1/agent-profiles", response_model=AgentProfilesListResponse)
     async def list_agent_profiles() -> dict[str, Any]:
         return {"agentProfiles": repository().list_agent_profiles()}
 
@@ -206,7 +212,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         event_bus().record_event(event_type="agent.profile.upserted", payload={"agentProfileId": profile["id"]})
         return {"agentProfile": profile}
 
-    @router.get("/api/v1/agent-runs")
+    @router.get("/api/v1/agent-runs", response_model=AgentRunsListResponse)
     async def list_agent_runs() -> dict[str, Any]:
         return {"agentRuns": repository().list_agent_runs()}
 
@@ -344,15 +350,15 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         )
         return AgentRunResponse(agentRun=run)
 
-    @router.get("/api/v1/model-providers")
+    @router.get("/api/v1/model-providers", response_model=ModelProvidersListResponse)
     async def list_model_providers() -> dict[str, Any]:
         return {"modelProviders": repository().list_model_providers()}
 
-    @router.get("/api/v1/runtime/providers")
+    @router.get("/api/v1/runtime/providers", response_model=RuntimeProvidersResponse)
     async def list_runtime_providers() -> dict[str, Any]:
         return runtime_provider_status()
 
-    @router.get("/api/v1/skills")
+    @router.get("/api/v1/skills", response_model=SkillsListResponse)
     async def list_skills() -> dict[str, Any]:
         return {"skills": skill_registry().list_skills()}
 
@@ -363,7 +369,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         event_bus().record_event(event_type="skills.synced", payload={"synced": count})
         return SkillsSyncResponse(synced=count, skills=skill_registry().list_skills())
 
-    @router.get("/api/v1/model-policies")
+    @router.get("/api/v1/model-policies", response_model=ModelPoliciesListResponse)
     async def list_model_policies() -> dict[str, Any]:
         return {"modelPolicies": repository().list_model_policies()}
 

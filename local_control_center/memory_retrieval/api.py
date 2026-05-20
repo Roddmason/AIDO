@@ -13,6 +13,7 @@ from .index import RetrievalIndex
 from .models import (
     EmptyObjectRequest,
     MemoryCreateRequest,
+    MemoryListResponse,
     MemoryResponse,
     RetrievalReindexResponse,
     RetrievalSearchRequest,
@@ -35,7 +36,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     def retrieval_index() -> RetrievalIndex:
         return RetrievalIndex(memory=memory_repository(), index_dir=platform.db_path.parent / "faiss-index")
 
-    @router.get("/api/v1/memory")
+    @router.get("/api/v1/memory", response_model=MemoryListResponse)
     async def list_memory() -> dict[str, Any]:
         return commands.list_memory(memory_repository())
 

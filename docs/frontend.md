@@ -121,19 +121,9 @@ client includes operation-id lookup, typed operation aliases, path parameter
 interpolation, query serialization, loopback-token headers, and JSON error
 handling. It also emits `OperationRequestBody<T>` and
 `OperationResponse<T>` aliases from the OpenAPI schemas. The active API client
-now routes JSON calls through generated operation IDs. Health, handshake, and
-retrieval status already generate named DTOs from Pydantic response models;
-workflow create/status mutations, agent profile upserts, and model policy
-upserts now generate named request DTOs as well. Jobs, approvals, and
-governance mutations also generate strict request DTOs for creation, approval
-reasons, optional cancel/retry reasons, architecture decisions, risks, and next
-steps. Workspace allocation/archive, MCP registration, and IDE connection
-upserts also use generated request DTOs. Policy evaluation, sandbox profile
-edits/revocations, and permission-grant revocations are typed at the generated
-client boundary while the backend still owns the decision and audit rules.
-Project, session, chat, pipeline, memory, retrieval, and prompt mutation
-requests are also generated from backend schemas. Domain-specific frontend
-interfaces remain as refinements for routes that still return generic
-dictionaries. Active v1 mutating operations no longer generate `unknown`
-request bodies; remaining frontend refinements are primarily read-model and
-overview-shape work.
+now routes JSON calls through generated operation IDs. Active v1 mutating
+operations no longer generate `unknown` request bodies, and active v1 read
+operations no longer generate raw `JsonObject` operation responses. Frontend
+domain interfaces remain as intentional row-level refinements while backend
+metadata fields continue to evolve; the generated client now owns the route
+contract, and the feature models own UI-specific narrowing.

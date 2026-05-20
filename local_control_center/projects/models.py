@@ -16,3 +16,23 @@ class ProjectCreateRequest(BaseModel):
 class ProjectResponse(BaseModel):
     project: dict[str, Any]
     audit_event: dict[str, Any] | None = Field(default=None, alias="auditEvent")
+
+
+class ProjectTemplatesResponse(BaseModel):
+    project_templates: list[dict[str, Any]] = Field(alias="projectTemplates")
+
+
+class ProjectsListResponse(BaseModel):
+    projects: list[dict[str, Any]]
+
+
+class ProvidersListResponse(BaseModel):
+    providers: list[dict[str, Any]]
+
+
+class TeamsListResponse(BaseModel):
+    teams: list[dict[str, Any]]
+
+
+class AgentsListResponse(BaseModel):
+    agents: list[dict[str, Any]]

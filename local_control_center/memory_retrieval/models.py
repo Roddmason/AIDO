@@ -23,6 +23,10 @@ class MemoryResponse(BaseModel):
     memory_item: dict[str, Any] = Field(alias="memoryItem")
 
 
+class MemoryListResponse(BaseModel):
+    memory_items: list[dict[str, Any]] = Field(alias="memoryItems")
+
+
 class RetrievalSearchRequest(BaseModel):
     query: str = ""
     limit: int = 5

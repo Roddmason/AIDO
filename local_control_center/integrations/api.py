@@ -11,7 +11,15 @@ from ..agents.swe_agent_adapter import swe_agent_status
 from ..projects.repository import ProjectsRepository
 from ..shared.event_bus import EventBus
 from .mcp_gateway import mcp_gateway_status
-from .models import IdeConnectionResponse, IdeConnectionUpsertRequest, McpServerRegisterRequest, McpServerResponse
+from .models import (
+    IdeConnectionResponse,
+    IdeConnectionsListResponse,
+    IdeConnectionUpsertRequest,
+    IntegrationsListResponse,
+    McpServerRegisterRequest,
+    McpServerResponse,
+    OpenDesignResponse,
+)
 from .repository import IntegrationsRepository
 
 
@@ -55,11 +63,11 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     def event_bus() -> EventBus:
         return EventBus(platform.connection)
 
-    @router.get("/api/v1/ide-connections")
+    @router.get("/api/v1/ide-connections", response_model=IdeConnectionsListResponse)
     async def list_ide_connections() -> dict[str, list[Any]]:
         return {"ideConnections": repository().list_ide_connections()}
 
-    @router.get("/api/v1/integrations")
+    @router.get("/api/v1/integrations", response_model=IntegrationsListResponse)
     async def list_integrations() -> dict[str, Any]:
         return {
             "integrations": repository().list_integrations(),
@@ -110,7 +118,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         )
         return IdeConnectionResponse(ideConnection=connection)
 
-    @router.get("/api/v1/open-design")
+    @router.get("/api/v1/open-design", response_model=OpenDesignResponse)
     async def open_design() -> dict[str, Any]:
         return {"status": "python-backend", "backend": "fastapi", "runtime": "windows-native"}
 

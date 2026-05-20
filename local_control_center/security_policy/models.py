@@ -33,6 +33,14 @@ class PolicyEvaluationResponse(BaseModel):
     decision: dict[str, Any]
 
 
+class PoliciesListResponse(BaseModel):
+    policies: list[dict[str, Any]]
+    policy_revisions: list[dict[str, Any]] = Field(alias="policyRevisions")
+    permission_decisions: list[dict[str, Any]] = Field(alias="permissionDecisions")
+    permission_grants: list[dict[str, Any]] = Field(alias="permissionGrants")
+    sandbox_profiles: list[dict[str, Any]] = Field(alias="sandboxProfiles")
+
+
 class SandboxProfilePatchRequest(BaseModel):
     reason: str
     name: str | None = None
@@ -63,6 +71,11 @@ class PermissionGrantResponse(BaseModel):
 
 class SandboxProfileResponse(BaseModel):
     sandbox_profile: dict[str, Any] = Field(alias="sandboxProfile")
+
+
+class SandboxStatusResponse(BaseModel):
+    docker: dict[str, Any]
+    restricted_subprocess: dict[str, Any] = Field(alias="restrictedSubprocess")
 
 
 class SandboxProfileMutationResponse(BaseModel):

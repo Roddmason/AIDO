@@ -46,3 +46,12 @@ class JobMutationResponse(BaseModel):
     action_requests: list[dict[str, Any]] = Field(default_factory=list, alias="actionRequests")
     action_request: dict[str, Any] | None = Field(default=None, alias="actionRequest")
     permission_grant: dict[str, Any] | None = Field(default=None, alias="permissionGrant")
+
+
+class JobsListResponse(BaseModel):
+    jobs: list[dict[str, Any]]
+    events: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class ApprovalsListResponse(BaseModel):
+    action_requests: list[dict[str, Any]] = Field(alias="actionRequests")

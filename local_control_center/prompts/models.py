@@ -17,3 +17,7 @@ class PromptUpsertRequest(BaseModel):
 
 class PromptResponse(BaseModel):
     prompt_template: dict[str, Any] = Field(alias="promptTemplate")
+
+
+class PromptTemplatesListResponse(BaseModel):
+    prompt_templates: list[dict[str, Any]] = Field(alias="promptTemplates")

@@ -24,6 +24,18 @@ class McpServerResponse(BaseModel):
     mcp_server: dict[str, Any] = Field(alias="mcpServer")
 
 
+class IntegrationsListResponse(BaseModel):
+    integrations: list[dict[str, Any]]
+    mcp_servers: list[dict[str, Any]] = Field(alias="mcpServers")
+    optional_adapters: dict[str, Any] = Field(alias="optionalAdapters")
+
+
+class OpenDesignResponse(BaseModel):
+    status: str
+    backend: str
+    runtime: str
+
+
 class IdeConnectionUpsertRequest(BaseModel):
     project_id: str = Field(alias="projectId")
     editor: str = "unknown"
@@ -37,3 +49,7 @@ class IdeConnectionUpsertRequest(BaseModel):
 
 class IdeConnectionResponse(BaseModel):
     ide_connection: dict[str, Any] = Field(alias="ideConnection")
+
+
+class IdeConnectionsListResponse(BaseModel):
+    ide_connections: list[dict[str, Any]] = Field(alias="ideConnections")

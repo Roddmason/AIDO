@@ -8,7 +8,8 @@ export function OverviewPage({ overview, runtimeProviders }: { overview: Overvie
 	const running = countByStatus(overview.jobs, 'running');
 	const queued = countByStatus(overview.jobs, 'queued');
 	const pendingApprovals = overview.actionRequests.filter((item) => item.status === 'pending').length;
-	const openRisks = overview.riskRegister.filter((risk) => risk.status !== 'resolved').length;
+	const openRiskStatuses = new Set(['open', 'monitoring', 'mitigating']);
+	const openRisks = overview.riskRegister.filter((risk) => openRiskStatuses.has(risk.status)).length;
 
 	return (
 		<>

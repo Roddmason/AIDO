@@ -9,12 +9,14 @@ from .time import utc_now
 
 
 def row_to_event(row: sqlite3.Row) -> dict[str, Any]:
+    payload = json_loads(row["payload"])
     return {
         "id": row["id"],
         "jobId": row["job_id"],
         "projectId": row["project_id"],
         "type": row["type"],
-        "payload": json_loads(row["payload"]),
+        "severity": str(payload.get("severity") or "info"),
+        "payload": payload,
         "createdAt": row["created_at"],
     }
 

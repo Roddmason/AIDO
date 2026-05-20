@@ -125,6 +125,7 @@ def test_generated_openapi_client_is_checked_in_and_v1_only() -> None:
     assert "export type ModelPolicyRecord" in content
     assert "export type ActionRequestRecord" in content
     assert "export type EventRecord" in content
+    assert '"severity"?: string' in content
     assert "export type AuditEventRecord" in content
     assert 'JobsListResponse = { "events"?: Array<EventRecord>; "jobs": Array<JobRecord>' in content
     assert '"governance_api_v1_governance_get": GovernanceResponse' in content

@@ -19,6 +19,7 @@
     "test:py": "uv run pytest tests_py -q",
     "test:all": "corepack pnpm@10.24.0 run build:control-center && corepack pnpm@10.24.0 run test:py",
     "test:web": "corepack pnpm@10.24.0 run build:control-center && playwright test",
+    "typecheck:web": "tsc --noEmit -p local-control-center/web/tsconfig.json",
     "lint": "corepack pnpm@10.24.0 run lint:py",
     "lint:py": "uv run --extra dev ruff check .",
     "security:licenses:py": "uv run --extra dev python -X utf8 -m piplicenses --format=markdown",

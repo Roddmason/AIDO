@@ -124,6 +124,20 @@ def test_stable_frontend_policy_revision_surface_is_not_dictionary_typed() -> No
     assert "useState<Dictionary | null>" not in pages_source
 
 
+def test_frontend_mutation_helpers_use_generated_request_response_types() -> None:
+    client_source = read(SRC / "api" / "client.ts")
+
+    assert "OperationRequestBody" in client_source
+    assert "type MutationBody<TOperationId extends ApiOperationId> = OperationRequestBody<TOperationId>" in client_source
+    assert "requestGeneratedOperation<'approve_action_api_v1_jobs__job_id__actions__action_id__approve_post', Dictionary>" not in client_source
+    assert "requestGeneratedOperation<'create_workflow_api_v1_workflows_post', Dictionary>" not in client_source
+    assert "requestGeneratedOperation<'upsert_agent_profile_api_v1_agent_profiles_post', Dictionary>" not in client_source
+    assert "body: MutationBody<'create_workflow_api_v1_workflows_post'>" in client_source
+    assert "body: MutationBody<'upsert_agent_profile_api_v1_agent_profiles_post'>" in client_source
+    assert "body: MutationBody<'upsert_model_policy_api_v1_model_policies_post'>" in client_source
+    assert "body: MutationBody<'register_mcp_server_api_v1_integrations_mcp_register_post'>" in client_source
+
+
 def test_visual_guardrails_reject_generic_ai_dashboard_patterns() -> None:
     css_paths = list((SRC / "design-system").glob("*.css"))
     combined = "\n".join(read(path) for path in css_paths if path.exists())
@@ -158,6 +172,7 @@ def test_web_tooling_has_motion_and_visual_smoke_scripts() -> None:
     assert "@playwright/test" in package["devDependencies"]
     assert "vite" in package["devDependencies"]
     assert package["scripts"]["test:web"] == "corepack pnpm@10.24.0 run build:control-center && playwright test"
+    assert package["scripts"]["typecheck:web"] == "tsc --noEmit -p local-control-center/web/tsconfig.json"
 
     playwright_config = ROOT / "playwright.config.mjs"
     assert playwright_config.exists()
@@ -169,3 +184,12 @@ def test_web_tooling_has_motion_and_visual_smoke_scripts() -> None:
     assert "Jobs & Approvals" in smoke_source
     assert "Memory & Retrieval" in smoke_source
     assert "reduced motion" in smoke_source.lower()
+
+
+def test_web_typescript_config_uses_vite_compatible_resolution() -> None:
+    tsconfig = json.loads(read(WEB / "tsconfig.json"))
+
+    compiler_options = tsconfig["compilerOptions"]
+    assert compiler_options["strict"] is True
+    assert compiler_options["moduleResolution"] == "Bundler"
+    assert compiler_options["noEmit"] is True

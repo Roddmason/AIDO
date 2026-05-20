@@ -354,11 +354,30 @@ def test_schema_migration_tests_use_direct_sqlite_setup() -> None:
         "def test_governance_schema_adds_architecture_risks_and_next_steps",
         1,
     )[1].split("def test_governance_api_persists_decisions_risks_and_next_steps", 1)[0]
+    phase3_tests = read("tests_py/test_phase3_to_6_control_plane_runtime.py")
+    phase3_schema_test = phase3_tests.split(
+        "def test_phase3_to_6_schema_adds_workspaces_runtime_skills_and_evidence_tables",
+        1,
+    )[1].split("def test_command_classifier_and_policy_engine_gate_sensitive_actions", 1)[0]
 
     assert "ControlPlaneFixture" not in phase2_schema_test
     assert "initialize_platform_schema" in phase2_schema_test
     assert "ControlPlaneFixture" not in governance_schema_test
     assert "initialize_platform_schema" in governance_schema_test
+    assert "ControlPlaneFixture" not in phase3_schema_test
+    assert "initialize_platform_schema" in phase3_schema_test
+
+
+def test_model_gateway_repository_tests_use_direct_sqlite_setup() -> None:
+    runtime_tests = read("tests_py/test_phase3_to_6_control_plane_runtime.py")
+    model_gateway_tests = runtime_tests.split(
+        "def test_model_gateway_records_allowed_model_call_and_cost_usage",
+        1,
+    )[1].split("def test_skills_sync_reads_versionable_local_skills", 1)[0]
+
+    assert "ControlPlaneFixture" not in model_gateway_tests
+    assert "open_sqlite_connection" in model_gateway_tests
+    assert "initialize_platform_schema" in model_gateway_tests
 
 
 def test_active_runtime_does_not_import_store_facade() -> None:

@@ -191,6 +191,8 @@
 - Schema migration tests now initialize SQLite migrations directly instead of
   booting the full control-plane fixture; a guardrail keeps schema checks out
   of the app composition path.
+- Model gateway repository tests now use direct SQLite/migration setup and
+  repository construction instead of the full control-plane fixture.
 - Command palette and workflow inspector are backed by FastAPI v1 state rather
   than client-invented data.
 - The command palette can create workflows, focus pending approvals, and open a

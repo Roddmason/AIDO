@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import sqlite3
 import sys
 import base64
 import hashlib
@@ -15,11 +14,14 @@ from local_control_center.agents.repository import AgentsRepository
 from local_control_center.agents.tool_broker import ToolBroker
 from local_control_center.app import create_app
 from local_control_center.evidence.repository import EvidenceRepository
+from local_control_center.projects.repository import ProjectsRepository
 from local_control_center.security_policy.git_command_runner import git_available, run_git
 from local_control_center.security_policy.policy_engine import evaluate_action
 from local_control_center.security_policy.command_classifier import classify_command
 from local_control_center.security_policy.repository import SecurityPolicyRepository
 from local_control_center.security_policy.sandbox import DockerSandbox
+from local_control_center.shared.db import open_sqlite_connection
+from local_control_center.shared.migrations import initialize_platform_schema
 from tests_py.control_plane_fixture import ControlPlaneFixture
 
 
@@ -29,10 +31,8 @@ def auth_headers(client: TestClient) -> dict[str, str]:
 
 
 def test_phase3_to_6_schema_adds_workspaces_runtime_skills_and_evidence_tables(tmp_path: Path) -> None:
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
-    store.init()
-
-    with sqlite3.connect(tmp_path / "platform.sqlite") as connection:
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
         tables = {
             row[0]
             for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()
@@ -1442,70 +1442,75 @@ def test_internal_mock_agent_run_records_tool_model_cost_and_evidence(tmp_path: 
 
 
 def test_model_gateway_records_allowed_model_call_and_cost_usage(tmp_path: Path) -> None:
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
-    store.init()
-    project = store.create_project(name="Gateway", path=tmp_path / "gateway", template_id="other")
-    AgentsRepository(store.connection).upsert_model_policy(
-        {
-            "id": "implementation_default",
-            "name": "Implementation Default",
-            "preferred": [{"provider": "openrouter", "model": "oss-model"}],
-            "fallback": [{"provider": "ollama", "model": "llama3"}],
-            "maxCostUsd": 1.0,
-            "maxTokens": 120000,
-            "allowRemote": True,
-            "allowLocal": True,
-        }
-    )
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        project = ProjectsRepository(connection).create_project(name="Gateway", path=tmp_path / "gateway", template_id="other")
+        agents = AgentsRepository(connection)
+        agents.upsert_model_policy(
+            {
+                "id": "implementation_default",
+                "name": "Implementation Default",
+                "preferred": [{"provider": "openrouter", "model": "oss-model"}],
+                "fallback": [{"provider": "ollama", "model": "llama3"}],
+                "maxCostUsd": 1.0,
+                "maxTokens": 120000,
+                "allowRemote": True,
+                "allowLocal": True,
+            }
+        )
 
-    result = ModelGateway(store.connection).prepare_model_call(
-        project_id=project["id"],
-        model_policy_id="implementation_default",
-        estimated_cost_usd=0.02,
-        prompt_tokens=100,
-        completion_tokens=50,
-        metadata={"request": "safe"},
-    )
+        result = ModelGateway(connection).prepare_model_call(
+            project_id=project["id"],
+            model_policy_id="implementation_default",
+            estimated_cost_usd=0.02,
+            prompt_tokens=100,
+            completion_tokens=50,
+            metadata={"request": "safe"},
+        )
 
-    assert result["status"] == "prepared"
-    assert result["provider"] == "openrouter"
-    assert result["model"] == "oss-model"
-    assert result["modelCall"]["status"] == "prepared"
-    assert AgentsRepository(store.connection).list_cost_usage()[0]["amountUsd"] == 0.02
+        assert result["status"] == "prepared"
+        assert result["provider"] == "openrouter"
+        assert result["model"] == "oss-model"
+        assert result["modelCall"]["status"] == "prepared"
+        assert agents.list_cost_usage()[0]["amountUsd"] == 0.02
 
 
 def test_model_gateway_blocks_budget_overrun_and_redacts_secret_metadata(tmp_path: Path) -> None:
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
-    store.init()
-    project = store.create_project(name="Gateway Budget", path=tmp_path / "gateway-budget", template_id="other")
-    AgentsRepository(store.connection).upsert_model_policy(
-        {
-            "id": "tiny_budget",
-            "name": "Tiny Budget",
-            "preferred": [{"provider": "openrouter", "model": "oss-model"}],
-            "fallback": [],
-            "maxCostUsd": 0.01,
-            "maxTokens": 4000,
-            "allowRemote": True,
-            "allowLocal": False,
-        }
-    )
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        project = ProjectsRepository(connection).create_project(
+            name="Gateway Budget",
+            path=tmp_path / "gateway-budget",
+            template_id="other",
+        )
+        AgentsRepository(connection).upsert_model_policy(
+            {
+                "id": "tiny_budget",
+                "name": "Tiny Budget",
+                "preferred": [{"provider": "openrouter", "model": "oss-model"}],
+                "fallback": [],
+                "maxCostUsd": 0.01,
+                "maxTokens": 4000,
+                "allowRemote": True,
+                "allowLocal": False,
+            }
+        )
 
-    result = ModelGateway(store.connection).prepare_model_call(
-        project_id=project["id"],
-        model_policy_id="tiny_budget",
-        estimated_cost_usd=0.02,
-        prompt_tokens=100,
-        completion_tokens=50,
-        metadata={"authorization": "Bearer sk-test-secret", "nested": {"token": "secret-value"}},
-    )
+        result = ModelGateway(connection).prepare_model_call(
+            project_id=project["id"],
+            model_policy_id="tiny_budget",
+            estimated_cost_usd=0.02,
+            prompt_tokens=100,
+            completion_tokens=50,
+            metadata={"authorization": "Bearer sk-test-secret", "nested": {"token": "secret-value"}},
+        )
 
-    assert result["status"] == "blocked_budget"
-    assert result["modelCall"]["status"] == "blocked_budget"
-    serialized = str(result["modelCall"]["metadata"])
-    assert "sk-test-secret" not in serialized
-    assert "secret-value" not in serialized
-    assert "[redacted]" in serialized
+        assert result["status"] == "blocked_budget"
+        assert result["modelCall"]["status"] == "blocked_budget"
+        serialized = str(result["modelCall"]["metadata"])
+        assert "sk-test-secret" not in serialized
+        assert "secret-value" not in serialized
+        assert "[redacted]" in serialized
 
 
 def test_skills_sync_reads_versionable_local_skills(tmp_path: Path, monkeypatch) -> None:

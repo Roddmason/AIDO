@@ -48,8 +48,8 @@ corepack pnpm@10.24.0 run openapi:generate
 
 ## Limitations
 
-- `route/execute` is present but fail-closed: API provider calls require `AIDO_ENABLE_REAL_PROVIDER_CALLS=true`, configured credentials, budget/quota clearance and no pending approval requirement. CLI execution remains delegated to policy-approved agent runtime sessions.
-- Benchmarks derive usage/cost/latency from `usage_ledger` and success/QA/rework from `model_benchmark_outcomes`.
+- `route/execute` is present but fail-closed: API provider calls require `AIDO_ENABLE_REAL_PROVIDER_CALLS=true`, configured credentials, budget/quota clearance and no pending approval requirement. If approval is required, it creates a pending `model.route.execute` action request and the overview counts it in `pendingModelApprovals`. CLI execution remains delegated to policy-approved agent runtime sessions.
+- Benchmarks derive usage/cost/latency from `usage_ledger` and success/QA/rework from `model_benchmark_outcomes`. Outcomes can be recorded manually from the console or automatically during evidence creation when the evidence includes `usageLedgerId` or model identity fields.
 
 ## Example
 

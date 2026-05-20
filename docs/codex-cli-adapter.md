@@ -28,7 +28,7 @@ Tests verify missing binary status and dangerous flag rejection.
 
 ## Limitations
 
-- Usage parsing is stubbed unless Codex emits parseable JSON/JSONL events in the configured runtime.
+- Usage parsing is best-effort and only consumes parseable JSON/JSONL events. Supported shapes include `usage`, `token_usage`, `tokens`, `message.usage`, `metrics.token_usage` and `llm_metrics`; free-text output still records no fabricated usage.
 
 ## Example
 

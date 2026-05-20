@@ -36,6 +36,14 @@ Evidence creation also promotes large inline evidence to artifacts:
 - The evidence package keeps artifact IDs, hashes, sizes, and display metadata,
   not the original large payload.
 
+When evidence is linked to model/runtime usage, creation also feeds the Model
+Gateway benchmark outcomes table. `POST /api/v1/evidence` accepts
+`usageLedgerId` or explicit `providerId`, `model`, `runtimeType`, `role`,
+`workflowStepId`, `jobId`, cost and latency fields. If enough model identity is
+present, the control plane records a `model_benchmark_outcomes` row with
+success, QA pass and rework inferred from `qaVerdict` and test result status.
+Prompts and raw secrets are not copied into benchmark metadata.
+
 ## Artifact Retrieval
 
 Artifacts can be read through:

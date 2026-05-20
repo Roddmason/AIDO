@@ -67,6 +67,8 @@ export function App() {
 	const [page, setPage] = useState<PageId>(currentHash());
 	const [approvalDrawerOpen, setApprovalDrawerOpen] = useState(false);
 	const [eventDrawerOpen, setEventDrawerOpen] = useState(false);
+	const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+	const [commandFilter, setCommandFilter] = useState('');
 	const state = useControlPlane();
 	const motionRef = usePageMotion(page);
 
@@ -81,6 +83,11 @@ export function App() {
 			if (event.key === 'Escape') {
 				setApprovalDrawerOpen(false);
 				setEventDrawerOpen(false);
+				setCommandPaletteOpen(false);
+			}
+			if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+				event.preventDefault();
+				setCommandPaletteOpen((open) => !open);
 			}
 		};
 		window.addEventListener('keydown', onKeyDown);
@@ -95,6 +102,21 @@ export function App() {
 		() => overview?.costUsage.reduce((total, row) => total + Number(row.amountUsd ?? 0), 0) ?? 0,
 		[overview],
 	);
+	const commandActions = useMemo(
+		() => [
+			{ id: 'go-workflows', label: 'Go to Workflows', hint: 'Inspect workflow runs, steps, evidence and tool calls', run: () => { window.location.hash = 'workflows'; setPage('workflows'); setCommandPaletteOpen(false); } },
+			{ id: 'open-approvals', label: 'Open Pending Approvals', hint: 'Review pending granular action requests', run: () => { setApprovalDrawerOpen(true); setCommandPaletteOpen(false); } },
+			{ id: 'go-jobs', label: 'Go to Jobs & Approvals', hint: 'Open the queue and approval surface', run: () => { window.location.hash = 'jobs'; setPage('jobs'); setCommandPaletteOpen(false); } },
+			{ id: 'go-governance', label: 'Go to Governance', hint: 'Review risks, decisions and next steps', run: () => { window.location.hash = 'governance'; setPage('governance'); setCommandPaletteOpen(false); } },
+			{ id: 'go-policy', label: 'Go to Policy & Security', hint: 'Inspect policy decisions and sandbox posture', run: () => { window.location.hash = 'policy'; setPage('policy'); setCommandPaletteOpen(false); } },
+			{ id: 'open-events', label: 'Open Event Drawer', hint: 'Inspect recent operational events', run: () => { setEventDrawerOpen(true); setCommandPaletteOpen(false); } },
+		],
+		[],
+	);
+	const filteredCommands = commandActions.filter((action) => {
+		const query = commandFilter.trim().toLowerCase();
+		return !query || action.label.toLowerCase().includes(query) || action.hint.toLowerCase().includes(query);
+	});
 
 	const pageContent = () => {
 		if (state.loading || !overview) {
@@ -178,6 +200,9 @@ export function App() {
 							<Badge tone={pendingApprovals ? 'warn' : 'ok'}>{pendingApprovals} approvals</Badge>
 							<Badge tone={runningJobs ? 'warn' : 'ok'}>{runningJobs} running</Badge>
 							<Badge>{costToday.toFixed(2)} USD today</Badge>
+							<button className="button" type="button" onClick={() => setCommandPaletteOpen(true)}>
+								Open command palette
+							</button>
 							<button className="button" type="button" onClick={() => setApprovalDrawerOpen(true)}>
 								Open approvals drawer
 							</button>
@@ -225,6 +250,30 @@ export function App() {
 								{ key: 'id', label: 'Event', render: (row) => <span className="mono">{shortId(row.id)}</span> },
 							]}
 						/>
+					</Drawer>
+					<Drawer label="Command palette" open={commandPaletteOpen} onClose={() => setCommandPaletteOpen(false)}>
+						<div className="drawer-body">
+							<div className="field">
+								<label htmlFor="command-palette-filter">Command palette filter</label>
+								<input
+									id="command-palette-filter"
+									className="input"
+									value={commandFilter}
+									onChange={(event) => setCommandFilter(event.target.value)}
+									placeholder="Filter actions"
+									autoFocus
+								/>
+							</div>
+							<div className="command-list" role="list">
+								{filteredCommands.map((action) => (
+									<button key={action.id} className="command-item" type="button" onClick={action.run}>
+										<span>{action.label}</span>
+										<small>{action.hint}</small>
+									</button>
+								))}
+								{filteredCommands.length === 0 ? <EmptyState title="No commands" body="Try workflows, approvals, governance, policy or events." /> : null}
+							</div>
+						</div>
 					</Drawer>
 				</>
 			) : null}

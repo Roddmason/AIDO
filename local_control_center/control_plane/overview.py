@@ -82,6 +82,7 @@ def build_overview_from_connection(*, connection: sqlite3.Connection, cwd: str |
         "evidencePackages": evidence.list_evidence_packages(),
         "testResultRecords": evidence.list_all_test_results(),
         "agentProfiles": agents.list_agent_profiles(),
+        "agentRuns": agents.list_agent_runs(),
         "modelPolicies": agents.list_model_policies(),
         "modelProviders": agents.list_model_providers(),
         "agentToolCalls": agents.list_agent_tool_calls(),

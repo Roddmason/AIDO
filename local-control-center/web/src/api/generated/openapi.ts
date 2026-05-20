@@ -87,6 +87,10 @@ export type MemoryCreateRequest = { "content": string; "kind"?: string; "metadat
 export type MemoryItemRecord = { "content": string; "createdAt": string; "createdByRunId"?: null | string; "hash": string; "id": string; "kind": string; "metadata": JsonObject; "projectId": string; "scope": string; "scopeId"?: null | string; "sourceRef": string; "supersedesId"?: null | string; "updatedAt": string; "validFrom": string; "version": number };
 export type MemoryListResponse = { "memoryItems": Array<MemoryItemRecord> };
 export type MemoryResponse = { "memoryItem": MemoryItemRecord };
+export type ModelBenchmarkOutcomeCreateRequest = { "actualCostUsd"?: null | number; "agentId"?: null | string; "estimatedCostUsd"?: null | number; "jobId"?: null | string; "latencyMs"?: null | number; "metadata"?: JsonObject; "model": string; "providerId": string; "qaPass"?: boolean | null; "rework"?: boolean | null; "role"?: null | string; "runtimeType"?: string; "success"?: boolean | null; "taskId"?: null | string; "usageLedgerId"?: null | string; "workflowRunId"?: null | string; "workflowStepId"?: null | string };
+export type ModelBenchmarkOutcomeRecord = { "actualCostUsd"?: null | number; "agentId"?: null | string; "createdAt": string; "estimatedCostUsd"?: null | number; "id": string; "jobId"?: null | string; "latencyMs"?: null | number; "metadata": JsonObject; "model": string; "providerId": string; "qaPass"?: boolean | null; "rework"?: boolean | null; "role"?: null | string; "runtimeType": string; "success"?: boolean | null; "taskId"?: null | string; "usageLedgerId"?: null | string; "workflowRunId"?: null | string; "workflowStepId"?: null | string };
+export type ModelBenchmarkOutcomeResponse = { "outcome": ModelBenchmarkOutcomeRecord };
+export type ModelBenchmarkOutcomesListResponse = { "outcomes": Array<ModelBenchmarkOutcomeRecord> };
 export type ModelBenchmarkRecord = { "avgCost"?: null | number; "avgLatencyMs"?: null | number; "createdAt": string; "id": string; "insufficientData": boolean; "lastUsedAt"?: null | string; "metadata": JsonObject; "model": string; "providerId": string; "qaPassRate"?: null | number; "reworkRate"?: null | number; "role"?: null | string; "successRate"?: null | number; "tasksAttempted": number; "updatedAt": string };
 export type ModelBenchmarksListResponse = { "benchmarks": Array<ModelBenchmarkRecord> };
 export type ModelCallRecord = { "agentRunId"?: null | string; "completionTokens": number; "costUsd": number; "createdAt": string; "id": string; "metadata": JsonObject; "model": string; "modelPolicyId"?: null | string; "projectId": string; "promptTokens": number; "provider": string; "status": string };
@@ -168,6 +172,7 @@ export type RolePolicyRecord = { "allowApi": boolean; "allowCli": boolean; "allo
 export type RolePolicyResponse = { "rolePolicy": RolePolicyRecord };
 export type RolePolicyUpsertRequest = { "allowApi"?: boolean; "allowCli"?: boolean; "allowLocal"?: boolean; "allowRemote"?: boolean; "blocked"?: Array<JsonObject>; "escalation"?: Array<JsonObject>; "fallback"?: Array<JsonObject>; "id"?: null | string; "maxCostPerTaskUsd"?: number; "maxTokensPerRun"?: number; "preferred"?: Array<JsonObject>; "requiresApprovalForReasoningMax"?: boolean; "requiresApprovalOverUsd"?: null | number; "role": string; "routingProfileId"?: null | string };
 export type RouteExecuteMockResponse = { "routing": RoutingPreviewResponse; "usage": UsageLedgerRecord };
+export type RouteExecuteResponse = { "content"?: null | string; "routing": RoutingPreviewResponse; "usage"?: UsageLedgerRecord | null };
 export type RoutingCandidateRecord = { "effort"?: null | string; "estimatedCostUsd"?: null | number; "model": string; "provider": string; "runtime": string; "score": number; "scoreBreakdown": JsonObject };
 export type RoutingDecisionRecord = { "agentId"?: null | string; "candidates": Array<JsonObject>; "createdAt": string; "decisionReason": string; "estimatedCostUsd"?: null | number; "estimatedTokens"?: null | number; "id": string; "jobId"?: null | string; "mode": string; "policyResult": JsonObject; "rejected": Array<JsonObject>; "role": string; "scoreBreakdown": JsonObject; "selectedEffort"?: null | string; "selectedModel"?: null | string; "selectedProvider"?: null | string; "selectedRuntime"?: null | string; "taskId"?: null | string; "taskType": string; "workflowRunId"?: null | string; "workflowStepId"?: null | string };
 export type RoutingDecisionsListResponse = { "routingDecisions": Array<RoutingDecisionRecord> };
@@ -263,6 +268,8 @@ export const API_ENDPOINTS = [
 	{"method": "POST", "operationId": "retry_job_api_v1_jobs__job_id__retry_post", "path": "/api/v1/jobs/{job_id}/retry", "summary": "Retry Job"},
 	{"method": "GET", "operationId": "list_memory_api_v1_memory_get", "path": "/api/v1/memory", "summary": "List Memory"},
 	{"method": "POST", "operationId": "create_memory_api_v1_memory_post", "path": "/api/v1/memory", "summary": "Create Memory"},
+	{"method": "GET", "operationId": "list_benchmark_outcomes_api_v1_model_gateway_benchmark_outcomes_get", "path": "/api/v1/model-gateway/benchmark-outcomes", "summary": "List Benchmark Outcomes"},
+	{"method": "POST", "operationId": "create_benchmark_outcome_api_v1_model_gateway_benchmark_outcomes_post", "path": "/api/v1/model-gateway/benchmark-outcomes", "summary": "Create Benchmark Outcome"},
 	{"method": "GET", "operationId": "list_benchmarks_api_v1_model_gateway_benchmarks_get", "path": "/api/v1/model-gateway/benchmarks", "summary": "List Benchmarks"},
 	{"method": "GET", "operationId": "list_budget_rules_api_v1_model_gateway_budget_rules_get", "path": "/api/v1/model-gateway/budget-rules", "summary": "List Budget Rules"},
 	{"method": "POST", "operationId": "create_budget_rule_api_v1_model_gateway_budget_rules_post", "path": "/api/v1/model-gateway/budget-rules", "summary": "Create Budget Rule"},
@@ -287,6 +294,7 @@ export const API_ENDPOINTS = [
 	{"method": "GET", "operationId": "list_role_policies_api_v1_model_gateway_role_policies_get", "path": "/api/v1/model-gateway/role-policies", "summary": "List Role Policies"},
 	{"method": "POST", "operationId": "create_role_policy_api_v1_model_gateway_role_policies_post", "path": "/api/v1/model-gateway/role-policies", "summary": "Create Role Policy"},
 	{"method": "PATCH", "operationId": "patch_role_policy_api_v1_model_gateway_role_policies__policy_id__patch", "path": "/api/v1/model-gateway/role-policies/{policy_id}", "summary": "Patch Role Policy"},
+	{"method": "POST", "operationId": "route_execute_api_v1_model_gateway_route_execute_post", "path": "/api/v1/model-gateway/route/execute", "summary": "Route Execute"},
 	{"method": "POST", "operationId": "route_execute_mock_api_v1_model_gateway_route_execute_mock_post", "path": "/api/v1/model-gateway/route/execute-mock", "summary": "Route Execute Mock"},
 	{"method": "POST", "operationId": "route_preview_api_v1_model_gateway_route_preview_post", "path": "/api/v1/model-gateway/route/preview", "summary": "Route Preview"},
 	{"method": "GET", "operationId": "list_routing_decisions_api_v1_model_gateway_routing_decisions_get", "path": "/api/v1/model-gateway/routing-decisions", "summary": "List Routing Decisions"},
@@ -365,6 +373,7 @@ export type OperationRequestBodies = {
 	"cleanup_artifacts_api_v1_evidence_artifacts_cleanup_post": ArtifactCleanupRequest,
 	"create_agent_run_api_v1_agent_runs_post": AgentRunCreateRequest,
 	"create_architecture_decision_api_v1_architecture_decisions_post": ArchitectureDecisionCreateRequest,
+	"create_benchmark_outcome_api_v1_model_gateway_benchmark_outcomes_post": ModelBenchmarkOutcomeCreateRequest,
 	"create_budget_rule_api_v1_model_gateway_budget_rules_post": BudgetRuleUpsertRequest,
 	"create_chat_api_v1_chats_post": ChatCreateRequest,
 	"create_evidence_api_v1_evidence_post": EvidenceCreateRequest,
@@ -399,6 +408,7 @@ export type OperationRequestBodies = {
 	"list_agent_profiles_api_v1_agent_profiles_get": never,
 	"list_agent_runs_api_v1_agent_runs_get": never,
 	"list_architecture_decisions_api_v1_architecture_decisions_get": never,
+	"list_benchmark_outcomes_api_v1_model_gateway_benchmark_outcomes_get": never,
 	"list_benchmarks_api_v1_model_gateway_benchmarks_get": never,
 	"list_budget_rules_api_v1_model_gateway_budget_rules_get": never,
 	"list_chats_api_v1_chats_get": never,
@@ -451,6 +461,7 @@ export type OperationRequestBodies = {
 	"retry_job_api_v1_jobs__job_id__retry_post": OptionalReasonRequest,
 	"revoke_permission_grant_api_v1_permissions_grants__grant_id__revoke_post": RequiredReasonRequest,
 	"revoke_sandbox_profile_api_v1_sandbox_profiles__profile_id__revoke_post": RequiredReasonRequest,
+	"route_execute_api_v1_model_gateway_route_execute_post": RoutingPreviewRequest,
 	"route_execute_mock_api_v1_model_gateway_route_execute_mock_post": RoutingPreviewRequest,
 	"route_preview_api_v1_model_gateway_route_preview_post": RoutingPreviewRequest,
 	"sandbox_status_api_v1_sandbox_status_get": never,
@@ -481,6 +492,7 @@ export type OperationResponseBodies = {
 	"cleanup_artifacts_api_v1_evidence_artifacts_cleanup_post": ArtifactCleanupResponse,
 	"create_agent_run_api_v1_agent_runs_post": AgentRunResponse,
 	"create_architecture_decision_api_v1_architecture_decisions_post": ArchitectureDecisionResponse,
+	"create_benchmark_outcome_api_v1_model_gateway_benchmark_outcomes_post": ModelBenchmarkOutcomeResponse,
 	"create_budget_rule_api_v1_model_gateway_budget_rules_post": BudgetRuleResponse,
 	"create_chat_api_v1_chats_post": ChatResponse,
 	"create_evidence_api_v1_evidence_post": EvidencePackageResponse,
@@ -515,6 +527,7 @@ export type OperationResponseBodies = {
 	"list_agent_profiles_api_v1_agent_profiles_get": AgentProfilesListResponse,
 	"list_agent_runs_api_v1_agent_runs_get": AgentRunsListResponse,
 	"list_architecture_decisions_api_v1_architecture_decisions_get": ArchitectureDecisionsListResponse,
+	"list_benchmark_outcomes_api_v1_model_gateway_benchmark_outcomes_get": ModelBenchmarkOutcomesListResponse,
 	"list_benchmarks_api_v1_model_gateway_benchmarks_get": ModelBenchmarksListResponse,
 	"list_budget_rules_api_v1_model_gateway_budget_rules_get": BudgetRulesListResponse,
 	"list_chats_api_v1_chats_get": ChatsListResponse,
@@ -567,6 +580,7 @@ export type OperationResponseBodies = {
 	"retry_job_api_v1_jobs__job_id__retry_post": JobMutationResponse,
 	"revoke_permission_grant_api_v1_permissions_grants__grant_id__revoke_post": PermissionGrantResponse,
 	"revoke_sandbox_profile_api_v1_sandbox_profiles__profile_id__revoke_post": SandboxProfileResponse,
+	"route_execute_api_v1_model_gateway_route_execute_post": RouteExecuteResponse,
 	"route_execute_mock_api_v1_model_gateway_route_execute_mock_post": RouteExecuteMockResponse,
 	"route_preview_api_v1_model_gateway_route_preview_post": RoutingPreviewResponse,
 	"sandbox_status_api_v1_sandbox_status_get": SandboxStatusResponse,
@@ -622,6 +636,8 @@ export const OPERATIONS_BY_ID = {
 	"retry_job_api_v1_jobs__job_id__retry_post": {"method": "POST", "operationId": "retry_job_api_v1_jobs__job_id__retry_post", "path": "/api/v1/jobs/{job_id}/retry", "summary": "Retry Job"},
 	"list_memory_api_v1_memory_get": {"method": "GET", "operationId": "list_memory_api_v1_memory_get", "path": "/api/v1/memory", "summary": "List Memory"},
 	"create_memory_api_v1_memory_post": {"method": "POST", "operationId": "create_memory_api_v1_memory_post", "path": "/api/v1/memory", "summary": "Create Memory"},
+	"list_benchmark_outcomes_api_v1_model_gateway_benchmark_outcomes_get": {"method": "GET", "operationId": "list_benchmark_outcomes_api_v1_model_gateway_benchmark_outcomes_get", "path": "/api/v1/model-gateway/benchmark-outcomes", "summary": "List Benchmark Outcomes"},
+	"create_benchmark_outcome_api_v1_model_gateway_benchmark_outcomes_post": {"method": "POST", "operationId": "create_benchmark_outcome_api_v1_model_gateway_benchmark_outcomes_post", "path": "/api/v1/model-gateway/benchmark-outcomes", "summary": "Create Benchmark Outcome"},
 	"list_benchmarks_api_v1_model_gateway_benchmarks_get": {"method": "GET", "operationId": "list_benchmarks_api_v1_model_gateway_benchmarks_get", "path": "/api/v1/model-gateway/benchmarks", "summary": "List Benchmarks"},
 	"list_budget_rules_api_v1_model_gateway_budget_rules_get": {"method": "GET", "operationId": "list_budget_rules_api_v1_model_gateway_budget_rules_get", "path": "/api/v1/model-gateway/budget-rules", "summary": "List Budget Rules"},
 	"create_budget_rule_api_v1_model_gateway_budget_rules_post": {"method": "POST", "operationId": "create_budget_rule_api_v1_model_gateway_budget_rules_post", "path": "/api/v1/model-gateway/budget-rules", "summary": "Create Budget Rule"},
@@ -646,6 +662,7 @@ export const OPERATIONS_BY_ID = {
 	"list_role_policies_api_v1_model_gateway_role_policies_get": {"method": "GET", "operationId": "list_role_policies_api_v1_model_gateway_role_policies_get", "path": "/api/v1/model-gateway/role-policies", "summary": "List Role Policies"},
 	"create_role_policy_api_v1_model_gateway_role_policies_post": {"method": "POST", "operationId": "create_role_policy_api_v1_model_gateway_role_policies_post", "path": "/api/v1/model-gateway/role-policies", "summary": "Create Role Policy"},
 	"patch_role_policy_api_v1_model_gateway_role_policies__policy_id__patch": {"method": "PATCH", "operationId": "patch_role_policy_api_v1_model_gateway_role_policies__policy_id__patch", "path": "/api/v1/model-gateway/role-policies/{policy_id}", "summary": "Patch Role Policy"},
+	"route_execute_api_v1_model_gateway_route_execute_post": {"method": "POST", "operationId": "route_execute_api_v1_model_gateway_route_execute_post", "path": "/api/v1/model-gateway/route/execute", "summary": "Route Execute"},
 	"route_execute_mock_api_v1_model_gateway_route_execute_mock_post": {"method": "POST", "operationId": "route_execute_mock_api_v1_model_gateway_route_execute_mock_post", "path": "/api/v1/model-gateway/route/execute-mock", "summary": "Route Execute Mock"},
 	"route_preview_api_v1_model_gateway_route_preview_post": {"method": "POST", "operationId": "route_preview_api_v1_model_gateway_route_preview_post", "path": "/api/v1/model-gateway/route/preview", "summary": "Route Preview"},
 	"list_routing_decisions_api_v1_model_gateway_routing_decisions_get": {"method": "GET", "operationId": "list_routing_decisions_api_v1_model_gateway_routing_decisions_get", "path": "/api/v1/model-gateway/routing-decisions", "summary": "List Routing Decisions"},

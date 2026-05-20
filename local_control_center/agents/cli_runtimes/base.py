@@ -176,31 +176,72 @@ def _json_payloads_from_text(text: str) -> list[dict[str, Any]]:
 
 
 def _usage_from_payload(payload: dict[str, Any]) -> UsageRecord | None:
-    usage = payload.get("usage") if isinstance(payload.get("usage"), dict) else payload
-    if not isinstance(usage, dict):
-        return None
+    for usage in _usage_candidates(payload):
+        parsed = _usage_record_from_mapping(usage)
+        if parsed is not None:
+            return parsed
+    return None
+
+
+def _usage_candidates(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    candidates: list[dict[str, Any]] = []
+    for key in ("usage", "token_usage", "tokens", "llm_metrics"):
+        value = payload.get(key)
+        if isinstance(value, dict):
+            candidates.append(value)
+    message = payload.get("message")
+    if isinstance(message, dict) and isinstance(message.get("usage"), dict):
+        candidates.append(message["usage"])
+    result = payload.get("result")
+    if isinstance(result, dict) and isinstance(result.get("usage"), dict):
+        candidates.append(result["usage"])
+    metrics = payload.get("metrics")
+    if isinstance(metrics, dict):
+        for key in ("usage", "token_usage", "tokens", "llm_metrics"):
+            value = metrics.get(key)
+            if isinstance(value, dict):
+                candidates.append(value)
+    candidates.append(payload)
+    return candidates
+
+
+def _usage_record_from_mapping(usage: dict[str, Any]) -> UsageRecord | None:
     token_keys = {
         "prompt_tokens",
         "input_tokens",
+        "input",
         "completion_tokens",
         "output_tokens",
+        "output",
         "cached_input_tokens",
+        "cached_input",
+        "cache_read_input_tokens",
+        "cache_creation_input_tokens",
         "reasoning_tokens",
+        "reasoning",
         "tool_tokens",
+        "tool",
         "total_tokens",
+        "total",
     }
     if not (set(usage) & token_keys):
-        nested_usage = payload.get("token_usage")
-        if isinstance(nested_usage, dict):
-            usage = nested_usage
-        else:
-            return None
-    input_tokens = _int_token(usage.get("prompt_tokens") or usage.get("input_tokens"))
-    output_tokens = _int_token(usage.get("completion_tokens") or usage.get("output_tokens"))
-    cached_input_tokens = _int_token(usage.get("cached_input_tokens") or (usage.get("prompt_tokens_details") or {}).get("cached_tokens"))
-    reasoning_tokens = _int_token(usage.get("reasoning_tokens") or (usage.get("completion_tokens_details") or {}).get("reasoning_tokens"))
-    tool_tokens = _int_token(usage.get("tool_tokens"))
-    total_tokens = _int_token(usage.get("total_tokens")) or (
+        return None
+    input_tokens = _int_token(usage.get("prompt_tokens") or usage.get("input_tokens") or usage.get("input"))
+    output_tokens = _int_token(usage.get("completion_tokens") or usage.get("output_tokens") or usage.get("output"))
+    cached_input_tokens = _int_token(
+        usage.get("cached_input_tokens")
+        or usage.get("cached_input")
+        or usage.get("cache_read_input_tokens")
+        or usage.get("cache_creation_input_tokens")
+        or (usage.get("prompt_tokens_details") or {}).get("cached_tokens")
+    )
+    reasoning_tokens = _int_token(
+        usage.get("reasoning_tokens")
+        or usage.get("reasoning")
+        or (usage.get("completion_tokens_details") or {}).get("reasoning_tokens")
+    )
+    tool_tokens = _int_token(usage.get("tool_tokens") or usage.get("tool"))
+    total_tokens = _int_token(usage.get("total_tokens") or usage.get("total")) or (
         input_tokens + cached_input_tokens + output_tokens + reasoning_tokens + tool_tokens
     )
     if total_tokens == 0:

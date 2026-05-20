@@ -82,7 +82,9 @@ def test_generated_openapi_client_is_checked_in_and_v1_only() -> None:
     assert '"list_providers_api_v1_model_gateway_providers_get": ProviderAccountsListResponse' in content
     assert '"route_preview_api_v1_model_gateway_route_preview_post": RoutingPreviewRequest' in content
     assert '"route_preview_api_v1_model_gateway_route_preview_post": RoutingPreviewResponse' in content
+    assert '"route_execute_api_v1_model_gateway_route_execute_post": RouteExecuteResponse' in content
     assert '"list_benchmarks_api_v1_model_gateway_benchmarks_get": ModelBenchmarksListResponse' in content
+    assert '"create_benchmark_outcome_api_v1_model_gateway_benchmark_outcomes_post": ModelBenchmarkOutcomeCreateRequest' in content
     assert '"sync_skills_api_v1_skills_sync_post": SkillsSyncRequest' in content
     assert '"create_evidence_api_v1_evidence_post": EvidenceCreateRequest' in content
     assert '"ingest_artifact_api_v1_evidence__evidence_id__artifacts_post": ArtifactIngestRequest' in content

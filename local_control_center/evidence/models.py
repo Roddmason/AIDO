@@ -27,8 +27,19 @@ class ArtifactRetentionActionRequest(BaseModel):
 class EvidenceCreateRequest(BaseModel):
     project_id: str = Field(alias="projectId")
     workflow_run_id: str | None = Field(default=None, alias="workflowRunId")
+    workflow_step_id: str | None = Field(default=None, alias="workflowStepId")
     agent_id: str | None = Field(default=None, alias="agentId")
     task_id: str = Field(default="task", alias="taskId")
+    provider_id: str | None = Field(default=None, alias="providerId")
+    model: str | None = None
+    runtime_type: str | None = Field(default=None, alias="runtimeType")
+    role: str | None = None
+    job_id: str | None = Field(default=None, alias="jobId")
+    usage_ledger_id: str | None = Field(default=None, alias="usageLedgerId")
+    estimated_cost_usd: float | None = Field(default=None, alias="estimatedCostUsd")
+    actual_cost_usd: float | None = Field(default=None, alias="actualCostUsd")
+    latency_ms: int | None = Field(default=None, alias="latencyMs")
+    rework: bool | None = None
     test_plan: str = Field(default="", alias="testPlan")
     acceptance_checklist: list[Any] = Field(default_factory=list, alias="acceptanceChecklist")
     test_results: list[dict[str, Any]] = Field(default_factory=list, alias="testResults")

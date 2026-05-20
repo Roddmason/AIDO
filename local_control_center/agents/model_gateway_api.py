@@ -5,8 +5,10 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 
+from local_control_center.jobs_approvals.repository import JobsRepository
 from local_control_center.shared.event_bus import EventBus
 
+from .model_gateway import redact_secrets
 from .model_gateway_models import (
     BudgetRulePatchRequest,
     BudgetRuleResponse,
@@ -96,6 +98,17 @@ def _provider_instance(provider_id: str, *, connection: Any, mock: bool = True):
     return OpenAICompatibleProvider(provider_id=provider_id, base_url=base_url, credential_ref=credential_ref, mock=mock)
 
 
+def _approval_request_payload(body_payload: dict[str, Any], routing_result: dict[str, Any]) -> dict[str, Any]:
+    request_payload = {key: value for key, value in body_payload.items() if key not in {"prompt", "messages"}}
+    return redact_secrets(
+        {
+            "approvalRequired": True,
+            "request": request_payload,
+            "routing": routing_result,
+        }
+    )
+
+
 def create_router(*, platform: Any, require_write: Any) -> APIRouter:
     router = APIRouter(prefix="/api/v1/model-gateway", tags=["model-gateway"])
 
@@ -107,6 +120,9 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
 
     def usage() -> UsageLedger:
         return UsageLedger(platform.connection)
+
+    def jobs() -> JobsRepository:
+        return JobsRepository(platform.connection)
 
     def benchmarks() -> ModelBenchmarkStore:
         return ModelBenchmarkStore(platform.connection)
@@ -120,6 +136,7 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
         usage_summary = usage().summary()
         limit_rows = routing().list_provider_limits()
         cli_sessions = routing().list_cli_sessions()
+        action_requests = jobs().list_action_requests()
         return {
             "overview": {
                 "providersEnabled": sum(1 for item in provider_rows if item["enabled"]),
@@ -132,7 +149,11 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
                 "totalTokensToday": usage_summary["totalTokens"],
                 "estimatedCostToday": usage_summary["estimatedCostUsd"],
                 "actualCostToday": usage_summary["actualCostUsd"],
-                "pendingModelApprovals": 0,
+                "pendingModelApprovals": sum(
+                    1
+                    for item in action_requests
+                    if item["status"] == "pending" and str(item["actionType"]).startswith("model.")
+                ),
                 "providersInCooldown": sum(1 for item in limit_rows if item.get("cooldownUntil")),
                 "activeCliSessions": sum(1 for item in cli_sessions if item["status"] == "running"),
             }
@@ -293,6 +314,30 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
         if not selected:
             raise HTTPException(status_code=409, detail=result.get("decisionReason") or "No route selected.")
         if result.get("policyResult", {}).get("requiresApproval"):
+            project_id = str(body_payload.get("projectId") or "model-gateway")
+            approval_payload = _approval_request_payload(body_payload, result)
+            job_result = jobs().create_job(
+                project_id=project_id,
+                kind="model_route_execute",
+                status="approval_required",
+                payload=approval_payload,
+                workflow_run_id=body_payload.get("workflowRunId"),
+                workflow_step_id=body_payload.get("workflowStepId"),
+            )
+            action = jobs().create_action_request(
+                job_id=job_result["job"]["id"],
+                project_id=project_id,
+                action_type="model.route.execute",
+                risk_level=str(body_payload.get("riskLevel") or "high"),
+                command=f"{selected.get('provider')}/{selected.get('model')}:{selected.get('runtime')}",
+                payload=approval_payload,
+                reason="Model route execution requires approval before calling a provider or runtime.",
+            )
+            audit(
+                "model_gateway.route.execution_approval_requested",
+                selected.get("provider", "unknown"),
+                {"jobId": job_result["job"]["id"], "actionRequestId": action["id"]},
+            )
             raise HTTPException(status_code=409, detail="Route execution requires approval before calling a provider or runtime.")
         runtime_type = str(selected.get("runtime") or "")
         if runtime_type == "cli" and os.environ.get("AIDO_ENABLE_CLI_RUNTIMES", "false").lower() != "true":

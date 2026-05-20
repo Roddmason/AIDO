@@ -308,6 +308,19 @@ test('Evidence and QA shows persisted test result records', async ({ page }) => 
 	await expect(page.getByText('passed').first()).toBeVisible();
 });
 
+test('Evidence and QA previews token-protected artifacts', async ({ page }) => {
+	const workflow = await createWorkflowEvidence(page);
+	await page.goto('/#evidence');
+	await page.getByRole('button', { name: 'Evidence & QA' }).click();
+
+	await expect(page.getByText(workflow.artifactName).first()).toBeVisible();
+	await page.getByRole('button', { name: `Preview artifact ${workflow.artifactName}` }).click();
+	await expect(page.getByRole('dialog', { name: 'Artifact preview' })).toBeVisible();
+	await expect(page.getByText('Workflow inspector artifact smoke.')).toBeVisible();
+	await expect(page.getByText('text/markdown')).toBeVisible();
+	await expect(page.getByRole('button', { name: `Download artifact ${workflow.artifactName}` })).toBeVisible();
+});
+
 test('Governance shows architecture decisions, risks and next steps', async ({ page }) => {
 	const governance = await createGovernanceState(page);
 	await page.goto('/#governance');

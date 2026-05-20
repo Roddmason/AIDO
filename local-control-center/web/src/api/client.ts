@@ -2,6 +2,14 @@ import type { Dictionary, Overview, RuntimeProviders } from './types';
 
 const WRITE_HEADER = 'X-Local-Control-Token';
 
+export type ArtifactPayload = {
+	artifactId: string;
+	hash: string;
+	contentType: string;
+	blob: Blob;
+	text: string;
+};
+
 async function parseResponse<T>(response: Response): Promise<T> {
 	const text = await response.text();
 	const payload = text ? JSON.parse(text) : {};
@@ -42,6 +50,33 @@ export function getRetrievalStatus(signal?: AbortSignal) {
 
 export function getRuntimeProviders(signal?: AbortSignal) {
 	return apiRequest<RuntimeProviders>('/api/v1/runtime/providers', { signal });
+}
+
+export async function fetchEvidenceArtifact(token: string, evidenceId: string, artifactId: string): Promise<ArtifactPayload> {
+	const response = await fetch(`/api/v1/evidence/${encodeURIComponent(evidenceId)}/artifacts/${encodeURIComponent(artifactId)}`, {
+		headers: {
+			Accept: '*/*',
+			[WRITE_HEADER]: token,
+		},
+	});
+	const contentType = response.headers.get('content-type') ?? 'application/octet-stream';
+	if (!response.ok) {
+		const detail = await response.text();
+		throw new Error(detail || response.statusText);
+	}
+	const blob = await response.blob();
+	const textLike =
+		contentType.startsWith('text/') ||
+		contentType.includes('json') ||
+		contentType.includes('xml') ||
+		contentType.includes('markdown');
+	return {
+		artifactId: response.headers.get('X-AIDO-Artifact-Id') ?? artifactId,
+		hash: response.headers.get('X-AIDO-Artifact-Hash') ?? '',
+		contentType,
+		blob,
+		text: textLike ? await blob.text() : '',
+	};
 }
 
 export function approveAction(token: string, jobId: string, actionId: string, reason: string) {

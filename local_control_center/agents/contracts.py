@@ -38,6 +38,29 @@ class AgentProfileResponse(BaseModel):
     agent_profile: dict[str, Any] = Field(alias="agentProfile")
 
 
+class AgentRunCreateRequest(BaseModel):
+    project_id: str = Field(alias="projectId")
+    agent_profile_id: str = Field(alias="agentProfileId")
+    task_id: str = Field(default="task", alias="taskId")
+    input: dict[str, Any] = Field(default_factory=dict)
+    job_id: str | None = Field(default=None, alias="jobId")
+    workflow_run_id: str | None = Field(default=None, alias="workflowRunId")
+    workflow_step_id: str | None = Field(default=None, alias="workflowStepId")
+
+
+class AgentRunResponse(BaseModel):
+    agent_run: dict[str, Any] = Field(alias="agentRun")
+
+
+class SkillsSyncRequest(BaseModel):
+    skills_path: str = Field(default="skills", alias="skillsPath")
+
+
+class SkillsSyncResponse(BaseModel):
+    synced: int
+    skills: list[dict[str, Any]]
+
+
 class ModelPolicyUpsertRequest(BaseModel):
     id: str
     name: str | None = None

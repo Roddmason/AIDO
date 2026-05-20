@@ -258,4 +258,6 @@ PNPM is configured through `packageManager`.
 3. Add operation-level generated OpenAPI request/response types after the v1
    schema freezes; the current generated endpoint map already guards route
    drift.
-4. Add richer command-palette shortcuts and workflow inspector artifact previews.
+4. Policy decision visual diffs remain blocked until policy versions are stored
+   as explicit revision records. Keyboard shortcuts and authenticated evidence
+   artifact previews/downloads are implemented and covered by Playwright.

@@ -51,11 +51,12 @@ local-control-center/web/
   client.
 - Approval and event drawers render overview state directly. They are
   inspection/control surfaces; policy decisions remain backend-owned.
-- The command palette uses only v1-backed actions. It navigates to operational
-  surfaces or opens existing drawers; it does not bypass policy.
+- The command palette uses only v1-backed actions. It can create workflows,
+  navigate to operational surfaces, focus pending approvals, and open searchable
+  event state; it does not bypass policy.
 - Workflow inspectors read linked workflow runs, steps, workspaces, jobs, agent
-  runs, tool calls, evidence packages, test results, and approvals from
-  `/api/v1/overview`.
+  runs, tool calls, policy decisions, evidence packages, artifacts, test
+  results, and approvals from `/api/v1/overview`.
 - Configuration changes must use strict forms with controlled inputs. Agent
   profiles, model policies, workflows, governance records, sandbox profiles,
   and MCP registry entries are edited through labeled inputs, selects,
@@ -97,11 +98,15 @@ workflows, governance records, sandbox edits, and MCP registrations must
 persist through v1 APIs, and the configuration pages must not expose `textarea`
 JSON editors.
 
-The generated OpenAPI endpoint map lives in
+The generated OpenAPI client lives in
 `local-control-center/web/src/api/generated/openapi.ts` and is rebuilt with:
 
 ```powershell
 corepack pnpm@10.24.0 run openapi:generate
 ```
 
-CI fails if that generated file drifts from the FastAPI OpenAPI schema.
+CI fails if that generated file drifts from the FastAPI OpenAPI schema. The
+client includes operation-id lookup, typed operation aliases, path parameter
+interpolation, query serialization, loopback-token headers, and JSON error
+handling. Schema-derived DTOs are still intentionally deferred until v1 stops
+changing at high frequency.

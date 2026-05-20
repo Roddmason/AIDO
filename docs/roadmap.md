@@ -110,24 +110,32 @@
   explicit workflow-dispatch switches for runtime and OTEL smokes.
 - The frontend has a generated OpenAPI endpoint map checked in at
   `web/src/api/generated/openapi.ts`, with CI drift detection.
+- The generated OpenAPI client now exposes operation-id lookup, path
+  interpolation, token-aware request helpers, and operation-level type aliases
+  for v1 routes.
 - Command palette and workflow inspector are backed by FastAPI v1 state rather
   than client-invented data.
+- The command palette can create workflows, focus pending approvals, and open a
+  searchable operational event ledger.
+- Workflow inspection now includes linked policy decisions and evidence
+  artifacts, including artifact names, kind, and hashes.
 
 ## Next Backend Work
 
 1. Keep tightening tests around direct repositories and
    `tests_py/control_plane_fixture.py` where broad fixture setup is still
    noisier than the behavior under test.
-2. Add operation-specific generated OpenAPI request/response types when the
-   schema stabilizes enough to avoid churn.
+2. Replace the remaining hand-written frontend response shapes with
+   schema-derived request/response DTOs once the v1 schema stops changing
+   daily.
 3. Add deeper installed-runtime fixtures for OpenHands/SWE-agent in a separate
    release validation profile.
 
 ## Next Frontend Work
 
-1. Add keyboard shortcuts for create workflow, search events, and focus pending
-   approvals through the command palette.
-2. Add richer workflow inspector tabs for artifact previews and policy decision
-   diffs.
-3. Replace the endpoint-map generated client with operation-level generated
-   types after the v1 schema freezes.
+1. Add keyboard shortcuts that trigger existing command-palette actions without
+   adding hidden mutation paths.
+2. Add authenticated artifact preview/download affordances in the workflow and
+   evidence inspectors.
+3. Add visual diffs for policy decision changes once policy versions are stored
+   as explicit revision records.

@@ -17,7 +17,7 @@
     "openapi:generate": "uv run python local-control-center/scripts/generate_openapi_client.py",
     "test": "uv run pytest tests_py -q",
     "test:py": "uv run pytest tests_py -q",
-    "test:all": "corepack pnpm@10.24.0 run build:control-center && corepack pnpm@10.24.0 run test:py",
+    "test:all": "corepack pnpm@10.24.0 run typecheck:web && corepack pnpm@10.24.0 run build:control-center && corepack pnpm@10.24.0 run test:py",
     "test:web": "corepack pnpm@10.24.0 run build:control-center && playwright test",
     "typecheck:web": "tsc --noEmit -p local-control-center/web/tsconfig.json",
     "lint": "corepack pnpm@10.24.0 run lint:py",
@@ -26,7 +26,7 @@
     "security:licenses:js": "corepack pnpm@10.24.0 licenses list",
     "security:secrets": "gitleaks detect --no-git --source . --config .gitleaks.toml --redact",
     "security:sast": "uv run --extra dev semgrep scan --config .semgrep.yml --no-git-ignore local_control_center tests_py local-control-center/web/src tests_web",
-    "quality": "corepack pnpm@10.24.0 run lint && corepack pnpm@10.24.0 run test:all && corepack pnpm@10.24.0 run security:secrets && corepack pnpm@10.24.0 run security:sast"
+    "quality": "corepack pnpm@10.24.0 run lint && corepack pnpm@10.24.0 run typecheck:web && corepack pnpm@10.24.0 run test:all && corepack pnpm@10.24.0 run security:secrets && corepack pnpm@10.24.0 run security:sast"
   },
   "keywords": [],
   "author": "",

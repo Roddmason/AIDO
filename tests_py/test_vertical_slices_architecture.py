@@ -380,6 +380,24 @@ def test_model_gateway_repository_tests_use_direct_sqlite_setup() -> None:
     assert "initialize_platform_schema" in model_gateway_tests
 
 
+def test_retrieval_and_base_schema_tests_use_direct_sqlite_setup() -> None:
+    control_center_tests = read("tests_py/test_python_control_center.py")
+    retrieval_test = control_center_tests.split(
+        "def test_retrieval_index_uses_sqlite_metadata_and_is_rebuildable",
+        1,
+    )[1].split("def test_sqlite_schema_contains_python_control_plane_tables", 1)[0]
+    schema_test = control_center_tests.split(
+        "def test_sqlite_schema_contains_python_control_plane_tables",
+        1,
+    )[1].split("def test_sandbox_denies_dangerous_subprocess_without_docker", 1)[0]
+
+    assert "ControlPlaneFixture" not in retrieval_test
+    assert "MemoryRepository" in retrieval_test
+    assert "open_sqlite_connection" in retrieval_test
+    assert "ControlPlaneFixture" not in schema_test
+    assert "initialize_platform_schema" in schema_test
+
+
 def test_active_runtime_does_not_import_store_facade() -> None:
     root_api = read("local_control_center/api.py")
     cli_source = read("local_control_center/cli.py")

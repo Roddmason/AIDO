@@ -1,6 +1,5 @@
 import json
 import re
-import sqlite3
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -13,8 +12,11 @@ from local_control_center.agents_runtime import GatedAgentsPlanner
 from local_control_center.control_plane.runtime import ControlCenterRuntime
 from local_control_center.jobs_approvals.repository import JobsRepository
 from local_control_center.memory_retrieval.repository import MemoryRepository
+from local_control_center.projects.repository import ProjectsRepository
 from local_control_center.retrieval import RetrievalIndex
 from local_control_center.sandbox import WindowsSandbox
+from local_control_center.shared.db import open_sqlite_connection
+from local_control_center.shared.migrations import initialize_platform_schema
 from tests_py.control_plane_fixture import ControlPlaneFixture
 from local_control_center.worker import ConcurrentWorker
 
@@ -425,30 +427,34 @@ def test_worker_records_runs_events_and_rejects_unapproved_actions(tmp_path: Pat
 
 
 def test_retrieval_index_uses_sqlite_metadata_and_is_rebuildable(tmp_path: Path) -> None:
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
-    store.init()
-    project = store.create_project(name="Retrieval", path=tmp_path / "retrieval", template_id="other")
-    item = store.memory.create_memory_item(
-        project_id=project["id"],
-        scope="project",
-        scope_id=project["id"],
-        kind="note",
-        content="FAISS retrieval should be rebuildable from SQLite memory metadata",
-        source_ref="test",
-    )
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        project = ProjectsRepository(connection).create_project(
+            name="Retrieval",
+            path=tmp_path / "retrieval",
+            template_id="other",
+        )
+        memory = MemoryRepository(connection)
+        item = memory.create_memory_item(
+            project_id=project["id"],
+            scope="project",
+            scope_id=project["id"],
+            kind="note",
+            content="FAISS retrieval should be rebuildable from SQLite memory metadata",
+            source_ref="test",
+        )
 
-    index = RetrievalIndex(memory=MemoryRepository(store.connection), index_dir=tmp_path / "index")
-    summary = index.rebuild()
-    assert summary["indexed"] == 1
-    results = index.search("rebuildable memory metadata", limit=1)
-    assert results[0]["memoryItem"]["id"] == item["id"]
-    assert (tmp_path / "index" / "manifest.json").exists()
+        index = RetrievalIndex(memory=memory, index_dir=tmp_path / "index")
+        summary = index.rebuild()
+        assert summary["indexed"] == 1
+        results = index.search("rebuildable memory metadata", limit=1)
+        assert results[0]["memoryItem"]["id"] == item["id"]
+        assert (tmp_path / "index" / "manifest.json").exists()
 
 
 def test_sqlite_schema_contains_python_control_plane_tables(tmp_path: Path) -> None:
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
-    store.init()
-    with sqlite3.connect(tmp_path / "platform.sqlite") as connection:
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
         tables = {
             row[0]
             for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()

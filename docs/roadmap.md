@@ -193,6 +193,8 @@
   of the app composition path.
 - Model gateway repository tests now use direct SQLite/migration setup and
   repository construction instead of the full control-plane fixture.
+- Retrieval-index and base schema tests now use direct SQLite/migration setup
+  with owned repositories instead of the full app fixture.
 - Command palette and workflow inspector are backed by FastAPI v1 state rather
   than client-invented data.
 - The command palette can create workflows, focus pending approvals, and open a

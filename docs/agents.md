@@ -67,6 +67,13 @@ allowed to run. The current implementation:
 LiteLLM/OpenAI/Ollama execution adapters should attach behind this contract, not
 replace it.
 
+Agent profiles also carry the Unified Model & Runtime Gateway controls:
+
+- `routingProfileId` and `roleModelPolicyId` select the route policy used by the agent.
+- `allowedProviders` and `allowedRuntimes` constrain the catalog before execution.
+- `maxTokensPerRun`, `allowRemote`, `allowCli`, `allowApi`, and `requiresApprovalOverUsd` are persisted with the profile and surfaced in the Agents UI.
+- These fields are separate from the legacy `modelPolicyId`; mixing them would blur role-based routing with direct model-call policy.
+
 ## Structured Output
 
 Agent runs should return structured JSON with verdict, summary, evidence

@@ -15,12 +15,29 @@ The Model Gateway is the local-first control surface for model API providers, CL
 - `GET /api/v1/model-gateway/overview`
 - `GET/POST/PATCH /api/v1/model-gateway/providers`
 - `GET/POST/PATCH /api/v1/model-gateway/models`
+- `GET/POST/PATCH /api/v1/model-gateway/routing-profiles`
+- `GET/POST/PATCH /api/v1/model-gateway/role-policies`
 - `POST /api/v1/model-gateway/route/preview`
 - `POST /api/v1/model-gateway/route/execute-mock`
+- `GET /api/v1/model-gateway/usage-ledger`
+- `GET /api/v1/model-gateway/usage-ledger/summary`
+- `GET /api/v1/model-gateway/routing-decisions`
+- `GET /api/v1/model-gateway/benchmarks`
+- `GET/PATCH /api/v1/model-gateway/provider-limits`
+- `GET/POST/PATCH /api/v1/model-gateway/budget-rules`
+- `GET /api/v1/model-gateway/cli-runtimes`
+- `POST /api/v1/model-gateway/cli-runtimes/{id}/detect`
+- `POST /api/v1/model-gateway/cli-runtimes/{id}/health-check`
+- `GET /api/v1/model-gateway/cli-sessions`
 
 ## Testing
 
-Run `uv run pytest tests_py/test_model_runtime_gateway.py -q`.
+Run:
+
+```powershell
+uv run pytest tests_py/test_model_runtime_gateway.py tests_py/test_ci_and_openapi_client.py -q
+corepack pnpm@10.24.0 run openapi:generate
+```
 
 ## Risks
 
@@ -29,7 +46,8 @@ Run `uv run pytest tests_py/test_model_runtime_gateway.py -q`.
 
 ## Limitations
 
-- The MVP executes only mock routes from HTTP; real provider and CLI execution require explicit safety enablement.
+- The HTTP execution route remains `execute-mock`; real provider and CLI execution require explicit safety enablement and should be added behind policy gates, not as a silent fallback.
+- Benchmarks derive usage/cost/latency from `usage_ledger`; success, QA pass rate and rework stay empty until outcome records are collected.
 
 ## Example
 

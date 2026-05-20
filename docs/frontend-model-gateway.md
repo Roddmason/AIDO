@@ -6,11 +6,11 @@ The React console under `features/model-gateway/ModelGatewayPage.tsx` shows prov
 
 ## Configuration
 
-The page reads `/api/v1/model-gateway/*` endpoints directly and uses the local handshake token for mutations.
+The page reads `/api/v1/model-gateway/*` through the generated OpenAPI client and uses the local handshake token for mutations.
 
 ## Endpoints
 
-The page uses overview, providers, models, routing profiles, role policies, usage ledger, provider limits, budget rules, CLI runtimes and route preview endpoints.
+The page uses overview, providers, models, routing profiles, role policies, usage ledger, provider limits, budget rules, CLI runtimes, CLI sessions, benchmarks and route preview endpoints.
 
 ## Testing
 
@@ -25,11 +25,12 @@ corepack pnpm@10.24.0 exec playwright test tests_web/control-center.spec.js -g "
 ## Risks
 
 - Editing model catalog capabilities/prices from the UI is still basic; backend endpoints support PATCH but the UI currently prioritizes visibility and provider actions.
-- Benchmark metrics show `insufficient data` until outcome collection exists.
+- Benchmark success/QA/rework metrics show `insufficient data` until outcome collection exists; cost/latency/attempt counts are derived from usage ledger rows.
 
 ## Limitations
 
 - The console is data-dense and operational, but deeper inspectors for candidates/rejected policy internals are still table-level summaries.
+- Agent profile routing controls live in the Agents page because those fields are part of the executable agent contract.
 
 ## Example
 

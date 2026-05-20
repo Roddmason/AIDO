@@ -1,0 +1,113 @@
+defaultMode: balanced_best_value
+
+modes:
+  free_first:
+    objective: minimize_paid_usage
+    paidEscalationRequiresApproval: true
+    providerOrder:
+      - nvidia_nim
+      - ollama
+      - openrouter_free
+      - sonnet_class
+
+  cost_controlled:
+    objective: acceptable_quality_low_cost
+    maxCostPerTaskUsd: 0.50
+    maxThinkingEffort: medium
+    allowPremiumModels: false
+
+  balanced_best_value:
+    objective: best_performance_cost
+    maxCostPerTaskUsd: 2.00
+    maxThinkingEffort: high
+    allowPremiumFor:
+      - architecture_decision
+      - critical_security_review
+      - third_failed_attempt
+
+  max_performance:
+    objective: maximum_quality
+    maxCostPerTaskUsd: 10.00
+    allowThinkingMax: true
+    requiresApprovalOverUsd: 3.00
+
+  manual_by_profile:
+    objective: user_selected
+    automaticFallback: false
+
+  local_private:
+    objective: no_remote_data
+    allowRemoteProviders: false
+
+roles:
+  analyst:
+    mode: free_first
+    preferred:
+      - provider: nvidia_nim
+        model: auto_best_available
+      - provider: ollama
+        model: local_default
+    maxCostPerTaskUsd: 0.10
+
+  product_owner:
+    mode: balanced_best_value
+    preferred:
+      - provider: nvidia_nim
+        model: auto_best_available
+      - provider: openai_compatible
+        model: configured_model
+    maxCostPerTaskUsd: 0.75
+
+  technical_lead:
+    mode: balanced_best_value
+    preferred:
+      - provider: codex_cli
+        model: gpt-5.5
+        effort: xhigh
+      - provider: claude_code_cli
+        model: opus
+        effort: xhigh
+    escalation:
+      - provider: codex_cli
+        model: gpt-5.5
+        effort: xhigh
+        requiresApproval: true
+    maxCostPerTaskUsd: 3.00
+
+  developer:
+    mode: balanced_best_value
+    preferred:
+      - provider: codex_cli
+        model: gpt-5.5
+        effort: high
+      - provider: claude_code_cli
+        model: sonnet
+        effort: medium
+      - provider: openhands
+        model: auto
+    escalation:
+      - provider: codex_cli
+        model: gpt-5.5
+        effort: xhigh
+        condition: repeated_failure
+
+  qa:
+    mode: cost_controlled
+    preferred:
+      - provider: nvidia_nim
+        model: auto_best_available
+      - provider: openai_compatible
+        model: configured_model
+    maxCostPerTaskUsd: 0.50
+
+  security_reviewer:
+    mode: balanced_best_value
+    preferred:
+      - provider: codex_cli
+        model: gpt-5.5
+        effort: high
+    escalation:
+      - provider: codex_cli
+        model: gpt-5.5
+        effort: xhigh
+        condition: high_risk

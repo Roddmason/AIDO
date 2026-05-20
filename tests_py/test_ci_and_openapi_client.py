@@ -6,7 +6,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_github_workflows_are_removed_and_main_protection_is_explicit() -> None:
+def test_github_workflows_are_removed_and_branch_protection_is_explicit() -> None:
     workflows_dir = ROOT / ".github" / "workflows"
     if workflows_dir.exists():
         assert not list(workflows_dir.glob("*.yml"))
@@ -16,7 +16,8 @@ def test_github_workflows_are_removed_and_main_protection_is_explicit() -> None:
     assert script.exists()
     content = script.read_text(encoding="utf-8")
     assert "/repos/$Owner/$Repo/rulesets" in content
-    assert "refs/heads/$Branch" in content
+    assert "refs/heads/*" in content
+    assert "refs/heads/dev" in content
     assert "Assert-GhSuccess" in content
     assert "$LASTEXITCODE" in content
     assert '"type" = "creation"' in content
@@ -24,6 +25,7 @@ def test_github_workflows_are_removed_and_main_protection_is_explicit() -> None:
     assert '"type" = "deletion"' in content
     assert '"type" = "pull_request"' in content
     assert "required_approving_review_count = 1" in content
+    assert "require_code_owner_review = $true" in content
     assert "required_status_checks" not in content
     assert '"type" = "non_fast_forward"' in content
 

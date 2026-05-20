@@ -47,11 +47,19 @@ These scripts write ignored JSON evidence under `.tmp/runtime-validation/`;
 keep those reports with release notes when validating optional external
 runtimes.
 
-## Main Branch Blocking
+## Branch Protection
 
-`main` must be blocked in GitHub settings, not by a product CI workflow. The
-repo includes a helper that creates or updates a repository ruleset targeting
-`refs/heads/main`, without required status checks:
+Protected repository branches must be controlled by GitHub rulesets, not by a
+product CI workflow. The current policy protects every branch except `dev`:
+
+- Protected branches require pull request review, code owner review, resolved
+  review threads, linear history, and non-fast-forward protection.
+- `dev` remains the integration branch. The repository owner can push directly
+  to `dev`; outside contributions should come through pull requests.
+- Branch deletion is blocked for protected branches.
+
+The repo includes a helper that creates or updates a repository ruleset for
+`refs/heads/*` while excluding `refs/heads/dev`, without required status checks:
 
 ```powershell
 local-control-center/scripts/protect-main-branch.ps1

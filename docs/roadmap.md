@@ -146,6 +146,9 @@
   previous/updated snapshots and changed-field lists.
 - Policy & Security shows visual policy revision diffs for sandbox profile
   changes.
+- Local Semgrep coverage now checks four product-specific risks: shell
+  execution outside policy/sandbox, `shell=True`, plaintext secret persistence,
+  and optional runtime adapter bypasses.
 
 ## Next Backend Work
 

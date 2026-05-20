@@ -6,7 +6,8 @@
 - Python environment manager: `uv`.
 - Python linting: Ruff.
 - Secret scanning: Gitleaks.
-- SAST: Semgrep.
+- SAST: Semgrep with local AIDO rules for shell execution, `shell=True`,
+  plaintext secret persistence, and optional runtime adapter bypasses.
 
 ## Setup
 

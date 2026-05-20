@@ -91,3 +91,15 @@ def test_python_quality_tooling_is_declared_for_uv() -> None:
         assert any(item.startswith(dependency) for item in optional_dependencies["dev"]), dependency
 
     assert "ruff" in pyproject["tool"]
+
+
+def test_semgrep_local_rules_cover_core_security_risks() -> None:
+    semgrep = read(".semgrep.yml")
+
+    for rule_id in (
+        "python-dangerous-shell-without-policy-comment",
+        "python-subprocess-shell-true",
+        "python-plaintext-secret-persistence",
+        "python-runtime-adapter-bypass",
+    ):
+        assert f"id: {rule_id}" in semgrep

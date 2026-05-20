@@ -6,13 +6,16 @@
 
 ## Configuration
 
-Use environment variables for credentials:
+Use credential refs for credentials. Environment refs are the default:
 
 ```powershell
 $env:NVIDIA_NIM_API_KEY = "<real key outside repo>"
 ```
 
-Only the string `NVIDIA_NIM_API_KEY` is stored in SQLite.
+Only the string `env:NVIDIA_NIM_API_KEY` or legacy shorthand
+`NVIDIA_NIM_API_KEY` is stored in SQLite. Optional refs in the form
+`keyring:service/account` can be used when a local OS/keyring adapter is
+installed outside the core runtime. Raw keys are rejected.
 
 ## Endpoints
 
@@ -29,7 +32,7 @@ Only the string `NVIDIA_NIM_API_KEY` is stored in SQLite.
 ## Risks
 
 - Health checks currently run in safe mock mode from the API route.
-- Credential status is env-presence based: configured, missing or unknown.
+- Credential status is resolver-based: configured, missing, unknown, invalid or unsupported.
 
 ## Limitations
 
@@ -40,7 +43,7 @@ Only the string `NVIDIA_NIM_API_KEY` is stored in SQLite.
 ```json
 {
   "providerId": "nvidia_nim",
-  "credentialRef": "NVIDIA_NIM_API_KEY",
+  "credentialRef": "env:NVIDIA_NIM_API_KEY",
   "enabled": true
 }
 ```

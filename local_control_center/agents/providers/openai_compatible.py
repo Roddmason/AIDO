@@ -6,6 +6,7 @@ import urllib.error
 import urllib.request
 from typing import Any
 
+from local_control_center.agents.credentials import CredentialResolver
 from local_control_center.agents.model_gateway import redact_secrets
 
 from .base import CostEstimate, ModelInfo, ModelProvider, ModelRequest, ModelResponse, ProviderHealth, UsageRecord
@@ -28,17 +29,21 @@ class OpenAICompatibleProvider(ModelProvider):
         self.base_url = (base_url or os.environ.get("OPENAI_COMPATIBLE_BASE_URL") or "").rstrip("/")
         self.credential_ref = credential_ref or "OPENAI_API_KEY"
         self.mock = mock
+        self.credential_resolver = CredentialResolver()
 
     def _credential(self) -> str:
-        return os.environ.get(self.credential_ref, "")
+        return self.credential_resolver.resolve(self.credential_ref).value or ""
 
     def health_check(self) -> ProviderHealth:
         if self.mock:
             return ProviderHealth(providerId=self.provider_id, status="available", healthStatus="healthy", message="mock provider healthy")
         if not self.base_url:
             return ProviderHealth(providerId=self.provider_id, status="misconfigured", healthStatus="misconfigured", message="Base URL is not configured")
-        if not self._credential():
-            return ProviderHealth(providerId=self.provider_id, status="misconfigured", healthStatus="misconfigured", message=f"Credential ref {self.credential_ref} is missing")
+        credential = self.credential_resolver.resolve(self.credential_ref)
+        if credential.status == "invalid":
+            return ProviderHealth(providerId=self.provider_id, status="misconfigured", healthStatus="misconfigured", message=credential.message)
+        if credential.status in {"missing", "unsupported", "unknown"}:
+            return ProviderHealth(providerId=self.provider_id, status="misconfigured", healthStatus="misconfigured", message=f"Credential ref {self.credential_ref} is {credential.status}")
         if not real_provider_calls_enabled():
             return ProviderHealth(providerId=self.provider_id, status="disabled", healthStatus="unknown", message="Real provider calls are disabled")
         return ProviderHealth(providerId=self.provider_id, status="available", healthStatus="healthy", message="Configuration present")

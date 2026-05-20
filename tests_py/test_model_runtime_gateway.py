@@ -11,9 +11,11 @@ from local_control_center.agents.cli_runtimes.claude_code_cli import ClaudeCodeC
 from local_control_center.agents.cli_runtimes.codex_cli import CodexCliRuntime
 from local_control_center.agents.cli_runtimes.openhands import OpenHandsRuntime
 from local_control_center.agents.cli_runtimes.swe_agent import SweAgentRuntime
+from local_control_center.agents.credentials import CredentialResolver
 from local_control_center.agents.model_gateway import redact_secrets
 from local_control_center.agents.providers.base import ModelRequest
 from local_control_center.agents.providers.nvidia_nim import NvidiaNimProvider
+from local_control_center.agents.providers.openai_compatible import OpenAICompatibleProvider
 from local_control_center.agents.quota_manager import QuotaManager
 from local_control_center.agents.usage_ledger import UsageLedger
 from local_control_center.shared.db import open_sqlite_connection
@@ -124,6 +126,91 @@ def test_provider_accounts_crud_endpoints_do_not_expose_raw_credentials(tmp_path
     listed = client.get("/api/v1/model-gateway/providers")
     assert listed.status_code == 200
     assert any(item["providerId"] == "test_compatible" for item in listed.json()["providers"])
+
+
+def test_provider_accounts_reject_raw_credential_refs_and_support_env_scheme(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("AIDO_TEST_COMPATIBLE_API_KEY", "sk-testsecret123456")
+    client = create_client(tmp_path, monkeypatch)
+    headers = auth_headers(client)
+
+    rejected = client.post(
+        "/api/v1/model-gateway/providers",
+        headers=headers,
+        json={
+            "providerId": "raw_secret_provider",
+            "displayName": "Raw Secret Provider",
+            "providerType": "api",
+            "apiFormat": "openai_compatible",
+            "baseUrl": "https://example.invalid/v1",
+            "credentialRef": "sk-testsecret123456",
+            "enabled": False,
+        },
+    )
+    assert rejected.status_code == 400
+    assert "credential_ref" in rejected.json()["detail"]
+
+    created = client.post(
+        "/api/v1/model-gateway/providers",
+        headers=headers,
+        json={
+            "providerId": "env_scheme_provider",
+            "displayName": "Env Scheme Provider",
+            "providerType": "api",
+            "apiFormat": "openai_compatible",
+            "baseUrl": "https://example.invalid/v1",
+            "credentialRef": "env:AIDO_TEST_COMPATIBLE_API_KEY",
+            "enabled": False,
+        },
+    )
+
+    assert created.status_code == 201
+    provider = created.json()["provider"]
+    assert provider["credentialRef"] == "env:AIDO_TEST_COMPATIBLE_API_KEY"
+    assert provider["credentialStatus"] == "configured"
+    assert "sk-testsecret" not in str(provider)
+
+
+def test_credential_resolver_is_env_first_optional_keyring_and_redacted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AIDO_PROVIDER_SECRET", "sk-testsecret123456")
+    resolver = CredentialResolver()
+
+    env_result = resolver.resolve("env:AIDO_PROVIDER_SECRET")
+    legacy_env_result = resolver.resolve("AIDO_PROVIDER_SECRET")
+    missing_result = resolver.resolve("env:AIDO_MISSING_SECRET")
+    raw_result = resolver.resolve("sk-testsecret123456")
+    keyring_result = resolver.resolve("keyring:aido/nvidia_nim")
+
+    assert env_result.status == "configured"
+    assert env_result.source == "env"
+    assert env_result.value == "sk-testsecret123456"
+    assert legacy_env_result.status == "configured"
+    assert missing_result.status == "missing"
+    assert raw_result.status == "invalid"
+    assert raw_result.value is None
+    assert keyring_result.status in {"configured", "missing", "unsupported"}
+    assert "sk-testsecret" not in repr(env_result)
+    assert "sk-testsecret" not in str(env_result.to_public_dict())
+
+
+def test_openai_compatible_provider_uses_credential_resolver(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AIDO_PROVIDER_SECRET", "sk-testsecret123456")
+    monkeypatch.setenv("AIDO_ENABLE_REAL_PROVIDER_CALLS", "false")
+
+    provider = OpenAICompatibleProvider(
+        provider_id="test_resolver",
+        base_url="https://example.invalid/v1",
+        credential_ref="env:AIDO_PROVIDER_SECRET",
+        mock=False,
+    )
+
+    assert provider._credential() == "sk-testsecret123456"
+    health = provider.health_check()
+    assert health.status == "disabled"
+    assert "sk-testsecret" not in health.message
 
 
 def test_model_catalog_crud_endpoints(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

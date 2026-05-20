@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException, Request
 from local_control_center.jobs_approvals.repository import JobsRepository
 from local_control_center.shared.event_bus import EventBus
 
+from .credentials import CredentialResolver
 from .model_gateway import redact_secrets
 from .model_gateway_models import (
     BudgetRulePatchRequest,
@@ -88,11 +89,11 @@ def _provider_instance(provider_id: str, *, connection: Any, mock: bool = True):
     if provider_id == "ollama":
         return OllamaProvider(base_url=base_url, mock=mock)
     if provider_id == "openai_api":
-        return OpenAIAPIProvider(mock=mock)
+        return OpenAIAPIProvider(base_url=base_url, credential_ref=credential_ref or "OPENAI_API_KEY", mock=mock)
     if provider_id == "anthropic_api":
         return AnthropicAPIProvider(mock=mock)
     if provider_id == "openrouter":
-        return OpenRouterProvider(mock=mock)
+        return OpenRouterProvider(base_url=base_url, credential_ref=credential_ref or "OPENROUTER_API_KEY", mock=mock)
     if provider_id == "litellm":
         return LiteLLMAdapter(base_url=base_url, credential_ref=credential_ref or "LITELLM_API_KEY", mock=mock)
     return OpenAICompatibleProvider(provider_id=provider_id, base_url=base_url, credential_ref=credential_ref, mock=mock)
@@ -166,7 +167,10 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
     @router.post("/providers", status_code=201, response_model=ProviderAccountResponse)
     async def create_provider(body: ProviderAccountUpsertRequest, request: Request) -> dict[str, Any]:
         require_write(request)
-        provider = providers().upsert_provider_account(_payload(body))
+        try:
+            provider = providers().upsert_provider_account(_payload(body))
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=f"Invalid credential_ref: {error}") from error
         audit("model_gateway.provider.upserted", provider["providerId"], {"providerId": provider["providerId"]})
         return {"provider": provider}
 
@@ -182,6 +186,8 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
         require_write(request)
         try:
             provider = providers().patch_provider_account(provider_id, _payload(body))
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=f"Invalid credential_ref: {error}") from error
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
         audit("model_gateway.provider.updated", provider_id, {"providerId": provider_id})
@@ -347,8 +353,9 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
         if runtime_type == "cli":
             raise HTTPException(status_code=501, detail="Real CLI execution must be launched through policy-approved agent runtime sessions.")
         account = providers().get_provider_account(selected["provider"])
-        if account.get("credentialRef") and not os.environ.get(str(account["credentialRef"])):
-            raise HTTPException(status_code=400, detail=f"Credential ref {account['credentialRef']} is not configured.")
+        credential = CredentialResolver().resolve(str(account.get("credentialRef") or ""))
+        if account.get("credentialRef") and not credential.configured:
+            raise HTTPException(status_code=400, detail=f"Credential ref {account['credentialRef']} is {credential.status}.")
         provider = _provider_instance(selected["provider"], connection=platform.connection, mock=False)
         message = str(body_payload.get("prompt") or body_payload.get("taskType") or "Execute routed task.")
         response = provider.chat_completion(ModelRequest(model=selected["model"], messages=[{"role": "user", "content": message}]))

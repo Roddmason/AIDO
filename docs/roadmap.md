@@ -188,6 +188,9 @@
   broad app fixture; an architecture guardrail prevents that regression.
 - Repository-level telemetry tests now use direct SQLite/repository setup while
   keeping the broad app fixture only for HTTP middleware coverage.
+- Schema migration tests now initialize SQLite migrations directly instead of
+  booting the full control-plane fixture; a guardrail keeps schema checks out
+  of the app composition path.
 - Command palette and workflow inspector are backed by FastAPI v1 state rather
   than client-invented data.
 - The command palette can create workflows, focus pending approvals, and open a

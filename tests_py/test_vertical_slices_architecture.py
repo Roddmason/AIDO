@@ -343,6 +343,24 @@ def test_repository_level_telemetry_tests_use_direct_sqlite_setup() -> None:
     assert "ControlPlaneFixture" not in exporter_test
 
 
+def test_schema_migration_tests_use_direct_sqlite_setup() -> None:
+    phase2_tests = read("tests_py/test_phase2_control_plane_foundation.py")
+    phase2_schema_test = phase2_tests.split(
+        "def test_phase2_schema_adds_control_plane_foundation_tables",
+        1,
+    )[1].split("def test_workflows_policy_evidence_agents_and_model_policy_routes_are_real", 1)[0]
+    governance_tests = read("tests_py/test_phase8_governance.py")
+    governance_schema_test = governance_tests.split(
+        "def test_governance_schema_adds_architecture_risks_and_next_steps",
+        1,
+    )[1].split("def test_governance_api_persists_decisions_risks_and_next_steps", 1)[0]
+
+    assert "ControlPlaneFixture" not in phase2_schema_test
+    assert "initialize_platform_schema" in phase2_schema_test
+    assert "ControlPlaneFixture" not in governance_schema_test
+    assert "initialize_platform_schema" in governance_schema_test
+
+
 def test_active_runtime_does_not_import_store_facade() -> None:
     root_api = read("local_control_center/api.py")
     cli_source = read("local_control_center/cli.py")

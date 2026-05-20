@@ -75,6 +75,8 @@ flowchart LR
   profile upserts, model policy upserts, jobs/approvals mutations, governance
   mutations, workspace allocation/archive, MCP registration, and IDE connection
   upserts, policy evaluation, sandbox profile mutations, and permission-grant
-  revocations now generate named OpenAPI DTOs. Evidence, session/chat, project,
-  pipeline, memory, prompt, skills, and larger overview subresources still need
+  revocations, project creation, session/chat creation, pipeline creation,
+  memory creation, retrieval search/reindex, and prompt upserts now generate
+  named OpenAPI DTOs. Evidence mutations, artifact retention operations, skill
+  sync, agent-run creation, and larger overview subresources still need
   narrower schemas.

@@ -7,6 +7,7 @@ from fastapi import APIRouter, Request
 
 from local_control_center.shared.event_bus import EventBus
 
+from .models import PipelineCreateRequest, PipelineResponse
 from .repository import PipelinesRepository
 
 
@@ -23,22 +24,21 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     async def list_pipelines() -> dict[str, Any]:
         return {"pipelines": repository().list_pipelines()}
 
-    @router.post("/api/v1/pipelines", status_code=201)
-    async def create_pipeline(request: Request) -> dict[str, Any]:
+    @router.post("/api/v1/pipelines", status_code=201, response_model=PipelineResponse)
+    async def create_pipeline(body: PipelineCreateRequest, request: Request) -> PipelineResponse:
         require_write(request)
-        body = await request.json()
         pipeline = repository().create_pipeline(
-            project_id=body["projectId"],
-            title=body.get("title") or "Pipeline",
-            session_id=body.get("sessionId"),
-            chat_id=body.get("chatId"),
-            stages=body.get("stages"),
+            project_id=body.project_id,
+            title=body.title or "Pipeline",
+            session_id=body.session_id,
+            chat_id=body.chat_id,
+            stages=body.stages,
         )
         event_bus().record_event(
             project_id=pipeline["projectId"],
             event_type="pipeline.created",
             payload={"pipelineId": pipeline["id"], "sessionId": pipeline["sessionId"], "chatId": pipeline["chatId"]},
         )
-        return {"pipeline": pipeline}
+        return PipelineResponse(pipeline=pipeline)
 
     return router

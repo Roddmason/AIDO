@@ -63,6 +63,14 @@ def test_generated_openapi_client_is_checked_in_and_v1_only() -> None:
     assert '"update_sandbox_profile_api_v1_sandbox_profiles__profile_id__patch": SandboxProfilePatchRequest' in content
     assert '"revoke_permission_grant_api_v1_permissions_grants__grant_id__revoke_post": RequiredReasonRequest' in content
     assert '"revoke_sandbox_profile_api_v1_sandbox_profiles__profile_id__revoke_post": RequiredReasonRequest' in content
+    assert '"create_project_api_v1_projects_post": ProjectCreateRequest' in content
+    assert '"create_session_api_v1_sessions_post": SessionCreateRequest' in content
+    assert '"create_chat_api_v1_chats_post": ChatCreateRequest' in content
+    assert '"create_pipeline_api_v1_pipelines_post": PipelineCreateRequest' in content
+    assert '"create_memory_api_v1_memory_post": MemoryCreateRequest' in content
+    assert '"retrieval_search_api_v1_retrieval_search_post": RetrievalSearchRequest' in content
+    assert '"retrieval_reindex_api_v1_retrieval_reindex_post": EmptyObjectRequest' in content
+    assert '"upsert_prompt_api_v1_prompts_post": PromptUpsertRequest' in content
     assert "export function buildApiPath" in content
     assert "export async function requestGeneratedOperation" in content
 

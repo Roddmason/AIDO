@@ -140,5 +140,13 @@ Fecha: 2026-05-20
 - `Workflows` invoca `ModelRouter` al iniciar un workflow y registra una decisión por step en modo local/mock, sin ejecutar proveedores reales.
 - `Agent Profiles` expone y persiste `routingProfileId`, `roleModelPolicyId`, providers/runtimes permitidos, límites de tokens, flags remote/CLI/API y umbral de approval.
 - `CLI runtimes` parsean usage desde JSON/JSONL cuando el runtime lo emite; si no hay usage exacto, se conserva `None` y no se inventa precisión.
-- `Benchmarks` ya exponen datos derivados de `usage_ledger` para intentos, coste medio, latencia y último uso; success/QA/rework siguen como `insufficient data` hasta que exista outcome collection real.
+- `Benchmarks` exponen datos derivados de `usage_ledger` para intentos, coste medio, latencia y último uso; success/QA/rework se calculan cuando existen outcomes explícitos.
 - Descubrimiento remoto real sigue deshabilitado por defecto y protegido por `AIDO_ENABLE_REAL_PROVIDER_CALLS=false`.
+
+## Cierre de siguientes pasos
+
+- Se agregó fase 13 con `model_benchmark_outcomes` para recolectar outcomes explícitos sin guardar prompts.
+- `GET/POST /api/v1/model-gateway/benchmark-outcomes` permite registrar success, QA pass, rework, coste y latencia.
+- `GET /api/v1/model-gateway/benchmarks` ahora fusiona usage ledger y outcomes para métricas reales cuando existen.
+- `POST /api/v1/model-gateway/route/execute` existe y falla cerrado por defecto; requiere enablement explícito, credenciales configuradas, routing válido y ausencia de approval pendiente.
+- Los parsers CLI reconocen aliases estructurados comunes (`usage`, `token_usage`, `tokens`, `message.usage`, `metrics.token_usage`, `llm_metrics`) y devuelven `None` para texto libre.

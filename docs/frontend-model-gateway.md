@@ -10,7 +10,7 @@ The page reads `/api/v1/model-gateway/*` through the generated OpenAPI client an
 
 ## Endpoints
 
-The page uses overview, providers, models, routing profiles, role policies, usage ledger, provider limits, budget rules, CLI runtimes, CLI sessions, benchmarks and route preview endpoints.
+The page uses overview, providers, models, routing profiles, role policies, usage ledger, provider limits, budget rules, CLI runtimes, CLI sessions, benchmarks, benchmark outcomes and route preview endpoints.
 
 ## Testing
 
@@ -25,12 +25,13 @@ corepack pnpm@10.24.0 exec playwright test tests_web/control-center.spec.js -g "
 ## Risks
 
 - Editing model catalog capabilities/prices from the UI is still basic; backend endpoints support PATCH but the UI currently prioritizes visibility and provider actions.
-- Benchmark success/QA/rework metrics show `insufficient data` until outcome collection exists; cost/latency/attempt counts are derived from usage ledger rows.
+- Benchmark success/QA/rework metrics use explicit outcome rows; cost/latency/attempt counts also derive from usage ledger rows when outcomes are not available.
 
 ## Limitations
 
 - The console is data-dense and operational, but deeper inspectors for candidates/rejected policy internals are still table-level summaries.
 - Agent profile routing controls live in the Agents page because those fields are part of the executable agent contract.
+- Benchmark outcome recording is available in the Benchmarks section and writes only summary metadata, not prompts or secrets.
 
 ## Example
 

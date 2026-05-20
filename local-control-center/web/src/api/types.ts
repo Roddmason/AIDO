@@ -1,6 +1,7 @@
 import type {
 	ActionRequestRecord,
 	AgentProfileRecord,
+	ArtifactRecord,
 	ChatRecord,
 	EventRecord as GeneratedEventRecord,
 	JobRecord,
@@ -8,6 +9,7 @@ import type {
 	OverviewResponse,
 	PipelineRecord,
 	ProjectRecord,
+	RetrievalStatusResponse,
 	RuntimeProvidersResponse,
 	SessionRecord,
 	WorkflowRecord,
@@ -27,5 +29,7 @@ export type ModelProvider = ModelProviderRecord;
 export type Session = SessionRecord;
 export type Chat = ChatRecord;
 export type Pipeline = PipelineRecord;
+export type Artifact = ArtifactRecord;
 export type Overview = OverviewResponse;
 export type RuntimeProviders = RuntimeProvidersResponse;
+export type RetrievalStatus = RetrievalStatusResponse;

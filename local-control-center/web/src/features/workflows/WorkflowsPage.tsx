@@ -2,7 +2,7 @@ import { Background, Controls, ReactFlow, type Edge, type Node } from '@xyflow/r
 import { useEffect, useMemo, useState } from 'react';
 
 import { fetchEvidenceArtifact, type ArtifactPayload } from '../../api/client';
-import type { Dictionary, Overview, WorkflowStep } from '../../api/types';
+import type { Artifact, Overview, WorkflowStep } from '../../api/types';
 import { Badge, DataTable, Drawer, EmptyState, PageHeader, Surface } from '../../components/primitives';
 import { artifactDisplayName, artifactMimeType, artifactSizeLabel } from '../../lib/artifacts';
 import { shortId, toneForStatus } from '../../lib/format';
@@ -34,7 +34,7 @@ function edgesFromNodes(nodes: Node[]): Edge[] {
 
 export function WorkflowsPage({ overview, token }: { overview: Overview; token: string }) {
 	const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(null);
-	const [previewArtifact, setPreviewArtifact] = useState<Dictionary | null>(null);
+	const [previewArtifact, setPreviewArtifact] = useState<Artifact | null>(null);
 	const [previewPayload, setPreviewPayload] = useState<ArtifactPayload | null>(null);
 	const [previewLoadingId, setPreviewLoadingId] = useState('');
 	const [previewError, setPreviewError] = useState('');
@@ -55,7 +55,7 @@ export function WorkflowsPage({ overview, token }: { overview: Overview; token: 
 		window.addEventListener('keydown', onKeyDown);
 		return () => window.removeEventListener('keydown', onKeyDown);
 	}, [previewArtifact]);
-	const openPreview = async (artifact: Dictionary) => {
+	const openPreview = async (artifact: Artifact) => {
 		const artifactId = String(artifact.id ?? '');
 		const evidenceId = String(artifact.evidencePackageId ?? '');
 		if (!artifactId || !evidenceId) {

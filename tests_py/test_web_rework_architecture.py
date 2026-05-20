@@ -77,6 +77,8 @@ def test_frontend_domain_types_are_generated_openapi_aliases() -> None:
     assert "from './generated/openapi'" in source
     assert "export type Overview = OverviewResponse" in source
     assert "export type RuntimeProviders = RuntimeProvidersResponse" in source
+    assert "export type Artifact = ArtifactRecord" in source
+    assert "export type RetrievalStatus = RetrievalStatusResponse" in source
     for stale_manual_type in [
         "export type Project = {",
         "export type Job = {",
@@ -86,6 +88,24 @@ def test_frontend_domain_types_are_generated_openapi_aliases() -> None:
         "export type RuntimeProviders = {",
     ]:
         assert stale_manual_type not in source
+
+
+def test_stable_frontend_artifact_and_retrieval_surfaces_are_not_dictionary_typed() -> None:
+    types_source = read(SRC / "api" / "types.ts")
+    client_source = read(SRC / "api" / "client.ts")
+    artifacts_source = read(SRC / "lib" / "artifacts.ts")
+    pages_source = read(SRC / "features" / "pages.tsx")
+    workflows_source = read(SRC / "features" / "workflows" / "WorkflowsPage.tsx")
+
+    assert "RetrievalStatusResponse" in types_source
+    assert "ArtifactRecord" in types_source
+    assert "requestGeneratedOperation<'retrieval_status_api_v1_retrieval_status_get', RetrievalStatus>" in client_source
+    assert "artifact: Artifact" in artifacts_source
+    assert "retrievalStatus: RetrievalStatus | null" in pages_source
+    assert "useState<Artifact | null>" in pages_source
+    assert "useState<Artifact | null>" in workflows_source
+    assert "const openPreview = async (artifact: Artifact)" in pages_source
+    assert "const openPreview = async (artifact: Artifact)" in workflows_source
 
 
 def test_visual_guardrails_reject_generic_ai_dashboard_patterns() -> None:

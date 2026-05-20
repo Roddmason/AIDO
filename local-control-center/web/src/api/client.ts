@@ -1,4 +1,4 @@
-import type { Dictionary, Overview, RuntimeProviders } from './types';
+import type { Dictionary, Overview, RetrievalStatus, RuntimeProviders } from './types';
 import { requestGeneratedOperation } from './generated/openapi';
 
 const WRITE_HEADER = 'X-Local-Control-Token';
@@ -46,7 +46,7 @@ export function getOverview(signal?: AbortSignal) {
 }
 
 export function getRetrievalStatus(signal?: AbortSignal) {
-	return requestGeneratedOperation<'retrieval_status_api_v1_retrieval_status_get', Dictionary>('retrieval_status_api_v1_retrieval_status_get', { signal });
+	return requestGeneratedOperation<'retrieval_status_api_v1_retrieval_status_get', RetrievalStatus>('retrieval_status_api_v1_retrieval_status_get', { signal });
 }
 
 export function getRuntimeProviders(signal?: AbortSignal) {

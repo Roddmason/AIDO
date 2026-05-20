@@ -11,7 +11,7 @@ import {
 	updateSandboxProfile,
 } from '../api/client';
 import type { ArtifactPayload } from '../api/client';
-import type { Dictionary, Overview, RuntimeProviders } from '../api/types';
+import type { Artifact, Dictionary, Overview, RetrievalStatus, RuntimeProviders } from '../api/types';
 import { Badge, DataTable, Drawer, EmptyState, PageHeader, Surface } from '../components/primitives';
 import { artifactDisplayName, artifactMimeType, artifactSizeLabel } from '../lib/artifacts';
 import { toneForStatus } from '../lib/format';
@@ -284,13 +284,13 @@ export function PolicySecurityPage({ overview, mutate }: { overview: Overview; m
 	);
 }
 
-export function MemoryPage({ overview, retrievalStatus }: { overview: Overview; retrievalStatus: Record<string, unknown> | null }) {
+export function MemoryPage({ overview, retrievalStatus }: { overview: Overview; retrievalStatus: RetrievalStatus | null }) {
 	return (
 		<>
 			<PageHeader kicker="Semantic context" title="Memory & Retrieval" summary="SQLite is canonical. FAISS, NumPy and future vector stores are rebuildable indexes, not source of truth." />
 			<div className="grid two">
 				<Surface title="Retrieval backend">
-					<div className="metric-value">{String(retrievalStatus?.mode ?? retrievalStatus?.backend ?? 'unknown')}</div>
+					<div className="metric-value">{String(retrievalStatus?.backend ?? 'unknown')}</div>
 					<div className="metric-label">{String(retrievalStatus?.degraded ? 'degraded fallback' : 'operational')}</div>
 				</Surface>
 				<Surface title="Memory items">
@@ -303,11 +303,11 @@ export function MemoryPage({ overview, retrievalStatus }: { overview: Overview; 
 }
 
 export function EvidencePage({ overview, token }: { overview: Overview; token: string }) {
-	const [previewArtifact, setPreviewArtifact] = useState<Dictionary | null>(null);
+	const [previewArtifact, setPreviewArtifact] = useState<Artifact | null>(null);
 	const [previewPayload, setPreviewPayload] = useState<ArtifactPayload | null>(null);
 	const [previewLoadingId, setPreviewLoadingId] = useState('');
 	const [previewError, setPreviewError] = useState('');
-	const openPreview = async (artifact: Dictionary) => {
+	const openPreview = async (artifact: Artifact) => {
 		const artifactId = String(artifact.id ?? '');
 		const evidenceId = String(artifact.evidencePackageId ?? '');
 		if (!artifactId || !evidenceId) {

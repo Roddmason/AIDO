@@ -6,7 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from local_control_center.app import create_app
-from local_control_center.agents.cli_runtimes.base import RuntimeRequest
+from local_control_center.agents.cli_runtimes.base import RuntimeRequest, RuntimeResult
 from local_control_center.agents.cli_runtimes.claude_code_cli import ClaudeCodeCliRuntime
 from local_control_center.agents.cli_runtimes.codex_cli import CodexCliRuntime
 from local_control_center.agents.model_gateway import redact_secrets
@@ -159,6 +159,44 @@ def test_routing_profiles_and_role_policy_seeds_are_exposed(tmp_path: Path, monk
     analyst = next(item for item in policies.json()["rolePolicies"] if item["role"] == "analyst")
     assert analyst["maxCostPerTaskUsd"] == 0.10
     assert analyst["allowApi"] is True
+
+
+def test_agent_profile_stores_routing_runtime_and_budget_controls(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    headers = auth_headers(client)
+
+    response = client.post(
+        "/api/v1/agent-profiles",
+        headers=headers,
+        json={
+            "id": "agent-routing-controls",
+            "name": "Agent Routing Controls",
+            "role": "developer",
+            "runtimeMode": "hybrid",
+            "modelPolicyId": "implementation_default",
+            "routingProfileId": "balanced_best_value",
+            "roleModelPolicyId": "developer",
+            "allowedProviders": ["codex_cli"],
+            "allowedRuntimes": ["cli"],
+            "allowedTools": ["shell"],
+            "permissionProfile": "dev_safe",
+            "maxTokensPerRun": 120000,
+            "allowRemote": True,
+            "allowCli": True,
+            "allowApi": False,
+            "requiresApprovalOverUsd": 1.25,
+        },
+    )
+
+    assert response.status_code == 201
+    profile = response.json()["agentProfile"]
+    assert profile["routingProfileId"] == "balanced_best_value"
+    assert profile["roleModelPolicyId"] == "developer"
+    assert profile["allowedProviders"] == ["codex_cli"]
+    assert profile["allowedRuntimes"] == ["cli"]
+    assert profile["maxTokensPerRun"] == 120000
+    assert profile["allowApi"] is False
+    assert profile["requiresApprovalOverUsd"] == 1.25
 
 
 def test_route_preview_free_first_chooses_nvidia_when_enabled_healthy_and_in_quota(
@@ -349,6 +387,65 @@ def test_usage_ledger_records_estimated_and_actual_usage(tmp_path: Path) -> None
     assert actual["totalTokens"] == 30
 
 
+def test_route_execute_mock_links_usage_and_decision_to_workflow_step(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    headers = auth_headers(client)
+    enable_provider(client, headers, "nvidia_nim")
+
+    response = client.post(
+        "/api/v1/model-gateway/route/execute-mock",
+        headers=headers,
+        json={
+            "role": "analyst",
+            "taskType": "doc_summary",
+            "mode": "free_first",
+            "contextTokensEstimate": 500,
+            "privacyLevel": "remote_allowed",
+            "workflowRunId": "workflow-run-test",
+            "workflowStepId": "workflow-step-test",
+            "taskId": "doc_summary",
+        },
+    )
+
+    assert response.status_code == 200
+    usage = response.json()["usage"]
+    assert usage["workflowRunId"] == "workflow-run-test"
+    assert usage["workflowStepId"] == "workflow-step-test"
+    decisions = client.get("/api/v1/model-gateway/routing-decisions").json()["routingDecisions"]
+    assert decisions[0]["workflowRunId"] == "workflow-run-test"
+    assert decisions[0]["workflowStepId"] == "workflow-step-test"
+
+
+def test_benchmarks_derive_attempt_cost_and_latency_from_usage_without_inventing_success(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    with client:
+        UsageLedger(client.app.state.runtime.connection).record_usage(  # type: ignore[attr-defined]
+            provider_id="nvidia_nim",
+            model="auto_best_available",
+            runtime_type="api",
+            role="analyst",
+            input_tokens=100,
+            output_tokens=20,
+            estimated_cost_usd=0.01,
+            latency_ms=150,
+            raw_usage={"usage_source": "estimated"},
+        )
+
+    response = client.get("/api/v1/model-gateway/benchmarks")
+
+    assert response.status_code == 200
+    benchmark = next(item for item in response.json()["benchmarks"] if item["providerId"] == "nvidia_nim")
+    assert benchmark["tasksAttempted"] == 1
+    assert benchmark["avgCost"] == 0.01
+    assert benchmark["avgLatencyMs"] == 150
+    assert benchmark["successRate"] is None
+    assert benchmark["insufficientData"] is True
+
+
 def test_nvidia_provider_mock_parses_usage_and_handles_429(tmp_path: Path) -> None:
     with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
         initialize_platform_schema(connection)
@@ -396,6 +493,25 @@ def test_cli_runtime_blocks_dangerous_flags(tmp_path: Path) -> None:
         )
 
 
+def test_cli_runtime_parses_usage_from_jsonl_output() -> None:
+    runtime = CodexCliRuntime(executable="codex", mock=True)
+    result = RuntimeResult(
+        runtime="codex_cli",
+        status="completed",
+        stdout='{"event":"token_usage","usage":{"prompt_tokens":10,"completion_tokens":5,"reasoning_tokens":2,"total_tokens":17}}\n',
+        returnCode=0,
+    )
+
+    usage = runtime.parse_usage(result)
+
+    assert usage is not None
+    assert usage.input_tokens == 10
+    assert usage.output_tokens == 5
+    assert usage.reasoning_tokens == 2
+    assert usage.total_tokens == 17
+    assert usage.raw_usage["usage_source"] == "cli_output"
+
+
 def test_secrets_are_redacted_from_logs() -> None:
     redacted = redact_secrets(
         {
@@ -423,6 +539,7 @@ def test_model_gateway_endpoints_return_valid_json(tmp_path: Path, monkeypatch: 
         "/api/v1/model-gateway/usage-ledger",
         "/api/v1/model-gateway/usage-ledger/summary",
         "/api/v1/model-gateway/routing-decisions",
+        "/api/v1/model-gateway/benchmarks",
         "/api/v1/model-gateway/provider-limits",
         "/api/v1/model-gateway/budget-rules",
         "/api/v1/model-gateway/cli-runtimes",
@@ -447,3 +564,28 @@ def test_model_gateway_endpoints_return_valid_json(tmp_path: Path, monkeypatch: 
     assert health.status_code == 200
     assert discover.status_code == 200
     assert mock_execute.status_code == 200
+
+
+def test_workflow_start_records_model_router_decisions_for_each_step(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
+    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store.init()
+    project = store.create_project(name="Routing Workflow", path=tmp_path / "routing-workflow", template_id="other")
+    client = TestClient(create_app(runtime=store, static_dir=None))
+    headers = auth_headers(client)
+    workflow = client.post(
+        "/api/v1/workflows",
+        headers=headers,
+        json={"projectId": project["id"], "kind": "idea_to_pr", "title": "Route workflow steps"},
+    ).json()["workflow"]
+
+    started = client.post(f"/api/v1/workflows/{workflow['id']}/start", headers=headers, json={"reason": "route"})
+    decisions = client.get("/api/v1/model-gateway/routing-decisions").json()["routingDecisions"]
+
+    assert started.status_code == 202
+    assert len(decisions) == len(started.json()["workflowSteps"])
+    assert {item["workflowRunId"] for item in decisions} == {started.json()["workflowRun"]["id"]}
+    implementation = next(item for item in decisions if item["taskType"] == "implementation")
+    assert implementation["workflowStepId"].startswith("workflow-step-")

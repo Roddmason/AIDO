@@ -78,6 +78,11 @@ def test_generated_openapi_client_is_checked_in_and_v1_only() -> None:
     assert '"retrieval_reindex_api_v1_retrieval_reindex_post": EmptyObjectRequest' in content
     assert '"upsert_prompt_api_v1_prompts_post": PromptUpsertRequest' in content
     assert '"create_agent_run_api_v1_agent_runs_post": AgentRunCreateRequest' in content
+    assert '"overview_api_v1_model_gateway_overview_get": ModelGatewayOverviewResponse' in content
+    assert '"list_providers_api_v1_model_gateway_providers_get": ProviderAccountsListResponse' in content
+    assert '"route_preview_api_v1_model_gateway_route_preview_post": RoutingPreviewRequest' in content
+    assert '"route_preview_api_v1_model_gateway_route_preview_post": RoutingPreviewResponse' in content
+    assert '"list_benchmarks_api_v1_model_gateway_benchmarks_get": ModelBenchmarksListResponse' in content
     assert '"sync_skills_api_v1_skills_sync_post": SkillsSyncRequest' in content
     assert '"create_evidence_api_v1_evidence_post": EvidenceCreateRequest' in content
     assert '"ingest_artifact_api_v1_evidence__evidence_id__artifacts_post": ArtifactIngestRequest' in content
@@ -122,6 +127,8 @@ def test_generated_openapi_client_is_checked_in_and_v1_only() -> None:
     ) in content
     assert "export type PermissionDecisionRecord" in content
     assert "export type AgentProfileRecord" in content
+    assert '"routingProfileId"?: null | string' in content
+    assert '"allowedProviders": Array<string>' in content
     assert "export type ModelPolicyRecord" in content
     assert "export type ActionRequestRecord" in content
     assert "export type EventRecord" in content

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from abc import ABC, abstractmethod
 from pathlib import Path
@@ -8,6 +9,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from local_control_center.agents.providers.base import UsageRecord
+from local_control_center.agents.model_gateway import redact_secrets
 from local_control_center.security_policy.sandbox import RestrictedSubprocessSandbox
 
 
@@ -108,7 +110,8 @@ class CliRuntime(ABC):
     def run(self, request: RuntimeRequest) -> RuntimeResult:
         command = self.build_command(request)
         if self.mock or request.mock:
-            return RuntimeResult(runtime=self.runtime_id, status="completed", command=command, stdout="mock runtime completed", returnCode=0)
+            result = RuntimeResult(runtime=self.runtime_id, status="completed", command=command, stdout="mock runtime completed", returnCode=0)
+            return result.model_copy(update={"usage": self.parse_usage(result)})
         if os.environ.get("AIDO_ENABLE_CLI_RUNTIMES", "false").lower() != "true":
             return RuntimeResult(runtime=self.runtime_id, status="blocked", command=command, error="CLI runtimes are disabled")
         workspace = self._validate_workspace(request)
@@ -119,7 +122,7 @@ class CliRuntime(ABC):
             timeout_seconds=900,
         )
         status = "completed" if result.get("returnCode") == 0 else "failed"
-        return RuntimeResult(
+        runtime_result = RuntimeResult(
             runtime=self.runtime_id,
             status=status,
             command=command,
@@ -128,6 +131,93 @@ class CliRuntime(ABC):
             returnCode=result.get("returnCode"),
             error=result.get("reason"),
         )
+        return runtime_result.model_copy(update={"usage": self.parse_usage(runtime_result)})
 
     def parse_usage(self, result: RuntimeResult) -> UsageRecord | None:
-        return result.usage
+        if result.usage is not None:
+            return result.usage
+        for payload in _json_payloads_from_text(result.stdout):
+            usage = _usage_from_payload(payload)
+            if usage is not None:
+                return usage
+        for payload in _json_payloads_from_text(result.stderr):
+            usage = _usage_from_payload(payload)
+            if usage is not None:
+                return usage
+        return None
+
+
+def _json_payloads_from_text(text: str) -> list[dict[str, Any]]:
+    payloads: list[dict[str, Any]] = []
+    stripped = text.strip()
+    if not stripped:
+        return payloads
+    try:
+        parsed = json.loads(stripped)
+        if isinstance(parsed, dict):
+            payloads.append(parsed)
+            return payloads
+        if isinstance(parsed, list):
+            payloads.extend(item for item in parsed if isinstance(item, dict))
+            return payloads
+    except json.JSONDecodeError:
+        pass
+    for line in stripped.splitlines():
+        candidate = line.strip()
+        if not candidate.startswith("{"):
+            continue
+        try:
+            parsed = json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, dict):
+            payloads.append(parsed)
+    return payloads
+
+
+def _usage_from_payload(payload: dict[str, Any]) -> UsageRecord | None:
+    usage = payload.get("usage") if isinstance(payload.get("usage"), dict) else payload
+    if not isinstance(usage, dict):
+        return None
+    token_keys = {
+        "prompt_tokens",
+        "input_tokens",
+        "completion_tokens",
+        "output_tokens",
+        "cached_input_tokens",
+        "reasoning_tokens",
+        "tool_tokens",
+        "total_tokens",
+    }
+    if not (set(usage) & token_keys):
+        nested_usage = payload.get("token_usage")
+        if isinstance(nested_usage, dict):
+            usage = nested_usage
+        else:
+            return None
+    input_tokens = _int_token(usage.get("prompt_tokens") or usage.get("input_tokens"))
+    output_tokens = _int_token(usage.get("completion_tokens") or usage.get("output_tokens"))
+    cached_input_tokens = _int_token(usage.get("cached_input_tokens") or (usage.get("prompt_tokens_details") or {}).get("cached_tokens"))
+    reasoning_tokens = _int_token(usage.get("reasoning_tokens") or (usage.get("completion_tokens_details") or {}).get("reasoning_tokens"))
+    tool_tokens = _int_token(usage.get("tool_tokens"))
+    total_tokens = _int_token(usage.get("total_tokens")) or (
+        input_tokens + cached_input_tokens + output_tokens + reasoning_tokens + tool_tokens
+    )
+    if total_tokens == 0:
+        return None
+    return UsageRecord(
+        inputTokens=input_tokens,
+        cachedInputTokens=cached_input_tokens,
+        outputTokens=output_tokens,
+        reasoningTokens=reasoning_tokens,
+        toolTokens=tool_tokens,
+        totalTokens=total_tokens,
+        rawUsage=redact_secrets({"usage_source": "cli_output", **usage}),
+    )
+
+
+def _int_token(value: Any) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0

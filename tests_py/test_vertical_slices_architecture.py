@@ -1,3 +1,4 @@
+import ast
 from pathlib import Path
 
 
@@ -408,6 +409,68 @@ def test_agents_planner_repository_tests_use_direct_sqlite_setup() -> None:
     assert "ControlPlaneFixture" not in planner_tests
     assert "JobsRepository" in planner_tests
     assert "open_sqlite_connection" in planner_tests
+
+
+def test_jobs_and_worker_repository_tests_use_direct_sqlite_setup() -> None:
+    control_center_tests = read("tests_py/test_python_control_center.py")
+    jobs_test = control_center_tests.split(
+        "def test_jobs_have_atomic_leases_recovery_and_granular_action_approvals",
+        1,
+    )[1].split("def test_fastapi_contracts_jobs_approvals_sse_and_retrieval", 1)[0]
+    worker_test = control_center_tests.split(
+        "def test_worker_records_runs_events_and_rejects_unapproved_actions",
+        1,
+    )[1].split("def test_retrieval_index_uses_sqlite_metadata_and_is_rebuildable", 1)[0]
+
+    assert "ControlPlaneFixture" not in jobs_test
+    assert "JobsRepository" in jobs_test
+    assert "open_sqlite_connection" in jobs_test
+    assert "ControlPlaneFixture" not in worker_test
+    assert "ConcurrentWorker" in worker_test
+    assert "EventBus" in worker_test
+
+
+def test_tool_broker_repository_tests_use_direct_sqlite_setup() -> None:
+    runtime_tests = read("tests_py/test_phase3_to_6_control_plane_runtime.py")
+    large_output_test = runtime_tests.split(
+        "def test_large_tool_execution_output_is_promoted_to_evidence_artifacts",
+        1,
+    )[1].split("def test_approved_sensitive_tool_call_requires_and_consumes_permission_grant", 1)[0]
+    docker_policy_test = runtime_tests.split(
+        "def test_docker_execution_uses_configured_sandbox_policy_not_tool_broker_constants",
+        1,
+    )[1].split("def test_permission_grant_revocation_is_audited_and_blocks_later_execution", 1)[0]
+
+    assert "ControlPlaneFixture" not in large_output_test
+    assert "ToolBroker(connection" in large_output_test
+    assert "SimpleNamespace(connection=connection)" in large_output_test
+    assert "ControlPlaneFixture" not in docker_policy_test
+    assert "JobsRepository" in docker_policy_test
+    assert "SecurityPolicyRepository" in docker_policy_test
+
+
+def test_non_http_tests_do_not_use_control_plane_fixture() -> None:
+    offenders: list[str] = []
+    for path in sorted((ROOT / "tests_py").glob("test_*.py")):
+        if path.name == "test_vertical_slices_architecture.py":
+            continue
+        source = path.read_text(encoding="utf-8")
+        if "ControlPlaneFixture" not in source:
+            continue
+        tree = ast.parse(source)
+        for node in tree.body:
+            if not isinstance(node, ast.FunctionDef) or not node.name.startswith("test_"):
+                continue
+            segment = ast.get_source_segment(source, node) or ""
+            if (
+                "ControlPlaneFixture" in segment
+                and "TestClient" not in segment
+                and "create_app" not in segment
+                and "client." not in segment
+            ):
+                offenders.append(f"{path.relative_to(ROOT)}:{node.lineno}:{node.name}")
+
+    assert offenders == []
 
 
 def test_active_runtime_does_not_import_store_facade() -> None:

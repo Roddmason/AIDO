@@ -197,6 +197,14 @@
   with owned repositories instead of the full app fixture.
 - Gated agents planner tests now construct `JobsRepository` on direct SQLite
   setup instead of relying on the full control-plane fixture.
+- Jobs lease/recovery and worker execution tests now use direct
+  SQLite/repository setup, leaving the broad app fixture for HTTP/app
+  composition tests only.
+- Tool-broker evidence and Docker sandbox policy tests now use direct
+  SQLite/repository setup with an explicit minimal platform object for
+  evidence creation.
+- A general architecture guardrail now fails when a non-HTTP test uses
+  `ControlPlaneFixture`, preventing this fixture-coupling risk from recurring.
 - Command palette and workflow inspector are backed by FastAPI v1 state rather
   than client-invented data.
 - The command palette can create workflows, focus pending approvals, and open a
@@ -218,9 +226,9 @@
 
 ## Next Backend Work
 
-1. Continue converting repository/infrastructure tests away from
-   `tests_py/control_plane_fixture.py` when they do not need FastAPI middleware,
-   handshake, or app composition.
+1. Keep `tests_py/control_plane_fixture.py` reserved for FastAPI middleware,
+   handshake, and app-composition tests; the new architecture guardrail now
+   blocks non-HTTP regressions automatically.
 2. Run the strict installed-runtime issue-to-patch smoke on a release
    validation runner with OpenHands/SWE-agent installed and exact argv/issue
    env vars supplied.

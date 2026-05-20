@@ -1,8 +1,9 @@
 param(
     [string]$Owner = "",
     [string]$Repo = "",
-    [string]$Branch = "main",
-    [string]$RulesetName = "AIDO main branch guard",
+    [string[]]$IncludeRefs = @("refs/heads/*"),
+    [string[]]$ExcludeRefs = @("refs/heads/dev"),
+    [string]$RulesetName = "AIDO protected branch guard",
     [switch]$DryRun
 )
 
@@ -72,15 +73,14 @@ if (-not $Owner -or -not $Repo) {
 }
 
 $rulesetsEndpoint = "/repos/$Owner/$Repo/rulesets"
-$refPattern = "refs/heads/$Branch"
 $body = [ordered]@{
     name = $RulesetName
     target = "branch"
     enforcement = "active"
     conditions = [ordered]@{
         ref_name = [ordered]@{
-            include = @($refPattern)
-            exclude = @()
+            include = @($IncludeRefs)
+            exclude = @($ExcludeRefs)
         }
     }
     rules = @(
@@ -94,7 +94,7 @@ $body = [ordered]@{
             parameters = [ordered]@{
                 required_approving_review_count = 1
                 dismiss_stale_reviews_on_push = $true
-                require_code_owner_review = $false
+                require_code_owner_review = $true
                 require_last_push_approval = $true
                 required_review_thread_resolution = $true
             }
@@ -108,7 +108,8 @@ $json = $body | ConvertTo-Json -Depth 20
 if ($DryRun) {
     [pscustomobject]@{
         endpoint = $rulesetsEndpoint
-        ref = $refPattern
+        include = $IncludeRefs
+        exclude = $ExcludeRefs
         body = $body
     } | ConvertTo-Json -Depth 20
     exit 0
@@ -130,7 +131,7 @@ if ($matchingRuleset.Count -gt 0) {
         "-H", "X-GitHub-Api-Version: 2022-11-28",
         $endpoint
     ) -InputJson $json | Out-Null
-    Write-Host "Updated GitHub ruleset '$RulesetName' blocking $refPattern in $Owner/$Repo."
+    Write-Host "Updated GitHub ruleset '$RulesetName' in $Owner/$Repo."
 } else {
     Invoke-GhApiJson -Arguments @(
         "--method", "POST",
@@ -138,5 +139,5 @@ if ($matchingRuleset.Count -gt 0) {
         "-H", "X-GitHub-Api-Version: 2022-11-28",
         $rulesetsEndpoint
     ) -InputJson $json | Out-Null
-    Write-Host "Created GitHub ruleset '$RulesetName' blocking $refPattern in $Owner/$Repo."
+    Write-Host "Created GitHub ruleset '$RulesetName' in $Owner/$Repo."
 }

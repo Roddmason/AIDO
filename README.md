@@ -84,12 +84,16 @@ servers, Docker, and external OTEL collectors are optional adapters, not startup
 requirements.
 
 This repository intentionally does not ship a GitHub quality workflow. Run
-quality checks locally before pushing. Block `main` with a GitHub repository
-ruleset instead:
+quality checks locally before pushing. Repository rulesets protect branches and
+require pull request review for protected work. The owner may push directly to
+`dev` for local-first integration work.
 
 ```powershell
 local-control-center/scripts/protect-main-branch.ps1
 ```
+
+The script name is retained for compatibility; it now manages the protected
+branch ruleset for all branches except `dev`.
 
 ## Security
 
@@ -113,3 +117,9 @@ or generated artifacts.
 - `docs/frontend.md`
 - `docs/license-audit.md`
 - `docs/development.md`
+
+## Contributing
+
+Contributions are welcome through pull requests. Keep changes small, include
+tests for behavior changes, do not commit secrets or generated artifacts, and
+expect protected branches to require owner review before merge.

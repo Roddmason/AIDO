@@ -3,6 +3,7 @@ name = "local-control-center"
 version = "0.1.0"
 description = "Windows-native Python backend for the Local Control Center."
 requires-python = ">=3.11"
+license = "MIT"
 dependencies = [
 	"fastapi>=0.136.0",
 	"uvicorn>=0.37.0",

@@ -1,7 +1,7 @@
 {
-  "name": "claude-rebuild",
+  "name": "aido-local-control-center",
   "version": "1.0.0",
-  "private": true,
+  "private": false,
   "type": "module",
   "packageManager": "pnpm@10.24.0",
   "engines": {
@@ -32,9 +32,9 @@
     "quality": "corepack pnpm@10.24.0 run lint && corepack pnpm@10.24.0 run typecheck:web && corepack pnpm@10.24.0 run test:all && corepack pnpm@10.24.0 run security:secrets && corepack pnpm@10.24.0 run security:sast"
   },
   "keywords": [],
-  "author": "",
-  "license": "UNLICENSED",
-  "description": "",
+  "author": "Roddmason",
+  "license": "MIT",
+  "description": "Local-first control center for AI-assisted software development workflows.",
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.15",
     "@radix-ui/react-dropdown-menu": "^2.1.16",

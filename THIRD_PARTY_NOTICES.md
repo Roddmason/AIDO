@@ -19,4 +19,4 @@ Current policy:
   the default fallback retrieval backend.
 - AGPL, source-available, fair-code, or no-commercial-use dependencies must not
   be embedded in the core without a written architecture decision.
-- This repository itself is proprietary/no-commercial-use until relicensed.
+- This repository itself is released under the MIT License.

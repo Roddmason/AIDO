@@ -10,8 +10,8 @@ cost records, and audit events around agent-assisted engineering.
 - Backend: Python/FastAPI with SQLite as the canonical local store.
 - Frontend: Vite + React + TypeScript console built with PNPM.
 - Package management: PNPM for JavaScript, `uv` for Python.
-- License: private/proprietary for now. Core dependencies are kept compatible
-  with a possible future open-source release.
+- License: MIT. AIDO is open source; core dependencies remain OSI-compatible
+  or isolated as optional adapters.
 - Runtime target: Windows local development. Docker is optional, not required.
 
 ## What It Is
@@ -32,7 +32,6 @@ cost records, and audit events around agent-assisted engineering.
 
 ## What It Is Not
 
-- It is not an open-source release yet.
 - It is not a production deployment platform.
 - It does not permit dangerous shell execution without policy gates.
 - It does not require WSL.

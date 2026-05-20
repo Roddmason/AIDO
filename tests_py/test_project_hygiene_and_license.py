@@ -11,29 +11,41 @@ def read(path: str) -> str:
     return (ROOT / path).read_text(encoding="utf-8")
 
 
-def test_private_license_and_audit_docs_are_explicit() -> None:
+def test_open_source_license_and_audit_docs_are_explicit() -> None:
     license_text = read("LICENSE")
     notice = read("NOTICE")
     third_party = read("THIRD_PARTY_NOTICES.md")
     architecture_audit = read("docs/architecture-audit.md")
     license_audit = read("docs/license-audit.md")
 
-    assert "AIDO" in license_text
-    assert "No Commercial Use" in license_text
-    assert "not open source" in license_text.lower()
+    assert "MIT License" in license_text
+    assert "Permission is hereby granted" in license_text
+    assert "open source" in notice.lower()
     assert "AIDO" in notice
     assert "third-party" in third_party.lower()
     assert "source artifacts" in architecture_audit.lower()
     assert "local-control-center/dist" in architecture_audit
+    assert "MIT" in license_audit
     assert "faiss-cpu" in license_audit
     assert "optional" in license_audit.lower()
 
 
-def test_package_metadata_declares_private_noncommercial_license() -> None:
+def test_package_metadata_declares_open_source_license() -> None:
     package = json.loads(read("package.json"))
 
-    assert package["private"] is True
-    assert package["license"] == "UNLICENSED"
+    assert package["private"] is False
+    assert package["license"] == "MIT"
+
+
+def test_open_source_governance_files_require_owner_review() -> None:
+    contributing = read("CONTRIBUTING.md")
+    security = read("SECURITY.md")
+    codeowners = read(".github/CODEOWNERS")
+
+    assert "pull requests" in contributing.lower()
+    assert "owner review" in contributing.lower()
+    assert "report security issues privately" in security.lower()
+    assert codeowners.strip() == "* @Roddmason"
 
 
 def test_gitignore_excludes_generated_artifacts_and_keeps_env_example() -> None:

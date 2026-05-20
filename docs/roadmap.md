@@ -2,7 +2,7 @@
 
 ## Completed Foundation
 
-- Audit and private license baseline.
+- Audit and MIT open-source license baseline.
 - PNPM/uv quality scripts.
 - Optional FAISS with NumPy fallback.
 - Clean active API cutover to FastAPI v1.
@@ -121,8 +121,8 @@
   `issue_to_patch` through the broker when release validation explicitly
   provides the installed CLI argv and issue text.
 - GitHub Actions quality workflow has been removed by policy; quality checks are
-  local/release-runner commands, and `main` is blocked by a GitHub repository
-  ruleset applied by `protect-main-branch.ps1`.
+  local/release-runner commands, and protected branches are guarded by a GitHub
+  repository ruleset applied by `protect-main-branch.ps1`.
 - The frontend has a generated OpenAPI endpoint map checked in at
   `web/src/api/generated/openapi.ts`, with local drift detection through
   `pnpm run openapi:generate` plus `git diff`.

@@ -1,7 +1,10 @@
 AIDO / Local Control Center
 
-This product is currently proprietary and not open source. The intended product
-direction is a local-first AI Software Development Lifecycle Control Plane.
+AIDO is open source software released under the MIT License.
 
-Third-party dependencies are used under their own licenses. See
-THIRD_PARTY_NOTICES.md and docs/license-audit.md for the current audit notes.
+The intended product direction is a local-first AI Software Development
+Lifecycle Control Plane for workflows, agents, model routing, approvals,
+evidence, budgets, usage, policies, and local runtime governance.
+
+Third-party dependencies are governed by their own licenses. See
+THIRD_PARTY_NOTICES.md and docs/license-audit.md for current audit notes.

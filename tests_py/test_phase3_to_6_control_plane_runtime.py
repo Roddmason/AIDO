@@ -1522,6 +1522,46 @@ def test_technical_review_agent_runs_require_evidence_package_refs(tmp_path: Pat
     assert reviewed_run["output"]["evidence_refs"] == [evidence["id"]]
 
 
+def test_workspace_allocation_accepts_devcontainer_metadata_without_docker_requirement(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
+    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store.init()
+    project = store.create_project(name="Devcontainer", path=tmp_path / "devcontainer", template_id="other")
+    app = create_app(runtime=store, static_dir=None)
+    client = TestClient(app)
+    headers = auth_headers(client)
+
+    response = client.post(
+        "/api/v1/workspaces",
+        json={
+            "projectId": project["id"],
+            "taskId": "story-devcontainer",
+            "agentId": "implementer",
+            "reason": "Prepare metadata only",
+            "isolationType": "directory",
+            "devcontainer": {
+                "enabled": True,
+                "templateId": "python-node",
+                "image": "mcr.microsoft.com/devcontainers/python:3.12",
+                "features": ["node"],
+            },
+        },
+        headers=headers,
+    )
+
+    assert response.status_code == 201
+    workspace = response.json()["workspace"]
+    assert workspace["isolationType"] == "directory"
+    assert workspace["metadata"]["devcontainer"] == {
+        "enabled": True,
+        "templateId": "python-node",
+        "image": "mcr.microsoft.com/devcontainers/python:3.12",
+        "features": ["node"],
+        "status": "metadata_only",
+    }
+    assert Path(workspace["path"]).exists()
+
+
 def test_model_gateway_records_allowed_model_call_and_cost_usage(tmp_path: Path) -> None:
     with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
         initialize_platform_schema(connection)

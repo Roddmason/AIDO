@@ -60,6 +60,8 @@ def test_generated_openapi_client_is_checked_in_and_v1_only() -> None:
     assert '"create_next_step_api_v1_next_steps_post": NextStepCreateRequest' in content
     assert '"update_next_step_api_v1_next_steps__step_id__patch": NextStepUpdateRequest' in content
     assert '"allocate_workspace_api_v1_workspaces_post": WorkspaceAllocateRequest' in content
+    assert "export type DevcontainerMetadata" in content
+    assert '"devcontainer"?: DevcontainerMetadata | null' in content
     assert '"archive_workspace_api_v1_workspaces__workspace_id__archive_post": WorkspaceArchiveRequest' in content
     assert '"register_mcp_server_api_v1_integrations_mcp_register_post": McpServerRegisterRequest' in content
     assert '"upsert_ide_connection_api_v1_ide_connections_post": IdeConnectionUpsertRequest' in content

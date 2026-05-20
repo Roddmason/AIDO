@@ -48,6 +48,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
                 workflow_run_id=body.workflow_run_id,
                 workflow_step_id=body.workflow_step_id,
                 base_branch=body.base_branch,
+                devcontainer=body.devcontainer.model_dump(by_alias=True) if body.devcontainer else None,
             )
         except WorkspaceConflictError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error

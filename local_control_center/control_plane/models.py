@@ -4,9 +4,20 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from local_control_center.agents.contracts import (
+    AgentProfileRecord,
+    AgentRunRecord,
+    AgentToolCallRecord,
+    CostUsageRecord,
+    ModelCallRecord,
+    ModelPolicyRecord,
+    ModelProviderRecord,
+)
 from local_control_center.evidence.models import ArtifactRecord, EvidencePackageRecord, TestResultRecord
 from local_control_center.governance.models import ArchitectureDecisionRecord, NextStepRecord, RiskRecord
 from local_control_center.jobs_approvals.models import ActionRequestRecord, JobRecord, JobRunRecord
+from local_control_center.memory_retrieval.models import MemoryItemRecord
+from local_control_center.pipelines.models import PipelineRecord
 from local_control_center.projects.models import (
     CatalogAgentRecord,
     ProjectRecord,
@@ -14,7 +25,15 @@ from local_control_center.projects.models import (
     ProviderRecord,
     TeamRecord,
 )
+from local_control_center.security_policy.models import (
+    PermissionDecisionRecord,
+    PermissionGrantRecord,
+    PolicyRevisionRecord,
+    SandboxProfileRecord,
+)
+from local_control_center.sessions_chats.models import ChatRecord, SessionRecord
 from local_control_center.shared.schemas import AuditEventRecord, EventRecord
+from local_control_center.workflows.models import WorkflowRecord, WorkflowRunRecord, WorkflowStepRecord
 from local_control_center.workspaces_projects.models import WorkspaceRecord
 
 
@@ -24,35 +43,35 @@ class OverviewResponse(BaseModel):
     providers: list[ProviderRecord]
     teams: list[TeamRecord]
     agents: list[CatalogAgentRecord]
-    sessions: list[dict[str, Any]]
-    chats: list[dict[str, Any]]
-    pipelines: list[dict[str, Any]]
+    sessions: list[SessionRecord]
+    chats: list[ChatRecord]
+    pipelines: list[PipelineRecord]
     jobs: list[JobRecord]
     job_runs: list[JobRunRecord] = Field(alias="jobRuns")
     events: list[EventRecord]
     audit_events: list[AuditEventRecord] = Field(alias="auditEvents")
-    memory_items: list[dict[str, Any]] = Field(alias="memoryItems")
+    memory_items: list[MemoryItemRecord] = Field(alias="memoryItems")
     prompt_templates: list[dict[str, Any]] = Field(alias="promptTemplates")
     action_requests: list[ActionRequestRecord] = Field(alias="actionRequests")
     ide_connections: list[dict[str, Any]] = Field(alias="ideConnections")
     mcp_servers: list[dict[str, Any]] = Field(alias="mcpServers")
-    workflows: list[dict[str, Any]]
-    workflow_runs: list[dict[str, Any]] = Field(alias="workflowRuns")
-    workflow_steps: list[dict[str, Any]] = Field(alias="workflowSteps")
-    permission_decisions: list[dict[str, Any]] = Field(alias="permissionDecisions")
-    policy_revisions: list[dict[str, Any]] = Field(alias="policyRevisions")
-    permission_grants: list[dict[str, Any]] = Field(alias="permissionGrants")
-    sandbox_profiles: list[dict[str, Any]] = Field(alias="sandboxProfiles")
+    workflows: list[WorkflowRecord]
+    workflow_runs: list[WorkflowRunRecord] = Field(alias="workflowRuns")
+    workflow_steps: list[WorkflowStepRecord] = Field(alias="workflowSteps")
+    permission_decisions: list[PermissionDecisionRecord] = Field(alias="permissionDecisions")
+    policy_revisions: list[PolicyRevisionRecord] = Field(alias="policyRevisions")
+    permission_grants: list[PermissionGrantRecord] = Field(alias="permissionGrants")
+    sandbox_profiles: list[SandboxProfileRecord] = Field(alias="sandboxProfiles")
     evidence_packages: list[EvidencePackageRecord] = Field(alias="evidencePackages")
     artifacts: list[ArtifactRecord]
     test_result_records: list[TestResultRecord] = Field(alias="testResultRecords")
-    agent_profiles: list[dict[str, Any]] = Field(alias="agentProfiles")
-    agent_runs: list[dict[str, Any]] = Field(alias="agentRuns")
-    model_policies: list[dict[str, Any]] = Field(alias="modelPolicies")
-    model_providers: list[dict[str, Any]] = Field(alias="modelProviders")
-    agent_tool_calls: list[dict[str, Any]] = Field(alias="agentToolCalls")
-    model_calls: list[dict[str, Any]] = Field(alias="modelCalls")
-    cost_usage: list[dict[str, Any]] = Field(alias="costUsage")
+    agent_profiles: list[AgentProfileRecord] = Field(alias="agentProfiles")
+    agent_runs: list[AgentRunRecord] = Field(alias="agentRuns")
+    model_policies: list[ModelPolicyRecord] = Field(alias="modelPolicies")
+    model_providers: list[ModelProviderRecord] = Field(alias="modelProviders")
+    agent_tool_calls: list[AgentToolCallRecord] = Field(alias="agentToolCalls")
+    model_calls: list[ModelCallRecord] = Field(alias="modelCalls")
+    cost_usage: list[CostUsageRecord] = Field(alias="costUsage")
     runtime_workspaces: list[WorkspaceRecord] = Field(alias="runtimeWorkspaces")
     skills: list[dict[str, Any]]
     architecture_decisions: list[ArchitectureDecisionRecord] = Field(alias="architectureDecisions")

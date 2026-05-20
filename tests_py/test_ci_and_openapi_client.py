@@ -86,9 +86,33 @@ def test_generated_openapi_client_is_checked_in_and_v1_only() -> None:
     assert '"runtimeWorkspaces": Array<WorkspaceRecord>' in overview_line
     assert '"evidencePackages": Array<EvidencePackageRecord>' in overview_line
     assert '"architectureDecisions": Array<ArchitectureDecisionRecord>' in overview_line
+    assert '"sessions": Array<SessionRecord>' in overview_line
+    assert '"chats": Array<ChatRecord>' in overview_line
+    assert '"pipelines": Array<PipelineRecord>' in overview_line
+    assert '"memoryItems": Array<MemoryItemRecord>' in overview_line
+    assert '"workflows": Array<WorkflowRecord>' in overview_line
+    assert '"workflowRuns": Array<WorkflowRunRecord>' in overview_line
+    assert '"workflowSteps": Array<WorkflowStepRecord>' in overview_line
+    assert '"permissionDecisions": Array<PermissionDecisionRecord>' in overview_line
+    assert '"sandboxProfiles": Array<SandboxProfileRecord>' in overview_line
+    assert '"agentProfiles": Array<AgentProfileRecord>' in overview_line
+    assert '"agentRuns": Array<AgentRunRecord>' in overview_line
+    assert '"modelPolicies": Array<ModelPolicyRecord>' in overview_line
+    assert '"modelProviders": Array<ModelProviderRecord>' in overview_line
     assert '"list_jobs_api_v1_jobs_get": JobsListResponse' in content
     assert '"approvals_api_v1_approvals_get": ApprovalsListResponse' in content
     assert "export type JobRecord" in content
+    assert 'export type SessionsListResponse = { "sessions": Array<SessionRecord> }' in content
+    assert 'export type ChatsListResponse = { "chats": Array<ChatRecord> }' in content
+    assert 'export type PipelinesListResponse = { "pipelines": Array<PipelineRecord> }' in content
+    assert 'export type MemoryListResponse = { "memoryItems": Array<MemoryItemRecord> }' in content
+    assert (
+        'export type WorkflowsListResponse = { "workflowRuns": Array<WorkflowRunRecord>; '
+        '"workflowSteps": Array<WorkflowStepRecord>; "workflows": Array<WorkflowRecord> }'
+    ) in content
+    assert "export type PermissionDecisionRecord" in content
+    assert "export type AgentProfileRecord" in content
+    assert "export type ModelPolicyRecord" in content
     assert "export type ActionRequestRecord" in content
     assert "export type EventRecord" in content
     assert "export type AuditEventRecord" in content

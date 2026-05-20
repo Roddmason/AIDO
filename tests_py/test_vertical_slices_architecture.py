@@ -322,6 +322,12 @@ def test_slice_apis_do_not_use_store_facade_for_events_or_project_lookup() -> No
         assert not any(token in source for token in forbidden), str(path)
 
 
+def test_shared_event_bus_tests_use_direct_repository_setup() -> None:
+    event_bus_tests = read("tests_py/test_shared_event_bus.py")
+
+    assert "ControlPlaneFixture" not in event_bus_tests
+
+
 def test_active_runtime_does_not_import_store_facade() -> None:
     root_api = read("local_control_center/api.py")
     cli_source = read("local_control_center/cli.py")

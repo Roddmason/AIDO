@@ -1455,6 +1455,73 @@ def test_internal_mock_agent_run_records_tool_model_cost_and_evidence(tmp_path: 
     assert any(item["scope"] == "model_call" for item in overview["costUsage"])
 
 
+def test_technical_review_agent_runs_require_evidence_package_refs(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
+    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store.init()
+    project = store.create_project(name="Review", path=tmp_path / "review", template_id="other")
+    app = create_app(runtime=store, static_dir=None)
+    client = TestClient(app)
+    headers = auth_headers(client)
+
+    profile_response = client.post(
+        "/api/v1/agent-profiles",
+        json={
+            "id": "technical_lead",
+            "name": "Technical Lead",
+            "role": "technical_lead",
+            "runtimeType": "internal_mock",
+            "permissionProfile": "plan",
+            "allowedTools": [],
+        },
+        headers=headers,
+    )
+    assert profile_response.status_code == 201
+
+    missing_evidence = client.post(
+        "/api/v1/agent-runs",
+        json={
+            "projectId": project["id"],
+            "agentProfileId": "technical_lead",
+            "taskId": "technical_review:story-1",
+            "input": {"stage": "technical_review"},
+        },
+        headers=headers,
+    )
+    assert missing_evidence.status_code == 202
+    missing_run = missing_evidence.json()["agentRun"]
+    assert missing_run["status"] == "failed"
+    assert missing_run["output"]["verdict"] == "blocked"
+    assert missing_run["output"]["evidence_refs"] == []
+    assert "evidence package" in missing_run["output"]["summary"].lower()
+
+    evidence = store.evidence.create_evidence_package(
+        project_id=project["id"],
+        workflow_run_id=None,
+        agent_id="qa_reviewer",
+        task_id="story-1",
+        test_plan="Review evidence",
+        acceptance_checklist=["tests passed"],
+        test_results=[{"command": "uv run pytest", "status": "passed"}],
+        qa_verdict="passed",
+    )
+
+    reviewed = client.post(
+        "/api/v1/agent-runs",
+        json={
+            "projectId": project["id"],
+            "agentProfileId": "technical_lead",
+            "taskId": "technical_review:story-1",
+            "input": {"stage": "technical_review", "evidenceRefs": [evidence["id"]]},
+        },
+        headers=headers,
+    )
+    assert reviewed.status_code == 202
+    reviewed_run = reviewed.json()["agentRun"]
+    assert reviewed_run["status"] == "completed"
+    assert reviewed_run["output"]["evidence_refs"] == [evidence["id"]]
+
+
 def test_model_gateway_records_allowed_model_call_and_cost_usage(tmp_path: Path) -> None:
     with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
         initialize_platform_schema(connection)

@@ -162,6 +162,11 @@ stream from `agent_tool_calls.payload.executionResult`, and attaches the
 artifact to the generated evidence package. Small outputs remain inline for
 quick operational inspection.
 
-## Next Steps
+## Technical Review Gate
 
-- Require evidence package IDs in technical review outputs.
+Technical review agent runs must include at least one evidence package ID in
+`input.evidenceRefs` before they can produce an approving verdict. If a
+`technical_lead` run for a `technical_review` step omits those refs, the run is
+recorded as `failed` with `verdict=blocked` and an explicit mitigation. This
+prevents architecture or code-review approval from drifting away from the QA
+evidence ledger.

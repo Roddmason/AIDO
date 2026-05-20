@@ -16,6 +16,12 @@ agents edit the same working tree for the same task.
   normal directory workspace with explicit `metadata.gitWorktree.status`.
 - Archiving a real Git worktree calls the allowlisted Git runner to remove that
   worktree and marks the `git_branches` row archived.
+- Archiving captures evidence before cleanup: Git worktrees include a bounded
+  `git_diff` reference, large patches are promoted to artifacts, and every
+  workspace includes a `workspace_snapshot` diff reference.
+- Workspace ownership is explicit through `ownerAgentId`, `taskId`,
+  `workflowRunId`, and `workflowStepId`; jobs and agent runs use the same
+  workflow run/step IDs for UI traceability without sharing a working tree.
 
 ## Current Git Modes
 
@@ -32,6 +38,4 @@ Policy evaluation uses the allocated workspace path when a request includes
 
 ## Next Steps
 
-- Capture dirty state and diff refs before archive.
-- Link workspace ownership to agent runs and job runs.
 - Add devcontainer metadata without making Docker mandatory.

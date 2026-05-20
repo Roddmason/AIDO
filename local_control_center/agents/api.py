@@ -135,6 +135,42 @@ def _execution_artifact_ids(tool_calls: list[dict[str, Any]]) -> list[str]:
     return artifact_ids
 
 
+def _input_evidence_refs(input_payload: dict[str, Any]) -> list[str]:
+    for key in ("evidenceRefs", "evidence_refs", "evidencePackageIds"):
+        refs = input_payload.get(key)
+        if isinstance(refs, list):
+            return [str(ref) for ref in refs if isinstance(ref, str) and ref]
+    return []
+
+
+def _is_technical_review_run(*, profile: dict[str, Any], task_id: str, input_payload: dict[str, Any]) -> bool:
+    markers = {
+        str(task_id),
+        str(input_payload.get("stage") or ""),
+        str(input_payload.get("workflowStepName") or ""),
+        str(input_payload.get("workflowStep") or ""),
+    }
+    return profile.get("role") == "technical_lead" and any("technical_review" in marker for marker in markers)
+
+
+def _blocked_technical_review_output(*, profile: dict[str, Any], task_id: str) -> dict[str, Any]:
+    return {
+        "agent_id": profile["id"],
+        "task_id": task_id,
+        "verdict": "blocked",
+        "summary": "Technical review requires at least one evidence package reference.",
+        "evidence_refs": [],
+        "risks": [
+            {
+                "severity": "high",
+                "description": "Technical review attempted without evidence package references.",
+                "mitigation": "Attach QA evidence package IDs before issuing a technical review verdict.",
+            }
+        ],
+        "next_actions": ["Attach evidenceRefs to the agent run input."],
+    }
+
+
 def _create_execution_evidence(
     *,
     platform: Any,
@@ -236,6 +272,11 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
                 "next_actions": [],
             }
             status = "running"
+        elif _is_technical_review_run(profile=profile, task_id=task_id, input_payload=input_payload) and not _input_evidence_refs(
+            input_payload
+        ):
+            output = _blocked_technical_review_output(profile=profile, task_id=task_id)
+            status = "failed"
         elif profile["runtimeMode"] != "internal_mock":
             output = {
                 "agent_id": profile["id"],

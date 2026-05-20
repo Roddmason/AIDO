@@ -71,6 +71,21 @@ def test_dashboard_reads_v1_overview_without_removed_state_contract() -> None:
     assert removed_workspace_key not in web_sources
 
 
+def test_frontend_domain_types_are_generated_openapi_aliases() -> None:
+    source = read(SRC / "api" / "types.ts")
+
+    assert "from './generated/openapi'" in source
+    assert "export type Overview = OverviewResponse" in source
+    for stale_manual_type in [
+        "export type Project = {",
+        "export type Job = {",
+        "export type Workflow = {",
+        "export type AgentProfile = {",
+        "export type Pipeline = {",
+    ]:
+        assert stale_manual_type not in source
+
+
 def test_visual_guardrails_reject_generic_ai_dashboard_patterns() -> None:
     css_paths = list((SRC / "design-system").glob("*.css"))
     combined = "\n".join(read(path) for path in css_paths if path.exists())

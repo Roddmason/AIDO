@@ -182,6 +182,8 @@
   profiles, model policies/providers, and agent/model run telemetry now expose
   row-level DTOs in v1 read responses and the generated client instead of broad
   `JsonObject` rows where their schema is stable.
+- Frontend domain aliases now point at generated OpenAPI DTOs for stable
+  records instead of maintaining hand-written duplicate TypeScript shapes.
 - Shared event-bus tests now use direct SQLite/repository setup instead of the
   broad app fixture; an architecture guardrail prevents that regression.
 - Repository-level telemetry tests now use direct SQLite/repository setup while

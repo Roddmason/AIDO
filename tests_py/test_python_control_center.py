@@ -16,54 +16,62 @@ from local_control_center.projects.repository import ProjectsRepository
 from local_control_center.retrieval import RetrievalIndex
 from local_control_center.sandbox import WindowsSandbox
 from local_control_center.shared.db import open_sqlite_connection
+from local_control_center.shared.event_bus import EventBus
 from local_control_center.shared.migrations import initialize_platform_schema
-from tests_py.control_plane_fixture import ControlPlaneFixture
 from local_control_center.worker import ConcurrentWorker
+from tests_py.control_plane_fixture import ControlPlaneFixture
 
 
 def test_jobs_have_atomic_leases_recovery_and_granular_action_approvals(tmp_path: Path) -> None:
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
-    store.init()
-    project = store.create_project(name="Jobs", path=tmp_path / "project", template_id="other")
+    db_path = tmp_path / "platform.sqlite"
+    with open_sqlite_connection(db_path) as connection:
+        initialize_platform_schema(connection)
+        jobs = JobsRepository(connection)
+        project = ProjectsRepository(connection).create_project(
+            name="Jobs",
+            path=tmp_path / "project",
+            template_id="other",
+        )
 
-    sensitive = store.jobs.create_job(
-        project_id=project["id"],
-        kind="pipeline.start",
-        payload={"pipelineId": "pipeline-1"},
-    )["job"]
-    assert sensitive["status"] == "approval_required"
-    approvals = store.jobs.list_action_requests(job_id=sensitive["id"])
-    assert approvals[0]["status"] == "pending"
+        sensitive = jobs.create_job(
+            project_id=project["id"],
+            kind="pipeline.start",
+            payload={"pipelineId": "pipeline-1"},
+        )["job"]
+        assert sensitive["status"] == "approval_required"
+        approvals = jobs.list_action_requests(job_id=sensitive["id"])
+        assert approvals[0]["status"] == "pending"
 
-    store.jobs.approve_job(sensitive["id"], reason="job approved")
-    assert store.jobs.get_job(sensitive["id"])["status"] == "approval_required"
-    approved_action = store.jobs.approve_action(sensitive["id"], approvals[0]["id"], reason="command approved")
-    assert approved_action["actionRequest"]["status"] == "approved"
-    assert store.jobs.get_job(sensitive["id"])["status"] == "queued"
+        jobs.approve_job(sensitive["id"], reason="job approved")
+        assert jobs.get_job(sensitive["id"])["status"] == "approval_required"
+        approved_action = jobs.approve_action(sensitive["id"], approvals[0]["id"], reason="command approved")
+        assert approved_action["actionRequest"]["status"] == "approved"
+        assert jobs.get_job(sensitive["id"])["status"] == "queued"
 
-    queued = [
-        store.jobs.create_job(project_id=project["id"], kind="prompt.optimize", payload={"prompt": str(index)})[
-            "job"
+        queued = [
+            jobs.create_job(project_id=project["id"], kind="prompt.optimize", payload={"prompt": str(index)})[
+                "job"
+            ]
+            for index in range(6)
         ]
-        for index in range(6)
-    ]
 
-    def claim_once(worker_id: str):
-        local_store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
-        local_store.init()
-        claimed = local_store.jobs.claim_next_job(worker_id=worker_id, lease_ms=10)
-        local_store.close()
-        return claimed["job"]["id"] if claimed else None
+        def claim_once(worker_id: str):
+            local_connection = open_sqlite_connection(db_path)
+            try:
+                claimed = JobsRepository(local_connection).claim_next_job(worker_id=worker_id, lease_ms=10)
+                return claimed["job"]["id"] if claimed else None
+            finally:
+                local_connection.close()
 
-    with ThreadPoolExecutor(max_workers=8) as pool:
-        claimed_ids = [job_id for job_id in pool.map(lambda i: claim_once(f"worker-{i}"), range(8)) if job_id]
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            claimed_ids = [job_id for job_id in pool.map(lambda i: claim_once(f"worker-{i}"), range(8)) if job_id]
 
-    assert len(claimed_ids) == len(set(claimed_ids))
-    assert set(claimed_ids).issubset({job["id"] for job in queued} | {sensitive["id"]})
+        assert len(claimed_ids) == len(set(claimed_ids))
+        assert set(claimed_ids).issubset({job["id"] for job in queued} | {sensitive["id"]})
 
-    recovered = store.jobs.requeue_expired_jobs(now_iso="2999-01-01T00:00:00.000Z")
-    assert len(recovered) == len(claimed_ids)
-    assert all(job["status"] == "queued" for job in store.jobs.list_jobs() if job["id"] in claimed_ids)
+        recovered = jobs.requeue_expired_jobs(now_iso="2999-01-01T00:00:00.000Z")
+        assert len(recovered) == len(claimed_ids)
+        assert all(job["status"] == "queued" for job in jobs.list_jobs() if job["id"] in claimed_ids)
 
 
 def test_fastapi_contracts_jobs_approvals_sse_and_retrieval(tmp_path: Path, monkeypatch) -> None:
@@ -402,28 +410,34 @@ def test_faiss_cpu_is_optional_not_required_for_python_environment() -> None:
 
 
 def test_worker_records_runs_events_and_rejects_unapproved_actions(tmp_path: Path) -> None:
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
-    store.init()
-    project = store.create_project(name="Worker", path=tmp_path / "worker", template_id="other")
-    blocked = store.jobs.create_job(
-        project_id=project["id"],
-        kind="pipeline.start",
-        payload={"pipelineId": "blocked"},
-    )["job"]
-    queued = store.jobs.create_job(
-        project_id=project["id"],
-        kind="prompt.optimize",
-        payload={"prompt": "improve"},
-    )["job"]
+    db_path = tmp_path / "platform.sqlite"
+    with open_sqlite_connection(db_path) as connection:
+        initialize_platform_schema(connection)
+        jobs = JobsRepository(connection)
+        project = ProjectsRepository(connection).create_project(
+            name="Worker",
+            path=tmp_path / "worker",
+            template_id="other",
+        )
+        blocked = jobs.create_job(
+            project_id=project["id"],
+            kind="pipeline.start",
+            payload={"pipelineId": "blocked"},
+        )["job"]
+        queued = jobs.create_job(
+            project_id=project["id"],
+            kind="prompt.optimize",
+            payload={"prompt": "improve"},
+        )["job"]
 
-    worker = ConcurrentWorker(db_path=tmp_path / "platform.sqlite")
-    result = worker.run_once(worker_id="worker-a")
+        worker = ConcurrentWorker(db_path=db_path)
+        result = worker.run_once(worker_id="worker-a")
 
-    assert result["job"]["id"] == queued["id"]
-    assert result["job"]["status"] == "completed"
-    assert store.jobs.get_job(blocked["id"])["status"] == "approval_required"
-    assert store.jobs.list_job_runs(job_id=queued["id"])[-1]["status"] == "completed"
-    assert any(event["type"] == "job.completed" for event in store.events.list_events())
+        assert result["job"]["id"] == queued["id"]
+        assert result["job"]["status"] == "completed"
+        assert jobs.get_job(blocked["id"])["status"] == "approval_required"
+        assert jobs.list_job_runs(job_id=queued["id"])[-1]["status"] == "completed"
+        assert any(event["type"] == "job.completed" for event in EventBus(connection).list_events())
 
 
 def test_retrieval_index_uses_sqlite_metadata_and_is_rebuildable(tmp_path: Path) -> None:

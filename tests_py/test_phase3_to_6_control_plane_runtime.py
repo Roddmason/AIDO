@@ -4,6 +4,7 @@ import sys
 import base64
 import hashlib
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -14,6 +15,7 @@ from local_control_center.agents.repository import AgentsRepository
 from local_control_center.agents.tool_broker import ToolBroker
 from local_control_center.app import create_app
 from local_control_center.evidence.repository import EvidenceRepository
+from local_control_center.jobs_approvals.repository import JobsRepository
 from local_control_center.projects.repository import ProjectsRepository
 from local_control_center.security_policy.git_command_runner import git_available, run_git
 from local_control_center.security_policy.policy_engine import evaluate_action
@@ -463,7 +465,6 @@ def test_large_tool_execution_output_is_promoted_to_evidence_artifacts(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
     large_stdout = "\n".join(f"stdout line {index}" for index in range(2000))
     large_stderr = "\n".join(f"stderr line {index}" for index in range(2000))
 
@@ -480,74 +481,78 @@ def test_large_tool_execution_output_is_promoted_to_evidence_artifacts(
         }
 
     monkeypatch.setattr("local_control_center.security_policy.sandbox.DockerSandbox.execute", fake_docker_execute)
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
-    store.init()
-    project_path = tmp_path / "large-tool-output"
-    project = store.create_project(name="Large Tool Output", path=project_path, template_id="other")
-    agents = AgentsRepository(store.connection)
-    profile = agents.upsert_agent_profile(
-        {
-            "id": "cli_large_output",
-            "name": "CLI Large Output",
-            "role": "implementer",
-            "runtimeMode": "cli",
-            "permissionProfile": "dev_safe",
-            "allowedTools": ["shell"],
-        }
-    )
-    run = agents.create_agent_run(
-        project_id=project["id"],
-        agent_profile_id=profile["id"],
-        task_id="large-output",
-        input_payload={"toolCalls": []},
-        output_payload={},
-        status="running",
-    )
-    broker_results = ToolBroker(store.connection, artifact_root=store.cwd).evaluate_tool_calls(
-        project_id=project["id"],
-        agent_run_id=run["id"],
-        agent_profile=profile,
-        tool_calls=[
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        project_path = tmp_path / "large-tool-output"
+        project = ProjectsRepository(connection).create_project(
+            name="Large Tool Output",
+            path=project_path,
+            template_id="other",
+        )
+        agents = AgentsRepository(connection)
+        profile = agents.upsert_agent_profile(
             {
-                "tool": "shell",
-                "command": "python --version",
-                "argv": ["python", "--version"],
-                "path": str(project_path),
-                "workspacePath": str(project_path),
-                "execute": True,
-                "sandbox": "docker",
-                "dockerImage": "python:3.13-slim",
+                "id": "cli_large_output",
+                "name": "CLI Large Output",
+                "role": "implementer",
+                "runtimeMode": "cli",
+                "permissionProfile": "dev_safe",
+                "allowedTools": ["shell"],
             }
-        ],
-    )
-    evidence_refs = _create_execution_evidence(
-        platform=store,
-        project_id=project["id"],
-        workflow_run_id=None,
-        agent_id=profile["id"],
-        task_id="large-output",
-        tool_calls=[broker_results[0]["toolCall"]],
-    )
+        )
+        run = agents.create_agent_run(
+            project_id=project["id"],
+            agent_profile_id=profile["id"],
+            task_id="large-output",
+            input_payload={"toolCalls": []},
+            output_payload={},
+            status="running",
+        )
+        broker_results = ToolBroker(connection, artifact_root=tmp_path).evaluate_tool_calls(
+            project_id=project["id"],
+            agent_run_id=run["id"],
+            agent_profile=profile,
+            tool_calls=[
+                {
+                    "tool": "shell",
+                    "command": "python --version",
+                    "argv": ["python", "--version"],
+                    "path": str(project_path),
+                    "workspacePath": str(project_path),
+                    "execute": True,
+                    "sandbox": "docker",
+                    "dockerImage": "python:3.13-slim",
+                }
+            ],
+        )
+        evidence_refs = _create_execution_evidence(
+            platform=SimpleNamespace(connection=connection),
+            project_id=project["id"],
+            workflow_run_id=None,
+            agent_id=profile["id"],
+            task_id="large-output",
+            tool_calls=[broker_results[0]["toolCall"]],
+        )
 
-    tool_call = broker_results[0]["toolCall"]
-    assert tool_call["status"] == "completed"
-    execution_result = tool_call["payload"]["executionResult"]
-    assert "stdout" not in execution_result
-    assert "stderr" not in execution_result
-    assert execution_result["stdoutArtifactId"].startswith("artifact-")
-    assert execution_result["stderrArtifactId"].startswith("artifact-")
-    assert execution_result["stdoutSizeBytes"] == len(large_stdout.encode("utf-8"))
-    assert execution_result["stderrSizeBytes"] == len(large_stderr.encode("utf-8"))
+        tool_call = broker_results[0]["toolCall"]
+        assert tool_call["status"] == "completed"
+        execution_result = tool_call["payload"]["executionResult"]
+        assert "stdout" not in execution_result
+        assert "stderr" not in execution_result
+        assert execution_result["stdoutArtifactId"].startswith("artifact-")
+        assert execution_result["stderrArtifactId"].startswith("artifact-")
+        assert execution_result["stdoutSizeBytes"] == len(large_stdout.encode("utf-8"))
+        assert execution_result["stderrSizeBytes"] == len(large_stderr.encode("utf-8"))
 
-    evidence_id = evidence_refs[0]
-    artifacts = EvidenceRepository(store.connection).list_artifacts(evidence_id)
-    artifact_ids = {artifact["id"] for artifact in artifacts}
-    assert {execution_result["stdoutArtifactId"], execution_result["stderrArtifactId"]} <= artifact_ids
-    for artifact in artifacts:
-        if artifact["id"] in {execution_result["stdoutArtifactId"], execution_result["stderrArtifactId"]}:
-            assert artifact["kind"] == "execution_log"
-            assert artifact["hash"]
-            assert Path(artifact["path"]).exists()
+        evidence_id = evidence_refs[0]
+        artifacts = EvidenceRepository(connection).list_artifacts(evidence_id)
+        artifact_ids = {artifact["id"] for artifact in artifacts}
+        assert {execution_result["stdoutArtifactId"], execution_result["stderrArtifactId"]} <= artifact_ids
+        for artifact in artifacts:
+            if artifact["id"] in {execution_result["stdoutArtifactId"], execution_result["stderrArtifactId"]}:
+                assert artifact["kind"] == "execution_log"
+                assert artifact["hash"]
+                assert Path(artifact["path"]).exists()
 
 
 def test_approved_sensitive_tool_call_requires_and_consumes_permission_grant(
@@ -760,7 +765,6 @@ def test_docker_execution_uses_configured_sandbox_policy_not_tool_broker_constan
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
     docker_calls: list[dict[str, object]] = []
 
     def fake_docker_execute(self, **kwargs):
@@ -777,102 +781,112 @@ def test_docker_execution_uses_configured_sandbox_policy_not_tool_broker_constan
         }
 
     monkeypatch.setattr("local_control_center.security_policy.sandbox.DockerSandbox.execute", fake_docker_execute)
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
-    store.init()
-    SecurityPolicyRepository(store.connection).upsert_sandbox_profile(
-        {
-            "id": "default_docker",
-            "name": "Configured Docker",
-            "allowedImages": ["aido/custom:local"],
-            "allowedNetworks": ["none"],
-            "defaultNetwork": "none",
-            "memory": "512m",
-            "cpus": "0.75",
-            "timeoutSeconds": 31,
-        }
-    )
-    project_path = tmp_path / "sandbox-policy"
-    project = store.create_project(name="Sandbox Policy", path=project_path, template_id="other")
-    job = store.jobs.create_job(project_id=project["id"], kind="chat.route", payload={"prompt": "install package"})["job"]
-    agents = AgentsRepository(store.connection)
-    profile = agents.upsert_agent_profile(
-        {
-            "id": "cli_policy_config",
-            "name": "CLI Policy Config",
-            "role": "implementer",
-            "runtimeMode": "cli",
-            "permissionProfile": "dev_safe",
-            "allowedTools": ["shell"],
-        }
-    )
-    request_run = agents.create_agent_run(
-        project_id=project["id"],
-        agent_profile_id=profile["id"],
-        job_id=job["id"],
-        task_id="request-policy-install",
-        input_payload={"toolCalls": []},
-        output_payload={},
-        status="running",
-    )
-    ToolBroker(store.connection).evaluate_tool_calls(
-        project_id=project["id"],
-        agent_run_id=request_run["id"],
-        agent_profile=profile,
-        job_id=job["id"],
-        tool_calls=[
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        policies = SecurityPolicyRepository(connection)
+        policies.upsert_sandbox_profile(
             {
-                "tool": "shell",
-                "command": "pnpm add left-pad",
-                "path": str(project_path),
-                "workspacePath": str(project_path),
+                "id": "default_docker",
+                "name": "Configured Docker",
+                "allowedImages": ["aido/custom:local"],
+                "allowedNetworks": ["none"],
+                "defaultNetwork": "none",
+                "memory": "512m",
+                "cpus": "0.75",
+                "timeoutSeconds": 31,
             }
-        ],
-    )
-    action = store.jobs.list_action_requests(job_id=job["id"])[0]
-    grant = store.jobs.approve_action(
-        job["id"],
-        action["id"],
-        reason="Allow configured Docker image once.",
-    )["permissionGrant"]
-    execute_run = agents.create_agent_run(
-        project_id=project["id"],
-        agent_profile_id=profile["id"],
-        job_id=job["id"],
-        task_id="execute-policy-install",
-        input_payload={"toolCalls": []},
-        output_payload={},
-        status="running",
-    )
-    result = ToolBroker(store.connection).evaluate_tool_calls(
-        project_id=project["id"],
-        agent_run_id=execute_run["id"],
-        agent_profile=profile,
-        job_id=job["id"],
-        tool_calls=[
+        )
+        project_path = tmp_path / "sandbox-policy"
+        project = ProjectsRepository(connection).create_project(
+            name="Sandbox Policy",
+            path=project_path,
+            template_id="other",
+        )
+        jobs = JobsRepository(connection)
+        job = jobs.create_job(
+            project_id=project["id"],
+            kind="chat.route",
+            payload={"prompt": "install package"},
+        )["job"]
+        agents = AgentsRepository(connection)
+        profile = agents.upsert_agent_profile(
             {
-                "tool": "shell",
-                "command": "pnpm add left-pad",
-                "argv": ["pnpm", "add", "left-pad"],
-                "path": str(project_path),
-                "workspacePath": str(project_path),
-                "execute": True,
-                "sandbox": "docker",
-                "dockerImage": "aido/custom:local",
-                "approvalGrantId": grant["id"],
+                "id": "cli_policy_config",
+                "name": "CLI Policy Config",
+                "role": "implementer",
+                "runtimeMode": "cli",
+                "permissionProfile": "dev_safe",
+                "allowedTools": ["shell"],
             }
-        ],
-    )
+        )
+        request_run = agents.create_agent_run(
+            project_id=project["id"],
+            agent_profile_id=profile["id"],
+            job_id=job["id"],
+            task_id="request-policy-install",
+            input_payload={"toolCalls": []},
+            output_payload={},
+            status="running",
+        )
+        ToolBroker(connection).evaluate_tool_calls(
+            project_id=project["id"],
+            agent_run_id=request_run["id"],
+            agent_profile=profile,
+            job_id=job["id"],
+            tool_calls=[
+                {
+                    "tool": "shell",
+                    "command": "pnpm add left-pad",
+                    "path": str(project_path),
+                    "workspacePath": str(project_path),
+                }
+            ],
+        )
+        action = jobs.list_action_requests(job_id=job["id"])[0]
+        grant = jobs.approve_action(
+            job["id"],
+            action["id"],
+            reason="Allow configured Docker image once.",
+        )["permissionGrant"]
+        execute_run = agents.create_agent_run(
+            project_id=project["id"],
+            agent_profile_id=profile["id"],
+            job_id=job["id"],
+            task_id="execute-policy-install",
+            input_payload={"toolCalls": []},
+            output_payload={},
+            status="running",
+        )
+        result = ToolBroker(connection).evaluate_tool_calls(
+            project_id=project["id"],
+            agent_run_id=execute_run["id"],
+            agent_profile=profile,
+            job_id=job["id"],
+            tool_calls=[
+                {
+                    "tool": "shell",
+                    "command": "pnpm add left-pad",
+                    "argv": ["pnpm", "add", "left-pad"],
+                    "path": str(project_path),
+                    "workspacePath": str(project_path),
+                    "execute": True,
+                    "sandbox": "docker",
+                    "dockerImage": "aido/custom:local",
+                    "approvalGrantId": grant["id"],
+                }
+            ],
+        )
 
-    assert result[0]["toolCall"]["status"] == "completed"
-    assert docker_calls
-    assert docker_calls[0]["image"] == "aido/custom:local"
-    assert docker_calls[0]["memory"] == "512m"
-    assert docker_calls[0]["cpus"] == "0.75"
-    assert docker_calls[0]["timeout_seconds"] == 31
+        assert result[0]["toolCall"]["status"] == "completed"
+        assert docker_calls
+        assert docker_calls[0]["image"] == "aido/custom:local"
+        assert docker_calls[0]["memory"] == "512m"
+        assert docker_calls[0]["cpus"] == "0.75"
+        assert docker_calls[0]["timeout_seconds"] == 31
 
-    sandbox_profile = SecurityPolicyRepository(store.connection).get_sandbox_profile("default_docker")
-    assert sandbox_profile["allowedImages"] == ["aido/custom:local"]
-    assert sandbox_profile["memory"] == "512m"
+        sandbox_profile = policies.get_sandbox_profile("default_docker")
+        assert sandbox_profile["allowedImages"] == ["aido/custom:local"]
+        assert sandbox_profile["memory"] == "512m"
 
 
 def test_permission_grant_revocation_is_audited_and_blocks_later_execution(

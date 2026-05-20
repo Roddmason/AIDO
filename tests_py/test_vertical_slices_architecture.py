@@ -398,6 +398,18 @@ def test_retrieval_and_base_schema_tests_use_direct_sqlite_setup() -> None:
     assert "initialize_platform_schema" in schema_test
 
 
+def test_agents_planner_repository_tests_use_direct_sqlite_setup() -> None:
+    control_center_tests = read("tests_py/test_python_control_center.py")
+    planner_tests = control_center_tests.split(
+        "def test_agents_planner_is_gated_when_sdk_or_key_is_missing",
+        1,
+    )[1]
+
+    assert "ControlPlaneFixture" not in planner_tests
+    assert "JobsRepository" in planner_tests
+    assert "open_sqlite_connection" in planner_tests
+
+
 def test_active_runtime_does_not_import_store_facade() -> None:
     root_api = read("local_control_center/api.py")
     cli_source = read("local_control_center/cli.py")

@@ -58,6 +58,7 @@ uv sync --extra faiss --extra dev --extra test
 ```powershell
 corepack pnpm@10.24.0 run start
 corepack pnpm@10.24.0 run build:control-center
+corepack pnpm@10.24.0 run openapi:generate
 corepack pnpm@10.24.0 run test:py
 corepack pnpm@10.24.0 run test:web
 corepack pnpm@10.24.0 run quality
@@ -82,6 +83,10 @@ local-control-center/scripts/smoke-otel-exporter.ps1
 The smoke scripts skip unless explicitly opted in. OpenHands, SWE-agent, MCP
 servers, Docker, and external OTEL collectors are optional adapters, not startup
 requirements.
+
+CI mirrors that split: the default quality workflow runs tests, build, lint and
+OpenAPI client drift checks; runtime/OTEL smokes run only through explicit
+`workflow_dispatch` inputs.
 
 ## Security
 

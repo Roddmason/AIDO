@@ -22,9 +22,14 @@ uv sync --extra dev --extra test
 uv run pytest tests_py -q
 uv run --extra dev ruff check .
 corepack pnpm@10.24.0 run build:control-center
+corepack pnpm@10.24.0 run openapi:generate
 corepack pnpm@10.24.0 run test:web
 corepack pnpm@10.24.0 run quality
 ```
+
+`openapi:generate` is local-only and imports the FastAPI app directly; it does
+not fetch schemas over the network. CI checks that the generated endpoint map is
+committed.
 
 ## Source Hygiene
 

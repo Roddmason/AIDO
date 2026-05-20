@@ -106,20 +106,28 @@
 - Opt-in runtime adapter and OTEL exporter smoke scripts exist for local/CI
   profiles without making Docker, OpenHands, SWE-agent, or MCP core
   dependencies.
+- GitHub Actions quality workflow runs default tests/build/lint and exposes
+  explicit workflow-dispatch switches for runtime and OTEL smokes.
+- The frontend has a generated OpenAPI endpoint map checked in at
+  `web/src/api/generated/openapi.ts`, with CI drift detection.
+- Command palette and workflow inspector are backed by FastAPI v1 state rather
+  than client-invented data.
 
 ## Next Backend Work
 
 1. Keep tightening tests around direct repositories and
    `tests_py/control_plane_fixture.py` where broad fixture setup is still
    noisier than the behavior under test.
-2. Wire the opt-in MCP/OpenHands/SWE-agent smoke scripts into an isolated CI
-   profile that runs only when those runtimes are installed.
-3. Wire the opt-in OTEL exporter smoke script into an isolated CI profile that
-   starts a collector only when Docker is available.
+2. Add operation-specific generated OpenAPI request/response types when the
+   schema stabilizes enough to avoid churn.
+3. Add deeper installed-runtime fixtures for OpenHands/SWE-agent in a separate
+   release validation profile.
 
 ## Next Frontend Work
 
-1. Add command palette actions backed by v1 endpoints.
-2. Add workflow node inspector drawers with tool calls, logs, artifacts, and
-   approval requests.
-3. Generate typed API clients from OpenAPI once the v1 schema stabilizes.
+1. Add keyboard shortcuts for create workflow, search events, and focus pending
+   approvals through the command palette.
+2. Add richer workflow inspector tabs for artifact previews and policy decision
+   diffs.
+3. Replace the endpoint-map generated client with operation-level generated
+   types after the v1 schema freezes.

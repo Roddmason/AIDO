@@ -177,6 +177,8 @@
   rows for their stable records.
 - Shared event-bus tests now use direct SQLite/repository setup instead of the
   broad app fixture; an architecture guardrail prevents that regression.
+- Repository-level telemetry tests now use direct SQLite/repository setup while
+  keeping the broad app fixture only for HTTP middleware coverage.
 - Command palette and workflow inspector are backed by FastAPI v1 state rather
   than client-invented data.
 - The command palette can create workflows, focus pending approvals, and open a

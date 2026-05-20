@@ -123,6 +123,7 @@ export type Overview = {
 	workflows: Workflow[];
 	workflowRuns: Dictionary[];
 	workflowSteps: WorkflowStep[];
+	policyRevisions: Dictionary[];
 	permissionDecisions: Dictionary[];
 	permissionGrants: Dictionary[];
 	sandboxProfiles: Dictionary[];

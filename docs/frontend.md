@@ -64,6 +64,10 @@ local-control-center/web/
 - Evidence and workflow inspectors preview and download artifacts only through
   `GET /api/v1/evidence/{evidenceId}/artifacts/{artifactId}` with the local
   control token. The UI never reads local artifact paths directly.
+- Policy & Security renders `policyRevisions` from `/api/v1/overview` as
+  operator-readable diffs. The diff drawer shows field, before, and after
+  columns so reviewers are not forced to inspect raw JSON or infer changes by
+  color alone.
 - Configuration changes must use strict forms with controlled inputs. Agent
   profiles, model policies, workflows, governance records, sandbox profiles,
   and MCP registry entries are edited through labeled inputs, selects,

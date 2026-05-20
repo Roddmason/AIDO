@@ -361,6 +361,44 @@ test('Policy & Security exposes tool-call execution state', async ({ page }) => 
 	await expect(page.getByText('not_executed').first()).toBeVisible();
 });
 
+test('Policy & Security shows sandbox policy revision diffs', async ({ page }) => {
+	const handshake = await page.request.get('/api/v1/security/handshake');
+	const { token } = await handshake.json();
+	await page.request.patch('/api/v1/sandbox/profiles/default_docker', {
+		headers: { 'X-Local-Control-Token': token },
+		data: {
+			reason: 'Set baseline before visual diff smoke.',
+			allowedImages: ['python:3.12-slim'],
+			allowedNetworks: ['none'],
+			defaultNetwork: 'none',
+			memory: '1g',
+			cpus: '1',
+			timeoutSeconds: 120,
+			status: 'active',
+		},
+	});
+
+	await page.goto('/#policy');
+	await page.getByRole('button', { name: 'Policy & Security' }).click();
+	await page.getByLabel('Sandbox update reason').fill('Create visual policy diff smoke.');
+	await page.getByLabel('Sandbox memory limit').fill('768m');
+	await page.getByLabel('Sandbox CPU limit').fill('1');
+	await page.getByLabel('Sandbox timeout seconds').fill('90');
+	await page.getByLabel('Sandbox allowed image').fill('python:3.12-slim');
+	await page.getByRole('button', { name: 'Save sandbox profile' }).click();
+
+	await expect(page.getByText('Policy revisions')).toBeVisible();
+	await page.getByRole('button', { name: 'View policy revision diff for default_docker' }).first().click();
+	const diffDialog = page.getByRole('dialog', { name: 'Policy revision diff' });
+	await expect(diffDialog).toBeVisible();
+	await expect(diffDialog.getByRole('cell', { name: 'memory' })).toBeVisible();
+	await expect(diffDialog.getByRole('cell', { name: '"1g"' })).toBeVisible();
+	await expect(diffDialog.getByRole('cell', { name: '"768m"' })).toBeVisible();
+	await expect(diffDialog.getByRole('cell', { name: 'timeoutSeconds' })).toBeVisible();
+	await expect(diffDialog.getByRole('cell', { name: '120' })).toBeVisible();
+	await expect(diffDialog.getByRole('cell', { name: '90' })).toBeVisible();
+});
+
 test('Model Gateway exposes model calls and cost ledger', async ({ page }) => {
 	await createModelGatewayTrace(page);
 	await page.goto('/#models');

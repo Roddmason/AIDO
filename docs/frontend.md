@@ -124,6 +124,7 @@ handling. It also emits `OperationRequestBody<T>` and
 now routes JSON calls through generated operation IDs. Health, handshake, and
 retrieval status already generate named DTOs from Pydantic response models;
 workflow create/status mutations, agent profile upserts, and model policy
-upserts now generate named request DTOs as well. Domain-specific frontend
-interfaces remain as refinements for routes that still return generic
-dictionaries.
+upserts now generate named request DTOs as well. Jobs and approvals mutations
+also generate strict request DTOs for creation, approval reasons, and optional
+cancel/retry reasons. Domain-specific frontend interfaces remain as refinements
+for routes that still return generic dictionaries.

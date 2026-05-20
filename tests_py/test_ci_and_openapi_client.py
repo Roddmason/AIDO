@@ -47,6 +47,9 @@ def test_generated_openapi_client_is_checked_in_and_v1_only() -> None:
     assert '"start_workflow_api_v1_workflows__workflow_id__start_post": WorkflowStatusChangeRequest' in content
     assert '"upsert_agent_profile_api_v1_agent_profiles_post": AgentProfileUpsertRequest' in content
     assert '"upsert_model_policy_api_v1_model_policies_post": ModelPolicyUpsertRequest' in content
+    assert '"create_job_api_v1_jobs_post": JobCreateRequest' in content
+    assert '"approve_action_api_v1_jobs__job_id__actions__action_id__approve_post": ApprovalReasonRequest' in content
+    assert '"cancel_job_api_v1_jobs__job_id__cancel_post": OptionalReasonRequest' in content
     assert "export function buildApiPath" in content
     assert "export async function requestGeneratedOperation" in content
 

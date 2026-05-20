@@ -134,6 +134,8 @@
 - High-traffic mutating routes for workflow creation/status changes, agent
   profile upserts, and model policy upserts now expose Pydantic request/response
   contracts, so generated operation request bodies are no longer `unknown`.
+- Jobs and approvals mutations now expose Pydantic contracts for job creation,
+  job approve/cancel/retry, and granular action approve/deny operations.
 - Command palette and workflow inspector are backed by FastAPI v1 state rather
   than client-invented data.
 - The command palette can create workflows, focus pending approvals, and open a

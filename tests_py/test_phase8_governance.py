@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-import sqlite3
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 
 from local_control_center.app import create_app
+from local_control_center.shared.db import open_sqlite_connection
+from local_control_center.shared.migrations import initialize_platform_schema
 from tests_py.control_plane_fixture import ControlPlaneFixture
 
 
@@ -23,10 +24,8 @@ def make_app(tmp_path: Path, monkeypatch) -> tuple[ControlPlaneFixture, TestClie
 
 
 def test_governance_schema_adds_architecture_risks_and_next_steps(tmp_path: Path) -> None:
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
-    store.init()
-
-    with sqlite3.connect(tmp_path / "platform.sqlite") as connection:
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
         tables = {
             row[0]
             for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()

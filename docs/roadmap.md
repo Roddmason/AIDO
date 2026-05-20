@@ -162,6 +162,10 @@
   generated `OperationResponseBodies` map no longer falls back to raw
   `JsonObject` operation responses. A guardrail test fails if a route regresses
   to an untyped response body.
+- Governance read/mutation payloads now use row-level DTOs for architecture
+  decisions, risks, and next steps; the generated client also rejects
+  `Array<never>` regressions for schema arrays with intentionally flexible JSON
+  values.
 - Shared event-bus tests now use direct SQLite/repository setup instead of the
   broad app fixture; an architecture guardrail prevents that regression.
 - Command palette and workflow inspector are backed by FastAPI v1 state rather

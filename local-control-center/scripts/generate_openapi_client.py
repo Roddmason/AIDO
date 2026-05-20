@@ -54,8 +54,10 @@ def _json_schema_for_request(spec: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def _ts_type_from_schema(schema: dict[str, Any] | None) -> str:
-    if not schema:
+    if schema is None:
         return "never"
+    if not schema:
+        return "JsonValue"
     if "$ref" in schema:
         return _ref_type_name(str(schema["$ref"]))
     if "const" in schema:

@@ -29,18 +29,33 @@ class ArchitectureDecisionCreateRequest(BaseModel):
         return value.lower() if isinstance(value, str) else value
 
 
+class ArchitectureDecisionRecord(BaseModel):
+    id: str
+    project_id: str = Field(alias="projectId")
+    title: str
+    status: DecisionStatus
+    context: str
+    decision: str
+    consequences: list[Any] | str = Field(default_factory=list)
+    linked_risk_ids: list[str] = Field(alias="linkedRiskIds")
+    next_step_ids: list[str] = Field(alias="nextStepIds")
+    metadata: dict[str, Any]
+    created_at: str = Field(alias="createdAt")
+    updated_at: str = Field(alias="updatedAt")
+
+
 class ArchitectureDecisionResponse(BaseModel):
-    architecture_decision: dict[str, Any] = Field(alias="architectureDecision")
+    architecture_decision: ArchitectureDecisionRecord = Field(alias="architectureDecision")
 
 
 class GovernanceResponse(BaseModel):
-    architecture_decisions: list[dict[str, Any]] = Field(alias="architectureDecisions")
-    risks: list[dict[str, Any]]
-    next_steps: list[dict[str, Any]] = Field(alias="nextSteps")
+    architecture_decisions: list[ArchitectureDecisionRecord] = Field(alias="architectureDecisions")
+    risks: list["RiskRecord"]
+    next_steps: list["NextStepRecord"] = Field(alias="nextSteps")
 
 
 class ArchitectureDecisionsListResponse(BaseModel):
-    architecture_decisions: list[dict[str, Any]] = Field(alias="architectureDecisions")
+    architecture_decisions: list[ArchitectureDecisionRecord] = Field(alias="architectureDecisions")
 
 
 class RiskCreateRequest(BaseModel):
@@ -74,12 +89,27 @@ class RiskUpdateRequest(BaseModel):
         return value.lower() if isinstance(value, str) else value
 
 
+class RiskRecord(BaseModel):
+    id: str
+    project_id: str = Field(alias="projectId")
+    title: str
+    severity: RiskSeverity
+    status: RiskStatus
+    description: str
+    mitigation: str
+    owner: str
+    evidence_refs: list[str] = Field(alias="evidenceRefs")
+    metadata: dict[str, Any]
+    created_at: str = Field(alias="createdAt")
+    updated_at: str = Field(alias="updatedAt")
+
+
 class RiskResponse(BaseModel):
-    risk: dict[str, Any]
+    risk: RiskRecord
 
 
 class RisksListResponse(BaseModel):
-    risks: list[dict[str, Any]]
+    risks: list[RiskRecord]
 
 
 class NextStepCreateRequest(BaseModel):
@@ -112,9 +142,24 @@ class NextStepUpdateRequest(BaseModel):
         return value.lower() if isinstance(value, str) else value
 
 
+class NextStepRecord(BaseModel):
+    id: str
+    project_id: str = Field(alias="projectId")
+    title: str
+    status: NextStepStatus
+    priority: NextStepPriority
+    source_risk_id: str | None = Field(default=None, alias="sourceRiskId")
+    source_decision_id: str | None = Field(default=None, alias="sourceDecisionId")
+    owner: str
+    due_at: str | None = Field(default=None, alias="dueAt")
+    metadata: dict[str, Any]
+    created_at: str = Field(alias="createdAt")
+    updated_at: str = Field(alias="updatedAt")
+
+
 class NextStepResponse(BaseModel):
-    next_step: dict[str, Any] = Field(alias="nextStep")
+    next_step: NextStepRecord = Field(alias="nextStep")
 
 
 class NextStepsListResponse(BaseModel):
-    next_steps: list[dict[str, Any]] = Field(alias="nextSteps")
+    next_steps: list[NextStepRecord] = Field(alias="nextSteps")

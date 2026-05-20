@@ -44,6 +44,7 @@ class EventRecord(BaseModel):
     job_id: str | None = Field(default=None, alias="jobId")
     project_id: str | None = Field(default=None, alias="projectId")
     type: str
+    severity: str = "info"
     payload: dict[str, Any]
     created_at: str = Field(alias="createdAt")
 

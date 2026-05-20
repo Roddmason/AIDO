@@ -256,6 +256,12 @@
 - The central React control-plane hook now keeps retrieval status typed as
   `RetrievalStatusResponse`, so stable backend posture does not widen back to
   an unstructured frontend object.
+- Frontend mutating helpers now accept generated `OperationRequestBody` shapes
+  and infer generated responses instead of returning untyped `Dictionary`
+  payloads for stable v1 operations.
+- Web TypeScript typechecking is now an explicit script using Vite-compatible
+  module resolution, and event records expose a backend `severity` field for
+  typed operational ledgers.
 
 ## Next Backend Work
 

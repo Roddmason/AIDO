@@ -1,7 +1,10 @@
 import type { Dictionary, Overview, RetrievalStatus, RuntimeProviders } from './types';
 import { requestGeneratedOperation } from './generated/openapi';
+import type { ApiOperationId, OperationRequestBody } from './generated/openapi';
 
 const WRITE_HEADER = 'X-Local-Control-Token';
+
+type MutationBody<TOperationId extends ApiOperationId> = OperationRequestBody<TOperationId>;
 
 export type ArtifactPayload = {
 	artifactId: string;
@@ -81,7 +84,7 @@ export async function fetchEvidenceArtifact(token: string, evidenceId: string, a
 }
 
 export function approveAction(token: string, jobId: string, actionId: string, reason: string) {
-	return requestGeneratedOperation<'approve_action_api_v1_jobs__job_id__actions__action_id__approve_post', Dictionary>('approve_action_api_v1_jobs__job_id__actions__action_id__approve_post', {
+	return requestGeneratedOperation('approve_action_api_v1_jobs__job_id__actions__action_id__approve_post', {
 		token,
 		pathParams: { job_id: jobId, action_id: actionId },
 		body: { reason },
@@ -89,7 +92,7 @@ export function approveAction(token: string, jobId: string, actionId: string, re
 }
 
 export function denyAction(token: string, jobId: string, actionId: string, reason: string) {
-	return requestGeneratedOperation<'deny_action_api_v1_jobs__job_id__actions__action_id__deny_post', Dictionary>('deny_action_api_v1_jobs__job_id__actions__action_id__deny_post', {
+	return requestGeneratedOperation('deny_action_api_v1_jobs__job_id__actions__action_id__deny_post', {
 		token,
 		pathParams: { job_id: jobId, action_id: actionId },
 		body: { reason },
@@ -97,7 +100,7 @@ export function denyAction(token: string, jobId: string, actionId: string, reaso
 }
 
 export function cancelJob(token: string, jobId: string, reason: string) {
-	return requestGeneratedOperation<'cancel_job_api_v1_jobs__job_id__cancel_post', Dictionary>('cancel_job_api_v1_jobs__job_id__cancel_post', {
+	return requestGeneratedOperation('cancel_job_api_v1_jobs__job_id__cancel_post', {
 		token,
 		pathParams: { job_id: jobId },
 		body: { reason },
@@ -105,7 +108,7 @@ export function cancelJob(token: string, jobId: string, reason: string) {
 }
 
 export function retryJob(token: string, jobId: string, reason: string) {
-	return requestGeneratedOperation<'retry_job_api_v1_jobs__job_id__retry_post', Dictionary>('retry_job_api_v1_jobs__job_id__retry_post', {
+	return requestGeneratedOperation('retry_job_api_v1_jobs__job_id__retry_post', {
 		token,
 		pathParams: { job_id: jobId },
 		body: { reason },
@@ -113,64 +116,64 @@ export function retryJob(token: string, jobId: string, reason: string) {
 }
 
 export function createWorkflow(token: string, projectId: string, title: string) {
-	return requestGeneratedOperation<'create_workflow_api_v1_workflows_post', Dictionary>('create_workflow_api_v1_workflows_post', {
+	return requestGeneratedOperation('create_workflow_api_v1_workflows_post', {
 		token,
 		body: { projectId, title, kind: 'idea_to_pr' },
 	});
 }
 
-export function createWorkflowWithBody(token: string, body: Dictionary) {
-	return requestGeneratedOperation<'create_workflow_api_v1_workflows_post', Dictionary>('create_workflow_api_v1_workflows_post', {
+export function createWorkflowWithBody(token: string, body: MutationBody<'create_workflow_api_v1_workflows_post'>) {
+	return requestGeneratedOperation('create_workflow_api_v1_workflows_post', {
 		token,
 		body,
 	});
 }
 
-export function createAgentProfile(token: string, body: Dictionary) {
-	return requestGeneratedOperation<'upsert_agent_profile_api_v1_agent_profiles_post', Dictionary>('upsert_agent_profile_api_v1_agent_profiles_post', {
+export function createAgentProfile(token: string, body: MutationBody<'upsert_agent_profile_api_v1_agent_profiles_post'>) {
+	return requestGeneratedOperation('upsert_agent_profile_api_v1_agent_profiles_post', {
 		token,
 		body,
 	});
 }
 
-export function createModelPolicy(token: string, body: Dictionary) {
-	return requestGeneratedOperation<'upsert_model_policy_api_v1_model_policies_post', Dictionary>('upsert_model_policy_api_v1_model_policies_post', {
+export function createModelPolicy(token: string, body: MutationBody<'upsert_model_policy_api_v1_model_policies_post'>) {
+	return requestGeneratedOperation('upsert_model_policy_api_v1_model_policies_post', {
 		token,
 		body,
 	});
 }
 
-export function createRisk(token: string, body: Dictionary) {
-	return requestGeneratedOperation<'create_risk_api_v1_risks_post', Dictionary>('create_risk_api_v1_risks_post', {
+export function createRisk(token: string, body: MutationBody<'create_risk_api_v1_risks_post'>) {
+	return requestGeneratedOperation('create_risk_api_v1_risks_post', {
 		token,
 		body,
 	});
 }
 
-export function createArchitectureDecision(token: string, body: Dictionary) {
-	return requestGeneratedOperation<'create_architecture_decision_api_v1_architecture_decisions_post', Dictionary>('create_architecture_decision_api_v1_architecture_decisions_post', {
+export function createArchitectureDecision(token: string, body: MutationBody<'create_architecture_decision_api_v1_architecture_decisions_post'>) {
+	return requestGeneratedOperation('create_architecture_decision_api_v1_architecture_decisions_post', {
 		token,
 		body,
 	});
 }
 
-export function createNextStep(token: string, body: Dictionary) {
-	return requestGeneratedOperation<'create_next_step_api_v1_next_steps_post', Dictionary>('create_next_step_api_v1_next_steps_post', {
+export function createNextStep(token: string, body: MutationBody<'create_next_step_api_v1_next_steps_post'>) {
+	return requestGeneratedOperation('create_next_step_api_v1_next_steps_post', {
 		token,
 		body,
 	});
 }
 
-export function updateSandboxProfile(token: string, profileId: string, body: Dictionary) {
-	return requestGeneratedOperation<'update_sandbox_profile_api_v1_sandbox_profiles__profile_id__patch', Dictionary>('update_sandbox_profile_api_v1_sandbox_profiles__profile_id__patch', {
+export function updateSandboxProfile(token: string, profileId: string, body: MutationBody<'update_sandbox_profile_api_v1_sandbox_profiles__profile_id__patch'>) {
+	return requestGeneratedOperation('update_sandbox_profile_api_v1_sandbox_profiles__profile_id__patch', {
 		token,
 		pathParams: { profile_id: profileId },
 		body,
 	});
 }
 
-export function registerMcpServer(token: string, body: Dictionary) {
-	return requestGeneratedOperation<'register_mcp_server_api_v1_integrations_mcp_register_post', Dictionary>('register_mcp_server_api_v1_integrations_mcp_register_post', {
+export function registerMcpServer(token: string, body: MutationBody<'register_mcp_server_api_v1_integrations_mcp_register_post'>) {
+	return requestGeneratedOperation('register_mcp_server_api_v1_integrations_mcp_register_post', {
 		token,
 		body,
 	});

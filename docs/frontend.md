@@ -73,6 +73,13 @@ local-control-center/web/
   and MCP registry entries are edited through labeled inputs, selects,
   checkboxes, and numeric fields; raw JSON editing is not a supported operator
   path.
+- Stable mutation helpers use generated OpenAPI `OperationRequestBody` and
+  `OperationResponse` contracts. Form state for workflow kind, agent role,
+  runtime mode, permission profile, risk severity, decision status, next-step
+  priority, and MCP transport is typed against those generated unions.
+- `pnpm run typecheck:web` runs `tsc --noEmit` against the Vite TypeScript
+  project. This is separate from the Vite production build because esbuild
+  transpilation alone does not prove the contracts are type-safe.
 
 ## Visual Direction
 

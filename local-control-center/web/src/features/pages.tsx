@@ -11,7 +11,19 @@ import {
 	updateSandboxProfile,
 } from '../api/client';
 import type { ArtifactPayload } from '../api/client';
-import type { Artifact, Dictionary, Overview, PolicyRevision, RetrievalStatus, RuntimeProviders } from '../api/types';
+import type {
+	ArchitectureDecisionStatus,
+	Artifact,
+	Dictionary,
+	McpTransport,
+	NextStepPriority,
+	Overview,
+	PolicyRevision,
+	RetrievalStatus,
+	RiskSeverity,
+	RuntimeProviders,
+	WorkflowKind,
+} from '../api/types';
 import { Badge, DataTable, Drawer, EmptyState, PageHeader, Surface } from '../components/primitives';
 import { artifactDisplayName, artifactMimeType, artifactSizeLabel } from '../lib/artifacts';
 import { toneForStatus } from '../lib/format';
@@ -21,7 +33,7 @@ type Mutate = <T>(operation: (token: string) => Promise<T>) => Promise<T>;
 export function CommandCenterPage({ overview, mutate }: { overview: Overview; mutate: Mutate }) {
 	const project = overview.projects[0];
 	const [workflowTitle, setWorkflowTitle] = useState(`AIDO workflow ${new Date().toISOString()}`);
-	const [workflowKind, setWorkflowKind] = useState('idea_to_pr');
+	const [workflowKind, setWorkflowKind] = useState<WorkflowKind>('idea_to_pr');
 	const [error, setError] = useState('');
 	const saveWorkflow = () => {
 		const title = workflowTitle.trim();
@@ -54,7 +66,7 @@ export function CommandCenterPage({ overview, mutate }: { overview: Overview; mu
 					</div>
 					<div className="field">
 						<label htmlFor="workflow-kind">Workflow kind</label>
-						<select id="workflow-kind" className="select" value={workflowKind} onChange={(event) => setWorkflowKind(event.target.value)}>
+						<select id="workflow-kind" className="select" value={workflowKind} onChange={(event) => setWorkflowKind(event.target.value as WorkflowKind)}>
 							<option value="idea_to_pr">idea_to_pr</option>
 							<option value="project_discovery">project_discovery</option>
 							<option value="issue_to_pr">issue_to_pr</option>
@@ -611,14 +623,14 @@ export function ModelGatewayPage({
 export function GovernancePage({ overview, mutate }: { overview: Overview; mutate: Mutate }) {
 	const project = overview.projects[0];
 	const [riskTitle, setRiskTitle] = useState('');
-	const [riskSeverity, setRiskSeverity] = useState('medium');
+	const [riskSeverity, setRiskSeverity] = useState<RiskSeverity>('medium');
 	const [riskMitigation, setRiskMitigation] = useState('');
 	const [decisionTitle, setDecisionTitle] = useState('');
-	const [decisionStatus, setDecisionStatus] = useState('proposed');
+	const [decisionStatus, setDecisionStatus] = useState<ArchitectureDecisionStatus>('proposed');
 	const [decisionContext, setDecisionContext] = useState('');
 	const [decisionText, setDecisionText] = useState('');
 	const [nextStepTitle, setNextStepTitle] = useState('');
-	const [nextStepPriority, setNextStepPriority] = useState('medium');
+	const [nextStepPriority, setNextStepPriority] = useState<NextStepPriority>('medium');
 	const [error, setError] = useState('');
 	const saveRisk = () => {
 		if (!riskTitle.trim()) {
@@ -707,7 +719,7 @@ export function GovernancePage({ overview, mutate }: { overview: Overview; mutat
 						</div>
 						<div className="field">
 							<label htmlFor="risk-severity">Risk severity</label>
-							<select id="risk-severity" className="select" value={riskSeverity} onChange={(event) => setRiskSeverity(event.target.value)}>
+							<select id="risk-severity" className="select" value={riskSeverity} onChange={(event) => setRiskSeverity(event.target.value as RiskSeverity)}>
 								<option value="low">low</option>
 								<option value="medium">medium</option>
 								<option value="high">high</option>
@@ -727,7 +739,7 @@ export function GovernancePage({ overview, mutate }: { overview: Overview; mutat
 						</div>
 						<div className="field">
 							<label htmlFor="decision-status">Decision status</label>
-							<select id="decision-status" className="select" value={decisionStatus} onChange={(event) => setDecisionStatus(event.target.value)}>
+							<select id="decision-status" className="select" value={decisionStatus} onChange={(event) => setDecisionStatus(event.target.value as ArchitectureDecisionStatus)}>
 								<option value="proposed">proposed</option>
 								<option value="accepted">accepted</option>
 								<option value="rejected">rejected</option>
@@ -752,7 +764,7 @@ export function GovernancePage({ overview, mutate }: { overview: Overview; mutat
 						</div>
 						<div className="field">
 							<label htmlFor="next-step-priority">Next step priority</label>
-							<select id="next-step-priority" className="select" value={nextStepPriority} onChange={(event) => setNextStepPriority(event.target.value)}>
+							<select id="next-step-priority" className="select" value={nextStepPriority} onChange={(event) => setNextStepPriority(event.target.value as NextStepPriority)}>
 								<option value="low">low</option>
 								<option value="medium">medium</option>
 								<option value="high">high</option>
@@ -791,7 +803,7 @@ export function GovernancePage({ overview, mutate }: { overview: Overview; mutat
 export function IntegrationsPage({ overview, mutate }: { overview: Overview; mutate: Mutate }) {
 	const [serverId, setServerId] = useState('mcp_local');
 	const [command, setCommand] = useState('python -m local_mcp_server');
-	const [transport, setTransport] = useState('stdio');
+	const [transport, setTransport] = useState<McpTransport>('stdio');
 	const [error, setError] = useState('');
 	const registerServer = () => {
 		if (!/^[a-z0-9][a-z0-9_-]{2,63}$/.test(serverId)) {
@@ -826,7 +838,7 @@ export function IntegrationsPage({ overview, mutate }: { overview: Overview; mut
 						</div>
 						<div className="field">
 							<label htmlFor="mcp-transport">MCP transport</label>
-							<select id="mcp-transport" className="select" value={transport} onChange={(event) => setTransport(event.target.value)}>
+							<select id="mcp-transport" className="select" value={transport} onChange={(event) => setTransport(event.target.value as McpTransport)}>
 								<option value="stdio">stdio</option>
 							</select>
 						</div>

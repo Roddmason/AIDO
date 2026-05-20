@@ -1,9 +1,11 @@
 import { useState } from 'react';
 
 import { createAgentProfile } from '../../api/client';
-import type { Overview, RuntimeProviders } from '../../api/types';
+import type { AgentRole, AgentRuntimeMode, Overview, PermissionProfile, RuntimeProviders } from '../../api/types';
 import { Badge, DataTable, EmptyState, PageHeader, Surface } from '../../components/primitives';
 import { toneForStatus } from '../../lib/format';
+
+const runtimeModeOptions: AgentRuntimeMode[] = ['api', 'cli', 'ollama', 'hybrid', 'manual', 'internal_mock'];
 
 export function AgentsPage({
 	overview,
@@ -16,12 +18,14 @@ export function AgentsPage({
 }) {
 	const [profileId, setProfileId] = useState('agent-hybrid');
 	const [name, setName] = useState('Hybrid Implementer');
-	const [role, setRole] = useState('implementer');
-	const [runtimeMode, setRuntimeMode] = useState('hybrid');
-	const [permissionProfile, setPermissionProfile] = useState('dev_safe');
+	const [role, setRole] = useState<AgentRole>('implementer');
+	const [runtimeMode, setRuntimeMode] = useState<AgentRuntimeMode>('hybrid');
+	const [permissionProfile, setPermissionProfile] = useState<PermissionProfile>('dev_safe');
 	const [allowedTool, setAllowedTool] = useState('shell');
 	const [error, setError] = useState('');
-	const modes = runtimeProviders?.runtimeModes ?? ['internal_mock', 'manual'];
+	const modes =
+		runtimeProviders?.runtimeModes.filter((mode): mode is AgentRuntimeMode => runtimeModeOptions.includes(mode as AgentRuntimeMode)) ??
+		(['internal_mock', 'manual'] satisfies AgentRuntimeMode[]);
 
 	const createProfile = () => {
 		if (!/^[a-z0-9_-]{3,64}$/.test(profileId)) {
@@ -78,7 +82,7 @@ export function AgentsPage({
 					</div>
 					<div className="field">
 						<label htmlFor="agent-role">Role</label>
-						<select id="agent-role" className="select" value={role} onChange={(event) => setRole(event.target.value)}>
+						<select id="agent-role" className="select" value={role} onChange={(event) => setRole(event.target.value as AgentRole)}>
 							<option value="product_owner">product_owner</option>
 							<option value="technical_lead">technical_lead</option>
 							<option value="implementer">implementer</option>
@@ -88,7 +92,7 @@ export function AgentsPage({
 					</div>
 					<div className="field">
 						<label htmlFor="runtime-mode">Runtime mode</label>
-						<select id="runtime-mode" className="select" value={runtimeMode} onChange={(event) => setRuntimeMode(event.target.value)}>
+						<select id="runtime-mode" className="select" value={runtimeMode} onChange={(event) => setRuntimeMode(event.target.value as AgentRuntimeMode)}>
 							{modes.map((mode) => (
 								<option key={mode} value={mode}>{mode}</option>
 							))}
@@ -100,7 +104,7 @@ export function AgentsPage({
 							id="permission-profile"
 							className="select"
 							value={permissionProfile}
-							onChange={(event) => setPermissionProfile(event.target.value)}
+							onChange={(event) => setPermissionProfile(event.target.value as PermissionProfile)}
 						>
 							<option value="plan">plan</option>
 							<option value="dev_safe">dev_safe</option>

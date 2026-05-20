@@ -1,18 +1,24 @@
 import type {
 	ActionRequestRecord,
 	AgentProfileRecord,
+	AgentProfileUpsertRequest,
+	ArchitectureDecisionCreateRequest,
 	ArtifactRecord,
 	ChatRecord,
 	EventRecord as GeneratedEventRecord,
 	JobRecord,
+	McpServerRegisterRequest,
 	ModelProviderRecord,
+	NextStepCreateRequest,
 	OverviewResponse,
 	PipelineRecord,
 	PolicyRevisionRecord,
 	ProjectRecord,
 	RetrievalStatusResponse,
+	RiskCreateRequest,
 	RuntimeProvidersResponse,
 	SessionRecord,
+	WorkflowCreateRequest,
 	WorkflowRecord,
 	WorkflowStepRecord,
 } from './generated/openapi';
@@ -35,3 +41,11 @@ export type PolicyRevision = PolicyRevisionRecord;
 export type Overview = OverviewResponse;
 export type RuntimeProviders = RuntimeProvidersResponse;
 export type RetrievalStatus = RetrievalStatusResponse;
+export type AgentRole = NonNullable<AgentProfileUpsertRequest['role']>;
+export type AgentRuntimeMode = NonNullable<AgentProfileUpsertRequest['runtimeMode']>;
+export type PermissionProfile = NonNullable<AgentProfileUpsertRequest['permissionProfile']>;
+export type WorkflowKind = NonNullable<WorkflowCreateRequest['kind']>;
+export type RiskSeverity = NonNullable<RiskCreateRequest['severity']>;
+export type ArchitectureDecisionStatus = NonNullable<ArchitectureDecisionCreateRequest['status']>;
+export type NextStepPriority = NonNullable<NextStepCreateRequest['priority']>;
+export type McpTransport = NonNullable<McpServerRegisterRequest['transport']>;

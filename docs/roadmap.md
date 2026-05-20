@@ -142,6 +142,9 @@
 - Workspace allocation/archive, MCP registration, and IDE connection upsert
   routes now expose Pydantic contracts, reducing another set of frontend
   hand-written mutation shapes.
+- Policy evaluation, permission-grant revocation, sandbox profile revocation,
+  and sandbox profile edits now expose Pydantic contracts while preserving the
+  backend-owned policy gate and reason-required audit path.
 - The OpenAPI client generator tolerates Windows temporary-directory cleanup
   races after closing SQLite-backed runtime state.
 - Command palette and workflow inspector are backed by FastAPI v1 state rather
@@ -168,9 +171,10 @@
 1. Keep tightening tests around direct repositories and
    `tests_py/control_plane_fixture.py` where broad fixture setup is still
    noisier than the behavior under test.
-2. Continue adding explicit Pydantic request/response models to policy,
-   evidence, session/chat, project, and pipeline mutations so generated DTOs
-   become domain-specific instead of `unknown`/`JsonObject` fallbacks.
+2. Continue adding explicit Pydantic request/response models to evidence,
+   session/chat, project, pipeline, memory, prompt, and skills mutations so
+   generated DTOs become domain-specific instead of `unknown`/`JsonObject`
+   fallbacks.
 3. Run the installed-runtime issue-to-patch smoke on a release validation
    runner with OpenHands/SWE-agent installed and exact argv env vars supplied.
 

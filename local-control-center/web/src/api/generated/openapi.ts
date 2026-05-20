@@ -26,10 +26,17 @@ export type NextStepCreateRequest = { "dueAt"?: JsonValue | string; "metadata"?:
 export type NextStepResponse = { "nextStep": JsonObject };
 export type NextStepUpdateRequest = { "dueAt"?: JsonValue | string; "metadata"?: JsonObject | JsonValue; "owner"?: JsonValue | string; "priority"?: "low" | "medium" | "high" | "urgent" | JsonValue; "status"?: "planned" | "in_progress" | "blocked" | "completed" | "cancelled" | JsonValue };
 export type OptionalReasonRequest = { "reason"?: string };
+export type PermissionGrantResponse = { "permissionGrant": JsonObject };
+export type PolicyEvaluateRequest = { "agentId"?: JsonValue | string; "command"?: JsonValue | string; "deploymentTarget"?: JsonValue | string; "environment"?: JsonValue | string; "gitOperation"?: JsonValue | string; "networkRequired"?: JsonValue | boolean; "operation"?: JsonValue | string; "path"?: JsonValue | string; "permissionProfile"?: JsonValue | string; "projectId"?: JsonValue | string; "riskLevel"?: JsonValue | string; "role"?: JsonValue | string; "secretsRequired"?: JsonValue | boolean; "tool"?: JsonValue | string; "workspaceId"?: JsonValue | string };
+export type PolicyEvaluationResponse = { "decision": JsonObject };
+export type RequiredReasonRequest = { "reason": string };
 export type RetrievalStatusResponse = { "backend": string; "degraded": boolean; "dimensions": number; "faissAvailable": boolean; "indexDir": string; "indexed": number };
 export type RiskCreateRequest = { "description"?: string; "evidenceRefs"?: Array<string>; "metadata"?: JsonObject; "mitigation"?: string; "owner"?: string; "projectId": string; "severity"?: "low" | "medium" | "high" | "critical"; "status"?: "open" | "monitoring" | "mitigating" | "mitigated" | "accepted" | "closed"; "title": string };
 export type RiskResponse = { "risk": JsonObject };
 export type RiskUpdateRequest = { "evidenceRefs"?: Array<string> | JsonValue; "metadata"?: JsonObject | JsonValue; "mitigation"?: JsonValue | string; "owner"?: JsonValue | string; "severity"?: "low" | "medium" | "high" | "critical" | JsonValue; "status"?: "open" | "monitoring" | "mitigating" | "mitigated" | "accepted" | "closed" | JsonValue };
+export type SandboxProfileMutationResponse = { "policyRevision"?: JsonObject | JsonValue; "sandboxProfile": JsonObject };
+export type SandboxProfilePatchRequest = { "allowedImages"?: Array<string> | JsonValue; "allowedNetworks"?: Array<string> | JsonValue; "cpus"?: JsonValue | string; "defaultNetwork"?: JsonValue | string; "memory"?: JsonValue | string; "name"?: JsonValue | string; "reason": string; "status"?: JsonValue | string; "timeoutSeconds"?: JsonValue | number };
+export type SandboxProfileResponse = { "sandboxProfile": JsonObject };
 export type ValidationError = { "ctx"?: JsonObject; "input"?: JsonValue; "loc": Array<number | string>; "msg": string; "type": string };
 export type WorkflowCreateRequest = { "idea"?: JsonValue | string; "kind"?: "idea_to_pr" | "project_discovery" | "issue_to_pr" | "qa_validation" | "release_candidate"; "metadata"?: JsonObject; "projectId": string; "title"?: JsonValue | string };
 export type WorkflowResponse = { "workflow": JsonObject };
@@ -159,7 +166,7 @@ export type OperationRequestBodies = {
 	"create_session_api_v1_sessions_post": unknown,
 	"create_workflow_api_v1_workflows_post": WorkflowCreateRequest,
 	"deny_action_api_v1_jobs__job_id__actions__action_id__deny_post": OptionalReasonRequest,
-	"evaluate_policy_api_v1_policies_evaluate_post": unknown,
+	"evaluate_policy_api_v1_policies_evaluate_post": PolicyEvaluateRequest,
 	"events_api_v1_events_get": never,
 	"export_evidence_report_api_v1_evidence__evidence_id__report_get": never,
 	"get_artifact_api_v1_evidence__evidence_id__artifacts__artifact_id__get": never,
@@ -203,8 +210,8 @@ export type OperationRequestBodies = {
 	"retrieval_search_api_v1_retrieval_search_post": unknown,
 	"retrieval_status_api_v1_retrieval_status_get": never,
 	"retry_job_api_v1_jobs__job_id__retry_post": OptionalReasonRequest,
-	"revoke_permission_grant_api_v1_permissions_grants__grant_id__revoke_post": unknown,
-	"revoke_sandbox_profile_api_v1_sandbox_profiles__profile_id__revoke_post": unknown,
+	"revoke_permission_grant_api_v1_permissions_grants__grant_id__revoke_post": RequiredReasonRequest,
+	"revoke_sandbox_profile_api_v1_sandbox_profiles__profile_id__revoke_post": RequiredReasonRequest,
 	"sandbox_status_api_v1_sandbox_status_get": never,
 	"start_workflow_api_v1_workflows__workflow_id__start_post": WorkflowStatusChangeRequest,
 	"sync_skills_api_v1_skills_sync_post": unknown,
@@ -212,7 +219,7 @@ export type OperationRequestBodies = {
 	"telemetry_status_api_v1_telemetry_status_get": never,
 	"update_next_step_api_v1_next_steps__step_id__patch": NextStepUpdateRequest,
 	"update_risk_api_v1_risks__risk_id__patch": RiskUpdateRequest,
-	"update_sandbox_profile_api_v1_sandbox_profiles__profile_id__patch": unknown,
+	"update_sandbox_profile_api_v1_sandbox_profiles__profile_id__patch": SandboxProfilePatchRequest,
 	"upsert_agent_profile_api_v1_agent_profiles_post": AgentProfileUpsertRequest,
 	"upsert_ide_connection_api_v1_ide_connections_post": IdeConnectionUpsertRequest,
 	"upsert_model_policy_api_v1_model_policies_post": ModelPolicyUpsertRequest,
@@ -243,7 +250,7 @@ export type OperationResponseBodies = {
 	"create_session_api_v1_sessions_post": JsonObject,
 	"create_workflow_api_v1_workflows_post": WorkflowResponse,
 	"deny_action_api_v1_jobs__job_id__actions__action_id__deny_post": JobMutationResponse,
-	"evaluate_policy_api_v1_policies_evaluate_post": JsonObject,
+	"evaluate_policy_api_v1_policies_evaluate_post": PolicyEvaluationResponse,
 	"events_api_v1_events_get": never,
 	"export_evidence_report_api_v1_evidence__evidence_id__report_get": never,
 	"get_artifact_api_v1_evidence__evidence_id__artifacts__artifact_id__get": never,
@@ -287,8 +294,8 @@ export type OperationResponseBodies = {
 	"retrieval_search_api_v1_retrieval_search_post": JsonObject,
 	"retrieval_status_api_v1_retrieval_status_get": RetrievalStatusResponse,
 	"retry_job_api_v1_jobs__job_id__retry_post": JobMutationResponse,
-	"revoke_permission_grant_api_v1_permissions_grants__grant_id__revoke_post": JsonObject,
-	"revoke_sandbox_profile_api_v1_sandbox_profiles__profile_id__revoke_post": JsonObject,
+	"revoke_permission_grant_api_v1_permissions_grants__grant_id__revoke_post": PermissionGrantResponse,
+	"revoke_sandbox_profile_api_v1_sandbox_profiles__profile_id__revoke_post": SandboxProfileResponse,
 	"sandbox_status_api_v1_sandbox_status_get": JsonObject,
 	"start_workflow_api_v1_workflows__workflow_id__start_post": WorkflowStartResponse,
 	"sync_skills_api_v1_skills_sync_post": JsonObject,
@@ -296,7 +303,7 @@ export type OperationResponseBodies = {
 	"telemetry_status_api_v1_telemetry_status_get": JsonObject,
 	"update_next_step_api_v1_next_steps__step_id__patch": NextStepResponse,
 	"update_risk_api_v1_risks__risk_id__patch": RiskResponse,
-	"update_sandbox_profile_api_v1_sandbox_profiles__profile_id__patch": JsonObject,
+	"update_sandbox_profile_api_v1_sandbox_profiles__profile_id__patch": SandboxProfileMutationResponse,
 	"upsert_agent_profile_api_v1_agent_profiles_post": AgentProfileResponse,
 	"upsert_ide_connection_api_v1_ide_connections_post": IdeConnectionResponse,
 	"upsert_model_policy_api_v1_model_policies_post": ModelPolicyResponse,

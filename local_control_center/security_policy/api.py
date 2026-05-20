@@ -10,6 +10,15 @@ from starlette.requests import ClientDisconnect
 from ..governance.signals import record_governance_risk
 from ..shared.event_bus import EventBus
 from ..workspaces_projects.repository import WorkspacesRepository
+from .models import (
+    PermissionGrantResponse,
+    PolicyEvaluateRequest,
+    PolicyEvaluationResponse,
+    RequiredReasonRequest,
+    SandboxProfileMutationResponse,
+    SandboxProfilePatchRequest,
+    SandboxProfileResponse,
+)
 from .policy_engine import evaluate_action
 from .repository import SecurityPolicyRepository
 from .sandbox import DockerSandbox
@@ -111,10 +120,16 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             },
         }
 
-    @router.post("/api/v1/permissions/grants/{grant_id}/revoke", status_code=202)
-    async def revoke_permission_grant(grant_id: str, request: Request) -> dict[str, Any]:
+    @router.post(
+        "/api/v1/permissions/grants/{grant_id}/revoke",
+        status_code=202,
+        response_model=PermissionGrantResponse,
+    )
+    async def revoke_permission_grant(
+        grant_id: str, body: RequiredReasonRequest, request: Request
+    ) -> PermissionGrantResponse:
         require_write(request)
-        reason = required_reason(await read_json_body(request))
+        reason = required_reason(body.model_dump())
         try:
             grant = repository().revoke_grant(grant_id, reason=reason)
         except KeyError as error:
@@ -131,12 +146,18 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             target=grant["id"],
             payload={"reason": reason, "status": grant["status"]},
         )
-        return {"permissionGrant": grant}
+        return PermissionGrantResponse(permissionGrant=grant)
 
-    @router.post("/api/v1/sandbox/profiles/{profile_id}/revoke", status_code=202)
-    async def revoke_sandbox_profile(profile_id: str, request: Request) -> dict[str, Any]:
+    @router.post(
+        "/api/v1/sandbox/profiles/{profile_id}/revoke",
+        status_code=202,
+        response_model=SandboxProfileResponse,
+    )
+    async def revoke_sandbox_profile(
+        profile_id: str, body: RequiredReasonRequest, request: Request
+    ) -> SandboxProfileResponse:
         require_write(request)
-        reason = required_reason(await read_json_body(request))
+        reason = required_reason(body.model_dump())
         try:
             profile = repository().revoke_sandbox_profile(profile_id, reason=reason)
         except KeyError as error:
@@ -150,14 +171,20 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             target=profile["id"],
             payload={"reason": reason, "status": profile["status"]},
         )
-        return {"sandboxProfile": profile}
+        return SandboxProfileResponse(sandboxProfile=profile)
 
-    @router.patch("/api/v1/sandbox/profiles/{profile_id}", status_code=202)
-    async def update_sandbox_profile(profile_id: str, request: Request) -> dict[str, Any]:
+    @router.patch(
+        "/api/v1/sandbox/profiles/{profile_id}",
+        status_code=202,
+        response_model=SandboxProfileMutationResponse,
+    )
+    async def update_sandbox_profile(
+        profile_id: str, body: SandboxProfilePatchRequest, request: Request
+    ) -> SandboxProfileMutationResponse:
         require_write(request)
-        body = await read_json_body(request)
-        reason = required_reason(body)
-        patch = validate_sandbox_profile_patch(body)
+        payload = body.model_dump(by_alias=True, exclude_none=True)
+        reason = required_reason(payload)
+        patch = validate_sandbox_profile_patch(payload)
         try:
             previous = repository().get_sandbox_profile(profile_id)
             profile = repository().update_sandbox_profile(profile_id, patch)
@@ -188,40 +215,40 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
                 "policyRevisionId": revision["id"] if revision else None,
             },
         )
-        return {"sandboxProfile": profile, "policyRevision": revision}
+        return SandboxProfileMutationResponse(sandboxProfile=profile, policyRevision=revision)
 
-    @router.post("/api/v1/policies/evaluate")
-    async def evaluate_policy(request: Request) -> dict[str, Any]:
+    @router.post("/api/v1/policies/evaluate", response_model=PolicyEvaluationResponse)
+    async def evaluate_policy(body: PolicyEvaluateRequest, request: Request) -> PolicyEvaluationResponse:
         require_write(request)
-        body = await read_json_body(request)
-        if body.get("workspaceId"):
+        payload = body.model_dump(by_alias=True, exclude_none=True)
+        if payload.get("workspaceId"):
             try:
-                workspace = workspaces().get_workspace(body["workspaceId"])
-                body = {**body, "workspacePath": workspace["path"], "workspaceStatus": workspace["status"]}
+                workspace = workspaces().get_workspace(payload["workspaceId"])
+                payload = {**payload, "workspacePath": workspace["path"], "workspaceStatus": workspace["status"]}
             except KeyError:
-                body = {**body, "workspacePath": None, "workspaceStatus": "unknown"}
-        result = evaluate_action(body)
-        decision_payload = {**body, "categories": result.get("categories", [])}
+                payload = {**payload, "workspacePath": None, "workspaceStatus": "unknown"}
+        result = evaluate_action(payload)
+        decision_payload = {**payload, "categories": result.get("categories", [])}
         decision = repository().record_decision(
-            project_id=body.get("projectId"),
-            workspace_id=body.get("workspaceId"),
-            agent_id=body.get("agentId"),
-            role=body.get("role"),
-            tool=body.get("tool"),
-            command=body.get("command"),
-            path=body.get("path"),
+            project_id=payload.get("projectId"),
+            workspace_id=payload.get("workspaceId"),
+            agent_id=payload.get("agentId"),
+            role=payload.get("role"),
+            tool=payload.get("tool"),
+            command=payload.get("command"),
+            path=payload.get("path"),
             decision=result["decision"],
             risk_level=result["riskLevel"],
             reason=result["reason"],
             payload=decision_payload,
         )
         event_bus().record_event(
-            project_id=body.get("projectId"),
+            project_id=payload.get("projectId"),
             event_type=f"policy.{decision['decision']}",
             payload={"permissionDecisionId": decision["id"], "riskLevel": decision["riskLevel"]},
         )
         event_bus().record_audit(
-            project_id=body.get("projectId"),
+            project_id=payload.get("projectId"),
             action="policy.evaluate",
             target=decision["id"],
             payload={"decision": decision["decision"], "riskLevel": decision["riskLevel"]},
@@ -245,6 +272,6 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
                     event_type="risk.created",
                     payload={"riskId": risk["id"], "sourceType": "policy_decision"},
                 )
-        return {"decision": decision}
+        return PolicyEvaluationResponse(decision=decision)
 
     return router

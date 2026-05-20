@@ -59,6 +59,10 @@ def test_generated_openapi_client_is_checked_in_and_v1_only() -> None:
     assert '"archive_workspace_api_v1_workspaces__workspace_id__archive_post": WorkspaceArchiveRequest' in content
     assert '"register_mcp_server_api_v1_integrations_mcp_register_post": McpServerRegisterRequest' in content
     assert '"upsert_ide_connection_api_v1_ide_connections_post": IdeConnectionUpsertRequest' in content
+    assert '"evaluate_policy_api_v1_policies_evaluate_post": PolicyEvaluateRequest' in content
+    assert '"update_sandbox_profile_api_v1_sandbox_profiles__profile_id__patch": SandboxProfilePatchRequest' in content
+    assert '"revoke_permission_grant_api_v1_permissions_grants__grant_id__revoke_post": RequiredReasonRequest' in content
+    assert '"revoke_sandbox_profile_api_v1_sandbox_profiles__profile_id__revoke_post": RequiredReasonRequest' in content
     assert "export function buildApiPath" in content
     assert "export async function requestGeneratedOperation" in content
 

@@ -80,6 +80,7 @@ def build_overview_from_connection(*, connection: sqlite3.Connection, cwd: str |
         "permissionGrants": security_policy.list_grants(),
         "sandboxProfiles": security_policy.list_sandbox_profiles(),
         "evidencePackages": evidence.list_evidence_packages(),
+        "artifacts": evidence.list_all_artifacts(),
         "testResultRecords": evidence.list_all_test_results(),
         "agentProfiles": agents.list_agent_profiles(),
         "agentRuns": agents.list_agent_runs(),

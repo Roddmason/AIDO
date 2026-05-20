@@ -91,3 +91,51 @@ def test_mcp_registration_rejects_untyped_or_shell_like_server_config(tmp_path: 
     )
     assert accepted.status_code == 201
     assert accepted.json()["mcpServer"]["id"] == "mcp_local_docs"
+
+
+def test_overview_exposes_evidence_artifacts_for_workflow_inspection(tmp_path: Path, monkeypatch) -> None:
+    store, client, headers = make_app(tmp_path, monkeypatch)
+    project = store.create_project(name="Workflow Artifacts", path=tmp_path / "workflow-artifacts", template_id="other")
+    workflow = client.post(
+        "/api/v1/workflows",
+        json={"projectId": project["id"], "kind": "idea_to_pr", "title": "Inspect evidence artifacts"},
+        headers=headers,
+    ).json()["workflow"]
+    started = client.post(
+        f"/api/v1/workflows/{workflow['id']}/start",
+        json={"reason": "overview artifact trace"},
+        headers=headers,
+    ).json()
+    evidence = client.post(
+        "/api/v1/evidence",
+        json={
+            "projectId": project["id"],
+            "workflowRunId": started["workflowRun"]["id"],
+            "agentId": "qa_reviewer",
+            "taskId": "story-artifact-inspection",
+            "testPlan": "Collect QA report",
+            "qaVerdict": "passed",
+            "testResults": [{"command": "uv run pytest tests_py -q", "status": "passed"}],
+        },
+        headers=headers,
+    ).json()["evidencePackage"]
+    artifact = client.post(
+        f"/api/v1/evidence/{evidence['id']}/artifacts",
+        json={
+            "kind": "qa_report",
+            "name": "qa-summary.md",
+            "content": "# QA Summary\n\nAll checks passed.",
+            "mimeType": "text/markdown",
+        },
+        headers=headers,
+    ).json()["artifact"]
+
+    overview = client.get("/api/v1/overview").json()
+
+    assert "artifacts" in overview
+    assert any(
+        item["id"] == artifact["id"]
+        and item["evidencePackageId"] == evidence["id"]
+        and item["metadata"]["name"] == "qa-summary.md"
+        for item in overview["artifacts"]
+    )

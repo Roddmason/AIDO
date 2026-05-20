@@ -127,6 +127,7 @@ export type Overview = {
 	permissionGrants: Dictionary[];
 	sandboxProfiles: Dictionary[];
 	evidencePackages: Dictionary[];
+	artifacts: Dictionary[];
 	testResultRecords: Dictionary[];
 	agentProfiles: AgentProfile[];
 	agentRuns: Dictionary[];

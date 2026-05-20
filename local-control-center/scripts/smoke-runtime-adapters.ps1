@@ -1,12 +1,13 @@
 param(
     [string]$BaseUrl = "http://127.0.0.1:4310",
-    [string]$Workspace = (Get-Location).Path
+    [string]$Workspace = (Get-Location).Path,
+    [switch]$PreflightOnly
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-if ($env:AIDO_RUNTIME_SMOKE -ne "1") {
+if (-not $PreflightOnly -and $env:AIDO_RUNTIME_SMOKE -ne "1") {
     Write-Host "Skip optional runtime adapter smoke. Set AIDO_RUNTIME_SMOKE=1 to run."
     exit 0
 }
@@ -113,6 +114,81 @@ function Assert-ReleaseIssueToPatchConfigured {
     if (-not (Test-Path -LiteralPath $executable) -and -not (Get-Command $executable -ErrorAction SilentlyContinue)) {
         throw "Release validation runtime command not found for $AdapterName issue_to_patch smoke: $executable"
     }
+}
+
+function Test-ReleaseIssueToPatchConfigured {
+    param(
+        [Parameter(Mandatory = $true)][string]$AdapterName,
+        [Parameter(Mandatory = $true)][string]$ArgvEnvName,
+        [Parameter(Mandatory = $true)][string]$IssueEnvName
+    )
+    $errors = @()
+    $argv = $null
+    try {
+        $argv = Read-ArgvJsonEnv -Name $ArgvEnvName
+    } catch {
+        $errors += $_.Exception.Message
+    }
+    $issueText = [Environment]::GetEnvironmentVariable($IssueEnvName)
+    if (-not $argv) {
+        $errors += "Release validation requires $ArgvEnvName for $AdapterName issue_to_patch smoke."
+    }
+    if (-not $issueText) {
+        $errors += "Release validation requires $IssueEnvName for $AdapterName issue_to_patch smoke."
+    }
+    $executable = ""
+    $commandFound = $false
+    if ($argv -and $argv.Count -ge 1) {
+        $executable = [string]$argv[0]
+        $commandFound = (Test-Path -LiteralPath $executable) -or [bool](Get-Command $executable -ErrorAction SilentlyContinue)
+        if (-not $commandFound) {
+            $errors += "Release validation runtime command not found for $AdapterName issue_to_patch smoke: $executable"
+        }
+    }
+    [pscustomobject]@{
+        adapter = $AdapterName
+        argvEnv = $ArgvEnvName
+        issueEnv = $IssueEnvName
+        argvConfigured = [bool]$argv
+        issueConfigured = [bool]$issueText
+        executable = $executable
+        commandFound = $commandFound
+        status = if ($errors.Count -eq 0) { "ready" } else { "failed" }
+        errors = $errors
+    }
+}
+
+function New-ReleaseValidationReport {
+    $releaseValidation = $env:AIDO_RUNTIME_RELEASE_VALIDATION -eq "1"
+    $issueToPatchSmoke = $env:AIDO_RUNTIME_ISSUE_TO_PATCH_SMOKE -eq "1"
+    $adapters = @()
+    if ($releaseValidation) {
+        $adapters += Test-ReleaseIssueToPatchConfigured `
+            -AdapterName "OpenHands" `
+            -ArgvEnvName "AIDO_OPENHANDS_ISSUE_TO_PATCH_ARGV_JSON" `
+            -IssueEnvName "AIDO_OPENHANDS_ISSUE_TEXT"
+        $adapters += Test-ReleaseIssueToPatchConfigured `
+            -AdapterName "SWE-agent" `
+            -ArgvEnvName "AIDO_SWE_AGENT_ISSUE_TO_PATCH_ARGV_JSON" `
+            -IssueEnvName "AIDO_SWE_AGENT_ISSUE_TEXT"
+    }
+    $failed = @($adapters | Where-Object { $_.status -ne "ready" })
+    [pscustomobject]@{
+        releaseValidation = $releaseValidation
+        issueToPatchSmoke = $issueToPatchSmoke
+        ok = -not $releaseValidation -or $failed.Count -eq 0
+        adapters = $adapters
+    }
+}
+
+if ($PreflightOnly) {
+    $report = New-ReleaseValidationReport
+    $report | ConvertTo-Json -Depth 20
+    if (-not $report.ok) {
+        throw "Release validation preflight failed. Provide exact argv and issue text env vars before running runtime smoke."
+    }
+    Write-Host "Release validation preflight passed."
+    exit 0
 }
 
 Invoke-AidoJson -Method "GET" -Path "/healthz" | Out-Null

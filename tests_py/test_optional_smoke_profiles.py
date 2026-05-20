@@ -28,6 +28,10 @@ def test_optional_runtime_smoke_script_is_explicitly_opt_in() -> None:
     assert "AIDO_OPENHANDS_ISSUE_TO_PATCH_ARGV_JSON" in content
     assert "AIDO_SWE_AGENT_ISSUE_TO_PATCH_ARGV_JSON" in content
     assert "AIDO_RUNTIME_RELEASE_VALIDATION" in content
+    assert "PreflightOnly" in content
+    assert "-not $PreflightOnly -and $env:AIDO_RUNTIME_SMOKE" in content
+    assert "New-ReleaseValidationReport" in content
+    assert "Release validation preflight failed" in content
     assert "Assert-ReleaseIssueToPatchConfigured" in content
     assert "Release validation requires AIDO_OPENHANDS_ISSUE_TO_PATCH_ARGV_JSON" in content
     assert "Release validation requires AIDO_SWE_AGENT_ISSUE_TO_PATCH_ARGV_JSON" in content

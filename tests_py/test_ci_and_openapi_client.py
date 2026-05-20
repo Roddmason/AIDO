@@ -17,8 +17,18 @@ def test_quality_workflow_has_default_and_optional_smoke_profiles() -> None:
     assert "otel-smoke:" in content
     assert "AIDO_RUNTIME_SMOKE: \"1\"" in content
     assert "AIDO_RUNTIME_ISSUE_TO_PATCH_SMOKE:" in content
+    assert "AIDO_RUNTIME_RELEASE_VALIDATION:" in content
+    assert "openhands_issue_to_patch_argv_json:" in content
+    assert "openhands_issue_text:" in content
+    assert "swe_agent_issue_to_patch_argv_json:" in content
+    assert "swe_agent_issue_text:" in content
+    assert "AIDO_OPENHANDS_ISSUE_TO_PATCH_ARGV_JSON:" in content
+    assert "AIDO_OPENHANDS_ISSUE_TEXT:" in content
+    assert "AIDO_SWE_AGENT_ISSUE_TO_PATCH_ARGV_JSON:" in content
+    assert "AIDO_SWE_AGENT_ISSUE_TEXT:" in content
     assert "AIDO_OTEL_SMOKE: \"1\"" in content
     assert "issue_to_patch_smoke:" in content
+    assert "-PreflightOnly" in content
     assert "if: ${{ github.event_name == 'workflow_dispatch'" in content
     assert "smoke-runtime-adapters.ps1" in content
     assert "smoke-otel-exporter.ps1" in content

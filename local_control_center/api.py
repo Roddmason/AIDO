@@ -25,6 +25,7 @@ from .sessions_chats.api import create_router as create_sessions_chats_router
 from .control_plane.runtime import ControlCenterRuntime
 from .shared.db import open_sqlite_connection
 from .shared.migrations import initialize_platform_schema
+from .shared.schemas import HandshakeResponse, HealthResponse
 from .shared.telemetry import (
     configure_external_telemetry_from_env,
     elapsed_ms,
@@ -101,11 +102,11 @@ def create_app(
         finally:
             connection.close()
 
-    @app.get("/healthz")
-    async def healthz() -> dict[str, bool]:
+    @app.get("/healthz", response_model=HealthResponse)
+    async def healthz() -> HealthResponse:
         return {"ok": True}
 
-    @app.get("/api/v1/security/handshake")
+    @app.get("/api/v1/security/handshake", response_model=HandshakeResponse)
     async def handshake() -> dict[str, Any]:
         return platform.get_handshake()
 

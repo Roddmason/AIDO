@@ -38,6 +38,9 @@ def test_generated_openapi_client_is_checked_in_and_v1_only() -> None:
     assert "export type OperationResponse" in content
     assert "export type OperationRequestBody" in content
     assert "export type OperationResponseBodies" in content
+    assert '"healthz_healthz_get": HealthResponse' in content
+    assert '"handshake_api_v1_security_handshake_get": HandshakeResponse' in content
+    assert '"retrieval_status_api_v1_retrieval_status_get": RetrievalStatusResponse' in content
     assert "export function buildApiPath" in content
     assert "export async function requestGeneratedOperation" in content
 

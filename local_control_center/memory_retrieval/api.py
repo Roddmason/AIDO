@@ -6,6 +6,7 @@ from typing import Any
 from fastapi import APIRouter, Request
 
 from local_control_center.shared.event_bus import EventBus
+from local_control_center.shared.schemas import RetrievalStatusResponse
 
 from . import commands
 from .index import RetrievalIndex
@@ -33,7 +34,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         require_write(request)
         return commands.create_memory(memory_repository(), event_bus(), await request.json())
 
-    @router.get("/api/v1/retrieval/status")
+    @router.get("/api/v1/retrieval/status", response_model=RetrievalStatusResponse)
     async def retrieval_status() -> dict[str, Any]:
         return commands.retrieval_status(retrieval_index())
 

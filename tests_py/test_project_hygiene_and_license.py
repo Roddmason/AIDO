@@ -90,6 +90,17 @@ def test_quality_scripts_include_web_typecheck() -> None:
     assert "typecheck:web" in scripts["quality"]
 
 
+def test_runtime_smoke_scripts_are_declared_for_release_validation() -> None:
+    package = json.loads(read("package.json"))
+    scripts = package["scripts"]
+
+    assert "smoke:runtime:preflight" in scripts
+    assert "smoke-runtime-adapters.ps1 -PreflightOnly" in scripts["smoke:runtime:preflight"]
+    assert "smoke:runtime:release" in scripts
+    assert "AIDO_RUNTIME_RELEASE_VALIDATION='1'" in scripts["smoke:runtime:release"]
+    assert "smoke-runtime-adapters.ps1" in scripts["smoke:runtime:release"]
+
+
 def test_python_quality_tooling_is_declared_for_uv() -> None:
     import tomllib
 

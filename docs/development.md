@@ -26,6 +26,7 @@ corepack pnpm@10.24.0 run build:control-center
 corepack pnpm@10.24.0 run typecheck:web
 corepack pnpm@10.24.0 run openapi:generate
 corepack pnpm@10.24.0 run test:web
+corepack pnpm@10.24.0 run smoke:runtime:preflight
 corepack pnpm@10.24.0 run quality
 ```
 
@@ -35,6 +36,11 @@ repo; run the verification commands locally before pushing.
 `test:all` includes `typecheck:web`, the production web build, and Python tests.
 `quality` repeats `typecheck:web` as an explicit gate before the security scans
 so TypeScript contract drift is caught even when Vite can still transpile.
+
+Runtime adapter release validation is intentionally separate from local quality
+because it requires installed OpenHands/SWE-agent CLIs and explicit issue text
+environment variables. Use `pnpm run smoke:runtime:preflight` locally, and run
+`pnpm run smoke:runtime:release` only on a prepared release-validation machine.
 
 ## Main Branch Blocking
 

@@ -449,6 +449,16 @@ test('Model Gateway console renders provider catalog routing usage budgets and C
 	await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
 	await expect(page.getByText('No usage ledger entries')).toBeVisible();
 	await expect(page.getByText('No CLI sessions')).toBeVisible();
+	await expect(page.getByLabel('Benchmark provider')).toBeVisible();
+	await page.getByLabel('Benchmark provider').selectOption('codex_cli');
+	await page.getByLabel('Benchmark model').selectOption('gpt-5.5');
+	await page.getByLabel('Benchmark runtime').selectOption('cli');
+	await page.getByLabel('Benchmark role').selectOption('developer');
+	await page.getByLabel('Benchmark cost USD').fill('0.42');
+	await page.getByLabel('Benchmark latency ms').fill('1200');
+	await page.getByRole('button', { name: 'Record benchmark outcome' }).click();
+	await expect(page.getByText('100.00%').first()).toBeVisible();
+	await expect(page.getByRole('cell', { name: '$0.4200' }).first()).toBeVisible();
 });
 
 test('Model Gateway route preview submits mock request without exposing credentials', async ({ page }) => {
@@ -524,7 +534,7 @@ test('strict configuration forms prevent manual JSON edits', async ({ page }) =>
 	await page.getByLabel('Policy id').fill(policyId);
 	await page.getByLabel('Policy name').fill('Web Policy');
 	await page.getByLabel('Preferred provider').selectOption('internal_mock');
-	await page.getByLabel('Model').selectOption('mock');
+	await page.getByLabel('Model', { exact: true }).selectOption('mock');
 	await page.getByLabel('Maximum cost USD').fill('1');
 	await page.getByLabel('Maximum tokens').fill('4000');
 	await page.getByRole('button', { name: 'Save model policy' }).click();

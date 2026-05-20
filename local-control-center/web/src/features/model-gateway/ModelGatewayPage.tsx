@@ -5,6 +5,7 @@ import {
 	discoverModelGatewayProviderModels,
 	getModelGatewayBudgetRules,
 	getModelGatewayBenchmarks,
+	getModelGatewayBenchmarkOutcomes,
 	getModelGatewayCliRuntimes,
 	getModelGatewayCliSessions,
 	getModelGatewayModels,
@@ -19,6 +20,7 @@ import {
 	healthCheckModelGatewayProvider,
 	patchModelGatewayProvider,
 	previewModelRoute,
+	recordModelGatewayBenchmarkOutcome,
 	type ModelGatewayRoutePreviewResponse,
 } from '../../api/client';
 import type { Dictionary, Overview, RuntimeProviders } from '../../api/types';
@@ -39,6 +41,7 @@ type ModelGatewayState = {
 	cliRuntimes: Dictionary[];
 	cliSessions: Dictionary[];
 	benchmarks: Dictionary[];
+	benchmarkOutcomes: Dictionary[];
 };
 
 const emptyGatewayState: ModelGatewayState = {
@@ -55,6 +58,7 @@ const emptyGatewayState: ModelGatewayState = {
 	cliRuntimes: [],
 	cliSessions: [],
 	benchmarks: [],
+	benchmarkOutcomes: [],
 };
 
 function text(value: unknown, fallback = 'n/a') {
@@ -128,6 +132,16 @@ export function ModelGatewayPage({
 	const [policyAllowLocal, setPolicyAllowLocal] = useState(true);
 	const [policyError, setPolicyError] = useState('');
 	const [createdPolicies, setCreatedPolicies] = useState<Dictionary[]>([]);
+	const [benchmarkProvider, setBenchmarkProvider] = useState('codex_cli');
+	const [benchmarkModel, setBenchmarkModel] = useState('gpt-5.5');
+	const [benchmarkRuntime, setBenchmarkRuntime] = useState('cli');
+	const [benchmarkRole, setBenchmarkRole] = useState('developer');
+	const [benchmarkSuccess, setBenchmarkSuccess] = useState(true);
+	const [benchmarkQaPass, setBenchmarkQaPass] = useState(true);
+	const [benchmarkRework, setBenchmarkRework] = useState(false);
+	const [benchmarkCost, setBenchmarkCost] = useState('0.42');
+	const [benchmarkLatency, setBenchmarkLatency] = useState('1200');
+	const [benchmarkError, setBenchmarkError] = useState('');
 
 	const reload = useCallback(async () => {
 		setLoading(true);
@@ -147,6 +161,7 @@ export function ModelGatewayPage({
 				cliRuntimes,
 				cliSessions,
 				benchmarks,
+				benchmarkOutcomes,
 			] = await Promise.all([
 				getModelGatewayOverview(),
 				getModelGatewayProviders(),
@@ -161,6 +176,7 @@ export function ModelGatewayPage({
 				getModelGatewayCliRuntimes(),
 				getModelGatewayCliSessions(),
 				getModelGatewayBenchmarks(),
+				getModelGatewayBenchmarkOutcomes(),
 			]);
 			setGateway({
 				overview: gatewayOverview.overview,
@@ -176,6 +192,7 @@ export function ModelGatewayPage({
 				cliRuntimes: cliRuntimes.cliRuntimes,
 				cliSessions: cliSessions.cliSessions,
 				benchmarks: benchmarks.benchmarks,
+				benchmarkOutcomes: benchmarkOutcomes.outcomes,
 			});
 		} catch (loadError) {
 			setError(loadError instanceof Error ? loadError.message : 'Model Gateway state failed to load.');
@@ -222,6 +239,10 @@ export function ModelGatewayPage({
 		[runtimeProviders],
 	);
 	const modelOptions = providerCatalog.find((item) => item.provider === policyProvider)?.models ?? [];
+	const benchmarkModelOptions = useMemo(() => {
+		const models = gateway.models.filter((item) => item.providerId === benchmarkProvider).map((item) => text(item.model, '')).filter(Boolean);
+		return models.length ? models : [benchmarkModel || 'configured_model'];
+	}, [benchmarkModel, benchmarkProvider, gateway.models]);
 	const visibleModelPolicies = useMemo(() => {
 		const ids = new Set<string>();
 		const rows = [...createdPolicies, ...overview.modelPolicies];
@@ -318,6 +339,41 @@ export function ModelGatewayPage({
 			setCreatedPolicies((current) => [result.modelPolicy as unknown as Dictionary, ...current]);
 		} catch (saveError) {
 			setPolicyError(saveError instanceof Error ? saveError.message : 'Model policy save failed.');
+		} finally {
+			setBusyAction('');
+		}
+	};
+
+	const recordBenchmarkOutcome = async () => {
+		const estimatedCost = Number(benchmarkCost);
+		const latencyMs = Number(benchmarkLatency);
+		if (!Number.isFinite(estimatedCost) || estimatedCost < 0) {
+			setBenchmarkError('Benchmark cost must be zero or positive.');
+			return;
+		}
+		if (!Number.isInteger(latencyMs) || latencyMs < 0) {
+			setBenchmarkError('Benchmark latency must be a positive integer.');
+			return;
+		}
+		setBenchmarkError('');
+		setBusyAction('record-benchmark-outcome');
+		try {
+			await recordModelGatewayBenchmarkOutcome(token, {
+				providerId: benchmarkProvider,
+				model: benchmarkModel,
+				runtimeType: benchmarkRuntime,
+				role: benchmarkRole,
+				taskId: 'manual_benchmark_outcome',
+				success: benchmarkSuccess,
+				qaPass: benchmarkQaPass,
+				rework: benchmarkRework,
+				estimatedCostUsd: estimatedCost,
+				latencyMs,
+				metadata: { source: 'operator_console' },
+			});
+			await reload();
+		} catch (saveError) {
+			setBenchmarkError(saveError instanceof Error ? saveError.message : 'Benchmark outcome save failed.');
 		} finally {
 			setBusyAction('');
 		}
@@ -660,17 +716,83 @@ export function ModelGatewayPage({
 			</Surface>
 
 			<Surface title="Benchmarks">
+				<div className="form-grid">
+					<div className="grid three">
+						<div className="field">
+							<label htmlFor="benchmark-provider">Benchmark provider</label>
+							<select
+								id="benchmark-provider"
+								className="select"
+								value={benchmarkProvider}
+								onChange={(event) => {
+									const provider = event.target.value;
+									const firstModel = gateway.models.find((item) => item.providerId === provider)?.model;
+									setBenchmarkProvider(provider);
+									if (firstModel) setBenchmarkModel(text(firstModel, benchmarkModel));
+								}}
+							>
+								{Array.from(new Set(['codex_cli', 'claude_code_cli', 'nvidia_nim', ...gateway.providers.map((item) => text(item.providerId, '')).filter(Boolean)])).map((provider) => (
+									<option key={provider} value={provider}>{provider}</option>
+								))}
+							</select>
+						</div>
+						<div className="field">
+							<label htmlFor="benchmark-model">Benchmark model</label>
+							<select id="benchmark-model" className="select" value={benchmarkModel} onChange={(event) => setBenchmarkModel(event.target.value)}>
+								{benchmarkModelOptions.map((model) => <option key={model} value={model}>{model}</option>)}
+							</select>
+						</div>
+						<div className="field">
+							<label htmlFor="benchmark-runtime">Benchmark runtime</label>
+							<select id="benchmark-runtime" className="select" value={benchmarkRuntime} onChange={(event) => setBenchmarkRuntime(event.target.value)}>
+								{['api', 'cli', 'local', 'gateway', 'manual'].map((runtime) => <option key={runtime} value={runtime}>{runtime}</option>)}
+							</select>
+						</div>
+						<div className="field">
+							<label htmlFor="benchmark-role">Benchmark role</label>
+							<select id="benchmark-role" className="select" value={benchmarkRole} onChange={(event) => setBenchmarkRole(event.target.value)}>
+								{['analyst', 'product_owner', 'technical_lead', 'developer', 'qa', 'security_reviewer', 'release_manager'].map((role) => <option key={role} value={role}>{role}</option>)}
+							</select>
+						</div>
+						<div className="field">
+							<label htmlFor="benchmark-cost">Benchmark cost USD</label>
+							<input id="benchmark-cost" className="input" type="number" min="0" step="0.01" value={benchmarkCost} onChange={(event) => setBenchmarkCost(event.target.value)} />
+						</div>
+						<div className="field">
+							<label htmlFor="benchmark-latency">Benchmark latency ms</label>
+							<input id="benchmark-latency" className="input" type="number" min="0" step="1" value={benchmarkLatency} onChange={(event) => setBenchmarkLatency(event.target.value)} />
+						</div>
+					</div>
+					<div className="inline">
+						<label className="checkbox-row" htmlFor="benchmark-success"><input id="benchmark-success" type="checkbox" checked={benchmarkSuccess} onChange={(event) => setBenchmarkSuccess(event.target.checked)} />Benchmark success</label>
+						<label className="checkbox-row" htmlFor="benchmark-qa"><input id="benchmark-qa" type="checkbox" checked={benchmarkQaPass} onChange={(event) => setBenchmarkQaPass(event.target.checked)} />Benchmark QA pass</label>
+						<label className="checkbox-row" htmlFor="benchmark-rework"><input id="benchmark-rework" type="checkbox" checked={benchmarkRework} onChange={(event) => setBenchmarkRework(event.target.checked)} />Benchmark rework</label>
+					</div>
+					{benchmarkError ? <div className="form-error" role="alert">{benchmarkError}</div> : null}
+					<button className="button primary" type="button" disabled={busyAction === 'record-benchmark-outcome'} onClick={() => void recordBenchmarkOutcome()}>Record benchmark outcome</button>
+				</div>
 				<DataTable rows={gateway.benchmarks} empty={<EmptyState title="insufficient data" body="Benchmarks require repeated task outcomes before success rate, QA pass rate, cost, latency or rework rate can be shown." />} columns={[
 					{ key: 'provider', label: 'Provider', render: (row) => text(row.providerId) },
 					{ key: 'model', label: 'Model', render: (row) => text(row.model) },
 					{ key: 'role', label: 'Role', render: (row) => text(row.role) },
 					{ key: 'attempts', label: 'Tasks attempted', render: (row) => text(row.tasksAttempted, '0') },
-					{ key: 'success', label: 'Success rate', render: (row) => row.successRate === null || row.successRate === undefined ? 'insufficient data' : `${Number(row.successRate).toFixed(2)}%` },
-					{ key: 'qa', label: 'QA pass rate', render: (row) => row.qaPassRate === null || row.qaPassRate === undefined ? 'insufficient data' : `${Number(row.qaPassRate).toFixed(2)}%` },
+					{ key: 'success', label: 'Success rate', render: (row) => row.successRate === null || row.successRate === undefined ? 'insufficient data' : `${(Number(row.successRate) * 100).toFixed(2)}%` },
+					{ key: 'qa', label: 'QA pass rate', render: (row) => row.qaPassRate === null || row.qaPassRate === undefined ? 'insufficient data' : `${(Number(row.qaPassRate) * 100).toFixed(2)}%` },
 					{ key: 'cost', label: 'Avg cost', render: (row) => row.avgCost === null || row.avgCost === undefined ? 'unknown' : money(row.avgCost) },
 					{ key: 'latency', label: 'Avg latency', render: (row) => text(row.avgLatencyMs) },
-					{ key: 'rework', label: 'Rework rate', render: (row) => row.reworkRate === null || row.reworkRate === undefined ? 'insufficient data' : `${Number(row.reworkRate).toFixed(2)}%` },
+					{ key: 'rework', label: 'Rework rate', render: (row) => row.reworkRate === null || row.reworkRate === undefined ? 'insufficient data' : `${(Number(row.reworkRate) * 100).toFixed(2)}%` },
 					{ key: 'last', label: 'Last used', render: (row) => text(row.lastUsedAt) },
+				]} />
+				<DataTable rows={gateway.benchmarkOutcomes} empty={<EmptyState title="No benchmark outcomes" body="Outcome records appear after benchmark or task result ingestion." />} columns={[
+					{ key: 'provider', label: 'Provider', render: (row) => text(row.providerId) },
+					{ key: 'model', label: 'Model', render: (row) => text(row.model) },
+					{ key: 'role', label: 'Role', render: (row) => text(row.role) },
+					{ key: 'success', label: 'Success', render: (row) => boolLabel(row.success) },
+					{ key: 'qa', label: 'QA pass', render: (row) => boolLabel(row.qaPass) },
+					{ key: 'rework', label: 'Rework', render: (row) => boolLabel(row.rework) },
+					{ key: 'cost', label: 'Cost', render: (row) => row.estimatedCostUsd === null || row.estimatedCostUsd === undefined ? 'unknown' : money(row.estimatedCostUsd) },
+					{ key: 'latency', label: 'Latency', render: (row) => text(row.latencyMs) },
+					{ key: 'time', label: 'Time', render: (row) => text(row.createdAt) },
 				]} />
 			</Surface>
 

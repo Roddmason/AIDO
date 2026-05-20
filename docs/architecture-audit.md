@@ -226,7 +226,7 @@ PNPM is configured through `packageManager`.
 
 ## License And Provenance Risks
 
-- The project is private/no-commercial-use for now.
+- The project is open source under the MIT License.
 - Core dependencies must remain OSI-compatible or be isolated as optional
   adapters before public release.
 - GSAP was removed from the core frontend after license audit because the

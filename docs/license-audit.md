@@ -1,21 +1,21 @@
 # License Audit
 
-Date: 2026-05-19  
-Project license strategy: proprietary/private, no commercial use.
+Date: 2026-05-20
+Project license strategy: MIT open source.
 
 ## Decision
 
-AIDO is not open source at this stage. The repository uses a private
-no-commercial-use license while preserving a dependency policy compatible with a
-future Apache-2.0 or dual-license release.
+AIDO is open source under the MIT License. The repository metadata, root
+license, notice file, and package metadata must all agree on `MIT`.
 
-Package metadata must not declare `ISC` because that grants rights that do not
-match the current product decision.
+The project remains local-first and security-gated. Open source availability
+does not change the runtime safety model: secrets must not be committed,
+dangerous runtime flags stay blocked, and real provider/CLI execution remains
+behind local policy and approval gates.
 
 ## Core Dependency Policy
 
-- Core embedded dependencies must be OSI-compatible unless explicitly isolated
-  as private UI-only or optional adapter code.
+- Core embedded dependencies must be OSI-compatible.
 - AGPL dependencies are allowed only as separately configured optional services
   after an architecture decision.
 - Source-available, fair-code, no-commercial-use, or ambiguous-license projects
@@ -57,8 +57,7 @@ corepack pnpm@10.24.0 licenses list
 Current status:
 
 - React, ReactDOM, Vite, TypeScript, Radix primitives, Playwright,
-  lucide-react, and `@xyflow/react` are compatible for this private project,
-  subject to generated notices before public release.
+  lucide-react, and `@xyflow/react` are compatible with the MIT project.
 - `gsap` and `@gsap/react` were removed from core dependencies after PNPM
   reported the GSAP standard license rather than an OSI license. Semantic UI
   motion now uses React/CSS primitives.
@@ -76,10 +75,9 @@ uv run --extra dev semgrep scan --config .semgrep.yml --no-git-ignore local_cont
 
 ## Current Conclusion
 
-The active Python/FastAPI and React console code can continue under the private
-AIDO license. The dependency policy remains compatible with later public
-release work; the known GSAP license blocker has been removed from the core
-frontend.
+The active Python/FastAPI backend and React console can ship under MIT. The
+dependency policy remains compatible with public open-source distribution; the
+known GSAP license blocker has been removed from the core frontend.
 
 `pip-licenses` currently reports `peewee` as `UNKNOWN` because its installed
 metadata omits a license field. Manual local verification found

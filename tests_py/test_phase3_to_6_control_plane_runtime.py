@@ -1682,7 +1682,7 @@ def test_skills_sync_reads_versionable_local_skills(tmp_path: Path, monkeypatch)
             [
                 "name: backend-api-contract",
                 "description: Validate backend API contracts.",
-                "license: Proprietary",
+                "license: MIT",
                 "compatibility: AIDO",
                 "inputs: [openapi]",
                 "outputs: [contract-report]",

@@ -94,6 +94,7 @@ def test_frontend_domain_types_are_generated_openapi_aliases() -> None:
 def test_stable_frontend_artifact_and_retrieval_surfaces_are_not_dictionary_typed() -> None:
     types_source = read(SRC / "api" / "types.ts")
     client_source = read(SRC / "api" / "client.ts")
+    hook_source = read(SRC / "hooks" / "useControlPlane.ts")
     artifacts_source = read(SRC / "lib" / "artifacts.ts")
     pages_source = read(SRC / "features" / "pages.tsx")
     workflows_source = read(SRC / "features" / "workflows" / "WorkflowsPage.tsx")
@@ -101,6 +102,9 @@ def test_stable_frontend_artifact_and_retrieval_surfaces_are_not_dictionary_type
     assert "RetrievalStatusResponse" in types_source
     assert "ArtifactRecord" in types_source
     assert "requestGeneratedOperation<'retrieval_status_api_v1_retrieval_status_get', RetrievalStatus>" in client_source
+    assert "RetrievalStatus" in hook_source
+    assert "retrievalStatus: RetrievalStatus | null" in hook_source
+    assert "retrievalStatus: Dictionary | null" not in hook_source
     assert "artifact: Artifact" in artifacts_source
     assert "retrievalStatus: RetrievalStatus | null" in pages_source
     assert "useState<Artifact | null>" in pages_source

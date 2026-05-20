@@ -12,3 +12,50 @@ rules:
         - "**/tests_py/**"
         - "/local_control_center/sandbox.py"
         - "/local_control_center/security_policy/**"
+
+  - id: python-subprocess-shell-true
+    message: "Do not execute subprocesses with shell=True; use structured argv behind policy/sandbox."
+    severity: ERROR
+    languages: [python]
+    pattern-either:
+      - pattern: subprocess.run(..., shell=True, ...)
+      - pattern: subprocess.Popen(..., shell=True, ...)
+      - pattern: subprocess.call(..., shell=True, ...)
+      - pattern: subprocess.check_call(..., shell=True, ...)
+      - pattern: subprocess.check_output(..., shell=True, ...)
+    paths:
+      exclude:
+        - "**/tests_py/**"
+
+  - id: python-plaintext-secret-persistence
+    message: "Do not persist plaintext secrets in events, model-call metadata, or memory payloads."
+    severity: ERROR
+    languages: [python]
+    pattern-either:
+      - pattern: '$OBJ.record_event(..., payload={..., "authorization": $VALUE, ...}, ...)'
+      - pattern: '$OBJ.record_event(..., payload={..., "api_key": $VALUE, ...}, ...)'
+      - pattern: '$OBJ.record_event(..., payload={..., "token": $VALUE, ...}, ...)'
+      - pattern: '$OBJ.record_audit(..., payload={..., "authorization": $VALUE, ...}, ...)'
+      - pattern: '$OBJ.record_audit(..., payload={..., "api_key": $VALUE, ...}, ...)'
+      - pattern: '$OBJ.record_audit(..., payload={..., "token": $VALUE, ...}, ...)'
+      - pattern: '$OBJ.record_model_call(..., metadata={..., "authorization": $VALUE, ...}, ...)'
+      - pattern: '$OBJ.record_model_call(..., metadata={..., "api_key": $VALUE, ...}, ...)'
+      - pattern: '$OBJ.record_model_call(..., metadata={..., "token": $VALUE, ...}, ...)'
+      - pattern: '$OBJ.create_memory_item(..., metadata={..., "authorization": $VALUE, ...}, ...)'
+      - pattern: '$OBJ.create_memory_item(..., metadata={..., "api_key": $VALUE, ...}, ...)'
+      - pattern: '$OBJ.create_memory_item(..., metadata={..., "token": $VALUE, ...}, ...)'
+    paths:
+      exclude:
+        - "**/tests_py/**"
+
+  - id: python-runtime-adapter-bypass
+    message: "Optional runtime adapters must be invoked through agents/tool_broker.py, not directly."
+    severity: ERROR
+    languages: [python]
+    pattern-either:
+      - pattern: OpenHandsBrokerAdapter().execute(...)
+      - pattern: SweAgentBrokerAdapter().execute(...)
+    paths:
+      exclude:
+        - "**/tests_py/**"
+        - "/local_control_center/agents/tool_broker.py"

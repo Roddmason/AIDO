@@ -78,6 +78,14 @@ status is surfaced through the integrations API, and any future execution must
 remain behind the tool broker, policy engine, isolated workspace, and evidence
 capture. They must not edit the primary working tree directly.
 
+Each optional code runtime now exposes a versioned execution contract. Contract
+version 1 supports `version_check` and `issue_to_patch`, requires structured
+`argv`, requires a workspace path, and requires `issueText` for issue-to-patch
+runs. Dangerous runtime flags such as `--no-sandbox`, `--privileged`,
+`--mount`, `--volume`, and `--network=host` are rejected before install
+detection or subprocess execution. This prevents an unavailable local runtime
+from hiding malformed or unsafe adapter payloads.
+
 ## Runtime Adapter Execution
 
 The broker has executable adapter hooks for:

@@ -6,6 +6,8 @@ from typing import Any
 
 from local_control_center.security_policy.sandbox import RestrictedSubprocessSandbox
 
+from .runtime_contracts import get_runtime_contract, validate_runtime_tool_call
+
 
 def openhands_status() -> dict[str, Any]:
     cli_available = shutil.which("openhands") is not None
@@ -19,6 +21,7 @@ def openhands_status() -> dict[str, Any]:
         "mode": "optional_adapter",
         "cliAvailable": cli_available,
         "packageAvailable": package_available,
+        "contract": get_runtime_contract("openhands"),
         "notes": "Adapter is optional and must remain behind policy, workspace isolation, and evidence capture.",
     }
 
@@ -28,12 +31,22 @@ class OpenHandsBrokerAdapter:
         self.sandbox = RestrictedSubprocessSandbox()
 
     def execute(self, *, tool_call: dict[str, Any], policy_input: dict[str, Any]) -> dict[str, Any]:
+        validation = validate_runtime_tool_call("openhands", tool_call, policy_input)
+        if not validation["valid"]:
+            return {
+                "executed": False,
+                "blocked": True,
+                "adapter": "openhands",
+                "operation": validation["operation"],
+                "reason": validation["reason"],
+            }
         status = openhands_status()
         if not status["available"]:
             return {
                 "executed": False,
                 "blocked": True,
                 "adapter": "openhands",
+                "operation": validation["operation"],
                 "reason": "OpenHands adapter is not installed or available on PATH.",
             }
         argv = tool_call.get("argv")

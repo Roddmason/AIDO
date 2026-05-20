@@ -109,6 +109,10 @@
 - Runtime adapter smoke now auto-detects installed OpenHands and SWE-agent CLIs
   and routes `--version` checks through broker, policy, and sandbox before any
   deeper release profile runs.
+- OpenHands and SWE-agent adapters now expose versioned issue-to-patch
+  contracts and reject missing `issueText`, missing workspace path, malformed
+  `argv`, wrong executable, and dangerous runtime flags before install
+  detection or execution.
 - GitHub Actions quality workflow runs default tests/build/lint and exposes
   explicit workflow-dispatch switches for runtime and OTEL smokes.
 - The frontend has a generated OpenAPI endpoint map checked in at
@@ -143,9 +147,8 @@
    noisier than the behavior under test.
 2. Add explicit Pydantic request/response models to high-traffic FastAPI routes
    so generated DTOs become domain-specific instead of `JsonObject` fallbacks.
-3. Add deeper issue-to-patch installed-runtime fixtures for OpenHands/SWE-agent
-   in a separate release validation profile after their local CLI contracts are
-   pinned.
+3. Add installed-runtime issue-to-patch smoke fixtures for OpenHands/SWE-agent
+   in a release validation profile when those CLIs are available on the runner.
 
 ## Next Frontend Work
 

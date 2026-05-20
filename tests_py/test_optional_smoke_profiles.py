@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from local_control_center.agents.openhands_adapter import OpenHandsBrokerAdapter
+from local_control_center.agents.runtime_contracts import get_runtime_contract, validate_runtime_tool_call
+from local_control_center.agents.swe_agent_adapter import SweAgentBrokerAdapter
 from local_control_center.security_policy.command_classifier import classify_command
 from local_control_center.security_policy.sandbox import ALLOWED_EXECUTABLES
 
@@ -44,3 +47,52 @@ def test_optional_runtime_cli_executables_are_sandbox_allowlisted_for_approved_r
 def test_optional_runtime_version_commands_are_low_risk_for_smoke_profiles() -> None:
     assert classify_command("openhands --version")["riskLevel"] == "low"
     assert classify_command("swe-agent --version")["riskLevel"] == "low"
+
+
+def test_optional_issue_to_patch_contracts_are_explicit_and_validated(tmp_path: Path) -> None:
+    openhands_contract = get_runtime_contract("openhands")
+    swe_contract = get_runtime_contract("swe_agent")
+    assert openhands_contract["contractVersion"] == 1
+    assert swe_contract["contractVersion"] == 1
+    assert "issue_to_patch" in openhands_contract["supportedOperations"]
+    assert "issue_to_patch" in swe_contract["supportedOperations"]
+
+    missing_issue = validate_runtime_tool_call(
+        "openhands",
+        {"operation": "issue_to_patch", "argv": ["openhands", "run"]},
+        {"workspacePath": str(tmp_path)},
+    )
+    assert missing_issue["valid"] is False
+    assert "issueText" in missing_issue["reason"]
+
+    dangerous_flag = validate_runtime_tool_call(
+        "swe_agent",
+        {"operation": "issue_to_patch", "argv": ["swe-agent", "--no-sandbox"], "issueText": "fix failing tests"},
+        {"workspacePath": str(tmp_path)},
+    )
+    assert dangerous_flag["valid"] is False
+    assert "--no-sandbox" in dangerous_flag["reason"]
+
+    version_check = validate_runtime_tool_call(
+        "openhands",
+        {"argv": ["openhands", "--version"]},
+        {"workspacePath": str(tmp_path)},
+    )
+    assert version_check["valid"] is True
+    assert version_check["operation"] == "version_check"
+
+
+def test_optional_adapters_block_invalid_issue_to_patch_contracts_before_install_detection(tmp_path: Path) -> None:
+    openhands = OpenHandsBrokerAdapter().execute(
+        tool_call={"operation": "issue_to_patch", "argv": ["openhands", "run"]},
+        policy_input={"workspacePath": str(tmp_path)},
+    )
+    assert openhands["blocked"] is True
+    assert "issueText" in openhands["reason"]
+
+    swe_agent = SweAgentBrokerAdapter().execute(
+        tool_call={"operation": "issue_to_patch", "argv": ["swe-agent", "--no-sandbox"], "issueText": "fix failing tests"},
+        policy_input={"workspacePath": str(tmp_path)},
+    )
+    assert swe_agent["blocked"] is True
+    assert "--no-sandbox" in swe_agent["reason"]

@@ -247,6 +247,9 @@
 - The OpenAPI client generator now preserves nullable fields as `null` instead
   of widening them to `JsonValue`, and project/job mutation responses type
   audit events and permission grants with their domain DTOs.
+- Frontend retrieval status and artifact preview surfaces now consume generated
+  `RetrievalStatusResponse` and `ArtifactRecord` aliases instead of broad
+  `Dictionary` rows.
 
 ## Next Backend Work
 
@@ -261,6 +264,6 @@
 ## Next Frontend Work
 
 1. Keep only intentional extension payloads flexible: adapter-specific
-   metadata/config, pipeline stage payloads, policy rules, and raw evidence
-   test payload arrays. Convert any new stable operational row to a DTO before
-   exposing it to the frontend.
+   metadata/config, pipeline stage payloads, policy rules, tool-call payloads,
+   and raw evidence test payload arrays. Convert any new stable operational row
+   to a DTO before exposing it to the frontend.

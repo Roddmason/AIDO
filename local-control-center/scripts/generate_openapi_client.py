@@ -237,7 +237,7 @@ def main() -> None:
     from local_control_center.app import create_app
     from local_control_center.control_plane.runtime import ControlCenterRuntime
 
-    with tempfile.TemporaryDirectory(prefix="aido-openapi-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="aido-openapi-", ignore_cleanup_errors=True) as tmp:
         runtime = ControlCenterRuntime(cwd=ROOT, db_path=Path(tmp) / "platform.sqlite")
         app = create_app(runtime=runtime, static_dir=None)
         try:

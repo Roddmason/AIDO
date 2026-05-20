@@ -82,6 +82,11 @@ def test_generated_openapi_client_is_checked_in_and_v1_only() -> None:
     assert '"list_jobs_api_v1_jobs_get": JobsListResponse' in content
     assert '"approvals_api_v1_approvals_get": ApprovalsListResponse' in content
     assert '"governance_api_v1_governance_get": GovernanceResponse' in content
+    assert "export type ArchitectureDecisionRecord" in content
+    assert "export type RiskRecord" in content
+    assert "export type NextStepRecord" in content
+    assert 'GovernanceResponse = { "architectureDecisions": Array<ArchitectureDecisionRecord>' in content
+    assert "Array<never>" not in content
     assert '"projects_api_v1_projects_get": ProjectsListResponse' in content
     assert '"list_workflows_api_v1_workflows_get": WorkflowsListResponse' in content
     assert '"get_workflow_api_v1_workflows__workflow_id__get": WorkflowDetailResponse' in content

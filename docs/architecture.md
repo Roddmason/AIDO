@@ -70,5 +70,6 @@ flowchart LR
   deleted.
 - Keep expanding repository-level tests where broad fixture setup is still
   noisier than direct slice construction.
-- Expand generated OpenAPI coverage from the current endpoint map into
-  operation-specific request/response types when the schema stabilizes further.
+- Add explicit Pydantic request/response models to high-traffic routes so the
+  generated OpenAPI `OperationRequestBody<T>` and `OperationResponse<T>` aliases
+  can narrow from `JsonObject` fallbacks to domain-specific DTOs.

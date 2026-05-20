@@ -1,6 +1,10 @@
 // Generated from FastAPI OpenAPI. Do not edit by hand.
 // No network access is required; run `corepack pnpm@10.24.0 run openapi:generate`.
 
+export type JsonPrimitive = string | number | boolean | null;
+export type JsonValue = JsonPrimitive | JsonObject | JsonValue[];
+export type JsonObject = { [key: string]: JsonValue };
+
 export const OPENAPI_TITLE = "Local Control Center" as const;
 export const OPENAPI_VERSION = "0.1.0" as const;
 
@@ -96,6 +100,177 @@ export type OperationById<T extends ApiOperationId> = Extract<ApiEndpoint, { ope
 export type OperationPath<T extends ApiOperationId> = OperationById<T>["path"];
 export type OperationMethod<T extends ApiOperationId> = OperationById<T>["method"];
 
+export type OperationRequestBodies = {
+	"agents_api_v1_agents_get": never,
+	"allocate_workspace_api_v1_workspaces_post": unknown,
+	"apply_artifact_retention_action_api_v1_evidence_artifacts_retention_actions_post": unknown,
+	"approvals_api_v1_approvals_get": never,
+	"approve_action_api_v1_jobs__job_id__actions__action_id__approve_post": unknown,
+	"approve_job_api_v1_jobs__job_id__approve_post": unknown,
+	"archive_workspace_api_v1_workspaces__workspace_id__archive_post": unknown,
+	"cancel_job_api_v1_jobs__job_id__cancel_post": unknown,
+	"cancel_workflow_api_v1_workflows__workflow_id__cancel_post": unknown,
+	"cleanup_artifacts_api_v1_evidence_artifacts_cleanup_post": unknown,
+	"create_agent_run_api_v1_agent_runs_post": unknown,
+	"create_architecture_decision_api_v1_architecture_decisions_post": unknown,
+	"create_chat_api_v1_chats_post": unknown,
+	"create_evidence_api_v1_evidence_post": unknown,
+	"create_job_api_v1_jobs_post": unknown,
+	"create_memory_api_v1_memory_post": unknown,
+	"create_next_step_api_v1_next_steps_post": unknown,
+	"create_pipeline_api_v1_pipelines_post": unknown,
+	"create_project_api_v1_projects_post": unknown,
+	"create_risk_api_v1_risks_post": unknown,
+	"create_session_api_v1_sessions_post": unknown,
+	"create_workflow_api_v1_workflows_post": unknown,
+	"deny_action_api_v1_jobs__job_id__actions__action_id__deny_post": unknown,
+	"evaluate_policy_api_v1_policies_evaluate_post": unknown,
+	"events_api_v1_events_get": never,
+	"export_evidence_report_api_v1_evidence__evidence_id__report_get": never,
+	"get_artifact_api_v1_evidence__evidence_id__artifacts__artifact_id__get": never,
+	"get_evidence_api_v1_evidence__evidence_id__get": never,
+	"get_workflow_api_v1_workflows__workflow_id__get": never,
+	"governance_api_v1_governance_get": never,
+	"handshake_api_v1_security_handshake_get": never,
+	"healthz_healthz_get": never,
+	"ingest_artifact_api_v1_evidence__evidence_id__artifacts_post": unknown,
+	"list_agent_profiles_api_v1_agent_profiles_get": never,
+	"list_agent_runs_api_v1_agent_runs_get": never,
+	"list_architecture_decisions_api_v1_architecture_decisions_get": never,
+	"list_chats_api_v1_chats_get": never,
+	"list_evidence_api_v1_evidence_get": never,
+	"list_ide_connections_api_v1_ide_connections_get": never,
+	"list_integrations_api_v1_integrations_get": never,
+	"list_jobs_api_v1_jobs_get": never,
+	"list_memory_api_v1_memory_get": never,
+	"list_model_policies_api_v1_model_policies_get": never,
+	"list_model_providers_api_v1_model_providers_get": never,
+	"list_next_steps_api_v1_next_steps_get": never,
+	"list_pipelines_api_v1_pipelines_get": never,
+	"list_policies_api_v1_policies_get": never,
+	"list_prompts_api_v1_prompts_get": never,
+	"list_risks_api_v1_risks_get": never,
+	"list_runtime_providers_api_v1_runtime_providers_get": never,
+	"list_sessions_api_v1_sessions_get": never,
+	"list_skills_api_v1_skills_get": never,
+	"list_workflows_api_v1_workflows_get": never,
+	"list_workspaces_api_v1_workspaces_get": never,
+	"open_design_api_v1_open_design_get": never,
+	"overview_api_v1_overview_get": never,
+	"pause_workflow_api_v1_workflows__workflow_id__pause_post": unknown,
+	"plan_artifact_retention_api_v1_evidence_artifacts_retention_post": unknown,
+	"project_templates_api_v1_project_templates_get": never,
+	"projects_api_v1_projects_get": never,
+	"providers_api_v1_providers_get": never,
+	"register_mcp_server_api_v1_integrations_mcp_register_post": unknown,
+	"resume_workflow_api_v1_workflows__workflow_id__resume_post": unknown,
+	"retrieval_reindex_api_v1_retrieval_reindex_post": unknown,
+	"retrieval_search_api_v1_retrieval_search_post": unknown,
+	"retrieval_status_api_v1_retrieval_status_get": never,
+	"retry_job_api_v1_jobs__job_id__retry_post": unknown,
+	"revoke_permission_grant_api_v1_permissions_grants__grant_id__revoke_post": unknown,
+	"revoke_sandbox_profile_api_v1_sandbox_profiles__profile_id__revoke_post": unknown,
+	"sandbox_status_api_v1_sandbox_status_get": never,
+	"start_workflow_api_v1_workflows__workflow_id__start_post": unknown,
+	"sync_skills_api_v1_skills_sync_post": unknown,
+	"teams_api_v1_teams_get": never,
+	"telemetry_status_api_v1_telemetry_status_get": never,
+	"update_next_step_api_v1_next_steps__step_id__patch": unknown,
+	"update_risk_api_v1_risks__risk_id__patch": unknown,
+	"update_sandbox_profile_api_v1_sandbox_profiles__profile_id__patch": unknown,
+	"upsert_agent_profile_api_v1_agent_profiles_post": unknown,
+	"upsert_ide_connection_api_v1_ide_connections_post": unknown,
+	"upsert_model_policy_api_v1_model_policies_post": unknown,
+	"upsert_prompt_api_v1_prompts_post": unknown
+};
+
+export type OperationResponseBodies = {
+	"agents_api_v1_agents_get": JsonObject,
+	"allocate_workspace_api_v1_workspaces_post": JsonObject,
+	"apply_artifact_retention_action_api_v1_evidence_artifacts_retention_actions_post": JsonObject,
+	"approvals_api_v1_approvals_get": JsonObject,
+	"approve_action_api_v1_jobs__job_id__actions__action_id__approve_post": JsonObject,
+	"approve_job_api_v1_jobs__job_id__approve_post": JsonObject,
+	"archive_workspace_api_v1_workspaces__workspace_id__archive_post": JsonObject,
+	"cancel_job_api_v1_jobs__job_id__cancel_post": JsonObject,
+	"cancel_workflow_api_v1_workflows__workflow_id__cancel_post": JsonObject,
+	"cleanup_artifacts_api_v1_evidence_artifacts_cleanup_post": JsonObject,
+	"create_agent_run_api_v1_agent_runs_post": JsonObject,
+	"create_architecture_decision_api_v1_architecture_decisions_post": JsonObject,
+	"create_chat_api_v1_chats_post": JsonObject,
+	"create_evidence_api_v1_evidence_post": JsonObject,
+	"create_job_api_v1_jobs_post": JsonObject,
+	"create_memory_api_v1_memory_post": JsonObject,
+	"create_next_step_api_v1_next_steps_post": JsonObject,
+	"create_pipeline_api_v1_pipelines_post": JsonObject,
+	"create_project_api_v1_projects_post": JsonObject,
+	"create_risk_api_v1_risks_post": JsonObject,
+	"create_session_api_v1_sessions_post": JsonObject,
+	"create_workflow_api_v1_workflows_post": JsonObject,
+	"deny_action_api_v1_jobs__job_id__actions__action_id__deny_post": JsonObject,
+	"evaluate_policy_api_v1_policies_evaluate_post": JsonObject,
+	"events_api_v1_events_get": never,
+	"export_evidence_report_api_v1_evidence__evidence_id__report_get": never,
+	"get_artifact_api_v1_evidence__evidence_id__artifacts__artifact_id__get": never,
+	"get_evidence_api_v1_evidence__evidence_id__get": JsonObject,
+	"get_workflow_api_v1_workflows__workflow_id__get": JsonObject,
+	"governance_api_v1_governance_get": JsonObject,
+	"handshake_api_v1_security_handshake_get": JsonObject,
+	"healthz_healthz_get": JsonObject,
+	"ingest_artifact_api_v1_evidence__evidence_id__artifacts_post": JsonObject,
+	"list_agent_profiles_api_v1_agent_profiles_get": JsonObject,
+	"list_agent_runs_api_v1_agent_runs_get": JsonObject,
+	"list_architecture_decisions_api_v1_architecture_decisions_get": JsonObject,
+	"list_chats_api_v1_chats_get": JsonObject,
+	"list_evidence_api_v1_evidence_get": JsonObject,
+	"list_ide_connections_api_v1_ide_connections_get": JsonObject,
+	"list_integrations_api_v1_integrations_get": JsonObject,
+	"list_jobs_api_v1_jobs_get": JsonObject,
+	"list_memory_api_v1_memory_get": JsonObject,
+	"list_model_policies_api_v1_model_policies_get": JsonObject,
+	"list_model_providers_api_v1_model_providers_get": JsonObject,
+	"list_next_steps_api_v1_next_steps_get": JsonObject,
+	"list_pipelines_api_v1_pipelines_get": JsonObject,
+	"list_policies_api_v1_policies_get": JsonObject,
+	"list_prompts_api_v1_prompts_get": JsonObject,
+	"list_risks_api_v1_risks_get": JsonObject,
+	"list_runtime_providers_api_v1_runtime_providers_get": JsonObject,
+	"list_sessions_api_v1_sessions_get": JsonObject,
+	"list_skills_api_v1_skills_get": JsonObject,
+	"list_workflows_api_v1_workflows_get": JsonObject,
+	"list_workspaces_api_v1_workspaces_get": JsonObject,
+	"open_design_api_v1_open_design_get": JsonObject,
+	"overview_api_v1_overview_get": JsonObject,
+	"pause_workflow_api_v1_workflows__workflow_id__pause_post": JsonObject,
+	"plan_artifact_retention_api_v1_evidence_artifacts_retention_post": JsonObject,
+	"project_templates_api_v1_project_templates_get": JsonObject,
+	"projects_api_v1_projects_get": JsonObject,
+	"providers_api_v1_providers_get": JsonObject,
+	"register_mcp_server_api_v1_integrations_mcp_register_post": JsonObject,
+	"resume_workflow_api_v1_workflows__workflow_id__resume_post": JsonObject,
+	"retrieval_reindex_api_v1_retrieval_reindex_post": JsonObject,
+	"retrieval_search_api_v1_retrieval_search_post": JsonObject,
+	"retrieval_status_api_v1_retrieval_status_get": JsonObject,
+	"retry_job_api_v1_jobs__job_id__retry_post": JsonObject,
+	"revoke_permission_grant_api_v1_permissions_grants__grant_id__revoke_post": JsonObject,
+	"revoke_sandbox_profile_api_v1_sandbox_profiles__profile_id__revoke_post": JsonObject,
+	"sandbox_status_api_v1_sandbox_status_get": JsonObject,
+	"start_workflow_api_v1_workflows__workflow_id__start_post": JsonObject,
+	"sync_skills_api_v1_skills_sync_post": JsonObject,
+	"teams_api_v1_teams_get": JsonObject,
+	"telemetry_status_api_v1_telemetry_status_get": JsonObject,
+	"update_next_step_api_v1_next_steps__step_id__patch": JsonObject,
+	"update_risk_api_v1_risks__risk_id__patch": JsonObject,
+	"update_sandbox_profile_api_v1_sandbox_profiles__profile_id__patch": JsonObject,
+	"upsert_agent_profile_api_v1_agent_profiles_post": JsonObject,
+	"upsert_ide_connection_api_v1_ide_connections_post": JsonObject,
+	"upsert_model_policy_api_v1_model_policies_post": JsonObject,
+	"upsert_prompt_api_v1_prompts_post": JsonObject
+};
+
+export type OperationRequestBody<T extends ApiOperationId> = OperationRequestBodies[T];
+export type OperationResponse<T extends ApiOperationId> = OperationResponseBodies[T];
+
 export const OPERATIONS_BY_ID = {
 	"list_agent_profiles_api_v1_agent_profiles_get": {"method": "GET", "operationId": "list_agent_profiles_api_v1_agent_profiles_get", "path": "/api/v1/agent-profiles", "summary": "List Agent Profiles"},
 	"upsert_agent_profile_api_v1_agent_profiles_post": {"method": "POST", "operationId": "upsert_agent_profile_api_v1_agent_profiles_post", "path": "/api/v1/agent-profiles", "summary": "Upsert Agent Profile"},
@@ -180,11 +355,11 @@ export const OPERATIONS_BY_ID = {
 	"healthz_healthz_get": {"method": "GET", "operationId": "healthz_healthz_get", "path": "/healthz", "summary": "Healthz"}
 } as const satisfies Record<ApiOperationId, ApiEndpoint>;
 
-export type GeneratedRequestOptions = {
+export type GeneratedRequestOptions<TBody = unknown> = {
 	pathParams?: Record<string, string | number>;
 	query?: Record<string, string | number | boolean | null | undefined>;
 	token?: string;
-	body?: unknown;
+	body?: TBody;
 	signal?: AbortSignal;
 };
 
@@ -212,9 +387,12 @@ export function buildApiPath(
 	return queryString ? `${resolvedPath}?${queryString}` : resolvedPath;
 }
 
-export async function requestGeneratedOperation<TResponse = unknown>(
-	operationId: ApiOperationId,
-	options: GeneratedRequestOptions = {},
+export async function requestGeneratedOperation<
+	TOperationId extends ApiOperationId,
+	TResponse = OperationResponse<TOperationId>,
+>(
+	operationId: TOperationId,
+	options: GeneratedRequestOptions<OperationRequestBody<TOperationId>> = {},
 ): Promise<TResponse> {
 	const endpoint = OPERATIONS_BY_ID[operationId];
 	const headers: Record<string, string> = { Accept: "application/json" };

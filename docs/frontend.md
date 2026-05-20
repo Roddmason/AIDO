@@ -119,5 +119,8 @@ corepack pnpm@10.24.0 run openapi:generate
 CI fails if that generated file drifts from the FastAPI OpenAPI schema. The
 client includes operation-id lookup, typed operation aliases, path parameter
 interpolation, query serialization, loopback-token headers, and JSON error
-handling. Schema-derived DTOs are still intentionally deferred until v1 stops
-changing at high frequency.
+handling. It also emits `OperationRequestBody<T>` and
+`OperationResponse<T>` aliases from the OpenAPI schemas. The active API client
+now routes JSON calls through generated operation IDs; domain-specific frontend
+interfaces remain as refinements until every FastAPI endpoint exposes explicit
+Pydantic request/response models.

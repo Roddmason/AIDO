@@ -116,6 +116,10 @@
 - The generated OpenAPI client now exposes operation-id lookup, path
   interpolation, token-aware request helpers, and operation-level type aliases
   for v1 routes.
+- The OpenAPI client generator now emits schema-derived
+  `OperationRequestBody<T>` and `OperationResponse<T>` aliases, and the active
+  frontend API client uses generated operation IDs for JSON API calls instead
+  of raw route literals.
 - Command palette and workflow inspector are backed by FastAPI v1 state rather
   than client-invented data.
 - The command palette can create workflows, focus pending approvals, and open a
@@ -137,14 +141,13 @@
 1. Keep tightening tests around direct repositories and
    `tests_py/control_plane_fixture.py` where broad fixture setup is still
    noisier than the behavior under test.
-2. Replace the remaining hand-written frontend response shapes with
-   schema-derived request/response DTOs once the v1 schema stops changing
-   daily.
+2. Add explicit Pydantic request/response models to high-traffic FastAPI routes
+   so generated DTOs become domain-specific instead of `JsonObject` fallbacks.
 3. Add deeper issue-to-patch installed-runtime fixtures for OpenHands/SWE-agent
    in a separate release validation profile after their local CLI contracts are
    pinned.
 
 ## Next Frontend Work
 
-1. Replace remaining hand-written frontend response shapes with schema-derived
-   request/response DTOs once the v1 schema stops changing daily.
+1. Replace remaining hand-written domain refinements as backend routes gain
+   explicit Pydantic response models.

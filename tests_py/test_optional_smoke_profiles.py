@@ -16,6 +16,7 @@ def test_optional_runtime_smoke_script_is_explicitly_opt_in() -> None:
     script = ROOT / "local-control-center" / "scripts" / "smoke-runtime-adapters.ps1"
     assert script.exists()
     content = script.read_text(encoding="utf-8")
+    assert "[string]$ReportPath" in content
     assert "AIDO_RUNTIME_SMOKE" in content
     assert "internal_mock" in content
     assert "openhands" in content
@@ -31,6 +32,8 @@ def test_optional_runtime_smoke_script_is_explicitly_opt_in() -> None:
     assert "PreflightOnly" in content
     assert "-not $PreflightOnly -and $env:AIDO_RUNTIME_SMOKE" in content
     assert "New-ReleaseValidationReport" in content
+    assert "Write-SmokeReport" in content
+    assert "runtimeSmokeReport" in content
     assert "Release validation preflight failed" in content
     assert "Assert-ReleaseIssueToPatchConfigured" in content
     assert "Release validation requires AIDO_OPENHANDS_ISSUE_TO_PATCH_ARGV_JSON" in content

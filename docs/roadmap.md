@@ -232,6 +232,13 @@
 - Runtime adapter release validation now has an explicit preflight mode for
   OpenHands/SWE-agent argv and issue text, so misconfigured issue-to-patch
   validation fails before server startup with an adapter-level JSON report.
+- Runtime adapter preflight and release smoke scripts now write ignored
+  `.tmp/runtime-validation/*.json` evidence reports when invoked through the
+  package scripts, so external adapter validation leaves a reproducible
+  artifact without committing runtime output.
+- `smoke:runtime:release` now runs the strict release preflight before any
+  server-dependent runtime smoke, preventing missing OpenHands/SWE-agent
+  configuration from being hidden by server availability errors.
 - Stable prompt, IDE connection, MCP server, integration, retrieval search, and
   retrieval reindex records now have generated OpenAPI DTOs instead of
   front-end `JsonObject` fallbacks.
@@ -273,8 +280,11 @@
    blocks non-HTTP regressions automatically.
 2. Run the strict installed-runtime issue-to-patch smoke on a release
    validation runner with OpenHands/SWE-agent installed. There is no GitHub
-   quality workflow now; use the local smoke script preflight and explicit
-   environment variables on that runner.
+   quality workflow now; use `pnpm run smoke:runtime:release:preflight` and
+   explicit environment variables on that runner, then run
+   `pnpm run smoke:runtime:release` and attach the generated
+   `.tmp/runtime-validation/release-preflight.json` and
+   `.tmp/runtime-validation/release.json` reports to the release evidence.
 
 ## Next Frontend Work
 

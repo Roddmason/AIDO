@@ -1,11 +1,35 @@
 param(
     [string]$BaseUrl = "http://127.0.0.1:4310",
     [string]$Workspace = (Get-Location).Path,
+    [string]$ReportPath = "",
     [switch]$PreflightOnly
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+
+function Write-SmokeReport {
+    param(
+        [Parameter(Mandatory = $true)][object]$RuntimeSmokeReport,
+        [Parameter(Mandatory = $true)][string]$Phase
+    )
+    if (-not $ReportPath) {
+        return
+    }
+    $target = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($ReportPath)
+    $directory = Split-Path -Parent $target
+    if ($directory) {
+        New-Item -ItemType Directory -Force -Path $directory | Out-Null
+    }
+    [pscustomobject]@{
+        schema = "aido.runtime-smoke-report.v1"
+        phase = $Phase
+        createdAt = [DateTimeOffset]::UtcNow.ToString("o")
+        baseUrl = $BaseUrl
+        workspace = $Workspace
+        runtimeSmokeReport = $RuntimeSmokeReport
+    } | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $target -Encoding UTF8
+}
 
 if (-not $PreflightOnly -and $env:AIDO_RUNTIME_SMOKE -ne "1") {
     Write-Host "Skip optional runtime adapter smoke. Set AIDO_RUNTIME_SMOKE=1 to run."
@@ -183,6 +207,7 @@ function New-ReleaseValidationReport {
 
 if ($PreflightOnly) {
     $report = New-ReleaseValidationReport
+    Write-SmokeReport -RuntimeSmokeReport $report -Phase "preflight"
     $report | ConvertTo-Json -Depth 20
     if (-not $report.ok) {
         throw "Release validation preflight failed. Provide exact argv and issue text env vars before running runtime smoke."
@@ -339,5 +364,12 @@ if ($env:AIDO_RUNTIME_ISSUE_TO_PATCH_SMOKE -eq "1") {
     }
 }
 
+$runtimeReport = [pscustomobject]@{
+    releaseValidation = $env:AIDO_RUNTIME_RELEASE_VALIDATION -eq "1"
+    issueToPatchSmoke = $env:AIDO_RUNTIME_ISSUE_TO_PATCH_SMOKE -eq "1"
+    completed = $true
+    note = "Agent runs were submitted through FastAPI, tool broker, policy, sandbox, and evidence paths where configured."
+}
+Write-SmokeReport -RuntimeSmokeReport $runtimeReport -Phase "runtime"
 Write-Host "Runtime adapter smoke completed. Optional adapters skipped unless their AIDO_*_SMOKE variables were set."
 exit 0

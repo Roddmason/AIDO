@@ -40,7 +40,12 @@ so TypeScript contract drift is caught even when Vite can still transpile.
 Runtime adapter release validation is intentionally separate from local quality
 because it requires installed OpenHands/SWE-agent CLIs and explicit issue text
 environment variables. Use `pnpm run smoke:runtime:preflight` locally, and run
-`pnpm run smoke:runtime:release` only on a prepared release-validation machine.
+`pnpm run smoke:runtime:release:preflight` before starting a prepared release
+validation machine. `pnpm run smoke:runtime:release` repeats that strict
+preflight before submitting brokered runtime smoke through the running server.
+These scripts write ignored JSON evidence under `.tmp/runtime-validation/`;
+keep those reports with release notes when validating optional external
+runtimes.
 
 ## Main Branch Blocking
 

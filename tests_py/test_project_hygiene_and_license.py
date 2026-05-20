@@ -96,9 +96,18 @@ def test_runtime_smoke_scripts_are_declared_for_release_validation() -> None:
 
     assert "smoke:runtime:preflight" in scripts
     assert "smoke-runtime-adapters.ps1 -PreflightOnly" in scripts["smoke:runtime:preflight"]
+    assert "-ReportPath .tmp/runtime-validation/preflight.json" in scripts["smoke:runtime:preflight"]
+    assert "smoke:runtime:release:preflight" in scripts
+    assert "AIDO_RUNTIME_RELEASE_VALIDATION='1'" in scripts["smoke:runtime:release:preflight"]
+    assert "smoke-runtime-adapters.ps1' -PreflightOnly" in scripts["smoke:runtime:release:preflight"]
+    assert "-ReportPath .tmp/runtime-validation/release-preflight.json" in scripts["smoke:runtime:release:preflight"]
     assert "smoke:runtime:release" in scripts
+    assert "AIDO_RUNTIME_SMOKE='1'" in scripts["smoke:runtime:release"]
     assert "AIDO_RUNTIME_RELEASE_VALIDATION='1'" in scripts["smoke:runtime:release"]
     assert "smoke-runtime-adapters.ps1" in scripts["smoke:runtime:release"]
+    assert " -PreflightOnly " in scripts["smoke:runtime:release"]
+    assert "-ReportPath .tmp/runtime-validation/release-preflight.json" in scripts["smoke:runtime:release"]
+    assert "-ReportPath .tmp/runtime-validation/release.json" in scripts["smoke:runtime:release"]
 
 
 def test_python_quality_tooling_is_declared_for_uv() -> None:

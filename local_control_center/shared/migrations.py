@@ -19,6 +19,7 @@ def initialize_platform_schema(connection: sqlite3.Connection) -> None:
     init_phase10_schema(connection)
     init_phase11_schema(connection)
     init_phase12_schema(connection)
+    init_phase13_schema(connection)
     seed_platform_catalogs(connection)
 
 
@@ -1379,6 +1380,42 @@ def init_phase12_schema(connection: sqlite3.Connection) -> None:
     connection.execute(
         "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
         (12, utc_now()),
+    )
+
+
+def init_phase13_schema(connection: sqlite3.Connection) -> None:
+    connection.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS model_benchmark_outcomes (
+            id TEXT PRIMARY KEY,
+            provider_id TEXT NOT NULL,
+            model TEXT NOT NULL,
+            runtime_type TEXT NOT NULL,
+            role TEXT,
+            workflow_run_id TEXT,
+            workflow_step_id TEXT,
+            agent_id TEXT,
+            job_id TEXT,
+            task_id TEXT,
+            usage_ledger_id TEXT,
+            success INTEGER,
+            qa_pass INTEGER,
+            rework INTEGER,
+            estimated_cost_usd REAL,
+            actual_cost_usd REAL,
+            latency_ms INTEGER,
+            metadata TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_model_benchmark_outcomes_model
+            ON model_benchmark_outcomes(provider_id, model, role, created_at);
+        CREATE INDEX IF NOT EXISTS idx_model_benchmark_outcomes_workflow
+            ON model_benchmark_outcomes(workflow_run_id, workflow_step_id);
+        """
+    )
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (13, utc_now()),
     )
 
 

@@ -16,6 +16,7 @@ export type ArtifactPayload = {
 
 export type ModelGatewayRoutePreviewRequest = MutationBody<'route_preview_api_v1_model_gateway_route_preview_post'>;
 export type ModelGatewayRoutePreviewResponse = OperationResponse<'route_preview_api_v1_model_gateway_route_preview_post'>;
+export type ModelGatewayBenchmarkOutcomeRequest = MutationBody<'create_benchmark_outcome_api_v1_model_gateway_benchmark_outcomes_post'>;
 
 async function parseResponse<T>(response: Response): Promise<T> {
 	const text = await response.text();
@@ -240,6 +241,17 @@ export function getModelGatewayCliSessions(signal?: AbortSignal) {
 
 export function getModelGatewayBenchmarks(signal?: AbortSignal) {
 	return requestGeneratedOperation<'list_benchmarks_api_v1_model_gateway_benchmarks_get', { benchmarks: Dictionary[] }>('list_benchmarks_api_v1_model_gateway_benchmarks_get', { signal });
+}
+
+export function getModelGatewayBenchmarkOutcomes(signal?: AbortSignal) {
+	return requestGeneratedOperation<'list_benchmark_outcomes_api_v1_model_gateway_benchmark_outcomes_get', { outcomes: Dictionary[] }>('list_benchmark_outcomes_api_v1_model_gateway_benchmark_outcomes_get', { signal });
+}
+
+export function recordModelGatewayBenchmarkOutcome(token: string, body: ModelGatewayBenchmarkOutcomeRequest) {
+	return requestGeneratedOperation<'create_benchmark_outcome_api_v1_model_gateway_benchmark_outcomes_post'>('create_benchmark_outcome_api_v1_model_gateway_benchmark_outcomes_post', {
+		token,
+		body,
+	});
 }
 
 export function previewModelRoute(token: string, body: ModelGatewayRoutePreviewRequest) {

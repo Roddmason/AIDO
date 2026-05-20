@@ -9,6 +9,8 @@ from local_control_center.app import create_app
 from local_control_center.agents.cli_runtimes.base import RuntimeRequest, RuntimeResult
 from local_control_center.agents.cli_runtimes.claude_code_cli import ClaudeCodeCliRuntime
 from local_control_center.agents.cli_runtimes.codex_cli import CodexCliRuntime
+from local_control_center.agents.cli_runtimes.openhands import OpenHandsRuntime
+from local_control_center.agents.cli_runtimes.swe_agent import SweAgentRuntime
 from local_control_center.agents.model_gateway import redact_secrets
 from local_control_center.agents.providers.base import ModelRequest
 from local_control_center.agents.providers.nvidia_nim import NvidiaNimProvider
@@ -76,6 +78,16 @@ def test_phase12_schema_adds_unified_model_runtime_gateway_tables(tmp_path: Path
     } <= seeded_roles
     assert {"free_first", "cost_controlled", "balanced_best_value", "max_performance", "manual_by_profile", "local_private"} <= seeded_profiles
     assert {"internal_mock", "nvidia_nim", "ollama", "codex_cli", "claude_code_cli", "manual"} <= seeded_providers
+
+
+def test_phase13_schema_adds_benchmark_outcomes(tmp_path: Path) -> None:
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()}
+        migrations = {row[0] for row in connection.execute("SELECT version FROM schema_migrations").fetchall()}
+
+    assert 13 in migrations
+    assert "model_benchmark_outcomes" in tables
 
 
 def test_provider_accounts_crud_endpoints_do_not_expose_raw_credentials(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -446,6 +458,41 @@ def test_benchmarks_derive_attempt_cost_and_latency_from_usage_without_inventing
     assert benchmark["insufficientData"] is True
 
 
+def test_benchmark_outcome_endpoint_records_success_qa_and_rework_rates(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    headers = auth_headers(client)
+    outcome_payload = {
+        "providerId": "codex_cli",
+        "model": "gpt-5.5",
+        "runtimeType": "cli",
+        "role": "developer",
+        "taskId": "implementation",
+        "success": True,
+        "qaPass": True,
+        "rework": False,
+        "estimatedCostUsd": 0.42,
+        "latencyMs": 1200,
+        "metadata": {"source": "test"},
+    }
+
+    created = client.post("/api/v1/model-gateway/benchmark-outcomes", headers=headers, json=outcome_payload)
+    outcomes = client.get("/api/v1/model-gateway/benchmark-outcomes")
+    benchmarks = client.get("/api/v1/model-gateway/benchmarks")
+
+    assert created.status_code == 201
+    assert outcomes.status_code == 200
+    assert any(item["providerId"] == "codex_cli" for item in outcomes.json()["outcomes"])
+    benchmark = next(item for item in benchmarks.json()["benchmarks"] if item["providerId"] == "codex_cli" and item["model"] == "gpt-5.5")
+    assert benchmark["tasksAttempted"] == 1
+    assert benchmark["successRate"] == 1.0
+    assert benchmark["qaPassRate"] == 1.0
+    assert benchmark["reworkRate"] == 0.0
+    assert benchmark["avgCost"] == 0.42
+    assert benchmark["avgLatencyMs"] == 1200
+
+
 def test_nvidia_provider_mock_parses_usage_and_handles_429(tmp_path: Path) -> None:
     with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
         initialize_platform_schema(connection)
@@ -512,6 +559,46 @@ def test_cli_runtime_parses_usage_from_jsonl_output() -> None:
     assert usage.raw_usage["usage_source"] == "cli_output"
 
 
+def test_cli_runtimes_parse_runtime_specific_usage_aliases() -> None:
+    codex = CodexCliRuntime(executable="codex", mock=True).parse_usage(
+        RuntimeResult(
+            runtime="codex_cli",
+            status="completed",
+            stdout='{"type":"token_count","tokens":{"input":11,"cached_input":3,"output":7,"reasoning":5,"total":26}}\n',
+            returnCode=0,
+        )
+    )
+    claude = ClaudeCodeCliRuntime(executable="claude", mock=True).parse_usage(
+        RuntimeResult(
+            runtime="claude_code_cli",
+            status="completed",
+            stdout='{"type":"result","message":{"usage":{"input_tokens":13,"output_tokens":8,"cache_read_input_tokens":2}}}\n',
+            returnCode=0,
+        )
+    )
+    openhands = OpenHandsRuntime(executable="openhands", mock=True).parse_usage(
+        RuntimeResult(
+            runtime="openhands",
+            status="completed",
+            stdout='{"metrics":{"token_usage":{"prompt_tokens":17,"completion_tokens":9,"total_tokens":26}}}\n',
+            returnCode=0,
+        )
+    )
+    swe_agent = SweAgentRuntime(executable="sweagent", mock=True).parse_usage(
+        RuntimeResult(
+            runtime="swe_agent",
+            status="completed",
+            stdout='{"llm_metrics":{"input_tokens":19,"output_tokens":10,"total_tokens":29}}\n',
+            returnCode=0,
+        )
+    )
+
+    assert codex is not None and codex.input_tokens == 11 and codex.cached_input_tokens == 3 and codex.reasoning_tokens == 5
+    assert claude is not None and claude.input_tokens == 13 and claude.cached_input_tokens == 2 and claude.output_tokens == 8
+    assert openhands is not None and openhands.total_tokens == 26
+    assert swe_agent is not None and swe_agent.output_tokens == 10
+
+
 def test_secrets_are_redacted_from_logs() -> None:
     redacted = redact_secrets(
         {
@@ -540,6 +627,7 @@ def test_model_gateway_endpoints_return_valid_json(tmp_path: Path, monkeypatch: 
         "/api/v1/model-gateway/usage-ledger/summary",
         "/api/v1/model-gateway/routing-decisions",
         "/api/v1/model-gateway/benchmarks",
+        "/api/v1/model-gateway/benchmark-outcomes",
         "/api/v1/model-gateway/provider-limits",
         "/api/v1/model-gateway/budget-rules",
         "/api/v1/model-gateway/cli-runtimes",
@@ -564,6 +652,48 @@ def test_model_gateway_endpoints_return_valid_json(tmp_path: Path, monkeypatch: 
     assert health.status_code == 200
     assert discover.status_code == 200
     assert mock_execute.status_code == 200
+
+
+def test_route_execute_real_is_blocked_by_default_and_requires_approval_when_costly(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    headers = auth_headers(client)
+    enable_provider(client, headers, "codex_cli")
+
+    disabled = client.post(
+        "/api/v1/model-gateway/route/execute",
+        headers=headers,
+        json={
+            "role": "developer",
+            "taskType": "implementation",
+            "mode": "balanced_best_value",
+            "contextTokensEstimate": 1000,
+            "requiresCodeEdit": True,
+            "requiresTools": True,
+            "privacyLevel": "remote_allowed",
+            "budgetRemainingUsd": 4,
+        },
+    )
+    assert disabled.status_code == 403
+    assert "disabled" in disabled.json()["detail"].lower()
+
+    monkeypatch.setenv("AIDO_ENABLE_REAL_PROVIDER_CALLS", "true")
+    approval = client.post(
+        "/api/v1/model-gateway/route/execute",
+        headers=headers,
+        json={
+            "role": "technical_lead",
+            "taskType": "architecture_decision",
+            "mode": "max_performance",
+            "contextTokensEstimate": 60000,
+            "requiresReasoning": True,
+            "privacyLevel": "remote_allowed",
+            "budgetRemainingUsd": 8,
+        },
+    )
+    assert approval.status_code == 409
+    assert "approval" in approval.json()["detail"].lower()
 
 
 def test_workflow_start_records_model_router_decisions_for_each_step(

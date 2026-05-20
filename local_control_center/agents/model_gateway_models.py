@@ -352,6 +352,12 @@ class RouteExecuteMockResponse(BaseModel):
     usage: UsageLedgerRecord
 
 
+class RouteExecuteResponse(BaseModel):
+    routing: RoutingPreviewResponse
+    usage: UsageLedgerRecord | None = None
+    content: str | None = None
+
+
 class RoutingDecisionRecord(BaseModel):
     id: str
     role: str
@@ -563,3 +569,53 @@ class ModelBenchmarkRecord(BaseModel):
 
 class ModelBenchmarksListResponse(BaseModel):
     benchmarks: list[ModelBenchmarkRecord]
+
+
+class ModelBenchmarkOutcomeRecord(BaseModel):
+    id: str
+    provider_id: str = Field(alias="providerId")
+    model: str
+    runtime_type: str = Field(alias="runtimeType")
+    role: str | None = None
+    workflow_run_id: str | None = Field(default=None, alias="workflowRunId")
+    workflow_step_id: str | None = Field(default=None, alias="workflowStepId")
+    agent_id: str | None = Field(default=None, alias="agentId")
+    job_id: str | None = Field(default=None, alias="jobId")
+    task_id: str | None = Field(default=None, alias="taskId")
+    usage_ledger_id: str | None = Field(default=None, alias="usageLedgerId")
+    success: bool | None = None
+    qa_pass: bool | None = Field(default=None, alias="qaPass")
+    rework: bool | None = None
+    estimated_cost_usd: float | None = Field(default=None, alias="estimatedCostUsd")
+    actual_cost_usd: float | None = Field(default=None, alias="actualCostUsd")
+    latency_ms: int | None = Field(default=None, alias="latencyMs")
+    metadata: dict[str, Any]
+    created_at: str = Field(alias="createdAt")
+
+
+class ModelBenchmarkOutcomeCreateRequest(GatewayFlexibleModel):
+    provider_id: str = Field(alias="providerId")
+    model: str
+    runtime_type: str = Field(default="api", alias="runtimeType")
+    role: str | None = None
+    workflow_run_id: str | None = Field(default=None, alias="workflowRunId")
+    workflow_step_id: str | None = Field(default=None, alias="workflowStepId")
+    agent_id: str | None = Field(default=None, alias="agentId")
+    job_id: str | None = Field(default=None, alias="jobId")
+    task_id: str | None = Field(default=None, alias="taskId")
+    usage_ledger_id: str | None = Field(default=None, alias="usageLedgerId")
+    success: bool | None = None
+    qa_pass: bool | None = Field(default=None, alias="qaPass")
+    rework: bool | None = None
+    estimated_cost_usd: float | None = Field(default=None, alias="estimatedCostUsd")
+    actual_cost_usd: float | None = Field(default=None, alias="actualCostUsd")
+    latency_ms: int | None = Field(default=None, alias="latencyMs")
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class ModelBenchmarkOutcomeResponse(BaseModel):
+    outcome: ModelBenchmarkOutcomeRecord
+
+
+class ModelBenchmarkOutcomesListResponse(BaseModel):
+    outcomes: list[ModelBenchmarkOutcomeRecord]

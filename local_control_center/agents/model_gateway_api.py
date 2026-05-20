@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
@@ -19,6 +20,9 @@ from .model_gateway_models import (
     ModelCatalogPatchRequest,
     ModelCatalogResponse,
     ModelCatalogUpsertRequest,
+    ModelBenchmarkOutcomeCreateRequest,
+    ModelBenchmarkOutcomeResponse,
+    ModelBenchmarkOutcomesListResponse,
     ModelBenchmarksListResponse,
     ModelGatewayOverviewResponse,
     ProviderAccountPatchRequest,
@@ -33,6 +37,7 @@ from .model_gateway_models import (
     RolePolicyPatchRequest,
     RolePolicyResponse,
     RolePolicyUpsertRequest,
+    RouteExecuteResponse,
     RouteExecuteMockResponse,
     RoutingDecisionsListResponse,
     RoutingPreviewRequest,
@@ -54,8 +59,10 @@ from .providers.nvidia_nim import NvidiaNimProvider
 from .providers.ollama import OllamaProvider
 from .providers.openai_api import OpenAIAPIProvider
 from .providers.openai_compatible import OpenAICompatibleProvider
+from .providers.openai_compatible import real_provider_calls_enabled
 from .providers.openrouter import OpenRouterProvider
 from .providers.litellm_adapter import LiteLLMAdapter
+from .providers.base import ModelRequest
 from .routing_profiles import RoutingProfileStore
 from .runtime_registry import RuntimeRegistry
 from .usage_ledger import UsageLedger
@@ -68,10 +75,16 @@ def _payload(body: Any, *, exclude_none: bool = True) -> dict[str, Any]:
 
 
 def _provider_instance(provider_id: str, *, connection: Any, mock: bool = True):
+    try:
+        account = ProviderAccountStore(connection).get_provider_account(provider_id)
+    except KeyError:
+        account = {}
+    base_url = account.get("baseUrl") or None
+    credential_ref = account.get("credentialRef") or None
     if provider_id == "nvidia_nim":
-        return NvidiaNimProvider(connection=connection, mock=mock)
+        return NvidiaNimProvider(connection=connection, base_url=base_url or "https://integrate.api.nvidia.com/v1", credential_ref=credential_ref or "NVIDIA_NIM_API_KEY", mock=mock)
     if provider_id == "ollama":
-        return OllamaProvider(mock=mock)
+        return OllamaProvider(base_url=base_url, mock=mock)
     if provider_id == "openai_api":
         return OpenAIAPIProvider(mock=mock)
     if provider_id == "anthropic_api":
@@ -79,8 +92,8 @@ def _provider_instance(provider_id: str, *, connection: Any, mock: bool = True):
     if provider_id == "openrouter":
         return OpenRouterProvider(mock=mock)
     if provider_id == "litellm":
-        return LiteLLMAdapter(mock=mock)
-    return OpenAICompatibleProvider(provider_id=provider_id, mock=mock)
+        return LiteLLMAdapter(base_url=base_url, credential_ref=credential_ref or "LITELLM_API_KEY", mock=mock)
+    return OpenAICompatibleProvider(provider_id=provider_id, base_url=base_url, credential_ref=credential_ref, mock=mock)
 
 
 def create_router(*, platform: Any, require_write: Any) -> APIRouter:
@@ -271,6 +284,51 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
         audit("model_gateway.route.execute_mock", selected["provider"], {"usageLedgerId": usage_record["id"]})
         return {"routing": result, "usage": usage_record}
 
+    @router.post("/route/execute", response_model=RouteExecuteResponse)
+    async def route_execute(body: RoutingPreviewRequest, request: Request) -> dict[str, Any]:
+        require_write(request)
+        body_payload = _payload(body)
+        result = ModelRouter(platform.connection).preview(RoutingRequest(**body_payload), record=True)
+        selected = result.get("selected")
+        if not selected:
+            raise HTTPException(status_code=409, detail=result.get("decisionReason") or "No route selected.")
+        if result.get("policyResult", {}).get("requiresApproval"):
+            raise HTTPException(status_code=409, detail="Route execution requires approval before calling a provider or runtime.")
+        runtime_type = str(selected.get("runtime") or "")
+        if runtime_type == "cli" and os.environ.get("AIDO_ENABLE_CLI_RUNTIMES", "false").lower() != "true":
+            raise HTTPException(status_code=403, detail="CLI route execution is disabled by AIDO_ENABLE_CLI_RUNTIMES=false.")
+        if runtime_type != "cli" and not real_provider_calls_enabled():
+            raise HTTPException(status_code=403, detail="Real provider route execution is disabled by AIDO_ENABLE_REAL_PROVIDER_CALLS=false.")
+        if runtime_type == "cli":
+            raise HTTPException(status_code=501, detail="Real CLI execution must be launched through policy-approved agent runtime sessions.")
+        account = providers().get_provider_account(selected["provider"])
+        if account.get("credentialRef") and not os.environ.get(str(account["credentialRef"])):
+            raise HTTPException(status_code=400, detail=f"Credential ref {account['credentialRef']} is not configured.")
+        provider = _provider_instance(selected["provider"], connection=platform.connection, mock=False)
+        message = str(body_payload.get("prompt") or body_payload.get("taskType") or "Execute routed task.")
+        response = provider.chat_completion(ModelRequest(model=selected["model"], messages=[{"role": "user", "content": message}]))
+        usage_record = usage().record_usage(
+            provider_id=response.provider_id,
+            model=response.model,
+            runtime_type=runtime_type,
+            role=body_payload.get("role"),
+            workflow_run_id=body_payload.get("workflowRunId"),
+            workflow_step_id=body_payload.get("workflowStepId"),
+            agent_id=body_payload.get("agentId"),
+            job_id=body_payload.get("jobId"),
+            task_id=body_payload.get("taskId"),
+            input_tokens=response.usage.input_tokens,
+            cached_input_tokens=response.usage.cached_input_tokens,
+            output_tokens=response.usage.output_tokens,
+            reasoning_tokens=response.usage.reasoning_tokens,
+            tool_tokens=response.usage.tool_tokens,
+            estimated_cost_usd=result.get("estimatedCostUsd"),
+            actual_cost_usd=None,
+            raw_usage=response.usage.raw_usage,
+        )
+        audit("model_gateway.route.execute", selected["provider"], {"usageLedgerId": usage_record["id"]})
+        return {"routing": result, "usage": usage_record, "content": response.content}
+
     @router.get("/usage-ledger", response_model=UsageLedgerListResponse)
     async def list_usage_ledger() -> dict[str, Any]:
         return {"usageLedger": usage().list_usage()}
@@ -286,6 +344,17 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
     @router.get("/benchmarks", response_model=ModelBenchmarksListResponse)
     async def list_benchmarks() -> dict[str, Any]:
         return {"benchmarks": benchmarks().list_benchmarks()}
+
+    @router.get("/benchmark-outcomes", response_model=ModelBenchmarkOutcomesListResponse)
+    async def list_benchmark_outcomes() -> dict[str, Any]:
+        return {"outcomes": benchmarks().list_outcomes()}
+
+    @router.post("/benchmark-outcomes", status_code=201, response_model=ModelBenchmarkOutcomeResponse)
+    async def create_benchmark_outcome(body: ModelBenchmarkOutcomeCreateRequest, request: Request) -> dict[str, Any]:
+        require_write(request)
+        outcome = benchmarks().record_outcome(_payload(body))
+        audit("model_gateway.benchmark_outcome.recorded", outcome["providerId"], {"outcomeId": outcome["id"]})
+        return {"outcome": outcome}
 
     @router.get("/provider-limits", response_model=ProviderLimitsListResponse)
     async def list_provider_limits() -> dict[str, Any]:

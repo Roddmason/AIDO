@@ -430,6 +430,51 @@ test('Model Gateway exposes model calls and cost ledger', async ({ page }) => {
 	await expect(page.getByText('internal_mock').first()).toBeVisible();
 });
 
+test('Model Gateway console renders provider catalog routing usage budgets and CLI sessions', async ({ page }) => {
+	await page.goto('/#models');
+	await page.getByRole('button', { name: 'Model Gateway' }).click();
+
+	await expect(page.getByRole('heading', { name: 'Model Gateway' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Overview' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Provider Accounts' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Model Catalog' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Routing Profiles' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Role Assignments' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Usage Ledger' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Budgets' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Provider Limits' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Routing Decisions' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'CLI Sessions' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Benchmarks' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
+	await expect(page.getByText('No usage ledger entries')).toBeVisible();
+	await expect(page.getByText('No CLI sessions')).toBeVisible();
+});
+
+test('Model Gateway route preview submits mock request without exposing credentials', async ({ page }) => {
+	const handshake = await page.request.get('/api/v1/security/handshake');
+	const { token } = await handshake.json();
+	await page.request.patch('/api/v1/model-gateway/providers/nvidia_nim', {
+		headers: { 'X-Local-Control-Token': token },
+		data: { enabled: true, healthStatus: 'healthy', lastError: 'Authorization: Bearer sk-websecret123456' },
+	});
+	await page.goto('/#models');
+	await page.getByRole('button', { name: 'Model Gateway' }).click();
+
+	await expect(page.locator('body')).not.toContainText('sk-websecret');
+	await expect(page.getByText('NVIDIA_NIM_API_KEY').first()).toBeVisible();
+	await page.getByLabel('Preview role').selectOption('analyst');
+	await page.getByLabel('Preview mode').selectOption('free_first');
+	await page.getByLabel('Preview task type').fill('research_brief');
+	await page.getByLabel('Preview context tokens').fill('4000');
+	await page.getByLabel('Preview requires search').check();
+	await page.getByRole('button', { name: 'Preview route' }).click();
+
+	await expect(page.getByText('Selected route')).toBeVisible();
+	await expect(page.getByText('nvidia_nim').first()).toBeVisible();
+	await expect(page.locator('body')).not.toContainText('sk-');
+});
+
 test('strict configuration forms prevent manual JSON edits', async ({ page }) => {
 	await page.goto('/#agents');
 	await page.getByRole('button', { name: 'Agents' }).click();

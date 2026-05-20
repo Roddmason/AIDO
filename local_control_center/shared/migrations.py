@@ -613,6 +613,15 @@ def init_phase3_schema(connection: sqlite3.Connection) -> None:
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         );
+        """
+    )
+    _add_column_if_missing(connection, "workspaces", "task_id", "task_id TEXT NOT NULL DEFAULT ''")
+    _add_column_if_missing(connection, "workspaces", "status", "status TEXT NOT NULL DEFAULT 'active'")
+    _add_column_if_missing(connection, "workspace_allocations", "task_id", "task_id TEXT NOT NULL DEFAULT ''")
+    _add_column_if_missing(connection, "workspace_allocations", "status", "status TEXT NOT NULL DEFAULT 'allocated'")
+    _add_column_if_missing(connection, "test_results", "status", "status TEXT NOT NULL DEFAULT 'unknown'")
+    connection.executescript(
+        """
         CREATE INDEX IF NOT EXISTS idx_workspaces_task_active
             ON workspaces(project_id, task_id, status);
         CREATE INDEX IF NOT EXISTS idx_workspace_allocations_workspace

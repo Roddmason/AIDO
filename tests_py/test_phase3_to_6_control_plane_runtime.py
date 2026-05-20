@@ -61,6 +61,45 @@ def test_phase3_to_6_schema_adds_workspaces_runtime_skills_and_evidence_tables(t
     } <= tables
 
 
+def test_phase3_schema_upgrades_legacy_workspace_tables_before_indexes(tmp_path: Path) -> None:
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        connection.executescript(
+            """
+            CREATE TABLE workspaces (
+                id TEXT PRIMARY KEY,
+                project_id TEXT NOT NULL,
+                owner_agent_id TEXT NOT NULL,
+                path TEXT NOT NULL UNIQUE,
+                status TEXT NOT NULL,
+                isolation_type TEXT NOT NULL,
+                metadata TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                archived_at TEXT
+            );
+            CREATE TABLE workspace_allocations (
+                id TEXT PRIMARY KEY,
+                workspace_id TEXT NOT NULL,
+                project_id TEXT NOT NULL,
+                agent_id TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                released_at TEXT
+            );
+            """
+        )
+
+        initialize_platform_schema(connection)
+        workspace_columns = {row["name"] for row in connection.execute("PRAGMA table_info(workspaces)").fetchall()}
+        allocation_columns = {row["name"] for row in connection.execute("PRAGMA table_info(workspace_allocations)").fetchall()}
+        indexes = {row["name"] for row in connection.execute("PRAGMA index_list(workspaces)").fetchall()}
+
+    assert "task_id" in workspace_columns
+    assert "task_id" in allocation_columns
+    assert "status" in allocation_columns
+    assert "idx_workspaces_task_active" in indexes
+
+
 def test_command_classifier_and_policy_engine_gate_sensitive_actions(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
     store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")

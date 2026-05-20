@@ -39,6 +39,9 @@ def _endpoint_rows(openapi: dict[str, Any]) -> list[dict[str, str]]:
 def render_client(openapi: dict[str, Any]) -> str:
     endpoints = _endpoint_rows(openapi)
     endpoint_lines = ",\n".join(f"\t{_literal(endpoint)}" for endpoint in endpoints)
+    operation_lines = ",\n".join(
+        f"\t{_literal(endpoint['operationId'])}: {_literal(endpoint)}" for endpoint in endpoints if endpoint["operationId"]
+    )
     return f"""// Generated from FastAPI OpenAPI. Do not edit by hand.
 // No network access is required; run `corepack pnpm@10.24.0 run openapi:generate`.
 
@@ -53,9 +56,67 @@ export type ApiEndpoint = (typeof API_ENDPOINTS)[number];
 export type ApiMethod = ApiEndpoint["method"];
 export type ApiPath = ApiEndpoint["path"];
 export type ApiOperationId = ApiEndpoint["operationId"];
+export type OperationById<T extends ApiOperationId> = Extract<ApiEndpoint, {{ operationId: T }}>;
+export type OperationPath<T extends ApiOperationId> = OperationById<T>["path"];
+export type OperationMethod<T extends ApiOperationId> = OperationById<T>["method"];
+
+export const OPERATIONS_BY_ID = {{
+{operation_lines}
+}} as const satisfies Record<ApiOperationId, ApiEndpoint>;
+
+export type GeneratedRequestOptions = {{
+\tpathParams?: Record<string, string | number>;
+\tquery?: Record<string, string | number | boolean | null | undefined>;
+\ttoken?: string;
+\tbody?: unknown;
+\tsignal?: AbortSignal;
+}};
 
 export function findEndpoint(method: ApiMethod, path: ApiPath): ApiEndpoint | undefined {{
 \treturn API_ENDPOINTS.find((endpoint) => endpoint.method === method && endpoint.path === path);
+}}
+
+export function buildApiPath(
+\tpath: string,
+\tpathParams: Record<string, string | number> = {{}},
+\tquery: Record<string, string | number | boolean | null | undefined> = {{}},
+): string {{
+\tconst resolvedPath = path.replace(/\\{{([^}}]+)\\}}/g, (_match, key: string) => {{
+\t\tconst value = pathParams[key];
+\t\tif (value === undefined || value === null) {{
+\t\t\tthrow new Error(`Missing path parameter: ${{key}}`);
+\t\t}}
+\t\treturn encodeURIComponent(String(value));
+\t}});
+\tconst params = new URLSearchParams();
+\tfor (const [key, value] of Object.entries(query)) {{
+\t\tif (value !== undefined && value !== null) params.set(key, String(value));
+\t}}
+\tconst queryString = params.toString();
+\treturn queryString ? `${{resolvedPath}}?${{queryString}}` : resolvedPath;
+}}
+
+export async function requestGeneratedOperation<TResponse = unknown>(
+\toperationId: ApiOperationId,
+\toptions: GeneratedRequestOptions = {{}},
+): Promise<TResponse> {{
+\tconst endpoint = OPERATIONS_BY_ID[operationId];
+\tconst headers: Record<string, string> = {{ Accept: "application/json" }};
+\tif (options.body !== undefined) headers["Content-Type"] = "application/json";
+\tif (options.token) headers["X-Local-Control-Token"] = options.token;
+\tconst response = await fetch(buildApiPath(endpoint.path, options.pathParams, options.query), {{
+\t\tmethod: endpoint.method,
+\t\theaders,
+\t\tbody: options.body === undefined ? undefined : JSON.stringify(options.body),
+\t\tsignal: options.signal,
+\t}});
+\tconst text = await response.text();
+\tconst payload = text ? JSON.parse(text) : {{}};
+\tif (!response.ok) {{
+\t\tconst detail = payload.detail ?? payload.error ?? response.statusText;
+\t\tthrow new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
+\t}}
+\treturn payload as TResponse;
 }}
 """
 

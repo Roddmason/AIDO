@@ -33,6 +33,10 @@ def test_generated_openapi_client_is_checked_in_and_v1_only() -> None:
     assert ("/api/" + "state") not in content
     assert "export type ApiPath" in content
     assert "export type ApiEndpoint" in content
+    assert "export const OPERATIONS_BY_ID" in content
+    assert "export type OperationById" in content
+    assert "export function buildApiPath" in content
+    assert "export async function requestGeneratedOperation" in content
 
 
 def test_openapi_generation_script_documents_no_network_dependency() -> None:

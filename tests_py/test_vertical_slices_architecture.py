@@ -328,6 +328,21 @@ def test_shared_event_bus_tests_use_direct_repository_setup() -> None:
     assert "ControlPlaneFixture" not in event_bus_tests
 
 
+def test_repository_level_telemetry_tests_use_direct_sqlite_setup() -> None:
+    telemetry_tests = read("tests_py/test_observability_telemetry.py")
+    repository_test = telemetry_tests.split(
+        "def test_policy_tool_and_model_operations_emit_trace_events",
+        1,
+    )[1].split("def test_external_telemetry_exporter_is_optional", 1)[0]
+    exporter_test = telemetry_tests.split(
+        "def test_external_telemetry_exporter_is_optional",
+        1,
+    )[1]
+
+    assert "ControlPlaneFixture" not in repository_test
+    assert "ControlPlaneFixture" not in exporter_test
+
+
 def test_active_runtime_does_not_import_store_facade() -> None:
     root_api = read("local_control_center/api.py")
     cli_source = read("local_control_center/cli.py")

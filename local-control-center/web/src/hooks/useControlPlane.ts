@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { getHandshake, getOverview, getRetrievalStatus, getRuntimeProviders } from '../api/client';
-import type { Dictionary, Overview, RuntimeProviders } from '../api/types';
+import type { Overview, RetrievalStatus, RuntimeProviders } from '../api/types';
 
 type ControlPlaneState = {
 	token: string;
 	overview: Overview | null;
-	retrievalStatus: Dictionary | null;
+	retrievalStatus: RetrievalStatus | null;
 	runtimeProviders: RuntimeProviders | null;
 	loading: boolean;
 	error: string;

@@ -253,6 +253,9 @@
 - Frontend policy revision drawers now consume the generated
   `PolicyRevisionRecord` alias instead of generic `Dictionary` state, keeping
   sandbox policy diffs tied to the OpenAPI contract.
+- The central React control-plane hook now keeps retrieval status typed as
+  `RetrievalStatusResponse`, so stable backend posture does not widen back to
+  an unstructured frontend object.
 
 ## Next Backend Work
 

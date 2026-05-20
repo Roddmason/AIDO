@@ -18,7 +18,7 @@ class ArchitectureDecisionCreateRequest(BaseModel):
     status: DecisionStatus = "proposed"
     context: str = ""
     decision: str = ""
-    consequences: list[Any] = Field(default_factory=list)
+    consequences: list[Any] | str = Field(default_factory=list)
     linked_risk_ids: list[str] = Field(default_factory=list, alias="linkedRiskIds")
     next_step_ids: list[str] = Field(default_factory=list, alias="nextStepIds")
     metadata: dict[str, Any] = Field(default_factory=dict)

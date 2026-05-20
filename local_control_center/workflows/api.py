@@ -11,6 +11,7 @@ from ..governance.signals import record_governance_risk
 from ..jobs_approvals.repository import JobsRepository
 from ..shared.event_bus import EventBus
 from ..workspaces_projects.repository import WorkspacesRepository
+from .models import WorkflowCreateRequest, WorkflowResponse, WorkflowStartResponse, WorkflowStatusChangeRequest
 from .repository import WorkflowsRepository
 
 
@@ -23,22 +24,23 @@ ALLOWED_WORKFLOW_KINDS = {
 }
 
 
-def validate_workflow_create_body(body: dict[str, Any]) -> dict[str, Any]:
-    kind = str(body.get("kind") or "idea_to_pr").strip().lower()
+def validate_workflow_create_body(body: WorkflowCreateRequest) -> dict[str, Any]:
+    payload = body.model_dump(by_alias=True)
+    kind = str(payload.get("kind") or "idea_to_pr").strip().lower()
     if kind not in ALLOWED_WORKFLOW_KINDS:
         raise HTTPException(
             status_code=422,
             detail=f"kind must be one of: {', '.join(sorted(ALLOWED_WORKFLOW_KINDS))}.",
         )
-    title = str(body.get("title") or body.get("idea") or "").strip()
+    title = str(payload.get("title") or payload.get("idea") or "").strip()
     if not title:
         raise HTTPException(status_code=422, detail="Workflow title is required.")
     if len(title) > 180:
         raise HTTPException(status_code=422, detail="Workflow title must be 180 characters or fewer.")
-    metadata = body.get("metadata") or {}
+    metadata = payload.get("metadata") or {}
     if not isinstance(metadata, dict):
         raise HTTPException(status_code=422, detail="metadata must be an object.")
-    return {"project_id": body["projectId"], "kind": kind, "title": title, "metadata": metadata}
+    return {"project_id": payload["projectId"], "kind": kind, "title": title, "metadata": metadata}
 
 
 def create_router(*, platform: Any, require_write: Callable[[Request], None]) -> APIRouter:
@@ -71,15 +73,15 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             "workflowSteps": repo.list_workflow_steps(),
         }
 
-    @router.post("/api/v1/workflows", status_code=201)
-    async def create_workflow(request: Request) -> dict[str, Any]:
+    @router.post("/api/v1/workflows", status_code=201, response_model=WorkflowResponse)
+    async def create_workflow(body: WorkflowCreateRequest, request: Request) -> dict[str, Any]:
         require_write(request)
-        body = validate_workflow_create_body(await request.json())
+        validated = validate_workflow_create_body(body)
         workflow = repository().create_workflow(
-            project_id=body["project_id"],
-            kind=body["kind"],
-            title=body["title"],
-            metadata=body["metadata"],
+            project_id=validated["project_id"],
+            kind=validated["kind"],
+            title=validated["title"],
+            metadata=validated["metadata"],
         )
         event_bus().record_event(project_id=workflow["projectId"], event_type="workflow.created", payload={"workflowId": workflow["id"]})
         return {"workflow": workflow}
@@ -106,11 +108,10 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
 
-    @router.post("/api/v1/workflows/{workflow_id}/start", status_code=202)
-    async def start_workflow(workflow_id: str, request: Request) -> dict[str, Any]:
+    @router.post("/api/v1/workflows/{workflow_id}/start", status_code=202, response_model=WorkflowStartResponse)
+    async def start_workflow(workflow_id: str, body: WorkflowStatusChangeRequest, request: Request) -> dict[str, Any]:
         require_write(request)
-        body = await request.json()
-        result = repository().start_workflow(workflow_id, reason=body.get("reason", ""))
+        result = repository().start_workflow(workflow_id, reason=body.reason)
         event_bus().record_event(
             project_id=result["workflow"]["projectId"],
             event_type="workflow.started",
@@ -118,27 +119,24 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         )
         return result
 
-    @router.post("/api/v1/workflows/{workflow_id}/pause", status_code=202)
-    async def pause_workflow(workflow_id: str, request: Request) -> dict[str, Any]:
+    @router.post("/api/v1/workflows/{workflow_id}/pause", status_code=202, response_model=WorkflowResponse)
+    async def pause_workflow(workflow_id: str, body: WorkflowStatusChangeRequest, request: Request) -> dict[str, Any]:
         require_write(request)
-        body = await request.json()
-        workflow = repository().update_workflow_status(workflow_id, status="paused", reason=body.get("reason", ""))
+        workflow = repository().update_workflow_status(workflow_id, status="paused", reason=body.reason)
         event_bus().record_event(project_id=workflow["projectId"], event_type="workflow.paused", payload={"workflowId": workflow_id})
         return {"workflow": workflow}
 
-    @router.post("/api/v1/workflows/{workflow_id}/resume", status_code=202)
-    async def resume_workflow(workflow_id: str, request: Request) -> dict[str, Any]:
+    @router.post("/api/v1/workflows/{workflow_id}/resume", status_code=202, response_model=WorkflowResponse)
+    async def resume_workflow(workflow_id: str, body: WorkflowStatusChangeRequest, request: Request) -> dict[str, Any]:
         require_write(request)
-        body = await request.json()
-        workflow = repository().update_workflow_status(workflow_id, status="running", reason=body.get("reason", ""))
+        workflow = repository().update_workflow_status(workflow_id, status="running", reason=body.reason)
         event_bus().record_event(project_id=workflow["projectId"], event_type="workflow.resumed", payload={"workflowId": workflow_id})
         return {"workflow": workflow}
 
-    @router.post("/api/v1/workflows/{workflow_id}/cancel", status_code=202)
-    async def cancel_workflow(workflow_id: str, request: Request) -> dict[str, Any]:
+    @router.post("/api/v1/workflows/{workflow_id}/cancel", status_code=202, response_model=WorkflowResponse)
+    async def cancel_workflow(workflow_id: str, body: WorkflowStatusChangeRequest, request: Request) -> dict[str, Any]:
         require_write(request)
-        body = await request.json()
-        workflow = repository().update_workflow_status(workflow_id, status="cancelled", reason=body.get("reason", ""))
+        workflow = repository().update_workflow_status(workflow_id, status="cancelled", reason=body.reason)
         event_bus().record_event(project_id=workflow["projectId"], event_type="workflow.cancelled", payload={"workflowId": workflow_id})
         risk = record_governance_risk(
             platform.connection,
@@ -147,7 +145,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             source_type="workflow_status",
             source_id=workflow["id"],
             severity="medium",
-            description=body.get("reason", "Workflow was cancelled before completion."),
+            description=body.reason or "Workflow was cancelled before completion.",
             mitigation="Review workflow events, open approvals, and evidence gaps before retrying.",
             owner="technical_lead",
             metadata={"status": workflow["status"]},

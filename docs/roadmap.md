@@ -131,6 +131,9 @@
   health, loopback handshake, and retrieval status, so the generated frontend
   DTOs use `HealthResponse`, `HandshakeResponse`, and
   `RetrievalStatusResponse` instead of `JsonObject` fallbacks.
+- High-traffic mutating routes for workflow creation/status changes, agent
+  profile upserts, and model policy upserts now expose Pydantic request/response
+  contracts, so generated operation request bodies are no longer `unknown`.
 - Command palette and workflow inspector are backed by FastAPI v1 state rather
   than client-invented data.
 - The command palette can create workflows, focus pending approvals, and open a
@@ -155,9 +158,9 @@
 1. Keep tightening tests around direct repositories and
    `tests_py/control_plane_fixture.py` where broad fixture setup is still
    noisier than the behavior under test.
-2. Continue adding explicit Pydantic request/response models to mutating
-   FastAPI routes and larger overview subresources so generated DTOs become
-   domain-specific instead of `JsonObject` fallbacks.
+2. Continue adding explicit Pydantic request/response models to remaining
+   mutating FastAPI routes and larger overview subresources so generated DTOs
+   become domain-specific instead of `JsonObject` fallbacks.
 3. Run the installed-runtime issue-to-patch smoke on a release validation
    runner with OpenHands/SWE-agent installed and exact argv env vars supplied.
 

@@ -123,5 +123,7 @@ handling. It also emits `OperationRequestBody<T>` and
 `OperationResponse<T>` aliases from the OpenAPI schemas. The active API client
 now routes JSON calls through generated operation IDs. Health, handshake, and
 retrieval status already generate named DTOs from Pydantic response models;
-domain-specific frontend interfaces remain as refinements for routes that still
-return generic dictionaries.
+workflow create/status mutations, agent profile upserts, and model policy
+upserts now generate named request DTOs as well. Domain-specific frontend
+interfaces remain as refinements for routes that still return generic
+dictionaries.

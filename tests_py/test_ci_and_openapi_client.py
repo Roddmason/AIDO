@@ -43,6 +43,10 @@ def test_generated_openapi_client_is_checked_in_and_v1_only() -> None:
     assert '"healthz_healthz_get": HealthResponse' in content
     assert '"handshake_api_v1_security_handshake_get": HandshakeResponse' in content
     assert '"retrieval_status_api_v1_retrieval_status_get": RetrievalStatusResponse' in content
+    assert '"create_workflow_api_v1_workflows_post": WorkflowCreateRequest' in content
+    assert '"start_workflow_api_v1_workflows__workflow_id__start_post": WorkflowStatusChangeRequest' in content
+    assert '"upsert_agent_profile_api_v1_agent_profiles_post": AgentProfileUpsertRequest' in content
+    assert '"upsert_model_policy_api_v1_model_policies_post": ModelPolicyUpsertRequest' in content
     assert "export function buildApiPath" in content
     assert "export async function requestGeneratedOperation" in content
 

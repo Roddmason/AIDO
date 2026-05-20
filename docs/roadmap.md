@@ -250,6 +250,9 @@
 - Frontend retrieval status and artifact preview surfaces now consume generated
   `RetrievalStatusResponse` and `ArtifactRecord` aliases instead of broad
   `Dictionary` rows.
+- Frontend policy revision drawers now consume the generated
+  `PolicyRevisionRecord` alias instead of generic `Dictionary` state, keeping
+  sandbox policy diffs tied to the OpenAPI contract.
 
 ## Next Backend Work
 

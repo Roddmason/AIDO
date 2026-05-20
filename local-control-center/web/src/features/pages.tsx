@@ -11,7 +11,7 @@ import {
 	updateSandboxProfile,
 } from '../api/client';
 import type { ArtifactPayload } from '../api/client';
-import type { Artifact, Dictionary, Overview, RetrievalStatus, RuntimeProviders } from '../api/types';
+import type { Artifact, Dictionary, Overview, PolicyRevision, RetrievalStatus, RuntimeProviders } from '../api/types';
 import { Badge, DataTable, Drawer, EmptyState, PageHeader, Surface } from '../components/primitives';
 import { artifactDisplayName, artifactMimeType, artifactSizeLabel } from '../lib/artifacts';
 import { toneForStatus } from '../lib/format';
@@ -119,7 +119,7 @@ export function WorkspacesPage({ overview }: { overview: Overview }) {
 export function PolicySecurityPage({ overview, mutate }: { overview: Overview; mutate: Mutate }) {
 	const defaultProfile = String(overview.sandboxProfiles[0]?.id ?? 'default_docker');
 	const [profileId, setProfileId] = useState(defaultProfile);
-	const [selectedRevision, setSelectedRevision] = useState<Dictionary | null>(null);
+	const [selectedRevision, setSelectedRevision] = useState<PolicyRevision | null>(null);
 	const [sandboxReason, setSandboxReason] = useState('');
 	const [sandboxImage, setSandboxImage] = useState('python:3.12-slim');
 	const [sandboxMemory, setSandboxMemory] = useState('512m');

@@ -48,22 +48,62 @@ class ArtifactIngestRequest(BaseModel):
     mime_type: str | None = Field(default=None, alias="mimeType")
 
 
+class EvidencePackageRecord(BaseModel):
+    id: str
+    project_id: str = Field(alias="projectId")
+    workflow_run_id: str | None = Field(default=None, alias="workflowRunId")
+    agent_id: str | None = Field(default=None, alias="agentId")
+    task_id: str = Field(alias="taskId")
+    test_plan: str = Field(alias="testPlan")
+    acceptance_checklist: list[Any] = Field(alias="acceptanceChecklist")
+    test_results: list[Any] = Field(alias="testResults")
+    logs: list[Any]
+    diff_refs: list[Any] = Field(alias="diffRefs")
+    screenshot_refs: list[Any] = Field(alias="screenshotRefs")
+    risk_notes: list[Any] = Field(alias="riskNotes")
+    qa_verdict: str = Field(alias="qaVerdict")
+    created_at: str = Field(alias="createdAt")
+
+
+class TestResultRecord(BaseModel):
+    id: str
+    project_id: str = Field(alias="projectId")
+    evidence_package_id: str = Field(alias="evidencePackageId")
+    command: str
+    status: str
+    duration_ms: int | None = Field(default=None, alias="durationMs")
+    output_ref: str | None = Field(default=None, alias="outputRef")
+    metadata: dict[str, Any]
+    created_at: str = Field(alias="createdAt")
+
+
+class ArtifactRecord(BaseModel):
+    id: str
+    project_id: str = Field(alias="projectId")
+    evidence_package_id: str | None = Field(default=None, alias="evidencePackageId")
+    kind: str
+    path: str
+    hash: str | None = None
+    metadata: dict[str, Any]
+    created_at: str = Field(alias="createdAt")
+
+
 class EvidencePackageResponse(BaseModel):
-    evidence_package: dict[str, Any] = Field(alias="evidencePackage")
+    evidence_package: EvidencePackageRecord = Field(alias="evidencePackage")
 
 
 class EvidenceListResponse(BaseModel):
-    evidence_packages: list[dict[str, Any]] = Field(alias="evidencePackages")
+    evidence_packages: list[EvidencePackageRecord] = Field(alias="evidencePackages")
 
 
 class EvidenceDetailResponse(BaseModel):
-    evidence_package: dict[str, Any] = Field(alias="evidencePackage")
-    test_result_records: list[dict[str, Any]] = Field(alias="testResultRecords")
-    artifacts: list[dict[str, Any]]
+    evidence_package: EvidencePackageRecord = Field(alias="evidencePackage")
+    test_result_records: list[TestResultRecord] = Field(alias="testResultRecords")
+    artifacts: list[ArtifactRecord]
 
 
 class ArtifactResponse(BaseModel):
-    artifact: dict[str, Any]
+    artifact: ArtifactRecord
 
 
 class ArtifactCleanupResponse(BaseModel):

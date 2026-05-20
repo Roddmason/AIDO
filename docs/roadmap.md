@@ -172,6 +172,9 @@
 - Project catalog and workspace allocation/archive responses now use row-level
   DTOs, including project templates, providers, teams, catalog agents, and
   isolated workspace records.
+- Evidence package, test-result, and artifact read/mutation responses now use
+  row-level DTOs, so QA/evidence surfaces no longer depend on generic response
+  rows for their stable records.
 - Shared event-bus tests now use direct SQLite/repository setup instead of the
   broad app fixture; an architecture guardrail prevents that regression.
 - Command palette and workflow inspector are backed by FastAPI v1 state rather

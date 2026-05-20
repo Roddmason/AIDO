@@ -94,6 +94,14 @@ release-profile only: set `AIDO_RUNTIME_ISSUE_TO_PATCH_SMOKE=1` plus
 The script still submits the run through the agent profile, tool broker,
 policy, sandbox, and evidence path; it never launches those runtimes directly.
 
+For release validation runners, set `AIDO_RUNTIME_RELEASE_VALIDATION=1`.
+That mode forces `issue_to_patch` smoke on and fails early unless both runtime
+argv variables and their matching issue text variables are supplied:
+`AIDO_OPENHANDS_ISSUE_TO_PATCH_ARGV_JSON`,
+`AIDO_OPENHANDS_ISSUE_TEXT`, `AIDO_SWE_AGENT_ISSUE_TO_PATCH_ARGV_JSON`, and
+`AIDO_SWE_AGENT_ISSUE_TEXT`. The first argv element must resolve to an
+installed command or an existing executable path on the runner.
+
 ## Runtime Adapter Execution
 
 The broker has executable adapter hooks for:

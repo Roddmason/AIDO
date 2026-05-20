@@ -109,6 +109,10 @@
 - Runtime adapter smoke now auto-detects installed OpenHands and SWE-agent CLIs
   and routes `--version` checks through broker, policy, and sandbox before any
   deeper release profile runs.
+- Runtime adapter release-validation smoke now has a strict mode:
+  `AIDO_RUNTIME_RELEASE_VALIDATION=1` forces `issue_to_patch` smoke and fails
+  unless OpenHands/SWE-agent argv and issue text variables are supplied and the
+  configured executable resolves on the runner.
 - OpenHands and SWE-agent adapters now expose versioned issue-to-patch
   contracts and reject missing `issueText`, missing workspace path, malformed
   `argv`, wrong executable, and dangerous runtime flags before install
@@ -187,8 +191,9 @@
 2. Replace dict-based row payloads inside high-traffic response models with
    narrower row DTOs where the schema is stable enough to enforce without
    freezing still-evolving internal metadata.
-3. Run the installed-runtime issue-to-patch smoke on a release validation
-   runner with OpenHands/SWE-agent installed and exact argv env vars supplied.
+3. Run the strict installed-runtime issue-to-patch smoke on a release
+   validation runner with OpenHands/SWE-agent installed and exact argv/issue
+   env vars supplied.
 
 ## Next Frontend Work
 

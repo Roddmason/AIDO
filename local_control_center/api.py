@@ -11,6 +11,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from .agents.api import create_router as create_agents_router
+from .control_plane.models import OverviewResponse
 from .control_plane.overview import build_overview_from_connection
 from .evidence.api import create_router as create_evidence_router
 from .governance.api import create_router as create_governance_router
@@ -25,7 +26,7 @@ from .sessions_chats.api import create_router as create_sessions_chats_router
 from .control_plane.runtime import ControlCenterRuntime
 from .shared.db import open_sqlite_connection
 from .shared.migrations import initialize_platform_schema
-from .shared.schemas import HandshakeResponse, HealthResponse, OverviewResponse, TelemetryStatusResponse
+from .shared.schemas import HandshakeResponse, HealthResponse, TelemetryStatusResponse
 from .shared.telemetry import (
     configure_external_telemetry_from_env,
     elapsed_ms,

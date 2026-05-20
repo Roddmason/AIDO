@@ -79,6 +79,13 @@ def test_generated_openapi_client_is_checked_in_and_v1_only() -> None:
     assert '"plan_artifact_retention_api_v1_evidence_artifacts_retention_post": ArtifactRetentionPlanRequest' in content
     assert '"apply_artifact_retention_action_api_v1_evidence_artifacts_retention_actions_post": ArtifactRetentionActionRequest' in content
     assert '"overview_api_v1_overview_get": OverviewResponse' in content
+    overview_line = next(line for line in content.splitlines() if line.startswith("export type OverviewResponse = "))
+    assert '"projects": Array<ProjectRecord>' in overview_line
+    assert '"jobs": Array<JobRecord>' in overview_line
+    assert '"actionRequests": Array<ActionRequestRecord>' in overview_line
+    assert '"runtimeWorkspaces": Array<WorkspaceRecord>' in overview_line
+    assert '"evidencePackages": Array<EvidencePackageRecord>' in overview_line
+    assert '"architectureDecisions": Array<ArchitectureDecisionRecord>' in overview_line
     assert '"list_jobs_api_v1_jobs_get": JobsListResponse' in content
     assert '"approvals_api_v1_approvals_get": ApprovalsListResponse' in content
     assert "export type JobRecord" in content

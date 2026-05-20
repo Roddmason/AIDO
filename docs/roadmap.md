@@ -175,6 +175,9 @@
 - Evidence package, test-result, and artifact read/mutation responses now use
   row-level DTOs, so QA/evidence surfaces no longer depend on generic response
   rows for their stable records.
+- The primary overview read model now reuses row-level DTOs for projects,
+  jobs, action requests, runtime workspaces, evidence, and governance records,
+  reducing frontend refinement risk on the dashboard's highest-traffic query.
 - Shared event-bus tests now use direct SQLite/repository setup instead of the
   broad app fixture; an architecture guardrail prevents that regression.
 - Repository-level telemetry tests now use direct SQLite/repository setup while

@@ -21,17 +21,18 @@ Execution is disabled by default. Detection and health checks are safe.
 
 ## Testing
 
-Tests verify missing Codex/Claude binaries return `not_installed`, dangerous flags are blocked, JSON/JSONL usage events are parsed and sessions list as JSON.
+Tests verify missing Codex/Claude binaries return `not_installed`, dangerous flags are blocked, generic JSON/JSONL usage events and runtime-specific aliases are parsed, and sessions list as JSON.
 
 ## Risks
 
 - Real CLI execution must stay workspace-bound and policy-approved.
 - Output artifacts are currently planned for real execution; mock execution does not create logs.
 - Usage parsing only trusts structured usage payloads; plain text output is not token-counted to avoid false precision.
+- Supported alias shapes include `usage`, `token_usage`, `tokens`, `message.usage`, `metrics.token_usage` and `llm_metrics`.
 
 ## Limitations
 
-- The adapters build safe command lines, detect binaries and parse generic JSON/JSONL usage events. Runtime-specific event streams still need contract-level parsers before real execution should be treated as high-fidelity telemetry.
+- The adapters build safe command lines, detect binaries and parse generic/runtime-alias JSON or JSONL usage events. Runtime-specific schemas can still change, so unrecognized shapes remain `None` instead of guessed token counts.
 
 ## Example
 

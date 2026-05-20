@@ -19,10 +19,12 @@ The Model Gateway is the local-first control surface for model API providers, CL
 - `GET/POST/PATCH /api/v1/model-gateway/role-policies`
 - `POST /api/v1/model-gateway/route/preview`
 - `POST /api/v1/model-gateway/route/execute-mock`
+- `POST /api/v1/model-gateway/route/execute`
 - `GET /api/v1/model-gateway/usage-ledger`
 - `GET /api/v1/model-gateway/usage-ledger/summary`
 - `GET /api/v1/model-gateway/routing-decisions`
 - `GET /api/v1/model-gateway/benchmarks`
+- `GET/POST /api/v1/model-gateway/benchmark-outcomes`
 - `GET/PATCH /api/v1/model-gateway/provider-limits`
 - `GET/POST/PATCH /api/v1/model-gateway/budget-rules`
 - `GET /api/v1/model-gateway/cli-runtimes`
@@ -46,8 +48,8 @@ corepack pnpm@10.24.0 run openapi:generate
 
 ## Limitations
 
-- The HTTP execution route remains `execute-mock`; real provider and CLI execution require explicit safety enablement and should be added behind policy gates, not as a silent fallback.
-- Benchmarks derive usage/cost/latency from `usage_ledger`; success, QA pass rate and rework stay empty until outcome records are collected.
+- `route/execute` is present but fail-closed: API provider calls require `AIDO_ENABLE_REAL_PROVIDER_CALLS=true`, configured credentials, budget/quota clearance and no pending approval requirement. CLI execution remains delegated to policy-approved agent runtime sessions.
+- Benchmarks derive usage/cost/latency from `usage_ledger` and success/QA/rework from `model_benchmark_outcomes`.
 
 ## Example
 

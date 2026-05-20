@@ -15,12 +15,13 @@ The default mode is `balanced_best_value`. Seeds live in SQLite and an editable 
 - `GET /api/v1/model-gateway/routing-profiles`
 - `GET /api/v1/model-gateway/role-policies`
 - `POST /api/v1/model-gateway/route/preview`
+- `POST /api/v1/model-gateway/route/execute`
 - `GET /api/v1/model-gateway/routing-decisions`
 - `GET /api/v1/model-gateway/benchmarks`
 
 ## Testing
 
-Tests cover NVIDIA-first free routing, `local_private` remote blocking, CLI preference for developer code edits, technical lead xhigh escalation, approval thresholds and workflow-step routing decision linkage.
+Tests cover NVIDIA-first free routing, `local_private` remote blocking, CLI preference for developer code edits, technical lead xhigh escalation, approval thresholds, fail-closed real execution and workflow-step routing decision linkage.
 
 ## Risks
 
@@ -30,6 +31,7 @@ Tests cover NVIDIA-first free routing, `local_private` remote blocking, CLI pref
 ## Limitations
 
 - Benchmark-derived scoring is not active yet. The benchmark endpoint exposes usage-derived attempts/cost/latency, while outcome metrics remain empty until QA/success/rework collection is implemented.
+- Real execution does not override approval gates. If a selected route requires approval, `/route/execute` returns `409` before any provider or CLI call.
 
 ## Example
 

@@ -129,6 +129,7 @@ export type Overview = {
 	evidencePackages: Dictionary[];
 	testResultRecords: Dictionary[];
 	agentProfiles: AgentProfile[];
+	agentRuns: Dictionary[];
 	modelPolicies: Dictionary[];
 	modelProviders: ModelProvider[];
 	agentToolCalls: Dictionary[];

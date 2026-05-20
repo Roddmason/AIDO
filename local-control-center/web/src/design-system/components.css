@@ -173,6 +173,27 @@
 	gap: var(--space-2);
 }
 
+.command-list {
+	display: grid;
+	gap: var(--space-2);
+}
+
+.command-item {
+	min-height: 3.5rem;
+	display: grid;
+	gap: 0.2rem;
+	text-align: left;
+	padding: var(--space-3);
+	border: 1px solid var(--line);
+	border-radius: var(--radius-md);
+	background: var(--surface-panel);
+	color: var(--ink);
+}
+
+.command-item small {
+	color: var(--ink-muted);
+}
+
 .form-grid {
 	display: grid;
 	gap: var(--space-3);

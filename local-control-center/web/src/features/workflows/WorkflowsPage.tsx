@@ -1,8 +1,9 @@
 import { Background, Controls, ReactFlow, type Edge, type Node } from '@xyflow/react';
+import { useEffect, useMemo, useState } from 'react';
 
 import type { Overview, WorkflowStep } from '../../api/types';
-import { Badge, DataTable, EmptyState, PageHeader, Surface } from '../../components/primitives';
-import { toneForStatus } from '../../lib/format';
+import { Badge, DataTable, Drawer, EmptyState, PageHeader, Surface } from '../../components/primitives';
+import { shortId, toneForStatus } from '../../lib/format';
 
 function nodesFromSteps(steps: WorkflowStep[]): Node[] {
 	return steps.slice(0, 12).map((step, index) => ({
@@ -30,8 +31,55 @@ function edgesFromNodes(nodes: Node[]): Edge[] {
 }
 
 export function WorkflowsPage({ overview }: { overview: Overview }) {
+	const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(null);
 	const nodes = nodesFromSteps(overview.workflowSteps);
 	const edges = edgesFromNodes(nodes);
+	useEffect(() => {
+		const onKeyDown = (event: KeyboardEvent) => {
+			if (event.key === 'Escape') {
+				setSelectedWorkflowId(null);
+			}
+		};
+		window.addEventListener('keydown', onKeyDown);
+		return () => window.removeEventListener('keydown', onKeyDown);
+	}, []);
+	const selectedWorkflow = overview.workflows.find((workflow) => workflow.id === selectedWorkflowId) ?? overview.workflows[0];
+	const linked = useMemo(() => {
+		if (!selectedWorkflow) {
+			return {
+				runs: [],
+				steps: [],
+				workspaces: [],
+				jobs: [],
+				agentRuns: [],
+				toolCalls: [],
+				evidence: [],
+				testResults: [],
+				approvals: [],
+			};
+		}
+		const runs = overview.workflowRuns.filter((run) => String(run.workflowId ?? '') === selectedWorkflow.id);
+		const runIds = new Set(runs.map((run) => String(run.id ?? '')));
+		const steps = overview.workflowSteps.filter((step) => step.workflowId === selectedWorkflow.id);
+		const stepIds = new Set(steps.map((step) => step.id));
+		const jobs = overview.jobs.filter((job) => runIds.has(String(job.payload?.workflowRunId ?? job.workflowRunId ?? '')));
+		const jobIds = new Set(jobs.map((job) => job.id));
+		const agentRuns = overview.agentRuns.filter((run) => runIds.has(String(run.workflowRunId ?? '')) || stepIds.has(String(run.workflowStepId ?? '')));
+		const agentRunIds = new Set(agentRuns.map((run) => String(run.id ?? '')));
+		const evidence = overview.evidencePackages.filter((item) => runIds.has(String(item.workflowRunId ?? '')));
+		const evidenceIds = new Set(evidence.map((item) => String(item.id ?? '')));
+		return {
+			runs,
+			steps,
+			workspaces: overview.runtimeWorkspaces.filter((workspace) => runIds.has(String(workspace.workflowRunId ?? ''))),
+			jobs,
+			agentRuns,
+			toolCalls: overview.agentToolCalls.filter((toolCall) => agentRunIds.has(String(toolCall.agentRunId ?? ''))),
+			evidence,
+			testResults: overview.testResultRecords.filter((item) => evidenceIds.has(String(item.evidencePackageId ?? ''))),
+			approvals: overview.actionRequests.filter((approval) => jobIds.has(approval.jobId)),
+		};
+	}, [overview, selectedWorkflow]);
 	return (
 		<>
 			<PageHeader
@@ -55,6 +103,15 @@ export function WorkflowsPage({ overview }: { overview: Overview }) {
 						columns={[
 							{ key: 'title', label: 'Title', render: (row) => row.title },
 							{ key: 'status', label: 'Status', render: (row) => <Badge tone={toneForStatus(row.status)}>{row.status}</Badge> },
+							{
+								key: 'inspect',
+								label: 'Inspect',
+								render: (row) => (
+									<button className="button" type="button" aria-label={`Inspect workflow ${row.title}`} onClick={() => setSelectedWorkflowId(row.id)}>
+										Inspect
+									</button>
+								),
+							},
 						]}
 					/>
 				</Surface>
@@ -70,6 +127,63 @@ export function WorkflowsPage({ overview }: { overview: Overview }) {
 					/>
 				</Surface>
 			</div>
+			<Drawer label="Workflow inspector" open={selectedWorkflowId !== null} onClose={() => setSelectedWorkflowId(null)}>
+				<div className="drawer-body">
+					{selectedWorkflow ? (
+						<>
+							<Surface title={selectedWorkflow.title} flat>
+								<div className="inline">
+									<Badge tone={toneForStatus(selectedWorkflow.status)}>{selectedWorkflow.status}</Badge>
+									<span className="mono">{shortId(selectedWorkflow.id)}</span>
+									<span className="mono">{selectedWorkflow.kind ?? 'workflow'}</span>
+								</div>
+							</Surface>
+							<Surface title="Steps" flat>
+								<DataTable rows={linked.steps} empty={<EmptyState title="No steps" body="Start the workflow to expand steps." />} columns={[
+									{ key: 'name', label: 'Step', render: (row) => <span className="mono">{row.name}</span> },
+									{ key: 'status', label: 'Status', render: (row) => <Badge tone={toneForStatus(row.status)}>{row.status}</Badge> },
+								]} />
+							</Surface>
+							<Surface title="Evidence and tests" flat>
+								<DataTable rows={linked.evidence} empty={<EmptyState title="No evidence" body="QA packages linked to this workflow run appear here." />} columns={[
+									{ key: 'task', label: 'Task', render: (row) => String(row.taskId ?? '') },
+									{ key: 'verdict', label: 'Verdict', render: (row) => <Badge tone={toneForStatus(String(row.qaVerdict ?? ''))}>{String(row.qaVerdict ?? '')}</Badge> },
+								]} />
+								<DataTable rows={linked.testResults} empty={<EmptyState title="No test records" body="Test results appear after evidence ingestion." />} columns={[
+									{ key: 'command', label: 'Command', render: (row) => <span className="mono">{String(row.command ?? '')}</span> },
+									{ key: 'status', label: 'Status', render: (row) => <Badge tone={toneForStatus(String(row.status ?? ''))}>{String(row.status ?? '')}</Badge> },
+								]} />
+							</Surface>
+							<Surface title="Tool calls and approvals" flat>
+								<DataTable rows={linked.toolCalls} empty={<EmptyState title="No tool calls" body="Agent runtime calls linked to this workflow appear here." />} columns={[
+									{ key: 'tool', label: 'Tool', render: (row) => <span className="mono">{String(row.toolName ?? '')}</span> },
+									{ key: 'status', label: 'Status', render: (row) => <Badge tone={toneForStatus(String(row.status ?? ''))}>{String(row.status ?? '')}</Badge> },
+									{ key: 'command', label: 'Command', render: (row) => {
+										const payload = row.payload as Record<string, unknown> | undefined;
+										return <span className="mono">{String(payload?.command ?? '')}</span>;
+									} },
+								]} />
+								<DataTable rows={linked.approvals} empty={<EmptyState title="No approvals" body="Granular approvals linked to workflow jobs appear here." />} columns={[
+									{ key: 'action', label: 'Action', render: (row) => <span className="mono">{row.actionType}</span> },
+									{ key: 'risk', label: 'Risk', render: (row) => <Badge tone={toneForStatus(row.riskLevel)}>{row.riskLevel}</Badge> },
+								]} />
+							</Surface>
+							<Surface title="Workspaces and jobs" flat>
+								<DataTable rows={linked.workspaces} empty={<EmptyState title="No workspaces" body="Workspace allocations appear after implementation steps." />} columns={[
+									{ key: 'task', label: 'Task', render: (row) => <span className="mono">{String(row.taskId ?? '')}</span> },
+									{ key: 'status', label: 'Status', render: (row) => <Badge tone={toneForStatus(String(row.status ?? ''))}>{String(row.status ?? '')}</Badge> },
+								]} />
+								<DataTable rows={linked.jobs} empty={<EmptyState title="No jobs" body="Jobs linked to workflow runs appear here." />} columns={[
+									{ key: 'kind', label: 'Kind', render: (row) => <span className="mono">{row.kind}</span> },
+									{ key: 'status', label: 'Status', render: (row) => <Badge tone={toneForStatus(row.status)}>{row.status}</Badge> },
+								]} />
+							</Surface>
+						</>
+					) : (
+						<EmptyState title="No workflow selected" body="Choose a workflow to inspect its linked records." />
+					)}
+				</div>
+			</Drawer>
 		</>
 	);
 }

@@ -65,7 +65,7 @@ async function createWorkflowEvidence(page) {
 			testResults: [{ command: 'uv run pytest tests_py -q', status: 'passed' }],
 		},
 	});
-	return workflow;
+	return { ...workflow, workflowRunId: started.workflowRun.id };
 }
 
 async function createGovernanceState(page) {
@@ -118,7 +118,7 @@ async function createGovernanceState(page) {
 	return { decisionTitle, riskTitle, nextStepTitle };
 }
 
-async function createRuntimeTrace(page) {
+async function createRuntimeTrace(page, workflowRunId) {
 	const handshake = await page.request.get('/api/v1/security/handshake');
 	const { token } = await handshake.json();
 	const projectsResponse = await page.request.get('/api/v1/projects');
@@ -144,6 +144,7 @@ async function createRuntimeTrace(page) {
 			projectId: project.id,
 			agentProfileId: profileId,
 			taskId: 'web-policy-trace',
+			workflowRunId,
 			input: {
 				toolCalls: [
 					{
@@ -266,7 +267,7 @@ test('Workflows shows runs, steps, workspaces and evidence from backend', async 
 	await page.getByRole('button', { name: 'Workflows' }).click();
 
 	await expect(page.getByRole('heading', { name: 'Workflows' })).toBeVisible();
-	await expect(page.getByRole('cell', { name: workflow.title })).toBeVisible();
+	await expect(page.getByRole('cell', { name: workflow.title, exact: true })).toBeVisible();
 	await expect(page.getByText('workspace_create').first()).toBeVisible();
 	await expect(page.getByText('Workflow graph')).toBeVisible();
 });
@@ -418,4 +419,31 @@ test('strict operational forms cover workflows governance sandbox and MCP settin
 	await page.getByLabel('MCP transport').selectOption('stdio');
 	await page.getByRole('button', { name: 'Register MCP server' }).click();
 	await expect(page.getByRole('cell', { name: mcpId })).toBeVisible();
+});
+
+test('command palette executes v1 actions and workflow inspector shows linked records', async ({ page }) => {
+	const workflow = await createWorkflowEvidence(page);
+	await createRuntimeTrace(page, workflow.workflowRunId);
+	await createApprovalJob(page);
+	await page.goto('/');
+
+	await page.getByRole('button', { name: 'Open command palette' }).click();
+	await expect(page.getByRole('dialog', { name: 'Command palette' })).toBeVisible();
+	await page.getByLabel('Command palette filter').fill('workflow');
+	await page.getByRole('button', { name: 'Go to Workflows' }).click();
+	await expect(page.getByRole('heading', { name: 'Workflows' })).toBeVisible();
+
+	await page.getByRole('button', { name: `Inspect workflow ${workflow.title}` }).click();
+	await expect(page.getByRole('dialog', { name: 'Workflow inspector' })).toBeVisible();
+	await expect(page.getByText(workflow.title).first()).toBeVisible();
+	await expect(page.getByText('workspace_create').first()).toBeVisible();
+	await expect(page.getByText('web-story-evidence').first()).toBeVisible();
+	await expect(page.getByText('python --version').first()).toBeVisible();
+	await page.keyboard.press('Escape');
+	await expect(page.getByRole('dialog', { name: 'Workflow inspector' })).toBeHidden();
+
+	await page.getByRole('button', { name: 'Open command palette' }).click();
+	await page.getByLabel('Command palette filter').fill('approval');
+	await page.getByRole('button', { name: 'Open Pending Approvals' }).click();
+	await expect(page.getByRole('dialog', { name: 'Approval drawer' })).toBeVisible();
 });

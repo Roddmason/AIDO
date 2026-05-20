@@ -34,6 +34,8 @@ def test_optional_runtime_smoke_script_is_explicitly_opt_in() -> None:
     assert 'operation = "issue_to_patch"' in content
     assert "issueText" in content
     assert "X-Local-Control-Token" in content
+    assert "Skip OpenHands version smoke" in content
+    assert "Skip SWE-agent version smoke" in content
     assert "exit 0" in content
 
 

@@ -223,6 +223,10 @@
 - Local Semgrep coverage now checks four product-specific risks: shell
   execution outside policy/sandbox, `shell=True`, plaintext secret persistence,
   and optional runtime adapter bypasses.
+- Runtime adapter smoke now emits explicit skip reasons when OpenHands or
+  SWE-agent CLIs are not installed and no `AIDO_*_SMOKE_ARGV_JSON` override is
+  supplied, so optional-adapter validation is auditable instead of silently
+  skipped.
 
 ## Next Backend Work
 
@@ -231,7 +235,9 @@
    blocks non-HTTP regressions automatically.
 2. Run the strict installed-runtime issue-to-patch smoke on a release
    validation runner with OpenHands/SWE-agent installed and exact argv/issue
-   env vars supplied.
+   env vars supplied. The current Windows workstation has no OpenHands or
+   SWE-agent CLI on PATH, so local validation is limited to broker/API smoke
+   and explicit skip reporting.
 
 ## Next Frontend Work
 

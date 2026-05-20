@@ -163,6 +163,8 @@ if ($env:AIDO_OPENHANDS_SMOKE_ARGV_JSON) {
     if ($openhandsCommand) {
         Write-Host "Detected OpenHands CLI; running openhands --version through broker/policy."
         $argv = @($openhandsCommand, "--version")
+    } else {
+        Write-Host "Skip OpenHands version smoke. OpenHands CLI was not found and AIDO_OPENHANDS_SMOKE_ARGV_JSON is not set."
     }
 }
 if ($argv) {
@@ -215,6 +217,8 @@ if ($env:AIDO_SWE_AGENT_SMOKE_ARGV_JSON) {
     if ($sweAgentCommand) {
         Write-Host "Detected SWE-agent CLI; running swe-agent --version through broker/policy."
         $argv = @($sweAgentCommand, "--version")
+    } else {
+        Write-Host "Skip SWE-agent version smoke. SWE-agent CLI was not found and AIDO_SWE_AGENT_SMOKE_ARGV_JSON is not set."
     }
 }
 if ($argv) {

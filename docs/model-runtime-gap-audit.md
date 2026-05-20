@@ -148,5 +148,6 @@ Fecha: 2026-05-20
 - Se agregó fase 13 con `model_benchmark_outcomes` para recolectar outcomes explícitos sin guardar prompts.
 - `GET/POST /api/v1/model-gateway/benchmark-outcomes` permite registrar success, QA pass, rework, coste y latencia.
 - `GET /api/v1/model-gateway/benchmarks` ahora fusiona usage ledger y outcomes para métricas reales cuando existen.
-- `POST /api/v1/model-gateway/route/execute` existe y falla cerrado por defecto; requiere enablement explícito, credenciales configuradas, routing válido y ausencia de approval pendiente.
+- `POST /api/v1/model-gateway/route/execute` existe y falla cerrado por defecto; requiere enablement explícito, credenciales configuradas, routing válido y ausencia de approval pendiente. Cuando el routing requiere aprobación, crea un `action_request` `model.route.execute` antes de devolver `409`.
+- `POST /api/v1/evidence` ingiere automáticamente outcomes de benchmark cuando recibe `usageLedgerId` o identidad explícita de provider/model/runtime.
 - Los parsers CLI reconocen aliases estructurados comunes (`usage`, `token_usage`, `tokens`, `message.usage`, `metrics.token_usage`, `llm_metrics`) y devuelven `None` para texto libre.

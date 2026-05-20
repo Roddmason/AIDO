@@ -18,13 +18,13 @@ No credential is required. Providers and runtimes call `UsageLedger.record_usage
 
 ## Testing
 
-`test_usage_ledger_records_estimated_and_actual_usage` verifies estimated usage keeps `actualCostUsd = null` and provider usage can record actual cost. Benchmark tests verify usage-derived attempts, outcome-derived success/QA/rework rates, average cost and average latency.
+`test_usage_ledger_records_estimated_and_actual_usage` verifies estimated usage keeps `actualCostUsd = null` and provider usage can record actual cost. Benchmark tests verify usage-derived attempts, outcome-derived success/QA/rework rates, average cost and average latency, including automatic outcome ingestion from evidence linked to `usageLedgerId`.
 
 ## Risks
 
 - Providers without exact usage must mark `rawUsage.usage_source = "estimated"`.
 - Existing `cost_usage` is updated for compatibility, but detailed analysis should use `usage_ledger`.
-- Benchmark rows derived only from usage intentionally leave success, QA pass and rework metrics empty. Once `model_benchmark_outcomes` rows exist, those rates are computed as fractions from explicit outcomes.
+- Benchmark rows derived only from usage intentionally leave success, QA pass and rework metrics empty. Once `model_benchmark_outcomes` rows exist, those rates are computed as fractions from explicit or evidence-ingested outcomes.
 
 ## Limitations
 

@@ -30,8 +30,8 @@ Tests cover NVIDIA-first free routing, `local_private` remote blocking, CLI pref
 
 ## Limitations
 
-- Benchmark-derived scoring is not active yet. The benchmark endpoint exposes usage-derived attempts/cost/latency, while outcome metrics remain empty until QA/success/rework collection is implemented.
-- Real execution does not override approval gates. If a selected route requires approval, `/route/execute` returns `409` before any provider or CLI call.
+- Benchmark-derived scoring is not active yet. The benchmark endpoint exposes usage-derived attempts/cost/latency and outcome-derived success/QA/rework rates once evidence or operators record outcomes.
+- Real execution does not override approval gates. If a selected route requires approval, `/route/execute` creates a pending `model.route.execute` action request and returns `409` before any provider or CLI call.
 
 ## Example
 

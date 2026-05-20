@@ -14,6 +14,33 @@ export type ArtifactPayload = {
 	text: string;
 };
 
+export type ModelGatewayRoutePreviewRequest = {
+	role: string;
+	taskType: string;
+	mode: string;
+	riskLevel?: string;
+	contextTokensEstimate?: number;
+	requiresCodeEdit?: boolean;
+	requiresTools?: boolean;
+	requiresSearch?: boolean;
+	requiresReasoning?: boolean;
+	requiresVision?: boolean;
+	requiresJson?: boolean;
+	privacyLevel?: string;
+	budgetRemainingUsd?: number;
+};
+
+export type ModelGatewayRoutePreviewResponse = {
+	selected: null | { provider: string; model: string; runtime: string; effort?: string | null };
+	estimatedCostUsd?: number | null;
+	estimatedTokens?: number;
+	decisionReason: string;
+	candidates: Dictionary[];
+	rejected: Dictionary[];
+	scoreBreakdown: Dictionary;
+	policyResult: Dictionary;
+};
+
 async function parseResponse<T>(response: Response): Promise<T> {
 	const text = await response.text();
 	const payload = text ? JSON.parse(text) : {};
@@ -184,5 +211,83 @@ export function registerMcpServer(token: string, body: MutationBody<'register_mc
 	return requestGeneratedOperation('register_mcp_server_api_v1_integrations_mcp_register_post', {
 		token,
 		body,
+	});
+}
+
+export function getModelGatewayOverview(signal?: AbortSignal) {
+	return apiRequest<{ overview: Dictionary }>('/api/v1/model-gateway/overview', { signal });
+}
+
+export function getModelGatewayProviders(signal?: AbortSignal) {
+	return apiRequest<{ providers: Dictionary[] }>('/api/v1/model-gateway/providers', { signal });
+}
+
+export function getModelGatewayModels(signal?: AbortSignal) {
+	return apiRequest<{ models: Dictionary[] }>('/api/v1/model-gateway/models', { signal });
+}
+
+export function getModelGatewayRoutingProfiles(signal?: AbortSignal) {
+	return apiRequest<{ routingProfiles: Dictionary[] }>('/api/v1/model-gateway/routing-profiles', { signal });
+}
+
+export function getModelGatewayRolePolicies(signal?: AbortSignal) {
+	return apiRequest<{ rolePolicies: Dictionary[] }>('/api/v1/model-gateway/role-policies', { signal });
+}
+
+export function getModelGatewayUsageLedger(signal?: AbortSignal) {
+	return apiRequest<{ usageLedger: Dictionary[] }>('/api/v1/model-gateway/usage-ledger', { signal });
+}
+
+export function getModelGatewayUsageSummary(signal?: AbortSignal) {
+	return apiRequest<{ summary: Dictionary }>('/api/v1/model-gateway/usage-ledger/summary', { signal });
+}
+
+export function getModelGatewayRoutingDecisions(signal?: AbortSignal) {
+	return apiRequest<{ routingDecisions: Dictionary[] }>('/api/v1/model-gateway/routing-decisions', { signal });
+}
+
+export function getModelGatewayProviderLimits(signal?: AbortSignal) {
+	return apiRequest<{ providerLimits: Dictionary[] }>('/api/v1/model-gateway/provider-limits', { signal });
+}
+
+export function getModelGatewayBudgetRules(signal?: AbortSignal) {
+	return apiRequest<{ budgetRules: Dictionary[] }>('/api/v1/model-gateway/budget-rules', { signal });
+}
+
+export function getModelGatewayCliRuntimes(signal?: AbortSignal) {
+	return apiRequest<{ cliRuntimes: Dictionary[] }>('/api/v1/model-gateway/cli-runtimes', { signal });
+}
+
+export function getModelGatewayCliSessions(signal?: AbortSignal) {
+	return apiRequest<{ cliSessions: Dictionary[] }>('/api/v1/model-gateway/cli-sessions', { signal });
+}
+
+export function previewModelRoute(token: string, body: ModelGatewayRoutePreviewRequest) {
+	return apiRequest<ModelGatewayRoutePreviewResponse>('/api/v1/model-gateway/route/preview', {
+		method: 'POST',
+		token,
+		body: body as unknown as Dictionary,
+	});
+}
+
+export function patchModelGatewayProvider(token: string, providerId: string, body: Dictionary) {
+	return apiRequest<{ provider: Dictionary }>(`/api/v1/model-gateway/providers/${encodeURIComponent(providerId)}`, {
+		method: 'PATCH',
+		token,
+		body,
+	});
+}
+
+export function healthCheckModelGatewayProvider(token: string, providerId: string) {
+	return apiRequest<{ health: Dictionary }>(`/api/v1/model-gateway/providers/${encodeURIComponent(providerId)}/health-check`, {
+		method: 'POST',
+		token,
+	});
+}
+
+export function discoverModelGatewayProviderModels(token: string, providerId: string) {
+	return apiRequest<{ models: Dictionary[] }>(`/api/v1/model-gateway/providers/${encodeURIComponent(providerId)}/discover-models`, {
+		method: 'POST',
+		token,
 	});
 }

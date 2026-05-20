@@ -25,6 +25,7 @@ import { OverviewPage } from '../features/overview/OverviewPage';
 import { JobsApprovalsPage } from '../features/jobs-approvals/JobsApprovalsPage';
 import { WorkflowsPage } from '../features/workflows/WorkflowsPage';
 import { AgentsPage } from '../features/agents/AgentsPage';
+import { ModelGatewayPage } from '../features/model-gateway/ModelGatewayPage';
 import {
 	AuditPage,
 	CommandCenterPage,
@@ -32,7 +33,6 @@ import {
 	GovernancePage,
 	IntegrationsPage,
 	MemoryPage,
-	ModelGatewayPage,
 	PolicySecurityPage,
 	SettingsPage,
 	WorkspacesPage,
@@ -203,7 +203,7 @@ export function App() {
 			case 'evidence':
 				return <EvidencePage overview={overview} token={state.token} />;
 			case 'models':
-				return <ModelGatewayPage overview={overview} runtimeProviders={state.runtimeProviders} mutate={state.mutate} />;
+				return <ModelGatewayPage overview={overview} runtimeProviders={state.runtimeProviders} token={state.token} />;
 			case 'governance':
 				return <GovernancePage overview={overview} mutate={state.mutate} />;
 			case 'audit':

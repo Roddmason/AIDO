@@ -36,6 +36,11 @@ class RoutingRequest(BaseModel):
     manual_model: str | None = Field(default=None, alias="manualModel")
     manual_runtime: str | None = Field(default=None, alias="manualRuntime")
     allow_fallback: bool = Field(default=True, alias="allowFallback")
+    workflow_run_id: str | None = Field(default=None, alias="workflowRunId")
+    workflow_step_id: str | None = Field(default=None, alias="workflowStepId")
+    agent_id: str | None = Field(default=None, alias="agentId")
+    job_id: str | None = Field(default=None, alias="jobId")
+    task_id: str | None = Field(default=None, alias="taskId")
 
 
 class ModelRouter:
@@ -158,6 +163,11 @@ class ModelRouter:
                     "selectedModel": selected["model"] if selected else None,
                     "selectedRuntime": selected["runtime"] if selected else None,
                     "selectedEffort": selected.get("effort") if selected else None,
+                    "workflowRunId": request.workflow_run_id,
+                    "workflowStepId": request.workflow_step_id,
+                    "agentId": request.agent_id,
+                    "jobId": request.job_id,
+                    "taskId": request.task_id,
                     "estimatedCostUsd": estimated_cost,
                     "estimatedTokens": request.context_tokens_estimate,
                     "candidates": candidates,

@@ -94,6 +94,11 @@ def row_to_routing_decision(row: sqlite3.Row) -> dict[str, Any]:
         "selectedModel": row["selected_model"],
         "selectedRuntime": row["selected_runtime"],
         "selectedEffort": row["selected_effort"],
+        "workflowRunId": row["workflow_run_id"] if "workflow_run_id" in row.keys() else None,
+        "workflowStepId": row["workflow_step_id"] if "workflow_step_id" in row.keys() else None,
+        "agentId": row["agent_id"] if "agent_id" in row.keys() else None,
+        "jobId": row["job_id"] if "job_id" in row.keys() else None,
+        "taskId": row["task_id"] if "task_id" in row.keys() else None,
         "estimatedCostUsd": row["estimated_cost_usd"],
         "estimatedTokens": row["estimated_tokens"],
         "candidates": json_loads(row["candidates_json"], []),
@@ -326,9 +331,10 @@ class RoutingProfileStore:
             """
             INSERT INTO routing_decisions
                 (id, role, task_type, mode, selected_provider, selected_model, selected_runtime, selected_effort,
+                 workflow_run_id, workflow_step_id, agent_id, job_id, task_id,
                  estimated_cost_usd, estimated_tokens, candidates_json, rejected_json, decision_reason,
                  score_breakdown_json, policy_result_json, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 decision_id,
@@ -339,6 +345,11 @@ class RoutingProfileStore:
                 decision.get("selectedModel"),
                 decision.get("selectedRuntime"),
                 decision.get("selectedEffort"),
+                decision.get("workflowRunId"),
+                decision.get("workflowStepId"),
+                decision.get("agentId"),
+                decision.get("jobId"),
+                decision.get("taskId"),
                 decision.get("estimatedCostUsd"),
                 decision.get("estimatedTokens"),
                 json_dumps(decision.get("candidates") or []),

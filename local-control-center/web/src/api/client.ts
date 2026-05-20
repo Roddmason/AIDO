@@ -1,6 +1,6 @@
 import type { Dictionary, Overview, RetrievalStatus, RuntimeProviders } from './types';
 import { requestGeneratedOperation } from './generated/openapi';
-import type { ApiOperationId, OperationRequestBody } from './generated/openapi';
+import type { ApiOperationId, OperationRequestBody, OperationResponse } from './generated/openapi';
 
 const WRITE_HEADER = 'X-Local-Control-Token';
 
@@ -14,32 +14,8 @@ export type ArtifactPayload = {
 	text: string;
 };
 
-export type ModelGatewayRoutePreviewRequest = {
-	role: string;
-	taskType: string;
-	mode: string;
-	riskLevel?: string;
-	contextTokensEstimate?: number;
-	requiresCodeEdit?: boolean;
-	requiresTools?: boolean;
-	requiresSearch?: boolean;
-	requiresReasoning?: boolean;
-	requiresVision?: boolean;
-	requiresJson?: boolean;
-	privacyLevel?: string;
-	budgetRemainingUsd?: number;
-};
-
-export type ModelGatewayRoutePreviewResponse = {
-	selected: null | { provider: string; model: string; runtime: string; effort?: string | null };
-	estimatedCostUsd?: number | null;
-	estimatedTokens?: number;
-	decisionReason: string;
-	candidates: Dictionary[];
-	rejected: Dictionary[];
-	scoreBreakdown: Dictionary;
-	policyResult: Dictionary;
-};
+export type ModelGatewayRoutePreviewRequest = MutationBody<'route_preview_api_v1_model_gateway_route_preview_post'>;
+export type ModelGatewayRoutePreviewResponse = OperationResponse<'route_preview_api_v1_model_gateway_route_preview_post'>;
 
 async function parseResponse<T>(response: Response): Promise<T> {
 	const text = await response.text();
@@ -215,79 +191,82 @@ export function registerMcpServer(token: string, body: MutationBody<'register_mc
 }
 
 export function getModelGatewayOverview(signal?: AbortSignal) {
-	return apiRequest<{ overview: Dictionary }>('/api/v1/model-gateway/overview', { signal });
+	return requestGeneratedOperation<'overview_api_v1_model_gateway_overview_get', { overview: Dictionary }>('overview_api_v1_model_gateway_overview_get', { signal });
 }
 
 export function getModelGatewayProviders(signal?: AbortSignal) {
-	return apiRequest<{ providers: Dictionary[] }>('/api/v1/model-gateway/providers', { signal });
+	return requestGeneratedOperation<'list_providers_api_v1_model_gateway_providers_get', { providers: Dictionary[] }>('list_providers_api_v1_model_gateway_providers_get', { signal });
 }
 
 export function getModelGatewayModels(signal?: AbortSignal) {
-	return apiRequest<{ models: Dictionary[] }>('/api/v1/model-gateway/models', { signal });
+	return requestGeneratedOperation<'list_models_api_v1_model_gateway_models_get', { models: Dictionary[] }>('list_models_api_v1_model_gateway_models_get', { signal });
 }
 
 export function getModelGatewayRoutingProfiles(signal?: AbortSignal) {
-	return apiRequest<{ routingProfiles: Dictionary[] }>('/api/v1/model-gateway/routing-profiles', { signal });
+	return requestGeneratedOperation<'list_routing_profiles_api_v1_model_gateway_routing_profiles_get', { routingProfiles: Dictionary[] }>('list_routing_profiles_api_v1_model_gateway_routing_profiles_get', { signal });
 }
 
 export function getModelGatewayRolePolicies(signal?: AbortSignal) {
-	return apiRequest<{ rolePolicies: Dictionary[] }>('/api/v1/model-gateway/role-policies', { signal });
+	return requestGeneratedOperation<'list_role_policies_api_v1_model_gateway_role_policies_get', { rolePolicies: Dictionary[] }>('list_role_policies_api_v1_model_gateway_role_policies_get', { signal });
 }
 
 export function getModelGatewayUsageLedger(signal?: AbortSignal) {
-	return apiRequest<{ usageLedger: Dictionary[] }>('/api/v1/model-gateway/usage-ledger', { signal });
+	return requestGeneratedOperation<'list_usage_ledger_api_v1_model_gateway_usage_ledger_get', { usageLedger: Dictionary[] }>('list_usage_ledger_api_v1_model_gateway_usage_ledger_get', { signal });
 }
 
 export function getModelGatewayUsageSummary(signal?: AbortSignal) {
-	return apiRequest<{ summary: Dictionary }>('/api/v1/model-gateway/usage-ledger/summary', { signal });
+	return requestGeneratedOperation<'usage_summary_api_v1_model_gateway_usage_ledger_summary_get', { summary: Dictionary }>('usage_summary_api_v1_model_gateway_usage_ledger_summary_get', { signal });
 }
 
 export function getModelGatewayRoutingDecisions(signal?: AbortSignal) {
-	return apiRequest<{ routingDecisions: Dictionary[] }>('/api/v1/model-gateway/routing-decisions', { signal });
+	return requestGeneratedOperation<'list_routing_decisions_api_v1_model_gateway_routing_decisions_get', { routingDecisions: Dictionary[] }>('list_routing_decisions_api_v1_model_gateway_routing_decisions_get', { signal });
 }
 
 export function getModelGatewayProviderLimits(signal?: AbortSignal) {
-	return apiRequest<{ providerLimits: Dictionary[] }>('/api/v1/model-gateway/provider-limits', { signal });
+	return requestGeneratedOperation<'list_provider_limits_api_v1_model_gateway_provider_limits_get', { providerLimits: Dictionary[] }>('list_provider_limits_api_v1_model_gateway_provider_limits_get', { signal });
 }
 
 export function getModelGatewayBudgetRules(signal?: AbortSignal) {
-	return apiRequest<{ budgetRules: Dictionary[] }>('/api/v1/model-gateway/budget-rules', { signal });
+	return requestGeneratedOperation<'list_budget_rules_api_v1_model_gateway_budget_rules_get', { budgetRules: Dictionary[] }>('list_budget_rules_api_v1_model_gateway_budget_rules_get', { signal });
 }
 
 export function getModelGatewayCliRuntimes(signal?: AbortSignal) {
-	return apiRequest<{ cliRuntimes: Dictionary[] }>('/api/v1/model-gateway/cli-runtimes', { signal });
+	return requestGeneratedOperation<'list_cli_runtimes_api_v1_model_gateway_cli_runtimes_get', { cliRuntimes: Dictionary[] }>('list_cli_runtimes_api_v1_model_gateway_cli_runtimes_get', { signal });
 }
 
 export function getModelGatewayCliSessions(signal?: AbortSignal) {
-	return apiRequest<{ cliSessions: Dictionary[] }>('/api/v1/model-gateway/cli-sessions', { signal });
+	return requestGeneratedOperation<'list_cli_sessions_api_v1_model_gateway_cli_sessions_get', { cliSessions: Dictionary[] }>('list_cli_sessions_api_v1_model_gateway_cli_sessions_get', { signal });
+}
+
+export function getModelGatewayBenchmarks(signal?: AbortSignal) {
+	return requestGeneratedOperation<'list_benchmarks_api_v1_model_gateway_benchmarks_get', { benchmarks: Dictionary[] }>('list_benchmarks_api_v1_model_gateway_benchmarks_get', { signal });
 }
 
 export function previewModelRoute(token: string, body: ModelGatewayRoutePreviewRequest) {
-	return apiRequest<ModelGatewayRoutePreviewResponse>('/api/v1/model-gateway/route/preview', {
-		method: 'POST',
-		token,
-		body: body as unknown as Dictionary,
-	});
-}
-
-export function patchModelGatewayProvider(token: string, providerId: string, body: Dictionary) {
-	return apiRequest<{ provider: Dictionary }>(`/api/v1/model-gateway/providers/${encodeURIComponent(providerId)}`, {
-		method: 'PATCH',
+	return requestGeneratedOperation<'route_preview_api_v1_model_gateway_route_preview_post'>('route_preview_api_v1_model_gateway_route_preview_post', {
 		token,
 		body,
 	});
 }
 
-export function healthCheckModelGatewayProvider(token: string, providerId: string) {
-	return apiRequest<{ health: Dictionary }>(`/api/v1/model-gateway/providers/${encodeURIComponent(providerId)}/health-check`, {
-		method: 'POST',
+export function patchModelGatewayProvider(token: string, providerId: string, body: Dictionary) {
+	return requestGeneratedOperation<'patch_provider_api_v1_model_gateway_providers__provider_id__patch', { provider: Dictionary }>('patch_provider_api_v1_model_gateway_providers__provider_id__patch', {
 		token,
+		pathParams: { provider_id: providerId },
+		body: body as OperationRequestBody<'patch_provider_api_v1_model_gateway_providers__provider_id__patch'>,
+	});
+}
+
+export function healthCheckModelGatewayProvider(token: string, providerId: string) {
+	return requestGeneratedOperation<'provider_health_check_api_v1_model_gateway_providers__provider_id__health_check_post', { health: Dictionary }>('provider_health_check_api_v1_model_gateway_providers__provider_id__health_check_post', {
+		token,
+		pathParams: { provider_id: providerId },
 	});
 }
 
 export function discoverModelGatewayProviderModels(token: string, providerId: string) {
-	return apiRequest<{ models: Dictionary[] }>(`/api/v1/model-gateway/providers/${encodeURIComponent(providerId)}/discover-models`, {
-		method: 'POST',
+	return requestGeneratedOperation<'discover_models_api_v1_model_gateway_providers__provider_id__discover_models_post', { models: Dictionary[] }>('discover_models_api_v1_model_gateway_providers__provider_id__discover_models_post', {
 		token,
+		pathParams: { provider_id: providerId },
 	});
 }

@@ -5,6 +5,8 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 
+from ..agents.model_router import ModelRouter, RoutingRequest
+from ..agents.routing_profiles import RoutingProfileStore
 from ..agents.repository import AgentsRepository
 from ..evidence.repository import EvidenceRepository
 from ..governance.signals import record_governance_risk
@@ -29,6 +31,24 @@ ALLOWED_WORKFLOW_KINDS = {
     "qa_validation",
     "release_candidate",
 }
+
+
+CODE_EDIT_STEPS = {"implementation", "pr_creation"}
+TOOL_STEPS = {"workspace_create", "implementation", "local_tests", "qa_validation", "technical_review", "pr_creation"}
+SEARCH_STEPS = {"project_discovery", "backlog_generation"}
+REASONING_STEPS = {"architecture_review", "technical_review", "release_candidate"}
+
+
+def _manual_override(step: dict[str, Any]) -> dict[str, str]:
+    override = step.get("manualModelOverride")
+    if not isinstance(override, str) or not override.strip():
+        return {}
+    parts = [part.strip() for part in override.split("/") if part.strip()]
+    if len(parts) == 1:
+        return {"manualModel": parts[0]}
+    if len(parts) == 2:
+        return {"manualProvider": parts[0], "manualModel": parts[1]}
+    return {"manualProvider": parts[0], "manualModel": parts[1], "manualRuntime": parts[2]}
 
 
 def validate_workflow_create_body(body: WorkflowCreateRequest) -> dict[str, Any]:
@@ -70,6 +90,38 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
 
     def event_bus() -> EventBus:
         return EventBus(platform.connection)
+
+    def route_started_workflow_steps(result: dict[str, Any]) -> None:
+        router = ModelRouter(platform.connection)
+        profiles = RoutingProfileStore(platform.connection)
+        workflow_run_id = result["workflowRun"]["id"]
+        for step in result["workflowSteps"]:
+            role = step.get("role") or "developer"
+            try:
+                role_policy = profiles.get_role_policy(role)
+                mode = step.get("modelMode") or role_policy["routingProfileId"]
+            except KeyError:
+                mode = step.get("modelMode") or "balanced_best_value"
+            step_name = str(step.get("name") or step.get("taskType") or "workflow_step")
+            router.preview(
+                RoutingRequest(
+                    role=role,
+                    taskType=step.get("taskType") or step_name,
+                    mode=mode,
+                    riskLevel=step.get("riskLevel") or "medium",
+                    contextTokensEstimate=12000 if step_name in REASONING_STEPS else 4000,
+                    requiresCodeEdit=step_name in CODE_EDIT_STEPS,
+                    requiresTools=step_name in TOOL_STEPS,
+                    requiresSearch=step_name in SEARCH_STEPS,
+                    requiresReasoning=step_name in REASONING_STEPS,
+                    privacyLevel="remote_allowed",
+                    workflowRunId=workflow_run_id,
+                    workflowStepId=step["id"],
+                    taskId=step_name,
+                    **_manual_override(step),
+                ),
+                record=True,
+            )
 
     @router.get("/api/v1/workflows", response_model=WorkflowsListResponse)
     async def list_workflows() -> dict[str, Any]:
@@ -119,10 +171,15 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     async def start_workflow(workflow_id: str, body: WorkflowStatusChangeRequest, request: Request) -> dict[str, Any]:
         require_write(request)
         result = repository().start_workflow(workflow_id, reason=body.reason)
+        route_started_workflow_steps(result)
         event_bus().record_event(
             project_id=result["workflow"]["projectId"],
             event_type="workflow.started",
-            payload={"workflowId": workflow_id, "workflowRunId": result["workflowRun"]["id"]},
+            payload={
+                "workflowId": workflow_id,
+                "workflowRunId": result["workflowRun"]["id"],
+                "routingDecisionCount": len(result["workflowSteps"]),
+            },
         )
         return result
 

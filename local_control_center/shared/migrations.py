@@ -1066,6 +1066,11 @@ def init_phase12_schema(connection: sqlite3.Connection) -> None:
             selected_model TEXT,
             selected_runtime TEXT,
             selected_effort TEXT,
+            workflow_run_id TEXT,
+            workflow_step_id TEXT,
+            agent_id TEXT,
+            job_id TEXT,
+            task_id TEXT,
             estimated_cost_usd REAL,
             estimated_tokens INTEGER,
             candidates_json TEXT NOT NULL,
@@ -1157,6 +1162,11 @@ def init_phase12_schema(connection: sqlite3.Connection) -> None:
     _add_column_if_missing(connection, "agent_profiles", "allow_cli", "allow_cli INTEGER NOT NULL DEFAULT 1")
     _add_column_if_missing(connection, "agent_profiles", "allow_api", "allow_api INTEGER NOT NULL DEFAULT 1")
     _add_column_if_missing(connection, "agent_profiles", "requires_approval_over_usd", "requires_approval_over_usd REAL")
+    _add_column_if_missing(connection, "routing_decisions", "workflow_run_id", "workflow_run_id TEXT")
+    _add_column_if_missing(connection, "routing_decisions", "workflow_step_id", "workflow_step_id TEXT")
+    _add_column_if_missing(connection, "routing_decisions", "agent_id", "agent_id TEXT")
+    _add_column_if_missing(connection, "routing_decisions", "job_id", "job_id TEXT")
+    _add_column_if_missing(connection, "routing_decisions", "task_id", "task_id TEXT")
     _add_column_if_missing(connection, "workflow_steps", "role", "role TEXT")
     _add_column_if_missing(connection, "workflow_steps", "task_type", "task_type TEXT")
     _add_column_if_missing(connection, "workflow_steps", "risk_level", "risk_level TEXT")

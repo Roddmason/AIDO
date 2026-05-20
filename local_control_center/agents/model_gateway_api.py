@@ -6,6 +6,47 @@ from fastapi import APIRouter, HTTPException, Request
 
 from local_control_center.shared.event_bus import EventBus
 
+from .model_gateway_models import (
+    BudgetRulePatchRequest,
+    BudgetRuleResponse,
+    BudgetRuleUpsertRequest,
+    BudgetRulesListResponse,
+    CliRuntimesListResponse,
+    CliSessionResponse,
+    CliSessionsListResponse,
+    DiscoverModelsResponse,
+    ModelCatalogListResponse,
+    ModelCatalogPatchRequest,
+    ModelCatalogResponse,
+    ModelCatalogUpsertRequest,
+    ModelBenchmarksListResponse,
+    ModelGatewayOverviewResponse,
+    ProviderAccountPatchRequest,
+    ProviderAccountResponse,
+    ProviderAccountsListResponse,
+    ProviderAccountUpsertRequest,
+    ProviderHealthResponse,
+    ProviderLimitPatchRequest,
+    ProviderLimitResponse,
+    ProviderLimitsListResponse,
+    RolePoliciesListResponse,
+    RolePolicyPatchRequest,
+    RolePolicyResponse,
+    RolePolicyUpsertRequest,
+    RouteExecuteMockResponse,
+    RoutingDecisionsListResponse,
+    RoutingPreviewRequest,
+    RoutingPreviewResponse,
+    RoutingProfilePatchRequest,
+    RoutingProfileResponse,
+    RoutingProfilesListResponse,
+    RoutingProfileUpsertRequest,
+    RuntimeDetectionResponse,
+    RuntimeHealthResponse,
+    UsageLedgerListResponse,
+    UsageSummaryResponse,
+)
+from .model_benchmarks import ModelBenchmarkStore
 from .model_router import ModelRouter, RoutingRequest
 from .provider_accounts import ProviderAccountStore
 from .providers.anthropic_api import AnthropicAPIProvider
@@ -18,6 +59,12 @@ from .providers.litellm_adapter import LiteLLMAdapter
 from .routing_profiles import RoutingProfileStore
 from .runtime_registry import RuntimeRegistry
 from .usage_ledger import UsageLedger
+
+
+def _payload(body: Any, *, exclude_none: bool = True) -> dict[str, Any]:
+    if hasattr(body, "model_dump"):
+        return body.model_dump(by_alias=True, exclude_none=exclude_none)
+    return dict(body)
 
 
 def _provider_instance(provider_id: str, *, connection: Any, mock: bool = True):
@@ -48,10 +95,13 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
     def usage() -> UsageLedger:
         return UsageLedger(platform.connection)
 
+    def benchmarks() -> ModelBenchmarkStore:
+        return ModelBenchmarkStore(platform.connection)
+
     def audit(action: str, target: str, payload: dict[str, Any] | None = None) -> None:
         EventBus(platform.connection).record_audit(action=action, target=target, payload=payload or {})
 
-    @router.get("/overview")
+    @router.get("/overview", response_model=ModelGatewayOverviewResponse)
     async def overview() -> dict[str, Any]:
         provider_rows = providers().list_provider_accounts()
         usage_summary = usage().summary()
@@ -75,35 +125,35 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
             }
         }
 
-    @router.get("/providers")
+    @router.get("/providers", response_model=ProviderAccountsListResponse)
     async def list_providers() -> dict[str, Any]:
         return {"providers": providers().list_provider_accounts()}
 
-    @router.post("/providers", status_code=201)
-    async def create_provider(body: dict[str, Any], request: Request) -> dict[str, Any]:
+    @router.post("/providers", status_code=201, response_model=ProviderAccountResponse)
+    async def create_provider(body: ProviderAccountUpsertRequest, request: Request) -> dict[str, Any]:
         require_write(request)
-        provider = providers().upsert_provider_account(body)
+        provider = providers().upsert_provider_account(_payload(body))
         audit("model_gateway.provider.upserted", provider["providerId"], {"providerId": provider["providerId"]})
         return {"provider": provider}
 
-    @router.get("/providers/{provider_id}")
+    @router.get("/providers/{provider_id}", response_model=ProviderAccountResponse)
     async def get_provider(provider_id: str) -> dict[str, Any]:
         try:
             return {"provider": providers().get_provider_account(provider_id)}
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
 
-    @router.patch("/providers/{provider_id}")
-    async def patch_provider(provider_id: str, body: dict[str, Any], request: Request) -> dict[str, Any]:
+    @router.patch("/providers/{provider_id}", response_model=ProviderAccountResponse)
+    async def patch_provider(provider_id: str, body: ProviderAccountPatchRequest, request: Request) -> dict[str, Any]:
         require_write(request)
         try:
-            provider = providers().patch_provider_account(provider_id, body)
+            provider = providers().patch_provider_account(provider_id, _payload(body))
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
         audit("model_gateway.provider.updated", provider_id, {"providerId": provider_id})
         return {"provider": provider}
 
-    @router.post("/providers/{provider_id}/health-check")
+    @router.post("/providers/{provider_id}/health-check", response_model=ProviderHealthResponse)
     async def provider_health_check(provider_id: str, request: Request) -> dict[str, Any]:
         require_write(request)
         try:
@@ -115,7 +165,7 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
         audit("model_gateway.provider.health_checked", provider_id, health)
         return {"health": health}
 
-    @router.post("/providers/{provider_id}/discover-models")
+    @router.post("/providers/{provider_id}/discover-models", response_model=DiscoverModelsResponse)
     async def discover_models(provider_id: str, request: Request) -> dict[str, Any]:
         require_write(request)
         try:
@@ -130,84 +180,90 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
         audit("model_gateway.provider.models_discovered", provider_id, {"count": len(stored)})
         return {"models": stored}
 
-    @router.get("/models")
+    @router.get("/models", response_model=ModelCatalogListResponse)
     async def list_models() -> dict[str, Any]:
         return {"models": providers().list_models()}
 
-    @router.post("/models", status_code=201)
-    async def create_model(body: dict[str, Any], request: Request) -> dict[str, Any]:
+    @router.post("/models", status_code=201, response_model=ModelCatalogResponse)
+    async def create_model(body: ModelCatalogUpsertRequest, request: Request) -> dict[str, Any]:
         require_write(request)
-        model = providers().upsert_model(body)
+        model = providers().upsert_model(_payload(body))
         audit("model_gateway.model.upserted", model["id"], {"providerId": model["providerId"], "model": model["model"]})
         return {"model": model}
 
-    @router.patch("/models/{model_id:path}")
-    async def patch_model(model_id: str, body: dict[str, Any], request: Request) -> dict[str, Any]:
+    @router.patch("/models/{model_id:path}", response_model=ModelCatalogResponse)
+    async def patch_model(model_id: str, body: ModelCatalogPatchRequest, request: Request) -> dict[str, Any]:
         require_write(request)
         try:
-            model = providers().patch_model(model_id, body)
+            model = providers().patch_model(model_id, _payload(body))
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
         audit("model_gateway.model.updated", model_id, {"modelId": model_id})
         return {"model": model}
 
-    @router.get("/routing-profiles")
+    @router.get("/routing-profiles", response_model=RoutingProfilesListResponse)
     async def list_routing_profiles() -> dict[str, Any]:
         return {"routingProfiles": routing().list_routing_profiles()}
 
-    @router.post("/routing-profiles", status_code=201)
-    async def create_routing_profile(body: dict[str, Any], request: Request) -> dict[str, Any]:
+    @router.post("/routing-profiles", status_code=201, response_model=RoutingProfileResponse)
+    async def create_routing_profile(body: RoutingProfileUpsertRequest, request: Request) -> dict[str, Any]:
         require_write(request)
-        profile = routing().upsert_routing_profile(body)
+        profile = routing().upsert_routing_profile(_payload(body))
         return {"routingProfile": profile}
 
-    @router.patch("/routing-profiles/{profile_id}")
-    async def patch_routing_profile(profile_id: str, body: dict[str, Any], request: Request) -> dict[str, Any]:
+    @router.patch("/routing-profiles/{profile_id}", response_model=RoutingProfileResponse)
+    async def patch_routing_profile(profile_id: str, body: RoutingProfilePatchRequest, request: Request) -> dict[str, Any]:
         require_write(request)
         try:
-            profile = routing().patch_routing_profile(profile_id, body)
+            profile = routing().patch_routing_profile(profile_id, _payload(body))
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
         return {"routingProfile": profile}
 
-    @router.get("/role-policies")
+    @router.get("/role-policies", response_model=RolePoliciesListResponse)
     async def list_role_policies() -> dict[str, Any]:
         return {"rolePolicies": routing().list_role_policies()}
 
-    @router.post("/role-policies", status_code=201)
-    async def create_role_policy(body: dict[str, Any], request: Request) -> dict[str, Any]:
+    @router.post("/role-policies", status_code=201, response_model=RolePolicyResponse)
+    async def create_role_policy(body: RolePolicyUpsertRequest, request: Request) -> dict[str, Any]:
         require_write(request)
-        policy = routing().upsert_role_policy(body)
+        policy = routing().upsert_role_policy(_payload(body))
         return {"rolePolicy": policy}
 
-    @router.patch("/role-policies/{policy_id}")
-    async def patch_role_policy(policy_id: str, body: dict[str, Any], request: Request) -> dict[str, Any]:
+    @router.patch("/role-policies/{policy_id}", response_model=RolePolicyResponse)
+    async def patch_role_policy(policy_id: str, body: RolePolicyPatchRequest, request: Request) -> dict[str, Any]:
         require_write(request)
         try:
-            policy = routing().patch_role_policy(policy_id, body)
+            policy = routing().patch_role_policy(policy_id, _payload(body))
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
         return {"rolePolicy": policy}
 
-    @router.post("/route/preview")
-    async def route_preview(body: dict[str, Any], request: Request) -> dict[str, Any]:
+    @router.post("/route/preview", response_model=RoutingPreviewResponse)
+    async def route_preview(body: RoutingPreviewRequest, request: Request) -> dict[str, Any]:
         require_write(request)
-        result = ModelRouter(platform.connection).preview(RoutingRequest(**body), record=True)
-        audit("model_gateway.route.previewed", body.get("role", "unknown"), {"selected": result.get("selected")})
+        body_payload = _payload(body)
+        result = ModelRouter(platform.connection).preview(RoutingRequest(**body_payload), record=True)
+        audit("model_gateway.route.previewed", body_payload.get("role", "unknown"), {"selected": result.get("selected")})
         return result
 
-    @router.post("/route/execute-mock")
-    async def route_execute_mock(body: dict[str, Any], request: Request) -> dict[str, Any]:
+    @router.post("/route/execute-mock", response_model=RouteExecuteMockResponse)
+    async def route_execute_mock(body: RoutingPreviewRequest, request: Request) -> dict[str, Any]:
         require_write(request)
-        result = ModelRouter(platform.connection).preview(RoutingRequest(**body), record=True)
+        body_payload = _payload(body)
+        result = ModelRouter(platform.connection).preview(RoutingRequest(**body_payload), record=True)
         selected = result.get("selected") or {"provider": "unresolved", "model": "unresolved", "runtime": "manual"}
         usage_record = usage().record_usage(
             provider_id=selected["provider"],
             model=selected["model"],
             runtime_type=selected["runtime"],
-            role=body.get("role"),
-            task_id=body.get("taskId"),
-            input_tokens=int(body.get("contextTokensEstimate") or 0),
+            role=body_payload.get("role"),
+            workflow_run_id=body_payload.get("workflowRunId"),
+            workflow_step_id=body_payload.get("workflowStepId"),
+            agent_id=body_payload.get("agentId"),
+            job_id=body_payload.get("jobId"),
+            task_id=body_payload.get("taskId"),
+            input_tokens=int(body_payload.get("contextTokensEstimate") or 0),
             output_tokens=0,
             estimated_cost_usd=result.get("estimatedCostUsd"),
             raw_usage={"usage_source": "estimated", "mock": True},
@@ -215,52 +271,56 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
         audit("model_gateway.route.execute_mock", selected["provider"], {"usageLedgerId": usage_record["id"]})
         return {"routing": result, "usage": usage_record}
 
-    @router.get("/usage-ledger")
+    @router.get("/usage-ledger", response_model=UsageLedgerListResponse)
     async def list_usage_ledger() -> dict[str, Any]:
         return {"usageLedger": usage().list_usage()}
 
-    @router.get("/usage-ledger/summary")
+    @router.get("/usage-ledger/summary", response_model=UsageSummaryResponse)
     async def usage_summary() -> dict[str, Any]:
         return {"summary": usage().summary()}
 
-    @router.get("/routing-decisions")
+    @router.get("/routing-decisions", response_model=RoutingDecisionsListResponse)
     async def list_routing_decisions() -> dict[str, Any]:
         return {"routingDecisions": routing().list_routing_decisions()}
 
-    @router.get("/provider-limits")
+    @router.get("/benchmarks", response_model=ModelBenchmarksListResponse)
+    async def list_benchmarks() -> dict[str, Any]:
+        return {"benchmarks": benchmarks().list_benchmarks()}
+
+    @router.get("/provider-limits", response_model=ProviderLimitsListResponse)
     async def list_provider_limits() -> dict[str, Any]:
         return {"providerLimits": routing().list_provider_limits()}
 
-    @router.patch("/provider-limits/{limit_id}")
-    async def patch_provider_limit(limit_id: str, body: dict[str, Any], request: Request) -> dict[str, Any]:
+    @router.patch("/provider-limits/{limit_id}", response_model=ProviderLimitResponse)
+    async def patch_provider_limit(limit_id: str, body: ProviderLimitPatchRequest, request: Request) -> dict[str, Any]:
         require_write(request)
         try:
-            return {"providerLimit": routing().patch_provider_limit(limit_id, body)}
+            return {"providerLimit": routing().patch_provider_limit(limit_id, _payload(body))}
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
 
-    @router.get("/budget-rules")
+    @router.get("/budget-rules", response_model=BudgetRulesListResponse)
     async def list_budget_rules() -> dict[str, Any]:
         return {"budgetRules": routing().list_budget_rules()}
 
-    @router.post("/budget-rules", status_code=201)
-    async def create_budget_rule(body: dict[str, Any], request: Request) -> dict[str, Any]:
+    @router.post("/budget-rules", status_code=201, response_model=BudgetRuleResponse)
+    async def create_budget_rule(body: BudgetRuleUpsertRequest, request: Request) -> dict[str, Any]:
         require_write(request)
-        return {"budgetRule": routing().upsert_budget_rule(body)}
+        return {"budgetRule": routing().upsert_budget_rule(_payload(body))}
 
-    @router.patch("/budget-rules/{rule_id}")
-    async def patch_budget_rule(rule_id: str, body: dict[str, Any], request: Request) -> dict[str, Any]:
+    @router.patch("/budget-rules/{rule_id}", response_model=BudgetRuleResponse)
+    async def patch_budget_rule(rule_id: str, body: BudgetRulePatchRequest, request: Request) -> dict[str, Any]:
         require_write(request)
         try:
-            return {"budgetRule": routing().patch_budget_rule(rule_id, body)}
+            return {"budgetRule": routing().patch_budget_rule(rule_id, _payload(body))}
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
 
-    @router.get("/cli-runtimes")
+    @router.get("/cli-runtimes", response_model=CliRuntimesListResponse)
     async def list_cli_runtimes() -> dict[str, Any]:
         return {"cliRuntimes": RuntimeRegistry().list_runtimes()}
 
-    @router.post("/cli-runtimes/{runtime_id}/detect")
+    @router.post("/cli-runtimes/{runtime_id}/detect", response_model=RuntimeDetectionResponse)
     async def detect_cli_runtime(runtime_id: str, request: Request) -> dict[str, Any]:
         require_write(request)
         try:
@@ -268,7 +328,7 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
 
-    @router.post("/cli-runtimes/{runtime_id}/health-check")
+    @router.post("/cli-runtimes/{runtime_id}/health-check", response_model=RuntimeHealthResponse)
     async def health_cli_runtime(runtime_id: str, request: Request) -> dict[str, Any]:
         require_write(request)
         try:
@@ -276,11 +336,11 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
 
-    @router.get("/cli-sessions")
+    @router.get("/cli-sessions", response_model=CliSessionsListResponse)
     async def list_cli_sessions() -> dict[str, Any]:
         return {"cliSessions": routing().list_cli_sessions()}
 
-    @router.get("/cli-sessions/{session_id}")
+    @router.get("/cli-sessions/{session_id}", response_model=CliSessionResponse)
     async def get_cli_session(session_id: str) -> dict[str, Any]:
         try:
             return {"cliSession": routing().get_cli_session(session_id)}

@@ -35,6 +35,7 @@ from .tool_broker import ToolBroker
 EXECUTION_MODES_WITH_EVIDENCE = {"restricted_subprocess", "docker"}
 ID_RE = re.compile(r"^[a-z0-9_-]{3,64}$")
 TOOL_ID_RE = re.compile(r"^[a-z0-9_.:-]{2,80}$")
+CATALOG_ID_RE = re.compile(r"^[a-z0-9_.:-]{2,96}$")
 VALID_AGENT_ROLES = {
     "analyst",
     "product_owner",
@@ -66,6 +67,8 @@ def validate_agent_profile_body(body: dict[str, Any]) -> dict[str, Any]:
     runtime_mode = str(body.get("runtimeMode") or body.get("runtimeType") or "internal_mock")
     permission_profile = str(body.get("permissionProfile") or "plan")
     allowed_tools = body.get("allowedTools") or []
+    allowed_providers = body.get("allowedProviders") or []
+    allowed_runtimes = body.get("allowedRuntimes") or []
     if role not in VALID_AGENT_ROLES:
         raise HTTPException(status_code=422, detail="Agent role is not in the allowed catalog.")
     if runtime_mode not in RUNTIME_MODES:
@@ -74,6 +77,26 @@ def validate_agent_profile_body(body: dict[str, Any]) -> dict[str, Any]:
         raise HTTPException(status_code=422, detail="Permission profile is not in the allowed catalog.")
     if not isinstance(allowed_tools, list) or not all(isinstance(item, str) and TOOL_ID_RE.match(item) for item in allowed_tools):
         raise HTTPException(status_code=422, detail="Allowed tools must be catalog ids, not free-form JSON.")
+    if not isinstance(allowed_providers, list) or not all(isinstance(item, str) and CATALOG_ID_RE.match(item) for item in allowed_providers):
+        raise HTTPException(status_code=422, detail="Allowed providers must be compact catalog ids.")
+    if not isinstance(allowed_runtimes, list) or not all(isinstance(item, str) and CATALOG_ID_RE.match(item) for item in allowed_runtimes):
+        raise HTTPException(status_code=422, detail="Allowed runtimes must be compact catalog ids.")
+    for field in ("routingProfileId", "roleModelPolicyId"):
+        if body.get(field) and not CATALOG_ID_RE.match(str(body[field])):
+            raise HTTPException(status_code=422, detail=f"{field} must be a compact catalog id.")
+    try:
+        max_tokens = int(body.get("maxTokensPerRun") or 0)
+        approval_threshold = body.get("requiresApprovalOverUsd")
+        approval_value = None if approval_threshold in {None, ""} else float(approval_threshold)
+    except (TypeError, ValueError) as error:
+        raise HTTPException(status_code=422, detail="Agent routing numeric fields are invalid.") from error
+    if max_tokens < 0 or max_tokens > 200000:
+        raise HTTPException(status_code=422, detail="maxTokensPerRun must be between 0 and 200000.")
+    if approval_value is not None and approval_value < 0:
+        raise HTTPException(status_code=422, detail="requiresApprovalOverUsd must be zero or positive.")
+    for field in ("allowRemote", "allowCli", "allowApi"):
+        if field in body and not isinstance(body[field], bool):
+            raise HTTPException(status_code=422, detail=f"{field} must be a boolean.")
     return body
 
 

@@ -70,14 +70,9 @@ flowchart LR
   deleted.
 - Keep expanding repository-level tests where broad fixture setup is still
   noisier than direct slice construction.
-- Continue adding explicit Pydantic request/response models to high-traffic
-  routes. Health, handshake, retrieval status, workflow mutations, agent
-  profile upserts, model policy upserts, jobs/approvals mutations, governance
-  mutations, workspace allocation/archive, MCP registration, and IDE connection
-  upserts, policy evaluation, sandbox profile mutations, and permission-grant
-  revocations, project creation, session/chat creation, pipeline creation,
-  memory creation, retrieval search/reindex, and prompt upserts now generate
-  named OpenAPI DTOs. Evidence mutations, artifact retention operations, skill
-  sync, and agent-run creation are also typed. Active v1 mutating routes no
-  longer produce `unknown` request bodies; larger read models and overview
-  subresources still need narrower schemas.
+- Continue narrowing row-level DTOs where schemas are stable. Active v1
+  mutating routes no longer produce `unknown` request bodies, and active v1
+  read operations no longer produce raw `JsonObject` operation responses in the
+  generated OpenAPI client. The remaining precision work is inside list/detail
+  payload items that still intentionally use dictionary rows while slice
+  metadata stabilizes.

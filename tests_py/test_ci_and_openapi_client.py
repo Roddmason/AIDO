@@ -78,6 +78,18 @@ def test_generated_openapi_client_is_checked_in_and_v1_only() -> None:
     assert '"cleanup_artifacts_api_v1_evidence_artifacts_cleanup_post": ArtifactCleanupRequest' in content
     assert '"plan_artifact_retention_api_v1_evidence_artifacts_retention_post": ArtifactRetentionPlanRequest' in content
     assert '"apply_artifact_retention_action_api_v1_evidence_artifacts_retention_actions_post": ArtifactRetentionActionRequest' in content
+    assert '"overview_api_v1_overview_get": OverviewResponse' in content
+    assert '"list_jobs_api_v1_jobs_get": JobsListResponse' in content
+    assert '"approvals_api_v1_approvals_get": ApprovalsListResponse' in content
+    assert '"governance_api_v1_governance_get": GovernanceResponse' in content
+    assert '"projects_api_v1_projects_get": ProjectsListResponse' in content
+    assert '"list_workflows_api_v1_workflows_get": WorkflowsListResponse' in content
+    assert '"get_workflow_api_v1_workflows__workflow_id__get": WorkflowDetailResponse' in content
+    assert '"list_agent_profiles_api_v1_agent_profiles_get": AgentProfilesListResponse' in content
+    assert '"list_model_policies_api_v1_model_policies_get": ModelPoliciesListResponse' in content
+    assert '"list_workspaces_api_v1_workspaces_get": WorkspacesListResponse' in content
+    response_section = content.split("export type OperationResponseBodies = {", 1)[1].split("};", 1)[0]
+    assert ": JsonObject," not in response_section
     assert "export function buildApiPath" in content
     assert "export async function requestGeneratedOperation" in content
 

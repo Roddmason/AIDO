@@ -25,7 +25,7 @@ from .sessions_chats.api import create_router as create_sessions_chats_router
 from .control_plane.runtime import ControlCenterRuntime
 from .shared.db import open_sqlite_connection
 from .shared.migrations import initialize_platform_schema
-from .shared.schemas import HandshakeResponse, HealthResponse
+from .shared.schemas import HandshakeResponse, HealthResponse, OverviewResponse, TelemetryStatusResponse
 from .shared.telemetry import (
     configure_external_telemetry_from_env,
     elapsed_ms,
@@ -110,11 +110,11 @@ def create_app(
     async def handshake() -> dict[str, Any]:
         return platform.get_handshake()
 
-    @app.get("/api/v1/overview")
+    @app.get("/api/v1/overview", response_model=OverviewResponse)
     async def overview() -> dict[str, Any]:
         return build_overview_from_connection(connection=platform.connection, cwd=platform.cwd)
 
-    @app.get("/api/v1/telemetry/status")
+    @app.get("/api/v1/telemetry/status", response_model=TelemetryStatusResponse)
     async def telemetry_status() -> dict[str, Any]:
         return {"externalExporter": external_telemetry_status()}
 

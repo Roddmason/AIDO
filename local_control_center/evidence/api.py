@@ -31,6 +31,8 @@ from .models import (
     ArtifactRetentionPlanRequest,
     ArtifactRetentionPlanResponse,
     EvidenceCreateRequest,
+    EvidenceDetailResponse,
+    EvidenceListResponse,
     EvidencePackageResponse,
 )
 from .qa_reports import build_markdown_report
@@ -49,7 +51,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     def event_bus() -> EventBus:
         return EventBus(platform.connection)
 
-    @router.get("/api/v1/evidence")
+    @router.get("/api/v1/evidence", response_model=EvidenceListResponse)
     async def list_evidence() -> dict[str, Any]:
         return {"evidencePackages": repository().list_evidence_packages()}
 
@@ -292,7 +294,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
                 )
         return EvidencePackageResponse(evidencePackage=evidence)
 
-    @router.get("/api/v1/evidence/{evidence_id}")
+    @router.get("/api/v1/evidence/{evidence_id}", response_model=EvidenceDetailResponse)
     async def get_evidence(evidence_id: str) -> dict[str, Any]:
         try:
             repo = repository()

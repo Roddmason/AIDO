@@ -7,7 +7,14 @@ from fastapi import APIRouter, HTTPException, Request
 
 from local_control_center.shared.event_bus import EventBus
 
-from .models import ChatCreateRequest, ChatResponse, SessionCreateRequest, SessionResponse
+from .models import (
+    ChatCreateRequest,
+    ChatResponse,
+    ChatsListResponse,
+    SessionCreateRequest,
+    SessionResponse,
+    SessionsListResponse,
+)
 from .repository import SessionsChatsRepository
 
 
@@ -20,7 +27,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     def event_bus() -> EventBus:
         return EventBus(platform.connection)
 
-    @router.get("/api/v1/sessions")
+    @router.get("/api/v1/sessions", response_model=SessionsListResponse)
     async def list_sessions() -> dict[str, Any]:
         return {"sessions": repository().list_sessions()}
 
@@ -39,7 +46,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         )
         return SessionResponse(session=session)
 
-    @router.get("/api/v1/chats")
+    @router.get("/api/v1/chats", response_model=ChatsListResponse)
     async def list_chats() -> dict[str, Any]:
         return {"chats": repository().list_chats()}
 

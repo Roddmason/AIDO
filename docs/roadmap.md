@@ -154,6 +154,10 @@
   entries for active v1 routes.
 - The OpenAPI client generator tolerates Windows temporary-directory cleanup
   races after closing SQLite-backed runtime state.
+- Active v1 read operations now declare Pydantic response models, and the
+  generated `OperationResponseBodies` map no longer falls back to raw
+  `JsonObject` operation responses. A guardrail test fails if a route regresses
+  to an untyped response body.
 - Command palette and workflow inspector are backed by FastAPI v1 state rather
   than client-invented data.
 - The command palette can create workflows, focus pending approvals, and open a
@@ -178,13 +182,13 @@
 1. Keep tightening tests around direct repositories and
    `tests_py/control_plane_fixture.py` where broad fixture setup is still
    noisier than the behavior under test.
-2. Continue narrowing read response models and larger overview subresources so
-   generated DTOs become domain-specific instead of broad `JsonObject`
-   fallbacks.
+2. Replace dict-based row payloads inside high-traffic response models with
+   narrower row DTOs where the schema is stable enough to enforce without
+   freezing still-evolving internal metadata.
 3. Run the installed-runtime issue-to-patch smoke on a release validation
    runner with OpenHands/SWE-agent installed and exact argv env vars supplied.
 
 ## Next Frontend Work
 
-1. Replace remaining hand-written domain refinements as backend routes gain
-   explicit Pydantic response models.
+1. Replace remaining hand-written domain refinements as backend row DTOs become
+   stable enough to generate directly from OpenAPI.

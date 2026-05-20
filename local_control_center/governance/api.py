@@ -9,11 +9,15 @@ from ..shared.event_bus import EventBus
 from .models import (
     ArchitectureDecisionCreateRequest,
     ArchitectureDecisionResponse,
+    ArchitectureDecisionsListResponse,
+    GovernanceResponse,
     NextStepCreateRequest,
     NextStepResponse,
+    NextStepsListResponse,
     NextStepUpdateRequest,
     RiskCreateRequest,
     RiskResponse,
+    RisksListResponse,
     RiskUpdateRequest,
 )
 from .repository import GovernanceRepository
@@ -43,7 +47,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     def event_bus() -> EventBus:
         return EventBus(platform.connection)
 
-    @router.get("/api/v1/governance")
+    @router.get("/api/v1/governance", response_model=GovernanceResponse)
     async def governance() -> dict[str, Any]:
         repo = repository()
         return {
@@ -52,7 +56,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             "nextSteps": repo.list_next_steps(),
         }
 
-    @router.get("/api/v1/architecture-decisions")
+    @router.get("/api/v1/architecture-decisions", response_model=ArchitectureDecisionsListResponse)
     async def list_architecture_decisions() -> dict[str, Any]:
         return {"architectureDecisions": repository().list_architecture_decisions()}
 
@@ -79,7 +83,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         )
         return ArchitectureDecisionResponse(architectureDecision=decision)
 
-    @router.get("/api/v1/risks")
+    @router.get("/api/v1/risks", response_model=RisksListResponse)
     async def list_risks() -> dict[str, Any]:
         return {"risks": repository().list_risks()}
 
@@ -125,7 +129,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         )
         return RiskResponse(risk=risk)
 
-    @router.get("/api/v1/next-steps")
+    @router.get("/api/v1/next-steps", response_model=NextStepsListResponse)
     async def list_next_steps() -> dict[str, Any]:
         return {"nextSteps": repository().list_next_steps()}
 

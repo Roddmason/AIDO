@@ -12,12 +12,14 @@ from ..shared.event_bus import EventBus
 from ..workspaces_projects.repository import WorkspacesRepository
 from .models import (
     PermissionGrantResponse,
+    PoliciesListResponse,
     PolicyEvaluateRequest,
     PolicyEvaluationResponse,
     RequiredReasonRequest,
     SandboxProfileMutationResponse,
     SandboxProfilePatchRequest,
     SandboxProfileResponse,
+    SandboxStatusResponse,
 )
 from .policy_engine import evaluate_action
 from .repository import SecurityPolicyRepository
@@ -94,7 +96,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     def event_bus() -> EventBus:
         return EventBus(platform.connection)
 
-    @router.get("/api/v1/policies")
+    @router.get("/api/v1/policies", response_model=PoliciesListResponse)
     async def list_policies() -> dict[str, Any]:
         repo = repository()
         return {
@@ -105,7 +107,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             "sandboxProfiles": repo.list_sandbox_profiles(),
         }
 
-    @router.get("/api/v1/sandbox/status")
+    @router.get("/api/v1/sandbox/status", response_model=SandboxStatusResponse)
     async def sandbox_status() -> dict[str, Any]:
         docker_status = DockerSandbox().status()
         docker_status["policy"] = repository().get_sandbox_profile("default_docker")

@@ -38,6 +38,10 @@ class AgentProfileResponse(BaseModel):
     agent_profile: dict[str, Any] = Field(alias="agentProfile")
 
 
+class AgentProfilesListResponse(BaseModel):
+    agent_profiles: list[dict[str, Any]] = Field(alias="agentProfiles")
+
+
 class AgentRunCreateRequest(BaseModel):
     project_id: str = Field(alias="projectId")
     agent_profile_id: str = Field(alias="agentProfileId")
@@ -52,12 +56,20 @@ class AgentRunResponse(BaseModel):
     agent_run: dict[str, Any] = Field(alias="agentRun")
 
 
+class AgentRunsListResponse(BaseModel):
+    agent_runs: list[dict[str, Any]] = Field(alias="agentRuns")
+
+
 class SkillsSyncRequest(BaseModel):
     skills_path: str = Field(default="skills", alias="skillsPath")
 
 
 class SkillsSyncResponse(BaseModel):
     synced: int
+    skills: list[dict[str, Any]]
+
+
+class SkillsListResponse(BaseModel):
     skills: list[dict[str, Any]]
 
 
@@ -76,3 +88,18 @@ class ModelPolicyUpsertRequest(BaseModel):
 
 class ModelPolicyResponse(BaseModel):
     model_policy: dict[str, Any] = Field(alias="modelPolicy")
+
+
+class ModelProvidersListResponse(BaseModel):
+    model_providers: list[dict[str, Any]] = Field(alias="modelProviders")
+
+
+class RuntimeProvidersResponse(BaseModel):
+    runtime_modes: list[str] = Field(alias="runtimeModes")
+    ollama: dict[str, Any]
+    cli: dict[str, Any]
+    api: dict[str, Any]
+
+
+class ModelPoliciesListResponse(BaseModel):
+    model_policies: list[dict[str, Any]] = Field(alias="modelPolicies")

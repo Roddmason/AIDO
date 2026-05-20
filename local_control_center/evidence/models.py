@@ -52,6 +52,16 @@ class EvidencePackageResponse(BaseModel):
     evidence_package: dict[str, Any] = Field(alias="evidencePackage")
 
 
+class EvidenceListResponse(BaseModel):
+    evidence_packages: list[dict[str, Any]] = Field(alias="evidencePackages")
+
+
+class EvidenceDetailResponse(BaseModel):
+    evidence_package: dict[str, Any] = Field(alias="evidencePackage")
+    test_result_records: list[dict[str, Any]] = Field(alias="testResultRecords")
+    artifacts: list[dict[str, Any]]
+
+
 class ArtifactResponse(BaseModel):
     artifact: dict[str, Any]
 

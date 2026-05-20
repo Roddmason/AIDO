@@ -12,7 +12,13 @@ from local_control_center.shared.event_bus import EventBus
 
 from .cleanup import capture_workspace_snapshot
 from .git_worktrees import capture_git_diff
-from .models import WorkspaceAllocateRequest, WorkspaceArchiveRequest, WorkspaceArchiveResponse, WorkspaceResponse
+from .models import (
+    WorkspaceAllocateRequest,
+    WorkspaceArchiveRequest,
+    WorkspaceArchiveResponse,
+    WorkspaceResponse,
+    WorkspacesListResponse,
+)
 from .repository import WorkspaceConflictError, WorkspacesRepository
 
 
@@ -25,7 +31,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     def event_bus() -> EventBus:
         return EventBus(platform.connection)
 
-    @router.get("/api/v1/workspaces")
+    @router.get("/api/v1/workspaces", response_model=WorkspacesListResponse)
     async def list_workspaces() -> dict[str, Any]:
         return {"workspaces": repository().list_workspaces()}
 

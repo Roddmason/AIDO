@@ -8,7 +8,14 @@ from fastapi import APIRouter, Request
 from local_control_center.shared.event_bus import EventBus
 
 from . import commands
-from .models import ApprovalReasonRequest, JobCreateRequest, JobMutationResponse, OptionalReasonRequest
+from .models import (
+    ApprovalReasonRequest,
+    ApprovalsListResponse,
+    JobCreateRequest,
+    JobMutationResponse,
+    JobsListResponse,
+    OptionalReasonRequest,
+)
 from .repository import JobsRepository
 
 
@@ -21,7 +28,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     def events() -> EventBus:
         return EventBus(platform.connection)
 
-    @router.get("/api/v1/jobs")
+    @router.get("/api/v1/jobs", response_model=JobsListResponse)
     async def list_jobs() -> dict[str, Any]:
         return commands.list_jobs(jobs(), events())
 
@@ -45,7 +52,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         require_write(request)
         return commands.retry_job(jobs(), job_id, body.model_dump())
 
-    @router.get("/api/v1/approvals")
+    @router.get("/api/v1/approvals", response_model=ApprovalsListResponse)
     async def approvals() -> dict[str, Any]:
         return commands.list_approvals(jobs())
 

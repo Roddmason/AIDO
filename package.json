@@ -14,6 +14,7 @@
     "build": "corepack pnpm@10.24.0 run build:web",
     "build:web": "vite build --config local-control-center/web/vite.config.ts",
     "build:control-center": "corepack pnpm@10.24.0 run build:web",
+    "openapi:generate": "uv run python local-control-center/scripts/generate_openapi_client.py",
     "test": "uv run pytest tests_py -q",
     "test:py": "uv run pytest tests_py -q",
     "test:all": "corepack pnpm@10.24.0 run build:control-center && corepack pnpm@10.24.0 run test:py",

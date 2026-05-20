@@ -53,7 +53,9 @@ export function WorkflowsPage({ overview }: { overview: Overview }) {
 				jobs: [],
 				agentRuns: [],
 				toolCalls: [],
+				permissionDecisions: [],
 				evidence: [],
+				artifacts: [],
 				testResults: [],
 				approvals: [],
 			};
@@ -66,6 +68,15 @@ export function WorkflowsPage({ overview }: { overview: Overview }) {
 		const jobIds = new Set(jobs.map((job) => job.id));
 		const agentRuns = overview.agentRuns.filter((run) => runIds.has(String(run.workflowRunId ?? '')) || stepIds.has(String(run.workflowStepId ?? '')));
 		const agentRunIds = new Set(agentRuns.map((run) => String(run.id ?? '')));
+		const toolCalls = overview.agentToolCalls.filter((toolCall) => agentRunIds.has(String(toolCall.agentRunId ?? '')));
+		const permissionDecisionIds = new Set(
+			toolCalls
+				.map((toolCall) => {
+					const payload = toolCall.payload as Record<string, unknown> | undefined;
+					return String(payload?.permissionDecisionId ?? '');
+				})
+				.filter(Boolean),
+		);
 		const evidence = overview.evidencePackages.filter((item) => runIds.has(String(item.workflowRunId ?? '')));
 		const evidenceIds = new Set(evidence.map((item) => String(item.id ?? '')));
 		return {
@@ -74,8 +85,10 @@ export function WorkflowsPage({ overview }: { overview: Overview }) {
 			workspaces: overview.runtimeWorkspaces.filter((workspace) => runIds.has(String(workspace.workflowRunId ?? ''))),
 			jobs,
 			agentRuns,
-			toolCalls: overview.agentToolCalls.filter((toolCall) => agentRunIds.has(String(toolCall.agentRunId ?? ''))),
+			toolCalls,
+			permissionDecisions: overview.permissionDecisions.filter((decision) => permissionDecisionIds.has(String(decision.id ?? ''))),
 			evidence,
+			artifacts: overview.artifacts.filter((artifact) => evidenceIds.has(String(artifact.evidencePackageId ?? ''))),
 			testResults: overview.testResultRecords.filter((item) => evidenceIds.has(String(item.evidencePackageId ?? ''))),
 			approvals: overview.actionRequests.filter((approval) => jobIds.has(approval.jobId)),
 		};
@@ -152,6 +165,36 @@ export function WorkflowsPage({ overview }: { overview: Overview }) {
 								<DataTable rows={linked.testResults} empty={<EmptyState title="No test records" body="Test results appear after evidence ingestion." />} columns={[
 									{ key: 'command', label: 'Command', render: (row) => <span className="mono">{String(row.command ?? '')}</span> },
 									{ key: 'status', label: 'Status', render: (row) => <Badge tone={toneForStatus(String(row.status ?? ''))}>{String(row.status ?? '')}</Badge> },
+								]} />
+							</Surface>
+							<Surface title="Artifacts" flat>
+								<DataTable rows={linked.artifacts} empty={<EmptyState title="No artifacts" body="Logs, reports and screenshots linked to evidence appear here." />} columns={[
+									{
+										key: 'name',
+										label: 'Name',
+										render: (row) => {
+											const metadata = row.metadata as Record<string, unknown> | undefined;
+											return <span className="mono">{String(metadata?.name ?? row.id ?? '')}</span>;
+										},
+									},
+									{ key: 'kind', label: 'Kind', render: (row) => <Badge>{String(row.kind ?? 'artifact')}</Badge> },
+									{ key: 'hash', label: 'Hash', render: (row) => <span className="mono">{shortId(String(row.hash ?? ''))}</span> },
+								]} />
+							</Surface>
+							<Surface title="Policy decisions" flat>
+								<DataTable rows={linked.permissionDecisions} empty={<EmptyState title="No policy decisions" body="Policy decisions linked through workflow tool calls appear here." />} columns={[
+									{ key: 'decision', label: 'Decision', render: (row) => <Badge tone={toneForStatus(String(row.decision ?? ''))}>{String(row.decision ?? '')}</Badge> },
+									{ key: 'risk', label: 'Risk', render: (row) => <Badge tone={toneForStatus(String(row.riskLevel ?? ''))}>{String(row.riskLevel ?? '')}</Badge> },
+									{
+										key: 'categories',
+										label: 'Categories',
+										render: (row) => {
+											const payload = row.payload as Record<string, unknown> | undefined;
+											const categories = Array.isArray(payload?.categories) ? payload.categories.join(', ') : '';
+											return <span className="mono">{categories}</span>;
+										},
+									},
+									{ key: 'reason', label: 'Reason', render: (row) => String(row.reason ?? '') },
 								]} />
 							</Surface>
 							<Surface title="Tool calls and approvals" flat>

@@ -19,6 +19,7 @@ import { useEffect, useMemo, useState } from 'react';
 
 import { useControlPlane } from '../hooks/useControlPlane';
 import { useMotionPreference, usePageMotion } from '../motion/useControlMotion';
+import { createWorkflowWithBody } from '../api/client';
 import { Badge, DataTable, Drawer, EmptyState, StatusDot } from '../components/primitives';
 import { OverviewPage } from '../features/overview/OverviewPage';
 import { JobsApprovalsPage } from '../features/jobs-approvals/JobsApprovalsPage';
@@ -69,6 +70,7 @@ export function App() {
 	const [eventDrawerOpen, setEventDrawerOpen] = useState(false);
 	const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
 	const [commandFilter, setCommandFilter] = useState('');
+	const [eventFilter, setEventFilter] = useState('');
 	const state = useControlPlane();
 	const motionRef = usePageMotion(page);
 
@@ -102,16 +104,52 @@ export function App() {
 		() => overview?.costUsage.reduce((total, row) => total + Number(row.amountUsd ?? 0), 0) ?? 0,
 		[overview],
 	);
+	const filteredEvents = useMemo(() => {
+		const query = eventFilter.trim().toLowerCase();
+		const events = overview?.events ?? [];
+		if (!query) return events;
+		return events.filter((event) => {
+			const payload = JSON.stringify(event.payload ?? {}).toLowerCase();
+			return (
+				event.type.toLowerCase().includes(query) ||
+				String(event.severity ?? '').toLowerCase().includes(query) ||
+				String(event.projectId ?? '').toLowerCase().includes(query) ||
+				String(event.jobId ?? '').toLowerCase().includes(query) ||
+				payload.includes(query)
+			);
+		});
+	}, [eventFilter, overview?.events]);
 	const commandActions = useMemo(
 		() => [
+			{
+				id: 'create-workflow',
+				label: 'Create Workflow',
+				hint: 'Create an idea-to-PR workflow for the selected project',
+				run: async () => {
+					if (!selectedProject?.id) return;
+					const title = `Palette workflow ${new Date().toISOString()}`;
+					await state.mutate((token) =>
+						createWorkflowWithBody(token, {
+							projectId: selectedProject.id,
+							title,
+							kind: 'idea_to_pr',
+							metadata: { source: 'command_palette' },
+						}),
+					);
+					window.location.hash = 'workflows';
+					setPage('workflows');
+					setCommandPaletteOpen(false);
+				},
+			},
 			{ id: 'go-workflows', label: 'Go to Workflows', hint: 'Inspect workflow runs, steps, evidence and tool calls', run: () => { window.location.hash = 'workflows'; setPage('workflows'); setCommandPaletteOpen(false); } },
 			{ id: 'open-approvals', label: 'Open Pending Approvals', hint: 'Review pending granular action requests', run: () => { setApprovalDrawerOpen(true); setCommandPaletteOpen(false); } },
 			{ id: 'go-jobs', label: 'Go to Jobs & Approvals', hint: 'Open the queue and approval surface', run: () => { window.location.hash = 'jobs'; setPage('jobs'); setCommandPaletteOpen(false); } },
 			{ id: 'go-governance', label: 'Go to Governance', hint: 'Review risks, decisions and next steps', run: () => { window.location.hash = 'governance'; setPage('governance'); setCommandPaletteOpen(false); } },
 			{ id: 'go-policy', label: 'Go to Policy & Security', hint: 'Inspect policy decisions and sandbox posture', run: () => { window.location.hash = 'policy'; setPage('policy'); setCommandPaletteOpen(false); } },
 			{ id: 'open-events', label: 'Open Event Drawer', hint: 'Inspect recent operational events', run: () => { setEventDrawerOpen(true); setCommandPaletteOpen(false); } },
+			{ id: 'search-events', label: 'Search Events', hint: 'Search events by type, severity, id or payload', run: () => { setEventDrawerOpen(true); setCommandPaletteOpen(false); } },
 		],
-		[],
+		[selectedProject?.id, state.mutate],
 	);
 	const filteredCommands = commandActions.filter((action) => {
 		const query = commandFilter.trim().toLowerCase();
@@ -241,8 +279,20 @@ export function App() {
 						/>
 					</Drawer>
 					<Drawer label="Event drawer" open={eventDrawerOpen} onClose={() => setEventDrawerOpen(false)}>
+						<div className="drawer-body">
+							<div className="field">
+								<label htmlFor="event-filter">Event filter</label>
+								<input
+									id="event-filter"
+									className="input"
+									value={eventFilter}
+									onChange={(event) => setEventFilter(event.target.value)}
+									placeholder="Filter by type, severity, id or payload"
+								/>
+							</div>
+						</div>
 						<DataTable
-							rows={overview.events.slice(0, 16)}
+							rows={filteredEvents.slice(0, 16)}
 							empty={<EmptyState title="No events" body="Workflow, job, policy, and evidence events appear here." />}
 							columns={[
 								{ key: 'type', label: 'Type', render: (row) => <span className="mono">{row.type}</span> },
@@ -266,7 +316,7 @@ export function App() {
 							</div>
 							<div className="command-list" role="list">
 								{filteredCommands.map((action) => (
-									<button key={action.id} className="command-item" type="button" onClick={action.run}>
+									<button key={action.id} className="command-item" type="button" onClick={() => void action.run()}>
 										<span>{action.label}</span>
 										<small>{action.hint}</small>
 									</button>

@@ -88,6 +88,36 @@ class ArtifactRecord(BaseModel):
     created_at: str = Field(alias="createdAt")
 
 
+class ArtifactFileRecord(BaseModel):
+    path: str
+    size_bytes: int = Field(alias="sizeBytes")
+
+
+class ExpiredArtifactRecord(BaseModel):
+    id: str
+    project_id: str = Field(alias="projectId")
+    evidence_package_id: str | None = Field(default=None, alias="evidencePackageId")
+    kind: str
+    path: str
+    hash: str | None = None
+    metadata: dict[str, Any]
+    created_at: str = Field(alias="createdAt")
+    retention_status: str = Field(alias="retentionStatus")
+    expires_at: str = Field(alias="expiresAt")
+
+
+class ArtifactRetentionResultRecord(BaseModel):
+    id: str
+    project_id: str = Field(alias="projectId")
+    evidence_package_id: str | None = Field(default=None, alias="evidencePackageId")
+    kind: str
+    path: str
+    hash: str | None = None
+    metadata: dict[str, Any]
+    created_at: str = Field(alias="createdAt")
+    retention_action: dict[str, Any] = Field(alias="retentionAction")
+
+
 class EvidencePackageResponse(BaseModel):
     evidence_package: EvidencePackageRecord = Field(alias="evidencePackage")
 
@@ -109,18 +139,18 @@ class ArtifactResponse(BaseModel):
 class ArtifactCleanupResponse(BaseModel):
     dry_run: bool = Field(alias="dryRun")
     artifact_root: str = Field(alias="artifactRoot")
-    orphan_files: list[dict[str, Any]] = Field(alias="orphanFiles")
-    deleted_files: list[dict[str, Any]] = Field(alias="deletedFiles")
+    orphan_files: list[ArtifactFileRecord] = Field(alias="orphanFiles")
+    deleted_files: list[ArtifactFileRecord] = Field(alias="deletedFiles")
     kept_referenced_files: int = Field(alias="keptReferencedFiles")
 
 
 class ArtifactRetentionPlanResponse(BaseModel):
     dry_run: bool = Field(alias="dryRun")
     now: str
-    expired_artifacts: list[dict[str, Any]] = Field(alias="expiredArtifacts")
+    expired_artifacts: list[ExpiredArtifactRecord] = Field(alias="expiredArtifacts")
     risk_ids: list[str] = Field(alias="riskIds")
 
 
 class ArtifactRetentionActionResponse(BaseModel):
     action: str
-    artifacts: list[dict[str, Any]]
+    artifacts: list[ArtifactRetentionResultRecord]

@@ -102,6 +102,10 @@ def test_generated_openapi_client_is_checked_in_and_v1_only() -> None:
     assert '"list_jobs_api_v1_jobs_get": JobsListResponse' in content
     assert '"approvals_api_v1_approvals_get": ApprovalsListResponse' in content
     assert "export type JobRecord" in content
+    assert '"modelPolicyId"?: null | string' in content
+    assert '"modelPolicyId"?: JsonValue | string' not in content
+    assert 'ProjectResponse = { "auditEvent"?: AuditEventRecord | null; "project": ProjectRecord }' in content
+    assert '"permissionGrant"?: PermissionGrantRecord | null' in content
     assert 'export type SessionsListResponse = { "sessions": Array<SessionRecord> }' in content
     assert 'export type ChatsListResponse = { "chats": Array<ChatRecord> }' in content
     assert 'export type PipelinesListResponse = { "pipelines": Array<PipelineRecord> }' in content
@@ -133,6 +137,12 @@ def test_generated_openapi_client_is_checked_in_and_v1_only() -> None:
     assert "export type TestResultRecord" in content
     assert "export type ArtifactRecord" in content
     assert 'EvidenceDetailResponse = { "artifacts": Array<ArtifactRecord>' in content
+    assert "export type ArtifactFileRecord" in content
+    assert "export type ExpiredArtifactRecord" in content
+    assert "export type ArtifactRetentionResultRecord" in content
+    assert 'ArtifactCleanupResponse = { "artifactRoot": string; "deletedFiles": Array<ArtifactFileRecord>' in content
+    assert 'ArtifactRetentionPlanResponse = { "dryRun": boolean; "expiredArtifacts": Array<ExpiredArtifactRecord>' in content
+    assert 'ArtifactRetentionActionResponse = { "action": string; "artifacts": Array<ArtifactRetentionResultRecord> }' in content
     assert '"list_workflows_api_v1_workflows_get": WorkflowsListResponse' in content
     assert '"get_workflow_api_v1_workflows__workflow_id__get": WorkflowDetailResponse' in content
     assert '"list_agent_profiles_api_v1_agent_profiles_get": AgentProfilesListResponse' in content
@@ -149,6 +159,28 @@ def test_generated_openapi_client_is_checked_in_and_v1_only() -> None:
     assert "export type RetrievalIndexSummary" in content
     assert 'RetrievalSearchResponse = { "results": Array<RetrievalSearchResultRecord> }' in content
     assert 'RetrievalReindexResponse = { "index": RetrievalIndexSummary }' in content
+    assert "export type SkillRecord" in content
+    assert 'SkillsListResponse = { "skills": Array<SkillRecord> }' in content
+    assert 'SkillsSyncResponse = { "skills": Array<SkillRecord>; "synced": number }' in content
+    assert "export type SecurityPosture" in content
+    assert "export type OpenDesignStatus" in content
+    assert "export type CliAdaptersStatus" in content
+    assert "export type OllamaRuntimeProviderStatus" in content
+    assert "export type CliRuntimeProviderStatus" in content
+    assert "export type ApiRuntimeProviderStatus" in content
+    assert (
+        'RuntimeProvidersResponse = { "api": ApiRuntimeProviderStatus; '
+        '"cli": CliRuntimeProviderStatus; "ollama": OllamaRuntimeProviderStatus;'
+    ) in content
+    assert "export type DockerSandboxStatus" in content
+    assert "export type RestrictedSubprocessStatus" in content
+    assert 'SandboxStatusResponse = { "docker": DockerSandboxStatus; "restrictedSubprocess": RestrictedSubprocessStatus }' in content
+    assert "export type ExternalTelemetryStatus" in content
+    assert 'TelemetryStatusResponse = { "externalExporter": ExternalTelemetryStatus }' in content
+    assert 'WorkspaceArchiveResponse = { "evidencePackage": EvidencePackageRecord; "workspace": WorkspaceRecord }' in content
+    assert '"skills": Array<SkillRecord>' in overview_line
+    assert '"security": SecurityPosture' in overview_line
+    assert '"openDesign": OpenDesignStatus' in overview_line
     response_section = content.split("export type OperationResponseBodies = {", 1)[1].split("};", 1)[0]
     assert ": JsonObject," not in response_section
     assert "export function buildApiPath" in content

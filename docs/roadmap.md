@@ -230,6 +230,18 @@
 - Stable prompt, IDE connection, MCP server, integration, retrieval search, and
   retrieval reindex records now have generated OpenAPI DTOs instead of
   front-end `JsonObject` fallbacks.
+- Skills, overview security posture, Open Design status, and runtime provider
+  status now have generated OpenAPI DTOs. The frontend consumes the generated
+  runtime provider contract instead of a hand-written duplicate shape.
+- Artifact cleanup and artifact retention responses now expose generated DTOs
+  for physical artifact files, expired artifacts, and audited retention action
+  results while keeping extension metadata flexible.
+- Sandbox status, external telemetry status, CLI adapter status, and workspace
+  archive evidence packages now expose generated DTOs instead of generic
+  operational objects.
+- The OpenAPI client generator now preserves nullable fields as `null` instead
+  of widening them to `JsonValue`, and project/job mutation responses type
+  audit events and permission grants with their domain DTOs.
 
 ## Next Backend Work
 
@@ -244,6 +256,7 @@
 
 ## Next Frontend Work
 
-1. Keep only adapter-specific metadata, skills, security posture, and artifact
-   cleanup/retention payloads flexible until their schemas are stable enough to
-   avoid freezing extension-specific fields too early.
+1. Keep only intentional extension payloads flexible: adapter-specific
+   metadata/config, pipeline stage payloads, policy rules, and raw evidence
+   test payload arrays. Convert any new stable operational row to a DTO before
+   exposing it to the frontend.

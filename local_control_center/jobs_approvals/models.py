@@ -4,6 +4,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from local_control_center.security_policy.models import PermissionGrantRecord
 from local_control_center.shared.schemas import AuditEventRecord, EventRecord
 
 
@@ -89,7 +90,7 @@ class JobMutationResponse(BaseModel):
     events: list[EventRecord] = Field(default_factory=list)
     action_requests: list[ActionRequestRecord] = Field(default_factory=list, alias="actionRequests")
     action_request: ActionRequestRecord | None = Field(default=None, alias="actionRequest")
-    permission_grant: dict[str, Any] | None = Field(default=None, alias="permissionGrant")
+    permission_grant: PermissionGrantRecord | None = Field(default=None, alias="permissionGrant")
 
 
 class JobsListResponse(BaseModel):

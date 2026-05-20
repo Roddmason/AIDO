@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Any
-
 from pydantic import BaseModel, Field
 
 from local_control_center.agents.contracts import (
@@ -12,6 +10,7 @@ from local_control_center.agents.contracts import (
     ModelCallRecord,
     ModelPolicyRecord,
     ModelProviderRecord,
+    SkillRecord,
 )
 from local_control_center.evidence.models import ArtifactRecord, EvidencePackageRecord, TestResultRecord
 from local_control_center.governance.models import ArchitectureDecisionRecord, NextStepRecord, RiskRecord
@@ -37,6 +36,15 @@ from local_control_center.sessions_chats.models import ChatRecord, SessionRecord
 from local_control_center.shared.schemas import AuditEventRecord, EventRecord
 from local_control_center.workflows.models import WorkflowRecord, WorkflowRunRecord, WorkflowStepRecord
 from local_control_center.workspaces_projects.models import WorkspaceRecord
+
+
+class OpenDesignStatus(BaseModel):
+    status: str
+
+
+class SecurityPosture(BaseModel):
+    loopback_only: bool = Field(alias="loopbackOnly")
+    write_token_required: bool = Field(alias="writeTokenRequired")
 
 
 class OverviewResponse(BaseModel):
@@ -75,9 +83,9 @@ class OverviewResponse(BaseModel):
     model_calls: list[ModelCallRecord] = Field(alias="modelCalls")
     cost_usage: list[CostUsageRecord] = Field(alias="costUsage")
     runtime_workspaces: list[WorkspaceRecord] = Field(alias="runtimeWorkspaces")
-    skills: list[dict[str, Any]]
+    skills: list[SkillRecord]
     architecture_decisions: list[ArchitectureDecisionRecord] = Field(alias="architectureDecisions")
     risk_register: list[RiskRecord] = Field(alias="riskRegister")
     next_steps: list[NextStepRecord] = Field(alias="nextSteps")
-    open_design: dict[str, Any] = Field(alias="openDesign")
-    security: dict[str, Any]
+    open_design: OpenDesignStatus = Field(alias="openDesign")
+    security: SecurityPosture

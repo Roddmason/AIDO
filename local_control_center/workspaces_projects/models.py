@@ -4,6 +4,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
+from local_control_center.evidence.models import EvidencePackageRecord
+
 
 WorkspaceIsolationType = Literal["directory", "git_worktree"]
 
@@ -54,4 +56,4 @@ class WorkspacesListResponse(BaseModel):
 
 class WorkspaceArchiveResponse(BaseModel):
     workspace: WorkspaceRecord
-    evidence_package: dict[str, Any] = Field(alias="evidencePackage")
+    evidence_package: EvidencePackageRecord = Field(alias="evidencePackage")

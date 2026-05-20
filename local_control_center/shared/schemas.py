@@ -23,8 +23,20 @@ class RetrievalStatusResponse(BaseModel):
     dimensions: int
 
 
+class ExternalTelemetryStatus(BaseModel):
+    enabled: bool
+    mode: str
+    available: bool
+    traces_enabled: bool = Field(alias="tracesEnabled")
+    metrics_enabled: bool = Field(alias="metricsEnabled")
+    reason: str
+    service_name: str | None = Field(default=None, alias="serviceName")
+    traces_endpoint: str | None = Field(default=None, alias="tracesEndpoint")
+    metrics_endpoint: str | None = Field(default=None, alias="metricsEndpoint")
+
+
 class TelemetryStatusResponse(BaseModel):
-    external_exporter: dict[str, Any] = Field(alias="externalExporter")
+    external_exporter: ExternalTelemetryStatus = Field(alias="externalExporter")
 
 
 class EventRecord(BaseModel):
@@ -44,4 +56,3 @@ class AuditEventRecord(BaseModel):
     target: str
     payload: dict[str, Any]
     created_at: str = Field(alias="createdAt")
-

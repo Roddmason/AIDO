@@ -9,6 +9,12 @@ from fastapi import APIRouter, HTTPException, Request
 from local_control_center.evidence.repository import EvidenceRepository
 from local_control_center.shared.event_bus import EventBus
 
+from .contracts import (
+    AgentProfileResponse,
+    AgentProfileUpsertRequest,
+    ModelPolicyResponse,
+    ModelPolicyUpsertRequest,
+)
 from .executor import run_internal_mock_agent
 from .model_gateway import LOCAL_MODEL_PROVIDERS, REMOTE_MODEL_PROVIDERS, RUNTIME_MODES, runtime_provider_status
 from .repository import AgentsRepository
@@ -188,11 +194,11 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     async def list_agent_profiles() -> dict[str, Any]:
         return {"agentProfiles": repository().list_agent_profiles()}
 
-    @router.post("/api/v1/agent-profiles", status_code=201)
-    async def upsert_agent_profile(request: Request) -> dict[str, Any]:
+    @router.post("/api/v1/agent-profiles", status_code=201, response_model=AgentProfileResponse)
+    async def upsert_agent_profile(body: AgentProfileUpsertRequest, request: Request) -> dict[str, Any]:
         require_write(request)
-        body = validate_agent_profile_body(await request.json())
-        profile = repository().upsert_agent_profile(body)
+        payload = validate_agent_profile_body(body.model_dump(by_alias=True))
+        profile = repository().upsert_agent_profile(payload)
         event_bus().record_event(event_type="agent.profile.upserted", payload={"agentProfileId": profile["id"]})
         return {"agentProfile": profile}
 
@@ -358,11 +364,11 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     async def list_model_policies() -> dict[str, Any]:
         return {"modelPolicies": repository().list_model_policies()}
 
-    @router.post("/api/v1/model-policies", status_code=201)
-    async def upsert_model_policy(request: Request) -> dict[str, Any]:
+    @router.post("/api/v1/model-policies", status_code=201, response_model=ModelPolicyResponse)
+    async def upsert_model_policy(body: ModelPolicyUpsertRequest, request: Request) -> dict[str, Any]:
         require_write(request)
-        body = validate_model_policy_body(await request.json())
-        policy = repository().upsert_model_policy(body)
+        payload = validate_model_policy_body(body.model_dump(by_alias=True))
+        policy = repository().upsert_model_policy(payload)
         event_bus().record_event(event_type="model.policy.upserted", payload={"modelPolicyId": policy["id"]})
         return {"modelPolicy": policy}
 

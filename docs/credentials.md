@@ -68,12 +68,37 @@ Configure the remote secret endpoint with:
 
 ```powershell
 $env:AIDO_SECRET_VAULT_ADDR = "https://vault.example"
+$env:AIDO_SECRET_VAULT_AUTH_METHOD = "approle"
+$env:AIDO_SECRET_VAULT_ROLE_ID_REF = "env:AIDO_OPENBAO_ROLE_ID"
+$env:AIDO_SECRET_VAULT_SECRET_ID_REF = "keyring:aido/openbao-secret-id"
+```
+
+AppRole is the recommended simple bootstrap for real usage. AIDO posts the
+resolved `role_id` and `secret_id` to:
+
+```text
+POST {AIDO_SECRET_VAULT_ADDR}/v1/{AIDO_SECRET_VAULT_APPROLE_PATH}/login
+```
+
+and uses the returned short-lived token only in memory for the KV v2 lookup.
+`AIDO_SECRET_VAULT_APPROLE_PATH` defaults to `auth/approle`.
+
+Token auth remains supported for development, migration and emergency
+bootstrap:
+
+```powershell
+$env:AIDO_SECRET_VAULT_AUTH_METHOD = "token"
 $env:AIDO_SECRET_VAULT_TOKEN_REF = "keyring:aido/openbao-token"
 ```
 
 `AIDO_SECRET_VAULT_TOKEN_REF` may point to `keyring:` or `env:`. As a fallback,
 the resolver also checks `AIDO_SECRET_VAULT_TOKEN`, `OPENBAO_TOKEN`, and
 `VAULT_TOKEN`.
+
+AppRole bootstrap refs may point to `env:` or `keyring:`. They may not point to
+`openbao:` or `vault:` because that would require a vault token to retrieve the
+credentials needed to get a vault token. Keep `secret_id` short-lived or wrapped
+when your OpenBao deployment supports that flow; never commit it to the repo.
 
 Vault addresses must use `https://`. `http://127.0.0.1`, `http://localhost` and
 `http://[::1]` are allowed only for explicit development with

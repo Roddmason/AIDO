@@ -47,10 +47,10 @@ corepack pnpm@10.24.0 run openapi:generate
 
 - Real provider execution remains disabled unless explicitly enabled.
 - Credential resolution prefers external OpenBao/Vault-compatible refs for real
-  provider keys, with `env:` and `keyring:` kept as development/bootstrap
-  options. AIDO does not persist raw API keys. This reduces exposure of
-  provider keys but does not remove secret-zero: the local process still needs
-  a vault bootstrap identity.
+  provider keys. AppRole bootstrap is the recommended real-use path; `env:` and
+  `keyring:` remain development/bootstrap options. AIDO does not persist raw API
+  keys. This reduces exposure of provider keys but does not remove secret-zero:
+  the local process still needs a vault bootstrap identity.
 - Pricing seeds are marked `manual_seed`; treat them as editable estimates, not current truth.
 
 ## Limitations

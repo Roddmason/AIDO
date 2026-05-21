@@ -15,8 +15,12 @@ preferred for real provider keys:
 }
 ```
 
-Environment refs are still supported for local development or short-lived
-bootstrap tokens:
+Configure OpenBao authentication outside provider accounts. For real usage,
+prefer AppRole bootstrap (`AIDO_SECRET_VAULT_AUTH_METHOD=approle`) so provider
+keys stay in the remote secret manager and the local process receives only a
+scoped session token in memory.
+
+Environment refs are still supported for local development:
 
 ```powershell
 $env:NVIDIA_NIM_API_KEY = "<real key outside repo>"
@@ -26,8 +30,8 @@ Then store `env:NVIDIA_NIM_API_KEY`; do not rely on unprefixed env names in new
 configuration.
 
 Only the ref string is stored in SQLite. Raw keys are rejected. Optional refs in
-the form `keyring:service/account` can be used when a local OS/keyring adapter
-is installed outside the core runtime.
+the form `keyring:service/account` can be used for bootstrap material when a
+local OS/keyring adapter is installed outside the core runtime.
 
 ## Endpoints
 

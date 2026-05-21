@@ -48,11 +48,23 @@ def enable_provider(client: TestClient, headers: dict[str, str], provider_id: st
 def test_phase12_schema_adds_unified_model_runtime_gateway_tables(tmp_path: Path) -> None:
     with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
         initialize_platform_schema(connection)
-        tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()}
-        migrations = {row[0] for row in connection.execute("SELECT version FROM schema_migrations").fetchall()}
-        seeded_roles = {row["role"] for row in connection.execute("SELECT role FROM role_model_policies").fetchall()}
-        seeded_profiles = {row["name"] for row in connection.execute("SELECT name FROM routing_profiles").fetchall()}
-        seeded_providers = {row["provider_id"] for row in connection.execute("SELECT provider_id FROM provider_accounts").fetchall()}
+        tables = {
+            row[0]
+            for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()
+        }
+        migrations = {
+            row[0] for row in connection.execute("SELECT version FROM schema_migrations").fetchall()
+        }
+        seeded_roles = {
+            row["role"] for row in connection.execute("SELECT role FROM role_model_policies").fetchall()
+        }
+        seeded_profiles = {
+            row["name"] for row in connection.execute("SELECT name FROM routing_profiles").fetchall()
+        }
+        seeded_providers = {
+            row["provider_id"]
+            for row in connection.execute("SELECT provider_id FROM provider_accounts").fetchall()
+        }
 
     assert 12 in migrations
     assert {
@@ -78,21 +90,42 @@ def test_phase12_schema_adds_unified_model_runtime_gateway_tables(tmp_path: Path
         "security_reviewer",
         "release_manager",
     } <= seeded_roles
-    assert {"free_first", "cost_controlled", "balanced_best_value", "max_performance", "manual_by_profile", "local_private"} <= seeded_profiles
-    assert {"internal_mock", "nvidia_nim", "ollama", "codex_cli", "claude_code_cli", "manual"} <= seeded_providers
+    assert {
+        "free_first",
+        "cost_controlled",
+        "balanced_best_value",
+        "max_performance",
+        "manual_by_profile",
+        "local_private",
+    } <= seeded_profiles
+    assert {
+        "internal_mock",
+        "nvidia_nim",
+        "ollama",
+        "codex_cli",
+        "claude_code_cli",
+        "manual",
+    } <= seeded_providers
 
 
 def test_phase13_schema_adds_benchmark_outcomes(tmp_path: Path) -> None:
     with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
         initialize_platform_schema(connection)
-        tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()}
-        migrations = {row[0] for row in connection.execute("SELECT version FROM schema_migrations").fetchall()}
+        tables = {
+            row[0]
+            for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()
+        }
+        migrations = {
+            row[0] for row in connection.execute("SELECT version FROM schema_migrations").fetchall()
+        }
 
     assert 13 in migrations
     assert "model_benchmark_outcomes" in tables
 
 
-def test_provider_accounts_crud_endpoints_do_not_expose_raw_credentials(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_provider_accounts_crud_endpoints_do_not_expose_raw_credentials(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     client = create_client(tmp_path, monkeypatch)
     headers = auth_headers(client)
 
@@ -257,7 +290,9 @@ def test_remote_vault_requires_secure_transport_or_explicit_loopback_opt_in(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("AIDO_SECRET_VAULT_TOKEN", "vault-session-token")
-    resolver = CredentialResolver(http_json_get=lambda url, headers, timeout: {"data": {"data": {"api_key": "secret"}}})
+    resolver = CredentialResolver(
+        http_json_get=lambda url, headers, timeout: {"data": {"data": {"api_key": "secret"}}}
+    )
 
     monkeypatch.setenv("AIDO_SECRET_VAULT_ADDR", "http://vault.example")
     insecure_remote = resolver.resolve("openbao:secret/providers/nvidia_nim#api_key")
@@ -278,9 +313,13 @@ def test_remote_vault_requires_kv2_payload_and_normalizes_decode_errors(
 ) -> None:
     monkeypatch.setenv("AIDO_SECRET_VAULT_ADDR", "https://vault.example")
     monkeypatch.setenv("AIDO_SECRET_VAULT_TOKEN", "vault-session-token")
-    kv1_resolver = CredentialResolver(http_json_get=lambda url, headers, timeout: {"data": {"api_key": "secret"}})
+    kv1_resolver = CredentialResolver(
+        http_json_get=lambda url, headers, timeout: {"data": {"api_key": "secret"}}
+    )
     bad_decode_resolver = CredentialResolver(
-        http_json_get=lambda url, headers, timeout: (_ for _ in ()).throw(UnicodeDecodeError("utf-8", b"\xff", 0, 1, "bad"))
+        http_json_get=lambda url, headers, timeout: (_ for _ in ()).throw(
+            UnicodeDecodeError("utf-8", b"\xff", 0, 1, "bad")
+        )
     )
 
     kv1 = kv1_resolver.resolve("openbao:secret/providers/nvidia_nim#api_key")
@@ -289,6 +328,64 @@ def test_remote_vault_requires_kv2_payload_and_normalizes_decode_errors(
     assert kv1.status == "missing"
     assert "KV v2" in kv1.message
     assert bad_decode.status == "unavailable"
+
+
+def test_remote_vault_can_use_approle_bootstrap_without_static_vault_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    posts: list[tuple[str, dict[str, str], dict[str, str]]] = []
+    gets: list[tuple[str, dict[str, str]]] = []
+
+    def fake_http_json_post(
+        url: str, headers: dict[str, str], payload: dict[str, str], timeout: float
+    ) -> dict[str, object]:
+        posts.append((url, headers, payload))
+        return {"auth": {"client_token": "vault-session-token"}}
+
+    def fake_http_json_get(url: str, headers: dict[str, str], timeout: float) -> dict[str, object]:
+        gets.append((url, headers))
+        return {"data": {"data": {"api_key": "provider-secret"}}}
+
+    monkeypatch.setenv("AIDO_SECRET_VAULT_ADDR", "https://vault.example")
+    monkeypatch.setenv("AIDO_SECRET_VAULT_AUTH_METHOD", "approle")
+    monkeypatch.setenv("AIDO_SECRET_VAULT_ROLE_ID_REF", "env:AIDO_OPENBAO_ROLE_ID")
+    monkeypatch.setenv("AIDO_SECRET_VAULT_SECRET_ID_REF", "env:AIDO_OPENBAO_SECRET_ID")
+    monkeypatch.setenv("AIDO_OPENBAO_ROLE_ID", "role-id")
+    monkeypatch.setenv("AIDO_OPENBAO_SECRET_ID", "secret-id")
+    resolver = CredentialResolver(http_json_get=fake_http_json_get, http_json_post=fake_http_json_post)
+
+    status = resolver.status("openbao:secret/providers/nvidia_nim#api_key")
+    result = resolver.resolve("openbao:secret/providers/nvidia_nim#api_key")
+
+    assert status == "unverified"
+    assert result.status == "configured"
+    assert posts == [
+        (
+            "https://vault.example/v1/auth/approle/login",
+            {"Content-Type": "application/json", "Accept": "application/json"},
+            {"role_id": "role-id", "secret_id": "secret-id"},
+        )
+    ]
+    assert gets == [
+        (
+            "https://vault.example/v1/secret/data/providers/nvidia_nim",
+            {"X-Vault-Token": "vault-session-token", "Accept": "application/json"},
+        )
+    ]
+
+
+def test_remote_vault_propagates_invalid_auth_configuration(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AIDO_SECRET_VAULT_ADDR", "https://vault.example")
+    monkeypatch.setenv("AIDO_SECRET_VAULT_AUTH_METHOD", "approle")
+    monkeypatch.setenv("AIDO_SECRET_VAULT_ROLE_ID_REF", "openbao:secret/bootstrap#role_id")
+    monkeypatch.setenv("AIDO_SECRET_VAULT_SECRET_ID_REF", "env:AIDO_OPENBAO_SECRET_ID")
+    monkeypatch.setenv("AIDO_OPENBAO_SECRET_ID", "secret-id")
+    resolver = CredentialResolver(http_json_get=lambda url, headers, timeout: {})
+
+    result = resolver.resolve("openbao:secret/providers/nvidia_nim#api_key")
+
+    assert result.status == "invalid"
+    assert "recursively" in result.message
 
 
 def test_provider_health_check_does_not_mark_missing_remote_vault_ref_healthy(
@@ -310,7 +407,9 @@ def test_provider_health_check_does_not_mark_missing_remote_vault_ref_healthy(
             "enabled": True,
         },
     )
-    health = client.post("/api/v1/model-gateway/providers/remote_secret_provider/health-check", headers=headers)
+    health = client.post(
+        "/api/v1/model-gateway/providers/remote_secret_provider/health-check", headers=headers
+    )
 
     assert created.status_code == 201
     assert created.json()["provider"]["credentialStatus"] == "missing"
@@ -360,7 +459,9 @@ def test_model_catalog_crud_endpoints(tmp_path: Path, monkeypatch: pytest.Monkey
     assert created.status_code == 201
     model_id = created.json()["model"]["id"]
 
-    patched = client.patch(f"/api/v1/model-gateway/models/{model_id}", headers=headers, json={"enabled": False})
+    patched = client.patch(
+        f"/api/v1/model-gateway/models/{model_id}", headers=headers, json={"enabled": False}
+    )
     assert patched.status_code == 200
     assert patched.json()["model"]["enabled"] is False
 
@@ -369,7 +470,9 @@ def test_model_catalog_crud_endpoints(tmp_path: Path, monkeypatch: pytest.Monkey
     assert any(item["model"] == "nvidia/test-model" for item in listed.json()["models"])
 
 
-def test_routing_profiles_and_role_policy_seeds_are_exposed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_routing_profiles_and_role_policy_seeds_are_exposed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     client = create_client(tmp_path, monkeypatch)
     profiles = client.get("/api/v1/model-gateway/routing-profiles")
     policies = client.get("/api/v1/model-gateway/role-policies")
@@ -382,7 +485,9 @@ def test_routing_profiles_and_role_policy_seeds_are_exposed(tmp_path: Path, monk
     assert analyst["allowApi"] is True
 
 
-def test_agent_profile_stores_routing_runtime_and_budget_controls(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_agent_profile_stores_routing_runtime_and_budget_controls(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     client = create_client(tmp_path, monkeypatch)
     headers = auth_headers(client)
 
@@ -451,7 +556,9 @@ def test_route_preview_free_first_chooses_nvidia_when_enabled_healthy_and_in_quo
     assert response.json()["decisionReason"]
 
 
-def test_route_preview_local_private_blocks_remote_providers(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_route_preview_local_private_blocks_remote_providers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     client = create_client(tmp_path, monkeypatch)
     headers = auth_headers(client)
     enable_provider(client, headers, "nvidia_nim")
@@ -566,7 +673,9 @@ def test_quota_manager_blocks_provider_in_cooldown(tmp_path: Path) -> None:
     with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
         initialize_platform_schema(connection)
         manager = QuotaManager(connection)
-        manager.record_rate_limit(provider_id="nvidia_nim", model="auto_best_available", retry_after_seconds=120)
+        manager.record_rate_limit(
+            provider_id="nvidia_nim", model="auto_best_available", retry_after_seconds=120
+        )
 
         result = manager.check(provider_id="nvidia_nim", model="auto_best_available", request_tokens=100)
 
@@ -693,7 +802,11 @@ def test_benchmark_outcome_endpoint_records_success_qa_and_rework_rates(
     assert created.status_code == 201
     assert outcomes.status_code == 200
     assert any(item["providerId"] == "codex_cli" for item in outcomes.json()["outcomes"])
-    benchmark = next(item for item in benchmarks.json()["benchmarks"] if item["providerId"] == "codex_cli" and item["model"] == "gpt-5.5")
+    benchmark = next(
+        item
+        for item in benchmarks.json()["benchmarks"]
+        if item["providerId"] == "codex_cli" and item["model"] == "gpt-5.5"
+    )
     assert benchmark["tasksAttempted"] == 1
     assert benchmark["successRate"] == 1.0
     assert benchmark["qaPassRate"] == 1.0
@@ -709,7 +822,9 @@ def test_evidence_creation_ingests_benchmark_outcome_from_usage_ledger(
     headers = auth_headers(client)
     with client:
         store = client.app.state.runtime  # type: ignore[attr-defined]
-        project = store.create_project(name="Benchmark Evidence", path=tmp_path / "benchmark-evidence", template_id="other")
+        project = store.create_project(
+            name="Benchmark Evidence", path=tmp_path / "benchmark-evidence", template_id="other"
+        )
         usage = UsageLedger(store.connection).record_usage(
             provider_id="codex_cli",
             model="gpt-5.5",
@@ -770,7 +885,9 @@ def test_nvidia_provider_mock_parses_usage_and_handles_429(tmp_path: Path) -> No
 
         limited = provider.handle_error(status_code=429, message="rate limit", model="auto_best_available")
         assert limited.health_status == "degraded"
-        quota = QuotaManager(connection).check(provider_id="nvidia_nim", model="auto_best_available", request_tokens=1)
+        quota = QuotaManager(connection).check(
+            provider_id="nvidia_nim", model="auto_best_available", request_tokens=1
+        )
         assert quota.allowed is False
 
 
@@ -855,8 +972,18 @@ def test_cli_runtimes_parse_runtime_specific_usage_aliases() -> None:
         )
     )
 
-    assert codex is not None and codex.input_tokens == 11 and codex.cached_input_tokens == 3 and codex.reasoning_tokens == 5
-    assert claude is not None and claude.input_tokens == 13 and claude.cached_input_tokens == 2 and claude.output_tokens == 8
+    assert (
+        codex is not None
+        and codex.input_tokens == 11
+        and codex.cached_input_tokens == 3
+        and codex.reasoning_tokens == 5
+    )
+    assert (
+        claude is not None
+        and claude.input_tokens == 13
+        and claude.cached_input_tokens == 2
+        and claude.output_tokens == 8
+    )
     assert openhands is not None and openhands.total_tokens == 26
     assert swe_agent is not None and swe_agent.output_tokens == 10
 
@@ -907,7 +1034,12 @@ def test_model_gateway_endpoints_return_valid_json(tmp_path: Path, monkeypatch: 
     mock_execute = client.post(
         "/api/v1/model-gateway/route/execute-mock",
         headers=headers,
-        json={"role": "analyst", "taskType": "doc_summary", "mode": "free_first", "privacyLevel": "remote_allowed"},
+        json={
+            "role": "analyst",
+            "taskType": "doc_summary",
+            "mode": "free_first",
+            "privacyLevel": "remote_allowed",
+        },
     )
 
     assert detect.status_code == 200
@@ -971,7 +1103,9 @@ def test_workflow_start_records_model_router_decisions_for_each_step(
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
     store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
     store.init()
-    project = store.create_project(name="Routing Workflow", path=tmp_path / "routing-workflow", template_id="other")
+    project = store.create_project(
+        name="Routing Workflow", path=tmp_path / "routing-workflow", template_id="other"
+    )
     client = TestClient(create_app(runtime=store, static_dir=None))
     headers = auth_headers(client)
     workflow = client.post(
@@ -980,7 +1114,9 @@ def test_workflow_start_records_model_router_decisions_for_each_step(
         json={"projectId": project["id"], "kind": "idea_to_pr", "title": "Route workflow steps"},
     ).json()["workflow"]
 
-    started = client.post(f"/api/v1/workflows/{workflow['id']}/start", headers=headers, json={"reason": "route"})
+    started = client.post(
+        f"/api/v1/workflows/{workflow['id']}/start", headers=headers, json={"reason": "route"}
+    )
     decisions = client.get("/api/v1/model-gateway/routing-decisions").json()["routingDecisions"]
 
     assert started.status_code == 202

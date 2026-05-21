@@ -22,6 +22,9 @@ bootstrap tokens:
 $env:NVIDIA_NIM_API_KEY = "<real key outside repo>"
 ```
 
+Then store `env:NVIDIA_NIM_API_KEY`; do not rely on unprefixed env names in new
+configuration.
+
 Only the ref string is stored in SQLite. Raw keys are rejected. Optional refs in
 the form `keyring:service/account` can be used when a local OS/keyring adapter
 is installed outside the core runtime.
@@ -41,8 +44,8 @@ is installed outside the core runtime.
 ## Risks
 
 - Health checks currently run in safe mock mode from the API route.
-- Credential status is resolver-based: configured, missing, unknown, invalid,
-  unsupported or unavailable.
+- Credential status is resolver-based: configured, unverified, missing,
+  unknown, invalid, unsupported or unavailable.
 
 ## Limitations
 

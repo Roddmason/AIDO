@@ -4,7 +4,7 @@ import sqlite3
 import uuid
 from typing import Any
 
-from local_control_center.agents.credentials import CredentialResolver, validate_credential_ref
+from local_control_center.agents.credentials import CredentialResolver
 from local_control_center.agents.model_gateway import redact_secrets
 from local_control_center.shared.serialization import json_dumps, json_loads
 from local_control_center.shared.time import utc_now
@@ -86,8 +86,9 @@ class ProviderAccountStore:
 
     def upsert_provider_account(self, body: dict[str, Any]) -> dict[str, Any]:
         provider_id = str(body["providerId"])
-        credential_ref = str(body.get("credentialRef", "") or "")
-        validate_credential_ref(credential_ref)
+        resolver = CredentialResolver()
+        credential_ref = resolver.normalize_ref_for_storage(str(body.get("credentialRef", "") or ""))
+        resolver.validate_ref(credential_ref)
         now = utc_now()
         self.connection.execute(
             """

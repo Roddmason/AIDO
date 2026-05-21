@@ -111,7 +111,7 @@ def test_provider_accounts_crud_endpoints_do_not_expose_raw_credentials(tmp_path
     )
     assert created.status_code == 201
     payload = created.json()["provider"]
-    assert payload["credentialRef"] == "TEST_COMPATIBLE_API_KEY"
+    assert payload["credentialRef"] == "env:TEST_COMPATIBLE_API_KEY"
     assert "sk-" not in str(payload)
 
     patched = client.patch(
@@ -171,6 +171,21 @@ def test_provider_accounts_reject_raw_credential_refs_and_support_env_scheme(
     assert provider["credentialStatus"] == "configured"
     assert "sk-testsecret" not in str(provider)
 
+    uppercase_secret = client.post(
+        "/api/v1/model-gateway/providers",
+        headers=headers,
+        json={
+            "providerId": "uppercase_secret_provider",
+            "displayName": "Uppercase Secret Provider",
+            "providerType": "api",
+            "apiFormat": "openai_compatible",
+            "baseUrl": "https://example.invalid/v1",
+            "credentialRef": "NOT_A_VALID_REF",
+            "enabled": False,
+        },
+    )
+    assert uppercase_secret.status_code == 400
+
 
 def test_credential_resolver_supports_env_keyring_fallbacks_and_redaction(
     monkeypatch: pytest.MonkeyPatch,
@@ -212,7 +227,7 @@ def test_credential_resolver_fetches_remote_openbao_kv2_secret_without_persisten
     status = resolver.status("openbao:secret/providers/nvidia_nim#api_key")
     result = resolver.resolve("openbao:secret/providers/nvidia_nim#api_key")
 
-    assert status == "configured"
+    assert status == "unverified"
     assert result.status == "configured"
     assert result.source == "openbao"
     assert result.value == "sk-remote-secret123456"
@@ -236,6 +251,71 @@ def test_remote_vault_refs_validate_format_and_configuration(monkeypatch: pytest
     assert "not configured" in missing.message
     assert invalid.status == "invalid"
     assert "field" in invalid.message
+
+
+def test_remote_vault_requires_secure_transport_or_explicit_loopback_opt_in(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AIDO_SECRET_VAULT_TOKEN", "vault-session-token")
+    resolver = CredentialResolver(http_json_get=lambda url, headers, timeout: {"data": {"data": {"api_key": "secret"}}})
+
+    monkeypatch.setenv("AIDO_SECRET_VAULT_ADDR", "http://vault.example")
+    insecure_remote = resolver.resolve("openbao:secret/providers/nvidia_nim#api_key")
+
+    monkeypatch.setenv("AIDO_SECRET_VAULT_ADDR", "http://127.0.0.1:8200")
+    insecure_loopback = resolver.resolve("openbao:secret/providers/nvidia_nim#api_key")
+
+    monkeypatch.setenv("AIDO_ALLOW_INSECURE_LOCAL_VAULT", "true")
+    local_dev = resolver.resolve("openbao:secret/providers/nvidia_nim#api_key")
+
+    assert insecure_remote.status == "invalid"
+    assert insecure_loopback.status == "invalid"
+    assert local_dev.status == "configured"
+
+
+def test_remote_vault_requires_kv2_payload_and_normalizes_decode_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AIDO_SECRET_VAULT_ADDR", "https://vault.example")
+    monkeypatch.setenv("AIDO_SECRET_VAULT_TOKEN", "vault-session-token")
+    kv1_resolver = CredentialResolver(http_json_get=lambda url, headers, timeout: {"data": {"api_key": "secret"}})
+    bad_decode_resolver = CredentialResolver(
+        http_json_get=lambda url, headers, timeout: (_ for _ in ()).throw(UnicodeDecodeError("utf-8", b"\xff", 0, 1, "bad"))
+    )
+
+    kv1 = kv1_resolver.resolve("openbao:secret/providers/nvidia_nim#api_key")
+    bad_decode = bad_decode_resolver.resolve("openbao:secret/providers/nvidia_nim#api_key")
+
+    assert kv1.status == "missing"
+    assert "KV v2" in kv1.message
+    assert bad_decode.status == "unavailable"
+
+
+def test_provider_health_check_does_not_mark_missing_remote_vault_ref_healthy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    headers = auth_headers(client)
+
+    created = client.post(
+        "/api/v1/model-gateway/providers",
+        headers=headers,
+        json={
+            "providerId": "remote_secret_provider",
+            "displayName": "Remote Secret Provider",
+            "providerType": "api",
+            "apiFormat": "openai_compatible",
+            "baseUrl": "https://example.invalid/v1",
+            "credentialRef": "openbao:secret/providers/remote_secret_provider#api_key",
+            "enabled": True,
+        },
+    )
+    health = client.post("/api/v1/model-gateway/providers/remote_secret_provider/health-check", headers=headers)
+
+    assert created.status_code == 201
+    assert created.json()["provider"]["credentialStatus"] == "missing"
+    assert health.status_code == 200
+    assert health.json()["health"]["healthStatus"] == "misconfigured"
 
 
 def test_openai_compatible_provider_uses_credential_resolver(monkeypatch: pytest.MonkeyPatch) -> None:

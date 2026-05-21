@@ -7,10 +7,12 @@ import urllib.error
 import urllib.request
 from collections.abc import Callable
 from dataclasses import dataclass
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 
 ENV_REF_PATTERN = re.compile(r"^[A-Z_][A-Z0-9_]*$")
+LEGACY_ENV_REF_PATTERN = re.compile(r"^[A-Z][A-Z0-9_]+_(API_KEY|TOKEN|SECRET|CREDENTIAL|PASSWORD)$")
+LOOPBACK_VAULT_HOSTS = {"127.0.0.1", "::1", "localhost"}
 SECRET_LIKE_PATTERN = re.compile(
     r"(?i)(^bearer\s+|^sk-[A-Za-z0-9_-]{8,}|api[_-]?key\s*=|secret\s*=|token\s*=)"
 )
@@ -73,8 +75,15 @@ class CredentialResolver:
             return self._resolve_vault_compatible(ref.removeprefix("openbao:"), public_ref=ref, source="openbao", fetch=fetch)
         if ref.startswith("vault:"):
             return self._resolve_vault_compatible(ref.removeprefix("vault:"), public_ref=ref, source="vault", fetch=fetch)
-        if ENV_REF_PATTERN.match(ref):
+        if LEGACY_ENV_REF_PATTERN.match(ref):
             return self._resolve_env(ref, public_ref=ref, fetch=fetch)
+        if ENV_REF_PATTERN.match(ref):
+            return CredentialResolution(
+                ref="[redacted]",
+                status="invalid",
+                source="invalid",
+                message="Bare credential refs are not accepted; use env:NAME or a supported vault/keyring ref",
+            )
         return CredentialResolution(
             ref=ref,
             status="invalid",
@@ -84,6 +93,12 @@ class CredentialResolver:
 
     def status(self, credential_ref: str | None) -> str:
         return self.resolve(credential_ref, fetch=False).status
+
+    def normalize_ref_for_storage(self, credential_ref: str | None) -> str:
+        ref = (credential_ref or "").strip()
+        if LEGACY_ENV_REF_PATTERN.match(ref):
+            return f"env:{ref}"
+        return ref
 
     def validate_ref(self, credential_ref: str | None) -> None:
         result = self.resolve(credential_ref, fetch=False)
@@ -137,7 +152,7 @@ class CredentialResolver:
         if not fetch:
             return CredentialResolution(
                 ref=public_ref,
-                status="configured",
+                status="unverified",
                 source="keyring",
                 message="Keyring ref is valid; value was not fetched during status check",
             )
@@ -167,8 +182,15 @@ class CredentialResolver:
             return parsed
         address = self._vault_address()
         token = self._vault_token(fetch=fetch)
-        token_ready = token.configured if fetch else token.status == "configured"
-        if not address or not token_ready:
+        token_ready = token.configured if fetch else token.status in {"configured", "unverified"}
+        if address.status == "invalid":
+            return CredentialResolution(
+                ref=public_ref,
+                status="invalid",
+                source=source,
+                message=address.message,
+            )
+        if not address.value or not token_ready:
             return CredentialResolution(
                 ref=public_ref,
                 status="missing",
@@ -176,23 +198,35 @@ class CredentialResolver:
                 message=f"{source} address or token is not configured",
             )
         if not fetch:
-            return CredentialResolution(ref=public_ref, status="configured", source=source)
+            return CredentialResolution(
+                ref=public_ref,
+                status="unverified",
+                source=source,
+                message=f"{source} ref is valid; secret value was not fetched during status check",
+            )
         mount, secret_path, field = parsed.message.split("|", 2)
-        url = self._vault_kv2_url(address, mount, secret_path)
+        url = self._vault_kv2_url(address.value, mount, secret_path)
         try:
             payload = self.http_json_get(
                 url,
                 {"X-Vault-Token": token.value or "", "Accept": "application/json"},
                 10,
             )
-        except (OSError, TimeoutError, urllib.error.URLError, json.JSONDecodeError) as error:
+        except (OSError, TimeoutError, urllib.error.URLError, json.JSONDecodeError, UnicodeDecodeError) as error:
             return CredentialResolution(
                 ref=public_ref,
                 status="unavailable",
                 source=source,
                 message=f"{source} secret lookup failed: {error.__class__.__name__}",
             )
-        secret_data = self._extract_vault_data(payload)
+        secret_data = self._extract_vault_kv2_data(payload)
+        if secret_data is None:
+            return CredentialResolution(
+                ref=public_ref,
+                status="missing",
+                source=source,
+                message=f"{source} response is missing KV v2 data.data",
+            )
         if field not in secret_data or secret_data[field] in {None, ""}:
             return CredentialResolution(
                 ref=public_ref,
@@ -249,13 +283,38 @@ class CredentialResolver:
         return CredentialResolution(ref="", status="missing", source="vault_auth", message="Vault token is not configured")
 
     @staticmethod
-    def _vault_address() -> str:
-        return (
+    def _vault_address() -> CredentialResolution:
+        raw = (
             os.environ.get("AIDO_SECRET_VAULT_ADDR")
             or os.environ.get("OPENBAO_ADDR")
             or os.environ.get("VAULT_ADDR")
             or ""
         ).rstrip("/")
+        if not raw:
+            return CredentialResolution(ref="", status="missing", source="vault_address", message="Vault address is not configured")
+        parsed = urlparse(raw)
+        if not parsed.scheme or not parsed.netloc:
+            return CredentialResolution(ref="[redacted]", status="invalid", source="vault_address", message="Vault address must be an absolute URL")
+        hostname = (parsed.hostname or "").lower()
+        has_path = parsed.path not in {"", "/"}
+        if has_path or parsed.params or parsed.query or parsed.fragment:
+            return CredentialResolution(
+                ref="[redacted]",
+                status="invalid",
+                source="vault_address",
+                message="Vault address must not include path, query, or fragment",
+            )
+        if parsed.scheme == "https":
+            return CredentialResolution(ref="[redacted]", status="configured", source="vault_address", value=raw)
+        allow_insecure_local = os.environ.get("AIDO_ALLOW_INSECURE_LOCAL_VAULT", "false").lower() == "true"
+        if parsed.scheme == "http" and hostname in LOOPBACK_VAULT_HOSTS and allow_insecure_local:
+            return CredentialResolution(ref="[redacted]", status="configured", source="vault_address", value=raw)
+        return CredentialResolution(
+            ref="[redacted]",
+            status="invalid",
+            source="vault_address",
+            message="Vault address must use https; http is allowed only for loopback with AIDO_ALLOW_INSECURE_LOCAL_VAULT=true",
+        )
 
     @staticmethod
     def _vault_kv2_url(address: str, mount: str, secret_path: str) -> str:
@@ -264,19 +323,24 @@ class CredentialResolver:
         return f"{address}/v1/{safe_mount}/data/{safe_path}"
 
     @staticmethod
-    def _extract_vault_data(payload: dict[str, object]) -> dict[str, object]:
+    def _extract_vault_kv2_data(payload: dict[str, object]) -> dict[str, object] | None:
         data = payload.get("data")
         if not isinstance(data, dict):
-            return {}
+            return None
         nested = data.get("data")
         if isinstance(nested, dict):
             return nested
-        return data
+        return None
 
     @staticmethod
     def _default_http_json_get(url: str, headers: dict[str, str], timeout: float) -> dict[str, object]:
+        class NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[no-untyped-def]
+                return None
+
         request = urllib.request.Request(url, headers=headers, method="GET")
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        opener = urllib.request.build_opener(NoRedirectHandler)
+        with opener.open(request, timeout=timeout) as response:
             payload = json.loads(response.read().decode("utf-8"))
         return payload if isinstance(payload, dict) else {}
 

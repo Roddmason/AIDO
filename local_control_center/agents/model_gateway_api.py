@@ -85,17 +85,17 @@ def _provider_instance(provider_id: str, *, connection: Any, mock: bool = True):
     base_url = account.get("baseUrl") or None
     credential_ref = account.get("credentialRef") or None
     if provider_id == "nvidia_nim":
-        return NvidiaNimProvider(connection=connection, base_url=base_url or "https://integrate.api.nvidia.com/v1", credential_ref=credential_ref or "NVIDIA_NIM_API_KEY", mock=mock)
+        return NvidiaNimProvider(connection=connection, base_url=base_url or "https://integrate.api.nvidia.com/v1", credential_ref=credential_ref or "", mock=mock)
     if provider_id == "ollama":
         return OllamaProvider(base_url=base_url, mock=mock)
     if provider_id == "openai_api":
-        return OpenAIAPIProvider(base_url=base_url, credential_ref=credential_ref or "OPENAI_API_KEY", mock=mock)
+        return OpenAIAPIProvider(base_url=base_url, credential_ref=credential_ref or "", mock=mock)
     if provider_id == "anthropic_api":
         return AnthropicAPIProvider(mock=mock)
     if provider_id == "openrouter":
-        return OpenRouterProvider(base_url=base_url, credential_ref=credential_ref or "OPENROUTER_API_KEY", mock=mock)
+        return OpenRouterProvider(base_url=base_url, credential_ref=credential_ref or "", mock=mock)
     if provider_id == "litellm":
-        return LiteLLMAdapter(base_url=base_url, credential_ref=credential_ref or "LITELLM_API_KEY", mock=mock)
+        return LiteLLMAdapter(base_url=base_url, credential_ref=credential_ref or "", mock=mock)
     return OpenAICompatibleProvider(provider_id=provider_id, base_url=base_url, credential_ref=credential_ref, mock=mock)
 
 
@@ -353,9 +353,12 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
         if runtime_type == "cli":
             raise HTTPException(status_code=501, detail="Real CLI execution must be launched through policy-approved agent runtime sessions.")
         account = providers().get_provider_account(selected["provider"])
-        credential = CredentialResolver().resolve(str(account.get("credentialRef") or ""))
-        if account.get("credentialRef") and not credential.configured:
-            raise HTTPException(status_code=400, detail=f"Credential ref {account['credentialRef']} is {credential.status}.")
+        credential_ref = str(account.get("credentialRef") or "")
+        if runtime_type in {"api", "gateway"} and not credential_ref:
+            raise HTTPException(status_code=400, detail=f"Credential ref is required for provider {selected['provider']}.")
+        credential = CredentialResolver().resolve(credential_ref)
+        if credential_ref and not credential.configured:
+            raise HTTPException(status_code=400, detail=f"Credential ref {credential_ref} is {credential.status}.")
         provider = _provider_instance(selected["provider"], connection=platform.connection, mock=False)
         message = str(body_payload.get("prompt") or body_payload.get("taskType") or "Execute routed task.")
         response = provider.chat_completion(ModelRequest(model=selected["model"], messages=[{"role": "user", "content": message}]))

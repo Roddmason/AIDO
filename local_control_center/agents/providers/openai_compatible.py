@@ -27,7 +27,7 @@ class OpenAICompatibleProvider(ModelProvider):
     ):
         self.provider_id = provider_id
         self.base_url = (base_url or os.environ.get("OPENAI_COMPATIBLE_BASE_URL") or "").rstrip("/")
-        self.credential_ref = credential_ref or "OPENAI_API_KEY"
+        self.credential_ref = credential_ref or ""
         self.mock = mock
         self.credential_resolver = CredentialResolver()
 
@@ -35,8 +35,6 @@ class OpenAICompatibleProvider(ModelProvider):
         return self.credential_resolver.resolve(self.credential_ref).value or ""
 
     def health_check(self) -> ProviderHealth:
-        if self.mock:
-            return ProviderHealth(providerId=self.provider_id, status="available", healthStatus="healthy", message="mock provider healthy")
         if not self.base_url:
             return ProviderHealth(providerId=self.provider_id, status="misconfigured", healthStatus="misconfigured", message="Base URL is not configured")
         credential = self.credential_resolver.resolve(self.credential_ref, fetch=False)
@@ -44,6 +42,13 @@ class OpenAICompatibleProvider(ModelProvider):
             return ProviderHealth(providerId=self.provider_id, status="misconfigured", healthStatus="misconfigured", message=credential.message)
         if credential.status in {"missing", "unsupported", "unknown"}:
             return ProviderHealth(providerId=self.provider_id, status="misconfigured", healthStatus="misconfigured", message=f"Credential ref {self.credential_ref} is {credential.status}")
+        if self.mock:
+            return ProviderHealth(
+                providerId=self.provider_id,
+                status="configuration_validated",
+                healthStatus="unknown",
+                message=f"Mock health check validated configuration with credential status {credential.status}",
+            )
         if not real_provider_calls_enabled():
             return ProviderHealth(providerId=self.provider_id, status="disabled", healthStatus="unknown", message="Real provider calls are disabled")
         return ProviderHealth(providerId=self.provider_id, status="available", healthStatus="healthy", message="Configuration present")

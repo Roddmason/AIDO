@@ -14,14 +14,26 @@ keys.
 ## Supported Refs
 
 - `env:NAME`: resolves `NAME` from the process environment.
-- `NAME`: legacy shorthand for `env:NAME`.
 - `keyring:service/account`: optional local OS/keyring-backed lookup when the
   Python `keyring` package and a compatible backend are installed outside core.
 - `openbao:mount/path#field`: resolves a field from a remote OpenBao KV v2
   secret using the Vault-compatible HTTP API.
 - `vault:mount/path#field`: compatibility alias for Vault-compatible services.
 
-Environment variables are acceptable for local development:
+Bare legacy environment names are normalized to `env:NAME` only when they look
+like existing project env vars, for example `NVIDIA_NIM_API_KEY`. New
+configuration should always use an explicit prefix.
+
+## Recommended Paths
+
+1. Mock/no real calls: keep `AIDO_ENABLE_REAL_PROVIDER_CALLS=false`; no
+   provider secrets are needed.
+2. Fast local development: use `env:NAME`, knowing it is less auditable and
+   weaker against local environment/process inspection.
+3. Real provider usage: use `openbao:mount/path#field` backed by remote OpenBao
+   or a Vault-compatible service.
+
+Environment variables are acceptable for quick local development:
 
 ```powershell
 $env:NVIDIA_NIM_API_KEY = "<real key outside repo>"
@@ -63,6 +75,11 @@ $env:AIDO_SECRET_VAULT_TOKEN_REF = "keyring:aido/openbao-token"
 the resolver also checks `AIDO_SECRET_VAULT_TOKEN`, `OPENBAO_TOKEN`, and
 `VAULT_TOKEN`.
 
+Vault addresses must use `https://`. `http://127.0.0.1`, `http://localhost` and
+`http://[::1]` are allowed only for explicit development with
+`AIDO_ALLOW_INSECURE_LOCAL_VAULT=true`. Redirects are not followed when fetching
+secrets.
+
 This does not eliminate secret-zero. Nothing can: the local process still needs
 some identity to authenticate to the remote service. The security improvement is
 that long-lived model provider keys are centralized in the remote secrets
@@ -82,15 +99,15 @@ Credential refs are configured through provider accounts:
 
 - Raw values such as `sk-...`, `Bearer ...`, `api_key=...`, `secret=...` or
   `token=...` are rejected as invalid `credentialRef` values.
-- Public API responses expose only credential status: `configured`, `missing`,
-  `unknown`, `invalid`, `unsupported`, or `unavailable`.
+- Public API responses expose only credential status: `configured`, `unverified`,
+  `missing`, `unknown`, `invalid`, `unsupported`, or `unavailable`.
 - Health checks and route execution must not include secret values in messages,
   audit payloads, usage records or raw provider responses.
 - Real provider calls still require `AIDO_ENABLE_REAL_PROVIDER_CALLS=true` plus
   policy, budget and quota clearance.
 - Provider listing and health checks validate ref shape and remote vault
-  configuration without fetching secret values. The secret value is fetched only
-  at execution time.
+  configuration without fetching secret values. Remote/keyring refs can appear
+  as `unverified` until execution time, when the actual secret value is fetched.
 
 ## Testing
 
@@ -106,6 +123,8 @@ corepack pnpm@10.24.0 run security:secrets
 - HashiCorp Vault-compatible services can be used as external infrastructure,
   but AIDO does not embed HashiCorp Vault or depend on its client packages as
   core runtime. OpenBao-compatible KV v2 is the preferred open-source path.
+- Only KV v2 payloads with `data.data` are accepted for `openbao:`/`vault:`
+  refs.
 - AIDO does not migrate secrets from environment variables into a local store.
   That would create plaintext persistence risk unless a trusted external
   adapter is configured.

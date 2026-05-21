@@ -11,6 +11,9 @@ service. Environment variables remain supported for development and bootstrap
 tokens, but they are not the recommended place to keep long-lived model API
 keys.
 
+For the operator setup, policies and preflight flow, see
+`docs/openbao-credential-operations.md`.
+
 ## Supported Refs
 
 - `env:NAME`: resolves `NAME` from the process environment.
@@ -138,6 +141,7 @@ Credential refs are configured through provider accounts:
 
 ```powershell
 uv run pytest tests_py/test_model_runtime_gateway.py -q
+corepack pnpm@10.24.0 run security:credentials:preflight -- --ref openbao:secret/providers/nvidia_nim#api_key
 corepack pnpm@10.24.0 run security:secrets
 ```
 

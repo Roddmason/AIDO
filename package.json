@@ -26,6 +26,7 @@
     "security:licenses:js": "corepack pnpm@10.24.0 licenses list",
     "security:secrets": "gitleaks detect --no-git --source . --config .gitleaks.toml --redact",
     "security:sast": "uv run --extra dev semgrep scan --config .semgrep.yml --no-git-ignore local_control_center tests_py local-control-center/web/src tests_web",
+    "security:credentials:preflight": "uv run python local-control-center/scripts/check-credentials.py",
     "smoke:runtime:preflight": "powershell -NoProfile -ExecutionPolicy Bypass -File local-control-center/scripts/smoke-runtime-adapters.ps1 -PreflightOnly -ReportPath .tmp/runtime-validation/preflight.json",
     "smoke:runtime:release:preflight": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"$env:AIDO_RUNTIME_RELEASE_VALIDATION='1'; & 'local-control-center/scripts/smoke-runtime-adapters.ps1' -PreflightOnly -ReportPath .tmp/runtime-validation/release-preflight.json\"",
     "smoke:runtime:release": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"$env:AIDO_RUNTIME_SMOKE='1'; $env:AIDO_RUNTIME_RELEASE_VALIDATION='1'; & 'local-control-center/scripts/smoke-runtime-adapters.ps1' -PreflightOnly -ReportPath .tmp/runtime-validation/release-preflight.json; & 'local-control-center/scripts/smoke-runtime-adapters.ps1' -ReportPath .tmp/runtime-validation/release.json\"",

@@ -89,6 +89,7 @@ def test_quality_and_security_scripts_are_declared() -> None:
         "security:licenses:js",
         "security:secrets",
         "security:sast",
+        "security:credentials:preflight",
         "quality",
     ):
         assert script in scripts
@@ -98,6 +99,7 @@ def test_quality_and_security_scripts_are_declared() -> None:
     assert "licenses list" in scripts["security:licenses:js"]
     assert "gitleaks detect" in scripts["security:secrets"]
     assert "semgrep scan" in scripts["security:sast"]
+    assert "check-credentials.py" in scripts["security:credentials:preflight"]
 
 
 def test_quality_scripts_include_web_typecheck() -> None:
@@ -119,7 +121,10 @@ def test_runtime_smoke_scripts_are_declared_for_release_validation() -> None:
     assert "smoke:runtime:release:preflight" in scripts
     assert "AIDO_RUNTIME_RELEASE_VALIDATION='1'" in scripts["smoke:runtime:release:preflight"]
     assert "smoke-runtime-adapters.ps1' -PreflightOnly" in scripts["smoke:runtime:release:preflight"]
-    assert "-ReportPath .tmp/runtime-validation/release-preflight.json" in scripts["smoke:runtime:release:preflight"]
+    assert (
+        "-ReportPath .tmp/runtime-validation/release-preflight.json"
+        in scripts["smoke:runtime:release:preflight"]
+    )
     assert "smoke:runtime:release" in scripts
     assert "AIDO_RUNTIME_SMOKE='1'" in scripts["smoke:runtime:release"]
     assert "AIDO_RUNTIME_RELEASE_VALIDATION='1'" in scripts["smoke:runtime:release"]

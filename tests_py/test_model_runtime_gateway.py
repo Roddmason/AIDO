@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import json
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -11,6 +15,7 @@ from local_control_center.agents.cli_runtimes.claude_code_cli import ClaudeCodeC
 from local_control_center.agents.cli_runtimes.codex_cli import CodexCliRuntime
 from local_control_center.agents.cli_runtimes.openhands import OpenHandsRuntime
 from local_control_center.agents.cli_runtimes.swe_agent import SweAgentRuntime
+from local_control_center.agents.credential_preflight import run_credential_preflight
 from local_control_center.agents.credentials import CredentialResolver
 from local_control_center.agents.model_gateway import redact_secrets
 from local_control_center.agents.providers.base import ModelRequest
@@ -386,6 +391,79 @@ def test_remote_vault_propagates_invalid_auth_configuration(monkeypatch: pytest.
 
     assert result.status == "invalid"
     assert "recursively" in result.message
+
+
+def test_credential_preflight_status_redacts_values_and_avoids_remote_fetch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_if_called(url: str, headers: dict[str, str], timeout: float) -> dict[str, object]:
+        raise AssertionError("status preflight must not fetch remote secrets")
+
+    monkeypatch.setenv("NVIDIA_NIM_API_KEY", "sk-testsecret123456")
+    monkeypatch.setenv("AIDO_SECRET_VAULT_ADDR", "https://vault.example")
+    monkeypatch.setenv("AIDO_SECRET_VAULT_TOKEN", "vault-session-token")
+    resolver = CredentialResolver(http_json_get=fail_if_called)
+
+    report = run_credential_preflight(
+        [
+            "env:NVIDIA_NIM_API_KEY",
+            "openbao:secret/providers/nvidia_nim#api_key",
+        ],
+        resolver=resolver,
+        fetch=False,
+    )
+
+    assert report["ok"] is True
+    assert report["mode"] == "status"
+    assert [item["status"] for item in report["credentials"]] == ["configured", "unverified"]
+    assert "sk-testsecret" not in str(report)
+    assert "vault-session-token" not in str(report)
+
+
+def test_credential_preflight_fetch_reports_failures_without_secret_values(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("BROKEN_API_KEY", "sk-testsecret123456")
+    resolver = CredentialResolver(http_json_get=lambda url, headers, timeout: {"data": {"api_key": "secret"}})
+
+    report = run_credential_preflight(
+        [
+            "env:BROKEN_API_KEY",
+            "openbao:secret/providers/nvidia_nim#api_key",
+        ],
+        resolver=resolver,
+        fetch=True,
+    )
+
+    assert report["ok"] is False
+    assert report["mode"] == "fetch"
+    assert [item["status"] for item in report["credentials"]] == ["configured", "missing"]
+    assert "sk-testsecret" not in str(report)
+
+
+def test_credential_preflight_script_accepts_pnpm_argument_separator() -> None:
+    env = os.environ.copy()
+    env["NVIDIA_NIM_API_KEY"] = "redacted-test-value"
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "local-control-center/scripts/check-credentials.py",
+            "--",
+            "--ref",
+            "env:NVIDIA_NIM_API_KEY",
+        ],
+        cwd=Path(__file__).resolve().parents[1],
+        env=env,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    report = json.loads(completed.stdout)
+
+    assert report["ok"] is True
+    assert report["credentials"][0]["status"] == "configured"
+    assert "redacted-test-value" not in completed.stdout
 
 
 def test_provider_health_check_does_not_mark_missing_remote_vault_ref_healthy(

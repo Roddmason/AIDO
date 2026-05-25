@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import sqlite3
 
 from .base import CliRuntime, RuntimeRequest
 
@@ -9,8 +10,18 @@ class OpenHandsRuntime(CliRuntime):
     runtime_id = "openhands"
     display_name = "OpenHands"
 
-    def __init__(self, *, executable: str | None = None, mock: bool = False):
-        super().__init__(executable=executable or os.environ.get("OPENHANDS_CLI_PATH", "openhands"), mock=mock)
+    def __init__(
+        self,
+        *,
+        executable: str | None = None,
+        mock: bool = False,
+        connection: sqlite3.Connection | None = None,
+    ):
+        super().__init__(
+            executable=executable or os.environ.get("OPENHANDS_CLI_PATH", "openhands"),
+            mock=mock,
+            connection=connection,
+        )
 
     def build_command(self, request: RuntimeRequest) -> list[str]:
         workspace = self._validate_workspace(request)

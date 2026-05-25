@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import sqlite3
+
 from .base import CliRuntime, RuntimeRequest, RuntimeResult
 
 
@@ -7,8 +9,14 @@ class ManualRuntime(CliRuntime):
     runtime_id = "manual"
     display_name = "Manual Runtime"
 
-    def __init__(self, *, executable: str = "manual", mock: bool = True):
-        super().__init__(executable=executable, mock=mock)
+    def __init__(
+        self,
+        *,
+        executable: str = "manual",
+        mock: bool = True,
+        connection: sqlite3.Connection | None = None,
+    ):
+        super().__init__(executable=executable, mock=mock, connection=connection)
 
     def build_command(self, request: RuntimeRequest) -> list[str]:
         self._validate_workspace(request)
@@ -16,4 +24,11 @@ class ManualRuntime(CliRuntime):
         return ["manual", request.prompt]
 
     def run(self, request: RuntimeRequest) -> RuntimeResult:
-        return RuntimeResult(runtime=self.runtime_id, status="created", command=self.build_command(request), stdout="Manual operator session created")
+        result = RuntimeResult(
+            runtime=self.runtime_id,
+            status="created",
+            command=self.build_command(request),
+            stdout="Manual operator session created",
+        )
+        self._record_result(request, result)
+        return result

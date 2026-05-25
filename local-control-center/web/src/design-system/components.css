@@ -18,6 +18,18 @@
 	border-color: var(--ink);
 }
 
+.button:hover:not(:disabled),
+.icon-button:hover:not(:disabled),
+.command-item:hover {
+	border-color: var(--line-strong);
+	background: var(--surface-panel-strong);
+}
+
+.button.primary:hover:not(:disabled) {
+	background: color-mix(in oklch, var(--ink) 88%, var(--moss));
+	color: var(--surface-main);
+}
+
 .button.danger {
 	border-color: color-mix(in oklch, var(--danger) 72%, var(--line));
 	color: var(--danger);
@@ -106,6 +118,14 @@
 	font-weight: 760;
 }
 
+.surface-toolbar {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--space-3);
+}
+
 .metric-value {
 	font-family: var(--font-display);
 	font-size: 2.2rem;
@@ -166,11 +186,28 @@
 	gap: var(--space-3);
 }
 
+.stack.compact {
+	gap: var(--space-1);
+}
+
 .inline {
 	display: flex;
 	flex-wrap: wrap;
 	align-items: center;
 	gap: var(--space-2);
+}
+
+.tabs {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-2);
+}
+
+.tabs .button[aria-selected="true"] {
+	background: var(--ink);
+	color: var(--surface-main);
+	border-color: var(--ink);
 }
 
 .command-list {
@@ -306,6 +343,10 @@
 	font-weight: 700;
 }
 
+.field-label {
+	font-weight: 700;
+}
+
 .field-help {
 	color: var(--ink-muted);
 	font-size: 0.82rem;
@@ -334,6 +375,120 @@
 	accent-color: var(--ink);
 }
 
+.checkbox-row span {
+	display: grid;
+	gap: var(--space-1);
+}
+
+.settings-action {
+	justify-self: start;
+}
+
+.settings-defaults {
+	display: grid;
+	gap: var(--space-3);
+}
+
+.settings-defaults-trigger {
+	min-height: 2.75rem;
+	display: flex;
+	align-items: center;
+	width: 100%;
+	padding: 0 var(--space-3);
+	border: 1px solid var(--line-strong);
+	border-radius: var(--radius-md);
+	background: var(--surface-panel);
+	color: var(--ink);
+	font-weight: 760;
+	cursor: pointer;
+}
+
+.settings-defaults-trigger[aria-expanded="true"] {
+	background: var(--surface-panel-strong);
+}
+
+.wizard-layout {
+	display: grid;
+	grid-template-columns: minmax(11rem, 0.28fr) minmax(0, 1fr);
+	gap: var(--space-4);
+	align-items: start;
+}
+
+.wizard-mode-toggle {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: var(--space-2);
+	padding: var(--space-1);
+	border: 1px solid var(--line);
+	border-radius: var(--radius-lg);
+	background: var(--surface-panel-strong);
+}
+
+.wizard-mode-toggle .button {
+	width: 100%;
+	border-color: transparent;
+	background: transparent;
+}
+
+.wizard-mode-toggle .button[aria-pressed="true"] {
+	border-color: var(--ink);
+	background: var(--ink);
+	color: var(--surface-main);
+}
+
+.wizard-tech-strip {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-2);
+	align-items: center;
+}
+
+.wizard-steps {
+	display: grid;
+	gap: var(--space-2);
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.wizard-steps li {
+	display: grid;
+	gap: var(--space-1);
+	padding: var(--space-3);
+	border: 1px solid var(--line);
+	border-radius: var(--radius-md);
+	background: var(--surface-panel);
+}
+
+.wizard-steps li.current {
+	border-color: var(--line-strong);
+	background: var(--surface-panel-strong);
+}
+
+.review-grid {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: var(--space-3);
+}
+
+.review-grid > div {
+	min-width: 0;
+	display: grid;
+	gap: var(--space-1);
+	padding: var(--space-3);
+	border: 1px solid var(--line);
+	border-radius: var(--radius-md);
+	background: var(--surface-panel-strong);
+	overflow-wrap: anywhere;
+}
+
+.wizard-actions {
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: flex-end;
+	gap: var(--space-2);
+}
+
 .input,
 .textarea,
 .select {
@@ -357,4 +512,27 @@
 	border-radius: var(--radius-lg);
 	background: var(--surface-panel);
 	overflow: hidden;
+}
+
+@media (max-width: 760px) {
+	.wizard-layout,
+	.review-grid,
+	.wizard-mode-toggle {
+		grid-template-columns: 1fr;
+	}
+
+	.surface-toolbar,
+	.wizard-actions {
+		align-items: stretch;
+		flex-direction: column;
+	}
+
+	.surface-toolbar .button,
+	.wizard-actions .button {
+		width: 100%;
+	}
+
+	.data-table {
+		min-width: 44rem;
+	}
 }

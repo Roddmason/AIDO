@@ -1,0 +1,2703 @@
+{
+  "defaultLanguage": "en",
+  "languages": [
+    {
+      "code": "en",
+      "name": "English",
+      "nativeName": "English",
+      "enabled": true
+    },
+    {
+      "code": "es",
+      "name": "Spanish",
+      "nativeName": "Espanol",
+      "enabled": true
+    }
+  ],
+  "translations": {
+    "app.brand.kicker": {
+      "en": "Windows native · v1 only",
+      "es": "Nativo Windows · solo v1"
+    },
+    "app.brand.title": {
+      "en": "AIDO Control Center",
+      "es": "Centro de control AIDO"
+    },
+    "app.nav.projects": {
+      "en": "Projects",
+      "es": "Proyectos"
+    },
+    "app.nav.active": {
+      "en": "Active",
+      "es": "Activos"
+    },
+    "app.nav.finished": {
+      "en": "Finished",
+      "es": "Finalizados"
+    },
+    "app.nav.error": {
+      "en": "With error",
+      "es": "Con error"
+    },
+    "app.nav.cancelled": {
+      "en": "Cancelled",
+      "es": "Cancelados"
+    },
+    "app.nav.command": {
+      "en": "Command Center",
+      "es": "Centro de comandos"
+    },
+    "app.nav.workflows": {
+      "en": "Workflows",
+      "es": "Flujos de trabajo"
+    },
+    "app.nav.jobs": {
+      "en": "Jobs & Approvals",
+      "es": "Trabajos y aprobaciones"
+    },
+    "app.nav.agents": {
+      "en": "Agents",
+      "es": "Agentes"
+    },
+    "app.nav.workspaces": {
+      "en": "Workspaces",
+      "es": "Espacios de trabajo"
+    },
+    "app.nav.policy": {
+      "en": "Policy & Security",
+      "es": "Politica y seguridad"
+    },
+    "app.nav.memory": {
+      "en": "Memory & Retrieval",
+      "es": "Memoria y busqueda"
+    },
+    "app.nav.evidence": {
+      "en": "Evidence & QA",
+      "es": "Evidencia y QA"
+    },
+    "app.nav.models": {
+      "en": "Model Gateway",
+      "es": "Gateway de modelos"
+    },
+    "app.nav.governance": {
+      "en": "Governance",
+      "es": "Gobierno"
+    },
+    "app.nav.audit": {
+      "en": "Audit Log",
+      "es": "Bitacora de auditoria"
+    },
+    "app.nav.integrations": {
+      "en": "Integrations",
+      "es": "Integraciones"
+    },
+    "app.nav.settings": {
+      "en": "Settings",
+      "es": "Configuracion"
+    },
+    "app.nav.projectSelection": {
+      "en": "Project selection",
+      "es": "Seleccion de proyecto"
+    },
+    "app.nav.userSettings": {
+      "en": "User settings",
+      "es": "Preferencias de usuario"
+    },
+    "app.nav.cliSettings": {
+      "en": "CLI settings",
+      "es": "Configuracion CLI"
+    },
+    "app.nav.apiSettings": {
+      "en": "API settings",
+      "es": "Configuracion API"
+    },
+    "app.nav.parameters": {
+      "en": "Parameters",
+      "es": "Parametros"
+    },
+    "app.nav.maintainers": {
+      "en": "Mantenedores",
+      "es": "Mantenedores tecnicos"
+    },
+    "app.nav.defaults": {
+      "en": "Defaults",
+      "es": "Valores base"
+    },
+    "app.nav.execute": {
+      "en": "Execute",
+      "es": "Ejecutar"
+    },
+    "app.nav.guard": {
+      "en": "Guard",
+      "es": "Guardia"
+    },
+    "app.nav.history": {
+      "en": "History",
+      "es": "Historial"
+    },
+    "app.global.languageControl": {
+      "en": "Language control",
+      "es": "Control de idioma"
+    },
+    "app.global.primaryNavigation": {
+      "en": "Primary navigation",
+      "es": "Navegacion primaria"
+    },
+    "app.global.sseConnected": {
+      "en": "SSE connected",
+      "es": "SSE conectado"
+    },
+    "app.global.pollingFallback": {
+      "en": "polling fallback",
+      "es": "respaldo por polling"
+    },
+    "app.global.waitingForData": {
+      "en": "Waiting for data",
+      "es": "Esperando datos"
+    },
+    "app.global.updated": {
+      "en": "Updated",
+      "es": "Actualizado"
+    },
+    "app.global.projectWorkspaceRuntime": {
+      "en": "Project · Workspace · Runtime",
+      "es": "Proyecto · Workspace · Runtime"
+    },
+    "app.global.runtimeProject": {
+      "en": "Runtime project",
+      "es": "Proyecto runtime"
+    },
+    "app.global.approvals": {
+      "en": "approvals",
+      "es": "aprobaciones"
+    },
+    "app.global.running": {
+      "en": "running",
+      "es": "en ejecucion"
+    },
+    "app.global.usdToday": {
+      "en": "USD today",
+      "es": "USD hoy"
+    },
+    "app.global.openCommandPalette": {
+      "en": "Open command palette",
+      "es": "Abrir paleta de comandos"
+    },
+    "app.global.openApprovalsDrawer": {
+      "en": "Open approvals drawer",
+      "es": "Abrir panel de aprobaciones"
+    },
+    "app.global.openEventDrawer": {
+      "en": "Open event drawer",
+      "es": "Abrir panel de eventos"
+    },
+    "app.global.refreshState": {
+      "en": "Refresh state",
+      "es": "Actualizar estado"
+    },
+    "app.global.globalStatus": {
+      "en": "Global status",
+      "es": "Estado global"
+    },
+    "app.global.sqliteCanonical": {
+      "en": "SQLite canonical",
+      "es": "SQLite canonico"
+    },
+    "app.global.policyEngineActive": {
+      "en": "Policy engine active",
+      "es": "Motor de politicas activo"
+    },
+    "app.global.sandboxGated": {
+      "en": "Sandbox gated",
+      "es": "Sandbox controlado"
+    },
+    "i18n.maintainer.title": {
+      "en": "Translation maintainer",
+      "es": "Mantenedor de traducciones"
+    },
+    "i18n.maintainer.summary": {
+      "en": "Edit copy, add languages, and persist the runtime catalog without rebuilding the dashboard.",
+      "es": "Edita textos, agrega idiomas y persiste el catalogo runtime sin recompilar el dashboard."
+    },
+    "i18n.maintainer.languageCode": {
+      "en": "Language code",
+      "es": "Codigo de idioma"
+    },
+    "i18n.maintainer.languageName": {
+      "en": "Language name",
+      "es": "Nombre del idioma"
+    },
+    "i18n.maintainer.nativeName": {
+      "en": "Native name",
+      "es": "Nombre nativo"
+    },
+    "i18n.maintainer.addLanguage": {
+      "en": "Add language",
+      "es": "Agregar idioma"
+    },
+    "i18n.maintainer.saveCatalog": {
+      "en": "Save translation catalog",
+      "es": "Guardar catalogo de traducciones"
+    },
+    "i18n.maintainer.resetDraft": {
+      "en": "Reset draft",
+      "es": "Restaurar borrador"
+    },
+    "i18n.maintainer.translationKey": {
+      "en": "Translation key",
+      "es": "Llave de traduccion"
+    },
+    "i18n.maintainer.addTranslationKey": {
+      "en": "Add translation key",
+      "es": "Agregar llave de traduccion"
+    },
+    "i18n.maintainer.loadingTitle": {
+      "en": "Loading translations",
+      "es": "Cargando traducciones"
+    },
+    "i18n.maintainer.loadingBody": {
+      "en": "Fetching the runtime translation catalog.",
+      "es": "Obteniendo el catalogo runtime de traducciones."
+    },
+    "i18n.maintainer.filter": {
+      "en": "Translation filter",
+      "es": "Filtro de traducciones"
+    },
+    "i18n.maintainer.filterPlaceholder": {
+      "en": "Filter by key or text",
+      "es": "Filtrar por llave o texto"
+    },
+    "i18n.maintainer.empty": {
+      "en": "No translation keys match the filter.",
+      "es": "No hay llaves de traduccion para ese filtro."
+    },
+    "i18n.maintainer.saved": {
+      "en": "Translation catalog saved.",
+      "es": "Catalogo de traducciones guardado."
+    },
+    "i18n.maintainer.loadFailed": {
+      "en": "Translation catalog could not be loaded.",
+      "es": "No se pudo cargar el catalogo de traducciones."
+    },
+    "i18n.maintainer.saveFailed": {
+      "en": "Translation catalog could not be saved.",
+      "es": "No se pudo guardar el catalogo de traducciones."
+    },
+    "i18n.maintainer.codeRequired": {
+      "en": "Language code is required.",
+      "es": "El codigo de idioma es obligatorio."
+    },
+    "i18n.maintainer.nameRequired": {
+      "en": "Language name is required.",
+      "es": "El nombre del idioma es obligatorio."
+    },
+    "i18n.maintainer.codeExists": {
+      "en": "Language code already exists.",
+      "es": "El codigo de idioma ya existe."
+    },
+    "ui.static.a.project.is.required.before.creating.a.workflow.d95e6cea": {
+      "en": "A project is required before creating a workflow.",
+      "es": "Se requiere un proyecto antes de crear un flujo de trabajo."
+    },
+    "ui.static.a.project.is.required.before.creating.governance.records.0a36e1b5": {
+      "en": "A project is required before creating governance records.",
+      "es": "Se requiere un proyecto antes de crear registros de gobernanza."
+    },
+    "ui.static.a.risk.is.required.before.updating.status.d945e7fa": {
+      "en": "A risk is required before updating status.",
+      "es": "Se requiere un riesgo antes de actualizar el estado."
+    },
+    "ui.static.aido.control.plane.dbfb7882": {
+      "en": "AIDO control plane",
+      "es": "Plano de control AIDO"
+    },
+    "ui.static.api.adapters.c0e32297": {
+      "en": "API adapters",
+      "es": "Adaptadores API"
+    },
+    "ui.static.api.allowed.4352398a": {
+      "en": "API allowed",
+      "es": "API permitida"
+    },
+    "ui.static.api.configuration.1f2a74c2": {
+      "en": "API configuration",
+      "es": "Configuración de API"
+    },
+    "ui.static.api.format.ba7636e4": {
+      "en": "API format",
+      "es": "Formato API"
+    },
+    "ui.static.api.providers.eacba2cf": {
+      "en": "API providers",
+      "es": "Proveedores API"
+    },
+    "ui.static.api.safety.537386c9": {
+      "en": "API safety",
+      "es": "Seguridad de API"
+    },
+    "ui.static.accepted.decisions.require.context.and.decision.text.b5edc6fa": {
+      "en": "Accepted decisions require context and decision text.",
+      "es": "Las decisiones aceptadas requieren contexto y texto de decisión."
+    },
+    "ui.static.action.97c89a4d": {
+      "en": "Action",
+      "es": "Acción"
+    },
+    "ui.static.action.on.exceed.dab9c5d8": {
+      "en": "Action on exceed",
+      "es": "Acción al exceder"
+    },
+    "ui.static.action.requests.appear.here.when.policy.gates.execution.f9e13dac": {
+      "en": "Action requests appear here when policy gates execution.",
+      "es": "Las solicitudes de acción aparecen aquí cuando la política controla la ejecución."
+    },
+    "ui.static.actions.c3cd636a": {
+      "en": "Actions",
+      "es": "Comportamiento"
+    },
+    "ui.static.active.projects.8eadc268": {
+      "en": "Active Projects",
+      "es": "Proyectos Activos"
+    },
+    "ui.static.actor.cbd19b5c": {
+      "en": "Actor",
+      "es": "Responsable"
+    },
+    "ui.static.actual.cost.edf3964d": {
+      "en": "Actual cost",
+      "es": "Costo real"
+    },
+    "ui.static.after.79ba5e1b": {
+      "en": "After",
+      "es": "Después"
+    },
+    "ui.static.agent.5ce2e6f4": {
+      "en": "Agent",
+      "es": "Agente"
+    },
+    "ui.static.agent.profiles.307157c5": {
+      "en": "Agent profiles",
+      "es": "Perfiles de agentes"
+    },
+    "ui.static.agent.profiles.remain.in.the.agents.page.this.panel.shows.ca.b22c4dd8": {
+      "en": "Agent profiles remain in the Agents page. This panel shows catalog agents owned by selected project teams.",
+      "es": "Los perfiles de los agentes permanecen en la página Agentes. Este panel muestra agentes de catálogo propiedad de equipos de proyecto seleccionados."
+    },
+    "ui.static.agent.runs.and.model.gateway.preparations.are.recorded.here.26abd766": {
+      "en": "Agent runs and model gateway preparations are recorded here.",
+      "es": "Aquí se registran las ejecuciones de agentes y los preparativos de la puerta de enlace del modelo."
+    },
+    "ui.static.agent.runtime.calls.linked.to.this.workflow.appear.here.7fb6ecbb": {
+      "en": "Agent runtime calls linked to this workflow appear here.",
+      "es": "Las llamadas en tiempo de ejecución del agente vinculadas a este flujo de trabajo aparecen aquí."
+    },
+    "ui.static.agent.runtime.tool.calls.appear.after.policy.evaluation.27727399": {
+      "en": "Agent runtime tool calls appear after policy evaluation.",
+      "es": "Las llamadas a la herramienta de ejecución del agente aparecen después de la evaluación de la política."
+    },
+    "ui.static.all.projects.403b2169": {
+      "en": "All projects",
+      "es": "Todos los proyectos"
+    },
+    "ui.static.allocated.workspaces.b052cf67": {
+      "en": "Allocated workspaces",
+      "es": "Espacios de trabajo asignados"
+    },
+    "ui.static.allow.api.33a34d74": {
+      "en": "Allow API",
+      "es": "Permitir API"
+    },
+    "ui.static.allow.cli.bfd5afe8": {
+      "en": "Allow CLI",
+      "es": "Permitir CLI"
+    },
+    "ui.static.allow.remote.042d39a7": {
+      "en": "Allow remote",
+      "es": "Permitir remoto"
+    },
+    "ui.static.allowed.provider.62f3ef08": {
+      "en": "Allowed provider",
+      "es": "Proveedor permitido"
+    },
+    "ui.static.allowed.runtime.1d6c55bd": {
+      "en": "Allowed runtime",
+      "es": "Tiempo de ejecución permitido"
+    },
+    "ui.static.allowed.tool.bf01285b": {
+      "en": "Allowed tool",
+      "es": "Herramienta permitida"
+    },
+    "ui.static.approval.drawer.4e143a24": {
+      "en": "Approval drawer",
+      "es": "Cajón de aprobación"
+    },
+    "ui.static.approval.reason.f7d46d8e": {
+      "en": "Approval reason",
+      "es": "Motivo de aprobación"
+    },
+    "ui.static.approval.threshold.c49acc2d": {
+      "en": "Approval threshold",
+      "es": "Umbral de aprobación"
+    },
+    "ui.static.approval.threshold.usd.8086e7e3": {
+      "en": "Approval threshold USD",
+      "es": "Umbral de aprobación USD"
+    },
+    "ui.static.approval.threshold.must.be.zero.or.positive.2036fa64": {
+      "en": "Approval threshold must be zero or positive.",
+      "es": "El umbral de aprobación debe ser cero o positivo."
+    },
+    "ui.static.approve.action.47d93f3a": {
+      "en": "Approve action",
+      "es": "Aprobar acción"
+    },
+    "ui.static.approved.sensitive.actions.create.one.use.execution.grants.4162db27": {
+      "en": "Approved sensitive actions create one-use execution grants.",
+      "es": "Las acciones confidenciales aprobadas crean concesiones de ejecución de un solo uso."
+    },
+    "ui.static.architecture.decisions.should.be.explicit.and.linked.to.risk.0bd4f789": {
+      "en": "Architecture decisions should be explicit and linked to risks.",
+      "es": "Las decisiones de arquitectura deben ser explícitas y estar vinculadas a los riesgos."
+    },
+    "ui.static.artifact.preview.acbf276e": {
+      "en": "Artifact preview",
+      "es": "Vista previa del artefacto"
+    },
+    "ui.static.artifacts.a5b79f59": {
+      "en": "Artifacts",
+      "es": "Artefactos"
+    },
+    "ui.static.audit.records.e11faea4": {
+      "en": "Audit records",
+      "es": "Registros de auditoría"
+    },
+    "ui.static.audit.trail.33de865a": {
+      "en": "Audit trail",
+      "es": "Pista de auditoría"
+    },
+    "ui.static.autostart.user.scoped.task.scheduler.9d01bf00": {
+      "en": "Autostart: user-scoped Task Scheduler",
+      "es": "Inicio automático: Programador de tareas con ámbito de usuario"
+    },
+    "ui.static.available.technology.templates.eea5e71f": {
+      "en": "Available technology templates",
+      "es": "Plantillas de tecnología disponibles"
+    },
+    "ui.static.avg.cost.4fbb932f": {
+      "en": "Avg cost",
+      "es": "Costo promedio"
+    },
+    "ui.static.avg.latency.da781428": {
+      "en": "Avg latency",
+      "es": "Latencia promedio"
+    },
+    "ui.static.backend.fastapi.v1.aac8dc1e": {
+      "en": "Backend: FastAPI v1",
+      "es": "Servidor: FastAPI v1"
+    },
+    "ui.static.base.url.1dbd61f5": {
+      "en": "Base URL",
+      "es": "URL básica"
+    },
+    "ui.static.before.74f39697": {
+      "en": "Before",
+      "es": "Antes"
+    },
+    "ui.static.benchmark.qa.pass.3bceae7f": {
+      "en": "Benchmark QA pass",
+      "es": "Pasar el control de calidad de referencia"
+    },
+    "ui.static.benchmark.cost.usd.dfa6493c": {
+      "en": "Benchmark cost USD",
+      "es": "Costo de referencia USD"
+    },
+    "ui.static.benchmark.latency.ms.5025b2b7": {
+      "en": "Benchmark latency ms",
+      "es": "Latencia de referencia ms"
+    },
+    "ui.static.benchmark.model.415919bb": {
+      "en": "Benchmark model",
+      "es": "Modelo de referencia"
+    },
+    "ui.static.benchmark.provider.8264f17b": {
+      "en": "Benchmark provider",
+      "es": "Proveedor de referencia"
+    },
+    "ui.static.benchmark.rework.c9d74673": {
+      "en": "Benchmark rework",
+      "es": "Reelaboración de puntos de referencia"
+    },
+    "ui.static.benchmark.role.8c2e2bcc": {
+      "en": "Benchmark role",
+      "es": "Rol de referencia"
+    },
+    "ui.static.benchmark.runtime.165ef7f8": {
+      "en": "Benchmark runtime",
+      "es": "Tiempo de ejecución de referencia"
+    },
+    "ui.static.benchmark.success.154d2b71": {
+      "en": "Benchmark success",
+      "es": "Éxito de referencia"
+    },
+    "ui.static.benchmarks.4f46ac72": {
+      "en": "Benchmarks",
+      "es": "Puntos de referencia"
+    },
+    "ui.static.benchmarks.require.repeated.task.outcomes.before.success.rat.301f8db9": {
+      "en": "Benchmarks require repeated task outcomes before success rate, QA pass rate, cost, latency or rework rate can be shown.",
+      "es": "Los puntos de referencia requieren resultados de tareas repetidas antes de que se pueda mostrar la tasa de éxito, la tasa de aprobación de control de calidad, el costo, la latencia o la tasa de retrabajo."
+    },
+    "ui.static.budget.7aeba4cd": {
+      "en": "Budget",
+      "es": "Presupuesto"
+    },
+    "ui.static.budget.result.e9ecd30f": {
+      "en": "Budget result",
+      "es": "Resultado presupuestario"
+    },
+    "ui.static.budget.rules.can.be.added.for.global.role.provider.project.a.065c4ad7": {
+      "en": "Budget rules can be added for global, role, provider, project and workflow scopes.",
+      "es": "Se pueden agregar reglas de presupuesto para ámbitos globales, de rol, de proveedor, de proyecto y de flujo de trabajo."
+    },
+    "ui.static.budgets.c13c8242": {
+      "en": "Budgets",
+      "es": "Presupuestos"
+    },
+    "ui.static.cli.sessions.e179e262": {
+      "en": "CLI Sessions",
+      "es": "Sesiones CLI"
+    },
+    "ui.static.cli.adapters.c1aae152": {
+      "en": "CLI adapters",
+      "es": "Adaptadores CLI"
+    },
+    "ui.static.cli.allowed.31f8f238": {
+      "en": "CLI allowed",
+      "es": "CLI permitido"
+    },
+    "ui.static.cli.configuration.1136ab1e": {
+      "en": "CLI configuration",
+      "es": "Configuración CLI"
+    },
+    "ui.static.cli.runtimes.d0947c09": {
+      "en": "CLI runtimes",
+      "es": "Tiempos de ejecución CLI"
+    },
+    "ui.static.cli.session.records.appear.only.after.policy.approved.runtim.61626bfe": {
+      "en": "CLI session records appear only after policy-approved runtime execution.",
+      "es": "Los registros de sesión CLI aparecen solo después de la ejecución del tiempo de ejecución aprobado por la política."
+    },
+    "ui.static.cached.input.36e191c9": {
+      "en": "Cached input",
+      "es": "Entrada en caché"
+    },
+    "ui.static.cancel.77dfd213": {
+      "en": "Cancel",
+      "es": "Cancelar"
+    },
+    "ui.static.cancelled.projects.059b98e5": {
+      "en": "Cancelled Projects",
+      "es": "Proyectos cancelados"
+    },
+    "ui.static.cancelled.projects.are.visible.for.traceability.but.cannot.b.b0b2f7be": {
+      "en": "Cancelled projects are visible for traceability, but cannot be selected as the operational mutation target.",
+      "es": "Los proyectos cancelados son visibles para su trazabilidad, pero no se pueden seleccionar como objetivo de mutación operativa."
+    },
+    "ui.static.capabilities.ca09c54b": {
+      "en": "Capabilities",
+      "es": "Capacidades"
+    },
+    "ui.static.categories.6ccb6007": {
+      "en": "Categories",
+      "es": "Categorías"
+    },
+    "ui.static.changed.cb5424f6": {
+      "en": "Changed",
+      "es": "Cambió"
+    },
+    "ui.static.choose.a.workflow.to.inspect.its.linked.records.4f7e51a2": {
+      "en": "Choose a workflow to inspect its linked records.",
+      "es": "Elija un flujo de trabajo para inspeccionar sus registros vinculados."
+    },
+    "ui.static.closed.ledger.2b3a3aac": {
+      "en": "Closed ledger",
+      "es": "Libro mayor cerrado"
+    },
+    "ui.static.codex.cli.claude.code.openhands.and.manual.runtimes.are.mana.ecdad9ae": {
+      "en": "Codex CLI, Claude Code, OpenHands and manual runtimes are managed as technical providers.",
+      "es": "Codex CLI, Claude Code, OpenHands y tiempos de ejecución manuales se gestionan como proveedores técnicos."
+    },
+    "ui.static.codex.claude.code.openhands.and.swe.agent.adapters.are.optio.6ae60fea": {
+      "en": "Codex, Claude Code, OpenHands and SWE-agent adapters are optional.",
+      "es": "Los adaptadores Codex, Claude Code, OpenHands y SWE-agent son opcionales."
+    },
+    "ui.static.command.8901895f": {
+      "en": "Command",
+      "es": "Dominio"
+    },
+    "ui.static.command.center.and.governance.use.this.explicit.selection.th.cae96717": {
+      "en": "Command Center and Governance use this explicit selection. They no longer target the first project returned by the API.",
+      "es": "El Centro de Mando y la Gobernanza utilizan esta selección explícita. Ya no se dirigen al primer proyecto devuelto por la API."
+    },
+    "ui.static.command.center.can.create.a.workflow.when.a.project.is.selec.7f8ad419": {
+      "en": "Command Center can create a workflow when a project is selected.",
+      "es": "Command Center puede crear un flujo de trabajo cuando se selecciona un proyecto."
+    },
+    "ui.static.command.center.navigation.wheel.20fd2842": {
+      "en": "Command center navigation wheel",
+      "es": "Rueda de navegación del centro de mando"
+    },
+    "ui.static.command.classification.path.boundaries.human.gates.and.sandb.48b94e83": {
+      "en": "Command classification, path boundaries, human gates and sandbox posture for every sensitive action.",
+      "es": "Clasificación de comandos, límites de caminos, puertas humanas y postura de zona de pruebas para cada acción sensible."
+    },
+    "ui.static.command.palette.7b6b539e": {
+      "en": "Command palette",
+      "es": "paleta de comandos"
+    },
+    "ui.static.command.palette.filter.0927f9aa": {
+      "en": "Command palette filter",
+      "es": "Filtro de paleta de comandos"
+    },
+    "ui.static.command.summary.22289d0c": {
+      "en": "Command summary",
+      "es": "Resumen de comando"
+    },
+    "ui.static.completed.and.archived.projects.stay.available.for.audit.wit.8ed5a326": {
+      "en": "Completed and archived projects stay available for audit without being selectable for new operational mutations.",
+      "es": "Los proyectos completados y archivados permanecen disponibles para auditoría sin ser seleccionables para nuevas mutaciones operativas."
+    },
+    "ui.static.context.cc11b3a2": {
+      "en": "Context",
+      "es": "Contexto"
+    },
+    "ui.static.contracts.not.characters.607de7e9": {
+      "en": "Contracts, not characters",
+      "es": "Contratos, no personajes."
+    },
+    "ui.static.control.api.model.providers.cli.coding.runtimes.routing.poli.a0fb27d4": {
+      "en": "Control API model providers, CLI coding runtimes, routing policies, token usage, cost, quota and audit decisions from one local-first console.",
+      "es": "Controle los proveedores de modelos API, los tiempos de ejecución de codificación CLI, las políticas de enrutamiento, el uso de tokens, los costos, las cuotas y las decisiones de auditoría desde una consola local."
+    },
+    "ui.static.control.plane.unavailable.6196ca6f": {
+      "en": "Control plane unavailable",
+      "es": "Plano de control no disponible"
+    },
+    "ui.static.cooldown.98fd67d9": {
+      "en": "Cooldown",
+      "es": "Enfriarse"
+    },
+    "ui.static.cost.64ae43e8": {
+      "en": "Cost",
+      "es": "Costo"
+    },
+    "ui.static.cost.ledger.7af91996": {
+      "en": "Cost ledger",
+      "es": "Libro mayor de costos"
+    },
+    "ui.static.cost.today.ef1eaeca": {
+      "en": "Cost today",
+      "es": "Costo hoy"
+    },
+    "ui.static.create.workflow.b2c26d5c": {
+      "en": "Create Workflow",
+      "es": "Crear flujo de trabajo"
+    },
+    "ui.static.create.a.project.or.reactivate.one.in.settings.before.starti.d1c4cf14": {
+      "en": "Create a project or reactivate one in Settings before starting workflows, jobs, workspaces or governance records.",
+      "es": "Cree un proyecto o reactive uno en Configuración antes de iniciar flujos de trabajo, trabajos, espacios de trabajo o registros de gobierno."
+    },
+    "ui.static.create.a.strict.profile.before.running.real.implementation.w.6b48ff2f": {
+      "en": "Create a strict profile before running real implementation work.",
+      "es": "Cree un perfil estricto antes de ejecutar un trabajo de implementación real."
+    },
+    "ui.static.create.an.idea.to.pr.workflow.for.the.selected.project.a0901937": {
+      "en": "Create an idea-to-PR workflow for the selected project",
+      "es": "Cree un flujo de trabajo de idea a relaciones públicas para el proyecto seleccionado"
+    },
+    "ui.static.create.an.intake.workflow.to.start.the.sdlc.lane.c2a5a197": {
+      "en": "Create an intake workflow to start the SDLC lane.",
+      "es": "Cree un flujo de trabajo de admisión para iniciar el carril SDLC."
+    },
+    "ui.static.create.directory.76247a4a": {
+      "en": "Create directory",
+      "es": "Crear directorio"
+    },
+    "ui.static.create.from.zero.5cd2f082": {
+      "en": "Create from zero",
+      "es": "Crear desde cero"
+    },
+    "ui.static.create.or.start.a.workflow.to.populate.the.queue.604610da": {
+      "en": "Create or start a workflow to populate the queue.",
+      "es": "Cree o inicie un flujo de trabajo para completar la cola."
+    },
+    "ui.static.create.strict.profile.9798d5ff": {
+      "en": "Create strict profile",
+      "es": "Crear perfil estricto"
+    },
+    "ui.static.created.accf40c8": {
+      "en": "Created",
+      "es": "Creado"
+    },
+    "ui.static.credential.8bede3ea": {
+      "en": "Credential",
+      "es": "Credencial"
+    },
+    "ui.static.critical.queue.21be446b": {
+      "en": "Critical queue",
+      "es": "cola crítica"
+    },
+    "ui.static.current.operational.context.c8b6ea12": {
+      "en": "Current operational context",
+      "es": "Contexto operativo actual"
+    },
+    "ui.static.daily.requests.aa9a0d5f": {
+      "en": "Daily requests",
+      "es": "Solicitudes diarias"
+    },
+    "ui.static.daily.tokens.4a4f692d": {
+      "en": "Daily tokens",
+      "es": "Fichas diarias"
+    },
+    "ui.static.decision.7f59a1f1": {
+      "en": "Decision",
+      "es": "Decisión"
+    },
+    "ui.static.decision.context.b59edd63": {
+      "en": "Decision context",
+      "es": "Contexto de decisión"
+    },
+    "ui.static.decision.records.606d98ca": {
+      "en": "Decision records",
+      "es": "Registros de decisiones"
+    },
+    "ui.static.decision.status.9f1c54f2": {
+      "en": "Decision status",
+      "es": "Estado de la decisión"
+    },
+    "ui.static.decision.text.a276ce0a": {
+      "en": "Decision text",
+      "es": "Texto de decisión"
+    },
+    "ui.static.decision.title.ed22b7fe": {
+      "en": "Decision title",
+      "es": "Título de la decisión"
+    },
+    "ui.static.decision.title.is.required.2f387ea8": {
+      "en": "Decision title is required.",
+      "es": "Se requiere título de decisión."
+    },
+    "ui.static.decisions.af2f32cc": {
+      "en": "Decisions",
+      "es": "Decisiones"
+    },
+    "ui.static.default.shell.27dfc2a7": {
+      "en": "Default shell",
+      "es": "Shell predeterminado"
+    },
+    "ui.static.delivery.ledger.a668de87": {
+      "en": "Delivery ledger",
+      "es": "Libro mayor de entrega"
+    },
+    "ui.static.deny.53577bb5": {
+      "en": "Deny",
+      "es": "Denegar"
+    },
+    "ui.static.detected.project.0effc850": {
+      "en": "Detected project",
+      "es": "Proyecto detectado"
+    },
+    "ui.static.diff.d23a1c9f": {
+      "en": "Diff",
+      "es": "diferencia"
+    },
+    "ui.static.diff.refs.cc464235": {
+      "en": "Diff refs",
+      "es": "Referencias diferenciales"
+    },
+    "ui.static.discover.models.6a62bedb": {
+      "en": "Discover models",
+      "es": "Descubre modelos"
+    },
+    "ui.static.display.density.a1b8d01b": {
+      "en": "Display density",
+      "es": "Densidad de visualización"
+    },
+    "ui.static.display.name.c7874aaa": {
+      "en": "Display name",
+      "es": "Nombre para mostrar"
+    },
+    "ui.static.display.name.is.required.9802a662": {
+      "en": "Display name is required.",
+      "es": "El nombre para mostrar es obligatorio."
+    },
+    "ui.static.docker.sandbox.catalog.and.resource.limits.appear.here.32a3464c": {
+      "en": "Docker sandbox catalog and resource limits appear here.",
+      "es": "El catálogo de Docker Sandbox y los límites de recursos aparecen aquí."
+    },
+    "ui.static.durable.workflow.runs.with.steps.evidence.and.permission.che.37de4524": {
+      "en": "Durable workflow runs with steps, evidence and permission checkpoints represented as operational state.",
+      "es": "El flujo de trabajo duradero se ejecuta con pasos, pruebas y puntos de control de permisos representados como estado operativo."
+    },
+    "ui.static.effort.8c974bc6": {
+      "en": "Effort",
+      "es": "Esfuerzo"
+    },
+    "ui.static.effort.levels.00012f20": {
+      "en": "Effort levels",
+      "es": "Niveles de esfuerzo"
+    },
+    "ui.static.enabled.df174a3f": {
+      "en": "Enabled",
+      "es": "Activado"
+    },
+    "ui.static.engineering.judgement.94b6be3b": {
+      "en": "Engineering judgement",
+      "es": "Juicio de ingeniería"
+    },
+    "ui.static.error.7f2f6a15": {
+      "en": "Error",
+      "es": "Fallo"
+    },
+    "ui.static.estimated.cost.516cbee2": {
+      "en": "Estimated cost",
+      "es": "Costo estimado"
+    },
+    "ui.static.event.ad8919ac": {
+      "en": "Event",
+      "es": "Evento"
+    },
+    "ui.static.event.drawer.be20f85b": {
+      "en": "Event drawer",
+      "es": "Cajón de eventos"
+    },
+    "ui.static.event.filter.2ecf15a5": {
+      "en": "Event filter",
+      "es": "Filtro de eventos"
+    },
+    "ui.static.events.appear.when.workflows.jobs.policy.or.evidence.mutate.f02d7a2a": {
+      "en": "Events appear when workflows, jobs, policy or evidence mutate state.",
+      "es": "Los eventos aparecen cuando los flujos de trabajo, trabajos, políticas o pruebas cambian de estado."
+    },
+    "ui.static.every.mutation.needs.actor.target.payload.and.event.correlat.6735cfc2": {
+      "en": "Every mutation needs actor, target, payload and event correlation.",
+      "es": "Cada mutación necesita correlación entre actor, objetivo, carga útil y evento."
+    },
+    "ui.static.evidence.7ea014de": {
+      "en": "Evidence",
+      "es": "Evidencia"
+    },
+    "ui.static.evidence.and.tests.0c061aed": {
+      "en": "Evidence and tests",
+      "es": "Evidencias y pruebas"
+    },
+    "ui.static.evidence.artifacts.can.be.previewed.only.through.token.prote.45d0a57f": {
+      "en": "Evidence artifacts can be previewed only through token-protected v1 endpoints.",
+      "es": "Los artefactos de evidencia solo se pueden obtener una vista previa a través de puntos finales v1 protegidos con token."
+    },
+    "ui.static.evidence.packages.71d1a468": {
+      "en": "Evidence packages",
+      "es": "Paquetes de pruebas"
+    },
+    "ui.static.evidence.packages.record.command.level.qa.results.f5a353b5": {
+      "en": "Evidence packages record command-level QA results.",
+      "es": "Los paquetes de evidencia registran los resultados del control de calidad a nivel de comando."
+    },
+    "ui.static.exception.ledger.1f619f65": {
+      "en": "Exception ledger",
+      "es": "Libro mayor de excepciones"
+    },
+    "ui.static.executable.6f703eda": {
+      "en": "Executable",
+      "es": "Ejecutable"
+    },
+    "ui.static.execution.6d525b71": {
+      "en": "Execution",
+      "es": "Ejecución"
+    },
+    "ui.static.existing.workspace.270f5e27": {
+      "en": "Existing workspace",
+      "es": "Espacio de trabajo existente"
+    },
+    "ui.static.external.tools.ab4115a7": {
+      "en": "External tools",
+      "es": "Herramientas externas"
+    },
+    "ui.static.fallbacks.7ad29425": {
+      "en": "Fallbacks",
+      "es": "Reservas"
+    },
+    "ui.static.family.4efb6cb7": {
+      "en": "Family",
+      "es": "Familia"
+    },
+    "ui.static.field.c326a466": {
+      "en": "Field",
+      "es": "Campo"
+    },
+    "ui.static.filter.actions.d0119171": {
+      "en": "Filter actions",
+      "es": "Filtrar acciones"
+    },
+    "ui.static.filter.by.type.severity.id.or.payload.c700f550": {
+      "en": "Filter by type, severity, id or payload",
+      "es": "Filtrar por tipo, gravedad, identificación o carga útil"
+    },
+    "ui.static.filter.provider.model.role.runtime.workflow.or.agent.b9ddad3a": {
+      "en": "Filter provider, model, role, runtime, workflow or agent",
+      "es": "Proveedor de filtro, modelo, rol, tiempo de ejecución, flujo de trabajo o agente"
+    },
+    "ui.static.filter.risks.decisions.and.next.steps.17f70033": {
+      "en": "Filter risks, decisions, and next steps",
+      "es": "Filtrar riesgos, decisiones y próximos pasos"
+    },
+    "ui.static.filter.role.task.mode.provider.model.or.reason.3e68ef6b": {
+      "en": "Filter role, task, mode, provider, model or reason",
+      "es": "Filtrar rol, tarea, modo, proveedor, modelo o motivo"
+    },
+    "ui.static.final.path.2eeefc7a": {
+      "en": "Final path:",
+      "es": "Camino final:"
+    },
+    "ui.static.finished.projects.153ecbd5": {
+      "en": "Finished Projects",
+      "es": "Proyectos terminados"
+    },
+    "ui.static.free.tier.5305bc7b": {
+      "en": "Free tier",
+      "es": "Nivel gratuito"
+    },
+    "ui.static.frontend.vite.react.typescript.b3d4c705": {
+      "en": "Frontend: Vite + React + TypeScript",
+      "es": "Interfaz: Vite + React + TypeScript"
+    },
+    "ui.static.go.to.governance.8c5583b8": {
+      "en": "Go to Governance",
+      "es": "Ir a Gobernanza"
+    },
+    "ui.static.go.to.jobs.approvals.21d68075": {
+      "en": "Go to Jobs & Approvals",
+      "es": "Ir a Empleos y Aprobaciones"
+    },
+    "ui.static.go.to.policy.security.4f327ae6": {
+      "en": "Go to Policy & Security",
+      "es": "Ir a Política y Seguridad"
+    },
+    "ui.static.go.to.workflows.6ba55305": {
+      "en": "Go to Workflows",
+      "es": "Ir a flujos de trabajo"
+    },
+    "ui.static.governance.filter.092bf483": {
+      "en": "Governance filter",
+      "es": "Filtro de gobernanza"
+    },
+    "ui.static.governance.filters.7ded1ef3": {
+      "en": "Governance filters",
+      "es": "Filtros de gobernanza"
+    },
+    "ui.static.granular.approvals.linked.to.workflow.jobs.appear.here.7308c236": {
+      "en": "Granular approvals linked to workflow jobs appear here.",
+      "es": "Aquí aparecen aprobaciones granulares vinculadas a trabajos de flujo de trabajo."
+    },
+    "ui.static.guardrails.2dd5f894": {
+      "en": "Guardrails",
+      "es": "Barandillas"
+    },
+    "ui.static.hash.873507a0": {
+      "en": "Hash",
+      "es": "Picadillo"
+    },
+    "ui.static.health.3703cd21": {
+      "en": "Health",
+      "es": "Salud"
+    },
+    "ui.static.health.check.6afd56ff": {
+      "en": "Health check",
+      "es": "control de salud"
+    },
+    "ui.static.high.and.critical.risks.require.mitigation.d2100035": {
+      "en": "High and critical risks require mitigation.",
+      "es": "Los riesgos elevados y críticos requieren mitigación."
+    },
+    "ui.static.human.gates.bf41080c": {
+      "en": "Human gates",
+      "es": "Puertas humanas"
+    },
+    "ui.static.ide.connections.4be76e0e": {
+      "en": "IDE connections",
+      "es": "Conexiones IDE"
+    },
+    "ui.static.ide.style.workspace.roots.imported.folders.and.detected.proj.e38f3d15": {
+      "en": "IDE-style workspace roots, imported folders and detected project lanes live here instead of the runtime Workspaces queue.",
+      "es": "Las raíces del espacio de trabajo de estilo IDE, las carpetas importadas y los carriles de proyectos detectados se encuentran aquí en lugar de la cola de espacios de trabajo en tiempo de ejecución."
+    },
+    "ui.static.images.09e871c9": {
+      "en": "Images",
+      "es": "Imágenes"
+    },
+    "ui.static.import.an.existing.workspace.or.create.one.from.the.project.aa5fed6b": {
+      "en": "Import an existing workspace or create one from the project wizard.",
+      "es": "Importe un espacio de trabajo existente o cree uno desde el asistente de proyectos."
+    },
+    "ui.static.input.price.c4751daf": {
+      "en": "Input price",
+      "es": "Precio de entrada"
+    },
+    "ui.static.input.tokens.92f7d222": {
+      "en": "Input tokens",
+      "es": "Fichas de entrada"
+    },
+    "ui.static.inspect.18ca87af": {
+      "en": "Inspect",
+      "es": "Inspeccionar"
+    },
+    "ui.static.inspect.policy.decisions.and.sandbox.posture.f5106fc8": {
+      "en": "Inspect policy decisions and sandbox posture",
+      "es": "Inspeccionar las decisiones políticas y la postura del sandbox"
+    },
+    "ui.static.inspect.recent.operational.events.7683f891": {
+      "en": "Inspect recent operational events",
+      "es": "Inspeccionar eventos operativos recientes"
+    },
+    "ui.static.inspect.workflow.runs.steps.evidence.and.tool.calls.191b22ce": {
+      "en": "Inspect workflow runs, steps, evidence and tool calls",
+      "es": "Inspeccionar ejecuciones de flujo de trabajo, pasos, evidencia y llamadas de herramientas"
+    },
+    "ui.static.integration.activity.appears.in.audit.records.f846c944": {
+      "en": "Integration activity appears in audit records.",
+      "es": "La actividad de integración aparece en los registros de auditoría."
+    },
+    "ui.static.interface.language.9407e9ca": {
+      "en": "Interface language",
+      "es": "Idioma de la interfaz"
+    },
+    "ui.static.isolation.616318d9": {
+      "en": "Isolation",
+      "es": "Aislamiento"
+    },
+    "ui.static.job.30c8cb83": {
+      "en": "Job",
+      "es": "Trabajo"
+    },
+    "ui.static.jobs.linked.to.workflow.runs.appear.here.7c0a2243": {
+      "en": "Jobs linked to workflow runs appear here.",
+      "es": "Los trabajos vinculados a ejecuciones de flujo de trabajo aparecen aquí."
+    },
+    "ui.static.kind.e00ac23f": {
+      "en": "Kind",
+      "es": "Amable"
+    },
+    "ui.static.last.429.465b5393": {
+      "en": "Last 429",
+      "es": "últimos 429"
+    },
+    "ui.static.last.check.f4b50527": {
+      "en": "Last check",
+      "es": "último control"
+    },
+    "ui.static.last.error.5e4df866": {
+      "en": "Last error",
+      "es": "último error"
+    },
+    "ui.static.last.event.c26a0a47": {
+      "en": "Last event",
+      "es": "último evento"
+    },
+    "ui.static.last.used.f1109d3d": {
+      "en": "Last used",
+      "es": "último usado"
+    },
+    "ui.static.latency.3e399725": {
+      "en": "Latency",
+      "es": "Estado latente"
+    },
+    "ui.static.lease.b24ef8c7": {
+      "en": "Lease",
+      "es": "Alquiler"
+    },
+    "ui.static.limits.61a0ae3b": {
+      "en": "Limits",
+      "es": "Límites"
+    },
+    "ui.static.live.control.over.workflows.approvals.agent.runtime.posture.cca7b5fc": {
+      "en": "Live control over workflows, approvals, agent runtime posture, evidence and model gateways. The console reads only FastAPI v1 state.",
+      "es": "Control en vivo sobre flujos de trabajo, aprobaciones, postura del tiempo de ejecución del agente, evidencia y puertas de enlace de modelos. La consola solo lee el estado de FastAPI v1."
+    },
+    "ui.static.loading.model.gateway.132cdca6": {
+      "en": "Loading Model Gateway",
+      "es": "Cargando Gateway de modelos"
+    },
+    "ui.static.loading.control.plane.b6b0a909": {
+      "en": "Loading control plane",
+      "es": "Cargando plano de control"
+    },
+    "ui.static.local.control.api.f1f86c0e": {
+      "en": "Local Control API",
+      "es": "API local de control"
+    },
+    "ui.static.local.runtime.configuration.77aef48c": {
+      "en": "Local runtime configuration",
+      "es": "Configuración de tiempo de ejecución local"
+    },
+    "ui.static.logs.reports.and.screenshots.linked.to.evidence.appear.here.9ce88334": {
+      "en": "Logs, reports and screenshots linked to evidence appear here.",
+      "es": "Aquí aparecen registros, informes y capturas de pantalla vinculados a la evidencia."
+    },
+    "ui.static.mcp.command.d01a7d2d": {
+      "en": "MCP command",
+      "es": "Comando MCP"
+    },
+    "ui.static.mcp.command.is.required.5ea1eac7": {
+      "en": "MCP command is required.",
+      "es": "Se requiere el comando MCP."
+    },
+    "ui.static.mcp.command.must.be.a.single.argv.style.command.without.shel.66279188": {
+      "en": "MCP command must be a single argv-style command without shell operators.",
+      "es": "El comando MCP debe ser un comando único de estilo argv sin operadores de shell."
+    },
+    "ui.static.mcp.server.id.35074cd3": {
+      "en": "MCP server id",
+      "es": "ID del servidor MCP"
+    },
+    "ui.static.mcp.server.id.must.use.lowercase.letters.numbers.dashes.or.u.727ded15": {
+      "en": "MCP server id must use lowercase letters, numbers, dashes or underscores.",
+      "es": "La identificación del servidor MCP debe utilizar letras minúsculas, números, guiones o guiones bajos."
+    },
+    "ui.static.mcp.servers.8d9a304f": {
+      "en": "MCP servers",
+      "es": "Servidores MCP"
+    },
+    "ui.static.mcp.transport.70f1719d": {
+      "en": "MCP transport",
+      "es": "Transporte MCP"
+    },
+    "ui.static.mcp.ide.git.and.automation.integrations.are.optional.adapter.fd985428": {
+      "en": "MCP, IDE, Git and automation integrations are optional adapters, never hidden core dependencies.",
+      "es": "MCP, IDE, Git y las integraciones de automatización son adaptadores opcionales, nunca dependencias centrales ocultas."
+    },
+    "ui.static.manifests.7bd7947c": {
+      "en": "Manifests",
+      "es": "Manifiestos"
+    },
+    "ui.static.matches.ide.flows.open.a.folder.that.already.contains.projec.1fb0a8b3": {
+      "en": "Matches IDE flows: open a folder that already contains projects, or create a new workspace folder first.",
+      "es": "Coincide con los flujos IDE: abra una carpeta que ya contenga proyectos o cree primero una nueva carpeta de espacio de trabajo."
+    },
+    "ui.static.max.cost.cd7a5d86": {
+      "en": "Max cost",
+      "es": "Costo máximo"
+    },
+    "ui.static.max.cost.task.b474ecd8": {
+      "en": "Max cost/task",
+      "es": "Costo máximo/tarea"
+    },
+    "ui.static.max.tokens.4bd246e3": {
+      "en": "Max tokens",
+      "es": "Fichas máximas"
+    },
+    "ui.static.max.tokens.per.run.0c48d61a": {
+      "en": "Max tokens per run",
+      "es": "Tokens máximos por ejecución"
+    },
+    "ui.static.max.tokens.per.run.must.be.an.integer.between.0.and.200000.9abcec39": {
+      "en": "Max tokens per run must be an integer between 0 and 200000.",
+      "es": "El número máximo de tokens por ejecución debe ser un número entero entre 0 y 200000."
+    },
+    "ui.static.max.tokens.run.e7d1a6f7": {
+      "en": "Max tokens/run",
+      "es": "Fichas máximas/ejecución"
+    },
+    "ui.static.maximum.cost.usd.03a1d8c3": {
+      "en": "Maximum cost USD",
+      "es": "Costo máximo USD"
+    },
+    "ui.static.maximum.cost.must.be.zero.or.a.positive.number.7e5a838f": {
+      "en": "Maximum cost must be zero or a positive number.",
+      "es": "El costo máximo debe ser cero o un número positivo."
+    },
+    "ui.static.maximum.tokens.c7be12de": {
+      "en": "Maximum tokens",
+      "es": "Fichas máximas"
+    },
+    "ui.static.maximum.tokens.must.be.an.integer.between.512.and.200000.c965c1ae": {
+      "en": "Maximum tokens must be an integer between 512 and 200000.",
+      "es": "El máximo de tokens debe ser un número entero entre 512 y 200000."
+    },
+    "ui.static.memory.items.d8a2b209": {
+      "en": "Memory items",
+      "es": "Elementos de memoria"
+    },
+    "ui.static.message.68f4145f": {
+      "en": "Message",
+      "es": "Mensaje"
+    },
+    "ui.static.metadata.251edc0e": {
+      "en": "Metadata",
+      "es": "Metadatos"
+    },
+    "ui.static.mitigations.and.follow.up.work.appear.here.3535c646": {
+      "en": "Mitigations and follow-up work appear here.",
+      "es": "Las mitigaciones y el trabajo de seguimiento aparecen aquí."
+    },
+    "ui.static.mock.and.real.calls.record.token.and.cost.usage.here.cec31f01": {
+      "en": "Mock and real calls record token and cost usage here.",
+      "es": "Las llamadas simuladas y reales registran el uso de tokens y costos aquí."
+    },
+    "ui.static.mode.a7b93d21": {
+      "en": "Mode",
+      "es": "Modo"
+    },
+    "ui.static.model.68c2cc7f": {
+      "en": "Model",
+      "es": "Modelo"
+    },
+    "ui.static.model.catalog.660f1b98": {
+      "en": "Model Catalog",
+      "es": "Catálogo de modelos"
+    },
+    "ui.static.model.calls.88e40906": {
+      "en": "Model calls",
+      "es": "Llamadas modelo"
+    },
+    "ui.static.model.catalog.entries.appear.after.seeds.or.provider.discove.babcd23e": {
+      "en": "Model catalog entries appear after seeds or provider discovery.",
+      "es": "Las entradas del catálogo de modelos aparecen después del descubrimiento de semillas o proveedores."
+    },
+    "ui.static.model.parameters.appear.here.when.routing.policies.are.confi.71a70605": {
+      "en": "Model parameters appear here when routing policies are configured.",
+      "es": "Los parámetros del modelo aparecen aquí cuando se configuran las políticas de enrutamiento."
+    },
+    "ui.static.model.policies.68e48433": {
+      "en": "Model policies",
+      "es": "Políticas modelo"
+    },
+    "ui.static.model.policies.define.allowed.providers.fallback.chains.and.6b28dbd0": {
+      "en": "Model policies define allowed providers, fallback chains and budgets.",
+      "es": "Las políticas modelo definen proveedores permitidos, cadenas de respaldo y presupuestos."
+    },
+    "ui.static.model.routing.06a48dd1": {
+      "en": "Model routing",
+      "es": "Enrutamiento modelo"
+    },
+    "ui.static.monthly.budget.f260ddaf": {
+      "en": "Monthly budget",
+      "es": "Presupuesto mensual"
+    },
+    "ui.static.motion.preference.f216d061": {
+      "en": "Motion preference",
+      "es": "Preferencia de movimiento"
+    },
+    "ui.static.mutating.api.calls.will.be.recorded.here.ddf49c4f": {
+      "en": "Mutating API calls will be recorded here.",
+      "es": "Las llamadas API mutantes se registrarán aquí."
+    },
+    "ui.static.mutating.decisions.are.recorded.here.a7acd7bf": {
+      "en": "Mutating decisions are recorded here.",
+      "es": "Las decisiones mutantes se registran aquí."
+    },
+    "ui.static.name.709a2322": {
+      "en": "Name",
+      "es": "Nombre"
+    },
+    "ui.static.new.project.steps.c403756c": {
+      "en": "New project steps",
+      "es": "Nuevos pasos del proyecto."
+    },
+    "ui.static.next.step.priority.1652a14b": {
+      "en": "Next step priority",
+      "es": "Prioridad del siguiente paso"
+    },
+    "ui.static.next.step.title.2984700e": {
+      "en": "Next step title",
+      "es": "Título del siguiente paso"
+    },
+    "ui.static.next.step.title.is.required.92b152bd": {
+      "en": "Next step title is required.",
+      "es": "Se requiere el título del siguiente paso."
+    },
+    "ui.static.next.steps.11fc1420": {
+      "en": "Next steps",
+      "es": "Próximos pasos"
+    },
+    "ui.static.no.cli.runtimes.867bdd5c": {
+      "en": "No CLI runtimes",
+      "es": "Sin tiempos de ejecución CLI"
+    },
+    "ui.static.no.cli.sessions.4ff7b528": {
+      "en": "No CLI sessions",
+      "es": "Sin sesiones CLI"
+    },
+    "ui.static.no.mcp.servers.3604d548": {
+      "en": "No MCP servers",
+      "es": "Sin servidores MCP"
+    },
+    "ui.static.no.active.projects.e6823ecd": {
+      "en": "No active projects",
+      "es": "No hay proyectos activos"
+    },
+    "ui.static.no.active.workspaces.ed5949a1": {
+      "en": "No active workspaces",
+      "es": "No hay espacios de trabajo activos"
+    },
+    "ui.static.no.agent.profiles.056f31a8": {
+      "en": "No agent profiles",
+      "es": "Sin perfiles de agentes"
+    },
+    "ui.static.no.approvals.380cc620": {
+      "en": "No approvals",
+      "es": "Sin aprobaciones"
+    },
+    "ui.static.no.artifacts.3e0935de": {
+      "en": "No artifacts",
+      "es": "Sin artefactos"
+    },
+    "ui.static.no.audit.entries.01c8409e": {
+      "en": "No audit entries",
+      "es": "Sin entradas de auditoría"
+    },
+    "ui.static.no.audit.records.3d57cdc9": {
+      "en": "No audit records",
+      "es": "Sin registros de auditoría"
+    },
+    "ui.static.no.benchmark.outcomes.0ddd5c18": {
+      "en": "No benchmark outcomes",
+      "es": "Sin resultados de referencia"
+    },
+    "ui.static.no.budget.rules.b121a748": {
+      "en": "No budget rules",
+      "es": "Sin reglas presupuestarias"
+    },
+    "ui.static.no.cancelled.projects.88a12871": {
+      "en": "No cancelled projects",
+      "es": "No hay proyectos cancelados"
+    },
+    "ui.static.no.catalog.agents.49a260d2": {
+      "en": "No catalog agents",
+      "es": "Agentes sin catalogo"
+    },
+    "ui.static.no.commands.c0f14586": {
+      "en": "No commands",
+      "es": "Sin comandos"
+    },
+    "ui.static.no.decisions.15ab90ea": {
+      "en": "No decisions",
+      "es": "Sin decisiones"
+    },
+    "ui.static.no.events.e339ba73": {
+      "en": "No events",
+      "es": "Sin eventos"
+    },
+    "ui.static.no.evidence.fade4ede": {
+      "en": "No evidence",
+      "es": "Sin evidencia"
+    },
+    "ui.static.no.evidence.packages.25648065": {
+      "en": "No evidence packages",
+      "es": "Sin paquetes de pruebas"
+    },
+    "ui.static.no.finished.projects.c8caaece": {
+      "en": "No finished projects",
+      "es": "Sin proyectos terminados"
+    },
+    "ui.static.no.grants.34485dd1": {
+      "en": "No grants",
+      "es": "Sin subvenciones"
+    },
+    "ui.static.no.integration.events.1eaf9391": {
+      "en": "No integration events",
+      "es": "Sin eventos de integración"
+    },
+    "ui.static.no.isolated.workspaces.1d0dc404": {
+      "en": "No isolated workspaces",
+      "es": "Sin espacios de trabajo aislados"
+    },
+    "ui.static.no.jobs.e0f919e2": {
+      "en": "No jobs",
+      "es": "Sin trabajos"
+    },
+    "ui.static.no.model.calls.3e3394fe": {
+      "en": "No model calls",
+      "es": "No hay llamadas de modelos"
+    },
+    "ui.static.no.model.policies.993f8301": {
+      "en": "No model policies",
+      "es": "Sin políticas modelo"
+    },
+    "ui.static.no.models.7c30bd0a": {
+      "en": "No models",
+      "es": "Sin modelos"
+    },
+    "ui.static.no.next.steps.dcb989e0": {
+      "en": "No next steps",
+      "es": "No hay próximos pasos"
+    },
+    "ui.static.no.pending.approvals.054d6061": {
+      "en": "No pending approvals",
+      "es": "No hay aprobaciones pendientes"
+    },
+    "ui.static.no.pending.commands.42f335a0": {
+      "en": "No pending commands",
+      "es": "No hay comandos pendientes"
+    },
+    "ui.static.no.policy.decisions.6c679309": {
+      "en": "No policy decisions",
+      "es": "Sin decisiones políticas"
+    },
+    "ui.static.no.profiles.a21ca86c": {
+      "en": "No profiles",
+      "es": "Sin perfiles"
+    },
+    "ui.static.no.project.records.4f3947bb": {
+      "en": "No project records",
+      "es": "Sin registros de proyecto"
+    },
+    "ui.static.no.projects.with.error.d3278ee5": {
+      "en": "No projects with error",
+      "es": "No hay proyectos con error"
+    },
+    "ui.static.no.provider.accounts.2aee0ea0": {
+      "en": "No provider accounts",
+      "es": "Sin cuentas de proveedor"
+    },
+    "ui.static.no.provider.limits.b14ad2ba": {
+      "en": "No provider limits",
+      "es": "Sin límites de proveedores"
+    },
+    "ui.static.no.providers.d239f867": {
+      "en": "No providers",
+      "es": "Sin proveedores"
+    },
+    "ui.static.no.revisions.93220a0a": {
+      "en": "No revisions",
+      "es": "Sin revisiones"
+    },
+    "ui.static.no.risks.df25a300": {
+      "en": "No risks",
+      "es": "Sin riesgos"
+    },
+    "ui.static.no.role.policies.a12a5674": {
+      "en": "No role policies",
+      "es": "Sin políticas de roles"
+    },
+    "ui.static.no.routing.decisions.e50fdc8d": {
+      "en": "No routing decisions",
+      "es": "Sin decisiones de ruta"
+    },
+    "ui.static.no.routing.profiles.065ee125": {
+      "en": "No routing profiles",
+      "es": "Sin perfiles de enrutamiento"
+    },
+    "ui.static.no.steps.00a23c5b": {
+      "en": "No steps",
+      "es": "Sin pasos"
+    },
+    "ui.static.no.teams.for.selected.project.eb3c5572": {
+      "en": "No teams for selected project",
+      "es": "No hay equipos para el proyecto seleccionado"
+    },
+    "ui.static.no.templates.00cbea20": {
+      "en": "No templates",
+      "es": "Sin plantillas"
+    },
+    "ui.static.no.test.records.4878c3ab": {
+      "en": "No test records",
+      "es": "Sin registros de prueba"
+    },
+    "ui.static.no.test.results.5503b785": {
+      "en": "No test results",
+      "es": "Sin resultados de prueba"
+    },
+    "ui.static.no.tool.calls.7ab6a86e": {
+      "en": "No tool calls",
+      "es": "Sin llamadas de herramientas"
+    },
+    "ui.static.no.usage.ledger.entries.0b082a29": {
+      "en": "No usage ledger entries",
+      "es": "No hay entradas de uso"
+    },
+    "ui.static.no.workflow.selected.215ac484": {
+      "en": "No workflow selected",
+      "es": "No se seleccionó ningún flujo de trabajo"
+    },
+    "ui.static.no.workflows.52b4f780": {
+      "en": "No workflows",
+      "es": "Sin flujos de trabajo"
+    },
+    "ui.static.no.workspace.roots.e38dc3e1": {
+      "en": "No workspace roots",
+      "es": "Sin raíces en el espacio de trabajo"
+    },
+    "ui.static.no.workspaces.09e5b922": {
+      "en": "No workspaces",
+      "es": "Sin espacios de trabajo"
+    },
+    "ui.static.non.text.artifacts.remain.downloadable.but.are.not.rendered.42481492": {
+      "en": "Non-text artifacts remain downloadable, but are not rendered inline.",
+      "es": "Los artefactos que no son de texto siguen siendo descargables, pero no se muestran en línea."
+    },
+    "ui.static.objective.50c8920b": {
+      "en": "Objective",
+      "es": "Objetivo"
+    },
+    "ui.static.ollama.catalog.2cc6423d": {
+      "en": "Ollama catalog",
+      "es": "catalogo ollama"
+    },
+    "ui.static.ollama.is.optional.b0e0ac69": {
+      "en": "Ollama is optional",
+      "es": "Ollama es opcional"
+    },
+    "ui.static.ollama.status.d20acac1": {
+      "en": "Ollama status",
+      "es": "Estado de Ollama"
+    },
+    "ui.static.only.active.projects.can.be.selected.for.operational.mutatio.3f45da88": {
+      "en": "Only active projects can be selected for operational mutations.",
+      "es": "Solo se pueden seleccionar proyectos activos para mutaciones operativas."
+    },
+    "ui.static.only.active.projects.can.receive.operational.work.here.inact.903ac429": {
+      "en": "Only active projects can receive operational work here. Inactive and archived project records stay visible in Settings for audit and configuration.",
+      "es": "Sólo los proyectos activos pueden recibir trabajo operativo aquí. Los registros de proyectos inactivos y archivados permanecen visibles en Configuración para auditoría y configuración."
+    },
+    "ui.static.open.event.drawer.193ac17b": {
+      "en": "Open Event Drawer",
+      "es": "Abrir cajón de eventos"
+    },
+    "ui.static.open.pending.approvals.ac140065": {
+      "en": "Open Pending Approvals",
+      "es": "Abrir aprobaciones pendientes"
+    },
+    "ui.static.open.technical.and.product.risks.appear.here.68f75ad6": {
+      "en": "Open technical and product risks appear here.",
+      "es": "Aquí aparecen riesgos técnicos y de producto abiertos."
+    },
+    "ui.static.open.the.queue.and.approval.surface.b5e5057a": {
+      "en": "Open the queue and approval surface",
+      "es": "Abrir la cola y la superficie de aprobación."
+    },
+    "ui.static.operational.compact.180d847b": {
+      "en": "Operational compact",
+      "es": "Compacto operativo"
+    },
+    "ui.static.operational.ledger.4902b4a3": {
+      "en": "Operational ledger",
+      "es": "Libro mayor operativo"
+    },
+    "ui.static.operational.project.8c3b31f6": {
+      "en": "Operational project",
+      "es": "Proyecto operativo"
+    },
+    "ui.static.operational.state.f13112c1": {
+      "en": "Operational state",
+      "es": "Estado operativo"
+    },
+    "ui.static.operator.lane.ce0465f2": {
+      "en": "Operator lane",
+      "es": "Carril del operador"
+    },
+    "ui.static.outcome.records.appear.after.benchmark.or.task.result.ingest.76a6d23e": {
+      "en": "Outcome records appear after benchmark or task result ingestion.",
+      "es": "Los registros de resultados aparecen después de la ingesta de resultados de tareas o puntos de referencia."
+    },
+    "ui.static.output.price.a664728b": {
+      "en": "Output price",
+      "es": "Precio de salida"
+    },
+    "ui.static.output.tokens.b879f52d": {
+      "en": "Output tokens",
+      "es": "Fichas de salida"
+    },
+    "ui.static.overview.0efc2e6b": {
+      "en": "Overview",
+      "es": "Descripción general"
+    },
+    "ui.static.owner.89ff3122": {
+      "en": "Owner",
+      "es": "Dueño"
+    },
+    "ui.static.pnpm.package.manager.985bd6c7": {
+      "en": "PNPM package manager",
+      "es": "Gestor de paquetes PNPM"
+    },
+    "ui.static.package.manager.corepack.pnpm.10.24.0.2e9f3ce1": {
+      "en": "Package manager: corepack pnpm@10.24.0",
+      "es": "Administrador de paquetes: corepack pnpm@10.24.0"
+    },
+    "ui.static.parameter.changes.stay.explicit.and.typed.no.raw.json.editor.8cf9ddf3": {
+      "en": "Parameter changes stay explicit and typed. No raw JSON editor is introduced here.",
+      "es": "Los cambios de parámetros permanecen explícitos y escritos. Aquí no se presenta ningún editor JSON sin formato."
+    },
+    "ui.static.parameter.configuration.2c2e6635": {
+      "en": "Parameter configuration",
+      "es": "Configuración de parámetros"
+    },
+    "ui.static.path.519e3913": {
+      "en": "Path",
+      "es": "Camino"
+    },
+    "ui.static.path.exists.39942fc9": {
+      "en": "Path exists",
+      "es": "El camino existe"
+    },
+    "ui.static.pending.action.requests.8cf648d1": {
+      "en": "Pending action requests",
+      "es": "Solicitudes de acción pendientes"
+    },
+    "ui.static.period.170a28a9": {
+      "en": "Period",
+      "es": "Período"
+    },
+    "ui.static.permission.engine.7d290d1a": {
+      "en": "Permission engine",
+      "es": "motor de permisos"
+    },
+    "ui.static.permission.grants.aee6b0a5": {
+      "en": "Permission grants",
+      "es": "Concesiones de permisos"
+    },
+    "ui.static.permission.profile.f3526260": {
+      "en": "Permission profile",
+      "es": "Perfil de permiso"
+    },
+    "ui.static.policy.bb9cf141": {
+      "en": "Policy",
+      "es": "Política"
+    },
+    "ui.static.policy.and.sandbox.changes.will.create.explicit.revision.rec.041be812": {
+      "en": "Policy and sandbox changes will create explicit revision records.",
+      "es": "Los cambios de políticas y sandbox crearán registros de revisión explícitos."
+    },
+    "ui.static.policy.decisions.f9eecf70": {
+      "en": "Policy decisions",
+      "es": "Decisiones políticas"
+    },
+    "ui.static.policy.decisions.linked.through.workflow.tool.calls.appear.h.7cf16ea5": {
+      "en": "Policy decisions linked through workflow tool calls appear here.",
+      "es": "Las decisiones de políticas vinculadas a través de llamadas a herramientas de flujo de trabajo aparecen aquí."
+    },
+    "ui.static.policy.id.4d35e204": {
+      "en": "Policy id",
+      "es": "ID de política"
+    },
+    "ui.static.policy.id.must.use.lowercase.letters.numbers.dashes.or.under.6c250447": {
+      "en": "Policy id must use lowercase letters, numbers, dashes or underscores.",
+      "es": "La identificación de la política debe utilizar letras minúsculas, números, guiones o guiones bajos."
+    },
+    "ui.static.policy.name.101bf6ea": {
+      "en": "Policy name",
+      "es": "Nombre de la política"
+    },
+    "ui.static.policy.name.is.required.9ebaa55e": {
+      "en": "Policy name is required.",
+      "es": "El nombre de la política es obligatorio."
+    },
+    "ui.static.policy.revision.changed.fields.1d6ec331": {
+      "en": "Policy revision changed fields",
+      "es": "Campos modificados de revisión de política"
+    },
+    "ui.static.policy.revision.diff.3d1f2ed2": {
+      "en": "Policy revision diff",
+      "es": "Diferencia de revisión de políticas"
+    },
+    "ui.static.policy.revisions.88c9d177": {
+      "en": "Policy revisions",
+      "es": "Revisiones de políticas"
+    },
+    "ui.static.portugues.e6624ef0": {
+      "en": "Portugues",
+      "es": "portugueses"
+    },
+    "ui.static.portuguese.23882c57": {
+      "en": "Portuguese",
+      "es": "portugués"
+    },
+    "ui.static.posture.2b9b0cf6": {
+      "en": "Posture",
+      "es": "Postura"
+    },
+    "ui.static.preferred.provider.a21572df": {
+      "en": "Preferred provider",
+      "es": "Proveedor preferido"
+    },
+    "ui.static.preview.budget.remaining.usd.b6198c06": {
+      "en": "Preview budget remaining USD",
+      "es": "Vista previa del presupuesto restante en USD"
+    },
+    "ui.static.preview.context.tokens.eaf223ff": {
+      "en": "Preview context tokens",
+      "es": "Vista previa de tokens de contexto"
+    },
+    "ui.static.preview.mode.5eadd20c": {
+      "en": "Preview mode",
+      "es": "Modo de vista previa"
+    },
+    "ui.static.preview.privacy.level.c675b6cb": {
+      "en": "Preview privacy level",
+      "es": "Vista previa del nivel de privacidad"
+    },
+    "ui.static.preview.requires.json.992cec24": {
+      "en": "Preview requires JSON",
+      "es": "La vista previa requiere JSON"
+    },
+    "ui.static.preview.requires.code.edit.1796861a": {
+      "en": "Preview requires code edit",
+      "es": "La vista previa requiere edición de código"
+    },
+    "ui.static.preview.requires.reasoning.05c8b79d": {
+      "en": "Preview requires reasoning",
+      "es": "La vista previa requiere razonamiento"
+    },
+    "ui.static.preview.requires.search.95be6046": {
+      "en": "Preview requires search",
+      "es": "La vista previa requiere búsqueda"
+    },
+    "ui.static.preview.requires.tools.558ce0d7": {
+      "en": "Preview requires tools",
+      "es": "La vista previa requiere herramientas"
+    },
+    "ui.static.preview.risk.level.4554aa8e": {
+      "en": "Preview risk level",
+      "es": "Vista previa del nivel de riesgo"
+    },
+    "ui.static.preview.role.6006d236": {
+      "en": "Preview role",
+      "es": "Función de vista previa"
+    },
+    "ui.static.preview.task.type.9364293f": {
+      "en": "Preview task type",
+      "es": "Vista previa del tipo de tarea"
+    },
+    "ui.static.primary.provider.model.runtime.f0cce3eb": {
+      "en": "Primary provider/model/runtime",
+      "es": "Proveedor principal/modelo/tiempo de ejecución"
+    },
+    "ui.static.primary.wheel.navigation.ae7c73ea": {
+      "en": "Primary wheel navigation",
+      "es": "Navegación con rueda principal"
+    },
+    "ui.static.priority.886cbff9": {
+      "en": "Priority",
+      "es": "Prioridad"
+    },
+    "ui.static.profile.ff4fc027": {
+      "en": "Profile",
+      "es": "Perfil"
+    },
+    "ui.static.profile.id.25961d68": {
+      "en": "Profile id",
+      "es": "Identificación del perfil"
+    },
+    "ui.static.profiles.define.runtime.mode.permission.profile.model.policy.bdde429c": {
+      "en": "Profiles define runtime mode, permission profile, model policy and output contract. CLI/API/Ollama are choices behind the same governance layer.",
+      "es": "Los perfiles definen el modo de ejecución, el perfil de permisos, la política del modelo y el contrato de salida. CLI/API/Ollama son opciones detrás de la misma capa de gobernanza."
+    },
+    "ui.static.project.f6f4da8d": {
+      "en": "Project",
+      "es": "Proyecto"
+    },
+    "ui.static.project.name.ab9773fc": {
+      "en": "Project name",
+      "es": "Nombre del proyecto"
+    },
+    "ui.static.project.navigation.wheel.6fb89a58": {
+      "en": "Project navigation wheel",
+      "es": "Rueda de navegación del proyecto"
+    },
+    "ui.static.project.template.d517df22": {
+      "en": "Project template",
+      "es": "plantilla de proyecto"
+    },
+    "ui.static.project.templates.0bcf1705": {
+      "en": "Project templates",
+      "es": "Plantillas de proyecto"
+    },
+    "ui.static.project.templates.feed.the.new.project.wizard.4394b0ac": {
+      "en": "Project templates feed the new project wizard.",
+      "es": "Las plantillas de proyecto alimentan el asistente para nuevos proyectos."
+    },
+    "ui.static.projects.with.error.065b6a87": {
+      "en": "Projects With Error",
+      "es": "Proyectos con error"
+    },
+    "ui.static.projects.in.failed.or.error.states.are.isolated.here.so.oper.349121eb": {
+      "en": "Projects in failed or error states are isolated here so operators can triage without mixing them into active work.",
+      "es": "Los proyectos en estados fallidos o de error se aíslan aquí para que los operadores puedan clasificarlos sin mezclarlos con el trabajo activo."
+    },
+    "ui.static.projects.with.cancelled.or.canceled.status.will.appear.here.4905db16": {
+      "en": "Projects with cancelled or canceled status will appear here.",
+      "es": "Los proyectos con estado cancelado o cancelado aparecerán aquí."
+    },
+    "ui.static.projects.with.completed.finished.done.finalized.or.archived.00cedfdf": {
+      "en": "Projects with completed, finished, done, finalized or archived status will appear here.",
+      "es": "Aquí aparecerán los proyectos con estado completado, terminado, hecho, finalizado o archivado."
+    },
+    "ui.static.projects.with.failed.error.or.errored.status.will.appear.her.562edf56": {
+      "en": "Projects with failed, error or errored status will appear here.",
+      "es": "Los proyectos con estado fallido, error o error aparecerán aquí."
+    },
+    "ui.static.proof.before.approval.410ccd82": {
+      "en": "Proof before approval",
+      "es": "Prueba antes de la aprobación"
+    },
+    "ui.static.provider.7ceee3f3": {
+      "en": "Provider",
+      "es": "Proveedor"
+    },
+    "ui.static.provider.accounts.a0bdb58a": {
+      "en": "Provider Accounts",
+      "es": "Cuentas de proveedores"
+    },
+    "ui.static.provider.limits.7533783c": {
+      "en": "Provider Limits",
+      "es": "Límites de proveedor"
+    },
+    "ui.static.provider.accounts.seed.during.startup.ec276e37": {
+      "en": "Provider accounts seed during startup.",
+      "es": "Semillas de cuentas de proveedor durante el inicio."
+    },
+    "ui.static.provider.catalog.seeds.at.startup.5fae1c44": {
+      "en": "Provider catalog seeds at startup.",
+      "es": "Semillas del catálogo de proveedores al inicio."
+    },
+    "ui.static.provider.catalogs.seed.agent.and.runtime.choices.87203dc0": {
+      "en": "Provider catalogs seed agent and runtime choices.",
+      "es": "El proveedor cataloga las opciones de agente inicial y tiempo de ejecución."
+    },
+    "ui.static.provider.catalogs.runtime.modes.fallbacks.and.cost.usage.wit.4cf6946e": {
+      "en": "Provider catalogs, runtime modes, fallbacks and cost usage without free-form unsafe provider inputs.",
+      "es": "Catálogos de proveedores, modos de ejecución, respaldos y uso de costos sin entradas de proveedores inseguras y de formato libre."
+    },
+    "ui.static.provider.limit.records.appear.after.seeds.or.rate.limit.even.0c737940": {
+      "en": "Provider limit records appear after seeds or rate-limit events.",
+      "es": "Los registros de límite de proveedores aparecen después de eventos de semillas o límite de tasa."
+    },
+    "ui.static.providers.87b7c08b": {
+      "en": "Providers",
+      "es": "Proveedores"
+    },
+    "ui.static.python.runner.279c9486": {
+      "en": "Python runner",
+      "es": "corredor pitón"
+    },
+    "ui.static.python.runner.uv.8c1511e8": {
+      "en": "Python runner: uv",
+      "es": "Corredor de Python: uv"
+    },
+    "ui.static.qa.cannot.be.accepted.without.test.results.artifacts.and.exp.ba62938c": {
+      "en": "QA cannot be accepted without test results, artifacts and explicit verdict records.",
+      "es": "No se puede aceptar el control de calidad sin resultados de pruebas, artefactos y registros de veredicto explícitos."
+    },
+    "ui.static.qa.packages.linked.to.this.workflow.run.appear.here.37481b29": {
+      "en": "QA packages linked to this workflow run appear here.",
+      "es": "Los paquetes de control de calidad vinculados a esta ejecución de flujo de trabajo aparecen aquí."
+    },
+    "ui.static.qa.pass.b8cbfae8": {
+      "en": "QA pass",
+      "es": "QA aprobado"
+    },
+    "ui.static.qa.pass.rate.f00a47c8": {
+      "en": "QA pass rate",
+      "es": "Tasa de QA aprobado"
+    },
+    "ui.static.queue.leases.and.command.level.approvals.approving.a.job.nev.7108a379": {
+      "en": "Queue leases and command-level approvals. Approving a job never approves all sensitive actions by implication.",
+      "es": "Arrendamientos en cola y aprobaciones a nivel de comando. Aprobar un trabajo nunca aprueba todas las acciones sensibles por implicación."
+    },
+    "ui.static.queue.state.98d40f3d": {
+      "en": "Queue state",
+      "es": "Estado de la cola"
+    },
+    "ui.static.quota.mode.84d5c054": {
+      "en": "Quota mode",
+      "es": "Modo cuota"
+    },
+    "ui.static.quota.result.38fd1beb": {
+      "en": "Quota result",
+      "es": "Resultado de la cuota"
+    },
+    "ui.static.reading.provider.accounts.routing.policies.and.usage.ledger.e6389e35": {
+      "en": "Reading provider accounts, routing policies and usage ledger.",
+      "es": "Lectura de cuentas de proveedores, políticas de enrutamiento y libro de registro de uso."
+    },
+    "ui.static.reason.f219cc06": {
+      "en": "Reason",
+      "es": "Razón"
+    },
+    "ui.static.reason.required.for.approve.deny.cancel.and.retry.fc40c409": {
+      "en": "Reason required for approve, deny, cancel and retry",
+      "es": "Motivo requerido para aprobar, rechazar, cancelar y volver a intentar"
+    },
+    "ui.static.reasoning.e272c597": {
+      "en": "Reasoning",
+      "es": "Razonamiento"
+    },
+    "ui.static.reasoning.price.7a0fa004": {
+      "en": "Reasoning price",
+      "es": "Precio de razonamiento"
+    },
+    "ui.static.reasoning.tokens.6284e599": {
+      "en": "Reasoning tokens",
+      "es": "fichas de razonamiento"
+    },
+    "ui.static.recent.approvals.24a3d64c": {
+      "en": "Recent approvals",
+      "es": "Aprobaciones recientes"
+    },
+    "ui.static.recent.events.8b65e36b": {
+      "en": "Recent events",
+      "es": "Eventos recientes"
+    },
+    "ui.static.recent.workflows.a0e09ed3": {
+      "en": "Recent workflows",
+      "es": "Flujos de trabajo recientes"
+    },
+    "ui.static.record.benchmark.outcome.a0345975": {
+      "en": "Record benchmark outcome",
+      "es": "Resultado récord de referencia"
+    },
+    "ui.static.register.mcp.server.b3f30e86": {
+      "en": "Register MCP server",
+      "es": "Registrar servidor MCP"
+    },
+    "ui.static.register.local.stdio.mcp.servers.before.runtime.adapters.can.fe48c69d": {
+      "en": "Register local stdio MCP servers before runtime adapters can call them.",
+      "es": "Registre los servidores stdio MCP locales antes de que los adaptadores de tiempo de ejecución puedan llamarlos."
+    },
+    "ui.static.registered.mcp.servers.d5439a1b": {
+      "en": "Registered MCP servers",
+      "es": "Servidores MCP registrados"
+    },
+    "ui.static.remote.c93f6536": {
+      "en": "Remote",
+      "es": "Remoto"
+    },
+    "ui.static.remote.allowed.2bd3880c": {
+      "en": "Remote allowed",
+      "es": "Remoto permitido"
+    },
+    "ui.static.respects.system.reduced.motion.settings.53b5b03a": {
+      "en": "Respects system reduced-motion settings",
+      "es": "Respeta la configuración de movimiento reducido del sistema"
+    },
+    "ui.static.retrieval.backend.fa3c92fd": {
+      "en": "Retrieval backend",
+      "es": "backend de recuperación"
+    },
+    "ui.static.retry.9f5cd8a2": {
+      "en": "Retry",
+      "es": "Rever"
+    },
+    "ui.static.review.pending.granular.action.requests.64eca29e": {
+      "en": "Review pending granular action requests",
+      "es": "Revisar solicitudes de acción granular pendientes"
+    },
+    "ui.static.review.risks.decisions.and.next.steps.35c8cc99": {
+      "en": "Review risks, decisions and next steps",
+      "es": "Revisar riesgos, decisiones y próximos pasos."
+    },
+    "ui.static.revoked.85f17ac0": {
+      "en": "Revoked",
+      "es": "Revocado"
+    },
+    "ui.static.rework.0ca516fc": {
+      "en": "Rework",
+      "es": "Rehacer"
+    },
+    "ui.static.rework.rate.f1b0babc": {
+      "en": "Rework rate",
+      "es": "Tasa de retrabajo"
+    },
+    "ui.static.risk.5a8f23f5": {
+      "en": "Risk",
+      "es": "Riesgo"
+    },
+    "ui.static.risk.mitigation.515b5711": {
+      "en": "Risk mitigation",
+      "es": "Mitigación de riesgos"
+    },
+    "ui.static.risk.register.e2cb59b0": {
+      "en": "Risk register",
+      "es": "registro de riesgos"
+    },
+    "ui.static.risk.severity.755bc9ed": {
+      "en": "Risk severity",
+      "es": "Gravedad del riesgo"
+    },
+    "ui.static.risk.status.filter.5a81dbb9": {
+      "en": "Risk status filter",
+      "es": "Filtro de estado de riesgo"
+    },
+    "ui.static.risk.title.d2581c4f": {
+      "en": "Risk title",
+      "es": "Título de riesgo"
+    },
+    "ui.static.risk.title.is.required.469006de": {
+      "en": "Risk title is required.",
+      "es": "Se requiere título de riesgo."
+    },
+    "ui.static.risk.to.update.4f30deec": {
+      "en": "Risk to update",
+      "es": "Riesgo de actualizar"
+    },
+    "ui.static.risk.update.form.63b4d923": {
+      "en": "Risk update form",
+      "es": "Formulario de actualización de riesgos"
+    },
+    "ui.static.risk.update.status.b82f73d5": {
+      "en": "Risk update status",
+      "es": "Estado de actualización de riesgos"
+    },
+    "ui.static.risks.92ddd0d2": {
+      "en": "Risks",
+      "es": "Riesgos"
+    },
+    "ui.static.risks.decisions.and.next.steps.are.operational.records.not.c.121069e8": {
+      "en": "Risks, decisions and next steps are operational records, not comments buried in chat.",
+      "es": "Los riesgos, las decisiones y los próximos pasos son registros operativos, no comentarios enterrados en el chat."
+    },
+    "ui.static.risky.actions.stop.in.the.approval.queue.before.execution.62c0fd70": {
+      "en": "Risky actions stop in the approval queue before execution.",
+      "es": "Las acciones riesgosas se detienen en la cola de aprobación antes de su ejecución."
+    },
+    "ui.static.risky.actions.will.stop.here.until.a.human.records.a.reason.c5502a56": {
+      "en": "Risky actions will stop here until a human records a reason.",
+      "es": "Las acciones riesgosas se detendrán aquí hasta que un humano registre un motivo."
+    },
+    "ui.static.role.c3f104d1": {
+      "en": "Role",
+      "es": "Rol"
+    },
+    "ui.static.role.assignments.1baf0a07": {
+      "en": "Role Assignments",
+      "es": "Asignaciones de rol"
+    },
+    "ui.static.role.model.policy.b581d6ef": {
+      "en": "Role model policy",
+      "es": "Política de modelo a seguir"
+    },
+    "ui.static.role.routing.policies.seed.during.startup.088f425d": {
+      "en": "Role routing policies seed during startup.",
+      "es": "Las políticas de enrutamiento de roles se generan durante el inicio."
+    },
+    "ui.static.route.preview.44d02743": {
+      "en": "Route Preview",
+      "es": "Vista previa de ruta"
+    },
+    "ui.static.route.preview.and.execution.decisions.are.audited.here.aba81602": {
+      "en": "Route preview and execution decisions are audited here.",
+      "es": "Aquí se auditan las decisiones de ejecución y vista previa de la ruta."
+    },
+    "ui.static.routing.7d15dd1b": {
+      "en": "Routing",
+      "es": "Enrutamiento"
+    },
+    "ui.static.routing.decisions.de5835f8": {
+      "en": "Routing Decisions",
+      "es": "Decisiones de ruteo"
+    },
+    "ui.static.routing.profiles.03ac2a79": {
+      "en": "Routing Profiles",
+      "es": "Perfiles de ruteo"
+    },
+    "ui.static.routing.decision.filter.21e88e2e": {
+      "en": "Routing decision filter",
+      "es": "Filtro de decisión de ruta"
+    },
+    "ui.static.routing.modes.seed.during.startup.3759adcf": {
+      "en": "Routing modes seed during startup.",
+      "es": "Los modos de enrutamiento se generan durante el inicio."
+    },
+    "ui.static.routing.profile.d7fd5dd6": {
+      "en": "Routing profile",
+      "es": "Perfil de enrutamiento"
+    },
+    "ui.static.rules.bb11a8e3": {
+      "en": "Rules",
+      "es": "Normas"
+    },
+    "ui.static.runs.fcde5c32": {
+      "en": "Runs",
+      "es": "Corre"
+    },
+    "ui.static.runtime.c4740e4c": {
+      "en": "Runtime",
+      "es": "Entorno de ejecución"
+    },
+    "ui.static.runtime.cli.lanes.ee8752da": {
+      "en": "Runtime CLI lanes",
+      "es": "Carriles CLI en tiempo de ejecución"
+    },
+    "ui.static.runtime.detection.0348713b": {
+      "en": "Runtime detection",
+      "es": "Detección de tiempo de ejecución"
+    },
+    "ui.static.runtime.mode.b05d4374": {
+      "en": "Runtime mode",
+      "es": "Modo de ejecución"
+    },
+    "ui.static.runtime.posture.343101d9": {
+      "en": "Runtime posture",
+      "es": "Postura en tiempo de ejecución"
+    },
+    "ui.static.runtimes.8fb69b37": {
+      "en": "Runtimes",
+      "es": "Entornos de ejecución"
+    },
+    "ui.static.sdlc.graph.45dff846": {
+      "en": "SDLC graph",
+      "es": "gráfico SDLC"
+    },
+    "ui.static.sqlite.is.canonical.faiss.numpy.and.future.vector.stores.are.f2fb19e8": {
+      "en": "SQLite is canonical. FAISS, NumPy and future vector stores are rebuildable indexes, not source of truth.",
+      "es": "SQLite es canónico. FAISS, NumPy y los futuros almacenes de vectores son índices reconstruibles, no una fuente de verdad."
+    },
+    "ui.static.sandbox.cpu.limit.b909ae47": {
+      "en": "Sandbox CPU limit",
+      "es": "Límite de CPU del espacio aislado"
+    },
+    "ui.static.sandbox.allowed.image.d77f37e2": {
+      "en": "Sandbox allowed image",
+      "es": "Imagen permitida en Sandbox"
+    },
+    "ui.static.sandbox.allowed.image.must.be.a.catalog.image.without.spaces.30b08cad": {
+      "en": "Sandbox allowed image must be a catalog image without spaces.",
+      "es": "La imagen permitida en Sandbox debe ser una imagen de catálogo sin espacios."
+    },
+    "ui.static.sandbox.memory.limit.a8b6c3b6": {
+      "en": "Sandbox memory limit",
+      "es": "Límite de memoria de la zona de pruebas"
+    },
+    "ui.static.sandbox.profile.9a2f87ba": {
+      "en": "Sandbox profile",
+      "es": "Perfil de zona de pruebas"
+    },
+    "ui.static.sandbox.profiles.36dcd5c1": {
+      "en": "Sandbox profiles",
+      "es": "Perfiles de zona de pruebas"
+    },
+    "ui.static.sandbox.timeout.seconds.6e201a33": {
+      "en": "Sandbox timeout seconds",
+      "es": "Segundos de tiempo de espera de la zona de pruebas"
+    },
+    "ui.static.sandbox.timeout.seconds.must.be.between.1.and.900.dabbd1b1": {
+      "en": "Sandbox timeout seconds must be between 1 and 900.",
+      "es": "Los segundos de tiempo de espera de Sandbox deben estar entre 1 y 900."
+    },
+    "ui.static.sandbox.update.reason.ddf64780": {
+      "en": "Sandbox update reason",
+      "es": "Motivo de la actualización de la zona de pruebas"
+    },
+    "ui.static.sandbox.update.reason.is.required.f6d8e3c7": {
+      "en": "Sandbox update reason is required.",
+      "es": "Se requiere el motivo de la actualización de Sandbox."
+    },
+    "ui.static.save.agent.profile.27d8ba89": {
+      "en": "Save agent profile",
+      "es": "Guardar perfil de agente"
+    },
+    "ui.static.save.decision.406fc627": {
+      "en": "Save decision",
+      "es": "Guardar decisión"
+    },
+    "ui.static.save.model.policy.144bf8c2": {
+      "en": "Save model policy",
+      "es": "Guardar política de modelo"
+    },
+    "ui.static.save.next.step.7e6ec275": {
+      "en": "Save next step",
+      "es": "Guardar el siguiente paso"
+    },
+    "ui.static.save.risk.33c025b0": {
+      "en": "Save risk",
+      "es": "Ahorrar riesgo"
+    },
+    "ui.static.save.sandbox.profile.8f586d15": {
+      "en": "Save sandbox profile",
+      "es": "Guardar perfil de zona de pruebas"
+    },
+    "ui.static.scope.4651a34e": {
+      "en": "Scope",
+      "es": "Alcance"
+    },
+    "ui.static.search.events.f3e47cc3": {
+      "en": "Search Events",
+      "es": "Buscar eventos"
+    },
+    "ui.static.search.events.by.type.severity.id.or.payload.add4eb57": {
+      "en": "Search events by type, severity, id or payload",
+      "es": "Buscar eventos por tipo, gravedad, identificación o carga útil"
+    },
+    "ui.static.secrets.and.provider.tokens.stay.outside.the.ui.state.6b9e7520": {
+      "en": "Secrets and provider tokens stay outside the UI state.",
+      "es": "Los secretos y los tokens de proveedor permanecen fuera del estado de la interfaz de usuario."
+    },
+    "ui.static.select.a.model.from.the.catalog.for.the.selected.provider.c2055bb7": {
+      "en": "Select a model from the catalog for the selected provider.",
+      "es": "Seleccione un modelo del catálogo para el proveedor seleccionado."
+    },
+    "ui.static.select.an.active.operational.project.in.settings.before.crea.cdedb6c4": {
+      "en": "Select an active operational project in Settings before creating governance records.",
+      "es": "Seleccione un proyecto operativo activo en Configuración antes de crear registros de gobernanza."
+    },
+    "ui.static.select.an.active.operational.project.in.settings.before.crea.2260da81": {
+      "en": "Select an active operational project in Settings before creating workflows.",
+      "es": "Seleccione un proyecto operativo activo en Configuración antes de crear flujos de trabajo."
+    },
+    "ui.static.select.workspace.folder.c0e8aff8": {
+      "en": "Select workspace folder",
+      "es": "Seleccionar carpeta del espacio de trabajo"
+    },
+    "ui.static.selected.model.5d227e1f": {
+      "en": "Selected model",
+      "es": "Modelo seleccionado"
+    },
+    "ui.static.selected.provider.9af0120e": {
+      "en": "Selected provider",
+      "es": "Proveedor seleccionado"
+    },
+    "ui.static.selected.route.508f3793": {
+      "en": "Selected route",
+      "es": "Ruta seleccionada"
+    },
+    "ui.static.selected.runtime.0d70da8f": {
+      "en": "Selected runtime",
+      "es": "Tiempo de ejecución seleccionado"
+    },
+    "ui.static.selection.guard.a1735439": {
+      "en": "Selection guard",
+      "es": "Guardia de selección"
+    },
+    "ui.static.semantic.context.8744e1fb": {
+      "en": "Semantic context",
+      "es": "Contexto semántico"
+    },
+    "ui.static.sensitive.commands.will.appear.here.before.execution.23e54d16": {
+      "en": "Sensitive commands will appear here before execution.",
+      "es": "Los comandos confidenciales aparecerán aquí antes de su ejecución."
+    },
+    "ui.static.server.cb0cb170": {
+      "en": "Server",
+      "es": "Servidor"
+    },
+    "ui.static.settings.workspaces.d7809f0a": {
+      "en": "Settings Workspaces",
+      "es": "Workspaces de configuración"
+    },
+    "ui.static.settings.navigation.wheel.8cd4839d": {
+      "en": "Settings navigation wheel",
+      "es": "Rueda de navegación de configuración"
+    },
+    "ui.static.settings.sections.2e7109bd": {
+      "en": "Settings sections",
+      "es": "Secciones de configuración"
+    },
+    "ui.static.severity.de314fa0": {
+      "en": "Severity",
+      "es": "Gravedad"
+    },
+    "ui.static.size.b7152342": {
+      "en": "Size",
+      "es": "Tamaño"
+    },
+    "ui.static.source.6da13add": {
+      "en": "Source",
+      "es": "Fuente"
+    },
+    "ui.static.stable.id.used.by.workflows.and.audit.records.98754f7e": {
+      "en": "Stable id used by workflows and audit records.",
+      "es": "Identificación estable utilizada por flujos de trabajo y registros de auditoría."
+    },
+    "ui.static.start.safe.sdlc.workflows.and.inspect.pending.human.decision.d7646725": {
+      "en": "Start safe SDLC workflows and inspect pending human decisions without bypassing policy.",
+      "es": "Inicie flujos de trabajo SDLC seguros e inspeccione las decisiones humanas pendientes sin eludir las políticas."
+    },
+    "ui.static.start.the.workflow.to.expand.steps.a5f96b0b": {
+      "en": "Start the workflow to expand steps.",
+      "es": "Inicie el flujo de trabajo para expandir los pasos."
+    },
+    "ui.static.started.faa9e7e7": {
+      "en": "Started",
+      "es": "Comenzó"
+    },
+    "ui.static.starting.a.workflow.expands.the.sdlc.step.plan.5e18dde5": {
+      "en": "Starting a workflow expands the SDLC step plan.",
+      "es": "Iniciar un flujo de trabajo amplía el plan de pasos del SDLC."
+    },
+    "ui.static.status.bae7d5be": {
+      "en": "Status",
+      "es": "Estado"
+    },
+    "ui.static.step.dc416e10": {
+      "en": "Step",
+      "es": "Paso"
+    },
+    "ui.static.steps.cdde4f20": {
+      "en": "Steps",
+      "es": "Pasos"
+    },
+    "ui.static.stored.as.argv.style.config.execution.still.goes.through.bro.481beb62": {
+      "en": "Stored as argv-style config; execution still goes through broker, policy and sandbox.",
+      "es": "Almacenado como configuración de estilo argv; la ejecución todavía pasa por el corredor, la política y la zona de pruebas."
+    },
+    "ui.static.strict.mcp.registration.form.718f1920": {
+      "en": "Strict MCP registration form",
+      "es": "Formulario de registro de MCP estricto"
+    },
+    "ui.static.strict.model.policy.form.b2d420cc": {
+      "en": "Strict model policy form",
+      "es": "Formulario de política modelo estricto"
+    },
+    "ui.static.strict.record.forms.09648e18": {
+      "en": "Strict record forms",
+      "es": "Formularios de registro estrictos"
+    },
+    "ui.static.strict.sandbox.profile.form.0d2d3c79": {
+      "en": "Strict sandbox profile form",
+      "es": "Formulario de perfil estricto de zona de pruebas"
+    },
+    "ui.static.subject.8d183dbd": {
+      "en": "Subject",
+      "es": "Sujeto"
+    },
+    "ui.static.success.42a8f651": {
+      "en": "Success",
+      "es": "Éxito"
+    },
+    "ui.static.success.rate.12374104": {
+      "en": "Success rate",
+      "es": "Tasa de éxito"
+    },
+    "ui.static.suggested.7fcd8d44": {
+      "en": "Suggested",
+      "es": "sugerido"
+    },
+    "ui.static.target.61ad50a9": {
+      "en": "Target",
+      "es": "Objetivo"
+    },
+    "ui.static.task.7bb0ddf9": {
+      "en": "Task",
+      "es": "Tarea"
+    },
+    "ui.static.task.type.9ca3a8e9": {
+      "en": "Task type",
+      "es": "Tipo de tarea"
+    },
+    "ui.static.task.owned.workspace.allocations.prevent.agents.from.sharing.42c454d7": {
+      "en": "Task-owned workspace allocations prevent agents from sharing one mutable working tree.",
+      "es": "Las asignaciones de espacios de trabajo propiedad de las tareas impiden que los agentes compartan un árbol de trabajo mutable."
+    },
+    "ui.static.tasks.attempted.dd3ed12f": {
+      "en": "Tasks attempted",
+      "es": "Tareas intentadas"
+    },
+    "ui.static.team.catalogs.will.appear.here.when.they.are.seeded.for.the.d7fc5a0a": {
+      "en": "Team catalogs will appear here when they are seeded for the selected project.",
+      "es": "Los catálogos de equipo aparecerán aquí cuando se inicialicen para el proyecto seleccionado."
+    },
+    "ui.static.teams.cbfd44d9": {
+      "en": "Teams",
+      "es": "equipos"
+    },
+    "ui.static.technology.detection.targets.79c87c9c": {
+      "en": "Technology detection targets",
+      "es": "Objetivos de detección de tecnología"
+    },
+    "ui.static.temperature.0a9062a9": {
+      "en": "Temperature",
+      "es": "Temperatura"
+    },
+    "ui.static.template.3ec1ae06": {
+      "en": "Template",
+      "es": "Plantilla"
+    },
+    "ui.static.test.result.records.d5e43bd0": {
+      "en": "Test result records",
+      "es": "Registros de resultados de pruebas"
+    },
+    "ui.static.test.results.appear.after.evidence.ingestion.26f3959e": {
+      "en": "Test results appear after evidence ingestion.",
+      "es": "Los resultados de la prueba aparecen después de la ingestión de evidencia."
+    },
+    "ui.static.the.runtime.project.is.created.automatically.at.startup.17ee3a10": {
+      "en": "The runtime project is created automatically at startup.",
+      "es": "El proyecto en tiempo de ejecución se crea automáticamente al iniciar."
+    },
+    "ui.static.the.selected.project.remains.a.runtime.guard.not.a.hidden.de.71c3f9cd": {
+      "en": "The selected project remains a runtime guard, not a hidden default.",
+      "es": "El proyecto seleccionado sigue siendo una protección en tiempo de ejecución, no un valor predeterminado oculto."
+    },
+    "ui.static.thinking.effort.3e220762": {
+      "en": "Thinking/effort",
+      "es": "Pensamiento/esfuerzo"
+    },
+    "ui.static.time.6c82e6dd": {
+      "en": "Time",
+      "es": "Tiempo"
+    },
+    "ui.static.timestamp.19eabc96": {
+      "en": "Timestamp",
+      "es": "Marca de tiempo"
+    },
+    "ui.static.title.768e0c1c": {
+      "en": "Title",
+      "es": "Título"
+    },
+    "ui.static.tool.9a830c71": {
+      "en": "Tool",
+      "es": "Herramienta"
+    },
+    "ui.static.tool.calls.and.approvals.3788745c": {
+      "en": "Tool calls and approvals",
+      "es": "Llamadas y aprobaciones de herramientas"
+    },
+    "ui.static.tool.calls.and.command.evaluations.are.recorded.here.8806375f": {
+      "en": "Tool calls and command evaluations are recorded here.",
+      "es": "Aquí se registran las llamadas a herramientas y las evaluaciones de comandos."
+    },
+    "ui.static.tool.tokens.472fefe0": {
+      "en": "Tool tokens",
+      "es": "Fichas de herramientas"
+    },
+    "ui.static.tool.call.execution.c408e307": {
+      "en": "Tool-call execution",
+      "es": "Ejecución de llamadas a herramientas"
+    },
+    "ui.static.tools.4fa8cc86": {
+      "en": "Tools",
+      "es": "Herramientas"
+    },
+    "ui.static.total.tokens.e6dad16e": {
+      "en": "Total tokens",
+      "es": "fichas totales"
+    },
+    "ui.static.traceability.61d2e70b": {
+      "en": "Traceability",
+      "es": "Trazabilidad"
+    },
+    "ui.static.transport.c10d76c9": {
+      "en": "Transport",
+      "es": "Transporte"
+    },
+    "ui.static.try.workflows.approvals.governance.policy.or.events.3426855b": {
+      "en": "Try workflows, approvals, governance, policy or events.",
+      "es": "Pruebe flujos de trabajo, aprobaciones, gobernanza, políticas o eventos."
+    },
+    "ui.static.type.3deb7456": {
+      "en": "Type",
+      "es": "Tipo"
+    },
+    "ui.static.unified.model.runtime.gateway.95fbf5a6": {
+      "en": "Unified Model & Runtime Gateway",
+      "es": "Gateway unificado de modelos y runtimes"
+    },
+    "ui.static.unknown.limit.strategy.c9e71d1c": {
+      "en": "Unknown limit strategy",
+      "es": "Estrategia de límite desconocido"
+    },
+    "ui.static.update.risk.status.4ed521f0": {
+      "en": "Update risk status",
+      "es": "Actualizar el estado del riesgo"
+    },
+    "ui.static.usage.0bb18642": {
+      "en": "Usage",
+      "es": "Uso"
+    },
+    "ui.static.usage.ledger.bc792665": {
+      "en": "Usage Ledger",
+      "es": "Libro de uso"
+    },
+    "ui.static.usage.ledger.filter.c94a6388": {
+      "en": "Usage ledger filter",
+      "es": "Filtro de libro mayor de uso"
+    },
+    "ui.static.usage.source.16f36c88": {
+      "en": "Usage source",
+      "es": "Fuente de uso"
+    },
+    "ui.static.use.lowercase.letters.numbers.dashes.or.underscores.da56bfbd": {
+      "en": "Use lowercase letters, numbers, dashes or underscores.",
+      "es": "Utilice letras minúsculas, números, guiones o guiones bajos."
+    },
+    "ui.static.user.preferences.c3c46a58": {
+      "en": "User preferences",
+      "es": "Preferencias de usuario"
+    },
+    "ui.static.validate.the.workspace.name.before.creating.a.new.directory.a19be2d4": {
+      "en": "Validate the workspace name before creating a new directory and project record.",
+      "es": "Valide el nombre del espacio de trabajo antes de crear un nuevo directorio y registro de proyecto."
+    },
+    "ui.static.verdict.7f6e5a6e": {
+      "en": "Verdict",
+      "es": "Veredicto"
+    },
+    "ui.static.version.2da600bf": {
+      "en": "Version",
+      "es": "Versión"
+    },
+    "ui.static.vision.40b0906c": {
+      "en": "Vision",
+      "es": "Visión"
+    },
+    "ui.static.waiting.for.fastapi.v1.sqlite.and.runtime.providers.534adb14": {
+      "en": "Waiting for FastAPI v1, SQLite and runtime providers.",
+      "es": "Esperando FastAPI v1, SQLite y proveedores de tiempo de ejecución."
+    },
+    "ui.static.work.00040bab": {
+      "en": "Work",
+      "es": "Trabajar"
+    },
+    "ui.static.workflow.d7a48414": {
+      "en": "Workflow",
+      "es": "Flujo"
+    },
+    "ui.static.workflow.qa.steps.will.produce.evidence.before.review.9887a8c7": {
+      "en": "Workflow QA steps will produce evidence before review.",
+      "es": "Los pasos de control de calidad del flujo de trabajo producirán evidencia antes de la revisión."
+    },
+    "ui.static.workflow.artifact.preview.df9b22a5": {
+      "en": "Workflow artifact preview",
+      "es": "Vista previa de artefactos de flujo de trabajo"
+    },
+    "ui.static.workflow.graph.32f4369a": {
+      "en": "Workflow graph",
+      "es": "Gráfico de flujo de trabajo"
+    },
+    "ui.static.workflow.implementation.steps.allocate.isolated.workspaces.bf160a66": {
+      "en": "Workflow implementation steps allocate isolated workspaces.",
+      "es": "Los pasos de implementación del flujo de trabajo asignan espacios de trabajo aislados."
+    },
+    "ui.static.workflow.implementation.steps.will.allocate.workspaces.f402df35": {
+      "en": "Workflow implementation steps will allocate workspaces.",
+      "es": "Los pasos de implementación del flujo de trabajo asignarán espacios de trabajo."
+    },
+    "ui.static.workflow.inspector.d8560d75": {
+      "en": "Workflow inspector",
+      "es": "inspector de flujo de trabajo"
+    },
+    "ui.static.workflow.intake.71433104": {
+      "en": "Workflow intake",
+      "es": "Ingreso de workflow"
+    },
+    "ui.static.workflow.kind.a75840f2": {
+      "en": "Workflow kind",
+      "es": "Tipo de flujo de trabajo"
+    },
+    "ui.static.workflow.title.281c576a": {
+      "en": "Workflow title",
+      "es": "Título del flujo de trabajo"
+    },
+    "ui.static.workflow.title.is.required.b72e8097": {
+      "en": "Workflow title is required.",
+      "es": "Se requiere el título del flujo de trabajo."
+    },
+    "ui.static.workflow.job.policy.and.evidence.events.appear.here.4d1f02f5": {
+      "en": "Workflow, job, policy, and evidence events appear here.",
+      "es": "Aquí aparecen eventos de flujo de trabajo, trabajo, políticas y evidencia."
+    },
+    "ui.static.workspace.4ca0a75c": {
+      "en": "Workspace",
+      "es": "Espacio de trabajo"
+    },
+    "ui.static.workspace.allocations.appear.after.implementation.steps.64d15c62": {
+      "en": "Workspace allocations appear after implementation steps.",
+      "es": "Las asignaciones de espacio de trabajo aparecen después de los pasos de implementación."
+    },
+    "ui.static.workspace.base.path.3bbda625": {
+      "en": "Workspace base path",
+      "es": "Ruta base del espacio de trabajo"
+    },
+    "ui.static.workspace.flow.004c2901": {
+      "en": "Workspace flow",
+      "es": "Flujo del espacio de trabajo"
+    },
+    "ui.static.workspace.folder.ec46e8b9": {
+      "en": "Workspace folder",
+      "es": "Carpeta del espacio de trabajo"
+    },
+    "ui.static.workspace.import.rules.5729f697": {
+      "en": "Workspace import rules",
+      "es": "Reglas de importación del espacio de trabajo"
+    },
+    "ui.static.workspace.name.6e0f2ba2": {
+      "en": "Workspace name",
+      "es": "Nombre del espacio de trabajo"
+    },
+    "ui.static.workspace.posture.21033102": {
+      "en": "Workspace posture",
+      "es": "Postura en el espacio de trabajo"
+    },
+    "ui.static.workspace.root.12c2483d": {
+      "en": "Workspace root",
+      "es": "Raíz del espacio de trabajo"
+    },
+    "ui.static.workspace.settings.432fa10a": {
+      "en": "Workspace settings",
+      "es": "Configuración de workspaces"
+    },
+    "ui.static.workspace.setup.mode.845eea10": {
+      "en": "Workspace setup mode",
+      "es": "Modo de configuración del espacio de trabajo"
+    },
+    "ui.static.workspaces.and.jobs.e403e3ac": {
+      "en": "Workspaces and jobs",
+      "es": "Espacios de trabajo y puestos de trabajo"
+    },
+    "ui.static.write.operations.continue.to.use.the.local.security.handshak.f3973f45": {
+      "en": "Write operations continue to use the local security handshake.",
+      "es": "Las operaciones de escritura continúan utilizando el protocolo de enlace de seguridad local."
+    },
+    "ui.static.active.cli.sessions.2afa399c": {
+      "en": "active CLI sessions",
+      "es": "sesiones CLI activas"
+    },
+    "ui.static.actual.cost.today.e0b8f6a3": {
+      "en": "actual cost today",
+      "es": "costo real hoy"
+    },
+    "ui.static.default.routing.mode.b752ab89": {
+      "en": "default routing mode",
+      "es": "modo de enrutamiento predeterminado"
+    },
+    "ui.static.estimated.cost.today.bc1751b9": {
+      "en": "estimated cost today",
+      "es": "costo estimado hoy"
+    },
+    "ui.static.insufficient.data.ccc693ba": {
+      "en": "insufficient data",
+      "es": "datos insuficientes"
+    },
+    "ui.static.legacy.model.usage.total.c0e7e1e5": {
+      "en": "legacy model usage total",
+      "es": "total de uso del modelo heredado"
+    },
+    "ui.static.local.providers.64dfa5d6": {
+      "en": "local providers",
+      "es": "proveedores locales"
+    },
+    "ui.static.pending.model.approvals.5c592baf": {
+      "en": "pending model approvals",
+      "es": "aprobaciones de modelos pendientes"
+    },
+    "ui.static.providers.enabled.4cd5c6c6": {
+      "en": "providers enabled",
+      "es": "proveedores habilitados"
+    },
+    "ui.static.providers.in.cooldown.e5f4bbe2": {
+      "en": "providers in cooldown",
+      "es": "proveedores en tiempo de reutilización"
+    },
+    "ui.static.real.provider.calls.20f8f3a3": {
+      "en": "real provider calls",
+      "es": "llamadas de proveedores reales"
+    },
+    "ui.static.tokens.today.6e3f00fd": {
+      "en": "tokens today",
+      "es": "tokens hoy"
+    },
+    "ui.static.project.selection.audit.maintainers.2a477f9d": {
+      "en": "Project selection, all-project audit visibility, technical mantenedores and runtime defaults live here instead of the daily operation surface.",
+      "es": "La selección de proyecto, la visibilidad de auditoría de todos los proyectos, los mantenedores técnicos y los valores base del runtime viven aquí, fuera de la superficie diaria."
+    }
+  }
+}

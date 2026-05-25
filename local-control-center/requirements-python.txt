@@ -1,5 +1,4 @@
 fastapi>=0.136.0
-faiss-cpu>=1.13.0
 uvicorn>=0.37.0
 numpy>=1.26.0
 pytest>=9.0.0
@@ -7,3 +6,6 @@ httpx>=0.28.0
 
 # Optional runtime capabilities:
 # openai-agents>=0.4.0
+# faiss-cpu>=1.13.0
+# Install FAISS only when needed with:
+# uv sync --extra faiss

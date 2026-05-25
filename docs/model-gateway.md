@@ -17,6 +17,7 @@ The Model Gateway is the local-first control surface for model API providers, CL
 - `GET /api/v1/model-gateway/overview`
 - `GET/POST/PATCH /api/v1/model-gateway/providers`
 - `GET/POST/PATCH /api/v1/model-gateway/models`
+- `GET/POST /api/v1/model-gateway/pricing-snapshots`
 - `GET/POST/PATCH /api/v1/model-gateway/routing-profiles`
 - `GET/POST/PATCH /api/v1/model-gateway/role-policies`
 - `POST /api/v1/model-gateway/route/preview`
@@ -33,6 +34,7 @@ The Model Gateway is the local-first control surface for model API providers, CL
 - `POST /api/v1/model-gateway/cli-runtimes/{id}/detect`
 - `POST /api/v1/model-gateway/cli-runtimes/{id}/health-check`
 - `GET /api/v1/model-gateway/cli-sessions`
+- `GET /api/v1/model-gateway/cli-sessions/{id}`
 
 ## Testing
 
@@ -51,11 +53,24 @@ corepack pnpm@10.24.0 run openapi:generate
   `keyring:` remain development/bootstrap options. AIDO does not persist raw API
   keys. This reduces exposure of provider keys but does not remove secret-zero:
   the local process still needs a vault bootstrap identity.
-- Pricing seeds are marked `manual_seed`; treat them as editable estimates, not current truth.
+- Pricing seeds are marked with `source` and staleness; treat manual seeds as
+  editable estimates, not current truth. Unknown prices are not free unless
+  `freeTier=true`.
+- Pricing snapshots are append-only records for manual catalog updates. A
+  snapshot stores redacted `sourceRef`/metadata, can optionally apply prices to
+  `model_catalog`, and marks the model source as `pricing_snapshot:{id}`.
 
 ## Limitations
 
 - `route/execute` is present but fail-closed: API provider calls require `AIDO_ENABLE_REAL_PROVIDER_CALLS=true`, configured credentials, budget/quota clearance and no pending approval requirement. If approval is required, it creates a pending `model.route.execute` action request and the overview counts it in `pendingModelApprovals`. CLI execution remains delegated to policy-approved agent runtime sessions.
+- Provider health checks run mock-first. Real health is allowed only when the
+  provider is enabled and `AIDO_ENABLE_REAL_PROVIDER_CALLS=true`; missing
+  credentials return `misconfigured`, and simulated/real 429 responses update
+  provider cooldown state.
+- Provider model discovery is also mock-first. Real discovery requires the
+  provider to be enabled, `AIDO_ENABLE_REAL_PROVIDER_CALLS=true`, and a valid
+  credential reference for API/gateway providers before the adapter is called.
+  Discovery audit payloads include `mock`, `source` and model count.
 - Benchmarks derive usage/cost/latency from `usage_ledger` and success/QA/rework from `model_benchmark_outcomes`. Outcomes can be recorded manually from the console or automatically during evidence creation when the evidence includes `usageLedgerId` or model identity fields.
 
 ## Example

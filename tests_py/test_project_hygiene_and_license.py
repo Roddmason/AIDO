@@ -30,11 +30,70 @@ def test_open_source_license_and_audit_docs_are_explicit() -> None:
     assert "optional" in license_audit.lower()
 
 
+def test_aido_current_state_docs_exist_and_use_real_gateway_state() -> None:
+    current_state = read("docs/aido-current-state-analysis.md")
+    architecture = read("docs/aido-architecture-diagram.md")
+    gaps = read("docs/aido-gap-analysis.md")
+    plan = read("docs/aido-implementation-plan.md")
+
+    assert "Unified Model & Runtime Gateway" in current_state
+    assert "203 passed" in current_state
+    assert "metadata_json" in current_state
+    assert "usage_source" in current_state
+    assert "```mermaid" in architecture
+    for title in (
+        "Diagrama 1",
+        "Diagrama 2",
+        "Diagrama 3",
+        "Diagrama 4",
+    ):
+        assert title in architecture
+    for heading in (
+        "Ya existe",
+        "Falta crear",
+        "Falta ajustar",
+        "Falta endurecer",
+        "Falta documentar",
+        "Falta probar",
+    ):
+        assert heading in gaps
+    assert "codex/aido-control-plane-hardening" in plan
+    assert "No reconstruir el gateway" in plan
+
+
+def test_requirements_python_keeps_faiss_optional() -> None:
+    requirements = read("local-control-center/requirements-python.txt")
+    required_lines = [
+        line.strip()
+        for line in requirements.splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    ]
+
+    assert not any(line.lower().startswith("faiss-cpu") for line in required_lines)
+    assert "faiss-cpu" in requirements
+    assert "uv sync --extra faiss" in requirements
+
+
 def test_package_metadata_declares_open_source_license() -> None:
     package = json.loads(read("package.json"))
 
     assert package["private"] is False
     assert package["license"] == "MIT"
+
+
+def test_frontend_node24_environment_is_documented_and_guarded() -> None:
+    package = json.loads(read("package.json"))
+    nvmrc = read(".nvmrc").strip()
+    readme = read("README.md")
+    use_node = read("local-control-center/scripts/use-node.ps1")
+
+    assert package["engines"]["node"] == ">=24.16.0 <25.0.0"
+    assert nvmrc == "24.16.0"
+    assert "Node >=24.16.0 <25.0.0" in readme
+    assert "pnpm@10.24.0" in readme
+    assert ".nvmrc" in use_node
+    assert "nvm install $nodeVersion" in use_node
+    assert "nvm use $nodeVersion" in use_node
 
 
 def test_open_source_governance_files_require_owner_review() -> None:
@@ -109,6 +168,27 @@ def test_quality_scripts_include_web_typecheck() -> None:
     assert "typecheck:web" in scripts
     assert "typecheck:web" in scripts["test:all"]
     assert "typecheck:web" in scripts["quality"]
+
+
+def test_native_process_start_command_is_cross_platform() -> None:
+    package = json.loads(read("package.json"))
+    scripts = package["scripts"]
+    launcher = read("local-control-center/scripts/start_control_center.py")
+    readme = read("README.md")
+
+    assert "start" in scripts
+    assert "start:py" in scripts
+    assert "start:windows" in scripts
+    assert "start_control_center.py" in scripts["start"]
+    assert "start_control_center.py" in scripts["start:py"]
+    assert "powershell" not in scripts["start"].lower()
+    assert "start-control-center.ps1" in scripts["start:windows"]
+    assert "sys.path.insert(0, str(ROOT))" in launcher
+    assert "AIDO_ENABLE_REAL_PROVIDER_CALLS" in launcher
+    assert "AIDO_ENABLE_CLI_RUNTIMES" in launcher
+    assert "--no-build" in launcher
+    assert "Windows, Linux and macOS" in readme
+    assert "uv run python local-control-center/scripts/start_control_center.py" in readme
 
 
 def test_runtime_smoke_scripts_are_declared_for_release_validation() -> None:

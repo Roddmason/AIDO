@@ -13,12 +13,17 @@ import type {
 	OverviewResponse,
 	PipelineRecord,
 	PolicyRevisionRecord,
+	ProjectCreateRequest,
 	ProjectRecord,
+	ProjectResponse,
+	ProjectTemplateRecord,
+	ProviderRecord,
 	RetrievalStatusResponse,
 	RiskCreateRequest,
 	RiskRecord as GeneratedRiskRecord,
 	RuntimeProvidersResponse,
 	SessionRecord,
+	TeamRecord,
 	WorkflowCreateRequest,
 	WorkflowRecord,
 	WorkflowStepRecord,
@@ -27,6 +32,11 @@ import type {
 export type Dictionary = Record<string, unknown>;
 
 export type Project = ProjectRecord;
+export type ProjectCreate = ProjectCreateRequest;
+export type ProjectCreateResult = ProjectResponse;
+export type ProjectTemplate = ProjectTemplateRecord;
+export type Provider = ProviderRecord;
+export type Team = TeamRecord;
 export type Job = JobRecord;
 export type ActionRequest = ActionRequestRecord;
 export type EventRecord = GeneratedEventRecord & { severity?: string };

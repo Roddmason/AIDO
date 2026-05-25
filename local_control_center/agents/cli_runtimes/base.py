@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import sqlite3
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
@@ -9,8 +10,10 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from local_control_center.agents.providers.base import UsageRecord
+from local_control_center.agents.cli_sessions import CliSessionStore
 from local_control_center.agents.model_gateway import redact_secrets
-from local_control_center.security_policy.sandbox import RestrictedSubprocessSandbox
+from local_control_center.security_policy.policy_engine import evaluate_action
+from local_control_center.security_policy import sandbox as subprocess_sandbox
 
 
 DANGEROUS_CLI_FLAGS = {
@@ -48,6 +51,10 @@ class RuntimeRequest(BaseModel):
     env_policy: dict[str, Any] = Field(default_factory=dict, alias="envPolicy")
     extra_args: list[str] = Field(default_factory=list, alias="extraArgs")
     mock: bool = False
+    role: str | None = None
+    agent_id: str | None = Field(default=None, alias="agentId")
+    workflow_run_id: str | None = Field(default=None, alias="workflowRunId")
+    workflow_step_id: str | None = Field(default=None, alias="workflowStepId")
 
 
 class RuntimeResult(BaseModel):
@@ -65,9 +72,10 @@ class CliRuntime(ABC):
     runtime_id: str
     display_name: str
 
-    def __init__(self, *, executable: str, mock: bool = False):
+    def __init__(self, *, executable: str, mock: bool = False, connection: sqlite3.Connection | None = None):
         self.executable = executable
         self.mock = mock
+        self.connection = connection
 
     def _which(self) -> str | None:
         from shutil import which
@@ -83,6 +91,13 @@ class CliRuntime(ABC):
         workspace = Path(request.workspace_path).resolve(strict=False)
         if not workspace.exists() and not self.mock:
             raise ValueError("workspace_path does not exist")
+        if self.connection is not None and not (self.mock or request.mock):
+            row = self.connection.execute("SELECT path FROM workspaces WHERE id = ?", (request.workspace_id,)).fetchone()
+            if not row:
+                raise ValueError("workspace must be registered before real CLI execution")
+            registered = Path(row["path"]).resolve(strict=False)
+            if registered != workspace:
+                raise ValueError("workspace_path does not match registered workspace")
         return workspace
 
     def _validate_safe_args(self, request: RuntimeRequest) -> None:
@@ -108,14 +123,61 @@ class CliRuntime(ABC):
         raise NotImplementedError
 
     def run(self, request: RuntimeRequest) -> RuntimeResult:
-        command = self.build_command(request)
+        try:
+            command = self.build_command(request)
+        except ValueError as error:
+            blocked = RuntimeResult(
+                runtime=self.runtime_id,
+                status="blocked",
+                command=self._blocked_command(request),
+                error=str(error),
+            )
+            validation_request = request.model_copy(
+                update={
+                    "env_policy": {
+                        **request.env_policy,
+                        "runtimeValidation": {
+                            "decision": "deny",
+                            "reason": str(error),
+                        },
+                    }
+                }
+            )
+            self._record_result(validation_request, blocked)
+            return blocked
+        workspace = Path(request.workspace_path).resolve(strict=False)
         if self.mock or request.mock:
             result = RuntimeResult(runtime=self.runtime_id, status="completed", command=command, stdout="mock runtime completed", returnCode=0)
-            return result.model_copy(update={"usage": self.parse_usage(result)})
+            completed = result.model_copy(update={"usage": self.parse_usage(result)})
+            self._record_result(request, completed)
+            return completed
         if os.environ.get("AIDO_ENABLE_CLI_RUNTIMES", "false").lower() != "true":
-            return RuntimeResult(runtime=self.runtime_id, status="blocked", command=command, error="CLI runtimes are disabled")
-        workspace = self._validate_workspace(request)
-        result = RestrictedSubprocessSandbox().execute(
+            blocked = RuntimeResult(runtime=self.runtime_id, status="blocked", command=command, error="CLI runtimes are disabled")
+            gated_request = request.model_copy(
+                update={
+                    "env_policy": {
+                        **request.env_policy,
+                        "runtimeGate": {
+                            "decision": "deny",
+                            "reason": "AIDO_ENABLE_CLI_RUNTIMES=false",
+                        },
+                    }
+                }
+            )
+            self._record_result(gated_request, blocked)
+            return blocked
+        policy = self._evaluate_policy(request, command, workspace)
+        policy_request = request.model_copy(update={"env_policy": {**request.env_policy, "policyResult": policy}})
+        if policy.get("decision") != "allow":
+            blocked = RuntimeResult(
+                runtime=self.runtime_id,
+                status="blocked",
+                command=command,
+                error=str(policy.get("reason") or "CLI runtime blocked by security policy"),
+            )
+            self._record_result(policy_request, blocked)
+            return blocked
+        result = subprocess_sandbox.RestrictedSubprocessSandbox().execute(
             argv=command,
             cwd=str(workspace),
             workspace_path=str(workspace),
@@ -131,7 +193,56 @@ class CliRuntime(ABC):
             returnCode=result.get("returnCode"),
             error=result.get("reason"),
         )
-        return runtime_result.model_copy(update={"usage": self.parse_usage(runtime_result)})
+        completed = runtime_result.model_copy(update={"usage": self.parse_usage(runtime_result)})
+        self._record_result(policy_request, completed)
+        return completed
+
+    def _blocked_command(self, request: RuntimeRequest) -> list[str]:
+        command = [self.executable, "<blocked>"]
+        command.extend(str(arg) for arg in request.extra_args)
+        if request.prompt:
+            command.append("<prompt>")
+        return command
+
+    def _evaluate_policy(
+        self,
+        request: RuntimeRequest,
+        command: list[str],
+        workspace: Path,
+    ) -> dict[str, Any]:
+        return evaluate_action(
+            {
+                "tool": "shell",
+                "command": " ".join(command),
+                "path": str(workspace),
+                "workspacePath": str(workspace),
+                "role": request.role,
+                "permissionProfile": request.env_policy.get("permissionProfile", "dev_safe"),
+                "networkRequired": bool(request.env_policy.get("network", False)),
+                "secretsRequired": bool(request.env_policy.get("secrets") or request.env_policy.get("secretRefs")),
+            }
+        )
+
+    def _record_result(self, request: RuntimeRequest, result: RuntimeResult) -> None:
+        if self.connection is None:
+            return
+        CliSessionStore(self.connection).record_result(
+            runtime=self.runtime_id,
+            executable=self.executable,
+            workspace_id=request.workspace_id,
+            workflow_run_id=request.workflow_run_id,
+            workflow_step_id=request.workflow_step_id,
+            agent_id=request.agent_id,
+            command=result.command,
+            env_policy=request.env_policy,
+            status=result.status,
+            model=request.model,
+            role=request.role,
+            stdout=result.stdout,
+            stderr=result.stderr,
+            error=result.error,
+            usage=result.usage,
+        )
 
     def parse_usage(self, result: RuntimeResult) -> UsageRecord | None:
         if result.usage is not None:

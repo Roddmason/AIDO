@@ -74,6 +74,17 @@ roles:
         requiresApproval: true
     maxCostPerTaskUsd: 3.00
 
+  technical_lead_shadow:
+    mode: balanced_best_value
+    preferred:
+      - provider: claude_code_cli
+        model: sonnet
+        effort: high
+      - provider: codex_cli
+        model: gpt-5.5
+        effort: high
+    maxCostPerTaskUsd: 1.50
+
   developer:
     mode: balanced_best_value
     preferred:
@@ -91,6 +102,39 @@ roles:
         effort: xhigh
         condition: repeated_failure
 
+  backend_engineer:
+    mode: balanced_best_value
+    preferred:
+      - provider: codex_cli
+        model: gpt-5.5
+        effort: high
+      - provider: claude_code_cli
+        model: sonnet
+        effort: medium
+    maxCostPerTaskUsd: 2.00
+
+  frontend_engineer:
+    mode: balanced_best_value
+    preferred:
+      - provider: codex_cli
+        model: gpt-5.5
+        effort: high
+      - provider: claude_code_cli
+        model: sonnet
+        effort: medium
+    maxCostPerTaskUsd: 2.00
+
+  implementer:
+    mode: balanced_best_value
+    preferred:
+      - provider: codex_cli
+        model: gpt-5.5
+        effort: high
+      - provider: claude_code_cli
+        model: sonnet
+        effort: medium
+    maxCostPerTaskUsd: 1.50
+
   qa:
     mode: cost_controlled
     preferred:
@@ -99,6 +143,17 @@ roles:
       - provider: openai_compatible
         model: configured_model
     maxCostPerTaskUsd: 0.50
+
+  qa_reviewer:
+    mode: cost_controlled
+    preferred:
+      - provider: nvidia_nim
+        model: auto_best_available
+      - provider: ollama
+        model: local_default
+      - provider: claude_code_cli
+        model: sonnet
+    maxCostPerTaskUsd: 0.75
 
   security_reviewer:
     mode: balanced_best_value

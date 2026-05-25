@@ -1,6 +1,7 @@
 # AIDO / Local Control Center
 
-AIDO is a Windows-native local control plane for software-development agents.
+AIDO is a local-first native control plane for software-development agents on
+Windows, Linux and macOS.
 It is not a chat clone and not an autonomous free-for-all. The product goal is
 to control workflows, approvals, isolated workspaces, policy decisions, evidence,
 cost records, and audit events around agent-assisted engineering.
@@ -12,7 +13,8 @@ cost records, and audit events around agent-assisted engineering.
 - Package management: PNPM for JavaScript, `uv` for Python.
 - License: MIT. AIDO is open source; core dependencies remain OSI-compatible
   or isolated as optional adapters.
-- Runtime target: Windows local development. Docker is optional, not required.
+- Runtime target: native OS process on Windows, Linux and macOS. Docker is
+  optional, not required.
 
 ## What It Is
 
@@ -40,7 +42,25 @@ cost records, and audit events around agent-assisted engineering.
 
 ## Setup
 
+AIDO's frontend toolchain targets Node >=24.16.0 <25.0.0 with PNPM 10.24.0.
+Use the repository `.nvmrc` and helper script before running web builds or
+tests so engine warnings indicate a real environment mismatch rather than an
+implicit downgrade.
+
+Windows PowerShell:
+
 ```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File local-control-center/scripts/use-node.ps1
+corepack enable
+corepack pnpm@10.24.0 install
+uv sync --extra dev --extra test
+```
+
+Linux/macOS shell:
+
+```bash
+nvm install 24.16.0
+nvm use 24.16.0
 corepack enable
 corepack pnpm@10.24.0 install
 uv sync --extra dev --extra test
@@ -56,6 +76,7 @@ uv sync --extra faiss --extra dev --extra test
 
 ```powershell
 corepack pnpm@10.24.0 run start
+uv run python local-control-center/scripts/start_control_center.py --dashboard-host 127.0.0.1 --dashboard-port 4310
 corepack pnpm@10.24.0 run build:control-center
 corepack pnpm@10.24.0 run openapi:generate
 corepack pnpm@10.24.0 run test:py
@@ -68,6 +89,20 @@ Direct backend:
 ```powershell
 uv run python -m local_control_center --dashboard-host 127.0.0.1 --dashboard-port 4310
 ```
+
+Native process startup:
+
+- Cross-platform default:
+  `uv run python local-control-center/scripts/start_control_center.py`
+- Windows wrapper:
+  `corepack pnpm@10.24.0 run start:windows`
+- Default URL: `http://127.0.0.1:4310`
+- Stop: press `Ctrl+C` in the terminal that owns the process.
+
+The native launcher builds the dashboard when missing, serves the built
+frontend through FastAPI, and sets safe defaults:
+`AIDO_ENABLE_REAL_PROVIDER_CALLS=false`,
+`AIDO_ENABLE_CLI_RUNTIMES=false`, and `AIDO_REDACT_SECRETS=true`.
 
 Optional local smokes:
 
@@ -107,6 +142,7 @@ or generated artifacts.
 ## Documentation
 
 - `docs/architecture-audit.md`
+- `docs/project-map.md`
 - `docs/backend.md`
 - `docs/security-policy.md`
 - `docs/workflows.md`

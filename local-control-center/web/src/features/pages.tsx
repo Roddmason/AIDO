@@ -20,6 +20,7 @@ import type {
 	NextStepPriority,
 	Overview,
 	PolicyRevision,
+	Project,
 	RetrievalStatus,
 	RiskSeverity,
 	RiskStatus,
@@ -32,8 +33,8 @@ import { toneForStatus } from '../lib/format';
 
 type Mutate = <T>(operation: (token: string) => Promise<T>) => Promise<T>;
 
-export function CommandCenterPage({ overview, mutate }: { overview: Overview; mutate: Mutate }) {
-	const project = overview.projects[0];
+export function CommandCenterPage({ overview, selectedProject, mutate }: { overview: Overview; selectedProject: Project | null; mutate: Mutate }) {
+	const project = selectedProject;
 	const [workflowTitle, setWorkflowTitle] = useState(`AIDO workflow ${new Date().toISOString()}`);
 	const [workflowKind, setWorkflowKind] = useState<WorkflowKind>('idea_to_pr');
 	const [error, setError] = useState('');
@@ -64,11 +65,19 @@ export function CommandCenterPage({ overview, mutate }: { overview: Overview; mu
 				<div className="form-grid">
 					<div className="field">
 						<label htmlFor="workflow-title">Workflow title</label>
-						<input id="workflow-title" className="input" value={workflowTitle} maxLength={180} onChange={(event) => setWorkflowTitle(event.target.value)} />
+						<input
+							id="workflow-title"
+							className="input"
+							value={workflowTitle}
+							maxLength={180}
+							autoComplete="off"
+							disabled={!project}
+							onChange={(event) => setWorkflowTitle(event.target.value)}
+						/>
 					</div>
 					<div className="field">
 						<label htmlFor="workflow-kind">Workflow kind</label>
-						<select id="workflow-kind" className="select" value={workflowKind} onChange={(event) => setWorkflowKind(event.target.value as WorkflowKind)}>
+						<select id="workflow-kind" className="select" value={workflowKind} disabled={!project} onChange={(event) => setWorkflowKind(event.target.value as WorkflowKind)}>
 							<option value="idea_to_pr">idea_to_pr</option>
 							<option value="project_discovery">project_discovery</option>
 							<option value="issue_to_pr">issue_to_pr</option>
@@ -80,8 +89,9 @@ export function CommandCenterPage({ overview, mutate }: { overview: Overview; mu
 						<button className="button primary" type="button" disabled={!project} onClick={saveWorkflow}>
 							Create workflow
 						</button>
-						<Badge>{project ? project.name : 'no project'}</Badge>
+						<Badge tone={project ? 'ok' : 'warn'}>{project ? project.name : 'no operational project'}</Badge>
 					</div>
+					{project ? null : <div className="field-help">Select an active operational project in Settings before creating workflows.</div>}
 					{error ? <div className="form-error" role="alert">{error}</div> : null}
 				</div>
 			</Surface>
@@ -111,21 +121,15 @@ export function WorkspacesPage({ overview }: { overview: Overview }) {
 	return (
 		<>
 			<PageHeader kicker="Isolation" title="Workspaces" summary="Task-owned workspace allocations prevent agents from sharing one mutable working tree." />
-			<div className="grid two">
-				<Surface title="Projects">
-					<DataTable rows={overview.projects} empty={<EmptyState title="No projects" body="The runtime project is created automatically at startup." />} columns={[
-						{ key: 'name', label: 'Name', render: (row) => row.name },
-						{ key: 'path', label: 'Path', render: (row) => <span className="mono">{row.path}</span> },
-					]} />
-				</Surface>
-				<Surface title="Allocated workspaces">
-					<DataTable rows={overview.runtimeWorkspaces} empty={<EmptyState title="No isolated workspaces" body="Workflow implementation steps will allocate workspaces." />} columns={[
-						{ key: 'task', label: 'Task', render: (row) => <span className="mono">{String(row.taskId ?? '')}</span> },
-						{ key: 'owner', label: 'Owner', render: (row) => String(row.ownerAgentId ?? '') },
-						{ key: 'status', label: 'Status', render: (row) => <Badge tone={toneForStatus(String(row.status ?? ''))}>{String(row.status ?? '')}</Badge> },
-					]} />
-				</Surface>
-			</div>
+			<Surface title="Allocated workspaces">
+				<DataTable rows={overview.runtimeWorkspaces} empty={<EmptyState title="No isolated workspaces" body="Workflow implementation steps will allocate workspaces." />} columns={[
+					{ key: 'task', label: 'Task', render: (row) => <span className="mono">{String(row.taskId ?? '')}</span> },
+					{ key: 'project', label: 'Project', render: (row) => <span className="mono">{String(row.projectId ?? '')}</span> },
+					{ key: 'owner', label: 'Owner', render: (row) => String(row.ownerAgentId ?? '') },
+					{ key: 'isolation', label: 'Isolation', render: (row) => <span className="mono">{String(row.isolationType ?? '')}</span> },
+					{ key: 'status', label: 'Status', render: (row) => <Badge tone={toneForStatus(String(row.status ?? ''))}>{String(row.status ?? '')}</Badge> },
+				]} />
+			</Surface>
 		</>
 	);
 }
@@ -622,8 +626,8 @@ export function ModelGatewayPage({
 	);
 }
 
-export function GovernancePage({ overview, mutate }: { overview: Overview; mutate: Mutate }) {
-	const project = overview.projects[0];
+export function GovernancePage({ overview, selectedProject, mutate }: { overview: Overview; selectedProject: Project | null; mutate: Mutate }) {
+	const project = selectedProject;
 	const [riskTitle, setRiskTitle] = useState('');
 	const [riskSeverity, setRiskSeverity] = useState<RiskSeverity>('medium');
 	const [riskMitigation, setRiskMitigation] = useState('');
@@ -740,6 +744,10 @@ export function GovernancePage({ overview, mutate }: { overview: Overview; mutat
 				<Surface title="Next steps"><div className="metric-value">{overview.nextSteps.length}</div></Surface>
 			</div>
 			<Surface title="Strict record forms">
+				<div className="inline">
+					<Badge tone={project ? 'ok' : 'warn'}>{project ? project.name : 'no operational project'}</Badge>
+					{project ? null : <span className="field-help">Select an active operational project in Settings before creating governance records.</span>}
+				</div>
 				<div className="grid three">
 					<div className="form-grid">
 						<div className="field">
@@ -972,21 +980,6 @@ export function AuditPage({ overview }: { overview: Overview }) {
 					{ key: 'actor', label: 'Actor', render: (row) => String(row.actor ?? '') },
 					{ key: 'target', label: 'Target', render: (row) => String(row.target ?? '') },
 				]} />
-			</Surface>
-		</>
-	);
-}
-
-export function SettingsPage() {
-	return (
-		<>
-			<PageHeader kicker="Local runtime" title="Settings" summary="Windows-native runtime controls. PNPM and uv remain the package managers for this repository." />
-			<Surface title="Runtime defaults">
-				<div className="stack">
-					<span>Backend: FastAPI v1</span>
-					<span>Frontend: Vite + React + TypeScript</span>
-					<span>Autostart: user-scoped Task Scheduler</span>
-				</div>
 			</Surface>
 		</>
 	);

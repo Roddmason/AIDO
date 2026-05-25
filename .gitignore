@@ -26,6 +26,7 @@ test-results/
 # Local runtime state
 .claude/
 .tmp/
+.codegraph/
 *.sqlite
 *.sqlite3
 *.db

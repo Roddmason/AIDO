@@ -9,6 +9,20 @@ const runtimeModeOptions: AgentRuntimeMode[] = ['api', 'cli', 'ollama', 'hybrid'
 const fallbackRoutingProfiles = ['free_first', 'cost_controlled', 'balanced_best_value', 'max_performance', 'manual_by_profile', 'local_private'];
 const fallbackProviders = ['internal_mock', 'nvidia_nim', 'ollama', 'codex_cli', 'claude_code_cli', 'openhands', 'swe_agent', 'manual'];
 const fallbackRuntimes = ['api', 'cli', 'local', 'gateway', 'manual', 'codex_cli', 'claude_code_cli', 'openhands', 'swe_agent'];
+const agentRoles: AgentRole[] = [
+	'analyst',
+	'product_owner',
+	'technical_lead',
+	'technical_lead_shadow',
+	'developer',
+	'backend_engineer',
+	'frontend_engineer',
+	'implementer',
+	'qa',
+	'qa_reviewer',
+	'security_reviewer',
+	'release_manager',
+];
 
 export function AgentsPage({
 	overview,
@@ -135,15 +149,7 @@ export function AgentsPage({
 					<div className="field">
 						<label htmlFor="agent-role">Role</label>
 						<select id="agent-role" className="select" value={role} onChange={(event) => setRole(event.target.value as AgentRole)}>
-							<option value="analyst">analyst</option>
-							<option value="product_owner">product_owner</option>
-							<option value="technical_lead">technical_lead</option>
-							<option value="developer">developer</option>
-							<option value="implementer">implementer</option>
-							<option value="qa">qa</option>
-							<option value="qa_reviewer">qa_reviewer</option>
-							<option value="security_reviewer">security_reviewer</option>
-							<option value="release_manager">release_manager</option>
+							{agentRoles.map((agentRole) => <option key={agentRole} value={agentRole}>{agentRole}</option>)}
 						</select>
 					</div>
 					<div className="field">

@@ -17,6 +17,17 @@ export type ArtifactPayload = {
 export type ModelGatewayRoutePreviewRequest = MutationBody<'route_preview_api_v1_model_gateway_route_preview_post'>;
 export type ModelGatewayRoutePreviewResponse = OperationResponse<'route_preview_api_v1_model_gateway_route_preview_post'>;
 export type ModelGatewayBenchmarkOutcomeRequest = MutationBody<'create_benchmark_outcome_api_v1_model_gateway_benchmark_outcomes_post'>;
+export type I18nLanguageRecord = {
+	code: string;
+	name: string;
+	nativeName: string;
+	enabled: boolean;
+};
+export type I18nCatalogResponse = {
+	defaultLanguage: string;
+	languages: I18nLanguageRecord[];
+	translations: Record<string, Record<string, string>>;
+};
 
 async function parseResponse<T>(response: Response): Promise<T> {
 	const text = await response.text();
@@ -58,6 +69,65 @@ export function getRetrievalStatus(signal?: AbortSignal) {
 
 export function getRuntimeProviders(signal?: AbortSignal) {
 	return requestGeneratedOperation<'list_runtime_providers_api_v1_runtime_providers_get', RuntimeProviders>('list_runtime_providers_api_v1_runtime_providers_get', { signal });
+}
+
+export function getI18nCatalog(signal?: AbortSignal) {
+	return apiRequest<I18nCatalogResponse>('/api/v1/i18n/catalog', { signal });
+}
+
+export function updateI18nCatalog(token: string, body: I18nCatalogResponse) {
+	return apiRequest<I18nCatalogResponse>('/api/v1/i18n/catalog', {
+		method: 'PUT',
+		token,
+		body: body as unknown as Dictionary,
+	});
+}
+
+export function listProjects(signal?: AbortSignal) {
+	return requestGeneratedOperation('projects_api_v1_projects_get', { signal });
+}
+
+export function listProjectTemplates(signal?: AbortSignal) {
+	return requestGeneratedOperation('project_templates_api_v1_project_templates_get', { signal });
+}
+
+export function createProject(token: string, body: MutationBody<'create_project_api_v1_projects_post'>) {
+	return requestGeneratedOperation('create_project_api_v1_projects_post', {
+		token,
+		body,
+	});
+}
+
+export function discoverProject(token: string, body: MutationBody<'discover_project_api_v1_projects_discover_post'>) {
+	return requestGeneratedOperation('discover_project_api_v1_projects_discover_post', {
+		token,
+		body,
+	});
+}
+
+export function selectLocalDirectory(token: string, body: MutationBody<'select_directory_api_v1_local_paths_select_directory_post'>) {
+	return requestGeneratedOperation('select_directory_api_v1_local_paths_select_directory_post', {
+		token,
+		body,
+	});
+}
+
+export function listProviders(signal?: AbortSignal) {
+	return requestGeneratedOperation('providers_api_v1_providers_get', { signal });
+}
+
+export function listTeams(projectId?: string, signal?: AbortSignal) {
+	return requestGeneratedOperation('teams_api_v1_teams_get', {
+		query: projectId ? { projectId } : undefined,
+		signal,
+	});
+}
+
+export function listAgents(teamId?: string, signal?: AbortSignal) {
+	return requestGeneratedOperation('agents_api_v1_agents_get', {
+		query: teamId ? { teamId } : undefined,
+		signal,
+	});
 }
 
 export async function fetchEvidenceArtifact(token: string, evidenceId: string, artifactId: string): Promise<ArtifactPayload> {

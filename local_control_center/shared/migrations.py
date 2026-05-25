@@ -20,6 +20,8 @@ def initialize_platform_schema(connection: sqlite3.Connection) -> None:
     init_phase11_schema(connection)
     init_phase12_schema(connection)
     init_phase13_schema(connection)
+    init_phase14_schema(connection)
+    init_phase15_schema(connection)
     seed_platform_catalogs(connection)
 
 
@@ -960,6 +962,7 @@ def init_phase12_schema(connection: sqlite3.Connection) -> None:
             health_status TEXT NOT NULL,
             last_health_check_at TEXT,
             last_error TEXT,
+            metadata_json TEXT NOT NULL DEFAULT '{}',
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         );
@@ -1045,6 +1048,7 @@ def init_phase12_schema(connection: sqlite3.Connection) -> None:
             currency TEXT NOT NULL,
             latency_ms INTEGER,
             raw_usage_json TEXT NOT NULL,
+            usage_source TEXT NOT NULL DEFAULT 'estimated',
             created_at TEXT NOT NULL
         );
         CREATE TABLE IF NOT EXISTS provider_limits (
@@ -1177,6 +1181,18 @@ def init_phase12_schema(connection: sqlite3.Connection) -> None:
     _add_column_if_missing(connection, "routing_decisions", "agent_id", "agent_id TEXT")
     _add_column_if_missing(connection, "routing_decisions", "job_id", "job_id TEXT")
     _add_column_if_missing(connection, "routing_decisions", "task_id", "task_id TEXT")
+    _add_column_if_missing(
+        connection,
+        "provider_accounts",
+        "metadata_json",
+        "metadata_json TEXT NOT NULL DEFAULT '{}'",
+    )
+    _add_column_if_missing(
+        connection,
+        "usage_ledger",
+        "usage_source",
+        "usage_source TEXT NOT NULL DEFAULT 'estimated'",
+    )
     _add_column_if_missing(connection, "workflow_steps", "role", "role TEXT")
     _add_column_if_missing(connection, "workflow_steps", "task_type", "task_type TEXT")
     _add_column_if_missing(connection, "workflow_steps", "risk_level", "risk_level TEXT")
@@ -1204,8 +1220,8 @@ def init_phase12_schema(connection: sqlite3.Connection) -> None:
             """
             INSERT OR IGNORE INTO provider_accounts
                 (id, provider_id, display_name, provider_type, api_format, base_url, credential_ref,
-                 enabled, quota_mode, health_status, last_health_check_at, last_error, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, '', ?, ?)
+                 enabled, quota_mode, health_status, last_health_check_at, last_error, metadata_json, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, '', '{}', ?, ?)
             """,
             (*row, timestamp, timestamp),
         )
@@ -1285,8 +1301,13 @@ def init_phase12_schema(connection: sqlite3.Connection) -> None:
         ("analyst", "analyst", "free_first", [{"provider": "nvidia_nim", "model": "auto_best_available"}, {"provider": "ollama", "model": "local_default"}], [{"provider": "openai_compatible", "model": "configured_model", "requiresApproval": True}], [{"provider": "codex_cli", "model": "gpt-5.5", "effort": "high", "requiresApproval": True}], [], 0.10, 64000, 0.10, 0, 1, 1, 1, 1),
         ("product_owner", "product_owner", "balanced_best_value", [{"provider": "nvidia_nim", "model": "auto_best_available"}, {"provider": "openai_compatible", "model": "configured_model"}], [], [], [], 0.75, 128000, 0.75, 0, 1, 1, 0, 1),
         ("technical_lead", "technical_lead", "balanced_best_value", [{"provider": "codex_cli", "model": "gpt-5.5", "effort": "xhigh"}, {"provider": "claude_code_cli", "model": "opus", "effort": "xhigh"}, {"provider": "claude_code_cli", "model": "sonnet", "effort": "high"}], [], [{"provider": "codex_cli", "model": "gpt-5.5", "effort": "xhigh", "requiresApproval": True}], [], 3.00, 240000, 3.00, 1, 1, 1, 1, 1),
+        ("technical_lead_shadow", "technical_lead_shadow", "balanced_best_value", [{"provider": "claude_code_cli", "model": "sonnet", "effort": "high"}, {"provider": "codex_cli", "model": "gpt-5.5", "effort": "high"}], [], [{"provider": "claude_code_cli", "model": "opus", "effort": "xhigh", "requiresApproval": True}], [], 1.50, 200000, 1.50, 1, 1, 1, 1, 1),
         ("developer", "developer", "balanced_best_value", [{"provider": "codex_cli", "model": "gpt-5.5", "effort": "high"}, {"provider": "claude_code_cli", "model": "sonnet", "effort": "medium"}, {"provider": "openhands", "model": "auto"}], [{"provider": "swe_agent", "model": "auto"}], [{"provider": "codex_cli", "model": "gpt-5.5", "effort": "xhigh", "condition": "repeated_failure"}], [], 2.00, 200000, 2.00, 0, 1, 1, 1, 1),
+        ("backend_engineer", "backend_engineer", "balanced_best_value", [{"provider": "codex_cli", "model": "gpt-5.5", "effort": "high"}, {"provider": "claude_code_cli", "model": "sonnet", "effort": "medium"}, {"provider": "openhands", "model": "auto"}], [{"provider": "swe_agent", "model": "auto"}], [{"provider": "codex_cli", "model": "gpt-5.5", "effort": "xhigh", "condition": "repeated_failure"}], [], 2.00, 200000, 2.00, 0, 1, 1, 1, 1),
+        ("frontend_engineer", "frontend_engineer", "balanced_best_value", [{"provider": "codex_cli", "model": "gpt-5.5", "effort": "high"}, {"provider": "claude_code_cli", "model": "sonnet", "effort": "medium"}, {"provider": "openhands", "model": "auto"}], [{"provider": "swe_agent", "model": "auto"}], [{"provider": "codex_cli", "model": "gpt-5.5", "effort": "xhigh", "condition": "repeated_failure"}], [], 2.00, 200000, 2.00, 0, 1, 1, 1, 1),
+        ("implementer", "implementer", "balanced_best_value", [{"provider": "codex_cli", "model": "gpt-5.5", "effort": "high"}, {"provider": "claude_code_cli", "model": "sonnet", "effort": "medium"}], [{"provider": "openhands", "model": "auto"}], [{"provider": "codex_cli", "model": "gpt-5.5", "effort": "xhigh", "condition": "repeated_failure"}], [], 1.50, 160000, 1.50, 0, 1, 1, 1, 1),
         ("qa", "qa", "cost_controlled", [{"provider": "nvidia_nim", "model": "auto_best_available"}, {"provider": "ollama", "model": "local_default"}, {"provider": "claude_code_cli", "model": "sonnet"}], [], [], [], 0.50, 128000, 0.50, 0, 1, 1, 1, 1),
+        ("qa_reviewer", "qa_reviewer", "cost_controlled", [{"provider": "nvidia_nim", "model": "auto_best_available"}, {"provider": "ollama", "model": "local_default"}, {"provider": "claude_code_cli", "model": "sonnet"}], [], [{"provider": "codex_cli", "model": "gpt-5.5", "effort": "high", "condition": "high_risk"}], [], 0.75, 128000, 0.75, 0, 1, 1, 1, 1),
         ("security_reviewer", "security_reviewer", "balanced_best_value", [{"provider": "codex_cli", "model": "gpt-5.5", "effort": "high"}, {"provider": "claude_code_cli", "model": "sonnet", "effort": "high"}], [], [{"provider": "codex_cli", "model": "gpt-5.5", "effort": "xhigh", "condition": "high_risk"}], [], 2.50, 200000, 2.50, 1, 1, 1, 1, 1),
         ("release_manager", "release_manager", "cost_controlled", [{"provider": "claude_code_cli", "model": "sonnet"}, {"provider": "openai_compatible", "model": "configured_model"}], [{"provider": "manual", "model": "manual_selection"}], [], [], 1.00, 128000, 1.00, 0, 1, 1, 1, 1),
     ]
@@ -1339,7 +1360,7 @@ def init_phase12_schema(connection: sqlite3.Connection) -> None:
 
     budget_rules = [
         ("global-monthly-default", "global", None, 50.0, None, "month", "require_approval", 1),
-        ("analyst-task-default", "role", "analyst", 0.10, 64000, "task", "fallback", 1),
+        ("analyst-task-default", "role", "analyst", 0.10, 64000, "task", "require_approval", 1),
         ("developer-task-default", "role", "developer", 2.00, 200000, "task", "require_approval", 1),
     ]
     for row in budget_rules:
@@ -1351,6 +1372,14 @@ def init_phase12_schema(connection: sqlite3.Connection) -> None:
             """,
             (*row, timestamp, timestamp),
         )
+    connection.execute(
+        """
+        UPDATE budget_rules
+        SET action_on_exceed = 'require_approval', updated_at = ?
+        WHERE id = 'analyst-task-default' AND action_on_exceed = 'fallback'
+        """,
+        (timestamp,),
+    )
 
     runtime_capabilities = [
         ("codex_cli:code_edit", "codex_cli", "code_edit", 1, {"workspaceBound": True}),
@@ -1425,6 +1454,68 @@ def init_phase13_schema(connection: sqlite3.Connection) -> None:
     connection.execute(
         "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
         (13, utc_now()),
+    )
+
+
+def init_phase14_schema(connection: sqlite3.Connection) -> None:
+    connection.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS pricing_snapshots (
+            id TEXT PRIMARY KEY,
+            provider_id TEXT NOT NULL,
+            model TEXT NOT NULL,
+            input_price_per_mtok REAL,
+            cached_input_price_per_mtok REAL,
+            output_price_per_mtok REAL,
+            reasoning_price_per_mtok REAL,
+            free_tier INTEGER NOT NULL DEFAULT 0,
+            source_ref TEXT NOT NULL,
+            effective_at TEXT,
+            metadata_json TEXT NOT NULL DEFAULT '{}',
+            apply_to_catalog INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_pricing_snapshots_model
+            ON pricing_snapshots(provider_id, model, created_at);
+        """
+    )
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (14, utc_now()),
+    )
+
+
+def init_phase15_schema(connection: sqlite3.Connection) -> None:
+    connection.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS i18n_languages (
+            code TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            native_name TEXT NOT NULL,
+            enabled INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS i18n_translations (
+            key TEXT NOT NULL,
+            language_code TEXT NOT NULL,
+            value TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (key, language_code),
+            FOREIGN KEY (language_code) REFERENCES i18n_languages(code) ON DELETE CASCADE
+        );
+        CREATE TABLE IF NOT EXISTS i18n_settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_i18n_translations_language
+            ON i18n_translations(language_code, key);
+        """
+    )
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (15, utc_now()),
     )
 
 

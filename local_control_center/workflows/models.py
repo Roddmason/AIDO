@@ -10,7 +10,14 @@ from local_control_center.jobs_approvals.models import JobRecord
 from local_control_center.workspaces_projects.models import WorkspaceRecord
 
 
-WorkflowKind = Literal["idea_to_pr", "project_discovery", "issue_to_pr", "qa_validation", "release_candidate"]
+WorkflowKind = Literal[
+    "idea_to_pr",
+    "project_discovery",
+    "issue_to_pr",
+    "qa_validation",
+    "release_candidate",
+    "pr_release_retro",
+]
 
 
 class WorkflowCreateRequest(BaseModel):
@@ -23,6 +30,11 @@ class WorkflowCreateRequest(BaseModel):
 
 class WorkflowStatusChangeRequest(BaseModel):
     reason: str = ""
+
+
+class WorkflowGateAdvanceRequest(BaseModel):
+    reason: str = ""
+    evidence_package_id: str | None = Field(default=None, alias="evidencePackageId")
 
 
 class WorkflowRecord(BaseModel):
@@ -90,3 +102,10 @@ class WorkflowStartResponse(BaseModel):
     workflow: WorkflowRecord
     workflow_run: WorkflowRunRecord = Field(alias="workflowRun")
     workflow_steps: list[WorkflowStepRecord] = Field(alias="workflowSteps")
+
+
+class WorkflowGateAdvanceResponse(BaseModel):
+    workflow_step: WorkflowStepRecord = Field(alias="workflowStep")
+    advanced: bool
+    gate_state: str = Field(alias="gateState")
+    reason: str

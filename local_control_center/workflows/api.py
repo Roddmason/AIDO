@@ -9,19 +9,24 @@ from ..agents.model_router import ModelRouter, RoutingRequest
 from ..agents.routing_profiles import RoutingProfileStore
 from ..agents.repository import AgentsRepository
 from ..evidence.repository import EvidenceRepository
+from ..governance.repository import GovernanceRepository
 from ..governance.signals import record_governance_risk
 from ..jobs_approvals.repository import JobsRepository
 from ..shared.event_bus import EventBus
+from ..shared.time import utc_now
 from ..workspaces_projects.repository import WorkspacesRepository
 from .models import (
     WorkflowCreateRequest,
     WorkflowDetailResponse,
+    WorkflowGateAdvanceRequest,
+    WorkflowGateAdvanceResponse,
     WorkflowResponse,
     WorkflowsListResponse,
     WorkflowStartResponse,
     WorkflowStatusChangeRequest,
 )
 from .repository import WorkflowsRepository
+from .repository import validate_workflow_metadata
 
 
 ALLOWED_WORKFLOW_KINDS = {
@@ -30,13 +35,23 @@ ALLOWED_WORKFLOW_KINDS = {
     "issue_to_pr",
     "qa_validation",
     "release_candidate",
+    "pr_release_retro",
 }
 
 
 CODE_EDIT_STEPS = {"implementation", "pr_creation"}
-TOOL_STEPS = {"workspace_create", "implementation", "local_tests", "qa_validation", "technical_review", "pr_creation"}
+TOOL_STEPS = {
+    "workspace_create",
+    "implementation",
+    "local_tests",
+    "qa_validation",
+    "technical_review",
+    "pr_creation",
+    "pr_review",
+    "release_gate",
+}
 SEARCH_STEPS = {"project_discovery", "backlog_generation"}
-REASONING_STEPS = {"architecture_review", "technical_review", "release_candidate"}
+REASONING_STEPS = {"architecture_review", "technical_review", "release_candidate", "pr_review", "release_gate", "retro"}
 
 
 def _manual_override(step: dict[str, Any]) -> dict[str, str]:
@@ -67,6 +82,10 @@ def validate_workflow_create_body(body: WorkflowCreateRequest) -> dict[str, Any]
     metadata = payload.get("metadata") or {}
     if not isinstance(metadata, dict):
         raise HTTPException(status_code=422, detail="metadata must be an object.")
+    try:
+        validate_workflow_metadata(metadata)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
     return {"project_id": payload["projectId"], "kind": kind, "title": title, "metadata": metadata}
 
 
@@ -84,6 +103,9 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
 
     def jobs() -> JobsRepository:
         return JobsRepository(platform.connection)
+
+    def governance() -> GovernanceRepository:
+        return GovernanceRepository(platform.connection)
 
     def agents() -> AgentsRepository:
         return AgentsRepository(platform.connection)
@@ -122,6 +144,61 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
                 ),
                 record=True,
             )
+
+    def record_gate_result(step: dict[str, Any], *, suffix: str, payload: dict[str, Any], severity: str = "info") -> None:
+        action = f"workflow.gate.{step['name']}.{suffix}"
+        repository().record_workflow_event(
+            workflow_id=step["workflowId"],
+            workflow_run_id=step["workflowRunId"],
+            step_id=step["id"],
+            project_id=step["projectId"],
+            event_type=action,
+            payload=payload,
+            severity=severity,
+        )
+        event_bus().record_audit(
+            project_id=step["projectId"],
+            action=action,
+            actor="system",
+            target=step["id"],
+            payload=payload,
+        )
+
+    def block_gate(step: dict[str, Any], detail: str, *, payload: dict[str, Any]) -> None:
+        record_gate_result(step, suffix="blocked", payload={"reason": detail, **payload}, severity="warning")
+        raise HTTPException(status_code=409, detail=detail)
+
+    def passed_qa_evidence_for_step(step: dict[str, Any], evidence_package_id: str | None) -> dict[str, Any] | None:
+        packages = evidence().list_evidence_for_workflow_runs([step["workflowRunId"]])
+        for package in packages:
+            if evidence_package_id and package["id"] != evidence_package_id:
+                continue
+            if package["qaVerdict"] == "passed":
+                return package
+        return None
+
+    def pending_release_actions_for_step(step: dict[str, Any]) -> list[dict[str, Any]]:
+        release_jobs = [
+            job
+            for job in jobs().list_jobs_for_workflow_runs([step["workflowRunId"]])
+            if job["workflowStepId"] == step["id"] and job["kind"] == "release.production"
+        ]
+        pending: list[dict[str, Any]] = []
+        for job in release_jobs:
+            pending.extend([action for action in jobs().list_action_requests(job["id"]) if action["status"] == "pending"])
+        return pending
+
+    def has_retro_governance_records(step: dict[str, Any]) -> bool:
+        records = [
+            *governance().list_architecture_decisions(step["projectId"]),
+            *governance().list_risks(step["projectId"]),
+            *governance().list_next_steps(step["projectId"]),
+        ]
+        return any(
+            record.get("metadata", {}).get("sourceType") == "workflow_retro"
+            and record.get("metadata", {}).get("workflowStepId") == step["id"]
+            for record in records
+        )
 
     @router.get("/api/v1/workflows", response_model=WorkflowsListResponse)
     async def list_workflows() -> dict[str, Any]:
@@ -182,6 +259,98 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             },
         )
         return result
+
+    @router.post(
+        "/api/v1/workflows/{workflow_id}/steps/{step_id}/advance",
+        status_code=202,
+        response_model=WorkflowGateAdvanceResponse,
+    )
+    async def advance_workflow_gate(
+        workflow_id: str,
+        step_id: str,
+        body: WorkflowGateAdvanceRequest,
+        request: Request,
+    ) -> dict[str, Any]:
+        require_write(request)
+        repo = repository()
+        try:
+            step = repo.get_workflow_step(step_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        if step["workflowId"] != workflow_id:
+            raise HTTPException(status_code=404, detail=f"Workflow step not found for workflow: {step_id}")
+        if step["name"] not in {"pr_review", "release_gate", "retro"}:
+            raise HTTPException(status_code=422, detail=f"Workflow step {step['name']} is not a governed gate.")
+
+        reason = body.reason or "Advance governed workflow gate."
+        if step["name"] == "pr_review":
+            package = passed_qa_evidence_for_step(step, body.evidence_package_id)
+            if not package:
+                block_gate(
+                    step,
+                    "pr_review requires passed QA evidence for this workflow run.",
+                    payload={"evidencePackageId": body.evidence_package_id},
+                )
+            metadata = {
+                **step["metadata"],
+                "gateState": "evidence_satisfied",
+                "evidencePackageId": package["id"],
+                "advancedAt": utc_now(),
+            }
+            updated = repo.update_workflow_step(
+                step_id,
+                status="completed",
+                metadata=metadata,
+                output={"advanced": True, "evidencePackageId": package["id"], "reason": reason},
+            )
+            record_gate_result(
+                updated,
+                suffix="advanced",
+                payload={"evidencePackageId": package["id"], "reason": reason},
+            )
+            return {"workflowStep": updated, "advanced": True, "gateState": metadata["gateState"], "reason": reason}
+
+        if step["name"] == "release_gate":
+            pending_actions = pending_release_actions_for_step(step)
+            if pending_actions:
+                block_gate(
+                    step,
+                    "release_gate requires approved production release action requests.",
+                    payload={"pendingActionRequestIds": [item["id"] for item in pending_actions]},
+                )
+            metadata = {
+                **step["metadata"],
+                "gateState": "approval_satisfied",
+                "advancedAt": utc_now(),
+            }
+            updated = repo.update_workflow_step(
+                step_id,
+                status="completed",
+                metadata=metadata,
+                output={"advanced": True, "reason": reason},
+            )
+            record_gate_result(updated, suffix="advanced", payload={"reason": reason})
+            return {"workflowStep": updated, "advanced": True, "gateState": metadata["gateState"], "reason": reason}
+
+        if not has_retro_governance_records(step):
+            block_gate(
+                step,
+                "retro requires governance records seeded for this workflow step.",
+                payload={},
+            )
+        metadata = {
+            **step["metadata"],
+            "gateState": "retro_recorded",
+            "advancedAt": utc_now(),
+        }
+        updated = repo.update_workflow_step(
+            step_id,
+            status="completed",
+            metadata=metadata,
+            output={"advanced": True, "reason": reason},
+        )
+        record_gate_result(updated, suffix="advanced", payload={"reason": reason})
+        return {"workflowStep": updated, "advanced": True, "gateState": metadata["gateState"], "reason": reason}
 
     @router.post("/api/v1/workflows/{workflow_id}/pause", status_code=202, response_model=WorkflowResponse)
     async def pause_workflow(workflow_id: str, body: WorkflowStatusChangeRequest, request: Request) -> dict[str, Any]:

@@ -3,9 +3,8 @@ import { expect, test } from '@playwright/test';
 async function createApprovalJob(page) {
 	const handshake = await page.request.get('/api/v1/security/handshake');
 	const { token } = await handshake.json();
-	const projectsResponse = await page.request.get('/api/v1/projects');
-	const { projects } = await projectsResponse.json();
-	const projectId = projects[0].id;
+	const project = await getActiveProject(page);
+	const projectId = project.id;
 
 	await page.request.post('/api/v1/jobs', {
 		headers: { 'X-Local-Control-Token': token },
@@ -25,9 +24,8 @@ async function createApprovalJob(page) {
 async function createWorkflowEvidence(page) {
 	const handshake = await page.request.get('/api/v1/security/handshake');
 	const { token } = await handshake.json();
-	const projectsResponse = await page.request.get('/api/v1/projects');
-	const { projects } = await projectsResponse.json();
-	const projectId = projects[0].id;
+	const project = await getActiveProject(page);
+	const projectId = project.id;
 	const workflowResponse = await page.request.post('/api/v1/workflows', {
 		headers: { 'X-Local-Control-Token': token },
 		data: {
@@ -82,9 +80,8 @@ async function createWorkflowEvidence(page) {
 async function createGovernanceState(page) {
 	const handshake = await page.request.get('/api/v1/security/handshake');
 	const { token } = await handshake.json();
-	const projectsResponse = await page.request.get('/api/v1/projects');
-	const { projects } = await projectsResponse.json();
-	const projectId = projects[0].id;
+	const project = await getActiveProject(page);
+	const projectId = project.id;
 	const suffix = Date.now();
 	const riskTitle = `Policy bypass risk ${suffix}`;
 	const nextStepTitle = `Tighten approval telemetry ${suffix}`;
@@ -132,9 +129,7 @@ async function createGovernanceState(page) {
 async function createRuntimeTrace(page, workflowRunId) {
 	const handshake = await page.request.get('/api/v1/security/handshake');
 	const { token } = await handshake.json();
-	const projectsResponse = await page.request.get('/api/v1/projects');
-	const { projects } = await projectsResponse.json();
-	const project = projects[0];
+	const project = await getActiveProject(page);
 	const profileId = `web-cli-${Date.now()}`;
 
 	await page.request.post('/api/v1/agent-profiles', {
@@ -170,12 +165,76 @@ async function createRuntimeTrace(page, workflowRunId) {
 	});
 }
 
+async function expectWheelOptionsNotToOverlap(page) {
+	const failures = await page.locator('[role="group"][aria-label$="navigation wheel"]').evaluateAll((groups) => {
+		const results = [];
+		for (const group of groups) {
+			const groupName = group.getAttribute('aria-label') || 'wheel';
+			const buttons = Array.from(group.querySelectorAll('.wheel-option'));
+			const boxes = buttons.map((button) => {
+				const rect = button.getBoundingClientRect();
+				const label = button.getAttribute('aria-label') || button.textContent?.trim() || 'option';
+				return { label, x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+			});
+			for (const box of boxes) {
+				if (box.width < 44 || box.height < 44) {
+					results.push(`${groupName}: ${box.label} target ${box.width.toFixed(1)}x${box.height.toFixed(1)}`);
+				}
+			}
+			for (let index = 0; index < boxes.length; index += 1) {
+				for (let otherIndex = index + 1; otherIndex < boxes.length; otherIndex += 1) {
+					const first = boxes[index];
+					const second = boxes[otherIndex];
+					const overlapX = Math.min(first.x + first.width, second.x + second.width) - Math.max(first.x, second.x);
+					const overlapY = Math.min(first.y + first.height, second.y + second.height) - Math.max(first.y, second.y);
+					if (overlapX > 1 && overlapY > 1) {
+						results.push(`${groupName}: ${first.label} <> ${second.label} overlap ${overlapX.toFixed(1)}x${overlapY.toFixed(1)}`);
+					}
+				}
+			}
+		}
+		return results;
+	});
+	expect(failures).toEqual([]);
+}
+
+async function getWriteToken(page) {
+	const handshake = await page.request.get('/api/v1/security/handshake');
+	const { token } = await handshake.json();
+	return token;
+}
+
+async function getActiveProject(page) {
+	const projectsResponse = await page.request.get('/api/v1/projects');
+	const { projects } = await projectsResponse.json();
+	const project = projects.find((item) => item.status === 'active');
+	expect(project).toBeTruthy();
+	return project;
+}
+
+async function createWebProject(page, overrides = {}) {
+	const token = await getWriteToken(page);
+	const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+	const body = {
+		name: `Web Project ${suffix}`,
+		path: `./.tmp/web-project-${suffix}`,
+		templateId: 'other',
+		createDirectory: true,
+		...overrides,
+	};
+	const response = await page.request.post('/api/v1/projects', {
+		headers: { 'X-Local-Control-Token': token },
+		data: body,
+	});
+	expect(response.status()).toBe(201);
+	return (await response.json()).project;
+}
+
 async function createModelGatewayTrace(page) {
 	const handshake = await page.request.get('/api/v1/security/handshake');
 	const { token } = await handshake.json();
-	const projectsResponse = await page.request.get('/api/v1/projects');
-	const { projects } = await projectsResponse.json();
-	const projectId = projects[0].id;
+	const project = await getActiveProject(page);
+	const projectId = project.id;
 	const profileId = `web-mock-${Date.now()}`;
 
 	await page.request.post('/api/v1/agent-profiles', {
@@ -214,9 +273,354 @@ async function createModelGatewayTrace(page) {
 	});
 }
 
+test('Active Projects shows only active projects and ignores stale selected project storage', async ({ page }) => {
+	const overviewResponse = await page.request.get('/api/v1/overview');
+	const overview = await overviewResponse.json();
+	const base = overview.projects[0];
+	const inactiveProject = {
+		...base,
+		id: 'project-web-inactive',
+		name: 'Dormant Project',
+		path: `${base.path}-inactive`,
+		status: 'archived',
+	};
+	const activeProject = {
+		...base,
+		id: 'project-web-active',
+		name: 'Active Ledger Project',
+		path: `${base.path}-active`,
+		status: 'active',
+	};
+	await page.route('/api/v1/overview', async (route) => {
+		await route.fulfill({ json: { ...overview, projects: [inactiveProject, activeProject], runtimeWorkspaces: [] } });
+	});
+	await page.route('/api/v1/events', (route) => route.abort());
+	await page.addInitScript(() => window.localStorage.setItem('aido:selectedProjectId', 'project-web-inactive'));
+
+	await page.goto('/');
+
+	await expect(page.getByRole('heading', { name: 'Active Projects' })).toBeVisible();
+	await expect(page.getByText('Active Ledger Project').first()).toBeVisible();
+	await expect(page.getByText('Dormant Project')).toBeHidden();
+});
+
+test('Settings owns selected project and persists it across reloads', async ({ page }) => {
+	const project = await createWebProject(page, { name: `Settings Selected ${Date.now()}` });
+
+	await page.goto('/#settings');
+	await page.getByRole('button', { name: 'Settings', exact: true }).click();
+	await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
+	await page.getByLabel('Operational project').selectOption(project.id);
+	await page.reload();
+
+	await expect(page.getByLabel('Operational project')).toHaveValue(project.id);
+	await page.getByRole('button', { name: 'Command Center' }).click();
+	await expect(page.getByText(project.name).first()).toBeVisible();
+});
+
+test('New Project wizard validates input creates project and selects it', async ({ page }) => {
+	const suffix = Date.now();
+	const projectName = `Wizard Project ${suffix}`;
+	const workspaceBasePath = './.tmp';
+	const projectDirectoryName = `wizard-project-${suffix}`;
+
+	await page.goto('/#settings');
+	await page.getByRole('button', { name: 'Settings', exact: true }).click();
+	await page.getByRole('button', { name: 'New project' }).click();
+	await page.getByRole('button', { name: 'Create from zero' }).click();
+
+	await page.getByRole('button', { name: 'Next' }).click();
+	await expect(page.getByText('Project name is required.')).toBeVisible();
+	await page.getByLabel('Project name').fill(projectName);
+	await page.getByRole('button', { name: 'Next' }).click();
+	await expect(page.getByText('Workspace base path is required.')).toBeVisible();
+	await page.getByLabel('Workspace base path').fill(workspaceBasePath);
+	await page.getByLabel('Workspace name').fill(projectDirectoryName);
+	await expect(page.getByText(`Final path: ${workspaceBasePath}/${projectDirectoryName}`)).toBeVisible();
+	await page.getByRole('button', { name: 'Next' }).click();
+	await page.getByLabel('Project template').selectOption('python-fastapi');
+	await page.getByRole('button', { name: 'Next' }).click();
+	await page.getByLabel('Create directory').check();
+	await page.getByRole('button', { name: 'Next' }).click();
+	await page.getByRole('button', { name: 'Create workspace' }).click();
+
+	await expect(page.getByLabel('Operational project')).toHaveValue(/project-/);
+	await expect(page.getByText(projectName).first()).toBeVisible();
+	const projectsResponse = await page.request.get('/api/v1/projects');
+	const { projects } = await projectsResponse.json();
+	const created = projects.find((item) => item.name === projectName);
+	expect(created.templateId).toBe('python-fastapi');
+	expect(created.status).toBe('active');
+	expect(created.path.endsWith(projectDirectoryName)).toBe(true);
+	expect(created.metadata.workspaceBasePath).toBe('.tmp');
+	expect(created.metadata.projectDirectoryName).toBe(projectDirectoryName);
+	expect(created.metadata.creationMode).toBe('new_under_workspace');
+	expect(created.metadata.workspaceFlow).toBe('create_from_zero');
+});
+
+test('New Project wizard exposes attach existing mode and discovery controls', async ({ page }) => {
+	await page.goto('/#settings');
+	await page.getByRole('button', { name: 'Settings', exact: true }).click();
+	await page.getByRole('button', { name: 'New project' }).click();
+
+	await expect(page.getByRole('button', { name: 'Import existing workspace' })).toHaveAttribute('aria-pressed', 'true');
+	await expect(page.getByLabel('Workspace folder')).toBeVisible();
+	await page.getByRole('button', { name: 'Create from zero' }).click();
+	await expect(page.getByLabel('Workspace base path')).toBeVisible();
+	await page.getByRole('button', { name: 'Import existing workspace' }).click();
+
+	await expect(page.getByLabel('Workspace folder')).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Select folder' }).first()).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Detect technologies' })).toBeVisible();
+});
+
+test('Workspaces shows allocated workspaces without the project catalog', async ({ page }) => {
+	await page.goto('/#workspaces');
+	await page.getByRole('button', { name: 'Workspaces' }).click();
+
+	await expect(page.getByRole('heading', { name: 'Workspaces', exact: true })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Allocated workspaces' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Projects' })).toHaveCount(0);
+});
+
+test('radial navigation keeps every wheel visible when a module is focused', async ({ page }) => {
+	await page.goto('/');
+
+	const projectWheel = page.getByRole('group', { name: 'Project navigation wheel' });
+	const commandWheel = page.getByRole('group', { name: 'Command center navigation wheel' });
+	const settingsWheel = page.getByRole('group', { name: 'Settings navigation wheel' });
+
+	await expect(projectWheel).toBeVisible();
+	await expect(commandWheel).toBeVisible();
+	await expect(settingsWheel).toBeVisible();
+	await expect(projectWheel.getByRole('button', { name: 'Active' })).toBeVisible();
+	await expect(projectWheel.getByRole('button', { name: 'Finished' })).toBeVisible();
+	await expect(projectWheel.getByRole('button', { name: 'With error' })).toBeVisible();
+	await expect(projectWheel.getByRole('button', { name: 'Cancelled' })).toBeVisible();
+
+	await page.getByRole('button', { name: 'Settings', exact: true }).click();
+
+	await expect(projectWheel).toBeVisible();
+	await expect(commandWheel).toBeVisible();
+	await expect(settingsWheel).toBeVisible();
+	await expect(commandWheel.getByRole('button', { name: 'Execute' })).toBeVisible();
+	await expect(commandWheel.getByRole('button', { name: 'Guard' })).toBeVisible();
+	await expect(settingsWheel.getByRole('button', { name: 'User settings' })).toBeVisible();
+	await expect(settingsWheel.getByRole('button', { name: 'Defaults' })).toBeVisible();
+});
+
+test('radial navigation grows with option count and renders detail below the wheel', async ({ page }) => {
+	await page.goto('/');
+	const settingsWheel = page.getByRole('group', { name: 'Settings navigation wheel' });
+	const projectWheel = page.getByRole('group', { name: 'Project navigation wheel' });
+
+	const settingsCount = Number(await settingsWheel.getAttribute('data-option-count'));
+	const projectCount = Number(await projectWheel.getAttribute('data-option-count'));
+	expect(settingsCount).toBeGreaterThan(projectCount);
+
+	await settingsWheel.getByRole('button', { name: 'CLI settings' }).click();
+	const wheelBox = await settingsWheel.locator('.rotary-wheel').boundingBox();
+	const detailBox = await settingsWheel.locator('.wheel-detail').boundingBox();
+	expect(wheelBox).toBeTruthy();
+	expect(detailBox).toBeTruthy();
+	expect(detailBox.y).toBeGreaterThan(wheelBox.y + wheelBox.height * 0.88);
+	await expect(settingsWheel.locator('.wheel-detail')).toContainText('Terminal and local shell');
+});
+
+test('radial wheel options do not collide and keep touch-safe targets', async ({ page }) => {
+	await page.goto('/');
+	await expectWheelOptionsNotToOverlap(page);
+
+	for (const groupName of ['Project navigation wheel', 'Command center navigation wheel', 'Settings navigation wheel']) {
+		const wheel = page.getByRole('group', { name: groupName });
+		const optionNames = await wheel.locator('.wheel-option').evaluateAll((buttons) =>
+			buttons.map((button) => button.getAttribute('aria-label') || button.textContent?.trim() || ''),
+		);
+		for (const optionName of optionNames) {
+			await wheel.getByRole('button', { name: optionName, exact: true }).click();
+			await expectWheelOptionsNotToOverlap(page);
+		}
+	}
+});
+
+test('Open Design shell uses dark futuristic surfaces and rotary hardware', async ({ page }) => {
+	await page.goto('/');
+
+	const shell = await page.evaluate(() => {
+		const htmlStyle = window.getComputedStyle(document.documentElement);
+		const bodyStyle = window.getComputedStyle(document.body);
+		const mainStyle = window.getComputedStyle(document.querySelector('.main-area'));
+		const colorValue = (value) => value.match(/\d+(\.\d+)?/g)?.slice(0, 3).map(Number) ?? [255, 255, 255];
+		const luminance = ([red, green, blue]) => 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+		return {
+			colorScheme: htmlStyle.colorScheme,
+			bodyLuminance: luminance(colorValue(bodyStyle.backgroundColor)),
+			mainLuminance: luminance(colorValue(mainStyle.backgroundColor)),
+		};
+	});
+	expect(shell.colorScheme).toContain('dark');
+	expect(shell.bodyLuminance).toBeLessThan(70);
+	expect(shell.mainLuminance).toBeLessThan(70);
+
+	await expect(page.locator('.rotor-ring')).toHaveCount(3);
+	await expect(page.locator('.finger-stop')).toHaveCount(3);
+	await expect(page.locator('.console-grid')).toBeVisible();
+});
+
+test('Settings wheel exposes workspaces and command wheel exposes history from the Open Design flow', async ({ page }) => {
+	await page.goto('/');
+	const commandWheel = page.getByRole('group', { name: 'Command center navigation wheel' });
+	const settingsWheel = page.getByRole('group', { name: 'Settings navigation wheel' });
+
+	await expect(commandWheel.getByRole('button', { name: 'History' })).toBeVisible();
+	await commandWheel.getByRole('button', { name: 'History' }).click();
+	await expect(page.getByRole('heading', { name: 'Audit Log' })).toBeVisible();
+	await expect(commandWheel.locator('.wheel-detail')).toContainText('Recent executions');
+
+	await expect(settingsWheel.getByRole('button', { name: 'Workspace settings' })).toBeVisible();
+	await settingsWheel.getByRole('button', { name: 'Workspace settings' }).click();
+	await expect(page.getByRole('heading', { name: 'Settings Workspaces' })).toBeVisible();
+	await expect(page.getByText('IDE-style workspace roots')).toBeVisible();
+});
+
+test('navigation groups projects and settings with an ES EN header language control', async ({ page }) => {
+	await page.goto('/');
+
+	await expect(page.getByRole('button', { name: 'Projects' })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Active' })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Finished' })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'With error' })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Cancelled' })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Command Center' })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Settings', exact: true })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'User settings' })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'CLI settings' })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'API settings' })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Parameters' })).toBeVisible();
+
+	await page.getByRole('button', { name: 'ES', exact: true }).click();
+
+	await expect(page.getByRole('button', { name: 'Proyectos' })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Activos' })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Finalizados' })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Con error' })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Cancelados' })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Centro de comandos' })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Configuraciones', exact: true })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Configuraciones de usuario' })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Configuracion de cli' })).toBeVisible();
+	await expect(page.getByRole('button', { name: "Configuracion de api's" })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Configuraciones de parametros' })).toBeVisible();
+});
+
+test('language control localizes Settings and New Project wizard chrome', async ({ page }) => {
+	await page.goto('/#settings');
+	await page.getByRole('button', { name: 'ES', exact: true }).click();
+
+	await expect(page.locator('html')).toHaveAttribute('lang', 'es');
+	await expect(page.getByRole('heading', { name: 'Configuraciones' })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Nuevo proyecto' })).toBeVisible();
+
+	await page.getByRole('button', { name: 'Nuevo proyecto' }).click();
+	await expect(page.getByRole('button', { name: 'Importar workspace existente' })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Crear desde cero' })).toBeVisible();
+	await page.getByRole('button', { name: 'Siguiente' }).click();
+	await expect(page.getByText('El nombre del proyecto es obligatorio.')).toBeVisible();
+
+	await page.getByRole('button', { name: 'EN', exact: true }).click();
+	await expect(page.locator('html')).toHaveAttribute('lang', 'en');
+	await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
+});
+
+test('language control localizes catalog-backed operational surfaces', async ({ page }) => {
+	await page.goto('/#command');
+	await expect(page.getByRole('heading', { name: 'Command Center' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Workflow intake' })).toBeVisible();
+
+	await page.getByRole('button', { name: 'ES', exact: true }).click();
+
+	await expect(page.locator('html')).toHaveAttribute('lang', 'es');
+	await expect(page.getByRole('heading', { name: 'Centro de comandos' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Ingreso de workflow' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Workflow intake' })).toHaveCount(0);
+
+	await page.getByRole('button', { name: 'EN', exact: true }).click();
+	await expect(page.locator('html')).toHaveAttribute('lang', 'en');
+	await expect(page.getByRole('heading', { name: 'Workflow intake' })).toBeVisible();
+});
+
+test('New Project wizard uses IDE workspace import and blocks duplicate workspace names', async ({ page }) => {
+	const existing = await getActiveProject(page);
+
+	await page.goto('/#settings');
+	await page.getByRole('button', { name: 'Settings', exact: true }).click();
+	await page.getByRole('button', { name: 'New project' }).click();
+
+	await expect(page.getByRole('button', { name: 'Import existing workspace' })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Create from zero' })).toBeVisible();
+	await expect(page.getByLabel('Workspace folder')).toBeVisible();
+	await expect(page.getByText('package.json')).toBeVisible();
+	await expect(page.getByText('pom.xml')).toBeVisible();
+	await expect(page.getByText('pyproject.toml')).toBeVisible();
+
+	await page.getByRole('button', { name: 'Create from zero' }).click();
+	await page.getByLabel('Workspace name').fill(existing.name);
+
+	await expect(page.getByText('Workspace name already exists.')).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Next' })).toBeDisabled();
+});
+
+test('project status navigation filters finished error and cancelled projects', async ({ page }) => {
+	const overviewResponse = await page.request.get('/api/v1/overview');
+	const overview = await overviewResponse.json();
+	const base = overview.projects[0];
+	const projects = [
+		{ ...base, id: 'project-status-active', name: 'Status Active Project', path: `${base.path}-active`, status: 'active' },
+		{ ...base, id: 'project-status-finished', name: 'Status Finished Project', path: `${base.path}-finished`, status: 'completed' },
+		{ ...base, id: 'project-status-error', name: 'Status Error Project', path: `${base.path}-error`, status: 'failed' },
+		{ ...base, id: 'project-status-cancelled', name: 'Status Cancelled Project', path: `${base.path}-cancelled`, status: 'cancelled' },
+	];
+	await page.route('/api/v1/overview', async (route) => {
+		await route.fulfill({ json: { ...overview, projects } });
+	});
+	await page.route('/api/v1/events', (route) => route.abort());
+
+	await page.goto('/#projects-finished');
+	await expect(page.getByRole('heading', { name: 'Finished Projects' })).toBeVisible();
+	await expect(page.getByRole('table').getByText('Status Finished Project')).toBeVisible();
+	await expect(page.getByRole('table').getByText('Status Active Project')).toBeHidden();
+
+	await page.getByRole('button', { name: 'With error' }).click();
+	await expect(page.getByRole('heading', { name: 'Projects With Error' })).toBeVisible();
+	await expect(page.getByRole('table').getByText('Status Error Project')).toBeVisible();
+	await expect(page.getByRole('table').getByText('Status Finished Project')).toBeHidden();
+
+	await page.getByRole('button', { name: 'Cancelled' }).click();
+	await expect(page.getByRole('heading', { name: 'Cancelled Projects' })).toBeVisible();
+	await expect(page.getByRole('table').getByText('Status Cancelled Project')).toBeVisible();
+	await expect(page.getByRole('table').getByText('Status Error Project')).toBeHidden();
+});
+
+test('settings separates configuration types and keeps defaults collapsed', async ({ page }) => {
+	await page.goto('/#settings-cli');
+
+	await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'User settings' })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'CLI settings' })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'API settings' })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Parameters' })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Mantenedores' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'CLI configuration' })).toBeVisible();
+	await expect(page.getByText('PNPM package manager')).toBeVisible();
+	await expect(page.getByText('Backend: FastAPI v1')).toBeHidden();
+
+	await page.getByRole('button', { name: 'Default configurations' }).click();
+	await expect(page.getByText('Backend: FastAPI v1')).toBeVisible();
+});
+
 test('shell renders the editorial control plane', async ({ page }) => {
 	await page.goto('/');
-	await expect(page.getByRole('heading', { name: 'AIDO control plane' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Active Projects' })).toBeVisible();
 	await expect(page.getByRole('button', { name: 'Jobs & Approvals' })).toBeVisible();
 	await expect(page.getByText('AIDO Control Center')).toBeVisible();
 });
@@ -481,6 +885,8 @@ test('Model Gateway route preview submits mock request without exposing credenti
 	await page.getByRole('button', { name: 'Preview route' }).click();
 
 	await expect(page.getByText('Selected route')).toBeVisible();
+	await expect(page.getByText('Budget result')).toBeVisible();
+	await expect(page.getByText('Quota result')).toBeVisible();
 	await expect(page.getByText('nvidia_nim').first()).toBeVisible();
 	await expect(page.locator('body')).not.toContainText('sk-');
 });

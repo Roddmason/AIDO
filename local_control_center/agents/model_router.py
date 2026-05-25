@@ -5,6 +5,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from .budget_rules import BudgetRuleEvaluator
+from .model_benchmarks import ModelBenchmarkStore
 from .pricing_catalog import PricingCatalog
 from .provider_accounts import ProviderAccountStore
 from .quota_manager import QuotaManager
@@ -14,6 +16,7 @@ from .routing_profiles import RoutingProfileStore
 REMOTE_PROVIDER_TYPES = {"api", "gateway"}
 LOCAL_PROVIDER_TYPES = {"local"}
 CLI_PROVIDER_TYPES = {"cli"}
+MIN_BENCHMARK_SAMPLES = 5
 
 
 class RoutingRequest(BaseModel):
@@ -50,6 +53,8 @@ class ModelRouter:
         self.routes = RoutingProfileStore(connection)
         self.pricing = PricingCatalog(connection)
         self.quota = QuotaManager(connection)
+        self.budgets = BudgetRuleEvaluator(connection)
+        self.benchmarks = ModelBenchmarkStore(connection)
 
     def preview(self, request: RoutingRequest, *, record: bool = True) -> dict[str, Any]:
         providers = {item["providerId"]: item for item in self.providers.list_provider_accounts()}
@@ -66,6 +71,7 @@ class ModelRouter:
             ordered_preferences = [*escalation, *preferred, *fallback]
         else:
             ordered_preferences = [*preferred, *fallback, *escalation]
+        benchmark_index = self._benchmark_index(request.role)
 
         preferred_rank = {
             (item.get("provider"), item.get("model", "auto")): index
@@ -75,6 +81,19 @@ class ModelRouter:
         candidates: list[dict[str, Any]] = []
         rejected: list[dict[str, Any]] = []
         selected: dict[str, Any] | None = None
+        selected_budget_result: dict[str, Any] | None = None
+        selected_quota_result: dict[str, Any] | None = None
+        last_budget_result: dict[str, Any] = {
+            "allowed": True,
+            "action": "allow",
+            "reason": "within_budget",
+            "requiresApproval": False,
+        }
+        last_quota_result: dict[str, Any] = {
+            "allowed": True,
+            "reason": "no_limit",
+            "quotaPressure": 0.0,
+        }
 
         for model in models:
             provider = providers.get(model["providerId"])
@@ -86,22 +105,49 @@ class ModelRouter:
                 rejected.append({"provider": provider["providerId"], "model": model["model"], "runtime": self._runtime_type(provider), "reason": reason})
                 continue
             estimate = self._estimate(request, provider, model)
-            if request.budget_remaining_usd is not None and estimate["cost"] is not None and estimate["cost"] > request.budget_remaining_usd:
-                rejected.append({"provider": provider["providerId"], "model": model["model"], "runtime": self._runtime_type(provider), "reason": "budget_exceeded"})
+            budget = self.budgets.evaluate(
+                role=request.role,
+                provider_id=provider["providerId"],
+                agent_id=request.agent_id,
+                workflow_run_id=request.workflow_run_id,
+                estimated_cost_usd=estimate["cost"],
+                estimated_tokens=request.context_tokens_estimate,
+                budget_remaining_usd=request.budget_remaining_usd,
+            )
+            last_budget_result = budget.as_dict()
+            if not budget.allowed:
+                rejected.append({"provider": provider["providerId"], "model": model["model"], "runtime": self._runtime_type(provider), "reason": budget.reason})
                 continue
             quota = self.quota.check(provider_id=provider["providerId"], model=model["model"], request_tokens=request.context_tokens_estimate)
+            last_quota_result = quota.as_dict()
             if not quota.allowed:
                 rejected.append({"provider": provider["providerId"], "model": model["model"], "runtime": self._runtime_type(provider), "reason": quota.reason})
                 continue
-            score_breakdown = self._score(request, role_policy, provider, model, preferred_rank, estimate["cost"])
+            score_breakdown = self._score(
+                request,
+                role_policy,
+                provider,
+                model,
+                preferred_rank,
+                estimate["cost"],
+                estimate,
+                self._benchmark_for(benchmark_index, provider["providerId"], model["model"]),
+                quota.quota_pressure,
+            )
             candidate = {
                 "provider": provider["providerId"],
                 "model": model["model"],
                 "runtime": self._runtime_type(provider),
                 "effort": self._effort_for(request, provider, model, ordered_preferences),
                 "estimatedCostUsd": estimate["cost"],
+                "pricingSource": estimate["source"],
+                "pricingStaleness": estimate["staleness"],
+                "priceKnown": estimate["priceKnown"],
+                "freeTier": estimate["freeTier"],
                 "score": score_breakdown["score"],
                 "scoreBreakdown": score_breakdown,
+                "_budgetResult": budget.as_dict(),
+                "_quotaResult": quota.as_dict(),
             }
             candidates.append(candidate)
 
@@ -118,6 +164,9 @@ class ModelRouter:
             )
         if selected is None and candidates:
             selected = sorted(candidates, key=lambda item: item["score"], reverse=True)[0]
+        if selected:
+            selected_budget_result = selected.get("_budgetResult") or last_budget_result
+            selected_quota_result = selected.get("_quotaResult") or last_quota_result
 
         estimated_cost = selected.get("estimatedCostUsd") if selected else None
         approval_threshold = role_policy.get("requiresApprovalOverUsd")
@@ -130,6 +179,8 @@ class ModelRouter:
             and float(estimated_cost) > float(approval_threshold)
         )
         if selected and selected.get("effort") in {"xhigh", "max"} and role_policy.get("requiresApprovalForReasoningMax"):
+            requires_approval = True
+        if selected_budget_result and selected_budget_result.get("requiresApproval"):
             requires_approval = True
 
         result = {
@@ -152,7 +203,11 @@ class ModelRouter:
                 "rolePolicyId": role_policy["id"],
                 "maxCostPerTaskUsd": role_policy.get("maxCostPerTaskUsd"),
             },
+            "budgetResult": selected_budget_result or last_budget_result,
+            "quotaResult": selected_quota_result or last_quota_result,
         }
+        result["policyResult"]["budgetResult"] = result["budgetResult"]
+        result["policyResult"]["quotaResult"] = result["quotaResult"]
         if record:
             self.routes.record_routing_decision(
                 {
@@ -188,6 +243,8 @@ class ModelRouter:
     ) -> str | None:
         provider_type = provider["providerType"]
         runtime_type = self._runtime_type(provider)
+        if self._blocked_by_role_policy(role_policy.get("blocked") or [], provider, model):
+            return "role_blocks_candidate"
         if provider_type == "manual" and request.mode != "manual_by_profile":
             return "manual_requires_manual_mode"
         if not provider["enabled"]:
@@ -225,6 +282,22 @@ class ModelRouter:
             return "manual_provider_mismatch"
         return None
 
+    def _blocked_by_role_policy(
+        self,
+        blocked: list[dict[str, Any]],
+        provider: dict[str, Any],
+        model: dict[str, Any],
+    ) -> bool:
+        for item in blocked:
+            item_provider = item.get("provider")
+            item_model = item.get("model")
+            if item_provider not in {None, "*", provider["providerId"]}:
+                continue
+            if item_model not in {None, "*", "auto", model["model"]}:
+                continue
+            return True
+        return False
+
     def _runtime_type(self, provider: dict[str, Any]) -> str:
         provider_type = provider["providerType"]
         if provider_type == "cli":
@@ -241,14 +314,20 @@ class ModelRouter:
         input_tokens = request.context_tokens_estimate
         output_tokens = min(max(int(input_tokens * 0.1), 512), model["maxOutputTokens"] or 4096)
         reasoning_tokens = int(output_tokens * 0.5) if request.requires_reasoning else 0
-        cost, source = self.pricing.estimate_cost(
+        pricing = self.pricing.estimate(
             provider_id=provider["providerId"],
             model=model["model"],
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             reasoning_tokens=reasoning_tokens,
         )
-        return {"cost": cost, "source": source}
+        return {
+            "cost": pricing["estimatedCostUsd"],
+            "source": pricing["source"],
+            "staleness": pricing["staleness"],
+            "priceKnown": pricing["priceKnown"],
+            "freeTier": pricing["freeTier"],
+        }
 
     def _score(
         self,
@@ -258,6 +337,9 @@ class ModelRouter:
         model: dict[str, Any],
         preferred_rank: dict[tuple[Any, Any], int],
         estimated_cost: float | None,
+        estimate: dict[str, Any],
+        benchmark: dict[str, Any] | None,
+        quota_pressure: float = 0.0,
     ) -> dict[str, float]:
         runtime = self._runtime_type(provider)
         capability_score = 1.0
@@ -275,8 +357,12 @@ class ModelRouter:
         reliability_score = 1.0 if provider["healthStatus"] == "healthy" else 0.65
         context_fit_score = 1.0 if not model["contextWindow"] else min(1.0, model["contextWindow"] / max(request.context_tokens_estimate, 1))
         tool_fit_score = 1.0 if not request.requires_tools or runtime == "cli" or model["supportsTools"] else 0.2
-        cost_penalty = min((estimated_cost or 0) / max(float(role_policy.get("maxCostPerTaskUsd") or 1), 0.01), 3.0)
-        quota_pressure = 0.0
+        if estimate.get("freeTier"):
+            cost_penalty = 0.0
+        elif estimated_cost is None:
+            cost_penalty = 1.0
+        else:
+            cost_penalty = min(estimated_cost / max(float(role_policy.get("maxCostPerTaskUsd") or 1), 0.01), 3.0)
         latency_penalty = 0.1 if runtime == "cli" else 0.0
         privacy_penalty = 0.0
         if request.privacy_level == "sensitive" and provider["providerType"] in REMOTE_PROVIDER_TYPES:
@@ -298,6 +384,8 @@ class ModelRouter:
             score += 0.2
         if runtime == "cli" and request.role in {"developer", "technical_lead"}:
             score += 0.2
+        benchmark_breakdown = self._benchmark_score(benchmark)
+        score += benchmark_breakdown["benchmarkContribution"]
         return {
             "score": round(score, 6),
             "capabilityScore": capability_score,
@@ -309,6 +397,50 @@ class ModelRouter:
             "quotaPressure": quota_pressure,
             "latencyPenalty": latency_penalty,
             "privacyPenalty": privacy_penalty,
+            "priceKnown": 1.0 if estimate.get("priceKnown") else 0.0,
+            "freeTier": 1.0 if estimate.get("freeTier") else 0.0,
+            **benchmark_breakdown,
+        }
+
+    def _benchmark_index(self, role: str) -> dict[tuple[str, str, str], dict[str, Any]]:
+        index: dict[tuple[str, str, str], dict[str, Any]] = {}
+        for item in self.benchmarks.list_benchmarks():
+            item_role = str(item.get("role") or "*")
+            if item_role not in {role, "*"}:
+                continue
+            index[(str(item["providerId"]), str(item["model"]), item_role)] = item
+        return index
+
+    def _benchmark_for(
+        self,
+        index: dict[tuple[str, str, str], dict[str, Any]],
+        provider_id: str,
+        model: str,
+    ) -> dict[str, Any] | None:
+        return index.get((provider_id, model, "*")) or next(
+            (item for key, item in index.items() if key[0] == provider_id and key[1] == model),
+            None,
+        )
+
+    def _benchmark_score(self, benchmark: dict[str, Any] | None) -> dict[str, float]:
+        sample_count = int((benchmark or {}).get("tasksAttempted") or 0)
+        insufficient = 1.0 if sample_count < MIN_BENCHMARK_SAMPLES or not benchmark else 0.0
+        if insufficient:
+            return {
+                "benchmarkSampleCount": float(sample_count),
+                "benchmarkInsufficientData": 1.0,
+                "benchmarkScore": 0.0,
+                "benchmarkContribution": 0.0,
+            }
+        success = float(benchmark.get("successRate") if benchmark.get("successRate") is not None else 0.5)
+        qa_pass = float(benchmark.get("qaPassRate") if benchmark.get("qaPassRate") is not None else 0.5)
+        rework = float(benchmark.get("reworkRate") if benchmark.get("reworkRate") is not None else 0.5)
+        benchmark_score = max(0.0, min((success * 0.45) + (qa_pass * 0.35) + ((1.0 - rework) * 0.20), 1.0))
+        return {
+            "benchmarkSampleCount": float(sample_count),
+            "benchmarkInsufficientData": 0.0,
+            "benchmarkScore": round(benchmark_score, 6),
+            "benchmarkContribution": round(benchmark_score * 0.10, 6),
         }
 
     def _effort_for(

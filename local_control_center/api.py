@@ -17,6 +17,7 @@ from .control_plane.overview import build_overview_from_connection
 from .evidence.api import create_router as create_evidence_router
 from .governance.api import create_router as create_governance_router
 from .integrations.api import create_router as create_integrations_router
+from .i18n.api import create_router as create_i18n_router
 from .jobs_approvals.api import create_router as create_jobs_approvals_router
 from .memory_retrieval.api import create_router as create_memory_retrieval_router
 from .pipelines.api import create_router as create_pipelines_router
@@ -96,6 +97,7 @@ def create_app(
     app.include_router(create_integrations_router(platform=platform, require_write=require_write))
     app.include_router(create_prompts_router(platform=platform, require_write=require_write))
     app.include_router(create_projects_router(platform=platform, require_write=require_write))
+    app.include_router(create_i18n_router(platform=platform, require_write=require_write))
 
     def snapshot_overview() -> dict[str, Any]:
         connection = open_sqlite_connection(platform.db_path)

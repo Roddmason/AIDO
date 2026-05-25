@@ -1,26 +1,28 @@
 :root {
-	color-scheme: light;
+	color-scheme: dark;
 	--font-display: "Bahnschrift", "Aptos Display", "Segoe UI", sans-serif;
 	--font-ui: "Aptos", "Segoe UI", system-ui, sans-serif;
 	--font-data: "Cascadia Code", "Consolas", monospace;
 
-	--surface-page: oklch(95% 0.009 88);
-	--surface-rail: oklch(19% 0.016 82);
-	--surface-main: oklch(98% 0.006 88);
-	--surface-panel: oklch(97% 0.008 88);
-	--surface-panel-strong: oklch(92% 0.012 86);
-	--ink: oklch(19% 0.012 74);
-	--ink-soft: oklch(35% 0.014 74);
-	--ink-muted: oklch(50% 0.011 74);
-	--rail-ink: oklch(93% 0.01 88);
-	--line: oklch(78% 0.015 82);
-	--line-strong: oklch(55% 0.018 78);
-	--moss: oklch(45% 0.08 145);
-	--amber: oklch(62% 0.12 78);
-	--oxblood: oklch(38% 0.1 29);
-	--blueprint: oklch(43% 0.055 240);
-	--steel: oklch(44% 0.025 235);
-	--focus: oklch(58% 0.1 145);
+	--surface-page: oklch(14% 0.026 264);
+	--surface-rail: oklch(12% 0.03 264);
+	--surface-main: oklch(17% 0.027 264);
+	--surface-panel: oklch(22% 0.032 262);
+	--surface-panel-strong: oklch(27% 0.038 258);
+	--ink: oklch(94% 0.014 104);
+	--ink-soft: oklch(78% 0.024 245);
+	--ink-muted: oklch(64% 0.034 248);
+	--rail-ink: oklch(95% 0.014 104);
+	--line: oklch(36% 0.05 258);
+	--line-strong: oklch(52% 0.052 254);
+	--moss: oklch(73% 0.17 154);
+	--amber: oklch(84% 0.18 98);
+	--oxblood: oklch(62% 0.2 24);
+	--blueprint: oklch(68% 0.16 255);
+	--violet: oklch(71% 0.18 320);
+	--electric: oklch(73% 0.15 194);
+	--steel: oklch(66% 0.034 248);
+	--focus: var(--amber);
 
 	--ok: var(--moss);
 	--warn: var(--amber);
@@ -38,31 +40,21 @@
 	--radius-sm: 0.25rem;
 	--radius-md: 0.375rem;
 	--radius-lg: 0.5rem;
-	--shadow-panel: 0 1rem 2rem color-mix(in oklch, var(--ink) 12%, transparent);
-	--shadow-drawer: -1rem 0 2rem color-mix(in oklch, var(--ink) 18%, transparent);
+	--shadow-panel: 0 1.15rem 3rem color-mix(in oklch, black 28%, transparent);
+	--shadow-drawer: -1rem 0 2.5rem color-mix(in oklch, black 34%, transparent);
 	--z-drawer: 40;
 	--z-command: 50;
 }
 
-:root[data-theme="dark"] {
-	color-scheme: dark;
-	--surface-page: oklch(17% 0.012 82);
-	--surface-rail: oklch(12% 0.014 82);
-	--surface-main: oklch(20% 0.012 82);
-	--surface-panel: oklch(24% 0.014 82);
-	--surface-panel-strong: oklch(29% 0.016 82);
-	--ink: oklch(90% 0.01 88);
-	--ink-soft: oklch(75% 0.012 88);
-	--ink-muted: oklch(62% 0.012 88);
-	--rail-ink: oklch(92% 0.012 88);
-	--line: oklch(38% 0.016 82);
-	--line-strong: oklch(55% 0.02 82);
-	--moss: oklch(68% 0.095 145);
-	--amber: oklch(73% 0.13 78);
-	--oxblood: oklch(62% 0.115 29);
-	--blueprint: oklch(68% 0.065 240);
-	--steel: oklch(70% 0.026 235);
-	--focus: oklch(73% 0.1 145);
-	--shadow-panel: 0 1rem 2rem color-mix(in oklch, black 22%, transparent);
-	--shadow-drawer: -1rem 0 2rem color-mix(in oklch, black 32%, transparent);
+:root[data-theme="light"] {
+	color-scheme: light;
+	--surface-page: oklch(95% 0.014 106);
+	--surface-main: oklch(97% 0.01 106);
+	--surface-panel: oklch(99% 0.007 104);
+	--surface-panel-strong: oklch(92% 0.018 104);
+	--ink: oklch(18% 0.022 266);
+	--ink-soft: oklch(32% 0.024 266);
+	--ink-muted: oklch(48% 0.022 256);
+	--line: oklch(82% 0.021 104);
+	--line-strong: oklch(56% 0.032 258);
 }

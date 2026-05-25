@@ -3,7 +3,9 @@ from __future__ import annotations
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
+from local_control_center.shared.serialization import json_loads
 from local_control_center.shared.time import utc_now
 
 
@@ -12,6 +14,17 @@ class QuotaResult:
     allowed: bool
     reason: str
     cooldown_until: str | None = None
+    limit_id: str | None = None
+    quota_pressure: float = 0.0
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "allowed": self.allowed,
+            "reason": self.reason,
+            "cooldownUntil": self.cooldown_until,
+            "limitId": self.limit_id,
+            "quotaPressure": self.quota_pressure,
+        }
 
 
 def _parse_utc(value: str | None) -> datetime | None:
@@ -36,10 +49,35 @@ class QuotaManager:
             return QuotaResult(allowed=True, reason="no_limit")
         cooldown = _parse_utc(row["cooldown_until"])
         if cooldown and cooldown > datetime.now(timezone.utc):
-            return QuotaResult(allowed=False, reason="provider_in_cooldown", cooldown_until=row["cooldown_until"])
+            return QuotaResult(
+                allowed=False,
+                reason="provider_in_cooldown",
+                cooldown_until=row["cooldown_until"],
+                limit_id=row["id"],
+                quota_pressure=1.0,
+            )
         if row["tpm"] is not None and request_tokens > int(row["tpm"]):
-            return QuotaResult(allowed=False, reason="request_exceeds_tpm")
-        return QuotaResult(allowed=True, reason="within_limit")
+            return QuotaResult(allowed=False, reason="request_exceeds_tpm", limit_id=row["id"], quota_pressure=1.0)
+        window = json_loads(row["current_window_json"], {})
+        for limit_column, used_key, reason in (
+            ("daily_requests", "dailyRequestsUsed", "daily_request_limit_exceeded"),
+            ("monthly_requests", "monthlyRequestsUsed", "monthly_request_limit_exceeded"),
+        ):
+            limit = row[limit_column]
+            if limit is not None and int(window.get(used_key) or 0) >= int(limit):
+                return QuotaResult(allowed=False, reason=reason, limit_id=row["id"], quota_pressure=1.0)
+        for limit_column, used_key, reason in (
+            ("daily_tokens", "dailyTokensUsed", "daily_token_limit_exceeded"),
+            ("monthly_tokens", "monthlyTokensUsed", "monthly_token_limit_exceeded"),
+        ):
+            limit = row[limit_column]
+            used = int(window.get(used_key) or 0)
+            if limit is not None and used + request_tokens > int(limit):
+                return QuotaResult(allowed=False, reason=reason, limit_id=row["id"], quota_pressure=1.0)
+        pressure = 0.0
+        if row["tpm"]:
+            pressure = max(pressure, min(request_tokens / max(int(row["tpm"]), 1), 1.0))
+        return QuotaResult(allowed=True, reason="within_limit", limit_id=row["id"], quota_pressure=pressure)
 
     def record_rate_limit(self, *, provider_id: str, model: str, retry_after_seconds: int = 300) -> None:
         now = utc_now()

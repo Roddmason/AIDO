@@ -6,9 +6,9 @@ export type JsonValue = JsonPrimitive | JsonObject | JsonValue[];
 export type JsonObject = { [key: string]: JsonValue };
 
 export type ActionRequestRecord = { "actionType": string; "command": string; "decidedAt"?: null | string; "decidedBy"?: null | string; "id": string; "jobId": string; "payload": JsonObject; "projectId": string; "reason": string; "requestedAt": string; "riskLevel": string; "status": string };
-export type AgentProfileRecord = { "allowApi": boolean; "allowCli": boolean; "allowRemote": boolean; "allowedProviders": Array<string>; "allowedRuntimes": Array<string>; "allowedSkills": Array<string>; "allowedTools": Array<string>; "createdAt": string; "id": string; "maxCostPerRun": number; "maxRuntimeSeconds": number; "maxTokensPerRun": number; "memoryScope": string; "modelPolicyId"?: null | string; "name": string; "outputSchema": JsonObject; "permissionProfile": "plan" | "dev_safe" | "qa" | "release"; "qualityGates": Array<JsonValue>; "requiresApprovalOverUsd"?: null | number; "role": "analyst" | "product_owner" | "technical_lead" | "developer" | "implementer" | "qa" | "qa_reviewer" | "security_reviewer" | "release_manager"; "roleModelPolicyId"?: null | string; "routingProfileId"?: null | string; "runtimeMode": "api" | "cli" | "ollama" | "hybrid" | "manual" | "internal_mock"; "runtimeType": "api" | "cli" | "ollama" | "hybrid" | "manual" | "internal_mock"; "status": "active" | "disabled"; "updatedAt": string };
+export type AgentProfileRecord = { "allowApi": boolean; "allowCli": boolean; "allowRemote": boolean; "allowedProviders": Array<string>; "allowedRuntimes": Array<string>; "allowedSkills": Array<string>; "allowedTools": Array<string>; "createdAt": string; "id": string; "maxCostPerRun": number; "maxRuntimeSeconds": number; "maxTokensPerRun": number; "memoryScope": string; "modelPolicyId"?: null | string; "name": string; "outputSchema": JsonObject; "permissionProfile": "plan" | "dev_safe" | "qa" | "release"; "qualityGates": Array<JsonValue>; "requiresApprovalOverUsd"?: null | number; "role": "analyst" | "product_owner" | "technical_lead" | "technical_lead_shadow" | "developer" | "backend_engineer" | "frontend_engineer" | "implementer" | "qa" | "qa_reviewer" | "security_reviewer" | "release_manager"; "roleModelPolicyId"?: null | string; "routingProfileId"?: null | string; "runtimeMode": "api" | "cli" | "ollama" | "hybrid" | "manual" | "internal_mock"; "runtimeType": "api" | "cli" | "ollama" | "hybrid" | "manual" | "internal_mock"; "status": "active" | "disabled"; "updatedAt": string };
 export type AgentProfileResponse = { "agentProfile": AgentProfileRecord };
-export type AgentProfileUpsertRequest = { "allowApi"?: boolean; "allowCli"?: boolean; "allowRemote"?: boolean; "allowedProviders"?: Array<string>; "allowedRuntimes"?: Array<string>; "allowedSkills"?: Array<string>; "allowedTools"?: Array<string>; "id": string; "maxCostPerRun"?: number; "maxRuntimeSeconds"?: number; "maxTokensPerRun"?: number; "memoryScope"?: string; "modelPolicyId"?: null | string; "name"?: null | string; "outputSchema"?: JsonObject; "permissionProfile"?: "plan" | "dev_safe" | "qa" | "release"; "qualityGates"?: Array<JsonValue>; "requiresApprovalOverUsd"?: null | number; "role"?: "analyst" | "product_owner" | "technical_lead" | "developer" | "implementer" | "qa" | "qa_reviewer" | "security_reviewer" | "release_manager"; "roleModelPolicyId"?: null | string; "routingProfileId"?: null | string; "runtimeMode"?: "api" | "cli" | "ollama" | "hybrid" | "manual" | "internal_mock"; "runtimeType"?: "api" | "cli" | "ollama" | "hybrid" | "manual" | "internal_mock" | null; "status"?: "active" | "disabled" };
+export type AgentProfileUpsertRequest = { "allowApi"?: boolean; "allowCli"?: boolean; "allowRemote"?: boolean; "allowedProviders"?: Array<string>; "allowedRuntimes"?: Array<string>; "allowedSkills"?: Array<string>; "allowedTools"?: Array<string>; "id": string; "maxCostPerRun"?: number; "maxRuntimeSeconds"?: number; "maxTokensPerRun"?: number; "memoryScope"?: string; "modelPolicyId"?: null | string; "name"?: null | string; "outputSchema"?: JsonObject; "permissionProfile"?: "plan" | "dev_safe" | "qa" | "release"; "qualityGates"?: Array<JsonValue>; "requiresApprovalOverUsd"?: null | number; "role"?: "analyst" | "product_owner" | "technical_lead" | "technical_lead_shadow" | "developer" | "backend_engineer" | "frontend_engineer" | "implementer" | "qa" | "qa_reviewer" | "security_reviewer" | "release_manager"; "roleModelPolicyId"?: null | string; "routingProfileId"?: null | string; "runtimeMode"?: "api" | "cli" | "ollama" | "hybrid" | "manual" | "internal_mock"; "runtimeType"?: "api" | "cli" | "ollama" | "hybrid" | "manual" | "internal_mock" | null; "status"?: "active" | "disabled" };
 export type AgentProfilesListResponse = { "agentProfiles": Array<AgentProfileRecord> };
 export type AgentRunCreateRequest = { "agentProfileId": string; "input"?: JsonObject; "jobId"?: null | string; "projectId": string; "taskId"?: string; "workflowRunId"?: null | string; "workflowStepId"?: null | string };
 export type AgentRunRecord = { "createdAt": string; "id": string; "input": JsonObject; "jobId"?: null | string; "metadata": JsonObject; "output": JsonObject; "projectId": string; "status": string; "updatedAt": string; "workflowRunId"?: null | string; "workflowStepId"?: null | string };
@@ -54,6 +54,8 @@ export type CliSessionResponse = { "cliSession": CliSessionRecord };
 export type CliSessionsListResponse = { "cliSessions": Array<CliSessionRecord> };
 export type CostUsageRecord = { "amountUsd": number; "createdAt": string; "id": string; "metadata": JsonObject; "projectId": string; "scope": string };
 export type DevcontainerMetadata = { "enabled"?: boolean; "features"?: Array<string>; "image"?: string; "templateId"?: string };
+export type DirectoryPickerRequest = { "initialPath"?: null | string; "title"?: string };
+export type DirectoryPickerResponse = { "reason"?: null | string; "selectedPath"?: null | string; "status": string };
 export type DiscoverModelsResponse = { "models": Array<ModelCatalogRecord> };
 export type DockerSandboxStatus = { "available": boolean; "defaultNetwork": string; "executable"?: null | string; "fallback": string; "hostMount": string; "mode": string; "policy": SandboxProfileRecord; "required": boolean; "writes": string };
 export type EmptyObjectRequest = JsonObject;
@@ -130,7 +132,13 @@ export type PolicyEvaluateRequest = { "agentId"?: null | string; "command"?: nul
 export type PolicyEvaluationResponse = { "decision": PermissionDecisionRecord };
 export type PolicyRecord = { "createdAt": string; "id": string; "name": string; "profile": string; "rules": Array<JsonObject>; "updatedAt": string };
 export type PolicyRevisionRecord = { "actor": string; "changedFields": Array<string>; "createdAt": string; "id": string; "previous": JsonObject; "reason": string; "subjectId": string; "subjectType": string; "updated": JsonObject; "version": number };
-export type ProjectCreateRequest = { "createDirectory"?: boolean; "metadata"?: JsonObject; "name"?: null | string; "path"?: null | string; "templateId"?: null | string };
+export type PricingSnapshotCreateRequest = { "applyToCatalog"?: boolean; "cachedInputPricePerMtok"?: null | number; "effectiveAt"?: null | string; "freeTier"?: boolean; "inputPricePerMtok"?: null | number; "metadata"?: JsonObject; "model": string; "outputPricePerMtok"?: null | number; "providerId": string; "reasoningPricePerMtok"?: null | number; "sourceRef"?: string };
+export type PricingSnapshotRecord = { "applyToCatalog": boolean; "cachedInputPricePerMtok"?: null | number; "createdAt": string; "effectiveAt"?: null | string; "freeTier": boolean; "id": string; "inputPricePerMtok"?: null | number; "metadata": JsonObject; "model": string; "outputPricePerMtok"?: null | number; "providerId": string; "reasoningPricePerMtok"?: null | number; "sourceRef": string };
+export type PricingSnapshotResponse = { "pricingSnapshot": PricingSnapshotRecord };
+export type PricingSnapshotsListResponse = { "pricingSnapshots": Array<PricingSnapshotRecord> };
+export type ProjectCreateRequest = { "createDirectory"?: boolean; "metadata"?: JsonObject; "name"?: null | string; "path"?: null | string; "projectDirectoryName"?: null | string; "templateId"?: null | string; "workspaceBasePath"?: null | string };
+export type ProjectDiscoveryRequest = { "path": string };
+export type ProjectDiscoveryResponse = { "discovery": JsonObject };
 export type ProjectRecord = { "createdAt": string; "id": string; "metadata": JsonObject; "name": string; "path": string; "source": string; "status": string; "templateId": string; "updatedAt": string };
 export type ProjectResponse = { "auditEvent"?: AuditEventRecord | null; "project": ProjectRecord };
 export type ProjectTemplateRecord = { "id": string; "kind": string; "name": string };
@@ -140,10 +148,10 @@ export type PromptResponse = { "promptTemplate": PromptTemplateRecord };
 export type PromptTemplateRecord = { "appliesTo": JsonObject; "body": string; "createdAt": string; "id": string; "mode": string; "name": string; "optimizer": string; "projectId": string; "updatedAt": string; "version": number };
 export type PromptTemplatesListResponse = { "promptTemplates": Array<PromptTemplateRecord> };
 export type PromptUpsertRequest = { "appliesTo"?: JsonObject; "body": string; "id"?: null | string; "mode"?: string; "name": string; "optimizer"?: string; "projectId": string };
-export type ProviderAccountPatchRequest = { "apiFormat"?: null | string; "baseUrl"?: null | string; "credentialRef"?: null | string; "displayName"?: null | string; "enabled"?: boolean | null; "healthStatus"?: null | string; "lastError"?: null | string; "lastHealthCheckAt"?: null | string; "providerType"?: null | string; "quotaMode"?: null | string };
-export type ProviderAccountRecord = { "apiFormat": string; "baseUrl"?: null | string; "createdAt": string; "credentialRef"?: null | string; "credentialStatus": string; "displayName": string; "enabled": boolean; "healthStatus": string; "id": string; "lastError": string; "lastHealthCheckAt"?: null | string; "providerId": string; "providerType": string; "quotaMode": string; "updatedAt": string };
+export type ProviderAccountPatchRequest = { "apiFormat"?: null | string; "baseUrl"?: null | string; "credentialRef"?: null | string; "displayName"?: null | string; "enabled"?: boolean | null; "healthStatus"?: null | string; "lastError"?: null | string; "lastHealthCheckAt"?: null | string; "metadata"?: JsonObject | null; "providerType"?: null | string; "quotaMode"?: null | string };
+export type ProviderAccountRecord = { "apiFormat": string; "baseUrl"?: null | string; "createdAt": string; "credentialRef"?: null | string; "credentialStatus": string; "displayName": string; "enabled": boolean; "healthStatus": string; "id": string; "lastError": string; "lastHealthCheckAt"?: null | string; "metadata"?: JsonObject; "providerId": string; "providerType": string; "quotaMode": string; "updatedAt": string };
 export type ProviderAccountResponse = { "provider": ProviderAccountRecord };
-export type ProviderAccountUpsertRequest = { "apiFormat"?: string; "baseUrl"?: string; "credentialRef"?: string; "displayName"?: null | string; "enabled"?: boolean; "healthStatus"?: string; "lastError"?: string; "lastHealthCheckAt"?: null | string; "providerId": string; "providerType"?: string; "quotaMode"?: string };
+export type ProviderAccountUpsertRequest = { "apiFormat"?: string; "baseUrl"?: string; "credentialRef"?: string; "displayName"?: null | string; "enabled"?: boolean; "healthStatus"?: string; "lastError"?: string; "lastHealthCheckAt"?: null | string; "metadata"?: JsonObject; "providerId": string; "providerType"?: string; "quotaMode"?: string };
 export type ProviderAccountsListResponse = { "providers": Array<ProviderAccountRecord> };
 export type ProviderHealth = { "healthStatus": string; "lastError"?: null | string; "message"?: string; "providerId": string; "status": string };
 export type ProviderHealthResponse = { "health": ProviderHealth };
@@ -173,12 +181,12 @@ export type RolePolicyResponse = { "rolePolicy": RolePolicyRecord };
 export type RolePolicyUpsertRequest = { "allowApi"?: boolean; "allowCli"?: boolean; "allowLocal"?: boolean; "allowRemote"?: boolean; "blocked"?: Array<JsonObject>; "escalation"?: Array<JsonObject>; "fallback"?: Array<JsonObject>; "id"?: null | string; "maxCostPerTaskUsd"?: number; "maxTokensPerRun"?: number; "preferred"?: Array<JsonObject>; "requiresApprovalForReasoningMax"?: boolean; "requiresApprovalOverUsd"?: null | number; "role": string; "routingProfileId"?: null | string };
 export type RouteExecuteMockResponse = { "routing": RoutingPreviewResponse; "usage": UsageLedgerRecord };
 export type RouteExecuteResponse = { "content"?: null | string; "routing": RoutingPreviewResponse; "usage"?: UsageLedgerRecord | null };
-export type RoutingCandidateRecord = { "effort"?: null | string; "estimatedCostUsd"?: null | number; "model": string; "provider": string; "runtime": string; "score": number; "scoreBreakdown": JsonObject };
+export type RoutingCandidateRecord = { "effort"?: null | string; "estimatedCostUsd"?: null | number; "freeTier"?: boolean; "model": string; "priceKnown"?: boolean; "pricingSource"?: string; "pricingStaleness"?: string; "provider": string; "runtime": string; "score": number; "scoreBreakdown": JsonObject };
 export type RoutingDecisionRecord = { "agentId"?: null | string; "candidates": Array<JsonObject>; "createdAt": string; "decisionReason": string; "estimatedCostUsd"?: null | number; "estimatedTokens"?: null | number; "id": string; "jobId"?: null | string; "mode": string; "policyResult": JsonObject; "rejected": Array<JsonObject>; "role": string; "scoreBreakdown": JsonObject; "selectedEffort"?: null | string; "selectedModel"?: null | string; "selectedProvider"?: null | string; "selectedRuntime"?: null | string; "taskId"?: null | string; "taskType": string; "workflowRunId"?: null | string; "workflowStepId"?: null | string };
 export type RoutingDecisionsListResponse = { "routingDecisions": Array<RoutingDecisionRecord> };
 export type RoutingPolicyResult = { "maxCostPerTaskUsd"?: null | number; "requiresApproval": boolean; "rolePolicyId": string };
 export type RoutingPreviewRequest = { "agentId"?: null | string; "allowFallback"?: boolean; "budgetRemainingUsd"?: null | number; "contextTokensEstimate"?: number; "jobId"?: null | string; "manualModel"?: null | string; "manualProvider"?: null | string; "manualRuntime"?: null | string; "mode"?: string; "privacyLevel"?: string; "projectId"?: null | string; "requiresCodeEdit"?: boolean; "requiresJson"?: boolean; "requiresReasoning"?: boolean; "requiresSearch"?: boolean; "requiresTools"?: boolean; "requiresVision"?: boolean; "riskLevel"?: string; "role"?: string; "taskId"?: null | string; "taskType"?: string; "workflowRunId"?: null | string; "workflowStepId"?: null | string };
-export type RoutingPreviewResponse = { "candidates": Array<RoutingCandidateRecord>; "decisionReason": string; "estimatedCostUsd"?: null | number; "estimatedTokens": number; "policyResult": RoutingPolicyResult; "rejected": Array<RoutingRejectedRecord>; "scoreBreakdown": JsonObject; "selected": RoutingSelection | null };
+export type RoutingPreviewResponse = { "budgetResult"?: JsonObject; "candidates": Array<RoutingCandidateRecord>; "decisionReason": string; "estimatedCostUsd"?: null | number; "estimatedTokens": number; "policyResult": RoutingPolicyResult; "quotaResult"?: JsonObject; "rejected": Array<RoutingRejectedRecord>; "scoreBreakdown": JsonObject; "selected": RoutingSelection | null };
 export type RoutingProfilePatchRequest = { "enabled"?: boolean | null; "mode"?: null | string; "name"?: null | string; "objective"?: null | string; "rules"?: JsonObject | null };
 export type RoutingProfileRecord = { "createdAt": string; "enabled": boolean; "id": string; "mode": string; "name": string; "objective": string; "rules": JsonObject; "updatedAt": string };
 export type RoutingProfileResponse = { "routingProfile": RoutingProfileRecord };
@@ -209,13 +217,15 @@ export type TeamsListResponse = { "teams": Array<TeamRecord> };
 export type TelemetryStatusResponse = { "externalExporter": ExternalTelemetryStatus };
 export type TestResultRecord = { "command": string; "createdAt": string; "durationMs"?: null | number; "evidencePackageId": string; "id": string; "metadata": JsonObject; "outputRef"?: null | string; "projectId": string; "status": string };
 export type UsageLedgerListResponse = { "usageLedger": Array<UsageLedgerRecord> };
-export type UsageLedgerRecord = { "actualCostUsd"?: null | number; "agentId"?: null | string; "cachedInputTokens": number; "createdAt": string; "currency": string; "estimatedCostUsd"?: null | number; "id": string; "inputTokens": number; "jobId"?: null | string; "latencyMs"?: null | number; "model": string; "outputTokens": number; "providerId": string; "rawUsage": JsonObject; "reasoningTokens": number; "requestId"?: null | string; "role"?: null | string; "runtimeType": string; "sessionId"?: null | string; "taskId"?: null | string; "toolTokens": number; "totalTokens": number; "workflowRunId"?: null | string; "workflowStepId"?: null | string };
+export type UsageLedgerRecord = { "actualCostUsd"?: null | number; "agentId"?: null | string; "cachedInputTokens": number; "createdAt": string; "currency": string; "estimatedCostUsd"?: null | number; "id": string; "inputTokens": number; "jobId"?: null | string; "latencyMs"?: null | number; "model": string; "outputTokens": number; "providerId": string; "rawUsage": JsonObject; "reasoningTokens": number; "requestId"?: null | string; "role"?: null | string; "runtimeType": string; "sessionId"?: null | string; "taskId"?: null | string; "toolTokens": number; "totalTokens": number; "usageSource": string; "workflowRunId"?: null | string; "workflowStepId"?: null | string };
 export type UsageSummaryProvider = { "estimatedCostUsd": number; "providerId": string; "totalTokens": number };
 export type UsageSummaryRecord = { "actualCostUsd": number; "byProvider": Array<UsageSummaryProvider>; "estimatedCostUsd": number; "totalTokens": number };
 export type UsageSummaryResponse = { "summary": UsageSummaryRecord };
 export type ValidationError = { "ctx"?: JsonObject; "input"?: JsonValue; "loc": Array<number | string>; "msg": string; "type": string };
-export type WorkflowCreateRequest = { "idea"?: null | string; "kind"?: "idea_to_pr" | "project_discovery" | "issue_to_pr" | "qa_validation" | "release_candidate"; "metadata"?: JsonObject; "projectId": string; "title"?: null | string };
+export type WorkflowCreateRequest = { "idea"?: null | string; "kind"?: "idea_to_pr" | "project_discovery" | "issue_to_pr" | "qa_validation" | "release_candidate" | "pr_release_retro"; "metadata"?: JsonObject; "projectId": string; "title"?: null | string };
 export type WorkflowDetailResponse = { "agentRuns": Array<AgentRunRecord>; "evidencePackages": Array<EvidencePackageRecord>; "jobs": Array<JobRecord>; "workflow": WorkflowRecord; "workflowRuns": Array<WorkflowRunRecord>; "workflowSteps": Array<WorkflowStepRecord>; "workspaces": Array<WorkspaceRecord> };
+export type WorkflowGateAdvanceRequest = { "evidencePackageId"?: null | string; "reason"?: string };
+export type WorkflowGateAdvanceResponse = { "advanced": boolean; "gateState": string; "reason": string; "workflowStep": WorkflowStepRecord };
 export type WorkflowRecord = { "createdAt": string; "id": string; "kind": string; "metadata": JsonObject; "projectId": string; "status": string; "title": string; "updatedAt": string };
 export type WorkflowResponse = { "workflow": WorkflowRecord };
 export type WorkflowRunRecord = { "completedAt"?: null | string; "id": string; "metadata": JsonObject; "projectId": string; "startedAt": string; "status": string; "workflowId": string };
@@ -266,6 +276,7 @@ export const API_ENDPOINTS = [
 	{"method": "POST", "operationId": "approve_job_api_v1_jobs__job_id__approve_post", "path": "/api/v1/jobs/{job_id}/approve", "summary": "Approve Job"},
 	{"method": "POST", "operationId": "cancel_job_api_v1_jobs__job_id__cancel_post", "path": "/api/v1/jobs/{job_id}/cancel", "summary": "Cancel Job"},
 	{"method": "POST", "operationId": "retry_job_api_v1_jobs__job_id__retry_post", "path": "/api/v1/jobs/{job_id}/retry", "summary": "Retry Job"},
+	{"method": "POST", "operationId": "select_directory_api_v1_local_paths_select_directory_post", "path": "/api/v1/local-paths/select-directory", "summary": "Select Directory"},
 	{"method": "GET", "operationId": "list_memory_api_v1_memory_get", "path": "/api/v1/memory", "summary": "List Memory"},
 	{"method": "POST", "operationId": "create_memory_api_v1_memory_post", "path": "/api/v1/memory", "summary": "Create Memory"},
 	{"method": "GET", "operationId": "list_benchmark_outcomes_api_v1_model_gateway_benchmark_outcomes_get", "path": "/api/v1/model-gateway/benchmark-outcomes", "summary": "List Benchmark Outcomes"},
@@ -283,6 +294,8 @@ export const API_ENDPOINTS = [
 	{"method": "POST", "operationId": "create_model_api_v1_model_gateway_models_post", "path": "/api/v1/model-gateway/models", "summary": "Create Model"},
 	{"method": "PATCH", "operationId": "patch_model_api_v1_model_gateway_models__model_id__patch", "path": "/api/v1/model-gateway/models/{model_id}", "summary": "Patch Model"},
 	{"method": "GET", "operationId": "overview_api_v1_model_gateway_overview_get", "path": "/api/v1/model-gateway/overview", "summary": "Overview"},
+	{"method": "GET", "operationId": "list_pricing_snapshots_api_v1_model_gateway_pricing_snapshots_get", "path": "/api/v1/model-gateway/pricing-snapshots", "summary": "List Pricing Snapshots"},
+	{"method": "POST", "operationId": "create_pricing_snapshot_api_v1_model_gateway_pricing_snapshots_post", "path": "/api/v1/model-gateway/pricing-snapshots", "summary": "Create Pricing Snapshot"},
 	{"method": "GET", "operationId": "list_provider_limits_api_v1_model_gateway_provider_limits_get", "path": "/api/v1/model-gateway/provider-limits", "summary": "List Provider Limits"},
 	{"method": "PATCH", "operationId": "patch_provider_limit_api_v1_model_gateway_provider_limits__limit_id__patch", "path": "/api/v1/model-gateway/provider-limits/{limit_id}", "summary": "Patch Provider Limit"},
 	{"method": "GET", "operationId": "list_providers_api_v1_model_gateway_providers_get", "path": "/api/v1/model-gateway/providers", "summary": "List Providers"},
@@ -319,6 +332,7 @@ export const API_ENDPOINTS = [
 	{"method": "GET", "operationId": "project_templates_api_v1_project_templates_get", "path": "/api/v1/project-templates", "summary": "Project Templates"},
 	{"method": "GET", "operationId": "projects_api_v1_projects_get", "path": "/api/v1/projects", "summary": "Projects"},
 	{"method": "POST", "operationId": "create_project_api_v1_projects_post", "path": "/api/v1/projects", "summary": "Create Project"},
+	{"method": "POST", "operationId": "discover_project_api_v1_projects_discover_post", "path": "/api/v1/projects/discover", "summary": "Discover Project"},
 	{"method": "GET", "operationId": "list_prompts_api_v1_prompts_get", "path": "/api/v1/prompts", "summary": "List Prompts"},
 	{"method": "POST", "operationId": "upsert_prompt_api_v1_prompts_post", "path": "/api/v1/prompts", "summary": "Upsert Prompt"},
 	{"method": "GET", "operationId": "providers_api_v1_providers_get", "path": "/api/v1/providers", "summary": "Providers"},
@@ -346,6 +360,7 @@ export const API_ENDPOINTS = [
 	{"method": "POST", "operationId": "pause_workflow_api_v1_workflows__workflow_id__pause_post", "path": "/api/v1/workflows/{workflow_id}/pause", "summary": "Pause Workflow"},
 	{"method": "POST", "operationId": "resume_workflow_api_v1_workflows__workflow_id__resume_post", "path": "/api/v1/workflows/{workflow_id}/resume", "summary": "Resume Workflow"},
 	{"method": "POST", "operationId": "start_workflow_api_v1_workflows__workflow_id__start_post", "path": "/api/v1/workflows/{workflow_id}/start", "summary": "Start Workflow"},
+	{"method": "POST", "operationId": "advance_workflow_gate_api_v1_workflows__workflow_id__steps__step_id__advance_post", "path": "/api/v1/workflows/{workflow_id}/steps/{step_id}/advance", "summary": "Advance Workflow Gate"},
 	{"method": "GET", "operationId": "list_workspaces_api_v1_workspaces_get", "path": "/api/v1/workspaces", "summary": "List Workspaces"},
 	{"method": "POST", "operationId": "allocate_workspace_api_v1_workspaces_post", "path": "/api/v1/workspaces", "summary": "Allocate Workspace"},
 	{"method": "POST", "operationId": "archive_workspace_api_v1_workspaces__workspace_id__archive_post", "path": "/api/v1/workspaces/{workspace_id}/archive", "summary": "Archive Workspace"},
@@ -361,6 +376,7 @@ export type OperationPath<T extends ApiOperationId> = OperationById<T>["path"];
 export type OperationMethod<T extends ApiOperationId> = OperationById<T>["method"];
 
 export type OperationRequestBodies = {
+	"advance_workflow_gate_api_v1_workflows__workflow_id__steps__step_id__advance_post": WorkflowGateAdvanceRequest,
 	"agents_api_v1_agents_get": never,
 	"allocate_workspace_api_v1_workspaces_post": WorkspaceAllocateRequest,
 	"apply_artifact_retention_action_api_v1_evidence_artifacts_retention_actions_post": ArtifactRetentionActionRequest,
@@ -382,6 +398,7 @@ export type OperationRequestBodies = {
 	"create_model_api_v1_model_gateway_models_post": ModelCatalogUpsertRequest,
 	"create_next_step_api_v1_next_steps_post": NextStepCreateRequest,
 	"create_pipeline_api_v1_pipelines_post": PipelineCreateRequest,
+	"create_pricing_snapshot_api_v1_model_gateway_pricing_snapshots_post": PricingSnapshotCreateRequest,
 	"create_project_api_v1_projects_post": ProjectCreateRequest,
 	"create_provider_api_v1_model_gateway_providers_post": ProviderAccountUpsertRequest,
 	"create_risk_api_v1_risks_post": RiskCreateRequest,
@@ -392,6 +409,7 @@ export type OperationRequestBodies = {
 	"deny_action_api_v1_jobs__job_id__actions__action_id__deny_post": OptionalReasonRequest,
 	"detect_cli_runtime_api_v1_model_gateway_cli_runtimes__runtime_id__detect_post": unknown,
 	"discover_models_api_v1_model_gateway_providers__provider_id__discover_models_post": unknown,
+	"discover_project_api_v1_projects_discover_post": ProjectDiscoveryRequest,
 	"evaluate_policy_api_v1_policies_evaluate_post": PolicyEvaluateRequest,
 	"events_api_v1_events_get": never,
 	"export_evidence_report_api_v1_evidence__evidence_id__report_get": never,
@@ -425,6 +443,7 @@ export type OperationRequestBodies = {
 	"list_next_steps_api_v1_next_steps_get": never,
 	"list_pipelines_api_v1_pipelines_get": never,
 	"list_policies_api_v1_policies_get": never,
+	"list_pricing_snapshots_api_v1_model_gateway_pricing_snapshots_get": never,
 	"list_prompts_api_v1_prompts_get": never,
 	"list_provider_limits_api_v1_model_gateway_provider_limits_get": never,
 	"list_providers_api_v1_model_gateway_providers_get": never,
@@ -465,6 +484,7 @@ export type OperationRequestBodies = {
 	"route_execute_mock_api_v1_model_gateway_route_execute_mock_post": RoutingPreviewRequest,
 	"route_preview_api_v1_model_gateway_route_preview_post": RoutingPreviewRequest,
 	"sandbox_status_api_v1_sandbox_status_get": never,
+	"select_directory_api_v1_local_paths_select_directory_post": DirectoryPickerRequest,
 	"start_workflow_api_v1_workflows__workflow_id__start_post": WorkflowStatusChangeRequest,
 	"sync_skills_api_v1_skills_sync_post": SkillsSyncRequest,
 	"teams_api_v1_teams_get": never,
@@ -480,6 +500,7 @@ export type OperationRequestBodies = {
 };
 
 export type OperationResponseBodies = {
+	"advance_workflow_gate_api_v1_workflows__workflow_id__steps__step_id__advance_post": WorkflowGateAdvanceResponse,
 	"agents_api_v1_agents_get": AgentsListResponse,
 	"allocate_workspace_api_v1_workspaces_post": WorkspaceResponse,
 	"apply_artifact_retention_action_api_v1_evidence_artifacts_retention_actions_post": ArtifactRetentionActionResponse,
@@ -501,6 +522,7 @@ export type OperationResponseBodies = {
 	"create_model_api_v1_model_gateway_models_post": ModelCatalogResponse,
 	"create_next_step_api_v1_next_steps_post": NextStepResponse,
 	"create_pipeline_api_v1_pipelines_post": PipelineResponse,
+	"create_pricing_snapshot_api_v1_model_gateway_pricing_snapshots_post": PricingSnapshotResponse,
 	"create_project_api_v1_projects_post": ProjectResponse,
 	"create_provider_api_v1_model_gateway_providers_post": ProviderAccountResponse,
 	"create_risk_api_v1_risks_post": RiskResponse,
@@ -511,6 +533,7 @@ export type OperationResponseBodies = {
 	"deny_action_api_v1_jobs__job_id__actions__action_id__deny_post": JobMutationResponse,
 	"detect_cli_runtime_api_v1_model_gateway_cli_runtimes__runtime_id__detect_post": RuntimeDetectionResponse,
 	"discover_models_api_v1_model_gateway_providers__provider_id__discover_models_post": DiscoverModelsResponse,
+	"discover_project_api_v1_projects_discover_post": ProjectDiscoveryResponse,
 	"evaluate_policy_api_v1_policies_evaluate_post": PolicyEvaluationResponse,
 	"events_api_v1_events_get": never,
 	"export_evidence_report_api_v1_evidence__evidence_id__report_get": never,
@@ -544,6 +567,7 @@ export type OperationResponseBodies = {
 	"list_next_steps_api_v1_next_steps_get": NextStepsListResponse,
 	"list_pipelines_api_v1_pipelines_get": PipelinesListResponse,
 	"list_policies_api_v1_policies_get": PoliciesListResponse,
+	"list_pricing_snapshots_api_v1_model_gateway_pricing_snapshots_get": PricingSnapshotsListResponse,
 	"list_prompts_api_v1_prompts_get": PromptTemplatesListResponse,
 	"list_provider_limits_api_v1_model_gateway_provider_limits_get": ProviderLimitsListResponse,
 	"list_providers_api_v1_model_gateway_providers_get": ProviderAccountsListResponse,
@@ -584,6 +608,7 @@ export type OperationResponseBodies = {
 	"route_execute_mock_api_v1_model_gateway_route_execute_mock_post": RouteExecuteMockResponse,
 	"route_preview_api_v1_model_gateway_route_preview_post": RoutingPreviewResponse,
 	"sandbox_status_api_v1_sandbox_status_get": SandboxStatusResponse,
+	"select_directory_api_v1_local_paths_select_directory_post": DirectoryPickerResponse,
 	"start_workflow_api_v1_workflows__workflow_id__start_post": WorkflowStartResponse,
 	"sync_skills_api_v1_skills_sync_post": SkillsSyncResponse,
 	"teams_api_v1_teams_get": TeamsListResponse,
@@ -634,6 +659,7 @@ export const OPERATIONS_BY_ID = {
 	"approve_job_api_v1_jobs__job_id__approve_post": {"method": "POST", "operationId": "approve_job_api_v1_jobs__job_id__approve_post", "path": "/api/v1/jobs/{job_id}/approve", "summary": "Approve Job"},
 	"cancel_job_api_v1_jobs__job_id__cancel_post": {"method": "POST", "operationId": "cancel_job_api_v1_jobs__job_id__cancel_post", "path": "/api/v1/jobs/{job_id}/cancel", "summary": "Cancel Job"},
 	"retry_job_api_v1_jobs__job_id__retry_post": {"method": "POST", "operationId": "retry_job_api_v1_jobs__job_id__retry_post", "path": "/api/v1/jobs/{job_id}/retry", "summary": "Retry Job"},
+	"select_directory_api_v1_local_paths_select_directory_post": {"method": "POST", "operationId": "select_directory_api_v1_local_paths_select_directory_post", "path": "/api/v1/local-paths/select-directory", "summary": "Select Directory"},
 	"list_memory_api_v1_memory_get": {"method": "GET", "operationId": "list_memory_api_v1_memory_get", "path": "/api/v1/memory", "summary": "List Memory"},
 	"create_memory_api_v1_memory_post": {"method": "POST", "operationId": "create_memory_api_v1_memory_post", "path": "/api/v1/memory", "summary": "Create Memory"},
 	"list_benchmark_outcomes_api_v1_model_gateway_benchmark_outcomes_get": {"method": "GET", "operationId": "list_benchmark_outcomes_api_v1_model_gateway_benchmark_outcomes_get", "path": "/api/v1/model-gateway/benchmark-outcomes", "summary": "List Benchmark Outcomes"},
@@ -651,6 +677,8 @@ export const OPERATIONS_BY_ID = {
 	"create_model_api_v1_model_gateway_models_post": {"method": "POST", "operationId": "create_model_api_v1_model_gateway_models_post", "path": "/api/v1/model-gateway/models", "summary": "Create Model"},
 	"patch_model_api_v1_model_gateway_models__model_id__patch": {"method": "PATCH", "operationId": "patch_model_api_v1_model_gateway_models__model_id__patch", "path": "/api/v1/model-gateway/models/{model_id}", "summary": "Patch Model"},
 	"overview_api_v1_model_gateway_overview_get": {"method": "GET", "operationId": "overview_api_v1_model_gateway_overview_get", "path": "/api/v1/model-gateway/overview", "summary": "Overview"},
+	"list_pricing_snapshots_api_v1_model_gateway_pricing_snapshots_get": {"method": "GET", "operationId": "list_pricing_snapshots_api_v1_model_gateway_pricing_snapshots_get", "path": "/api/v1/model-gateway/pricing-snapshots", "summary": "List Pricing Snapshots"},
+	"create_pricing_snapshot_api_v1_model_gateway_pricing_snapshots_post": {"method": "POST", "operationId": "create_pricing_snapshot_api_v1_model_gateway_pricing_snapshots_post", "path": "/api/v1/model-gateway/pricing-snapshots", "summary": "Create Pricing Snapshot"},
 	"list_provider_limits_api_v1_model_gateway_provider_limits_get": {"method": "GET", "operationId": "list_provider_limits_api_v1_model_gateway_provider_limits_get", "path": "/api/v1/model-gateway/provider-limits", "summary": "List Provider Limits"},
 	"patch_provider_limit_api_v1_model_gateway_provider_limits__limit_id__patch": {"method": "PATCH", "operationId": "patch_provider_limit_api_v1_model_gateway_provider_limits__limit_id__patch", "path": "/api/v1/model-gateway/provider-limits/{limit_id}", "summary": "Patch Provider Limit"},
 	"list_providers_api_v1_model_gateway_providers_get": {"method": "GET", "operationId": "list_providers_api_v1_model_gateway_providers_get", "path": "/api/v1/model-gateway/providers", "summary": "List Providers"},
@@ -687,6 +715,7 @@ export const OPERATIONS_BY_ID = {
 	"project_templates_api_v1_project_templates_get": {"method": "GET", "operationId": "project_templates_api_v1_project_templates_get", "path": "/api/v1/project-templates", "summary": "Project Templates"},
 	"projects_api_v1_projects_get": {"method": "GET", "operationId": "projects_api_v1_projects_get", "path": "/api/v1/projects", "summary": "Projects"},
 	"create_project_api_v1_projects_post": {"method": "POST", "operationId": "create_project_api_v1_projects_post", "path": "/api/v1/projects", "summary": "Create Project"},
+	"discover_project_api_v1_projects_discover_post": {"method": "POST", "operationId": "discover_project_api_v1_projects_discover_post", "path": "/api/v1/projects/discover", "summary": "Discover Project"},
 	"list_prompts_api_v1_prompts_get": {"method": "GET", "operationId": "list_prompts_api_v1_prompts_get", "path": "/api/v1/prompts", "summary": "List Prompts"},
 	"upsert_prompt_api_v1_prompts_post": {"method": "POST", "operationId": "upsert_prompt_api_v1_prompts_post", "path": "/api/v1/prompts", "summary": "Upsert Prompt"},
 	"providers_api_v1_providers_get": {"method": "GET", "operationId": "providers_api_v1_providers_get", "path": "/api/v1/providers", "summary": "Providers"},
@@ -714,6 +743,7 @@ export const OPERATIONS_BY_ID = {
 	"pause_workflow_api_v1_workflows__workflow_id__pause_post": {"method": "POST", "operationId": "pause_workflow_api_v1_workflows__workflow_id__pause_post", "path": "/api/v1/workflows/{workflow_id}/pause", "summary": "Pause Workflow"},
 	"resume_workflow_api_v1_workflows__workflow_id__resume_post": {"method": "POST", "operationId": "resume_workflow_api_v1_workflows__workflow_id__resume_post", "path": "/api/v1/workflows/{workflow_id}/resume", "summary": "Resume Workflow"},
 	"start_workflow_api_v1_workflows__workflow_id__start_post": {"method": "POST", "operationId": "start_workflow_api_v1_workflows__workflow_id__start_post", "path": "/api/v1/workflows/{workflow_id}/start", "summary": "Start Workflow"},
+	"advance_workflow_gate_api_v1_workflows__workflow_id__steps__step_id__advance_post": {"method": "POST", "operationId": "advance_workflow_gate_api_v1_workflows__workflow_id__steps__step_id__advance_post", "path": "/api/v1/workflows/{workflow_id}/steps/{step_id}/advance", "summary": "Advance Workflow Gate"},
 	"list_workspaces_api_v1_workspaces_get": {"method": "GET", "operationId": "list_workspaces_api_v1_workspaces_get", "path": "/api/v1/workspaces", "summary": "List Workspaces"},
 	"allocate_workspace_api_v1_workspaces_post": {"method": "POST", "operationId": "allocate_workspace_api_v1_workspaces_post", "path": "/api/v1/workspaces", "summary": "Allocate Workspace"},
 	"archive_workspace_api_v1_workspaces__workspace_id__archive_post": {"method": "POST", "operationId": "archive_workspace_api_v1_workspaces__workspace_id__archive_post", "path": "/api/v1/workspaces/{workspace_id}/archive", "summary": "Archive Workspace"},

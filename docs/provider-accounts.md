@@ -2,7 +2,7 @@
 
 ## What It Does
 
-`provider_accounts` stores provider configuration without secrets: provider type, API format, base URL, credential reference, enabled state, quota mode and health.
+`provider_accounts` stores provider configuration without secrets: provider type, API format, base URL, credential reference, enabled state, quota mode, health and redacted structured `metadata`.
 
 ## Configuration
 
@@ -43,17 +43,22 @@ local OS/keyring adapter is installed outside the core runtime.
 
 ## Testing
 
-`test_provider_accounts_crud_endpoints_do_not_expose_raw_credentials` verifies CRUD and redaction.
+`test_provider_accounts_crud_endpoints_do_not_expose_raw_credentials` verifies CRUD, metadata persistence and redaction. Provider health tests verify mock-default behavior, fail-closed real checks, 429 cooldown recording and redacted errors.
 
 ## Risks
 
-- Health checks currently run in safe mock mode from the API route.
+- Health checks run in safe mock mode unless the provider is enabled and
+  `AIDO_ENABLE_REAL_PROVIDER_CALLS=true`.
+- Model discovery follows the same fail-closed posture. API and gateway
+  providers must have a valid credential ref before real discovery can run; the
+  system rejects missing credentials before any adapter/network path is invoked.
 - Credential status is resolver-based: configured, unverified, missing,
   unknown, invalid, unsupported or unavailable.
 
 ## Limitations
 
-- Provider discovery is conservative and mock-backed in tests; exact remote model catalogs require real calls.
+- Provider discovery is conservative and mock-backed in tests; exact remote
+  model catalogs require explicit real-call opt-in.
 
 ## Example
 
@@ -61,6 +66,7 @@ local OS/keyring adapter is installed outside the core runtime.
 {
   "providerId": "nvidia_nim",
   "credentialRef": "openbao:secret/providers/nvidia_nim#api_key",
+  "metadata": { "region": "us", "tier": "trial_rate_limited" },
   "enabled": true
 }
 ```

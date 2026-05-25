@@ -36,6 +36,9 @@ from .model_gateway_models import (
     ProviderLimitPatchRequest,
     ProviderLimitResponse,
     ProviderLimitsListResponse,
+    PricingSnapshotCreateRequest,
+    PricingSnapshotResponse,
+    PricingSnapshotsListResponse,
     RolePoliciesListResponse,
     RolePolicyPatchRequest,
     RolePolicyResponse,
@@ -57,6 +60,7 @@ from .model_gateway_models import (
 from .model_benchmarks import ModelBenchmarkStore
 from .model_router import ModelRouter, RoutingRequest
 from .provider_accounts import ProviderAccountStore
+from .quota_manager import QuotaManager
 from .providers.anthropic_api import AnthropicAPIProvider
 from .providers.nvidia_nim import NvidiaNimProvider
 from .providers.ollama import OllamaProvider
@@ -97,6 +101,24 @@ def _provider_instance(provider_id: str, *, connection: Any, mock: bool = True):
     if provider_id == "litellm":
         return LiteLLMAdapter(base_url=base_url, credential_ref=credential_ref or "", mock=mock)
     return OpenAICompatibleProvider(provider_id=provider_id, base_url=base_url, credential_ref=credential_ref, mock=mock)
+
+
+def _requires_credential_for_real_discovery(account: dict[str, Any]) -> bool:
+    return str(account.get("providerType") or "") in {"api", "gateway"}
+
+
+def _validate_real_discovery_credentials(account: dict[str, Any]) -> None:
+    if not _requires_credential_for_real_discovery(account):
+        return
+    credential_ref = str(account.get("credentialRef") or "")
+    if not credential_ref:
+        raise HTTPException(status_code=400, detail=f"Credential ref is required for provider {account['providerId']}.")
+    credential = CredentialResolver().resolve(credential_ref, fetch=False)
+    if credential.status not in {"configured", "unverified"}:
+        raise HTTPException(
+            status_code=400,
+            detail=redact_secrets(f"Credential ref {credential_ref} is {credential.status}."),
+        )
 
 
 def _approval_request_payload(body_payload: dict[str, Any], routing_result: dict[str, Any]) -> dict[str, Any]:
@@ -197,10 +219,15 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
     async def provider_health_check(provider_id: str, request: Request) -> dict[str, Any]:
         require_write(request)
         try:
-            providers().get_provider_account(provider_id)
+            account = providers().get_provider_account(provider_id)
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
-        health = _provider_instance(provider_id, connection=platform.connection, mock=True).health_check().model_dump(by_alias=True)
+        mock = not (account.get("enabled") and real_provider_calls_enabled())
+        health = _provider_instance(provider_id, connection=platform.connection, mock=mock).health_check().model_dump(by_alias=True)
+        health = redact_secrets(health)
+        if health.get("status") == "rate_limited" or "429" in str(health.get("message") or health.get("lastError") or ""):
+            model = "auto_best_available" if provider_id == "nvidia_nim" else "*"
+            QuotaManager(platform.connection).record_rate_limit(provider_id=provider_id, model=model, retry_after_seconds=300)
         providers().record_health_check(provider_id=provider_id, status=health["healthStatus"], payload=health)
         audit("model_gateway.provider.health_checked", provider_id, health)
         return {"health": health}
@@ -209,15 +236,22 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
     async def discover_models(provider_id: str, request: Request) -> dict[str, Any]:
         require_write(request)
         try:
-            providers().get_provider_account(provider_id)
+            account = providers().get_provider_account(provider_id)
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
+        mock = not (account.get("enabled") and real_provider_calls_enabled())
+        if not mock:
+            _validate_real_discovery_credentials(account)
         discovered = [
             item.model_dump(by_alias=True)
-            for item in _provider_instance(provider_id, connection=platform.connection, mock=True).list_models()
+            for item in _provider_instance(provider_id, connection=platform.connection, mock=mock).list_models()
         ]
         stored = [providers().upsert_model({**item, "providerId": provider_id, "enabled": True}) for item in discovered]
-        audit("model_gateway.provider.models_discovered", provider_id, {"count": len(stored)})
+        audit(
+            "model_gateway.provider.models_discovered",
+            provider_id,
+            {"count": len(stored), "mock": mock, "source": "mock" if mock else "provider"},
+        )
         return {"models": stored}
 
     @router.get("/models", response_model=ModelCatalogListResponse)
@@ -240,6 +274,26 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
             raise HTTPException(status_code=404, detail=str(error)) from error
         audit("model_gateway.model.updated", model_id, {"modelId": model_id})
         return {"model": model}
+
+    @router.get("/pricing-snapshots", response_model=PricingSnapshotsListResponse)
+    async def list_pricing_snapshots() -> dict[str, Any]:
+        return {"pricingSnapshots": providers().list_pricing_snapshots()}
+
+    @router.post("/pricing-snapshots", status_code=201, response_model=PricingSnapshotResponse)
+    async def create_pricing_snapshot(body: PricingSnapshotCreateRequest, request: Request) -> dict[str, Any]:
+        require_write(request)
+        snapshot = providers().create_pricing_snapshot(_payload(body))
+        audit(
+            "model_gateway.pricing_snapshot.created",
+            snapshot["id"],
+            {
+                "providerId": snapshot["providerId"],
+                "model": snapshot["model"],
+                "applyToCatalog": snapshot["applyToCatalog"],
+                "sourceRef": snapshot["sourceRef"],
+            },
+        )
+        return {"pricingSnapshot": snapshot}
 
     @router.get("/routing-profiles", response_model=RoutingProfilesListResponse)
     async def list_routing_profiles() -> dict[str, Any]:

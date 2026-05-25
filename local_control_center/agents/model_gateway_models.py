@@ -25,6 +25,7 @@ class ProviderAccountRecord(BaseModel):
     health_status: str = Field(alias="healthStatus")
     last_health_check_at: str | None = Field(default=None, alias="lastHealthCheckAt")
     last_error: str = Field(alias="lastError")
+    metadata: dict[str, Any] = Field(default_factory=dict)
     created_at: str = Field(alias="createdAt")
     updated_at: str = Field(alias="updatedAt")
 
@@ -41,6 +42,7 @@ class ProviderAccountUpsertRequest(GatewayFlexibleModel):
     health_status: str = Field(default="unknown", alias="healthStatus")
     last_health_check_at: str | None = Field(default=None, alias="lastHealthCheckAt")
     last_error: str = Field(default="", alias="lastError")
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class ProviderAccountPatchRequest(GatewayFlexibleModel):
@@ -54,6 +56,7 @@ class ProviderAccountPatchRequest(GatewayFlexibleModel):
     health_status: str | None = Field(default=None, alias="healthStatus")
     last_health_check_at: str | None = Field(default=None, alias="lastHealthCheckAt")
     last_error: str | None = Field(default=None, alias="lastError")
+    metadata: dict[str, Any] | None = None
 
 
 class ProviderAccountResponse(BaseModel):
@@ -151,6 +154,44 @@ class ModelCatalogListResponse(BaseModel):
     models: list[ModelCatalogRecord]
 
 
+class PricingSnapshotRecord(BaseModel):
+    id: str
+    provider_id: str = Field(alias="providerId")
+    model: str
+    input_price_per_mtok: float | None = Field(default=None, alias="inputPricePerMtok")
+    cached_input_price_per_mtok: float | None = Field(default=None, alias="cachedInputPricePerMtok")
+    output_price_per_mtok: float | None = Field(default=None, alias="outputPricePerMtok")
+    reasoning_price_per_mtok: float | None = Field(default=None, alias="reasoningPricePerMtok")
+    free_tier: bool = Field(alias="freeTier")
+    source_ref: str = Field(alias="sourceRef")
+    effective_at: str | None = Field(default=None, alias="effectiveAt")
+    metadata: dict[str, Any]
+    apply_to_catalog: bool = Field(alias="applyToCatalog")
+    created_at: str = Field(alias="createdAt")
+
+
+class PricingSnapshotCreateRequest(GatewayFlexibleModel):
+    provider_id: str = Field(alias="providerId")
+    model: str
+    input_price_per_mtok: float | None = Field(default=None, alias="inputPricePerMtok")
+    cached_input_price_per_mtok: float | None = Field(default=None, alias="cachedInputPricePerMtok")
+    output_price_per_mtok: float | None = Field(default=None, alias="outputPricePerMtok")
+    reasoning_price_per_mtok: float | None = Field(default=None, alias="reasoningPricePerMtok")
+    free_tier: bool = Field(default=False, alias="freeTier")
+    source_ref: str = Field(default="manual", alias="sourceRef")
+    effective_at: str | None = Field(default=None, alias="effectiveAt")
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    apply_to_catalog: bool = Field(default=False, alias="applyToCatalog")
+
+
+class PricingSnapshotResponse(BaseModel):
+    pricing_snapshot: PricingSnapshotRecord = Field(alias="pricingSnapshot")
+
+
+class PricingSnapshotsListResponse(BaseModel):
+    pricing_snapshots: list[PricingSnapshotRecord] = Field(alias="pricingSnapshots")
+
+
 class RoutingProfileRecord(BaseModel):
     id: str
     name: str
@@ -246,6 +287,10 @@ class RoutingSelection(BaseModel):
 
 class RoutingCandidateRecord(RoutingSelection):
     estimated_cost_usd: float | None = Field(default=None, alias="estimatedCostUsd")
+    pricing_source: str = Field(default="unknown", alias="pricingSource")
+    pricing_staleness: str = Field(default="unknown", alias="pricingStaleness")
+    price_known: bool = Field(default=False, alias="priceKnown")
+    free_tier: bool = Field(default=False, alias="freeTier")
     score: float
     score_breakdown: dict[str, float] = Field(alias="scoreBreakdown")
 
@@ -298,6 +343,8 @@ class RoutingPreviewResponse(BaseModel):
     rejected: list[RoutingRejectedRecord]
     score_breakdown: dict[str, float] = Field(alias="scoreBreakdown")
     policy_result: RoutingPolicyResult = Field(alias="policyResult")
+    budget_result: dict[str, Any] = Field(default_factory=dict, alias="budgetResult")
+    quota_result: dict[str, Any] = Field(default_factory=dict, alias="quotaResult")
 
 
 class UsageLedgerRecord(BaseModel):
@@ -323,6 +370,7 @@ class UsageLedgerRecord(BaseModel):
     actual_cost_usd: float | None = Field(default=None, alias="actualCostUsd")
     currency: str
     latency_ms: int | None = Field(default=None, alias="latencyMs")
+    usage_source: str = Field(alias="usageSource")
     raw_usage: dict[str, Any] = Field(alias="rawUsage")
     created_at: str = Field(alias="createdAt")
 

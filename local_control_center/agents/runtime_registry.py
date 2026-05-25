@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sqlite3
 from typing import Any
 
 from .cli_runtimes.claude_code_cli import ClaudeCodeCliRuntime
@@ -9,13 +10,13 @@ from .cli_runtimes.openhands import OpenHandsRuntime
 from .cli_runtimes.swe_agent import SweAgentRuntime
 
 
-def runtime_for(runtime_id: str, *, mock: bool = False):
+def runtime_for(runtime_id: str, *, mock: bool = False, connection: sqlite3.Connection | None = None):
     runtimes = {
-        "codex_cli": CodexCliRuntime(mock=mock),
-        "claude_code_cli": ClaudeCodeCliRuntime(mock=mock),
-        "openhands": OpenHandsRuntime(mock=mock),
-        "swe_agent": SweAgentRuntime(mock=mock),
-        "manual": ManualRuntime(mock=True),
+        "codex_cli": CodexCliRuntime(mock=mock, connection=connection),
+        "claude_code_cli": ClaudeCodeCliRuntime(mock=mock, connection=connection),
+        "openhands": OpenHandsRuntime(mock=mock, connection=connection),
+        "swe_agent": SweAgentRuntime(mock=mock, connection=connection),
+        "manual": ManualRuntime(mock=True, connection=connection),
     }
     if runtime_id not in runtimes:
         raise KeyError(f"Runtime not found: {runtime_id}")

@@ -10,9 +10,30 @@ from local_control_center.shared.schemas import AuditEventRecord
 class ProjectCreateRequest(BaseModel):
     name: str | None = None
     path: str | None = None
+    workspace_base_path: str | None = Field(default=None, alias="workspaceBasePath")
+    project_directory_name: str | None = Field(default=None, alias="projectDirectoryName")
     template_id: str | None = Field(default=None, alias="templateId")
     create_directory: bool = Field(default=True, alias="createDirectory")
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class ProjectDiscoveryRequest(BaseModel):
+    path: str
+
+
+class ProjectDiscoveryResponse(BaseModel):
+    discovery: dict[str, Any]
+
+
+class DirectoryPickerRequest(BaseModel):
+    title: str = "Select workspace folder"
+    initial_path: str | None = Field(default=None, alias="initialPath")
+
+
+class DirectoryPickerResponse(BaseModel):
+    status: str
+    selected_path: str | None = Field(default=None, alias="selectedPath")
+    reason: str | None = None
 
 
 class ProjectRecord(BaseModel):

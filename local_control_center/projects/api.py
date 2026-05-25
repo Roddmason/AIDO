@@ -8,9 +8,14 @@ from fastapi import APIRouter, Request
 from local_control_center.shared.event_bus import EventBus
 
 from . import commands
+from .local_paths import select_directory_with_native_dialog
 from .models import (
     AgentsListResponse,
+    DirectoryPickerRequest,
+    DirectoryPickerResponse,
     ProjectCreateRequest,
+    ProjectDiscoveryRequest,
+    ProjectDiscoveryResponse,
     ProjectResponse,
     ProjectsListResponse,
     ProjectTemplatesResponse,
@@ -37,6 +42,11 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     async def projects() -> dict[str, Any]:
         return commands.list_projects(repository())
 
+    @router.post("/api/v1/projects/discover", response_model=ProjectDiscoveryResponse)
+    async def discover_project(body: ProjectDiscoveryRequest, request: Request) -> dict[str, Any]:
+        require_write(request)
+        return commands.discover_project(path=body.path)
+
     @router.post("/api/v1/projects", status_code=201, response_model=ProjectResponse)
     async def create_project(body: ProjectCreateRequest, request: Request) -> ProjectResponse:
         require_write(request)
@@ -47,6 +57,11 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             body=body.model_dump(by_alias=True, exclude_none=True),
         )
         return ProjectResponse(project=payload["project"], auditEvent=payload.get("auditEvent"))
+
+    @router.post("/api/v1/local-paths/select-directory", response_model=DirectoryPickerResponse)
+    async def select_directory(body: DirectoryPickerRequest, request: Request) -> dict[str, Any]:
+        require_write(request)
+        return select_directory_with_native_dialog(title=body.title, initial_path=body.initial_path)
 
     @router.get("/api/v1/providers", response_model=ProvidersListResponse)
     async def providers() -> dict[str, Any]:

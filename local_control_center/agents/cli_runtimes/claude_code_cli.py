@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import sqlite3
 
 from .base import CliRuntime, RuntimeRequest
 
@@ -19,8 +20,18 @@ class ClaudeCodeCliRuntime(CliRuntime):
     runtime_id = "claude_code_cli"
     display_name = "Claude Code CLI"
 
-    def __init__(self, *, executable: str | None = None, mock: bool = False):
-        super().__init__(executable=executable or os.environ.get("CLAUDE_CODE_CLI_PATH", "claude"), mock=mock)
+    def __init__(
+        self,
+        *,
+        executable: str | None = None,
+        mock: bool = False,
+        connection: sqlite3.Connection | None = None,
+    ):
+        super().__init__(
+            executable=executable or os.environ.get("CLAUDE_CODE_CLI_PATH", "claude"),
+            mock=mock,
+            connection=connection,
+        )
 
     def build_command(self, request: RuntimeRequest) -> list[str]:
         workspace = self._validate_workspace(request)

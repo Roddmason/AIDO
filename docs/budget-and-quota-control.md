@@ -2,11 +2,11 @@
 
 ## What It Does
 
-Budget rules define cost/token ceilings by scope. Provider limits track RPM, TPM, daily/monthly limits and cooldowns. `QuotaManager` blocks providers in cooldown before routing/execution.
+Budget rules define cost/token ceilings by scope. Provider limits track RPM, TPM, daily/monthly limits and cooldowns. `BudgetRuleEvaluator` and `QuotaManager` run before route selection and return explicit `budgetResult` and `quotaResult` payloads.
 
 ## Configuration
 
-Seeds include global monthly and role task-level defaults. Edit via `/api/v1/model-gateway/budget-rules`.
+Seeds include global monthly and role task-level defaults. Edit via `/api/v1/model-gateway/budget-rules`. Supported budget actions are `deny`, `require_approval`, `fallback` and `warn`.
 
 ## Endpoints
 
@@ -15,7 +15,7 @@ Seeds include global monthly and role task-level defaults. Edit via `/api/v1/mod
 
 ## Testing
 
-`test_quota_manager_blocks_provider_in_cooldown` verifies 429 cooldown blocks routing.
+Tests verify cooldown blocking, budget denial, budget approval gating and route preview result payloads.
 
 ## Risks
 
@@ -24,7 +24,7 @@ Seeds include global monthly and role task-level defaults. Edit via `/api/v1/mod
 
 ## Limitations
 
-- Sliding-window counters are schema-ready but the MVP primarily enforces cooldown and request-size checks.
+- Sliding-window counters are basic and local. They enforce cooldown, request-size and current-window token/request ceilings when `current_window_json` includes counters.
 
 ## Example
 

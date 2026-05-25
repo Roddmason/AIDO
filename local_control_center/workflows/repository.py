@@ -4,6 +4,9 @@ import sqlite3
 import uuid
 from typing import Any
 
+from local_control_center.governance.repository import GovernanceRepository
+from local_control_center.jobs_approvals.repository import JobsRepository
+from local_control_center.shared.event_bus import EventBus
 from local_control_center.shared.serialization import json_dumps, json_loads
 
 from local_control_center.shared.time import utc_now
@@ -23,6 +26,81 @@ DEFAULT_WORKFLOW_STEPS = [
     "pr_creation",
     "release_candidate",
 ]
+
+RELEASE_CONTROL_STEPS = {"pr_review", "release_gate", "retro"}
+ALLOWED_DECLARED_STEP_NAMES = set(DEFAULT_WORKFLOW_STEPS) | RELEASE_CONTROL_STEPS
+BLOCKED_MAIN_OPERATIONS = {
+    "commit_to_main",
+    "direct_main_edit",
+    "direct_push",
+    "edit_main",
+    "push",
+    "push_to_main",
+}
+
+
+def _is_truthy(value: Any) -> bool:
+    return value is True or (isinstance(value, str) and value.strip().lower() in {"1", "true", "yes", "y"})
+
+
+def _step_name(spec: Any) -> str:
+    if isinstance(spec, str):
+        return spec.strip()
+    if isinstance(spec, dict):
+        return str(spec.get("name") or "").strip()
+    return ""
+
+
+def _assert_release_safety(spec: dict[str, Any], *, location: str) -> None:
+    if any(_is_truthy(spec.get(key)) for key in ("forcePush", "force_push", "forcePushEnabled")):
+        raise ValueError(f"{location}: force push is not allowed in governed workflows.")
+    command = str(spec.get("command") or "").lower()
+    if "push --force" in command or "push -f" in command or "--force-with-lease" in command:
+        raise ValueError(f"{location}: force push is not allowed in governed workflows.")
+
+    branch = str(spec.get("branch") or spec.get("targetBranch") or spec.get("baseBranch") or "").strip().lower()
+    operation = str(spec.get("operation") or spec.get("action") or "").strip().lower()
+    direct_main = _is_truthy(spec.get("directMainEdit")) or _is_truthy(spec.get("direct_main_edit"))
+    if branch in {"main", "master"} and (direct_main or operation in BLOCKED_MAIN_OPERATIONS):
+        raise ValueError(f"{location}: direct main edits are not allowed; use PR review and release gates.")
+
+    nested_metadata = spec.get("metadata")
+    if isinstance(nested_metadata, dict):
+        _assert_release_safety(nested_metadata, location=f"{location}.metadata")
+
+
+def validate_workflow_metadata(metadata: dict[str, Any]) -> None:
+    _assert_release_safety(metadata, location="metadata")
+    steps = metadata.get("steps")
+    if steps is None:
+        return
+    if not isinstance(steps, list) or not steps:
+        raise ValueError("metadata.steps must be a non-empty list when provided.")
+    if len(steps) > 32:
+        raise ValueError("metadata.steps supports at most 32 declared workflow steps.")
+    for index, raw_step in enumerate(steps):
+        name = _step_name(raw_step)
+        if name not in ALLOWED_DECLARED_STEP_NAMES:
+            raise ValueError(f"metadata.steps[{index}].name must be a known workflow step.")
+        if isinstance(raw_step, dict):
+            _assert_release_safety(raw_step, location=f"metadata.steps[{index}]")
+            for field in ("input", "output", "metadata"):
+                if field in raw_step and raw_step[field] is not None and not isinstance(raw_step[field], dict):
+                    raise ValueError(f"metadata.steps[{index}].{field} must be an object.")
+
+
+def _normalize_declared_steps(metadata: dict[str, Any]) -> list[dict[str, Any]]:
+    steps = metadata.get("steps")
+    if steps is None:
+        return [{"name": name} for name in DEFAULT_WORKFLOW_STEPS]
+    validate_workflow_metadata(metadata)
+    normalized: list[dict[str, Any]] = []
+    for raw_step in steps:
+        if isinstance(raw_step, str):
+            normalized.append({"name": raw_step.strip()})
+        else:
+            normalized.append(dict(raw_step))
+    return normalized
 
 
 def row_to_workflow(row: sqlite3.Row) -> dict[str, Any]:
@@ -106,6 +184,8 @@ class WorkflowsRepository:
 
     def start_workflow(self, workflow_id: str, *, reason: str = "") -> dict[str, Any]:
         workflow = self.get_workflow(workflow_id)
+        validate_workflow_metadata(workflow.get("metadata") or {})
+        step_specs = _normalize_declared_steps(workflow.get("metadata") or {})
         timestamp = utc_now()
         run_id = f"workflow-run-{uuid.uuid4()}"
         self.connection.execute(
@@ -119,31 +199,66 @@ class WorkflowsRepository:
             """,
             (run_id, workflow_id, workflow["projectId"], timestamp, json_dumps({"reason": reason})),
         )
-        for index, step_name in enumerate(DEFAULT_WORKFLOW_STEPS):
+        for index, step_spec in enumerate(step_specs):
+            step_name = str(step_spec.get("name") or "").strip()
+            step_id = f"workflow-step-{uuid.uuid4()}"
+            step_metadata = {
+                **(step_spec.get("metadata") or {}),
+                "order": index,
+            }
+            if step_name == "pr_review":
+                step_metadata = {
+                    **step_metadata,
+                    "requiresEvidence": True,
+                    "requiredEvidence": "qa_passed",
+                    "gateState": "blocked_pending_qa_evidence",
+                }
+            if step_name == "release_gate" and str(step_spec.get("environment") or "").strip().lower() == "production":
+                step_metadata = {
+                    **step_metadata,
+                    "environment": "production",
+                    "requiresApproval": True,
+                    "gateState": "blocked_pending_human_approval",
+                }
+            if step_name == "retro":
+                step_metadata = {
+                    **step_metadata,
+                    "gateState": "governance_seeded",
+                }
             self.connection.execute(
                 """
                 INSERT INTO workflow_steps
                     (id, workflow_run_id, workflow_id, project_id, name, status, agent_profile_id,
                      role, task_type, risk_level, model_mode, manual_model_override,
                      input, output, metadata, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    f"workflow-step-{uuid.uuid4()}",
+                    step_id,
                     run_id,
                     workflow_id,
                     workflow["projectId"],
                     step_name,
                     "ready" if index == 0 else "pending",
-                    self._default_role_for_step(step_name),
-                    step_name,
-                    "medium",
-                    json_dumps({}),
-                    json_dumps({}),
-                    json_dumps({"order": index}),
+                    str(step_spec.get("role") or self._default_role_for_step(step_name)),
+                    str(step_spec.get("taskType") or step_name),
+                    str(step_spec.get("riskLevel") or "medium"),
+                    step_spec.get("modelMode"),
+                    step_spec.get("manualModelOverride"),
+                    json_dumps(step_spec.get("input") or {}),
+                    json_dumps(step_spec.get("output") or {}),
+                    json_dumps(step_metadata),
                     timestamp,
                     timestamp,
                 ),
+            )
+            self._record_release_control_gate(
+                workflow=workflow,
+                workflow_run_id=run_id,
+                step_id=step_id,
+                step_name=step_name,
+                step_spec=step_spec,
+                step_metadata=step_metadata,
             )
         self.record_workflow_event(
             workflow_id=workflow_id,
@@ -172,7 +287,155 @@ class WorkflowsRepository:
             "technical_review": "technical_lead",
             "pr_creation": "developer",
             "release_candidate": "release_manager",
+            "pr_review": "technical_lead",
+            "release_gate": "release_manager",
+            "retro": "technical_lead",
         }.get(step_name, "developer")
+
+    def _record_release_control_gate(
+        self,
+        *,
+        workflow: dict[str, Any],
+        workflow_run_id: str,
+        step_id: str,
+        step_name: str,
+        step_spec: dict[str, Any],
+        step_metadata: dict[str, Any],
+    ) -> None:
+        if step_name == "pr_review":
+            payload = {
+                "workflowId": workflow["id"],
+                "workflowRunId": workflow_run_id,
+                "workflowStepId": step_id,
+                "requiredEvidence": step_metadata["requiredEvidence"],
+            }
+            self.record_workflow_event(
+                workflow_id=workflow["id"],
+                workflow_run_id=workflow_run_id,
+                step_id=step_id,
+                project_id=workflow["projectId"],
+                event_type="workflow.gate.pr_review.evidence_required",
+                payload=payload,
+                severity="warning",
+            )
+            EventBus(self.connection).record_audit(
+                project_id=workflow["projectId"],
+                action="workflow.gate.pr_review.evidence_required",
+                actor="system",
+                target=step_id,
+                payload=payload,
+            )
+            return
+
+        if step_name == "release_gate" and step_metadata.get("environment") == "production":
+            job_result = JobsRepository(self.connection).create_job(
+                project_id=workflow["projectId"],
+                kind="release.production",
+                status="approval_required",
+                workflow_run_id=workflow_run_id,
+                workflow_step_id=step_id,
+                payload={
+                    "workflowId": workflow["id"],
+                    "workflowRunId": workflow_run_id,
+                    "workflowStepId": step_id,
+                    "environment": "production",
+                    "approvalRequired": True,
+                    "reason": "Production release requires explicit human approval.",
+                },
+            )
+            payload = {
+                "workflowId": workflow["id"],
+                "workflowRunId": workflow_run_id,
+                "workflowStepId": step_id,
+                "environment": "production",
+                "jobId": job_result["job"]["id"],
+                "actionRequestIds": [item["id"] for item in job_result["actionRequests"]],
+            }
+            self.record_workflow_event(
+                workflow_id=workflow["id"],
+                workflow_run_id=workflow_run_id,
+                step_id=step_id,
+                project_id=workflow["projectId"],
+                event_type="workflow.gate.release_gate.approval_required",
+                payload=payload,
+                severity="warning",
+            )
+            EventBus(self.connection).record_audit(
+                project_id=workflow["projectId"],
+                action="workflow.gate.release_gate.approval_required",
+                actor="system",
+                target=step_id,
+                payload=payload,
+            )
+            return
+
+        if step_name == "retro":
+            metadata = {
+                "sourceType": "workflow_retro",
+                "sourceId": step_id,
+                "workflowId": workflow["id"],
+                "workflowRunId": workflow_run_id,
+                "workflowStepId": step_id,
+            }
+            governance = GovernanceRepository(self.connection)
+            risk = governance.create_risk(
+                {
+                    "projectId": workflow["projectId"],
+                    "title": f"Retrospective findings pending: {workflow['title']}",
+                    "severity": "low",
+                    "status": "open",
+                    "description": "The workflow includes a retrospective gate; findings must be captured before closing the release loop.",
+                    "mitigation": "Record outcomes, unresolved risks, and follow-up work after the release gate.",
+                    "owner": str(step_spec.get("role") or "technical_lead"),
+                    "metadata": metadata,
+                }
+            )
+            next_step = governance.create_next_step(
+                {
+                    "projectId": workflow["projectId"],
+                    "title": f"Capture retrospective outcomes: {workflow['title']}",
+                    "status": "planned",
+                    "priority": "medium",
+                    "sourceRiskId": risk["id"],
+                    "owner": str(step_spec.get("role") or "technical_lead"),
+                    "metadata": metadata,
+                }
+            )
+            decision = governance.create_architecture_decision(
+                {
+                    "projectId": workflow["projectId"],
+                    "title": f"Retrospective control seeded: {workflow['title']}",
+                    "status": "proposed",
+                    "context": "AIDO release workflows require retrospective records to close the SDLC feedback loop.",
+                    "decision": "Create governance records during workflow start so the release cannot become unauditable.",
+                    "consequences": ["Retro outcomes remain explicit backlog/governance records."],
+                    "linkedRiskIds": [risk["id"]],
+                    "nextStepIds": [next_step["id"]],
+                    "metadata": metadata,
+                }
+            )
+            payload = {
+                **metadata,
+                "riskId": risk["id"],
+                "nextStepId": next_step["id"],
+                "decisionId": decision["id"],
+            }
+            self.record_workflow_event(
+                workflow_id=workflow["id"],
+                workflow_run_id=workflow_run_id,
+                step_id=step_id,
+                project_id=workflow["projectId"],
+                event_type="workflow.gate.retro.governance_created",
+                payload=payload,
+                severity="info",
+            )
+            EventBus(self.connection).record_audit(
+                project_id=workflow["projectId"],
+                action="workflow.gate.retro.governance_created",
+                actor="system",
+                target=step_id,
+                payload=payload,
+            )
 
     def update_workflow_status(self, workflow_id: str, *, status: str, reason: str = "") -> dict[str, Any]:
         workflow = self.get_workflow(workflow_id)
@@ -216,6 +479,40 @@ class WorkflowsRepository:
             rows = self.connection.execute("SELECT * FROM workflow_steps ORDER BY created_at ASC").fetchall()
         return [row_to_workflow_step(row) for row in rows]
 
+    def get_workflow_step(self, step_id: str) -> dict[str, Any]:
+        row = self.connection.execute("SELECT * FROM workflow_steps WHERE id = ?", (step_id,)).fetchone()
+        if not row:
+            raise KeyError(f"Workflow step not found: {step_id}")
+        return row_to_workflow_step(row)
+
+    def update_workflow_step(
+        self,
+        step_id: str,
+        *,
+        status: str | None = None,
+        metadata: dict[str, Any] | None = None,
+        output: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        current = self.get_workflow_step(step_id)
+        next_status = status or current["status"]
+        next_metadata = current["metadata"] if metadata is None else metadata
+        next_output = current["output"] if output is None else output
+        self.connection.execute(
+            """
+            UPDATE workflow_steps
+            SET status = ?, metadata = ?, output = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                next_status,
+                json_dumps(next_metadata),
+                json_dumps(next_output),
+                utc_now(),
+                step_id,
+            ),
+        )
+        return self.get_workflow_step(step_id)
+
     def record_workflow_event(
         self,
         *,
@@ -225,6 +522,7 @@ class WorkflowsRepository:
         event_type: str,
         payload: dict[str, Any] | None = None,
         severity: str = "info",
+        step_id: str | None = None,
     ) -> dict[str, Any]:
         event_id = f"workflow-event-{uuid.uuid4()}"
         self.connection.execute(
@@ -232,9 +530,9 @@ class WorkflowsRepository:
             INSERT INTO workflow_events
                 (id, workflow_id, workflow_run_id, step_id, project_id, type, payload, severity,
                  created_at, correlation_id, causation_id)
-            VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, NULL, NULL)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)
             """,
-            (event_id, workflow_id, workflow_run_id, project_id, event_type, json_dumps(payload or {}), severity, utc_now()),
+            (event_id, workflow_id, workflow_run_id, step_id, project_id, event_type, json_dumps(payload or {}), severity, utc_now()),
         )
         row = self.connection.execute("SELECT * FROM workflow_events WHERE id = ?", (event_id,)).fetchone()
         return {

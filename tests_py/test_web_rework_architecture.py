@@ -183,7 +183,8 @@ def test_web_tooling_has_motion_and_visual_smoke_scripts() -> None:
     assert "@gsap/react" not in package["dependencies"]
     assert "@playwright/test" in package["devDependencies"]
     assert "vite" in package["devDependencies"]
-    assert package["scripts"]["test:web"] == "corepack pnpm@10.24.0 run build:control-center && playwright test"
+    assert package["scripts"]["test:web"] == "vite build --config local-control-center/web/vite.config.ts && playwright test"
+    assert "corepack" not in package["scripts"]["test:web"]
     assert package["scripts"]["typecheck:web"] == "tsc --noEmit -p local-control-center/web/tsconfig.json"
 
     playwright_config = ROOT / "playwright.config.mjs"

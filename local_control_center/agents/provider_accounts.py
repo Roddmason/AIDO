@@ -34,6 +34,7 @@ def row_to_provider_account(row: sqlite3.Row) -> dict[str, Any]:
         "healthStatus": row["health_status"],
         "lastHealthCheckAt": row["last_health_check_at"],
         "lastError": redact_secrets(row["last_error"] or ""),
+        "metadata": redact_secrets(json_loads(row["metadata_json"], {})) if "metadata_json" in row.keys() else {},
         "createdAt": row["created_at"],
         "updatedAt": row["updated_at"],
     }
@@ -70,6 +71,24 @@ def row_to_model_catalog(row: sqlite3.Row) -> dict[str, Any]:
     }
 
 
+def row_to_pricing_snapshot(row: sqlite3.Row) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "providerId": row["provider_id"],
+        "model": row["model"],
+        "inputPricePerMtok": row["input_price_per_mtok"],
+        "cachedInputPricePerMtok": row["cached_input_price_per_mtok"],
+        "outputPricePerMtok": row["output_price_per_mtok"],
+        "reasoningPricePerMtok": row["reasoning_price_per_mtok"],
+        "freeTier": _bool(row["free_tier"]),
+        "sourceRef": redact_secrets(row["source_ref"]),
+        "effectiveAt": row["effective_at"],
+        "metadata": redact_secrets(json_loads(row["metadata_json"], {})),
+        "applyToCatalog": _bool(row["apply_to_catalog"]),
+        "createdAt": row["created_at"],
+    }
+
+
 class ProviderAccountStore:
     def __init__(self, connection: sqlite3.Connection):
         self.connection = connection
@@ -89,13 +108,15 @@ class ProviderAccountStore:
         resolver = CredentialResolver()
         credential_ref = resolver.normalize_ref_for_storage(str(body.get("credentialRef", "") or ""))
         resolver.validate_ref(credential_ref)
+        metadata = redact_secrets(body.get("metadata") or {})
         now = utc_now()
         self.connection.execute(
             """
             INSERT INTO provider_accounts
                 (id, provider_id, display_name, provider_type, api_format, base_url, credential_ref,
-                 enabled, quota_mode, health_status, last_health_check_at, last_error, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 enabled, quota_mode, health_status, last_health_check_at, last_error, metadata_json,
+                 created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(provider_id) DO UPDATE SET
                 display_name = excluded.display_name,
                 provider_type = excluded.provider_type,
@@ -107,6 +128,7 @@ class ProviderAccountStore:
                 health_status = excluded.health_status,
                 last_health_check_at = excluded.last_health_check_at,
                 last_error = excluded.last_error,
+                metadata_json = excluded.metadata_json,
                 updated_at = excluded.updated_at
             """,
             (
@@ -122,6 +144,7 @@ class ProviderAccountStore:
                 body.get("healthStatus", "unknown"),
                 body.get("lastHealthCheckAt"),
                 redact_secrets(body.get("lastError", "")),
+                json_dumps(metadata),
                 now,
                 now,
             ),
@@ -221,6 +244,91 @@ class ProviderAccountStore:
         existing = self.get_model(model_id)
         merged = {**existing, **body, "id": existing["id"], "providerId": existing["providerId"], "model": existing["model"]}
         return self.upsert_model(merged)
+
+    def list_pricing_snapshots(
+        self,
+        *,
+        provider_id: str | None = None,
+        model: str | None = None,
+    ) -> list[dict[str, Any]]:
+        clauses: list[str] = []
+        params: list[Any] = []
+        if provider_id:
+            clauses.append("provider_id = ?")
+            params.append(provider_id)
+        if model:
+            clauses.append("model = ?")
+            params.append(model)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        rows = self.connection.execute(
+            f"SELECT * FROM pricing_snapshots {where} ORDER BY created_at DESC",
+            tuple(params),
+        ).fetchall()
+        return [row_to_pricing_snapshot(row) for row in rows]
+
+    def create_pricing_snapshot(self, body: dict[str, Any]) -> dict[str, Any]:
+        provider_id = str(body["providerId"])
+        model = str(body["model"])
+        snapshot_id = str(body.get("id") or f"pricing-snapshot-{uuid.uuid4()}")
+        source_ref = str(redact_secrets(str(body.get("sourceRef") or "manual")))[:240]
+        metadata = redact_secrets(body.get("metadata") or {})
+        apply_to_catalog = bool(body.get("applyToCatalog", False))
+        now = utc_now()
+        self.connection.execute(
+            """
+            INSERT INTO pricing_snapshots
+                (id, provider_id, model, input_price_per_mtok, cached_input_price_per_mtok,
+                 output_price_per_mtok, reasoning_price_per_mtok, free_tier, source_ref,
+                 effective_at, metadata_json, apply_to_catalog, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                snapshot_id,
+                provider_id,
+                model,
+                body.get("inputPricePerMtok"),
+                body.get("cachedInputPricePerMtok"),
+                body.get("outputPricePerMtok"),
+                body.get("reasoningPricePerMtok"),
+                1 if body.get("freeTier", False) else 0,
+                source_ref,
+                body.get("effectiveAt"),
+                json_dumps(metadata),
+                1 if apply_to_catalog else 0,
+                now,
+            ),
+        )
+        snapshot = self.get_pricing_snapshot(snapshot_id)
+        if apply_to_catalog:
+            try:
+                existing = self.get_model(f"{provider_id}:{model}")
+            except KeyError:
+                existing = {
+                    "providerId": provider_id,
+                    "model": model,
+                    "displayName": model,
+                    "enabled": True,
+                }
+            self.upsert_model(
+                {
+                    **existing,
+                    "providerId": provider_id,
+                    "model": model,
+                    "inputPricePerMtok": snapshot["inputPricePerMtok"],
+                    "cachedInputPricePerMtok": snapshot["cachedInputPricePerMtok"],
+                    "outputPricePerMtok": snapshot["outputPricePerMtok"],
+                    "reasoningPricePerMtok": snapshot["reasoningPricePerMtok"],
+                    "freeTier": snapshot["freeTier"],
+                    "source": f"pricing_snapshot:{snapshot_id}",
+                }
+            )
+        return snapshot
+
+    def get_pricing_snapshot(self, snapshot_id: str) -> dict[str, Any]:
+        row = self.connection.execute("SELECT * FROM pricing_snapshots WHERE id = ?", (snapshot_id,)).fetchone()
+        if not row:
+            raise KeyError(f"Pricing snapshot not found: {snapshot_id}")
+        return row_to_pricing_snapshot(row)
 
     def record_health_check(self, *, provider_id: str, status: str, payload: dict[str, Any]) -> dict[str, Any]:
         now = utc_now()

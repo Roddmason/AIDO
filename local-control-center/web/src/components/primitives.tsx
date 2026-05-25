@@ -66,7 +66,7 @@ export function DataTable<T>({
 					{rows.map((row, index) => (
 						<tr key={index}>
 							{columns.map((column) => (
-								<td key={column.key}>{column.render(row)}</td>
+								<td key={column.key} data-label={column.label}>{column.render(row)}</td>
 							))}
 						</tr>
 					))}

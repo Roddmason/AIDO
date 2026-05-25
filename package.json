@@ -5,12 +5,13 @@
   "type": "module",
   "packageManager": "pnpm@10.24.0",
   "engines": {
-    "node": ">=18.20.0"
+    "node": ">=24.16.0 <25.0.0"
   },
   "scripts": {
     "prestart": "corepack pnpm@10.24.0 run build:web",
-    "start": "powershell -NoProfile -ExecutionPolicy Bypass -File local-control-center/scripts/start-control-center.ps1 -DashboardHost 127.0.0.1 -DashboardPort 4310",
-    "start:py": "uv run python -m local_control_center --dashboard-host 127.0.0.1 --dashboard-port 4310",
+    "start": "uv run python local-control-center/scripts/start_control_center.py --dashboard-host 127.0.0.1 --dashboard-port 4310",
+    "start:py": "uv run python local-control-center/scripts/start_control_center.py --dashboard-host 127.0.0.1 --dashboard-port 4310",
+    "start:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File local-control-center/scripts/start-control-center.ps1 -DashboardHost 127.0.0.1 -DashboardPort 4310",
     "build": "corepack pnpm@10.24.0 run build:web",
     "build:web": "vite build --config local-control-center/web/vite.config.ts",
     "build:control-center": "corepack pnpm@10.24.0 run build:web",
@@ -18,7 +19,7 @@
     "test": "uv run pytest tests_py -q",
     "test:py": "uv run pytest tests_py -q",
     "test:all": "corepack pnpm@10.24.0 run typecheck:web && corepack pnpm@10.24.0 run build:control-center && corepack pnpm@10.24.0 run test:py",
-    "test:web": "corepack pnpm@10.24.0 run build:control-center && playwright test",
+    "test:web": "vite build --config local-control-center/web/vite.config.ts && playwright test",
     "typecheck:web": "tsc --noEmit -p local-control-center/web/tsconfig.json",
     "lint": "corepack pnpm@10.24.0 run lint:py",
     "lint:py": "uv run --extra dev ruff check .",
@@ -30,7 +31,13 @@
     "smoke:runtime:preflight": "powershell -NoProfile -ExecutionPolicy Bypass -File local-control-center/scripts/smoke-runtime-adapters.ps1 -PreflightOnly -ReportPath .tmp/runtime-validation/preflight.json",
     "smoke:runtime:release:preflight": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"$env:AIDO_RUNTIME_RELEASE_VALIDATION='1'; & 'local-control-center/scripts/smoke-runtime-adapters.ps1' -PreflightOnly -ReportPath .tmp/runtime-validation/release-preflight.json\"",
     "smoke:runtime:release": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"$env:AIDO_RUNTIME_SMOKE='1'; $env:AIDO_RUNTIME_RELEASE_VALIDATION='1'; & 'local-control-center/scripts/smoke-runtime-adapters.ps1' -PreflightOnly -ReportPath .tmp/runtime-validation/release-preflight.json; & 'local-control-center/scripts/smoke-runtime-adapters.ps1' -ReportPath .tmp/runtime-validation/release.json\"",
-    "quality": "corepack pnpm@10.24.0 run lint && corepack pnpm@10.24.0 run typecheck:web && corepack pnpm@10.24.0 run test:all && corepack pnpm@10.24.0 run security:secrets && corepack pnpm@10.24.0 run security:sast"
+    "quality": "corepack pnpm@10.24.0 run lint && corepack pnpm@10.24.0 run typecheck:web && corepack pnpm@10.24.0 run test:all && corepack pnpm@10.24.0 run security:secrets && corepack pnpm@10.24.0 run security:sast",
+    "node:use": "powershell -NoProfile -ExecutionPolicy Bypass -File local-control-center/scripts/use-node.ps1",
+    "codegraph": "codegraph",
+    "codegraph:init": "codegraph init -i",
+    "codegraph:index": "codegraph index . --force",
+    "codegraph:status": "codegraph status .",
+    "codegraph:files": "codegraph files . --max-depth 4"
   },
   "keywords": [],
   "author": "Roddmason",

@@ -2,13 +2,22 @@
 
 ## What It Does
 
-`local_control_center.agents.model_router.ModelRouter` selects a provider, model and runtime from catalog data, role policy, routing mode, privacy, budget, quota, health and capability filters.
+`local_control_center.agents.model_router.ModelRouter` selects a provider, model and runtime from catalog data, role policy, routing mode, privacy, budget, quota, health and capability filters. Route preview exposes `policyResult`, `budgetResult` and `quotaResult` so callers can see why a route was allowed, blocked or approval-gated.
 
 Workflow start now calls the router once per materialized workflow step. The decision is recorded with `workflowRunId`, `workflowStepId` and `taskId`, but no real provider or CLI execution is triggered by starting a workflow.
 
 ## Configuration
 
 The default mode is `balanced_best_value`. Seeds live in SQLite and an editable example is available at `config/model-routing.example.yaml`.
+
+Pricing catalog records expose `source` and staleness (`fresh`, `stale` or
+`unknown`). Unknown prices are not treated as zero unless the model is explicitly
+marked `freeTier=true`.
+
+Manual pricing changes should be recorded through
+`POST /api/v1/model-gateway/pricing-snapshots`. When a snapshot is applied to
+the catalog, the model source becomes `pricing_snapshot:{id}` so routing
+decisions can be traced back to the price input used at the time.
 
 ## Endpoints
 
@@ -21,16 +30,21 @@ The default mode is `balanced_best_value`. Seeds live in SQLite and an editable 
 
 ## Testing
 
-Tests cover NVIDIA-first free routing, `local_private` remote blocking, CLI preference for developer code edits, technical lead xhigh escalation, approval thresholds, fail-closed real execution and workflow-step routing decision linkage.
+Tests cover NVIDIA-first free routing, `local_private` remote blocking, CLI preference for developer code edits, technical lead xhigh escalation, approval thresholds, budget deny/approval behavior, quota cooldown diagnostics, pricing staleness, benchmark confidence thresholds, fail-closed real execution and workflow-step routing decision linkage.
 
 ## Risks
 
-- The score is an initial heuristic. It records `scoreBreakdown` so future benchmarks can replace weights with evidence.
+- The score is an initial heuristic. It records `scoreBreakdown`; benchmarks can
+  influence the score only after the minimum sample threshold is met.
 - Manual mode does not auto-fallback unless configured.
+- Budget actions are explicit: `deny`, `require_approval`, `fallback` and `warn`.
 
 ## Limitations
 
-- Benchmark-derived scoring is not active yet. The benchmark endpoint exposes usage-derived attempts/cost/latency and outcome-derived success/QA/rework rates once evidence or operators record outcomes.
+- Benchmark-derived scoring is deliberately bounded. Insufficient benchmark data
+  is surfaced as `benchmarkInsufficientData=true` and cannot dominate routing.
+  With sufficient samples, benchmark performance contributes a small additive
+  score factor after hard filters for policy, budget, quota, context and privacy.
 - Real execution does not override approval gates. If a selected route requires approval, `/route/execute` creates a pending `model.route.execute` action request and returns `409` before any provider or CLI call.
 
 ## Example

@@ -26,6 +26,17 @@ import {
 import type { Dictionary, Overview, RuntimeProviders } from '../../api/types';
 import { Badge, DataTable, EmptyState, PageHeader, Surface } from '../../components/primitives';
 import { toneForStatus } from '../../lib/format';
+import { BenchmarksPanel } from './BenchmarksPanel';
+import { BudgetsPanel } from './BudgetsPanel';
+import { CliSessionsPanel } from './CliSessionsPanel';
+import { ModelCatalogPanel } from './ModelCatalogPanel';
+import { ProviderAccountsPanel } from './ProviderAccountsPanel';
+import { ProviderLimitsPanel } from './ProviderLimitsPanel';
+import { RoleAssignmentsPanel } from './RoleAssignmentsPanel';
+import { RoutePreviewPanel } from './RoutePreviewPanel';
+import { RoutingDecisionsPanel } from './RoutingDecisionsPanel';
+import { RoutingProfilesPanel } from './RoutingProfilesPanel';
+import { UsageLedgerPanel } from './UsageLedgerPanel';
 
 type ModelGatewayState = {
 	overview: Dictionary;
@@ -66,23 +77,9 @@ function text(value: unknown, fallback = 'n/a') {
 	return result || fallback;
 }
 
-function boolLabel(value: unknown) {
-	return value ? 'yes' : 'no';
-}
-
 function money(value: unknown) {
 	const number = Number(value ?? 0);
 	return `$${Number.isFinite(number) ? number.toFixed(4) : '0.0000'}`;
-}
-
-function listLabel(value: unknown) {
-	return Array.isArray(value) ? value.map((item) => String(item)).join(', ') || 'none' : text(value, 'none');
-}
-
-function SecretSafeValue({ value }: { value: unknown }) {
-	const rendered = text(value, 'not configured');
-	const unsafe = /sk-[A-Za-z0-9_-]+|Bearer\s+/i.test(rendered);
-	return <span className="mono">{unsafe ? '[redacted]' : rendered}</span>;
 }
 
 function Metric({ label, value }: { label: string; value: unknown }) {
@@ -407,103 +404,45 @@ export function ModelGatewayPage({
 				</div>
 			</Surface>
 
-			<Surface title="Route Preview">
-				<div className="form-grid">
-					<div className="grid three">
-						<div className="field">
-							<label htmlFor="route-preview-role">Preview role</label>
-							<select id="route-preview-role" className="select" value={previewRole} onChange={(event) => setPreviewRole(event.target.value)}>
-								{['analyst', 'product_owner', 'technical_lead', 'developer', 'qa', 'security_reviewer', 'release_manager'].map((role) => (
-									<option key={role} value={role}>{role}</option>
-								))}
-							</select>
-						</div>
-						<div className="field">
-							<label htmlFor="route-preview-mode">Preview mode</label>
-							<select id="route-preview-mode" className="select" value={previewMode} onChange={(event) => setPreviewMode(event.target.value)}>
-								{['free_first', 'cost_controlled', 'balanced_best_value', 'max_performance', 'manual_by_profile', 'local_private'].map((mode) => (
-									<option key={mode} value={mode}>{mode}</option>
-								))}
-							</select>
-						</div>
-						<div className="field">
-							<label htmlFor="route-preview-task-type">Preview task type</label>
-							<input id="route-preview-task-type" className="input" value={previewTaskType} onChange={(event) => setPreviewTaskType(event.target.value)} />
-						</div>
-						<div className="field">
-							<label htmlFor="route-preview-risk">Preview risk level</label>
-							<select id="route-preview-risk" className="select" value={previewRisk} onChange={(event) => setPreviewRisk(event.target.value)}>
-								{['low', 'medium', 'high', 'critical'].map((risk) => <option key={risk} value={risk}>{risk}</option>)}
-							</select>
-						</div>
-						<div className="field">
-							<label htmlFor="route-preview-context">Preview context tokens</label>
-							<input id="route-preview-context" className="input" type="number" min="0" value={previewTokens} onChange={(event) => setPreviewTokens(event.target.value)} />
-						</div>
-						<div className="field">
-							<label htmlFor="route-preview-budget">Preview budget remaining USD</label>
-							<input id="route-preview-budget" className="input" type="number" min="0" step="0.01" value={previewBudget} onChange={(event) => setPreviewBudget(event.target.value)} />
-						</div>
-						<div className="field">
-							<label htmlFor="route-preview-privacy">Preview privacy level</label>
-							<select id="route-preview-privacy" className="select" value={previewPrivacy} onChange={(event) => setPreviewPrivacy(event.target.value)}>
-								<option value="remote_allowed">remote_allowed</option>
-								<option value="sensitive">sensitive</option>
-								<option value="local_private">local_private</option>
-							</select>
-						</div>
-					</div>
-					<div className="inline">
-						<label className="checkbox-row" htmlFor="route-preview-code-edit"><input id="route-preview-code-edit" type="checkbox" checked={requiresCodeEdit} onChange={(event) => setRequiresCodeEdit(event.target.checked)} />Preview requires code edit</label>
-						<label className="checkbox-row" htmlFor="route-preview-tools"><input id="route-preview-tools" type="checkbox" checked={requiresTools} onChange={(event) => setRequiresTools(event.target.checked)} />Preview requires tools</label>
-						<label className="checkbox-row" htmlFor="route-preview-search"><input id="route-preview-search" type="checkbox" checked={requiresSearch} onChange={(event) => setRequiresSearch(event.target.checked)} />Preview requires search</label>
-						<label className="checkbox-row" htmlFor="route-preview-reasoning"><input id="route-preview-reasoning" type="checkbox" checked={requiresReasoning} onChange={(event) => setRequiresReasoning(event.target.checked)} />Preview requires reasoning</label>
-						<label className="checkbox-row" htmlFor="route-preview-json"><input id="route-preview-json" type="checkbox" checked={requiresJson} onChange={(event) => setRequiresJson(event.target.checked)} />Preview requires JSON</label>
-					</div>
-					<button className="button primary" type="button" disabled={busyAction === 'route-preview'} onClick={() => void submitPreview()}>
-						Preview route
-					</button>
-					{preview ? (
-						<div className="stack" aria-live="polite">
-							<h3 className="surface-title">Selected route</h3>
-							<div className="inline">
-								<Badge tone={preview.selected ? 'ok' : 'warn'}>{preview.selected?.provider ?? 'none'}</Badge>
-								<Badge>{preview.selected?.model ?? 'no model'}</Badge>
-								<Badge>{preview.selected?.runtime ?? 'no runtime'}</Badge>
-								<Badge>{preview.selected?.effort ?? 'default effort'}</Badge>
-								<Badge>{money(preview.estimatedCostUsd)}</Badge>
-							</div>
-							<div className="muted">{preview.decisionReason}</div>
-						</div>
-					) : null}
-				</div>
-			</Surface>
+			<RoutePreviewPanel
+				form={{
+					role: previewRole,
+					mode: previewMode,
+					taskType: previewTaskType,
+					risk: previewRisk,
+					tokens: previewTokens,
+					budget: previewBudget,
+					privacy: previewPrivacy,
+					requiresCodeEdit,
+					requiresTools,
+					requiresSearch,
+					requiresReasoning,
+					requiresJson,
+				}}
+				preview={preview}
+				busyAction={busyAction}
+				onChange={(field, value) => {
+					if (field === 'role') setPreviewRole(String(value));
+					if (field === 'mode') setPreviewMode(String(value));
+					if (field === 'taskType') setPreviewTaskType(String(value));
+					if (field === 'risk') setPreviewRisk(String(value));
+					if (field === 'tokens') setPreviewTokens(String(value));
+					if (field === 'budget') setPreviewBudget(String(value));
+					if (field === 'privacy') setPreviewPrivacy(String(value));
+					if (field === 'requiresCodeEdit') setRequiresCodeEdit(Boolean(value));
+					if (field === 'requiresTools') setRequiresTools(Boolean(value));
+					if (field === 'requiresSearch') setRequiresSearch(Boolean(value));
+					if (field === 'requiresReasoning') setRequiresReasoning(Boolean(value));
+					if (field === 'requiresJson') setRequiresJson(Boolean(value));
+				}}
+				onSubmit={() => void submitPreview()}
+			/>
 
-			<Surface title="Provider Accounts">
-				<DataTable rows={gateway.providers} empty={<EmptyState title="No provider accounts" body="Provider accounts seed during startup." />} columns={[
-					{ key: 'provider', label: 'Provider', render: (row) => <span className="mono">{text(row.providerId)}</span> },
-					{ key: 'type', label: 'Type', render: (row) => text(row.providerType) },
-					{ key: 'format', label: 'API format', render: (row) => text(row.apiFormat) },
-					{ key: 'base', label: 'Base URL', render: (row) => <SecretSafeValue value={row.baseUrl} /> },
-					{ key: 'credential', label: 'Credential', render: (row) => <div className="stack"><Badge tone={row.credentialStatus === 'configured' ? 'ok' : 'warn'}>{text(row.credentialStatus)}</Badge><SecretSafeValue value={row.credentialRef} /></div> },
-					{ key: 'enabled', label: 'Enabled', render: (row) => <Badge tone={row.enabled ? 'ok' : 'warn'}>{boolLabel(row.enabled)}</Badge> },
-					{ key: 'quota', label: 'Quota mode', render: (row) => text(row.quotaMode) },
-					{ key: 'health', label: 'Health', render: (row) => <Badge tone={toneForStatus(text(row.healthStatus))}>{text(row.healthStatus)}</Badge> },
-					{ key: 'last', label: 'Last check', render: (row) => text(row.lastHealthCheckAt) },
-					{ key: 'error', label: 'Last error', render: (row) => <SecretSafeValue value={row.lastError} /> },
-					{ key: 'cost', label: 'Cost today', render: () => money(0) },
-					{ key: 'actions', label: 'Actions', render: (row) => {
-						const providerId = text(row.providerId, '');
-						return (
-							<div className="inline">
-								<button className="button" type="button" disabled={busyAction === `${providerId}:toggle`} onClick={() => void runProviderAction(providerId, 'toggle')}>{row.enabled ? 'Disable' : 'Enable'}</button>
-								<button className="button" type="button" disabled={busyAction === `${providerId}:health`} onClick={() => void runProviderAction(providerId, 'health')}>Health check</button>
-								<button className="button" type="button" disabled={busyAction === `${providerId}:discover`} onClick={() => void runProviderAction(providerId, 'discover')}>Discover models</button>
-							</div>
-						);
-					} },
-				]} />
-			</Surface>
+			<ProviderAccountsPanel
+				providers={gateway.providers}
+				busyAction={busyAction}
+				onProviderAction={(providerId, action) => void runProviderAction(providerId, action)}
+			/>
 
 			<Surface title="Strict model policy form">
 				<div className="form-grid">
@@ -570,231 +509,57 @@ export function ModelGatewayPage({
 				]} />
 			</Surface>
 
-			<Surface title="Model Catalog">
-				<DataTable rows={gateway.models} empty={<EmptyState title="No models" body="Model catalog entries appear after seeds or provider discovery." />} columns={[
-					{ key: 'provider', label: 'Provider', render: (row) => <span className="mono">{text(row.providerId)}</span> },
-					{ key: 'model', label: 'Model', render: (row) => <span className="mono">{text(row.model)}</span> },
-					{ key: 'family', label: 'Family', render: (row) => text(row.modelFamily) },
-					{ key: 'context', label: 'Context', render: (row) => text(row.contextWindow) },
-					{ key: 'tools', label: 'Tools', render: (row) => boolLabel(row.supportsTools) },
-					{ key: 'json', label: 'JSON', render: (row) => boolLabel(row.supportsJson) },
-					{ key: 'vision', label: 'Vision', render: (row) => boolLabel(row.supportsVision) },
-					{ key: 'reasoning', label: 'Reasoning', render: (row) => boolLabel(row.supportsReasoning) },
-					{ key: 'effort', label: 'Effort levels', render: (row) => listLabel(row.effortLevels) },
-					{ key: 'input', label: 'Input price', render: (row) => text(row.inputPricePerMtok, 'unknown') },
-					{ key: 'output', label: 'Output price', render: (row) => text(row.outputPricePerMtok, 'unknown') },
-					{ key: 'reasoningPrice', label: 'Reasoning price', render: (row) => text(row.reasoningPricePerMtok, 'unknown') },
-					{ key: 'free', label: 'Free tier', render: (row) => boolLabel(row.freeTier) },
-					{ key: 'enabled', label: 'Enabled', render: (row) => <Badge tone={row.enabled ? 'ok' : 'warn'}>{boolLabel(row.enabled)}</Badge> },
-					{ key: 'source', label: 'Source', render: (row) => text(row.source) },
-				]} />
-			</Surface>
+			<ModelCatalogPanel models={gateway.models} />
 
-			<Surface title="Routing Profiles">
-				<DataTable rows={gateway.routingProfiles} empty={<EmptyState title="No routing profiles" body="Routing modes seed during startup." />} columns={[
-					{ key: 'name', label: 'Profile', render: (row) => <span className="mono">{text(row.name)}</span> },
-					{ key: 'mode', label: 'Mode', render: (row) => text(row.mode) },
-					{ key: 'objective', label: 'Objective', render: (row) => text(row.objective) },
-					{ key: 'rules', label: 'Rules', render: (row) => <span className="mono">{JSON.stringify(row.rules ?? {})}</span> },
-					{ key: 'enabled', label: 'Enabled', render: (row) => boolLabel(row.enabled) },
-				]} />
-			</Surface>
+			<RoutingProfilesPanel routingProfiles={gateway.routingProfiles} />
 
-			<Surface title="Role Assignments">
-				<DataTable rows={gateway.rolePolicies} empty={<EmptyState title="No role policies" body="Role routing policies seed during startup." />} columns={[
-					{ key: 'role', label: 'Role', render: (row) => <span className="mono">{text(row.role)}</span> },
-					{ key: 'mode', label: 'Mode', render: (row) => text(row.routingProfileId) },
-					{ key: 'primary', label: 'Primary provider/model/runtime', render: (row) => listLabel(row.preferred) },
-					{ key: 'fallbacks', label: 'Fallbacks', render: (row) => listLabel(row.fallback) },
-					{ key: 'maxCost', label: 'Max cost/task', render: (row) => money(row.maxCostPerTaskUsd) },
-					{ key: 'maxTokens', label: 'Max tokens/run', render: (row) => text(row.maxTokensPerRun) },
-					{ key: 'remote', label: 'Remote allowed', render: (row) => boolLabel(row.allowRemote) },
-					{ key: 'cli', label: 'CLI allowed', render: (row) => boolLabel(row.allowCli) },
-					{ key: 'api', label: 'API allowed', render: (row) => boolLabel(row.allowApi) },
-					{ key: 'thinking', label: 'Thinking/effort', render: (row) => row.requiresApprovalForReasoningMax ? 'max requires approval' : 'profile default' },
-					{ key: 'approval', label: 'Approval threshold', render: (row) => money(row.requiresApprovalOverUsd ?? row.maxCostPerTaskUsd) },
-				]} />
-			</Surface>
+			<RoleAssignmentsPanel rolePolicies={gateway.rolePolicies} />
 
-			<Surface title="Usage Ledger">
-				<div className="field">
-					<label htmlFor="usage-ledger-filter">Usage ledger filter</label>
-					<input id="usage-ledger-filter" className="input" value={usageFilter} onChange={(event) => setUsageFilter(event.target.value)} placeholder="Filter provider, model, role, runtime, workflow or agent" />
-				</div>
-				<DataTable rows={filteredUsage} empty={<EmptyState title="No usage ledger entries" body="Mock and real calls record token and cost usage here." />} columns={[
-					{ key: 'time', label: 'Timestamp', render: (row) => text(row.createdAt) },
-					{ key: 'provider', label: 'Provider', render: (row) => text(row.providerId) },
-					{ key: 'model', label: 'Model', render: (row) => text(row.model) },
-					{ key: 'runtime', label: 'Runtime', render: (row) => text(row.runtimeType) },
-					{ key: 'role', label: 'Role', render: (row) => text(row.role) },
-					{ key: 'agent', label: 'Agent', render: (row) => text(row.agentId) },
-					{ key: 'workflow', label: 'Workflow', render: (row) => text(row.workflowRunId) },
-					{ key: 'task', label: 'Task', render: (row) => text(row.taskId) },
-					{ key: 'input', label: 'Input tokens', render: (row) => text(row.inputTokens, '0') },
-					{ key: 'cached', label: 'Cached input', render: (row) => text(row.cachedInputTokens, '0') },
-					{ key: 'output', label: 'Output tokens', render: (row) => text(row.outputTokens, '0') },
-					{ key: 'reasoning', label: 'Reasoning tokens', render: (row) => text(row.reasoningTokens, '0') },
-					{ key: 'tool', label: 'Tool tokens', render: (row) => text(row.toolTokens, '0') },
-					{ key: 'total', label: 'Total tokens', render: (row) => text(row.totalTokens, '0') },
-					{ key: 'est', label: 'Estimated cost', render: (row) => money(row.estimatedCostUsd) },
-					{ key: 'actual', label: 'Actual cost', render: (row) => row.actualCostUsd === null || row.actualCostUsd === undefined ? 'unknown' : money(row.actualCostUsd) },
-					{ key: 'latency', label: 'Latency', render: (row) => text(row.latencyMs) },
-					{ key: 'source', label: 'Usage source', render: (row) => {
-						const raw = row.rawUsage as Dictionary | undefined;
-						return text(raw?.usage_source, 'unknown');
-					} },
-				]} />
-			</Surface>
+			<UsageLedgerPanel rows={filteredUsage} filter={usageFilter} onFilterChange={setUsageFilter} />
 
-			<Surface title="Budgets">
-				<DataTable rows={gateway.budgetRules} empty={<EmptyState title="No budget rules" body="Budget rules can be added for global, role, provider, project and workflow scopes." />} columns={[
-					{ key: 'scope', label: 'Scope', render: (row) => `${text(row.scopeType)}:${text(row.scopeId, '*')}` },
-					{ key: 'cost', label: 'Max cost', render: (row) => money(row.maxCostUsd) },
-					{ key: 'tokens', label: 'Max tokens', render: (row) => text(row.maxTokens, 'none') },
-					{ key: 'period', label: 'Period', render: (row) => text(row.period) },
-					{ key: 'action', label: 'Action on exceed', render: (row) => text(row.actionOnExceed) },
-					{ key: 'enabled', label: 'Enabled', render: (row) => boolLabel(row.enabled) },
-				]} />
-			</Surface>
+			<BudgetsPanel budgetRules={gateway.budgetRules} />
 
-			<Surface title="Provider Limits">
-				<DataTable rows={gateway.providerLimits} empty={<EmptyState title="No provider limits" body="Provider limit records appear after seeds or rate-limit events." />} columns={[
-					{ key: 'provider', label: 'Provider', render: (row) => text(row.providerId) },
-					{ key: 'model', label: 'Model', render: (row) => text(row.model) },
-					{ key: 'rpm', label: 'RPM', render: (row) => text(row.rpm) },
-					{ key: 'tpm', label: 'TPM', render: (row) => text(row.tpm) },
-					{ key: 'dailyRequests', label: 'Daily requests', render: (row) => text(row.dailyRequests) },
-					{ key: 'dailyTokens', label: 'Daily tokens', render: (row) => text(row.dailyTokens) },
-					{ key: 'monthlyBudget', label: 'Monthly budget', render: (row) => money(row.monthlyBudgetUsd) },
-					{ key: 'cooldown', label: 'Cooldown', render: (row) => text(row.cooldownUntil) },
-					{ key: 'last429', label: 'Last 429', render: (row) => text(row.last429At) },
-					{ key: 'strategy', label: 'Unknown limit strategy', render: (row) => text(row.unknownLimitStrategy) },
-				]} />
-			</Surface>
+			<ProviderLimitsPanel providerLimits={gateway.providerLimits} />
 
-			<Surface title="Routing Decisions">
-				<div className="field">
-					<label htmlFor="routing-decision-filter">Routing decision filter</label>
-					<input id="routing-decision-filter" className="input" value={decisionFilter} onChange={(event) => setDecisionFilter(event.target.value)} placeholder="Filter role, task, mode, provider, model or reason" />
-				</div>
-				<DataTable rows={filteredDecisions} empty={<EmptyState title="No routing decisions" body="Route preview and execution decisions are audited here." />} columns={[
-					{ key: 'time', label: 'Time', render: (row) => text(row.createdAt) },
-					{ key: 'role', label: 'Role', render: (row) => text(row.role) },
-					{ key: 'task', label: 'Task type', render: (row) => text(row.taskType) },
-					{ key: 'mode', label: 'Mode', render: (row) => text(row.mode) },
-					{ key: 'provider', label: 'Selected provider', render: (row) => text(row.selectedProvider) },
-					{ key: 'model', label: 'Selected model', render: (row) => text(row.selectedModel) },
-					{ key: 'runtime', label: 'Selected runtime', render: (row) => text(row.selectedRuntime) },
-					{ key: 'effort', label: 'Effort', render: (row) => text(row.selectedEffort) },
-					{ key: 'cost', label: 'Estimated cost', render: (row) => money(row.estimatedCostUsd) },
-					{ key: 'reason', label: 'Reason', render: (row) => text(row.decisionReason) },
-				]} />
-			</Surface>
+			<RoutingDecisionsPanel rows={filteredDecisions} filter={decisionFilter} onFilterChange={setDecisionFilter} />
 
-			<Surface title="CLI Sessions">
-				<div className="grid two">
-					<DataTable rows={gateway.cliRuntimes} empty={<EmptyState title="No CLI runtimes" body="Codex, Claude Code, OpenHands and SWE-agent adapters are optional." />} columns={[
-						{ key: 'runtime', label: 'Runtime', render: (row) => text(row.runtime) },
-						{ key: 'status', label: 'Status', render: (row) => <Badge tone={toneForStatus(text(row.status))}>{text(row.status)}</Badge> },
-						{ key: 'executable', label: 'Executable', render: (row) => <SecretSafeValue value={row.executable} /> },
-						{ key: 'message', label: 'Message', render: (row) => text(row.message) },
-					]} />
-					<DataTable rows={gateway.cliSessions} empty={<EmptyState title="No CLI sessions" body="CLI session records appear only after policy-approved runtime execution." />} columns={[
-						{ key: 'runtime', label: 'Runtime', render: (row) => text(row.runtime) },
-						{ key: 'workspace', label: 'Workspace', render: (row) => text(row.workspaceId) },
-						{ key: 'agent', label: 'Agent', render: (row) => text(row.agentId) },
-						{ key: 'workflow', label: 'Workflow', render: (row) => text(row.workflowRunId) },
-						{ key: 'status', label: 'Status', render: (row) => text(row.status) },
-						{ key: 'command', label: 'Command summary', render: (row) => <SecretSafeValue value={Array.isArray(row.command) ? row.command.join(' ') : row.command} /> },
-						{ key: 'started', label: 'Started', render: (row) => text(row.startedAt) },
-						{ key: 'finished', label: 'Finished', render: (row) => text(row.finishedAt) },
-						{ key: 'usage', label: 'Usage', render: (row) => text(row.usageLedgerId) },
-						{ key: 'artifacts', label: 'Artifacts', render: (row) => listLabel([row.stdoutArtifactId, row.stderrArtifactId, row.logsArtifactId].filter(Boolean)) },
-						{ key: 'error', label: 'Error', render: (row) => <SecretSafeValue value={row.error} /> },
-					]} />
-				</div>
-			</Surface>
+			<CliSessionsPanel cliRuntimes={gateway.cliRuntimes} cliSessions={gateway.cliSessions} />
 
-			<Surface title="Benchmarks">
-				<div className="form-grid">
-					<div className="grid three">
-						<div className="field">
-							<label htmlFor="benchmark-provider">Benchmark provider</label>
-							<select
-								id="benchmark-provider"
-								className="select"
-								value={benchmarkProvider}
-								onChange={(event) => {
-									const provider = event.target.value;
-									const firstModel = gateway.models.find((item) => item.providerId === provider)?.model;
-									setBenchmarkProvider(provider);
-									if (firstModel) setBenchmarkModel(text(firstModel, benchmarkModel));
-								}}
-							>
-								{Array.from(new Set(['codex_cli', 'claude_code_cli', 'nvidia_nim', ...gateway.providers.map((item) => text(item.providerId, '')).filter(Boolean)])).map((provider) => (
-									<option key={provider} value={provider}>{provider}</option>
-								))}
-							</select>
-						</div>
-						<div className="field">
-							<label htmlFor="benchmark-model">Benchmark model</label>
-							<select id="benchmark-model" className="select" value={benchmarkModel} onChange={(event) => setBenchmarkModel(event.target.value)}>
-								{benchmarkModelOptions.map((model) => <option key={model} value={model}>{model}</option>)}
-							</select>
-						</div>
-						<div className="field">
-							<label htmlFor="benchmark-runtime">Benchmark runtime</label>
-							<select id="benchmark-runtime" className="select" value={benchmarkRuntime} onChange={(event) => setBenchmarkRuntime(event.target.value)}>
-								{['api', 'cli', 'local', 'gateway', 'manual'].map((runtime) => <option key={runtime} value={runtime}>{runtime}</option>)}
-							</select>
-						</div>
-						<div className="field">
-							<label htmlFor="benchmark-role">Benchmark role</label>
-							<select id="benchmark-role" className="select" value={benchmarkRole} onChange={(event) => setBenchmarkRole(event.target.value)}>
-								{['analyst', 'product_owner', 'technical_lead', 'developer', 'qa', 'security_reviewer', 'release_manager'].map((role) => <option key={role} value={role}>{role}</option>)}
-							</select>
-						</div>
-						<div className="field">
-							<label htmlFor="benchmark-cost">Benchmark cost USD</label>
-							<input id="benchmark-cost" className="input" type="number" min="0" step="0.01" value={benchmarkCost} onChange={(event) => setBenchmarkCost(event.target.value)} />
-						</div>
-						<div className="field">
-							<label htmlFor="benchmark-latency">Benchmark latency ms</label>
-							<input id="benchmark-latency" className="input" type="number" min="0" step="1" value={benchmarkLatency} onChange={(event) => setBenchmarkLatency(event.target.value)} />
-						</div>
-					</div>
-					<div className="inline">
-						<label className="checkbox-row" htmlFor="benchmark-success"><input id="benchmark-success" type="checkbox" checked={benchmarkSuccess} onChange={(event) => setBenchmarkSuccess(event.target.checked)} />Benchmark success</label>
-						<label className="checkbox-row" htmlFor="benchmark-qa"><input id="benchmark-qa" type="checkbox" checked={benchmarkQaPass} onChange={(event) => setBenchmarkQaPass(event.target.checked)} />Benchmark QA pass</label>
-						<label className="checkbox-row" htmlFor="benchmark-rework"><input id="benchmark-rework" type="checkbox" checked={benchmarkRework} onChange={(event) => setBenchmarkRework(event.target.checked)} />Benchmark rework</label>
-					</div>
-					{benchmarkError ? <div className="form-error" role="alert">{benchmarkError}</div> : null}
-					<button className="button primary" type="button" disabled={busyAction === 'record-benchmark-outcome'} onClick={() => void recordBenchmarkOutcome()}>Record benchmark outcome</button>
-				</div>
-				<DataTable rows={gateway.benchmarks} empty={<EmptyState title="insufficient data" body="Benchmarks require repeated task outcomes before success rate, QA pass rate, cost, latency or rework rate can be shown." />} columns={[
-					{ key: 'provider', label: 'Provider', render: (row) => text(row.providerId) },
-					{ key: 'model', label: 'Model', render: (row) => text(row.model) },
-					{ key: 'role', label: 'Role', render: (row) => text(row.role) },
-					{ key: 'attempts', label: 'Tasks attempted', render: (row) => text(row.tasksAttempted, '0') },
-					{ key: 'success', label: 'Success rate', render: (row) => row.successRate === null || row.successRate === undefined ? 'insufficient data' : `${(Number(row.successRate) * 100).toFixed(2)}%` },
-					{ key: 'qa', label: 'QA pass rate', render: (row) => row.qaPassRate === null || row.qaPassRate === undefined ? 'insufficient data' : `${(Number(row.qaPassRate) * 100).toFixed(2)}%` },
-					{ key: 'cost', label: 'Avg cost', render: (row) => row.avgCost === null || row.avgCost === undefined ? 'unknown' : money(row.avgCost) },
-					{ key: 'latency', label: 'Avg latency', render: (row) => text(row.avgLatencyMs) },
-					{ key: 'rework', label: 'Rework rate', render: (row) => row.reworkRate === null || row.reworkRate === undefined ? 'insufficient data' : `${(Number(row.reworkRate) * 100).toFixed(2)}%` },
-					{ key: 'last', label: 'Last used', render: (row) => text(row.lastUsedAt) },
-				]} />
-				<DataTable rows={gateway.benchmarkOutcomes} empty={<EmptyState title="No benchmark outcomes" body="Outcome records appear after benchmark or task result ingestion." />} columns={[
-					{ key: 'provider', label: 'Provider', render: (row) => text(row.providerId) },
-					{ key: 'model', label: 'Model', render: (row) => text(row.model) },
-					{ key: 'role', label: 'Role', render: (row) => text(row.role) },
-					{ key: 'success', label: 'Success', render: (row) => boolLabel(row.success) },
-					{ key: 'qa', label: 'QA pass', render: (row) => boolLabel(row.qaPass) },
-					{ key: 'rework', label: 'Rework', render: (row) => boolLabel(row.rework) },
-					{ key: 'cost', label: 'Cost', render: (row) => row.estimatedCostUsd === null || row.estimatedCostUsd === undefined ? 'unknown' : money(row.estimatedCostUsd) },
-					{ key: 'latency', label: 'Latency', render: (row) => text(row.latencyMs) },
-					{ key: 'time', label: 'Time', render: (row) => text(row.createdAt) },
-				]} />
-			</Surface>
+			<BenchmarksPanel
+				benchmarks={gateway.benchmarks}
+				benchmarkOutcomes={gateway.benchmarkOutcomes}
+				providers={gateway.providers}
+				models={gateway.models}
+				modelOptions={benchmarkModelOptions}
+				busyAction={busyAction}
+				error={benchmarkError}
+				form={{
+					provider: benchmarkProvider,
+					model: benchmarkModel,
+					runtime: benchmarkRuntime,
+					role: benchmarkRole,
+					success: benchmarkSuccess,
+					qaPass: benchmarkQaPass,
+					rework: benchmarkRework,
+					cost: benchmarkCost,
+					latency: benchmarkLatency,
+				}}
+				onProviderChange={(provider, firstModel) => {
+					setBenchmarkProvider(provider);
+					if (firstModel) setBenchmarkModel(firstModel);
+				}}
+				onChange={(field, value) => {
+					if (field === 'model') setBenchmarkModel(String(value));
+					if (field === 'runtime') setBenchmarkRuntime(String(value));
+					if (field === 'role') setBenchmarkRole(String(value));
+					if (field === 'cost') setBenchmarkCost(String(value));
+					if (field === 'latency') setBenchmarkLatency(String(value));
+					if (field === 'success') setBenchmarkSuccess(Boolean(value));
+					if (field === 'qaPass') setBenchmarkQaPass(Boolean(value));
+					if (field === 'rework') setBenchmarkRework(Boolean(value));
+				}}
+				onSubmit={() => void recordBenchmarkOutcome()}
+			/>
 
 			<Surface title="Settings">
 				<div className="grid three">

@@ -2,7 +2,7 @@
 
 ## What It Does
 
-The React console under `features/model-gateway/ModelGatewayPage.tsx` shows provider accounts, model catalog, routing profiles, role assignments, usage, budgets, limits, routing decisions, CLI sessions, benchmarks and settings.
+The React console under `features/model-gateway/ModelGatewayPage.tsx` shows provider accounts, model catalog, routing profiles, role assignments, usage, budgets, limits, routing decisions, CLI sessions, benchmarks and settings. Operational tables and forms are split into `features/model-gateway/*Panel.tsx` components so the gateway can keep growing without one unbounded page component.
 
 ## Configuration
 
@@ -10,7 +10,7 @@ The page reads `/api/v1/model-gateway/*` through the generated OpenAPI client an
 
 ## Endpoints
 
-The page uses overview, providers, models, routing profiles, role policies, usage ledger, provider limits, budget rules, CLI runtimes, CLI sessions, benchmarks, benchmark outcomes and route preview endpoints.
+The page uses overview, providers, models, routing profiles, role policies, usage ledger, provider limits, budget rules, CLI runtimes, CLI sessions, benchmarks, benchmark outcomes and route preview endpoints. Route preview renders `budgetResult` and `quotaResult`; usage ledger renders `usageSource`.
 
 ## Testing
 
@@ -30,6 +30,9 @@ corepack pnpm@10.24.0 exec playwright test tests_web/control-center.spec.js -g "
 ## Limitations
 
 - The console is data-dense and operational, but deeper inspectors for candidates/rejected policy internals are still table-level summaries.
+- Shared rendering helpers live in `features/model-gateway/utils.tsx`; panel
+  components own their operational tables/forms while `ModelGatewayPage.tsx`
+  remains the data-loading and shared-state container.
 - Agent profile routing controls live in the Agents page because those fields are part of the executable agent contract.
 - Benchmark outcome recording is available in the Benchmarks section and writes only summary metadata, not prompts or secrets.
 

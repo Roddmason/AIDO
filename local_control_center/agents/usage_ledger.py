@@ -10,6 +10,7 @@ from local_control_center.shared.time import utc_now
 
 
 def row_to_usage(row: sqlite3.Row) -> dict[str, Any]:
+    raw_usage = json_loads(row["raw_usage_json"], {})
     return {
         "id": row["id"],
         "providerId": row["provider_id"],
@@ -33,9 +34,25 @@ def row_to_usage(row: sqlite3.Row) -> dict[str, Any]:
         "actualCostUsd": row["actual_cost_usd"],
         "currency": row["currency"],
         "latencyMs": row["latency_ms"],
-        "rawUsage": json_loads(row["raw_usage_json"], {}),
+        "usageSource": row["usage_source"] if "usage_source" in row.keys() else _usage_source_from_raw(raw_usage, None),
+        "rawUsage": raw_usage,
         "createdAt": row["created_at"],
     }
+
+
+def _usage_source_from_raw(raw_usage: dict[str, Any] | None, actual_cost_usd: float | None) -> str:
+    raw_source = str((raw_usage or {}).get("usage_source") or "").strip().lower()
+    if raw_source in {"actual", "estimated", "unavailable"}:
+        return raw_source
+    if raw_source in {"not_available", "none"}:
+        return "unavailable"
+    if raw_source in {"provider", "provider_reported", "cli_output"}:
+        return "actual"
+    if raw_source in {"mock"}:
+        return "estimated"
+    if actual_cost_usd is not None:
+        return "actual"
+    return "estimated"
 
 
 class UsageLedger:
@@ -66,17 +83,20 @@ class UsageLedger:
         currency: str = "USD",
         latency_ms: int | None = None,
         raw_usage: dict[str, Any] | None = None,
+        usage_source: str | None = None,
     ) -> dict[str, Any]:
         total_tokens = input_tokens + cached_input_tokens + output_tokens + reasoning_tokens + tool_tokens
         ledger_id = f"usage-{uuid.uuid4()}"
+        sanitized_usage = redact_secrets(raw_usage or {"usage_source": "estimated"})
+        resolved_usage_source = usage_source or _usage_source_from_raw(sanitized_usage, actual_cost_usd)
         self.connection.execute(
             """
             INSERT INTO usage_ledger
                 (id, provider_id, model, runtime_type, agent_id, role, workflow_run_id, workflow_step_id,
                  job_id, task_id, request_id, session_id, input_tokens, cached_input_tokens, output_tokens,
                  reasoning_tokens, tool_tokens, total_tokens, estimated_cost_usd, actual_cost_usd,
-                 currency, latency_ms, raw_usage_json, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 currency, latency_ms, raw_usage_json, usage_source, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 ledger_id,
@@ -101,7 +121,8 @@ class UsageLedger:
                 actual_cost_usd,
                 currency,
                 latency_ms,
-                json_dumps(redact_secrets(raw_usage or {"usage_source": "estimated"})),
+                json_dumps(sanitized_usage),
+                resolved_usage_source,
                 utc_now(),
             ),
         )

@@ -240,6 +240,35 @@ def test_pr_review_gate_advances_only_with_passed_qa_evidence(tmp_path: Path, mo
     assert {"workflow.gate.pr_review.blocked", "workflow.gate.pr_review.advanced"} <= audit_actions
 
 
+def test_pr_review_rejects_passed_verdict_with_failed_test_results(tmp_path: Path, monkeypatch) -> None:
+    store, client, headers = make_app(tmp_path, monkeypatch)
+    project, started = create_and_start_release_workflow(store, client, headers, tmp_path)
+    workflow = started["workflow"]
+    run = started["workflowRun"]
+    pr_step = next(step for step in started["workflowSteps"] if step["name"] == "pr_review")
+    evidence = store.evidence.create_evidence_package(
+        project_id=project["id"],
+        workflow_run_id=run["id"],
+        agent_id="qa",
+        task_id="qa_validation",
+        test_plan="Contradictory QA",
+        test_results=[
+            {"command": "uv run pytest", "status": "passed"},
+            {"command": "corepack pnpm test:web", "status": "failed"},
+        ],
+        qa_verdict="passed",
+    )
+
+    blocked = client.post(
+        f"/api/v1/workflows/{workflow['id']}/steps/{pr_step['id']}/advance",
+        json={"reason": "QA package claims passed", "evidencePackageId": evidence["id"]},
+        headers=headers,
+    )
+
+    assert blocked.status_code == 409
+    assert blocked.json()["detail"] == "pr_review requires passed QA evidence for this workflow run."
+
+
 def test_release_gate_waits_for_human_approval_before_advance(tmp_path: Path, monkeypatch) -> None:
     store, client, headers = make_app(tmp_path, monkeypatch)
     project, started = create_and_start_release_workflow(store, client, headers, tmp_path)

@@ -93,6 +93,114 @@ def test_evidence_ingests_pytest_summary_into_normalized_test_result(tmp_path: P
     assert evidence["testResults"][0]["metadata"]["counts"] == {"passed": 97, "skipped": 2}
 
 
+def test_evidence_rejects_passed_verdict_with_failed_results(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
+    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store.init()
+    project = store.create_project(name="Failed Evidence", path=tmp_path / "failed-evidence", template_id="other")
+    client = TestClient(create_app(runtime=store, static_dir=None))
+    headers = auth_headers(client)
+
+    response = client.post(
+        "/api/v1/evidence",
+        json={
+            "projectId": project["id"],
+            "taskId": "story-failed-evidence",
+            "testPlan": "Run tests with one failure",
+            "qaVerdict": "passed",
+            "testResults": [
+                {"command": "uv run pytest", "status": "passed"},
+                {"command": "corepack pnpm test", "status": "failed"},
+            ],
+        },
+        headers=headers,
+    )
+
+    assert response.status_code == 422
+    assert "failed test result" in response.json()["detail"].lower()
+
+
+def test_evidence_persists_runtime_links_and_redacts_logs_risks_and_test_metadata(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
+    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store.init()
+    project = store.create_project(name="Evidence Redaction", path=tmp_path / "evidence-redaction", template_id="other")
+    client = TestClient(create_app(runtime=store, static_dir=None))
+    headers = auth_headers(client)
+    sample_key = "sk-" + "evidencesecret123456"
+    bearer = "Bearer evidencebearer123456"
+    patch_key = "sk-" + "patchcontent123456"
+    large_log = (f"line with {sample_key} and {bearer}\n" * 900).strip()
+
+    response = client.post(
+        "/api/v1/evidence",
+        json={
+            "projectId": project["id"],
+            "workflowRunId": "workflow-run-redaction",
+            "workflowStepId": "workflow-step-redaction",
+            "jobId": "job-redaction",
+            "agentRunId": "agent-run-redaction",
+            "workspaceId": "workspace-redaction",
+            "runtimeId": "codex_cli",
+            "taskId": "story-redaction",
+            "testPlan": "Run redaction checks",
+            "qaVerdict": "needs_human_review",
+            "testResults": [
+                {
+                    "command": f"uv run pytest --token {sample_key}",
+                    "status": "passed",
+                    "metadata": {"api_key": sample_key, "authorization": bearer},
+                }
+            ],
+            "logs": [{"name": "large.log", "content": large_log}],
+            "riskNotes": [{"description": f"risk includes {sample_key}", "authorization": bearer}],
+            "diffRefs": [
+                {
+                    "kind": "git_diff",
+                    "changedFiles": ["app.py"],
+                    "authorization": bearer,
+                    "patch": f"+value = '{patch_key}'",
+                }
+            ],
+            "artifactIds": ["artifact-existing"],
+            "diffSummary": {"state": "changed", "authorization": bearer, "changedFiles": ["app.py"]},
+        },
+        headers=headers,
+    )
+
+    assert response.status_code == 201
+    evidence = response.json()["evidencePackage"]
+    assert evidence["workflowStepId"] == "workflow-step-redaction"
+    assert evidence["jobId"] == "job-redaction"
+    assert evidence["agentRunId"] == "agent-run-redaction"
+    assert evidence["workspaceId"] == "workspace-redaction"
+    assert evidence["runtimeId"] == "codex_cli"
+    assert "artifact-existing" in evidence["artifactIds"]
+    assert len(evidence["artifactIds"]) == 2
+    assert evidence["diffRefs"][0]["authorization"] == "[redacted]"
+    assert patch_key in evidence["diffRefs"][0]["patch"]
+    assert evidence["diffSummary"]["authorization"] == "[redacted]"
+    assert "evidencesecret" not in str(evidence)
+    assert "evidencebearer" not in str(evidence)
+
+    detail = client.get(f"/api/v1/evidence/{evidence['id']}")
+    assert detail.status_code == 200
+    serialized_detail = str(detail.json())
+    assert "evidencesecret" not in serialized_detail
+    assert "evidencebearer" not in serialized_detail
+
+    artifacts = detail.json()["artifacts"]
+    log_artifact = next(item for item in artifacts if item["kind"] == "execution_log")
+    downloaded = client.get(f"/api/v1/evidence/{evidence['id']}/artifacts/{log_artifact['id']}", headers=headers)
+    assert downloaded.status_code == 200
+    assert "evidencesecret" not in downloaded.text
+    assert "evidencebearer" not in downloaded.text
+    assert "[redacted]" in downloaded.text
+
+
 def test_evidence_rejects_unsafe_junit_xml(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
     store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")

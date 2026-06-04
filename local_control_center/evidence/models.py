@@ -29,6 +29,10 @@ class EvidenceCreateRequest(BaseModel):
     workflow_run_id: str | None = Field(default=None, alias="workflowRunId")
     workflow_step_id: str | None = Field(default=None, alias="workflowStepId")
     agent_id: str | None = Field(default=None, alias="agentId")
+    agent_run_id: str | None = Field(default=None, alias="agentRunId")
+    job_id: str | None = Field(default=None, alias="jobId")
+    workspace_id: str | None = Field(default=None, alias="workspaceId")
+    runtime_id: str | None = Field(default=None, alias="runtimeId")
     task_id: str = Field(default="task", alias="taskId")
     provider_id: str | None = Field(default=None, alias="providerId")
     model: str | None = None
@@ -48,6 +52,8 @@ class EvidenceCreateRequest(BaseModel):
     diff_refs: list[Any] = Field(default_factory=list, alias="diffRefs")
     screenshot_refs: list[Any] = Field(default_factory=list, alias="screenshotRefs")
     risk_notes: list[Any] = Field(default_factory=list, alias="riskNotes")
+    artifact_ids: list[str] = Field(default_factory=list, alias="artifactIds")
+    diff_summary: dict[str, Any] = Field(default_factory=dict, alias="diffSummary")
     qa_verdict: str = Field(default="not_started", alias="qaVerdict")
 
 
@@ -63,7 +69,12 @@ class EvidencePackageRecord(BaseModel):
     id: str
     project_id: str = Field(alias="projectId")
     workflow_run_id: str | None = Field(default=None, alias="workflowRunId")
+    workflow_step_id: str | None = Field(default=None, alias="workflowStepId")
     agent_id: str | None = Field(default=None, alias="agentId")
+    agent_run_id: str | None = Field(default=None, alias="agentRunId")
+    job_id: str | None = Field(default=None, alias="jobId")
+    workspace_id: str | None = Field(default=None, alias="workspaceId")
+    runtime_id: str | None = Field(default=None, alias="runtimeId")
     task_id: str = Field(alias="taskId")
     test_plan: str = Field(alias="testPlan")
     acceptance_checklist: list[Any] = Field(alias="acceptanceChecklist")
@@ -72,6 +83,8 @@ class EvidencePackageRecord(BaseModel):
     diff_refs: list[Any] = Field(alias="diffRefs")
     screenshot_refs: list[Any] = Field(alias="screenshotRefs")
     risk_notes: list[Any] = Field(alias="riskNotes")
+    artifact_ids: list[str] = Field(default_factory=list, alias="artifactIds")
+    diff_summary: dict[str, Any] = Field(default_factory=dict, alias="diffSummary")
     qa_verdict: str = Field(alias="qaVerdict")
     created_at: str = Field(alias="createdAt")
 

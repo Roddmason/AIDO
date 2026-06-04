@@ -8,6 +8,7 @@ from local_control_center.agents.model_gateway import ModelGateway
 from local_control_center.agents.repository import AgentsRepository
 from local_control_center.agents.tool_broker import ToolBroker
 from local_control_center.app import create_app
+from local_control_center.jobs_approvals.repository import JobsRepository
 from local_control_center.projects.repository import ProjectsRepository
 from local_control_center.security_policy.repository import SecurityPolicyRepository
 from local_control_center.shared.db import open_sqlite_connection
@@ -59,7 +60,7 @@ def test_policy_tool_and_model_operations_emit_trace_events(tmp_path: Path) -> N
                 "id": "telemetry-agent",
                 "name": "Telemetry Agent",
                 "role": "implementer",
-                "runtimeType": "internal_mock",
+                "runtimeType": "manual",
                 "permissionProfile": "dev_safe",
                 "allowedTools": ["shell"],
             }
@@ -68,11 +69,11 @@ def test_policy_tool_and_model_operations_emit_trace_events(tmp_path: Path) -> N
             {
                 "id": "telemetry_policy",
                 "name": "Telemetry Policy",
-                "preferred": [{"provider": "internal_mock", "model": "mock"}],
+                "preferred": [{"provider": "openai_compatible", "model": "configured_model"}],
                 "fallback": [],
                 "maxCostUsd": 1.0,
-                "allowRemote": False,
-                "allowLocal": True,
+                "allowRemote": True,
+                "allowLocal": False,
             }
         )
         agent_run = agents.create_agent_run(
@@ -80,7 +81,8 @@ def test_policy_tool_and_model_operations_emit_trace_events(tmp_path: Path) -> N
             agent_profile_id=profile["id"],
             task_id="telemetry-task",
             input_payload={"goal": "trace"},
-            output_payload={"verdict": "approved_with_risks"},
+            output_payload={"verdict": "blocked"},
+            status="failed",
         )
 
         decision = SecurityPolicyRepository(connection).record_decision(
@@ -113,7 +115,7 @@ def test_policy_tool_and_model_operations_emit_trace_events(tmp_path: Path) -> N
         )
 
         events = EventBus(connection).list_events(project_id=project["id"])
-        agent_event = next(item for item in events if item["type"] == "agent.run.completed")
+        agent_event = next(item for item in events if item["type"] == "agent.run.failed")
         policy_event = next(
             item
             for item in events
@@ -132,6 +134,87 @@ def test_policy_tool_and_model_operations_emit_trace_events(tmp_path: Path) -> N
         assert model_event["payload"]["modelCallId"] == model_result["modelCall"]["id"]
         assert model_event["payload"]["status"] == "prepared"
         assert "secret-token" not in str(model_event["payload"])
+    finally:
+        connection.close()
+
+
+def test_operational_persistence_redacts_secrets_across_agent_policy_tool_and_actions(tmp_path: Path) -> None:
+    connection = open_sqlite_connection(tmp_path / "platform.sqlite")
+    try:
+        initialize_platform_schema(connection)
+        project = ProjectsRepository(connection).create_project(
+            name="Redaction",
+            path=tmp_path / "redaction",
+            template_id="other",
+        )
+        agents = AgentsRepository(connection)
+        profile = agents.upsert_agent_profile(
+            {
+                "id": "redaction-agent",
+                "name": "Redaction Agent",
+                "role": "implementer",
+                "runtimeType": "manual",
+                "permissionProfile": "dev_safe",
+                "allowedTools": ["shell"],
+            }
+        )
+        sample_key = "sk-" + "redactsecret123456"
+        bearer = "Bearer redactbearer123456"
+        agent_run = agents.create_agent_run(
+            project_id=project["id"],
+            agent_profile_id=profile["id"],
+            task_id="redaction-task",
+            input_payload={"apiKey": sample_key, "prompt": f"use {bearer}"},
+            output_payload={"authorization": bearer, "summary": f"never persist {sample_key}"},
+            status="failed",
+        )
+        agents.record_agent_tool_call(
+            agent_run_id=agent_run["id"],
+            tool_name="shell",
+            status="approval_required",
+            payload={"command": f"pytest --token {sample_key}", "headers": {"Authorization": bearer}},
+        )
+        policy = SecurityPolicyRepository(connection).record_decision(
+            project_id=project["id"],
+            workspace_id=None,
+            agent_id=profile["id"],
+            role=profile["role"],
+            tool="shell",
+            command=f"pytest --authorization {bearer}",
+            path=str(tmp_path),
+            decision="requires_approval",
+            risk_level="medium",
+            reason=f"needs human review for {sample_key}",
+            payload={"api_key": sample_key, "command": f"run with {bearer}"},
+        )
+        job = JobsRepository(connection).create_job(
+            project_id=project["id"],
+            kind="workflow.issue_to_patch",
+            payload={"approvalRequired": False},
+            status="queued",
+        )["job"]
+        action = JobsRepository(connection).create_action_request(
+            job_id=job["id"],
+            project_id=project["id"],
+            action_type="tool.call",
+            risk_level="high",
+            command=f"shell {sample_key}",
+            payload={"authorization": bearer, "permissionDecisionId": policy["id"]},
+            reason=f"grant contains {sample_key}",
+        )
+
+        persisted_run = agents.get_agent_run(agent_run["id"])
+        persisted_tools = agents.list_agent_tool_calls()
+        persisted_policy = SecurityPolicyRepository(connection).list_decisions(project_id=project["id"])
+        persisted_actions = JobsRepository(connection).list_action_requests(job_id=job["id"])
+        serialized = str([persisted_run, persisted_tools, persisted_policy, action, persisted_actions])
+
+        assert sample_key not in serialized
+        assert "redactbearer" not in serialized
+        assert persisted_run["input"]["apiKey"] == "[redacted]"
+        assert persisted_run["output"]["authorization"] == "[redacted]"
+        assert persisted_policy[0]["payload"]["api_key"] == "[redacted]"
+        assert persisted_actions[0]["payload"]["authorization"] == "[redacted]"
     finally:
         connection.close()
 

@@ -4,6 +4,7 @@ import sqlite3
 import uuid
 from typing import Any
 
+from .redaction import redact_secrets
 from .serialization import json_dumps, json_loads
 from .time import utc_now
 
@@ -46,12 +47,13 @@ class EventBus:
         job_id: str | None = None,
     ) -> dict[str, Any]:
         event_id = f"event-{uuid.uuid4()}"
+        clean_payload = redact_secrets(payload or {})
         self.connection.execute(
             """
             INSERT INTO events (id, job_id, project_id, type, payload, created_at)
             VALUES (?, ?, ?, ?, ?, ?)
             """,
-            (event_id, job_id, project_id, event_type, json_dumps(payload or {}), utc_now()),
+            (event_id, job_id, project_id, event_type, json_dumps(clean_payload), utc_now()),
         )
         row = self.connection.execute("SELECT * FROM events WHERE id = ?", (event_id,)).fetchone()
         return row_to_event(row)
@@ -76,12 +78,13 @@ class EventBus:
         actor: str = "system",
     ) -> dict[str, Any]:
         audit_id = f"audit-{uuid.uuid4()}"
+        clean_payload = redact_secrets(payload or {})
         self.connection.execute(
             """
             INSERT INTO audit_events (id, project_id, action, actor, target, payload, created_at)
             VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-            (audit_id, project_id, action, actor, target, json_dumps(payload or {}), utc_now()),
+            (audit_id, project_id, action, actor, target, json_dumps(clean_payload), utc_now()),
         )
         row = self.connection.execute("SELECT * FROM audit_events WHERE id = ?", (audit_id,)).fetchone()
         return row_to_audit(row)

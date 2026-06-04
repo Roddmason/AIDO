@@ -15,6 +15,13 @@ added later, but the local MVP must be auditable without network services.
 The evaluator accepts tool, command, path, role, project, workspace, git
 operation, deployment target, network requirement, and secrets requirement.
 
+Operational security data is redacted through
+`local_control_center/shared/redaction.py` before persistence. This includes
+agent runs, tool calls, jobs, action requests, policy decisions, permission
+grants, model calls, test metadata, evidence logs, and audit/event payloads.
+Patch contents and screenshot binaries are preserved as evidence payloads by
+default; surrounding metadata is still sanitized.
+
 ## Command Classification
 
 `security_policy/command_classifier.py` classifies commands into categories and
@@ -73,6 +80,11 @@ sandbox uses `shell=False`, requires structured `argv`, allowlists executable
 names, caps timeout/output, and rejects working directories outside the
 workspace. It is deliberately less capable than Docker isolation and should only
 run low-risk commands that already passed policy.
+
+Runtime execution also rejects known dangerous flags before subprocess or Docker
+invocation, including `--no-sandbox`, `--privileged`, `--mount`, `--volume`,
+`--network=host`, and split-token `--network host`. A command string is never
+accepted as an execution fallback.
 
 Sensitive tool calls have a stricter flow:
 

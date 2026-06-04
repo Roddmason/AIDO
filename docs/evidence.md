@@ -9,6 +9,8 @@ Evidence packages are required to make QA decisions auditable.
 - `qa_verdicts`
 - `artifacts` table reserved for future file/screenshot/log references
 - workspace archive snapshots stored in `diffRefs`
+- direct linkage fields for `workflowStepId`, `jobId`, `agentRunId`,
+  `workspaceId`, `runtimeId`, `artifactIds`, and `diffSummary`
 
 ## QA Gate
 
@@ -27,14 +29,17 @@ UI rendering; the table records are the queryable operational evidence.
 
 Evidence creation also promotes large inline evidence to artifacts:
 
-- `logs[].content` above the inline threshold becomes an `execution_log`
-  artifact.
+- `logs[].content` is redacted for secrets, and content above the inline
+  threshold becomes an `execution_log` artifact.
 - `screenshotRefs[].contentBase64` becomes a `screenshot` artifact.
 - `testResultReports[]` accepts `junit` XML and `pytest` terminal summaries,
   then normalizes them into queryable `test_results` rows. JUnit XML with
   `DOCTYPE` or entity declarations is rejected before parsing.
 - The evidence package keeps artifact IDs, hashes, sizes, and display metadata,
   not the original large payload.
+- Patch contents are not redacted by default because rewriting patches can
+  invalidate implementation evidence. Metadata around patch references is
+  redacted, and large patch files are hash-verified like other artifacts.
 
 When evidence is linked to model/runtime usage, creation also feeds the Model
 Gateway benchmark outcomes table. `POST /api/v1/evidence` accepts
@@ -163,7 +168,7 @@ permission grant; it is the audit trail produced after the policy engine has
 allowed a low-risk action or after the broker has consumed a matching one-use
 permission grant for a sensitive action.
 
-Large stdout/stderr streams are promoted before the tool call is persisted.
+Large stdout/stderr streams are redacted and promoted before the tool call is persisted.
 When a stream exceeds the inline log threshold, the control plane writes it to
 `.tmp/evidence-artifacts`, stores SHA-256 and size metadata, removes the raw
 stream from `agent_tool_calls.payload.executionResult`, and attaches the

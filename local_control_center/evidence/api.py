@@ -13,6 +13,7 @@ from fastapi.responses import FileResponse, PlainTextResponse
 from ..agents.model_benchmarks import ModelBenchmarkStore
 from ..governance.signals import record_governance_risk
 from ..shared.event_bus import EventBus
+from ..shared.redaction import redact_secrets
 from ..shared.time import utc_now
 from .artifacts import (
     cleanup_unreferenced_artifacts,
@@ -36,6 +37,7 @@ from .models import (
     EvidenceListResponse,
     EvidencePackageResponse,
 )
+from .quality import failed_test_results
 from .qa_reports import build_markdown_report
 from .repository import EvidenceRepository
 from .test_results import TestReportError, normalize_test_result_reports
@@ -232,6 +234,11 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         except TestReportError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
         test_results = [*(payload.get("testResults") or []), *normalized_report_results]
+        if payload.get("qaVerdict") == "passed" and failed_test_results(test_results):
+            raise HTTPException(
+                status_code=422,
+                detail="QA cannot pass when any failed test result is present.",
+            )
         if payload.get("qaVerdict") == "passed" and not (
             test_results or payload.get("diffRefs") or payload.get("screenshotRefs")
         ):
@@ -239,16 +246,22 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
                 status_code=422,
                 detail="QA cannot pass without test results, diff refs, or screenshot/artifact refs.",
             )
-        logs, log_artifacts = promote_large_logs(root=platform.cwd, logs=payload.get("logs") or [])
+        logs, log_artifacts = promote_large_logs(root=platform.cwd, logs=redact_secrets(payload.get("logs") or []))
         screenshot_refs, screenshot_artifacts = promote_screenshots(
             root=platform.cwd,
-            screenshot_refs=payload.get("screenshotRefs") or [],
+            screenshot_refs=redact_secrets(payload.get("screenshotRefs") or []),
         )
         repo = repository()
+        generated_artifact_ids = [artifact["id"] for artifact in [*log_artifacts, *screenshot_artifacts]]
         evidence = repo.create_evidence_package(
             project_id=payload["projectId"],
             workflow_run_id=payload.get("workflowRunId"),
+            workflow_step_id=payload.get("workflowStepId"),
             agent_id=payload.get("agentId"),
+            agent_run_id=payload.get("agentRunId"),
+            job_id=payload.get("jobId"),
+            workspace_id=payload.get("workspaceId"),
+            runtime_id=payload.get("runtimeId"),
             task_id=payload.get("taskId", "task"),
             test_plan=payload.get("testPlan", ""),
             acceptance_checklist=payload.get("acceptanceChecklist") or [],
@@ -257,6 +270,8 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             diff_refs=payload.get("diffRefs") or [],
             screenshot_refs=screenshot_refs,
             risk_notes=payload.get("riskNotes") or [],
+            artifact_ids=[*(payload.get("artifactIds") or []), *generated_artifact_ids],
+            diff_summary=payload.get("diffSummary") or {},
             qa_verdict=payload.get("qaVerdict", "not_started"),
         )
         for artifact in [*log_artifacts, *screenshot_artifacts]:

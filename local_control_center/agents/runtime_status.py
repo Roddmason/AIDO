@@ -93,8 +93,6 @@ def _status_payload(
         "configured": configured,
         "available": available,
         "executable": executable,
-        "testOnly": False,
-        "simulationOnly": False,
         "requiresApproval": requires_approval,
         "reason": reason,
         "version": version,

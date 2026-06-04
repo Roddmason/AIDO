@@ -96,8 +96,6 @@ def executable_runtime_status() -> list[dict[str, Any]]:
             "configured": True,
             "available": True,
             "executable": True,
-            "testOnly": False,
-            "simulationOnly": False,
             "requiresApproval": True,
             "reason": "Test runtime is executable.",
             "version": "test",
@@ -334,7 +332,6 @@ def test_issue_to_patch_removed_simulation_runtime_is_rejected(
             "title": "Mock must not complete",
             "issueText": "Pretend to edit a file",
             "preferredRuntime": "internal_mock",
-            "simulationMode": True,
         },
     )
 

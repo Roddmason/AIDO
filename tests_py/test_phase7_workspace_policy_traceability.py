@@ -263,7 +263,7 @@ def test_workflow_detail_exposes_linked_jobs_and_agent_runs(tmp_path: Path, monk
             "id": "implementer_default",
             "name": "Implementer",
             "role": "implementer",
-            "runtimeMode": "internal_mock",
+            "runtimeMode": "manual",
             "allowedSkills": ["backend-api-contract"],
             "allowedTools": [],
             "permissionProfile": "dev_safe",

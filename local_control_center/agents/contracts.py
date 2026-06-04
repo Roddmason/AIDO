@@ -271,8 +271,6 @@ class RuntimeProviderStatus(BaseModel):
     configured: bool
     available: bool
     executable: bool
-    test_only: bool = Field(default=False, alias="testOnly")
-    simulation_only: bool = Field(default=False, alias="simulationOnly")
     requires_approval: bool = Field(default=True, alias="requiresApproval")
     reason: str
     version: str | None = None

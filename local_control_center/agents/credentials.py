@@ -132,12 +132,20 @@ class CredentialResolver:
                 message="Environment credential refs must use uppercase variable names",
             )
         value = os.environ.get(name)
+        resolved_name = name
+        if not value and not name.startswith("AIDO_"):
+            alias = f"AIDO_{name}"
+            value = os.environ.get(alias)
+            resolved_name = alias if value else name
         if value:
             return CredentialResolution(
                 ref=public_ref, status="configured", source="env", value=value if fetch else None
             )
         return CredentialResolution(
-            ref=public_ref, status="missing", source="env", message=f"Environment variable {name} is not set"
+            ref=public_ref,
+            status="missing",
+            source="env",
+            message=f"Environment variable {resolved_name} is not set",
         )
 
     @staticmethod

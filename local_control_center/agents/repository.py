@@ -4,10 +4,13 @@ import sqlite3
 import uuid
 from typing import Any
 
+from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.serialization import json_dumps, json_loads
-from local_control_center.shared.telemetry import record_agent_run, record_model_call
+from local_control_center.shared.telemetry import record_agent_run
 
 from local_control_center.shared.time import utc_now
+
+PRODUCT_RUNTIME_MODES = {"api", "cli", "ollama", "hybrid", "manual"}
 
 
 def row_to_agent_profile(row: sqlite3.Row) -> dict[str, Any]:
@@ -134,6 +137,9 @@ class AgentsRepository:
 
     def upsert_agent_profile(self, body: dict[str, Any]) -> dict[str, Any]:
         profile_id = body["id"]
+        runtime_type = str(body.get("runtimeMode") or body.get("runtimeType") or "hybrid")
+        if runtime_type not in PRODUCT_RUNTIME_MODES:
+            raise ValueError(f"Agent profile runtime is not in the product catalog: {runtime_type}")
         timestamp = utc_now()
         self.connection.execute(
             """
@@ -173,7 +179,7 @@ class AgentsRepository:
                 profile_id,
                 body.get("name", profile_id),
                 body.get("role", "implementer"),
-                body.get("runtimeMode") or body.get("runtimeType", "internal_mock"),
+                runtime_type,
                 body.get("modelPolicyId"),
                 json_dumps(body.get("allowedSkills") or []),
                 json_dumps(body.get("allowedTools") or []),
@@ -203,10 +209,17 @@ class AgentsRepository:
         row = self.connection.execute("SELECT * FROM agent_profiles WHERE id = ?", (profile_id,)).fetchone()
         if not row:
             raise KeyError(f"Agent profile not found: {profile_id}")
+        if row["runtime_type"] not in PRODUCT_RUNTIME_MODES:
+            raise KeyError(f"Agent profile runtime is no longer in the product catalog: {profile_id}")
         return row_to_agent_profile(row)
 
     def list_agent_profiles(self) -> list[dict[str, Any]]:
-        rows = self.connection.execute("SELECT * FROM agent_profiles ORDER BY id ASC").fetchall()
+        runtime_modes = sorted(PRODUCT_RUNTIME_MODES)
+        placeholders = ",".join("?" for _ in runtime_modes)
+        rows = self.connection.execute(
+            f"SELECT * FROM agent_profiles WHERE runtime_type IN ({placeholders}) ORDER BY id ASC",
+            tuple(runtime_modes),
+        ).fetchall()
         return [row_to_agent_profile(row) for row in rows]
 
     def upsert_model_policy(self, body: dict[str, Any]) -> dict[str, Any]:
@@ -284,6 +297,7 @@ class AgentsRepository:
         ) -> dict[str, Any]:
         timestamp = utc_now()
         call_id = f"model-call-{uuid.uuid4()}"
+        clean_metadata = redact_secrets(metadata or {})
         self.connection.execute(
             """
             INSERT INTO model_calls
@@ -302,7 +316,7 @@ class AgentsRepository:
                 prompt_tokens,
                 completion_tokens,
                 cost_usd,
-                json_dumps(metadata or {}),
+                json_dumps(clean_metadata),
                 timestamp,
             ),
         )
@@ -316,7 +330,7 @@ class AgentsRepository:
                     f"cost-{uuid.uuid4()}",
                     project_id,
                     cost_usd,
-                    json_dumps({"modelCallId": call_id, "modelPolicyId": model_policy_id}),
+                    json_dumps(redact_secrets({"modelCallId": call_id, "modelPolicyId": model_policy_id})),
                     timestamp,
                 ),
             )
@@ -337,6 +351,9 @@ class AgentsRepository:
         status: str = "completed",
     ) -> dict[str, Any]:
         profile = self.get_agent_profile(agent_profile_id)
+        clean_input = redact_secrets(input_payload)
+        clean_output = redact_secrets(output_payload)
+        clean_metadata = redact_secrets({"agentProfileId": agent_profile_id, "taskId": task_id, "runtimeType": profile["runtimeType"]})
         timestamp = utc_now()
         run_id = f"agent-run-{uuid.uuid4()}"
         self.connection.execute(
@@ -353,66 +370,26 @@ class AgentsRepository:
                 workflow_run_id or input_payload.get("workflowRunId"),
                 workflow_step_id or input_payload.get("workflowStepId"),
                 status,
-                json_dumps(input_payload),
-                json_dumps(output_payload),
-                json_dumps({"agentProfileId": agent_profile_id, "taskId": task_id, "runtimeType": profile["runtimeType"]}),
+                json_dumps(clean_input),
+                json_dumps(clean_output),
+                json_dumps(clean_metadata),
                 timestamp,
                 timestamp,
             ),
-        )
-        if profile["runtimeType"] == "internal_mock":
-            self.record_agent_tool_call(
-                agent_run_id=run_id,
-                tool_name="internal_mock.complete",
-                status="completed",
-                payload={"taskId": task_id},
-                timestamp=timestamp,
-            )
-        policy_id = profile.get("modelPolicyId")
-        model_call_id = f"model-call-{uuid.uuid4()}"
-        self.connection.execute(
-            """
-            INSERT INTO model_calls
-                (id, project_id, agent_run_id, model_policy_id, provider, model, status,
-                 prompt_tokens, completion_tokens, cost_usd, metadata, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                model_call_id,
-                project_id,
-                run_id,
-                policy_id,
-                "internal_mock",
-                "mock",
-                "completed",
-                0,
-                0,
-                0.0,
-                json_dumps({"redacted": True}),
-                timestamp,
-            ),
-        )
-        model_call_row = self.connection.execute("SELECT * FROM model_calls WHERE id = ?", (model_call_id,)).fetchone()
-        record_model_call(self.connection, row_to_model_call(model_call_row))
-        self.connection.execute(
-            """
-            INSERT INTO cost_usage (id, project_id, scope, amount_usd, metadata, created_at)
-            VALUES (?, ?, 'model_call', 0.0, ?, ?)
-            """,
-            (f"cost-{uuid.uuid4()}", project_id, json_dumps({"agentRunId": run_id}), timestamp),
         )
         agent_run = self.get_agent_run(run_id)
         record_agent_run(self.connection, agent_run)
         return agent_run
 
     def update_agent_run_status(self, run_id: str, *, status: str, output_payload: dict[str, Any]) -> dict[str, Any]:
+        clean_output = redact_secrets(output_payload)
         self.connection.execute(
             """
             UPDATE agent_runs
             SET status = ?, output = ?, updated_at = ?
             WHERE id = ?
             """,
-            (status, json_dumps(output_payload), utc_now(), run_id),
+            (status, json_dumps(clean_output), utc_now(), run_id),
         )
         return self.get_agent_run(run_id)
 
@@ -427,6 +404,7 @@ class AgentsRepository:
     ) -> dict[str, Any]:
         now = timestamp or utc_now()
         call_id = f"agent-tool-call-{uuid.uuid4()}"
+        clean_payload = redact_secrets(payload)
         self.connection.execute(
             """
             INSERT INTO agent_tool_calls
@@ -438,7 +416,7 @@ class AgentsRepository:
                 agent_run_id,
                 tool_name,
                 status,
-                json_dumps(payload),
+                json_dumps(clean_payload),
                 now,
                 now,
             ),

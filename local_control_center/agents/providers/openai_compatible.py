@@ -23,12 +23,15 @@ class OpenAICompatibleProvider(ModelProvider):
         provider_id: str = "openai_compatible",
         base_url: str | None = None,
         credential_ref: str | None = None,
-        mock: bool = False,
     ):
         self.provider_id = provider_id
-        self.base_url = (base_url or os.environ.get("OPENAI_COMPATIBLE_BASE_URL") or "").rstrip("/")
+        self.base_url = (
+            base_url
+            or os.environ.get("AIDO_OPENAI_COMPATIBLE_BASE_URL")
+            or os.environ.get("OPENAI_COMPATIBLE_BASE_URL")
+            or ""
+        ).rstrip("/")
         self.credential_ref = credential_ref or ""
-        self.mock = mock
         self.credential_resolver = CredentialResolver()
 
     def _credential(self) -> str:
@@ -42,31 +45,30 @@ class OpenAICompatibleProvider(ModelProvider):
             return ProviderHealth(providerId=self.provider_id, status="misconfigured", healthStatus="misconfigured", message=credential.message)
         if credential.status in {"missing", "unsupported", "unknown"}:
             return ProviderHealth(providerId=self.provider_id, status="misconfigured", healthStatus="misconfigured", message=f"Credential ref {self.credential_ref} is {credential.status}")
-        if self.mock:
-            return ProviderHealth(
-                providerId=self.provider_id,
-                status="configuration_validated",
-                healthStatus="unknown",
-                message=f"Mock health check validated configuration with credential status {credential.status}",
-            )
         if not real_provider_calls_enabled():
             return ProviderHealth(providerId=self.provider_id, status="disabled", healthStatus="unknown", message="Real provider calls are disabled")
-        return ProviderHealth(providerId=self.provider_id, status="available", healthStatus="healthy", message="Configuration present")
+        request = urllib.request.Request(
+            f"{self.base_url}/models",
+            headers={"Authorization": f"Bearer {self._credential()}", "Accept": "application/json"},
+            method="GET",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=10) as response:
+                json.loads(response.read().decode("utf-8"))
+        except (OSError, urllib.error.URLError, json.JSONDecodeError, UnicodeDecodeError) as error:
+            return ProviderHealth(
+                providerId=self.provider_id,
+                status="not_available",
+                healthStatus="offline",
+                message=f"Provider /models health check failed: {error.__class__.__name__}",
+            )
+        return ProviderHealth(providerId=self.provider_id, status="available", healthStatus="healthy", message="Provider /models responded")
 
     def list_models(self) -> list[ModelInfo]:
-        if self.mock or not real_provider_calls_enabled() or not self.base_url:
-            return [
-                ModelInfo(
-                    providerId=self.provider_id,
-                    model="configured_model",
-                    displayName="Configured model",
-                    contextWindow=128000,
-                    maxOutputTokens=4096,
-                    supportsJson=True,
-                    supportsStreaming=True,
-                    source="mock",
-                )
-            ]
+        if not real_provider_calls_enabled():
+            raise RuntimeError("Real provider discovery is disabled by AIDO_ENABLE_REAL_PROVIDER_CALLS=false")
+        if not self.base_url:
+            return []
         request = urllib.request.Request(
             f"{self.base_url}/models",
             headers={"Authorization": f"Bearer {self._credential()}", "Accept": "application/json"},
@@ -90,19 +92,6 @@ class OpenAICompatibleProvider(ModelProvider):
         ]
 
     def chat_completion(self, request: ModelRequest) -> ModelResponse:
-        if self.mock:
-            raw = {
-                "id": "mock-chatcmpl",
-                "choices": [{"message": {"content": "mock response"}}],
-                "usage": {"prompt_tokens": 12, "completion_tokens": 7, "total_tokens": 19},
-            }
-            return ModelResponse(
-                providerId=self.provider_id,
-                model=request.model,
-                content="mock response",
-                usage=self.parse_usage(raw),
-                rawResponse=redact_secrets(raw),
-            )
         if not real_provider_calls_enabled():
             raise RuntimeError("Real provider calls are disabled by AIDO_ENABLE_REAL_PROVIDER_CALLS=false")
         if not self.base_url or not self._credential():

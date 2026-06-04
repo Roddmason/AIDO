@@ -48,8 +48,6 @@ def _usage_source_from_raw(raw_usage: dict[str, Any] | None, actual_cost_usd: fl
         return "unavailable"
     if raw_source in {"provider", "provider_reported", "cli_output"}:
         return "actual"
-    if raw_source in {"mock"}:
-        return "estimated"
     if actual_cost_usd is not None:
         return "actual"
     return "estimated"

@@ -396,11 +396,6 @@ class UsageSummaryResponse(BaseModel):
     summary: UsageSummaryRecord
 
 
-class RouteExecuteMockResponse(BaseModel):
-    routing: RoutingPreviewResponse
-    usage: UsageLedgerRecord
-
-
 class RouteExecuteResponse(BaseModel):
     routing: RoutingPreviewResponse
     usage: UsageLedgerRecord | None = None

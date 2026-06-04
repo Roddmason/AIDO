@@ -1434,7 +1434,9 @@ def test_git_worktree_archive_promotes_large_patch_to_artifact(tmp_path: Path, m
     assert Path(artifact["path"]).exists()
 
 
-def test_internal_mock_agent_run_records_tool_model_cost_and_evidence(tmp_path: Path, monkeypatch) -> None:
+def test_agent_run_without_executable_adapter_does_not_record_synthetic_model_cost(
+    tmp_path: Path, monkeypatch
+) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
     store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
     store.init()
@@ -1449,7 +1451,7 @@ def test_internal_mock_agent_run_records_tool_model_cost_and_evidence(tmp_path: 
             "id": "implementer",
             "name": "Implementer",
             "role": "implementer",
-            "runtimeType": "internal_mock",
+            "runtimeType": "manual",
             "modelPolicyId": "implementation_default",
             "allowedTools": ["policy.evaluate", "evidence.create"],
             "qualityGates": ["structured_output"],
@@ -1461,13 +1463,13 @@ def test_internal_mock_agent_run_records_tool_model_cost_and_evidence(tmp_path: 
         json={
             "id": "implementation_default",
             "name": "Implementation Default",
-            "preferred": [{"provider": "internal_mock", "model": "mock"}],
+            "preferred": [{"provider": "openai_compatible", "model": "configured_model"}],
             "fallback": [],
             "maxCostUsd": 1.0,
             "maxTokens": 4000,
             "temperature": 0.2,
-            "allowRemote": False,
-            "allowLocal": True,
+            "allowRemote": True,
+            "allowLocal": False,
         },
         headers=headers,
     )
@@ -1484,14 +1486,14 @@ def test_internal_mock_agent_run_records_tool_model_cost_and_evidence(tmp_path: 
     )
     assert run.status_code == 202
     agent_run = run.json()["agentRun"]
-    assert agent_run["status"] == "completed"
-    assert agent_run["output"]["verdict"] == "approved_with_risks"
-    assert agent_run["output"]["task_id"] == "story-2"
+    assert agent_run["status"] == "failed"
+    assert agent_run["output"]["verdict"] == "blocked"
+    assert "no executable adapter" in agent_run["output"]["summary"]
 
     overview = client.get("/api/v1/overview").json()
-    assert any(call["agentRunId"] == agent_run["id"] for call in overview["agentToolCalls"])
-    assert any(call["agentRunId"] == agent_run["id"] for call in overview["modelCalls"])
-    assert any(item["scope"] == "model_call" for item in overview["costUsage"])
+    assert not any(call["agentRunId"] == agent_run["id"] for call in overview["agentToolCalls"])
+    assert not any(call["agentRunId"] == agent_run["id"] for call in overview["modelCalls"])
+    assert not any(item["metadata"].get("agentRunId") == agent_run["id"] for item in overview["costUsage"])
 
 
 def test_technical_review_agent_runs_require_evidence_package_refs(tmp_path: Path, monkeypatch) -> None:
@@ -1509,7 +1511,7 @@ def test_technical_review_agent_runs_require_evidence_package_refs(tmp_path: Pat
             "id": "technical_lead",
             "name": "Technical Lead",
             "role": "technical_lead",
-            "runtimeType": "internal_mock",
+            "runtimeType": "manual",
             "permissionProfile": "plan",
             "allowedTools": [],
         },
@@ -1557,8 +1559,9 @@ def test_technical_review_agent_runs_require_evidence_package_refs(tmp_path: Pat
     )
     assert reviewed.status_code == 202
     reviewed_run = reviewed.json()["agentRun"]
-    assert reviewed_run["status"] == "completed"
-    assert reviewed_run["output"]["evidence_refs"] == [evidence["id"]]
+    assert reviewed_run["status"] == "failed"
+    assert reviewed_run["output"]["verdict"] == "blocked"
+    assert "no executable adapter" in reviewed_run["output"]["summary"]
 
 
 def test_workspace_allocation_accepts_devcontainer_metadata_without_docker_requirement(tmp_path: Path, monkeypatch) -> None:

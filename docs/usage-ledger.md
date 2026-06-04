@@ -6,7 +6,10 @@
 
 ## Configuration
 
-No credential is required. Providers and runtimes call `UsageLedger.record_usage()` after mock or real execution.
+No credential is required to record usage. Providers and runtimes call
+`UsageLedger.record_usage()` only after real provider/runtime output, explicit
+estimation, or an unavailable/blocked outcome. Product code must not use the
+ledger to record mock execution as completed work.
 
 ## Endpoints
 

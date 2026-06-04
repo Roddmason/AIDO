@@ -43,12 +43,13 @@ local OS/keyring adapter is installed outside the core runtime.
 
 ## Testing
 
-`test_provider_accounts_crud_endpoints_do_not_expose_raw_credentials` verifies CRUD, metadata persistence and redaction. Provider health tests verify mock-default behavior, fail-closed real checks, 429 cooldown recording and redacted errors.
+`test_provider_accounts_crud_endpoints_do_not_expose_raw_credentials` verifies CRUD, metadata persistence and redaction. Provider health tests verify fail-closed checks, explicit real-call opt-in, 429 cooldown recording and redacted errors.
 
 ## Risks
 
-- Health checks run in safe mock mode unless the provider is enabled and
-  `AIDO_ENABLE_REAL_PROVIDER_CALLS=true`.
+- Health checks return `configuration_required`, `misconfigured`, or `blocked`
+  instead of simulating provider success when credentials, enablement, or
+  real-call opt-in are missing.
 - Model discovery follows the same fail-closed posture. API and gateway
   providers must have a valid credential ref before real discovery can run; the
   system rejects missing credentials before any adapter/network path is invoked.
@@ -57,8 +58,9 @@ local OS/keyring adapter is installed outside the core runtime.
 
 ## Limitations
 
-- Provider discovery is conservative and mock-backed in tests; exact remote
-  model catalogs require explicit real-call opt-in.
+- Provider discovery requires explicit real-call opt-in for remote providers.
+  Unit tests may monkeypatch adapters to isolate network, but product API
+  responses cannot expose mock-backed model catalogs.
 
 ## Example
 

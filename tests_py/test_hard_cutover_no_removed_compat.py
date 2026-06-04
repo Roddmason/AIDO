@@ -124,11 +124,14 @@ def test_hybrid_runtime_catalog_exposes_ollama_and_cli_api_modes(tmp_path: Path)
     providers = client.get("/api/v1/model-providers").json()["modelProviders"]
     provider_ids = {provider["id"] for provider in providers}
     assert {"ollama", "openai_compatible", "openrouter", "openai_agents", "cli_codex", "cli_claude", "manual"} <= provider_ids
+    manual_provider = next(provider for provider in providers if provider["id"] == "manual")
+    assert manual_provider["status"] != "available"
 
     runtime_status = client.get("/api/v1/runtime/providers").json()
     assert runtime_status["ollama"]["provider"] == "ollama"
     assert runtime_status["ollama"]["available"] in {True, False}
-    assert set(runtime_status["runtimeModes"]) >= {"api", "cli", "ollama", "hybrid", "manual", "internal_mock"}
+    assert set(runtime_status["runtimeModes"]) >= {"api", "cli", "ollama", "hybrid", "manual"}
+    assert "internal_mock" not in runtime_status["runtimeModes"]
 
     profile = client.post(
         "/api/v1/agent-profiles",

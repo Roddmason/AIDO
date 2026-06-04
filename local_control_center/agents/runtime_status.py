@@ -1,0 +1,339 @@
+from __future__ import annotations
+
+import os
+import sqlite3
+from typing import Any
+
+from .model_gateway import ollama_status
+from .provider_accounts import ProviderAccountStore
+from .runtime_registry import RuntimeRegistry
+from local_control_center.shared.time import utc_now
+
+
+RUNTIME_MODES = ["api", "cli", "ollama", "hybrid", "manual"]
+CLI_RUNTIME_IDS = {"codex_cli", "claude_code_cli", "openhands", "swe_agent"}
+API_RUNTIME_KINDS = {"api", "gateway"}
+OPENAI_COMPATIBLE_FORMATS = {"openai_compatible", "responses"}
+
+
+def _env_flag(name: str) -> bool:
+    return os.environ.get(name, "false").strip().lower() == "true"
+
+
+def _capabilities(connection: sqlite3.Connection) -> dict[str, list[str]]:
+    rows = connection.execute(
+        """
+        SELECT runtime, capability
+        FROM runtime_capabilities
+        WHERE enabled = 1
+        ORDER BY runtime ASC, capability ASC
+        """
+    ).fetchall()
+    capabilities: dict[str, list[str]] = {}
+    for row in rows:
+        capabilities.setdefault(str(row["runtime"]), []).append(str(row["capability"]))
+    capabilities.setdefault("ollama", ["chat"])
+    capabilities.setdefault("manual", ["approval"])
+    return capabilities
+
+
+def _has_enabled_model(connection: sqlite3.Connection, provider_id: str) -> bool:
+    row = connection.execute(
+        """
+        SELECT 1
+        FROM model_catalog
+        WHERE provider_id = ? AND enabled = 1
+        LIMIT 1
+        """,
+        (provider_id,),
+    ).fetchone()
+    return row is not None
+
+
+def _base_safety(kind: str) -> dict[str, Any]:
+    if kind == "cli":
+        return {
+            "workspaceBound": True,
+            "shell": False,
+            "structuredArgv": True,
+            "network": "runtime_policy_gated",
+        }
+    if kind in API_RUNTIME_KINDS:
+        return {
+            "workspaceBound": False,
+            "shell": False,
+            "structuredArgv": True,
+            "network": "remote_calls_disabled_by_default",
+        }
+    return {"workspaceBound": True, "shell": False, "structuredArgv": True, "network": "local_only"}
+
+
+def _status_payload(
+    *,
+    provider_id: str,
+    kind: str,
+    display_name: str,
+    detected: bool,
+    configured: bool,
+    available: bool,
+    executable: bool,
+    reason: str,
+    version: str | None,
+    detected_command: str | None,
+    health_checked_at: str | None,
+    capabilities: list[str],
+    required_configuration: list[str],
+    requires_approval: bool,
+) -> dict[str, Any]:
+    return {
+        "id": provider_id,
+        "kind": kind,
+        "displayName": display_name,
+        "detected": detected,
+        "configured": configured,
+        "available": available,
+        "executable": executable,
+        "testOnly": False,
+        "simulationOnly": False,
+        "requiresApproval": requires_approval,
+        "reason": reason,
+        "version": version,
+        "detectedCommand": detected_command,
+        "healthCheckedAt": health_checked_at,
+        "capabilities": capabilities,
+        "requiredConfiguration": required_configuration,
+        "safety": _base_safety(kind),
+    }
+
+
+def _api_required_configuration(account: dict[str, Any]) -> list[str]:
+    api_format = str(account.get("apiFormat") or "")
+    if api_format in OPENAI_COMPATIBLE_FORMATS or account["providerId"] in {"openai_compatible", "litellm"}:
+        return ["baseUrl", "apiKey", "model"]
+    if account["providerId"] == "anthropic_api":
+        return ["apiKey"]
+    return ["baseUrl", "apiKey"]
+
+
+def _api_provider_status(connection: sqlite3.Connection, account: dict[str, Any], capabilities: list[str]) -> dict[str, Any]:
+    provider_id = str(account["providerId"])
+    credential_status = str(account.get("credentialStatus") or "unknown")
+    enabled = bool(account.get("enabled"))
+    base_url = str(account.get("baseUrl") or "").strip()
+    health_status = str(account.get("healthStatus") or "unknown")
+    health_checked_at = account.get("lastHealthCheckAt")
+    last_error = str(account.get("lastError") or "").strip()
+    required_configuration = _api_required_configuration(account)
+    has_model = "model" not in required_configuration or _has_enabled_model(connection, provider_id)
+    has_base_url = "baseUrl" not in required_configuration or bool(base_url)
+    has_credential = "apiKey" not in required_configuration or credential_status == "configured"
+    configured = has_base_url and has_credential and has_model
+    remote_calls_enabled = _env_flag("AIDO_ENABLE_REAL_PROVIDER_CALLS")
+    healthy = health_status == "healthy" and bool(health_checked_at)
+    available = configured and healthy
+    executable = available and enabled and remote_calls_enabled
+    if not has_credential:
+        reason = f"Provider credential is {credential_status}; configure the required API key."
+    elif not has_base_url:
+        reason = "Provider base URL is not configured."
+    elif not has_model:
+        reason = "Provider model is not configured or enabled."
+    elif not healthy:
+        health_reason = last_error or f"health status is {health_status}"
+        reason = f"Provider has not passed an explicit health check ({health_reason})."
+    elif not enabled:
+        reason = "Provider is available but the provider account is disabled for execution."
+    elif not remote_calls_enabled:
+        reason = "Provider is available but remote execution is disabled by AIDO_ENABLE_REAL_PROVIDER_CALLS=false."
+    else:
+        reason = "Provider is configured, health checked, and executable."
+    return _status_payload(
+        provider_id=provider_id,
+        kind=str(account["providerType"]),
+        display_name=str(account["displayName"]),
+        detected=available,
+        configured=configured,
+        available=available,
+        executable=executable,
+        reason=reason,
+        version=None,
+        detected_command=None,
+        health_checked_at=health_checked_at,
+        capabilities=capabilities or ["chat"],
+        required_configuration=required_configuration,
+        requires_approval=True,
+    )
+
+
+def _cli_provider_status(account: dict[str, Any], detection: dict[str, Any], capabilities: list[str]) -> dict[str, Any]:
+    detected = detection.get("status") == "installed"
+    enabled = bool(account.get("enabled"))
+    cli_enabled = _env_flag("AIDO_ENABLE_CLI_RUNTIMES")
+    can_patch = bool(set(capabilities) & {"issue_to_patch", "code_edit"})
+    version = detection.get("version") if detected else None
+    available = detected and bool(version)
+    configured = detected
+    executable = available and enabled and cli_enabled and can_patch
+    if not detected:
+        reason = str(detection.get("message") or "CLI runtime was not detected.")
+    elif not version:
+        reason = "CLI runtime was detected but the safe version health check did not return a usable version."
+    elif not enabled:
+        reason = "CLI runtime is available but the provider account is disabled for execution."
+    elif not cli_enabled:
+        reason = "CLI runtime is available but execution is disabled by AIDO_ENABLE_CLI_RUNTIMES=false."
+    elif not can_patch:
+        reason = "Runtime does not advertise a patch-edit capability."
+    else:
+        reason = "CLI runtime is detected, enabled, and executable."
+    return _status_payload(
+        provider_id=str(account["providerId"]),
+        kind="cli",
+        display_name=str(account["displayName"]),
+        detected=detected,
+        configured=configured,
+        available=available,
+        executable=executable,
+        reason=reason,
+        version=version,
+        detected_command=detection.get("executable") if detected else None,
+        health_checked_at=utc_now(),
+        capabilities=capabilities,
+        required_configuration=["command"],
+        requires_approval=True,
+    )
+
+
+def _ollama_provider_status(account: dict[str, Any], capabilities: list[str]) -> dict[str, Any]:
+    base_url = (
+        str(account.get("baseUrl") or "").strip()
+        or os.environ.get("OLLAMA_BASE_URL")
+        or os.environ.get("OLLAMA_HOST")
+        or "http://localhost:11434"
+    )
+    status = ollama_status(base_url=base_url)
+    daemon_available = bool(status.get("available"))
+    enabled = bool(account.get("enabled"))
+    configured = bool(base_url)
+    executable = daemon_available and enabled
+    if not configured:
+        reason = "Ollama base URL is not configured."
+    elif not daemon_available:
+        reason = str(status.get("reason") or "Ollama daemon did not respond to /api/tags.")
+    elif not enabled:
+        reason = "Ollama daemon is reachable but the provider account is disabled for execution."
+    else:
+        reason = "Ollama daemon is reachable and executable."
+    payload = _status_payload(
+        provider_id="ollama",
+        kind="local",
+        display_name=str(account.get("displayName") or "Ollama"),
+        detected=daemon_available,
+        configured=configured,
+        available=daemon_available,
+        executable=executable,
+        reason=reason,
+        version=None,
+        detected_command=None,
+        health_checked_at=utc_now(),
+        capabilities=capabilities or ["chat"],
+        required_configuration=["baseUrl"],
+        requires_approval=False,
+    )
+    payload["models"] = status.get("models") or []
+    return payload
+
+
+def _manual_provider_status(account: dict[str, Any], capabilities: list[str]) -> dict[str, Any]:
+    enabled = bool(account.get("enabled"))
+    return _status_payload(
+        provider_id="manual",
+        kind="manual",
+        display_name=str(account.get("displayName") or "Manual Operator"),
+        detected=enabled,
+        configured=enabled,
+        available=False,
+        executable=False,
+        reason="Manual operator path is configured but is not an automated available or executable runtime.",
+        version=None,
+        detected_command=None,
+        health_checked_at=account.get("lastHealthCheckAt"),
+        capabilities=capabilities or ["approval"],
+        required_configuration=["operator"],
+        requires_approval=True,
+    )
+
+
+class RuntimeStatusService:
+    def __init__(self, connection: sqlite3.Connection):
+        self.connection = connection
+        self.accounts = ProviderAccountStore(connection)
+        self.registry = RuntimeRegistry()
+
+    def list_provider_statuses(self) -> list[dict[str, Any]]:
+        capabilities = _capabilities(self.connection)
+        detections = {runtime_id: self.registry.detect(runtime_id) for runtime_id in sorted(CLI_RUNTIME_IDS)}
+        statuses: list[dict[str, Any]] = []
+        for account in self.accounts.list_provider_accounts():
+            provider_id = str(account["providerId"])
+            provider_capabilities = capabilities.get(provider_id, [])
+            provider_type = str(account.get("providerType") or "")
+            if provider_id == "ollama":
+                statuses.append(_ollama_provider_status(account, provider_capabilities))
+            elif provider_id == "manual":
+                statuses.append(_manual_provider_status(account, provider_capabilities))
+            elif provider_id in CLI_RUNTIME_IDS:
+                statuses.append(_cli_provider_status(account, detections.get(provider_id, {}), provider_capabilities))
+            elif provider_type in API_RUNTIME_KINDS:
+                statuses.append(_api_provider_status(self.connection, account, provider_capabilities))
+            else:
+                statuses.append(
+                    _status_payload(
+                        provider_id=provider_id,
+                        kind=provider_type or "unknown",
+                        display_name=str(account.get("displayName") or provider_id),
+                        detected=False,
+                        configured=False,
+                        available=False,
+                        executable=False,
+                        reason="Provider type is not executable by the local control plane.",
+                        version=None,
+                        detected_command=None,
+                        health_checked_at=account.get("lastHealthCheckAt"),
+                        capabilities=provider_capabilities,
+                        required_configuration=[],
+                        requires_approval=True,
+                    )
+                )
+        return statuses
+
+    def runtime_provider_status(self) -> dict[str, Any]:
+        providers = self.list_provider_statuses()
+        ollama = next((provider for provider in providers if provider["id"] == "ollama"), None)
+        cli_providers = [provider for provider in providers if provider["id"] in CLI_RUNTIME_IDS]
+        api_providers = [provider for provider in providers if provider["kind"] in API_RUNTIME_KINDS]
+        return {
+            "runtimeModes": RUNTIME_MODES,
+            "ollama": {
+                "provider": "ollama",
+                "available": bool(ollama and ollama["available"]),
+                "models": list((ollama or {}).get("models") or []),
+                "reason": str(ollama.get("reason") if ollama else "Ollama provider is not catalogued."),
+            },
+            "cli": {
+                "provider": "cli",
+                "available": any(provider["available"] for provider in cli_providers),
+                "adapters": {
+                    "cli_codex": bool(next((item for item in cli_providers if item["id"] == "codex_cli"), {}).get("available")),
+                    "cli_claude": bool(
+                        next((item for item in cli_providers if item["id"] == "claude_code_cli"), {}).get("available")
+                    ),
+                },
+            },
+            "api": {
+                "provider": "api",
+                "available": any(provider["available"] for provider in api_providers),
+                "adapters": [provider["id"] for provider in api_providers],
+            },
+            "providers": providers,
+        }

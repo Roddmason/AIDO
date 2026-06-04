@@ -19,7 +19,8 @@ from local_control_center.agents.cli_sessions import CliSessionStore
 from local_control_center.agents.credential_preflight import run_credential_preflight
 from local_control_center.agents.credentials import CredentialResolver
 from local_control_center.agents.model_gateway import redact_secrets
-from local_control_center.agents.providers.base import ModelInfo, ModelRequest, ProviderHealth
+from local_control_center.agents.model_benchmarks import ModelBenchmarkStore
+from local_control_center.agents.providers.base import ModelInfo, ProviderHealth
 from local_control_center.agents.providers.nvidia_nim import NvidiaNimProvider
 from local_control_center.agents.providers.openai_compatible import OpenAICompatibleProvider
 from local_control_center.agents.pricing_catalog import PricingCatalog
@@ -46,10 +47,38 @@ def create_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient
 def enable_provider(client: TestClient, headers: dict[str, str], provider_id: str, **extra: object) -> None:
     response = client.patch(
         f"/api/v1/model-gateway/providers/{provider_id}",
-        json={"enabled": True, "healthStatus": "healthy", **extra},
+        json={
+            "enabled": True,
+            "healthStatus": "healthy",
+            "lastHealthCheckAt": "2026-01-01T00:00:00Z",
+            **extra,
+        },
         headers=headers,
     )
     assert response.status_code == 200
+
+
+def register_workspace(connection, workspace_id: str, path: Path) -> None:
+    connection.execute(
+        """
+        INSERT INTO workspaces
+            (id, project_id, task_id, owner_agent_id, path, status, isolation_type, metadata,
+             created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            workspace_id,
+            "project-cli",
+            "task-cli",
+            "agent-cli",
+            str(path),
+            "active",
+            "filesystem",
+            "{}",
+            "2026-01-01T00:00:00Z",
+            "2026-01-01T00:00:00Z",
+        ),
+    )
 
 
 def test_phase12_schema_adds_unified_model_runtime_gateway_tables(tmp_path: Path) -> None:
@@ -117,7 +146,6 @@ def test_phase12_schema_adds_unified_model_runtime_gateway_tables(tmp_path: Path
         "local_private",
     } <= seeded_profiles
     assert {
-        "internal_mock",
         "nvidia_nim",
         "ollama",
         "codex_cli",
@@ -521,7 +549,6 @@ def test_openai_compatible_provider_uses_credential_resolver(monkeypatch: pytest
         provider_id="test_resolver",
         base_url="https://example.invalid/v1",
         credential_ref="env:AIDO_PROVIDER_SECRET",
-        mock=False,
     )
 
     assert provider._credential() == "sk-testsecret123456"
@@ -1026,26 +1053,51 @@ def test_route_preview_exposes_pricing_metadata_and_penalizes_unknown_price(
     assert codex["pricingSource"]
 
 
-def test_discover_models_uses_mock_by_default_and_records_audit(
+def test_discover_models_blocks_when_real_calls_are_disabled(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client = create_client(tmp_path, monkeypatch)
     headers = auth_headers(client)
     monkeypatch.delenv("AIDO_ENABLE_REAL_PROVIDER_CALLS", raising=False)
+    monkeypatch.setenv("NVIDIA_NIM_API_KEY", "sk-test-discovery-disabled")
+    enable_provider(client, headers, "nvidia_nim")
 
     response = client.post("/api/v1/model-gateway/providers/nvidia_nim/discover-models", headers=headers)
 
-    assert response.status_code == 200
-    models = response.json()["models"]
-    assert any(item["providerId"] == "nvidia_nim" for item in models)
-    with client:
-        runtime = client.app.state.runtime  # type: ignore[attr-defined]
-        audits = runtime.events.list_audit_events()
-    discovery_audit = next(
-        item for item in audits if item["action"] == "model_gateway.provider.models_discovered"
+    assert response.status_code == 403
+    assert "disabled" in response.json()["detail"].lower()
+
+
+def test_router_rejects_enabled_seed_provider_without_real_healthcheck(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    headers = auth_headers(client)
+    response = client.patch(
+        "/api/v1/model-gateway/providers/codex_cli",
+        headers=headers,
+        json={"enabled": True, "healthStatus": "healthy"},
     )
-    assert discovery_audit["payload"]["mock"] is True
-    assert discovery_audit["payload"]["source"] == "mock"
+    assert response.status_code == 200
+
+    preview = client.post(
+        "/api/v1/model-gateway/route/preview",
+        headers=headers,
+        json={
+            "role": "developer",
+            "taskType": "implementation",
+            "mode": "balanced_best_value",
+            "contextTokensEstimate": 1000,
+            "requiresCodeEdit": True,
+            "requiresTools": True,
+        },
+    )
+
+    assert preview.status_code == 200
+    payload = preview.json()
+    assert payload["selected"] is None
+    assert any(item["reason"] == "provider_healthcheck_required" for item in payload["rejected"])
 
 
 def test_discover_models_rejects_real_api_provider_without_configured_credential_before_network(
@@ -1118,7 +1170,7 @@ def test_discover_models_real_mode_stores_provider_sourced_models_without_real_n
     discovery_audit = next(
         item for item in audits if item["action"] == "model_gateway.provider.models_discovered"
     )
-    assert discovery_audit["payload"]["mock"] is False
+    assert "mock" not in discovery_audit["payload"]
     assert discovery_audit["payload"]["source"] == "provider"
 
 
@@ -1284,10 +1336,19 @@ def test_benchmark_routing_uses_sufficient_data_without_overriding_quota(
 def test_provider_health_real_mode_requires_explicit_env_and_uses_real_adapter_path(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    def healthy_provider(self: OpenAICompatibleProvider) -> ProviderHealth:
+        return ProviderHealth(
+            providerId=self.provider_id,
+            status="available",
+            healthStatus="healthy",
+            message="Test healthcheck reached configured provider.",
+        )
+
     client = create_client(tmp_path, monkeypatch)
     headers = auth_headers(client)
     monkeypatch.setenv("AIDO_ENABLE_REAL_PROVIDER_CALLS", "true")
     monkeypatch.setenv("OPENAI_COMPATIBLE_TEST_KEY", "sk-test-health")
+    monkeypatch.setattr(OpenAICompatibleProvider, "health_check", healthy_provider)
     response = client.patch(
         "/api/v1/model-gateway/providers/openai_compatible",
         headers=headers,
@@ -1315,6 +1376,8 @@ def test_provider_health_429_records_cooldown_and_redacts_last_error(
 ) -> None:
     client = create_client(tmp_path, monkeypatch)
     headers = auth_headers(client)
+    monkeypatch.setenv("AIDO_ENABLE_REAL_PROVIDER_CALLS", "true")
+    monkeypatch.setenv("NVIDIA_NIM_API_KEY", "sk-test-nvidia-health")
     enable_provider(client, headers, "nvidia_nim")
 
     def rate_limited_health(self: object) -> ProviderHealth:
@@ -1378,8 +1441,8 @@ def test_usage_ledger_records_estimated_and_actual_usage(tmp_path: Path) -> None
             raw_usage={"usage_source": "estimated"},
         )
         actual = ledger.record_usage(
-            provider_id="internal_mock",
-            model="mock",
+            provider_id="openai_compatible",
+            model="configured_model",
             runtime_type="api",
             role="qa",
             request_id="req-actual",
@@ -1398,12 +1461,11 @@ def test_usage_ledger_records_estimated_and_actual_usage(tmp_path: Path) -> None
     assert actual["usageSource"] == "actual"
 
 
-def test_route_execute_mock_links_usage_and_decision_to_workflow_step(
+def test_route_execute_mock_endpoint_is_not_exposed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client = create_client(tmp_path, monkeypatch)
     headers = auth_headers(client)
-    enable_provider(client, headers, "nvidia_nim")
 
     response = client.post(
         "/api/v1/model-gateway/route/execute-mock",
@@ -1420,13 +1482,7 @@ def test_route_execute_mock_links_usage_and_decision_to_workflow_step(
         },
     )
 
-    assert response.status_code == 200
-    usage = response.json()["usage"]
-    assert usage["workflowRunId"] == "workflow-run-test"
-    assert usage["workflowStepId"] == "workflow-step-test"
-    decisions = client.get("/api/v1/model-gateway/routing-decisions").json()["routingDecisions"]
-    assert decisions[0]["workflowRunId"] == "workflow-run-test"
-    assert decisions[0]["workflowStepId"] == "workflow-step-test"
+    assert response.status_code == 404
 
 
 def test_benchmarks_derive_attempt_cost_and_latency_from_usage_without_inventing_success(
@@ -1500,7 +1556,6 @@ def test_evidence_creation_ingests_benchmark_outcome_from_usage_ledger(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client = create_client(tmp_path, monkeypatch)
-    headers = auth_headers(client)
     with client:
         store = client.app.state.runtime  # type: ignore[attr-defined]
         project = store.create_project(
@@ -1519,6 +1574,7 @@ def test_evidence_creation_ingests_benchmark_outcome_from_usage_ledger(
             latency_ms=900,
             raw_usage={"usage_source": "estimated"},
         )
+        headers = auth_headers(client)
 
     created = client.post(
         "/api/v1/evidence",
@@ -1551,16 +1607,66 @@ def test_evidence_creation_ingests_benchmark_outcome_from_usage_ledger(
     assert outcome["latencyMs"] == 900
 
 
-def test_nvidia_provider_mock_parses_usage_and_handles_429(tmp_path: Path) -> None:
+def test_failed_test_result_overrides_passed_verdict_in_benchmarks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    with client:
+        store = client.app.state.runtime  # type: ignore[attr-defined]
+        store.create_project(
+            name="Failed Benchmark Evidence", path=tmp_path / "failed-benchmark-evidence", template_id="other"
+        )
+        usage = UsageLedger(store.connection).record_usage(
+            provider_id="codex_cli",
+            model="gpt-5.5",
+            runtime_type="cli",
+            role="developer",
+            workflow_run_id="workflow-run-failed-benchmark",
+            workflow_step_id="workflow-step-failed-benchmark",
+            agent_id="agent-dev",
+            task_id="implementation",
+            estimated_cost_usd=0.10,
+            latency_ms=1200,
+            raw_usage={"usage_source": "estimated"},
+        )
+
+    outcome = ModelBenchmarkStore(store.connection).record_evidence_outcome(
+        evidence={
+            "id": "evidence-contradictory-benchmark",
+            "workflowRunId": "workflow-run-failed-benchmark",
+            "agentId": "agent-dev",
+            "taskId": "implementation",
+            "qaVerdict": "passed",
+        },
+        payload={
+            "usageLedgerId": usage["id"],
+            "providerId": "codex_cli",
+            "model": "gpt-5.5",
+            "workflowStepId": "workflow-step-failed-benchmark",
+        },
+        test_results=[{"command": "pytest", "status": "failed", "durationMs": 1200}],
+    )
+
+    assert outcome is not None
+    assert outcome["success"] is False
+    assert outcome["qaPass"] is False
+    assert outcome["rework"] is True
+
+
+def test_nvidia_provider_parses_usage_and_handles_429(tmp_path: Path) -> None:
     with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
         initialize_platform_schema(connection)
-        provider = NvidiaNimProvider(connection=connection, mock=True)
-        response = provider.chat_completion(
-            ModelRequest(model="auto_best_available", messages=[{"role": "user", "content": "summarize"}])
+        provider = NvidiaNimProvider(connection=connection)
+        usage = provider.parse_usage(
+            {
+                "usage": {
+                    "prompt_tokens": 21,
+                    "completion_tokens": 13,
+                    "total_tokens": 34,
+                }
+            }
         )
-        usage = provider.parse_usage(response.raw_response)
 
-        assert response.model == "auto_best_available"
         assert usage.input_tokens > 0
         assert usage.output_tokens > 0
 
@@ -1585,7 +1691,7 @@ def test_cli_detection_missing_binary_returns_not_installed() -> None:
 
 
 def test_cli_runtime_blocks_dangerous_flags(tmp_path: Path) -> None:
-    runtime = CodexCliRuntime(executable="codex", mock=True)
+    runtime = CodexCliRuntime(executable="codex")
 
     with pytest.raises(ValueError, match="dangerous"):
         runtime.build_command(
@@ -1600,10 +1706,27 @@ def test_cli_runtime_blocks_dangerous_flags(tmp_path: Path) -> None:
         )
 
 
-def test_cli_runtime_persists_mock_session_and_usage(tmp_path: Path) -> None:
+def test_cli_runtime_persists_real_session_and_usage_with_process_isolated(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AIDO_ENABLE_CLI_RUNTIMES", "true")
+    monkeypatch.setattr(
+        "local_control_center.agents.cli_runtimes.base.evaluate_action",
+        lambda payload: {"decision": "allow", "reason": "test policy allows isolated process"},
+    )
+    monkeypatch.setattr(
+        "local_control_center.security_policy.sandbox.RestrictedSubprocessSandbox.execute",
+        lambda *args, **kwargs: {
+            "returnCode": 0,
+            "stdout": '{"event":"token_usage","usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}\n',
+            "stderr": "",
+        },
+    )
     with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
         initialize_platform_schema(connection)
-        runtime = CodexCliRuntime(executable="codex", mock=True, connection=connection)
+        register_workspace(connection, "workspace-cli-test", tmp_path)
+        runtime = CodexCliRuntime(executable="codex", connection=connection)
 
         result = runtime.run(
             RuntimeRequest(
@@ -1614,7 +1737,6 @@ def test_cli_runtime_persists_mock_session_and_usage(tmp_path: Path) -> None:
                 profile="codex_gpt55_developer",
                 model="gpt-5.5",
                 envPolicy={"OPENAI_API_KEY": "sk-cli-secret123456", "network": False},
-                mock=True,
             )
         )
         sessions = connection.execute("SELECT * FROM cli_sessions").fetchall()
@@ -1627,7 +1749,7 @@ def test_cli_runtime_persists_mock_session_and_usage(tmp_path: Path) -> None:
     assert sessions[0]["usage_ledger_id"] is not None
     assert len(ledger) == 1
     assert ledger[0]["runtime_type"] == "cli"
-    assert ledger[0]["usage_source"] == "estimated"
+    assert ledger[0]["usage_source"] == "actual"
 
 
 def test_cli_session_store_writes_redacted_stdout_stderr_and_log_artifacts(tmp_path: Path) -> None:
@@ -1670,10 +1792,27 @@ def test_cli_session_store_writes_redacted_stdout_stderr_and_log_artifacts(tmp_p
         assert '"runtime": "codex_cli"' in metadata
 
 
-def test_cli_mock_runtime_links_stdout_and_logs_artifacts(tmp_path: Path) -> None:
+def test_cli_runtime_links_stdout_and_logs_artifacts_for_process_output(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AIDO_ENABLE_CLI_RUNTIMES", "true")
+    monkeypatch.setattr(
+        "local_control_center.agents.cli_runtimes.base.evaluate_action",
+        lambda payload: {"decision": "allow", "reason": "test policy allows isolated process"},
+    )
+    monkeypatch.setattr(
+        "local_control_center.security_policy.sandbox.RestrictedSubprocessSandbox.execute",
+        lambda *args, **kwargs: {
+            "returnCode": 0,
+            "stdout": '{"event":"token_usage","usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}}\n',
+            "stderr": "",
+        },
+    )
     with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
         initialize_platform_schema(connection)
-        runtime = CodexCliRuntime(executable="codex", mock=True, connection=connection)
+        register_workspace(connection, "workspace-cli-test", tmp_path)
+        runtime = CodexCliRuntime(executable="codex", connection=connection)
 
         result = runtime.run(
             RuntimeRequest(
@@ -1683,7 +1822,6 @@ def test_cli_mock_runtime_links_stdout_and_logs_artifacts(tmp_path: Path) -> Non
                 prompt="Summarize status without secrets",
                 profile="codex_gpt55_developer",
                 model="gpt-5.5",
-                mock=True,
             )
         )
         session = connection.execute("SELECT * FROM cli_sessions").fetchone()
@@ -1706,7 +1844,8 @@ def test_cli_mock_runtime_links_stdout_and_logs_artifacts(tmp_path: Path) -> Non
 def test_cli_runtime_records_dangerous_flags_rejection_without_execution(tmp_path: Path) -> None:
     with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
         initialize_platform_schema(connection)
-        runtime = CodexCliRuntime(executable="codex", mock=True, connection=connection)
+        register_workspace(connection, "workspace-cli-test", tmp_path)
+        runtime = CodexCliRuntime(executable="codex", connection=connection)
 
         result = runtime.run(
             RuntimeRequest(
@@ -1716,7 +1855,6 @@ def test_cli_runtime_records_dangerous_flags_rejection_without_execution(tmp_pat
                 prompt="edit code",
                 profile="codex_gpt55_developer",
                 extraArgs=["--dangerously-bypass-approvals-and-sandbox"],
-                mock=True,
             )
         )
         session = connection.execute("SELECT * FROM cli_sessions").fetchone()
@@ -1763,26 +1901,7 @@ def test_cli_runtime_records_policy_denied_without_sandbox_execution(
     monkeypatch.setattr("local_control_center.security_policy.sandbox.RestrictedSubprocessSandbox.execute", fail_execute)
     with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
         initialize_platform_schema(connection)
-        connection.execute(
-            """
-            INSERT INTO workspaces
-                (id, project_id, task_id, owner_agent_id, path, status, isolation_type, metadata,
-                 created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                "workspace-cli-test",
-                "project-cli",
-                "task-cli",
-                "agent-cli",
-                str(tmp_path),
-                "active",
-                "filesystem",
-                "{}",
-                "2026-01-01T00:00:00Z",
-                "2026-01-01T00:00:00Z",
-            ),
-        )
+        register_workspace(connection, "workspace-cli-test", tmp_path)
         runtime = CodexCliRuntime(executable="codex", connection=connection)
 
         result = runtime.run(
@@ -1817,7 +1936,7 @@ def test_agent_profiles_accept_expanded_executable_role_catalog(
                 "id": f"agent-{role}",
                 "name": role,
                 "role": role,
-                "runtimeMode": "internal_mock",
+                "runtimeMode": "hybrid",
                 "permissionProfile": "dev_safe",
             },
         )
@@ -1826,7 +1945,7 @@ def test_agent_profiles_accept_expanded_executable_role_catalog(
 
 
 def test_cli_runtime_parses_usage_from_jsonl_output() -> None:
-    runtime = CodexCliRuntime(executable="codex", mock=True)
+    runtime = CodexCliRuntime(executable="codex")
     result = RuntimeResult(
         runtime="codex_cli",
         status="completed",
@@ -1845,7 +1964,7 @@ def test_cli_runtime_parses_usage_from_jsonl_output() -> None:
 
 
 def test_cli_runtimes_parse_runtime_specific_usage_aliases() -> None:
-    codex = CodexCliRuntime(executable="codex", mock=True).parse_usage(
+    codex = CodexCliRuntime(executable="codex").parse_usage(
         RuntimeResult(
             runtime="codex_cli",
             status="completed",
@@ -1853,7 +1972,7 @@ def test_cli_runtimes_parse_runtime_specific_usage_aliases() -> None:
             returnCode=0,
         )
     )
-    claude = ClaudeCodeCliRuntime(executable="claude", mock=True).parse_usage(
+    claude = ClaudeCodeCliRuntime(executable="claude").parse_usage(
         RuntimeResult(
             runtime="claude_code_cli",
             status="completed",
@@ -1861,7 +1980,7 @@ def test_cli_runtimes_parse_runtime_specific_usage_aliases() -> None:
             returnCode=0,
         )
     )
-    openhands = OpenHandsRuntime(executable="openhands", mock=True).parse_usage(
+    openhands = OpenHandsRuntime(executable="openhands").parse_usage(
         RuntimeResult(
             runtime="openhands",
             status="completed",
@@ -1869,7 +1988,7 @@ def test_cli_runtimes_parse_runtime_specific_usage_aliases() -> None:
             returnCode=0,
         )
     )
-    swe_agent = SweAgentRuntime(executable="sweagent", mock=True).parse_usage(
+    swe_agent = SweAgentRuntime(executable="sweagent").parse_usage(
         RuntimeResult(
             runtime="swe_agent",
             status="completed",
@@ -1937,7 +2056,7 @@ def test_model_gateway_endpoints_return_valid_json(tmp_path: Path, monkeypatch: 
     detect = client.post("/api/v1/model-gateway/cli-runtimes/codex_cli/detect", headers=headers)
     health = client.post("/api/v1/model-gateway/providers/nvidia_nim/health-check", headers=headers)
     discover = client.post("/api/v1/model-gateway/providers/nvidia_nim/discover-models", headers=headers)
-    mock_execute = client.post(
+    removed_mock_execute = client.post(
         "/api/v1/model-gateway/route/execute-mock",
         headers=headers,
         json={
@@ -1950,8 +2069,8 @@ def test_model_gateway_endpoints_return_valid_json(tmp_path: Path, monkeypatch: 
 
     assert detect.status_code == 200
     assert health.status_code == 200
-    assert discover.status_code == 200
-    assert mock_execute.status_code == 200
+    assert discover.status_code == 403
+    assert removed_mock_execute.status_code == 404
 
 
 def test_route_execute_real_is_blocked_by_default_and_requires_approval_when_costly(

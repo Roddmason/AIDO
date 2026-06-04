@@ -18,7 +18,7 @@ def test_optional_runtime_smoke_script_is_explicitly_opt_in() -> None:
     content = script.read_text(encoding="utf-8")
     assert "[string]$ReportPath" in content
     assert "AIDO_RUNTIME_SMOKE" in content
-    assert "internal_mock" in content
+    assert "internal_mock" not in content
     assert "openhands" in content
     assert "swe_agent" in content
     assert "mcp" in content
@@ -98,6 +98,21 @@ def test_optional_issue_to_patch_contracts_are_explicit_and_validated(tmp_path: 
     )
     assert version_check["valid"] is True
     assert version_check["operation"] == "version_check"
+
+
+def test_runtime_contract_blocks_network_host_two_token_variant(tmp_path: Path) -> None:
+    result = validate_runtime_tool_call(
+        "openhands",
+        {
+            "operation": "issue_to_patch",
+            "argv": ["openhands", "run", "--network", "host"],
+            "issueText": "fix failing tests",
+        },
+        {"workspacePath": str(tmp_path)},
+    )
+
+    assert result["valid"] is False
+    assert "--network host" in result["reason"]
 
 
 def test_optional_adapters_block_invalid_issue_to_patch_contracts_before_install_detection(tmp_path: Path) -> None:

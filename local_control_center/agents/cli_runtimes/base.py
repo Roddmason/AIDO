@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+import subprocess
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
@@ -20,6 +21,11 @@ DANGEROUS_CLI_FLAGS = {
     "--dangerously-bypass-approvals-and-sandbox",
     "--yolo",
     "--danger-full-access",
+    "--no-sandbox",
+    "--privileged",
+    "--mount",
+    "--volume",
+    "--network=host",
     "danger-full-access",
 }
 
@@ -50,7 +56,6 @@ class RuntimeRequest(BaseModel):
     effort: str | None = None
     env_policy: dict[str, Any] = Field(default_factory=dict, alias="envPolicy")
     extra_args: list[str] = Field(default_factory=list, alias="extraArgs")
-    mock: bool = False
     role: str | None = None
     agent_id: str | None = Field(default=None, alias="agentId")
     workflow_run_id: str | None = Field(default=None, alias="workflowRunId")
@@ -72,9 +77,8 @@ class CliRuntime(ABC):
     runtime_id: str
     display_name: str
 
-    def __init__(self, *, executable: str, mock: bool = False, connection: sqlite3.Connection | None = None):
+    def __init__(self, *, executable: str, connection: sqlite3.Connection | None = None):
         self.executable = executable
-        self.mock = mock
         self.connection = connection
 
     def _which(self) -> str | None:
@@ -83,15 +87,30 @@ class CliRuntime(ABC):
         return which(self.executable)
 
     def _version(self, executable: str) -> str | None:
-        return None
+        try:
+            result = subprocess.run(
+                [executable, "--version"],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return None
+        if result.returncode != 0:
+            return None
+        output = (result.stdout or result.stderr).strip()
+        if not output:
+            return None
+        return output.splitlines()[0][:200]
 
     def _validate_workspace(self, request: RuntimeRequest) -> Path:
         if not request.workspace_id:
             raise ValueError("workspace_id is required for CLI runtimes")
         workspace = Path(request.workspace_path).resolve(strict=False)
-        if not workspace.exists() and not self.mock:
+        if not workspace.exists():
             raise ValueError("workspace_path does not exist")
-        if self.connection is not None and not (self.mock or request.mock):
+        if self.connection is not None:
             row = self.connection.execute("SELECT path FROM workspaces WHERE id = ?", (request.workspace_id,)).fetchone()
             if not row:
                 raise ValueError("workspace must be registered before real CLI execution")
@@ -106,8 +125,6 @@ class CliRuntime(ABC):
             raise ValueError("dangerous CLI flags are blocked by runtime policy")
 
     def detect(self) -> RuntimeDetection:
-        if self.mock:
-            return RuntimeDetection(runtime=self.runtime_id, status="installed", executable=self.executable, version="mock", message=f"{self.display_name} mock runtime")
         executable = self._which()
         if not executable:
             return RuntimeDetection(runtime=self.runtime_id, status="not_installed", message=f"{self.display_name} not detected")
@@ -146,11 +163,6 @@ class CliRuntime(ABC):
             self._record_result(validation_request, blocked)
             return blocked
         workspace = Path(request.workspace_path).resolve(strict=False)
-        if self.mock or request.mock:
-            result = RuntimeResult(runtime=self.runtime_id, status="completed", command=command, stdout="mock runtime completed", returnCode=0)
-            completed = result.model_copy(update={"usage": self.parse_usage(result)})
-            self._record_result(request, completed)
-            return completed
         if os.environ.get("AIDO_ENABLE_CLI_RUNTIMES", "false").lower() != "true":
             blocked = RuntimeResult(runtime=self.runtime_id, status="blocked", command=command, error="CLI runtimes are disabled")
             gated_request = request.model_copy(

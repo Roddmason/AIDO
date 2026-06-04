@@ -14,12 +14,10 @@ class OpenHandsRuntime(CliRuntime):
         self,
         *,
         executable: str | None = None,
-        mock: bool = False,
         connection: sqlite3.Connection | None = None,
     ):
         super().__init__(
             executable=executable or os.environ.get("OPENHANDS_CLI_PATH", "openhands"),
-            mock=mock,
             connection=connection,
         )
 

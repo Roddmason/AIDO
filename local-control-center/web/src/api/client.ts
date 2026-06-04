@@ -17,6 +17,8 @@ export type ArtifactPayload = {
 export type ModelGatewayRoutePreviewRequest = MutationBody<'route_preview_api_v1_model_gateway_route_preview_post'>;
 export type ModelGatewayRoutePreviewResponse = OperationResponse<'route_preview_api_v1_model_gateway_route_preview_post'>;
 export type ModelGatewayBenchmarkOutcomeRequest = MutationBody<'create_benchmark_outcome_api_v1_model_gateway_benchmark_outcomes_post'>;
+export type IssueToPatchRequest = MutationBody<'run_issue_to_patch_api_v1_workflows_issue_to_patch_post'>;
+export type IssueToPatchResponse = OperationResponse<'run_issue_to_patch_api_v1_workflows_issue_to_patch_post'>;
 export type I18nLanguageRecord = {
 	code: string;
 	name: string;
@@ -198,6 +200,13 @@ export function createWorkflow(token: string, projectId: string, title: string) 
 
 export function createWorkflowWithBody(token: string, body: MutationBody<'create_workflow_api_v1_workflows_post'>) {
 	return requestGeneratedOperation('create_workflow_api_v1_workflows_post', {
+		token,
+		body,
+	});
+}
+
+export function runIssueToPatch(token: string, body: IssueToPatchRequest) {
+	return requestGeneratedOperation('run_issue_to_patch_api_v1_workflows_issue_to_patch_post', {
 		token,
 		body,
 	});

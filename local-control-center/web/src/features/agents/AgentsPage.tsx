@@ -5,9 +5,9 @@ import type { AgentRole, AgentRuntimeMode, Overview, PermissionProfile, RuntimeP
 import { Badge, DataTable, EmptyState, PageHeader, Surface } from '../../components/primitives';
 import { toneForStatus } from '../../lib/format';
 
-const runtimeModeOptions: AgentRuntimeMode[] = ['api', 'cli', 'ollama', 'hybrid', 'manual', 'internal_mock'];
+const runtimeModeOptions: AgentRuntimeMode[] = ['api', 'cli', 'ollama', 'hybrid', 'manual'];
 const fallbackRoutingProfiles = ['free_first', 'cost_controlled', 'balanced_best_value', 'max_performance', 'manual_by_profile', 'local_private'];
-const fallbackProviders = ['internal_mock', 'nvidia_nim', 'ollama', 'codex_cli', 'claude_code_cli', 'openhands', 'swe_agent', 'manual'];
+const fallbackProviders = ['nvidia_nim', 'ollama', 'codex_cli', 'claude_code_cli', 'openhands', 'swe_agent', 'manual'];
 const fallbackRuntimes = ['api', 'cli', 'local', 'gateway', 'manual', 'codex_cli', 'claude_code_cli', 'openhands', 'swe_agent'];
 const agentRoles: AgentRole[] = [
 	'analyst',
@@ -52,8 +52,9 @@ export function AgentsPage({
 	const [error, setError] = useState('');
 	const modes =
 		runtimeProviders?.runtimeModes.filter((mode): mode is AgentRuntimeMode => runtimeModeOptions.includes(mode as AgentRuntimeMode)) ??
-		(['internal_mock', 'manual'] satisfies AgentRuntimeMode[]);
+		runtimeModeOptions;
 	const runtimeOptions = useMemo(() => Array.from(new Set([...modes, ...fallbackRuntimes])), [modes]);
+	const runtimeRows = runtimeProviders?.providers ?? [];
 
 	useEffect(() => {
 		let mounted = true;
@@ -226,11 +227,25 @@ export function AgentsPage({
 					<button className="button primary" onClick={createProfile}>Save agent profile</button>
 				</Surface>
 				<Surface title="Runtime detection">
-					<div className="stack">
-						<div className="inline">Ollama <Badge tone={runtimeProviders?.ollama.available ? 'ok' : 'warn'}>{runtimeProviders?.ollama.available ? 'ready' : 'not detected'}</Badge></div>
-						<div className="inline">CLI adapters <Badge tone={runtimeProviders?.cli.available ? 'ok' : 'warn'}>{runtimeProviders?.cli.available ? 'available' : 'not detected'}</Badge></div>
-						<div className="inline">API adapters <Badge tone="ok">catalogued</Badge></div>
-					</div>
+					<DataTable rows={runtimeRows} empty={<EmptyState title="No runtime providers" body="Runtime status will appear after provider discovery completes." />} columns={[
+						{ key: 'provider', label: 'Provider', render: (row) => <span className="mono">{row.id}</span> },
+						{ key: 'kind', label: 'Kind', render: (row) => <Badge>{row.kind}</Badge> },
+						{
+							key: 'state',
+							label: 'State',
+							render: (row) => (
+								<div className="inline">
+									<Badge tone={row.detected ? 'ok' : 'warn'}>{row.detected ? 'detected' : 'not detected'}</Badge>
+									<Badge tone={row.configured ? 'ok' : 'warn'}>{row.configured ? 'configured' : 'unconfigured'}</Badge>
+									<Badge tone={row.available ? 'ok' : 'warn'}>{row.available ? 'available' : 'unavailable'}</Badge>
+									<Badge tone={row.executable ? 'ok' : 'warn'}>{row.executable ? 'executable' : 'not executable'}</Badge>
+								</div>
+							),
+						},
+						{ key: 'capabilities', label: 'Capabilities', render: (row) => (row.capabilities?.length ? row.capabilities.join(', ') : 'none') },
+						{ key: 'requiredConfiguration', label: 'Required config', render: (row) => (row.requiredConfiguration?.length ? row.requiredConfiguration.join(', ') : 'n/a') },
+						{ key: 'reason', label: 'Reason', render: (row) => String(row.reason ?? '') },
+					]} />
 				</Surface>
 			</div>
 			<Surface title="Agent profiles">
@@ -240,7 +255,7 @@ export function AgentsPage({
 					columns={[
 						{ key: 'name', label: 'Name', render: (row) => row.name },
 						{ key: 'role', label: 'Role', render: (row) => <span className="mono">{row.role}</span> },
-						{ key: 'runtime', label: 'Runtime', render: (row) => <Badge>{row.runtimeMode ?? row.runtimeType ?? 'internal_mock'}</Badge> },
+						{ key: 'runtime', label: 'Runtime', render: (row) => <Badge>{row.runtimeMode ?? row.runtimeType ?? 'unassigned'}</Badge> },
 						{ key: 'routing', label: 'Routing', render: (row) => <span className="mono">{row.routingProfileId ?? 'default'}</span> },
 						{ key: 'providers', label: 'Providers', render: (row) => Array.isArray(row.allowedProviders) && row.allowedProviders.length ? row.allowedProviders.join(', ') : 'policy default' },
 						{ key: 'limits', label: 'Limits', render: (row) => `${row.maxTokensPerRun ?? 0} tokens / $${Number(row.requiresApprovalOverUsd ?? row.maxCostPerRun ?? 0).toFixed(2)}` },

@@ -294,6 +294,7 @@ export function App() {
 	}, [activeProjects, overview, selectedProjectId]);
 	const runningJobs = overview ? countByStatus(overview.jobs, 'running') : 0;
 	const pendingApprovals = overview?.actionRequests.filter((item) => item.status === 'pending').length ?? 0;
+	const executableRuntimes = state.runtimeProviders?.providers.filter((provider) => provider.executable).length ?? 0;
 	const costToday = useMemo(
 		() => overview?.costUsage.reduce((total, row) => total + Number(row.amountUsd ?? 0), 0) ?? 0,
 		[overview],
@@ -464,7 +465,7 @@ export function App() {
 		}
 		switch (page) {
 			case 'command':
-				return <CommandCenterPage overview={overview} selectedProject={selectedProject} mutate={state.mutate} />;
+				return <CommandCenterPage overview={overview} selectedProject={selectedProject} runtimeProviders={state.runtimeProviders} mutate={state.mutate} />;
 			case 'workflows':
 				return <WorkflowsPage overview={overview} token={state.token} />;
 			case 'jobs':
@@ -568,7 +569,7 @@ export function App() {
 				<div className="status-strip" aria-label={t('app.global.globalStatus', 'Global status')}>
 					<Badge tone={state.connected ? 'ok' : 'warn'}>SSE {state.connected ? 'connected' : 'fallback'}</Badge>
 					<Badge tone="ok">{t('app.global.sqliteCanonical', 'SQLite canonical')}</Badge>
-					<Badge tone={state.runtimeProviders?.ollama.available ? 'ok' : 'warn'}>Ollama {state.runtimeProviders?.ollama.available ? 'ready' : 'optional'}</Badge>
+					<Badge tone={executableRuntimes ? 'ok' : 'warn'}>{executableRuntimes} executable runtimes</Badge>
 					<Badge tone="ok">{t('app.global.policyEngineActive', 'Policy engine active')}</Badge>
 					<Badge>{t('app.global.sandboxGated', 'Sandbox gated')}</Badge>
 				</div>

@@ -10,6 +10,8 @@ export function OverviewPage({ overview, runtimeProviders }: { overview: Overvie
 	const pendingApprovals = overview.actionRequests.filter((item) => item.status === 'pending').length;
 	const openRiskStatuses = new Set(['open', 'monitoring', 'mitigating']);
 	const openRisks = overview.riskRegister.filter((risk) => openRiskStatuses.has(risk.status)).length;
+	const executableRuntimes = runtimeProviders?.providers.filter((provider) => provider.executable).length ?? 0;
+	const runtimeCount = runtimeProviders?.providers.length ?? 0;
 
 	return (
 		<>
@@ -30,9 +32,9 @@ export function OverviewPage({ overview, runtimeProviders }: { overview: Overvie
 					<div className="metric-label">granular action requests</div>
 				</Surface>
 				<Surface>
-					<div className="inline"><StatusDot tone={runtimeProviders?.ollama.available ? 'ok' : 'warn'} /> Ollama</div>
-					<div className="metric-value">{runtimeProviders?.ollama.available ? 'ready' : 'off'}</div>
-					<div className="metric-label">{runtimeProviders?.ollama.models.length ?? 0} local models detected</div>
+					<div className="inline"><StatusDot tone={executableRuntimes ? 'ok' : 'warn'} /> Runtime providers</div>
+					<div className="metric-value">{executableRuntimes}</div>
+					<div className="metric-label">{runtimeCount} providers reported</div>
 				</Surface>
 				<Surface>
 					<div className="inline"><StatusDot tone={openRisks ? 'danger' : 'ok'} /> Open risks</div>

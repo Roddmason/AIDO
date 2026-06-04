@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import {
 	createArchitectureDecision,
@@ -8,10 +8,11 @@ import {
 	createWorkflowWithBody,
 	fetchEvidenceArtifact,
 	registerMcpServer,
+	runIssueToPatch,
 	updateRisk,
 	updateSandboxProfile,
 } from '../api/client';
-import type { ArtifactPayload } from '../api/client';
+import type { ArtifactPayload, IssueToPatchResponse } from '../api/client';
 import type {
 	ArchitectureDecisionStatus,
 	Artifact,
@@ -33,11 +34,47 @@ import { toneForStatus } from '../lib/format';
 
 type Mutate = <T>(operation: (token: string) => Promise<T>) => Promise<T>;
 
-export function CommandCenterPage({ overview, selectedProject, mutate }: { overview: Overview; selectedProject: Project | null; mutate: Mutate }) {
+const issueQaPresets = [
+	{ id: 'none', label: 'No QA command', commands: [] as string[][] },
+	{ id: 'python-tests', label: 'Python tests', commands: [['uv', 'run', 'pytest', '-q']] },
+	{ id: 'web-tests', label: 'Web tests', commands: [['corepack', 'pnpm@10.24.0', 'run', 'test:web']] },
+	{ id: 'quality', label: 'Quality suite', commands: [['corepack', 'pnpm@10.24.0', 'run', 'quality']] },
+];
+
+export function CommandCenterPage({
+	overview,
+	selectedProject,
+	runtimeProviders,
+	mutate,
+}: {
+	overview: Overview;
+	selectedProject: Project | null;
+	runtimeProviders: RuntimeProviders | null;
+	mutate: Mutate;
+}) {
 	const project = selectedProject;
 	const [workflowTitle, setWorkflowTitle] = useState(`AIDO workflow ${new Date().toISOString()}`);
 	const [workflowKind, setWorkflowKind] = useState<WorkflowKind>('idea_to_pr');
+	const [issueTitle, setIssueTitle] = useState('');
+	const [issueText, setIssueText] = useState('');
+	const [targetPath, setTargetPath] = useState('');
+	const [preferredRuntime, setPreferredRuntime] = useState('auto');
+	const [qaPreset, setQaPreset] = useState('python-tests');
+	const [maxCostUsd, setMaxCostUsd] = useState('');
+	const [requireApproval, setRequireApproval] = useState(true);
+	const [issueResult, setIssueResult] = useState<IssueToPatchResponse | null>(null);
+	const [issueBusy, setIssueBusy] = useState(false);
+	const [issueError, setIssueError] = useState('');
 	const [error, setError] = useState('');
+	const runtimeRows = runtimeProviders?.providers ?? [];
+	const selectedRuntime = runtimeRows.find((item) => item.id === preferredRuntime);
+	const selectedQaPreset = issueQaPresets.find((item) => item.id === qaPreset) ?? issueQaPresets[0];
+	const qaMissing = selectedQaPreset.commands.length === 0;
+	const issueResultRuntime = issueResult?.runtime as Record<string, unknown> | undefined;
+	const issueResultQa = issueResult?.qaResults[0] as Record<string, unknown> | undefined;
+	const issueResultDiff = issueResult?.diffSummary as Record<string, unknown> | undefined;
+	const issueChangedFiles = Array.isArray(issueResultDiff?.changedFiles) ? issueResultDiff.changedFiles.length : Number(issueResultDiff?.changedFiles ?? 0);
+	const issueExecutionMode = issueResult?.status === 'unavailable' ? 'runtime_unavailable' : 'productive_runtime';
 	const saveWorkflow = () => {
 		const title = workflowTitle.trim();
 		if (!title) {
@@ -57,6 +94,53 @@ export function CommandCenterPage({ overview, selectedProject, mutate }: { overv
 				metadata: { source: 'command_center_form' },
 			}),
 		);
+	};
+	const runPatchWorkflow = async () => {
+		const title = issueTitle.trim();
+		const bodyText = issueText.trim();
+		if (!project) {
+			setIssueError('A project is required before running issue_to_patch.');
+			return;
+		}
+		if (!title) {
+			setIssueError('Issue title is required.');
+			return;
+		}
+		if (!bodyText) {
+			setIssueError('Issue text is required.');
+			return;
+		}
+		if (selectedQaPreset.commands.length === 0) {
+			setIssueError('Select a QA preset before running issue_to_patch.');
+			return;
+		}
+		const parsedMaxCost = maxCostUsd.trim() ? Number(maxCostUsd) : undefined;
+		if (parsedMaxCost !== undefined && (!Number.isFinite(parsedMaxCost) || parsedMaxCost < 0)) {
+			setIssueError('Maximum cost must be zero or a positive number.');
+			return;
+		}
+		setIssueBusy(true);
+		setIssueError('');
+		setIssueResult(null);
+		try {
+			const result = await mutate((token) =>
+				runIssueToPatch(token, {
+					projectId: project.id,
+					title,
+					issueText: bodyText,
+					targetPath: targetPath.trim() || undefined,
+					preferredRuntime: preferredRuntime === 'auto' ? undefined : preferredRuntime,
+					qaCommands: selectedQaPreset.commands,
+					maxCostUsd: parsedMaxCost,
+					requireApproval,
+				}),
+			);
+			setIssueResult(result);
+		} catch (submitError) {
+			setIssueError(submitError instanceof Error ? submitError.message : 'issue_to_patch failed.');
+		} finally {
+			setIssueBusy(false);
+		}
 	};
 	return (
 		<>
@@ -81,6 +165,7 @@ export function CommandCenterPage({ overview, selectedProject, mutate }: { overv
 							<option value="idea_to_pr">idea_to_pr</option>
 							<option value="project_discovery">project_discovery</option>
 							<option value="issue_to_pr">issue_to_pr</option>
+							<option value="issue_to_patch">issue_to_patch</option>
 							<option value="qa_validation">qa_validation</option>
 							<option value="release_candidate">release_candidate</option>
 						</select>
@@ -93,6 +178,96 @@ export function CommandCenterPage({ overview, selectedProject, mutate }: { overv
 					</div>
 					{project ? null : <div className="field-help">Select an active operational project in Settings before creating workflows.</div>}
 					{error ? <div className="form-error" role="alert">{error}</div> : null}
+				</div>
+			</Surface>
+			<Surface title="issue_to_patch real runtime">
+				<div className="form-grid">
+					<div className="field">
+						<label htmlFor="issue-title">Issue title</label>
+						<input
+							id="issue-title"
+							className="input"
+							value={issueTitle}
+							maxLength={180}
+							autoComplete="off"
+							disabled={!project}
+							onChange={(event) => setIssueTitle(event.target.value)}
+						/>
+					</div>
+					<div className="field">
+						<label htmlFor="issue-text">Issue text</label>
+						<textarea
+							id="issue-text"
+							className="textarea"
+							value={issueText}
+							rows={6}
+							disabled={!project}
+							onChange={(event) => setIssueText(event.target.value)}
+						/>
+					</div>
+					<div className="field">
+						<label htmlFor="target-path">Target path</label>
+						<input id="target-path" className="input" value={targetPath} disabled={!project} placeholder="Optional repository-relative path" onChange={(event) => setTargetPath(event.target.value)} />
+					</div>
+					<div className="field">
+						<label htmlFor="preferred-runtime">Preferred runtime</label>
+						<select id="preferred-runtime" className="select" value={preferredRuntime} disabled={!project} onChange={(event) => setPreferredRuntime(event.target.value)}>
+							<option value="auto">auto_select_real_runtime</option>
+							{runtimeRows.map((runtime) => (
+								<option key={runtime.id} value={runtime.id}>
+									{runtime.id} - {runtime.executable ? 'executable' : runtime.available ? 'available' : 'unavailable'}
+								</option>
+							))}
+						</select>
+						<div className="inline">
+							<Badge tone={selectedRuntime?.detected ? 'ok' : 'warn'}>{selectedRuntime?.detected ? 'detected' : 'not detected'}</Badge>
+							<Badge tone={selectedRuntime?.configured ? 'ok' : 'warn'}>{selectedRuntime?.configured ? 'configured' : 'not configured'}</Badge>
+							<Badge tone={selectedRuntime?.available ? 'ok' : 'warn'}>{selectedRuntime?.available ? 'available' : 'unavailable'}</Badge>
+							<Badge tone={selectedRuntime?.executable ? 'ok' : 'warn'}>{selectedRuntime?.executable ? 'executable' : 'not executable'}</Badge>
+						</div>
+						<div className="field-help">
+							{selectedRuntime ? `${selectedRuntime.reason}${selectedRuntime.requiredConfiguration?.length ? ` Required: ${selectedRuntime.requiredConfiguration.join(', ')}` : ''}` : 'Auto-select requires an executable non-test coding runtime.'}
+						</div>
+					</div>
+					<div className="field">
+						<label htmlFor="qa-preset">QA preset</label>
+						<select id="qa-preset" className="select" value={qaPreset} disabled={!project} onChange={(event) => setQaPreset(event.target.value)}>
+							{issueQaPresets.map((preset) => (
+								<option key={preset.id} value={preset.id}>{preset.label}</option>
+							))}
+						</select>
+						<div className="field-help">{selectedQaPreset.commands.length ? selectedQaPreset.commands.map((command) => command.join(' ')).join(' | ') : 'No QA command selected; issue_to_patch is blocked.'}</div>
+					</div>
+					<div className="field">
+						<label htmlFor="issue-max-cost">Maximum cost USD</label>
+						<input id="issue-max-cost" className="input" type="number" min="0" step="0.01" value={maxCostUsd} disabled={!project} onChange={(event) => setMaxCostUsd(event.target.value)} />
+					</div>
+					<div className="inline">
+						<label className="checkbox-row" htmlFor="issue-require-approval">
+							<input id="issue-require-approval" type="checkbox" checked={requireApproval} disabled={!project} onChange={(event) => setRequireApproval(event.target.checked)} />
+							Require approval before completion
+						</label>
+					</div>
+					<div className="inline">
+						<button className="button primary" type="button" disabled={!project || issueBusy || qaMissing} onClick={() => void runPatchWorkflow()}>
+							{issueBusy ? 'Running issue_to_patch' : 'Run issue_to_patch'}
+						</button>
+						<Badge tone={project ? 'ok' : 'warn'}>{project ? project.name : 'no operational project'}</Badge>
+						{qaMissing ? <Badge tone="danger">qa_not_selected</Badge> : null}
+					</div>
+					{issueError ? <div className="form-error" role="alert">{issueError}</div> : null}
+					{issueResult ? (
+						<div className="stack" aria-live="polite">
+							<div className="inline">
+								<Badge tone={toneForStatus(String(issueResult.status ?? ''))}>{String(issueResult.status ?? '')}</Badge>
+								<Badge>{String(issueResultRuntime?.id ?? 'no_runtime')}</Badge>
+								<Badge tone={toneForStatus(issueExecutionMode)}>{issueExecutionMode}</Badge>
+								<Badge tone={issueResult?.qaResults.length ? toneForStatus(String(issueResultQa?.status ?? issueResultQa?.verdict ?? '')) : 'warn'}>{String(issueResultQa?.status ?? issueResultQa?.verdict ?? 'qa_not_run')}</Badge>
+							</div>
+							<div className="mono">{String(issueResult.reason ?? issueResultRuntime?.reason ?? 'No runtime reason recorded.')}</div>
+							<div className="mono">Evidence {String(issueResult.evidencePackage?.id ?? 'not_created')} / changed files {Number.isFinite(issueChangedFiles) ? issueChangedFiles : 0}</div>
+						</div>
+					) : null}
 				</div>
 			</Surface>
 			<Surface title="Recent workflows">
@@ -443,8 +618,8 @@ export function ModelGatewayPage({
 	const totalCost = overview.costUsage.reduce((sum, row) => sum + Number(row.amountUsd ?? 0), 0);
 	const [policyId, setPolicyId] = useState('implementation_default');
 	const [policyName, setPolicyName] = useState('Implementation Default');
-	const [provider, setProvider] = useState('internal_mock');
-	const [model, setModel] = useState('mock');
+	const [provider, setProvider] = useState('ollama');
+	const [model, setModel] = useState('');
 	const [maxCostUsd, setMaxCostUsd] = useState('1');
 	const [maxTokens, setMaxTokens] = useState('4000');
 	const [allowRemote, setAllowRemote] = useState(false);
@@ -452,15 +627,16 @@ export function ModelGatewayPage({
 	const [error, setError] = useState('');
 	const providerCatalog = useMemo(
 		() => [
-			{ provider: 'internal_mock', models: ['mock'], remote: false },
 			{ provider: 'ollama', models: runtimeProviders?.ollama.models ?? [], remote: false },
-			{ provider: 'openai_compatible', models: ['catalog/openai-compatible-default'], remote: true },
-			{ provider: 'openrouter', models: ['openrouter/auto'], remote: true },
-			{ provider: 'openai_agents', models: ['openai-agents/catalog-default'], remote: true },
 		],
 		[runtimeProviders],
 	);
 	const modelOptions = providerCatalog.find((item) => item.provider === provider)?.models ?? [];
+	useEffect(() => {
+		const currentCatalog = providerCatalog.find((item) => item.provider === provider);
+		if (!currentCatalog || (model && currentCatalog.models.includes(model))) return;
+		setModel(currentCatalog.models[0] ?? '');
+	}, [model, provider, providerCatalog]);
 	const savePolicy = () => {
 		if (!/^[a-z0-9_-]{3,64}$/.test(policyId)) {
 			setError('Policy id must use lowercase letters, numbers, dashes or underscores.');

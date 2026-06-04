@@ -20,12 +20,15 @@ uv sync --extra dev --extra test
 ## Verification
 
 ```powershell
+corepack pnpm@10.24.0 run node:use
 uv run pytest tests_py -q
 uv run --extra dev ruff check .
-corepack pnpm@10.24.0 run build:control-center
-corepack pnpm@10.24.0 run typecheck:web
 corepack pnpm@10.24.0 run openapi:generate
+corepack pnpm@10.24.0 run typecheck:web
+corepack pnpm@10.24.0 run build:control-center
 corepack pnpm@10.24.0 run test:web
+corepack pnpm@10.24.0 run security:secrets
+corepack pnpm@10.24.0 run security:sast
 corepack pnpm@10.24.0 run smoke:runtime:preflight
 corepack pnpm@10.24.0 run quality
 ```
@@ -33,6 +36,10 @@ corepack pnpm@10.24.0 run quality
 `openapi:generate` is local-only and imports the FastAPI app directly; it does
 not fetch schemas over the network. There is no GitHub quality workflow in this
 repo; run the verification commands locally before pushing.
+The frontend engine contract is Node >=24.16.0 <25.0.0. `node:use` should leave
+`node --version` on that range before OpenAPI generation, typecheck, build, or
+Playwright runs. Engine warnings mean the local shell is not honoring the repo
+runtime contract, even when a command happens to pass.
 `test:all` includes `typecheck:web`, the production web build, and Python tests.
 `quality` repeats `typecheck:web` as an explicit gate before the security scans
 so TypeScript contract drift is caught even when Vite can still transpile.

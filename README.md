@@ -25,8 +25,14 @@ cost records, and audit events around agent-assisted engineering.
   foundation.
 - Governance ledger for architecture decisions, risk register entries, and
   prioritized next steps.
-- Hybrid agent runtime catalog per agent: API, CLI, Ollama, manual, or internal
-  mock, always behind policy and evidence controls.
+- Hybrid agent runtime catalog per agent: API, CLI, Ollama, or manual, always
+  behind policy and evidence controls.
+- Runtime provider truth from `/api/v1/runtime/providers`, including whether a
+  provider is detected, configured, available, executable, and why it is
+  blocked.
+- Real `issue_to_patch` runs are completion-gated by executable runtime,
+  isolated Git worktree, diff/evidence capture, passing QA, and required
+  approval resolution. Test simulators are not product runtime providers.
 - Automatic risk creation from policy-gated actions, failed/blocked QA, and
   cancelled workflows.
 - Workspace-aware path policy and task-scoped Git worktree allocation when the
@@ -148,6 +154,7 @@ or generated artifacts.
 - `docs/workflows.md`
 - `docs/workspaces.md`
 - `docs/agents.md`
+- `docs/runtime-providers.md`
 - `docs/evidence.md`
 - `docs/governance.md`
 - `docs/frontend.md`

@@ -22,6 +22,8 @@ API coverage:
 - workflow detail includes linked workspaces and evidence packages by
   `workflow_run_id`
 - workflows can declare controlled steps through `metadata.steps`
+- `issue_to_patch` can run as a real runtime slice only through provider
+  truth, workspace allocation, policy, QA evidence, and approval gates
 
 ## Target Lifecycle
 
@@ -42,6 +44,28 @@ idea_intake
 
 Workflow execution should use the existing job queue until distributed durable
 execution is justified. Temporal is not needed for the local MVP.
+
+The job worker is deliberately fail-closed. Queueing, leasing, approval, and
+run records are real control-plane state, but a job may become `completed` only
+after a configured executor actually performs the work. Built-in job kinds with
+no executor return `failed` with `configuration_required`; unknown kinds return
+`failed` with `unsupported_job_kind`.
+
+## Issue To Patch Completion Contract
+
+`issue_to_patch` is intentionally fail-closed. The workflow runner may create
+jobs, workspaces, evidence packages, artifacts, and approval requests, but it
+can report `completed` only when all of these are true:
+
+- an executable runtime provider with `issue_to_patch` capability was used;
+- the implementation ran inside an allocated Git worktree workspace;
+- diff evidence and execution/test artifacts were captured;
+- QA ran through policy/sandbox and passed;
+- any required approval request was resolved.
+
+Unavailable providers, missing QA commands, missing diff evidence, or pending
+approval produce a blocked or evidence-ready state, never a productive success
+state. `requireApproval` defaults to true for sensitive patch output.
 
 ## PR, Release And Retro Gates
 
@@ -75,8 +99,10 @@ Gate advancement is explicit:
 ## Traceability
 
 Workspace allocation can carry `workflowRunId` and `workflowStepId`. Evidence
-packages carry `workflowRunId`. `GET /api/v1/workflows/{id}` aggregates these
-links so the UI can inspect a workflow without inventing client-side joins.
+packages carry `workflowRunId`, `workflowStepId`, `jobId`, `agentRunId`,
+`workspaceId`, `runtimeId`, `artifactIds`, and `diffSummary`. `GET
+/api/v1/workflows/{id}` aggregates these links so the UI can inspect a workflow
+without inventing client-side joins.
 
 ## Testing
 

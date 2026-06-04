@@ -16,7 +16,6 @@ Agents are modeled as contracts, not personalities.
 
 ## Runtime Types
 
-- `internal_mock`: implemented and used by tests.
 - `api`: provider/API runtime mode; adapter execution is gated and not direct.
 - `cli`: CLI runtime mode; tool calls are brokered, policy-recorded, and not
   shell-executed directly by the agent API.
@@ -61,7 +60,8 @@ allowed to run. The current implementation:
 - selects the first policy-allowed preferred/fallback provider;
 - honors `allowRemote` and `allowLocal`;
 - blocks calls that would exceed `maxCostUsd`;
-- redacts secret-looking metadata before persistence;
+- redacts secret-looking metadata before persistence through the shared
+  `local_control_center/shared/redaction.py` policy;
 - records `model_calls` and `cost_usage`.
 
 LiteLLM/OpenAI/Ollama execution adapters should attach behind this contract, not
@@ -85,11 +85,14 @@ status is surfaced through the integrations API, and any future execution must
 remain behind the tool broker, policy engine, isolated workspace, and evidence
 capture. They must not edit the primary working tree directly.
 
+Test-only simulators are not registered runtime types, are not returned by the
+runtime provider API, and must not be used to mark a real workflow as completed.
+
 Each optional code runtime now exposes a versioned execution contract. Contract
 version 1 supports `version_check` and `issue_to_patch`, requires structured
 `argv`, requires a workspace path, and requires `issueText` for issue-to-patch
 runs. Dangerous runtime flags such as `--no-sandbox`, `--privileged`,
-`--mount`, `--volume`, and `--network=host` are rejected before install
+`--mount`, `--volume`, `--network=host`, and split `--network host` are rejected before install
 detection or subprocess execution. This prevents an unavailable local runtime
 from hiding malformed or unsafe adapter payloads.
 

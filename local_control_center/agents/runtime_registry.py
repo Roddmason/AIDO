@@ -10,13 +10,13 @@ from .cli_runtimes.openhands import OpenHandsRuntime
 from .cli_runtimes.swe_agent import SweAgentRuntime
 
 
-def runtime_for(runtime_id: str, *, mock: bool = False, connection: sqlite3.Connection | None = None):
+def runtime_for(runtime_id: str, *, connection: sqlite3.Connection | None = None):
     runtimes = {
-        "codex_cli": CodexCliRuntime(mock=mock, connection=connection),
-        "claude_code_cli": ClaudeCodeCliRuntime(mock=mock, connection=connection),
-        "openhands": OpenHandsRuntime(mock=mock, connection=connection),
-        "swe_agent": SweAgentRuntime(mock=mock, connection=connection),
-        "manual": ManualRuntime(mock=True, connection=connection),
+        "codex_cli": CodexCliRuntime(connection=connection),
+        "claude_code_cli": ClaudeCodeCliRuntime(connection=connection),
+        "openhands": OpenHandsRuntime(connection=connection),
+        "swe_agent": SweAgentRuntime(connection=connection),
+        "manual": ManualRuntime(connection=connection),
     }
     if runtime_id not in runtimes:
         raise KeyError(f"Runtime not found: {runtime_id}")

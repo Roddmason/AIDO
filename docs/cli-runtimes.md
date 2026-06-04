@@ -10,10 +10,10 @@ CLI runtimes are coding/runtime adapters, not model providers. The gateway separ
 - `CLAUDE_CODE_CLI_PATH=claude`
 - `AIDO_ENABLE_CLI_RUNTIMES=false`
 
-Execution is disabled by default. Detection and health checks are safe. Mock,
-blocked, failed and real runtime attempts persist `cli_sessions` rows with
-redacted command/env policy, linked `usage_ledger` records and evidence artifacts
-when stdout, stderr or structured logs exist.
+Execution is disabled by default. Detection and health checks are safe.
+Blocked, failed and real runtime attempts persist `cli_sessions` rows with
+redacted command/env policy, linked `usage_ledger` records and evidence
+artifacts when stdout, stderr or structured logs exist.
 
 ## Endpoints
 
@@ -27,8 +27,9 @@ when stdout, stderr or structured logs exist.
 
 Tests verify missing Codex/Claude binaries return `not_installed`, dangerous
 flags are blocked, generic JSON/JSONL usage events and runtime-specific aliases
-are parsed, mock runtime execution persists CLI sessions, usage and artifacts,
-blocked paths still create sessions, and sessions list as JSON.
+are parsed, tests isolate subprocess execution with monkeypatches, blocked paths
+still create sessions, and sessions list as JSON. Product runtime classes do not
+expose a mock execution mode.
 
 ## Risks
 

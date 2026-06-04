@@ -44,7 +44,6 @@ from .model_gateway_models import (
     RolePolicyResponse,
     RolePolicyUpsertRequest,
     RouteExecuteResponse,
-    RouteExecuteMockResponse,
     RoutingDecisionsListResponse,
     RoutingPreviewRequest,
     RoutingPreviewResponse,
@@ -69,7 +68,7 @@ from .providers.openai_compatible import OpenAICompatibleProvider
 from .providers.openai_compatible import real_provider_calls_enabled
 from .providers.openrouter import OpenRouterProvider
 from .providers.litellm_adapter import LiteLLMAdapter
-from .providers.base import ModelRequest
+from .providers.base import ModelRequest, ProviderHealth
 from .routing_profiles import RoutingProfileStore
 from .runtime_registry import RuntimeRegistry
 from .usage_ledger import UsageLedger
@@ -81,7 +80,7 @@ def _payload(body: Any, *, exclude_none: bool = True) -> dict[str, Any]:
     return dict(body)
 
 
-def _provider_instance(provider_id: str, *, connection: Any, mock: bool = True):
+def _provider_instance(provider_id: str, *, connection: Any):
     try:
         account = ProviderAccountStore(connection).get_provider_account(provider_id)
     except KeyError:
@@ -89,21 +88,25 @@ def _provider_instance(provider_id: str, *, connection: Any, mock: bool = True):
     base_url = account.get("baseUrl") or None
     credential_ref = account.get("credentialRef") or None
     if provider_id == "nvidia_nim":
-        return NvidiaNimProvider(connection=connection, base_url=base_url or "https://integrate.api.nvidia.com/v1", credential_ref=credential_ref or "", mock=mock)
+        return NvidiaNimProvider(connection=connection, base_url=base_url or "https://integrate.api.nvidia.com/v1", credential_ref=credential_ref or "")
     if provider_id == "ollama":
-        return OllamaProvider(base_url=base_url, mock=mock)
+        return OllamaProvider(base_url=base_url)
     if provider_id == "openai_api":
-        return OpenAIAPIProvider(base_url=base_url, credential_ref=credential_ref or "", mock=mock)
+        return OpenAIAPIProvider(base_url=base_url, credential_ref=credential_ref or "")
     if provider_id == "anthropic_api":
-        return AnthropicAPIProvider(mock=mock)
+        return AnthropicAPIProvider()
     if provider_id == "openrouter":
-        return OpenRouterProvider(base_url=base_url, credential_ref=credential_ref or "", mock=mock)
+        return OpenRouterProvider(base_url=base_url, credential_ref=credential_ref or "")
     if provider_id == "litellm":
-        return LiteLLMAdapter(base_url=base_url, credential_ref=credential_ref or "", mock=mock)
-    return OpenAICompatibleProvider(provider_id=provider_id, base_url=base_url, credential_ref=credential_ref, mock=mock)
+        return LiteLLMAdapter(base_url=base_url, credential_ref=credential_ref or "")
+    return OpenAICompatibleProvider(provider_id=provider_id, base_url=base_url, credential_ref=credential_ref)
 
 
 def _requires_credential_for_real_discovery(account: dict[str, Any]) -> bool:
+    return str(account.get("providerType") or "") in {"api", "gateway"}
+
+
+def _requires_remote_provider_call(account: dict[str, Any]) -> bool:
     return str(account.get("providerType") or "") in {"api", "gateway"}
 
 
@@ -222,8 +225,40 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
             account = providers().get_provider_account(provider_id)
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
-        mock = not (account.get("enabled") and real_provider_calls_enabled())
-        health = _provider_instance(provider_id, connection=platform.connection, mock=mock).health_check().model_dump(by_alias=True)
+        if not account.get("enabled"):
+            health = ProviderHealth(
+                providerId=provider_id,
+                status="configuration_required",
+                healthStatus="configuration_required",
+                message="Provider account is disabled; enable it before health checks.",
+            ).model_dump(by_alias=True)
+            providers().record_health_check(provider_id=provider_id, status=health["healthStatus"], payload=health)
+            audit("model_gateway.provider.health_checked", provider_id, health)
+            return {"health": health}
+        if _requires_remote_provider_call(account):
+            credential_ref = str(account.get("credentialRef") or "")
+            credential = CredentialResolver().resolve(credential_ref, fetch=False)
+            if credential.status != "configured":
+                health = ProviderHealth(
+                    providerId=provider_id,
+                    status="misconfigured",
+                    healthStatus="misconfigured",
+                    message=redact_secrets(f"Credential ref {credential_ref} is {credential.status}."),
+                ).model_dump(by_alias=True)
+                providers().record_health_check(provider_id=provider_id, status=health["healthStatus"], payload=health)
+                audit("model_gateway.provider.health_checked", provider_id, health)
+                return {"health": health}
+        if _requires_remote_provider_call(account) and not real_provider_calls_enabled():
+            health = ProviderHealth(
+                providerId=provider_id,
+                status="blocked",
+                healthStatus="blocked",
+                message="Real provider health checks are disabled by AIDO_ENABLE_REAL_PROVIDER_CALLS=false.",
+            ).model_dump(by_alias=True)
+            providers().record_health_check(provider_id=provider_id, status=health["healthStatus"], payload=health)
+            audit("model_gateway.provider.health_checked", provider_id, health)
+            return {"health": health}
+        health = _provider_instance(provider_id, connection=platform.connection).health_check().model_dump(by_alias=True)
         health = redact_secrets(health)
         if health.get("status") == "rate_limited" or "429" in str(health.get("message") or health.get("lastError") or ""):
             model = "auto_best_available" if provider_id == "nvidia_nim" else "*"
@@ -239,18 +274,20 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
             account = providers().get_provider_account(provider_id)
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
-        mock = not (account.get("enabled") and real_provider_calls_enabled())
-        if not mock:
-            _validate_real_discovery_credentials(account)
+        if not account.get("enabled"):
+            raise HTTPException(status_code=403, detail=f"Provider {provider_id} is disabled; discovery requires explicit enablement.")
+        if _requires_remote_provider_call(account) and not real_provider_calls_enabled():
+            raise HTTPException(status_code=403, detail="Real provider discovery is disabled by AIDO_ENABLE_REAL_PROVIDER_CALLS=false.")
+        _validate_real_discovery_credentials(account)
         discovered = [
             item.model_dump(by_alias=True)
-            for item in _provider_instance(provider_id, connection=platform.connection, mock=mock).list_models()
+            for item in _provider_instance(provider_id, connection=platform.connection).list_models()
         ]
         stored = [providers().upsert_model({**item, "providerId": provider_id, "enabled": True}) for item in discovered]
         audit(
             "model_gateway.provider.models_discovered",
             provider_id,
-            {"count": len(stored), "mock": mock, "source": "mock" if mock else "provider"},
+            {"count": len(stored), "source": "provider"},
         )
         return {"models": stored}
 
@@ -341,30 +378,6 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
         audit("model_gateway.route.previewed", body_payload.get("role", "unknown"), {"selected": result.get("selected")})
         return result
 
-    @router.post("/route/execute-mock", response_model=RouteExecuteMockResponse)
-    async def route_execute_mock(body: RoutingPreviewRequest, request: Request) -> dict[str, Any]:
-        require_write(request)
-        body_payload = _payload(body)
-        result = ModelRouter(platform.connection).preview(RoutingRequest(**body_payload), record=True)
-        selected = result.get("selected") or {"provider": "unresolved", "model": "unresolved", "runtime": "manual"}
-        usage_record = usage().record_usage(
-            provider_id=selected["provider"],
-            model=selected["model"],
-            runtime_type=selected["runtime"],
-            role=body_payload.get("role"),
-            workflow_run_id=body_payload.get("workflowRunId"),
-            workflow_step_id=body_payload.get("workflowStepId"),
-            agent_id=body_payload.get("agentId"),
-            job_id=body_payload.get("jobId"),
-            task_id=body_payload.get("taskId"),
-            input_tokens=int(body_payload.get("contextTokensEstimate") or 0),
-            output_tokens=0,
-            estimated_cost_usd=result.get("estimatedCostUsd"),
-            raw_usage={"usage_source": "estimated", "mock": True},
-        )
-        audit("model_gateway.route.execute_mock", selected["provider"], {"usageLedgerId": usage_record["id"]})
-        return {"routing": result, "usage": usage_record}
-
     @router.post("/route/execute", response_model=RouteExecuteResponse)
     async def route_execute(body: RoutingPreviewRequest, request: Request) -> dict[str, Any]:
         require_write(request)
@@ -413,7 +426,7 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
         credential = CredentialResolver().resolve(credential_ref)
         if credential_ref and not credential.configured:
             raise HTTPException(status_code=400, detail=f"Credential ref {credential_ref} is {credential.status}.")
-        provider = _provider_instance(selected["provider"], connection=platform.connection, mock=False)
+        provider = _provider_instance(selected["provider"], connection=platform.connection)
         message = str(body_payload.get("prompt") or body_payload.get("taskType") or "Execute routed task.")
         response = provider.chat_completion(ModelRequest(model=selected["model"], messages=[{"role": "user", "content": message}]))
         usage_record = usage().record_usage(

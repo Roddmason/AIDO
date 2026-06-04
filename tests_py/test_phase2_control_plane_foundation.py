@@ -113,7 +113,7 @@ def test_workflows_policy_evidence_agents_and_model_policy_routes_are_real(tmp_p
             "id": "qa_reviewer",
             "name": "QA Reviewer",
             "role": "qa_reviewer",
-            "runtimeType": "internal_mock",
+            "runtimeType": "manual",
             "allowedTools": ["tests.read"],
             "qualityGates": ["evidence_required"],
         },

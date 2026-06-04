@@ -25,9 +25,9 @@ from .contracts import (
     SkillsSyncRequest,
     SkillsSyncResponse,
 )
-from .executor import run_internal_mock_agent
-from .model_gateway import LOCAL_MODEL_PROVIDERS, REMOTE_MODEL_PROVIDERS, RUNTIME_MODES, runtime_provider_status
+from .model_gateway import LOCAL_MODEL_PROVIDERS, REMOTE_MODEL_PROVIDERS
 from .repository import AgentsRepository
+from .runtime_status import RUNTIME_MODES, RuntimeStatusService
 from .skills import SkillRegistry
 from .tool_broker import ToolBroker
 
@@ -67,7 +67,7 @@ def _require_id(value: Any, *, label: str) -> str:
 def validate_agent_profile_body(body: dict[str, Any]) -> dict[str, Any]:
     _require_id(body.get("id"), label="Agent profile id")
     role = str(body.get("role") or "implementer")
-    runtime_mode = str(body.get("runtimeMode") or body.get("runtimeType") or "internal_mock")
+    runtime_mode = str(body.get("runtimeMode") or body.get("runtimeType") or "hybrid")
     permission_profile = str(body.get("permissionProfile") or "plan")
     allowed_tools = body.get("allowedTools") or []
     allowed_providers = body.get("allowedProviders") or []
@@ -297,7 +297,24 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         task_id = payload.get("taskId", "task")
         input_payload = payload.get("input") or {}
         tool_calls = input_payload.get("toolCalls") or []
-        if tool_calls:
+        if profile["runtimeMode"] not in RUNTIME_MODES:
+            output = {
+                "agent_id": profile["id"],
+                "task_id": task_id,
+                "verdict": "blocked",
+                "summary": f"Runtime {profile['runtimeMode']} is not a supported product runtime.",
+                "evidence_refs": [],
+                "risks": [
+                    {
+                        "severity": "high",
+                        "description": "Agent profile references a runtime outside the product catalog.",
+                        "mitigation": "Update the profile to a configured product runtime before running it.",
+                    }
+                ],
+                "next_actions": [],
+            }
+            status = "failed"
+        elif tool_calls:
             output = {
                 "agent_id": profile["id"],
                 "task_id": task_id,
@@ -313,7 +330,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         ):
             output = _blocked_technical_review_output(profile=profile, task_id=task_id)
             status = "failed"
-        elif profile["runtimeMode"] != "internal_mock":
+        else:
             output = {
                 "agent_id": profile["id"],
                 "task_id": task_id,
@@ -330,9 +347,6 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
                 "next_actions": [],
             }
             status = "failed"
-        else:
-            output = run_internal_mock_agent(agent_profile=profile, task_id=task_id, input_payload=input_payload)
-            status = "completed"
         run = repo.create_agent_run(
             project_id=payload["projectId"],
             agent_profile_id=profile["id"],
@@ -433,7 +447,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
 
     @router.get("/api/v1/runtime/providers", response_model=RuntimeProvidersResponse)
     async def list_runtime_providers() -> dict[str, Any]:
-        return runtime_provider_status()
+        return RuntimeStatusService(platform.connection).runtime_provider_status()
 
     @router.get("/api/v1/skills", response_model=SkillsListResponse)
     async def list_skills() -> dict[str, Any]:

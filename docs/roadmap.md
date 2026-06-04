@@ -11,8 +11,8 @@
   decision, and next-step tables.
 - Internal deterministic policy engine.
 - Workspace-aware path gating for policy decisions.
-- Internal mock agent runtime.
-- Hybrid runtime provider catalog: API, CLI, Ollama, manual, and internal mock.
+- Real runtime provider catalog: API, CLI, Ollama, and manual, with test
+  simulators excluded from product provider APIs.
 - Policy-gated tool broker for CLI/API/Ollama/hybrid agent tool calls.
 - Restricted subprocess sandbox for allowlisted structured-argv shell calls.
 - Docker sandbox posture endpoint and locked-down command-plan builder.

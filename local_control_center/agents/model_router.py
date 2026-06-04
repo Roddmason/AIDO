@@ -251,7 +251,9 @@ class ModelRouter:
             return "provider_disabled"
         if not model["enabled"]:
             return "model_disabled"
-        if provider["healthStatus"] not in {"healthy", "unknown"}:
+        if provider_type != "manual" and not provider.get("lastHealthCheckAt"):
+            return "provider_healthcheck_required"
+        if provider["healthStatus"] != "healthy":
             return "provider_unhealthy"
         if request.context_tokens_estimate and model["contextWindow"] and request.context_tokens_estimate > model["contextWindow"]:
             return "context_window_too_small"

@@ -7,6 +7,7 @@ from typing import Any
 from local_control_center.agents.model_gateway import redact_secrets
 from local_control_center.shared.serialization import json_dumps, json_loads
 from local_control_center.shared.time import utc_now
+from local_control_center.evidence.quality import failed_test_results
 
 
 def _benchmark_key(provider_id: str, model: str, role: str | None) -> str:
@@ -210,9 +211,8 @@ class ModelBenchmarkStore:
         if usage_ledger_id and self._outcome_exists_for_usage(usage_ledger_id):
             return None
         verdict = str(evidence.get("qaVerdict") or "").lower()
-        failed_statuses = {"failed", "error", "denied", "blocked", "timeout"}
-        any_failed = any(str(result.get("status") or "").lower() in failed_statuses for result in test_results)
-        qa_pass = True if verdict == "passed" else False if verdict in {"failed", "blocked", "needs_human_review"} or any_failed else None
+        any_failed = bool(failed_test_results(test_results))
+        qa_pass = False if any_failed else True if verdict == "passed" else False if verdict in {"failed", "blocked", "needs_human_review"} else None
         success = True if qa_pass is True else False if qa_pass is False else None
         rework = False if qa_pass is True else True if qa_pass is False else None
         return self.record_outcome(

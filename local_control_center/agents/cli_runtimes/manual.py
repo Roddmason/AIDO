@@ -13,10 +13,9 @@ class ManualRuntime(CliRuntime):
         self,
         *,
         executable: str = "manual",
-        mock: bool = True,
         connection: sqlite3.Connection | None = None,
     ):
-        super().__init__(executable=executable, mock=mock, connection=connection)
+        super().__init__(executable=executable, connection=connection)
 
     def build_command(self, request: RuntimeRequest) -> list[str]:
         self._validate_workspace(request)

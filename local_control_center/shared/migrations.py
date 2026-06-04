@@ -377,7 +377,12 @@ def init_phase2_schema(connection: sqlite3.Connection) -> None:
             id TEXT PRIMARY KEY,
             project_id TEXT NOT NULL,
             workflow_run_id TEXT,
+            workflow_step_id TEXT,
             agent_id TEXT,
+            agent_run_id TEXT,
+            job_id TEXT,
+            workspace_id TEXT,
+            runtime_id TEXT,
             task_id TEXT NOT NULL,
             test_plan TEXT NOT NULL,
             acceptance_checklist TEXT NOT NULL,
@@ -386,6 +391,8 @@ def init_phase2_schema(connection: sqlite3.Connection) -> None:
             diff_refs TEXT NOT NULL,
             screenshot_refs TEXT NOT NULL,
             risk_notes TEXT NOT NULL,
+            artifact_ids TEXT NOT NULL DEFAULT '[]',
+            diff_summary TEXT NOT NULL DEFAULT '{}',
             qa_verdict TEXT NOT NULL,
             created_at TEXT NOT NULL
         );
@@ -621,6 +628,13 @@ def init_phase3_schema(connection: sqlite3.Connection) -> None:
     _add_column_if_missing(connection, "workspaces", "status", "status TEXT NOT NULL DEFAULT 'active'")
     _add_column_if_missing(connection, "workspace_allocations", "task_id", "task_id TEXT NOT NULL DEFAULT ''")
     _add_column_if_missing(connection, "workspace_allocations", "status", "status TEXT NOT NULL DEFAULT 'allocated'")
+    _add_column_if_missing(connection, "evidence_packages", "workflow_step_id", "workflow_step_id TEXT")
+    _add_column_if_missing(connection, "evidence_packages", "agent_run_id", "agent_run_id TEXT")
+    _add_column_if_missing(connection, "evidence_packages", "job_id", "job_id TEXT")
+    _add_column_if_missing(connection, "evidence_packages", "workspace_id", "workspace_id TEXT")
+    _add_column_if_missing(connection, "evidence_packages", "runtime_id", "runtime_id TEXT")
+    _add_column_if_missing(connection, "evidence_packages", "artifact_ids", "artifact_ids TEXT NOT NULL DEFAULT '[]'")
+    _add_column_if_missing(connection, "evidence_packages", "diff_summary", "diff_summary TEXT NOT NULL DEFAULT '{}'")
     _add_column_if_missing(connection, "test_results", "status", "status TEXT NOT NULL DEFAULT 'unknown'")
     connection.executescript(
         """
@@ -638,7 +652,6 @@ def init_phase3_schema(connection: sqlite3.Connection) -> None:
     )
     timestamp = utc_now()
     model_providers = [
-        ("internal_mock", "internal_mock", "Internal Mock", "available", 0, {"runtime": "test"}),
         ("ollama", "ollama", "Ollama", "optional", 0, {"runtime": "local"}),
         (
             "openai_compatible",
@@ -652,7 +665,7 @@ def init_phase3_schema(connection: sqlite3.Connection) -> None:
         ("openai_agents", "openai_agents", "OpenAI Agents SDK", "optional", 1, {"runtime": "api"}),
         ("cli_codex", "cli_codex", "Codex CLI", "optional", 0, {"runtime": "cli"}),
         ("cli_claude", "cli_claude", "Claude Code CLI", "optional", 0, {"runtime": "cli"}),
-        ("manual", "manual", "Manual Operator", "available", 0, {"runtime": "manual"}),
+        ("manual", "manual", "Manual Operator", "optional", 0, {"runtime": "manual"}),
     ]
     for provider_id, provider, label, status, allow_remote, metadata in model_providers:
         connection.execute(
@@ -946,6 +959,51 @@ def _add_column_if_missing(connection: sqlite3.Connection, table: str, column: s
         connection.execute(f"ALTER TABLE {table} ADD COLUMN {ddl}")
 
 
+def _remove_legacy_simulation_runtime_records(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        """
+        UPDATE model_providers
+        SET status = 'optional', updated_at = ?
+        WHERE id = 'manual' AND status = 'available'
+        """,
+        (utc_now(),),
+    )
+    connection.execute(
+        """
+        DELETE FROM provider_accounts
+        WHERE provider_type = 'local'
+          AND api_format = 'custom'
+          AND base_url = ''
+          AND credential_ref = ''
+          AND enabled = 1
+          AND quota_mode = 'none'
+          AND health_status = 'healthy'
+        """
+    )
+    connection.execute(
+        """
+        DELETE FROM model_catalog
+        WHERE source = 'manual_seed'
+          AND provider_id NOT IN (SELECT provider_id FROM provider_accounts)
+        """
+    )
+    connection.execute(
+        """
+        DELETE FROM model_providers
+        WHERE status = 'available'
+          AND allow_remote = 0
+          AND metadata LIKE ?
+        """,
+        ('%"runtime": "test"%',),
+    )
+    connection.execute(
+        """
+        DELETE FROM runtime_capabilities
+        WHERE runtime NOT IN (SELECT provider_id FROM provider_accounts)
+        """
+    )
+
+
 def init_phase12_schema(connection: sqlite3.Connection) -> None:
     connection.executescript(
         """
@@ -1201,7 +1259,6 @@ def init_phase12_schema(connection: sqlite3.Connection) -> None:
 
     timestamp = utc_now()
     provider_accounts = [
-        ("internal_mock", "internal_mock", "Internal Mock", "local", "custom", "", "", 1, "none", "healthy"),
         ("nvidia_nim", "nvidia_nim", "NVIDIA NIM / Build", "api", "openai_compatible", "https://integrate.api.nvidia.com/v1", "NVIDIA_NIM_API_KEY", 0, "trial_rate_limited", "unknown"),
         ("ollama", "ollama", "Ollama Local", "local", "custom", "http://localhost:11434", "", 0, "none", "unknown"),
         ("openai_api", "openai_api", "OpenAI API", "api", "responses", "https://api.openai.com/v1", "OPENAI_API_KEY", 0, "provider_reported", "unknown"),
@@ -1227,7 +1284,6 @@ def init_phase12_schema(connection: sqlite3.Connection) -> None:
         )
 
     model_catalog = [
-        ("internal_mock:mock", "internal_mock", "mock", "Internal mock", "mock", 200000, 8192, 1, 1, 0, 0, 0, 0, 0, 0, [], 0.0, 0.0, 0.0, 0.0, 1, "free local mock", 1),
         ("nvidia_nim:auto_best_available", "nvidia_nim", "auto_best_available", "NVIDIA NIM auto best available", "nim", 128000, 4096, 0, 1, 1, 0, 0, 0, 0, 0, ["low", "medium"], 0.0, 0.0, 0.0, 0.0, 1, "trial/free-limited; exact quota unknown", 1),
         ("ollama:local_default", "ollama", "local_default", "Ollama local default", "local", 32000, 4096, 0, 1, 1, 0, 0, 0, 0, 0, ["low", "medium"], 0.0, 0.0, 0.0, 0.0, 1, "local runtime cost only", 1),
         ("openai_compatible:configured_model", "openai_compatible", "configured_model", "Configured OpenAI-compatible model", "configured", 128000, 4096, 1, 1, 1, 0, 0, 0, 1, 1, ["low", "medium", "high"], 0.25, 0.05, 1.0, 1.0, 0, "manual seed, staleness unknown", 0),
@@ -1414,6 +1470,8 @@ def init_phase12_schema(connection: sqlite3.Connection) -> None:
             """,
             (provider_id, provider, label, status, allow_remote, json_dumps(metadata), timestamp, timestamp),
         )
+
+    _remove_legacy_simulation_runtime_records(connection)
 
     connection.execute(
         "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",

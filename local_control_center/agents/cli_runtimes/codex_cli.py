@@ -22,12 +22,10 @@ class CodexCliRuntime(CliRuntime):
         self,
         *,
         executable: str | None = None,
-        mock: bool = False,
         connection: sqlite3.Connection | None = None,
     ):
         super().__init__(
             executable=executable or os.environ.get("CODEX_CLI_PATH", "codex"),
-            mock=mock,
             connection=connection,
         )
 

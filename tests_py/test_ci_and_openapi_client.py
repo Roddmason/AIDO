@@ -85,6 +85,8 @@ def test_generated_openapi_client_is_checked_in_and_v1_only() -> None:
     assert '"route_preview_api_v1_model_gateway_route_preview_post": RoutingPreviewRequest' in content
     assert '"route_preview_api_v1_model_gateway_route_preview_post": RoutingPreviewResponse' in content
     assert '"route_execute_api_v1_model_gateway_route_execute_post": RouteExecuteResponse' in content
+    assert "route_execute_mock" not in content
+    assert "/api/v1/model-gateway/route/execute-mock" not in content
     assert '"list_benchmarks_api_v1_model_gateway_benchmarks_get": ModelBenchmarksListResponse' in content
     assert '"create_benchmark_outcome_api_v1_model_gateway_benchmark_outcomes_post": ModelBenchmarkOutcomeCreateRequest' in content
     assert '"sync_skills_api_v1_skills_sync_post": SkillsSyncRequest' in content
@@ -186,10 +188,14 @@ def test_generated_openapi_client_is_checked_in_and_v1_only() -> None:
     assert "export type OllamaRuntimeProviderStatus" in content
     assert "export type CliRuntimeProviderStatus" in content
     assert "export type ApiRuntimeProviderStatus" in content
+    assert "export type RuntimeProviderStatus" in content
     assert (
         'RuntimeProvidersResponse = { "api": ApiRuntimeProviderStatus; '
-        '"cli": CliRuntimeProviderStatus; "ollama": OllamaRuntimeProviderStatus;'
+        '"cli": CliRuntimeProviderStatus; "ollama": OllamaRuntimeProviderStatus; '
+        '"providers": Array<RuntimeProviderStatus>;'
     ) in content
+    assert "export type IssueToPatchRequest" in content
+    assert "export type IssueToPatchResponse" in content
     assert "export type DockerSandboxStatus" in content
     assert "export type RestrictedSubprocessStatus" in content
     assert 'SandboxStatusResponse = { "docker": DockerSandboxStatus; "restrictedSubprocess": RestrictedSubprocessStatus }' in content

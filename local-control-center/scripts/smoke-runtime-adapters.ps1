@@ -229,14 +229,6 @@ if (-not $projectPath) {
 }
 $suffix = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
 
-New-AgentProfile -Id "smoke_internal_$suffix" -RuntimeMode "internal_mock" -AllowedTools @("policy.evaluate")
-Invoke-AidoJson -Method "POST" -Path "/api/v1/agent-runs" -Token $token -Body @{
-    projectId = $projectId
-    agentProfileId = "smoke_internal_$suffix"
-    taskId = "internal_mock_smoke"
-    input = @{ goal = "internal mock runtime smoke" }
-} | Out-Null
-
 if ($env:AIDO_MCP_SMOKE_COMMAND) {
     Invoke-AidoJson -Method "POST" -Path "/api/v1/integrations/mcp/register" -Token $token -Body @{
         id = "mcp_smoke_$suffix"

@@ -61,6 +61,15 @@ def _valid_workspace_path(value: Any) -> bool:
     return True
 
 
+def _forbidden_runtime_arg(argv: list[str], forbidden_args: set[str]) -> str | None:
+    for index, item in enumerate(argv):
+        if item in forbidden_args:
+            return item
+        if item == "--network" and index + 1 < len(argv) and argv[index + 1].lower() == "host":
+            return "--network host"
+    return None
+
+
 def validate_runtime_tool_call(
     adapter_id: str,
     tool_call: dict[str, Any],
@@ -83,12 +92,12 @@ def validate_runtime_tool_call(
             "reason": f"{adapter_id} contract requires its own CLI executable.",
         }
 
-    forbidden = [item for item in argv if item in set(contract["forbiddenArgs"])]
+    forbidden = _forbidden_runtime_arg(argv, set(contract["forbiddenArgs"]))
     if forbidden:
         return {
             "valid": False,
             "operation": operation,
-            "reason": f"Runtime argv contains forbidden flag: {forbidden[0]}",
+            "reason": f"Runtime argv contains forbidden flag: {forbidden}",
         }
 
     workspace_path = tool_call.get("workspacePath") or policy_input.get("workspacePath")

@@ -11,13 +11,10 @@ from .base import CostEstimate, ModelInfo, ModelProvider, ModelRequest, ModelRes
 class OllamaProvider(ModelProvider):
     provider_id = "ollama"
 
-    def __init__(self, *, base_url: str | None = None, mock: bool = False):
+    def __init__(self, *, base_url: str | None = None):
         self.base_url = (base_url or os.environ.get("OLLAMA_BASE_URL") or os.environ.get("OLLAMA_HOST") or "http://localhost:11434").rstrip("/")
-        self.mock = mock
 
     def health_check(self) -> ProviderHealth:
-        if self.mock:
-            return ProviderHealth(providerId=self.provider_id, status="available", healthStatus="healthy", message="mock Ollama healthy")
         try:
             request = Request(f"{self.base_url}/api/tags", method="GET")
             with urlopen(request, timeout=2):
@@ -27,8 +24,6 @@ class OllamaProvider(ModelProvider):
         return ProviderHealth(providerId=self.provider_id, status="available", healthStatus="healthy", message="Ollama responded")
 
     def list_models(self) -> list[ModelInfo]:
-        if self.mock:
-            return [ModelInfo(providerId=self.provider_id, model="local_default", displayName="Local default", contextWindow=32000, maxOutputTokens=4096, source="mock")]
         try:
             request = Request(f"{self.base_url}/api/tags", method="GET")
             with urlopen(request, timeout=2) as response:
@@ -42,8 +37,41 @@ class OllamaProvider(ModelProvider):
         ]
 
     def chat_completion(self, request: ModelRequest) -> ModelResponse:
-        usage = UsageRecord(inputTokens=1, outputTokens=1, totalTokens=2, rawUsage={"usage_source": "mock"})
-        return ModelResponse(providerId=self.provider_id, model=request.model, content="mock local response", usage=usage, rawResponse={"mock": True})
+        payload = json.dumps(
+            {
+                "model": request.model,
+                "messages": request.messages,
+                "stream": False,
+                "options": {"temperature": request.temperature} if request.temperature is not None else {},
+            }
+        ).encode("utf-8")
+        http_request = Request(
+            f"{self.base_url}/api/chat",
+            data=payload,
+            headers={"Content-Type": "application/json", "Accept": "application/json"},
+            method="POST",
+        )
+        with urlopen(http_request, timeout=60) as response:
+            raw = json.loads(response.read().decode("utf-8"))
+        message = raw.get("message") if isinstance(raw, dict) else {}
+        content = str((message or {}).get("content") or "")
+        usage = UsageRecord(
+            inputTokens=int(raw.get("prompt_eval_count") or 0) if isinstance(raw, dict) else 0,
+            outputTokens=int(raw.get("eval_count") or 0) if isinstance(raw, dict) else 0,
+            totalTokens=(
+                int(raw.get("prompt_eval_count") or 0) + int(raw.get("eval_count") or 0)
+                if isinstance(raw, dict)
+                else 0
+            ),
+            rawUsage={
+                "usage_source": "provider",
+                "prompt_eval_count": raw.get("prompt_eval_count"),
+                "eval_count": raw.get("eval_count"),
+            }
+            if isinstance(raw, dict)
+            else {"usage_source": "provider"},
+        )
+        return ModelResponse(providerId=self.provider_id, model=request.model, content=content, usage=usage, rawResponse=raw)
 
     def estimate_cost(self, request: ModelRequest, model: str) -> CostEstimate:
         return CostEstimate(estimatedCostUsd=0.0, source="local")

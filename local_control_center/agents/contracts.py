@@ -20,7 +20,7 @@ AgentRole = Literal[
     "release_manager",
 ]
 PermissionProfile = Literal["plan", "dev_safe", "qa", "release"]
-RuntimeMode = Literal["api", "cli", "ollama", "hybrid", "manual", "internal_mock"]
+RuntimeMode = Literal["api", "cli", "ollama", "hybrid", "manual"]
 PolicyStatus = Literal["active", "disabled"]
 
 
@@ -33,7 +33,7 @@ class AgentProfileUpsertRequest(BaseModel):
     id: str
     name: str | None = None
     role: AgentRole = "implementer"
-    runtime_mode: RuntimeMode = Field(default="internal_mock", alias="runtimeMode")
+    runtime_mode: RuntimeMode = Field(default="hybrid", alias="runtimeMode")
     runtime_type: RuntimeMode | None = Field(default=None, alias="runtimeType")
     model_policy_id: str | None = Field(default=None, alias="modelPolicyId")
     routing_profile_id: str | None = Field(default=None, alias="routingProfileId")
@@ -256,11 +256,39 @@ class ApiRuntimeProviderStatus(BaseModel):
     adapters: list[str]
 
 
+class RuntimeProviderSafety(BaseModel):
+    workspace_bound: bool = Field(default=True, alias="workspaceBound")
+    shell: bool = False
+    structured_argv: bool = Field(default=True, alias="structuredArgv")
+    network: str = "blocked_by_default"
+
+
+class RuntimeProviderStatus(BaseModel):
+    id: str
+    kind: str
+    display_name: str = Field(alias="displayName")
+    detected: bool = False
+    configured: bool
+    available: bool
+    executable: bool
+    test_only: bool = Field(default=False, alias="testOnly")
+    simulation_only: bool = Field(default=False, alias="simulationOnly")
+    requires_approval: bool = Field(default=True, alias="requiresApproval")
+    reason: str
+    version: str | None = None
+    detected_command: str | None = Field(default=None, alias="detectedCommand")
+    health_checked_at: str | None = Field(default=None, alias="healthCheckedAt")
+    capabilities: list[str] = Field(default_factory=list)
+    required_configuration: list[str] = Field(default_factory=list, alias="requiredConfiguration")
+    safety: RuntimeProviderSafety = Field(default_factory=RuntimeProviderSafety)
+
+
 class RuntimeProvidersResponse(BaseModel):
     runtime_modes: list[RuntimeMode] = Field(alias="runtimeModes")
     ollama: OllamaRuntimeProviderStatus
     cli: CliRuntimeProviderStatus
     api: ApiRuntimeProviderStatus
+    providers: list[RuntimeProviderStatus]
 
 
 class ModelPoliciesListResponse(BaseModel):

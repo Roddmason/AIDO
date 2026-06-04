@@ -16,26 +16,11 @@ class NvidiaNimProvider(OpenAICompatibleProvider):
         connection: sqlite3.Connection | None = None,
         base_url: str = "https://integrate.api.nvidia.com/v1",
         credential_ref: str = "NVIDIA_NIM_API_KEY",
-        mock: bool = False,
     ):
-        super().__init__(provider_id="nvidia_nim", base_url=base_url, credential_ref=credential_ref, mock=mock)
+        super().__init__(provider_id="nvidia_nim", base_url=base_url, credential_ref=credential_ref)
         self.connection = connection
 
     def list_models(self) -> list[ModelInfo]:
-        if self.mock:
-            return [
-                ModelInfo(
-                    providerId=self.provider_id,
-                    model="auto_best_available",
-                    displayName="NVIDIA NIM auto best available",
-                    contextWindow=128000,
-                    maxOutputTokens=4096,
-                    supportsJson=True,
-                    supportsStreaming=True,
-                    freeTier=True,
-                    source="mock",
-                )
-            ]
         return super().list_models()
 
     def estimate_cost(self, request: ModelRequest, model: str) -> CostEstimate:

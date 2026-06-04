@@ -24,12 +24,10 @@ class ClaudeCodeCliRuntime(CliRuntime):
         self,
         *,
         executable: str | None = None,
-        mock: bool = False,
         connection: sqlite3.Connection | None = None,
     ):
         super().__init__(
             executable=executable or os.environ.get("CLAUDE_CODE_CLI_PATH", "claude"),
-            mock=mock,
             connection=connection,
         )
 

@@ -235,15 +235,15 @@ async function createModelGatewayTrace(page) {
 	const { token } = await handshake.json();
 	const project = await getActiveProject(page);
 	const projectId = project.id;
-	const profileId = `web-mock-${Date.now()}`;
+	const profileId = `web-manual-${Date.now()}`;
 
 	await page.request.post('/api/v1/agent-profiles', {
 		headers: { 'X-Local-Control-Token': token },
 		data: {
 			id: profileId,
-			name: 'Web Mock Runtime',
+			name: 'Web Manual Runtime',
 			role: 'implementer',
-			runtimeType: 'internal_mock',
+			runtimeType: 'manual',
 			modelPolicyId: 'implementation_default',
 			allowedTools: ['policy.evaluate'],
 			permissionProfile: 'dev_safe',
@@ -254,7 +254,7 @@ async function createModelGatewayTrace(page) {
 		data: {
 			id: 'implementation_default',
 			name: 'Implementation Default',
-			preferred: [{ provider: 'internal_mock', model: 'mock' }],
+			preferred: [{ provider: 'ollama', model: 'local_default' }],
 			fallback: [],
 			maxCostUsd: 1,
 			maxTokens: 4000,
@@ -740,6 +740,7 @@ test('Evidence and QA previews token-protected artifacts', async ({ page }) => {
 	await expect(page.getByRole('dialog', { name: 'Artifact preview' })).toBeVisible();
 	await expect(page.getByText('Workflow inspector artifact smoke.')).toBeVisible();
 	await expect(page.getByText('text/markdown')).toBeVisible();
+	await expect(page.getByText(/sha256 [a-f0-9]{12,}/)).toBeVisible();
 	await expect(page.getByRole('button', { name: `Download artifact ${workflow.artifactName}` })).toBeVisible();
 });
 
@@ -823,15 +824,15 @@ test('Policy & Security shows sandbox policy revision diffs', async ({ page }) =
 	await expect(diffDialog.getByRole('cell', { name: '90' })).toBeVisible();
 });
 
-test('Model Gateway exposes model calls and cost ledger', async ({ page }) => {
+test('Model Gateway renders model calls and cost ledger without synthetic runtime traces', async ({ page }) => {
 	await createModelGatewayTrace(page);
 	await page.goto('/#models');
 	await page.getByRole('button', { name: 'Model Gateway' }).click();
 
 	await expect(page.getByRole('heading', { name: 'Model Gateway' })).toBeVisible();
-	await expect(page.getByText('Model calls')).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Model calls' })).toBeVisible();
 	await expect(page.getByText('Cost ledger')).toBeVisible();
-	await expect(page.getByText('internal_mock').first()).toBeVisible();
+	await expect(page.getByText('No model calls')).toBeVisible();
 });
 
 test('Model Gateway console renders provider catalog routing usage budgets and CLI sessions', async ({ page }) => {
@@ -865,7 +866,45 @@ test('Model Gateway console renders provider catalog routing usage budgets and C
 	await expect(page.getByRole('cell', { name: '$0.4200' }).first()).toBeVisible();
 });
 
-test('Model Gateway route preview submits mock request without exposing credentials', async ({ page }) => {
+test('Runtime provider tables report unavailable states honestly', async ({ page }) => {
+	const providersResponse = await page.request.get('/api/v1/runtime/providers');
+	const runtimeStatus = await providersResponse.json();
+	expect(runtimeStatus.runtimeModes).not.toContain('internal_mock');
+	expect(runtimeStatus.providers.some((provider) => provider.id === 'internal_mock')).toBe(false);
+	expect(runtimeStatus.providers.some((provider) => provider.available === false || provider.executable === false)).toBe(true);
+
+	await page.goto('/#models');
+	await page.getByRole('button', { name: 'Model Gateway' }).click();
+	await expect(page.getByRole('heading', { name: 'Runtime Providers' })).toBeVisible();
+	await expect(page.getByText('not executable').first()).toBeVisible();
+
+	await page.getByRole('button', { name: 'Agents' }).click();
+	await expect(page.getByRole('heading', { name: 'Runtime detection' })).toBeVisible();
+	await expect(page.getByText('not executable').first()).toBeVisible();
+});
+
+test('Command Center surfaces issue_to_patch runtime unavailability reason', async ({ page }) => {
+	await page.goto('/#command');
+	await page.getByRole('button', { name: 'Command Center' }).click();
+
+	await page.getByLabel('Issue title').fill(`Web issue_to_patch ${Date.now()}`);
+	await page.getByLabel('Issue text').fill('Change a small file through the real runtime slice.');
+	await page.getByLabel('Preferred runtime').selectOption('manual');
+	await expect(page.getByText('Manual runtime creates approval/operator work; it does not generate patches.')).toBeVisible();
+	await page.getByLabel('QA preset').selectOption('none');
+	await expect(page.getByText('qa_not_selected')).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Run issue_to_patch' })).toBeDisabled();
+	await page.getByLabel('QA preset').selectOption('python-tests');
+	await page.getByRole('button', { name: 'Run issue_to_patch' }).click();
+
+	const result = page.locator('div[aria-live="polite"]').filter({ hasText: 'Manual runtime creates approval/operator work; it does not generate patches.' });
+	await expect(result).toBeVisible();
+	await expect(result).toContainText('unavailable');
+	await expect(result).toContainText('Manual runtime creates approval/operator work; it does not generate patches.');
+	await expect(result).toContainText(/Evidence .* changed files 0/);
+});
+
+test('Model Gateway route preview submits request without exposing credentials', async ({ page }) => {
 	const handshake = await page.request.get('/api/v1/security/handshake');
 	const { token } = await handshake.json();
 	await page.request.patch('/api/v1/model-gateway/providers/nvidia_nim', {
@@ -896,7 +935,7 @@ test('strict configuration forms prevent manual JSON edits', async ({ page }) =>
 	await page.getByRole('button', { name: 'Agents' }).click();
 
 	await expect(page.getByLabel('Profile id')).toBeVisible();
-	await expect(page.locator('textarea')).toHaveCount(0);
+	await expect(page.locator('textarea[data-json-editor="true"]')).toHaveCount(0);
 	await page.getByLabel('Profile id').fill('Bad Profile!');
 	await page.getByRole('button', { name: 'Save agent profile' }).click();
 	await expect(page.getByText('Use lowercase letters, numbers, dashes or underscores.')).toBeVisible();
@@ -909,7 +948,7 @@ test('strict configuration forms prevent manual JSON edits', async ({ page }) =>
 	await page.getByLabel('Role', { exact: true }).selectOption('developer');
 	await page.getByLabel('Routing profile').selectOption('balanced_best_value');
 	await page.getByLabel('Role model policy').selectOption('developer');
-	await page.getByLabel('Runtime mode').selectOption('internal_mock');
+	await page.getByLabel('Runtime mode').selectOption('hybrid');
 	await page.getByLabel('Permission profile').selectOption('dev_safe');
 	await page.getByLabel('Allowed tool').selectOption('shell');
 	await page.getByLabel('Allowed provider').selectOption('codex_cli');
@@ -931,7 +970,7 @@ test('strict configuration forms prevent manual JSON edits', async ({ page }) =>
 
 	await page.getByRole('button', { name: 'Model Gateway' }).click();
 	await expect(page.getByLabel('Policy id')).toBeVisible();
-	await expect(page.locator('textarea')).toHaveCount(0);
+	await expect(page.locator('textarea[data-json-editor="true"]')).toHaveCount(0);
 	await page.getByLabel('Policy id').fill('Bad Policy!');
 	await page.getByRole('button', { name: 'Save model policy' }).click();
 	await expect(page.getByText('Policy id must use lowercase letters, numbers, dashes or underscores.')).toBeVisible();
@@ -939,8 +978,8 @@ test('strict configuration forms prevent manual JSON edits', async ({ page }) =>
 	const policyId = `web_policy_${suffix}`;
 	await page.getByLabel('Policy id').fill(policyId);
 	await page.getByLabel('Policy name').fill('Web Policy');
-	await page.getByLabel('Preferred provider').selectOption('internal_mock');
-	await page.getByLabel('Model', { exact: true }).selectOption('mock');
+	await page.getByLabel('Preferred provider').selectOption('ollama');
+	await page.getByLabel('Model', { exact: true }).selectOption('local_default');
 	await page.getByLabel('Maximum cost USD').fill('1');
 	await page.getByLabel('Maximum tokens').fill('4000');
 	await page.getByRole('button', { name: 'Save model policy' }).click();
@@ -952,7 +991,7 @@ test('strict operational forms cover workflows governance sandbox and MCP settin
 	await page.getByRole('button', { name: 'Command Center' }).click();
 
 	await expect(page.getByLabel('Workflow title')).toBeVisible();
-	await expect(page.locator('textarea')).toHaveCount(0);
+	await expect(page.locator('textarea[data-json-editor="true"]')).toHaveCount(0);
 	await page.getByLabel('Workflow title').fill('');
 	await page.getByRole('button', { name: 'Create workflow' }).click();
 	await expect(page.getByText('Workflow title is required.')).toBeVisible();

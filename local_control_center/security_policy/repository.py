@@ -5,6 +5,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.serialization import json_dumps, json_loads
 from local_control_center.shared.telemetry import record_policy_decision
 
@@ -218,6 +219,9 @@ class SecurityPolicyRepository:
         payload: dict[str, Any],
     ) -> dict[str, Any]:
         decision_id = f"permission-decision-{uuid.uuid4()}"
+        clean_command = str(redact_secrets(command or "")) if command is not None else None
+        clean_reason = str(redact_secrets(reason))
+        clean_payload = redact_secrets(payload)
         self.connection.execute(
             """
             INSERT INTO permission_decisions
@@ -232,12 +236,12 @@ class SecurityPolicyRepository:
                 agent_id,
                 role,
                 tool,
-                command,
+                clean_command,
                 path,
                 decision,
                 risk_level,
-                reason,
-                json_dumps(payload),
+                clean_reason,
+                json_dumps(clean_payload),
                 utc_now(),
             ),
         )
@@ -362,9 +366,11 @@ class SecurityPolicyRepository:
         reason: str,
         granted_by: str = "operator",
     ) -> dict[str, Any]:
-        payload = action_request.get("payload") or {}
+        payload = redact_secrets(action_request.get("payload") or {})
         grant_id = f"permission-grant-{uuid.uuid4()}"
         timestamp = utc_now()
+        clean_command = str(redact_secrets(action_request.get("command") or ""))
+        clean_reason = str(redact_secrets(reason))
         self.connection.execute(
             """
             INSERT INTO permission_grants
@@ -381,17 +387,19 @@ class SecurityPolicyRepository:
                 payload.get("permissionDecisionId"),
                 payload.get("agentId"),
                 str(payload.get("tool") or action_request["actionType"]),
-                action_request.get("command") or "",
+                clean_command,
                 payload.get("path"),
-                reason,
+                clean_reason,
                 granted_by,
                 timestamp,
                 json_dumps(
-                    {
-                        **payload,
-                        "actionType": action_request["actionType"],
-                        "riskLevel": action_request["riskLevel"],
-                    }
+                    redact_secrets(
+                        {
+                            **payload,
+                            "actionType": action_request["actionType"],
+                            "riskLevel": action_request["riskLevel"],
+                        }
+                    )
                 ),
             ),
         )

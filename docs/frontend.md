@@ -61,6 +61,14 @@ local-control-center/web/
 - Workflow inspectors read linked workflow runs, steps, workspaces, jobs, agent
   runs, tool calls, policy decisions, evidence packages, artifacts, test
   results, and approvals from `/api/v1/overview`.
+- Workflows graph, step table, agent run list, and evidence detail are scoped to
+  the selected/default workflow. The page must not mix a selected workflow with
+  global step rows.
+- The Command Center renders runtime/provider state from
+  `/api/v1/runtime/providers`, including unavailable reasons, required
+  configuration, and executable state. It blocks `issue_to_patch` submission
+  when no QA command is selected and shows whether a result came from a
+  productive or unavailable runtime path.
 - Evidence and workflow inspectors preview and download artifacts only through
   `GET /api/v1/evidence/{evidenceId}/artifacts/{artifactId}` with the local
   control token. The UI never reads local artifact paths directly.

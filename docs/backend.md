@@ -14,7 +14,7 @@ frontend bundles, caches, and dependency folders are not source of truth.
   permission records, sandbox posture, and secret boundaries.
 - `workspaces_projects`: task-scoped workspace allocation, Git worktree support,
   archive lifecycle, and safe degradation when a directory is not a Git repo.
-- `agents`: agent profiles, runtime modes, internal mock runtime, model
+- `agents`: agent profiles, runtime modes, real runtime provider status, model
   policies, model calls, cost usage, skills, model-gateway budget checks, and
   the tool broker.
 - `memory_retrieval`: SQLite memory metadata plus rebuildable NumPy/FAISS
@@ -57,6 +57,11 @@ Operational events and audit records now go through
 Tests use `tests_py/control_plane_fixture.py`, a repository composition helper,
 instead of a product-like store harness.
 
+Jobs are fail-closed. `jobs_approvals.worker` may claim and record job runs, but
+it must not mark a job `completed` unless a real executor has produced real
+output. Known job kinds without a configured executor fail with
+`configuration_required`; unknown kinds fail with `unsupported_job_kind`.
+
 ## Telemetry
 
 `local_control_center/shared/telemetry.py` provides local-first trace events
@@ -66,14 +71,23 @@ without requiring Jaeger, Prometheus, or any network exporter. It records:
   duration, and correlation id;
 - `telemetry.policy.decision` when permission decisions are persisted;
 - `telemetry.tool.call` when the tool broker records a tool call;
-- `telemetry.model.call` when the model gateway or internal mock runtime records
-  a model call;
+- `telemetry.model.call` when the model gateway records a real or estimated
+  model call;
 - `agent.run.<status>` when agent runs complete.
 
 Telemetry payloads are redacted before persistence and do not include request
 headers, loopback tokens, API keys, or bearer values. `X-Correlation-ID` and
 `X-Request-ID` are honored when present; otherwise the backend generates a local
 correlation id and returns it in the response header.
+
+Secret redaction is centralized in `local_control_center/shared/redaction.py`.
+`agents/model_gateway.py` keeps `redact_secrets` only as a compatibility import;
+the shared module owns policy for operational persistence. Agent runs, tool
+calls, jobs, action requests, policy decisions, permission grants, model calls,
+events, audits, evidence logs, risk notes, test metadata, and promoted execution
+logs are sanitized before storage. Patch contents and screenshot binaries are
+not rewritten by default because that would corrupt source evidence; their
+metadata and surrounding records are still sanitized.
 
 External OpenTelemetry export is optional and disabled by default. The runtime
 continues to work without any OTEL package installed. To enable OTLP/HTTP traces
@@ -118,13 +132,39 @@ Allowed shell execution is intentionally narrower than policy approval:
 - restricted subprocess executables must be allowlisted;
 - Docker images must come from the local catalog and run with `--network none`
   unless the active sandbox profile explicitly allowlists another mode;
-- the working directory must stay inside the allocated workspace.
+- the working directory must stay inside the allocated workspace;
+- dangerous runtime flags are blocked before execution, including split-token
+  forms such as `--network host`.
 
 String-based shell execution is not a supported fallback.
 
 Workflow details now include linked workspaces, evidence packages, jobs, and
 agent runs through explicit `workflow_run_id`/`workflow_step_id` references.
 This avoids treating workflows as a decorative graph detached from execution.
+
+## Runtime Providers And Issue-To-Patch
+
+`GET /api/v1/runtime/providers` is the runtime truth source. Each provider must
+surface `detected`, `configured`, `available`, `executable`, `reason`,
+`capabilities`, required configuration, and safety metadata. API providers fail
+closed when credentials or health are missing. CLI providers can be detected
+without becoming executable for productive workflow runs. Test simulators are
+not returned as product runtime providers.
+
+`POST /api/v1/workflows/issue-to-patch` allocates a task-scoped Git worktree
+before productive execution. It selects only executable providers that expose
+the `issue_to_patch` capability, sends execution through structured argv and
+workspace-bound sandbox policy, captures diff/log/test artifacts, and creates a
+real action request when `requireApproval=true`. A workflow can report
+`completed` only after executable runtime work, isolated workspace allocation,
+captured diff/evidence, passing QA, and required approval resolution are all
+present. Missing QA, missing evidence, or unavailable runtime produces a
+blocked/review state instead of a false success.
+
+Evidence package records carry direct linkage for `workflowStepId`, `jobId`,
+`agentRunId`, `workspaceId`, `runtimeId`, `artifactIds`, and `diffSummary`.
+Detailed run, job, workspace, artifact, and test records remain normalized and
+are joined in workflow/detail responses.
 
 Integrations are registry-first. MCP servers can be registered and audited.
 MCP, OpenHands, and SWE-agent can execute only as runtime adapters invoked by
@@ -136,7 +176,7 @@ persisted as `agent_tool_calls` and feeds evidence generation just like shell or
 Docker execution.
 Runtime adapter smokes are opt-in through
 `local-control-center/scripts/smoke-runtime-adapters.ps1`. The default path
-always verifies `internal_mock`. MCP still executes only when
+does not create simulated successful agent runs. MCP executes only when
 `AIDO_MCP_SMOKE_COMMAND` is supplied. OpenHands and SWE-agent use
 `AIDO_OPENHANDS_SMOKE_ARGV_JSON`/`AIDO_SWE_AGENT_SMOKE_ARGV_JSON` when supplied,
 or auto-detect installed CLIs and run `--version` through the broker, policy,
@@ -197,5 +237,11 @@ Current migration versions:
 - v9: sandbox profiles for Docker image catalogs, network modes, and resource
   limits.
 - v10: revocation metadata for permission grants and sandbox profiles.
+- v11: policy revision records for audited sandbox profile changes.
+- v12: provider accounts, model/runtime catalog, routing profiles, usage
+  ledger, budget rules, runtime capabilities, and provider health records.
+- v13: model benchmark outcomes linked to evidence and workflow context.
+- v14: pricing snapshots for local catalog updates.
+- v15: runtime-editable i18n catalog tables.
 - Sandbox profile updates are routed through a token-protected, reason-required
   API endpoint; direct SQLite edits are no longer the operational path.

@@ -17,9 +17,6 @@ Each provider record exposes:
   isolated workspace.
 - `requiredConfiguration`: the concrete config fields required before the
   provider can become configured.
-- `testOnly`: the provider is useful for tests but must not represent real work.
-- `simulationOnly`: the provider can exercise control-plane flow but cannot
-  produce a real implementation.
 - `reason`: the human-readable reason for unavailable or non-executable state.
 - `capabilities`: versioned runtime capabilities such as `version_check` or
   `issue_to_patch`.
@@ -56,6 +53,6 @@ policy/sandbox, captures diff/log/test artifacts, and links evidence to
 workflow, job, agent run, workspace, runtime, artifact IDs, and diff summary.
 
 The runtime state must be visible in Command Center, Agents, Model Gateway,
-Workflows, Evidence, and Runtime Providers views. A simulation-only or
-unavailable runtime can produce diagnostic evidence, but it cannot set a real
-workflow to `completed`.
+Workflows, Evidence, and Runtime Providers views. An unavailable runtime can
+produce blocked diagnostic evidence, but it cannot set a real workflow to
+`completed`.

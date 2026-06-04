@@ -35,6 +35,13 @@ ALLOWED_EXECUTABLES = {
     "uv",
     "uv.exe",
 }
+DANGEROUS_ARG_PREFIXES = (
+    "--mount",
+    "--network=host",
+    "--no-sandbox",
+    "--privileged",
+    "--volume",
+)
 
 MAX_CAPTURE_CHARS = 4000
 
@@ -51,6 +58,17 @@ def _inside(path: Path, root: Path) -> bool:
         return True
     except (OSError, ValueError):
         return False
+
+
+def _dangerous_arg(argv: list[str]) -> str | None:
+    args = argv[1:]
+    for index, arg in enumerate(args):
+        lowered = arg.strip().lower()
+        if lowered == "--network" and index + 1 < len(args) and args[index + 1].strip().lower() == "host":
+            return "--network host"
+        if any(lowered == prefix or lowered.startswith(f"{prefix}=") for prefix in DANGEROUS_ARG_PREFIXES):
+            return arg
+    return None
 
 
 class RestrictedSubprocessSandbox:
@@ -82,6 +100,13 @@ class RestrictedSubprocessSandbox:
                 "executed": False,
                 "blocked": True,
                 "reason": f"Executable is not allowlisted for restricted subprocess: {executable}",
+            }
+        blocked_arg = _dangerous_arg(argv)
+        if blocked_arg:
+            return {
+                "executed": False,
+                "blocked": True,
+                "reason": f"Dangerous subprocess flag is blocked by runtime policy: {blocked_arg}",
             }
 
         workspace = Path(workspace_path or cwd or ".").resolve(strict=False)
@@ -159,6 +184,13 @@ class RestrictedSubprocessSandbox:
                 "executed": False,
                 "blocked": True,
                 "reason": f"Executable is not allowlisted for restricted subprocess: {executable}",
+            }
+        blocked_arg = _dangerous_arg(argv)
+        if blocked_arg:
+            return {
+                "executed": False,
+                "blocked": True,
+                "reason": f"Dangerous subprocess flag is blocked by runtime policy: {blocked_arg}",
             }
 
         workspace = Path(workspace_path or cwd or ".").resolve(strict=False)

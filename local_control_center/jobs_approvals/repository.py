@@ -6,9 +6,9 @@ from typing import Any, Iterable
 
 from local_control_center.security_policy.repository import SecurityPolicyRepository
 from local_control_center.shared.event_bus import EventBus
-from local_control_center.shared.time import add_millis, utc_now
-
+from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.serialization import json_dumps, json_loads
+from local_control_center.shared.time import add_millis, utc_now
 
 from .models import SENSITIVE_JOB_KINDS
 
@@ -81,7 +81,7 @@ class JobsRepository:
         workflow_run_id: str | None = None,
         workflow_step_id: str | None = None,
     ) -> dict[str, Any]:
-        payload = payload or {}
+        payload = redact_secrets(payload or {})
         timestamp = utc_now()
         job_id = f"job-{uuid.uuid4()}"
         needs_approval = kind in SENSITIVE_JOB_KINDS or payload.get("approvalRequired") is True
@@ -169,6 +169,9 @@ class JobsRepository:
         reason: str = "",
     ) -> dict[str, Any]:
         action_id = f"action-{uuid.uuid4()}"
+        clean_command = str(redact_secrets(command or ""))
+        clean_payload = redact_secrets(payload or {})
+        clean_reason = str(redact_secrets(reason or ""))
         self.connection.execute(
             """
             INSERT INTO action_requests
@@ -183,9 +186,9 @@ class JobsRepository:
                 action_type,
                 "pending",
                 risk_level,
-                command,
-                json_dumps(payload or {}),
-                reason,
+                clean_command,
+                json_dumps(clean_payload),
+                clean_reason,
                 utc_now(),
             ),
         )
@@ -226,7 +229,7 @@ class JobsRepository:
             action="job.approve",
             actor=actor,
             target=job_id,
-            payload={"reason": reason, "granularActionsPending": len(self._pending_actions(job_id))},
+            payload=redact_secrets({"reason": reason, "granularActionsPending": len(self._pending_actions(job_id))}),
         )
         if not self._pending_actions(job_id) and job["status"] == "approval_required":
             self.connection.execute(
@@ -254,7 +257,7 @@ class JobsRepository:
             SET status = 'approved', reason = ?, decided_at = ?, decided_by = ?
             WHERE id = ?
             """,
-            (reason or action["reason"], timestamp, actor, action_id),
+            (str(redact_secrets(reason or action["reason"])), timestamp, actor, action_id),
         )
         job = self.get_job(job_id)
         self.record_event(
@@ -268,11 +271,11 @@ class JobsRepository:
             action="action.approve",
             actor=actor,
             target=action_id,
-            payload={"jobId": job_id, "reason": reason},
+            payload=redact_secrets({"jobId": job_id, "reason": reason}),
         )
         permission_grant = SecurityPolicyRepository(self.connection).create_grant_from_action_request(
             action_request=self.get_action_request(action_id),
-            reason=reason or action["reason"],
+            reason=str(redact_secrets(reason or action["reason"])),
             granted_by=actor,
         )
         self.record_event(
@@ -312,7 +315,7 @@ class JobsRepository:
             SET status = 'denied', reason = ?, decided_at = ?, decided_by = ?
             WHERE id = ?
             """,
-            (reason or action["reason"], timestamp, actor, action_id),
+            (str(redact_secrets(reason or action["reason"])), timestamp, actor, action_id),
         )
         self.connection.execute(
             "UPDATE jobs SET status = 'cancelled', lease_owner = NULL, lease_expires_at = NULL, updated_at = ? WHERE id = ?",
@@ -325,7 +328,7 @@ class JobsRepository:
             action="action.deny",
             actor=actor,
             target=action_id,
-            payload={"jobId": job_id, "reason": reason},
+            payload=redact_secrets({"jobId": job_id, "reason": reason}),
         )
         return {"job": job, "actionRequest": self.get_action_request(action_id), "auditEvent": audit}
 
@@ -341,7 +344,7 @@ class JobsRepository:
             action="job.cancel",
             actor=actor,
             target=job_id,
-            payload={"reason": reason},
+            payload=redact_secrets({"reason": reason}),
         )
         return {"job": self.get_job(job_id), "auditEvent": audit}
 
@@ -358,9 +361,31 @@ class JobsRepository:
             action="job.retry",
             actor=actor,
             target=job_id,
-            payload={"reason": reason},
+            payload=redact_secrets({"reason": reason}),
         )
         return {"job": self.get_job(job_id), "auditEvent": audit}
+
+    def update_job_status(self, job_id: str, *, status: str, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
+        job = self.get_job(job_id)
+        payload = dict(job["payload"] or {})
+        if metadata is not None:
+            payload["result"] = redact_secrets(metadata)
+        payload = redact_secrets(payload)
+        self.connection.execute(
+            """
+            UPDATE jobs
+            SET status = ?, payload = ?, lease_owner = NULL, lease_expires_at = NULL, updated_at = ?
+            WHERE id = ?
+            """,
+            (status, json_dumps(payload), utc_now(), job_id),
+        )
+        self.record_event(
+            project_id=job["projectId"],
+            job_id=job_id,
+            event_type=f"job.{status}",
+            payload=redact_secrets(metadata or {}),
+        )
+        return self.get_job(job_id)
 
     def claim_next_job(self, *, worker_id: str, lease_ms: int = 300000) -> dict[str, Any] | None:
         timestamp = utc_now()
@@ -452,13 +477,15 @@ class JobsRepository:
     ) -> dict[str, Any]:
         job_status = "completed" if status == "completed" else "failed"
         timestamp = utc_now()
+        clean_summary = str(redact_secrets(summary))
+        clean_metadata = redact_secrets(metadata or {})
         self.connection.execute(
             """
             UPDATE job_runs
             SET status = ?, completed_at = ?, summary = ?, metadata = ?
             WHERE id = ?
             """,
-            (status, timestamp, summary, json_dumps(metadata or {}), run_id),
+            (status, timestamp, clean_summary, json_dumps(clean_metadata), run_id),
         )
         self.connection.execute(
             """
@@ -473,7 +500,7 @@ class JobsRepository:
             project_id=job["projectId"],
             job_id=job_id,
             event_type=f"job.{job_status}",
-            payload={"summary": summary, "metadata": metadata or {}},
+            payload={"summary": clean_summary, "metadata": clean_metadata},
         )
         return {
             "job": job,

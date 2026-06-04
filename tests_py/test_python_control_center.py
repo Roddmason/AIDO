@@ -434,10 +434,39 @@ def test_worker_records_runs_events_and_rejects_unapproved_actions(tmp_path: Pat
         result = worker.run_once(worker_id="worker-a")
 
         assert result["job"]["id"] == queued["id"]
-        assert result["job"]["status"] == "completed"
+        assert result["job"]["status"] == "failed"
         assert jobs.get_job(blocked["id"])["status"] == "approval_required"
-        assert jobs.list_job_runs(job_id=queued["id"])[-1]["status"] == "completed"
-        assert any(event["type"] == "job.completed" for event in EventBus(connection).list_events())
+        run = jobs.list_job_runs(job_id=queued["id"])[-1]
+        assert run["status"] == "failed"
+        assert run["metadata"]["status"] == "configuration_required"
+        assert "No real job executor" in run["summary"]
+        assert any(event["type"] == "job.failed" for event in EventBus(connection).list_events())
+
+
+def test_worker_fails_unknown_job_kind_instead_of_simulating_success(tmp_path: Path) -> None:
+    db_path = tmp_path / "platform.sqlite"
+    with open_sqlite_connection(db_path) as connection:
+        initialize_platform_schema(connection)
+        jobs = JobsRepository(connection)
+        project = ProjectsRepository(connection).create_project(
+            name="Unsupported Worker",
+            path=tmp_path / "unsupported-worker",
+            template_id="other",
+        )
+        queued = jobs.create_job(
+            project_id=project["id"],
+            kind="unknown.synthetic.kind",
+            payload={"value": "must not complete"},
+        )["job"]
+
+        result = ConcurrentWorker(db_path=db_path).run_once(worker_id="worker-unsupported")
+        run = jobs.list_job_runs(job_id=queued["id"])[-1]
+
+    assert result["job"]["id"] == queued["id"]
+    assert result["job"]["status"] == "failed"
+    assert run["status"] == "failed"
+    assert run["metadata"]["status"] == "unsupported_job_kind"
+    assert "Unsupported job kind" in run["summary"]
 
 
 def test_retrieval_index_uses_sqlite_metadata_and_is_rebuildable(tmp_path: Path) -> None:

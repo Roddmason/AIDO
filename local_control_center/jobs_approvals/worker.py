@@ -8,6 +8,14 @@ from local_control_center.shared.db import open_sqlite_connection
 from local_control_center.shared.migrations import initialize_platform_schema
 
 
+class JobExecutionUnavailable(RuntimeError):
+    def __init__(self, *, status: str, summary: str, metadata: dict):
+        super().__init__(summary)
+        self.status = status
+        self.summary = summary
+        self.metadata = metadata
+
+
 class ConcurrentWorker:
     def __init__(
         self,
@@ -42,6 +50,14 @@ class ConcurrentWorker:
                     status="completed",
                     summary=execution["summary"],
                     metadata=execution["metadata"],
+                )
+            except JobExecutionUnavailable as error:
+                return jobs.complete_job_run(
+                    job_id=claimed["job"]["id"],
+                    run_id=claimed["run"]["id"],
+                    status="failed",
+                    summary=error.summary,
+                    metadata={"status": error.status, **error.metadata},
                 )
             except Exception as error:
                 return jobs.complete_job_run(
@@ -86,26 +102,14 @@ def _process_worker_once(db_path: str, worker_id: str, lease_ms: int) -> dict | 
 
 def execute_job(job: dict) -> dict:
     kind = job["kind"]
-    payload = job.get("payload") or {}
-    if kind == "prompt.optimize":
-        return {
-            "summary": "Prompt optimization recorded for manual review",
-            "metadata": {"prompt": payload.get("prompt", "")},
-        }
-    if kind == "chat.route":
-        return {
-            "summary": "Chat routed through Python backend",
-            "metadata": {"prompt": payload.get("prompt", ""), "mode": payload.get("mode", "auto")},
-        }
-    if kind == "pipeline.intake":
-        pipeline_id = payload.get("pipelineId") or f"pipeline-{job['id']}"
-        return {
-            "summary": f"Pipeline intake completed: {pipeline_id}",
-            "metadata": {"pipelineId": pipeline_id},
-        }
-    if kind in {"pipeline.start", "pipeline.retry", "pipeline.stage.retry"}:
-        return {
-            "summary": f"Pipeline command accepted: {kind}",
-            "metadata": {"pipelineId": payload.get("pipelineId", "")},
-        }
-    return {"summary": f"Job completed: {kind}", "metadata": {}}
+    if kind in {"prompt.optimize", "chat.route", "pipeline.intake", "pipeline.start", "pipeline.retry", "pipeline.stage.retry"}:
+        raise JobExecutionUnavailable(
+            status="configuration_required",
+            summary=f"No real job executor is configured for {kind}.",
+            metadata={"kind": kind},
+        )
+    raise JobExecutionUnavailable(
+        status="unsupported_job_kind",
+        summary=f"Unsupported job kind: {kind}.",
+        metadata={"kind": kind},
+    )

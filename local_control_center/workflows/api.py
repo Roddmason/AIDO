@@ -9,6 +9,7 @@ from ..agents.model_router import ModelRouter, RoutingRequest
 from ..agents.routing_profiles import RoutingProfileStore
 from ..agents.repository import AgentsRepository
 from ..evidence.repository import EvidenceRepository
+from ..evidence.quality import qa_passed_without_failed_results
 from ..governance.repository import GovernanceRepository
 from ..governance.signals import record_governance_risk
 from ..jobs_approvals.repository import JobsRepository
@@ -16,6 +17,8 @@ from ..shared.event_bus import EventBus
 from ..shared.time import utc_now
 from ..workspaces_projects.repository import WorkspacesRepository
 from .models import (
+    IssueToPatchRequest,
+    IssueToPatchResponse,
     WorkflowCreateRequest,
     WorkflowDetailResponse,
     WorkflowGateAdvanceRequest,
@@ -25,6 +28,7 @@ from .models import (
     WorkflowStartResponse,
     WorkflowStatusChangeRequest,
 )
+from .issue_to_patch_runner import IssueToPatchRunner
 from .repository import WorkflowsRepository
 from .repository import validate_workflow_metadata
 
@@ -32,6 +36,7 @@ from .repository import validate_workflow_metadata
 ALLOWED_WORKFLOW_KINDS = {
     "idea_to_pr",
     "project_discovery",
+    "issue_to_patch",
     "issue_to_pr",
     "qa_validation",
     "release_candidate",
@@ -87,6 +92,23 @@ def validate_workflow_create_body(body: WorkflowCreateRequest) -> dict[str, Any]
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
     return {"project_id": payload["projectId"], "kind": kind, "title": title, "metadata": metadata}
+
+
+def validate_issue_to_patch_body(body: IssueToPatchRequest) -> dict[str, Any]:
+    payload = body.model_dump(by_alias=True)
+    title = str(payload.get("title") or "").strip()
+    issue_text = str(payload.get("issueText") or "").strip()
+    if not title:
+        raise HTTPException(status_code=422, detail="Issue title is required.")
+    if len(title) > 180:
+        raise HTTPException(status_code=422, detail="Issue title must be 180 characters or fewer.")
+    if not issue_text:
+        raise HTTPException(status_code=422, detail="issueText is required.")
+    qa_commands = payload.get("qaCommands") or []
+    for index, argv in enumerate(qa_commands):
+        if not isinstance(argv, list) or not argv or not all(isinstance(item, str) and item for item in argv):
+            raise HTTPException(status_code=422, detail=f"qaCommands[{index}] must be a non-empty structured argv list.")
+    return payload
 
 
 def create_router(*, platform: Any, require_write: Callable[[Request], None]) -> APIRouter:
@@ -173,7 +195,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         for package in packages:
             if evidence_package_id and package["id"] != evidence_package_id:
                 continue
-            if package["qaVerdict"] == "passed":
+            if qa_passed_without_failed_results(package):
                 return package
         return None
 
@@ -221,6 +243,28 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         )
         event_bus().record_event(project_id=workflow["projectId"], event_type="workflow.created", payload={"workflowId": workflow["id"]})
         return {"workflow": workflow}
+
+    @router.post("/api/v1/workflows/issue-to-patch", status_code=202, response_model=IssueToPatchResponse)
+    async def run_issue_to_patch(body: IssueToPatchRequest, request: Request) -> dict[str, Any]:
+        require_write(request)
+        payload = validate_issue_to_patch_body(body)
+        try:
+            result = IssueToPatchRunner(platform.connection, root=platform.cwd).run(payload)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        event_bus().record_event(
+            project_id=result["workflow"]["projectId"],
+            event_type=f"workflow.issue_to_patch.{result['status']}",
+            payload={
+                "workflowId": result["workflow"]["id"],
+                "workflowRunId": result["workflowRun"]["id"],
+                "runtimeId": result["runtime"]["id"],
+                "evidencePackageId": result["evidencePackage"]["id"],
+            },
+        )
+        return result
 
     @router.get("/api/v1/workflows/{workflow_id}", response_model=WorkflowDetailResponse)
     async def get_workflow(workflow_id: str) -> dict[str, Any]:

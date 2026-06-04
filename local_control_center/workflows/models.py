@@ -13,6 +13,7 @@ from local_control_center.workspaces_projects.models import WorkspaceRecord
 WorkflowKind = Literal[
     "idea_to_pr",
     "project_discovery",
+    "issue_to_patch",
     "issue_to_pr",
     "qa_validation",
     "release_candidate",
@@ -102,6 +103,32 @@ class WorkflowStartResponse(BaseModel):
     workflow: WorkflowRecord
     workflow_run: WorkflowRunRecord = Field(alias="workflowRun")
     workflow_steps: list[WorkflowStepRecord] = Field(alias="workflowSteps")
+
+
+class IssueToPatchRequest(BaseModel):
+    project_id: str = Field(alias="projectId")
+    title: str
+    issue_text: str = Field(alias="issueText")
+    target_path: str | None = Field(default=None, alias="targetPath")
+    preferred_runtime: str | None = Field(default=None, alias="preferredRuntime")
+    qa_commands: list[list[str]] = Field(default_factory=list, alias="qaCommands")
+    max_cost_usd: float | None = Field(default=None, alias="maxCostUsd")
+    require_approval: bool = Field(default=True, alias="requireApproval")
+
+
+class IssueToPatchResponse(BaseModel):
+    status: str
+    reason: str
+    workflow: WorkflowRecord
+    workflow_run: WorkflowRunRecord = Field(alias="workflowRun")
+    workflow_steps: list[WorkflowStepRecord] = Field(alias="workflowSteps")
+    workspace: WorkspaceRecord
+    job: JobRecord
+    agent_run: AgentRunRecord = Field(alias="agentRun")
+    evidence_package: EvidencePackageRecord = Field(alias="evidencePackage")
+    runtime: dict[str, Any]
+    qa_results: list[dict[str, Any]] = Field(alias="qaResults")
+    diff_summary: dict[str, Any] = Field(alias="diffSummary")
 
 
 class WorkflowGateAdvanceResponse(BaseModel):

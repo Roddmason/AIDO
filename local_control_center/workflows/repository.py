@@ -29,6 +29,7 @@ DEFAULT_WORKFLOW_STEPS = [
 
 RELEASE_CONTROL_STEPS = {"pr_review", "release_gate", "retro"}
 ALLOWED_DECLARED_STEP_NAMES = set(DEFAULT_WORKFLOW_STEPS) | RELEASE_CONTROL_STEPS
+ISSUE_TO_PATCH_STEPS = ["workspace_create", "implementation", "local_tests", "qa_validation", "technical_review"]
 BLOCKED_MAIN_OPERATIONS = {
     "commit_to_main",
     "direct_main_edit",
@@ -452,6 +453,33 @@ class WorkflowsRepository:
             payload={"reason": reason},
         )
         return self.get_workflow(workflow_id)
+
+    def update_workflow_run_status(
+        self,
+        run_id: str,
+        *,
+        status: str,
+        metadata: dict[str, Any] | None = None,
+        completed: bool = False,
+    ) -> dict[str, Any]:
+        current = self.get_workflow_run(run_id)
+        next_metadata = current["metadata"] if metadata is None else metadata
+        self.connection.execute(
+            """
+            UPDATE workflow_runs
+            SET status = ?, completed_at = CASE WHEN ? THEN ? ELSE completed_at END, metadata = ?
+            WHERE id = ?
+            """,
+            (status, 1 if completed else 0, utc_now(), json_dumps(next_metadata), run_id),
+        )
+        self.record_workflow_event(
+            workflow_id=current["workflowId"],
+            workflow_run_id=run_id,
+            project_id=current["projectId"],
+            event_type=f"workflow.run.{status}",
+            payload={"status": status},
+        )
+        return self.get_workflow_run(run_id)
 
     def get_workflow_run(self, run_id: str) -> dict[str, Any]:
         row = self.connection.execute("SELECT * FROM workflow_runs WHERE id = ?", (run_id,)).fetchone()

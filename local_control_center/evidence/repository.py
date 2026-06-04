@@ -4,9 +4,30 @@ import sqlite3
 import uuid
 from typing import Any
 
+from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.serialization import json_dumps, json_loads
 
 from local_control_center.shared.time import utc_now
+
+
+def _redact_diff_refs(diff_refs: list[Any]) -> list[Any]:
+    redacted: list[Any] = []
+    for diff_ref in diff_refs:
+        if not isinstance(diff_ref, dict):
+            redacted.append(redact_secrets(diff_ref))
+            continue
+        patch_fields = {
+            key: value
+            for key, value in diff_ref.items()
+            if key in {"patch", "patchFull"}
+        }
+        metadata_fields = {
+            key: value
+            for key, value in diff_ref.items()
+            if key not in patch_fields
+        }
+        redacted.append({**redact_secrets(metadata_fields), **patch_fields})
+    return redacted
 
 
 def row_to_evidence_package(row: sqlite3.Row) -> dict[str, Any]:
@@ -14,7 +35,12 @@ def row_to_evidence_package(row: sqlite3.Row) -> dict[str, Any]:
         "id": row["id"],
         "projectId": row["project_id"],
         "workflowRunId": row["workflow_run_id"],
+        "workflowStepId": row["workflow_step_id"] if "workflow_step_id" in row.keys() else None,
         "agentId": row["agent_id"],
+        "agentRunId": row["agent_run_id"] if "agent_run_id" in row.keys() else None,
+        "jobId": row["job_id"] if "job_id" in row.keys() else None,
+        "workspaceId": row["workspace_id"] if "workspace_id" in row.keys() else None,
+        "runtimeId": row["runtime_id"] if "runtime_id" in row.keys() else None,
         "taskId": row["task_id"],
         "testPlan": row["test_plan"],
         "acceptanceChecklist": json_loads(row["acceptance_checklist"], []),
@@ -23,6 +49,8 @@ def row_to_evidence_package(row: sqlite3.Row) -> dict[str, Any]:
         "diffRefs": json_loads(row["diff_refs"], []),
         "screenshotRefs": json_loads(row["screenshot_refs"], []),
         "riskNotes": json_loads(row["risk_notes"], []),
+        "artifactIds": json_loads(row["artifact_ids"], []) if "artifact_ids" in row.keys() else [],
+        "diffSummary": json_loads(row["diff_summary"], {}) if "diff_summary" in row.keys() else {},
         "qaVerdict": row["qa_verdict"],
         "createdAt": row["created_at"],
     }
@@ -64,44 +92,67 @@ class EvidenceRepository:
         *,
         project_id: str,
         workflow_run_id: str | None,
-        agent_id: str | None,
-        task_id: str,
-        test_plan: str,
+        workflow_step_id: str | None = None,
+        agent_id: str | None = None,
+        agent_run_id: str | None = None,
+        job_id: str | None = None,
+        workspace_id: str | None = None,
+        runtime_id: str | None = None,
+        task_id: str = "task",
+        test_plan: str = "",
         acceptance_checklist: list[Any] | None = None,
         test_results: list[Any] | None = None,
         logs: list[Any] | None = None,
         diff_refs: list[Any] | None = None,
         screenshot_refs: list[Any] | None = None,
         risk_notes: list[Any] | None = None,
+        artifact_ids: list[str] | None = None,
+        diff_summary: dict[str, Any] | None = None,
         qa_verdict: str = "not_started",
     ) -> dict[str, Any]:
         evidence_id = f"evidence-{uuid.uuid4()}"
+        clean_acceptance = redact_secrets(acceptance_checklist or [])
+        clean_test_results = redact_secrets(test_results or [])
+        clean_logs = redact_secrets(logs or [])
+        clean_diff_refs = _redact_diff_refs(diff_refs or [])
+        clean_screenshot_refs = redact_secrets(screenshot_refs or [])
+        clean_risk_notes = redact_secrets(risk_notes or [])
+        clean_artifact_ids = [str(item) for item in artifact_ids or [] if isinstance(item, str)]
+        clean_diff_summary = redact_secrets(diff_summary or {})
         self.connection.execute(
             """
             INSERT INTO evidence_packages
-                (id, project_id, workflow_run_id, agent_id, task_id, test_plan,
+                (id, project_id, workflow_run_id, workflow_step_id, agent_id, agent_run_id,
+                 job_id, workspace_id, runtime_id, task_id, test_plan,
                  acceptance_checklist, test_results, logs, diff_refs, screenshot_refs,
-                 risk_notes, qa_verdict, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 risk_notes, artifact_ids, diff_summary, qa_verdict, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 evidence_id,
                 project_id,
                 workflow_run_id,
+                workflow_step_id,
                 agent_id,
+                agent_run_id,
+                job_id,
+                workspace_id,
+                runtime_id,
                 task_id,
                 test_plan,
-                json_dumps(acceptance_checklist or []),
-                json_dumps(test_results or []),
-                json_dumps(logs or []),
-                json_dumps(diff_refs or []),
-                json_dumps(screenshot_refs or []),
-                json_dumps(risk_notes or []),
+                json_dumps(clean_acceptance),
+                json_dumps(clean_test_results),
+                json_dumps(clean_logs),
+                json_dumps(clean_diff_refs),
+                json_dumps(clean_screenshot_refs),
+                json_dumps(clean_risk_notes),
+                json_dumps(clean_artifact_ids),
+                json_dumps(clean_diff_summary),
                 qa_verdict,
                 utc_now(),
             ),
         )
-        for result in test_results or []:
+        for result in clean_test_results:
             self.connection.execute(
                 """
                 INSERT INTO test_results
@@ -117,7 +168,7 @@ class EvidenceRepository:
                     str(result.get("status", "unknown")),
                     result.get("durationMs"),
                     result.get("outputRef"),
-                    json_dumps(result.get("metadata") or {}),
+                    json_dumps(redact_secrets(result.get("metadata") or {})),
                     utc_now(),
                 ),
             )
@@ -142,6 +193,33 @@ class EvidenceRepository:
         if not row:
             raise KeyError(f"Evidence package not found: {evidence_id}")
         return row_to_evidence_package(row)
+
+    def update_evidence_links(
+        self,
+        evidence_id: str,
+        *,
+        agent_run_id: str | None = None,
+        artifact_ids: list[str] | None = None,
+        diff_summary: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        current = self.get_evidence_package(evidence_id)
+        next_agent_run_id = agent_run_id if agent_run_id is not None else current.get("agentRunId")
+        next_artifact_ids = artifact_ids if artifact_ids is not None else current.get("artifactIds", [])
+        next_diff_summary = diff_summary if diff_summary is not None else current.get("diffSummary", {})
+        self.connection.execute(
+            """
+            UPDATE evidence_packages
+            SET agent_run_id = ?, artifact_ids = ?, diff_summary = ?
+            WHERE id = ?
+            """,
+            (
+                next_agent_run_id,
+                json_dumps([str(item) for item in next_artifact_ids if isinstance(item, str)]),
+                json_dumps(redact_secrets(next_diff_summary or {})),
+                evidence_id,
+            ),
+        )
+        return self.get_evidence_package(evidence_id)
 
     def list_test_results(self, evidence_id: str) -> list[dict[str, Any]]:
         rows = self.connection.execute(
@@ -175,7 +253,7 @@ class EvidenceRepository:
                 kind,
                 path,
                 content_hash,
-                json_dumps(metadata or {}),
+                json_dumps(redact_secrets(metadata or {})),
                 utc_now(),
             ),
         )
@@ -222,7 +300,7 @@ class EvidenceRepository:
     def update_artifact_metadata(self, *, artifact_id: str, metadata: dict[str, Any]) -> dict[str, Any]:
         self.connection.execute(
             "UPDATE artifacts SET metadata = ? WHERE id = ?",
-            (json_dumps(metadata), artifact_id),
+            (json_dumps(redact_secrets(metadata)), artifact_id),
         )
         return self.get_artifact_by_id(artifact_id)
 

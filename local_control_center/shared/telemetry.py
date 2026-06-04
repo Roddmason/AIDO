@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 import sqlite3
 import time
 import uuid
@@ -9,10 +8,7 @@ import os
 from typing import Any, Protocol
 
 from .event_bus import EventBus
-
-
-SECRET_KEY_PATTERN = re.compile(r"(api[_-]?key|authorization|credential|secret|token)", re.I)
-SECRET_VALUE_PATTERN = re.compile(r"(sk-[A-Za-z0-9_-]{8,}|Bearer\s+[A-Za-z0-9._-]+)", re.I)
+from .redaction import redact_secrets
 
 
 class ExternalTelemetryExporter(Protocol):
@@ -225,15 +221,7 @@ def elapsed_ms(start_ms: float) -> int:
 
 
 def redact_telemetry(value: Any, *, key: str = "") -> Any:
-    if SECRET_KEY_PATTERN.search(key):
-        return "[redacted]"
-    if isinstance(value, dict):
-        return {item_key: redact_telemetry(item_value, key=str(item_key)) for item_key, item_value in value.items()}
-    if isinstance(value, list):
-        return [redact_telemetry(item) for item in value]
-    if isinstance(value, str):
-        return SECRET_VALUE_PATTERN.sub("[redacted]", value)
-    return value
+    return redact_secrets(value, key=key)
 
 
 def record_telemetry_event(

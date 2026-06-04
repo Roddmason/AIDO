@@ -6,6 +6,8 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from local_control_center.shared.redaction import redact_secrets
+
 
 INLINE_PATCH_LIMIT_BYTES = 12_000
 INLINE_LOG_LIMIT_BYTES = 12_000
@@ -155,15 +157,16 @@ def promote_large_logs(
     for log in logs:
         content = log.get("content")
         if not isinstance(content, str):
-            promoted_logs.append(log)
+            promoted_logs.append(redact_secrets(log))
             continue
+        content = str(redact_secrets(content))
         size = len(content.encode("utf-8"))
         if size <= INLINE_LOG_LIMIT_BYTES:
-            promoted_logs.append(log)
+            promoted_logs.append(redact_secrets({**log, "content": content}))
             continue
         artifact_id = f"artifact-{uuid.uuid4()}"
         artifact = write_text_artifact(root=root, artifact_id=artifact_id, suffix=".log", content=content)
-        sanitized = {key: value for key, value in log.items() if key != "content"}
+        sanitized = redact_secrets({key: value for key, value in log.items() if key != "content"})
         sanitized.update(
             {
                 "logArtifactId": artifact_id,
@@ -200,6 +203,8 @@ def promote_execution_result_outputs(
         content = promoted_result.get(stream)
         if not isinstance(content, str):
             continue
+        content = str(redact_secrets(content))
+        promoted_result[stream] = content
         size = len(content.encode("utf-8"))
         if size <= INLINE_LOG_LIMIT_BYTES:
             continue

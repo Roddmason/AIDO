@@ -2119,6 +2119,38 @@
       "en": "Runs",
       "es": "Corre"
     },
+    "ui.static.workflow.catalog": {
+      "en": "Workflow catalog",
+      "es": "Catalogo de workflows"
+    },
+    "ui.static.workflow.runs": {
+      "en": "Workflow runs",
+      "es": "Ejecuciones de workflows"
+    },
+    "ui.static.selected.workflow.steps": {
+      "en": "Selected workflow steps",
+      "es": "Pasos del workflow seleccionado"
+    },
+    "ui.static.no.workflow.steps": {
+      "en": "No workflow steps",
+      "es": "Sin pasos de workflow"
+    },
+    "ui.static.no.selected.workflow.steps": {
+      "en": "No selected workflow steps",
+      "es": "Sin pasos del workflow seleccionado"
+    },
+    "ui.static.select.or.start.workflow.run.before.reading.graph": {
+      "en": "Select or start a workflow run before reading a graph.",
+      "es": "Selecciona o inicia una ejecucion de workflow antes de leer el grafo."
+    },
+    "ui.static.inspect.workflow.with.run.to.see.step.plan": {
+      "en": "Inspect a workflow with a run to see its step plan.",
+      "es": "Inspecciona un workflow con una ejecucion para ver su plan de pasos."
+    },
+    "ui.static.starting.workflow.creates.run.record": {
+      "en": "Starting a workflow creates a run record.",
+      "es": "Iniciar un workflow crea un registro de ejecucion."
+    },
     "ui.static.runtime.c4740e4c": {
       "en": "Runtime",
       "es": "Entorno de ejecución"
@@ -2694,6 +2726,130 @@
     "ui.static.tokens.today.6e3f00fd": {
       "en": "tokens today",
       "es": "tokens hoy"
+    },
+    "ui.static.a.run.record.appears.after.workflow.execution.starts.2d1d2f67": {
+      "en": "A run record appears after workflow execution starts.",
+      "es": "Aparece un registro de ejecución después de iniciar el flujo de trabajo."
+    },
+    "ui.static.agent.run.b458871f": {
+      "en": "Agent run",
+      "es": "Ejecución de agente"
+    },
+    "ui.static.agent.run.records.appear.after.runtime.selection.72e0d9bd": {
+      "en": "Agent run records appear after runtime selection.",
+      "es": "Los registros de ejecución de agente aparecen después de seleccionar el runtime."
+    },
+    "ui.static.completeness.4008e0b6": {
+      "en": "Completeness",
+      "es": "Completitud"
+    },
+    "ui.static.flags.4f8a7b4a": {
+      "en": "Flags",
+      "es": "Indicadores"
+    },
+    "ui.static.issue.text.5cc6e2d3": {
+      "en": "Issue text",
+      "es": "Texto del issue"
+    },
+    "ui.static.issue.title.1540b0f3": {
+      "en": "Issue title",
+      "es": "Título del issue"
+    },
+    "ui.static.no.qa.command.50e80475": {
+      "en": "No QA command",
+      "es": "Sin comando de QA"
+    },
+    "ui.static.no.agent.runs.5482c9e5": {
+      "en": "No agent runs",
+      "es": "No hay ejecuciones de agente"
+    },
+    "ui.static.no.runtime.provider.status.70888a8d": {
+      "en": "No runtime provider status",
+      "es": "No hay estado de proveedores runtime"
+    },
+    "ui.static.no.runtime.providers.c1247c5c": {
+      "en": "No runtime providers",
+      "es": "No hay proveedores runtime"
+    },
+    "ui.static.no.workflow.runs.8d9fb674": {
+      "en": "No workflow runs",
+      "es": "No hay ejecuciones de workflow"
+    },
+    "ui.static.optional.repository.relative.path.a71d7403": {
+      "en": "Optional repository-relative path",
+      "es": "Ruta opcional relativa al repositorio"
+    },
+    "ui.static.preferred.runtime.6b68068f": {
+      "en": "Preferred runtime",
+      "es": "Runtime preferido"
+    },
+    "ui.static.python.tests.3e8b6a1b": {
+      "en": "Python tests",
+      "es": "Tests de Python"
+    },
+    "ui.static.qa.preset.ae34c0b1": {
+      "en": "QA preset",
+      "es": "Preset de QA"
+    },
+    "ui.static.qa.verdict.48a65c68": {
+      "en": "QA verdict",
+      "es": "Veredicto de QA"
+    },
+    "ui.static.required.config.4e5f80c9": {
+      "en": "Required config",
+      "es": "Configuración requerida"
+    },
+    "ui.static.quality.suite.01a5288b": {
+      "en": "Quality suite",
+      "es": "Suite de calidad"
+    },
+    "ui.static.run.44c29edb": {
+      "en": "Run",
+      "es": "Ejecución"
+    },
+    "ui.static.runtime.providers.0acdc40d": {
+      "en": "Runtime Providers",
+      "es": "Proveedores runtime"
+    },
+    "ui.static.runtime.and.run.state.944e320d": {
+      "en": "Runtime and run state",
+      "es": "Runtime y estado de ejecución"
+    },
+    "ui.static.runtime.discovery.has.not.returned.provider.status.records.baf9776d": {
+      "en": "Runtime discovery has not returned provider status records.",
+      "es": "El descubrimiento de runtime no ha devuelto registros de estado de proveedores."
+    },
+    "ui.static.runtime.status.will.appear.after.provider.discovery.completes.53da104a": {
+      "en": "Runtime status will appear after provider discovery completes.",
+      "es": "El estado del runtime aparecerá después de completar el descubrimiento de proveedores."
+    },
+    "ui.static.runtime.use.5566ba81": {
+      "en": "Runtime use",
+      "es": "Uso del runtime"
+    },
+    "ui.static.state.46a2a41c": {
+      "en": "State",
+      "es": "Estado"
+    },
+    "ui.static.target.path.65e22c3f": {
+      "en": "Target path",
+      "es": "Ruta objetivo"
+    },
+    "ui.static.web.tests.fb1b43aa": {
+      "en": "Web tests",
+      "es": "Tests web"
+    },
+    "ui.static.executable.runtimes.f27d567f": {
+      "en": "executable runtimes",
+      "es": "runtimes ejecutables"
+    },
+    "ui.static.issue.to.patch.real.runtime.d66c0515": {
+      "en": "issue_to_patch real runtime",
+      "es": "runtime real issue_to_patch"
+    },
+    "ui.static.unavailable.runtimes.a6f44775": {
+      "en": "unavailable runtimes",
+      "es": "runtimes no disponibles"
     },
     "ui.static.project.selection.audit.maintainers.2a477f9d": {
       "en": "Project selection, all-project audit visibility, technical mantenedores and runtime defaults live here instead of the daily operation surface.",

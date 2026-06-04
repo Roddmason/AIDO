@@ -102,6 +102,8 @@ export function ActiveProjectsPage({
 	const visibleProjects = overview.projects.filter((project) => matchesProjectStatus(project.status, statusView));
 	const pendingApprovals = overview.actionRequests.filter((item) => item.status === 'pending').length;
 	const runningJobs = countByStatus(overview.jobs, 'running');
+	const executableRuntimes = runtimeProviders?.providers.filter((provider) => provider.executable).length ?? 0;
+	const runtimeCount = runtimeProviders?.providers.length ?? 0;
 	const projectWorkspaces = (projectId: string) => overview.runtimeWorkspaces.filter((workspace) => workspace.projectId === projectId);
 	const projectJobs = (projectId: string) => overview.jobs.filter((job) => job.projectId === projectId);
 	const projectEvents = (projectId: string) => overview.events.filter((event) => event.projectId === projectId);
@@ -130,9 +132,9 @@ export function ActiveProjectsPage({
 					<div className="metric-label">granular action requests</div>
 				</Surface>
 				<Surface>
-					<div className="inline"><StatusDot tone={runtimeProviders?.ollama.available ? 'ok' : 'warn'} /> Local runtime</div>
-					<div className="metric-value">{runtimeProviders?.ollama.available ? 'ready' : 'off'}</div>
-					<div className="metric-label">Ollama is optional</div>
+					<div className="inline"><StatusDot tone={executableRuntimes ? 'ok' : 'warn'} /> Runtime providers</div>
+					<div className="metric-value">{executableRuntimes}</div>
+					<div className="metric-label">{runtimeCount} providers reported</div>
 				</Surface>
 			</div>
 			<Surface title={statusView === 'active' ? 'Active project register' : 'Project register'}>

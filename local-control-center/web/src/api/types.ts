@@ -21,6 +21,7 @@ import type {
 	RetrievalStatusResponse,
 	RiskCreateRequest,
 	RiskRecord as GeneratedRiskRecord,
+	RuntimeProviderStatus,
 	RuntimeProvidersResponse,
 	SessionRecord,
 	TeamRecord,
@@ -51,6 +52,7 @@ export type Artifact = ArtifactRecord;
 export type PolicyRevision = PolicyRevisionRecord;
 export type Overview = OverviewResponse;
 export type RuntimeProviders = RuntimeProvidersResponse;
+export type RuntimeProvider = RuntimeProviderStatus;
 export type RetrievalStatus = RetrievalStatusResponse;
 export type AgentRole = NonNullable<AgentProfileUpsertRequest['role']>;
 export type AgentRuntimeMode = NonNullable<AgentProfileUpsertRequest['runtimeMode']>;

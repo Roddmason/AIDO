@@ -32,14 +32,16 @@ function edgesFromNodes(nodes: Node[]): Edge[] {
 	}));
 }
 
+function objectValue(value: unknown): Record<string, unknown> {
+	return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
 export function WorkflowsPage({ overview, token }: { overview: Overview; token: string }) {
 	const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(null);
 	const [previewArtifact, setPreviewArtifact] = useState<Artifact | null>(null);
 	const [previewPayload, setPreviewPayload] = useState<ArtifactPayload | null>(null);
 	const [previewLoadingId, setPreviewLoadingId] = useState('');
 	const [previewError, setPreviewError] = useState('');
-	const nodes = nodesFromSteps(overview.workflowSteps);
-	const edges = edgesFromNodes(nodes);
 	useEffect(() => {
 		const onKeyDown = (event: KeyboardEvent) => {
 			if (event.key === 'Escape') {
@@ -136,6 +138,8 @@ export function WorkflowsPage({ overview, token }: { overview: Overview; token: 
 			approvals: overview.actionRequests.filter((approval) => jobIds.has(approval.jobId)),
 		};
 	}, [overview, selectedWorkflow]);
+	const nodes = nodesFromSteps(linked.steps);
+	const edges = edgesFromNodes(nodes);
 	return (
 		<>
 			<PageHeader
@@ -144,15 +148,19 @@ export function WorkflowsPage({ overview, token }: { overview: Overview; token: 
 				summary="Durable workflow runs with steps, evidence and permission checkpoints represented as operational state."
 			/>
 			<Surface title="Workflow graph">
-				<div className="flow-board" aria-label="Workflow graph">
-					<ReactFlow nodes={nodes} edges={edges} fitView>
-						<Background />
-						<Controls />
-					</ReactFlow>
-				</div>
+				{selectedWorkflow && nodes.length ? (
+					<div className="flow-board" aria-label={`Workflow graph for ${selectedWorkflow.title}`}>
+						<ReactFlow nodes={nodes} edges={edges} fitView>
+							<Background />
+							<Controls />
+						</ReactFlow>
+					</div>
+				) : (
+					<EmptyState title="No workflow steps" body="Select or start a workflow run before reading a graph." />
+				)}
 			</Surface>
 			<div className="grid two">
-				<Surface title="Runs">
+				<Surface title="Workflow catalog">
 					<DataTable
 						rows={overview.workflows}
 						empty={<EmptyState title="No workflows" body="Command Center can create a workflow when a project is selected." />}
@@ -171,10 +179,25 @@ export function WorkflowsPage({ overview, token }: { overview: Overview; token: 
 						]}
 					/>
 				</Surface>
-				<Surface title="Steps">
+				<Surface title="Workflow runs">
 					<DataTable
-						rows={overview.workflowSteps}
-						empty={<EmptyState title="No steps" body="Starting a workflow expands the SDLC step plan." />}
+						rows={linked.runs}
+						empty={<EmptyState title="No workflow runs" body="Starting a workflow creates a run record." />}
+						columns={[
+							{ key: 'run', label: 'Run', render: (row) => <span className="mono">{shortId(String(row.id ?? ''))}</span> },
+							{
+								key: 'workflow',
+								label: 'Workflow',
+								render: (row) => <span className="mono">{shortId(String(row.workflowId ?? ''))}</span>,
+							},
+							{ key: 'status', label: 'Status', render: (row) => <Badge tone={toneForStatus(String(row.status ?? ''))}>{String(row.status ?? '')}</Badge> },
+						]}
+					/>
+				</Surface>
+				<Surface title="Selected workflow steps">
+					<DataTable
+						rows={linked.steps}
+						empty={<EmptyState title="No selected workflow steps" body="Inspect a workflow with a run to see its step plan." />}
 						columns={[
 							{ key: 'name', label: 'Step', render: (row) => <span className="mono">{row.name}</span> },
 							{ key: 'status', label: 'Status', render: (row) => <Badge tone={toneForStatus(row.status)}>{row.status}</Badge> },
@@ -194,6 +217,51 @@ export function WorkflowsPage({ overview, token }: { overview: Overview; token: 
 									<span className="mono">{selectedWorkflow.kind ?? 'workflow'}</span>
 								</div>
 							</Surface>
+							<Surface title="Runtime and run state" flat>
+								<DataTable rows={linked.runs} empty={<EmptyState title="No workflow runs" body="A run record appears after workflow execution starts." />} columns={[
+									{ key: 'run', label: 'Run', render: (row) => <span className="mono">{shortId(String(row.id ?? ''))}</span> },
+									{ key: 'status', label: 'Status', render: (row) => <Badge tone={toneForStatus(String(row.status ?? ''))}>{String(row.status ?? '')}</Badge> },
+									{
+										key: 'runtime',
+										label: 'Runtime',
+										render: (row) => {
+											const metadata = objectValue(row.metadata);
+											const runtime = objectValue(metadata.runtime);
+											return <span className="mono">{String(runtime.id ?? 'not selected')}</span>;
+										},
+									},
+									{
+										key: 'qa',
+										label: 'QA verdict',
+										render: (row) => {
+											const metadata = objectValue(row.metadata);
+											return <Badge tone={toneForStatus(String(metadata.qaVerdict ?? 'not_run'))}>{String(metadata.qaVerdict ?? 'not_run')}</Badge>;
+										},
+									},
+									{
+										key: 'diff',
+										label: 'Diff',
+										render: (row) => {
+											const metadata = objectValue(row.metadata);
+											const diff = objectValue(metadata.diffSummary);
+											const changedFiles = Array.isArray(diff.changedFiles) ? diff.changedFiles.length : Number(diff.changedFiles ?? 0);
+											return <span className="mono">{String(diff.state ?? 'not captured')} / {Number.isFinite(changedFiles) ? changedFiles : 0} files</span>;
+										},
+									},
+								]} />
+								<DataTable rows={linked.agentRuns} empty={<EmptyState title="No agent runs" body="Agent run records appear after runtime selection." />} columns={[
+									{ key: 'agent', label: 'Agent run', render: (row) => <span className="mono">{shortId(String(row.id ?? ''))}</span> },
+									{
+										key: 'profile',
+										label: 'Profile',
+										render: (row) => {
+											const metadata = objectValue(row.metadata);
+											return <span className="mono">{String(metadata.agentProfileId ?? metadata.runtimeType ?? 'unknown')}</span>;
+										},
+									},
+									{ key: 'status', label: 'Status', render: (row) => <Badge tone={toneForStatus(String(row.status ?? ''))}>{String(row.status ?? '')}</Badge> },
+								]} />
+							</Surface>
 							<Surface title="Steps" flat>
 								<DataTable rows={linked.steps} empty={<EmptyState title="No steps" body="Start the workflow to expand steps." />} columns={[
 									{ key: 'name', label: 'Step', render: (row) => <span className="mono">{row.name}</span> },
@@ -204,6 +272,16 @@ export function WorkflowsPage({ overview, token }: { overview: Overview; token: 
 								<DataTable rows={linked.evidence} empty={<EmptyState title="No evidence" body="QA packages linked to this workflow run appear here." />} columns={[
 									{ key: 'task', label: 'Task', render: (row) => String(row.taskId ?? '') },
 									{ key: 'verdict', label: 'Verdict', render: (row) => <Badge tone={toneForStatus(String(row.qaVerdict ?? ''))}>{String(row.qaVerdict ?? '')}</Badge> },
+									{ key: 'diffs', label: 'Diff refs', render: (row) => String(Array.isArray(row.diffRefs) ? row.diffRefs.length : 0) },
+									{
+										key: 'completeness',
+										label: 'Completeness',
+										render: (row) => {
+											const hasQa = Array.isArray(row.testResults) && row.testResults.length > 0;
+											const hasDiffRefs = Array.isArray(row.diffRefs) && row.diffRefs.length > 0;
+											return <span className="mono">{hasQa && hasDiffRefs ? 'complete' : 'partial'}</span>;
+										},
+									},
 								]} />
 								<DataTable rows={linked.testResults} empty={<EmptyState title="No test records" body="Test results appear after evidence ingestion." />} columns={[
 									{ key: 'command', label: 'Command', render: (row) => <span className="mono">{String(row.command ?? '')}</span> },
@@ -273,6 +351,15 @@ export function WorkflowsPage({ overview, token }: { overview: Overview; token: 
 								<DataTable rows={linked.jobs} empty={<EmptyState title="No jobs" body="Jobs linked to workflow runs appear here." />} columns={[
 									{ key: 'kind', label: 'Kind', render: (row) => <span className="mono">{row.kind}</span> },
 									{ key: 'status', label: 'Status', render: (row) => <Badge tone={toneForStatus(row.status)}>{row.status}</Badge> },
+									{
+										key: 'runtime',
+										label: 'Runtime',
+										render: (row) => {
+											const payload = objectValue(row.payload);
+											const runtime = objectValue(payload.runtime);
+											return <span className="mono">{String(runtime.id ?? 'not selected')}</span>;
+										},
+									},
 								]} />
 							</Surface>
 						</>

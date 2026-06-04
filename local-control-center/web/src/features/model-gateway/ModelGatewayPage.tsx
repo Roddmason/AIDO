@@ -121,8 +121,8 @@ export function ModelGatewayPage({
 	const [busyAction, setBusyAction] = useState('');
 	const [policyId, setPolicyId] = useState('implementation_default');
 	const [policyName, setPolicyName] = useState('Implementation Default');
-	const [policyProvider, setPolicyProvider] = useState('internal_mock');
-	const [policyModel, setPolicyModel] = useState('mock');
+	const [policyProvider, setPolicyProvider] = useState('ollama');
+	const [policyModel, setPolicyModel] = useState('');
 	const [policyMaxCostUsd, setPolicyMaxCostUsd] = useState('1');
 	const [policyMaxTokens, setPolicyMaxTokens] = useState('4000');
 	const [policyAllowRemote, setPolicyAllowRemote] = useState(false);
@@ -225,17 +225,37 @@ export function ModelGatewayPage({
 	}, [decisionFilter, gateway.routingDecisions]);
 
 	const totalCost = overview.costUsage.reduce((sum, row) => sum + Number(row.amountUsd ?? 0), 0);
-	const providerCatalog = useMemo(
-		() => [
-			{ provider: 'internal_mock', models: ['mock'], remote: false },
-			{ provider: 'ollama', models: runtimeProviders?.ollama.models ?? [], remote: false },
-			{ provider: 'openai_compatible', models: ['catalog/openai-compatible-default'], remote: true },
-			{ provider: 'openrouter', models: ['openrouter/auto'], remote: true },
-			{ provider: 'openai_agents', models: ['openai-agents/catalog-default'], remote: true },
-		],
-		[runtimeProviders],
-	);
+	const providerCatalog = useMemo(() => {
+		const modelsFor = (providerId: string) =>
+			Array.from(
+				new Set(
+					gateway.models
+						.filter((item) => item.providerId === providerId && item.enabled !== false)
+						.map((item) => text(item.model, ''))
+						.filter(Boolean),
+				),
+			);
+		return [
+			{ provider: 'ollama', models: Array.from(new Set([...(runtimeProviders?.ollama.models ?? []), ...modelsFor('ollama')])), remote: false },
+			{ provider: 'openai_compatible', models: modelsFor('openai_compatible'), remote: true },
+			{ provider: 'openrouter', models: modelsFor('openrouter'), remote: true },
+			{ provider: 'openai_agents', models: modelsFor('openai_agents'), remote: true },
+		];
+	}, [gateway.models, runtimeProviders]);
 	const modelOptions = providerCatalog.find((item) => item.provider === policyProvider)?.models ?? [];
+	useEffect(() => {
+		const currentCatalog = providerCatalog.find((item) => item.provider === policyProvider);
+		if (!currentCatalog) {
+			const firstAvailable = providerCatalog.find((item) => item.models.length > 0);
+			if (firstAvailable) {
+				setPolicyProvider(firstAvailable.provider);
+				setPolicyModel(firstAvailable.models[0] ?? '');
+			}
+			return;
+		}
+		if (policyModel && currentCatalog.models.includes(policyModel)) return;
+		setPolicyModel(currentCatalog.models[0] ?? '');
+	}, [policyModel, policyProvider, providerCatalog]);
 	const benchmarkModelOptions = useMemo(() => {
 		const models = gateway.models.filter((item) => item.providerId === benchmarkProvider).map((item) => text(item.model, '')).filter(Boolean);
 		return models.length ? models : [benchmarkModel || 'configured_model'];
@@ -250,6 +270,9 @@ export function ModelGatewayPage({
 			return true;
 		});
 	}, [createdPolicies, overview.modelPolicies]);
+	const runtimeRows = runtimeProviders?.providers ?? [];
+	const executableRuntimeCount = runtimeRows.filter((runtime) => runtime.executable).length;
+	const unavailableRuntimeCount = runtimeRows.filter((runtime) => !runtime.available).length;
 
 	const runProviderAction = async (providerId: string, action: 'toggle' | 'health' | 'discover') => {
 		setBusyAction(`${providerId}:${action}`);
@@ -402,6 +425,38 @@ export function ModelGatewayPage({
 					<Metric label="providers in cooldown" value={gateway.overview.providersInCooldown} />
 					<Metric label="active CLI sessions" value={gateway.overview.activeCliSessions} />
 				</div>
+			</Surface>
+
+			<Surface title="Runtime Providers">
+				<DataTable rows={runtimeRows} empty={<EmptyState title="No runtime provider status" body="Runtime discovery has not returned provider status records." />} columns={[
+					{ key: 'runtime', label: 'Runtime', render: (row) => <span className="mono">{row.id}</span> },
+					{ key: 'kind', label: 'Kind', render: (row) => <Badge>{row.kind}</Badge> },
+					{
+						key: 'state',
+						label: 'State',
+						render: (row) => (
+							<div className="inline">
+								<Badge tone={row.detected ? 'ok' : 'warn'}>{row.detected ? 'detected' : 'not detected'}</Badge>
+								<Badge tone={row.configured ? 'ok' : 'warn'}>{row.configured ? 'configured' : 'unconfigured'}</Badge>
+								<Badge tone={row.available ? 'ok' : 'warn'}>{row.available ? 'available' : 'unavailable'}</Badge>
+								<Badge tone={row.executable ? 'ok' : 'warn'}>{row.executable ? 'executable' : 'not executable'}</Badge>
+							</div>
+						),
+					},
+					{
+						key: 'capabilities',
+						label: 'Capabilities',
+						render: (row) => (
+							<div className="inline">
+								{row.requiresApproval ? <Badge tone="warn">approval</Badge> : null}
+								{row.capabilities?.length ? row.capabilities.map((capability) => <Badge key={capability}>{capability}</Badge>) : <Badge tone="warn">none</Badge>}
+							</div>
+						),
+					},
+					{ key: 'command', label: 'Command', render: (row) => <span className="mono">{row.detectedCommand ?? 'n/a'}</span> },
+					{ key: 'requiredConfiguration', label: 'Required config', render: (row) => (row.requiredConfiguration?.length ? row.requiredConfiguration.join(', ') : 'n/a') },
+					{ key: 'reason', label: 'Reason', render: (row) => String(row.reason ?? '') },
+				]} />
 			</Surface>
 
 			<RoutePreviewPanel
@@ -566,7 +621,8 @@ export function ModelGatewayPage({
 					<Metric label="default routing mode" value="balanced_best_value" />
 					<Metric label="real provider calls" value="disabled by default" />
 					<Metric label="CLI runtimes" value="disabled by default" />
-					<Metric label="Ollama status" value={runtimeProviders?.ollama.available ? 'ready' : 'optional'} />
+					<Metric label="executable runtimes" value={executableRuntimeCount} />
+					<Metric label="unavailable runtimes" value={unavailableRuntimeCount} />
 					<Metric label="legacy model usage total" value={money(totalCost)} />
 				</div>
 			</Surface>

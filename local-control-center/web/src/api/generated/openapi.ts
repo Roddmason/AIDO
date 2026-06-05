@@ -171,6 +171,10 @@ export type ProviderLimitResponse = { "providerLimit": ProviderLimitRecord };
 export type ProviderLimitsListResponse = { "providerLimits": Array<ProviderLimitRecord> };
 export type ProviderRecord = { "capabilities": Array<JsonValue>; "id": string; "kind": string; "label": string; "metadata": JsonObject; "models": Array<JsonValue>; "status": string; "updatedAt": string };
 export type ProvidersListResponse = { "providers": Array<ProviderRecord> };
+export type QAAgentCommandRequest = { "argv": Array<string>; "critical"?: boolean; "label"?: null | string; "timeoutSeconds"?: null | number };
+export type QAAgentContract = { "allowedTools": Array<string>; "id": string; "inputSchema": JsonObject; "outputSchema": JsonObject; "requiredEvidence": boolean; "requiredRuntimeCapabilities": Array<string>; "requiredWorkspace": boolean; "verdictSource": string };
+export type QAAgentRunRequest = { "commands"?: Array<QAAgentCommandRequest>; "metadata"?: JsonObject; "projectId": string; "taskId"?: string; "workspaceId": string };
+export type QAAgentRunResponse = { "agentRun": AgentRunRecord; "contract": QAAgentContract; "evidencePackage": JsonObject; "job": JsonObject; "reason": string; "results": Array<JsonObject>; "status": string; "verdict": string; "workspace": JsonObject };
 export type RequiredReasonRequest = { "reason": string };
 export type RestrictedSubprocessStatus = { "available": boolean; "fallbackOnlyForLowRisk": boolean; "requiresArgv": boolean; "shell": boolean; "workspaceBound": boolean };
 export type RetrievalIndexSummary = { "backend": string; "dimensions": number; "ids": Array<string>; "indexed": number };
@@ -265,6 +269,7 @@ export const API_ENDPOINTS = [
 	{"method": "GET", "operationId": "agents_api_v1_agents_get", "path": "/api/v1/agents", "summary": "Agents"},
 	{"method": "POST", "operationId": "run_developer_agent_api_v1_agents_developer_runs_post", "path": "/api/v1/agents/developer/runs", "summary": "Run Developer Agent"},
 	{"method": "GET", "operationId": "developer_agent_status_api_v1_agents_developer_status_get", "path": "/api/v1/agents/developer/status", "summary": "Developer Agent Status"},
+	{"method": "POST", "operationId": "run_qa_agent_api_v1_agents_qa_runs_post", "path": "/api/v1/agents/qa/runs", "summary": "Run Qa Agent"},
 	{"method": "GET", "operationId": "approvals_api_v1_approvals_get", "path": "/api/v1/approvals", "summary": "Approvals"},
 	{"method": "GET", "operationId": "list_architecture_decisions_api_v1_architecture_decisions_get", "path": "/api/v1/architecture-decisions", "summary": "List Architecture Decisions"},
 	{"method": "POST", "operationId": "create_architecture_decision_api_v1_architecture_decisions_post", "path": "/api/v1/architecture-decisions", "summary": "Create Architecture Decision"},
@@ -507,6 +512,7 @@ export type OperationRequestBodies = {
 	"route_preview_api_v1_model_gateway_route_preview_post": RoutingPreviewRequest,
 	"run_developer_agent_api_v1_agents_developer_runs_post": DeveloperAgentRunRequest,
 	"run_issue_to_patch_api_v1_workflows_issue_to_patch_post": IssueToPatchRequest,
+	"run_qa_agent_api_v1_agents_qa_runs_post": QAAgentRunRequest,
 	"sandbox_status_api_v1_sandbox_status_get": never,
 	"select_directory_api_v1_local_paths_select_directory_post": DirectoryPickerRequest,
 	"start_workflow_api_v1_workflows__workflow_id__start_post": WorkflowStatusChangeRequest,
@@ -636,6 +642,7 @@ export type OperationResponseBodies = {
 	"route_preview_api_v1_model_gateway_route_preview_post": RoutingPreviewResponse,
 	"run_developer_agent_api_v1_agents_developer_runs_post": DeveloperAgentRunResponse,
 	"run_issue_to_patch_api_v1_workflows_issue_to_patch_post": IssueToPatchResponse,
+	"run_qa_agent_api_v1_agents_qa_runs_post": QAAgentRunResponse,
 	"sandbox_status_api_v1_sandbox_status_get": SandboxStatusResponse,
 	"select_directory_api_v1_local_paths_select_directory_post": DirectoryPickerResponse,
 	"start_workflow_api_v1_workflows__workflow_id__start_post": WorkflowStartResponse,
@@ -663,6 +670,7 @@ export const OPERATIONS_BY_ID = {
 	"agents_api_v1_agents_get": {"method": "GET", "operationId": "agents_api_v1_agents_get", "path": "/api/v1/agents", "summary": "Agents"},
 	"run_developer_agent_api_v1_agents_developer_runs_post": {"method": "POST", "operationId": "run_developer_agent_api_v1_agents_developer_runs_post", "path": "/api/v1/agents/developer/runs", "summary": "Run Developer Agent"},
 	"developer_agent_status_api_v1_agents_developer_status_get": {"method": "GET", "operationId": "developer_agent_status_api_v1_agents_developer_status_get", "path": "/api/v1/agents/developer/status", "summary": "Developer Agent Status"},
+	"run_qa_agent_api_v1_agents_qa_runs_post": {"method": "POST", "operationId": "run_qa_agent_api_v1_agents_qa_runs_post", "path": "/api/v1/agents/qa/runs", "summary": "Run Qa Agent"},
 	"approvals_api_v1_approvals_get": {"method": "GET", "operationId": "approvals_api_v1_approvals_get", "path": "/api/v1/approvals", "summary": "Approvals"},
 	"list_architecture_decisions_api_v1_architecture_decisions_get": {"method": "GET", "operationId": "list_architecture_decisions_api_v1_architecture_decisions_get", "path": "/api/v1/architecture-decisions", "summary": "List Architecture Decisions"},
 	"create_architecture_decision_api_v1_architecture_decisions_post": {"method": "POST", "operationId": "create_architecture_decision_api_v1_architecture_decisions_post", "path": "/api/v1/architecture-decisions", "summary": "Create Architecture Decision"},

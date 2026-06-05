@@ -7,6 +7,7 @@ from dataclasses import dataclass
 ALLOWED_PNPM_TEST_SCRIPTS = frozenset({"test", "test:py", "test:web", "test:e2e"})
 ALLOWED_PNPM_BUILD_SCRIPTS = frozenset({"build", "build:web", "build:control-center"})
 ALLOWED_PNPM_LINT_SCRIPTS = frozenset({"lint", "lint:py", "lint:web"})
+ALLOWED_PNPM_TYPECHECK_SCRIPTS = frozenset({"typecheck", "typecheck:web"})
 PACKAGE_SCRIPT_HOOKS = frozenset(
     {
         "preinstall",
@@ -78,6 +79,8 @@ def pnpm_script_category(parsed: ParsedCommand) -> str | None:
         return "build"
     if script in ALLOWED_PNPM_LINT_SCRIPTS:
         return "lint"
+    if script in ALLOWED_PNPM_TYPECHECK_SCRIPTS:
+        return "typecheck"
     return "package_script"
 
 
@@ -99,7 +102,7 @@ def package_manager_category(parsed: ParsedCommand) -> str | None:
 
 def low_risk_shell_category(parsed: ParsedCommand) -> str | None:
     pnpm_category = pnpm_script_category(parsed)
-    if pnpm_category in {"test", "build", "lint"}:
+    if pnpm_category in {"test", "build", "lint", "typecheck"}:
         return pnpm_category
     if parsed.executable in {"uv", "uv.exe"} and len(parsed.args) >= 2 and parsed.args[0] == "run":
         if parsed.args[1] == "pytest":

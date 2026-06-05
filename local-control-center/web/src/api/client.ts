@@ -22,6 +22,8 @@ export type IssueToPatchResponse = OperationResponse<'run_issue_to_patch_api_v1_
 export type DeveloperAgentRunRequest = MutationBody<'run_developer_agent_api_v1_agents_developer_runs_post'>;
 export type DeveloperAgentRunResponse = OperationResponse<'run_developer_agent_api_v1_agents_developer_runs_post'>;
 export type DeveloperAgentStatusResponse = OperationResponse<'developer_agent_status_api_v1_agents_developer_status_get'>;
+export type QAAgentRunRequest = MutationBody<'run_qa_agent_api_v1_agents_qa_runs_post'>;
+export type QAAgentRunResponse = OperationResponse<'run_qa_agent_api_v1_agents_qa_runs_post'>;
 export type I18nLanguageRecord = {
 	code: string;
 	name: string;
@@ -84,6 +86,13 @@ export function getDeveloperAgentStatus(signal?: AbortSignal) {
 	return requestGeneratedOperation<'developer_agent_status_api_v1_agents_developer_status_get', DeveloperAgentStatusResponse>(
 		'developer_agent_status_api_v1_agents_developer_status_get',
 		{ signal },
+	);
+}
+
+export function runQAAgent(token: string, body: QAAgentRunRequest) {
+	return requestGeneratedOperation<'run_qa_agent_api_v1_agents_qa_runs_post', QAAgentRunResponse>(
+		'run_qa_agent_api_v1_agents_qa_runs_post',
+		{ token, body },
 	);
 }
 

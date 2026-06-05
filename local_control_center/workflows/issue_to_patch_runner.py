@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from local_control_center.agents.model_gateway import redact_secrets
+from local_control_center.agents.qa_agent import QAAgentRunner, qa_verdict_allows_completion
 from local_control_center.agents.repository import AgentsRepository
 from local_control_center.agents.runtime_registry import RuntimeCommandUnavailableError, build_issue_to_patch_argv
 from local_control_center.agents.runtime_status import RuntimeStatusService
@@ -156,31 +157,6 @@ def _execution_result_from_tool_call(tool_call: dict[str, Any]) -> dict[str, Any
     }
 
 
-def _qa_result_from_tool_call(tool_call: dict[str, Any]) -> dict[str, Any]:
-    payload = tool_call.get("payload") or {}
-    execution_result = payload.get("executionResult") or {}
-    passed = tool_call.get("status") == "completed" and execution_result.get("returnCode") == 0
-    output_refs = [
-        artifact_id
-        for artifact_id in (execution_result.get("stdoutArtifactId"), execution_result.get("stderrArtifactId"))
-        if artifact_id
-    ]
-    return {
-        "command": payload.get("command") or tool_call.get("toolName"),
-        "status": "passed" if passed else "failed",
-        "toolCallStatus": tool_call.get("status"),
-        "execution": payload.get("execution"),
-        "returnCode": execution_result.get("returnCode"),
-        "timedOut": bool(execution_result.get("timedOut", False)),
-        "durationMs": execution_result.get("durationMs"),
-        "blocked": bool(execution_result.get("blocked", False)),
-        "reason": execution_result.get("reason") or payload.get("decisionReason"),
-        "toolCallId": tool_call.get("id"),
-        "outputRef": output_refs[0] if output_refs else None,
-        "outputRefs": output_refs,
-    }
-
-
 def _runtime_unavailable_result(reason: str) -> dict[str, Any]:
     return {
         "status": RUNTIME_UNAVAILABLE_STATUS,
@@ -262,8 +238,12 @@ def _complete_run_status(
         return "failed", "failed", "Runtime execution failed."
     if not qa_results:
         return "evidence_ready", "blocked", "QA results are required before issue_to_patch can complete."
-    if any(result["status"] != "passed" for result in qa_results):
+    if any(result.get("status") == "failed" for result in qa_results):
         return "qa_failed", "failed", "QA command failed or was blocked."
+    if any(result.get("status") != "passed" for result in qa_results):
+        return "evidence_ready", "blocked", "QA command was skipped or did not produce a passing verdict."
+    if not qa_verdict_allows_completion("passed", qa_results):
+        return "evidence_ready", "blocked", "QA verdict requires real command execution evidence before completion."
     if not diff.get("nameOnly"):
         return "evidence_ready", "blocked", "Patch workflow produced no file changes."
     if not evidence_created:
@@ -428,26 +408,23 @@ class IssueToPatchRunner:
         if runtime_status == RUNTIME_UNAVAILABLE_STATUS:
             diff["blockerState"] = "workspace_not_auditable" if runtime.get("executable") and not workspace_auditable else RUNTIME_UNAVAILABLE_STATUS
         qa_results: list[dict[str, Any]] = []
+        qa_artifact_ids: list[str] = []
+        qa_agent_run: dict[str, Any] | None = None
         if runtime_status == "completed":
-            for qa_argv in payload.get("qaCommands") or []:
-                qa_eval = broker.evaluate_tool_call(
-                    project_id=payload["projectId"],
-                    agent_run_id=agent_run["id"],
-                    agent_profile=profile,
-                    job_id=job_result["job"]["id"],
-                    tool_call={
-                        "tool": "shell",
-                        "command": _display_command(qa_argv),
-                        "argv": qa_argv,
-                        "workspaceId": workspace["id"],
-                        "workspacePath": workspace["path"],
-                        "path": workspace["path"],
-                        "operation": "issue_to_patch_qa",
-                        "execute": True,
-                        "timeoutSeconds": 120,
-                    },
-                )
-                qa_results.append(_qa_result_from_tool_call(qa_eval["toolCall"]))
+            qa_summary = QAAgentRunner(self.connection, root=self.root).run_for_context(
+                project_id=payload["projectId"],
+                workspace_id=workspace["id"],
+                task_id="issue_to_patch",
+                commands=payload.get("qaCommands") or [],
+                workflow_run_id=workflow_run["id"],
+                workflow_step_id=steps.get("qa_validation", {}).get("id"),
+                job_id=job_result["job"]["id"],
+                parent_agent_run_id=agent_run["id"],
+                metadata={"source": "issue_to_patch"},
+            )
+            qa_results = qa_summary["results"]
+            qa_artifact_ids = qa_summary["artifactIds"]
+            qa_agent_run = qa_summary["agentRun"]
 
         final_status, qa_verdict, final_reason = _complete_run_status(
             runtime_status=runtime_status,
@@ -484,6 +461,7 @@ class IssueToPatchRunner:
                         "runtimeResult": runtime_result,
                         "jobId": job_result["job"]["id"],
                         "workspaceId": workspace["id"],
+                        "qaAgentRunId": (qa_agent_run or {}).get("id"),
                     }
                 )
             ],
@@ -496,8 +474,14 @@ class IssueToPatchRunner:
                     "mitigation": "Configure and approve a real coding runtime, then retry the workflow.",
                 }
             ],
+            artifact_ids=qa_artifact_ids,
             qa_verdict=qa_verdict,
         )
+        if qa_artifact_ids:
+            QAAgentRunner(self.connection, root=self.root).attach_artifacts_to_evidence(
+                evidence_id=evidence["id"],
+                artifact_ids=qa_artifact_ids,
+            )
         patch_artifact = _write_patch_artifact(
             root=self.root,
             project_id=payload["projectId"],
@@ -524,13 +508,19 @@ class IssueToPatchRunner:
                 "summary": final_reason,
                 "runtime": runtime,
                 "runtimeResult": runtime_result,
+                "qaAgentRunId": (qa_agent_run or {}).get("id"),
                 "qaResults": qa_results,
                 "diffSummary": diff_summary,
                 "evidence_refs": [evidence["id"]],
             },
         )
+        related_agent_run_ids = {agent_run["id"]}
+        if qa_agent_run:
+            related_agent_run_ids.add(str(qa_agent_run["id"]))
         tool_calls = [
-            tool_call for tool_call in self.agents.list_agent_tool_calls() if tool_call.get("agentRunId") == agent_run["id"]
+            tool_call
+            for tool_call in self.agents.list_agent_tool_calls()
+            if str(tool_call.get("agentRunId")) in related_agent_run_ids
         ]
         model_calls = [
             model_call for model_call in self.agents.list_model_calls() if model_call.get("agentRunId") == agent_run["id"]
@@ -587,6 +577,7 @@ class IssueToPatchRunner:
                 "approvals": approvals,
                 "modelCalls": model_calls,
                 "toolCalls": tool_calls,
+                "qaAgentRunId": (qa_agent_run or {}).get("id"),
                 "qaResults": qa_results,
                 "diffSummary": diff_summary,
                 "artifacts": artifact_refs,
@@ -599,7 +590,7 @@ class IssueToPatchRunner:
         evidence = self.evidence.update_evidence_links(
             evidence["id"],
             agent_run_id=agent_run["id"],
-            artifact_ids=[str(artifact["id"]) for artifact in artifact_refs],
+            artifact_ids=[*qa_artifact_ids, *[str(artifact["id"]) for artifact in artifact_refs]],
             diff_summary=diff_summary,
         )
         if "implementation" in steps:
@@ -611,8 +602,8 @@ class IssueToPatchRunner:
         if "local_tests" in steps:
             self.workflows.update_workflow_step(
                 steps["local_tests"]["id"],
-                status="completed" if qa_results and all(item["status"] == "passed" for item in qa_results) else "blocked",
-                output={"qaResults": qa_results},
+                status="completed" if qa_verdict_allows_completion(qa_verdict, qa_results) else "blocked",
+                output={"qaResults": qa_results, "qaAgentRunId": (qa_agent_run or {}).get("id")},
             )
         if "qa_validation" in steps:
             self.workflows.update_workflow_step(

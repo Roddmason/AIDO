@@ -190,6 +190,8 @@ def test_generated_openapi_client_is_checked_in_and_v1_only() -> None:
     assert "export type ApiRuntimeProviderStatus" in content
     assert "export type RuntimeProviderStatus" in content
     assert "export type DeveloperAgentStatus" in content
+    assert "export type QAAgentRunRequest" in content
+    assert "export type QAAgentRunResponse" in content
     assert (
         'RuntimeProvidersResponse = { "api": ApiRuntimeProviderStatus; '
         '"cli": CliRuntimeProviderStatus; "developerAgent": DeveloperAgentStatus; '
@@ -200,6 +202,7 @@ def test_generated_openapi_client_is_checked_in_and_v1_only() -> None:
     assert "export type IssueToPatchResponse" in content
     assert '"developer_agent_status_api_v1_agents_developer_status_get": DeveloperAgentStatusResponse' in content
     assert '"run_developer_agent_api_v1_agents_developer_runs_post": DeveloperAgentRunRequest' in content
+    assert '"run_qa_agent_api_v1_agents_qa_runs_post": QAAgentRunRequest' in content
     assert "export type DockerSandboxStatus" in content
     assert "export type RestrictedSubprocessStatus" in content
     assert 'SandboxStatusResponse = { "docker": DockerSandboxStatus; "restrictedSubprocess": RestrictedSubprocessStatus }' in content
@@ -217,6 +220,7 @@ def test_generated_openapi_client_is_checked_in_and_v1_only() -> None:
     api_client = (ROOT / "local-control-center" / "web" / "src" / "api" / "client.ts").read_text(encoding="utf-8")
     assert "requestGeneratedOperation" in api_client
     assert "overview_api_v1_overview_get" in api_client
+    assert "run_qa_agent_api_v1_agents_qa_runs_post" in api_client
     assert '"/api/v1/overview"' not in api_client
 
 

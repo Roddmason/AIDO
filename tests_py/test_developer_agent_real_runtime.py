@@ -282,6 +282,8 @@ def test_developer_agent_real_cli_runtime_changes_only_workspace_and_creates_evi
     overview = client.get("/api/v1/overview").json()
     decisions = [decision for decision in overview["permissionDecisions"] if decision["agentId"] == "developer_agent"]
     assert any((decision["payload"] or {}).get("operation") == "developer_agent_runtime" for decision in decisions)
+    qa_decisions = [decision for decision in overview["permissionDecisions"] if decision["agentId"] == "qa_agent"]
+    assert any((decision["payload"] or {}).get("operation") == "qa_agent_command" for decision in qa_decisions)
     assert "internal_mock" not in str(body)
 
 

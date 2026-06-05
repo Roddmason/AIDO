@@ -190,6 +190,69 @@ def test_developer_agent_runtime_policy_allows_only_scoped_cli_runtime() -> None
     assert "DeveloperAgent CLI runtime" in decision["reason"]
 
 
+def test_qa_agent_command_policy_is_agent_scoped() -> None:
+    decision = evaluate_action(
+        {
+            "tool": "shell",
+            "command": "python --version",
+            "operation": "qa_agent_command",
+            "permissionProfile": "qa",
+            "agentId": "developer_agent",
+            "workspaceId": "workspace-test",
+            "workspacePath": "H:\\workspace",
+            "path": "H:\\workspace",
+            "agentRunId": "agent-run-test",
+        }
+    )
+
+    assert decision["decision"] == "deny"
+    assert "QAAgent" in decision["reason"]
+
+
+def test_qa_agent_command_policy_allows_only_low_risk_qa_commands() -> None:
+    allowed = evaluate_action(
+        {
+            "tool": "shell",
+            "command": "python --version",
+            "operation": "qa_agent_command",
+            "permissionProfile": "qa",
+            "agentId": "qa_agent",
+            "workspaceId": "workspace-test",
+            "workspacePath": "H:\\workspace",
+            "path": "H:\\workspace",
+            "agentRunId": "agent-run-test",
+        }
+    )
+    gated = evaluate_action(
+        {
+            "tool": "shell",
+            "command": "python -c pass",
+            "operation": "qa_agent_command",
+            "permissionProfile": "qa",
+            "agentId": "qa_agent",
+            "workspaceId": "workspace-test",
+            "workspacePath": "H:\\workspace",
+            "path": "H:\\workspace",
+            "agentRunId": "agent-run-test",
+        }
+    )
+
+    assert allowed["decision"] == "allow"
+    assert "qa_agent_command" in allowed["categories"]
+    assert gated["decision"] == "requires_approval"
+
+
+def test_qa_agent_runner_uses_broker_not_direct_subprocess() -> None:
+    source = (PRODUCT_ROOT / "agents" / "qa_agent.py").read_text(encoding="utf-8")
+
+    assert "ToolBroker(" in source
+    assert "import subprocess" not in source
+    assert "subprocess.run" not in source
+    assert "os.system" not in source
+    assert "RestrictedSubprocessSandbox" not in source
+    assert ".chat_completion(" not in source
+
+
 def test_developer_agent_runner_uses_broker_not_direct_runtime_execution() -> None:
     source = (PRODUCT_ROOT / "agents" / "developer_agent.py").read_text(encoding="utf-8")
 

@@ -683,6 +683,9 @@ def test_issue_to_patch_real_runtime_completes_only_with_qa_evidence_and_no_revi
     assert body["qaResults"] and all(result["status"] == "passed" for result in body["qaResults"])
     assert body["evidencePackage"]["id"] in body["agentRun"]["output"]["evidence_refs"]
     assert body["diffSummary"]["patchArtifactId"].startswith("artifact-")
+    overview = client.get("/api/v1/overview").json()
+    qa_decisions = [decision for decision in overview["permissionDecisions"] if decision["agentId"] == "qa_agent"]
+    assert any((decision["payload"] or {}).get("operation") == "qa_agent_command" for decision in qa_decisions)
 
 
 @pytest.mark.skipif(not git_available(), reason="git CLI is not available")
@@ -725,7 +728,19 @@ def test_issue_to_patch_completed_is_forbidden_without_evidence() -> None:
     final_status, qa_verdict, reason = _complete_run_status(
         runtime_status="completed",
         require_approval=False,
-        qa_results=[{"status": "passed", "returnCode": 0}],
+        qa_results=[
+            {
+                "status": "passed",
+                "exitCode": 0,
+                "execution": "restricted_subprocess",
+                "toolCallId": "agent-tool-call-1",
+                "artifactHashes": {
+                    "stdoutHash": "stdout-hash",
+                    "stderrHash": "stderr-hash",
+                    "outputArtifactHash": "output-hash",
+                },
+            }
+        ],
         diff={"nameOnly": ["patched.txt"]},
         evidence_created=False,
     )

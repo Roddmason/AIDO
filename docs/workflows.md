@@ -59,13 +59,18 @@ can report `completed` only when all of these are true:
 
 - an executable runtime provider with `issue_to_patch` capability was used;
 - the implementation ran inside an allocated Git worktree workspace;
-- diff evidence and execution/test artifacts were captured;
-- QA ran through policy/sandbox and passed;
-- any required approval request was resolved.
+- runtime execution entered through `ToolBroker` with structured `argv`;
+- real git status/diff evidence and a non-empty patch artifact were captured;
+- QA commands ran through policy/sandbox and passed;
+- an evidence package was persisted and linked to the agent run;
+- `requireApproval=false`, or the workflow stops at `evidence_ready` with a
+  review action request.
 
-Unavailable providers, missing QA commands, missing diff evidence, or pending
-approval produce a blocked or evidence-ready state, never a productive success
-state. `requireApproval` defaults to true for sensitive patch output.
+Unavailable providers, missing executable commands, missing QA commands,
+missing diff evidence, missing patch artifacts, failed QA, or pending approval
+produce `runtime_unavailable`, `qa_failed`, or `evidence_ready`, never a
+productive success state. `requireApproval` defaults to true for sensitive
+patch output.
 
 ## PR, Release And Retro Gates
 

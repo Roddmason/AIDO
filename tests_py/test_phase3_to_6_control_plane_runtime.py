@@ -24,12 +24,21 @@ from local_control_center.security_policy.repository import SecurityPolicyReposi
 from local_control_center.security_policy.sandbox import DockerSandbox
 from local_control_center.shared.db import open_sqlite_connection
 from local_control_center.shared.migrations import initialize_platform_schema
+from local_control_center.workspaces_projects.repository import WorkspacesRepository
 from tests_py.control_plane_fixture import ControlPlaneFixture
 
 
 def auth_headers(client: TestClient) -> dict[str, str]:
     token = client.get("/api/v1/security/handshake").json()["token"]
     return {"X-Local-Control-Token": token, "Origin": "http://127.0.0.1"}
+
+
+def allocate_test_workspace(connection, root: Path, project: dict[str, object], *, task_id: str) -> dict[str, object]:
+    return WorkspacesRepository(connection, root=root).allocate_workspace(
+        project_id=str(project["id"]),
+        task_id=task_id,
+        agent_id="implementer",
+    )
 
 
 def test_phase3_to_6_schema_adds_workspaces_runtime_skills_and_evidence_tables(tmp_path: Path) -> None:
@@ -363,6 +372,12 @@ def test_allowed_cli_tool_call_executes_only_structured_argv_in_restricted_sandb
     store.init()
     project_path = tmp_path / "sandbox-runtime"
     project = store.create_project(name="Sandbox Runtime", path=project_path, template_id="other")
+    workspace = store.workspaces.allocate_workspace(
+        project_id=project["id"],
+        task_id="safe-version-check",
+        agent_id="implementer",
+    )
+    workspace_path = str(workspace["path"])
     app = create_app(runtime=store, static_dir=None)
     client = TestClient(app)
     headers = auth_headers(client)
@@ -391,8 +406,9 @@ def test_allowed_cli_tool_call_executes_only_structured_argv_in_restricted_sandb
                         "tool": "shell",
                         "command": "python --version",
                         "argv": [sys.executable, "--version"],
-                        "path": str(project_path),
-                        "workspacePath": str(project_path),
+                        "workspaceId": workspace["id"],
+                        "path": workspace_path,
+                        "workspacePath": workspace_path,
                         "execute": True,
                     }
                 ]
@@ -439,6 +455,12 @@ def test_allowed_cli_tool_call_can_execute_in_docker_and_records_evidence(
     store.init()
     project_path = tmp_path / "docker-runtime"
     project = store.create_project(name="Docker Runtime", path=project_path, template_id="other")
+    workspace = store.workspaces.allocate_workspace(
+        project_id=project["id"],
+        task_id="docker-version-check",
+        agent_id="implementer",
+    )
+    workspace_path = str(workspace["path"])
     app = create_app(runtime=store, static_dir=None)
     client = TestClient(app)
     headers = auth_headers(client)
@@ -467,8 +489,9 @@ def test_allowed_cli_tool_call_can_execute_in_docker_and_records_evidence(
                         "tool": "shell",
                         "command": "python --version",
                         "argv": ["python", "--version"],
-                        "path": str(project_path),
-                        "workspacePath": str(project_path),
+                        "workspaceId": workspace["id"],
+                        "path": workspace_path,
+                        "workspacePath": workspace_path,
                         "execute": True,
                         "sandbox": "docker",
                         "dockerImage": "python:3.13-slim",
@@ -528,6 +551,8 @@ def test_large_tool_execution_output_is_promoted_to_evidence_artifacts(
             path=project_path,
             template_id="other",
         )
+        workspace = allocate_test_workspace(connection, tmp_path, project, task_id="large-output")
+        workspace_path = str(workspace["path"])
         agents = AgentsRepository(connection)
         profile = agents.upsert_agent_profile(
             {
@@ -552,13 +577,14 @@ def test_large_tool_execution_output_is_promoted_to_evidence_artifacts(
             agent_run_id=run["id"],
             agent_profile=profile,
             tool_calls=[
-                {
-                    "tool": "shell",
-                    "command": "python --version",
-                    "argv": ["python", "--version"],
-                    "path": str(project_path),
-                    "workspacePath": str(project_path),
-                    "execute": True,
+                    {
+                        "tool": "shell",
+                        "command": "python --version",
+                        "argv": ["python", "--version"],
+                        "workspaceId": workspace["id"],
+                        "path": workspace_path,
+                        "workspacePath": workspace_path,
+                        "execute": True,
                     "sandbox": "docker",
                     "dockerImage": "python:3.13-slim",
                 }
@@ -619,6 +645,12 @@ def test_approved_sensitive_tool_call_requires_and_consumes_permission_grant(
     store.init()
     project_path = tmp_path / "approved-install"
     project = store.create_project(name="Approved Install", path=project_path, template_id="other")
+    workspace = store.workspaces.allocate_workspace(
+        project_id=project["id"],
+        task_id="install-package",
+        agent_id="implementer",
+    )
+    workspace_path = str(workspace["path"])
     job = store.jobs.create_job(project_id=project["id"], kind="chat.route", payload={"prompt": "install package"})["job"]
     app = create_app(runtime=store, static_dir=None)
     client = TestClient(app)
@@ -648,8 +680,9 @@ def test_approved_sensitive_tool_call_requires_and_consumes_permission_grant(
                     {
                         "tool": "shell",
                         "command": "pnpm add left-pad",
-                        "path": str(project_path),
-                        "workspacePath": str(project_path),
+                        "workspaceId": workspace["id"],
+                        "path": workspace_path,
+                        "workspacePath": workspace_path,
                     }
                 ]
             },
@@ -683,8 +716,9 @@ def test_approved_sensitive_tool_call_requires_and_consumes_permission_grant(
                         "tool": "shell",
                         "command": "pnpm add left-pad",
                         "argv": ["pnpm", "add", "left-pad"],
-                        "path": str(project_path),
-                        "workspacePath": str(project_path),
+                        "workspaceId": workspace["id"],
+                        "path": workspace_path,
+                        "workspacePath": workspace_path,
                         "execute": True,
                         "sandbox": "docker",
                         "dockerImage": "node:22-alpine",
@@ -721,15 +755,16 @@ def test_approved_sensitive_tool_call_requires_and_consumes_permission_grant(
             "taskId": "reuse-install",
             "input": {
                 "toolCalls": [
-                    {
-                        "tool": "shell",
-                        "command": "pnpm add left-pad",
-                        "argv": ["pnpm", "add", "left-pad"],
-                        "path": str(project_path),
-                        "workspacePath": str(project_path),
-                        "execute": True,
-                        "sandbox": "docker",
-                        "dockerImage": "node:22-alpine",
+                        {
+                            "tool": "shell",
+                            "command": "pnpm add left-pad",
+                            "argv": ["pnpm", "add", "left-pad"],
+                            "workspaceId": workspace["id"],
+                            "path": workspace_path,
+                            "workspacePath": workspace_path,
+                            "execute": True,
+                            "sandbox": "docker",
+                            "dockerImage": "node:22-alpine",
                         "approvalGrantId": grant["id"],
                     }
                 ]
@@ -841,6 +876,8 @@ def test_docker_execution_uses_configured_sandbox_policy_not_tool_broker_constan
             path=project_path,
             template_id="other",
         )
+        workspace = allocate_test_workspace(connection, tmp_path, project, task_id="policy-install")
+        workspace_path = str(workspace["path"])
         jobs = JobsRepository(connection)
         job = jobs.create_job(
             project_id=project["id"],
@@ -876,8 +913,9 @@ def test_docker_execution_uses_configured_sandbox_policy_not_tool_broker_constan
                 {
                     "tool": "shell",
                     "command": "pnpm add left-pad",
-                    "path": str(project_path),
-                    "workspacePath": str(project_path),
+                    "workspaceId": workspace["id"],
+                    "path": workspace_path,
+                    "workspacePath": workspace_path,
                 }
             ],
         )
@@ -906,8 +944,9 @@ def test_docker_execution_uses_configured_sandbox_policy_not_tool_broker_constan
                     "tool": "shell",
                     "command": "pnpm add left-pad",
                     "argv": ["pnpm", "add", "left-pad"],
-                    "path": str(project_path),
-                    "workspacePath": str(project_path),
+                    "workspaceId": workspace["id"],
+                    "path": workspace_path,
+                    "workspacePath": workspace_path,
                     "execute": True,
                     "sandbox": "docker",
                     "dockerImage": "aido/custom:local",
@@ -944,6 +983,12 @@ def test_permission_grant_revocation_is_audited_and_blocks_later_execution(
     store.init()
     project_path = tmp_path / "grant-revoke"
     project = store.create_project(name="Grant Revoke", path=project_path, template_id="other")
+    workspace = store.workspaces.allocate_workspace(
+        project_id=project["id"],
+        task_id="grant-revoke",
+        agent_id="implementer",
+    )
+    workspace_path = str(workspace["path"])
     job = store.jobs.create_job(project_id=project["id"], kind="chat.route", payload={"prompt": "install"})["job"]
     agents = AgentsRepository(store.connection)
     profile = agents.upsert_agent_profile(
@@ -974,8 +1019,9 @@ def test_permission_grant_revocation_is_audited_and_blocks_later_execution(
             {
                 "tool": "shell",
                 "command": "pnpm add left-pad",
-                "path": str(project_path),
-                "workspacePath": str(project_path),
+                "workspaceId": workspace["id"],
+                "path": workspace_path,
+                "workspacePath": workspace_path,
             }
         ],
     )
@@ -1015,8 +1061,9 @@ def test_permission_grant_revocation_is_audited_and_blocks_later_execution(
                 "tool": "shell",
                 "command": "pnpm add left-pad",
                 "argv": ["pnpm", "add", "left-pad"],
-                "path": str(project_path),
-                "workspacePath": str(project_path),
+                "workspaceId": workspace["id"],
+                "path": workspace_path,
+                "workspacePath": workspace_path,
                 "execute": True,
                 "sandbox": "docker",
                 "dockerImage": "node:22-alpine",
@@ -1062,6 +1109,12 @@ def test_sandbox_profile_revocation_is_audited_and_blocks_docker_execution(
 
     project_path = tmp_path / "profile-revoke"
     project = store.create_project(name="Profile Revoke", path=project_path, template_id="other")
+    workspace = store.workspaces.allocate_workspace(
+        project_id=project["id"],
+        task_id="docker-after-profile-revoke",
+        agent_id="implementer",
+    )
+    workspace_path = str(workspace["path"])
     agents = AgentsRepository(store.connection)
     profile = agents.upsert_agent_profile(
         {
@@ -1090,8 +1143,9 @@ def test_sandbox_profile_revocation_is_audited_and_blocks_docker_execution(
                 "tool": "shell",
                 "command": "python --version",
                 "argv": ["python", "--version"],
-                "path": str(project_path),
-                "workspacePath": str(project_path),
+                "workspaceId": workspace["id"],
+                "path": workspace_path,
+                "workspacePath": workspace_path,
                 "execute": True,
                 "sandbox": "docker",
                 "dockerImage": "python:3.13-slim",
@@ -1113,6 +1167,12 @@ def test_cli_tool_call_execute_true_without_argv_is_denied_by_sandbox(tmp_path: 
     store.init()
     project_path = tmp_path / "sandbox-denied"
     project = store.create_project(name="Sandbox Denied", path=project_path, template_id="other")
+    workspace = store.workspaces.allocate_workspace(
+        project_id=project["id"],
+        task_id="unsafe-string-exec",
+        agent_id="implementer",
+    )
+    workspace_path = str(workspace["path"])
     app = create_app(runtime=store, static_dir=None)
     client = TestClient(app)
     headers = auth_headers(client)
@@ -1140,8 +1200,9 @@ def test_cli_tool_call_execute_true_without_argv_is_denied_by_sandbox(tmp_path: 
                     {
                         "tool": "shell",
                         "command": "python --version",
-                        "path": str(project_path),
-                        "workspacePath": str(project_path),
+                        "workspaceId": workspace["id"],
+                        "path": workspace_path,
+                        "workspacePath": workspace_path,
                         "execute": True,
                     }
                 ]
@@ -1297,8 +1358,8 @@ def test_workspace_archive_creates_evidence_snapshot(tmp_path: Path, monkeypatch
     evidence = archived.json()["evidencePackage"]
     assert evidence["taskId"] == "story-evidence"
     assert evidence["qaVerdict"] == "evidence_collected"
-    assert evidence["diffRefs"][0]["kind"] == "workspace_snapshot"
-    assert any(item["path"] == "src/change.py" for item in evidence["diffRefs"][0]["files"])
+    snapshot = next(ref for ref in evidence["diffRefs"] if ref["kind"] == "workspace_snapshot")
+    assert any(item["path"] == "src/change.py" for item in snapshot["files"])
 
     overview = client.get("/api/v1/overview").json()
     assert any(package["id"] == evidence["id"] for package in overview["evidencePackages"])
@@ -1604,7 +1665,7 @@ def test_workspace_allocation_accepts_devcontainer_metadata_without_docker_requi
     assert Path(workspace["path"]).exists()
 
 
-def test_model_gateway_records_allowed_model_call_and_cost_usage(tmp_path: Path) -> None:
+def test_model_gateway_plans_allowed_model_call_without_recording_cost_usage(tmp_path: Path) -> None:
     with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
         initialize_platform_schema(connection)
         project = ProjectsRepository(connection).create_project(name="Gateway", path=tmp_path / "gateway", template_id="other")
@@ -1631,11 +1692,14 @@ def test_model_gateway_records_allowed_model_call_and_cost_usage(tmp_path: Path)
             metadata={"request": "safe"},
         )
 
-        assert result["status"] == "prepared"
+        assert result["status"] == "planned"
         assert result["provider"] == "openrouter"
         assert result["model"] == "oss-model"
-        assert result["modelCall"]["status"] == "prepared"
-        assert agents.list_cost_usage()[0]["amountUsd"] == 0.02
+        assert result["modelCall"]["status"] == "planned"
+        assert result["modelCall"]["promptTokens"] == 0
+        assert result["modelCall"]["completionTokens"] == 0
+        assert result["modelCall"]["costUsd"] == 0.0
+        assert agents.list_cost_usage() == []
 
 
 def test_model_gateway_blocks_budget_overrun_and_redacts_secret_metadata(tmp_path: Path) -> None:

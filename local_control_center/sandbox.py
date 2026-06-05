@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import shutil
-import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -44,15 +43,9 @@ class WindowsSandbox:
             return SandboxDecision(False, "restricted-subprocess", "Command requires Docker or explicit approval.")
         return SandboxDecision(True, "restricted-subprocess", "Only low-risk subprocess execution is available.")
 
-    def run_low_risk(self, command: list[str], *, timeout: int = 30) -> subprocess.CompletedProcess[str]:
+    def run_low_risk(self, command: list[str], *, timeout: int = 30) -> None:
         decision = self.assess(command)
-        if not decision.allowed or decision.mode != "restricted-subprocess":
-            raise PermissionError(decision.reason)
-        return subprocess.run(
-            command,
-            cwd=self.workspace,
-            text=True,
-            capture_output=True,
-            timeout=timeout,
-            check=False,
+        raise PermissionError(
+            f"{decision.reason} Execution must go through "
+            "ToolBroker -> PolicyEngine -> Approval/Grant -> RuntimeAdapter -> Evidence."
         )

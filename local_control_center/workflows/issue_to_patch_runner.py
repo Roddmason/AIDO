@@ -2,28 +2,30 @@ from __future__ import annotations
 
 import hashlib
 import sqlite3
+import subprocess
 import uuid
 from pathlib import Path
 from typing import Any
 
-from local_control_center.agents.cli_runtimes.base import RuntimeRequest
 from local_control_center.agents.model_gateway import redact_secrets
 from local_control_center.agents.repository import AgentsRepository
-from local_control_center.agents.runtime_registry import runtime_for
+from local_control_center.agents.runtime_registry import RuntimeCommandUnavailableError, build_issue_to_patch_argv
 from local_control_center.agents.runtime_status import RuntimeStatusService
+from local_control_center.agents.tool_broker import ToolBroker
 from local_control_center.evidence.artifacts import write_text_artifact
 from local_control_center.evidence.repository import EvidenceRepository
 from local_control_center.jobs_approvals.repository import JobsRepository
 from local_control_center.security_policy.repository import SecurityPolicyRepository
 from local_control_center.shared.serialization import json_dumps
-from local_control_center.security_policy.sandbox import RestrictedSubprocessSandbox
 from local_control_center.workflows.repository import ISSUE_TO_PATCH_STEPS, WorkflowsRepository
+from local_control_center.workspaces_projects.cleanup import capture_workspace_snapshot
 from local_control_center.workspaces_projects.git_worktrees import capture_git_diff
 from local_control_center.workspaces_projects.repository import WorkspacesRepository
 
 
 CLI_RUNTIME_IDS = {"codex_cli", "claude_code_cli", "openhands", "swe_agent"}
-TERMINAL_STATUSES = {"completed", "unavailable", "qa_failed", "evidence_ready"}
+RUNTIME_UNAVAILABLE_STATUS = "runtime_unavailable"
+TERMINAL_STATUSES = {"completed", RUNTIME_UNAVAILABLE_STATUS, "qa_failed", "evidence_ready", "failed"}
 
 
 def _runtime_mode(runtime_id: str) -> str:
@@ -36,17 +38,10 @@ def _runtime_mode(runtime_id: str) -> str:
     return "hybrid"
 
 
-def _patch_prompt(*, title: str, issue_text: str, target_path: str | None) -> str:
-    target = f"\nTarget path: {target_path}" if target_path else ""
-    return (
-        "You are running inside an AIDO isolated workspace. "
-        "Implement the requested code change, keep edits minimal, and do not commit or push.\n\n"
-        f"Title: {title}{target}\n\nIssue:\n{issue_text}"
-    )
-
-
 def _status_for_failure(runtime: dict[str, Any]) -> tuple[str, str]:
-    return "unavailable", str(runtime.get("reason") or "No executable runtime is configured for issue_to_patch.")
+    return RUNTIME_UNAVAILABLE_STATUS, str(
+        runtime.get("reason") or "No executable runtime is configured for issue_to_patch."
+    )
 
 
 def _select_runtime(
@@ -91,46 +86,107 @@ def _select_runtime(
     )
 
 
-def _qa_results(qa_commands: list[list[str]], workspace_path: Path) -> list[dict[str, Any]]:
-    results: list[dict[str, Any]] = []
-    sandbox = RestrictedSubprocessSandbox()
-    for argv in qa_commands:
-        result = sandbox.execute(
-            argv=argv,
-            cwd=str(workspace_path),
-            workspace_path=str(workspace_path),
-            timeout_seconds=120,
-        )
-        status = "passed" if result.get("executed") and not result.get("blocked") and result.get("returnCode") == 0 else "failed"
-        results.append(
-            {
-                "command": " ".join(argv),
-                "argv": argv,
-                "status": status,
-                "returnCode": result.get("returnCode"),
-                "durationMs": result.get("durationMs"),
-                "timedOut": bool(result.get("timedOut", False)),
-                "blocked": bool(result.get("blocked", False)),
-                "reason": result.get("reason"),
-                "metadata": redact_secrets(
-                    {
-                        "stdout": result.get("stdout"),
-                        "stderr": result.get("stderr"),
-                        "execution": "restricted_subprocess",
-                    }
-                ),
-            }
-        )
-    return results
-
-
 def _diff_summary(diff: dict[str, Any]) -> dict[str, Any]:
     return {
         "state": diff.get("state"),
+        "blockerState": diff.get("blockerState"),
         "changedFiles": diff.get("nameOnly") or [],
         "diffStat": diff.get("diffStat") or "",
         "patchSizeBytes": diff.get("patchSizeBytes") or 0,
         "truncated": bool(diff.get("truncated", False)),
+    }
+
+
+def _evidence_git_diff_ref(diff: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "kind": diff.get("kind", "git_diff"),
+        "state": diff.get("state"),
+        "blockerState": diff.get("blockerState"),
+        "branch": diff.get("branch"),
+        "headCommit": diff.get("headCommit"),
+        "statusRaw": diff.get("statusRaw", ""),
+        "status": diff.get("status") or [],
+        "nameOnly": diff.get("nameOnly") or [],
+        "diffStat": diff.get("diffStat") or "",
+        "patch": diff.get("patch") or "",
+        "patchSizeBytes": diff.get("patchSizeBytes") or 0,
+        "truncated": bool(diff.get("truncated", False)),
+    }
+
+
+def _workspace_manifest_ref(workspace: dict[str, Any]) -> dict[str, Any] | None:
+    manifest = ((workspace.get("metadata") or {}).get("workspaceManifest") or {})
+    if not manifest:
+        return None
+    return {"kind": "workspace_manifest", "status": "captured", **manifest}
+
+
+def _final_diff_refs(workspace: dict[str, Any], diff: dict[str, Any]) -> list[dict[str, Any]]:
+    refs = [_evidence_git_diff_ref(diff)]
+    manifest = _workspace_manifest_ref(workspace)
+    if manifest:
+        refs.append(manifest)
+    refs.append(capture_workspace_snapshot(workspace["path"]))
+    return refs
+
+
+def _display_command(argv: list[str]) -> str:
+    if not argv:
+        return ""
+    executable = Path(argv[0]).name or str(argv[0])
+    lowered = executable.lower()
+    if lowered in {"python.exe", "python3.exe", "py.exe"}:
+        executable = "python"
+    return subprocess.list2cmdline([executable, *[str(item) for item in argv[1:]]])
+
+
+def _execution_result_from_tool_call(tool_call: dict[str, Any]) -> dict[str, Any]:
+    payload = tool_call.get("payload") or {}
+    execution_result = payload.get("executionResult") or {}
+    return {
+        "status": "completed" if tool_call.get("status") == "completed" else "failed",
+        "toolCallId": tool_call.get("id"),
+        "execution": payload.get("execution"),
+        "returnCode": execution_result.get("returnCode"),
+        "timedOut": bool(execution_result.get("timedOut", False)),
+        "blocked": bool(execution_result.get("blocked", False)),
+        "reason": execution_result.get("reason") or payload.get("decisionReason"),
+        "stdoutArtifactId": execution_result.get("stdoutArtifactId"),
+        "stderrArtifactId": execution_result.get("stderrArtifactId"),
+    }
+
+
+def _qa_result_from_tool_call(tool_call: dict[str, Any]) -> dict[str, Any]:
+    payload = tool_call.get("payload") or {}
+    execution_result = payload.get("executionResult") or {}
+    passed = tool_call.get("status") == "completed" and execution_result.get("returnCode") == 0
+    output_refs = [
+        artifact_id
+        for artifact_id in (execution_result.get("stdoutArtifactId"), execution_result.get("stderrArtifactId"))
+        if artifact_id
+    ]
+    return {
+        "command": payload.get("command") or tool_call.get("toolName"),
+        "status": "passed" if passed else "failed",
+        "toolCallStatus": tool_call.get("status"),
+        "execution": payload.get("execution"),
+        "returnCode": execution_result.get("returnCode"),
+        "timedOut": bool(execution_result.get("timedOut", False)),
+        "durationMs": execution_result.get("durationMs"),
+        "blocked": bool(execution_result.get("blocked", False)),
+        "reason": execution_result.get("reason") or payload.get("decisionReason"),
+        "toolCallId": tool_call.get("id"),
+        "outputRef": output_refs[0] if output_refs else None,
+        "outputRefs": output_refs,
+    }
+
+
+def _runtime_unavailable_result(reason: str) -> dict[str, Any]:
+    return {
+        "status": RUNTIME_UNAVAILABLE_STATUS,
+        "reason": reason,
+        "execution": "not_executed",
+        "blockedBy": RUNTIME_UNAVAILABLE_STATUS,
     }
 
 
@@ -200,19 +256,23 @@ def _complete_run_status(
     diff: dict[str, Any],
     evidence_created: bool,
 ) -> tuple[str, str, str]:
-    if runtime_status == "unavailable":
-        return "unavailable", "blocked", "No executable runtime was available."
+    if runtime_status == RUNTIME_UNAVAILABLE_STATUS:
+        return RUNTIME_UNAVAILABLE_STATUS, "blocked", "No executable runtime was available."
+    if runtime_status != "completed":
+        return "failed", "failed", "Runtime execution failed."
     if not qa_results:
         return "evidence_ready", "blocked", "QA results are required before issue_to_patch can complete."
     if any(result["status"] != "passed" for result in qa_results):
         return "qa_failed", "failed", "QA command failed or was blocked."
     if not diff.get("nameOnly"):
         return "evidence_ready", "blocked", "Patch workflow produced no file changes."
+    if not evidence_created:
+        return "evidence_ready", "blocked", "Evidence package was not created."
+    if not str(diff.get("patchFull") or diff.get("patch") or "").strip():
+        return "evidence_ready", "blocked", "Patch artifact requires a non-empty diff."
     if require_approval:
         return "evidence_ready", "needs_human_review", "Patch evidence is ready and requires approval."
-    if evidence_created:
-        return "completed", "passed", "Patch evidence and QA passed."
-    return "evidence_ready", "blocked", "Evidence package was not created."
+    return "completed", "passed", "Patch evidence and QA passed."
 
 
 class IssueToPatchRunner:
@@ -237,7 +297,7 @@ class IssueToPatchRunner:
         runtime = _select_runtime(runtime_statuses, preferred_runtime=preferred_runtime)
         profile_id = "aido_issue_to_patch_runner"
         runtime_mode = _runtime_mode(str(runtime["id"]))
-        self.agents.upsert_agent_profile(
+        profile = self.agents.upsert_agent_profile(
             {
                 "id": profile_id,
                 "name": "AIDO Issue-to-Patch Runner",
@@ -299,73 +359,111 @@ class IssueToPatchRunner:
                 output={"workspaceId": workspace["id"], "path": workspace["path"]},
             )
 
-        workspace_auditable = workspace["isolationType"] == "git_worktree"
-        initial_status, reason = _status_for_failure(runtime)
-        runtime_result: dict[str, Any] = {"status": initial_status, "reason": reason}
-        if runtime.get("executable") and str(runtime["id"]) in CLI_RUNTIME_IDS and not workspace_auditable:
-            initial_status = "unavailable"
-            reason = "issue_to_patch requires a Git worktree workspace before executing a productive runtime."
-            runtime_result = {"status": initial_status, "reason": reason}
-        elif runtime.get("executable") and str(runtime["id"]) in CLI_RUNTIME_IDS:
-            result = runtime_for(str(runtime["id"]), connection=self.connection).run(
-                RuntimeRequest(
-                    runtime=str(runtime["id"]),
-                    workspaceId=workspace["id"],
-                    workspacePath=workspace["path"],
-                    prompt=_patch_prompt(
-                        title=title,
-                        issue_text=issue_text,
-                        target_path=payload.get("targetPath"),
-                    ),
-                    envPolicy={"permissionProfile": "dev_safe", "issueToPatch": True},
-                    role="implementer",
-                    agentId=profile_id,
-                    workflowRunId=workflow_run["id"],
-                    workflowStepId=steps.get("implementation", {}).get("id"),
-                )
-            )
-            runtime_result = result.model_dump(by_alias=True)
-            initial_status = "running" if result.status == "completed" else "unavailable"
-            reason = result.error or ("Runtime execution completed." if result.status == "completed" else "Runtime execution failed.")
+        agent_run = self.agents.create_agent_run(
+            project_id=payload["projectId"],
+            agent_profile_id=profile_id,
+            task_id="issue_to_patch",
+            input_payload=redact_secrets(
+                {
+                    **payload,
+                    "workflowRunId": workflow_run["id"],
+                    "workspaceId": workspace["id"],
+                    "workspacePath": workspace["path"],
+                }
+            ),
+            output_payload={},
+            job_id=job_result["job"]["id"],
+            workflow_run_id=workflow_run["id"],
+            workflow_step_id=steps.get("implementation", {}).get("id"),
+            status="running",
+        )
 
-        diff = (
-            capture_git_diff(Path(workspace["path"]))
-            if initial_status != "unavailable"
-            else {
-                "kind": "git_diff",
-                "state": (
-                    "workspace_not_auditable"
-                    if runtime.get("executable") and not workspace_auditable
-                    else "blocked_no_executable_runtime"
-                ),
-                "status": [],
-                "nameOnly": [],
-                "diffStat": "",
-                "patch": "",
-                "patchFull": "",
-                "patchSizeBytes": 0,
-                "truncated": False,
-            }
-        )
-        qa_results = (
-            _qa_results(payload.get("qaCommands") or [], Path(workspace["path"]))
-            if initial_status != "unavailable"
-            else []
-        )
+        workspace_auditable = workspace["isolationType"] == "git_worktree"
+        runtime_status, reason = _status_for_failure(runtime)
+        runtime_result: dict[str, Any] = _runtime_unavailable_result(reason)
+        broker = ToolBroker(self.connection, artifact_root=self.root)
+        if runtime.get("executable") and str(runtime["id"]) in CLI_RUNTIME_IDS and not workspace_auditable:
+            reason = "issue_to_patch requires a Git worktree workspace before executing a productive runtime."
+            runtime_result = _runtime_unavailable_result(reason)
+        elif runtime.get("executable"):
+            try:
+                runtime_argv = build_issue_to_patch_argv(
+                    runtime=runtime,
+                    workspace_id=workspace["id"],
+                    workspace_path=workspace["path"],
+                    title=title,
+                    issue_text=issue_text,
+                    workflow_run_id=workflow_run["id"],
+                    workflow_step_id=steps.get("implementation", {}).get("id"),
+                    agent_id=profile_id,
+                    connection=self.connection,
+                )
+            except RuntimeCommandUnavailableError as error:
+                reason = str(error)
+                runtime_result = _runtime_unavailable_result(reason)
+            else:
+                runtime_eval = broker.evaluate_tool_call(
+                    project_id=payload["projectId"],
+                    agent_run_id=agent_run["id"],
+                    agent_profile=profile,
+                    job_id=job_result["job"]["id"],
+                    tool_call={
+                        "tool": "shell",
+                        "command": _display_command(runtime_argv),
+                        "argv": runtime_argv,
+                        "workspaceId": workspace["id"],
+                        "workspacePath": workspace["path"],
+                        "path": workspace["path"],
+                        "operation": "issue_to_patch_runtime",
+                        "runtimeId": runtime["id"],
+                        "workflowKind": "issue_to_patch",
+                        "execute": True,
+                        "timeoutSeconds": 900,
+                    },
+                )
+                runtime_result = _execution_result_from_tool_call(runtime_eval["toolCall"])
+                runtime_status = str(runtime_result["status"])
+
+        diff = capture_git_diff(Path(workspace["path"]))
+        if runtime_status == RUNTIME_UNAVAILABLE_STATUS:
+            diff["blockerState"] = "workspace_not_auditable" if runtime.get("executable") and not workspace_auditable else RUNTIME_UNAVAILABLE_STATUS
+        qa_results: list[dict[str, Any]] = []
+        if runtime_status == "completed":
+            for qa_argv in payload.get("qaCommands") or []:
+                qa_eval = broker.evaluate_tool_call(
+                    project_id=payload["projectId"],
+                    agent_run_id=agent_run["id"],
+                    agent_profile=profile,
+                    job_id=job_result["job"]["id"],
+                    tool_call={
+                        "tool": "shell",
+                        "command": _display_command(qa_argv),
+                        "argv": qa_argv,
+                        "workspaceId": workspace["id"],
+                        "workspacePath": workspace["path"],
+                        "path": workspace["path"],
+                        "operation": "issue_to_patch_qa",
+                        "execute": True,
+                        "timeoutSeconds": 120,
+                    },
+                )
+                qa_results.append(_qa_result_from_tool_call(qa_eval["toolCall"]))
+
         final_status, qa_verdict, final_reason = _complete_run_status(
-            runtime_status=initial_status,
+            runtime_status=runtime_status,
             require_approval=bool(payload.get("requireApproval", True)),
             qa_results=qa_results,
             diff=diff,
             evidence_created=True,
         )
-        if final_status == "unavailable":
+        if final_status == RUNTIME_UNAVAILABLE_STATUS:
             final_reason = reason
         evidence = self.evidence.create_evidence_package(
             project_id=payload["projectId"],
             workflow_run_id=workflow_run["id"],
             workflow_step_id=steps.get("qa_validation", {}).get("id"),
             agent_id=profile_id,
+            agent_run_id=agent_run["id"],
             job_id=job_result["job"]["id"],
             workspace_id=workspace["id"],
             runtime_id=str(runtime["id"]),
@@ -389,7 +487,7 @@ class IssueToPatchRunner:
                     }
                 )
             ],
-            diff_refs=[_diff_summary(diff)],
+            diff_refs=_final_diff_refs(workspace, diff),
             diff_summary=_diff_summary(diff),
             risk_notes=[
                 {
@@ -413,15 +511,14 @@ class IssueToPatchRunner:
 
         agent_run_status = {
             "completed": "completed",
-            "unavailable": "failed",
+            RUNTIME_UNAVAILABLE_STATUS: "failed",
+            "failed": "failed",
             "qa_failed": "failed",
             "evidence_ready": "awaiting_permission" if payload.get("requireApproval", True) else "failed",
         }[final_status]
-        agent_run = self.agents.create_agent_run(
-            project_id=payload["projectId"],
-            agent_profile_id=profile_id,
-            task_id="issue_to_patch",
-            input_payload=redact_secrets(payload),
+        agent_run = self.agents.update_agent_run_status(
+            agent_run["id"],
+            status=agent_run_status,
             output_payload={
                 "verdict": final_status,
                 "summary": final_reason,
@@ -431,10 +528,6 @@ class IssueToPatchRunner:
                 "diffSummary": diff_summary,
                 "evidence_refs": [evidence["id"]],
             },
-            job_id=job_result["job"]["id"],
-            workflow_run_id=workflow_run["id"],
-            workflow_step_id=steps.get("implementation", {}).get("id"),
-            status=agent_run_status,
         )
         tool_calls = [
             tool_call for tool_call in self.agents.list_agent_tool_calls() if tool_call.get("agentRunId") == agent_run["id"]
@@ -568,6 +661,7 @@ class IssueToPatchRunner:
             "agentRun": agent_run,
             "evidencePackage": evidence,
             "runtime": runtime,
+            "runtimeResult": runtime_result,
             "qaResults": qa_results,
             "diffSummary": diff_summary,
         }

@@ -4,6 +4,7 @@ import sqlite3
 from typing import Any
 
 from local_control_center.agents.quota_manager import QuotaManager
+from local_control_center.agents.runtime_provider_config import runtime_provider_configuration
 
 from .base import CostEstimate, ModelInfo, ModelRequest, ProviderHealth
 from .openai_compatible import OpenAICompatibleProvider
@@ -14,10 +15,17 @@ class NvidiaNimProvider(OpenAICompatibleProvider):
         self,
         *,
         connection: sqlite3.Connection | None = None,
-        base_url: str = "https://integrate.api.nvidia.com/v1",
-        credential_ref: str = "NVIDIA_NIM_API_KEY",
+        base_url: str | None = None,
+        credential_ref: str | None = None,
     ):
-        super().__init__(provider_id="nvidia_nim", base_url=base_url, credential_ref=credential_ref)
+        runtime_configuration = runtime_provider_configuration("nvidia_nim")
+        super().__init__(
+            provider_id="nvidia_nim",
+            base_url=base_url or (runtime_configuration.value("baseUrl") if runtime_configuration else None) or "https://integrate.api.nvidia.com/v1",
+            credential_ref=credential_ref
+            or (runtime_configuration.configured_env_ref("apiKey") if runtime_configuration else None)
+            or "NVIDIA_NIM_API_KEY",
+        )
         self.connection = connection
 
     def list_models(self) -> list[ModelInfo]:

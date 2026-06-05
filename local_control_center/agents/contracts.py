@@ -281,11 +281,88 @@ class RuntimeProviderStatus(BaseModel):
     safety: RuntimeProviderSafety = Field(default_factory=RuntimeProviderSafety)
 
 
+class DeveloperAgentContract(BaseModel):
+    id: str
+    input_schema: dict[str, Any] = Field(alias="inputSchema")
+    output_schema: dict[str, Any] = Field(alias="outputSchema")
+    allowed_tools: list[str] = Field(alias="allowedTools")
+    required_runtime_capabilities: list[str] = Field(alias="requiredRuntimeCapabilities")
+    required_workspace: bool = Field(alias="requiredWorkspace")
+    required_evidence: bool = Field(alias="requiredEvidence")
+
+
+class DeveloperAgentStatus(BaseModel):
+    id: str
+    executable: bool
+    status: str
+    reason: str
+    selected_runtime_id: str | None = Field(default=None, alias="selectedRuntimeId")
+    candidate_runtime_ids: list[str] = Field(default_factory=list, alias="candidateRuntimeIds")
+    contract: DeveloperAgentContract
+
+
+class DeveloperAgentStatusResponse(BaseModel):
+    developer_agent: DeveloperAgentStatus = Field(alias="developerAgent")
+
+
+class DeveloperAgentRunRequest(BaseModel):
+    project_id: str = Field(alias="projectId")
+    workspace_id: str = Field(alias="workspaceId")
+    task_id: str = Field(default="developer_agent", alias="taskId")
+    instruction: str
+    preferred_runtime: str | None = Field(default=None, alias="preferredRuntime")
+    qa_commands: list[list[str]] = Field(default_factory=list, alias="qaCommands")
+    require_approval: bool = Field(default=True, alias="requireApproval")
+    max_cost_usd: float | None = Field(default=None, alias="maxCostUsd")
+    approval_grant_id: str | None = Field(default=None, alias="approvalGrantId")
+    model: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class DeveloperAgentRunResponse(BaseModel):
+    status: str
+    reason: str
+    developer_agent: DeveloperAgentStatus = Field(alias="developerAgent")
+    workspace: dict[str, Any]
+    job: dict[str, Any]
+    agent_run: AgentRunRecord = Field(alias="agentRun")
+    evidence_package: dict[str, Any] = Field(alias="evidencePackage")
+    runtime: dict[str, Any]
+    runtime_result: dict[str, Any] = Field(alias="runtimeResult")
+    qa_results: list[dict[str, Any]] = Field(alias="qaResults")
+    diff_summary: dict[str, Any] = Field(alias="diffSummary")
+
+
+class RuntimeProviderConfigurationVariable(BaseModel):
+    key: str
+    name: str
+    required: bool
+    secret: bool
+    configured: bool
+    fingerprint: str | None = None
+
+
+class RuntimeProviderConfigurationRecord(BaseModel):
+    id: str
+    display_name: str = Field(alias="displayName")
+    kind: str
+    configured: bool
+    status: Literal["configured", "configuration_required"]
+    reason: str
+    missing: list[str]
+    variables: list[RuntimeProviderConfigurationVariable]
+
+
+class RuntimeProviderConfigurationResponse(BaseModel):
+    providers: list[RuntimeProviderConfigurationRecord]
+
+
 class RuntimeProvidersResponse(BaseModel):
     runtime_modes: list[RuntimeMode] = Field(alias="runtimeModes")
     ollama: OllamaRuntimeProviderStatus
     cli: CliRuntimeProviderStatus
     api: ApiRuntimeProviderStatus
+    developer_agent: DeveloperAgentStatus = Field(alias="developerAgent")
     providers: list[RuntimeProviderStatus]
 
 

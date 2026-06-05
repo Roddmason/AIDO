@@ -19,6 +19,9 @@ export type ModelGatewayRoutePreviewResponse = OperationResponse<'route_preview_
 export type ModelGatewayBenchmarkOutcomeRequest = MutationBody<'create_benchmark_outcome_api_v1_model_gateway_benchmark_outcomes_post'>;
 export type IssueToPatchRequest = MutationBody<'run_issue_to_patch_api_v1_workflows_issue_to_patch_post'>;
 export type IssueToPatchResponse = OperationResponse<'run_issue_to_patch_api_v1_workflows_issue_to_patch_post'>;
+export type DeveloperAgentRunRequest = MutationBody<'run_developer_agent_api_v1_agents_developer_runs_post'>;
+export type DeveloperAgentRunResponse = OperationResponse<'run_developer_agent_api_v1_agents_developer_runs_post'>;
+export type DeveloperAgentStatusResponse = OperationResponse<'developer_agent_status_api_v1_agents_developer_status_get'>;
 export type I18nLanguageRecord = {
 	code: string;
 	name: string;
@@ -71,6 +74,17 @@ export function getRetrievalStatus(signal?: AbortSignal) {
 
 export function getRuntimeProviders(signal?: AbortSignal) {
 	return requestGeneratedOperation<'list_runtime_providers_api_v1_runtime_providers_get', RuntimeProviders>('list_runtime_providers_api_v1_runtime_providers_get', { signal });
+}
+
+export function getRuntimeProviderConfiguration(signal?: AbortSignal) {
+	return apiRequest<{ providers: Dictionary[] }>('/api/v1/runtime/provider-configuration', { signal });
+}
+
+export function getDeveloperAgentStatus(signal?: AbortSignal) {
+	return requestGeneratedOperation<'developer_agent_status_api_v1_agents_developer_status_get', DeveloperAgentStatusResponse>(
+		'developer_agent_status_api_v1_agents_developer_status_get',
+		{ signal },
+	);
 }
 
 export function getI18nCatalog(signal?: AbortSignal) {
@@ -207,6 +221,13 @@ export function createWorkflowWithBody(token: string, body: MutationBody<'create
 
 export function runIssueToPatch(token: string, body: IssueToPatchRequest) {
 	return requestGeneratedOperation('run_issue_to_patch_api_v1_workflows_issue_to_patch_post', {
+		token,
+		body,
+	});
+}
+
+export function runDeveloperAgent(token: string, body: DeveloperAgentRunRequest) {
+	return requestGeneratedOperation('run_developer_agent_api_v1_agents_developer_runs_post', {
 		token,
 		body,
 	});

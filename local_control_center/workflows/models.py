@@ -127,6 +127,7 @@ class IssueToPatchResponse(BaseModel):
     agent_run: AgentRunRecord = Field(alias="agentRun")
     evidence_package: EvidencePackageRecord = Field(alias="evidencePackage")
     runtime: dict[str, Any]
+    runtime_result: dict[str, Any] = Field(alias="runtimeResult")
     qa_results: list[dict[str, Any]] = Field(alias="qaResults")
     diff_summary: dict[str, Any] = Field(alias="diffSummary")
 

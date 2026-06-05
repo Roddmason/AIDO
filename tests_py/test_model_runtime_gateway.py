@@ -4,6 +4,8 @@ import json
 import os
 import subprocess
 import sys
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
 import pytest
@@ -18,8 +20,9 @@ from local_control_center.agents.cli_runtimes.swe_agent import SweAgentRuntime
 from local_control_center.agents.cli_sessions import CliSessionStore
 from local_control_center.agents.credential_preflight import run_credential_preflight
 from local_control_center.agents.credentials import CredentialResolver
-from local_control_center.agents.model_gateway import redact_secrets
+from local_control_center.agents.model_gateway import ModelGateway, redact_secrets
 from local_control_center.agents.model_benchmarks import ModelBenchmarkStore
+from local_control_center.agents.provider_accounts import ProviderAccountStore
 from local_control_center.agents.providers.base import ModelInfo, ProviderHealth
 from local_control_center.agents.providers.nvidia_nim import NvidiaNimProvider
 from local_control_center.agents.providers.openai_compatible import OpenAICompatibleProvider
@@ -79,6 +82,53 @@ def register_workspace(connection, workspace_id: str, path: Path) -> None:
             "2026-01-01T00:00:00Z",
         ),
     )
+
+
+class JsonGatewayHandler(BaseHTTPRequestHandler):
+    response_payload: dict[str, object] = {}
+    seen_requests: list[dict[str, object]] = []
+
+    def log_message(self, format: str, *args: object) -> None:
+        return
+
+    def do_GET(self) -> None:  # noqa: N802
+        if self.path == "/api/tags":
+            self._send_json({"models": [{"name": "llama3:latest"}]})
+            return
+        self.send_error(404)
+
+    def do_POST(self) -> None:  # noqa: N802
+        length = int(self.headers.get("Content-Length") or "0")
+        raw_body = self.rfile.read(length).decode("utf-8")
+        body = json.loads(raw_body) if raw_body else {}
+        type(self).seen_requests.append(
+            {
+                "path": self.path,
+                "authorization": self.headers.get("Authorization"),
+                "body": body,
+            }
+        )
+        self._send_json(type(self).response_payload)
+
+    def _send_json(self, payload: dict[str, object]) -> None:
+        body = json.dumps(payload).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+
+def run_json_gateway_server(payload: dict[str, object]) -> tuple[str, type[JsonGatewayHandler], HTTPServer]:
+    handler = type(
+        "GatewayTestHandler",
+        (JsonGatewayHandler,),
+        {"response_payload": payload, "seen_requests": []},
+    )
+    server = HTTPServer(("127.0.0.1", 0), handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    return f"http://127.0.0.1:{server.server_port}", handler, server
 
 
 def test_phase12_schema_adds_unified_model_runtime_gateway_tables(tmp_path: Path) -> None:
@@ -538,7 +588,7 @@ def test_provider_health_check_does_not_mark_missing_remote_vault_ref_healthy(
     assert created.status_code == 201
     assert created.json()["provider"]["credentialStatus"] == "missing"
     assert health.status_code == 200
-    assert health.json()["health"]["healthStatus"] == "misconfigured"
+    assert health.json()["health"]["healthStatus"] == "configuration_required"
 
 
 def test_openai_compatible_provider_uses_credential_resolver(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -555,6 +605,224 @@ def test_openai_compatible_provider_uses_credential_resolver(monkeypatch: pytest
     health = provider.health_check()
     assert health.status == "disabled"
     assert "sk-testsecret" not in health.message
+
+
+def test_model_gateway_blocks_unconfigured_openai_compatible_before_http_call(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("MODEL_GATEWAY_MISSING_KEY", raising=False)
+    monkeypatch.setenv("AIDO_ENABLE_REAL_PROVIDER_CALLS", "true")
+    base_url, handler, server = run_json_gateway_server({"unexpected": True})
+    try:
+        with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+            initialize_platform_schema(connection)
+            ProviderAccountStore(connection).upsert_provider_account(
+                {
+                    "providerId": "openai_compatible",
+                    "providerType": "api",
+                    "apiFormat": "openai_compatible",
+                    "baseUrl": f"{base_url}/v1",
+                    "credentialRef": "env:MODEL_GATEWAY_MISSING_KEY",
+                    "enabled": True,
+                    "healthStatus": "healthy",
+                    "lastHealthCheckAt": "2026-01-01T00:00:00Z",
+                }
+            )
+
+            plan = ModelGateway(connection).plan_model_call(
+                project_id="project-gateway",
+                provider="openai_compatible",
+                model="configured_model",
+                runtime_type="api",
+                messages=[{"role": "user", "content": "hello"}],
+            )
+            result = ModelGateway(connection).execute_model_call(plan)
+
+        assert result["status"] == "configuration_required"
+        assert "credential" in result["reason"].lower()
+        assert handler.seen_requests == []
+    finally:
+        server.shutdown()
+
+
+def test_model_gateway_redacts_secrets_from_unavailable_provider_errors(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    secret = "sk-redactgateway123456"
+    monkeypatch.setenv("MODEL_GATEWAY_SECRET_KEY", secret)
+    monkeypatch.setenv("AIDO_ENABLE_REAL_PROVIDER_CALLS", "true")
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        ProviderAccountStore(connection).upsert_provider_account(
+            {
+                "providerId": "openai_compatible",
+                "providerType": "api",
+                "apiFormat": "openai_compatible",
+                "baseUrl": "http://127.0.0.1:1/v1",
+                "credentialRef": "env:MODEL_GATEWAY_SECRET_KEY",
+                "enabled": True,
+                "healthStatus": "healthy",
+                "lastHealthCheckAt": "2026-01-01T00:00:00Z",
+            }
+        )
+
+        plan = ModelGateway(connection).plan_model_call(
+            project_id="project-gateway",
+            provider="openai_compatible",
+            model="configured_model",
+            runtime_type="api",
+            messages=[{"role": "user", "content": "hello"}],
+            metadata={"authorization": f"Bearer {secret}", "payload": {"apiKey": secret}},
+        )
+        result = ModelGateway(connection).execute_model_call(plan)
+
+    serialized = json.dumps(result, sort_keys=True)
+    assert result["status"] == "unavailable"
+    assert secret not in serialized
+    assert "[redacted]" in serialized
+
+
+def test_model_gateway_budget_exceeded_blocks_before_provider_call(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_chat_completion(self: OpenAICompatibleProvider, request: object) -> object:
+        raise AssertionError("provider must not be called after a budget block")
+
+    monkeypatch.setattr(OpenAICompatibleProvider, "chat_completion", fail_chat_completion)
+    monkeypatch.setenv("MODEL_GATEWAY_BUDGET_KEY", "sk-budgetgateway123456")
+    monkeypatch.setenv("AIDO_ENABLE_REAL_PROVIDER_CALLS", "true")
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        ProviderAccountStore(connection).upsert_provider_account(
+            {
+                "providerId": "openai_compatible",
+                "providerType": "api",
+                "apiFormat": "openai_compatible",
+                "baseUrl": "http://127.0.0.1:1/v1",
+                "credentialRef": "env:MODEL_GATEWAY_BUDGET_KEY",
+                "enabled": True,
+                "healthStatus": "healthy",
+                "lastHealthCheckAt": "2026-01-01T00:00:00Z",
+            }
+        )
+        plan = ModelGateway(connection).plan_model_call(
+            project_id="project-gateway",
+            provider="openai_compatible",
+            model="configured_model",
+            runtime_type="api",
+            messages=[{"role": "user", "content": "hello"}],
+            budget_remaining_usd=0.01,
+            estimated_cost_usd=0.02,
+        )
+
+        result = ModelGateway(connection).execute_model_call(plan)
+        usage_count = connection.execute("SELECT COUNT(*) FROM usage_ledger").fetchone()[0]
+
+    assert result["status"] == "blocked_budget"
+    assert result["reason"] == "budget_remaining_exceeded"
+    assert usage_count == 0
+
+
+def test_model_gateway_ollama_health_uses_configured_local_server(tmp_path: Path) -> None:
+    base_url, _handler, server = run_json_gateway_server({})
+    try:
+        with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+            initialize_platform_schema(connection)
+            ProviderAccountStore(connection).upsert_provider_account(
+                {
+                    "providerId": "ollama",
+                    "providerType": "local",
+                    "apiFormat": "ollama",
+                    "baseUrl": base_url,
+                    "credentialRef": "",
+                    "enabled": True,
+                }
+            )
+
+            health = ModelGateway(connection).provider_health("ollama")
+
+        assert health["status"] == "available"
+        assert health["healthStatus"] == "healthy"
+        assert health["models"] == ["llama3:latest"]
+    finally:
+        server.shutdown()
+
+
+def test_model_gateway_openai_compatible_executes_real_http_and_records_actual_usage(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("MODEL_GATEWAY_REAL_KEY", "sk-realgateway123456")
+    monkeypatch.setenv("AIDO_ENABLE_REAL_PROVIDER_CALLS", "true")
+    base_url, handler, server = run_json_gateway_server(
+        {
+            "id": "chatcmpl-test",
+            "model": "configured_model",
+            "choices": [{"message": {"role": "assistant", "content": "real provider response"}}],
+            "usage": {
+                "prompt_tokens": 7,
+                "completion_tokens": 5,
+                "total_tokens": 12,
+                "prompt_tokens_details": {"cached_tokens": 2},
+            },
+        }
+    )
+    try:
+        with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+            initialize_platform_schema(connection)
+            store = ProviderAccountStore(connection)
+            store.upsert_provider_account(
+                {
+                    "providerId": "openai_compatible",
+                    "providerType": "api",
+                    "apiFormat": "openai_compatible",
+                    "baseUrl": f"{base_url}/v1",
+                    "credentialRef": "env:MODEL_GATEWAY_REAL_KEY",
+                    "enabled": True,
+                    "healthStatus": "healthy",
+                    "lastHealthCheckAt": "2026-01-01T00:00:00Z",
+                }
+            )
+            store.upsert_model(
+                {
+                    "providerId": "openai_compatible",
+                    "model": "configured_model",
+                    "enabled": True,
+                    "inputPricePerMtok": 1.0,
+                    "cachedInputPricePerMtok": 0.25,
+                    "outputPricePerMtok": 2.0,
+                    "reasoningPricePerMtok": 3.0,
+                    "source": "unit_test_pricing",
+                }
+            )
+
+            plan = ModelGateway(connection).plan_model_call(
+                project_id="project-gateway",
+                provider="openai_compatible",
+                model="configured_model",
+                runtime_type="api",
+                messages=[{"role": "user", "content": "hello"}],
+            )
+            result = ModelGateway(connection).execute_model_call(plan)
+
+        assert result["status"] == "completed"
+        assert result["content"] == "real provider response"
+        assert result["usage"]["inputTokens"] == 7
+        assert result["usage"]["cachedInputTokens"] == 2
+        assert result["usage"]["outputTokens"] == 5
+        assert result["usage"]["totalTokens"] == 14
+        assert result["usage"]["actualCostUsd"] == 0.000016
+        assert result["usage"]["estimatedCostUsd"] is None
+        assert result["usage"]["usageSource"] == "actual"
+        assert result["usage"]["rawUsage"]["token_status"] == "actual"
+        assert result["usage"]["rawUsage"]["cost_status"] == "actual"
+        assert handler.seen_requests[0]["path"] == "/v1/chat/completions"
+        assert handler.seen_requests[0]["authorization"] == "Bearer sk-realgateway123456"
+    finally:
+        server.shutdown()
 
 
 def test_model_catalog_crud_endpoints(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

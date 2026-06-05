@@ -189,13 +189,17 @@ def test_generated_openapi_client_is_checked_in_and_v1_only() -> None:
     assert "export type CliRuntimeProviderStatus" in content
     assert "export type ApiRuntimeProviderStatus" in content
     assert "export type RuntimeProviderStatus" in content
+    assert "export type DeveloperAgentStatus" in content
     assert (
         'RuntimeProvidersResponse = { "api": ApiRuntimeProviderStatus; '
-        '"cli": CliRuntimeProviderStatus; "ollama": OllamaRuntimeProviderStatus; '
+        '"cli": CliRuntimeProviderStatus; "developerAgent": DeveloperAgentStatus; '
+        '"ollama": OllamaRuntimeProviderStatus; '
         '"providers": Array<RuntimeProviderStatus>;'
     ) in content
     assert "export type IssueToPatchRequest" in content
     assert "export type IssueToPatchResponse" in content
+    assert '"developer_agent_status_api_v1_agents_developer_status_get": DeveloperAgentStatusResponse' in content
+    assert '"run_developer_agent_api_v1_agents_developer_runs_post": DeveloperAgentRunRequest' in content
     assert "export type DockerSandboxStatus" in content
     assert "export type RestrictedSubprocessStatus" in content
     assert 'SandboxStatusResponse = { "docker": DockerSandboxStatus; "restrictedSubprocess": RestrictedSubprocessStatus }' in content

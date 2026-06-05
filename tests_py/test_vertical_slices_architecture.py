@@ -372,7 +372,7 @@ def test_schema_migration_tests_use_direct_sqlite_setup() -> None:
 def test_model_gateway_repository_tests_use_direct_sqlite_setup() -> None:
     runtime_tests = read("tests_py/test_phase3_to_6_control_plane_runtime.py")
     model_gateway_tests = runtime_tests.split(
-        "def test_model_gateway_records_allowed_model_call_and_cost_usage",
+        "def test_model_gateway_plans_allowed_model_call_without_recording_cost_usage",
         1,
     )[1].split("def test_skills_sync_reads_versionable_local_skills", 1)[0]
 

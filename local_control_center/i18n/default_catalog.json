@@ -59,6 +59,10 @@
       "en": "Agents",
       "es": "Agentes"
     },
+    "ui.static.developeragent": {
+      "en": "DeveloperAgent",
+      "es": "Agente desarrollador"
+    },
     "app.nav.workspaces": {
       "en": "Workspaces",
       "es": "Espacios de trabajo"
@@ -366,6 +370,10 @@
     "ui.static.actual.cost.edf3964d": {
       "en": "Actual cost",
       "es": "Costo real"
+    },
+    "ui.static.cost.status.0f8a4f0a": {
+      "en": "Cost status",
+      "es": "Estado de costo"
     },
     "ui.static.after.79ba5e1b": {
       "en": "After",
@@ -1239,9 +1247,9 @@
       "en": "Mitigations and follow-up work appear here.",
       "es": "Las mitigaciones y el trabajo de seguimiento aparecen aquí."
     },
-    "ui.static.mock.and.real.calls.record.token.and.cost.usage.here.cec31f01": {
-      "en": "Mock and real calls record token and cost usage here.",
-      "es": "Las llamadas simuladas y reales registran el uso de tokens y costos aquí."
+    "ui.static.real.provider.and.runtime.calls.record.reported.usage.here.cec31f01": {
+      "en": "Real provider and runtime calls record reported usage here.",
+      "es": "Las llamadas reales de proveedores y runtimes registran aquí el uso reportado."
     },
     "ui.static.mode.a7b93d21": {
       "en": "Mode",
@@ -2547,6 +2555,10 @@
       "en": "Usage source",
       "es": "Fuente de uso"
     },
+    "ui.static.token.status.9716f498": {
+      "en": "Token status",
+      "es": "Estado de tokens"
+    },
     "ui.static.use.lowercase.letters.numbers.dashes.or.underscores.da56bfbd": {
       "en": "Use lowercase letters, numbers, dashes or underscores.",
       "es": "Utilice letras minúsculas, números, guiones o guiones bajos."
@@ -2854,6 +2866,30 @@
     "ui.static.project.selection.audit.maintainers.2a477f9d": {
       "en": "Project selection, all-project audit visibility, technical mantenedores and runtime defaults live here instead of the daily operation surface.",
       "es": "La selección de proyecto, la visibilidad de auditoría de todos los proyectos, los mantenedores técnicos y los valores base del runtime viven aquí, fuera de la superficie diaria."
+    },
+    "ui.static.missing.3e3562a8": {
+      "en": "Missing",
+      "es": "Faltante"
+    },
+    "ui.static.no.runtime.configuration.status.6d2f5e90": {
+      "en": "No runtime configuration status",
+      "es": "Sin estado de configuración runtime"
+    },
+    "ui.static.runtime.configuration.d0a958f9": {
+      "en": "Runtime Configuration",
+      "es": "Configuración runtime"
+    },
+    "ui.static.runtime.provider.configuration.no.records.8441097f": {
+      "en": "Runtime provider configuration has not returned records.",
+      "es": "La configuración de proveedores runtime no ha devuelto registros."
+    },
+    "ui.static.variables.a43c1b0a": {
+      "en": "Variables",
+      "es": "Variables de entorno"
+    },
+    "ui.static.missing.runtime.config.3ecf7c92": {
+      "en": "missing runtime config",
+      "es": "configuración runtime faltante"
     }
   }
 }

@@ -3,6 +3,8 @@
 ## What It Does
 
 The Model Gateway is the local-first control surface for model API providers, CLI coding runtimes, routing profiles, role policies, usage, budgets and quota state. It keeps legacy `model_policies`, `model_calls` and `cost_usage` intact while adding the Unified Model & Runtime Gateway tables.
+Runtime execution is fail-closed: planning can record `planned`, but only a real
+provider/runtime response can record `completed`.
 
 ## Configuration
 
@@ -41,6 +43,7 @@ Run:
 
 ```powershell
 uv run pytest tests_py/test_model_runtime_gateway.py tests_py/test_ci_and_openapi_client.py -q
+uv run pytest tests_py/test_internal_mock_product_boundary.py tests_py/test_real_readiness_architecture.py -q
 corepack pnpm@10.24.0 run openapi:generate
 ```
 
@@ -66,6 +69,13 @@ corepack pnpm@10.24.0 run openapi:generate
 ## Limitations
 
 - `route/execute` is present but fail-closed: API provider calls require `AIDO_ENABLE_REAL_PROVIDER_CALLS=true`, configured credentials, budget/quota clearance and no pending approval requirement. If approval is required, it creates a pending `model.route.execute` action request and the overview counts it in `pendingModelApprovals`. CLI execution remains delegated to policy-approved agent runtime sessions.
+- `ModelGateway.execute_model_call()` only supports real provider execution.
+  Missing configuration returns `configuration_required`; disabled execution
+  gates return `blocked`; configured providers whose endpoint fails return
+  `unavailable` with a redacted technical reason.
+- Usage records only contain provider-reported token counts. If a provider
+  response lacks usage, token state is `unknown`/`unavailable`; if configured
+  pricing is missing, `costStatus` is `unknown` and cost fields remain null.
 - Provider health checks are fail-closed. Disabled providers return
   `configuration_required`; API/gateway providers require a configured
   credential and `AIDO_ENABLE_REAL_PROVIDER_CALLS=true` before any remote

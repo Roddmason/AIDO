@@ -110,6 +110,9 @@ def low_risk_shell_category(parsed: ParsedCommand) -> str | None:
         return "test"
     if parsed.executable in {"playwright", "playwright.cmd", "playwright.exe"} and parsed.args[:1] == ("test",):
         return "test"
+    if parsed.executable in {"python", "python.exe", "python3", "py", "py.exe"} and len(parsed.args) >= 2:
+        if parsed.args[:2] == ("-m", "pytest"):
+            return "test"
     if parsed.executable in {"python", "python.exe", "python3", "py", "py.exe"} and parsed.args == ("--version",):
         return "interpreter_version"
     if parsed.executable in RUNTIME_VERSION_EXECUTABLES and parsed.args in {("--version",), ("version",)}:

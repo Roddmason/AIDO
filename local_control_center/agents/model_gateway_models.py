@@ -371,6 +371,8 @@ class UsageLedgerRecord(BaseModel):
     currency: str
     latency_ms: int | None = Field(default=None, alias="latencyMs")
     usage_source: str = Field(alias="usageSource")
+    token_status: str = Field(default="unknown", alias="tokenStatus")
+    cost_status: str = Field(default="unknown", alias="costStatus")
     raw_usage: dict[str, Any] = Field(alias="rawUsage")
     created_at: str = Field(alias="createdAt")
 

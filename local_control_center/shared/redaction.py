@@ -21,6 +21,8 @@ SECRET_VALUE_PATTERN = re.compile(
 
 
 def redact_secrets(value: Any, *, key: str = "") -> Any:
+    if key.lower() in {"token_status", "tokenstatus", "cost_status", "coststatus"}:
+        return value
     if key.lower().endswith(("tokens", "_tokens", "token_count")) and isinstance(value, int | float):
         return value
     if SECRET_KEY_PATTERN.search(key):

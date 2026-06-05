@@ -9,7 +9,7 @@ from local_control_center.jobs_approvals.repository import JobsRepository
 from local_control_center.shared.event_bus import EventBus
 
 from .credentials import CredentialResolver
-from .model_gateway import redact_secrets
+from .model_gateway import ModelGateway, provider_instance, real_provider_calls_enabled, redact_secrets
 from .model_gateway_models import (
     BudgetRulePatchRequest,
     BudgetRuleResponse,
@@ -60,15 +60,6 @@ from .model_benchmarks import ModelBenchmarkStore
 from .model_router import ModelRouter, RoutingRequest
 from .provider_accounts import ProviderAccountStore
 from .quota_manager import QuotaManager
-from .providers.anthropic_api import AnthropicAPIProvider
-from .providers.nvidia_nim import NvidiaNimProvider
-from .providers.ollama import OllamaProvider
-from .providers.openai_api import OpenAIAPIProvider
-from .providers.openai_compatible import OpenAICompatibleProvider
-from .providers.openai_compatible import real_provider_calls_enabled
-from .providers.openrouter import OpenRouterProvider
-from .providers.litellm_adapter import LiteLLMAdapter
-from .providers.base import ModelRequest, ProviderHealth
 from .routing_profiles import RoutingProfileStore
 from .runtime_registry import RuntimeRegistry
 from .usage_ledger import UsageLedger
@@ -81,25 +72,7 @@ def _payload(body: Any, *, exclude_none: bool = True) -> dict[str, Any]:
 
 
 def _provider_instance(provider_id: str, *, connection: Any):
-    try:
-        account = ProviderAccountStore(connection).get_provider_account(provider_id)
-    except KeyError:
-        account = {}
-    base_url = account.get("baseUrl") or None
-    credential_ref = account.get("credentialRef") or None
-    if provider_id == "nvidia_nim":
-        return NvidiaNimProvider(connection=connection, base_url=base_url or "https://integrate.api.nvidia.com/v1", credential_ref=credential_ref or "")
-    if provider_id == "ollama":
-        return OllamaProvider(base_url=base_url)
-    if provider_id == "openai_api":
-        return OpenAIAPIProvider(base_url=base_url, credential_ref=credential_ref or "")
-    if provider_id == "anthropic_api":
-        return AnthropicAPIProvider()
-    if provider_id == "openrouter":
-        return OpenRouterProvider(base_url=base_url, credential_ref=credential_ref or "")
-    if provider_id == "litellm":
-        return LiteLLMAdapter(base_url=base_url, credential_ref=credential_ref or "")
-    return OpenAICompatibleProvider(provider_id=provider_id, base_url=base_url, credential_ref=credential_ref)
+    return provider_instance(provider_id, connection=connection)
 
 
 def _requires_credential_for_real_discovery(account: dict[str, Any]) -> bool:
@@ -222,44 +195,10 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
     async def provider_health_check(provider_id: str, request: Request) -> dict[str, Any]:
         require_write(request)
         try:
-            account = providers().get_provider_account(provider_id)
+            providers().get_provider_account(provider_id)
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
-        if not account.get("enabled"):
-            health = ProviderHealth(
-                providerId=provider_id,
-                status="configuration_required",
-                healthStatus="configuration_required",
-                message="Provider account is disabled; enable it before health checks.",
-            ).model_dump(by_alias=True)
-            providers().record_health_check(provider_id=provider_id, status=health["healthStatus"], payload=health)
-            audit("model_gateway.provider.health_checked", provider_id, health)
-            return {"health": health}
-        if _requires_remote_provider_call(account):
-            credential_ref = str(account.get("credentialRef") or "")
-            credential = CredentialResolver().resolve(credential_ref, fetch=False)
-            if credential.status != "configured":
-                health = ProviderHealth(
-                    providerId=provider_id,
-                    status="misconfigured",
-                    healthStatus="misconfigured",
-                    message=redact_secrets(f"Credential ref {credential_ref} is {credential.status}."),
-                ).model_dump(by_alias=True)
-                providers().record_health_check(provider_id=provider_id, status=health["healthStatus"], payload=health)
-                audit("model_gateway.provider.health_checked", provider_id, health)
-                return {"health": health}
-        if _requires_remote_provider_call(account) and not real_provider_calls_enabled():
-            health = ProviderHealth(
-                providerId=provider_id,
-                status="blocked",
-                healthStatus="blocked",
-                message="Real provider health checks are disabled by AIDO_ENABLE_REAL_PROVIDER_CALLS=false.",
-            ).model_dump(by_alias=True)
-            providers().record_health_check(provider_id=provider_id, status=health["healthStatus"], payload=health)
-            audit("model_gateway.provider.health_checked", provider_id, health)
-            return {"health": health}
-        health = _provider_instance(provider_id, connection=platform.connection).health_check().model_dump(by_alias=True)
-        health = redact_secrets(health)
+        health = ModelGateway(platform.connection).provider_health(provider_id)
         if health.get("status") == "rate_limited" or "429" in str(health.get("message") or health.get("lastError") or ""):
             model = "auto_best_available" if provider_id == "nvidia_nim" else "*"
             QuotaManager(platform.connection).record_rate_limit(provider_id=provider_id, model=model, retry_after_seconds=300)
@@ -415,41 +354,42 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
         runtime_type = str(selected.get("runtime") or "")
         if runtime_type == "cli" and os.environ.get("AIDO_ENABLE_CLI_RUNTIMES", "false").lower() != "true":
             raise HTTPException(status_code=403, detail="CLI route execution is disabled by AIDO_ENABLE_CLI_RUNTIMES=false.")
-        if runtime_type != "cli" and not real_provider_calls_enabled():
-            raise HTTPException(status_code=403, detail="Real provider route execution is disabled by AIDO_ENABLE_REAL_PROVIDER_CALLS=false.")
         if runtime_type == "cli":
             raise HTTPException(status_code=501, detail="Real CLI execution must be launched through policy-approved agent runtime sessions.")
-        account = providers().get_provider_account(selected["provider"])
-        credential_ref = str(account.get("credentialRef") or "")
-        if runtime_type in {"api", "gateway"} and not credential_ref:
-            raise HTTPException(status_code=400, detail=f"Credential ref is required for provider {selected['provider']}.")
-        credential = CredentialResolver().resolve(credential_ref)
-        if credential_ref and not credential.configured:
-            raise HTTPException(status_code=400, detail=f"Credential ref {credential_ref} is {credential.status}.")
-        provider = _provider_instance(selected["provider"], connection=platform.connection)
         message = str(body_payload.get("prompt") or body_payload.get("taskType") or "Execute routed task.")
-        response = provider.chat_completion(ModelRequest(model=selected["model"], messages=[{"role": "user", "content": message}]))
-        usage_record = usage().record_usage(
-            provider_id=response.provider_id,
-            model=response.model,
+        gateway = ModelGateway(platform.connection)
+        planned_call = gateway.plan_model_call(
+            project_id=str(body_payload.get("projectId") or "model-gateway"),
+            provider=selected["provider"],
+            model=selected["model"],
             runtime_type=runtime_type,
-            role=body_payload.get("role"),
-            workflow_run_id=body_payload.get("workflowRunId"),
-            workflow_step_id=body_payload.get("workflowStepId"),
-            agent_id=body_payload.get("agentId"),
-            job_id=body_payload.get("jobId"),
-            task_id=body_payload.get("taskId"),
-            input_tokens=response.usage.input_tokens,
-            cached_input_tokens=response.usage.cached_input_tokens,
-            output_tokens=response.usage.output_tokens,
-            reasoning_tokens=response.usage.reasoning_tokens,
-            tool_tokens=response.usage.tool_tokens,
+            messages=[{"role": "user", "content": message}],
             estimated_cost_usd=result.get("estimatedCostUsd"),
-            actual_cost_usd=None,
-            raw_usage=response.usage.raw_usage,
+            budget_remaining_usd=body_payload.get("budgetRemainingUsd"),
+            metadata={"routing": result},
         )
-        audit("model_gateway.route.execute", selected["provider"], {"usageLedgerId": usage_record["id"]})
-        return {"routing": result, "usage": usage_record, "content": response.content}
+        execution = gateway.execute_model_call(
+            {
+                **planned_call,
+                "role": body_payload.get("role"),
+                "workflowRunId": body_payload.get("workflowRunId"),
+                "workflowStepId": body_payload.get("workflowStepId"),
+                "agentId": body_payload.get("agentId"),
+                "jobId": body_payload.get("jobId"),
+                "taskId": body_payload.get("taskId"),
+            }
+        )
+        if execution["status"] != "completed":
+            status_code = {
+                "blocked": 403,
+                "configuration_required": 400,
+                "blocked_budget": 409,
+                "unavailable": 503,
+            }.get(str(execution["status"]), 409)
+            detail = f"{execution['status']}: {execution.get('reason') or 'model call did not complete'}"
+            raise HTTPException(status_code=status_code, detail=redact_secrets(detail))
+        audit("model_gateway.route.execute", selected["provider"], {"usageLedgerId": execution["usage"]["id"]})
+        return {"routing": result, "usage": execution["usage"], "content": execution["content"]}
 
     @router.get("/usage-ledger", response_model=UsageLedgerListResponse)
     async def list_usage_ledger() -> dict[str, Any]:

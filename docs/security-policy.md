@@ -65,10 +65,92 @@ The evaluator uses explicit `permissionProfile` first, then role-based defaults.
 
 ## Current Limits
 
+Every productive runtime or tool execution must enter through this chain:
+
+```text
+ToolBroker -> PolicyEngine -> Approval/Grant -> RuntimeAdapter -> Evidence
+```
+
+Agent implementation workflows must allocate an isolated workspace before any
+executable tool call is evaluated. Git projects use a real `git worktree` and
+task branch under `.tmp/workspaces`; non-Git projects are copied into an
+isolated directory with explicit file and byte limits. The project root is
+source material only and must not be used as an execution workspace.
+
+Each workspace allocation records a manifest containing `workspaceId`,
+`projectId`, `taskId`, `ownerAgentId`, `workspacePath`, `sourcePath`,
+`createdAt`, source commit, source branch, task branch, copy/worktree details,
+limits, and a file manifest with hashes. Workflow evidence must include final
+Git status/diff data, the workspace manifest, and a workspace file snapshot
+with hashes before cleanup. Git worktree cleanup may remove the temporary
+working directory, but it must not delete the persisted evidence package,
+manifest, artifacts, or audit events.
+
+Feature modules, workflows, agent executors, model gateways, evidence
+collectors, adapters, jobs, and UI-facing providers must not invoke CLI,
+subprocess, Docker, MCP, or runtime tools directly. If a real brokered adapter
+or grant is missing, the request must return `unavailable`,
+`configuration_required`, or `blocked` with a technical reason. It must not
+report completion through mock, demo, sample, fake, dummy, placeholder, or
+hardcoded success behavior.
+
+The broker boundary blocks:
+
+- `shell=True`
+- command string execution
+- missing or non-structured `argv`
+- missing or unknown `workspaceId` for executable tool calls
+- cwd outside the workspace
+- requested `workspacePath` that differs from the registered workspace
+- any executable `path` outside the registered workspace
+- dangerous flags such as `--no-sandbox`, `--privileged`, `--mount`,
+  `--volume`, `--network=host`, and split-token `--network host`
+- network host mode unless explicitly allowlisted by policy
+- privileged containers
+- arbitrary mounts
+
+Direct subprocess use is limited to approved policy/runtime boundary modules:
+`security_policy/sandbox.py` for the restricted subprocess and Docker sandbox,
+and `security_policy/git_command_runner.py` for internal git worktree commands.
+Workflow code must call `ToolBroker`; runtime adapters may call sandbox
+primitives only after the broker and policy stages have already accepted the
+request.
+
 The evaluator is now workspace-aware when the request references an allocated
-workspace. Low-risk shell commands are allowed only when the requested path is
-inside the workspace root. The same command outside that root is downgraded to
-`requires_approval` with `path_outside_workspace`.
+workspace. Executable tool calls without a registered workspace are denied
+before policy approval and before any runtime adapter is invoked. Low-risk shell
+commands are allowed only when the requested path is inside the workspace root.
+Requests outside that root are denied, not converted into approval prompts.
+
+`issue_to_patch` runtime execution is a named policy operation, not a generic
+shell bypass. The runner may submit `operation=issue_to_patch_runtime` only
+after selecting a configured executable runtime, allocating a workspace, and
+building structured `argv`. The policy allows that operation only for the
+`aido_issue_to_patch_runner` agent, with `workflowKind=issue_to_patch`,
+`runtimeId`, a `dev_safe` profile, and a registered workspace. Networked or
+secret-bearing runtime execution still requires approval.
+
+DeveloperAgent uses named operations as well:
+
+- `developer_agent_runtime`: Codex or Claude CLI execution only, for the
+  `developer_agent` profile, with `runtimeId`, `agentRunId`, `dev_safe`, and a
+  registered workspace. The runner builds CLI argv through
+  `agents/runtime_registry.py` and then submits it to `ToolBroker`.
+- `developer_agent_model_call`: real Ollama or OpenAI-compatible adapter calls.
+  Ollama must pass local health and provide a model. OpenAI-compatible calls
+  require real provider configuration, explicit health, a configured model, and
+  `AIDO_ENABLE_REAL_PROVIDER_CALLS=true`; adapter credentials remain provider
+  configuration and are not exposed to the agent prompt.
+- `developer_agent_patch_apply`: applies only structured model output through
+  the `workspace_patch` adapter. Paths must be relative to the workspace, cannot
+  traverse outside it, and cannot target secret or credential paths.
+- `developer_agent_qa`: executes only allowlisted QA commands through
+  structured `argv` in the allocated workspace.
+
+DeveloperAgent completion is forbidden unless runtime execution was real, the
+workspace diff is non-empty, QA passed, and an evidence package is linked. A
+chat response without a valid structured patch is blocked; it is not treated as
+an implementation.
 
 Git worktree commands are routed through `security_policy/git_command_runner.py`
 as an allowlisted internal helper. Feature modules must not call `subprocess`

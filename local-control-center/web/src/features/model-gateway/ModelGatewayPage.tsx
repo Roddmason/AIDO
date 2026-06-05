@@ -17,6 +17,7 @@ import {
 	getModelGatewayRoutingProfiles,
 	getModelGatewayUsageLedger,
 	getModelGatewayUsageSummary,
+	getRuntimeProviderConfiguration,
 	healthCheckModelGatewayProvider,
 	patchModelGatewayProvider,
 	previewModelRoute,
@@ -53,6 +54,7 @@ type ModelGatewayState = {
 	cliSessions: Dictionary[];
 	benchmarks: Dictionary[];
 	benchmarkOutcomes: Dictionary[];
+	runtimeProviderConfiguration: Dictionary[];
 };
 
 const emptyGatewayState: ModelGatewayState = {
@@ -70,6 +72,7 @@ const emptyGatewayState: ModelGatewayState = {
 	cliSessions: [],
 	benchmarks: [],
 	benchmarkOutcomes: [],
+	runtimeProviderConfiguration: [],
 };
 
 function text(value: unknown, fallback = 'n/a') {
@@ -159,6 +162,7 @@ export function ModelGatewayPage({
 				cliSessions,
 				benchmarks,
 				benchmarkOutcomes,
+				runtimeProviderConfiguration,
 			] = await Promise.all([
 				getModelGatewayOverview(),
 				getModelGatewayProviders(),
@@ -174,6 +178,7 @@ export function ModelGatewayPage({
 				getModelGatewayCliSessions(),
 				getModelGatewayBenchmarks(),
 				getModelGatewayBenchmarkOutcomes(),
+				getRuntimeProviderConfiguration(),
 			]);
 			setGateway({
 				overview: gatewayOverview.overview,
@@ -190,6 +195,7 @@ export function ModelGatewayPage({
 				cliSessions: cliSessions.cliSessions,
 				benchmarks: benchmarks.benchmarks,
 				benchmarkOutcomes: benchmarkOutcomes.outcomes,
+				runtimeProviderConfiguration: runtimeProviderConfiguration.providers,
 			});
 		} catch (loadError) {
 			setError(loadError instanceof Error ? loadError.message : 'Model Gateway state failed to load.');
@@ -273,6 +279,8 @@ export function ModelGatewayPage({
 	const runtimeRows = runtimeProviders?.providers ?? [];
 	const executableRuntimeCount = runtimeRows.filter((runtime) => runtime.executable).length;
 	const unavailableRuntimeCount = runtimeRows.filter((runtime) => !runtime.available).length;
+	const runtimeConfigurationRows = gateway.runtimeProviderConfiguration;
+	const missingRuntimeConfigCount = runtimeConfigurationRows.filter((row) => row.configured !== true).length;
 
 	const runProviderAction = async (providerId: string, action: 'toggle' | 'health' | 'discover') => {
 		setBusyAction(`${providerId}:${action}`);
@@ -423,8 +431,49 @@ export function ModelGatewayPage({
 					<Metric label="actual cost today" value={money(gateway.overview.actualCostToday)} />
 					<Metric label="pending model approvals" value={gateway.overview.pendingModelApprovals} />
 					<Metric label="providers in cooldown" value={gateway.overview.providersInCooldown} />
+					<Metric label="missing runtime config" value={missingRuntimeConfigCount} />
 					<Metric label="active CLI sessions" value={gateway.overview.activeCliSessions} />
 				</div>
+			</Surface>
+
+			<Surface title="Runtime Configuration">
+				<DataTable rows={runtimeConfigurationRows} empty={<EmptyState title="No runtime configuration status" body="Runtime provider configuration has not returned records." />} columns={[
+					{ key: 'provider', label: 'Provider', render: (row) => <span className="mono">{text(row.id)}</span> },
+					{ key: 'kind', label: 'Kind', render: (row) => <Badge>{text(row.kind)}</Badge> },
+					{ key: 'status', label: 'Status', render: (row) => <Badge tone={row.configured ? 'ok' : 'warn'}>{text(row.status)}</Badge> },
+					{
+						key: 'missing',
+						label: 'Missing',
+						render: (row) => {
+							const missing = Array.isArray(row.missing) ? row.missing.map((item) => text(item)).filter(Boolean) : [];
+							return missing.length ? <div className="inline">{missing.map((item) => <Badge key={item} tone="warn">{item}</Badge>)}</div> : <Badge tone="ok">none</Badge>;
+						},
+					},
+					{
+						key: 'variables',
+						label: 'Variables',
+						render: (row) => {
+							const variables = Array.isArray(row.variables) ? row.variables : [];
+							return (
+								<div className="stack">
+									{variables.map((variable) => {
+										const record = variable as Dictionary;
+										const name = text(record.name);
+										const fingerprint = text(record.fingerprint, '');
+										return (
+											<div className="inline" key={name}>
+												<Badge tone={record.configured ? 'ok' : 'warn'}>{record.configured ? 'set' : 'missing'}</Badge>
+												<span className="mono">{name}</span>
+												{fingerprint ? <span className="mono">{fingerprint}</span> : null}
+											</div>
+										);
+									})}
+								</div>
+							);
+						},
+					},
+					{ key: 'reason', label: 'Reason', render: (row) => text(row.reason) },
+				]} />
 			</Surface>
 
 			<Surface title="Runtime Providers">

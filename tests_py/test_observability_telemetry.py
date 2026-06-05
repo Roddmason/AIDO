@@ -132,7 +132,7 @@ def test_policy_tool_and_model_operations_emit_trace_events(tmp_path: Path) -> N
         assert tool_event["payload"]["toolCallId"] == tool_result["toolCall"]["id"]
         assert tool_event["payload"]["agentRunId"] == agent_run["id"]
         assert model_event["payload"]["modelCallId"] == model_result["modelCall"]["id"]
-        assert model_event["payload"]["status"] == "prepared"
+        assert model_event["payload"]["status"] == "planned"
         assert "secret-token" not in str(model_event["payload"])
     finally:
         connection.close()

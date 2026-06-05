@@ -54,6 +54,11 @@ export type CliSessionResponse = { "cliSession": CliSessionRecord };
 export type CliSessionsListResponse = { "cliSessions": Array<CliSessionRecord> };
 export type CostUsageRecord = { "amountUsd": number; "createdAt": string; "id": string; "metadata": JsonObject; "projectId": string; "scope": string };
 export type DevcontainerMetadata = { "enabled"?: boolean; "features"?: Array<string>; "image"?: string; "templateId"?: string };
+export type DeveloperAgentContract = { "allowedTools": Array<string>; "id": string; "inputSchema": JsonObject; "outputSchema": JsonObject; "requiredEvidence": boolean; "requiredRuntimeCapabilities": Array<string>; "requiredWorkspace": boolean };
+export type DeveloperAgentRunRequest = { "approvalGrantId"?: null | string; "instruction": string; "maxCostUsd"?: null | number; "metadata"?: JsonObject; "model"?: null | string; "preferredRuntime"?: null | string; "projectId": string; "qaCommands"?: Array<Array<string>>; "requireApproval"?: boolean; "taskId"?: string; "workspaceId": string };
+export type DeveloperAgentRunResponse = { "agentRun": AgentRunRecord; "developerAgent": DeveloperAgentStatus; "diffSummary": JsonObject; "evidencePackage": JsonObject; "job": JsonObject; "qaResults": Array<JsonObject>; "reason": string; "runtime": JsonObject; "runtimeResult": JsonObject; "status": string; "workspace": JsonObject };
+export type DeveloperAgentStatus = { "candidateRuntimeIds"?: Array<string>; "contract": DeveloperAgentContract; "executable": boolean; "id": string; "reason": string; "selectedRuntimeId"?: null | string; "status": string };
+export type DeveloperAgentStatusResponse = { "developerAgent": DeveloperAgentStatus };
 export type DirectoryPickerRequest = { "initialPath"?: null | string; "title"?: string };
 export type DirectoryPickerResponse = { "reason"?: null | string; "selectedPath"?: null | string; "status": string };
 export type DiscoverModelsResponse = { "models": Array<ModelCatalogRecord> };
@@ -81,7 +86,7 @@ export type IdeConnectionsListResponse = { "ideConnections": Array<IdeConnection
 export type IntegrationRecord = { "config": JsonObject; "createdAt": string; "id": string; "kind": string; "status": string; "updatedAt": string };
 export type IntegrationsListResponse = { "integrations": Array<IntegrationRecord>; "mcpServers": Array<McpServerRecord>; "optionalAdapters": JsonObject };
 export type IssueToPatchRequest = { "issueText": string; "maxCostUsd"?: null | number; "preferredRuntime"?: null | string; "projectId": string; "qaCommands"?: Array<Array<string>>; "requireApproval"?: boolean; "targetPath"?: null | string; "title": string };
-export type IssueToPatchResponse = { "agentRun": AgentRunRecord; "diffSummary": JsonObject; "evidencePackage": EvidencePackageRecord; "job": JobRecord; "qaResults": Array<JsonObject>; "reason": string; "runtime": JsonObject; "status": string; "workflow": WorkflowRecord; "workflowRun": WorkflowRunRecord; "workflowSteps": Array<WorkflowStepRecord>; "workspace": WorkspaceRecord };
+export type IssueToPatchResponse = { "agentRun": AgentRunRecord; "diffSummary": JsonObject; "evidencePackage": EvidencePackageRecord; "job": JobRecord; "qaResults": Array<JsonObject>; "reason": string; "runtime": JsonObject; "runtimeResult": JsonObject; "status": string; "workflow": WorkflowRecord; "workflowRun": WorkflowRunRecord; "workflowSteps": Array<WorkflowStepRecord>; "workspace": WorkspaceRecord };
 export type JobCreateRequest = { "idempotencyKey"?: null | string; "kind": string; "payload"?: JsonObject; "projectId": string; "workflowRunId"?: null | string; "workflowStepId"?: null | string };
 export type JobMutationResponse = { "actionRequest"?: ActionRequestRecord | null; "actionRequests"?: Array<ActionRequestRecord>; "auditEvent"?: AuditEventRecord | null; "events"?: Array<EventRecord>; "job": JobRecord; "permissionGrant"?: PermissionGrantRecord | null };
 export type JobRecord = { "createdAt": string; "id": string; "idempotencyKey"?: null | string; "kind": string; "leaseExpiresAt"?: null | string; "leaseOwner"?: null | string; "payload": JsonObject; "projectId": string; "status": "queued" | "running" | "approval_required" | "completed" | "failed" | "cancelled"; "updatedAt": string; "workflowRunId"?: null | string; "workflowStepId"?: null | string };
@@ -201,9 +206,12 @@ export type RoutingSelection = { "effort"?: null | string; "model": string; "pro
 export type RuntimeDetectionResponse = { "detection": CliRuntimeRecord };
 export type RuntimeHealthRecord = { "message"?: string; "runtime": string; "status": string };
 export type RuntimeHealthResponse = { "health": RuntimeHealthRecord };
+export type RuntimeProviderConfigurationRecord = { "configured": boolean; "displayName": string; "id": string; "kind": string; "missing": Array<string>; "reason": string; "status": "configured" | "configuration_required"; "variables": Array<RuntimeProviderConfigurationVariable> };
+export type RuntimeProviderConfigurationResponse = { "providers": Array<RuntimeProviderConfigurationRecord> };
+export type RuntimeProviderConfigurationVariable = { "configured": boolean; "fingerprint"?: null | string; "key": string; "name": string; "required": boolean; "secret": boolean };
 export type RuntimeProviderSafety = { "network"?: string; "shell"?: boolean; "structuredArgv"?: boolean; "workspaceBound"?: boolean };
 export type RuntimeProviderStatus = { "available": boolean; "capabilities"?: Array<string>; "configured": boolean; "detected"?: boolean; "detectedCommand"?: null | string; "displayName": string; "executable": boolean; "healthCheckedAt"?: null | string; "id": string; "kind": string; "reason": string; "requiredConfiguration"?: Array<string>; "requiresApproval"?: boolean; "safety"?: RuntimeProviderSafety; "version"?: null | string };
-export type RuntimeProvidersResponse = { "api": ApiRuntimeProviderStatus; "cli": CliRuntimeProviderStatus; "ollama": OllamaRuntimeProviderStatus; "providers": Array<RuntimeProviderStatus>; "runtimeModes": Array<"api" | "cli" | "ollama" | "hybrid" | "manual"> };
+export type RuntimeProvidersResponse = { "api": ApiRuntimeProviderStatus; "cli": CliRuntimeProviderStatus; "developerAgent": DeveloperAgentStatus; "ollama": OllamaRuntimeProviderStatus; "providers": Array<RuntimeProviderStatus>; "runtimeModes": Array<"api" | "cli" | "ollama" | "hybrid" | "manual"> };
 export type SandboxProfileMutationResponse = { "policyRevision"?: PolicyRevisionRecord | null; "sandboxProfile": SandboxProfileRecord };
 export type SandboxProfilePatchRequest = { "allowedImages"?: Array<string> | null; "allowedNetworks"?: Array<string> | null; "cpus"?: null | string; "defaultNetwork"?: null | string; "memory"?: null | string; "name"?: null | string; "reason": string; "status"?: null | string; "timeoutSeconds"?: null | number };
 export type SandboxProfileRecord = { "allowedImages": Array<string>; "allowedNetworks": Array<string>; "cpus": string; "createdAt": string; "defaultNetwork": string; "id": string; "memory": string; "name": string; "revokeReason"?: null | string; "revokedAt"?: null | string; "revokedBy"?: null | string; "status": string; "timeoutSeconds": number; "updatedAt": string };
@@ -223,7 +231,7 @@ export type TeamsListResponse = { "teams": Array<TeamRecord> };
 export type TelemetryStatusResponse = { "externalExporter": ExternalTelemetryStatus };
 export type TestResultRecord = { "command": string; "createdAt": string; "durationMs"?: null | number; "evidencePackageId": string; "id": string; "metadata": JsonObject; "outputRef"?: null | string; "projectId": string; "status": string };
 export type UsageLedgerListResponse = { "usageLedger": Array<UsageLedgerRecord> };
-export type UsageLedgerRecord = { "actualCostUsd"?: null | number; "agentId"?: null | string; "cachedInputTokens": number; "createdAt": string; "currency": string; "estimatedCostUsd"?: null | number; "id": string; "inputTokens": number; "jobId"?: null | string; "latencyMs"?: null | number; "model": string; "outputTokens": number; "providerId": string; "rawUsage": JsonObject; "reasoningTokens": number; "requestId"?: null | string; "role"?: null | string; "runtimeType": string; "sessionId"?: null | string; "taskId"?: null | string; "toolTokens": number; "totalTokens": number; "usageSource": string; "workflowRunId"?: null | string; "workflowStepId"?: null | string };
+export type UsageLedgerRecord = { "actualCostUsd"?: null | number; "agentId"?: null | string; "cachedInputTokens": number; "costStatus"?: string; "createdAt": string; "currency": string; "estimatedCostUsd"?: null | number; "id": string; "inputTokens": number; "jobId"?: null | string; "latencyMs"?: null | number; "model": string; "outputTokens": number; "providerId": string; "rawUsage": JsonObject; "reasoningTokens": number; "requestId"?: null | string; "role"?: null | string; "runtimeType": string; "sessionId"?: null | string; "taskId"?: null | string; "tokenStatus"?: string; "toolTokens": number; "totalTokens": number; "usageSource": string; "workflowRunId"?: null | string; "workflowStepId"?: null | string };
 export type UsageSummaryProvider = { "estimatedCostUsd": number; "providerId": string; "totalTokens": number };
 export type UsageSummaryRecord = { "actualCostUsd": number; "byProvider": Array<UsageSummaryProvider>; "estimatedCostUsd": number; "totalTokens": number };
 export type UsageSummaryResponse = { "summary": UsageSummaryRecord };
@@ -255,6 +263,8 @@ export const API_ENDPOINTS = [
 	{"method": "GET", "operationId": "list_agent_runs_api_v1_agent_runs_get", "path": "/api/v1/agent-runs", "summary": "List Agent Runs"},
 	{"method": "POST", "operationId": "create_agent_run_api_v1_agent_runs_post", "path": "/api/v1/agent-runs", "summary": "Create Agent Run"},
 	{"method": "GET", "operationId": "agents_api_v1_agents_get", "path": "/api/v1/agents", "summary": "Agents"},
+	{"method": "POST", "operationId": "run_developer_agent_api_v1_agents_developer_runs_post", "path": "/api/v1/agents/developer/runs", "summary": "Run Developer Agent"},
+	{"method": "GET", "operationId": "developer_agent_status_api_v1_agents_developer_status_get", "path": "/api/v1/agents/developer/status", "summary": "Developer Agent Status"},
 	{"method": "GET", "operationId": "approvals_api_v1_approvals_get", "path": "/api/v1/approvals", "summary": "Approvals"},
 	{"method": "GET", "operationId": "list_architecture_decisions_api_v1_architecture_decisions_get", "path": "/api/v1/architecture-decisions", "summary": "List Architecture Decisions"},
 	{"method": "POST", "operationId": "create_architecture_decision_api_v1_architecture_decisions_post", "path": "/api/v1/architecture-decisions", "summary": "Create Architecture Decision"},
@@ -349,6 +359,7 @@ export const API_ENDPOINTS = [
 	{"method": "GET", "operationId": "list_risks_api_v1_risks_get", "path": "/api/v1/risks", "summary": "List Risks"},
 	{"method": "POST", "operationId": "create_risk_api_v1_risks_post", "path": "/api/v1/risks", "summary": "Create Risk"},
 	{"method": "PATCH", "operationId": "update_risk_api_v1_risks__risk_id__patch", "path": "/api/v1/risks/{risk_id}", "summary": "Update Risk"},
+	{"method": "GET", "operationId": "list_runtime_provider_configuration_api_v1_runtime_provider_configuration_get", "path": "/api/v1/runtime/provider-configuration", "summary": "List Runtime Provider Configuration"},
 	{"method": "GET", "operationId": "list_runtime_providers_api_v1_runtime_providers_get", "path": "/api/v1/runtime/providers", "summary": "List Runtime Providers"},
 	{"method": "PATCH", "operationId": "update_sandbox_profile_api_v1_sandbox_profiles__profile_id__patch", "path": "/api/v1/sandbox/profiles/{profile_id}", "summary": "Update Sandbox Profile"},
 	{"method": "POST", "operationId": "revoke_sandbox_profile_api_v1_sandbox_profiles__profile_id__revoke_post", "path": "/api/v1/sandbox/profiles/{profile_id}/revoke", "summary": "Revoke Sandbox Profile"},
@@ -416,6 +427,7 @@ export type OperationRequestBodies = {
 	"create_workflow_api_v1_workflows_post": WorkflowCreateRequest,
 	"deny_action_api_v1_jobs__job_id__actions__action_id__deny_post": OptionalReasonRequest,
 	"detect_cli_runtime_api_v1_model_gateway_cli_runtimes__runtime_id__detect_post": unknown,
+	"developer_agent_status_api_v1_agents_developer_status_get": never,
 	"discover_models_api_v1_model_gateway_providers__provider_id__discover_models_post": unknown,
 	"discover_project_api_v1_projects_discover_post": ProjectDiscoveryRequest,
 	"evaluate_policy_api_v1_policies_evaluate_post": PolicyEvaluateRequest,
@@ -460,6 +472,7 @@ export type OperationRequestBodies = {
 	"list_role_policies_api_v1_model_gateway_role_policies_get": never,
 	"list_routing_decisions_api_v1_model_gateway_routing_decisions_get": never,
 	"list_routing_profiles_api_v1_model_gateway_routing_profiles_get": never,
+	"list_runtime_provider_configuration_api_v1_runtime_provider_configuration_get": never,
 	"list_runtime_providers_api_v1_runtime_providers_get": never,
 	"list_sessions_api_v1_sessions_get": never,
 	"list_skills_api_v1_skills_get": never,
@@ -492,6 +505,7 @@ export type OperationRequestBodies = {
 	"revoke_sandbox_profile_api_v1_sandbox_profiles__profile_id__revoke_post": RequiredReasonRequest,
 	"route_execute_api_v1_model_gateway_route_execute_post": RoutingPreviewRequest,
 	"route_preview_api_v1_model_gateway_route_preview_post": RoutingPreviewRequest,
+	"run_developer_agent_api_v1_agents_developer_runs_post": DeveloperAgentRunRequest,
 	"run_issue_to_patch_api_v1_workflows_issue_to_patch_post": IssueToPatchRequest,
 	"sandbox_status_api_v1_sandbox_status_get": never,
 	"select_directory_api_v1_local_paths_select_directory_post": DirectoryPickerRequest,
@@ -542,6 +556,7 @@ export type OperationResponseBodies = {
 	"create_workflow_api_v1_workflows_post": WorkflowResponse,
 	"deny_action_api_v1_jobs__job_id__actions__action_id__deny_post": JobMutationResponse,
 	"detect_cli_runtime_api_v1_model_gateway_cli_runtimes__runtime_id__detect_post": RuntimeDetectionResponse,
+	"developer_agent_status_api_v1_agents_developer_status_get": DeveloperAgentStatusResponse,
 	"discover_models_api_v1_model_gateway_providers__provider_id__discover_models_post": DiscoverModelsResponse,
 	"discover_project_api_v1_projects_discover_post": ProjectDiscoveryResponse,
 	"evaluate_policy_api_v1_policies_evaluate_post": PolicyEvaluationResponse,
@@ -586,6 +601,7 @@ export type OperationResponseBodies = {
 	"list_role_policies_api_v1_model_gateway_role_policies_get": RolePoliciesListResponse,
 	"list_routing_decisions_api_v1_model_gateway_routing_decisions_get": RoutingDecisionsListResponse,
 	"list_routing_profiles_api_v1_model_gateway_routing_profiles_get": RoutingProfilesListResponse,
+	"list_runtime_provider_configuration_api_v1_runtime_provider_configuration_get": RuntimeProviderConfigurationResponse,
 	"list_runtime_providers_api_v1_runtime_providers_get": RuntimeProvidersResponse,
 	"list_sessions_api_v1_sessions_get": SessionsListResponse,
 	"list_skills_api_v1_skills_get": SkillsListResponse,
@@ -618,6 +634,7 @@ export type OperationResponseBodies = {
 	"revoke_sandbox_profile_api_v1_sandbox_profiles__profile_id__revoke_post": SandboxProfileResponse,
 	"route_execute_api_v1_model_gateway_route_execute_post": RouteExecuteResponse,
 	"route_preview_api_v1_model_gateway_route_preview_post": RoutingPreviewResponse,
+	"run_developer_agent_api_v1_agents_developer_runs_post": DeveloperAgentRunResponse,
 	"run_issue_to_patch_api_v1_workflows_issue_to_patch_post": IssueToPatchResponse,
 	"sandbox_status_api_v1_sandbox_status_get": SandboxStatusResponse,
 	"select_directory_api_v1_local_paths_select_directory_post": DirectoryPickerResponse,
@@ -644,6 +661,8 @@ export const OPERATIONS_BY_ID = {
 	"list_agent_runs_api_v1_agent_runs_get": {"method": "GET", "operationId": "list_agent_runs_api_v1_agent_runs_get", "path": "/api/v1/agent-runs", "summary": "List Agent Runs"},
 	"create_agent_run_api_v1_agent_runs_post": {"method": "POST", "operationId": "create_agent_run_api_v1_agent_runs_post", "path": "/api/v1/agent-runs", "summary": "Create Agent Run"},
 	"agents_api_v1_agents_get": {"method": "GET", "operationId": "agents_api_v1_agents_get", "path": "/api/v1/agents", "summary": "Agents"},
+	"run_developer_agent_api_v1_agents_developer_runs_post": {"method": "POST", "operationId": "run_developer_agent_api_v1_agents_developer_runs_post", "path": "/api/v1/agents/developer/runs", "summary": "Run Developer Agent"},
+	"developer_agent_status_api_v1_agents_developer_status_get": {"method": "GET", "operationId": "developer_agent_status_api_v1_agents_developer_status_get", "path": "/api/v1/agents/developer/status", "summary": "Developer Agent Status"},
 	"approvals_api_v1_approvals_get": {"method": "GET", "operationId": "approvals_api_v1_approvals_get", "path": "/api/v1/approvals", "summary": "Approvals"},
 	"list_architecture_decisions_api_v1_architecture_decisions_get": {"method": "GET", "operationId": "list_architecture_decisions_api_v1_architecture_decisions_get", "path": "/api/v1/architecture-decisions", "summary": "List Architecture Decisions"},
 	"create_architecture_decision_api_v1_architecture_decisions_post": {"method": "POST", "operationId": "create_architecture_decision_api_v1_architecture_decisions_post", "path": "/api/v1/architecture-decisions", "summary": "Create Architecture Decision"},
@@ -738,6 +757,7 @@ export const OPERATIONS_BY_ID = {
 	"list_risks_api_v1_risks_get": {"method": "GET", "operationId": "list_risks_api_v1_risks_get", "path": "/api/v1/risks", "summary": "List Risks"},
 	"create_risk_api_v1_risks_post": {"method": "POST", "operationId": "create_risk_api_v1_risks_post", "path": "/api/v1/risks", "summary": "Create Risk"},
 	"update_risk_api_v1_risks__risk_id__patch": {"method": "PATCH", "operationId": "update_risk_api_v1_risks__risk_id__patch", "path": "/api/v1/risks/{risk_id}", "summary": "Update Risk"},
+	"list_runtime_provider_configuration_api_v1_runtime_provider_configuration_get": {"method": "GET", "operationId": "list_runtime_provider_configuration_api_v1_runtime_provider_configuration_get", "path": "/api/v1/runtime/provider-configuration", "summary": "List Runtime Provider Configuration"},
 	"list_runtime_providers_api_v1_runtime_providers_get": {"method": "GET", "operationId": "list_runtime_providers_api_v1_runtime_providers_get", "path": "/api/v1/runtime/providers", "summary": "List Runtime Providers"},
 	"update_sandbox_profile_api_v1_sandbox_profiles__profile_id__patch": {"method": "PATCH", "operationId": "update_sandbox_profile_api_v1_sandbox_profiles__profile_id__patch", "path": "/api/v1/sandbox/profiles/{profile_id}", "summary": "Update Sandbox Profile"},
 	"revoke_sandbox_profile_api_v1_sandbox_profiles__profile_id__revoke_post": {"method": "POST", "operationId": "revoke_sandbox_profile_api_v1_sandbox_profiles__profile_id__revoke_post", "path": "/api/v1/sandbox/profiles/{profile_id}/revoke", "summary": "Revoke Sandbox Profile"},

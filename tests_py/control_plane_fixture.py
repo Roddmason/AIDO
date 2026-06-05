@@ -102,7 +102,7 @@ class ControlPlaneFixture:
 
     @property
     def workspaces(self) -> WorkspacesRepository:
-        return WorkspacesRepository(self.connection)
+        return WorkspacesRepository(self.connection, root=self.cwd)
 
     @property
     def sessions_chats(self) -> SessionsChatsRepository:

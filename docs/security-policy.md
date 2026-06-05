@@ -56,7 +56,9 @@ not low-risk. They require approval even when requested by a `dev_safe` agent.
 - `dev_safe`: allows allowlisted test/build/lint/read-only commands inside the
   workspace. Installs, network actions, git writes, and unknown shell commands
   require approval.
-- `qa`: allows tests/read-only inspection. Build/write commands require
+- `qa`: allows allowlisted tests, build, typecheck, lint, diagnostics, and
+  read-only inspection inside the workspace. Unknown package scripts, installs,
+  network actions, and shell commands outside the QA allowlist require
   approval.
 - `release`: shell requires approval by default; production deploy remains
   human-required.
@@ -144,13 +146,20 @@ DeveloperAgent uses named operations as well:
 - `developer_agent_patch_apply`: applies only structured model output through
   the `workspace_patch` adapter. Paths must be relative to the workspace, cannot
   traverse outside it, and cannot target secret or credential paths.
-- `developer_agent_qa`: executes only allowlisted QA commands through
-  structured `argv` in the allocated workspace.
+- `developer_agent_qa`: legacy scoped operation for developer-local QA.
+  Productive implementation workflows should use `qa_agent_command` instead.
+
+QAAgent uses `qa_agent_command` for all productive QA execution. The operation
+is allowed only for `agentId=qa_agent`, `permissionProfile=qa`, a registered
+workspace, an agent run audit id, `tool=shell`, and a low-risk QA command
+category. Unknown, missing, or non-allowlisted commands are not converted into
+passed verdicts; they remain gated, skipped with a technical reason, or failed
+according to command criticity.
 
 DeveloperAgent completion is forbidden unless runtime execution was real, the
-workspace diff is non-empty, QA passed, and an evidence package is linked. A
-chat response without a valid structured patch is blocked; it is not treated as
-an implementation.
+workspace diff is non-empty, QAAgent command evidence passed, and an evidence
+package is linked. A chat response without a valid structured patch is blocked;
+it is not treated as an implementation.
 
 Git worktree commands are routed through `security_policy/git_command_runner.py`
 as an allowlisted internal helper. Feature modules must not call `subprocess`

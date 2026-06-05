@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 AgentRole = Literal[
@@ -331,6 +331,48 @@ class DeveloperAgentRunResponse(BaseModel):
     runtime_result: dict[str, Any] = Field(alias="runtimeResult")
     qa_results: list[dict[str, Any]] = Field(alias="qaResults")
     diff_summary: dict[str, Any] = Field(alias="diffSummary")
+
+
+class QAAgentCommandRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    label: str | None = None
+    argv: list[str]
+    critical: bool = True
+    timeout_seconds: int | None = Field(default=None, alias="timeoutSeconds")
+
+
+class QAAgentContract(BaseModel):
+    id: str
+    input_schema: dict[str, Any] = Field(alias="inputSchema")
+    output_schema: dict[str, Any] = Field(alias="outputSchema")
+    allowed_tools: list[str] = Field(alias="allowedTools")
+    required_runtime_capabilities: list[str] = Field(alias="requiredRuntimeCapabilities")
+    required_workspace: bool = Field(alias="requiredWorkspace")
+    required_evidence: bool = Field(alias="requiredEvidence")
+    verdict_source: str = Field(alias="verdictSource")
+
+
+class QAAgentRunRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    project_id: str = Field(alias="projectId")
+    workspace_id: str = Field(alias="workspaceId")
+    task_id: str = Field(default="qa_agent", alias="taskId")
+    commands: list[QAAgentCommandRequest] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class QAAgentRunResponse(BaseModel):
+    status: str
+    verdict: str
+    reason: str
+    contract: QAAgentContract
+    workspace: dict[str, Any]
+    job: dict[str, Any]
+    agent_run: AgentRunRecord = Field(alias="agentRun")
+    evidence_package: dict[str, Any] = Field(alias="evidencePackage")
+    results: list[dict[str, Any]]
 
 
 class RuntimeProviderConfigurationVariable(BaseModel):

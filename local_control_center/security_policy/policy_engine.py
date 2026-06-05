@@ -56,6 +56,12 @@ def allowlisted_shell_categories(profile: str, categories: list[str]) -> list[st
     elif profile == "qa":
         if "test" in categories:
             allowed.append("allowlisted_test")
+        if "build" in categories:
+            allowed.append("allowlisted_build")
+        if "lint" in categories:
+            allowed.append("allowlisted_lint")
+        if "typecheck" in categories:
+            allowed.append("allowlisted_typecheck")
         if "interpreter_version" in categories:
             allowed.append("allowlisted_diagnostic")
         if "read_only" in categories:
@@ -94,6 +100,54 @@ def evaluate_action(input_payload: dict[str, Any]) -> dict[str, Any]:
             "riskLevel": "critical",
             "reason": "Dangerous git or destructive shell action requires human review.",
             "categories": categories,
+        }
+
+    if operation == "qa_agent_command":
+        if input_payload.get("agentId") != "qa_agent":
+            categories.append("qa_agent_command_agent_denied")
+            return {
+                "decision": "deny",
+                "riskLevel": "high",
+                "reason": "QAAgent command execution is restricted to the QAAgent profile.",
+                "categories": categories,
+            }
+        if tool != "shell":
+            categories.append("qa_agent_command_tool_denied")
+            return {
+                "decision": "deny",
+                "riskLevel": "high",
+                "reason": "QAAgent commands must execute through shell with structured argv.",
+                "categories": categories,
+            }
+        if permission_profile != "qa":
+            categories.append("qa_agent_command_profile_denied")
+            return {
+                "decision": "deny",
+                "riskLevel": "high",
+                "reason": "QAAgent command execution requires the qa permission profile.",
+                "categories": categories,
+            }
+        if not input_payload.get("workspaceId") or not input_payload.get("workspacePath") or not input_payload.get("agentRunId"):
+            categories.append("qa_agent_command_context_required")
+            return {
+                "decision": "deny",
+                "riskLevel": "high",
+                "reason": "QAAgent command execution requires workspace and agent run context.",
+                "categories": categories,
+            }
+        allowed = allowlisted_shell_categories(permission_profile, categories)
+        if allowed and classification["riskLevel"] == "low":
+            return {
+                "decision": "allow",
+                "riskLevel": "low",
+                "reason": "QAAgent command is allowlisted for real QA execution.",
+                "categories": categories + allowed + ["qa_agent_command"],
+            }
+        return {
+            "decision": "requires_approval",
+            "riskLevel": "medium",
+            "reason": "QAAgent command is not in the low-risk QA allowlist.",
+            "categories": categories + ["qa_agent_command_gated"],
         }
 
     if operation in {
@@ -226,7 +280,6 @@ def evaluate_action(input_payload: dict[str, Any]) -> dict[str, Any]:
                 "reason": "DeveloperAgent QA command is not in the low-risk allowlist.",
                 "categories": categories + ["developer_agent_qa_gated"],
             }
-
     if tool == "shell" and command:
         if operation == "issue_to_patch_runtime":
             if input_payload.get("agentId") != "aido_issue_to_patch_runner":

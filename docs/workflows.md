@@ -61,16 +61,17 @@ can report `completed` only when all of these are true:
 - the implementation ran inside an allocated Git worktree workspace;
 - runtime execution entered through `ToolBroker` with structured `argv`;
 - real git status/diff evidence and a non-empty patch artifact were captured;
-- QA commands ran through policy/sandbox and passed;
+- QAAgent executed real allowlisted commands through `ToolBroker` and produced
+  a passed verdict from exit codes plus artifact hashes;
 - an evidence package was persisted and linked to the agent run;
 - `requireApproval=false`, or the workflow stops at `evidence_ready` with a
   review action request.
 
 Unavailable providers, missing executable commands, missing QA commands,
-missing diff evidence, missing patch artifacts, failed QA, or pending approval
-produce `runtime_unavailable`, `qa_failed`, or `evidence_ready`, never a
-productive success state. `requireApproval` defaults to true for sensitive
-patch output.
+missing diff evidence, missing patch artifacts, skipped QA, failed QA, or
+pending approval produce `runtime_unavailable`, `qa_failed`, or
+`evidence_ready`, never a productive success state. `requireApproval` defaults
+to true for sensitive patch output.
 
 ## PR, Release And Retro Gates
 

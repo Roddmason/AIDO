@@ -201,7 +201,7 @@ def test_permission_profiles_apply_argument_level_shell_allowlists(tmp_path: Pat
     assert dev_safe_install["decision"] == "requires_approval"
     assert "install" in dev_safe_install["categories"]
 
-    qa_build_blocked = evaluate_action(
+    qa_build_allowed = evaluate_action(
         {
             "permissionProfile": "qa",
             "role": "qa_reviewer",
@@ -211,8 +211,8 @@ def test_permission_profiles_apply_argument_level_shell_allowlists(tmp_path: Pat
             "workspacePath": str(workspace),
         }
     )
-    assert qa_build_blocked["decision"] == "requires_approval"
-    assert "profile_test_only" in qa_build_blocked["categories"]
+    assert qa_build_allowed["decision"] == "allow"
+    assert "allowlisted_build" in qa_build_allowed["categories"]
 
     echoed_test_is_not_allowlisted = evaluate_action(
         {

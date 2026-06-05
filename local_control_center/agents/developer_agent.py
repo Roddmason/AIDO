@@ -25,6 +25,7 @@ from .developer_agent_contract import (
     DEVELOPER_AGENT_MODEL_RUNTIMES,
     developer_agent_readiness,
 )
+from .qa_agent import QAAgentRunner, qa_verdict_allows_completion
 from .repository import AgentsRepository
 from .runtime_registry import RuntimeCommandUnavailableError, build_developer_agent_argv, developer_agent_prompt
 from .runtime_status import RuntimeStatusService
@@ -118,31 +119,6 @@ def _execution_result_from_tool_call(tool_call: dict[str, Any]) -> dict[str, Any
     }
 
 
-def _qa_result_from_tool_call(tool_call: dict[str, Any]) -> dict[str, Any]:
-    payload = tool_call.get("payload") or {}
-    execution_result = payload.get("executionResult") or {}
-    passed = tool_call.get("status") == "completed" and execution_result.get("returnCode") == 0
-    output_refs = [
-        artifact_id
-        for artifact_id in (execution_result.get("stdoutArtifactId"), execution_result.get("stderrArtifactId"))
-        if artifact_id
-    ]
-    return {
-        "command": payload.get("command") or tool_call.get("toolName"),
-        "status": "passed" if passed else "failed",
-        "toolCallStatus": tool_call.get("status"),
-        "execution": payload.get("execution"),
-        "returnCode": execution_result.get("returnCode"),
-        "timedOut": bool(execution_result.get("timedOut", False)),
-        "durationMs": execution_result.get("durationMs"),
-        "blocked": bool(execution_result.get("blocked", False)),
-        "reason": execution_result.get("reason") or payload.get("decisionReason"),
-        "toolCallId": tool_call.get("id"),
-        "outputRef": output_refs[0] if output_refs else None,
-        "outputRefs": output_refs,
-    }
-
-
 def _runtime_unavailable_result(reason: str) -> dict[str, Any]:
     return {"status": RUNTIME_UNAVAILABLE_STATUS, "reason": reason, "execution": "not_executed"}
 
@@ -161,8 +137,12 @@ def _complete_run_status(
         return "failed", "failed", "DeveloperAgent runtime execution failed."
     if not qa_results:
         return "evidence_ready", "blocked", "QA results are required before DeveloperAgent can complete."
-    if any(result["status"] != "passed" for result in qa_results):
+    if any(result.get("status") == "failed" for result in qa_results):
         return "qa_failed", "failed", "QA command failed or was blocked."
+    if any(result.get("status") != "passed" for result in qa_results):
+        return "evidence_ready", "blocked", "QA command was skipped or did not produce a passing verdict."
+    if not qa_verdict_allows_completion("passed", qa_results):
+        return "evidence_ready", "blocked", "QA verdict requires real command execution evidence before completion."
     if not diff.get("nameOnly"):
         return "evidence_ready", "blocked", "DeveloperAgent produced no file changes."
     if not evidence_created:
@@ -501,26 +481,21 @@ class DeveloperAgentRunner:
             diff["blockerState"] = RUNTIME_UNAVAILABLE_STATUS
 
         qa_results: list[dict[str, Any]] = []
+        qa_artifact_ids: list[str] = []
+        qa_agent_run: dict[str, Any] | None = None
         if runtime_status == "completed":
-            for qa_argv in payload.get("qaCommands") or []:
-                qa_eval = broker.evaluate_tool_call(
-                    project_id=payload["projectId"],
-                    agent_run_id=agent_run["id"],
-                    agent_profile=profile,
-                    job_id=job["id"],
-                    tool_call={
-                        "tool": "shell",
-                        "command": _display_command(qa_argv),
-                        "argv": qa_argv,
-                        "workspaceId": workspace["id"],
-                        "workspacePath": workspace["path"],
-                        "path": workspace["path"],
-                        "operation": "developer_agent_qa",
-                        "execute": True,
-                        "timeoutSeconds": 120,
-                    },
-                )
-                qa_results.append(_qa_result_from_tool_call(qa_eval["toolCall"]))
+            qa_summary = QAAgentRunner(self.connection, root=self.root).run_for_context(
+                project_id=payload["projectId"],
+                workspace_id=workspace["id"],
+                task_id=payload["taskId"],
+                commands=payload.get("qaCommands") or [],
+                job_id=job["id"],
+                parent_agent_run_id=agent_run["id"],
+                metadata={"source": DEVELOPER_AGENT_ID},
+            )
+            qa_results = qa_summary["results"]
+            qa_artifact_ids = qa_summary["artifactIds"]
+            qa_agent_run = qa_summary["agentRun"]
 
         final_status, qa_verdict, final_reason = _complete_run_status(
             runtime_status=runtime_status,
@@ -551,7 +526,16 @@ class DeveloperAgentRunner:
                 "Evidence package is linked.",
             ],
             test_results=qa_results,
-            logs=[redact_secrets({"runtime": runtime, "runtimeResult": runtime_result, "workspaceId": workspace["id"]})],
+            logs=[
+                redact_secrets(
+                    {
+                        "runtime": runtime,
+                        "runtimeResult": runtime_result,
+                        "workspaceId": workspace["id"],
+                        "qaAgentRunId": (qa_agent_run or {}).get("id"),
+                    }
+                )
+            ],
             diff_refs=_final_diff_refs(workspace, diff),
             diff_summary=_diff_summary(diff),
             risk_notes=[
@@ -561,8 +545,14 @@ class DeveloperAgentRunner:
                     "mitigation": "Configure a real DeveloperAgent runtime and rerun inside an allocated workspace.",
                 }
             ],
+            artifact_ids=qa_artifact_ids,
             qa_verdict=qa_verdict,
         )
+        if qa_artifact_ids:
+            QAAgentRunner(self.connection, root=self.root).attach_artifacts_to_evidence(
+                evidence_id=evidence["id"],
+                artifact_ids=qa_artifact_ids,
+            )
         patch_artifact = _write_patch_artifact(
             root=self.root,
             project_id=payload["projectId"],
@@ -575,8 +565,13 @@ class DeveloperAgentRunner:
         if patch_artifact:
             diff_summary["patchArtifactId"] = patch_artifact["id"]
             artifact_refs.append({"id": patch_artifact["id"], "kind": patch_artifact["kind"], "hash": patch_artifact["hash"]})
+        related_agent_run_ids = {agent_run["id"]}
+        if qa_agent_run:
+            related_agent_run_ids.add(str(qa_agent_run["id"]))
         tool_calls = [
-            tool_call for tool_call in self.agents.list_agent_tool_calls() if tool_call.get("agentRunId") == agent_run["id"]
+            tool_call
+            for tool_call in self.agents.list_agent_tool_calls()
+            if str(tool_call.get("agentRunId")) in related_agent_run_ids
         ]
         permission_decision_ids = {
             str((tool_call.get("payload") or {}).get("permissionDecisionId"))
@@ -607,6 +602,7 @@ class DeveloperAgentRunner:
                 "runtimeResult": runtime_result,
                 "policyDecisions": policy_decisions,
                 "toolCalls": tool_calls,
+                "qaAgentRunId": (qa_agent_run or {}).get("id"),
                 "qaResults": qa_results,
                 "diffSummary": diff_summary,
                 "artifacts": artifact_refs,
@@ -619,7 +615,7 @@ class DeveloperAgentRunner:
         evidence = self.evidence.update_evidence_links(
             evidence["id"],
             agent_run_id=agent_run["id"],
-            artifact_ids=[str(artifact["id"]) for artifact in artifact_refs],
+            artifact_ids=[*qa_artifact_ids, *[str(artifact["id"]) for artifact in artifact_refs]],
             diff_summary=diff_summary,
         )
 
@@ -638,6 +634,7 @@ class DeveloperAgentRunner:
                 "summary": final_reason,
                 "runtime": runtime,
                 "runtimeResult": runtime_result,
+                "qaAgentRunId": (qa_agent_run or {}).get("id"),
                 "qaResults": qa_results,
                 "diffSummary": diff_summary,
                 "evidence_refs": [evidence["id"]],

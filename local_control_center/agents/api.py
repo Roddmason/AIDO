@@ -23,6 +23,8 @@ from .contracts import (
     ModelPolicyResponse,
     ModelPolicyUpsertRequest,
     ModelProvidersListResponse,
+    QAAgentRunRequest,
+    QAAgentRunResponse,
     RuntimeProviderConfigurationResponse,
     RuntimeProvidersResponse,
     SkillsListResponse,
@@ -31,6 +33,7 @@ from .contracts import (
 )
 from .developer_agent import DeveloperAgentRunner
 from .model_gateway import LOCAL_MODEL_PROVIDERS, REMOTE_MODEL_PROVIDERS
+from .qa_agent import QAAgentRunner
 from .repository import AgentsRepository
 from .runtime_provider_config import list_runtime_provider_configurations
 from .runtime_status import RUNTIME_MODES, RuntimeStatusService
@@ -160,6 +163,31 @@ def validate_developer_agent_run_body(body: DeveloperAgentRunRequest) -> dict[st
     max_cost = payload.get("maxCostUsd")
     if max_cost is not None and float(max_cost) < 0:
         raise HTTPException(status_code=422, detail="maxCostUsd must be zero or positive.")
+    return payload
+
+
+def validate_qa_agent_run_body(body: QAAgentRunRequest) -> dict[str, Any]:
+    payload = body.model_dump(by_alias=True)
+    task_id = str(payload.get("taskId") or "").strip()
+    if not task_id:
+        raise HTTPException(status_code=422, detail="QAAgent taskId is required.")
+    commands = payload.get("commands") or []
+    for index, command in enumerate(commands):
+        if not isinstance(command, dict):
+            raise HTTPException(status_code=422, detail=f"commands[{index}] must be an object with structured argv.")
+        if isinstance(command.get("command"), str):
+            raise HTTPException(status_code=422, detail=f"commands[{index}] must not use a command string.")
+        argv = command.get("argv")
+        if not isinstance(argv, list) or not argv or not all(isinstance(item, str) and item for item in argv):
+            raise HTTPException(status_code=422, detail=f"commands[{index}].argv must be a non-empty structured argv list.")
+        timeout = command.get("timeoutSeconds")
+        if timeout is not None:
+            try:
+                timeout_int = int(timeout)
+            except (TypeError, ValueError) as error:
+                raise HTTPException(status_code=422, detail=f"commands[{index}].timeoutSeconds must be an integer.") from error
+            if timeout_int < 1 or timeout_int > 300:
+                raise HTTPException(status_code=422, detail=f"commands[{index}].timeoutSeconds must be between 1 and 300.")
     return payload
 
 
@@ -298,6 +326,27 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
 
     def event_bus() -> EventBus:
         return EventBus(platform.connection)
+
+    @router.post("/api/v1/agents/qa/runs", status_code=202, response_model=QAAgentRunResponse)
+    async def run_qa_agent(body: QAAgentRunRequest, request: Request) -> dict[str, Any]:
+        require_write(request)
+        payload = validate_qa_agent_run_body(body)
+        try:
+            result = QAAgentRunner(platform.connection, root=platform.cwd).run(payload)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        event_bus().record_event(
+            project_id=result["workspace"]["projectId"],
+            event_type=f"agent.qa.{result['verdict']}",
+            payload={
+                "agentRunId": result["agentRun"]["id"],
+                "workspaceId": result["workspace"]["id"],
+                "evidencePackageId": result["evidencePackage"]["id"],
+            },
+        )
+        return result
 
     @router.get("/api/v1/agents/developer/status", response_model=DeveloperAgentStatusResponse)
     async def developer_agent_status() -> dict[str, Any]:

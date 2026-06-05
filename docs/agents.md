@@ -158,6 +158,33 @@ capture. They must not edit the primary working tree directly.
 Test-only simulators are not registered runtime types, are not returned by the
 runtime provider API, and must not be used to mark a real workflow as completed.
 
+## QAAgent
+
+QAAgent is the command-verification agent. It does not accept model text as QA
+evidence and it does not execute commands directly.
+
+Its contract requires:
+
+- input: `projectId`, `workspaceId`, `taskId`, and structured command objects
+  with `argv`, optional `label`, `critical`, and `timeoutSeconds`;
+- output: `status`, `verdict`, command `results`, workspace, job, agent run,
+  and evidence package;
+- tools: `shell` only;
+- runtime capability: brokered command execution;
+- allocated workspace and linked evidence.
+
+When commands are omitted, QAAgent discovers real workspace commands only when
+they exist: Python tests, web tests, build, typecheck, and lint scripts. Missing
+or non-allowlisted non-critical commands are recorded as
+`skipped_with_reason`, never `passed`.
+
+Each command is submitted as `operation=qa_agent_command` through `ToolBroker`.
+The policy allows only low-risk QA categories for the `qa_agent` profile.
+Verdicts are calculated from real exit codes, execution metadata, stdout/stderr
+captures, and artifact hashes. A `passed` text claim is ignored; `completed`
+workflow states require executable QA evidence with tool-call IDs and artifact
+hashes.
+
 Each optional code runtime now exposes a versioned execution contract. Contract
 version 1 supports `version_check` and `issue_to_patch`, requires structured
 `argv`, requires a workspace path, and requires `issueText` for issue-to-patch

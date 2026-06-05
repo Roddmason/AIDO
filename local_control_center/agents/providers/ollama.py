@@ -5,14 +5,28 @@ import os
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 
+from local_control_center.shared.redaction import redact_secrets
+from local_control_center.agents.runtime_provider_config import runtime_provider_configuration
+
 from .base import CostEstimate, ModelInfo, ModelProvider, ModelRequest, ModelResponse, ProviderHealth, UsageRecord
+
+
+def _public_error(error: BaseException) -> str:
+    return str(redact_secrets(f"{error.__class__.__name__}: {error}"))
 
 
 class OllamaProvider(ModelProvider):
     provider_id = "ollama"
 
     def __init__(self, *, base_url: str | None = None):
-        self.base_url = (base_url or os.environ.get("OLLAMA_BASE_URL") or os.environ.get("OLLAMA_HOST") or "http://localhost:11434").rstrip("/")
+        runtime_configuration = runtime_provider_configuration("ollama")
+        self.base_url = (
+            base_url
+            or (runtime_configuration.value("baseUrl") if runtime_configuration else None)
+            or os.environ.get("OLLAMA_BASE_URL")
+            or os.environ.get("OLLAMA_HOST")
+            or "http://localhost:11434"
+        ).rstrip("/")
 
     def health_check(self) -> ProviderHealth:
         try:
@@ -20,7 +34,7 @@ class OllamaProvider(ModelProvider):
             with urlopen(request, timeout=2):
                 pass
         except (OSError, TimeoutError, URLError) as error:
-            return ProviderHealth(providerId=self.provider_id, status="not_available", healthStatus="offline", message=str(error))
+            return ProviderHealth(providerId=self.provider_id, status="not_available", healthStatus="offline", message=_public_error(error))
         return ProviderHealth(providerId=self.provider_id, status="available", healthStatus="healthy", message="Ollama responded")
 
     def list_models(self) -> list[ModelInfo]:

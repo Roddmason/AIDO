@@ -19,7 +19,7 @@ from .models import (
     WorkspaceResponse,
     WorkspacesListResponse,
 )
-from .repository import WorkspaceConflictError, WorkspacesRepository
+from .repository import WorkspaceConflictError, WorkspaceIsolationError, WorkspacesRepository
 
 
 def create_router(*, platform: Any, require_write: Callable[[Request], None]) -> APIRouter:
@@ -52,6 +52,8 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             )
         except WorkspaceConflictError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
+        except WorkspaceIsolationError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
         event_bus().record_event(
             project_id=workspace["projectId"],
             event_type="workspace.created",
@@ -67,6 +69,9 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         repo = repository()
         pre_archive = repo.get_workspace(workspace_id)
         diff_refs = []
+        workspace_manifest = (pre_archive.get("metadata") or {}).get("workspaceManifest")
+        if workspace_manifest:
+            diff_refs.append({"kind": "workspace_manifest", "status": "captured", **workspace_manifest})
         if pre_archive["isolationType"] == "git_worktree":
             diff_refs.append(capture_git_diff(Path(pre_archive["path"])))
         diff_refs.append(capture_workspace_snapshot(pre_archive["path"]))

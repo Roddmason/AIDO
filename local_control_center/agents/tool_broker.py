@@ -14,10 +14,19 @@ from local_control_center.shared.telemetry import record_tool_call
 
 from .model_gateway import redact_secrets
 from .repository import AgentsRepository
-from .runtime_adapters import RUNTIME_ADAPTER_TOOLS, RuntimeExecutionAdapter
+from .runtime_adapters import (
+    RUNTIME_ADAPTER_TOOLS,
+    RuntimeAdapterBrokerAdapter,
+    RuntimeExecutionAdapter,
+    WorkspacePatchBrokerAdapter,
+)
 
 
-def default_runtime_adapters(connection: sqlite3.Connection) -> dict[str, RuntimeExecutionAdapter]:
+def default_runtime_adapters(
+    connection: sqlite3.Connection,
+    *,
+    artifact_root: str | Path | None = None,
+) -> dict[str, RuntimeExecutionAdapter]:
     from local_control_center.integrations.mcp_gateway import McpBrokerAdapter
 
     from .openhands_adapter import OpenHandsBrokerAdapter
@@ -27,6 +36,13 @@ def default_runtime_adapters(connection: sqlite3.Connection) -> dict[str, Runtim
         "mcp": McpBrokerAdapter(connection),
         "openhands": OpenHandsBrokerAdapter(),
         "swe_agent": SweAgentBrokerAdapter(),
+        "ollama": RuntimeAdapterBrokerAdapter(adapter_id="ollama", connection=connection, artifact_root=artifact_root),
+        "openai_compatible": RuntimeAdapterBrokerAdapter(
+            adapter_id="openai_compatible",
+            connection=connection,
+            artifact_root=artifact_root,
+        ),
+        "workspace_patch": WorkspacePatchBrokerAdapter(connection=connection, artifact_root=artifact_root),
     }
 
 
@@ -45,7 +61,74 @@ class ToolBroker:
         self.jobs = JobsRepository(connection)
         self.sandbox = RestrictedSubprocessSandbox()
         self.docker_sandbox = DockerSandbox()
-        self.runtime_adapters = runtime_adapters if runtime_adapters is not None else default_runtime_adapters(connection)
+        self.runtime_adapters = (
+            runtime_adapters
+            if runtime_adapters is not None
+            else default_runtime_adapters(connection, artifact_root=self.artifact_root)
+        )
+
+    def _execution_workspace_boundary(self, tool_call: dict[str, Any]) -> tuple[dict[str, Any] | None, str | None]:
+        if tool_call.get("execute") is not True:
+            return None, None
+        workspace_id = str(tool_call.get("workspaceId") or "").strip()
+        if not workspace_id:
+            return (
+                {
+                    "decision": "deny",
+                    "riskLevel": "high",
+                    "reason": "Executable agent tool calls require an allocated workspaceId.",
+                    "categories": ["workspace_required"],
+                },
+                None,
+            )
+        row = self.connection.execute("SELECT * FROM workspaces WHERE id = ?", (workspace_id,)).fetchone()
+        if not row:
+            return (
+                {
+                    "decision": "deny",
+                    "riskLevel": "high",
+                    "reason": "Executable agent tool call references an unknown workspace.",
+                    "categories": ["workspace_unknown"],
+                },
+                None,
+            )
+        if row["status"] == "archived":
+            return (
+                {
+                    "decision": "deny",
+                    "riskLevel": "high",
+                    "reason": "Executable agent tool call references an archived workspace.",
+                    "categories": ["workspace_archived"],
+                },
+                str(row["path"]),
+            )
+        registered_path = Path(row["path"]).resolve(strict=False)
+        requested_workspace = str(tool_call.get("workspacePath") or "").strip()
+        if requested_workspace and Path(requested_workspace).resolve(strict=False) != registered_path:
+            return (
+                {
+                    "decision": "deny",
+                    "riskLevel": "high",
+                    "reason": "Requested workspacePath does not match the allocated workspace.",
+                    "categories": ["workspace_path_mismatch"],
+                },
+                str(registered_path),
+            )
+        requested_path = str(tool_call.get("path") or "").strip()
+        if requested_path:
+            try:
+                Path(requested_path).resolve(strict=False).relative_to(registered_path)
+            except (OSError, ValueError):
+                return (
+                    {
+                        "decision": "deny",
+                        "riskLevel": "high",
+                        "reason": "Executable agent tool call path is outside the allocated workspace.",
+                        "categories": ["path_outside_workspace_boundary"],
+                    },
+                    str(registered_path),
+                )
+        return None, str(registered_path)
 
     def _profile_allows_tool(self, agent_profile: dict[str, Any], tool_name: str) -> bool:
         allowed_tools = agent_profile.get("allowedTools") or []
@@ -65,6 +148,8 @@ class ToolBroker:
         if not command and tool_name in RUNTIME_ADAPTER_TOOLS and isinstance(tool_call.get("argv"), list):
             command = " ".join(str(item) for item in tool_call["argv"])
         path = str(tool_call.get("path") or "") or None
+        boundary_result, registered_workspace_path = self._execution_workspace_boundary(tool_call)
+        workspace_path = registered_workspace_path or tool_call.get("workspacePath") or path
         policy_input = {
             "projectId": project_id,
             "workspaceId": tool_call.get("workspaceId"),
@@ -74,14 +159,21 @@ class ToolBroker:
             "tool": tool_name,
             "command": command,
             "path": path,
-            "workspacePath": tool_call.get("workspacePath") or path,
+            "workspacePath": workspace_path,
             "gitOperation": tool_call.get("gitOperation"),
             "deploymentTarget": tool_call.get("deploymentTarget"),
             "networkRequired": tool_call.get("networkRequired"),
             "secretsRequired": tool_call.get("secretsRequired"),
             "operation": tool_call.get("operation"),
+            "runtimeId": tool_call.get("runtimeId"),
+            "workflowKind": tool_call.get("workflowKind"),
+            "jobId": job_id or tool_call.get("jobId"),
+            "agentRunId": agent_run_id,
+            "capability": tool_call.get("capability"),
         }
-        if not self._profile_allows_tool(agent_profile, tool_name):
+        if boundary_result is not None:
+            result = boundary_result
+        elif not self._profile_allows_tool(agent_profile, tool_name):
             result = {
                 "decision": "deny",
                 "riskLevel": "medium",
@@ -240,7 +332,10 @@ class ToolBroker:
                 }
                 status = "failed"
             else:
-                execution_result = adapter.execute(tool_call=tool_call, policy_input=policy_input)
+                execution_result = adapter.execute(
+                    tool_call={**tool_call, "agentRunId": agent_run_id, "jobId": job_id},
+                    policy_input=policy_input,
+                )
                 if execution_result.get("blocked"):
                     status = "failed"
                 elif execution_result.get("returnCode") in {0, None}:
@@ -258,6 +353,7 @@ class ToolBroker:
             "grantValidation": grant_validation,
             "sandboxProfileId": tool_call.get("sandboxProfileId") or ("default_docker" if execution == "docker" else None),
             "decision": decision["decision"],
+            "decisionReason": decision["reason"],
             "riskLevel": decision["riskLevel"],
         }
         if execution_result is not None:

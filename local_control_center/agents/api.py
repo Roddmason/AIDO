@@ -16,17 +16,23 @@ from .contracts import (
     AgentRunCreateRequest,
     AgentRunsListResponse,
     AgentRunResponse,
+    DeveloperAgentRunRequest,
+    DeveloperAgentRunResponse,
+    DeveloperAgentStatusResponse,
     ModelPoliciesListResponse,
     ModelPolicyResponse,
     ModelPolicyUpsertRequest,
     ModelProvidersListResponse,
+    RuntimeProviderConfigurationResponse,
     RuntimeProvidersResponse,
     SkillsListResponse,
     SkillsSyncRequest,
     SkillsSyncResponse,
 )
+from .developer_agent import DeveloperAgentRunner
 from .model_gateway import LOCAL_MODEL_PROVIDERS, REMOTE_MODEL_PROVIDERS
 from .repository import AgentsRepository
+from .runtime_provider_config import list_runtime_provider_configurations
 from .runtime_status import RUNTIME_MODES, RuntimeStatusService
 from .skills import SkillRegistry
 from .tool_broker import ToolBroker
@@ -52,6 +58,7 @@ VALID_AGENT_ROLES = {
 }
 VALID_PERMISSION_PROFILES = {"plan", "dev_safe", "qa", "release"}
 VALID_POLICY_STATUS = {"active", "disabled"}
+DEVELOPER_AGENT_RUNTIMES = {"codex_cli", "claude_code_cli", "openai_compatible", "ollama"}
 
 
 def _require_id(value: Any, *, label: str) -> str:
@@ -134,6 +141,26 @@ def validate_model_policy_body(body: dict[str, Any]) -> dict[str, Any]:
     if body.get("status", "active") not in VALID_POLICY_STATUS:
         raise HTTPException(status_code=422, detail="Model policy status is invalid.")
     return body
+
+
+def validate_developer_agent_run_body(body: DeveloperAgentRunRequest) -> dict[str, Any]:
+    payload = body.model_dump(by_alias=True)
+    instruction = str(payload.get("instruction") or "").strip()
+    if not instruction:
+        raise HTTPException(status_code=422, detail="DeveloperAgent instruction is required.")
+    if len(instruction) > 20000:
+        raise HTTPException(status_code=422, detail="DeveloperAgent instruction must be 20000 characters or fewer.")
+    preferred_runtime = payload.get("preferredRuntime")
+    if preferred_runtime and preferred_runtime not in DEVELOPER_AGENT_RUNTIMES:
+        raise HTTPException(status_code=422, detail=f"DeveloperAgent runtime is not allowed: {preferred_runtime}")
+    qa_commands = payload.get("qaCommands") or []
+    for index, argv in enumerate(qa_commands):
+        if not isinstance(argv, list) or not argv or not all(isinstance(item, str) and item for item in argv):
+            raise HTTPException(status_code=422, detail=f"qaCommands[{index}] must be a non-empty structured argv list.")
+    max_cost = payload.get("maxCostUsd")
+    if max_cost is not None and float(max_cost) < 0:
+        raise HTTPException(status_code=422, detail="maxCostUsd must be zero or positive.")
+    return payload
 
 
 def _execution_test_result(tool_call: dict[str, Any]) -> dict[str, Any]:
@@ -271,6 +298,32 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
 
     def event_bus() -> EventBus:
         return EventBus(platform.connection)
+
+    @router.get("/api/v1/agents/developer/status", response_model=DeveloperAgentStatusResponse)
+    async def developer_agent_status() -> dict[str, Any]:
+        return {"developerAgent": DeveloperAgentRunner(platform.connection, root=platform.cwd).status()}
+
+    @router.post("/api/v1/agents/developer/runs", status_code=202, response_model=DeveloperAgentRunResponse)
+    async def run_developer_agent(body: DeveloperAgentRunRequest, request: Request) -> dict[str, Any]:
+        require_write(request)
+        payload = validate_developer_agent_run_body(body)
+        try:
+            result = DeveloperAgentRunner(platform.connection, root=platform.cwd).run(payload)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        event_bus().record_event(
+            project_id=result["agentRun"]["projectId"],
+            event_type=f"agent.developer.{result['status']}",
+            payload={
+                "agentRunId": result["agentRun"]["id"],
+                "workspaceId": result["workspace"]["id"],
+                "runtimeId": result["runtime"]["id"],
+                "evidencePackageId": result["evidencePackage"]["id"],
+            },
+        )
+        return result
 
     @router.get("/api/v1/agent-profiles", response_model=AgentProfilesListResponse)
     async def list_agent_profiles() -> dict[str, Any]:
@@ -448,6 +501,10 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     @router.get("/api/v1/runtime/providers", response_model=RuntimeProvidersResponse)
     async def list_runtime_providers() -> dict[str, Any]:
         return RuntimeStatusService(platform.connection).runtime_provider_status()
+
+    @router.get("/api/v1/runtime/provider-configuration", response_model=RuntimeProviderConfigurationResponse)
+    async def list_runtime_provider_configuration() -> dict[str, Any]:
+        return {"providers": list_runtime_provider_configurations()}
 
     @router.get("/api/v1/skills", response_model=SkillsListResponse)
     async def list_skills() -> dict[str, Any]:

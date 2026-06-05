@@ -55,6 +55,7 @@ export function AgentsPage({
 		runtimeModeOptions;
 	const runtimeOptions = useMemo(() => Array.from(new Set([...modes, ...fallbackRuntimes])), [modes]);
 	const runtimeRows = runtimeProviders?.providers ?? [];
+	const developerAgent = runtimeProviders?.developerAgent ?? null;
 
 	useEffect(() => {
 		let mounted = true;
@@ -227,6 +228,23 @@ export function AgentsPage({
 					<button className="button primary" onClick={createProfile}>Save agent profile</button>
 				</Surface>
 				<Surface title="Runtime detection">
+					{developerAgent ? (
+						<div className="status-strip">
+							<div>
+								<div className="eyebrow">DeveloperAgent</div>
+								<div className="inline">
+									<Badge tone={developerAgent.executable ? 'ok' : 'warn'}>
+										{developerAgent.executable ? 'executable' : 'not executable'}
+									</Badge>
+									<Badge>{developerAgent.selectedRuntimeId ?? 'no runtime'}</Badge>
+								</div>
+							</div>
+							<div className="stack compact">
+								<span className="mono">{developerAgent.contract.requiredRuntimeCapabilities.join(', ')}</span>
+								<span>{developerAgent.reason}</span>
+							</div>
+						</div>
+					) : null}
 					<DataTable rows={runtimeRows} empty={<EmptyState title="No runtime providers" body="Runtime status will appear after provider discovery completes." />} columns={[
 						{ key: 'provider', label: 'Provider', render: (row) => <span className="mono">{row.id}</span> },
 						{ key: 'kind', label: 'Kind', render: (row) => <Badge>{row.kind}</Badge> },

@@ -2,14 +2,15 @@
 
 ## What It Does
 
-`usage_ledger` records API and CLI usage with input, cached input, output, reasoning and tool token counts plus estimated and actual cost fields. `usageSource` is now a first-class field with `actual`, `estimated` or `unavailable`; `rawUsage` remains the redacted provider/runtime payload.
+`usage_ledger` records API and CLI usage with input, cached input, output, reasoning and tool token counts plus estimated and actual cost fields. `usageSource` is now a first-class field with `actual`, `estimated` or `unavailable`; `tokenStatus` and `costStatus` make unknown provider usage and pricing explicit. `rawUsage` remains the redacted provider/runtime payload.
 
 ## Configuration
 
 No credential is required to record usage. Providers and runtimes call
 `UsageLedger.record_usage()` only after real provider/runtime output, explicit
-estimation, or an unavailable/blocked outcome. Product code must not use the
-ledger to record mock execution as completed work.
+budget/planning estimation, or an unavailable/blocked outcome. Product code must
+not use the ledger to record mock execution as completed work. Estimated records
+are not evidence of completed model work.
 
 ## Endpoints
 
@@ -25,13 +26,16 @@ ledger to record mock execution as completed work.
 
 ## Risks
 
-- Providers without exact usage must set `usageSource = "estimated"` and keep any raw marker only as redacted metadata.
+- Providers without exact usage must set `usageSource = "unavailable"` or a
+  non-completed planning state; they must not fabricate token counts. If real
+  tokens are reported but pricing is absent, `costStatus = "unknown"` and cost
+  fields stay null.
 - Existing `cost_usage` is updated for compatibility, but detailed analysis should use `usage_ledger`.
 - Benchmark rows derived only from usage intentionally leave success, QA pass and rework metrics empty. Once `model_benchmark_outcomes` rows exist, those rates are computed as fractions from explicit or evidence-ingested outcomes.
 
 ## Limitations
 
-- The ledger does not reconcile provider invoices; `actualCostUsd` is only filled when a provider/runtime reports enough data.
+- The ledger does not reconcile provider invoices; `actualCostUsd` is only filled when a provider/runtime reports enough token data and pricing is configured.
 
 ## Example
 
@@ -40,7 +44,9 @@ ledger to record mock execution as completed work.
   "providerId": "nvidia_nim",
   "model": "auto_best_available",
   "runtimeType": "api",
-  "usageSource": "estimated",
-  "rawUsage": { "usage_source": "estimated" }
+  "usageSource": "actual",
+  "tokenStatus": "actual",
+  "costStatus": "unknown",
+  "rawUsage": { "usage_source": "provider", "cost_status": "unknown" }
 }
 ```

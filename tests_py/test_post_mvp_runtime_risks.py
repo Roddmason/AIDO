@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from local_control_center.agents.repository import AgentsRepository
 from local_control_center.agents.tool_broker import ToolBroker
 from local_control_center.app import create_app
+from local_control_center.workspaces_projects.repository import WorkspacesRepository
 from tests_py.control_plane_fixture import ControlPlaneFixture
 
 
@@ -31,6 +32,11 @@ def make_agent_run(tmp_path: Path, *, allowed_tools: list[str], permission_profi
     store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
     store.init()
     project = store.create_project(name="Runtime adapters", path=tmp_path / "runtime-adapters", template_id="other")
+    workspace = WorkspacesRepository(store.connection, root=tmp_path).allocate_workspace(
+        project_id=project["id"],
+        task_id="adapter-call",
+        agent_id="implementer",
+    )
     agents = AgentsRepository(store.connection)
     profile = agents.upsert_agent_profile(
         {
@@ -50,7 +56,7 @@ def make_agent_run(tmp_path: Path, *, allowed_tools: list[str], permission_profi
         output_payload={},
         status="running",
     )
-    return store, project, profile, run
+    return store, project, profile, run, workspace
 
 
 def auth_headers(client: TestClient) -> dict[str, str]:
@@ -59,8 +65,9 @@ def auth_headers(client: TestClient) -> dict[str, str]:
 
 
 def test_runtime_adapter_execution_happens_only_after_broker_policy_allows(tmp_path: Path) -> None:
-    store, project, profile, run = make_agent_run(tmp_path, allowed_tools=["mcp"])
+    store, project, profile, run, workspace = make_agent_run(tmp_path, allowed_tools=["mcp"])
     adapter = FakeRuntimeAdapter()
+    workspace_path = str(workspace["path"])
 
     result = ToolBroker(store.connection, runtime_adapters={"mcp": adapter}).evaluate_tool_call(
         project_id=project["id"],
@@ -71,7 +78,9 @@ def test_runtime_adapter_execution_happens_only_after_broker_policy_allows(tmp_p
             "execute": True,
             "serverId": "local-docs",
             "operation": "tools/list",
-            "workspacePath": project["path"],
+            "workspaceId": workspace["id"],
+            "workspacePath": workspace_path,
+            "path": workspace_path,
         },
     )
 
@@ -84,8 +93,9 @@ def test_runtime_adapter_execution_happens_only_after_broker_policy_allows(tmp_p
 
 
 def test_mcp_non_read_only_operation_requires_approval_before_adapter_execution(tmp_path: Path) -> None:
-    store, project, profile, run = make_agent_run(tmp_path, allowed_tools=["mcp"])
+    store, project, profile, run, workspace = make_agent_run(tmp_path, allowed_tools=["mcp"])
     adapter = FakeRuntimeAdapter()
+    workspace_path = str(workspace["path"])
 
     result = ToolBroker(store.connection, runtime_adapters={"mcp": adapter}).evaluate_tool_call(
         project_id=project["id"],
@@ -96,7 +106,9 @@ def test_mcp_non_read_only_operation_requires_approval_before_adapter_execution(
             "execute": True,
             "serverId": "local-docs",
             "operation": "tools/call",
-            "workspacePath": project["path"],
+            "workspaceId": workspace["id"],
+            "workspacePath": workspace_path,
+            "path": workspace_path,
         },
     )
 
@@ -106,8 +118,9 @@ def test_mcp_non_read_only_operation_requires_approval_before_adapter_execution(
 
 
 def test_runtime_adapter_is_not_invoked_when_agent_profile_does_not_allow_tool(tmp_path: Path) -> None:
-    store, project, profile, run = make_agent_run(tmp_path, allowed_tools=["shell"])
+    store, project, profile, run, workspace = make_agent_run(tmp_path, allowed_tools=["shell"])
     adapter = FakeRuntimeAdapter()
+    workspace_path = str(workspace["path"])
 
     result = ToolBroker(store.connection, runtime_adapters={"mcp": adapter}).evaluate_tool_call(
         project_id=project["id"],
@@ -118,7 +131,9 @@ def test_runtime_adapter_is_not_invoked_when_agent_profile_does_not_allow_tool(t
             "execute": True,
             "serverId": "local-docs",
             "operation": "tools/list",
-            "workspacePath": project["path"],
+            "workspaceId": workspace["id"],
+            "workspacePath": workspace_path,
+            "path": workspace_path,
         },
     )
 
@@ -129,8 +144,9 @@ def test_runtime_adapter_is_not_invoked_when_agent_profile_does_not_allow_tool(t
 
 
 def test_runtime_adapter_is_not_invoked_for_sensitive_command_without_approval(tmp_path: Path) -> None:
-    store, project, profile, run = make_agent_run(tmp_path, allowed_tools=["openhands"])
+    store, project, profile, run, workspace = make_agent_run(tmp_path, allowed_tools=["openhands"])
     adapter = FakeRuntimeAdapter()
+    workspace_path = str(workspace["path"])
 
     result = ToolBroker(store.connection, runtime_adapters={"openhands": adapter}).evaluate_tool_call(
         project_id=project["id"],
@@ -140,8 +156,9 @@ def test_runtime_adapter_is_not_invoked_for_sensitive_command_without_approval(t
             "tool": "openhands",
             "command": "pnpm add left-pad",
             "execute": True,
-            "workspacePath": project["path"],
-            "path": project["path"],
+            "workspaceId": workspace["id"],
+            "workspacePath": workspace_path,
+            "path": workspace_path,
         },
     )
 

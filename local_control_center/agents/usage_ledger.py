@@ -11,6 +11,7 @@ from local_control_center.shared.time import utc_now
 
 def row_to_usage(row: sqlite3.Row) -> dict[str, Any]:
     raw_usage = json_loads(row["raw_usage_json"], {})
+    usage_source = row["usage_source"] if "usage_source" in row.keys() else _usage_source_from_raw(raw_usage, None)
     return {
         "id": row["id"],
         "providerId": row["provider_id"],
@@ -34,7 +35,9 @@ def row_to_usage(row: sqlite3.Row) -> dict[str, Any]:
         "actualCostUsd": row["actual_cost_usd"],
         "currency": row["currency"],
         "latencyMs": row["latency_ms"],
-        "usageSource": row["usage_source"] if "usage_source" in row.keys() else _usage_source_from_raw(raw_usage, None),
+        "usageSource": usage_source,
+        "tokenStatus": raw_usage.get("token_status") or ("actual" if usage_source == "actual" else "unknown"),
+        "costStatus": raw_usage.get("cost_status") or ("actual" if row["actual_cost_usd"] is not None else "unknown"),
         "rawUsage": raw_usage,
         "createdAt": row["created_at"],
     }

@@ -27,7 +27,7 @@ class ClaudeCodeCliRuntime(CliRuntime):
         connection: sqlite3.Connection | None = None,
     ):
         super().__init__(
-            executable=executable or os.environ.get("CLAUDE_CODE_CLI_PATH", "claude"),
+            executable=executable or os.environ.get("AIDO_CLAUDE_COMMAND") or os.environ.get("CLAUDE_CODE_CLI_PATH", "claude"),
             connection=connection,
         )
 

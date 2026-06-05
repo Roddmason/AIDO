@@ -2,6 +2,11 @@
 
 Fecha: 2026-05-20
 
+> Historical snapshot: this audit records the pre-gateway gap analysis from
+> 2026-05-20. The current product contract is stricter: mocks/fakes are allowed
+> only inside tests, and runtime/provider execution must be real or fail closed
+> with `configuration_required`, `blocked` or `unavailable`.
+
 ## Estado actual de `agents/model_gateway.py`
 
 - `local_control_center/agents/model_gateway.py` existe, pero es una capa mínima.
@@ -92,7 +97,7 @@ Fecha: 2026-05-20
 
 ## Riesgos técnicos
 
-- El scope solicitado es amplio para una sola iteración; la decisión técnica correcta es implementar un MVP completo y tipado con adapters mock/stub donde el runtime real sea opcional.
+- El scope solicitado es amplio para una sola iteración; la decisión técnica correcta es implementar un MVP completo y tipado con adapters reales mínimos y tests aislados por mocks/fakes solo dentro de test.
 - OpenAPI generado puede quedar desalineado si se usan nuevos endpoints desde frontend. Para reducir riesgo, el frontend puede usar `apiRequest` tipado manualmente y luego regenerar OpenAPI si el build lo exige.
 - SQLite no tiene ALTER COLUMN; cualquier migración debe ser aditiva.
 - El router debe evitar mezclar providers API con CLI runtimes. Esto requiere tablas separadas por `provider_type` y `runtime_type`, aunque se compartan catálogos para UI.
@@ -114,20 +119,20 @@ Fecha: 2026-05-20
 
 ## Plan de implementación por fases
 
-1. Agregar tests backend rojos para esquema, seeds, route preview, quotas, ledger, providers mock, CLI detection y redaction.
+1. Agregar tests backend rojos para esquema, seeds, route preview, quotas, ledger, providers reales con HTTP/daemon falso solo en tests, CLI detection y redaction.
 2. Crear migración fase 12 idempotente con tablas nuevas y seeds iniciales no dogmáticos.
 3. Implementar DTOs base, pricing catalog, quota manager, usage ledger, provider accounts, routing profiles y model router.
-4. Implementar providers API mock/stub: NVIDIA NIM, OpenAI-compatible, OpenAI, Anthropic, OpenRouter, Ollama y LiteLLM opcional.
-5. Implementar CLI runtime adapters mock/detection: Codex CLI, Claude Code CLI, OpenHands, SWE-agent y manual.
+4. Implementar providers API reales/fail-closed: NVIDIA NIM, OpenAI-compatible, OpenAI, Anthropic, OpenRouter, Ollama y LiteLLM opcional.
+5. Implementar CLI runtime adapters con detection real y ejecución delegada a sesiones aprobadas: Codex CLI, Claude Code CLI, OpenHands, SWE-agent y manual.
 6. Añadir router `/api/v1/model-gateway/*`, registrar audit events y conservar endpoints legacy.
-7. Ampliar overview y frontend Model Gateway como consola operacional con route preview mock.
+7. Ampliar overview y frontend Model Gateway como consola operacional con route preview sin ejecución simulada.
 8. Documentar configuración, riesgos y pruebas; actualizar `.env.example` y `config/model-routing.example.yaml`.
 9. Ejecutar pytest, typecheck/build frontend y Playwright cuando sea viable.
 
 ## Resultado de esta iteración
 
 - Se agregó migración fase 12 con tablas del Unified Model & Runtime Gateway y seeds iniciales.
-- Se implementaron adapters mock/stub para proveedores API y runtimes CLI.
+- Se implementaron adapters iniciales para proveedores API y runtimes CLI; el contrato actual exige ejecución real o fallo cerrado.
 - Se agregaron endpoints `/api/v1/model-gateway/*`.
 - Se amplió el frontend Model Gateway como consola operacional.
 - Se mantuvo compatibilidad con `model_policies`, `model_calls`, `cost_usage` y formularios estrictos existentes.
@@ -137,7 +142,7 @@ Fecha: 2026-05-20
 
 - OpenAPI ya no queda desalineado: los endpoints del Model Gateway tienen `response_model` Pydantic, el cliente generado incluye los tipos nuevos y el frontend usa operaciones generadas para leer/mutar el gateway.
 - `routing_decisions` ahora puede enlazar `workflowRunId`, `workflowStepId`, `agentId`, `jobId` y `taskId` mediante migración aditiva.
-- `Workflows` invoca `ModelRouter` al iniciar un workflow y registra una decisión por step en modo local/mock, sin ejecutar proveedores reales.
+- `Workflows` invoca `ModelRouter` al iniciar un workflow y registra una decisión por step sin ejecutar proveedores reales durante preview.
 - `Agent Profiles` expone y persiste `routingProfileId`, `roleModelPolicyId`, providers/runtimes permitidos, límites de tokens, flags remote/CLI/API y umbral de approval.
 - `CLI runtimes` parsean usage desde JSON/JSONL cuando el runtime lo emite; si no hay usage exacto, se conserva `None` y no se inventa precisión.
 - `Benchmarks` exponen datos derivados de `usage_ledger` para intentos, coste medio, latencia y último uso; success/QA/rework se calculan cuando existen outcomes explícitos.

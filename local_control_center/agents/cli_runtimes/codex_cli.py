@@ -25,7 +25,7 @@ class CodexCliRuntime(CliRuntime):
         connection: sqlite3.Connection | None = None,
     ):
         super().__init__(
-            executable=executable or os.environ.get("CODEX_CLI_PATH", "codex"),
+            executable=executable or os.environ.get("AIDO_CODEX_COMMAND") or os.environ.get("CODEX_CLI_PATH", "codex"),
             connection=connection,
         )
 

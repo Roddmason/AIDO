@@ -19,6 +19,24 @@ def is_git_repository(path: Path) -> bool:
     return result.returncode == 0 and result.stdout.strip() == "true"
 
 
+def git_head_commit(path: Path, ref: str = "HEAD") -> str | None:
+    if not git_available() or not is_git_repository(path):
+        return None
+    result = run_git(["-C", str(path), "rev-parse", ref])
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip() or None
+
+
+def git_current_branch(path: Path) -> str | None:
+    if not git_available() or not is_git_repository(path):
+        return None
+    result = run_git(["-C", str(path), "branch", "--show-current"])
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip() or None
+
+
 def create_git_worktree(
     *,
     repo_path: Path,
@@ -31,6 +49,8 @@ def create_git_worktree(
         return {"status": "degraded_git_unavailable"}
     if not is_git_repository(repo_path):
         return {"status": "degraded_not_git_repo"}
+    source_commit = git_head_commit(repo_path, base_branch)
+    source_branch = git_current_branch(repo_path)
     branch_name = f"aido/{slugify_branch_segment(task_id)}/{workspace_id.removeprefix('workspace-')[:8]}"
     worktree_path.parent.mkdir(parents=True, exist_ok=True)
     result = run_git(["-C", str(repo_path), "worktree", "add", "-b", branch_name, str(worktree_path), base_branch])
@@ -44,6 +64,8 @@ def create_git_worktree(
         "status": "created",
         "branchName": branch_name,
         "baseBranch": base_branch,
+        "sourceCommit": source_commit,
+        "sourceBranch": source_branch,
     }
 
 
@@ -78,6 +100,9 @@ def capture_git_diff(workspace_path: Path) -> dict[str, Any]:
         return {"kind": "git_diff", "state": "degraded_not_git_repo", "statusRaw": "", "status": []}
 
     status_result = run_git(["-C", str(workspace_path), "status", "--porcelain=v1"])
+    run_git(["-C", str(workspace_path), "add", "--intent-to-add", "--", "."])
+    branch_result = run_git(["-C", str(workspace_path), "branch", "--show-current"])
+    head_result = run_git(["-C", str(workspace_path), "rev-parse", "HEAD"])
     name_result = run_git(["-C", str(workspace_path), "diff", "--name-only"])
     stat_result = run_git(["-C", str(workspace_path), "diff", "--stat", "--", "."])
     patch_result = run_git(["-C", str(workspace_path), "diff", "--", "."])
@@ -99,6 +124,8 @@ def capture_git_diff(workspace_path: Path) -> dict[str, Any]:
     return {
         "kind": "git_diff",
         "state": "captured",
+        "branch": branch_result.stdout.strip() if branch_result.returncode == 0 else None,
+        "headCommit": head_result.stdout.strip() if head_result.returncode == 0 else None,
         "statusRaw": status_result.stdout,
         "status": changed,
         "nameOnly": name_only,

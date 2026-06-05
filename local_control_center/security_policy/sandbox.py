@@ -8,6 +8,12 @@ from typing import Any
 
 
 ALLOWED_EXECUTABLES = {
+    "claude",
+    "claude.cmd",
+    "claude.exe",
+    "codex",
+    "codex.cmd",
+    "codex.exe",
     "corepack",
     "corepack.cmd",
     "corepack.exe",
@@ -42,6 +48,7 @@ DANGEROUS_ARG_PREFIXES = (
     "--privileged",
     "--volume",
 )
+VERSION_ARGS = {"--version", "-V", "version"}
 
 MAX_CAPTURE_CHARS = 4000
 
@@ -71,6 +78,62 @@ def _dangerous_arg(argv: list[str]) -> str | None:
     return None
 
 
+def run_version_check(
+    *,
+    argv: Any,
+    cwd: str | None = None,
+    timeout_seconds: int = 5,
+) -> dict[str, Any]:
+    if not isinstance(argv, list) or len(argv) != 2 or not all(isinstance(item, str) and item for item in argv):
+        return {
+            "executed": False,
+            "blocked": True,
+            "reason": "Version check requires argv shaped as [executable, version flag].",
+        }
+    if argv[1] not in VERSION_ARGS:
+        return {
+            "executed": False,
+            "blocked": True,
+            "reason": "Version check requires an allowed version flag.",
+        }
+    started = time.perf_counter()
+    try:
+        completed = subprocess.run(
+            argv,
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=max(1, min(timeout_seconds, 30)),
+            shell=False,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        return {
+            "executed": True,
+            "blocked": False,
+            "timedOut": True,
+            "returnCode": None,
+            "durationMs": int((time.perf_counter() - started) * 1000),
+            "stdout": _truncate(exc.stdout or ""),
+            "stderr": _truncate(exc.stderr or ""),
+        }
+    except OSError as exc:
+        return {
+            "executed": False,
+            "blocked": True,
+            "reason": str(exc),
+        }
+    return {
+        "executed": True,
+        "blocked": False,
+        "timedOut": False,
+        "returnCode": completed.returncode,
+        "durationMs": int((time.perf_counter() - started) * 1000),
+        "stdout": _truncate(completed.stdout or ""),
+        "stderr": _truncate(completed.stderr or ""),
+    }
+
+
 class RestrictedSubprocessSandbox:
     """Runs low-risk commands without invoking a shell.
 
@@ -86,6 +149,7 @@ class RestrictedSubprocessSandbox:
         cwd: str | None,
         workspace_path: str | None,
         timeout_seconds: int = 30,
+        truncate_output: bool = True,
     ) -> dict[str, Any]:
         if not isinstance(argv, list) or not argv or not all(isinstance(item, str) for item in argv):
             return {
@@ -142,8 +206,8 @@ class RestrictedSubprocessSandbox:
                 "timedOut": True,
                 "returnCode": None,
                 "durationMs": int((time.perf_counter() - started) * 1000),
-                "stdout": _truncate(exc.stdout or ""),
-                "stderr": _truncate(exc.stderr or ""),
+                "stdout": _truncate(exc.stdout or "") if truncate_output else (exc.stdout or ""),
+                "stderr": _truncate(exc.stderr or "") if truncate_output else (exc.stderr or ""),
             }
         except OSError as exc:
             return {
@@ -158,8 +222,8 @@ class RestrictedSubprocessSandbox:
             "timedOut": False,
             "returnCode": completed.returncode,
             "durationMs": int((time.perf_counter() - started) * 1000),
-            "stdout": _truncate(completed.stdout or ""),
-            "stderr": _truncate(completed.stderr or ""),
+            "stdout": _truncate(completed.stdout or "") if truncate_output else (completed.stdout or ""),
+            "stderr": _truncate(completed.stderr or "") if truncate_output else (completed.stderr or ""),
         }
 
     def execute_with_input(

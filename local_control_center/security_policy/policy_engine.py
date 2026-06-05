@@ -96,7 +96,185 @@ def evaluate_action(input_payload: dict[str, Any]) -> dict[str, Any]:
             "categories": categories,
         }
 
+    if operation in {
+        "developer_agent_runtime",
+        "developer_agent_model_call",
+        "developer_agent_patch_apply",
+        "developer_agent_qa",
+    }:
+        if input_payload.get("agentId") != "developer_agent":
+            categories.append("developer_agent_denied")
+            return {
+                "decision": "deny",
+                "riskLevel": "high",
+                "reason": "DeveloperAgent runtime operations are restricted to the DeveloperAgent profile.",
+                "categories": categories,
+            }
+        if permission_profile != "dev_safe":
+            categories.append("developer_agent_profile_denied")
+            return {
+                "decision": "deny",
+                "riskLevel": "high",
+                "reason": "DeveloperAgent execution requires a dev_safe profile.",
+                "categories": categories,
+            }
+        if not input_payload.get("workspaceId") or not input_payload.get("workspacePath"):
+            categories.append("developer_agent_workspace_required")
+            return {
+                "decision": "deny",
+                "riskLevel": "high",
+                "reason": "DeveloperAgent execution requires an allocated workspace.",
+                "categories": categories,
+            }
+        if not input_payload.get("runtimeId") and operation not in {"developer_agent_patch_apply", "developer_agent_qa"}:
+            categories.append("developer_agent_runtime_required")
+            return {
+                "decision": "deny",
+                "riskLevel": "high",
+                "reason": "DeveloperAgent execution requires runtime context.",
+                "categories": categories,
+            }
+        if not input_payload.get("agentRunId"):
+            categories.append("developer_agent_run_required")
+            return {
+                "decision": "deny",
+                "riskLevel": "high",
+                "reason": "DeveloperAgent execution requires an agent run audit id.",
+                "categories": categories,
+            }
+        if operation == "developer_agent_runtime":
+            if tool != "shell" or input_payload.get("runtimeId") not in {"codex_cli", "claude_code_cli"}:
+                categories.append("developer_agent_cli_runtime_denied")
+                return {
+                    "decision": "deny",
+                    "riskLevel": "high",
+                    "reason": "DeveloperAgent CLI execution is limited to configured Codex or Claude CLI runtimes.",
+                    "categories": categories,
+                }
+            if input_payload.get("networkRequired") or input_payload.get("secretsRequired"):
+                categories.append("developer_agent_cli_approval_required")
+                return {
+                    "decision": "requires_approval",
+                    "riskLevel": "medium",
+                    "reason": "DeveloperAgent CLI execution with network or secrets requires approval.",
+                    "categories": categories,
+                }
+            return {
+                "decision": "allow",
+                "riskLevel": "medium",
+                "reason": "DeveloperAgent CLI runtime execution is allowed inside the allocated workspace.",
+                "categories": categories + ["developer_agent_runtime"],
+            }
+        if operation == "developer_agent_model_call":
+            if tool not in {"ollama", "openai_compatible"} or input_payload.get("runtimeId") != tool:
+                categories.append("developer_agent_model_runtime_denied")
+                return {
+                    "decision": "deny",
+                    "riskLevel": "high",
+                    "reason": "DeveloperAgent model execution is limited to configured OpenAI-compatible or Ollama adapters.",
+                    "categories": categories,
+                }
+            return {
+                "decision": "allow",
+                "riskLevel": "medium",
+                "reason": "DeveloperAgent model execution is allowed for a configured runtime adapter.",
+                "categories": categories + ["developer_agent_model_call"],
+            }
+        if operation == "developer_agent_patch_apply":
+            if tool != "workspace_patch":
+                categories.append("developer_agent_patch_tool_denied")
+                return {
+                    "decision": "deny",
+                    "riskLevel": "high",
+                    "reason": "DeveloperAgent patch application must use the workspace_patch adapter.",
+                    "categories": categories,
+                }
+            if input_payload.get("networkRequired") or input_payload.get("secretsRequired"):
+                categories.append("developer_agent_patch_denied")
+                return {
+                    "decision": "deny",
+                    "riskLevel": "high",
+                    "reason": "DeveloperAgent patch application cannot request network or secrets.",
+                    "categories": categories,
+                }
+            return {
+                "decision": "allow",
+                "riskLevel": "medium",
+                "reason": "DeveloperAgent patch application is allowed inside the allocated workspace.",
+                "categories": categories + ["developer_agent_patch_apply"],
+            }
+        if operation == "developer_agent_qa":
+            if tool != "shell":
+                categories.append("developer_agent_qa_tool_denied")
+                return {
+                    "decision": "deny",
+                    "riskLevel": "high",
+                    "reason": "DeveloperAgent QA must execute through shell with structured argv.",
+                    "categories": categories,
+                }
+            allowed = allowlisted_shell_categories(permission_profile, categories)
+            if allowed and classification["riskLevel"] == "low":
+                return {
+                    "decision": "allow",
+                    "riskLevel": "low",
+                    "reason": "DeveloperAgent QA command is allowlisted for dev_safe execution.",
+                    "categories": categories + allowed + ["developer_agent_qa"],
+                }
+            return {
+                "decision": "requires_approval",
+                "riskLevel": "medium",
+                "reason": "DeveloperAgent QA command is not in the low-risk allowlist.",
+                "categories": categories + ["developer_agent_qa_gated"],
+            }
+
     if tool == "shell" and command:
+        if operation == "issue_to_patch_runtime":
+            if input_payload.get("agentId") != "aido_issue_to_patch_runner":
+                categories.append("issue_to_patch_runtime_agent_denied")
+                return {
+                    "decision": "deny",
+                    "riskLevel": "high",
+                    "reason": "issue_to_patch runtime execution is restricted to the workflow runner agent.",
+                    "categories": categories,
+                }
+            if input_payload.get("workflowKind") != "issue_to_patch" or not input_payload.get("runtimeId"):
+                categories.append("issue_to_patch_runtime_context_required")
+                return {
+                    "decision": "deny",
+                    "riskLevel": "high",
+                    "reason": "issue_to_patch runtime execution requires workflow and runtime context.",
+                    "categories": categories,
+                }
+            if permission_profile != "dev_safe":
+                categories.append("issue_to_patch_runtime_profile_denied")
+                return {
+                    "decision": "deny",
+                    "riskLevel": "high",
+                    "reason": "issue_to_patch runtime execution requires a dev_safe implementer profile.",
+                    "categories": categories,
+                }
+            if not input_payload.get("workspaceId") or not input_payload.get("workspacePath"):
+                categories.append("issue_to_patch_workspace_required")
+                return {
+                    "decision": "deny",
+                    "riskLevel": "high",
+                    "reason": "issue_to_patch runtime execution requires an allocated workspace.",
+                    "categories": categories,
+                }
+            if input_payload.get("networkRequired") or input_payload.get("secretsRequired"):
+                categories.append("issue_to_patch_runtime_approval_required")
+                return {
+                    "decision": "requires_approval",
+                    "riskLevel": "medium",
+                    "reason": "issue_to_patch runtime execution with network or secrets requires approval.",
+                    "categories": categories,
+                }
+            return {
+                "decision": "allow",
+                "riskLevel": "medium",
+                "reason": "Configured issue_to_patch runtime execution is allowed inside the allocated workspace.",
+                "categories": categories + ["issue_to_patch_runtime"],
+            }
         if permission_profile == "plan":
             categories.append("profile_shell_denied")
             return {
@@ -130,7 +308,7 @@ def evaluate_action(input_payload: dict[str, Any]) -> dict[str, Any]:
             "categories": categories,
         }
 
-    if tool in {"mcp", "openhands", "swe_agent"} and command:
+    if tool in {"mcp", "openhands", "swe_agent", "ollama", "openai_compatible", "workspace_patch"} and command:
         if permission_profile == "plan":
             categories.append("profile_runtime_adapter_denied")
             return {

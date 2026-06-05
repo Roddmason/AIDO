@@ -8,6 +8,7 @@ from typing import Any
 
 from local_control_center.agents.credentials import CredentialResolver
 from local_control_center.agents.model_gateway import redact_secrets
+from local_control_center.agents.runtime_provider_config import runtime_provider_configuration
 
 from .base import CostEstimate, ModelInfo, ModelProvider, ModelRequest, ModelResponse, ProviderHealth, UsageRecord
 
@@ -24,14 +25,20 @@ class OpenAICompatibleProvider(ModelProvider):
         base_url: str | None = None,
         credential_ref: str | None = None,
     ):
+        runtime_configuration = runtime_provider_configuration(provider_id)
         self.provider_id = provider_id
         self.base_url = (
             base_url
+            or (runtime_configuration.value("baseUrl") if runtime_configuration else None)
             or os.environ.get("AIDO_OPENAI_COMPATIBLE_BASE_URL")
             or os.environ.get("OPENAI_COMPATIBLE_BASE_URL")
             or ""
         ).rstrip("/")
-        self.credential_ref = credential_ref or ""
+        self.credential_ref = (
+            credential_ref
+            or (runtime_configuration.configured_env_ref("apiKey") if runtime_configuration else None)
+            or ""
+        )
         self.credential_resolver = CredentialResolver()
 
     def _credential(self) -> str:

@@ -6,6 +6,8 @@ from typing import Any
 
 from .model_gateway import ollama_status
 from .provider_accounts import ProviderAccountStore
+from .developer_agent_contract import developer_agent_readiness
+from .runtime_provider_config import RuntimeProviderConfiguration, runtime_provider_configuration
 from .runtime_registry import RuntimeRegistry
 from local_control_center.shared.time import utc_now
 
@@ -113,25 +115,50 @@ def _api_required_configuration(account: dict[str, Any]) -> list[str]:
     return ["baseUrl", "apiKey"]
 
 
-def _api_provider_status(connection: sqlite3.Connection, account: dict[str, Any], capabilities: list[str]) -> dict[str, Any]:
-    provider_id = str(account["providerId"])
+def _api_account_configuration(connection: sqlite3.Connection, account: dict[str, Any]) -> dict[str, Any]:
+    required_configuration = _api_required_configuration(account)
     credential_status = str(account.get("credentialStatus") or "unknown")
-    enabled = bool(account.get("enabled"))
     base_url = str(account.get("baseUrl") or "").strip()
+    return {
+        "requiredConfiguration": required_configuration,
+        "hasModel": "model" not in required_configuration or _has_enabled_model(connection, str(account["providerId"])),
+        "hasBaseUrl": "baseUrl" not in required_configuration or bool(base_url),
+        "hasCredential": "apiKey" not in required_configuration or credential_status == "configured",
+        "credentialStatus": credential_status,
+    }
+
+
+def _runtime_configuration_present(configuration: RuntimeProviderConfiguration | None, key: str) -> bool:
+    return bool(configuration and configuration.value(key))
+
+
+def _api_provider_status(
+    connection: sqlite3.Connection,
+    account: dict[str, Any],
+    capabilities: list[str],
+    configuration: RuntimeProviderConfiguration | None = None,
+) -> dict[str, Any]:
+    provider_id = str(account["providerId"])
+    enabled = bool(account.get("enabled"))
     health_status = str(account.get("healthStatus") or "unknown")
     health_checked_at = account.get("lastHealthCheckAt")
     last_error = str(account.get("lastError") or "").strip()
-    required_configuration = _api_required_configuration(account)
-    has_model = "model" not in required_configuration or _has_enabled_model(connection, provider_id)
-    has_base_url = "baseUrl" not in required_configuration or bool(base_url)
-    has_credential = "apiKey" not in required_configuration or credential_status == "configured"
-    configured = has_base_url and has_credential and has_model
+    account_configuration = _api_account_configuration(connection, account)
+    required_configuration = account_configuration["requiredConfiguration"]
+    has_model = bool(account_configuration["hasModel"] or _runtime_configuration_present(configuration, "model"))
+    has_base_url = bool(account_configuration["hasBaseUrl"] or _runtime_configuration_present(configuration, "baseUrl"))
+    has_credential = bool(
+        account_configuration["hasCredential"] or _runtime_configuration_present(configuration, "apiKey")
+    )
+    configured = bool((configuration and configuration.configured) or (has_base_url and has_credential and has_model))
     remote_calls_enabled = _env_flag("AIDO_ENABLE_REAL_PROVIDER_CALLS")
     healthy = health_status == "healthy" and bool(health_checked_at)
     available = configured and healthy
     executable = available and enabled and remote_calls_enabled
-    if not has_credential:
-        reason = f"Provider credential is {credential_status}; configure the required API key."
+    if not configured and configuration is not None and not configuration.configured:
+        reason = configuration.reason
+    elif not has_credential:
+        reason = f"Provider credential is {account_configuration['credentialStatus']}; configure the required API key."
     elif not has_base_url:
         reason = "Provider base URL is not configured."
     elif not has_model:
@@ -163,16 +190,23 @@ def _api_provider_status(connection: sqlite3.Connection, account: dict[str, Any]
     )
 
 
-def _cli_provider_status(account: dict[str, Any], detection: dict[str, Any], capabilities: list[str]) -> dict[str, Any]:
+def _cli_provider_status(
+    account: dict[str, Any],
+    detection: dict[str, Any],
+    capabilities: list[str],
+    configuration: RuntimeProviderConfiguration | None = None,
+) -> dict[str, Any]:
     detected = detection.get("status") == "installed"
     enabled = bool(account.get("enabled"))
     cli_enabled = _env_flag("AIDO_ENABLE_CLI_RUNTIMES")
     can_patch = bool(set(capabilities) & {"issue_to_patch", "code_edit"})
     version = detection.get("version") if detected else None
-    available = detected and bool(version)
-    configured = detected
+    configured = bool(configuration.configured if configuration is not None else detected)
+    available = configured and detected and bool(version)
     executable = available and enabled and cli_enabled and can_patch
-    if not detected:
+    if not configured and configuration is not None:
+        reason = f"{configuration.reason}; CLI runtime was not detected because command configuration is missing."
+    elif not detected:
         reason = str(detection.get("message") or "CLI runtime was not detected.")
     elif not version:
         reason = "CLI runtime was detected but the safe version health check did not return a usable version."
@@ -194,7 +228,7 @@ def _cli_provider_status(account: dict[str, Any], detection: dict[str, Any], cap
         executable=executable,
         reason=reason,
         version=version,
-        detected_command=detection.get("executable") if detected else None,
+    detected_command=detection.get("executable") if detected else None,
         health_checked_at=utc_now(),
         capabilities=capabilities,
         required_configuration=["command"],
@@ -202,19 +236,30 @@ def _cli_provider_status(account: dict[str, Any], detection: dict[str, Any], cap
     )
 
 
-def _ollama_provider_status(account: dict[str, Any], capabilities: list[str]) -> dict[str, Any]:
+def _ollama_provider_status(
+    account: dict[str, Any],
+    capabilities: list[str],
+    configuration: RuntimeProviderConfiguration | None = None,
+) -> dict[str, Any]:
     base_url = (
-        str(account.get("baseUrl") or "").strip()
+        (configuration.value("baseUrl") if configuration else None)
+        or str(account.get("baseUrl") or "").strip()
         or os.environ.get("OLLAMA_BASE_URL")
         or os.environ.get("OLLAMA_HOST")
-        or "http://localhost:11434"
+        or ""
     )
-    status = ollama_status(base_url=base_url)
+    status = (
+        ollama_status(base_url=base_url)
+        if base_url
+        else {"provider": "ollama", "available": False, "models": [], "reason": "Ollama base URL is not configured."}
+    )
     daemon_available = bool(status.get("available"))
     enabled = bool(account.get("enabled"))
-    configured = bool(base_url)
+    configured = bool((configuration and configuration.configured) or base_url)
     executable = daemon_available and enabled
-    if not configured:
+    if not configured and configuration is not None:
+        reason = configuration.reason
+    elif not configured:
         reason = "Ollama base URL is not configured."
     elif not daemon_available:
         reason = str(status.get("reason") or "Ollama daemon did not respond to /api/tags.")
@@ -270,20 +315,52 @@ class RuntimeStatusService:
 
     def list_provider_statuses(self) -> list[dict[str, Any]]:
         capabilities = _capabilities(self.connection)
-        detections = {runtime_id: self.registry.detect(runtime_id) for runtime_id in sorted(CLI_RUNTIME_IDS)}
+        configurations = {
+            provider_id: runtime_provider_configuration(provider_id)
+            for provider_id in CLI_RUNTIME_IDS | {"openai_compatible", "openrouter", "nvidia_nim", "ollama"}
+        }
+        detections: dict[str, dict[str, Any]] = {}
+        for runtime_id in sorted(CLI_RUNTIME_IDS):
+            configuration = configurations.get(runtime_id)
+            command = configuration.value("command") if configuration else None
+            detections[runtime_id] = (
+                self.registry.detect(runtime_id, executable=command)
+                if command
+                else {
+                    "runtime": runtime_id,
+                    "status": "not_configured",
+                    "executable": None,
+                    "version": None,
+                    "message": configuration.reason if configuration else "CLI command is not configured.",
+                }
+            )
         statuses: list[dict[str, Any]] = []
         for account in self.accounts.list_provider_accounts():
             provider_id = str(account["providerId"])
             provider_capabilities = capabilities.get(provider_id, [])
             provider_type = str(account.get("providerType") or "")
             if provider_id == "ollama":
-                statuses.append(_ollama_provider_status(account, provider_capabilities))
+                statuses.append(_ollama_provider_status(account, provider_capabilities, configurations.get(provider_id)))
             elif provider_id == "manual":
                 statuses.append(_manual_provider_status(account, provider_capabilities))
             elif provider_id in CLI_RUNTIME_IDS:
-                statuses.append(_cli_provider_status(account, detections.get(provider_id, {}), provider_capabilities))
+                statuses.append(
+                    _cli_provider_status(
+                        account,
+                        detections.get(provider_id, {}),
+                        provider_capabilities,
+                        configurations.get(provider_id),
+                    )
+                )
             elif provider_type in API_RUNTIME_KINDS:
-                statuses.append(_api_provider_status(self.connection, account, provider_capabilities))
+                statuses.append(
+                    _api_provider_status(
+                        self.connection,
+                        account,
+                        provider_capabilities,
+                        configurations.get(provider_id),
+                    )
+                )
             else:
                 statuses.append(
                     _status_payload(
@@ -333,5 +410,6 @@ class RuntimeStatusService:
                 "available": any(provider["available"] for provider in api_providers),
                 "adapters": [provider["id"] for provider in api_providers],
             },
+            "developerAgent": developer_agent_readiness(providers),
             "providers": providers,
         }

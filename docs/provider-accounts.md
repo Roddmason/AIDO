@@ -20,14 +20,19 @@ prefer AppRole bootstrap (`AIDO_SECRET_VAULT_AUTH_METHOD=approle`) so provider
 keys stay in the remote secret manager and the local process receives only a
 scoped session token in memory.
 
-Environment refs are still supported for local development:
+Environment refs are still supported for local development. Prefer the runtime
+configuration variables documented in `docs/runtime-providers.md`; the safe
+configuration endpoint reads those variables directly and does not persist them
+in SQLite.
 
 ```powershell
-$env:NVIDIA_NIM_API_KEY = "<real key outside repo>"
+$env:AIDO_NVIDIA_API_KEY = "<real key outside repo>"
+$env:AIDO_NVIDIA_BASE_URL = "<provider endpoint>"
+$env:AIDO_NVIDIA_MODEL = "<provider model>"
 ```
 
-Then store `env:NVIDIA_NIM_API_KEY`; do not rely on unprefixed env names in new
-configuration.
+If you also create a provider account, store only a ref such as
+`env:AIDO_NVIDIA_API_KEY`; do not store raw keys or raw env values.
 
 Only the ref string is stored in SQLite. Raw keys are rejected. Optional refs in
 the form `keyring:service/account` can be used for bootstrap material when a
@@ -40,6 +45,7 @@ local OS/keyring adapter is installed outside the core runtime.
 - `PATCH /api/v1/model-gateway/providers/{id}`
 - `POST /api/v1/model-gateway/providers/{id}/health-check`
 - `POST /api/v1/model-gateway/providers/{id}/discover-models`
+- `GET /api/v1/runtime/provider-configuration`
 
 ## Testing
 

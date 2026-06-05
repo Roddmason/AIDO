@@ -18,7 +18,7 @@ export function UsageLedgerPanel({
 				<label htmlFor="usage-ledger-filter">Usage ledger filter</label>
 				<input id="usage-ledger-filter" className="input" value={filter} onChange={(event) => onFilterChange(event.target.value)} placeholder="Filter provider, model, role, runtime, workflow or agent" />
 			</div>
-			<DataTable rows={rows} empty={<EmptyState title="No usage ledger entries" body="Mock and real calls record token and cost usage here." />} columns={[
+			<DataTable rows={rows} empty={<EmptyState title="No usage ledger entries" body="Real provider and runtime calls record reported usage here." />} columns={[
 				{ key: 'time', label: 'Timestamp', render: (row) => text(row.createdAt) },
 				{ key: 'provider', label: 'Provider', render: (row) => text(row.providerId) },
 				{ key: 'model', label: 'Model', render: (row) => text(row.model) },
@@ -37,6 +37,8 @@ export function UsageLedgerPanel({
 				{ key: 'actual', label: 'Actual cost', render: (row) => row.actualCostUsd === null || row.actualCostUsd === undefined ? 'unknown' : money(row.actualCostUsd) },
 				{ key: 'latency', label: 'Latency', render: (row) => text(row.latencyMs) },
 				{ key: 'source', label: 'Usage source', render: (row) => text(row.usageSource, 'unknown') },
+				{ key: 'tokenStatus', label: 'Token status', render: (row) => text(row.tokenStatus, 'unknown') },
+				{ key: 'costStatus', label: 'Cost status', render: (row) => text(row.costStatus, 'unknown') },
 			]} />
 		</PanelShell>
 	);

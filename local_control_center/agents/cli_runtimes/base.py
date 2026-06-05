@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
-import subprocess
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
@@ -87,19 +86,10 @@ class CliRuntime(ABC):
         return which(self.executable)
 
     def _version(self, executable: str) -> str | None:
-        try:
-            result = subprocess.run(
-                [executable, "--version"],
-                check=False,
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-        except (OSError, subprocess.SubprocessError):
+        result = subprocess_sandbox.run_version_check(argv=[executable, "--version"], timeout_seconds=5)
+        if result.get("returnCode") != 0:
             return None
-        if result.returncode != 0:
-            return None
-        output = (result.stdout or result.stderr).strip()
+        output = str(result.get("stdout") or result.get("stderr") or "").strip()
         if not output:
             return None
         return output.splitlines()[0][:200]

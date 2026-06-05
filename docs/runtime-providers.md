@@ -4,6 +4,27 @@
 frontend. UI surfaces must render these fields directly instead of inferring
 availability from provider names or optimistic defaults.
 
+`GET /api/v1/runtime/provider-configuration` is the safe configuration read
+model for runtime/model providers. It reads only process environment variables,
+does not write SQLite rows, and returns configured/missing state plus
+non-reversible fingerprints for configured values. It never returns raw API
+keys, endpoint values, model names, or command values.
+
+Required environment variables:
+
+- OpenAI-compatible: `AIDO_OPENAI_COMPATIBLE_BASE_URL`,
+  `AIDO_OPENAI_COMPATIBLE_API_KEY`, `AIDO_OPENAI_COMPATIBLE_MODEL`.
+- OpenRouter: `AIDO_OPENROUTER_API_KEY`, `AIDO_OPENROUTER_MODEL`.
+- NVIDIA NIM / Build: `AIDO_NVIDIA_API_KEY`, `AIDO_NVIDIA_BASE_URL`,
+  `AIDO_NVIDIA_MODEL`.
+- Ollama: `AIDO_OLLAMA_BASE_URL`.
+- CLI runtimes: `AIDO_CODEX_COMMAND`, `AIDO_CLAUDE_COMMAND`.
+
+Legacy env refs such as `NVIDIA_NIM_API_KEY`, `OPENROUTER_API_KEY`,
+`CODEX_CLI_PATH`, and `CLAUDE_CODE_CLI_PATH` remain compatibility inputs for
+existing persisted provider accounts, but new runtime configuration should use
+the `AIDO_*` names above.
+
 ## Provider State
 
 Each provider record exposes:
@@ -33,6 +54,31 @@ seed are not sufficient for selection: non-manual providers must be enabled,
 healthy, and have a recorded health check timestamp before productive routing.
 The legacy manual provider is optional human state, not automated availability.
 
+`developerAgent` is a derived readiness record in the same response. It is not
+persisted on `agent_profiles`; it is computed from configured provider status,
+capabilities, health, and workspace/evidence requirements. CLI runtimes require
+`code_edit`. Ollama/OpenAI-compatible require real model execution plus
+structured patch application before they can produce workspace changes.
+
+## Adapter Execution Truth
+
+Runtime execution is a port-and-adapter contract, not a product demo path.
+`RuntimeAdapterRegistry` returns `unavailable` when no real adapter is
+registered. Registered adapters must report:
+
+- `configuration_required` when required env, credential, model, endpoint, CLI
+  command, or workspace configuration is missing.
+- `unavailable` when a configured real provider or executable cannot pass its
+  health/version check.
+- `blocked` when policy, argv shape, cwd containment, capability, or approval
+  constraints reject execution.
+- `timed_out`, `failed`, or `completed` only after a real attempted execution.
+
+No runtime adapter may expose mock, fake, dummy, placeholder, sample, demo, or
+hardcoded success behavior in product code. Test doubles belong only in unit
+tests and must not be registered in provider status, workflow execution, model
+gateway, runtime registry, evidence, jobs, API, UI, or adapters.
+
 ## Built-In Providers
 
 - `manual`: operator/manual path, useful for approval and human state, not an
@@ -51,6 +97,18 @@ The legacy manual provider is optional human state, not automated availability.
 capability. The runner allocates a Git worktree workspace, executes through
 policy/sandbox, captures diff/log/test artifacts, and links evidence to
 workflow, job, agent run, workspace, runtime, artifact IDs, and diff summary.
+
+## DeveloperAgent
+
+DeveloperAgent selects executable runtimes in this order: Codex CLI, Claude CLI,
+OpenAI-compatible, then Ollama. If a preferred runtime is supplied, it must be
+catalogued and executable for DeveloperAgent specifically. Generic provider
+availability is not enough.
+
+If no runtime is configured, DeveloperAgent returns `runtime_unavailable` with a
+technical reason and does not execute. If a model runtime returns chat text
+without valid structured patch files, the run is blocked or failed; it cannot
+complete from text output alone.
 
 The runtime state must be visible in Command Center, Agents, Model Gateway,
 Workflows, Evidence, and Runtime Providers views. An unavailable runtime can

@@ -6,10 +6,10 @@ import sqlite3
 import uuid
 from typing import Any
 
-from local_control_center.agents.model_gateway import redact_secrets
 from local_control_center.agents.usage_ledger import UsageLedger
 from local_control_center.evidence.artifacts import write_text_artifact
 from local_control_center.evidence.repository import EvidenceRepository
+from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.serialization import json_dumps
 from local_control_center.shared.time import utc_now
 

@@ -20,7 +20,7 @@ from local_control_center.agents.cli_runtimes.swe_agent import SweAgentRuntime
 from local_control_center.agents.cli_sessions import CliSessionStore
 from local_control_center.agents.credential_preflight import run_credential_preflight
 from local_control_center.agents.credentials import CredentialResolver
-from local_control_center.agents.model_gateway import ModelGateway, redact_secrets
+from local_control_center.agents.model_gateway import ModelGateway
 from local_control_center.agents.model_benchmarks import ModelBenchmarkStore
 from local_control_center.agents.provider_accounts import ProviderAccountStore
 from local_control_center.agents.providers.base import ModelInfo, ProviderHealth
@@ -31,6 +31,7 @@ from local_control_center.agents.quota_manager import QuotaManager
 from local_control_center.agents.usage_ledger import UsageLedger
 from local_control_center.shared.db import open_sqlite_connection
 from local_control_center.shared.migrations import initialize_platform_schema
+from local_control_center.shared.redaction import redact_secrets
 from tests_py.control_plane_fixture import ControlPlaneFixture
 
 

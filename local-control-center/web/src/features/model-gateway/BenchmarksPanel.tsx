@@ -1,4 +1,9 @@
-import type { Dictionary } from '../../api/types';
+import type {
+	ModelGatewayBenchmark,
+	ModelGatewayBenchmarkOutcome,
+	ModelGatewayModel,
+	ModelGatewayProviderAccount,
+} from '../../api/types';
 import { DataTable, EmptyState } from '../../components/primitives';
 import { PanelShell } from './PanelShell';
 import { boolLabel, EXECUTABLE_AGENT_ROLES, money, text } from './utils';
@@ -28,10 +33,10 @@ export function BenchmarksPanel({
 	onProviderChange,
 	onSubmit,
 }: {
-	benchmarks: Dictionary[];
-	benchmarkOutcomes: Dictionary[];
-	providers: Dictionary[];
-	models: Dictionary[];
+	benchmarks: ModelGatewayBenchmark[];
+	benchmarkOutcomes: ModelGatewayBenchmarkOutcome[];
+	providers: ModelGatewayProviderAccount[];
+	models: ModelGatewayModel[];
 	form: BenchmarkForm;
 	modelOptions: string[];
 	busyAction: string;

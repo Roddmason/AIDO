@@ -8,7 +8,8 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from local_control_center.evidence.artifacts import write_text_artifact
+from local_control_center.evidence.artifacts import artifact_hashes, artifact_records_from_ids, artifact_ref, write_text_artifact
+from local_control_center.evidence.quality import evidence_package_contract_errors
 from local_control_center.evidence.repository import EvidenceRepository
 from local_control_center.jobs_approvals.repository import JobsRepository
 from local_control_center.security_policy.repository import SecurityPolicyRepository
@@ -561,10 +562,10 @@ class DeveloperAgentRunner:
             repo=self.evidence,
         )
         diff_summary = _diff_summary(diff)
-        artifact_refs: list[dict[str, Any]] = []
+        artifact_records = artifact_records_from_ids(self.evidence, qa_artifact_ids)
         if patch_artifact:
             diff_summary["patchArtifactId"] = patch_artifact["id"]
-            artifact_refs.append({"id": patch_artifact["id"], "kind": patch_artifact["kind"], "hash": patch_artifact["hash"]})
+            artifact_records.append(patch_artifact)
         related_agent_run_ids = {agent_run["id"]}
         if qa_agent_run:
             related_agent_run_ids.add(str(qa_agent_run["id"]))
@@ -605,19 +606,53 @@ class DeveloperAgentRunner:
                 "qaAgentRunId": (qa_agent_run or {}).get("id"),
                 "qaResults": qa_results,
                 "diffSummary": diff_summary,
-                "artifacts": artifact_refs,
+                "artifacts": [artifact_ref(artifact) for artifact in artifact_records],
             },
         )
         diff_summary["manifestArtifactId"] = manifest_artifact["id"]
-        artifact_refs.append(
-            {"id": manifest_artifact["id"], "kind": manifest_artifact["kind"], "hash": manifest_artifact["hash"]}
-        )
+        artifact_records.append(manifest_artifact)
+        artifact_refs = [artifact_ref(artifact) for artifact in artifact_records]
+        model_call = runtime_result.get("modelCall") if isinstance(runtime_result.get("modelCall"), dict) else None
+        approvals = self.jobs.list_action_requests(job["id"])
         evidence = self.evidence.update_evidence_links(
             evidence["id"],
             agent_run_id=agent_run["id"],
             artifact_ids=[*qa_artifact_ids, *[str(artifact["id"]) for artifact in artifact_refs]],
             diff_summary=diff_summary,
+            runtime_health={
+                "id": runtime.get("id"),
+                "status": runtime_result.get("status"),
+                "available": bool(runtime.get("available", runtime.get("executable", False))),
+                "executable": bool(runtime.get("executable", False)),
+                "reason": runtime_result.get("reason") or runtime.get("reason"),
+            },
+            model_calls=[model_call] if model_call else [],
+            tool_calls=tool_calls,
+            policy_decisions=policy_decisions,
+            approvals=approvals,
+            artifacts=artifact_refs,
+            hashes=artifact_hashes(artifact_records),
         )
+        contract_errors = evidence_package_contract_errors(
+            evidence,
+            require_runtime_links=final_status == "completed",
+            require_workflow_run=bool(evidence.get("workflowRunId")),
+        )
+        if final_status == "completed" and contract_errors:
+            final_status = "evidence_ready"
+            qa_verdict = "blocked"
+            final_reason = "Evidence package contract is incomplete or unverifiable: " + " ".join(contract_errors)
+            evidence = self.evidence.update_evidence_links(
+                evidence["id"],
+                qa_verdict=qa_verdict,
+                risk_notes=[
+                    {
+                        "severity": "high",
+                        "description": final_reason,
+                        "mitigation": "Regenerate the evidence package with runtime, artifact refs, and SHA-256 hashes before completion.",
+                    }
+                ],
+            )
 
         agent_run_status = {
             "completed": "completed",

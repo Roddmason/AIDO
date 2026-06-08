@@ -9,7 +9,9 @@ Agents are modeled as contracts, not personalities.
 - `agent_runs`: structured run input/output.
 - `agent_tool_calls`: tool-call trace records.
 - `model_calls`: model-call trace records.
-- `cost_usage`: local cost ledger.
+- `usage_ledger`: canonical model/runtime usage ledger.
+- `cost_usage`: temporary compatibility read-model for older dashboards; new
+  code must not write business logic against it.
 - `agents/tool_broker.py`: policy-gated tool-call broker for runtime adapters.
 - `skills` and `skill_versions`: versionable skill registry loaded from local
   `SKILL.md` files.
@@ -185,6 +187,102 @@ captures, and artifact hashes. A `passed` text claim is ignored; `completed`
 workflow states require executable QA evidence with tool-call IDs and artifact
 hashes.
 
+## DevOpsAgent
+
+DevOpsAgent is the local operations validation agent. It validates configuration
+files and executes only low-risk local validation commands through the broker.
+It does not require Docker and it does not execute scripts directly.
+
+Its contract requires:
+
+- input: `projectId`, `workspaceId`, `taskId`, optional `buildScripts`,
+  `dockerHealthcheck`, and metadata;
+- output: `status`, `verdict`, command results, versions, config findings,
+  scanned files, Docker status, config artifact, workspace, job, agent run, and
+  evidence package;
+- tools: `shell` only;
+- runtime capability: deterministic config checks and brokered command
+  execution;
+- allocated workspace and linked evidence.
+
+The runner scans PowerShell scripts, Docker files, `package.json`, lockfiles,
+and `pyproject.toml` with SHA-256 hashes. It detects deprecated npm/script
+patterns, host networking, remote shell piping, invalid package/TOML files,
+missing package manager metadata, and local-first violations such as `0.0.0.0`
+binds. Product-wide simulation-token enforcement belongs to the local quality
+scanner, not to DevOpsAgent runtime execution.
+
+Build scripts are executed only when present in `package.json`, using
+structured argv and `operation=devops_agent_command` through `ToolBroker`.
+Missing requested build scripts are recorded as `skipped_with_reason` with a
+technical reason. Optional Docker health uses the active sandbox profile and is
+skipped when Docker is unavailable or not allowed; startup remains healthy
+without Docker.
+
+## SecurityAgent
+
+SecurityAgent is the deterministic security review agent. It does not depend on
+LLM text for approval and it does not execute commands directly.
+
+Its contract requires:
+
+- input: `projectId`, `workspaceId`, `taskId`, optional `diffArtifactId`,
+  structured `commandCandidates`, `pathsToCheck`, `runModelAnalysis`,
+  `preferredRuntime`, `approvalGrantId`, and model metadata;
+- output: `status`, `verdict`, findings, scanned files, dependency files,
+  findings artifact, workspace, job, agent run, and evidence package;
+- tools: `openai_compatible` and `ollama` only for optional analysis;
+- runtime capability: deterministic local security checks;
+- allocated workspace and linked evidence.
+
+The runner scans the allocated workspace and optional diff artifact for
+secret-like tokens, records SHA-256 hashes for scanned files, validates
+dependency files such as `package.json`, checks explicit path candidates for
+traversal outside the workspace, detects dangerous command flags, and includes
+recorded policy violations in the findings payload.
+
+Verdict calculation is deterministic: critical secret, traversal, dangerous
+Docker, or denied policy findings return `blocked`; non-critical findings
+return `risk`; only a clean scan returns `passed`. Findings are written to a
+JSON artifact and attached to the evidence package. Optional model analysis is
+brokered through `operation=security_agent_model_call` and can only add
+secondary context; it cannot replace checks or change the verdict.
+
+## ArchitectAgent
+
+ArchitectAgent is the architecture review agent. It reviews supplied diffs,
+workflow context, relevant docs, test results, and the existing risk register
+through a configured real model runtime. It does not approve by default and it
+does not call providers directly.
+
+Its contract requires:
+
+- input: `projectId`, `workspaceId`, `taskId`, `diffArtifactId`,
+  `workflowContext`, optional `relevantDocs`, `testResults`, `riskRegister`,
+  `evidenceRefs`, `preferredRuntime`, `approvalGrantId`, and model metadata;
+- output: `status`, `runtimeResult`, validated review `output`, workspace,
+  job, agent run, evidence package, optional architecture decision, and risk
+  entries;
+- tools: `openai_compatible` and `ollama` only;
+- runtime capability: model `chat`;
+- allocated workspace and linked evidence.
+
+The runner submits `operation=architect_agent_model_call` through `ToolBroker`
+using a `plan` profile. Policy permits only the `architect_agent` profile with
+a registered workspace, agent run audit id, and matching `runtimeId`/tool in
+`openai_compatible` or `ollama`. Missing runtime configuration, missing health,
+missing model, disabled real-provider calls, or provider errors return
+`runtime_unavailable`, `configuration_required`, or `failed` with a technical
+reason.
+
+Model output must be valid JSON with `verdict`, `architectureFindings`,
+`risks`, `requiredChanges`, `approvalRecommendation`, and `evidenceRefs`.
+Every finding, risk, required change, and recommendation must cite refs that
+were provided in the input, including the diff artifact or test evidence. ADR
+and risk records are persisted only after that validation succeeds; invalid
+JSON or ungrounded evidence refs produce `failed_validation` and leave
+governance records unchanged.
+
 Each optional code runtime now exposes a versioned execution contract. Contract
 version 1 supports `version_check` and `issue_to_patch`, requires structured
 `argv`, requires a workspace path, and requires `issueText` for issue-to-patch
@@ -243,3 +341,15 @@ agent run input -> tool broker -> allowedTools -> policy decision -> approval/gr
 ```
 
 This is intentionally stricter than "runtime is installed, therefore execute".
+
+## Real Capability Table
+
+| Capability | Real state | Endpoint/UI | Tests | Limitations |
+| --- | --- | --- | --- | --- |
+| Agent profile/run storage | Implemented with agent profiles, runs, tool calls, model calls, usage ledger, and skills. | `/api/v1/agent-profiles`, `/api/v1/agent-runs`, Agents UI. | Agent repository/API tests and OpenAPI generation tests. | Profile data does not imply execution readiness; runtime status controls execution. |
+| DeveloperAgent | Implemented as a real implementation runner for executable CLI/model runtimes plus workspace patch application. | `/api/v1/agents/developer/status`, `/api/v1/agents/developer/runs`. | `tests_py/test_developer_agent_real_runtime.py`. | Model text alone is not completion; valid structured patch files and QA/evidence are required. |
+| QAAgent | Implemented as brokered command verification with verdicts from real exit codes and artifacts. | `/api/v1/agents/qa/runs`, Evidence & QA UI. | QA/evidence tests and issue-to-patch runtime tests. | Missing or non-allowlisted commands are skipped/blocked/failed with reason, not passed. |
+| DevOpsAgent | Implemented for deterministic config scans and low-risk brokered validation commands. | `/api/v1/agents/devops/status`, `/api/v1/agents/devops/runs`. | DevOps agent and policy tests. | It does not own no-mock product enforcement; `scripts/productive-truth-scan.py` does. |
+| SecurityAgent | Implemented deterministic local security review with optional secondary model analysis. | `/api/v1/agents/security/status`, `/api/v1/agents/security/runs`. | Security agent tests. | Optional model output cannot override deterministic findings or verdict. |
+| ArchitectAgent | Implemented for model-backed architecture review with schema and evidence-ref validation. | `/api/v1/agents/architect/status`, `/api/v1/agents/architect/runs`. | `tests_py/test_architect_agent_real_runtime.py`. | Requires configured executable model runtime; no runtime means no approval. |
+| Runtime adapters | Implemented for restricted subprocess, CLI version checks, Ollama, OpenAI-compatible calls, workspace patch, MCP/OpenHands/SWE-agent adapter boundaries. | Runtime providers API, agent run APIs. | Runtime adapter contract tests and architecture guardrails. | Optional external adapters require real installed binaries or configured endpoints and remain behind policy/evidence. |

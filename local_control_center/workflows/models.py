@@ -19,6 +19,28 @@ WorkflowKind = Literal[
     "release_candidate",
     "pr_release_retro",
 ]
+WorkflowStatus = Literal[
+    "queued",
+    "running",
+    "paused",
+    "completed",
+    "failed",
+    "cancelled",
+    "runtime_unavailable",
+    "qa_failed",
+    "evidence_ready",
+]
+WorkflowRunStatus = Literal[
+    "running",
+    "completed",
+    "failed",
+    "cancelled",
+    "runtime_unavailable",
+    "qa_failed",
+    "evidence_ready",
+]
+WorkflowStepStatus = Literal["pending", "ready", "running", "completed", "failed", "blocked", "skipped"]
+WorkflowRiskLevel = Literal["low", "medium", "high", "critical"]
 
 
 class WorkflowCreateRequest(BaseModel):
@@ -41,9 +63,9 @@ class WorkflowGateAdvanceRequest(BaseModel):
 class WorkflowRecord(BaseModel):
     id: str
     project_id: str = Field(alias="projectId")
-    kind: str
+    kind: WorkflowKind
     title: str
-    status: str
+    status: WorkflowStatus
     metadata: dict[str, Any]
     created_at: str = Field(alias="createdAt")
     updated_at: str = Field(alias="updatedAt")
@@ -53,7 +75,7 @@ class WorkflowRunRecord(BaseModel):
     id: str
     workflow_id: str = Field(alias="workflowId")
     project_id: str = Field(alias="projectId")
-    status: str
+    status: WorkflowRunStatus
     started_at: str = Field(alias="startedAt")
     completed_at: str | None = Field(default=None, alias="completedAt")
     metadata: dict[str, Any]
@@ -65,11 +87,11 @@ class WorkflowStepRecord(BaseModel):
     workflow_id: str = Field(alias="workflowId")
     project_id: str = Field(alias="projectId")
     name: str
-    status: str
+    status: WorkflowStepStatus
     agent_profile_id: str | None = Field(default=None, alias="agentProfileId")
     role: str | None = None
     task_type: str | None = Field(default=None, alias="taskType")
-    risk_level: str | None = Field(default=None, alias="riskLevel")
+    risk_level: WorkflowRiskLevel | None = Field(default=None, alias="riskLevel")
     model_mode: str | None = Field(default=None, alias="modelMode")
     manual_model_override: str | None = Field(default=None, alias="manualModelOverride")
     input: dict[str, Any]
@@ -89,10 +111,20 @@ class WorkflowsListResponse(BaseModel):
     workflow_steps: list[WorkflowStepRecord] = Field(alias="workflowSteps")
 
 
+class WorkflowRunDetail(BaseModel):
+    workflow_run: WorkflowRunRecord = Field(alias="workflowRun")
+    workflow_steps: list[WorkflowStepRecord] = Field(alias="workflowSteps")
+    workspaces: list[WorkspaceRecord]
+    evidence_packages: list[EvidencePackageRecord] = Field(alias="evidencePackages")
+    jobs: list[JobRecord]
+    agent_runs: list[AgentRunRecord] = Field(alias="agentRuns")
+
+
 class WorkflowDetailResponse(BaseModel):
     workflow: WorkflowRecord
     workflow_runs: list[WorkflowRunRecord] = Field(alias="workflowRuns")
     workflow_steps: list[WorkflowStepRecord] = Field(alias="workflowSteps")
+    workflow_run_details: list[WorkflowRunDetail] = Field(default_factory=list, alias="workflowRunDetails")
     workspaces: list[WorkspaceRecord]
     evidence_packages: list[EvidencePackageRecord] = Field(alias="evidencePackages")
     jobs: list[JobRecord]

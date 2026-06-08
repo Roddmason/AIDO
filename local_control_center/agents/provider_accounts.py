@@ -5,7 +5,7 @@ import uuid
 from typing import Any
 
 from local_control_center.agents.credentials import CredentialResolver
-from local_control_center.agents.model_gateway import redact_secrets
+from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.serialization import json_dumps, json_loads
 from local_control_center.shared.time import utc_now
 

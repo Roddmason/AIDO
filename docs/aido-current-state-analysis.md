@@ -103,8 +103,9 @@ Final verification after this hardening iteration:
 - Runtime adapters are optional and detection based.
 - Real CLI execution is fail-closed unless `AIDO_ENABLE_CLI_RUNTIMES=true`.
 - Dangerous flags are blocked, including bypass/yolo/full-access variants.
-- This iteration persists mock and real runtime attempts in `cli_sessions` with
-  redacted command/env policy and linked `usage_ledger` rows.
+- This iteration persists CLI runtime attempts in `cli_sessions` with redacted
+  command/env policy and linked `usage_ledger` rows. Runtime execution remains
+  fail-closed when no executable runtime is available.
 
 ## Workspaces State
 

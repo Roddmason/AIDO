@@ -1,8 +1,14 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+
+RiskLevel = Literal["low", "medium", "high", "critical"]
+PermissionDecision = Literal["allow", "deny", "requires_approval", "requires_human"]
+ApprovalGrantStatus = Literal["active", "consumed", "expired", "revoked"]
+SandboxProfileStatus = Literal["active", "disabled", "revoked"]
 
 
 class RequiredReasonRequest(BaseModel):
@@ -22,7 +28,7 @@ class PolicyEvaluateRequest(BaseModel):
     path: str | None = None
     environment: str | None = None
     permission_profile: str | None = Field(default=None, alias="permissionProfile")
-    risk_level: str | None = Field(default=None, alias="riskLevel")
+    risk_level: RiskLevel | None = Field(default=None, alias="riskLevel")
     network_required: bool | None = Field(default=None, alias="networkRequired")
     secrets_required: bool | None = Field(default=None, alias="secretsRequired")
     git_operation: str | None = Field(default=None, alias="gitOperation")
@@ -64,14 +70,14 @@ class PermissionDecisionRecord(BaseModel):
     tool: str | None = None
     command: str | None = None
     path: str | None = None
-    decision: str
-    risk_level: str = Field(alias="riskLevel")
+    decision: PermissionDecision
+    risk_level: RiskLevel = Field(alias="riskLevel")
     reason: str
     payload: dict[str, Any]
     created_at: str = Field(alias="createdAt")
 
 
-class PermissionGrantRecord(BaseModel):
+class ApprovalGrantRecord(BaseModel):
     id: str
     project_id: str | None = Field(default=None, alias="projectId")
     job_id: str | None = Field(default=None, alias="jobId")
@@ -80,9 +86,13 @@ class PermissionGrantRecord(BaseModel):
     agent_id: str | None = Field(default=None, alias="agentId")
     tool: str | None = None
     command: str | None = None
+    command_argv: list[str] = Field(default_factory=list, alias="commandArgv")
+    workspace_id: str | None = Field(default=None, alias="workspaceId")
+    runtime_id: str | None = Field(default=None, alias="runtimeId")
     path: str | None = None
-    status: str
+    status: ApprovalGrantStatus
     reason: str
+    expires_at: str | None = Field(default=None, alias="expiresAt")
     granted_by: str | None = Field(default=None, alias="grantedBy")
     granted_at: str | None = Field(default=None, alias="grantedAt")
     consumed_at: str | None = Field(default=None, alias="consumedAt")
@@ -91,6 +101,9 @@ class PermissionGrantRecord(BaseModel):
     revoked_by: str | None = Field(default=None, alias="revokedBy")
     revoke_reason: str | None = Field(default=None, alias="revokeReason")
     payload: dict[str, Any]
+
+
+PermissionGrantRecord = ApprovalGrantRecord
 
 
 class SandboxProfileRecord(BaseModel):
@@ -102,7 +115,7 @@ class SandboxProfileRecord(BaseModel):
     memory: str
     cpus: str
     timeout_seconds: int = Field(alias="timeoutSeconds")
-    status: str
+    status: SandboxProfileStatus
     revoked_at: str | None = Field(default=None, alias="revokedAt")
     revoked_by: str | None = Field(default=None, alias="revokedBy")
     revoke_reason: str | None = Field(default=None, alias="revokeReason")
@@ -114,7 +127,7 @@ class PoliciesListResponse(BaseModel):
     policies: list[PolicyRecord]
     policy_revisions: list[PolicyRevisionRecord] = Field(alias="policyRevisions")
     permission_decisions: list[PermissionDecisionRecord] = Field(alias="permissionDecisions")
-    permission_grants: list[PermissionGrantRecord] = Field(alias="permissionGrants")
+    permission_grants: list[ApprovalGrantRecord] = Field(alias="permissionGrants")
     sandbox_profiles: list[SandboxProfileRecord] = Field(alias="sandboxProfiles")
 
 
@@ -127,7 +140,7 @@ class SandboxProfilePatchRequest(BaseModel):
     memory: str | None = None
     cpus: str | None = None
     timeout_seconds: int | None = Field(default=None, alias="timeoutSeconds")
-    status: str | None = None
+    status: SandboxProfileStatus | None = None
 
     @field_validator("status", "default_network", mode="before")
     @classmethod
@@ -143,7 +156,7 @@ class SandboxProfilePatchRequest(BaseModel):
 
 
 class PermissionGrantResponse(BaseModel):
-    permission_grant: PermissionGrantRecord = Field(alias="permissionGrant")
+    permission_grant: ApprovalGrantRecord = Field(alias="permissionGrant")
 
 
 class SandboxProfileResponse(BaseModel):

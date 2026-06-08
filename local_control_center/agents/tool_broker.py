@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+import shlex
 from pathlib import Path
 from typing import Any
 
@@ -10,9 +11,9 @@ from local_control_center.jobs_approvals.repository import JobsRepository
 from local_control_center.security_policy.policy_engine import evaluate_action
 from local_control_center.security_policy.repository import SecurityPolicyRepository
 from local_control_center.security_policy.sandbox import DockerSandbox, RestrictedSubprocessSandbox
+from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.telemetry import record_tool_call
 
-from .model_gateway import redact_secrets
 from .repository import AgentsRepository
 from .runtime_adapters import (
     RUNTIME_ADAPTER_TOOLS,
@@ -20,6 +21,19 @@ from .runtime_adapters import (
     RuntimeExecutionAdapter,
     WorkspacePatchBrokerAdapter,
 )
+
+
+def _structured_argv(tool_call: dict[str, Any], command: str) -> list[str]:
+    argv = tool_call.get("argv")
+    if isinstance(argv, list):
+        return [str(item) for item in argv]
+    command = command.strip()
+    if not command:
+        return []
+    try:
+        return [str(item) for item in shlex.split(command)]
+    except ValueError:
+        return [command]
 
 
 def default_runtime_adapters(
@@ -147,9 +161,11 @@ class ToolBroker:
         command = str(tool_call.get("command") or "")
         if not command and tool_name in RUNTIME_ADAPTER_TOOLS and isinstance(tool_call.get("argv"), list):
             command = " ".join(str(item) for item in tool_call["argv"])
+        command_argv = _structured_argv(tool_call, command)
         path = str(tool_call.get("path") or "") or None
         boundary_result, registered_workspace_path = self._execution_workspace_boundary(tool_call)
         workspace_path = registered_workspace_path or tool_call.get("workspacePath") or path
+        runtime_id = str(tool_call.get("runtimeId") or tool_call.get("sandbox") or "").strip() or None
         policy_input = {
             "projectId": project_id,
             "workspaceId": tool_call.get("workspaceId"),
@@ -165,7 +181,7 @@ class ToolBroker:
             "networkRequired": tool_call.get("networkRequired"),
             "secretsRequired": tool_call.get("secretsRequired"),
             "operation": tool_call.get("operation"),
-            "runtimeId": tool_call.get("runtimeId"),
+            "runtimeId": runtime_id,
             "workflowKind": tool_call.get("workflowKind"),
             "jobId": job_id or tool_call.get("jobId"),
             "agentRunId": agent_run_id,
@@ -192,6 +208,9 @@ class ToolBroker:
                 agent_id=agent_profile["id"],
                 tool=tool_name,
                 command=command,
+                command_argv=command_argv,
+                workspace_id=tool_call.get("workspaceId"),
+                runtime_id=runtime_id,
                 path=path,
                 agent_run_id=agent_run_id,
             )
@@ -238,12 +257,29 @@ class ToolBroker:
                     action_type="tool.call",
                     risk_level=decision["riskLevel"],
                     command=command or tool_name,
+                    command_argv=command_argv,
                     payload={
                         "agentRunId": agent_run_id,
                         "agentId": agent_profile["id"],
                         "tool": tool_name,
                         "path": path,
+                        "commandArgv": command_argv,
+                        "workspaceId": tool_call.get("workspaceId"),
                         "workspacePath": policy_input.get("workspacePath"),
+                        "workspace": {
+                            "id": tool_call.get("workspaceId"),
+                            "path": policy_input.get("workspacePath"),
+                        },
+                        "runtimeId": runtime_id,
+                        "runtime": {
+                            "id": runtime_id,
+                            "tool": tool_name,
+                            "sandbox": tool_call.get("sandbox"),
+                            "dockerImage": tool_call.get("dockerImage"),
+                            "execute": tool_call.get("execute") is True,
+                        },
+                        "evidenceRefs": tool_call.get("evidenceRefs") if isinstance(tool_call.get("evidenceRefs"), list) else [],
+                        "diffRefs": tool_call.get("diffRefs") if isinstance(tool_call.get("diffRefs"), list) else [],
                         "permissionDecisionId": decision["id"],
                         "categories": result.get("categories", []),
                     },

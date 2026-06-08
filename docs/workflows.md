@@ -117,3 +117,12 @@ Run:
 ```powershell
 uv run pytest tests_py/test_workflow_pr_release_retro_control.py tests_py/test_phase7_workspace_policy_traceability.py tests_py/test_phase8_governance.py -q
 ```
+
+## Real Capability Table
+
+| Capability | Real state | Endpoint/UI | Tests | Limitations |
+| --- | --- | --- | --- | --- |
+| Workflow CRUD/run control | Implemented for create/list/get/start/pause/resume/cancel and step advance. | `/api/v1/workflows`, `/api/v1/workflows/{id}`, Workflows UI. | Workflow control tests. | Workflows are local control-plane records; distributed durable execution is not part of the local MVP. |
+| `issue_to_patch` | Implemented as real fail-closed workflow execution. | `POST /api/v1/workflows/issue-to-patch`, Command Center. | `tests_py/test_aido_real_runtime_slice.py`, web Command Center tests. | Completion requires executable runtime, Git worktree, real diff, passed QA evidence, evidence package, and no pending approval. |
+| PR/release/retro gates | Implemented as auditable control gates. | Workflow step advance endpoint, Workflows UI. | `tests_py/test_workflow_pr_release_retro_control.py`. | These gates do not deploy or mutate protected branches. |
+| Workflow traceability | Implemented by joining workflow runs with workspaces, jobs, agent runs, evidence, tool calls, policy decisions, and approvals. | `GET /api/v1/workflows/{id}`, overview/workflow inspectors. | Traceability and frontend tests. | Traceability depends on linked records produced by actual executions; missing execution remains visible as blocked state. |

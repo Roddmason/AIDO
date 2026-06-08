@@ -1,9 +1,9 @@
-import type { Dictionary } from '../../api/types';
+import type { ModelGatewayBudgetRule } from '../../api/types';
 import { DataTable, EmptyState } from '../../components/primitives';
 import { PanelShell } from './PanelShell';
 import { boolLabel, money, text } from './utils';
 
-export function BudgetsPanel({ budgetRules }: { budgetRules: Dictionary[] }) {
+export function BudgetsPanel({ budgetRules }: { budgetRules: ModelGatewayBudgetRule[] }) {
 	return (
 		<PanelShell title="Budgets">
 			<DataTable rows={budgetRules} empty={<EmptyState title="No budget rules" body="Budget rules can be added for global, role, provider, project and workflow scopes." />} columns={[

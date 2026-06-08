@@ -11,9 +11,9 @@ from local_control_center.app import create_app
 from local_control_center.agents_runtime import GatedAgentsPlanner
 from local_control_center.control_plane.runtime import ControlCenterRuntime
 from local_control_center.jobs_approvals.repository import JobsRepository
+from local_control_center.memory_retrieval.index import RetrievalIndex
 from local_control_center.memory_retrieval.repository import MemoryRepository
 from local_control_center.projects.repository import ProjectsRepository
-from local_control_center.retrieval import RetrievalIndex
 from local_control_center.sandbox import WindowsSandbox
 from local_control_center.shared.db import open_sqlite_connection
 from local_control_center.shared.event_bus import EventBus

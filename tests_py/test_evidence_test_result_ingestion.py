@@ -201,6 +201,76 @@ def test_evidence_persists_runtime_links_and_redacts_logs_risks_and_test_metadat
     assert "[redacted]" in downloaded.text
 
 
+def test_evidence_package_contract_includes_required_operational_fields(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
+    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store.init()
+    project = store.create_project(name="Evidence Contract", path=tmp_path / "evidence-contract", template_id="other")
+    client = TestClient(create_app(runtime=store, static_dir=None))
+    headers = auth_headers(client)
+    large_log = "large log line\n" * 1200
+
+    response = client.post(
+        "/api/v1/evidence",
+        json={
+            "projectId": project["id"],
+            "workflowRunId": "workflow-run-contract",
+            "jobId": "job-contract",
+            "agentRunId": "agent-run-contract",
+            "workspaceId": "workspace-contract",
+            "runtimeId": "codex_cli",
+            "taskId": "story-evidence-contract",
+            "testPlan": "Verify evidence package contract",
+            "qaVerdict": "needs_human_review",
+            "testResults": [{"command": "uv run pytest tests_py -q", "status": "passed"}],
+            "logs": [{"name": "large-contract.log", "content": large_log}],
+            "runtimeHealth": {"status": "available", "checkedAt": "2026-06-05T00:00:00Z"},
+            "modelCalls": [],
+            "toolCalls": [{"id": "tool-call-contract", "status": "completed"}],
+            "policyDecisions": [{"id": "policy-contract", "decision": "allow"}],
+            "approvals": [{"id": "approval-contract", "status": "approved"}],
+            "artifacts": [{"id": "artifact-contract", "kind": "test_report", "hash": "sha256-placeholder"}],
+            "hashes": {"diff.patch": "sha256-placeholder"},
+        },
+        headers=headers,
+    )
+
+    assert response.status_code == 201
+    evidence = response.json()["evidencePackage"]
+    for key in (
+        "workflowRunId",
+        "jobId",
+        "agentRunId",
+        "workspaceId",
+        "runtimeId",
+        "runtimeHealth",
+        "modelCalls",
+        "toolCalls",
+        "policyDecisions",
+        "approvals",
+        "qaVerdict",
+        "artifacts",
+        "diffSummary",
+        "hashes",
+        "createdAt",
+    ):
+        assert key in evidence
+    assert evidence["runtimeHealth"]["status"] == "available"
+    assert evidence["toolCalls"][0]["id"] == "tool-call-contract"
+    assert evidence["hashes"]["diff.patch"] == "sha256-placeholder"
+    assert "content" not in evidence["logs"][0]
+    assert evidence["logs"][0]["logArtifactId"].startswith("artifact-")
+
+    detail = client.get(f"/api/v1/evidence/{evidence['id']}")
+    assert detail.status_code == 200
+    artifacts = detail.json()["artifacts"]
+    log_artifact = next(item for item in artifacts if item["id"] == evidence["logs"][0]["logArtifactId"])
+    assert log_artifact["hash"] == evidence["logs"][0]["logHash"]
+
+
 def test_evidence_rejects_unsafe_junit_xml(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
     store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")

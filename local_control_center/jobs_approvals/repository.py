@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+import shlex
 import uuid
 from typing import Any, Iterable
 
@@ -43,7 +44,37 @@ def row_to_job_run(row: sqlite3.Row) -> dict[str, Any]:
     }
 
 
+ACTION_REQUEST_TTL_MS = 24 * 60 * 60 * 1000
+
+
+def _list_payload_value(payload: dict[str, Any], *keys: str) -> list[Any]:
+    for key in keys:
+        value = payload.get(key)
+        if isinstance(value, list):
+            return value
+    return []
+
+
+def _dict_payload_value(payload: dict[str, Any], *keys: str) -> dict[str, Any]:
+    for key in keys:
+        value = payload.get(key)
+        if isinstance(value, dict):
+            return value
+    return {}
+
+
+def _command_argv(command: str) -> list[str]:
+    command = command.strip()
+    if not command:
+        return []
+    try:
+        return [str(item) for item in shlex.split(command)]
+    except ValueError:
+        return [command]
+
+
 def row_to_action_request(row: sqlite3.Row) -> dict[str, Any]:
+    payload = json_loads(row["payload"])
     return {
         "id": row["id"],
         "jobId": row["job_id"],
@@ -52,9 +83,18 @@ def row_to_action_request(row: sqlite3.Row) -> dict[str, Any]:
         "status": row["status"],
         "riskLevel": row["risk_level"],
         "command": row["command"],
-        "payload": json_loads(row["payload"]),
+        "commandArgv": [str(item) for item in _list_payload_value(payload, "commandArgv", "argv")],
+        "workspaceId": payload.get("workspaceId"),
+        "workspacePath": payload.get("workspacePath"),
+        "workspace": _dict_payload_value(payload, "workspace"),
+        "runtimeId": payload.get("runtimeId"),
+        "runtime": _dict_payload_value(payload, "runtime"),
+        "evidenceRefs": [str(item) for item in _list_payload_value(payload, "evidenceRefs")],
+        "diffRefs": _list_payload_value(payload, "diffRefs"),
+        "payload": payload,
         "reason": row["reason"],
         "requestedAt": row["requested_at"],
+        "expiresAt": row["expires_at"] if "expires_at" in row.keys() else None,
         "decidedAt": row["decided_at"],
         "decidedBy": row["decided_by"],
     }
@@ -165,19 +205,33 @@ class JobsRepository:
         action_type: str,
         risk_level: str,
         command: str = "",
+        command_argv: list[str] | None = None,
         payload: dict[str, Any] | None = None,
         reason: str = "",
+        expires_at: str | None = None,
     ) -> dict[str, Any]:
         action_id = f"action-{uuid.uuid4()}"
         clean_command = str(redact_secrets(command or ""))
         clean_payload = redact_secrets(payload or {})
         clean_reason = str(redact_secrets(reason or ""))
+        if not clean_reason.strip():
+            raise ValueError("Action request reason is required.")
+        if command_argv is not None:
+            clean_payload["commandArgv"] = [str(item) for item in command_argv]
+        elif not isinstance(clean_payload.get("commandArgv"), list):
+            payload_argv = clean_payload.get("argv")
+            clean_payload["commandArgv"] = (
+                [str(item) for item in payload_argv]
+                if isinstance(payload_argv, list)
+                else _command_argv(clean_command)
+            )
+        expires_at = expires_at or add_millis(ACTION_REQUEST_TTL_MS)
         self.connection.execute(
             """
             INSERT INTO action_requests
                 (id, job_id, project_id, action_type, status, risk_level, command, payload,
-                 reason, requested_at, decided_at, decided_by)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)
+                 reason, requested_at, expires_at, decided_at, decided_by)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)
             """,
             (
                 action_id,
@@ -190,6 +244,7 @@ class JobsRepository:
                 json_dumps(clean_payload),
                 clean_reason,
                 utc_now(),
+                expires_at,
             ),
         )
         self.record_event(
@@ -250,6 +305,17 @@ class JobsRepository:
         action = self.get_action_request(action_id)
         if action["jobId"] != job_id:
             raise KeyError(f"Action {action_id} does not belong to job {job_id}")
+        if action["status"] != "pending":
+            raise ValueError(f"Action request is already {action['status']}.")
+        clean_reason = str(redact_secrets(reason or "")).strip()
+        if not clean_reason:
+            raise ValueError("Approval reason is required.")
+        if action.get("expiresAt") and action["expiresAt"] <= utc_now():
+            self.connection.execute(
+                "UPDATE action_requests SET status = 'expired', decided_at = ?, decided_by = ? WHERE id = ? AND status = 'pending'",
+                (utc_now(), "system", action_id),
+            )
+            raise ValueError("Action request is expired.")
         timestamp = utc_now()
         self.connection.execute(
             """
@@ -257,7 +323,7 @@ class JobsRepository:
             SET status = 'approved', reason = ?, decided_at = ?, decided_by = ?
             WHERE id = ?
             """,
-            (str(redact_secrets(reason or action["reason"])), timestamp, actor, action_id),
+            (clean_reason, timestamp, actor, action_id),
         )
         job = self.get_job(job_id)
         self.record_event(
@@ -271,11 +337,11 @@ class JobsRepository:
             action="action.approve",
             actor=actor,
             target=action_id,
-            payload=redact_secrets({"jobId": job_id, "reason": reason}),
+            payload=redact_secrets({"jobId": job_id, "reason": clean_reason}),
         )
         permission_grant = SecurityPolicyRepository(self.connection).create_grant_from_action_request(
             action_request=self.get_action_request(action_id),
-            reason=str(redact_secrets(reason or action["reason"])),
+            reason=clean_reason,
             granted_by=actor,
         )
         self.record_event(
@@ -308,6 +374,11 @@ class JobsRepository:
         action = self.get_action_request(action_id)
         if action["jobId"] != job_id:
             raise KeyError(f"Action {action_id} does not belong to job {job_id}")
+        if action["status"] != "pending":
+            raise ValueError(f"Action request is already {action['status']}.")
+        clean_reason = str(redact_secrets(reason or "")).strip()
+        if not clean_reason:
+            raise ValueError("Rejection reason is required.")
         timestamp = utc_now()
         self.connection.execute(
             """
@@ -315,7 +386,7 @@ class JobsRepository:
             SET status = 'denied', reason = ?, decided_at = ?, decided_by = ?
             WHERE id = ?
             """,
-            (str(redact_secrets(reason or action["reason"])), timestamp, actor, action_id),
+            (clean_reason, timestamp, actor, action_id),
         )
         self.connection.execute(
             "UPDATE jobs SET status = 'cancelled', lease_owner = NULL, lease_expires_at = NULL, updated_at = ? WHERE id = ?",
@@ -328,7 +399,7 @@ class JobsRepository:
             action="action.deny",
             actor=actor,
             target=action_id,
-            payload=redact_secrets({"jobId": job_id, "reason": reason}),
+            payload=redact_secrets({"jobId": job_id, "reason": clean_reason}),
         )
         return {"job": job, "actionRequest": self.get_action_request(action_id), "auditEvent": audit}
 

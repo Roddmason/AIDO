@@ -683,6 +683,27 @@ def test_issue_to_patch_real_runtime_completes_only_with_qa_evidence_and_no_revi
     assert body["qaResults"] and all(result["status"] == "passed" for result in body["qaResults"])
     assert body["evidencePackage"]["id"] in body["agentRun"]["output"]["evidence_refs"]
     assert body["diffSummary"]["patchArtifactId"].startswith("artifact-")
+    package = body["evidencePackage"]
+    assert package["workflowRunId"] == body["workflowRun"]["id"]
+    assert package["jobId"] == body["job"]["id"]
+    assert package["agentRunId"] == body["agentRun"]["id"]
+    assert package["workspaceId"] == body["workspace"]["id"]
+    assert package["runtimeId"] == body["runtime"]["id"]
+    assert package["runtimeHealth"]["id"] == body["runtime"]["id"]
+    assert package["toolCalls"]
+    assert package["policyDecisions"]
+    assert package["artifacts"]
+    assert package["hashes"]
+    artifact_names = {artifact.get("name") for artifact in package["artifacts"]}
+    assert {
+        "diff.patch",
+        "git-status.txt",
+        "git-status.json",
+        "qa-results.json",
+        "security-findings.json",
+        "issue-to-patch-evidence.json",
+    } <= artifact_names
+    assert all(artifact.get("hash") for artifact in package["artifacts"])
     overview = client.get("/api/v1/overview").json()
     qa_decisions = [decision for decision in overview["permissionDecisions"] if decision["agentId"] == "qa_agent"]
     assert any((decision["payload"] or {}).get("operation") == "qa_agent_command" for decision in qa_decisions)
@@ -748,6 +769,34 @@ def test_issue_to_patch_completed_is_forbidden_without_evidence() -> None:
     assert final_status != "completed"
     assert qa_verdict == "blocked"
     assert "Evidence package" in reason
+
+
+def test_issue_to_patch_completed_requires_valid_evidence_package_contract() -> None:
+    final_status, qa_verdict, reason = _complete_run_status(
+        runtime_status="completed",
+        require_approval=False,
+        qa_results=[
+            {
+                "status": "passed",
+                "exitCode": 0,
+                "execution": "restricted_subprocess",
+                "toolCallId": "agent-tool-call-1",
+                "artifactHashes": {
+                    "stdoutHash": "stdout-hash",
+                    "stderrHash": "stderr-hash",
+                    "outputArtifactHash": "output-hash",
+                },
+            }
+        ],
+        diff={"nameOnly": ["patched.txt"], "patchFull": "diff --git a/patched.txt b/patched.txt\n"},
+        evidence_created=True,
+        evidence_package_valid=False,
+    )
+
+    assert final_status != "completed"
+    assert qa_verdict == "blocked"
+    assert "Evidence package" in reason
+    assert "contract" in reason
 
 
 def test_issue_to_patch_does_not_execute_runtime_without_git_worktree_evidence(

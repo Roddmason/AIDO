@@ -4,10 +4,17 @@ import type {
 	AgentProfileUpsertRequest,
 	ArchitectureDecisionCreateRequest,
 	ArtifactRecord,
+	BudgetRuleRecord,
 	ChatRecord,
+	CliRuntimeRecord,
+	CliSessionRecord,
 	EventRecord as GeneratedEventRecord,
 	JobRecord,
 	McpServerRegisterRequest,
+	ModelBenchmarkOutcomeRecord,
+	ModelBenchmarkRecord,
+	ModelCatalogRecord,
+	ModelGatewayOverviewRecord,
 	ModelProviderRecord,
 	NextStepCreateRequest,
 	OverviewResponse,
@@ -17,14 +24,22 @@ import type {
 	ProjectRecord,
 	ProjectResponse,
 	ProjectTemplateRecord,
+	ProviderAccountRecord,
+	ProviderLimitRecord,
 	ProviderRecord,
 	RetrievalStatusResponse,
 	RiskCreateRequest,
 	RiskRecord as GeneratedRiskRecord,
+	RolePolicyRecord,
+	RoutingDecisionRecord,
+	RoutingProfileRecord,
+	RuntimeProviderConfigurationRecord,
 	RuntimeProviderStatus,
 	RuntimeProvidersResponse,
 	SessionRecord,
 	TeamRecord,
+	UsageLedgerRecord,
+	UsageSummaryRecord,
 	WorkflowCreateRequest,
 	WorkflowRecord,
 	WorkflowStepRecord,
@@ -53,7 +68,22 @@ export type PolicyRevision = PolicyRevisionRecord;
 export type Overview = OverviewResponse;
 export type RuntimeProviders = RuntimeProvidersResponse;
 export type RuntimeProvider = RuntimeProviderStatus;
+export type RuntimeProviderConfiguration = RuntimeProviderConfigurationRecord;
 export type RetrievalStatus = RetrievalStatusResponse;
+export type ModelGatewayOverview = ModelGatewayOverviewRecord;
+export type ModelGatewayProviderAccount = ProviderAccountRecord;
+export type ModelGatewayModel = ModelCatalogRecord;
+export type ModelGatewayRoutingProfile = RoutingProfileRecord;
+export type ModelGatewayRolePolicy = RolePolicyRecord;
+export type ModelGatewayUsage = UsageLedgerRecord;
+export type ModelGatewayUsageSummary = UsageSummaryRecord;
+export type ModelGatewayRoutingDecision = RoutingDecisionRecord;
+export type ModelGatewayProviderLimit = ProviderLimitRecord;
+export type ModelGatewayBudgetRule = BudgetRuleRecord;
+export type ModelGatewayCliRuntime = CliRuntimeRecord;
+export type ModelGatewayCliSession = CliSessionRecord;
+export type ModelGatewayBenchmark = ModelBenchmarkRecord;
+export type ModelGatewayBenchmarkOutcome = ModelBenchmarkOutcomeRecord;
 export type AgentRole = NonNullable<AgentProfileUpsertRequest['role']>;
 export type AgentRuntimeMode = NonNullable<AgentProfileUpsertRequest['runtimeMode']>;
 export type PermissionProfile = NonNullable<AgentProfileUpsertRequest['permissionProfile']>;

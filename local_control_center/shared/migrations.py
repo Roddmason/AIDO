@@ -246,6 +246,7 @@ def init_base_schema(connection: sqlite3.Connection) -> None:
             payload TEXT NOT NULL,
             reason TEXT NOT NULL,
             requested_at TEXT NOT NULL,
+            expires_at TEXT NOT NULL DEFAULT '',
             decided_at TEXT,
             decided_by TEXT
         );
@@ -393,6 +394,13 @@ def init_phase2_schema(connection: sqlite3.Connection) -> None:
             risk_notes TEXT NOT NULL,
             artifact_ids TEXT NOT NULL DEFAULT '[]',
             diff_summary TEXT NOT NULL DEFAULT '{}',
+            runtime_health TEXT NOT NULL DEFAULT '{}',
+            model_calls TEXT NOT NULL DEFAULT '[]',
+            tool_calls TEXT NOT NULL DEFAULT '[]',
+            policy_decisions TEXT NOT NULL DEFAULT '[]',
+            approvals TEXT NOT NULL DEFAULT '[]',
+            artifact_refs TEXT NOT NULL DEFAULT '[]',
+            hashes TEXT NOT NULL DEFAULT '{}',
             qa_verdict TEXT NOT NULL,
             created_at TEXT NOT NULL
         );
@@ -635,6 +643,19 @@ def init_phase3_schema(connection: sqlite3.Connection) -> None:
     _add_column_if_missing(connection, "evidence_packages", "runtime_id", "runtime_id TEXT")
     _add_column_if_missing(connection, "evidence_packages", "artifact_ids", "artifact_ids TEXT NOT NULL DEFAULT '[]'")
     _add_column_if_missing(connection, "evidence_packages", "diff_summary", "diff_summary TEXT NOT NULL DEFAULT '{}'")
+    _add_column_if_missing(connection, "evidence_packages", "runtime_health", "runtime_health TEXT NOT NULL DEFAULT '{}'")
+    _add_column_if_missing(connection, "evidence_packages", "model_calls", "model_calls TEXT NOT NULL DEFAULT '[]'")
+    _add_column_if_missing(connection, "evidence_packages", "tool_calls", "tool_calls TEXT NOT NULL DEFAULT '[]'")
+    _add_column_if_missing(
+        connection,
+        "evidence_packages",
+        "policy_decisions",
+        "policy_decisions TEXT NOT NULL DEFAULT '[]'",
+    )
+    _add_column_if_missing(connection, "evidence_packages", "approvals", "approvals TEXT NOT NULL DEFAULT '[]'")
+    _add_column_if_missing(connection, "evidence_packages", "artifact_refs", "artifact_refs TEXT NOT NULL DEFAULT '[]'")
+    _add_column_if_missing(connection, "evidence_packages", "hashes", "hashes TEXT NOT NULL DEFAULT '{}'")
+    _add_column_if_missing(connection, "action_requests", "expires_at", "expires_at TEXT NOT NULL DEFAULT ''")
     _add_column_if_missing(connection, "test_results", "status", "status TEXT NOT NULL DEFAULT 'unknown'")
     connection.executescript(
         """
@@ -836,6 +857,10 @@ def init_phase8_schema(connection: sqlite3.Connection) -> None:
             tool TEXT NOT NULL,
             command TEXT NOT NULL,
             path TEXT,
+            command_argv TEXT NOT NULL DEFAULT '[]',
+            workspace_id TEXT,
+            runtime_id TEXT,
+            expires_at TEXT NOT NULL DEFAULT '',
             status TEXT NOT NULL,
             reason TEXT NOT NULL,
             granted_by TEXT NOT NULL,
@@ -905,6 +930,11 @@ def init_phase9_schema(connection: sqlite3.Connection) -> None:
 
 
 def init_phase10_schema(connection: sqlite3.Connection) -> None:
+    _add_column_if_missing(connection, "action_requests", "expires_at", "expires_at TEXT NOT NULL DEFAULT ''")
+    _add_column_if_missing(connection, "permission_grants", "command_argv", "command_argv TEXT NOT NULL DEFAULT '[]'")
+    _add_column_if_missing(connection, "permission_grants", "workspace_id", "workspace_id TEXT")
+    _add_column_if_missing(connection, "permission_grants", "runtime_id", "runtime_id TEXT")
+    _add_column_if_missing(connection, "permission_grants", "expires_at", "expires_at TEXT NOT NULL DEFAULT ''")
     grant_columns = {row["name"] for row in connection.execute("PRAGMA table_info(permission_grants)").fetchall()}
     if "revoked_at" not in grant_columns:
         connection.execute("ALTER TABLE permission_grants ADD COLUMN revoked_at TEXT")

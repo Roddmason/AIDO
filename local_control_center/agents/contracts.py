@@ -14,6 +14,7 @@ AgentRole = Literal[
     "backend_engineer",
     "frontend_engineer",
     "implementer",
+    "devops",
     "qa",
     "qa_reviewer",
     "security_reviewer",
@@ -22,6 +23,37 @@ AgentRole = Literal[
 PermissionProfile = Literal["plan", "dev_safe", "qa", "release"]
 RuntimeMode = Literal["api", "cli", "ollama", "hybrid", "manual"]
 PolicyStatus = Literal["active", "disabled"]
+RuntimeProviderKind = Literal["api", "gateway", "local", "cli", "manual"]
+RuntimeProviderNetworkPolicy = Literal[
+    "blocked_by_default",
+    "runtime_policy_gated",
+    "remote_calls_disabled_by_default",
+    "local_only",
+]
+AgentRunStatus = Literal[
+    "queued",
+    "running",
+    "completed",
+    "failed",
+    "blocked",
+    "runtime_unavailable",
+    "qa_failed",
+    "evidence_ready",
+    "approval_required",
+    "awaiting_permission",
+    "cancelled",
+]
+AgentToolCallStatus = Literal[
+    "pending",
+    "allowed",
+    "denied",
+    "requires_approval",
+    "approval_required",
+    "completed",
+    "failed",
+    "blocked",
+]
+ModelCallStatus = Literal["planned", "completed", "failed", "blocked", "unavailable"]
 
 
 class ModelProviderCandidate(BaseModel):
@@ -109,7 +141,7 @@ class AgentRunRecord(BaseModel):
     job_id: str | None = Field(default=None, alias="jobId")
     workflow_run_id: str | None = Field(default=None, alias="workflowRunId")
     workflow_step_id: str | None = Field(default=None, alias="workflowStepId")
-    status: str
+    status: AgentRunStatus
     input: dict[str, Any]
     output: dict[str, Any]
     metadata: dict[str, Any]
@@ -121,7 +153,7 @@ class AgentToolCallRecord(BaseModel):
     id: str
     agent_run_id: str = Field(alias="agentRunId")
     tool_name: str = Field(alias="toolName")
-    status: str
+    status: AgentToolCallStatus
     payload: dict[str, Any]
     created_at: str = Field(alias="createdAt")
     updated_at: str = Field(alias="updatedAt")
@@ -161,19 +193,6 @@ class SkillsListResponse(BaseModel):
     skills: list[SkillRecord]
 
 
-class ModelPolicyUpsertRequest(BaseModel):
-    id: str
-    name: str | None = None
-    preferred: list[ModelProviderCandidate] = Field(default_factory=list)
-    fallback: list[ModelProviderCandidate] = Field(default_factory=list)
-    max_cost_usd: float = Field(default=0, alias="maxCostUsd")
-    max_tokens: int = Field(default=0, alias="maxTokens")
-    temperature: float = 0.2
-    allow_remote: bool = Field(default=True, alias="allowRemote")
-    allow_local: bool = Field(default=True, alias="allowLocal")
-    status: PolicyStatus = "active"
-
-
 class ModelPolicyRecord(BaseModel):
     id: str
     name: str
@@ -207,7 +226,7 @@ class ModelCallRecord(BaseModel):
     model_policy_id: str | None = Field(default=None, alias="modelPolicyId")
     provider: str
     model: str
-    status: str
+    status: ModelCallStatus
     prompt_tokens: int = Field(alias="promptTokens")
     completion_tokens: int = Field(alias="completionTokens")
     cost_usd: float = Field(alias="costUsd")
@@ -222,14 +241,6 @@ class CostUsageRecord(BaseModel):
     amount_usd: float = Field(alias="amountUsd")
     metadata: dict[str, Any]
     created_at: str = Field(alias="createdAt")
-
-
-class ModelPolicyResponse(BaseModel):
-    model_policy: ModelPolicyRecord = Field(alias="modelPolicy")
-
-
-class ModelProvidersListResponse(BaseModel):
-    model_providers: list[ModelProviderRecord] = Field(alias="modelProviders")
 
 
 class OllamaRuntimeProviderStatus(BaseModel):
@@ -260,12 +271,12 @@ class RuntimeProviderSafety(BaseModel):
     workspace_bound: bool = Field(default=True, alias="workspaceBound")
     shell: bool = False
     structured_argv: bool = Field(default=True, alias="structuredArgv")
-    network: str = "blocked_by_default"
+    network: RuntimeProviderNetworkPolicy = "blocked_by_default"
 
 
 class RuntimeProviderStatus(BaseModel):
     id: str
-    kind: str
+    kind: RuntimeProviderKind
     display_name: str = Field(alias="displayName")
     detected: bool = False
     configured: bool
@@ -375,6 +386,179 @@ class QAAgentRunResponse(BaseModel):
     results: list[dict[str, Any]]
 
 
+class DevOpsAgentContract(BaseModel):
+    id: str
+    input_schema: dict[str, Any] = Field(alias="inputSchema")
+    output_schema: dict[str, Any] = Field(alias="outputSchema")
+    allowed_tools: list[str] = Field(alias="allowedTools")
+    required_runtime_capabilities: list[str] = Field(alias="requiredRuntimeCapabilities")
+    required_workspace: bool = Field(alias="requiredWorkspace")
+    required_evidence: bool = Field(alias="requiredEvidence")
+    verdict_source: str = Field(alias="verdictSource")
+
+
+class DevOpsAgentStatus(BaseModel):
+    id: str
+    executable: bool
+    status: str
+    reason: str
+    contract: DevOpsAgentContract
+
+
+class DevOpsAgentStatusResponse(BaseModel):
+    devops_agent: DevOpsAgentStatus = Field(alias="devopsAgent")
+
+
+class DevOpsAgentRunRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    project_id: str = Field(alias="projectId")
+    workspace_id: str = Field(alias="workspaceId")
+    task_id: str = Field(default="devops_agent", alias="taskId")
+    build_scripts: list[str] = Field(default_factory=list, alias="buildScripts")
+    docker_healthcheck: bool = Field(default=False, alias="dockerHealthcheck")
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class DevOpsAgentRunResponse(BaseModel):
+    status: str
+    verdict: str
+    reason: str
+    contract: DevOpsAgentContract
+    workspace: dict[str, Any]
+    job: dict[str, Any]
+    agent_run: AgentRunRecord = Field(alias="agentRun")
+    evidence_package: dict[str, Any] = Field(alias="evidencePackage")
+    commands: list[dict[str, Any]]
+    versions: dict[str, Any]
+    config_findings: list[dict[str, Any]] = Field(alias="configFindings")
+    files_scanned: list[dict[str, Any]] = Field(alias="filesScanned")
+    docker: dict[str, Any]
+    config_artifact: dict[str, Any] = Field(alias="configArtifact")
+
+
+class SecurityAgentCommandCandidateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    label: str | None = None
+    argv: list[str]
+
+
+class SecurityAgentContract(BaseModel):
+    id: str
+    input_schema: dict[str, Any] = Field(alias="inputSchema")
+    output_schema: dict[str, Any] = Field(alias="outputSchema")
+    allowed_tools: list[str] = Field(alias="allowedTools")
+    required_runtime_capabilities: list[str] = Field(alias="requiredRuntimeCapabilities")
+    required_workspace: bool = Field(alias="requiredWorkspace")
+    required_evidence: bool = Field(alias="requiredEvidence")
+    verdict_source: str = Field(alias="verdictSource")
+
+
+class SecurityAgentStatus(BaseModel):
+    id: str
+    executable: bool
+    status: str
+    reason: str
+    selected_runtime_id: str | None = Field(default=None, alias="selectedRuntimeId")
+    candidate_runtime_ids: list[str] = Field(default_factory=list, alias="candidateRuntimeIds")
+    contract: SecurityAgentContract
+
+
+class SecurityAgentStatusResponse(BaseModel):
+    security_agent: SecurityAgentStatus = Field(alias="securityAgent")
+
+
+class SecurityAgentRunRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    project_id: str = Field(alias="projectId")
+    workspace_id: str = Field(alias="workspaceId")
+    task_id: str = Field(default="security_agent", alias="taskId")
+    diff_artifact_id: str | None = Field(default=None, alias="diffArtifactId")
+    command_candidates: list[SecurityAgentCommandCandidateRequest] = Field(default_factory=list, alias="commandCandidates")
+    paths_to_check: list[str] = Field(default_factory=list, alias="pathsToCheck")
+    run_model_analysis: bool = Field(default=False, alias="runModelAnalysis")
+    preferred_runtime: str | None = Field(default=None, alias="preferredRuntime")
+    approval_grant_id: str | None = Field(default=None, alias="approvalGrantId")
+    model: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class SecurityAgentRunResponse(BaseModel):
+    status: str
+    verdict: str
+    reason: str
+    contract: SecurityAgentContract
+    workspace: dict[str, Any]
+    job: dict[str, Any]
+    agent_run: AgentRunRecord = Field(alias="agentRun")
+    evidence_package: dict[str, Any] = Field(alias="evidencePackage")
+    findings: list[dict[str, Any]]
+    files_scanned: list[dict[str, Any]] = Field(alias="filesScanned")
+    dependency_files: list[dict[str, Any]] = Field(alias="dependencyFiles")
+    findings_artifact: dict[str, Any] = Field(alias="findingsArtifact")
+    model_analysis: dict[str, Any] | None = Field(default=None, alias="modelAnalysis")
+
+
+class ArchitectAgentContract(BaseModel):
+    id: str
+    input_schema: dict[str, Any] = Field(alias="inputSchema")
+    output_schema: dict[str, Any] = Field(alias="outputSchema")
+    allowed_tools: list[str] = Field(alias="allowedTools")
+    required_runtime_capabilities: list[str] = Field(alias="requiredRuntimeCapabilities")
+    required_workspace: bool = Field(alias="requiredWorkspace")
+    required_evidence: bool = Field(alias="requiredEvidence")
+    verdict_source: str = Field(alias="verdictSource")
+
+
+class ArchitectAgentStatus(BaseModel):
+    id: str
+    executable: bool
+    status: str
+    reason: str
+    selected_runtime_id: str | None = Field(default=None, alias="selectedRuntimeId")
+    candidate_runtime_ids: list[str] = Field(default_factory=list, alias="candidateRuntimeIds")
+    contract: ArchitectAgentContract
+
+
+class ArchitectAgentStatusResponse(BaseModel):
+    architect_agent: ArchitectAgentStatus = Field(alias="architectAgent")
+
+
+class ArchitectAgentRunRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    project_id: str = Field(alias="projectId")
+    workspace_id: str = Field(alias="workspaceId")
+    task_id: str = Field(default="architect_agent", alias="taskId")
+    diff_artifact_id: str = Field(alias="diffArtifactId")
+    workflow_context: dict[str, Any] = Field(default_factory=dict, alias="workflowContext")
+    relevant_docs: list[dict[str, Any]] = Field(default_factory=list, alias="relevantDocs")
+    test_results: list[dict[str, Any]] = Field(default_factory=list, alias="testResults")
+    risk_register: list[dict[str, Any]] = Field(default_factory=list, alias="riskRegister")
+    evidence_refs: list[str] = Field(default_factory=list, alias="evidenceRefs")
+    preferred_runtime: str | None = Field(default=None, alias="preferredRuntime")
+    approval_grant_id: str | None = Field(default=None, alias="approvalGrantId")
+    model: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class ArchitectAgentRunResponse(BaseModel):
+    status: str
+    reason: str
+    architect_agent: ArchitectAgentStatus = Field(alias="architectAgent")
+    workspace: dict[str, Any]
+    job: dict[str, Any]
+    agent_run: AgentRunRecord = Field(alias="agentRun")
+    evidence_package: dict[str, Any] = Field(alias="evidencePackage")
+    runtime: dict[str, Any]
+    runtime_result: dict[str, Any] = Field(alias="runtimeResult")
+    output: dict[str, Any] | None = None
+    architecture_decision: dict[str, Any] | None = Field(default=None, alias="architectureDecision")
+    risk_entries: list[dict[str, Any]] = Field(default_factory=list, alias="riskEntries")
+
+
 class RuntimeProviderConfigurationVariable(BaseModel):
     key: str
     name: str
@@ -387,7 +571,7 @@ class RuntimeProviderConfigurationVariable(BaseModel):
 class RuntimeProviderConfigurationRecord(BaseModel):
     id: str
     display_name: str = Field(alias="displayName")
-    kind: str
+    kind: RuntimeProviderKind
     configured: bool
     status: Literal["configured", "configuration_required"]
     reason: str
@@ -406,7 +590,3 @@ class RuntimeProvidersResponse(BaseModel):
     api: ApiRuntimeProviderStatus
     developer_agent: DeveloperAgentStatus = Field(alias="developerAgent")
     providers: list[RuntimeProviderStatus]
-
-
-class ModelPoliciesListResponse(BaseModel):
-    model_policies: list[ModelPolicyRecord] = Field(alias="modelPolicies")

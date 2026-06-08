@@ -122,30 +122,33 @@ def test_workflows_policy_evidence_agents_and_model_policy_routes_are_real(tmp_p
     assert profile.status_code == 201
     assert profile.json()["agentProfile"]["role"] == "qa_reviewer"
 
-    model_policy = client.post(
-        "/api/v1/model-policies",
+    role_policy = client.post(
+        "/api/v1/model-gateway/role-policies",
         json={
             "id": "implementation_default",
-            "name": "Implementation Default",
-            "preferred": [{"provider": "local_ollama", "model": "dev-model"}],
+            "role": "implementation_default",
+            "routingProfileId": "balanced_best_value",
+            "preferred": [{"provider": "ollama", "model": "dev-model"}],
             "fallback": [],
-            "maxCostUsd": 2.0,
-            "maxTokens": 120000,
-            "temperature": 0.2,
+            "maxCostPerTaskUsd": 2.0,
+            "maxTokensPerRun": 120000,
             "allowRemote": False,
             "allowLocal": True,
+            "allowCli": False,
+            "allowApi": True,
         },
         headers=headers,
     )
-    assert model_policy.status_code == 201
-    assert model_policy.json()["modelPolicy"]["allowLocal"] is True
+    assert role_policy.status_code == 201
+    assert role_policy.json()["rolePolicy"]["allowLocal"] is True
 
     overview = client.get("/api/v1/overview").json()
+    role_policies = client.get("/api/v1/model-gateway/role-policies").json()["rolePolicies"]
     assert any(item["id"] == workflow_id for item in overview["workflows"])
     assert any(item["id"] == decision["id"] for item in overview["permissionDecisions"])
     assert any(item["id"] == evidence_body["id"] for item in overview["evidencePackages"])
     assert any(item["id"] == "qa_reviewer" for item in overview["agentProfiles"])
-    assert any(item["id"] == "implementation_default" for item in overview["modelPolicies"])
+    assert any(item["id"] == "implementation_default" for item in role_policies)
     assert any(event["type"] == "workflow.started" for event in overview["events"])
 
 

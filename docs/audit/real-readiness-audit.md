@@ -9,6 +9,11 @@ estado encontrado durante la auditoria; los commits posteriores de esta rama
 corrigen los P0/P1 operacionales mediante runtime/provider truth, ejecucion
 fail-closed, OpenAPI actualizado, UI sin seleccion mock y tests negativos.
 
+Estado post-remediacion legacy, 2026-06-06: `/route/execute-mock` ya no esta
+montado como ruta productiva ni expuesto por el cliente OpenAPI generado. Las
+referencias restantes en este documento son hallazgos historicos del snapshot
+inicial y no describen superficie vigente.
+
 ## Alcance
 
 Se inspeccionaron `README.md`, `docs/**`, `local_control_center/**`,

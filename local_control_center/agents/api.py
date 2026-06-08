@@ -16,27 +16,34 @@ from .contracts import (
     AgentRunCreateRequest,
     AgentRunsListResponse,
     AgentRunResponse,
+    ArchitectAgentRunRequest,
+    ArchitectAgentRunResponse,
+    ArchitectAgentStatusResponse,
+    DevOpsAgentRunRequest,
+    DevOpsAgentRunResponse,
+    DevOpsAgentStatusResponse,
     DeveloperAgentRunRequest,
     DeveloperAgentRunResponse,
     DeveloperAgentStatusResponse,
-    ModelPoliciesListResponse,
-    ModelPolicyResponse,
-    ModelPolicyUpsertRequest,
-    ModelProvidersListResponse,
     QAAgentRunRequest,
     QAAgentRunResponse,
     RuntimeProviderConfigurationResponse,
     RuntimeProvidersResponse,
+    SecurityAgentRunRequest,
+    SecurityAgentRunResponse,
+    SecurityAgentStatusResponse,
     SkillsListResponse,
     SkillsSyncRequest,
     SkillsSyncResponse,
 )
+from .architect_agent import ArchitectAgentRunner
+from .devops_agent import DevOpsAgentRunner
 from .developer_agent import DeveloperAgentRunner
-from .model_gateway import LOCAL_MODEL_PROVIDERS, REMOTE_MODEL_PROVIDERS
 from .qa_agent import QAAgentRunner
 from .repository import AgentsRepository
 from .runtime_provider_config import list_runtime_provider_configurations
 from .runtime_status import RUNTIME_MODES, RuntimeStatusService
+from .security_agent import SecurityAgentRunner
 from .skills import SkillRegistry
 from .tool_broker import ToolBroker
 
@@ -54,14 +61,16 @@ VALID_AGENT_ROLES = {
     "backend_engineer",
     "frontend_engineer",
     "implementer",
+    "devops",
     "qa",
     "qa_reviewer",
     "security_reviewer",
     "release_manager",
 }
 VALID_PERMISSION_PROFILES = {"plan", "dev_safe", "qa", "release"}
-VALID_POLICY_STATUS = {"active", "disabled"}
 DEVELOPER_AGENT_RUNTIMES = {"codex_cli", "claude_code_cli", "openai_compatible", "ollama"}
+ARCHITECT_AGENT_RUNTIMES = {"openai_compatible", "ollama"}
+SECURITY_AGENT_RUNTIMES = {"openai_compatible", "ollama"}
 
 
 def _require_id(value: Any, *, label: str) -> str:
@@ -113,39 +122,6 @@ def validate_agent_profile_body(body: dict[str, Any]) -> dict[str, Any]:
     return body
 
 
-def validate_model_policy_body(body: dict[str, Any]) -> dict[str, Any]:
-    _require_id(body.get("id"), label="Model policy id")
-    provider_catalog = LOCAL_MODEL_PROVIDERS | REMOTE_MODEL_PROVIDERS
-    for field in ("preferred", "fallback"):
-        candidates = body.get(field) or []
-        if not isinstance(candidates, list):
-            raise HTTPException(status_code=422, detail=f"{field} must be a provider catalog list.")
-        for candidate in candidates:
-            if not isinstance(candidate, dict):
-                raise HTTPException(status_code=422, detail=f"{field} entries must be objects.")
-            provider = str(candidate.get("provider") or "")
-            model = str(candidate.get("model") or "")
-            if provider not in provider_catalog:
-                raise HTTPException(status_code=422, detail="Model provider is not in the allowed catalog.")
-            if not model or len(model) > 160 or any(char.isspace() for char in model):
-                raise HTTPException(status_code=422, detail="Model id must be a compact catalog value.")
-    try:
-        max_cost = float(body.get("maxCostUsd", 0))
-        max_tokens = int(body.get("maxTokens", 0))
-        temperature = float(body.get("temperature", 0.2))
-    except (TypeError, ValueError) as error:
-        raise HTTPException(status_code=422, detail="Model policy numeric fields are invalid.") from error
-    if max_cost < 0:
-        raise HTTPException(status_code=422, detail="maxCostUsd must be zero or positive.")
-    if max_tokens < 0 or max_tokens > 200000:
-        raise HTTPException(status_code=422, detail="maxTokens must be between 0 and 200000.")
-    if temperature < 0 or temperature > 2:
-        raise HTTPException(status_code=422, detail="temperature must be between 0 and 2.")
-    if body.get("status", "active") not in VALID_POLICY_STATUS:
-        raise HTTPException(status_code=422, detail="Model policy status is invalid.")
-    return body
-
-
 def validate_developer_agent_run_body(body: DeveloperAgentRunRequest) -> dict[str, Any]:
     payload = body.model_dump(by_alias=True)
     instruction = str(payload.get("instruction") or "").strip()
@@ -188,6 +164,69 @@ def validate_qa_agent_run_body(body: QAAgentRunRequest) -> dict[str, Any]:
                 raise HTTPException(status_code=422, detail=f"commands[{index}].timeoutSeconds must be an integer.") from error
             if timeout_int < 1 or timeout_int > 300:
                 raise HTTPException(status_code=422, detail=f"commands[{index}].timeoutSeconds must be between 1 and 300.")
+    return payload
+
+
+def validate_devops_agent_run_body(body: DevOpsAgentRunRequest) -> dict[str, Any]:
+    payload = body.model_dump(by_alias=True)
+    task_id = str(payload.get("taskId") or "").strip()
+    if not task_id:
+        raise HTTPException(status_code=422, detail="DevOpsAgent taskId is required.")
+    build_scripts = payload.get("buildScripts") or []
+    if len(build_scripts) > 20:
+        raise HTTPException(status_code=422, detail="DevOpsAgent accepts at most 20 build scripts.")
+    if not all(isinstance(script, str) and CATALOG_ID_RE.match(script) for script in build_scripts):
+        raise HTTPException(status_code=422, detail="DevOpsAgent buildScripts must be compact script names.")
+    return payload
+
+
+def validate_security_agent_run_body(body: SecurityAgentRunRequest) -> dict[str, Any]:
+    payload = body.model_dump(by_alias=True)
+    task_id = str(payload.get("taskId") or "").strip()
+    if not task_id:
+        raise HTTPException(status_code=422, detail="SecurityAgent taskId is required.")
+    command_candidates = payload.get("commandCandidates") or []
+    if len(command_candidates) > 50:
+        raise HTTPException(status_code=422, detail="SecurityAgent accepts at most 50 command candidates.")
+    for index, command in enumerate(command_candidates):
+        if not isinstance(command, dict):
+            raise HTTPException(status_code=422, detail=f"commandCandidates[{index}] must be an object with structured argv.")
+        if isinstance(command.get("command"), str):
+            raise HTTPException(status_code=422, detail=f"commandCandidates[{index}] must not use a command string.")
+        argv = command.get("argv")
+        if not isinstance(argv, list) or not argv or not all(isinstance(item, str) and item for item in argv):
+            raise HTTPException(status_code=422, detail=f"commandCandidates[{index}].argv must be a non-empty structured argv list.")
+    paths_to_check = payload.get("pathsToCheck") or []
+    if len(paths_to_check) > 100:
+        raise HTTPException(status_code=422, detail="SecurityAgent accepts at most 100 path candidates.")
+    if not all(isinstance(item, str) and item.strip() for item in paths_to_check):
+        raise HTTPException(status_code=422, detail="SecurityAgent pathsToCheck must be non-empty path strings.")
+    preferred_runtime = payload.get("preferredRuntime")
+    if preferred_runtime and preferred_runtime not in SECURITY_AGENT_RUNTIMES:
+        raise HTTPException(status_code=422, detail=f"SecurityAgent runtime is not allowed: {preferred_runtime}")
+    return payload
+
+
+def validate_architect_agent_run_body(body: ArchitectAgentRunRequest) -> dict[str, Any]:
+    payload = body.model_dump(by_alias=True)
+    task_id = str(payload.get("taskId") or "").strip()
+    if not task_id:
+        raise HTTPException(status_code=422, detail="ArchitectAgent taskId is required.")
+    if not str(payload.get("diffArtifactId") or "").strip():
+        raise HTTPException(status_code=422, detail="ArchitectAgent diffArtifactId is required.")
+    workflow_context = payload.get("workflowContext")
+    if not isinstance(workflow_context, dict):
+        raise HTTPException(status_code=422, detail="ArchitectAgent workflowContext must be an object.")
+    preferred_runtime = payload.get("preferredRuntime")
+    if preferred_runtime and preferred_runtime not in ARCHITECT_AGENT_RUNTIMES:
+        raise HTTPException(status_code=422, detail=f"ArchitectAgent runtime is not allowed: {preferred_runtime}")
+    for field in ("relevantDocs", "testResults", "riskRegister"):
+        value = payload.get(field) or []
+        if not isinstance(value, list) or len(value) > 50 or not all(isinstance(item, dict) for item in value):
+            raise HTTPException(status_code=422, detail=f"ArchitectAgent {field} must be a list of objects with at most 50 items.")
+    evidence_refs = payload.get("evidenceRefs") or []
+    if not isinstance(evidence_refs, list) or not all(isinstance(item, str) and item for item in evidence_refs):
+        raise HTTPException(status_code=422, detail="ArchitectAgent evidenceRefs must be a string list.")
     return payload
 
 
@@ -327,6 +366,58 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     def event_bus() -> EventBus:
         return EventBus(platform.connection)
 
+    @router.get("/api/v1/agents/devops/status", response_model=DevOpsAgentStatusResponse)
+    async def devops_agent_status() -> dict[str, Any]:
+        return {"devopsAgent": DevOpsAgentRunner(platform.connection, root=platform.cwd).status()}
+
+    @router.post("/api/v1/agents/devops/runs", status_code=202, response_model=DevOpsAgentRunResponse)
+    async def run_devops_agent(body: DevOpsAgentRunRequest, request: Request) -> dict[str, Any]:
+        require_write(request)
+        payload = validate_devops_agent_run_body(body)
+        try:
+            result = DevOpsAgentRunner(platform.connection, root=platform.cwd).run(payload)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        event_bus().record_event(
+            project_id=result["workspace"]["projectId"],
+            event_type=f"agent.devops.{result['verdict']}",
+            payload={
+                "agentRunId": result["agentRun"]["id"],
+                "workspaceId": result["workspace"]["id"],
+                "evidencePackageId": result["evidencePackage"]["id"],
+                "configArtifactId": result["configArtifact"]["id"],
+            },
+        )
+        return result
+
+    @router.get("/api/v1/agents/security/status", response_model=SecurityAgentStatusResponse)
+    async def security_agent_status() -> dict[str, Any]:
+        return {"securityAgent": SecurityAgentRunner(platform.connection, root=platform.cwd).status()}
+
+    @router.post("/api/v1/agents/security/runs", status_code=202, response_model=SecurityAgentRunResponse)
+    async def run_security_agent(body: SecurityAgentRunRequest, request: Request) -> dict[str, Any]:
+        require_write(request)
+        payload = validate_security_agent_run_body(body)
+        try:
+            result = SecurityAgentRunner(platform.connection, root=platform.cwd).run(payload)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        event_bus().record_event(
+            project_id=result["workspace"]["projectId"],
+            event_type=f"agent.security.{result['verdict']}",
+            payload={
+                "agentRunId": result["agentRun"]["id"],
+                "workspaceId": result["workspace"]["id"],
+                "evidencePackageId": result["evidencePackage"]["id"],
+                "findingsArtifactId": result["findingsArtifact"]["id"],
+            },
+        )
+        return result
+
     @router.post("/api/v1/agents/qa/runs", status_code=202, response_model=QAAgentRunResponse)
     async def run_qa_agent(body: QAAgentRunRequest, request: Request) -> dict[str, Any]:
         require_write(request)
@@ -370,6 +461,34 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
                 "workspaceId": result["workspace"]["id"],
                 "runtimeId": result["runtime"]["id"],
                 "evidencePackageId": result["evidencePackage"]["id"],
+            },
+        )
+        return result
+
+    @router.get("/api/v1/agents/architect/status", response_model=ArchitectAgentStatusResponse)
+    async def architect_agent_status() -> dict[str, Any]:
+        return {"architectAgent": ArchitectAgentRunner(platform.connection, root=platform.cwd).status()}
+
+    @router.post("/api/v1/agents/architect/runs", status_code=202, response_model=ArchitectAgentRunResponse)
+    async def run_architect_agent(body: ArchitectAgentRunRequest, request: Request) -> dict[str, Any]:
+        require_write(request)
+        payload = validate_architect_agent_run_body(body)
+        try:
+            result = ArchitectAgentRunner(platform.connection, root=platform.cwd).run(payload)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        event_bus().record_event(
+            project_id=result["agentRun"]["projectId"],
+            event_type=f"agent.architect.{result['status']}",
+            payload={
+                "agentRunId": result["agentRun"]["id"],
+                "workspaceId": result["workspace"]["id"],
+                "runtimeId": result["runtime"]["id"],
+                "evidencePackageId": result["evidencePackage"]["id"],
+                "architectureDecisionId": (result.get("architectureDecision") or {}).get("id"),
+                "riskIds": [risk["id"] for risk in result.get("riskEntries") or []],
             },
         )
         return result
@@ -493,14 +612,14 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
                 status = "awaiting_permission"
                 verdict = "awaiting_permission"
                 summary = "Tool calls are waiting for granular approval."
-            else:
+            elif executed:
                 status = "completed"
                 verdict = "approved_with_risks"
-                summary = (
-                    "Tool calls were executed through sandboxed adapters."
-                    if executed
-                    else "Tool calls were policy-allowed but not executed by the control plane."
-                )
+                summary = "Tool calls were executed through sandboxed adapters."
+            else:
+                status = "failed"
+                verdict = "blocked"
+                summary = "Tool calls were policy-allowed but not executed, so no completion evidence exists."
             output = {
                 "agent_id": profile["id"],
                 "task_id": task_id,
@@ -543,10 +662,6 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         )
         return AgentRunResponse(agentRun=run)
 
-    @router.get("/api/v1/model-providers", response_model=ModelProvidersListResponse)
-    async def list_model_providers() -> dict[str, Any]:
-        return {"modelProviders": repository().list_model_providers()}
-
     @router.get("/api/v1/runtime/providers", response_model=RuntimeProvidersResponse)
     async def list_runtime_providers() -> dict[str, Any]:
         return RuntimeStatusService(platform.connection).runtime_provider_status()
@@ -565,17 +680,5 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         count = skill_registry().sync(body.skills_path)
         event_bus().record_event(event_type="skills.synced", payload={"synced": count})
         return SkillsSyncResponse(synced=count, skills=skill_registry().list_skills())
-
-    @router.get("/api/v1/model-policies", response_model=ModelPoliciesListResponse)
-    async def list_model_policies() -> dict[str, Any]:
-        return {"modelPolicies": repository().list_model_policies()}
-
-    @router.post("/api/v1/model-policies", status_code=201, response_model=ModelPolicyResponse)
-    async def upsert_model_policy(body: ModelPolicyUpsertRequest, request: Request) -> dict[str, Any]:
-        require_write(request)
-        payload = validate_model_policy_body(body.model_dump(by_alias=True))
-        policy = repository().upsert_model_policy(payload)
-        event_bus().record_event(event_type="model.policy.upserted", payload={"modelPolicyId": policy["id"]})
-        return {"modelPolicy": policy}
 
     return router

@@ -134,7 +134,7 @@ def test_frontend_mutation_helpers_use_generated_request_response_types() -> Non
     assert "requestGeneratedOperation<'upsert_agent_profile_api_v1_agent_profiles_post', Dictionary>" not in client_source
     assert "body: MutationBody<'create_workflow_api_v1_workflows_post'>" in client_source
     assert "body: MutationBody<'upsert_agent_profile_api_v1_agent_profiles_post'>" in client_source
-    assert "body: MutationBody<'upsert_model_policy_api_v1_model_policies_post'>" in client_source
+    assert "body: MutationBody<'create_role_policy_api_v1_model_gateway_role_policies_post'>" in client_source
     assert "body: MutationBody<'register_mcp_server_api_v1_integrations_mcp_register_post'>" in client_source
     assert "body: MutationBody<'update_risk_api_v1_risks__risk_id__patch'>" in client_source
 

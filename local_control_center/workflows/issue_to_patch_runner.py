@@ -7,16 +7,17 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from local_control_center.agents.model_gateway import redact_secrets
 from local_control_center.agents.qa_agent import QAAgentRunner, qa_verdict_allows_completion
 from local_control_center.agents.repository import AgentsRepository
 from local_control_center.agents.runtime_registry import RuntimeCommandUnavailableError, build_issue_to_patch_argv
 from local_control_center.agents.runtime_status import RuntimeStatusService
 from local_control_center.agents.tool_broker import ToolBroker
-from local_control_center.evidence.artifacts import write_text_artifact
+from local_control_center.evidence.artifacts import artifact_hashes, artifact_records_from_ids, artifact_ref, write_text_artifact
+from local_control_center.evidence.quality import evidence_package_contract_errors
 from local_control_center.evidence.repository import EvidenceRepository
 from local_control_center.jobs_approvals.repository import JobsRepository
 from local_control_center.security_policy.repository import SecurityPolicyRepository
+from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.serialization import json_dumps
 from local_control_center.workflows.repository import ISSUE_TO_PATCH_STEPS, WorkflowsRepository
 from local_control_center.workspaces_projects.cleanup import capture_workspace_snapshot
@@ -187,7 +188,7 @@ def _write_patch_artifact(
         path=artifact_file["path"],
         content_hash=artifact_file["hash"] or hashlib.sha256(patch.encode("utf-8")).hexdigest(),
         metadata={
-            "name": "issue-to-patch.diff",
+            "name": "diff.patch",
             "source": "issue_to_patch",
             "mimeType": "text/x-diff",
             "sizeBytes": artifact_file["sizeBytes"],
@@ -224,6 +225,129 @@ def _write_manifest_artifact(
     )
 
 
+def _write_text_evidence_artifact(
+    *,
+    root: Path,
+    project_id: str,
+    evidence_id: str,
+    name: str,
+    kind: str,
+    suffix: str,
+    content: str,
+    mime_type: str,
+    repo: EvidenceRepository,
+) -> dict[str, Any]:
+    artifact_id = f"artifact-{uuid.uuid4()}"
+    artifact_file = write_text_artifact(root=root, artifact_id=artifact_id, suffix=suffix, content=content)
+    return repo.create_artifact(
+        artifact_id=artifact_id,
+        project_id=project_id,
+        evidence_package_id=evidence_id,
+        kind=kind,
+        path=artifact_file["path"],
+        content_hash=artifact_file["hash"] or hashlib.sha256(content.encode("utf-8")).hexdigest(),
+        metadata={
+            "name": name,
+            "source": "issue_to_patch",
+            "mimeType": mime_type,
+            "sizeBytes": artifact_file["sizeBytes"],
+            "hashAlgorithm": "sha256",
+        },
+    )
+
+
+def _write_json_evidence_artifact(
+    *,
+    root: Path,
+    project_id: str,
+    evidence_id: str,
+    name: str,
+    kind: str,
+    payload: Any,
+    repo: EvidenceRepository,
+) -> dict[str, Any]:
+    return _write_text_evidence_artifact(
+        root=root,
+        project_id=project_id,
+        evidence_id=evidence_id,
+        name=name,
+        kind=kind,
+        suffix=".json",
+        content=json_dumps(redact_secrets(payload)),
+        mime_type="application/json",
+        repo=repo,
+    )
+
+
+def _write_git_status_artifacts(
+    *,
+    root: Path,
+    project_id: str,
+    evidence_id: str,
+    diff: dict[str, Any],
+    repo: EvidenceRepository,
+) -> list[dict[str, Any]]:
+    status_payload = {
+        "state": diff.get("state"),
+        "blockerState": diff.get("blockerState"),
+        "branch": diff.get("branch"),
+        "headCommit": diff.get("headCommit"),
+        "statusRaw": diff.get("statusRaw", ""),
+        "status": diff.get("status") or [],
+        "nameOnly": diff.get("nameOnly") or [],
+        "diffStat": diff.get("diffStat") or "",
+    }
+    return [
+        _write_text_evidence_artifact(
+            root=root,
+            project_id=project_id,
+            evidence_id=evidence_id,
+            name="git-status.txt",
+            kind="git_status",
+            suffix=".git-status.txt",
+            content=str(diff.get("statusRaw") or ""),
+            mime_type="text/plain",
+            repo=repo,
+        ),
+        _write_json_evidence_artifact(
+            root=root,
+            project_id=project_id,
+            evidence_id=evidence_id,
+            name="git-status.json",
+            kind="git_status",
+            payload=status_payload,
+            repo=repo,
+        ),
+    ]
+
+
+def _security_findings_from_policy(policy_decisions: list[dict[str, Any]]) -> dict[str, Any]:
+    findings: list[dict[str, Any]] = []
+    blocked = False
+    for decision in policy_decisions:
+        decision_value = str(decision.get("decision") or "").lower()
+        risk_level = str(decision.get("riskLevel") or decision.get("risk_level") or "").lower()
+        if decision_value in {"deny", "requires_human"}:
+            blocked = True
+        if decision_value not in {"allow", "allowed"} or risk_level in {"high", "critical"}:
+            findings.append(
+                {
+                    "policyDecisionId": decision.get("id"),
+                    "decision": decision.get("decision"),
+                    "riskLevel": decision.get("riskLevel") or decision.get("risk_level"),
+                    "reason": decision.get("reason"),
+                    "agentId": decision.get("agentId"),
+                    "tool": decision.get("tool"),
+                }
+            )
+    return {
+        "status": "blocked" if blocked else "risk" if findings else "passed",
+        "source": "policy_decisions",
+        "findings": redact_secrets(findings),
+        "policyDecisionIds": [decision.get("id") for decision in policy_decisions if decision.get("id")],
+    }
+
+
 def _complete_run_status(
     *,
     runtime_status: str,
@@ -231,6 +355,7 @@ def _complete_run_status(
     qa_results: list[dict[str, Any]],
     diff: dict[str, Any],
     evidence_created: bool,
+    evidence_package_valid: bool = True,
 ) -> tuple[str, str, str]:
     if runtime_status == RUNTIME_UNAVAILABLE_STATUS:
         return RUNTIME_UNAVAILABLE_STATUS, "blocked", "No executable runtime was available."
@@ -248,6 +373,8 @@ def _complete_run_status(
         return "evidence_ready", "blocked", "Patch workflow produced no file changes."
     if not evidence_created:
         return "evidence_ready", "blocked", "Evidence package was not created."
+    if not evidence_package_valid:
+        return "evidence_ready", "blocked", "Evidence package contract is incomplete or unverifiable."
     if not str(diff.get("patchFull") or diff.get("patch") or "").strip():
         return "evidence_ready", "blocked", "Patch artifact requires a non-empty diff."
     if require_approval:
@@ -489,31 +616,28 @@ class IssueToPatchRunner:
             diff=diff,
             repo=self.evidence,
         )
+        status_artifacts = _write_git_status_artifacts(
+            root=self.root,
+            project_id=payload["projectId"],
+            evidence_id=evidence["id"],
+            diff=diff,
+            repo=self.evidence,
+        )
+        qa_results_artifact = _write_json_evidence_artifact(
+            root=self.root,
+            project_id=payload["projectId"],
+            evidence_id=evidence["id"],
+            name="qa-results.json",
+            kind="qa_report",
+            payload={"results": qa_results, "qaAgentRunId": (qa_agent_run or {}).get("id")},
+            repo=self.evidence,
+        )
         diff_summary = _diff_summary(diff)
         if patch_artifact:
             diff_summary["patchArtifactId"] = patch_artifact["id"]
+        diff_summary["gitStatusArtifactIds"] = [artifact["id"] for artifact in status_artifacts]
+        diff_summary["qaResultsArtifactId"] = qa_results_artifact["id"]
 
-        agent_run_status = {
-            "completed": "completed",
-            RUNTIME_UNAVAILABLE_STATUS: "failed",
-            "failed": "failed",
-            "qa_failed": "failed",
-            "evidence_ready": "awaiting_permission" if payload.get("requireApproval", True) else "failed",
-        }[final_status]
-        agent_run = self.agents.update_agent_run_status(
-            agent_run["id"],
-            status=agent_run_status,
-            output_payload={
-                "verdict": final_status,
-                "summary": final_reason,
-                "runtime": runtime,
-                "runtimeResult": runtime_result,
-                "qaAgentRunId": (qa_agent_run or {}).get("id"),
-                "qaResults": qa_results,
-                "diffSummary": diff_summary,
-                "evidence_refs": [evidence["id"]],
-            },
-        )
         related_agent_run_ids = {agent_run["id"]}
         if qa_agent_run:
             related_agent_run_ids.add(str(qa_agent_run["id"]))
@@ -553,9 +677,48 @@ class IssueToPatchRunner:
             for decision in self.security.list_decisions(project_id=payload["projectId"])
             if not permission_decision_ids or decision["id"] in permission_decision_ids
         ]
-        artifact_refs = []
+        security_findings_artifact = _write_json_evidence_artifact(
+            root=self.root,
+            project_id=payload["projectId"],
+            evidence_id=evidence["id"],
+            name="security-findings.json",
+            kind="security_findings",
+            payload=_security_findings_from_policy(policy_decisions),
+            repo=self.evidence,
+        )
+        diff_summary["securityFindingsArtifactId"] = security_findings_artifact["id"]
+        model_call_artifact = (
+            _write_json_evidence_artifact(
+                root=self.root,
+                project_id=payload["projectId"],
+                evidence_id=evidence["id"],
+                name="model-call.json",
+                kind="model_call",
+                payload={"modelCalls": model_calls},
+                repo=self.evidence,
+            )
+            if model_calls
+            else None
+        )
+        qa_artifacts = artifact_records_from_ids(self.evidence, qa_artifact_ids)
+        artifact_records = [
+            *qa_artifacts,
+            *status_artifacts,
+            qa_results_artifact,
+            security_findings_artifact,
+        ]
         if patch_artifact:
-            artifact_refs.append({"id": patch_artifact["id"], "kind": patch_artifact["kind"], "hash": patch_artifact["hash"]})
+            artifact_records.append(patch_artifact)
+        if model_call_artifact:
+            artifact_records.append(model_call_artifact)
+        artifact_refs = [artifact_ref(artifact) for artifact in artifact_records]
+        runtime_health = redact_secrets(
+            {
+                **runtime,
+                "resultStatus": runtime_result.get("status"),
+                "resultReason": runtime_result.get("reason") or runtime.get("reason"),
+            }
+        )
         manifest_artifact = _write_manifest_artifact(
             root=self.root,
             project_id=payload["projectId"],
@@ -565,7 +728,7 @@ class IssueToPatchRunner:
                 "workflow": {"id": workflow["id"], "kind": workflow["kind"], "status": final_status},
                 "workflowRun": {"id": workflow_run["id"], "status": final_status},
                 "job": {"id": job_result["job"]["id"], "kind": job_result["job"]["kind"], "status": final_status},
-                "agentRun": {"id": agent_run["id"], "status": agent_run["status"]},
+                "agentRun": {"id": agent_run["id"], "status": final_status},
                 "workspace": {
                     "id": workspace["id"],
                     "path": workspace["path"],
@@ -581,17 +744,68 @@ class IssueToPatchRunner:
                 "qaResults": qa_results,
                 "diffSummary": diff_summary,
                 "artifacts": artifact_refs,
+                "hashes": artifact_hashes(artifact_records),
             },
         )
         diff_summary["manifestArtifactId"] = manifest_artifact["id"]
-        artifact_refs.append(
-            {"id": manifest_artifact["id"], "kind": manifest_artifact["kind"], "hash": manifest_artifact["hash"]}
-        )
+        artifact_records.append(manifest_artifact)
+        artifact_refs = [artifact_ref(artifact) for artifact in artifact_records]
+        hashes = artifact_hashes(artifact_records)
         evidence = self.evidence.update_evidence_links(
             evidence["id"],
             agent_run_id=agent_run["id"],
-            artifact_ids=[*qa_artifact_ids, *[str(artifact["id"]) for artifact in artifact_refs]],
+            artifact_ids=[str(artifact["id"]) for artifact in artifact_records if artifact.get("id")],
             diff_summary=diff_summary,
+            runtime_health=runtime_health,
+            model_calls=model_calls,
+            tool_calls=tool_calls,
+            policy_decisions=policy_decisions,
+            approvals=approvals,
+            artifacts=artifact_refs,
+            hashes=hashes,
+        )
+        contract_errors = evidence_package_contract_errors(evidence, require_runtime_links=final_status == "completed")
+        if final_status == "completed" and contract_errors:
+            final_status, qa_verdict, final_reason = _complete_run_status(
+                runtime_status=runtime_status,
+                require_approval=bool(payload.get("requireApproval", True)),
+                qa_results=qa_results,
+                diff=diff,
+                evidence_created=True,
+                evidence_package_valid=False,
+            )
+            evidence = self.evidence.update_evidence_links(
+                evidence["id"],
+                qa_verdict=qa_verdict,
+                risk_notes=[
+                    {
+                        "severity": "medium",
+                        "description": final_reason,
+                        "mitigation": "Repair evidence package contract before marking workflow completed.",
+                        "contractErrors": contract_errors,
+                    }
+                ],
+            )
+        agent_run_status = {
+            "completed": "completed",
+            RUNTIME_UNAVAILABLE_STATUS: "failed",
+            "failed": "failed",
+            "qa_failed": "failed",
+            "evidence_ready": "awaiting_permission" if payload.get("requireApproval", True) else "failed",
+        }[final_status]
+        agent_run = self.agents.update_agent_run_status(
+            agent_run["id"],
+            status=agent_run_status,
+            output_payload={
+                "verdict": final_status,
+                "summary": final_reason,
+                "runtime": runtime,
+                "runtimeResult": runtime_result,
+                "qaAgentRunId": (qa_agent_run or {}).get("id"),
+                "qaResults": qa_results,
+                "diffSummary": diff_summary,
+                "evidence_refs": [evidence["id"]],
+            },
         )
         if "implementation" in steps:
             self.workflows.update_workflow_step(

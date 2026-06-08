@@ -100,10 +100,12 @@ def test_memory_retrieval_slice_owns_http_index_and_memory_sql() -> None:
     memory_api = ROOT / "local_control_center" / "memory_retrieval" / "api.py"
     memory_repository = ROOT / "local_control_center" / "memory_retrieval" / "repository.py"
     memory_index = ROOT / "local_control_center" / "memory_retrieval" / "index.py"
+    retrieval_compat = ROOT / "local_control_center" / "retrieval.py"
 
     assert memory_api.exists()
     assert memory_repository.exists()
     assert memory_index.exists()
+    assert not retrieval_compat.exists()
 
     root_api = read("local_control_center/api.py")
     assert '@app.get("/api/v1/memory")' not in root_api
@@ -117,9 +119,6 @@ def test_memory_retrieval_slice_owns_http_index_and_memory_sql() -> None:
     assert "INSERT " not in api_source
     assert "UPDATE " not in api_source
     assert "DELETE " not in api_source
-
-    retrieval_compat = read("local_control_center/retrieval.py")
-    assert "from .memory_retrieval.index import" in retrieval_compat
 
 
 def test_memory_retrieval_commands_and_index_do_not_depend_on_store_facade() -> None:
@@ -486,3 +485,37 @@ def test_active_runtime_does_not_import_store_facade() -> None:
     assert "ControlPlaneFixture" not in runtime_source
     assert "ControlCenterRuntime" in root_api
     assert "ControlCenterRuntime" in cli_source
+
+
+def test_no_active_imports_use_removed_retrieval_compat_wrapper() -> None:
+    forbidden = (
+        "from local_control_center.retrieval import",
+        "import local_control_center.retrieval",
+        "from .retrieval import",
+        "import .retrieval",
+    )
+    offenders: list[str] = []
+    for base in (ROOT / "local_control_center", ROOT / "tests_py"):
+        for path in sorted(base.rglob("*.py")):
+            if path == Path(__file__):
+                continue
+            source = path.read_text(encoding="utf-8")
+            if any(token in source for token in forbidden):
+                offenders.append(str(path.relative_to(ROOT)))
+
+    assert offenders == []
+
+
+def test_redaction_uses_shared_module_not_model_gateway_wrapper() -> None:
+    forbidden = (
+        "from local_control_center.agents.model_gateway import redact_secrets",
+        "from .model_gateway import redact_secrets",
+        "from .model_gateway import ModelGateway, provider_instance, real_provider_calls_enabled, redact_secrets",
+    )
+    offenders: list[str] = []
+    for path in sorted((ROOT / "local_control_center").rglob("*.py")):
+        source = path.read_text(encoding="utf-8")
+        if any(token in source for token in forbidden):
+            offenders.append(str(path.relative_to(ROOT)))
+
+    assert offenders == []

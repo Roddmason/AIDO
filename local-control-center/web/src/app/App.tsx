@@ -465,11 +465,11 @@ export function App() {
 		}
 		switch (page) {
 			case 'command':
-				return <CommandCenterPage overview={overview} selectedProject={selectedProject} runtimeProviders={state.runtimeProviders} mutate={state.mutate} />;
+				return <CommandCenterPage overview={overview} selectedProject={selectedProject} runtimeProviders={state.runtimeProviders} mutate={state.mutate} onSelectProject={setOperationalProject} />;
 			case 'workflows':
 				return <WorkflowsPage overview={overview} token={state.token} />;
 			case 'jobs':
-				return <JobsApprovalsPage overview={overview} mutate={state.mutate} />;
+				return <JobsApprovalsPage overview={overview} token={state.token} mutate={state.mutate} />;
 			case 'agents':
 				return <AgentsPage overview={overview} runtimeProviders={state.runtimeProviders} mutate={state.mutate} />;
 			case 'workspaces':
@@ -481,7 +481,7 @@ export function App() {
 			case 'evidence':
 				return <EvidencePage overview={overview} token={state.token} />;
 			case 'models':
-				return <ModelGatewayPage overview={overview} runtimeProviders={state.runtimeProviders} token={state.token} />;
+				return <ModelGatewayPage overview={overview} runtimeProviders={state.runtimeProviders} token={state.token} onRefreshRuntimeProviders={() => state.refresh(true)} />;
 			case 'governance':
 				return <GovernancePage overview={overview} selectedProject={selectedProject} mutate={state.mutate} />;
 			case 'audit':

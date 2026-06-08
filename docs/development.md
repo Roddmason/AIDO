@@ -33,6 +33,14 @@ corepack pnpm@10.24.0 run smoke:runtime:preflight
 corepack pnpm@10.24.0 run quality
 ```
 
+`quality` runs the local PowerShell gate at `scripts/quality-local.ps1`. It
+executes the productive truth scanner, Python tests, Playwright web tests,
+frontend build, web typecheck when declared, lint when declared, and the
+architecture guardrails, followed by gitleaks and Semgrep. The scanner fails
+when productive code contains mock, fake, dummy, or internal mock runtime tokens
+outside tests/docs, when runtime providers hardcode `available=true`, or when
+`shell=True` appears outside controlled tests.
+
 `openapi:generate` is local-only and imports the FastAPI app directly; it does
 not fetch schemas over the network. There is no GitHub quality workflow in this
 repo; run the verification commands locally before pushing.
@@ -41,8 +49,8 @@ The frontend engine contract is Node >=24.16.0 <25.0.0. `node:use` should leave
 Playwright runs. Engine warnings mean the local shell is not honoring the repo
 runtime contract, even when a command happens to pass.
 `test:all` includes `typecheck:web`, the production web build, and Python tests.
-`quality` repeats `typecheck:web` as an explicit gate before the security scans
-so TypeScript contract drift is caught even when Vite can still transpile.
+`quality` is stricter than `test:all`: it also runs web tests, lint,
+architecture guardrails, security scans, and the productive truth scanner.
 
 Runtime adapter release validation is intentionally separate from local quality
 because it requires installed OpenHands/SWE-agent CLIs and explicit issue text
@@ -53,6 +61,21 @@ preflight before submitting brokered runtime smoke through the running server.
 These scripts write ignored JSON evidence under `.tmp/runtime-validation/`;
 keep those reports with release notes when validating optional external
 runtimes.
+
+## Real Capability Table
+
+| Capability | Real state | Endpoint/UI | Tests | Limitations |
+| --- | --- | --- | --- | --- |
+| Local quality command | Implemented as `corepack pnpm@10.24.0 run quality`. | `scripts/quality-local.ps1`. | Full local quality sequence when tooling is installed. | No GitHub Actions dependency; local machine must provide required CLIs and Node engine. |
+| Productive truth scanner | Implemented as required first quality step. | `scripts/productive-truth-scan.py`, `pnpm run quality:productive-truth`. | `tests_py/test_no_mock_productive_scanner.py`. | Allows prohibited terms in tests/docs/readmes only; product code fails. |
+| Architecture guardrails | Implemented as focused pytest script. | `pnpm run quality:architecture`. | `tests_py/test_real_readiness_architecture.py`, boundary/slice/web guardrails. | Guardrails are static/contract tests; they do not replace runtime smokes. |
+| Frontend validation | Implemented through Vite build, TypeScript check, and Playwright. | `build:control-center`, `typecheck:web`, `test:web`. | Playwright and TypeScript checks. | Playwright requires browser dependencies installed locally. |
+| Security validation | Implemented through gitleaks and Semgrep scripts. | `security:secrets`, `security:sast`. | Local commands and Semgrep rules. | These tools must be installed/resolvable in the developer environment. |
+
+Observed local caveat: this repository requires Node >=24.16.0 <25.0.0.
+Commands may still pass under another Node version, but that is not the
+documented runtime contract and should be fixed before treating local evidence
+as release-grade.
 
 ## Branch Protection
 
@@ -69,10 +92,12 @@ The repo includes a helper that creates or updates a repository ruleset for
 `refs/heads/*` while excluding `refs/heads/dev`, without required status checks:
 
 ```powershell
-local-control-center/scripts/protect-main-branch.ps1
+local-control-center/scripts/protect-repository-branches.ps1
 ```
 
 Use `-DryRun` to inspect the GitHub API payload before applying it.
+The legacy `protect-main-branch.ps1` wrapper is deprecated and scheduled for
+removal on 2026-09-01.
 
 ## Source Hygiene
 

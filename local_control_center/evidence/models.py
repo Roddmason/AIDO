@@ -5,7 +5,53 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 
-ArtifactKind = Literal["execution_log", "screenshot", "test_report", "qa_report", "generic_artifact"]
+ArtifactKind = Literal[
+    "execution_log",
+    "screenshot",
+    "test_report",
+    "qa_report",
+    "generic_artifact",
+    "git_patch",
+    "git_status",
+    "security_findings",
+    "model_call",
+    "evidence_manifest",
+    "devops_command_report",
+    "devops_report",
+    "security_report",
+    "cli_stdout",
+    "cli_stderr",
+    "cli_runtime_log",
+    "workspace_patch_manifest",
+]
+QAVerdict = Literal[
+    "not_started",
+    "passed",
+    "failed",
+    "blocked",
+    "needs_human_review",
+    "evidence_collected",
+    "architecture_reviewed",
+    "devops_risk",
+    "devops_blocked",
+    "security_passed",
+    "security_blocked",
+    "skipped_with_reason",
+]
+TestResultStatus = Literal[
+    "passed",
+    "failed",
+    "completed",
+    "denied",
+    "allowed",
+    "requires_approval",
+    "approval_required",
+    "blocked",
+    "skipped",
+    "skipped_with_reason",
+    "error",
+    "timed_out",
+]
 
 
 class ArtifactCleanupRequest(BaseModel):
@@ -38,7 +84,6 @@ class EvidenceCreateRequest(BaseModel):
     model: str | None = None
     runtime_type: str | None = Field(default=None, alias="runtimeType")
     role: str | None = None
-    job_id: str | None = Field(default=None, alias="jobId")
     usage_ledger_id: str | None = Field(default=None, alias="usageLedgerId")
     estimated_cost_usd: float | None = Field(default=None, alias="estimatedCostUsd")
     actual_cost_usd: float | None = Field(default=None, alias="actualCostUsd")
@@ -54,7 +99,14 @@ class EvidenceCreateRequest(BaseModel):
     risk_notes: list[Any] = Field(default_factory=list, alias="riskNotes")
     artifact_ids: list[str] = Field(default_factory=list, alias="artifactIds")
     diff_summary: dict[str, Any] = Field(default_factory=dict, alias="diffSummary")
-    qa_verdict: str = Field(default="not_started", alias="qaVerdict")
+    runtime_health: dict[str, Any] = Field(default_factory=dict, alias="runtimeHealth")
+    model_calls: list[dict[str, Any]] = Field(default_factory=list, alias="modelCalls")
+    tool_calls: list[dict[str, Any]] = Field(default_factory=list, alias="toolCalls")
+    policy_decisions: list[dict[str, Any]] = Field(default_factory=list, alias="policyDecisions")
+    approvals: list[dict[str, Any]] = Field(default_factory=list)
+    artifacts: list[dict[str, Any]] = Field(default_factory=list)
+    hashes: dict[str, str] = Field(default_factory=dict)
+    qa_verdict: QAVerdict = Field(default="not_started", alias="qaVerdict")
 
 
 class ArtifactIngestRequest(BaseModel):
@@ -68,13 +120,13 @@ class ArtifactIngestRequest(BaseModel):
 class EvidencePackageRecord(BaseModel):
     id: str
     project_id: str = Field(alias="projectId")
-    workflow_run_id: str | None = Field(default=None, alias="workflowRunId")
+    workflow_run_id: str | None = Field(alias="workflowRunId")
     workflow_step_id: str | None = Field(default=None, alias="workflowStepId")
     agent_id: str | None = Field(default=None, alias="agentId")
-    agent_run_id: str | None = Field(default=None, alias="agentRunId")
-    job_id: str | None = Field(default=None, alias="jobId")
-    workspace_id: str | None = Field(default=None, alias="workspaceId")
-    runtime_id: str | None = Field(default=None, alias="runtimeId")
+    agent_run_id: str | None = Field(alias="agentRunId")
+    job_id: str | None = Field(alias="jobId")
+    workspace_id: str | None = Field(alias="workspaceId")
+    runtime_id: str | None = Field(alias="runtimeId")
     task_id: str = Field(alias="taskId")
     test_plan: str = Field(alias="testPlan")
     acceptance_checklist: list[Any] = Field(alias="acceptanceChecklist")
@@ -84,8 +136,15 @@ class EvidencePackageRecord(BaseModel):
     screenshot_refs: list[Any] = Field(alias="screenshotRefs")
     risk_notes: list[Any] = Field(alias="riskNotes")
     artifact_ids: list[str] = Field(default_factory=list, alias="artifactIds")
-    diff_summary: dict[str, Any] = Field(default_factory=dict, alias="diffSummary")
-    qa_verdict: str = Field(alias="qaVerdict")
+    diff_summary: dict[str, Any] = Field(alias="diffSummary")
+    runtime_health: dict[str, Any] = Field(alias="runtimeHealth")
+    model_calls: list[dict[str, Any]] = Field(alias="modelCalls")
+    tool_calls: list[dict[str, Any]] = Field(alias="toolCalls")
+    policy_decisions: list[dict[str, Any]] = Field(alias="policyDecisions")
+    approvals: list[dict[str, Any]]
+    artifacts: list[dict[str, Any]]
+    hashes: dict[str, str]
+    qa_verdict: QAVerdict = Field(alias="qaVerdict")
     created_at: str = Field(alias="createdAt")
 
 
@@ -94,7 +153,7 @@ class TestResultRecord(BaseModel):
     project_id: str = Field(alias="projectId")
     evidence_package_id: str = Field(alias="evidencePackageId")
     command: str
-    status: str
+    status: TestResultStatus
     duration_ms: int | None = Field(default=None, alias="durationMs")
     output_ref: str | None = Field(default=None, alias="outputRef")
     metadata: dict[str, Any]
@@ -105,7 +164,7 @@ class ArtifactRecord(BaseModel):
     id: str
     project_id: str = Field(alias="projectId")
     evidence_package_id: str | None = Field(default=None, alias="evidencePackageId")
-    kind: str
+    kind: ArtifactKind
     path: str
     hash: str | None = None
     metadata: dict[str, Any]
@@ -121,7 +180,7 @@ class ExpiredArtifactRecord(BaseModel):
     id: str
     project_id: str = Field(alias="projectId")
     evidence_package_id: str | None = Field(default=None, alias="evidencePackageId")
-    kind: str
+    kind: ArtifactKind
     path: str
     hash: str | None = None
     metadata: dict[str, Any]
@@ -134,7 +193,7 @@ class ArtifactRetentionResultRecord(BaseModel):
     id: str
     project_id: str = Field(alias="projectId")
     evidence_package_id: str | None = Field(default=None, alias="evidencePackageId")
-    kind: str
+    kind: ArtifactKind
     path: str
     hash: str | None = None
     metadata: dict[str, Any]

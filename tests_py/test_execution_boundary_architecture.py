@@ -242,6 +242,162 @@ def test_qa_agent_command_policy_allows_only_low_risk_qa_commands() -> None:
     assert gated["decision"] == "requires_approval"
 
 
+def test_devops_agent_command_policy_is_agent_scoped() -> None:
+    decision = evaluate_action(
+        {
+            "tool": "shell",
+            "command": "corepack pnpm@10.24.0 run build",
+            "operation": "devops_agent_command",
+            "permissionProfile": "qa",
+            "agentId": "qa_agent",
+            "workspaceId": "workspace-test",
+            "workspacePath": "H:\\workspace",
+            "path": "H:\\workspace",
+            "agentRunId": "agent-run-test",
+        }
+    )
+
+    assert decision["decision"] == "deny"
+    assert "DevOpsAgent" in decision["reason"]
+
+
+def test_devops_agent_command_policy_allows_only_low_risk_local_validation() -> None:
+    allowed = evaluate_action(
+        {
+            "tool": "shell",
+            "command": "corepack pnpm@10.24.0 run build",
+            "operation": "devops_agent_command",
+            "permissionProfile": "qa",
+            "agentId": "devops_agent",
+            "workspaceId": "workspace-test",
+            "workspacePath": "H:\\workspace",
+            "path": "H:\\workspace",
+            "agentRunId": "agent-run-test",
+        }
+    )
+    gated = evaluate_action(
+        {
+            "tool": "shell",
+            "command": "corepack pnpm@10.24.0 run deploy",
+            "operation": "devops_agent_command",
+            "permissionProfile": "qa",
+            "agentId": "devops_agent",
+            "workspaceId": "workspace-test",
+            "workspacePath": "H:\\workspace",
+            "path": "H:\\workspace",
+            "agentRunId": "agent-run-test",
+        }
+    )
+
+    assert allowed["decision"] == "allow"
+    assert "devops_agent_command" in allowed["categories"]
+    assert gated["decision"] == "requires_approval"
+
+
+def test_architect_agent_model_call_policy_is_agent_scoped() -> None:
+    decision = evaluate_action(
+        {
+            "tool": "openai_compatible",
+            "operation": "architect_agent_model_call",
+            "permissionProfile": "plan",
+            "agentId": "developer_agent",
+            "workspaceId": "workspace-test",
+            "workspacePath": "H:\\workspace",
+            "path": "H:\\workspace",
+            "runtimeId": "openai_compatible",
+            "agentRunId": "agent-run-test",
+        }
+    )
+
+    assert decision["decision"] == "deny"
+    assert "ArchitectAgent" in decision["reason"]
+
+
+def test_architect_agent_model_call_policy_allows_only_scoped_model_runtime() -> None:
+    allowed = evaluate_action(
+        {
+            "tool": "openai_compatible",
+            "operation": "architect_agent_model_call",
+            "permissionProfile": "plan",
+            "agentId": "architect_agent",
+            "workspaceId": "workspace-test",
+            "workspacePath": "H:\\workspace",
+            "path": "H:\\workspace",
+            "runtimeId": "openai_compatible",
+            "agentRunId": "agent-run-test",
+        }
+    )
+    denied = evaluate_action(
+        {
+            "tool": "shell",
+            "operation": "architect_agent_model_call",
+            "permissionProfile": "plan",
+            "agentId": "architect_agent",
+            "workspaceId": "workspace-test",
+            "workspacePath": "H:\\workspace",
+            "path": "H:\\workspace",
+            "runtimeId": "codex_cli",
+            "agentRunId": "agent-run-test",
+        }
+    )
+
+    assert allowed["decision"] == "allow"
+    assert "architect_agent_model_call" in allowed["categories"]
+    assert denied["decision"] == "deny"
+
+
+def test_security_agent_model_call_policy_is_agent_scoped() -> None:
+    decision = evaluate_action(
+        {
+            "tool": "openai_compatible",
+            "operation": "security_agent_model_call",
+            "permissionProfile": "qa",
+            "agentId": "developer_agent",
+            "workspaceId": "workspace-test",
+            "workspacePath": "H:\\workspace",
+            "path": "H:\\workspace",
+            "runtimeId": "openai_compatible",
+            "agentRunId": "agent-run-test",
+        }
+    )
+
+    assert decision["decision"] == "deny"
+    assert "SecurityAgent" in decision["reason"]
+
+
+def test_security_agent_model_call_policy_allows_only_scoped_model_runtime() -> None:
+    allowed = evaluate_action(
+        {
+            "tool": "openai_compatible",
+            "operation": "security_agent_model_call",
+            "permissionProfile": "qa",
+            "agentId": "security_agent",
+            "workspaceId": "workspace-test",
+            "workspacePath": "H:\\workspace",
+            "path": "H:\\workspace",
+            "runtimeId": "openai_compatible",
+            "agentRunId": "agent-run-test",
+        }
+    )
+    denied = evaluate_action(
+        {
+            "tool": "shell",
+            "operation": "security_agent_model_call",
+            "permissionProfile": "qa",
+            "agentId": "security_agent",
+            "workspaceId": "workspace-test",
+            "workspacePath": "H:\\workspace",
+            "path": "H:\\workspace",
+            "runtimeId": "codex_cli",
+            "agentRunId": "agent-run-test",
+        }
+    )
+
+    assert allowed["decision"] == "allow"
+    assert "security_agent_model_call" in allowed["categories"]
+    assert denied["decision"] == "deny"
+
+
 def test_qa_agent_runner_uses_broker_not_direct_subprocess() -> None:
     source = (PRODUCT_ROOT / "agents" / "qa_agent.py").read_text(encoding="utf-8")
 
@@ -251,6 +407,52 @@ def test_qa_agent_runner_uses_broker_not_direct_subprocess() -> None:
     assert "os.system" not in source
     assert "RestrictedSubprocessSandbox" not in source
     assert ".chat_completion(" not in source
+
+
+def test_architect_agent_runner_uses_broker_not_direct_model_execution() -> None:
+    source = (PRODUCT_ROOT / "agents" / "architect_agent.py").read_text(encoding="utf-8")
+
+    assert "ToolBroker(" in source
+    assert "import subprocess" not in source
+    assert "subprocess.run" not in source
+    assert "os.system" not in source
+    assert "RestrictedSubprocessSandbox" not in source
+    assert "RuntimeAdapterRegistry(" not in source
+    assert ".chat_completion(" not in source
+    assert "urlopen" not in source
+
+
+def test_devops_agent_runner_uses_broker_not_direct_subprocess_or_docker_execution() -> None:
+    source = (PRODUCT_ROOT / "agents" / "devops_agent.py").read_text(encoding="utf-8")
+
+    assert "ToolBroker(" in source
+    assert "devops_agent_command" in source
+    assert "import subprocess" not in source
+    assert "subprocess.run" not in source
+    assert "os.system" not in source
+    assert "RestrictedSubprocessSandbox" not in source
+    assert ".execute(" not in source
+    assert ".execute_with_input(" not in source
+    assert ".chat_completion(" not in source
+    assert "urlopen" not in source
+
+
+def test_security_agent_runner_uses_deterministic_checks_and_brokered_optional_model_analysis() -> None:
+    source = (PRODUCT_ROOT / "agents" / "security_agent.py").read_text(encoding="utf-8")
+
+    assert "ToolBroker(" in source
+    assert "SECRET_PATTERNS" in source
+    assert "dependency_file_scan" in source
+    assert "path_traversal" in source
+    assert "dangerous_command" in source
+    assert "policy_violation" in source
+    assert "import subprocess" not in source
+    assert "subprocess.run" not in source
+    assert "os.system" not in source
+    assert "RestrictedSubprocessSandbox" not in source
+    assert "RuntimeAdapterRegistry(" not in source
+    assert ".chat_completion(" not in source
+    assert "urlopen" not in source
 
 
 def test_developer_agent_runner_uses_broker_not_direct_runtime_execution() -> None:

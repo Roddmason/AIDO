@@ -6,13 +6,17 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def _generated_type_line(content: str, type_name: str) -> str:
+    return next(line for line in content.splitlines() if line.startswith(f"export type {type_name} = "))
+
+
 def test_github_workflows_are_removed_and_branch_protection_is_explicit() -> None:
     workflows_dir = ROOT / ".github" / "workflows"
     if workflows_dir.exists():
         assert not list(workflows_dir.glob("*.yml"))
         assert not list(workflows_dir.glob("*.yaml"))
 
-    script = ROOT / "local-control-center" / "scripts" / "protect-main-branch.ps1"
+    script = ROOT / "local-control-center" / "scripts" / "protect-repository-branches.ps1"
     assert script.exists()
     content = script.read_text(encoding="utf-8")
     assert "/repos/$Owner/$Repo/rulesets" in content
@@ -28,6 +32,22 @@ def test_github_workflows_are_removed_and_branch_protection_is_explicit() -> Non
     assert "require_code_owner_review = $true" in content
     assert "required_status_checks" not in content
     assert '"type" = "non_fast_forward"' in content
+
+
+def test_legacy_branch_protection_script_is_warning_only_wrapper() -> None:
+    legacy_script = ROOT / "local-control-center" / "scripts" / "protect-main-branch.ps1"
+    replacement_script = ROOT / "local-control-center" / "scripts" / "protect-repository-branches.ps1"
+
+    assert legacy_script.exists()
+    assert replacement_script.exists()
+    content = legacy_script.read_text(encoding="utf-8")
+    assert "DEPRECATED" in content
+    assert "Removal date: 2026-09-01" in content
+    assert "protect-repository-branches.ps1" in content
+    assert "Write-Warning" in content
+    assert "/repos/$Owner/$Repo/rulesets" not in content
+    assert '"type" = "creation"' not in content
+    assert "required_approving_review_count" not in content
 
 
 def test_generated_openapi_client_is_checked_in_and_v1_only() -> None:
@@ -52,7 +72,6 @@ def test_generated_openapi_client_is_checked_in_and_v1_only() -> None:
     assert '"create_workflow_api_v1_workflows_post": WorkflowCreateRequest' in content
     assert '"start_workflow_api_v1_workflows__workflow_id__start_post": WorkflowStatusChangeRequest' in content
     assert '"upsert_agent_profile_api_v1_agent_profiles_post": AgentProfileUpsertRequest' in content
-    assert '"upsert_model_policy_api_v1_model_policies_post": ModelPolicyUpsertRequest' in content
     assert '"create_job_api_v1_jobs_post": JobCreateRequest' in content
     assert '"approve_action_api_v1_jobs__job_id__actions__action_id__approve_post": ApprovalReasonRequest' in content
     assert '"cancel_job_api_v1_jobs__job_id__cancel_post": OptionalReasonRequest' in content
@@ -82,11 +101,17 @@ def test_generated_openapi_client_is_checked_in_and_v1_only() -> None:
     assert '"create_agent_run_api_v1_agent_runs_post": AgentRunCreateRequest' in content
     assert '"overview_api_v1_model_gateway_overview_get": ModelGatewayOverviewResponse' in content
     assert '"list_providers_api_v1_model_gateway_providers_get": ProviderAccountsListResponse' in content
+    assert '"create_role_policy_api_v1_model_gateway_role_policies_post": RolePolicyUpsertRequest' in content
     assert '"route_preview_api_v1_model_gateway_route_preview_post": RoutingPreviewRequest' in content
     assert '"route_preview_api_v1_model_gateway_route_preview_post": RoutingPreviewResponse' in content
     assert '"route_execute_api_v1_model_gateway_route_execute_post": RouteExecuteResponse' in content
     assert "route_execute_mock" not in content
     assert "/api/v1/model-gateway/route/execute-mock" not in content
+    assert "list_model_providers_api_v1_model_providers_get" not in content
+    assert "list_model_policies_api_v1_model_policies_get" not in content
+    assert "upsert_model_policy_api_v1_model_policies_post" not in content
+    assert "/api/v1/model-providers" not in content
+    assert "/api/v1/model-policies" not in content
     assert '"list_benchmarks_api_v1_model_gateway_benchmarks_get": ModelBenchmarksListResponse' in content
     assert '"create_benchmark_outcome_api_v1_model_gateway_benchmark_outcomes_post": ModelBenchmarkOutcomeCreateRequest' in content
     assert '"sync_skills_api_v1_skills_sync_post": SkillsSyncRequest' in content
@@ -122,7 +147,7 @@ def test_generated_openapi_client_is_checked_in_and_v1_only() -> None:
     assert '"modelPolicyId"?: null | string' in content
     assert '"modelPolicyId"?: JsonValue | string' not in content
     assert 'ProjectResponse = { "auditEvent"?: AuditEventRecord | null; "project": ProjectRecord }' in content
-    assert '"permissionGrant"?: PermissionGrantRecord | null' in content
+    assert '"permissionGrant"?: ApprovalGrantRecord | null' in content
     assert 'export type SessionsListResponse = { "sessions": Array<SessionRecord> }' in content
     assert 'export type ChatsListResponse = { "chats": Array<ChatRecord> }' in content
     assert 'export type PipelinesListResponse = { "pipelines": Array<PipelineRecord> }' in content
@@ -154,6 +179,24 @@ def test_generated_openapi_client_is_checked_in_and_v1_only() -> None:
     assert 'ProjectsListResponse = { "projects": Array<ProjectRecord>' in content
     assert 'WorkspacesListResponse = { "workspaces": Array<WorkspaceRecord>' in content
     assert "export type EvidencePackageRecord" in content
+    evidence_line = next(line for line in content.splitlines() if line.startswith("export type EvidencePackageRecord = "))
+    for required_field in (
+        '"workflowRunId": null | string',
+        '"jobId": null | string',
+        '"agentRunId": null | string',
+        '"workspaceId": null | string',
+        '"runtimeId": null | string',
+        '"runtimeHealth": JsonObject',
+        '"modelCalls": Array<JsonObject>',
+        '"toolCalls": Array<JsonObject>',
+        '"policyDecisions": Array<JsonObject>',
+        '"approvals": Array<JsonObject>',
+        '"artifacts": Array<JsonObject>',
+        '"diffSummary": JsonObject',
+        '"hashes": JsonObject',
+        '"createdAt": string',
+    ):
+        assert required_field in evidence_line
     assert "export type TestResultRecord" in content
     assert "export type ArtifactRecord" in content
     assert 'EvidenceDetailResponse = { "artifacts": Array<ArtifactRecord>' in content
@@ -166,7 +209,6 @@ def test_generated_openapi_client_is_checked_in_and_v1_only() -> None:
     assert '"list_workflows_api_v1_workflows_get": WorkflowsListResponse' in content
     assert '"get_workflow_api_v1_workflows__workflow_id__get": WorkflowDetailResponse' in content
     assert '"list_agent_profiles_api_v1_agent_profiles_get": AgentProfilesListResponse' in content
-    assert '"list_model_policies_api_v1_model_policies_get": ModelPoliciesListResponse' in content
     assert '"list_workspaces_api_v1_workspaces_get": WorkspacesListResponse' in content
     assert "export type PromptTemplateRecord" in content
     assert 'PromptTemplatesListResponse = { "promptTemplates": Array<PromptTemplateRecord> }' in content
@@ -190,8 +232,17 @@ def test_generated_openapi_client_is_checked_in_and_v1_only() -> None:
     assert "export type ApiRuntimeProviderStatus" in content
     assert "export type RuntimeProviderStatus" in content
     assert "export type DeveloperAgentStatus" in content
+    assert "export type DevOpsAgentStatus" in content
+    assert "export type DevOpsAgentRunRequest" in content
+    assert "export type DevOpsAgentRunResponse" in content
     assert "export type QAAgentRunRequest" in content
     assert "export type QAAgentRunResponse" in content
+    assert "export type SecurityAgentStatus" in content
+    assert "export type SecurityAgentRunRequest" in content
+    assert "export type SecurityAgentRunResponse" in content
+    assert "export type ArchitectAgentStatus" in content
+    assert "export type ArchitectAgentRunRequest" in content
+    assert "export type ArchitectAgentRunResponse" in content
     assert (
         'RuntimeProvidersResponse = { "api": ApiRuntimeProviderStatus; '
         '"cli": CliRuntimeProviderStatus; "developerAgent": DeveloperAgentStatus; '
@@ -202,7 +253,13 @@ def test_generated_openapi_client_is_checked_in_and_v1_only() -> None:
     assert "export type IssueToPatchResponse" in content
     assert '"developer_agent_status_api_v1_agents_developer_status_get": DeveloperAgentStatusResponse' in content
     assert '"run_developer_agent_api_v1_agents_developer_runs_post": DeveloperAgentRunRequest' in content
+    assert '"devops_agent_status_api_v1_agents_devops_status_get": DevOpsAgentStatusResponse' in content
+    assert '"run_devops_agent_api_v1_agents_devops_runs_post": DevOpsAgentRunRequest' in content
     assert '"run_qa_agent_api_v1_agents_qa_runs_post": QAAgentRunRequest' in content
+    assert '"security_agent_status_api_v1_agents_security_status_get": SecurityAgentStatusResponse' in content
+    assert '"run_security_agent_api_v1_agents_security_runs_post": SecurityAgentRunRequest' in content
+    assert '"architect_agent_status_api_v1_agents_architect_status_get": ArchitectAgentStatusResponse' in content
+    assert '"run_architect_agent_api_v1_agents_architect_runs_post": ArchitectAgentRunRequest' in content
     assert "export type DockerSandboxStatus" in content
     assert "export type RestrictedSubprocessStatus" in content
     assert 'SandboxStatusResponse = { "docker": DockerSandboxStatus; "restrictedSubprocess": RestrictedSubprocessStatus }' in content
@@ -220,8 +277,73 @@ def test_generated_openapi_client_is_checked_in_and_v1_only() -> None:
     api_client = (ROOT / "local-control-center" / "web" / "src" / "api" / "client.ts").read_text(encoding="utf-8")
     assert "requestGeneratedOperation" in api_client
     assert "overview_api_v1_overview_get" in api_client
+    assert "getDevOpsAgentStatus" in api_client
+    assert "runDevOpsAgent" in api_client
     assert "run_qa_agent_api_v1_agents_qa_runs_post" in api_client
+    assert "getSecurityAgentStatus" in api_client
+    assert "runSecurityAgent" in api_client
+    assert "getArchitectAgentStatus" in api_client
+    assert "runArchitectAgent" in api_client
     assert '"/api/v1/overview"' not in api_client
+
+
+def test_generated_core_runtime_workflow_evidence_contracts_are_strict() -> None:
+    generated = ROOT / "local-control-center" / "web" / "src" / "api" / "generated" / "openapi.ts"
+    content = generated.read_text(encoding="utf-8")
+
+    runtime_provider = _generated_type_line(content, "RuntimeProviderStatus")
+    assert '"kind": "api" | "gateway" | "local" | "cli" | "manual"' in runtime_provider
+    assert '"kind": string' not in runtime_provider
+
+    action_request = _generated_type_line(content, "ActionRequestRecord")
+    assert '"status": "pending" | "approved" | "denied" | "expired"' in action_request
+    assert '"riskLevel": "low" | "medium" | "high" | "critical"' in action_request
+    assert '"status": string' not in action_request
+    assert '"riskLevel": string' not in action_request
+
+    approval_grant = _generated_type_line(content, "ApprovalGrantRecord")
+    assert '"status": "active" | "consumed" | "expired" | "revoked"' in approval_grant
+    assert '"status": string' not in approval_grant
+    assert 'PermissionGrantResponse = { "permissionGrant": ApprovalGrantRecord }' in content
+    assert '"permissionGrants": Array<ApprovalGrantRecord>' in content
+
+    agent_run = _generated_type_line(content, "AgentRunRecord")
+    assert '"status": "queued" | "running" | "completed" | "failed" | "blocked" | "runtime_unavailable"' in agent_run
+    assert '"status": string' not in agent_run
+    tool_call = _generated_type_line(content, "AgentToolCallRecord")
+    assert '"status": "pending" | "allowed" | "denied" | "requires_approval" | "approval_required"' in tool_call
+    assert '"status": string' not in tool_call
+    model_call = _generated_type_line(content, "ModelCallRecord")
+    assert '"status": "planned" | "completed" | "failed" | "blocked" | "unavailable"' in model_call
+    assert '"status": string' not in model_call
+
+    evidence_package = _generated_type_line(content, "EvidencePackageRecord")
+    assert '"qaVerdict": "not_started" | "passed" | "failed" | "blocked" | "needs_human_review"' in evidence_package
+    assert '"qaVerdict": string' not in evidence_package
+    evidence_create = _generated_type_line(content, "EvidenceCreateRequest")
+    assert '"qaVerdict"?: "not_started" | "passed" | "failed" | "blocked" | "needs_human_review"' in evidence_create
+    assert '"qaVerdict"?: string' not in evidence_create
+
+    artifact = _generated_type_line(content, "ArtifactRecord")
+    assert '"kind": "execution_log" | "screenshot" | "test_report" | "qa_report" | "generic_artifact"' in artifact
+    assert '"kind": string' not in artifact
+
+    workflow = _generated_type_line(content, "WorkflowRecord")
+    assert '"kind": "idea_to_pr" | "project_discovery" | "issue_to_patch"' in workflow
+    assert '"status": "queued" | "running" | "paused" | "completed" | "failed" | "cancelled"' in workflow
+    workflow_run = _generated_type_line(content, "WorkflowRunRecord")
+    assert '"status": "running" | "completed" | "failed" | "cancelled" | "runtime_unavailable"' in workflow_run
+    workflow_step = _generated_type_line(content, "WorkflowStepRecord")
+    assert '"riskLevel"?: "low" | "medium" | "high" | "critical" | null' in workflow_step
+    assert '"status": "pending" | "ready" | "running" | "completed" | "failed" | "blocked" | "skipped"' in workflow_step
+    assert "export type WorkflowRunDetail" in content
+    workflow_detail = _generated_type_line(content, "WorkflowDetailResponse")
+    assert '"workflowRunDetails"?: Array<WorkflowRunDetail>' in workflow_detail
+
+    api_client = (ROOT / "local-control-center" / "web" / "src" / "api" / "client.ts").read_text(encoding="utf-8")
+    assert "{ providers: Dictionary[] }" not in api_client
+    assert "{ overview: Dictionary }" not in api_client
+    assert "apiRequest<{ providers: Dictionary[] }>('/api/v1/runtime/provider-configuration'" not in api_client
 
 
 def test_openapi_generation_script_documents_no_network_dependency() -> None:

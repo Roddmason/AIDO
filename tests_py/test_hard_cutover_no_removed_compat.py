@@ -119,13 +119,54 @@ def test_v1_sessions_chats_pipelines_replace_workspace_state(tmp_path: Path) -> 
     assert client.get(removed_state_route).status_code == 404
 
 
+def test_removed_compatibility_routes_are_not_mounted(tmp_path: Path) -> None:
+    _store, _client, _headers = make_client(tmp_path)
+    app = _client.app
+    mounted_paths = {getattr(route, "path", "") for route in app.routes}
+    removed_routes = {
+        "/api/" + "state",
+        "/api/v1/model-gateway/route/" + "execute-mock",
+        "/api/v1/model-providers",
+        "/api/v1/model-policies",
+    }
+
+    assert mounted_paths.isdisjoint(removed_routes)
+    assert not any(("legacy" in path.lower() or "compat" in path.lower()) for path in mounted_paths)
+
+
+def test_frontend_source_does_not_call_removed_legacy_endpoints() -> None:
+    removed_literals = (
+        "/api/" + "state",
+        "/api/v1/model-gateway/route/" + "execute-mock",
+        "/api/v1/model-providers",
+        "/api/v1/model-policies",
+        "list_model_providers_api_v1_model_providers_get",
+        "list_model_policies_api_v1_model_policies_get",
+        "upsert_model_policy_api_v1_model_policies_post",
+        "createModelPolicy",
+        "route_" + "execute_mock",
+        "workspace" + "State",
+    )
+    offenders: list[str] = []
+    for path in (ROOT / "local-control-center" / "web" / "src").rglob("*"):
+        if not path.is_file() or path.suffix not in {".ts", ".tsx", ".js", ".jsx"}:
+            continue
+        source = path.read_text(encoding="utf-8")
+        if any(literal in source for literal in removed_literals):
+            offenders.append(str(path.relative_to(ROOT)))
+
+    assert offenders == []
+
+
 def test_hybrid_runtime_catalog_exposes_ollama_and_cli_api_modes(tmp_path: Path) -> None:
     _store, client, headers = make_client(tmp_path)
-    providers = client.get("/api/v1/model-providers").json()["modelProviders"]
+    assert client.get("/api/v1/model-providers").status_code == 404
+    assert client.get("/api/v1/model-policies").status_code == 404
+    providers = client.get("/api/v1/runtime/providers").json()["providers"]
     provider_ids = {provider["id"] for provider in providers}
-    assert {"ollama", "openai_compatible", "openrouter", "openai_agents", "cli_codex", "cli_claude", "manual"} <= provider_ids
+    assert {"ollama", "openai_compatible", "openrouter", "openai_api", "codex_cli", "claude_code_cli", "manual"} <= provider_ids
     manual_provider = next(provider for provider in providers if provider["id"] == "manual")
-    assert manual_provider["status"] != "available"
+    assert manual_provider["available"] is False
 
     runtime_status = client.get("/api/v1/runtime/providers").json()
     assert runtime_status["ollama"]["provider"] == "ollama"

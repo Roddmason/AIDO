@@ -189,15 +189,16 @@ def test_agent_and_model_configuration_endpoints_reject_invalid_catalog_values(t
     assert bad_profile.status_code == 422
 
     bad_policy = client.post(
-        "/api/v1/model-policies",
+        "/api/v1/model-gateway/role-policies",
         headers=headers,
         json={
             "id": "bad_policy",
-            "name": "Bad Policy",
+            "role": "bad_policy",
+            "routingProfileId": "balanced_best_value",
             "preferred": [{"provider": "unknown_provider", "model": "free-form"}],
             "fallback": [],
-            "maxCostUsd": -1,
-            "maxTokens": 1,
+            "maxCostPerTaskUsd": -1,
+            "maxTokensPerRun": 1,
             "allowRemote": True,
             "allowLocal": True,
         },

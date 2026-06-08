@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from local_control_center.agents.providers.base import UsageRecord
 from local_control_center.agents.cli_sessions import CliSessionStore
-from local_control_center.agents.model_gateway import redact_secrets
+from local_control_center.shared.redaction import redact_secrets
 from local_control_center.security_policy.policy_engine import evaluate_action
 from local_control_center.security_policy import sandbox as subprocess_sandbox
 

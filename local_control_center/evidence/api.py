@@ -4,7 +4,7 @@ import base64
 from collections.abc import Callable
 import hashlib
 from pathlib import Path
-from typing import Any
+from typing import Any, get_args
 import uuid
 
 from fastapi import APIRouter, HTTPException, Request
@@ -26,6 +26,7 @@ from .artifacts import (
 from .models import (
     ArtifactCleanupRequest,
     ArtifactCleanupResponse,
+    ArtifactKind,
     ArtifactIngestRequest,
     ArtifactResponse,
     ArtifactRetentionActionRequest,
@@ -45,7 +46,7 @@ from .test_results import TestReportError, normalize_test_result_reports
 
 def create_router(*, platform: Any, require_write: Callable[[Request], None]) -> APIRouter:
     router = APIRouter()
-    allowed_artifact_kinds = {"execution_log", "screenshot", "test_report", "qa_report", "generic_artifact"}
+    allowed_artifact_kinds = set(get_args(ArtifactKind))
     max_ingested_artifact_bytes = 2_000_000
 
     def repository() -> EvidenceRepository:
@@ -253,6 +254,29 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         )
         repo = repository()
         generated_artifact_ids = [artifact["id"] for artifact in [*log_artifacts, *screenshot_artifacts]]
+        generated_artifact_refs = [
+            {
+                "id": artifact["id"],
+                "kind": artifact["kind"],
+                "hash": artifact["hash"],
+                "name": (artifact.get("metadata") or {}).get("name") or artifact["id"],
+                "sizeBytes": (artifact.get("metadata") or {}).get("sizeBytes"),
+            }
+            for artifact in [*log_artifacts, *screenshot_artifacts]
+        ]
+        payload_artifacts = [
+            item for item in (payload.get("artifacts") or []) if isinstance(item, dict)
+        ]
+        payload_hashes = {
+            str(key): str(value)
+            for key, value in (payload.get("hashes") or {}).items()
+            if isinstance(value, str)
+        }
+        generated_hashes = {
+            str(artifact["id"]): str(artifact["hash"])
+            for artifact in [*log_artifacts, *screenshot_artifacts]
+            if artifact.get("hash")
+        }
         evidence = repo.create_evidence_package(
             project_id=payload["projectId"],
             workflow_run_id=payload.get("workflowRunId"),
@@ -272,6 +296,13 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             risk_notes=payload.get("riskNotes") or [],
             artifact_ids=[*(payload.get("artifactIds") or []), *generated_artifact_ids],
             diff_summary=payload.get("diffSummary") or {},
+            runtime_health=payload.get("runtimeHealth") or {},
+            model_calls=payload.get("modelCalls") or [],
+            tool_calls=payload.get("toolCalls") or [],
+            policy_decisions=payload.get("policyDecisions") or [],
+            approvals=payload.get("approvals") or [],
+            artifacts=[*payload_artifacts, *generated_artifact_refs],
+            hashes={**payload_hashes, **generated_hashes},
             qa_verdict=payload.get("qaVerdict", "not_started"),
         )
         for artifact in [*log_artifacts, *screenshot_artifacts]:

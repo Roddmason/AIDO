@@ -1,9 +1,9 @@
-import type { Dictionary } from '../../api/types';
+import type { ModelGatewayRoutingProfile } from '../../api/types';
 import { DataTable, EmptyState } from '../../components/primitives';
 import { PanelShell } from './PanelShell';
 import { boolLabel, text } from './utils';
 
-export function RoutingProfilesPanel({ routingProfiles }: { routingProfiles: Dictionary[] }) {
+export function RoutingProfilesPanel({ routingProfiles }: { routingProfiles: ModelGatewayRoutingProfile[] }) {
 	return (
 		<PanelShell title="Routing Profiles">
 			<DataTable rows={routingProfiles} empty={<EmptyState title="No routing profiles" body="Routing modes seed during startup." />} columns={[

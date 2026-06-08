@@ -77,6 +77,177 @@ async function createWorkflowEvidence(page) {
 	return { ...workflow, workflowRunId: started.workflowRun.id, evidenceId: evidencePackage.id, artifactName };
 }
 
+async function createAuditableEvidence(page, { emptyPatch = false, malformedPatch = false } = {}) {
+	const handshake = await page.request.get('/api/v1/security/handshake');
+	const { token } = await handshake.json();
+	const project = await getActiveProject(page);
+	const projectId = project.id;
+	const suffix = Date.now();
+	const workflowResponse = await page.request.post('/api/v1/workflows', {
+		headers: { 'X-Local-Control-Token': token },
+		data: {
+			projectId,
+			title: `Auditable evidence workflow ${suffix}`,
+		},
+	});
+	const { workflow } = await workflowResponse.json();
+	const startedResponse = await page.request.post(`/api/v1/workflows/${workflow.id}/start`, {
+		headers: { 'X-Local-Control-Token': token },
+		data: { reason: 'web evidence audit smoke' },
+	});
+	const started = await startedResponse.json();
+	const workspaceStep = started.workflowSteps.find((step) => step.name === 'workspace_create');
+	const workspaceResponse = await page.request.post('/api/v1/workspaces', {
+		headers: { 'X-Local-Control-Token': token },
+		data: {
+			projectId,
+			taskId: `web-evidence-audit-${suffix}`,
+			agentId: 'implementer',
+			workflowRunId: started.workflowRun.id,
+			workflowStepId: workspaceStep.id,
+			isolationType: 'git_worktree',
+		},
+	});
+	const { workspace } = await workspaceResponse.json();
+	const jobResponse = await page.request.post('/api/v1/jobs', {
+		headers: { 'X-Local-Control-Token': token },
+		data: {
+			projectId,
+			kind: 'workflow.qa',
+			workflowRunId: started.workflowRun.id,
+			payload: {
+				command: 'uv run pytest tests_web/control-center.spec.js',
+				workspaceId: workspace.id,
+			},
+			idempotencyKey: `web-evidence-audit-${suffix}`,
+		},
+	});
+	const { job } = await jobResponse.json();
+	const profileId = `web-evidence-profile-${suffix}`;
+	await page.request.post('/api/v1/agent-profiles', {
+		headers: { 'X-Local-Control-Token': token },
+		data: {
+			id: profileId,
+			name: 'Web Evidence Auditor',
+			role: 'qa',
+			runtimeMode: 'cli',
+			modelPolicyId: 'implementation_default',
+			permissionProfile: 'qa',
+			allowedTools: ['shell'],
+		},
+	});
+	const agentRunResponse = await page.request.post('/api/v1/agent-runs', {
+		headers: { 'X-Local-Control-Token': token },
+		data: {
+			projectId,
+			agentProfileId: profileId,
+			taskId: 'web-evidence-audit',
+			workflowRunId: started.workflowRun.id,
+			input: {
+				jobId: job.id,
+				workspaceId: workspace.id,
+			},
+		},
+	});
+	const { agentRun } = await agentRunResponse.json();
+	const secret = ['sk', 'websecret123456'].join('-');
+	const bearer = `Bearer ${'abcdefghijk123456789'}`;
+	const passwordSecret = ['hunter', '2'].join('');
+	const clientSecret = ['client', 'secret', 'value', suffix].join('-');
+	const privateKey = ['private', 'key', 'value', suffix].join('-');
+	const envApiKey = ['openai', 'key', suffix].join('-');
+	const evidenceResponse = await page.request.post('/api/v1/evidence', {
+		headers: { 'X-Local-Control-Token': token },
+		data: {
+			projectId,
+			workflowRunId: started.workflowRun.id,
+			agentId: 'qa_reviewer',
+			agentRunId: agentRun.id,
+			jobId: job.id,
+			workspaceId: workspace.id,
+			runtimeId: 'cli_codex',
+			taskId: 'web-evidence-audit',
+			testPlan: 'Run evidence detail viewer tests.',
+			qaVerdict: 'failed',
+			testResults: [{ command: 'uv run pytest tests_web/control-center.spec.js', status: 'failed', exitCode: 1, summary: 'patch viewer failed before implementation' }],
+			diffRefs: [{ kind: 'git_patch', name: 'diff.patch', files: ['local-control-center/web/src/features/pages.tsx'] }],
+			diffSummary: { filesChanged: emptyPatch ? 0 : 1, patchArtifact: 'diff.patch' },
+			runtimeHealth: { provider: 'cli_codex', available: true, executable: true, version: 'codex-test-runtime' },
+			modelCalls: [{
+				provider: 'openai',
+				model: 'gpt-audit',
+				status: 'completed',
+				metadata: {
+					apiKey: secret,
+					authorization: bearer,
+					clientSecret,
+					privateKey,
+					env: `OPENAI_API_KEY=${envApiKey}`,
+				},
+			}],
+			toolCalls: [{ tool: 'shell', status: 'completed', metadata: { command: `git diff -- token=${secret} password=${passwordSecret}`, workspace: workspace.path } }],
+			policyDecisions: [{ decision: 'allow', reason: 'QA evidence inspection' }],
+			approvals: [{ status: 'not_required', reason: 'viewer smoke' }],
+		},
+	});
+	const { evidencePackage } = await evidenceResponse.json();
+	const patchContent = emptyPatch ? '\n' : malformedPatch ? [
+		'not a unified diff',
+		'+export function EvidencePage({ token }) {',
+	].join('\n') : [
+		'diff --git a/local-control-center/web/src/features/pages.tsx b/local-control-center/web/src/features/pages.tsx',
+		'index 1111111..2222222 100644',
+		'--- a/local-control-center/web/src/features/pages.tsx',
+		'+++ b/local-control-center/web/src/features/pages.tsx',
+		'@@ -1,3 +1,3 @@',
+		'-export function EvidencePage() {',
+		'+export function EvidencePage({ token }) {',
+		' }',
+	].join('\n');
+	const patchResponse = await page.request.post(`/api/v1/evidence/${evidencePackage.id}/artifacts`, {
+		headers: { 'X-Local-Control-Token': token },
+		data: {
+			kind: 'generic_artifact',
+			name: 'diff.patch',
+			content: patchContent,
+			mimeType: 'text/x-patch',
+		},
+	});
+	const { artifact: patchArtifact } = await patchResponse.json();
+	await page.request.post(`/api/v1/evidence/${evidencePackage.id}/artifacts`, {
+		headers: { 'X-Local-Control-Token': token },
+		data: {
+			kind: 'generic_artifact',
+			name: 'security-findings.json',
+			content: JSON.stringify({ findings: [{ severity: 'high', title: 'hardcoded secret', evidence: secret, password: passwordSecret, client_secret: clientSecret }] }, null, 2),
+			mimeType: 'application/json',
+		},
+	});
+	await page.request.post(`/api/v1/evidence/${evidencePackage.id}/artifacts`, {
+		headers: { 'X-Local-Control-Token': token },
+		data: {
+			kind: 'generic_artifact',
+			name: 'model-call.json',
+			content: JSON.stringify({ model: 'gpt-audit', metadata: { apiKey: secret } }, null, 2),
+			mimeType: 'application/json',
+		},
+	});
+	return {
+		evidenceId: evidencePackage.id,
+		workflowRunId: started.workflowRun.id,
+		jobId: job.id,
+		agentRunId: agentRun.id,
+		workspaceId: workspace.id,
+		patchHash: patchArtifact.hash,
+		secret,
+		bearer,
+		passwordSecret,
+		clientSecret,
+		privateKey,
+		envApiKey,
+	};
+}
+
 async function createGovernanceState(page) {
 	const handshake = await page.request.get('/api/v1/security/handshake');
 	const { token } = await handshake.json();
@@ -249,17 +420,20 @@ async function createModelGatewayTrace(page) {
 			permissionProfile: 'dev_safe',
 		},
 	});
-	await page.request.post('/api/v1/model-policies', {
+	await page.request.post('/api/v1/model-gateway/role-policies', {
 		headers: { 'X-Local-Control-Token': token },
 		data: {
 			id: 'implementation_default',
-			name: 'Implementation Default',
+			role: 'implementer',
+			routingProfileId: 'balanced_best_value',
 			preferred: [{ provider: 'ollama', model: 'local_default' }],
 			fallback: [],
-			maxCostUsd: 1,
-			maxTokens: 4000,
+			maxCostPerTaskUsd: 1,
+			maxTokensPerRun: 4000,
 			allowRemote: false,
 			allowLocal: true,
+			allowCli: false,
+			allowApi: true,
 		},
 	});
 	await page.request.post('/api/v1/agent-runs', {
@@ -535,18 +709,18 @@ test('language control localizes Settings and New Project wizard chrome', async 
 test('language control localizes catalog-backed operational surfaces', async ({ page }) => {
 	await page.goto('/#command');
 	await expect(page.getByRole('heading', { name: 'Command Center' })).toBeVisible();
-	await expect(page.getByRole('heading', { name: 'Workflow intake' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'issue_to_patch real runtime' })).toBeVisible();
 
 	await page.getByRole('button', { name: 'ES', exact: true }).click();
 
 	await expect(page.locator('html')).toHaveAttribute('lang', 'es');
 	await expect(page.getByRole('heading', { name: 'Centro de comandos' })).toBeVisible();
-	await expect(page.getByRole('heading', { name: 'Ingreso de workflow' })).toBeVisible();
-	await expect(page.getByRole('heading', { name: 'Workflow intake' })).toHaveCount(0);
+	await expect(page.getByRole('heading', { name: 'runtime real issue_to_patch' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'issue_to_patch real runtime' })).toHaveCount(0);
 
 	await page.getByRole('button', { name: 'EN', exact: true }).click();
 	await expect(page.locator('html')).toHaveAttribute('lang', 'en');
-	await expect(page.getByRole('heading', { name: 'Workflow intake' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'issue_to_patch real runtime' })).toBeVisible();
 });
 
 test('New Project wizard uses IDE workspace import and blocks duplicate workspace names', async ({ page }) => {
@@ -625,15 +799,26 @@ test('shell renders the editorial control plane', async ({ page }) => {
 	await expect(page.getByText('AIDO Control Center')).toBeVisible();
 });
 
-test('Jobs/Approvals shows queue, pending actions and buttons', async ({ page }) => {
+test('Jobs/Approvals requires contextual review before action decision', async ({ page }) => {
 	await createApprovalJob(page);
 	await page.goto('/#jobs');
 	await page.getByRole('button', { name: 'Jobs & Approvals' }).click();
 
 	await expect(page.getByRole('heading', { name: 'Jobs & Approvals' })).toBeVisible();
 	await expect(page.getByText('pipeline.start').first()).toBeVisible();
-	await expect(page.getByRole('button', { name: 'Approve action' }).first()).toBeVisible();
-	await expect(page.getByRole('button', { name: 'Deny' }).first()).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Review request' }).first()).toBeVisible();
+	await page.getByRole('button', { name: 'Review request' }).first().click();
+	const review = page.getByRole('dialog', { name: 'Action request review' });
+	await expect(review).toBeVisible();
+	await expect(review.getByRole('table', { name: 'Action request scope' })).toBeVisible();
+	await expect(review.getByText('Argv')).toBeVisible();
+	await expect(review.getByLabel('Human decision reason')).toBeVisible();
+	await expect(review.getByRole('button', { name: 'Approve' })).toBeDisabled();
+	await expect(review.getByRole('button', { name: 'Reject' })).toBeDisabled();
+	await review.getByLabel('Human decision reason').fill('Reviewed command scope and recorded evidence context.');
+	await expect(review.getByRole('button', { name: 'Approve' })).toBeEnabled();
+	await expect(review.getByRole('button', { name: 'Reject' })).toBeEnabled();
+	await page.keyboard.press('Escape');
 	await page.getByRole('button', { name: 'Open approvals drawer' }).click();
 	await expect(page.getByRole('dialog', { name: 'Approval drawer' })).toBeVisible();
 	await expect(page.getByText('pipeline.start').first()).toBeVisible();
@@ -744,6 +929,66 @@ test('Evidence and QA previews token-protected artifacts', async ({ page }) => {
 	await expect(page.getByRole('button', { name: `Download artifact ${workflow.artifactName}` })).toBeVisible();
 });
 
+test('Evidence and QA renders auditable evidence detail with diff and redacted metadata', async ({ page }) => {
+	const evidence = await createAuditableEvidence(page);
+	await page.goto('/#evidence');
+	await page.getByRole('button', { name: 'Evidence & QA' }).click();
+
+	await page.getByRole('button', { name: `View evidence package ${evidence.evidenceId}` }).click();
+
+	await expect(page.getByRole('heading', { name: 'Evidence detail' })).toBeVisible();
+	await expect(page.getByText(evidence.evidenceId).first()).toBeVisible();
+	await expect(page.getByRole('link', { name: `Workflow ${evidence.workflowRunId}` })).toBeVisible();
+	await expect(page.getByRole('link', { name: `Job ${evidence.jobId}` })).toBeVisible();
+	await expect(page.getByRole('link', { name: `Agent run ${evidence.agentRunId}` })).toBeVisible();
+	await expect(page.getByText(evidence.workspaceId).first()).toBeVisible();
+	await expect(page.getByText('failed').first()).toBeVisible();
+	await expect(page.getByText(evidence.patchHash).first()).toBeVisible();
+	await expect(page.getByText('diff.patch').first()).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Diff viewer' })).toBeVisible();
+	await expect(page.getByText('diff --git a/local-control-center/web/src/features/pages.tsx')).toBeVisible();
+	await expect(page.getByText('+export function EvidencePage({ token }) {')).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Security findings' })).toBeVisible();
+	await expect(page.getByText('hardcoded secret')).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Model and tool calls' })).toBeVisible();
+	await expect(page.getByText('gpt-audit')).toBeVisible();
+	await expect(page.getByText('shell')).toBeVisible();
+	await expect(page.getByText('[redacted]').first()).toBeVisible();
+	await expect(page.locator('body')).not.toContainText(evidence.secret);
+	await expect(page.locator('body')).not.toContainText(evidence.bearer);
+	await expect(page.locator('body')).not.toContainText(evidence.passwordSecret);
+	await expect(page.locator('body')).not.toContainText(evidence.clientSecret);
+	await expect(page.locator('body')).not.toContainText(evidence.privateKey);
+	await expect(page.locator('body')).not.toContainText(evidence.envApiKey);
+	await expect(page.getByRole('button', { name: 'Download artifact diff.patch' }).first()).toBeVisible();
+});
+
+test('Evidence and QA marks empty patch artifacts as no real changes', async ({ page }) => {
+	const evidence = await createAuditableEvidence(page, { emptyPatch: true });
+	await page.goto('/#evidence');
+	await page.getByRole('button', { name: 'Evidence & QA' }).click();
+
+	await page.getByRole('button', { name: `View evidence package ${evidence.evidenceId}` }).click();
+
+	await expect(page.getByRole('heading', { name: 'Diff viewer' })).toBeVisible();
+	await expect(page.getByText('Patch artifact is empty; no changes are proven.')).toBeVisible();
+	await expect(page.getByText('no real changes')).toBeVisible();
+	await expect(page.getByText('changed files 0').first()).toBeVisible();
+});
+
+test('Evidence and QA does not treat malformed patch lines as real changes', async ({ page }) => {
+	const evidence = await createAuditableEvidence(page, { malformedPatch: true });
+	await page.goto('/#evidence');
+	await page.getByRole('button', { name: 'Evidence & QA' }).click();
+
+	await page.getByRole('button', { name: `View evidence package ${evidence.evidenceId}` }).click();
+
+	await expect(page.getByRole('heading', { name: 'Diff viewer' })).toBeVisible();
+	await expect(page.getByText('+export function EvidencePage({ token }) {')).toBeVisible();
+	await expect(page.getByText('no real changes')).toBeVisible();
+	await expect(page.getByText('real changes', { exact: true })).toHaveCount(0);
+});
+
 test('Governance shows architecture decisions, risks and next steps', async ({ page }) => {
 	const governance = await createGovernanceState(page);
 	await page.goto('/#governance');
@@ -829,17 +1074,17 @@ test('Model Gateway renders model calls and cost ledger without synthetic runtim
 	await page.goto('/#models');
 	await page.getByRole('button', { name: 'Model Gateway' }).click();
 
-	await expect(page.getByRole('heading', { name: 'Model Gateway' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Model Gateway', exact: true })).toBeVisible();
 	await expect(page.getByRole('heading', { name: 'Model calls' })).toBeVisible();
 	await expect(page.getByText('Cost ledger')).toBeVisible();
-	await expect(page.getByText('No model calls')).toBeVisible();
+	await expect(page.locator('body')).not.toContainText('internal_mock');
 });
 
 test('Model Gateway console renders provider catalog routing usage budgets and CLI sessions', async ({ page }) => {
 	await page.goto('/#models');
 	await page.getByRole('button', { name: 'Model Gateway' }).click();
 
-	await expect(page.getByRole('heading', { name: 'Model Gateway' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Model Gateway', exact: true })).toBeVisible();
 	await expect(page.getByRole('heading', { name: 'Overview' })).toBeVisible();
 	await expect(page.getByRole('heading', { name: 'Provider Accounts' })).toBeVisible();
 	await expect(page.getByRole('heading', { name: 'Model Catalog' })).toBeVisible();
@@ -883,25 +1128,350 @@ test('Runtime provider tables report unavailable states honestly', async ({ page
 	await expect(page.getByText('not executable').first()).toBeVisible();
 });
 
-test('Command Center surfaces issue_to_patch runtime unavailability reason', async ({ page }) => {
+function runtimeProvidersFixture(providers) {
+	return {
+		runtimeModes: ['api', 'cli', 'ollama', 'hybrid', 'manual'],
+		providers,
+		api: { available: false, configured: false, executable: false, reason: 'No API runtime configured.' },
+		cli: { available: false, configured: false, executable: false, reason: 'No executable CLI runtime configured.' },
+		ollama: { available: false, configured: false, executable: false, models: [], reason: 'Ollama endpoint is not configured.' },
+		developerAgent: { available: false, configured: false, executable: false, reason: 'Developer agent runtime is not configured.' },
+	};
+}
+
+function runtimeProviderConfigurationFixture(providers) {
+	return { providers };
+}
+
+test('Runtime & Model Gateway shows missing config without marking provider ready', async ({ page }) => {
+	await page.route('/api/v1/runtime/providers', async (route) => {
+		await route.fulfill({
+			json: runtimeProvidersFixture([
+				{
+					id: 'codex_cli',
+					displayName: 'Codex CLI',
+					kind: 'cli',
+					configured: false,
+					available: false,
+					executable: false,
+					detected: false,
+					reason: 'Missing required runtime configuration: command.',
+					capabilities: ['issue_to_patch', 'code_edit'],
+					requiredConfiguration: ['command'],
+					version: null,
+					detectedCommand: null,
+				},
+			]),
+		});
+	});
+	await page.route('/api/v1/runtime/provider-configuration', async (route) => {
+		await route.fulfill({
+			json: runtimeProviderConfigurationFixture([
+				{
+					id: 'codex_cli',
+					kind: 'cli',
+					configured: false,
+					status: 'missing_config',
+					missing: ['AIDO_CODEX_COMMAND'],
+					reason: 'Missing required runtime configuration: AIDO_CODEX_COMMAND.',
+					variables: [{ name: 'AIDO_CODEX_COMMAND', configured: false, fingerprint: null }],
+				},
+			]),
+		});
+	});
+	await page.goto('/#models');
+	await page.getByRole('button', { name: 'Model Gateway' }).click();
+
+	await expect(page.getByRole('heading', { name: 'Runtime & Model Gateway' })).toBeVisible();
+	const row = page.getByRole('row', { name: /codex_cli/ }).first();
+	await expect(row).toContainText('missing_config');
+	await expect(row).toContainText('AIDO_CODEX_COMMAND');
+	await expect(row).toContainText('not configured');
+	await expect(row).toContainText('not available');
+	await expect(row).toContainText('not executable');
+	await expect(row).not.toContainText('Ready');
+});
+
+test('Runtime & Model Gateway shows CLI not detected as separate state', async ({ page }) => {
+	await page.route('/api/v1/runtime/providers', async (route) => {
+		await route.fulfill({
+			json: runtimeProvidersFixture([
+				{
+					id: 'codex_cli',
+					displayName: 'Codex CLI',
+					kind: 'cli',
+					configured: true,
+					available: false,
+					executable: false,
+					detected: false,
+					reason: 'CLI runtime was not detected.',
+					capabilities: ['issue_to_patch'],
+					requiredConfiguration: ['command'],
+					version: null,
+					detectedCommand: null,
+				},
+			]),
+		});
+	});
+	await page.goto('/#models');
+	await page.getByRole('button', { name: 'Model Gateway' }).click();
+
+	await expect(page.getByRole('columnheader', { name: 'Detected', exact: true })).toBeVisible();
+	await expect(page.getByRole('columnheader', { name: 'Configured', exact: true })).toBeVisible();
+	await expect(page.getByRole('columnheader', { name: 'Available', exact: true })).toBeVisible();
+	await expect(page.getByRole('columnheader', { name: 'Executable', exact: true })).toBeVisible();
+	const row = page.getByRole('row', { name: /codex_cli/ }).first();
+	await expect(row).toContainText('not detected');
+	await expect(row).toContainText('configured');
+	await expect(row).toContainText('not available');
+	await expect(row).toContainText('not executable');
+});
+
+test('Runtime & Model Gateway does not render provider secrets', async ({ page }) => {
+	await page.route('/api/v1/runtime/providers', async (route) => {
+		await route.fulfill({
+			json: runtimeProvidersFixture([
+				{
+					id: 'openai_compatible',
+					displayName: 'OpenAI Compatible',
+					kind: 'api',
+					configured: false,
+					available: false,
+					executable: false,
+					detected: false,
+					reason: 'Provider credential is missing for sk-web-secret-runtime-123456.',
+					capabilities: ['chat'],
+					requiredConfiguration: ['baseUrl', 'apiKey', 'model'],
+					version: null,
+					detectedCommand: null,
+				},
+			]),
+		});
+	});
+	await page.route('/api/v1/runtime/provider-configuration', async (route) => {
+		await route.fulfill({
+			json: runtimeProviderConfigurationFixture([
+				{
+					id: 'openai_compatible',
+					kind: 'api',
+					configured: false,
+					status: 'missing_config',
+					missing: ['AIDO_OPENAI_COMPATIBLE_API_KEY'],
+					reason: 'API key is missing.',
+					variables: [{ name: 'AIDO_OPENAI_COMPATIBLE_API_KEY', configured: true, fingerprint: 'sha256:abcd1234' }],
+				},
+			]),
+		});
+	});
+	await page.goto('/#models');
+	await page.getByRole('button', { name: 'Model Gateway' }).click();
+
+	await expect(page.locator('body')).not.toContainText('sk-web-secret-runtime');
+	await expect(page.locator('body')).not.toContainText('Bearer ');
+	await expect(page.getByText('[redacted_secret]').first()).toBeVisible();
+	await expect(page.getByText('AIDO_OPENAI_COMPATIBLE_API_KEY').first()).toBeVisible();
+});
+
+test('Runtime & Model Gateway refreshes CLI healthcheck through backend endpoint', async ({ page }) => {
+	let detectCalled = false;
+	await page.route('/api/v1/runtime/providers', async (route) => {
+		await route.fulfill({
+			json: runtimeProvidersFixture([
+				{
+					id: 'codex_cli',
+					displayName: 'Codex CLI',
+					kind: 'cli',
+					configured: true,
+					available: false,
+					executable: false,
+					detected: false,
+					reason: 'CLI runtime was not detected.',
+					capabilities: ['issue_to_patch'],
+					requiredConfiguration: ['command'],
+					version: null,
+					detectedCommand: null,
+				},
+			]),
+		});
+	});
+	await page.route('/api/v1/model-gateway/cli-runtimes/codex_cli/detect', async (route) => {
+		detectCalled = true;
+		await route.fulfill({ json: { detection: { runtime: 'codex_cli', status: 'missing', message: 'CLI runtime was not detected.' } } });
+	});
+	await page.goto('/#models');
+	await page.getByRole('button', { name: 'Model Gateway' }).click();
+
+	await page.getByRole('button', { name: 'Refresh healthcheck for codex_cli' }).click();
+	await expect.poll(() => detectCalled).toBe(true);
+});
+
+test('Command Center blocks issue_to_patch when no executable runtime exists', async ({ page }) => {
+	const blockReason = 'No executable issue_to_patch/code_edit runtime is configured.';
+	await page.route('/api/v1/runtime/providers', async (route) => {
+		await route.fulfill({
+			json: runtimeProvidersFixture([
+				{
+					id: 'manual',
+					displayName: 'Manual operator',
+					kind: 'manual',
+					configured: true,
+					available: false,
+					executable: false,
+					detected: false,
+					reason: 'Manual operator path is configured but is not an automated available or executable runtime.',
+					capabilities: ['manual'],
+					requiredConfiguration: [],
+				},
+				{
+					id: 'codex_cli',
+					displayName: 'Codex CLI',
+					kind: 'cli',
+					configured: false,
+					available: false,
+					executable: false,
+					detected: false,
+					reason: blockReason,
+					capabilities: ['issue_to_patch', 'code_edit'],
+					requiredConfiguration: ['AIDO_CODEX_COMMAND'],
+				},
+				{
+					id: 'internal_mock',
+					displayName: 'Internal mock',
+					kind: 'test',
+					configured: true,
+					available: true,
+					executable: true,
+					detected: true,
+					reason: 'Test runtime must not be product selectable.',
+					capabilities: ['issue_to_patch'],
+					requiredConfiguration: [],
+				},
+			]),
+		});
+	});
 	await page.goto('/#command');
 	await page.getByRole('button', { name: 'Command Center' }).click();
 
 	await page.getByLabel('Issue title').fill(`Web issue_to_patch ${Date.now()}`);
 	await page.getByLabel('Issue text').fill('Change a small file through the real runtime slice.');
-	await page.getByLabel('Preferred runtime').selectOption('manual');
-	await expect(page.getByText('Manual runtime creates approval/operator work; it does not generate patches.')).toBeVisible();
-	await page.getByLabel('QA preset').selectOption('none');
-	await expect(page.getByText('qa_not_selected')).toBeVisible();
+	await expect(page.getByText('runtime_unavailable').first()).toBeVisible();
+	await expect(page.getByText(blockReason)).toBeVisible();
+	await expect(page.getByLabel('Preferred runtime')).toBeDisabled();
+	await expect(page.getByLabel('Preferred runtime')).not.toContainText('manual');
+	await expect(page.getByLabel('Preferred runtime')).not.toContainText('internal_mock');
 	await expect(page.getByRole('button', { name: 'Run issue_to_patch' })).toBeDisabled();
-	await page.getByLabel('QA preset').selectOption('python-tests');
-	await page.getByRole('button', { name: 'Run issue_to_patch' }).click();
+});
 
-	const result = page.locator('div[aria-live="polite"]').filter({ hasText: 'Manual runtime creates approval/operator work; it does not generate patches.' });
+test('Command Center enables issue_to_patch only with an executable runtime', async ({ page }) => {
+	await page.route('/api/v1/runtime/providers', async (route) => {
+		await route.fulfill({
+			json: runtimeProvidersFixture([
+				{
+					id: 'manual',
+					displayName: 'Manual operator',
+					kind: 'manual',
+					configured: true,
+					available: false,
+					executable: false,
+					detected: false,
+					reason: 'Manual operator path is configured but is not an automated available or executable runtime.',
+					capabilities: ['manual'],
+					requiredConfiguration: [],
+				},
+				{
+					id: 'codex_cli',
+					displayName: 'Codex CLI',
+					kind: 'cli',
+					configured: true,
+					available: true,
+					executable: true,
+					detected: true,
+					reason: 'Codex CLI healthcheck passed.',
+					capabilities: ['issue_to_patch', 'code_edit'],
+					requiredConfiguration: [],
+				},
+				{
+					id: 'internal_mock',
+					displayName: 'Internal mock',
+					kind: 'test',
+					configured: true,
+					available: true,
+					executable: true,
+					detected: true,
+					reason: 'Test runtime must not be product selectable.',
+					capabilities: ['issue_to_patch'],
+					requiredConfiguration: [],
+				},
+			]),
+		});
+	});
+	await page.goto('/#command');
+	await page.getByRole('button', { name: 'Command Center' }).click();
+
+	await expect(page.getByLabel('Preferred runtime')).toBeEnabled();
+	await expect(page.getByLabel('Preferred runtime')).toContainText('codex_cli - executable');
+	await expect(page.getByLabel('Preferred runtime')).not.toContainText('manual');
+	await expect(page.getByLabel('Preferred runtime')).not.toContainText('internal_mock');
+	await page.getByLabel('Issue title').fill(`Web issue_to_patch ${Date.now()}`);
+	await page.getByLabel('Issue text').fill('Change a small file through the real runtime slice.');
+	await expect(page.getByRole('button', { name: 'Run issue_to_patch' })).toBeEnabled();
+});
+
+test('Command Center surfaces runtime_unavailable status honestly', async ({ page }) => {
+	const runtimeUnavailableReason = 'Executable runtime failed its launch healthcheck.';
+	await page.route('/api/v1/runtime/providers', async (route) => {
+		await route.fulfill({
+			json: runtimeProvidersFixture([
+				{
+					id: 'codex_cli',
+					displayName: 'Codex CLI',
+					kind: 'cli',
+					configured: true,
+					available: true,
+					executable: true,
+					detected: true,
+					reason: 'Codex CLI healthcheck passed.',
+					capabilities: ['issue_to_patch', 'code_edit'],
+					requiredConfiguration: [],
+				},
+			]),
+		});
+	});
+	await page.route('/api/v1/workflows/issue-to-patch', async (route) => {
+		await route.fulfill({
+			json: {
+				status: 'runtime_unavailable',
+				reason: runtimeUnavailableReason,
+				workflow: { id: 'wf-web-runtime-unavailable', title: 'Runtime unavailable', kind: 'issue_to_patch', status: 'failed' },
+				workflowRun: { id: 'run-web-runtime-unavailable', status: 'failed' },
+				workflowSteps: [],
+				job: { id: 'job-web-runtime-unavailable', status: 'failed' },
+				workspace: { id: 'workspace-web-runtime-unavailable', status: 'allocated' },
+				runtime: { id: 'codex_cli', executable: false, reason: runtimeUnavailableReason },
+				runtimeResult: {},
+				agentRun: { id: 'agent-run-web-runtime-unavailable', status: 'failed' },
+				qaResults: [],
+				evidencePackage: { id: 'evidence-web-runtime-unavailable' },
+				diffSummary: { changedFiles: 0, artifacts: [] },
+			},
+		});
+	});
+	await page.goto('/#command');
+	await page.getByRole('button', { name: 'Command Center' }).click();
+
+	await page.getByLabel('Issue title').fill(`Web issue_to_patch ${Date.now()}`);
+	await page.getByLabel('Issue text').fill('Change a small file through the real runtime slice.');
+	await page.getByRole('button', { name: 'Run issue_to_patch' }).click();
+	await expect(page.getByRole('button', { name: 'Run issue_to_patch' })).toBeEnabled({ timeout: 60_000 });
+
+	const result = page.locator('div[aria-live="polite"]').filter({ hasText: runtimeUnavailableReason });
 	await expect(result).toBeVisible();
-	await expect(result).toContainText('unavailable');
-	await expect(result).toContainText('Manual runtime creates approval/operator work; it does not generate patches.');
+	await expect(result).toContainText('runtime_unavailable');
+	await expect(result).toContainText(runtimeUnavailableReason);
 	await expect(result).toContainText(/Evidence .* changed files 0/);
+	const timeline = page.getByLabel('issue_to_patch timeline');
+	await expect(timeline).toContainText('runtime_selected');
+	await expect(timeline).toContainText('failed');
 });
 
 test('Model Gateway route preview submits request without exposing credentials', async ({ page }) => {
@@ -990,18 +1560,17 @@ test('strict operational forms cover workflows governance sandbox and MCP settin
 	await page.goto('/#command');
 	await page.getByRole('button', { name: 'Command Center' }).click();
 
-	await expect(page.getByLabel('Workflow title')).toBeVisible();
+	await expect(page.getByLabel('Project', { exact: true })).toBeVisible();
+	await expect(page.getByLabel('Issue title')).toBeVisible();
+	await expect(page.getByLabel('Issue text')).toBeVisible();
+	await expect(page.getByLabel('Preferred runtime')).not.toContainText('internal_mock');
 	await expect(page.locator('textarea[data-json-editor="true"]')).toHaveCount(0);
-	await page.getByLabel('Workflow title').fill('');
-	await page.getByRole('button', { name: 'Create workflow' }).click();
-	await expect(page.getByText('Workflow title is required.')).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Run issue_to_patch' })).toBeDisabled();
+	await page.getByLabel('QA preset').selectOption('none');
+	await expect(page.getByText('qa_not_selected')).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Run issue_to_patch' })).toBeDisabled();
 
 	const suffix = Date.now();
-	const workflowTitle = `Strict workflow ${suffix}`;
-	await page.getByLabel('Workflow title').fill(workflowTitle);
-	await page.getByLabel('Workflow kind').selectOption('idea_to_pr');
-	await page.getByRole('button', { name: 'Create workflow' }).click();
-	await expect(page.getByText(workflowTitle)).toBeVisible();
 
 	await page.getByRole('button', { name: 'Governance' }).click();
 	await expect(page.getByLabel('Risk title')).toBeVisible();

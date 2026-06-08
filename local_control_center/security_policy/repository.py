@@ -9,7 +9,10 @@ from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.serialization import json_dumps, json_loads
 from local_control_center.shared.telemetry import record_policy_decision
 
-from local_control_center.shared.time import utc_now
+from local_control_center.shared.time import add_millis, utc_now
+
+
+GRANT_TTL_MS = 24 * 60 * 60 * 1000
 
 
 def row_to_policy(row: sqlite3.Row) -> dict[str, Any]:
@@ -42,6 +45,11 @@ def row_to_decision(row: sqlite3.Row) -> dict[str, Any]:
 
 
 def row_to_grant(row: sqlite3.Row) -> dict[str, Any]:
+    payload = json_loads(row["payload"])
+    row_keys = set(row.keys())
+    command_argv = json_loads(row["command_argv"], []) if "command_argv" in row_keys else payload.get("commandArgv", [])
+    if not isinstance(command_argv, list):
+        command_argv = []
     return {
         "id": row["id"],
         "projectId": row["project_id"],
@@ -51,9 +59,13 @@ def row_to_grant(row: sqlite3.Row) -> dict[str, Any]:
         "agentId": row["agent_id"],
         "tool": row["tool"],
         "command": row["command"],
+        "commandArgv": [str(item) for item in command_argv],
+        "workspaceId": row["workspace_id"] if "workspace_id" in row_keys else payload.get("workspaceId"),
+        "runtimeId": row["runtime_id"] if "runtime_id" in row_keys else payload.get("runtimeId"),
         "path": row["path"],
         "status": row["status"],
         "reason": row["reason"],
+        "expiresAt": row["expires_at"] if "expires_at" in row_keys else payload.get("expiresAt"),
         "grantedBy": row["granted_by"],
         "grantedAt": row["granted_at"],
         "consumedAt": row["consumed_at"],
@@ -61,7 +73,7 @@ def row_to_grant(row: sqlite3.Row) -> dict[str, Any]:
         "revokedAt": row["revoked_at"],
         "revokedBy": row["revoked_by"],
         "revokeReason": row["revoke_reason"],
-        "payload": json_loads(row["payload"]),
+        "payload": payload,
     }
 
 
@@ -106,12 +118,20 @@ def changed_fields(previous: dict[str, Any], updated: dict[str, Any]) -> list[st
 
 
 def _paths_match(left: str | None, right: str | None) -> bool:
-    if not left or not right:
+    if not left:
         return True
+    if not right:
+        return False
     try:
         return Path(left).resolve(strict=False) == Path(right).resolve(strict=False)
     except OSError:
         return left == right
+
+
+def _normalized_argv(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item) for item in value]
 
 
 def _merged_sandbox_body(current: dict[str, Any], body: dict[str, Any]) -> dict[str, Any]:
@@ -371,13 +391,21 @@ class SecurityPolicyRepository:
         timestamp = utc_now()
         clean_command = str(redact_secrets(action_request.get("command") or ""))
         clean_reason = str(redact_secrets(reason))
+        if not clean_reason.strip():
+            raise ValueError("Approval grant reason is required.")
+        command_argv = _normalized_argv(action_request.get("commandArgv") or payload.get("commandArgv"))
+        workspace_id = action_request.get("workspaceId") or payload.get("workspaceId")
+        runtime_id = action_request.get("runtimeId") or payload.get("runtimeId")
+        scoped_path = payload.get("path") or action_request.get("workspacePath") or payload.get("workspacePath")
+        expires_at = action_request.get("expiresAt") or payload.get("expiresAt") or add_millis(GRANT_TTL_MS)
         self.connection.execute(
             """
             INSERT INTO permission_grants
                 (id, project_id, job_id, action_request_id, permission_decision_id,
-                 agent_id, tool, command, path, status, reason, granted_by,
+                 agent_id, tool, command, path, command_argv, workspace_id, runtime_id,
+                 expires_at, status, reason, granted_by,
                  granted_at, consumed_at, consumed_by_agent_run_id, payload)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, NULL, NULL, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, NULL, NULL, ?)
             """,
             (
                 grant_id,
@@ -388,7 +416,11 @@ class SecurityPolicyRepository:
                 payload.get("agentId"),
                 str(payload.get("tool") or action_request["actionType"]),
                 clean_command,
-                payload.get("path"),
+                scoped_path,
+                json_dumps(command_argv),
+                workspace_id,
+                runtime_id,
+                expires_at,
                 clean_reason,
                 granted_by,
                 timestamp,
@@ -398,6 +430,10 @@ class SecurityPolicyRepository:
                             **payload,
                             "actionType": action_request["actionType"],
                             "riskLevel": action_request["riskLevel"],
+                            "commandArgv": command_argv,
+                            "workspaceId": workspace_id,
+                            "runtimeId": runtime_id,
+                            "expiresAt": expires_at,
                         }
                     )
                 ),
@@ -430,6 +466,9 @@ class SecurityPolicyRepository:
         agent_id: str | None,
         tool: str,
         command: str,
+        command_argv: list[str] | None = None,
+        workspace_id: str | None = None,
+        runtime_id: str | None = None,
         path: str | None,
         agent_run_id: str,
     ) -> dict[str, Any]:
@@ -444,16 +483,33 @@ class SecurityPolicyRepository:
                 "reason": f"Permission grant is already {grant['status']}.",
                 "grant": grant,
             }
+        if grant.get("expiresAt") and grant["expiresAt"] <= utc_now():
+            self.connection.execute(
+                "UPDATE permission_grants SET status = 'expired' WHERE id = ? AND status = 'active'",
+                (grant_id,),
+            )
+            return {
+                "valid": False,
+                "reason": "Permission grant expired.",
+                "grant": self.get_grant(grant_id),
+            }
         if grant["projectId"] != project_id:
             return {"valid": False, "reason": "Permission grant project mismatch.", "grant": grant}
-        if grant.get("jobId") and job_id and grant["jobId"] != job_id:
+        if grant.get("jobId") != job_id:
             return {"valid": False, "reason": "Permission grant job mismatch.", "grant": grant}
-        if grant.get("agentId") and agent_id and grant["agentId"] != agent_id:
+        if grant.get("agentId") != agent_id:
             return {"valid": False, "reason": "Permission grant agent mismatch.", "grant": grant}
         if grant["tool"] != tool:
             return {"valid": False, "reason": "Permission grant tool mismatch.", "grant": grant}
         if grant["command"] != command:
             return {"valid": False, "reason": "Permission grant command mismatch.", "grant": grant}
+        requested_argv = _normalized_argv(command_argv)
+        if grant.get("commandArgv") != requested_argv:
+            return {"valid": False, "reason": "Permission grant argv mismatch.", "grant": grant}
+        if grant.get("workspaceId") and grant.get("workspaceId") != workspace_id:
+            return {"valid": False, "reason": "Permission grant workspace mismatch.", "grant": grant}
+        if grant.get("runtimeId") and grant.get("runtimeId") != runtime_id:
+            return {"valid": False, "reason": "Permission grant runtime mismatch.", "grant": grant}
         if not _paths_match(grant.get("path"), path):
             return {"valid": False, "reason": "Permission grant path mismatch.", "grant": grant}
 

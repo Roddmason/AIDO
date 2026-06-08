@@ -1,10 +1,16 @@
-import type { Dictionary } from '../../api/types';
+import type { ModelGatewayCliRuntime, ModelGatewayCliSession } from '../../api/types';
 import { Badge, DataTable, EmptyState } from '../../components/primitives';
 import { toneForStatus } from '../../lib/format';
 import { PanelShell } from './PanelShell';
 import { listLabel, SecretSafeValue, text } from './utils';
 
-export function CliSessionsPanel({ cliRuntimes, cliSessions }: { cliRuntimes: Dictionary[]; cliSessions: Dictionary[] }) {
+export function CliSessionsPanel({
+	cliRuntimes,
+	cliSessions,
+}: {
+	cliRuntimes: ModelGatewayCliRuntime[];
+	cliSessions: ModelGatewayCliSession[];
+}) {
 	return (
 		<PanelShell title="CLI Sessions">
 			<div className="grid two">

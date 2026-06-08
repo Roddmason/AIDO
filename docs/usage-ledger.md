@@ -30,7 +30,9 @@ are not evidence of completed model work.
   non-completed planning state; they must not fabricate token counts. If real
   tokens are reported but pricing is absent, `costStatus = "unknown"` and cost
   fields stay null.
-- Existing `cost_usage` is updated for compatibility, but detailed analysis should use `usage_ledger`.
+- Existing `cost_usage` is updated only as a temporary read-model for older
+  dashboards. New code must use `usage_ledger`; `cost_usage` compatibility is
+  scheduled for removal on 2026-09-01.
 - Benchmark rows derived only from usage intentionally leave success, QA pass and rework metrics empty. Once `model_benchmark_outcomes` rows exist, those rates are computed as fractions from explicit or evidence-ingested outcomes.
 
 ## Limitations

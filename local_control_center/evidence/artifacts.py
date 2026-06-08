@@ -54,6 +54,45 @@ def write_binary_artifact(*, root: Path, artifact_id: str, suffix: str, content:
     }
 
 
+def artifact_ref(artifact: dict[str, Any]) -> dict[str, Any]:
+    metadata = artifact.get("metadata") if isinstance(artifact.get("metadata"), dict) else {}
+    ref = {
+        "id": artifact.get("id"),
+        "kind": artifact.get("kind"),
+        "hash": artifact.get("hash"),
+        "name": metadata.get("name") or artifact.get("id"),
+    }
+    if metadata.get("sizeBytes") is not None:
+        ref["sizeBytes"] = metadata.get("sizeBytes")
+    return {key: value for key, value in ref.items() if value is not None}
+
+
+def artifact_hashes(artifacts: list[dict[str, Any]]) -> dict[str, str]:
+    hashes: dict[str, str] = {}
+    for artifact in artifacts:
+        content_hash = artifact.get("hash")
+        if not isinstance(content_hash, str) or not content_hash:
+            continue
+        metadata = artifact.get("metadata") if isinstance(artifact.get("metadata"), dict) else {}
+        name = metadata.get("name")
+        if isinstance(name, str) and name:
+            hashes[name] = content_hash
+        artifact_id = artifact.get("id")
+        if isinstance(artifact_id, str) and artifact_id:
+            hashes[artifact_id] = content_hash
+    return hashes
+
+
+def artifact_records_from_ids(repo: Any, artifact_ids: list[str]) -> list[dict[str, Any]]:
+    artifacts: list[dict[str, Any]] = []
+    for artifact_id in sorted(set(str(item) for item in artifact_ids if item)):
+        try:
+            artifacts.append(repo.get_artifact_by_id(artifact_id))
+        except KeyError:
+            continue
+    return artifacts
+
+
 def promote_large_git_patches(
     *,
     root: Path,

@@ -1,9 +1,9 @@
-import type { Dictionary } from '../../api/types';
+import type { ModelGatewayModel } from '../../api/types';
 import { Badge, DataTable, EmptyState } from '../../components/primitives';
 import { PanelShell } from './PanelShell';
 import { boolLabel, listLabel, text } from './utils';
 
-export function ModelCatalogPanel({ models }: { models: Dictionary[] }) {
+export function ModelCatalogPanel({ models }: { models: ModelGatewayModel[] }) {
 	return (
 		<PanelShell title="Model Catalog">
 			<DataTable rows={models} empty={<EmptyState title="No models" body="Model catalog entries appear after seeds or provider discovery." />} columns={[

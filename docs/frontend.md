@@ -66,12 +66,32 @@ local-control-center/web/
   global step rows.
 - The Command Center renders runtime/provider state from
   `/api/v1/runtime/providers`, including unavailable reasons, required
-  configuration, and executable state. It blocks `issue_to_patch` submission
-  when no QA command is selected and shows whether a result came from a
-  productive or unavailable runtime path.
+  configuration, and executable state. The `issue_to_patch` form requires an
+  explicit project, issue title, issue text, executable provider with
+  `issue_to_patch` or `code_edit` capability, QA preset, and approval setting.
+  It must not list `internal_mock` or non-executable providers. When no
+  executable runtime exists it shows `runtime_unavailable` with the technical
+  reason and disables submission. Results show the workflow timeline plus
+  evidence, diff, and workflow links derived from the API response.
+- Model Gateway owns the `Runtime & Model Gateway` table for runtime truth. It
+  renders provider `id`, `kind`, `configured`, `available`, `executable`,
+  capabilities, reason, version, and detected command directly from
+  `/api/v1/runtime/providers`, merges missing configuration names from
+  `/api/v1/runtime/provider-configuration`, never labels a non-executable
+  provider as ready, and redacts secret-like values before rendering text.
+  Refresh actions must call the real backend health/detection endpoint for that
+  provider type.
 - Evidence and workflow inspectors preview and download artifacts only through
   `GET /api/v1/evidence/{evidenceId}/artifacts/{artifactId}` with the local
   control token. The UI never reads local artifact paths directly.
+- Evidence & QA owns the evidence detail viewer. Selecting a package calls
+  `GET /api/v1/evidence/{evidenceId}` and renders package metadata,
+  workflow/job/agent links, QA verdict, artifact SHA-256 hashes, diff patch
+  text, security findings, model calls, tool calls, policy decisions, and
+  approvals. Diff text and findings are fetched through the artifact download
+  endpoint, not from local paths. Secret-like values are redacted before
+  rendering, and an empty patch is shown as `no real changes`, never as a
+  successful code change.
 - Policy & Security renders `policyRevisions` from `/api/v1/overview` as
   operator-readable diffs. The diff drawer shows field, before, and after
   columns so reviewers are not forced to inspect raw JSON or infer changes by
@@ -145,3 +165,13 @@ operations no longer generate raw `JsonObject` operation responses. Frontend
 domain interfaces remain as intentional row-level refinements while backend
 metadata fields continue to evolve; the generated client now owns the route
 contract, and the feature models own UI-specific narrowing.
+
+## Real Capability Table
+
+| Capability | Real state | Endpoint/UI | Tests | Limitations |
+| --- | --- | --- | --- | --- |
+| Operational dashboard | Implemented Vite/React/TypeScript console served by FastAPI after build. | Dashboard root, `/api/v1/overview`. | Playwright control-center suite, production build, typecheck. | The UI renders backend state; it does not invent policy, provider, or completion outcomes. |
+| Command Center `issue_to_patch` | Implemented form and result viewer using runtime truth and workflow API. | Command Center, `POST /api/v1/workflows/issue-to-patch`. | `tests_web/control-center.spec.js` runtime tests. | The submit button stays disabled without executable provider and required form fields. |
+| Runtime & Model Gateway view | Implemented provider table and configuration state rendering. | `GET /api/v1/runtime/providers`, `GET /api/v1/runtime/provider-configuration`. | Web provider status/configuration tests. | Non-executable providers must not be labeled ready. Secret-like values are redacted. |
+| Evidence viewer | Implemented package detail, artifact preview/download, hashes, diff/security/model/tool-call rendering. | Evidence & QA UI, evidence detail/artifact endpoints. | Web evidence tests and backend evidence tests. | Artifact content is fetched through authenticated API, not local file paths. |
+| Typed API client | Implemented generated OpenAPI operation helpers plus UI-specific refinements. | `local-control-center/web/src/api/generated/openapi.ts`. | `openapi:generate`, typecheck, OpenAPI drift tests. | Regenerate after backend schema changes. |

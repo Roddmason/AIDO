@@ -51,6 +51,13 @@ def row_to_evidence_package(row: sqlite3.Row) -> dict[str, Any]:
         "riskNotes": json_loads(row["risk_notes"], []),
         "artifactIds": json_loads(row["artifact_ids"], []) if "artifact_ids" in row.keys() else [],
         "diffSummary": json_loads(row["diff_summary"], {}) if "diff_summary" in row.keys() else {},
+        "runtimeHealth": json_loads(row["runtime_health"], {}) if "runtime_health" in row.keys() else {},
+        "modelCalls": json_loads(row["model_calls"], []) if "model_calls" in row.keys() else [],
+        "toolCalls": json_loads(row["tool_calls"], []) if "tool_calls" in row.keys() else [],
+        "policyDecisions": json_loads(row["policy_decisions"], []) if "policy_decisions" in row.keys() else [],
+        "approvals": json_loads(row["approvals"], []) if "approvals" in row.keys() else [],
+        "artifacts": json_loads(row["artifact_refs"], []) if "artifact_refs" in row.keys() else [],
+        "hashes": json_loads(row["hashes"], {}) if "hashes" in row.keys() else {},
         "qaVerdict": row["qa_verdict"],
         "createdAt": row["created_at"],
     }
@@ -108,6 +115,13 @@ class EvidenceRepository:
         risk_notes: list[Any] | None = None,
         artifact_ids: list[str] | None = None,
         diff_summary: dict[str, Any] | None = None,
+        runtime_health: dict[str, Any] | None = None,
+        model_calls: list[dict[str, Any]] | None = None,
+        tool_calls: list[dict[str, Any]] | None = None,
+        policy_decisions: list[dict[str, Any]] | None = None,
+        approvals: list[dict[str, Any]] | None = None,
+        artifacts: list[dict[str, Any]] | None = None,
+        hashes: dict[str, str] | None = None,
         qa_verdict: str = "not_started",
     ) -> dict[str, Any]:
         evidence_id = f"evidence-{uuid.uuid4()}"
@@ -119,14 +133,22 @@ class EvidenceRepository:
         clean_risk_notes = redact_secrets(risk_notes or [])
         clean_artifact_ids = [str(item) for item in artifact_ids or [] if isinstance(item, str)]
         clean_diff_summary = redact_secrets(diff_summary or {})
+        clean_runtime_health = redact_secrets(runtime_health or {})
+        clean_model_calls = redact_secrets(model_calls or [])
+        clean_tool_calls = redact_secrets(tool_calls or [])
+        clean_policy_decisions = redact_secrets(policy_decisions or [])
+        clean_approvals = redact_secrets(approvals or [])
+        clean_artifacts = redact_secrets(artifacts or [])
+        clean_hashes = {str(key): str(value) for key, value in (hashes or {}).items() if isinstance(value, str)}
         self.connection.execute(
             """
             INSERT INTO evidence_packages
                 (id, project_id, workflow_run_id, workflow_step_id, agent_id, agent_run_id,
                  job_id, workspace_id, runtime_id, task_id, test_plan,
                  acceptance_checklist, test_results, logs, diff_refs, screenshot_refs,
-                 risk_notes, artifact_ids, diff_summary, qa_verdict, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 risk_notes, artifact_ids, diff_summary, runtime_health, model_calls,
+                 tool_calls, policy_decisions, approvals, artifact_refs, hashes, qa_verdict, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 evidence_id,
@@ -148,6 +170,13 @@ class EvidenceRepository:
                 json_dumps(clean_risk_notes),
                 json_dumps(clean_artifact_ids),
                 json_dumps(clean_diff_summary),
+                json_dumps(clean_runtime_health),
+                json_dumps(clean_model_calls),
+                json_dumps(clean_tool_calls),
+                json_dumps(clean_policy_decisions),
+                json_dumps(clean_approvals),
+                json_dumps(clean_artifacts),
+                json_dumps(clean_hashes),
                 qa_verdict,
                 utc_now(),
             ),
@@ -201,21 +230,52 @@ class EvidenceRepository:
         agent_run_id: str | None = None,
         artifact_ids: list[str] | None = None,
         diff_summary: dict[str, Any] | None = None,
+        runtime_health: dict[str, Any] | None = None,
+        model_calls: list[dict[str, Any]] | None = None,
+        tool_calls: list[dict[str, Any]] | None = None,
+        policy_decisions: list[dict[str, Any]] | None = None,
+        approvals: list[dict[str, Any]] | None = None,
+        artifacts: list[dict[str, Any]] | None = None,
+        hashes: dict[str, str] | None = None,
+        qa_verdict: str | None = None,
+        risk_notes: list[Any] | None = None,
     ) -> dict[str, Any]:
         current = self.get_evidence_package(evidence_id)
         next_agent_run_id = agent_run_id if agent_run_id is not None else current.get("agentRunId")
         next_artifact_ids = artifact_ids if artifact_ids is not None else current.get("artifactIds", [])
         next_diff_summary = diff_summary if diff_summary is not None else current.get("diffSummary", {})
+        next_runtime_health = runtime_health if runtime_health is not None else current.get("runtimeHealth", {})
+        next_model_calls = model_calls if model_calls is not None else current.get("modelCalls", [])
+        next_tool_calls = tool_calls if tool_calls is not None else current.get("toolCalls", [])
+        next_policy_decisions = (
+            policy_decisions if policy_decisions is not None else current.get("policyDecisions", [])
+        )
+        next_approvals = approvals if approvals is not None else current.get("approvals", [])
+        next_artifacts = artifacts if artifacts is not None else current.get("artifacts", [])
+        next_hashes = hashes if hashes is not None else current.get("hashes", {})
+        next_qa_verdict = qa_verdict if qa_verdict is not None else current.get("qaVerdict", "not_started")
+        next_risk_notes = risk_notes if risk_notes is not None else current.get("riskNotes", [])
         self.connection.execute(
             """
             UPDATE evidence_packages
-            SET agent_run_id = ?, artifact_ids = ?, diff_summary = ?
+            SET agent_run_id = ?, artifact_ids = ?, diff_summary = ?, runtime_health = ?,
+                model_calls = ?, tool_calls = ?, policy_decisions = ?, approvals = ?,
+                artifact_refs = ?, hashes = ?, qa_verdict = ?, risk_notes = ?
             WHERE id = ?
             """,
             (
                 next_agent_run_id,
                 json_dumps([str(item) for item in next_artifact_ids if isinstance(item, str)]),
                 json_dumps(redact_secrets(next_diff_summary or {})),
+                json_dumps(redact_secrets(next_runtime_health or {})),
+                json_dumps(redact_secrets(next_model_calls or [])),
+                json_dumps(redact_secrets(next_tool_calls or [])),
+                json_dumps(redact_secrets(next_policy_decisions or [])),
+                json_dumps(redact_secrets(next_approvals or [])),
+                json_dumps(redact_secrets(next_artifacts or [])),
+                json_dumps({str(key): str(value) for key, value in (next_hashes or {}).items() if isinstance(value, str)}),
+                next_qa_verdict,
+                json_dumps(redact_secrets(next_risk_notes or [])),
                 evidence_id,
             ),
         )

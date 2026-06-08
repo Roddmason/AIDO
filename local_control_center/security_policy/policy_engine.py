@@ -13,6 +13,7 @@ PROFILE_DEFAULTS: dict[str, str] = {
     "implementer": "dev_safe",
     "backend_engineer": "dev_safe",
     "frontend_engineer": "dev_safe",
+    "devops": "qa",
     "qa_reviewer": "qa",
     "qa_engineer": "qa",
     "security_reviewer": "qa",
@@ -150,6 +151,54 @@ def evaluate_action(input_payload: dict[str, Any]) -> dict[str, Any]:
             "categories": categories + ["qa_agent_command_gated"],
         }
 
+    if operation == "devops_agent_command":
+        if input_payload.get("agentId") != "devops_agent":
+            categories.append("devops_agent_command_agent_denied")
+            return {
+                "decision": "deny",
+                "riskLevel": "high",
+                "reason": "DevOpsAgent command execution is restricted to the DevOpsAgent profile.",
+                "categories": categories,
+            }
+        if tool != "shell":
+            categories.append("devops_agent_command_tool_denied")
+            return {
+                "decision": "deny",
+                "riskLevel": "high",
+                "reason": "DevOpsAgent commands must execute through shell with structured argv.",
+                "categories": categories,
+            }
+        if permission_profile != "qa":
+            categories.append("devops_agent_command_profile_denied")
+            return {
+                "decision": "deny",
+                "riskLevel": "high",
+                "reason": "DevOpsAgent command execution requires the qa permission profile.",
+                "categories": categories,
+            }
+        if not input_payload.get("workspaceId") or not input_payload.get("workspacePath") or not input_payload.get("agentRunId"):
+            categories.append("devops_agent_command_context_required")
+            return {
+                "decision": "deny",
+                "riskLevel": "high",
+                "reason": "DevOpsAgent command execution requires workspace and agent run context.",
+                "categories": categories,
+            }
+        allowed = allowlisted_shell_categories(permission_profile, categories)
+        if allowed and classification["riskLevel"] == "low":
+            return {
+                "decision": "allow",
+                "riskLevel": "low",
+                "reason": "DevOpsAgent command is allowlisted for real local validation.",
+                "categories": categories + allowed + ["devops_agent_command"],
+            }
+        return {
+            "decision": "requires_approval",
+            "riskLevel": "medium",
+            "reason": "DevOpsAgent command is not in the low-risk local validation allowlist.",
+            "categories": categories + ["devops_agent_command_gated"],
+        }
+
     if operation in {
         "developer_agent_runtime",
         "developer_agent_model_call",
@@ -280,6 +329,102 @@ def evaluate_action(input_payload: dict[str, Any]) -> dict[str, Any]:
                 "reason": "DeveloperAgent QA command is not in the low-risk allowlist.",
                 "categories": categories + ["developer_agent_qa_gated"],
             }
+
+    if operation == "architect_agent_model_call":
+        if input_payload.get("agentId") != "architect_agent":
+            categories.append("architect_agent_denied")
+            return {
+                "decision": "deny",
+                "riskLevel": "high",
+                "reason": "ArchitectAgent model execution is restricted to the ArchitectAgent profile.",
+                "categories": categories,
+            }
+        if permission_profile != "plan":
+            categories.append("architect_agent_profile_denied")
+            return {
+                "decision": "deny",
+                "riskLevel": "high",
+                "reason": "ArchitectAgent model execution requires the plan permission profile.",
+                "categories": categories,
+            }
+        if tool not in {"ollama", "openai_compatible"} or input_payload.get("runtimeId") != tool:
+            categories.append("architect_agent_model_runtime_denied")
+            return {
+                "decision": "deny",
+                "riskLevel": "high",
+                "reason": "ArchitectAgent model execution is limited to configured OpenAI-compatible or Ollama adapters.",
+                "categories": categories,
+            }
+        if not input_payload.get("workspaceId") or not input_payload.get("workspacePath") or not input_payload.get("agentRunId"):
+            categories.append("architect_agent_context_required")
+            return {
+                "decision": "deny",
+                "riskLevel": "high",
+                "reason": "ArchitectAgent model execution requires workspace and agent run context.",
+                "categories": categories,
+            }
+        if input_payload.get("secretsRequired"):
+            categories.append("architect_agent_secrets_denied")
+            return {
+                "decision": "deny",
+                "riskLevel": "high",
+                "reason": "ArchitectAgent prompts cannot request secret-bearing execution.",
+                "categories": categories,
+            }
+        return {
+            "decision": "allow",
+            "riskLevel": "medium",
+            "reason": "ArchitectAgent model execution is allowed for a configured runtime adapter.",
+            "categories": categories + ["architect_agent_model_call"],
+        }
+
+    if operation == "security_agent_model_call":
+        if input_payload.get("agentId") != "security_agent":
+            categories.append("security_agent_denied")
+            return {
+                "decision": "deny",
+                "riskLevel": "high",
+                "reason": "SecurityAgent model analysis is restricted to the SecurityAgent profile.",
+                "categories": categories,
+            }
+        if permission_profile != "qa":
+            categories.append("security_agent_profile_denied")
+            return {
+                "decision": "deny",
+                "riskLevel": "high",
+                "reason": "SecurityAgent optional model analysis requires the qa permission profile.",
+                "categories": categories,
+            }
+        if tool not in {"ollama", "openai_compatible"} or input_payload.get("runtimeId") != tool:
+            categories.append("security_agent_model_runtime_denied")
+            return {
+                "decision": "deny",
+                "riskLevel": "high",
+                "reason": "SecurityAgent model analysis is limited to configured OpenAI-compatible or Ollama adapters.",
+                "categories": categories,
+            }
+        if not input_payload.get("workspaceId") or not input_payload.get("workspacePath") or not input_payload.get("agentRunId"):
+            categories.append("security_agent_context_required")
+            return {
+                "decision": "deny",
+                "riskLevel": "high",
+                "reason": "SecurityAgent model analysis requires workspace and agent run context.",
+                "categories": categories,
+            }
+        if input_payload.get("secretsRequired"):
+            categories.append("security_agent_secrets_denied")
+            return {
+                "decision": "deny",
+                "riskLevel": "high",
+                "reason": "SecurityAgent prompts cannot request secret-bearing execution.",
+                "categories": categories,
+            }
+        return {
+            "decision": "allow",
+            "riskLevel": "medium",
+            "reason": "SecurityAgent optional model analysis is allowed for a configured runtime adapter.",
+            "categories": categories + ["security_agent_model_call"],
+        }
     if tool == "shell" and command:
         if operation == "issue_to_patch_runtime":
             if input_payload.get("agentId") != "aido_issue_to_patch_runner":

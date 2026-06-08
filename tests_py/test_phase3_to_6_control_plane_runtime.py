@@ -41,6 +41,88 @@ def allocate_test_workspace(connection, root: Path, project: dict[str, object], 
     )
 
 
+def create_sensitive_shell_approval(
+    tmp_path: Path,
+    monkeypatch,
+    *,
+    profile_id: str = "cli_contextual_approval",
+    command: str = "pnpm add left-pad",
+    argv: list[str] | None = None,
+    runtime_id: str = "docker",
+    evidence_refs: list[str] | None = None,
+    diff_refs: list[dict[str, object]] | None = None,
+) -> SimpleNamespace:
+    monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
+    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store.init()
+    project_path = tmp_path / f"{profile_id}-project"
+    project = store.create_project(name=f"Approval {profile_id}", path=project_path, template_id="other")
+    workspace = store.workspaces.allocate_workspace(
+        project_id=project["id"],
+        task_id=f"{profile_id}-task",
+        agent_id="implementer",
+    )
+    workspace_path = str(workspace["path"])
+    job = store.jobs.create_job(project_id=project["id"], kind="chat.route", payload={"prompt": "install package"})["job"]
+    app = create_app(runtime=store, static_dir=None)
+    client = TestClient(app)
+    headers = auth_headers(client)
+    client.post(
+        "/api/v1/agent-profiles",
+        json={
+            "id": profile_id,
+            "name": f"CLI {profile_id}",
+            "role": "implementer",
+            "runtimeMode": "cli",
+            "permissionProfile": "dev_safe",
+            "allowedTools": ["shell"],
+        },
+        headers=headers,
+    )
+    requested = client.post(
+        "/api/v1/agent-runs",
+        json={
+            "projectId": project["id"],
+            "jobId": job["id"],
+            "agentProfileId": profile_id,
+            "taskId": f"{profile_id}-request",
+            "input": {
+                "toolCalls": [
+                    {
+                        "tool": "shell",
+                        "command": command,
+                        "argv": argv or ["pnpm", "add", "left-pad"],
+                        "workspaceId": workspace["id"],
+                        "path": workspace_path,
+                        "workspacePath": workspace_path,
+                        "runtimeId": runtime_id,
+                        "sandbox": runtime_id,
+                        "dockerImage": "node:22-alpine",
+                        "execute": True,
+                        "evidenceRefs": evidence_refs or ["evidence-approval-context"],
+                        "diffRefs": diff_refs or [{"kind": "git_patch", "artifactId": "artifact-diff-context"}],
+                    }
+                ]
+            },
+        },
+        headers=headers,
+    )
+    assert requested.status_code == 202
+    overview = client.get("/api/v1/overview").json()
+    action = next(item for item in overview["actionRequests"] if item["jobId"] == job["id"])
+    return SimpleNamespace(
+        store=store,
+        client=client,
+        headers=headers,
+        project=project,
+        workspace=workspace,
+        workspace_path=workspace_path,
+        job=job,
+        profile_id=profile_id,
+        action=action,
+    )
+
+
 def test_phase3_to_6_schema_adds_workspaces_runtime_skills_and_evidence_tables(tmp_path: Path) -> None:
     with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
         initialize_platform_schema(connection)
@@ -312,7 +394,7 @@ def test_cli_agent_tool_calls_go_through_policy_and_create_action_requests(tmp_p
     assert any(action["jobId"] == job["id"] and action["actionType"] == "tool.call" for action in overview["actionRequests"])
 
 
-def test_allowed_cli_agent_tool_call_is_recorded_without_execution_or_approval(tmp_path: Path, monkeypatch) -> None:
+def test_allowed_cli_agent_tool_call_without_execution_does_not_complete(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
     store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
     store.init()
@@ -354,8 +436,10 @@ def test_allowed_cli_agent_tool_call_is_recorded_without_execution_or_approval(t
     )
     assert run_response.status_code == 202
     agent_run = run_response.json()["agentRun"]
-    assert agent_run["status"] == "completed"
-    assert agent_run["output"]["verdict"] == "approved_with_risks"
+    assert agent_run["status"] == "failed"
+    assert agent_run["output"]["verdict"] == "blocked"
+    assert "not executed" in agent_run["output"]["summary"]
+    assert agent_run["output"]["evidence_refs"] == []
 
     overview = client.get("/api/v1/overview").json()
     tool_call = next(call for call in overview["agentToolCalls"] if call["agentRunId"] == agent_run["id"])
@@ -779,6 +863,233 @@ def test_approved_sensitive_tool_call_requires_and_consumes_permission_grant(
     reused_call = next(call for call in reused_overview["agentToolCalls"] if call["agentRunId"] == reused_run["id"])
     assert reused_call["status"] == "denied"
     assert "already consumed" in reused_call["payload"]["grantValidation"]["reason"]
+
+
+def test_action_request_exposes_contextual_scope_and_expiration(tmp_path: Path, monkeypatch) -> None:
+    context = create_sensitive_shell_approval(
+        tmp_path,
+        monkeypatch,
+        profile_id="cli_context_scope",
+        evidence_refs=["evidence-context-1"],
+        diff_refs=[{"kind": "git_patch", "artifactId": "artifact-diff-1", "hash": "hash-diff-1"}],
+    )
+
+    action = context.action
+    assert action["actionType"] == "tool.call"
+    assert action["riskLevel"] in {"medium", "high", "critical"}
+    assert action["command"] == "pnpm add left-pad"
+    assert action["commandArgv"] == ["pnpm", "add", "left-pad"]
+    assert action["workspaceId"] == context.workspace["id"]
+    assert action["workspacePath"] == context.workspace_path
+    assert action["runtimeId"] == "docker"
+    assert action["evidenceRefs"] == ["evidence-context-1"]
+    assert action["diffRefs"] == [{"kind": "git_patch", "artifactId": "artifact-diff-1", "hash": "hash-diff-1"}]
+    assert action["reason"].strip()
+    assert action["expiresAt"]
+
+
+def test_permission_grant_is_scoped_to_command_argv(tmp_path: Path, monkeypatch) -> None:
+    docker_calls: list[dict[str, object]] = []
+
+    def fake_docker_execute(self, **kwargs):
+        docker_calls.append(kwargs)
+        return {"executed": True, "blocked": False, "returnCode": 0, "durationMs": 1, "stdout": "", "stderr": ""}
+
+    monkeypatch.setattr("local_control_center.security_policy.sandbox.DockerSandbox.execute", fake_docker_execute)
+    context = create_sensitive_shell_approval(tmp_path, monkeypatch, profile_id="cli_grant_argv")
+    approved = context.client.post(
+        f"/api/v1/jobs/{context.job['id']}/actions/{context.action['id']}/approve",
+        json={"reason": "Allow exactly pnpm add left-pad once."},
+        headers=context.headers,
+    )
+    assert approved.status_code == 202
+    grant = approved.json()["permissionGrant"]
+    assert grant["commandArgv"] == ["pnpm", "add", "left-pad"]
+
+    mismatched = context.client.post(
+        "/api/v1/agent-runs",
+        json={
+            "projectId": context.project["id"],
+            "jobId": context.job["id"],
+            "agentProfileId": context.profile_id,
+            "taskId": "execute-other-argv",
+            "input": {
+                "toolCalls": [
+                    {
+                        "tool": "shell",
+                        "command": "pnpm add left-pad",
+                        "argv": ["pnpm", "add", "is-number"],
+                        "workspaceId": context.workspace["id"],
+                        "path": context.workspace_path,
+                        "workspacePath": context.workspace_path,
+                        "execute": True,
+                        "sandbox": "docker",
+                        "dockerImage": "node:22-alpine",
+                        "approvalGrantId": grant["id"],
+                    }
+                ]
+            },
+        },
+        headers=context.headers,
+    )
+
+    assert mismatched.status_code == 202
+    mismatched_run = mismatched.json()["agentRun"]
+    assert mismatched_run["status"] == "failed"
+    overview = context.client.get("/api/v1/overview").json()
+    mismatched_call = next(call for call in overview["agentToolCalls"] if call["agentRunId"] == mismatched_run["id"])
+    assert mismatched_call["status"] == "denied"
+    assert "argv mismatch" in mismatched_call["payload"]["grantValidation"]["reason"]
+    assert not docker_calls
+    active_grant = next(item for item in overview["permissionGrants"] if item["id"] == grant["id"])
+    assert active_grant["status"] == "active"
+
+
+def test_permission_grant_is_scoped_to_exact_command(tmp_path: Path, monkeypatch) -> None:
+    docker_calls: list[dict[str, object]] = []
+
+    def fake_docker_execute(self, **kwargs):
+        docker_calls.append(kwargs)
+        return {"executed": True, "blocked": False, "returnCode": 0, "durationMs": 1, "stdout": "", "stderr": ""}
+
+    monkeypatch.setattr("local_control_center.security_policy.sandbox.DockerSandbox.execute", fake_docker_execute)
+    context = create_sensitive_shell_approval(tmp_path, monkeypatch, profile_id="cli_grant_command")
+    approved = context.client.post(
+        f"/api/v1/jobs/{context.job['id']}/actions/{context.action['id']}/approve",
+        json={"reason": "Allow exactly pnpm add left-pad once."},
+        headers=context.headers,
+    )
+    assert approved.status_code == 202
+    grant = approved.json()["permissionGrant"]
+
+    mismatched = context.client.post(
+        "/api/v1/agent-runs",
+        json={
+            "projectId": context.project["id"],
+            "jobId": context.job["id"],
+            "agentProfileId": context.profile_id,
+            "taskId": "execute-other-command",
+            "input": {
+                "toolCalls": [
+                    {
+                        "tool": "shell",
+                        "command": "pnpm add is-number",
+                        "argv": ["pnpm", "add", "is-number"],
+                        "workspaceId": context.workspace["id"],
+                        "path": context.workspace_path,
+                        "workspacePath": context.workspace_path,
+                        "execute": True,
+                        "sandbox": "docker",
+                        "dockerImage": "node:22-alpine",
+                        "approvalGrantId": grant["id"],
+                    }
+                ]
+            },
+        },
+        headers=context.headers,
+    )
+
+    assert mismatched.status_code == 202
+    mismatched_run = mismatched.json()["agentRun"]
+    assert mismatched_run["status"] == "failed"
+    overview = context.client.get("/api/v1/overview").json()
+    mismatched_call = next(call for call in overview["agentToolCalls"] if call["agentRunId"] == mismatched_run["id"])
+    assert mismatched_call["status"] == "denied"
+    assert "command mismatch" in mismatched_call["payload"]["grantValidation"]["reason"]
+    assert not docker_calls
+    active_grant = next(item for item in overview["permissionGrants"] if item["id"] == grant["id"])
+    assert active_grant["status"] == "active"
+
+
+def test_permission_grant_expiration_blocks_execution(tmp_path: Path, monkeypatch) -> None:
+    docker_calls: list[dict[str, object]] = []
+
+    def fake_docker_execute(self, **kwargs):
+        docker_calls.append(kwargs)
+        return {"executed": True, "blocked": False, "returnCode": 0, "durationMs": 1, "stdout": "", "stderr": ""}
+
+    monkeypatch.setattr("local_control_center.security_policy.sandbox.DockerSandbox.execute", fake_docker_execute)
+    context = create_sensitive_shell_approval(tmp_path, monkeypatch, profile_id="cli_grant_expired")
+    approved = context.client.post(
+        f"/api/v1/jobs/{context.job['id']}/actions/{context.action['id']}/approve",
+        json={"reason": "Allow exactly one command before expiry."},
+        headers=context.headers,
+    )
+    assert approved.status_code == 202
+    grant = approved.json()["permissionGrant"]
+    assert grant["expiresAt"]
+    context.store.connection.execute(
+        "UPDATE permission_grants SET expires_at = ? WHERE id = ?",
+        ("2000-01-01T00:00:00.000Z", grant["id"]),
+    )
+
+    expired = context.client.post(
+        "/api/v1/agent-runs",
+        json={
+            "projectId": context.project["id"],
+            "jobId": context.job["id"],
+            "agentProfileId": context.profile_id,
+            "taskId": "execute-expired-grant",
+            "input": {
+                "toolCalls": [
+                    {
+                        "tool": "shell",
+                        "command": "pnpm add left-pad",
+                        "argv": ["pnpm", "add", "left-pad"],
+                        "workspaceId": context.workspace["id"],
+                        "path": context.workspace_path,
+                        "workspacePath": context.workspace_path,
+                        "execute": True,
+                        "sandbox": "docker",
+                        "dockerImage": "node:22-alpine",
+                        "approvalGrantId": grant["id"],
+                    }
+                ]
+            },
+        },
+        headers=context.headers,
+    )
+
+    assert expired.status_code == 202
+    expired_run = expired.json()["agentRun"]
+    assert expired_run["status"] == "failed"
+    overview = context.client.get("/api/v1/overview").json()
+    expired_call = next(call for call in overview["agentToolCalls"] if call["agentRunId"] == expired_run["id"])
+    assert expired_call["status"] == "denied"
+    assert "expired" in expired_call["payload"]["grantValidation"]["reason"]
+    assert not docker_calls
+    expired_grant = next(item for item in overview["permissionGrants"] if item["id"] == grant["id"])
+    assert expired_grant["status"] == "expired"
+
+
+def test_rejected_action_blocks_later_approval_and_grant_creation(tmp_path: Path, monkeypatch) -> None:
+    context = create_sensitive_shell_approval(tmp_path, monkeypatch, profile_id="cli_reject_blocks")
+
+    blank = context.client.post(
+        f"/api/v1/jobs/{context.job['id']}/actions/{context.action['id']}/deny",
+        json={"reason": " "},
+        headers=context.headers,
+    )
+    assert blank.status_code == 422
+    assert "reason" in blank.json()["detail"].lower()
+
+    rejected = context.client.post(
+        f"/api/v1/jobs/{context.job['id']}/actions/{context.action['id']}/deny",
+        json={"reason": "Command scope is too broad."},
+        headers=context.headers,
+    )
+    assert rejected.status_code == 202
+    assert rejected.json()["actionRequest"]["status"] == "denied"
+    assert rejected.json()["job"]["status"] == "cancelled"
+
+    approve_after_reject = context.client.post(
+        f"/api/v1/jobs/{context.job['id']}/actions/{context.action['id']}/approve",
+        json={"reason": "Trying to approve after rejection."},
+        headers=context.headers,
+    )
+    assert approve_after_reject.status_code == 409
+    grants = context.client.get("/api/v1/overview").json()["permissionGrants"]
+    assert not any(grant.get("actionRequestId") == context.action["id"] for grant in grants)
 
 
 def test_action_approval_requires_non_empty_reason(tmp_path: Path, monkeypatch) -> None:
@@ -1520,17 +1831,19 @@ def test_agent_run_without_executable_adapter_does_not_record_synthetic_model_co
         headers=headers,
     )
     client.post(
-        "/api/v1/model-policies",
+        "/api/v1/model-gateway/role-policies",
         json={
             "id": "implementation_default",
-            "name": "Implementation Default",
+            "role": "implementer",
+            "routingProfileId": "balanced_best_value",
             "preferred": [{"provider": "openai_compatible", "model": "configured_model"}],
             "fallback": [],
-            "maxCostUsd": 1.0,
-            "maxTokens": 4000,
-            "temperature": 0.2,
+            "maxCostPerTaskUsd": 1.0,
+            "maxTokensPerRun": 4000,
             "allowRemote": True,
             "allowLocal": False,
+            "allowCli": False,
+            "allowApi": True,
         },
         headers=headers,
     )

@@ -164,10 +164,13 @@ def test_quality_and_security_scripts_are_declared() -> None:
 def test_quality_scripts_include_web_typecheck() -> None:
     package = json.loads(read("package.json"))
     scripts = package["scripts"]
+    quality_local = read("scripts/quality-local.ps1")
 
     assert "typecheck:web" in scripts
     assert "typecheck:web" in scripts["test:all"]
-    assert "typecheck:web" in scripts["quality"]
+    assert "typecheck:web" in quality_local
+    assert "security:secrets" in quality_local
+    assert "security:sast" in quality_local
 
 
 def test_native_process_start_command_is_cross_platform() -> None:

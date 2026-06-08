@@ -122,7 +122,7 @@
   provides the installed CLI argv and issue text.
 - GitHub Actions quality workflow has been removed by policy; quality checks are
   local/release-runner commands, and protected branches are guarded by a GitHub
-  repository ruleset applied by `protect-main-branch.ps1`.
+  repository ruleset applied by `protect-repository-branches.ps1`.
 - The frontend has a generated OpenAPI endpoint map checked in at
   `web/src/api/generated/openapi.ts`, with local drift detection through
   `pnpm run openapi:generate` plus `git diff`.

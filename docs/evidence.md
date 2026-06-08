@@ -7,10 +7,35 @@ Evidence packages are required to make QA decisions auditable.
 - `evidence_packages`
 - `test_results`
 - `qa_verdicts`
-- `artifacts` table reserved for future file/screenshot/log references
+- `artifacts` rows for verified file, screenshot, report, patch, status, log,
+  security, manifest, and model-call evidence
 - workspace archive snapshots stored in `diffRefs`
 - direct linkage fields for `workflowStepId`, `jobId`, `agentRunId`,
   `workspaceId`, `runtimeId`, `artifactIds`, and `diffSummary`
+
+## Evidence Package Contract
+
+Every `EvidencePackageRecord` returned by the API includes the operational
+closure fields `workflowRunId`, `jobId`, `agentRunId`, `workspaceId`,
+`runtimeId`, `runtimeHealth`, `modelCalls`, `toolCalls`, `policyDecisions`,
+`approvals`, `qaVerdict`, `artifacts`, `diffSummary`, `hashes`, and
+`createdAt`. Workflow completion requires a completion-grade package: real
+runtime health, linked job/agent/workspace/runtime records, artifact refs, and
+SHA-256 hashes. Direct agent runs may have `workflowRunId=null`, but they still
+must include the concrete executor identity, artifacts, and hashes before
+reporting `completed`.
+
+`qaVerdict` is an enum in OpenAPI: `not_started`, `passed`, `failed`,
+`blocked`, `needs_human_review`, `evidence_collected`,
+`architecture_reviewed`, `devops_risk`, `devops_blocked`,
+`security_passed`, `security_blocked`, and `skipped_with_reason`.
+
+`issue_to_patch` writes concrete evidence artifacts for `diff.patch`,
+`git-status.txt`, `git-status.json`, `qa-results.json`, stdout/stderr command
+logs, generated security findings, and `model-call.json` when a model call is
+used. Missing credentials, runtimes, tools, endpoints, or artifact integrity do
+not produce a simulated success; they keep the run blocked, unavailable, or
+configuration-required with a technical reason.
 
 ## QA Gate
 
@@ -73,6 +98,19 @@ The endpoint requires the local control token and accepts bounded `content` or
 `contentBase64` payloads for allowlisted artifact kinds. It writes under
 `.tmp/evidence-artifacts`, computes SHA-256, records event/audit entries, and
 does not accept client-supplied filesystem paths.
+
+## UI Evidence Viewer
+
+The Evidence & QA page must use `GET /api/v1/evidence/{evidenceId}` for package
+detail. The viewer shows package metadata, workflow/job/agent/workspace/runtime
+links, QA verdict, artifacts with full SHA-256 hashes, and download actions.
+Diff, security findings, model-call, and tool-call evidence are rendered from
+linked artifacts or package fields after frontend redaction of secret-like text.
+
+`diff.patch` is not treated as success merely because an artifact exists. If
+the patch artifact is missing or has no real hunk additions/deletions, the UI
+shows `no real changes` and must not present the patch as proof of completed
+implementation.
 
 ## Artifact Cleanup
 
@@ -183,3 +221,13 @@ Technical review agent runs must include at least one evidence package ID in
 recorded as `failed` with `verdict=blocked` and an explicit mitigation. This
 prevents architecture or code-review approval from drifting away from the QA
 evidence ledger.
+
+## Real Capability Table
+
+| Capability | Real state | Endpoint/UI | Tests | Limitations |
+| --- | --- | --- | --- | --- |
+| Evidence package ledger | Implemented with package JSON plus normalized test result and artifact rows. | `GET /api/v1/evidence`, `GET /api/v1/evidence/{id}`, Evidence & QA UI. | Evidence repository/API tests and web evidence tests. | A package with no evidence signal cannot be treated as QA passed. |
+| `issue_to_patch` evidence | Implemented for runtime health, diff/status artifacts, QA results, policy/security findings, manifest, and hashes. | Workflow response, Evidence & QA UI. | `tests_py/test_aido_real_runtime_slice.py`. | Missing runtime or failed QA still creates diagnostic evidence; it does not imply completion. |
+| Artifact download | Implemented with token, evidence ownership, root confinement, and SHA-256 validation. | `GET /api/v1/evidence/{evidenceId}/artifacts/{artifactId}`. | Artifact retrieval tests. | A missing or hash-mismatched file is an integrity failure. |
+| Artifact cleanup/retention | Implemented for orphan cleanup dry-run/delete and governance-first expired referenced artifact review. | `/api/v1/evidence/artifacts/cleanup`, `/retention`, `/retention/actions`. | Evidence retention tests. | Referenced expired artifacts are not automatically deleted; delete requires explicit audited action. |
+| QA report export | Implemented as local Markdown report generation. | `GET /api/v1/evidence/{evidenceId}/report`. | Evidence report tests. | Reports omit local filesystem paths; artifacts must be fetched through the authenticated endpoint. |

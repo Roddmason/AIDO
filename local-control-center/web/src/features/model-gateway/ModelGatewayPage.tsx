@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import {
-	createModelPolicy,
+	createModelGatewayRolePolicy,
+	detectModelGatewayCliRuntime,
 	discoverModelGatewayProviderModels,
 	getModelGatewayBudgetRules,
 	getModelGatewayBenchmarks,
@@ -24,7 +25,26 @@ import {
 	recordModelGatewayBenchmarkOutcome,
 	type ModelGatewayRoutePreviewResponse,
 } from '../../api/client';
-import type { Dictionary, Overview, RuntimeProviders } from '../../api/types';
+import type {
+	ModelGatewayBenchmark,
+	ModelGatewayBenchmarkOutcome,
+	ModelGatewayBudgetRule,
+	ModelGatewayCliRuntime,
+	ModelGatewayCliSession,
+	ModelGatewayModel,
+	ModelGatewayOverview,
+	ModelGatewayProviderAccount,
+	ModelGatewayProviderLimit,
+	ModelGatewayRolePolicy,
+	ModelGatewayRoutingDecision,
+	ModelGatewayRoutingProfile,
+	ModelGatewayUsage,
+	ModelGatewayUsageSummary,
+	Overview,
+	RuntimeProvider,
+	RuntimeProviderConfiguration,
+	RuntimeProviders,
+} from '../../api/types';
 import { Badge, DataTable, EmptyState, PageHeader, Surface } from '../../components/primitives';
 import { toneForStatus } from '../../lib/format';
 import { BenchmarksPanel } from './BenchmarksPanel';
@@ -40,31 +60,45 @@ import { RoutingProfilesPanel } from './RoutingProfilesPanel';
 import { UsageLedgerPanel } from './UsageLedgerPanel';
 
 type ModelGatewayState = {
-	overview: Dictionary;
-	providers: Dictionary[];
-	models: Dictionary[];
-	routingProfiles: Dictionary[];
-	rolePolicies: Dictionary[];
-	usageLedger: Dictionary[];
-	usageSummary: Dictionary;
-	routingDecisions: Dictionary[];
-	providerLimits: Dictionary[];
-	budgetRules: Dictionary[];
-	cliRuntimes: Dictionary[];
-	cliSessions: Dictionary[];
-	benchmarks: Dictionary[];
-	benchmarkOutcomes: Dictionary[];
-	runtimeProviderConfiguration: Dictionary[];
+	overview: ModelGatewayOverview;
+	providers: ModelGatewayProviderAccount[];
+	models: ModelGatewayModel[];
+	routingProfiles: ModelGatewayRoutingProfile[];
+	rolePolicies: ModelGatewayRolePolicy[];
+	usageLedger: ModelGatewayUsage[];
+	usageSummary: ModelGatewayUsageSummary | null;
+	routingDecisions: ModelGatewayRoutingDecision[];
+	providerLimits: ModelGatewayProviderLimit[];
+	budgetRules: ModelGatewayBudgetRule[];
+	cliRuntimes: ModelGatewayCliRuntime[];
+	cliSessions: ModelGatewayCliSession[];
+	benchmarks: ModelGatewayBenchmark[];
+	benchmarkOutcomes: ModelGatewayBenchmarkOutcome[];
+	runtimeProviderConfiguration: RuntimeProviderConfiguration[];
 };
 
 const emptyGatewayState: ModelGatewayState = {
-	overview: {},
+	overview: {
+		activeCliSessions: 0,
+		actualCostToday: 0,
+		apiProviders: 0,
+		cliRuntimes: 0,
+		degraded: 0,
+		estimatedCostToday: 0,
+		healthy: 0,
+		localProviders: 0,
+		offline: 0,
+		pendingModelApprovals: 0,
+		providersEnabled: 0,
+		providersInCooldown: 0,
+		totalTokensToday: 0,
+	},
 	providers: [],
 	models: [],
 	routingProfiles: [],
 	rolePolicies: [],
 	usageLedger: [],
-	usageSummary: {},
+	usageSummary: null,
 	routingDecisions: [],
 	providerLimits: [],
 	budgetRules: [],
@@ -80,9 +114,21 @@ function text(value: unknown, fallback = 'n/a') {
 	return result || fallback;
 }
 
+function redactVisibleSecret(value: unknown, fallback = 'n/a') {
+	return text(value, fallback)
+		.replace(/\bBearer\s+[A-Za-z0-9._~+/=-]{8,}/gi, '[redacted_secret]')
+		.replace(/\bsk-[A-Za-z0-9_-]{8,}/gi, '[redacted_secret]')
+		.replace(/([?&](?:api[_-]?key|token|secret)=)[^&\s]+/gi, '$1[redacted_secret]')
+		.replace(/\b(?:api[_-]?key|token|secret)\s*[:=]\s*[^,\s;]+/gi, '[redacted_secret]');
+}
+
 function money(value: unknown) {
 	const number = Number(value ?? 0);
 	return `$${Number.isFinite(number) ? number.toFixed(4) : '0.0000'}`;
+}
+
+function policyBudgetUsd(row: Overview['modelPolicies'][number] | ModelGatewayRolePolicy) {
+	return 'maxCostPerTaskUsd' in row ? row.maxCostPerTaskUsd : row.maxCostUsd;
 }
 
 function Metric({ label, value }: { label: string; value: unknown }) {
@@ -98,10 +144,12 @@ export function ModelGatewayPage({
 	overview,
 	runtimeProviders,
 	token,
+	onRefreshRuntimeProviders,
 }: {
 	overview: Overview;
 	runtimeProviders: RuntimeProviders | null;
 	token: string;
+	onRefreshRuntimeProviders: () => Promise<unknown>;
 }) {
 	const [gateway, setGateway] = useState<ModelGatewayState>(emptyGatewayState);
 	const [loading, setLoading] = useState(true);
@@ -131,7 +179,7 @@ export function ModelGatewayPage({
 	const [policyAllowRemote, setPolicyAllowRemote] = useState(false);
 	const [policyAllowLocal, setPolicyAllowLocal] = useState(true);
 	const [policyError, setPolicyError] = useState('');
-	const [createdPolicies, setCreatedPolicies] = useState<Dictionary[]>([]);
+	const [createdPolicies, setCreatedPolicies] = useState<ModelGatewayRolePolicy[]>([]);
 	const [benchmarkProvider, setBenchmarkProvider] = useState('codex_cli');
 	const [benchmarkModel, setBenchmarkModel] = useState('gpt-5.5');
 	const [benchmarkRuntime, setBenchmarkRuntime] = useState('cli');
@@ -280,7 +328,40 @@ export function ModelGatewayPage({
 	const executableRuntimeCount = runtimeRows.filter((runtime) => runtime.executable).length;
 	const unavailableRuntimeCount = runtimeRows.filter((runtime) => !runtime.available).length;
 	const runtimeConfigurationRows = gateway.runtimeProviderConfiguration;
+	const runtimeConfigurationById = useMemo(() => {
+		const map = new Map<string, RuntimeProviderConfiguration>();
+		for (const row of runtimeConfigurationRows) {
+			const id = text(row.id, '');
+			if (id) map.set(id, row);
+		}
+		return map;
+	}, [runtimeConfigurationRows]);
 	const missingRuntimeConfigCount = runtimeConfigurationRows.filter((row) => row.configured !== true).length;
+
+	const runtimeStateBadge = (enabled: boolean, positive: string, negative: string) => (
+		<Badge tone={enabled ? 'ok' : 'warn'}>{enabled ? positive : negative}</Badge>
+	);
+
+	const refreshRuntimeHealth = async (runtime: RuntimeProvider) => {
+		const runtimeId = String(runtime.id ?? '');
+		const kind = String(runtime.kind ?? '');
+		setBusyAction(`${runtimeId}:runtime-health`);
+		setError('');
+		try {
+			if (kind === 'cli') {
+				await detectModelGatewayCliRuntime(token, runtimeId);
+			} else if (kind === 'api' || kind === 'gateway' || kind === 'local') {
+				await healthCheckModelGatewayProvider(token, runtimeId);
+			} else {
+				throw new Error(`Runtime provider ${runtimeId} does not expose an automated healthcheck endpoint.`);
+			}
+			await Promise.all([reload(), onRefreshRuntimeProviders()]);
+		} catch (actionError) {
+			setError(actionError instanceof Error ? actionError.message : 'Runtime healthcheck refresh failed.');
+		} finally {
+			setBusyAction('');
+		}
+	};
 
 	const runProviderAction = async (providerId: string, action: 'toggle' | 'health' | 'discover') => {
 		setBusyAction(`${providerId}:${action}`);
@@ -353,18 +434,20 @@ export function ModelGatewayPage({
 		setPolicyError('');
 		setBusyAction('save-model-policy');
 		try {
-			const result = await createModelPolicy(token, {
+			const result = await createModelGatewayRolePolicy(token, {
 				id: policyId,
-				name: policyName.trim(),
+				role: policyId,
+				routingProfileId: 'balanced_best_value',
 				preferred: [{ provider: policyProvider, model: policyModel }],
 				fallback: [],
-				maxCostUsd: maxCost,
-				maxTokens: tokenLimit,
-				temperature: 0.2,
+				maxCostPerTaskUsd: maxCost,
+				maxTokensPerRun: tokenLimit,
 				allowRemote: policyAllowRemote,
 				allowLocal: policyAllowLocal,
+				allowCli: false,
+				allowApi: true,
 			});
-			setCreatedPolicies((current) => [result.modelPolicy as unknown as Dictionary, ...current]);
+			setCreatedPolicies((current) => [result.rolePolicy, ...current]);
 		} catch (saveError) {
 			setPolicyError(saveError instanceof Error ? saveError.message : 'Model policy save failed.');
 		} finally {
@@ -436,62 +519,15 @@ export function ModelGatewayPage({
 				</div>
 			</Surface>
 
-			<Surface title="Runtime Configuration">
-				<DataTable rows={runtimeConfigurationRows} empty={<EmptyState title="No runtime configuration status" body="Runtime provider configuration has not returned records." />} columns={[
-					{ key: 'provider', label: 'Provider', render: (row) => <span className="mono">{text(row.id)}</span> },
-					{ key: 'kind', label: 'Kind', render: (row) => <Badge>{text(row.kind)}</Badge> },
-					{ key: 'status', label: 'Status', render: (row) => <Badge tone={row.configured ? 'ok' : 'warn'}>{text(row.status)}</Badge> },
-					{
-						key: 'missing',
-						label: 'Missing',
-						render: (row) => {
-							const missing = Array.isArray(row.missing) ? row.missing.map((item) => text(item)).filter(Boolean) : [];
-							return missing.length ? <div className="inline">{missing.map((item) => <Badge key={item} tone="warn">{item}</Badge>)}</div> : <Badge tone="ok">none</Badge>;
-						},
-					},
-					{
-						key: 'variables',
-						label: 'Variables',
-						render: (row) => {
-							const variables = Array.isArray(row.variables) ? row.variables : [];
-							return (
-								<div className="stack">
-									{variables.map((variable) => {
-										const record = variable as Dictionary;
-										const name = text(record.name);
-										const fingerprint = text(record.fingerprint, '');
-										return (
-											<div className="inline" key={name}>
-												<Badge tone={record.configured ? 'ok' : 'warn'}>{record.configured ? 'set' : 'missing'}</Badge>
-												<span className="mono">{name}</span>
-												{fingerprint ? <span className="mono">{fingerprint}</span> : null}
-											</div>
-										);
-									})}
-								</div>
-							);
-						},
-					},
-					{ key: 'reason', label: 'Reason', render: (row) => text(row.reason) },
-				]} />
-			</Surface>
-
-			<Surface title="Runtime Providers">
+			<Surface title="Runtime & Model Gateway">
+				<h3 className="section-subtitle">Runtime Providers</h3>
 				<DataTable rows={runtimeRows} empty={<EmptyState title="No runtime provider status" body="Runtime discovery has not returned provider status records." />} columns={[
-					{ key: 'runtime', label: 'Runtime', render: (row) => <span className="mono">{row.id}</span> },
+					{ key: 'id', label: 'Id', render: (row) => <span className="mono">{row.id}</span> },
 					{ key: 'kind', label: 'Kind', render: (row) => <Badge>{row.kind}</Badge> },
-					{
-						key: 'state',
-						label: 'State',
-						render: (row) => (
-							<div className="inline">
-								<Badge tone={row.detected ? 'ok' : 'warn'}>{row.detected ? 'detected' : 'not detected'}</Badge>
-								<Badge tone={row.configured ? 'ok' : 'warn'}>{row.configured ? 'configured' : 'unconfigured'}</Badge>
-								<Badge tone={row.available ? 'ok' : 'warn'}>{row.available ? 'available' : 'unavailable'}</Badge>
-								<Badge tone={row.executable ? 'ok' : 'warn'}>{row.executable ? 'executable' : 'not executable'}</Badge>
-							</div>
-						),
-					},
+					{ key: 'detected', label: 'Detected', render: (row) => runtimeStateBadge(Boolean(row.detected), 'detected', 'not detected') },
+					{ key: 'configured', label: 'Configured', render: (row) => runtimeStateBadge(Boolean(row.configured), 'configured', 'not configured') },
+					{ key: 'available', label: 'Available', render: (row) => runtimeStateBadge(Boolean(row.available), 'available', 'not available') },
+					{ key: 'executable', label: 'Executable', render: (row) => runtimeStateBadge(Boolean(row.executable), 'executable', 'not executable') },
 					{
 						key: 'capabilities',
 						label: 'Capabilities',
@@ -502,9 +538,65 @@ export function ModelGatewayPage({
 							</div>
 						),
 					},
-					{ key: 'command', label: 'Command', render: (row) => <span className="mono">{row.detectedCommand ?? 'n/a'}</span> },
-					{ key: 'requiredConfiguration', label: 'Required config', render: (row) => (row.requiredConfiguration?.length ? row.requiredConfiguration.join(', ') : 'n/a') },
-					{ key: 'reason', label: 'Reason', render: (row) => String(row.reason ?? '') },
+					{
+						key: 'configuration',
+						label: 'Configuration',
+						render: (row) => {
+							const configuration = runtimeConfigurationById.get(String(row.id ?? ''));
+							const configured = configuration?.configured === true || row.configured;
+							const missingFromConfiguration = Array.isArray(configuration?.missing) ? configuration.missing : [];
+							const missingSource = missingFromConfiguration.length || configured ? missingFromConfiguration : row.requiredConfiguration ?? [];
+							const missing = missingSource.map((item) => redactVisibleSecret(item)).filter(Boolean);
+							const variables = Array.isArray(configuration?.variables) ? configuration.variables : [];
+							return (
+								<div className="stack">
+									<Badge tone={configured ? 'ok' : 'warn'}>{text(configuration?.status, configured ? 'configured' : 'missing_config')}</Badge>
+									<div className="inline">
+										{missing.length ? missing.map((item) => <Badge key={item} tone="warn">{item}</Badge>) : <Badge tone="ok">none missing</Badge>}
+									</div>
+									{variables.map((variable) => {
+										const name = redactVisibleSecret(variable.name);
+										const fingerprint = redactVisibleSecret(variable.fingerprint, '');
+										return (
+											<div className="inline" key={name}>
+												<Badge tone={variable.configured ? 'ok' : 'warn'}>{variable.configured ? 'set' : 'missing'}</Badge>
+												<span className="mono">{name}</span>
+												{fingerprint ? <span className="mono">{fingerprint}</span> : null}
+											</div>
+										);
+									})}
+								</div>
+							);
+						},
+					},
+					{ key: 'reason', label: 'Reason', render: (row) => redactVisibleSecret(row.reason) },
+					{ key: 'version', label: 'Version', render: (row) => <span className="mono">{redactVisibleSecret(row.version)}</span> },
+					{ key: 'command', label: 'Detected command', render: (row) => <span className="mono">{redactVisibleSecret(row.detectedCommand)}</span> },
+					{
+						key: 'health',
+						label: 'Healthcheck',
+						render: (row) => {
+							const runtimeId = String(row.id ?? '');
+							const kind = String(row.kind ?? '');
+							const canRefresh = kind === 'cli' || kind === 'api' || kind === 'gateway' || kind === 'local';
+							const busy = busyAction === `${runtimeId}:runtime-health`;
+							return (
+								<div className="stack">
+									<span className="mono">{redactVisibleSecret(row.healthCheckedAt, 'not checked')}</span>
+									<button
+										className="button"
+										type="button"
+										disabled={!canRefresh || busy}
+										aria-label={`Refresh healthcheck for ${runtimeId}`}
+										onClick={() => void refreshRuntimeHealth(row)}
+									>
+										{busy ? 'Refreshing healthcheck' : 'Refresh healthcheck'}
+									</button>
+									{canRefresh ? null : <span className="muted">No automated healthcheck endpoint.</span>}
+								</div>
+							);
+						},
+					},
 				]} />
 			</Surface>
 
@@ -608,7 +700,7 @@ export function ModelGatewayPage({
 			<Surface title="Model policies">
 				<DataTable rows={visibleModelPolicies} empty={<EmptyState title="No model policies" body="Model policies define allowed providers, fallback chains and budgets." />} columns={[
 					{ key: 'id', label: 'Policy', render: (row) => <span className="mono">{text(row.id)}</span> },
-					{ key: 'budget', label: 'Budget', render: (row) => money(row.maxCostUsd) },
+					{ key: 'budget', label: 'Budget', render: (row) => money(policyBudgetUsd(row)) },
 					{ key: 'remote', label: 'Remote', render: (row) => row.allowRemote ? 'allowed' : 'blocked' },
 				]} />
 			</Surface>

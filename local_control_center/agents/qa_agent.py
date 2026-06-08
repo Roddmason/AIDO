@@ -7,7 +7,8 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from local_control_center.evidence.artifacts import write_text_artifact
+from local_control_center.evidence.artifacts import artifact_hashes, artifact_records_from_ids, artifact_ref, write_text_artifact
+from local_control_center.evidence.quality import evidence_package_contract_errors
 from local_control_center.evidence.repository import EvidenceRepository
 from local_control_center.jobs_approvals.repository import JobsRepository
 from local_control_center.shared.redaction import redact_secrets
@@ -436,6 +437,12 @@ class QAAgentRunner:
             job_id=job_result["job"]["id"],
             metadata=payload.get("metadata") or {},
         )
+        artifact_records = artifact_records_from_ids(self.evidence, qa_run["artifactIds"])
+        tool_calls = [
+            tool_call
+            for tool_call in self.agents.list_agent_tool_calls()
+            if str(tool_call.get("agentRunId")) == qa_run["agentRun"]["id"]
+        ]
         evidence = self.evidence.create_evidence_package(
             project_id=project_id,
             workflow_run_id=None,
@@ -443,6 +450,7 @@ class QAAgentRunner:
             agent_run_id=qa_run["agentRun"]["id"],
             job_id=job_result["job"]["id"],
             workspace_id=workspace_id,
+            runtime_id=f"{QA_AGENT_ID}.tool_broker",
             task_id=task_id,
             test_plan="Execute QAAgent commands through ToolBroker and compute verdicts from exit codes and artifacts.",
             acceptance_checklist=[
@@ -461,12 +469,69 @@ class QAAgentRunner:
                 }
             ],
             artifact_ids=qa_run["artifactIds"],
+            diff_summary={"artifactIds": qa_run["artifactIds"]},
+            runtime_health={
+                "id": f"{QA_AGENT_ID}.tool_broker",
+                "status": qa_run["verdict"],
+                "available": True,
+                "executable": True,
+                "commands": len(qa_run["results"]),
+                "reason": qa_run["reason"],
+            },
+            model_calls=[],
+            tool_calls=tool_calls,
+            policy_decisions=[],
+            approvals=self.jobs.list_action_requests(job_result["job"]["id"]),
+            artifacts=[artifact_ref(artifact) for artifact in artifact_records],
+            hashes=artifact_hashes(artifact_records),
             qa_verdict=qa_run["verdict"],
         )
         self.attach_artifacts_to_evidence(evidence_id=evidence["id"], artifact_ids=qa_run["artifactIds"])
+        completed = qa_verdict_allows_completion(qa_run["verdict"], qa_run["results"])
+        contract_errors = evidence_package_contract_errors(
+            evidence,
+            require_runtime_links=completed,
+            require_workflow_run=False,
+        )
+        if completed and contract_errors:
+            completed = False
+            qa_run["verdict"] = "blocked"
+            qa_run["reason"] = "Evidence package contract is incomplete or unverifiable: " + " ".join(contract_errors)
+            evidence = self.evidence.update_evidence_links(
+                evidence["id"],
+                qa_verdict=qa_run["verdict"],
+                risk_notes=[
+                    {
+                        "severity": "high",
+                        "description": qa_run["reason"],
+                        "mitigation": "Regenerate QAAgent evidence with artifact refs and SHA-256 hashes before completion.",
+                    }
+                ],
+            )
+            qa_run["agentRun"] = self.agents.update_agent_run_status(
+                qa_run["agentRun"]["id"],
+                status="failed",
+                output_payload={
+                    "status": qa_run["verdict"],
+                    "verdict": qa_run["verdict"],
+                    "reason": qa_run["reason"],
+                    "results": qa_run["results"],
+                    "artifactIds": sorted(set(qa_run["artifactIds"])),
+                    "evidence_refs": [evidence["id"], *sorted(set(qa_run["artifactIds"]))],
+                },
+            )
+        else:
+            qa_run["agentRun"] = self.agents.update_agent_run_status(
+                qa_run["agentRun"]["id"],
+                status="completed" if completed else "failed",
+                output_payload={
+                    **(qa_run["agentRun"].get("output") or {}),
+                    "evidence_refs": [evidence["id"], *sorted(set(qa_run["artifactIds"]))],
+                },
+            )
         job = self.jobs.update_job_status(
             job_result["job"]["id"],
-            status="completed" if qa_verdict_allows_completion(qa_run["verdict"], qa_run["results"]) else "failed",
+            status="completed" if completed else "failed",
             metadata={"qaVerdict": qa_run["verdict"], "evidencePackageId": evidence["id"]},
         )
         return {

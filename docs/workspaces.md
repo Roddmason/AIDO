@@ -40,7 +40,16 @@ agents edit the same working tree for the same task.
 Policy evaluation uses the allocated workspace path when a request includes
 `workspaceId`. Low-risk shell actions outside that path require approval.
 
-## Next Steps
+## Real Capability Table
 
-- Add devcontainer execution only after sandbox policy, image catalog review,
-  evidence capture, and explicit approval semantics are defined.
+| Capability | Real state | Endpoint/UI | Tests | Limitations |
+| --- | --- | --- | --- | --- |
+| Workspace allocation | Implemented as one active workspace per `projectId + taskId`. | `POST /api/v1/workspaces`, Workspaces UI. | Workspace allocation and traceability tests. | It is task-scoped local isolation, not a multi-user remote workspace service. |
+| Git worktree mode | Implemented when project path is a Git repository and Git is available. | `isolationType: git_worktree`, Workspaces UI metadata. | Workspace policy tests and issue-to-patch tests. | Non-Git projects degrade to directory workspace and cannot satisfy productive CLI `issue_to_patch` completion. |
+| Archive lifecycle | Implemented with evidence capture before cleanup and Git worktree removal through the allowlisted Git runner. | `POST /api/v1/workspaces/{id}/archive`. | Workspace archive evidence tests. | Archive preserves evidence but can remove the temporary worktree directory. |
+| Devcontainer metadata | Implemented as metadata-only storage. | `POST /api/v1/workspaces` metadata, Workspaces UI. | Workspace metadata tests. | It does not start containers or install tools during MVP allocation. |
+
+## Future Work
+
+- Future: add devcontainer execution only after sandbox policy, image catalog
+  review, evidence capture, and explicit approval semantics are defined.

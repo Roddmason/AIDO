@@ -1,9 +1,9 @@
-import type { Dictionary } from '../../api/types';
+import type { ModelGatewayProviderLimit } from '../../api/types';
 import { DataTable, EmptyState } from '../../components/primitives';
 import { PanelShell } from './PanelShell';
 import { money, text } from './utils';
 
-export function ProviderLimitsPanel({ providerLimits }: { providerLimits: Dictionary[] }) {
+export function ProviderLimitsPanel({ providerLimits }: { providerLimits: ModelGatewayProviderLimit[] }) {
 	return (
 		<PanelShell title="Provider Limits">
 			<DataTable rows={providerLimits} empty={<EmptyState title="No provider limits" body="Provider limit records appear after seeds or rate-limit events." />} columns={[

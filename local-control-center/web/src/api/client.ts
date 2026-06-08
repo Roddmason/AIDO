@@ -1,4 +1,4 @@
-import type { Dictionary, Overview, RetrievalStatus, RuntimeProviders } from './types';
+import type { Overview, RetrievalStatus, RuntimeProviders } from './types';
 import { requestGeneratedOperation } from './generated/openapi';
 import type { ApiOperationId, OperationRequestBody, OperationResponse } from './generated/openapi';
 
@@ -10,6 +10,8 @@ export type ArtifactPayload = {
 	artifactId: string;
 	hash: string;
 	contentType: string;
+	filename: string;
+	contentLength: number;
 	blob: Blob;
 	text: string;
 };
@@ -17,13 +19,24 @@ export type ArtifactPayload = {
 export type ModelGatewayRoutePreviewRequest = MutationBody<'route_preview_api_v1_model_gateway_route_preview_post'>;
 export type ModelGatewayRoutePreviewResponse = OperationResponse<'route_preview_api_v1_model_gateway_route_preview_post'>;
 export type ModelGatewayBenchmarkOutcomeRequest = MutationBody<'create_benchmark_outcome_api_v1_model_gateway_benchmark_outcomes_post'>;
+export type ModelGatewayProviderPatchRequest = MutationBody<'patch_provider_api_v1_model_gateway_providers__provider_id__patch'>;
 export type IssueToPatchRequest = MutationBody<'run_issue_to_patch_api_v1_workflows_issue_to_patch_post'>;
 export type IssueToPatchResponse = OperationResponse<'run_issue_to_patch_api_v1_workflows_issue_to_patch_post'>;
+export type EvidenceDetailResponse = OperationResponse<'get_evidence_api_v1_evidence__evidence_id__get'>;
 export type DeveloperAgentRunRequest = MutationBody<'run_developer_agent_api_v1_agents_developer_runs_post'>;
 export type DeveloperAgentRunResponse = OperationResponse<'run_developer_agent_api_v1_agents_developer_runs_post'>;
 export type DeveloperAgentStatusResponse = OperationResponse<'developer_agent_status_api_v1_agents_developer_status_get'>;
+export type DevOpsAgentRunRequest = MutationBody<'run_devops_agent_api_v1_agents_devops_runs_post'>;
+export type DevOpsAgentRunResponse = OperationResponse<'run_devops_agent_api_v1_agents_devops_runs_post'>;
+export type DevOpsAgentStatusResponse = OperationResponse<'devops_agent_status_api_v1_agents_devops_status_get'>;
 export type QAAgentRunRequest = MutationBody<'run_qa_agent_api_v1_agents_qa_runs_post'>;
 export type QAAgentRunResponse = OperationResponse<'run_qa_agent_api_v1_agents_qa_runs_post'>;
+export type SecurityAgentRunRequest = MutationBody<'run_security_agent_api_v1_agents_security_runs_post'>;
+export type SecurityAgentRunResponse = OperationResponse<'run_security_agent_api_v1_agents_security_runs_post'>;
+export type SecurityAgentStatusResponse = OperationResponse<'security_agent_status_api_v1_agents_security_status_get'>;
+export type ArchitectAgentRunRequest = MutationBody<'run_architect_agent_api_v1_agents_architect_runs_post'>;
+export type ArchitectAgentRunResponse = OperationResponse<'run_architect_agent_api_v1_agents_architect_runs_post'>;
+export type ArchitectAgentStatusResponse = OperationResponse<'architect_agent_status_api_v1_agents_architect_status_get'>;
 export type I18nLanguageRecord = {
 	code: string;
 	name: string;
@@ -48,7 +61,7 @@ async function parseResponse<T>(response: Response): Promise<T> {
 
 export async function apiRequest<T>(
 	path: string,
-	options: { method?: string; token?: string; body?: Dictionary; signal?: AbortSignal } = {},
+	options: { method?: string; token?: string; body?: unknown; signal?: AbortSignal } = {},
 ): Promise<T> {
 	const headers: Record<string, string> = { Accept: 'application/json' };
 	if (options.body !== undefined) headers['Content-Type'] = 'application/json';
@@ -78,13 +91,41 @@ export function getRuntimeProviders(signal?: AbortSignal) {
 	return requestGeneratedOperation<'list_runtime_providers_api_v1_runtime_providers_get', RuntimeProviders>('list_runtime_providers_api_v1_runtime_providers_get', { signal });
 }
 
+export function getEvidenceDetail(evidenceId: string, signal?: AbortSignal) {
+	return requestGeneratedOperation<'get_evidence_api_v1_evidence__evidence_id__get', EvidenceDetailResponse>(
+		'get_evidence_api_v1_evidence__evidence_id__get',
+		{ pathParams: { evidence_id: evidenceId }, signal },
+	);
+}
+
 export function getRuntimeProviderConfiguration(signal?: AbortSignal) {
-	return apiRequest<{ providers: Dictionary[] }>('/api/v1/runtime/provider-configuration', { signal });
+	return requestGeneratedOperation('list_runtime_provider_configuration_api_v1_runtime_provider_configuration_get', { signal });
 }
 
 export function getDeveloperAgentStatus(signal?: AbortSignal) {
 	return requestGeneratedOperation<'developer_agent_status_api_v1_agents_developer_status_get', DeveloperAgentStatusResponse>(
 		'developer_agent_status_api_v1_agents_developer_status_get',
+		{ signal },
+	);
+}
+
+export function getDevOpsAgentStatus(signal?: AbortSignal) {
+	return requestGeneratedOperation<'devops_agent_status_api_v1_agents_devops_status_get', DevOpsAgentStatusResponse>(
+		'devops_agent_status_api_v1_agents_devops_status_get',
+		{ signal },
+	);
+}
+
+export function getArchitectAgentStatus(signal?: AbortSignal) {
+	return requestGeneratedOperation<'architect_agent_status_api_v1_agents_architect_status_get', ArchitectAgentStatusResponse>(
+		'architect_agent_status_api_v1_agents_architect_status_get',
+		{ signal },
+	);
+}
+
+export function getSecurityAgentStatus(signal?: AbortSignal) {
+	return requestGeneratedOperation<'security_agent_status_api_v1_agents_security_status_get', SecurityAgentStatusResponse>(
+		'security_agent_status_api_v1_agents_security_status_get',
 		{ signal },
 	);
 }
@@ -104,7 +145,7 @@ export function updateI18nCatalog(token: string, body: I18nCatalogResponse) {
 	return apiRequest<I18nCatalogResponse>('/api/v1/i18n/catalog', {
 		method: 'PUT',
 		token,
-		body: body as unknown as Dictionary,
+		body,
 	});
 }
 
@@ -155,6 +196,25 @@ export function listAgents(teamId?: string, signal?: AbortSignal) {
 	});
 }
 
+function filenameFromContentDisposition(header: string | null): string {
+	if (!header) return '';
+	const utf8Match = header.match(/filename\*=UTF-8''([^;]+)/i);
+	if (utf8Match?.[1]) return decodeURIComponent(utf8Match[1].replace(/^"|"$/g, ''));
+	const plainMatch = header.match(/filename="?([^";]+)"?/i);
+	return plainMatch?.[1] ? plainMatch[1] : '';
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+	const url = URL.createObjectURL(blob);
+	const link = document.createElement('a');
+	link.href = url;
+	link.download = filename || 'artifact';
+	document.body.appendChild(link);
+	link.click();
+	link.remove();
+	URL.revokeObjectURL(url);
+}
+
 export async function fetchEvidenceArtifact(token: string, evidenceId: string, artifactId: string): Promise<ArtifactPayload> {
 	const response = await fetch(`/api/v1/evidence/${encodeURIComponent(evidenceId)}/artifacts/${encodeURIComponent(artifactId)}`, {
 		headers: {
@@ -173,13 +233,27 @@ export async function fetchEvidenceArtifact(token: string, evidenceId: string, a
 		contentType.includes('json') ||
 		contentType.includes('xml') ||
 		contentType.includes('markdown');
+	const contentLength = Number(response.headers.get('content-length') ?? blob.size);
 	return {
 		artifactId: response.headers.get('X-AIDO-Artifact-Id') ?? artifactId,
 		hash: response.headers.get('X-AIDO-Artifact-Hash') ?? '',
 		contentType,
+		filename: filenameFromContentDisposition(response.headers.get('content-disposition')),
+		contentLength: Number.isFinite(contentLength) ? contentLength : blob.size,
 		blob,
 		text: textLike ? await blob.text() : '',
 	};
+}
+
+export async function downloadEvidenceArtifact(
+	token: string,
+	evidenceId: string,
+	artifactId: string,
+	fallbackFilename = 'artifact',
+): Promise<ArtifactPayload> {
+	const payload = await fetchEvidenceArtifact(token, evidenceId, artifactId);
+	downloadBlob(payload.blob, payload.filename || fallbackFilename);
+	return payload;
 }
 
 export function approveAction(token: string, jobId: string, actionId: string, reason: string) {
@@ -242,6 +316,27 @@ export function runDeveloperAgent(token: string, body: DeveloperAgentRunRequest)
 	});
 }
 
+export function runDevOpsAgent(token: string, body: DevOpsAgentRunRequest) {
+	return requestGeneratedOperation('run_devops_agent_api_v1_agents_devops_runs_post', {
+		token,
+		body,
+	});
+}
+
+export function runArchitectAgent(token: string, body: ArchitectAgentRunRequest) {
+	return requestGeneratedOperation('run_architect_agent_api_v1_agents_architect_runs_post', {
+		token,
+		body,
+	});
+}
+
+export function runSecurityAgent(token: string, body: SecurityAgentRunRequest) {
+	return requestGeneratedOperation('run_security_agent_api_v1_agents_security_runs_post', {
+		token,
+		body,
+	});
+}
+
 export function createAgentProfile(token: string, body: MutationBody<'upsert_agent_profile_api_v1_agent_profiles_post'>) {
 	return requestGeneratedOperation('upsert_agent_profile_api_v1_agent_profiles_post', {
 		token,
@@ -249,8 +344,8 @@ export function createAgentProfile(token: string, body: MutationBody<'upsert_age
 	});
 }
 
-export function createModelPolicy(token: string, body: MutationBody<'upsert_model_policy_api_v1_model_policies_post'>) {
-	return requestGeneratedOperation('upsert_model_policy_api_v1_model_policies_post', {
+export function createModelGatewayRolePolicy(token: string, body: MutationBody<'create_role_policy_api_v1_model_gateway_role_policies_post'>) {
+	return requestGeneratedOperation('create_role_policy_api_v1_model_gateway_role_policies_post', {
 		token,
 		body,
 	});
@@ -301,59 +396,66 @@ export function registerMcpServer(token: string, body: MutationBody<'register_mc
 }
 
 export function getModelGatewayOverview(signal?: AbortSignal) {
-	return requestGeneratedOperation<'overview_api_v1_model_gateway_overview_get', { overview: Dictionary }>('overview_api_v1_model_gateway_overview_get', { signal });
+	return requestGeneratedOperation('overview_api_v1_model_gateway_overview_get', { signal });
 }
 
 export function getModelGatewayProviders(signal?: AbortSignal) {
-	return requestGeneratedOperation<'list_providers_api_v1_model_gateway_providers_get', { providers: Dictionary[] }>('list_providers_api_v1_model_gateway_providers_get', { signal });
+	return requestGeneratedOperation('list_providers_api_v1_model_gateway_providers_get', { signal });
 }
 
 export function getModelGatewayModels(signal?: AbortSignal) {
-	return requestGeneratedOperation<'list_models_api_v1_model_gateway_models_get', { models: Dictionary[] }>('list_models_api_v1_model_gateway_models_get', { signal });
+	return requestGeneratedOperation('list_models_api_v1_model_gateway_models_get', { signal });
 }
 
 export function getModelGatewayRoutingProfiles(signal?: AbortSignal) {
-	return requestGeneratedOperation<'list_routing_profiles_api_v1_model_gateway_routing_profiles_get', { routingProfiles: Dictionary[] }>('list_routing_profiles_api_v1_model_gateway_routing_profiles_get', { signal });
+	return requestGeneratedOperation('list_routing_profiles_api_v1_model_gateway_routing_profiles_get', { signal });
 }
 
 export function getModelGatewayRolePolicies(signal?: AbortSignal) {
-	return requestGeneratedOperation<'list_role_policies_api_v1_model_gateway_role_policies_get', { rolePolicies: Dictionary[] }>('list_role_policies_api_v1_model_gateway_role_policies_get', { signal });
+	return requestGeneratedOperation('list_role_policies_api_v1_model_gateway_role_policies_get', { signal });
 }
 
 export function getModelGatewayUsageLedger(signal?: AbortSignal) {
-	return requestGeneratedOperation<'list_usage_ledger_api_v1_model_gateway_usage_ledger_get', { usageLedger: Dictionary[] }>('list_usage_ledger_api_v1_model_gateway_usage_ledger_get', { signal });
+	return requestGeneratedOperation('list_usage_ledger_api_v1_model_gateway_usage_ledger_get', { signal });
 }
 
 export function getModelGatewayUsageSummary(signal?: AbortSignal) {
-	return requestGeneratedOperation<'usage_summary_api_v1_model_gateway_usage_ledger_summary_get', { summary: Dictionary }>('usage_summary_api_v1_model_gateway_usage_ledger_summary_get', { signal });
+	return requestGeneratedOperation('usage_summary_api_v1_model_gateway_usage_ledger_summary_get', { signal });
 }
 
 export function getModelGatewayRoutingDecisions(signal?: AbortSignal) {
-	return requestGeneratedOperation<'list_routing_decisions_api_v1_model_gateway_routing_decisions_get', { routingDecisions: Dictionary[] }>('list_routing_decisions_api_v1_model_gateway_routing_decisions_get', { signal });
+	return requestGeneratedOperation('list_routing_decisions_api_v1_model_gateway_routing_decisions_get', { signal });
 }
 
 export function getModelGatewayProviderLimits(signal?: AbortSignal) {
-	return requestGeneratedOperation<'list_provider_limits_api_v1_model_gateway_provider_limits_get', { providerLimits: Dictionary[] }>('list_provider_limits_api_v1_model_gateway_provider_limits_get', { signal });
+	return requestGeneratedOperation('list_provider_limits_api_v1_model_gateway_provider_limits_get', { signal });
 }
 
 export function getModelGatewayBudgetRules(signal?: AbortSignal) {
-	return requestGeneratedOperation<'list_budget_rules_api_v1_model_gateway_budget_rules_get', { budgetRules: Dictionary[] }>('list_budget_rules_api_v1_model_gateway_budget_rules_get', { signal });
+	return requestGeneratedOperation('list_budget_rules_api_v1_model_gateway_budget_rules_get', { signal });
 }
 
 export function getModelGatewayCliRuntimes(signal?: AbortSignal) {
-	return requestGeneratedOperation<'list_cli_runtimes_api_v1_model_gateway_cli_runtimes_get', { cliRuntimes: Dictionary[] }>('list_cli_runtimes_api_v1_model_gateway_cli_runtimes_get', { signal });
+	return requestGeneratedOperation('list_cli_runtimes_api_v1_model_gateway_cli_runtimes_get', { signal });
+}
+
+export function detectModelGatewayCliRuntime(token: string, runtimeId: string) {
+	return requestGeneratedOperation('detect_cli_runtime_api_v1_model_gateway_cli_runtimes__runtime_id__detect_post', {
+		token,
+		pathParams: { runtime_id: runtimeId },
+	});
 }
 
 export function getModelGatewayCliSessions(signal?: AbortSignal) {
-	return requestGeneratedOperation<'list_cli_sessions_api_v1_model_gateway_cli_sessions_get', { cliSessions: Dictionary[] }>('list_cli_sessions_api_v1_model_gateway_cli_sessions_get', { signal });
+	return requestGeneratedOperation('list_cli_sessions_api_v1_model_gateway_cli_sessions_get', { signal });
 }
 
 export function getModelGatewayBenchmarks(signal?: AbortSignal) {
-	return requestGeneratedOperation<'list_benchmarks_api_v1_model_gateway_benchmarks_get', { benchmarks: Dictionary[] }>('list_benchmarks_api_v1_model_gateway_benchmarks_get', { signal });
+	return requestGeneratedOperation('list_benchmarks_api_v1_model_gateway_benchmarks_get', { signal });
 }
 
 export function getModelGatewayBenchmarkOutcomes(signal?: AbortSignal) {
-	return requestGeneratedOperation<'list_benchmark_outcomes_api_v1_model_gateway_benchmark_outcomes_get', { outcomes: Dictionary[] }>('list_benchmark_outcomes_api_v1_model_gateway_benchmark_outcomes_get', { signal });
+	return requestGeneratedOperation('list_benchmark_outcomes_api_v1_model_gateway_benchmark_outcomes_get', { signal });
 }
 
 export function recordModelGatewayBenchmarkOutcome(token: string, body: ModelGatewayBenchmarkOutcomeRequest) {
@@ -370,23 +472,23 @@ export function previewModelRoute(token: string, body: ModelGatewayRoutePreviewR
 	});
 }
 
-export function patchModelGatewayProvider(token: string, providerId: string, body: Dictionary) {
-	return requestGeneratedOperation<'patch_provider_api_v1_model_gateway_providers__provider_id__patch', { provider: Dictionary }>('patch_provider_api_v1_model_gateway_providers__provider_id__patch', {
+export function patchModelGatewayProvider(token: string, providerId: string, body: ModelGatewayProviderPatchRequest) {
+	return requestGeneratedOperation('patch_provider_api_v1_model_gateway_providers__provider_id__patch', {
 		token,
 		pathParams: { provider_id: providerId },
-		body: body as OperationRequestBody<'patch_provider_api_v1_model_gateway_providers__provider_id__patch'>,
+		body,
 	});
 }
 
 export function healthCheckModelGatewayProvider(token: string, providerId: string) {
-	return requestGeneratedOperation<'provider_health_check_api_v1_model_gateway_providers__provider_id__health_check_post', { health: Dictionary }>('provider_health_check_api_v1_model_gateway_providers__provider_id__health_check_post', {
+	return requestGeneratedOperation('provider_health_check_api_v1_model_gateway_providers__provider_id__health_check_post', {
 		token,
 		pathParams: { provider_id: providerId },
 	});
 }
 
 export function discoverModelGatewayProviderModels(token: string, providerId: string) {
-	return requestGeneratedOperation<'discover_models_api_v1_model_gateway_providers__provider_id__discover_models_post', { models: Dictionary[] }>('discover_models_api_v1_model_gateway_providers__provider_id__discover_models_post', {
+	return requestGeneratedOperation('discover_models_api_v1_model_gateway_providers__provider_id__discover_models_post', {
 		token,
 		pathParams: { provider_id: providerId },
 	});

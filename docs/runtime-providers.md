@@ -25,6 +25,42 @@ Legacy env refs such as `NVIDIA_NIM_API_KEY`, `OPENROUTER_API_KEY`,
 existing persisted provider accounts, but new runtime configuration should use
 the `AIDO_*` names above.
 
+## Local Configuration Examples
+
+Set variables before starting the control center. Then inspect
+`/api/v1/runtime/provider-configuration` and `/api/v1/runtime/providers`.
+
+```powershell
+$env:AIDO_OPENAI_COMPATIBLE_BASE_URL = "https://provider.example/v1"
+$env:AIDO_OPENAI_COMPATIBLE_API_KEY = "<real API key>"
+$env:AIDO_OPENAI_COMPATIBLE_MODEL = "provider/model"
+$env:AIDO_OPENROUTER_API_KEY = "<real API key>"
+$env:AIDO_OPENROUTER_MODEL = "provider/model"
+$env:AIDO_NVIDIA_API_KEY = "<real API key>"
+$env:AIDO_NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
+$env:AIDO_NVIDIA_MODEL = "provider/model"
+$env:AIDO_OLLAMA_BASE_URL = "http://127.0.0.1:11434"
+$env:AIDO_CODEX_COMMAND = "codex"
+$env:AIDO_CLAUDE_COMMAND = "claude"
+```
+
+API execution also requires:
+
+```powershell
+$env:AIDO_ENABLE_REAL_PROVIDER_CALLS = "true"
+```
+
+CLI execution also requires:
+
+```powershell
+$env:AIDO_ENABLE_CLI_RUNTIMES = "true"
+```
+
+These flags do not force readiness. API providers still need credentials,
+model, enabled account, and explicit healthy status. CLI providers still need a
+resolvable command, usable version output, enabled account, workspace-safe argv,
+and supported capability.
+
 ## Provider State
 
 Each provider record exposes:
@@ -114,3 +150,14 @@ The runtime state must be visible in Command Center, Agents, Model Gateway,
 Workflows, Evidence, and Runtime Providers views. An unavailable runtime can
 produce blocked diagnostic evidence, but it cannot set a real workflow to
 `completed`.
+
+## Real Capability Table
+
+| Capability | Real state | Endpoint/UI | Tests | Limitations |
+| --- | --- | --- | --- | --- |
+| Provider truth source | Implemented from real configuration, health, detection, enabled state, and execution gates. | `GET /api/v1/runtime/providers`, Runtime & Model Gateway UI. | `tests_py/test_aido_real_runtime_slice.py`, web provider tests. | Provider names and catalog seeds are not readiness. |
+| Safe configuration read model | Implemented with configured/missing state and fingerprints. | `GET /api/v1/runtime/provider-configuration`. | Runtime configuration tests. | It never returns raw secrets and does not write credentials. |
+| API providers | Configurable and executable only after env/config, health, enabled account, and `AIDO_ENABLE_REAL_PROVIDER_CALLS=true`. | Model Gateway health/configuration surfaces. | Model gateway and agent real-runtime tests. | Disabled by default; missing health or flag returns blocked/unavailable. |
+| CLI providers | Detectable and executable only after command config, installation, version check, enabled account, `AIDO_ENABLE_CLI_RUNTIMES=true`, and capability support. | Runtime providers API, Command Center runtime picker. | Runtime slice and optional smoke profile tests. | OpenHands/SWE-agent issue-to-patch requires explicit release-smoke argv contracts. |
+| Ollama | Configurable through base URL and available only when the daemon responds to `/api/tags`. | Runtime providers API, Model Gateway UI. | Ollama runtime adapter tests. | Missing daemon or model returns unavailable/configuration-required. |
+| Manual provider | Persisted as human/manual state. | Runtime providers API. | Internal mock boundary tests. | Not an automated implementation runtime and not executable. |

@@ -2,9 +2,14 @@
 
 ## What It Does
 
-The Model Gateway is the local-first control surface for model API providers, CLI coding runtimes, routing profiles, role policies, usage, budgets and quota state. It keeps legacy `model_policies`, `model_calls` and `cost_usage` intact while adding the Unified Model & Runtime Gateway tables.
+The Model Gateway is the local-first control surface for model API providers, CLI coding runtimes, routing profiles, role policies, usage, budgets and quota state. `usage_ledger` is the canonical usage contract; legacy `cost_usage` is kept only as a temporary read-model for older dashboards.
 Runtime execution is fail-closed: planning can record `planned`, but only a real
 provider/runtime response can record `completed`.
+
+Runtime provider status is a strict OpenAPI contract. `kind` is limited to
+`api`, `gateway`, `local`, `cli`, or `manual`; `configured`, `available`, and
+`executable` are separate booleans; and the UI must not show a provider as ready
+unless `executable=true`.
 
 ## Configuration
 

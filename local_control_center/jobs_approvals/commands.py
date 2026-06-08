@@ -53,7 +53,10 @@ def approve_action(
     action_id: str,
     body: dict[str, Any],
 ) -> dict[str, Any]:
-    return jobs.approve_action(job_id, action_id, reason=required_reason(body))
+    try:
+        return jobs.approve_action(job_id, action_id, reason=required_reason(body))
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
 
 
 def deny_action(
@@ -62,4 +65,7 @@ def deny_action(
     action_id: str,
     body: dict[str, Any],
 ) -> dict[str, Any]:
-    return jobs.deny_action(job_id, action_id, reason=body.get("reason", ""))
+    try:
+        return jobs.deny_action(job_id, action_id, reason=required_reason(body))
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error

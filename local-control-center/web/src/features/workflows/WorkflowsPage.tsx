@@ -1,7 +1,7 @@
 import { Background, Controls, ReactFlow, type Edge, type Node } from '@xyflow/react';
 import { useEffect, useMemo, useState } from 'react';
 
-import { fetchEvidenceArtifact, type ArtifactPayload } from '../../api/client';
+import { downloadEvidenceArtifact, fetchEvidenceArtifact, type ArtifactPayload } from '../../api/client';
 import type { Artifact, Overview, WorkflowStep } from '../../api/types';
 import { Badge, DataTable, Drawer, EmptyState, PageHeader, Surface } from '../../components/primitives';
 import { artifactDisplayName, artifactMimeType, artifactSizeLabel } from '../../lib/artifacts';
@@ -41,6 +41,7 @@ export function WorkflowsPage({ overview, token }: { overview: Overview; token: 
 	const [previewArtifact, setPreviewArtifact] = useState<Artifact | null>(null);
 	const [previewPayload, setPreviewPayload] = useState<ArtifactPayload | null>(null);
 	const [previewLoadingId, setPreviewLoadingId] = useState('');
+	const [downloadLoadingId, setDownloadLoadingId] = useState('');
 	const [previewError, setPreviewError] = useState('');
 	useEffect(() => {
 		const onKeyDown = (event: KeyboardEvent) => {
@@ -77,16 +78,22 @@ export function WorkflowsPage({ overview, token }: { overview: Overview; token: 
 			setPreviewLoadingId('');
 		}
 	};
-	const downloadPreview = () => {
-		if (!previewArtifact || !previewPayload) return;
-		const url = URL.createObjectURL(previewPayload.blob);
-		const link = document.createElement('a');
-		link.href = url;
-		link.download = artifactDisplayName(previewArtifact);
-		document.body.appendChild(link);
-		link.click();
-		link.remove();
-		URL.revokeObjectURL(url);
+	const downloadArtifact = async (artifact: Artifact) => {
+		const artifactId = String(artifact.id ?? '');
+		const evidenceId = String(artifact.evidencePackageId ?? '');
+		if (!artifactId || !evidenceId) {
+			setPreviewError('Artifact metadata is incomplete.');
+			return;
+		}
+		setPreviewError('');
+		setDownloadLoadingId(artifactId);
+		try {
+			await downloadEvidenceArtifact(token, evidenceId, artifactId, artifactDisplayName(artifact));
+		} catch (error) {
+			setPreviewError(error instanceof Error ? error.message : 'Artifact download failed.');
+		} finally {
+			setDownloadLoadingId('');
+		}
 	};
 	const selectedWorkflow = overview.workflows.find((workflow) => workflow.id === selectedWorkflowId) ?? overview.workflows[0];
 	const linked = useMemo(() => {
@@ -304,10 +311,16 @@ export function WorkflowsPage({ overview, token }: { overview: Overview; token: 
 										render: (row) => {
 											const name = artifactDisplayName(row);
 											const loading = previewLoadingId === String(row.id ?? '');
+											const downloading = downloadLoadingId === String(row.id ?? '');
 											return (
-												<button className="button" type="button" aria-label={`Preview workflow artifact ${name}`} disabled={loading} onClick={() => void openPreview(row)}>
-													{loading ? 'Opening' : 'Preview'}
-												</button>
+												<div className="inline" aria-busy={loading || downloading}>
+													<button className="button" type="button" aria-label={`Preview workflow artifact ${name}`} disabled={loading} onClick={() => void openPreview(row)}>
+														{loading ? 'Opening' : 'Preview'}
+													</button>
+													<button className="button" type="button" aria-label={`Download workflow artifact ${name}`} disabled={downloading} onClick={() => void downloadArtifact(row)}>
+														{downloading ? 'Downloading' : 'Download'}
+													</button>
+												</div>
 											);
 										},
 									},
@@ -386,13 +399,14 @@ export function WorkflowsPage({ overview, token }: { overview: Overview; token: 
 								<div className="mono">sha256 {String(previewPayload?.hash || previewArtifact.hash || 'not recorded')}</div>
 							</div>
 							{previewError ? <div className="form-error" role="alert">{previewError}</div> : null}
+							{downloadLoadingId ? <div className="sr-only" role="status">Downloading artifact</div> : null}
 							{previewPayload?.text ? (
 								<pre className="artifact-preview">{previewPayload.text}</pre>
 							) : (
 								<EmptyState title={previewLoadingId ? 'Loading artifact' : 'Binary or empty artifact'} body="Non-text artifacts remain downloadable, but are not rendered inline." />
 							)}
-							<button className="button primary" type="button" disabled={!previewPayload} aria-label={`Download workflow artifact ${artifactDisplayName(previewArtifact)}`} onClick={downloadPreview}>
-								Download artifact
+							<button className="button primary" type="button" disabled={downloadLoadingId === String(previewArtifact.id ?? '')} aria-label={`Download workflow preview artifact ${artifactDisplayName(previewArtifact)}`} onClick={() => void downloadArtifact(previewArtifact)}>
+								{downloadLoadingId === String(previewArtifact.id ?? '') ? 'Downloading artifact' : 'Download artifact'}
 							</button>
 						</>
 					) : null}

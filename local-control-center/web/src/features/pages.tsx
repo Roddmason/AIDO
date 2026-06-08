@@ -2,17 +2,18 @@ import { useEffect, useMemo, useState } from 'react';
 
 import {
 	createArchitectureDecision,
-	createModelPolicy,
+	createModelGatewayRolePolicy,
 	createNextStep,
 	createRisk,
-	createWorkflowWithBody,
+	downloadEvidenceArtifact,
 	fetchEvidenceArtifact,
+	getEvidenceDetail,
 	registerMcpServer,
 	runIssueToPatch,
 	updateRisk,
 	updateSandboxProfile,
 } from '../api/client';
-import type { ArtifactPayload, IssueToPatchResponse } from '../api/client';
+import type { ArtifactPayload, EvidenceDetailResponse, IssueToPatchResponse } from '../api/client';
 import type {
 	ArchitectureDecisionStatus,
 	Artifact,
@@ -25,8 +26,8 @@ import type {
 	RetrievalStatus,
 	RiskSeverity,
 	RiskStatus,
+	RuntimeProvider,
 	RuntimeProviders,
-	WorkflowKind,
 } from '../api/types';
 import { Badge, DataTable, Drawer, EmptyState, PageHeader, Surface } from '../components/primitives';
 import { artifactDisplayName, artifactMimeType, artifactSizeLabel } from '../lib/artifacts';
@@ -41,60 +42,153 @@ const issueQaPresets = [
 	{ id: 'quality', label: 'Quality suite', commands: [['corepack', 'pnpm@10.24.0', 'run', 'quality']] },
 ];
 
+const issueRuntimeCapabilities = new Set(['issue_to_patch', 'code_edit']);
+const issueTimelineOrder = ['created', 'workspace_allocated', 'runtime_selected', 'running', 'qa_running', 'evidence_ready', 'awaiting_approval'] as const;
+
+type TimelineStatus = 'pending' | 'done' | 'active' | 'blocked' | 'failed';
+
+function runtimeSupportsIssueToPatch(runtime: RuntimeProvider) {
+	const kind = String(runtime.kind ?? '').toLowerCase();
+	return kind !== 'test' && kind !== 'simulation' && (runtime.capabilities ?? []).some((capability) => issueRuntimeCapabilities.has(capability));
+}
+
+function runtimeIsExecutableIssueRuntime(runtime: RuntimeProvider) {
+	return runtimeSupportsIssueToPatch(runtime) && runtime.executable === true;
+}
+
+function activeProjects(projects: Project[]) {
+	return projects.filter((project) => String(project.status ?? 'active') === 'active');
+}
+
+function objectRecord(value: unknown) {
+	return value && typeof value === 'object' ? (value as Record<string, unknown>) : undefined;
+}
+
+function buildIssueTimeline(result: IssueToPatchResponse | null, issueBusy: boolean, hasExecutableRuntime: boolean) {
+	if (!result) {
+		return [
+			{ id: 'created', status: issueBusy ? 'done' : 'pending', detail: issueBusy ? 'request submitted' : 'not started' },
+			{ id: 'workspace_allocated', status: 'pending', detail: 'waiting for workflow run' },
+			{ id: 'runtime_selected', status: hasExecutableRuntime ? 'pending' : 'blocked', detail: hasExecutableRuntime ? 'waiting for run' : 'runtime_unavailable' },
+			{ id: 'running', status: 'pending', detail: 'waiting for executable runtime' },
+			{ id: 'qa_running', status: 'pending', detail: 'waiting for runtime output' },
+			{ id: 'evidence_ready', status: 'pending', detail: 'waiting for artifact package' },
+			{ id: 'awaiting_approval', status: 'pending', detail: 'waiting for evidence' },
+			{ id: 'completed/failed', status: 'pending', detail: 'no terminal verdict' },
+		] as Array<{ id: string; status: TimelineStatus; detail: string }>;
+	}
+	const rawResult = result as unknown as Record<string, unknown>;
+	const status = String(result.status ?? '');
+	const workflowRun = objectRecord(result.workflowRun);
+	const workspace = objectRecord(result.workspace);
+	const runtime = objectRecord(result.runtime);
+	const runtimeResult = objectRecord(result.runtimeResult);
+	const evidence = objectRecord(result.evidencePackage);
+	const qaResults = Array.isArray(result.qaResults) ? result.qaResults : [];
+	const isRuntimeUnavailable = status === 'runtime_unavailable' || status === 'unavailable';
+	const isFailed = isRuntimeUnavailable || status === 'failed' || String(workflowRun?.status ?? '') === 'failed';
+	const isCompleted = status === 'completed' || String(workflowRun?.status ?? '') === 'completed';
+	const awaitingApproval = Boolean(rawResult.actionRequest) || (Boolean(rawResult.approvalRequired) && (status === 'evidence_ready' || String(workflowRun?.status ?? '') === 'awaiting_permission'));
+	const stageDetails: Record<(typeof issueTimelineOrder)[number], string> = {
+		created: String(workflowRun?.id ?? objectRecord(result.workflow)?.id ?? 'workflow not recorded'),
+		workspace_allocated: String(workspace?.id ?? 'workspace not allocated'),
+		runtime_selected: String(runtime?.id ?? 'runtime not selected'),
+		running: String(runtimeResult?.status ?? (status || 'not started')),
+		qa_running: qaResults.length ? String(objectRecord(qaResults[0])?.status ?? objectRecord(qaResults[0])?.verdict ?? 'qa_recorded') : 'qa_not_run',
+		evidence_ready: String(evidence?.id ?? 'evidence not created'),
+		awaiting_approval: awaitingApproval ? 'approval gate open' : 'no pending approval',
+	};
+	const stageStatuses: Record<(typeof issueTimelineOrder)[number], TimelineStatus> = {
+		created: workflowRun?.id || objectRecord(result.workflow)?.id ? 'done' : isFailed ? 'failed' : 'pending',
+		workspace_allocated: workspace?.id ? 'done' : isFailed ? 'failed' : 'pending',
+		runtime_selected: isRuntimeUnavailable ? 'failed' : runtime?.id ? 'done' : isFailed ? 'failed' : 'pending',
+		running: isFailed ? 'failed' : isCompleted || runtimeResult ? 'done' : issueBusy ? 'active' : 'pending',
+		qa_running: qaResults.length ? (String(objectRecord(qaResults[0])?.status ?? objectRecord(qaResults[0])?.verdict ?? '') === 'failed' ? 'failed' : 'done') : 'pending',
+		evidence_ready: evidence?.id ? 'done' : isFailed ? 'failed' : 'pending',
+		awaiting_approval: awaitingApproval ? 'active' : isCompleted ? 'done' : 'pending',
+	};
+	const terminalId = isCompleted ? 'completed' : isFailed ? 'failed' : 'completed/failed';
+	const terminalStatus: TimelineStatus = isCompleted ? 'done' : isFailed ? 'failed' : 'pending';
+	return [
+		...issueTimelineOrder.map((id) => ({ id, status: stageStatuses[id], detail: stageDetails[id] })),
+		{ id: terminalId, status: terminalStatus, detail: status || String(workflowRun?.status ?? 'not terminal') },
+	];
+}
+
 export function CommandCenterPage({
 	overview,
 	selectedProject,
 	runtimeProviders,
 	mutate,
+	onSelectProject,
 }: {
 	overview: Overview;
 	selectedProject: Project | null;
 	runtimeProviders: RuntimeProviders | null;
 	mutate: Mutate;
+	onSelectProject: (projectId: string) => void;
 }) {
-	const project = selectedProject;
-	const [workflowTitle, setWorkflowTitle] = useState(`AIDO workflow ${new Date().toISOString()}`);
-	const [workflowKind, setWorkflowKind] = useState<WorkflowKind>('idea_to_pr');
+	const projectOptions = useMemo(() => activeProjects(overview.projects), [overview.projects]);
+	const initialProjectId = selectedProject?.id ?? projectOptions[0]?.id ?? '';
+	const [selectedProjectId, setSelectedProjectId] = useState(initialProjectId);
 	const [issueTitle, setIssueTitle] = useState('');
 	const [issueText, setIssueText] = useState('');
 	const [targetPath, setTargetPath] = useState('');
-	const [preferredRuntime, setPreferredRuntime] = useState('auto');
+	const [preferredRuntime, setPreferredRuntime] = useState('');
 	const [qaPreset, setQaPreset] = useState('python-tests');
 	const [maxCostUsd, setMaxCostUsd] = useState('');
 	const [requireApproval, setRequireApproval] = useState(true);
 	const [issueResult, setIssueResult] = useState<IssueToPatchResponse | null>(null);
 	const [issueBusy, setIssueBusy] = useState(false);
 	const [issueError, setIssueError] = useState('');
-	const [error, setError] = useState('');
 	const runtimeRows = runtimeProviders?.providers ?? [];
-	const selectedRuntime = runtimeRows.find((item) => item.id === preferredRuntime);
+	const executableRuntimes = useMemo(() => runtimeRows.filter(runtimeIsExecutableIssueRuntime), [runtimeRows]);
+	const selectedRuntime = executableRuntimes.find((item) => item.id === preferredRuntime) ?? null;
 	const selectedQaPreset = issueQaPresets.find((item) => item.id === qaPreset) ?? issueQaPresets[0];
 	const qaMissing = selectedQaPreset.commands.length === 0;
+	const project = projectOptions.find((item) => item.id === selectedProjectId) ?? null;
+	const unavailableIssueRuntime = runtimeRows.find((runtime) => runtimeSupportsIssueToPatch(runtime) && runtime.executable !== true);
+	const runtimeBlockReason = runtimeProviders
+		? unavailableIssueRuntime?.reason ?? 'No executable issue_to_patch/code_edit runtime is configured.'
+		: 'Runtime provider discovery has not completed.';
+	const hasExecutableRuntime = executableRuntimes.length > 0;
 	const issueResultRuntime = issueResult?.runtime as Record<string, unknown> | undefined;
 	const issueResultQa = issueResult?.qaResults[0] as Record<string, unknown> | undefined;
 	const issueResultDiff = issueResult?.diffSummary as Record<string, unknown> | undefined;
+	const issueEvidence = issueResult?.evidencePackage as Record<string, unknown> | undefined;
 	const issueChangedFiles = Array.isArray(issueResultDiff?.changedFiles) ? issueResultDiff.changedFiles.length : Number(issueResultDiff?.changedFiles ?? 0);
-	const issueExecutionMode = issueResult?.status === 'unavailable' ? 'runtime_unavailable' : 'productive_runtime';
-	const saveWorkflow = () => {
-		const title = workflowTitle.trim();
-		if (!title) {
-			setError('Workflow title is required.');
-			return;
-		}
-		if (!project) {
-			setError('A project is required before creating a workflow.');
-			return;
-		}
-		setError('');
-		void mutate((token) =>
-			createWorkflowWithBody(token, {
-				projectId: project.id,
-				title,
-				kind: workflowKind,
-				metadata: { source: 'command_center_form' },
-			}),
-		);
+	const issueStatus = String(issueResult?.status ?? '');
+	const issueExecutionMode = issueStatus === 'runtime_unavailable' || issueStatus === 'unavailable' || issueResultRuntime?.executable === false ? 'runtime_unavailable' : 'productive_runtime';
+	const issueTimeline = buildIssueTimeline(issueResult, issueBusy, hasExecutableRuntime);
+	const evidenceId = String(issueEvidence?.id ?? '');
+	const artifactIds = Array.isArray(issueEvidence?.artifactIds) ? issueEvidence.artifactIds.map((item) => String(item)) : [];
+	const artifactRows = Array.isArray(issueEvidence?.artifacts) ? issueEvidence.artifacts.map((item) => objectRecord(item)).filter(Boolean) as Array<Record<string, unknown>> : [];
+	const diffRefs = [
+		...(Array.isArray(issueEvidence?.diffRefs) ? issueEvidence.diffRefs.map((item) => String(item)) : []),
+		...artifactRows
+			.filter((artifact) => String(artifact.kind ?? artifact.name ?? artifact.id ?? '').toLowerCase().includes('diff'))
+			.map((artifact) => String(artifact.id ?? artifact.name ?? 'diff')),
+		...artifactIds.filter((artifactId) => artifactId.toLowerCase().includes('diff')),
+	];
+	const runDisabled = !project || issueBusy || qaMissing || !selectedRuntime || !issueTitle.trim() || !issueText.trim();
+	const selectProject = (projectId: string) => {
+		setSelectedProjectId(projectId);
+		const nextProject = projectOptions.find((item) => item.id === projectId);
+		if (nextProject) onSelectProject(nextProject.id);
 	};
+	useEffect(() => {
+		setSelectedProjectId((current) => {
+			if (current && projectOptions.some((item) => item.id === current)) return current;
+			return selectedProject?.id ?? projectOptions[0]?.id ?? '';
+		});
+	}, [projectOptions, selectedProject?.id]);
+	useEffect(() => {
+		if (!executableRuntimes.length) {
+			setPreferredRuntime('');
+			return;
+		}
+		setPreferredRuntime((current) => executableRuntimes.some((runtime) => runtime.id === current) ? current : executableRuntimes[0].id);
+	}, [executableRuntimes]);
 	const runPatchWorkflow = async () => {
 		const title = issueTitle.trim();
 		const bodyText = issueText.trim();
@@ -114,6 +208,10 @@ export function CommandCenterPage({
 			setIssueError('Select a QA preset before running issue_to_patch.');
 			return;
 		}
+		if (!selectedRuntime) {
+			setIssueError(runtimeBlockReason);
+			return;
+		}
 		const parsedMaxCost = maxCostUsd.trim() ? Number(maxCostUsd) : undefined;
 		if (parsedMaxCost !== undefined && (!Number.isFinite(parsedMaxCost) || parsedMaxCost < 0)) {
 			setIssueError('Maximum cost must be zero or a positive number.');
@@ -129,7 +227,7 @@ export function CommandCenterPage({
 					title,
 					issueText: bodyText,
 					targetPath: targetPath.trim() || undefined,
-					preferredRuntime: preferredRuntime === 'auto' ? undefined : preferredRuntime,
+					preferredRuntime: selectedRuntime.id,
 					qaCommands: selectedQaPreset.commands,
 					maxCostUsd: parsedMaxCost,
 					requireApproval,
@@ -145,43 +243,18 @@ export function CommandCenterPage({
 	return (
 		<>
 			<PageHeader kicker="Operator lane" title="Command Center" summary="Start safe SDLC workflows and inspect pending human decisions without bypassing policy." />
-			<Surface title="Workflow intake">
-				<div className="form-grid">
-					<div className="field">
-						<label htmlFor="workflow-title">Workflow title</label>
-						<input
-							id="workflow-title"
-							className="input"
-							value={workflowTitle}
-							maxLength={180}
-							autoComplete="off"
-							disabled={!project}
-							onChange={(event) => setWorkflowTitle(event.target.value)}
-						/>
-					</div>
-					<div className="field">
-						<label htmlFor="workflow-kind">Workflow kind</label>
-						<select id="workflow-kind" className="select" value={workflowKind} disabled={!project} onChange={(event) => setWorkflowKind(event.target.value as WorkflowKind)}>
-							<option value="idea_to_pr">idea_to_pr</option>
-							<option value="project_discovery">project_discovery</option>
-							<option value="issue_to_pr">issue_to_pr</option>
-							<option value="issue_to_patch">issue_to_patch</option>
-							<option value="qa_validation">qa_validation</option>
-							<option value="release_candidate">release_candidate</option>
-						</select>
-					</div>
-					<div className="inline">
-						<button className="button primary" type="button" disabled={!project} onClick={saveWorkflow}>
-							Create workflow
-						</button>
-						<Badge tone={project ? 'ok' : 'warn'}>{project ? project.name : 'no operational project'}</Badge>
-					</div>
-					{project ? null : <div className="field-help">Select an active operational project in Settings before creating workflows.</div>}
-					{error ? <div className="form-error" role="alert">{error}</div> : null}
-				</div>
-			</Surface>
 			<Surface title="issue_to_patch real runtime">
 				<div className="form-grid">
+					<div className="field">
+						<label htmlFor="issue-project">Project</label>
+						<select id="issue-project" className="select" value={selectedProjectId} disabled={!projectOptions.length || issueBusy} onChange={(event) => selectProject(event.target.value)}>
+							{projectOptions.length ? null : <option value="">No active project</option>}
+							{projectOptions.map((item) => (
+								<option key={item.id} value={item.id}>{item.name}</option>
+							))}
+						</select>
+						<div className="field-help">{project ? String(project.path ?? project.id) : 'Select an active operational project before running issue_to_patch.'}</div>
+					</div>
 					<div className="field">
 						<label htmlFor="issue-title">Issue title</label>
 						<input
@@ -211,23 +284,31 @@ export function CommandCenterPage({
 					</div>
 					<div className="field">
 						<label htmlFor="preferred-runtime">Preferred runtime</label>
-						<select id="preferred-runtime" className="select" value={preferredRuntime} disabled={!project} onChange={(event) => setPreferredRuntime(event.target.value)}>
-							<option value="auto">auto_select_real_runtime</option>
-							{runtimeRows.map((runtime) => (
+						<select id="preferred-runtime" className="select" value={preferredRuntime} disabled={!project || !hasExecutableRuntime || issueBusy} onChange={(event) => setPreferredRuntime(event.target.value)}>
+							{hasExecutableRuntime ? null : <option value="">No executable runtime</option>}
+							{executableRuntimes.map((runtime) => (
 								<option key={runtime.id} value={runtime.id}>
 									{runtime.id} - {runtime.executable ? 'executable' : runtime.available ? 'available' : 'unavailable'}
 								</option>
 							))}
 						</select>
-						<div className="inline">
-							<Badge tone={selectedRuntime?.detected ? 'ok' : 'warn'}>{selectedRuntime?.detected ? 'detected' : 'not detected'}</Badge>
-							<Badge tone={selectedRuntime?.configured ? 'ok' : 'warn'}>{selectedRuntime?.configured ? 'configured' : 'not configured'}</Badge>
-							<Badge tone={selectedRuntime?.available ? 'ok' : 'warn'}>{selectedRuntime?.available ? 'available' : 'unavailable'}</Badge>
-							<Badge tone={selectedRuntime?.executable ? 'ok' : 'warn'}>{selectedRuntime?.executable ? 'executable' : 'not executable'}</Badge>
-						</div>
-						<div className="field-help">
-							{selectedRuntime ? `${selectedRuntime.reason}${selectedRuntime.requiredConfiguration?.length ? ` Required: ${selectedRuntime.requiredConfiguration.join(', ')}` : ''}` : 'Auto-select requires an executable non-test coding runtime.'}
-						</div>
+						{selectedRuntime ? (
+							<>
+								<div className="inline">
+									<Badge tone={selectedRuntime.detected ? 'ok' : 'warn'}>{selectedRuntime.detected ? 'detected' : 'not detected'}</Badge>
+									<Badge tone={selectedRuntime.configured ? 'ok' : 'warn'}>{selectedRuntime.configured ? 'configured' : 'not configured'}</Badge>
+									<Badge tone={selectedRuntime.available ? 'ok' : 'warn'}>{selectedRuntime.available ? 'available' : 'unavailable'}</Badge>
+									<Badge tone={selectedRuntime.executable ? 'ok' : 'warn'}>{selectedRuntime.executable ? 'executable' : 'not executable'}</Badge>
+								</div>
+								<div className="field-help">
+									{`${selectedRuntime.reason}${selectedRuntime.requiredConfiguration?.length ? ` Required: ${selectedRuntime.requiredConfiguration.join(', ')}` : ''}`}
+								</div>
+							</>
+						) : (
+							<div className="form-error" role="status">
+								<Badge tone="danger">runtime_unavailable</Badge> {runtimeBlockReason}
+							</div>
+						)}
 					</div>
 					<div className="field">
 						<label htmlFor="qa-preset">QA preset</label>
@@ -249,13 +330,24 @@ export function CommandCenterPage({
 						</label>
 					</div>
 					<div className="inline">
-						<button className="button primary" type="button" disabled={!project || issueBusy || qaMissing} onClick={() => void runPatchWorkflow()}>
+						<button className="button primary" type="button" disabled={runDisabled} onClick={() => void runPatchWorkflow()}>
 							{issueBusy ? 'Running issue_to_patch' : 'Run issue_to_patch'}
 						</button>
 						<Badge tone={project ? 'ok' : 'warn'}>{project ? project.name : 'no operational project'}</Badge>
+						{selectedRuntime ? <Badge tone="ok">{selectedRuntime.id}</Badge> : <Badge tone="danger">runtime_unavailable</Badge>}
 						{qaMissing ? <Badge tone="danger">qa_not_selected</Badge> : null}
 					</div>
 					{issueError ? <div className="form-error" role="alert">{issueError}</div> : null}
+					<div className="stack" aria-label="issue_to_patch timeline">
+						<h3 className="section-subtitle">Workflow timeline</h3>
+						{issueTimeline.map((stage) => (
+							<div className="inline" key={stage.id}>
+								<Badge tone={stage.status === 'done' ? 'ok' : stage.status === 'active' ? 'info' : stage.status === 'failed' || stage.status === 'blocked' ? 'danger' : undefined}>{stage.status}</Badge>
+								<span className="mono">{stage.id}</span>
+								<span className="muted">{stage.detail}</span>
+							</div>
+						))}
+					</div>
 					{issueResult ? (
 						<div className="stack" aria-live="polite">
 							<div className="inline">
@@ -266,6 +358,11 @@ export function CommandCenterPage({
 							</div>
 							<div className="mono">{String(issueResult.reason ?? issueResultRuntime?.reason ?? 'No runtime reason recorded.')}</div>
 							<div className="mono">Evidence {String(issueResult.evidencePackage?.id ?? 'not_created')} / changed files {Number.isFinite(issueChangedFiles) ? issueChangedFiles : 0}</div>
+							<div className="inline">
+								{evidenceId ? <a className="button" href="#evidence">Evidence package {evidenceId}</a> : <Badge tone="warn">evidence_not_created</Badge>}
+								{diffRefs.length ? <a className="button" href="#evidence">Diff {diffRefs.join(', ')}</a> : <Badge tone="warn">diff_not_recorded</Badge>}
+								<a className="button" href="#workflows">Workflow run {String(objectRecord(issueResult.workflowRun)?.id ?? 'not_recorded')}</a>
+							</div>
 						</div>
 					) : null}
 				</div>
@@ -411,9 +508,13 @@ export function PolicySecurityPage({ overview, mutate }: { overview: Overview; m
 				<Surface title="Permission grants">
 					<DataTable rows={overview.permissionGrants} empty={<EmptyState title="No grants" body="Approved sensitive actions create one-use execution grants." />} columns={[
 						{ key: 'status', label: 'Status', render: (row) => <Badge tone={toneForStatus(String(row.status ?? ''))}>{String(row.status ?? '')}</Badge> },
-						{ key: 'tool', label: 'Tool', render: (row) => <span className="mono">{String(row.tool ?? '')}</span> },
-						{ key: 'command', label: 'Command', render: (row) => <span className="mono">{String(row.command ?? '')}</span> },
-						{ key: 'revokeReason', label: 'Revoked', render: (row) => String(row.revokeReason ?? '') },
+						{ key: 'request', label: 'Request', render: (row) => <span className="mono">{String(row.actionRequestId ?? '')}</span> },
+						{ key: 'scope', label: 'Scope', render: (row) => <span className="mono">{String(row.projectId ?? '')} / {String(row.jobId ?? '')} / {String(row.agentId ?? '')}</span> },
+						{ key: 'tool', label: 'Tool', render: (row) => <span className="mono">{String(row.tool ?? '')} {String(row.runtimeId ?? '')}</span> },
+						{ key: 'command', label: 'Command', render: (row) => <span className="mono">{String(row.command ?? '')} {(row.commandArgv ?? []).join(' ')}</span> },
+						{ key: 'path', label: 'Path', render: (row) => <span className="mono">{String(row.workspaceId ?? '')} {String(row.path ?? '')}</span> },
+						{ key: 'lifecycle', label: 'Lifecycle', render: (row) => <span>{String(row.grantedBy ?? '')} {String(row.grantedAt ?? '')} / expires {String(row.expiresAt ?? '')} / consumed {String(row.consumedAt ?? 'not consumed')}</span> },
+						{ key: 'reason', label: 'Reason', render: (row) => String(row.revokeReason ?? row.reason ?? '') },
 					]} />
 				</Surface>
 				<Surface title="Sandbox profiles">
@@ -495,11 +596,164 @@ export function MemoryPage({ overview, retrievalStatus }: { overview: Overview; 
 	);
 }
 
+type EvidencePackage = EvidenceDetailResponse['evidencePackage'];
+
+function redactVisibleText(value: unknown, fallback = 'not recorded') {
+	const raw = typeof value === 'string'
+		? value
+		: value === undefined || value === null
+			? fallback
+			: JSON.stringify(value, null, 2);
+	return raw
+		.replace(/\bBearer\s+[A-Za-z0-9._~+/=-]{8,}/gi, '[redacted]')
+		.replace(/\bsk-[A-Za-z0-9_-]{8,}/gi, '[redacted]')
+		.replace(/\bghp_[A-Za-z0-9_]{12,}/gi, '[redacted]')
+		.replace(/\bgithub_pat_[A-Za-z0-9_]{20,}/gi, '[redacted]')
+		.replace(/\bglpat-[A-Za-z0-9_-]{12,}/gi, '[redacted]')
+		.replace(/\bxox[baprs]-[A-Za-z0-9-]{10,}/gi, '[redacted]')
+		.replace(/\bAKIA[0-9A-Z]{16}\b/g, '[redacted]')
+		.replace(/(["']?(?:api[_-]?key|authorization|credential|secret|token|password|client[_-]?secret|clientSecret|private[_-]?key|privateKey|OPENAI_API_KEY)["']?\s*[:=]\s*["']?)[^"',\s}]+(["']?)/gi, '$1[redacted]$2')
+		.replace(/([?&](?:api[_-]?key|token|secret)=)[^&\s"]+/gi, '$1[redacted]')
+		.replace(/\b(?:api[_-]?key|authorization|credential|secret|token|password|client[_-]?secret|clientSecret|private[_-]?key|privateKey|OPENAI_API_KEY)\s*[:=]\s*"?[^",\s}]+/gi, '[redacted]');
+}
+
+function redactedJson(value: unknown, fallback = '[]') {
+	return redactVisibleText(value, fallback);
+}
+
+function artifactNameLower(artifact: Artifact) {
+	return artifactDisplayName(artifact).toLowerCase();
+}
+
+function findPatchArtifact(artifacts: Artifact[]) {
+	return artifacts.find((artifact) => {
+		const name = artifactNameLower(artifact);
+		const kind = String(artifact.kind ?? '').toLowerCase();
+		return name === 'diff.patch' || name.endsWith('.patch') || kind.includes('patch');
+	}) ?? null;
+}
+
+function findSecurityArtifact(artifacts: Artifact[]) {
+	return artifacts.find((artifact) => {
+		const name = artifactNameLower(artifact);
+		const kind = String(artifact.kind ?? '').toLowerCase();
+		return name === 'security-findings.json' || (name.includes('security') && name.includes('finding')) || kind.includes('security');
+	}) ?? null;
+}
+
+function hasRealPatchChanges(text: string) {
+	const trimmed = text.trim();
+	if (!trimmed) return false;
+	let inHunk = false;
+	for (const line of trimmed.split(/\r?\n/)) {
+		if (line.startsWith('diff --git')) inHunk = false;
+		if (line.startsWith('@@')) {
+			inHunk = true;
+			continue;
+		}
+		if (!inHunk) continue;
+		if ((line.startsWith('+') && !line.startsWith('+++')) || (line.startsWith('-') && !line.startsWith('---'))) return true;
+	}
+	return false;
+}
+
+function evidenceDiffChangedFiles(evidence: EvidencePackage | null) {
+	const summary = objectRecord(evidence?.diffSummary);
+	const changed = Number(summary?.filesChanged ?? summary?.changedFiles ?? summary?.changed_files);
+	return Number.isFinite(changed) ? changed : null;
+}
+
+function evidenceLink(href: string, label: string, id: unknown) {
+	const value = String(id ?? '');
+	return value ? <a href={href}>{label} {value}</a> : <span className="muted">not linked</span>;
+}
+
 export function EvidencePage({ overview, token }: { overview: Overview; token: string }) {
+	const [selectedEvidenceId, setSelectedEvidenceId] = useState('');
+	const [detail, setDetail] = useState<EvidenceDetailResponse | null>(null);
+	const [detailLoading, setDetailLoading] = useState(false);
+	const [detailError, setDetailError] = useState('');
+	const [diffPayload, setDiffPayload] = useState<ArtifactPayload | null>(null);
+	const [diffLoading, setDiffLoading] = useState(false);
+	const [diffError, setDiffError] = useState('');
+	const [securityPayload, setSecurityPayload] = useState<ArtifactPayload | null>(null);
+	const [securityLoading, setSecurityLoading] = useState(false);
+	const [securityError, setSecurityError] = useState('');
 	const [previewArtifact, setPreviewArtifact] = useState<Artifact | null>(null);
 	const [previewPayload, setPreviewPayload] = useState<ArtifactPayload | null>(null);
 	const [previewLoadingId, setPreviewLoadingId] = useState('');
+	const [downloadLoadingId, setDownloadLoadingId] = useState('');
 	const [previewError, setPreviewError] = useState('');
+	useEffect(() => {
+		if (!selectedEvidenceId) {
+			setDetail(null);
+			setDetailError('');
+			return;
+		}
+		const controller = new AbortController();
+		setDetail(null);
+		setDetailError('');
+		setDetailLoading(true);
+		void getEvidenceDetail(selectedEvidenceId, controller.signal)
+			.then((payload) => setDetail(payload))
+			.catch((error) => {
+				if (!controller.signal.aborted) setDetailError(error instanceof Error ? error.message : 'Evidence detail failed.');
+			})
+			.finally(() => {
+				if (!controller.signal.aborted) setDetailLoading(false);
+			});
+		return () => controller.abort();
+	}, [selectedEvidenceId]);
+	const selectedPackage = detail?.evidencePackage ?? null;
+	const detailArtifacts = detail?.artifacts ?? [];
+	const patchArtifact = useMemo(() => findPatchArtifact(detailArtifacts), [detailArtifacts]);
+	const securityArtifact = useMemo(() => findSecurityArtifact(detailArtifacts), [detailArtifacts]);
+	useEffect(() => {
+		setDiffPayload(null);
+		setDiffError('');
+		if (!selectedEvidenceId || !patchArtifact) {
+			setDiffLoading(false);
+			return;
+		}
+		const artifactId = String(patchArtifact.id ?? '');
+		if (!artifactId) return;
+		let active = true;
+		setDiffLoading(true);
+		void fetchEvidenceArtifact(token, selectedEvidenceId, artifactId)
+			.then((payload) => {
+				if (active) setDiffPayload(payload);
+			})
+			.catch((error) => {
+				if (active) setDiffError(error instanceof Error ? error.message : 'Diff artifact preview failed.');
+			})
+			.finally(() => {
+				if (active) setDiffLoading(false);
+			});
+		return () => { active = false; };
+	}, [patchArtifact, selectedEvidenceId, token]);
+	useEffect(() => {
+		setSecurityPayload(null);
+		setSecurityError('');
+		if (!selectedEvidenceId || !securityArtifact) {
+			setSecurityLoading(false);
+			return;
+		}
+		const artifactId = String(securityArtifact.id ?? '');
+		if (!artifactId) return;
+		let active = true;
+		setSecurityLoading(true);
+		void fetchEvidenceArtifact(token, selectedEvidenceId, artifactId)
+			.then((payload) => {
+				if (active) setSecurityPayload(payload);
+			})
+			.catch((error) => {
+				if (active) setSecurityError(error instanceof Error ? error.message : 'Security findings preview failed.');
+			})
+			.finally(() => {
+				if (active) setSecurityLoading(false);
+			});
+		return () => { active = false; };
+	}, [securityArtifact, selectedEvidenceId, token]);
 	const openPreview = async (artifact: Artifact) => {
 		const artifactId = String(artifact.id ?? '');
 		const evidenceId = String(artifact.evidencePackageId ?? '');
@@ -520,17 +774,29 @@ export function EvidencePage({ overview, token }: { overview: Overview; token: s
 			setPreviewLoadingId('');
 		}
 	};
-	const downloadPreview = () => {
-		if (!previewArtifact || !previewPayload) return;
-		const url = URL.createObjectURL(previewPayload.blob);
-		const link = document.createElement('a');
-		link.href = url;
-		link.download = artifactDisplayName(previewArtifact);
-		document.body.appendChild(link);
-		link.click();
-		link.remove();
-		URL.revokeObjectURL(url);
+	const downloadArtifact = async (artifact: Artifact) => {
+		const artifactId = String(artifact.id ?? '');
+		const evidenceId = String(artifact.evidencePackageId ?? '');
+		if (!artifactId || !evidenceId) {
+			setPreviewError('Artifact metadata is incomplete.');
+			return;
+		}
+		setPreviewError('');
+		setDownloadLoadingId(artifactId);
+		try {
+			await downloadEvidenceArtifact(token, evidenceId, artifactId, artifactDisplayName(artifact));
+		} catch (error) {
+			setPreviewError(error instanceof Error ? error.message : 'Artifact download failed.');
+		} finally {
+			setDownloadLoadingId('');
+		}
 	};
+	const diffText = redactVisibleText(diffPayload?.text ?? '', '');
+	const patchHasChanges = hasRealPatchChanges(diffPayload?.text ?? '');
+	const changedFiles = evidenceDiffChangedFiles(selectedPackage);
+	const modelCalls = Array.isArray(selectedPackage?.modelCalls) ? selectedPackage.modelCalls : [];
+	const toolCalls = Array.isArray(selectedPackage?.toolCalls) ? selectedPackage.toolCalls : [];
+	const packageArtifactRefs = Array.isArray(selectedPackage?.artifacts) ? selectedPackage.artifacts : [];
 	return (
 		<>
 			<PageHeader kicker="Proof before approval" title="Evidence & QA" summary="QA cannot be accepted without test results, artifacts and explicit verdict records." />
@@ -541,6 +807,18 @@ export function EvidencePage({ overview, token }: { overview: Overview; token: s
 						{ key: 'verdict', label: 'Verdict', render: (row) => <Badge tone={toneForStatus(String(row.qaVerdict ?? ''))}>{String(row.qaVerdict ?? '')}</Badge> },
 						{ key: 'agent', label: 'Agent', render: (row) => String(row.agentId ?? '') },
 						{ key: 'diffs', label: 'Diff refs', render: (row) => String(Array.isArray(row.diffRefs) ? row.diffRefs.length : 0) },
+						{
+							key: 'detail',
+							label: 'Detail',
+							render: (row) => {
+								const evidenceId = String(row.id ?? '');
+								return (
+									<button className="button" type="button" aria-label={`View evidence package ${evidenceId}`} disabled={!evidenceId || detailLoading} onClick={() => setSelectedEvidenceId(evidenceId)}>
+										{selectedEvidenceId === evidenceId && detailLoading ? 'Loading' : 'View'}
+									</button>
+								);
+							},
+						},
 					]} />
 				</Surface>
 				<Surface title="Test result records">
@@ -562,15 +840,145 @@ export function EvidencePage({ overview, token }: { overview: Overview; token: s
 							render: (row) => {
 								const name = artifactDisplayName(row);
 								const loading = previewLoadingId === String(row.id ?? '');
+								const downloading = downloadLoadingId === String(row.id ?? '');
 								return (
-									<button className="button" type="button" aria-label={`Preview artifact ${name}`} disabled={loading} onClick={() => void openPreview(row)}>
-										{loading ? 'Opening' : 'Preview'}
-									</button>
+									<div className="inline" aria-busy={loading || downloading}>
+										<button className="button" type="button" aria-label={`Preview artifact ${name}`} disabled={loading} onClick={() => void openPreview(row)}>
+											{loading ? 'Opening' : 'Preview'}
+										</button>
+										<button className="button" type="button" aria-label={`Download artifact ${name}`} disabled={downloading} onClick={() => void downloadArtifact(row)}>
+											{downloading ? 'Downloading' : 'Download'}
+										</button>
+									</div>
 								);
 							},
 						},
 					]} />
 				</Surface>
+			</div>
+			<div className="stack">
+				{detailError ? <div className="form-error" role="alert">{detailError}</div> : null}
+				{selectedEvidenceId && !selectedPackage ? (
+					<Surface title="Evidence detail">
+						<EmptyState title={detailLoading ? 'Loading evidence detail' : 'Evidence detail unavailable'} body="The detail endpoint must return package metadata, test records and artifacts before evidence can be audited." />
+					</Surface>
+				) : null}
+				{selectedPackage ? (
+					<>
+						<Surface title="Evidence detail">
+							<div className="stack">
+								<div className="inline">
+									<Badge tone={toneForStatus(String(selectedPackage.qaVerdict ?? ''))}>QA {String(selectedPackage.qaVerdict ?? 'not_started')}</Badge>
+									<Badge>{detailArtifacts.length} artifacts</Badge>
+									{changedFiles !== null ? <span className="mono">changed files {changedFiles}</span> : null}
+								</div>
+								<DataTable rows={[
+									{ label: 'Evidence package', value: <span className="mono">{String(selectedPackage.id ?? '')}</span> },
+									{ label: 'Created at', value: <span className="mono">{String(selectedPackage.createdAt ?? '')}</span> },
+									{ label: 'Project', value: <span className="mono">{String(selectedPackage.projectId ?? '')}</span> },
+									{ label: 'Workflow run', value: evidenceLink('#workflows', 'Workflow', selectedPackage.workflowRunId) },
+									{ label: 'Job', value: evidenceLink('#jobs', 'Job', selectedPackage.jobId) },
+									{ label: 'Agent run', value: evidenceLink('#agents', 'Agent run', selectedPackage.agentRunId ?? selectedPackage.agentId) },
+									{ label: 'Workspace', value: <span className="mono">{String(selectedPackage.workspaceId ?? 'not linked')}</span> },
+									{ label: 'Runtime', value: <span className="mono">{String(selectedPackage.runtimeId ?? 'not linked')}</span> },
+									{ label: 'Test plan', value: redactVisibleText(selectedPackage.testPlan, '') },
+								]} empty={<EmptyState title="No metadata" body="Evidence detail metadata was not returned." />} columns={[
+									{ key: 'label', label: 'Metadata', render: (row) => row.label },
+									{ key: 'value', label: 'Value', render: (row) => row.value },
+								]} />
+								<div>
+									<div className="metric-label">Runtime health</div>
+									<pre className="artifact-preview">{redactedJson(selectedPackage.runtimeHealth, '{}')}</pre>
+								</div>
+								<div>
+									<div className="metric-label">Hashes</div>
+									<pre className="artifact-preview">{redactedJson(selectedPackage.hashes, '{}')}</pre>
+								</div>
+							</div>
+						</Surface>
+						<Surface title="Evidence artifacts">
+							<DataTable rows={detailArtifacts} empty={<EmptyState title="No artifacts" body="This evidence package has no downloadable artifacts." />} columns={[
+								{ key: 'name', label: 'Name', render: (row) => artifactDisplayName(row) },
+								{ key: 'kind', label: 'Kind', render: (row) => <span className="mono">{String(row.kind ?? '')}</span> },
+								{ key: 'size', label: 'Size', render: (row) => artifactSizeLabel(row) },
+								{ key: 'sha256', label: 'SHA-256', render: (row) => <span className="mono">{String(row.hash ?? 'not recorded')}</span> },
+								{
+									key: 'action',
+									label: 'Action',
+									render: (row) => {
+										const name = artifactDisplayName(row);
+										const loading = previewLoadingId === String(row.id ?? '');
+										const downloading = downloadLoadingId === String(row.id ?? '');
+										return (
+											<div className="inline" aria-busy={loading || downloading}>
+												<button className="button" type="button" aria-label={`Preview artifact ${name}`} disabled={loading} onClick={() => void openPreview(row)}>
+													{loading ? 'Opening' : 'Preview'}
+												</button>
+												<button className="button" type="button" aria-label={`Download artifact ${name}`} disabled={downloading} onClick={() => void downloadArtifact(row)}>
+													{downloading ? 'Downloading' : 'Download'}
+												</button>
+											</div>
+										);
+									},
+								},
+							]} />
+							{packageArtifactRefs.length ? (
+								<div className="stack">
+									<div className="metric-label">Package artifact refs</div>
+									<pre className="artifact-preview">{redactedJson(packageArtifactRefs)}</pre>
+								</div>
+							) : null}
+						</Surface>
+						<Surface title="Diff viewer">
+							<div className="stack">
+								<div className="inline">
+									<Badge tone={patchArtifact && patchHasChanges ? 'ok' : 'warn'}>{patchArtifact && patchHasChanges ? 'real changes' : 'no real changes'}</Badge>
+									{changedFiles !== null ? <span className="mono">changed files {changedFiles}</span> : null}
+									{patchArtifact ? <span className="mono">sha256 {String(patchArtifact.hash ?? 'not recorded')}</span> : null}
+								</div>
+								{diffError ? <div className="form-error" role="alert">{diffError}</div> : null}
+								{diffLoading ? <EmptyState title="Loading diff artifact" body="The patch is read through the protected artifact endpoint." /> : null}
+								{!patchArtifact ? <EmptyState title="No patch artifact recorded" body="Diff refs without a downloadable patch are not sufficient evidence of code changes." /> : null}
+								{patchArtifact && diffPayload && !patchHasChanges ? <EmptyState title="Patch artifact is empty; no changes are proven." body="The evidence package does not prove a real file diff." /> : null}
+								{patchArtifact && diffPayload?.text ? <pre className="artifact-preview">{diffText}</pre> : null}
+							</div>
+						</Surface>
+						<Surface title="Security findings">
+							<div className="stack">
+								{securityError ? <div className="form-error" role="alert">{securityError}</div> : null}
+								{securityLoading ? <EmptyState title="Loading security findings" body="Findings are read from the linked artifact." /> : null}
+								{!securityArtifact ? <EmptyState title="No security findings artifact" body="No security-findings.json artifact is linked to this evidence package." /> : null}
+								{securityArtifact ? (
+									<div className="inline">
+										<Badge>{artifactDisplayName(securityArtifact)}</Badge>
+										<span className="mono">sha256 {String(securityArtifact.hash ?? 'not recorded')}</span>
+									</div>
+								) : null}
+								{securityPayload?.text ? <pre className="artifact-preview">{redactVisibleText(securityPayload.text, '')}</pre> : null}
+							</div>
+						</Surface>
+						<Surface title="Model and tool calls">
+							<div className="stack">
+								<div className="inline">
+									<Badge>{modelCalls.length} model calls</Badge>
+									<Badge>{toolCalls.length} tool calls</Badge>
+								</div>
+								<div>
+									<div className="metric-label">Model calls</div>
+									<pre className="artifact-preview">{redactedJson(modelCalls)}</pre>
+								</div>
+								<div>
+									<div className="metric-label">Tool calls</div>
+									<pre className="artifact-preview">{redactedJson(toolCalls)}</pre>
+								</div>
+								<div>
+									<div className="metric-label">Policy decisions and approvals</div>
+									<pre className="artifact-preview">{redactedJson({ policyDecisions: selectedPackage.policyDecisions, approvals: selectedPackage.approvals }, '{}')}</pre>
+								</div>
+							</div>
+						</Surface>
+					</>
+				) : null}
 			</div>
 			<Drawer label="Artifact preview" open={Boolean(previewArtifact)} onClose={() => {
 				setPreviewArtifact(null);
@@ -590,13 +998,14 @@ export function EvidencePage({ overview, token }: { overview: Overview; token: s
 								<div className="mono">sha256 {String(previewPayload?.hash || previewArtifact.hash || 'not recorded')}</div>
 							</div>
 							{previewError ? <div className="form-error" role="alert">{previewError}</div> : null}
+							{downloadLoadingId ? <div className="sr-only" role="status">Downloading artifact</div> : null}
 							{previewPayload?.text ? (
-								<pre className="artifact-preview">{previewPayload.text}</pre>
+								<pre className="artifact-preview">{redactVisibleText(previewPayload.text, '')}</pre>
 							) : (
 								<EmptyState title={previewLoadingId ? 'Loading artifact' : 'Binary or empty artifact'} body="Non-text artifacts remain downloadable, but are not rendered inline." />
 							)}
-							<button className="button primary" type="button" disabled={!previewPayload} aria-label={`Download artifact ${artifactDisplayName(previewArtifact)}`} onClick={downloadPreview}>
-								Download artifact
+							<button className="button primary" type="button" disabled={downloadLoadingId === String(previewArtifact.id ?? '')} aria-label={`Download preview artifact ${artifactDisplayName(previewArtifact)}`} onClick={() => void downloadArtifact(previewArtifact)}>
+								{downloadLoadingId === String(previewArtifact.id ?? '') ? 'Downloading artifact' : 'Download artifact'}
 							</button>
 						</>
 					) : null}
@@ -662,16 +1071,18 @@ export function ModelGatewayPage({
 		}
 		setError('');
 		void mutate((token) =>
-			createModelPolicy(token, {
+			createModelGatewayRolePolicy(token, {
 				id: policyId,
-				name: policyName.trim(),
+				role: policyId,
+				routingProfileId: 'balanced_best_value',
 				preferred: [{ provider, model }],
 				fallback: [],
-				maxCostUsd: maxCost,
-				maxTokens: tokenLimit,
-				temperature: 0.2,
+				maxCostPerTaskUsd: maxCost,
+				maxTokensPerRun: tokenLimit,
 				allowRemote,
 				allowLocal,
+				allowCli: false,
+				allowApi: true,
 			}),
 		);
 	};

@@ -1,4 +1,4 @@
-import type { Dictionary } from '../../api/types';
+import type { ModelGatewayProviderAccount } from '../../api/types';
 import { Badge, DataTable, EmptyState } from '../../components/primitives';
 import { toneForStatus } from '../../lib/format';
 import { PanelShell } from './PanelShell';
@@ -9,7 +9,7 @@ export function ProviderAccountsPanel({
 	busyAction,
 	onProviderAction,
 }: {
-	providers: Dictionary[];
+	providers: ModelGatewayProviderAccount[];
 	busyAction: string;
 	onProviderAction: (providerId: string, action: 'toggle' | 'health' | 'discover') => void;
 }) {

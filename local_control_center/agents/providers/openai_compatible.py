@@ -7,8 +7,8 @@ import urllib.request
 from typing import Any
 
 from local_control_center.agents.credentials import CredentialResolver
-from local_control_center.agents.model_gateway import redact_secrets
 from local_control_center.agents.runtime_provider_config import runtime_provider_configuration
+from local_control_center.shared.redaction import redact_secrets
 
 from .base import CostEstimate, ModelInfo, ModelProvider, ModelRequest, ModelResponse, ProviderHealth, UsageRecord
 

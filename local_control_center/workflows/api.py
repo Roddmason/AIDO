@@ -272,18 +272,37 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         try:
             workflow_runs = repo.list_workflow_runs(workflow_id=workflow_id)
             workflow_run_ids = [run["id"] for run in workflow_runs]
+            workflow_steps = [
+                step
+                for run_id in workflow_run_ids
+                for step in repo.list_workflow_steps(workflow_run_id=run_id)
+            ]
+            runtime_workspaces = workspaces().list_workspaces_for_workflow(workflow_run_ids)
+            evidence_packages = evidence().list_evidence_for_workflow_runs(workflow_run_ids)
+            workflow_jobs = jobs().list_jobs_for_workflow_runs(workflow_run_ids)
+            agent_runs = agents().list_agent_runs_for_workflow_runs(workflow_run_ids)
+            workflow_run_details = [
+                {
+                    "workflowRun": run,
+                    "workflowSteps": [step for step in workflow_steps if step["workflowRunId"] == run["id"]],
+                    "workspaces": [workspace for workspace in runtime_workspaces if workspace["workflowRunId"] == run["id"]],
+                    "evidencePackages": [
+                        package for package in evidence_packages if package["workflowRunId"] == run["id"]
+                    ],
+                    "jobs": [job for job in workflow_jobs if job["workflowRunId"] == run["id"]],
+                    "agentRuns": [agent_run for agent_run in agent_runs if agent_run["workflowRunId"] == run["id"]],
+                }
+                for run in workflow_runs
+            ]
             return {
                 "workflow": repo.get_workflow(workflow_id),
                 "workflowRuns": workflow_runs,
-                "workflowSteps": [
-                    step
-                    for run_id in workflow_run_ids
-                    for step in repo.list_workflow_steps(workflow_run_id=run_id)
-                ],
-                "workspaces": workspaces().list_workspaces_for_workflow(workflow_run_ids),
-                "evidencePackages": evidence().list_evidence_for_workflow_runs(workflow_run_ids),
-                "jobs": jobs().list_jobs_for_workflow_runs(workflow_run_ids),
-                "agentRuns": agents().list_agent_runs_for_workflow_runs(workflow_run_ids),
+                "workflowSteps": workflow_steps,
+                "workflowRunDetails": workflow_run_details,
+                "workspaces": runtime_workspaces,
+                "evidencePackages": evidence_packages,
+                "jobs": workflow_jobs,
+                "agentRuns": agent_runs,
             }
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error

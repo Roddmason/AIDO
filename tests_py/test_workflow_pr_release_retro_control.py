@@ -202,6 +202,7 @@ def test_pr_review_gate_advances_only_with_passed_qa_evidence(tmp_path: Path, mo
     assert blocked.status_code == 409
     assert blocked.json()["detail"] == "pr_review requires passed QA evidence for this workflow run."
 
+    qa_log = "\n".join(f"qa line {index}" for index in range(2000))
     evidence = client.post(
         "/api/v1/evidence",
         json={
@@ -210,6 +211,7 @@ def test_pr_review_gate_advances_only_with_passed_qa_evidence(tmp_path: Path, mo
             "taskId": "qa_validation",
             "testPlan": "Regression gate",
             "testResults": [{"command": "uv run pytest tests_py -q", "status": "passed"}],
+            "logs": [{"name": "qa-results.log", "content": qa_log}],
             "qaVerdict": "passed",
         },
         headers=headers,

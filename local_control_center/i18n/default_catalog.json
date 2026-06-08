@@ -2855,9 +2855,61 @@
       "en": "executable runtimes",
       "es": "runtimes ejecutables"
     },
+    "ui.static.no.active.project.bf23dd61": {
+      "en": "No active project",
+      "es": "No hay proyecto activo"
+    },
+    "ui.static.no.executable.runtime.44520ef3": {
+      "en": "No executable runtime",
+      "es": "No hay runtime ejecutable"
+    },
+    "ui.static.runtime.and.model.gateway.45cf9fb6": {
+      "en": "Runtime & Model Gateway",
+      "es": "Runtime y Model Gateway"
+    },
+    "ui.static.id.87ea5dfc": {
+      "en": "Id",
+      "es": "Identificador"
+    },
+    "ui.static.detected.59d614e8": {
+      "en": "Detected",
+      "es": "Detectado"
+    },
+    "ui.static.configured.7bde0f0a": {
+      "en": "Configured",
+      "es": "Configurado"
+    },
+    "ui.static.available.78945de8": {
+      "en": "Available",
+      "es": "Disponible"
+    },
+    "ui.static.configuration.8ce677fb": {
+      "en": "Configuration",
+      "es": "Configuracion"
+    },
+    "ui.static.detected.command.c696971c": {
+      "en": "Detected command",
+      "es": "Comando detectado"
+    },
+    "ui.static.healthcheck.b89e0ef6": {
+      "en": "Healthcheck",
+      "es": "Chequeo de salud"
+    },
+    "ui.static.no.automated.healthcheck.endpoint.f9c95375": {
+      "en": "No automated healthcheck endpoint.",
+      "es": "No hay endpoint de healthcheck automatizado."
+    },
     "ui.static.issue.to.patch.real.runtime.d66c0515": {
       "en": "issue_to_patch real runtime",
       "es": "runtime real issue_to_patch"
+    },
+    "ui.static.workflow.timeline.c2b65038": {
+      "en": "Workflow timeline",
+      "es": "Timeline del workflow"
+    },
+    "ui.static.issue.to.patch.timeline.5f6d6b17": {
+      "en": "issue_to_patch timeline",
+      "es": "timeline issue_to_patch"
     },
     "ui.static.unavailable.runtimes.a6f44775": {
       "en": "unavailable runtimes",
@@ -2890,6 +2942,214 @@
     "ui.static.missing.runtime.config.3ecf7c92": {
       "en": "missing runtime config",
       "es": "configuración runtime faltante"
+    },
+    "ui.static.downloading.artifact.b640e8fe": {
+      "en": "Downloading artifact",
+      "es": "Descargando artefacto"
+    },
+    "ui.static.action.request.review.832a6e57": {
+      "en": "Action request review",
+      "es": "Revision de solicitud de accion"
+    },
+    "ui.static.action.request.scope.57c3a545": {
+      "en": "Action request scope",
+      "es": "Alcance de solicitud de accion"
+    },
+    "ui.static.approval.artifact.preview.e734b329": {
+      "en": "Approval artifact preview",
+      "es": "Vista previa de artefacto de aprobacion"
+    },
+    "ui.static.approve.78a1f3c9": {
+      "en": "Approve",
+      "es": "Aprobar"
+    },
+    "ui.static.approve.or.reject.is.blocked.until.this.reason.is.recorded.f865c28b": {
+      "en": "Approve or reject is blocked until this reason is recorded.",
+      "es": "Aprobar o rechazar queda bloqueado hasta registrar esta razon."
+    },
+    "ui.static.argv.2f50d8a9": {
+      "en": "Argv",
+      "es": "Argumentos argv"
+    },
+    "ui.static.diff.and.evidence.artifacts.must.be.attached.by.the.requesting.runtime.e7c8c851": {
+      "en": "Diff and evidence artifacts must be attached by the requesting runtime.",
+      "es": "El runtime solicitante debe adjuntar los artefactos de diff y evidencia."
+    },
+    "ui.static.diff.and.evidence.references.0ff062a8": {
+      "en": "Diff and evidence references",
+      "es": "Referencias de diff y evidencia"
+    },
+    "ui.static.evidence.refs.0520df07": {
+      "en": "Evidence refs",
+      "es": "Refs de evidencia"
+    },
+    "ui.static.human.decision.reason.6c7396e3": {
+      "en": "Human decision reason",
+      "es": "Razon de decision humana"
+    },
+    "ui.static.lifecycle.e4db4b56": {
+      "en": "Lifecycle",
+      "es": "Ciclo de vida"
+    },
+    "ui.static.linked.artifacts.78fba781": {
+      "en": "Linked artifacts",
+      "es": "Artefactos vinculados"
+    },
+    "ui.static.linked.evidence.packages.2437b4d6": {
+      "en": "Linked evidence packages",
+      "es": "Paquetes de evidencia vinculados"
+    },
+    "ui.static.no.linked.artifacts.4d728786": {
+      "en": "No linked artifacts",
+      "es": "Sin artefactos vinculados"
+    },
+    "ui.static.no.linked.evidence.packages.97fa8274": {
+      "en": "No linked evidence packages",
+      "es": "Sin paquetes de evidencia vinculados"
+    },
+    "ui.static.policy.reason.bcb14f77": {
+      "en": "Policy reason",
+      "es": "Razon de politica"
+    },
+    "ui.static.queue.mutation.reason.19c25b16": {
+      "en": "Queue mutation reason",
+      "es": "Razon de mutacion de cola"
+    },
+    "ui.static.reject.4c7c9dde": {
+      "en": "Reject",
+      "es": "Rechazar"
+    },
+    "ui.static.request.15c2d85f": {
+      "en": "Request",
+      "es": "Solicitud"
+    },
+    "ui.static.review.c3f114cf": {
+      "en": "Review",
+      "es": "Revisar"
+    },
+    "ui.static.this.request.did.not.record.evidence.package.references.cfffb0d8": {
+      "en": "This request did not record evidence package references.",
+      "es": "Esta solicitud no registro referencias a paquetes de evidencia."
+    },
+    "ui.static.created.at.evidence.viewer.4f61b6bb": {
+      "en": "Created at",
+      "es": "Creado en"
+    },
+    "ui.static.detail.evidence.viewer.849e56ab": {
+      "en": "Detail",
+      "es": "Detalle"
+    },
+    "ui.static.diff.refs.without.downloadable.patch.9e7a1d44": {
+      "en": "Diff refs without a downloadable patch are not sufficient evidence of code changes.",
+      "es": "Las refs de diff sin un patch descargable no son evidencia suficiente de cambios de codigo."
+    },
+    "ui.static.diff.viewer.evidence.viewer.80e5e450": {
+      "en": "Diff viewer",
+      "es": "Visor de diff"
+    },
+    "ui.static.evidence.artifacts.viewer.e5f7b7f9": {
+      "en": "Evidence artifacts",
+      "es": "Artefactos de evidencia"
+    },
+    "ui.static.evidence.detail.viewer.30e34a50": {
+      "en": "Evidence detail",
+      "es": "Detalle de evidencia"
+    },
+    "ui.static.evidence.detail.metadata.not.returned.a8f37a91": {
+      "en": "Evidence detail metadata was not returned.",
+      "es": "No se devolvio metadata del detalle de evidencia."
+    },
+    "ui.static.evidence.package.viewer.b83f1c3d": {
+      "en": "Evidence package",
+      "es": "Paquete de evidencia"
+    },
+    "ui.static.findings.read.from.linked.artifact.03cfe943": {
+      "en": "Findings are read from the linked artifact.",
+      "es": "Los hallazgos se leen desde el artefacto vinculado."
+    },
+    "ui.static.hashes.evidence.viewer.d2f31199": {
+      "en": "Hashes",
+      "es": "Hashes registrados"
+    },
+    "ui.static.loading.diff.artifact.f72cc0b5": {
+      "en": "Loading diff artifact",
+      "es": "Cargando artefacto de diff"
+    },
+    "ui.static.loading.security.findings.0b677e6f": {
+      "en": "Loading security findings",
+      "es": "Cargando hallazgos de seguridad"
+    },
+    "ui.static.model.and.tool.calls.4ee53a3a": {
+      "en": "Model and tool calls",
+      "es": "Llamadas de modelo y herramientas"
+    },
+    "ui.static.no.metadata.evidence.viewer.39ade8bd": {
+      "en": "No metadata",
+      "es": "Sin metadata"
+    },
+    "ui.static.no.patch.artifact.recorded.a6eb2ba0": {
+      "en": "No patch artifact recorded",
+      "es": "Sin artefacto de patch registrado"
+    },
+    "ui.static.no.security.findings.artifact.8e9970d1": {
+      "en": "No security findings artifact",
+      "es": "Sin artefacto de hallazgos de seguridad"
+    },
+    "ui.static.package.artifact.refs.8476a86c": {
+      "en": "Package artifact refs",
+      "es": "Refs de artefactos del paquete"
+    },
+    "ui.static.patch.artifact.empty.no.changes.26b9281a": {
+      "en": "Patch artifact is empty; no changes are proven.",
+      "es": "El artefacto de patch esta vacio; no prueba cambios."
+    },
+    "ui.static.policy.decisions.and.approvals.c5964304": {
+      "en": "Policy decisions and approvals",
+      "es": "Decisiones de politica y aprobaciones"
+    },
+    "ui.static.runtime.health.evidence.viewer.296670dd": {
+      "en": "Runtime health",
+      "es": "Salud del runtime"
+    },
+    "ui.static.sha256.evidence.viewer.74b330c2": {
+      "en": "SHA-256",
+      "es": "Hash SHA-256"
+    },
+    "ui.static.security.findings.viewer.6957b365": {
+      "en": "Security findings",
+      "es": "Hallazgos de seguridad"
+    },
+    "ui.static.test.plan.evidence.viewer.e2d86632": {
+      "en": "Test plan",
+      "es": "Plan de pruebas"
+    },
+    "ui.static.detail.endpoint.must.return.evidence.1e754443": {
+      "en": "The detail endpoint must return package metadata, test records and artifacts before evidence can be audited.",
+      "es": "El endpoint de detalle debe devolver metadata del paquete, registros de prueba y artefactos antes de auditar la evidencia."
+    },
+    "ui.static.evidence.package.does.not.prove.real.diff.9b3f3276": {
+      "en": "The evidence package does not prove a real file diff.",
+      "es": "El paquete de evidencia no prueba un diff real de archivos."
+    },
+    "ui.static.patch.read.through.protected.endpoint.c0474547": {
+      "en": "The patch is read through the protected artifact endpoint.",
+      "es": "El patch se lee a traves del endpoint protegido de artefactos."
+    },
+    "ui.static.no.downloadable.artifacts.evidence.package.e73dbe66": {
+      "en": "This evidence package has no downloadable artifacts.",
+      "es": "Este paquete de evidencia no tiene artefactos descargables."
+    },
+    "ui.static.tool.calls.evidence.viewer.0585df8a": {
+      "en": "Tool calls",
+      "es": "Llamadas de herramientas"
+    },
+    "ui.static.value.evidence.viewer.f963c4f7": {
+      "en": "Value",
+      "es": "Valor"
+    },
+    "ui.static.workflow.run.evidence.viewer.1495cb66": {
+      "en": "Workflow run",
+      "es": "Run de workflow"
     }
   }
 }

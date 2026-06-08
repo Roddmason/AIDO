@@ -1,9 +1,9 @@
-import type { Dictionary } from '../../api/types';
+import type { ModelGatewayRolePolicy } from '../../api/types';
 import { DataTable, EmptyState } from '../../components/primitives';
 import { PanelShell } from './PanelShell';
 import { boolLabel, listLabel, money, text } from './utils';
 
-export function RoleAssignmentsPanel({ rolePolicies }: { rolePolicies: Dictionary[] }) {
+export function RoleAssignmentsPanel({ rolePolicies }: { rolePolicies: ModelGatewayRolePolicy[] }) {
 	return (
 		<PanelShell title="Role Assignments">
 			<DataTable rows={rolePolicies} empty={<EmptyState title="No role policies" body="Role routing policies seed during startup." />} columns={[

@@ -6,6 +6,11 @@ Fecha: 2026-05-20
 > 2026-05-20. The current product contract is stricter: mocks/fakes are allowed
 > only inside tests, and runtime/provider execution must be real or fail closed
 > with `configuration_required`, `blocked` or `unavailable`.
+>
+> 2026-06-06 legacy cutover note: `/api/v1/model-providers` and
+> `/api/v1/model-policies` were removed from the active API surface. Use
+> `/api/v1/runtime/providers` and `/api/v1/model-gateway/role-policies`
+> instead.
 
 ## Estado actual de `agents/model_gateway.py`
 

@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 import os
+import re
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 
 from local_control_center.jobs_approvals.repository import JobsRepository
 from local_control_center.shared.event_bus import EventBus
+from local_control_center.shared.redaction import redact_secrets
 
 from .credentials import CredentialResolver
-from .model_gateway import ModelGateway, provider_instance, real_provider_calls_enabled, redact_secrets
+from .model_gateway import ModelGateway, provider_instance, real_provider_calls_enabled
 from .model_gateway_models import (
     BudgetRulePatchRequest,
     BudgetRuleResponse,
@@ -65,6 +67,9 @@ from .runtime_registry import RuntimeRegistry
 from .usage_ledger import UsageLedger
 
 
+CATALOG_ID_RE = re.compile(r"^[a-z0-9_.:-]{2,96}$")
+
+
 def _payload(body: Any, *, exclude_none: bool = True) -> dict[str, Any]:
     if hasattr(body, "model_dump"):
         return body.model_dump(by_alias=True, exclude_none=exclude_none)
@@ -106,6 +111,42 @@ def _approval_request_payload(body_payload: dict[str, Any], routing_result: dict
             "routing": routing_result,
         }
     )
+
+
+def _validate_role_policy_payload(body: dict[str, Any], *, provider_ids: set[str]) -> dict[str, Any]:
+    for field in ("id", "role", "routingProfileId"):
+        value = body.get(field)
+        if value is not None and not CATALOG_ID_RE.match(str(value)):
+            raise HTTPException(status_code=422, detail=f"{field} must be a compact catalog id.")
+
+    for field in ("preferred", "fallback", "escalation", "blocked"):
+        candidates = body.get(field) or []
+        if not isinstance(candidates, list):
+            raise HTTPException(status_code=422, detail=f"{field} must be a provider catalog list.")
+        for candidate in candidates:
+            if not isinstance(candidate, dict):
+                raise HTTPException(status_code=422, detail=f"{field} entries must be objects.")
+            provider = str(candidate.get("provider") or "")
+            model = str(candidate.get("model") or "")
+            if provider not in provider_ids:
+                raise HTTPException(status_code=422, detail="Role policy provider is not in the configured provider catalog.")
+            if not model or len(model) > 160 or any(char.isspace() for char in model):
+                raise HTTPException(status_code=422, detail="Role policy model id must be a compact catalog value.")
+
+    try:
+        max_cost = float(body.get("maxCostPerTaskUsd", 0))
+        max_tokens = int(body.get("maxTokensPerRun", 0))
+        approval_threshold = body.get("requiresApprovalOverUsd")
+        approval_value = None if approval_threshold in {None, ""} else float(approval_threshold)
+    except (TypeError, ValueError) as error:
+        raise HTTPException(status_code=422, detail="Role policy numeric fields are invalid.") from error
+    if max_cost < 0:
+        raise HTTPException(status_code=422, detail="maxCostPerTaskUsd must be zero or positive.")
+    if max_tokens < 0 or max_tokens > 200000:
+        raise HTTPException(status_code=422, detail="maxTokensPerRun must be between 0 and 200000.")
+    if approval_value is not None and approval_value < 0:
+        raise HTTPException(status_code=422, detail="requiresApprovalOverUsd must be zero or positive.")
+    return body
 
 
 def create_router(*, platform: Any, require_write: Any) -> APIRouter:
@@ -297,14 +338,21 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
     @router.post("/role-policies", status_code=201, response_model=RolePolicyResponse)
     async def create_role_policy(body: RolePolicyUpsertRequest, request: Request) -> dict[str, Any]:
         require_write(request)
-        policy = routing().upsert_role_policy(_payload(body))
+        payload = _payload(body)
+        provider_ids = {item["providerId"] for item in providers().list_provider_accounts()}
+        _validate_role_policy_payload(payload, provider_ids=provider_ids)
+        policy = routing().upsert_role_policy(payload)
         return {"rolePolicy": policy}
 
     @router.patch("/role-policies/{policy_id}", response_model=RolePolicyResponse)
     async def patch_role_policy(policy_id: str, body: RolePolicyPatchRequest, request: Request) -> dict[str, Any]:
         require_write(request)
         try:
-            policy = routing().patch_role_policy(policy_id, _payload(body))
+            payload = _payload(body)
+            existing = routing().get_role_policy(policy_id)
+            provider_ids = {item["providerId"] for item in providers().list_provider_accounts()}
+            _validate_role_policy_payload({**existing, **payload}, provider_ids=provider_ids)
+            policy = routing().patch_role_policy(policy_id, payload)
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
         return {"rolePolicy": policy}

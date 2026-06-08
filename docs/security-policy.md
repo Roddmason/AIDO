@@ -156,6 +156,41 @@ category. Unknown, missing, or non-allowlisted commands are not converted into
 passed verdicts; they remain gated, skipped with a technical reason, or failed
 according to command criticity.
 
+DevOpsAgent uses `devops_agent_command` for brokered local validation commands.
+The operation is allowed only for `agentId=devops_agent`,
+`permissionProfile=qa`, a registered workspace, an agent run audit id,
+`tool=shell`, and low-risk build, lint, typecheck, test, diagnostic, or
+read-only categories. Missing build scripts are recorded as
+`skipped_with_reason` with a technical reason; they are not converted into
+passed evidence. Docker is optional. A Docker healthcheck may run only through
+the broker and active sandbox policy; absent Docker records skipped evidence
+instead of failing startup.
+
+ArchitectAgent uses `architect_agent_model_call` for architecture review model
+execution. The operation is allowed only for `agentId=architect_agent`,
+`permissionProfile=plan`, a registered workspace, an agent run audit id, and
+`tool/runtimeId` in `ollama` or `openai_compatible`. The agent has no shell
+tool and cannot request secret-bearing execution. If no configured executable
+model runtime exists, the run returns `runtime_unavailable`; it does not issue
+an architectural approval. ADR and risk records are created only after the real
+runtime output validates against the ArchitectAgent schema and every finding,
+risk, required change, and approval recommendation cites input diff/test
+evidence.
+
+SecurityAgent uses deterministic controls for security review. It scans the
+allocated workspace and optional diff artifact for secret-like tokens, path
+traversal inputs, dangerous command flags, dependency file integrity, and
+recorded policy violations. The verdict is computed only from those controls:
+secrets, traversal, denied policy decisions, or critical Docker flags block the
+run; non-critical findings produce risk; a clean scan passes.
+
+The optional `security_agent_model_call` operation is secondary analysis only.
+It is allowed only for `agentId=security_agent`, `permissionProfile=qa`, a
+registered workspace, an agent run audit id, and matching `tool/runtimeId` in
+`ollama` or `openai_compatible`. The model call cannot request secrets and
+cannot override the deterministic verdict or replace the findings JSON,
+scanned-file list, hashes, and evidence package.
+
 DeveloperAgent completion is forbidden unless runtime execution was real, the
 workspace diff is non-empty, QAAgent command evidence passed, and an evidence
 package is linked. A chat response without a valid structured patch is blocked;
@@ -185,10 +220,18 @@ action_request -> approval with reason -> permission_grant -> one execution -> c
 
 Approving an action no longer acts as a broad job-level bypass. The approval API
 requires a non-empty reason and creates a one-use `permission_grant` tied to the
-project, job, action request, agent profile, tool, command, and path. A later
-tool call must provide `approvalGrantId`; the broker validates those fields and
-atomically consumes the grant before execution. Reused, mismatched, missing, or
-revoked grants are denied and recorded as policy decisions.
+project, job, action request, agent profile, tool, command, structured `argv`,
+workspace, runtime, and path. The action request also carries risk level,
+workspace/runtime context, diff refs, evidence refs, the policy reason, and an
+expiration timestamp so the operator can review concrete context before
+deciding.
+
+A later tool call must provide `approvalGrantId`; the broker validates the
+stored scope and expiration before execution. Reused, expired, mismatched,
+missing, or revoked grants are denied and recorded as policy decisions. A
+mismatch does not consume the grant. Rejecting an action also requires a
+non-empty human reason and moves the job to `cancelled`; a rejected request
+cannot be approved later.
 
 Active grants can be revoked through:
 
@@ -242,6 +285,17 @@ those revision records to render policy diffs without raw JSON editing or direct
 SQLite inspection. Broader network access must be modeled as a separate policy
 decision rather than a quiet profile change.
 
-The classifier is intentionally conservative. It is still not a sandbox. The
-next hardening step is explicit approved delete/export actions for expired
-referenced evidence artifacts.
+The classifier is intentionally conservative. It is still not a sandbox. Expired
+referenced evidence uses explicit reviewed `export` or `delete` actions through
+the retention endpoints.
+
+## Real Capability Table
+
+| Capability | Real state | Endpoint/UI | Tests | Limitations |
+| --- | --- | --- | --- | --- |
+| Deterministic policy evaluation | Implemented for shell/tool/runtime operations with allow, approval, human-required, and deny outcomes. | `/api/v1/policies/evaluate`, policy decisions in overview and Policy & Security UI. | Security policy and execution boundary tests. | The classifier is not itself a sandbox; execution still needs broker and sandbox/adapters. |
+| Tool broker execution boundary | Implemented for structured tool calls, profile allowed-tools, policy decisions, grants, adapters, and evidence. | Agent run APIs, jobs/approvals APIs. | `tests_py/test_execution_boundary_architecture.py`, agent tests. | Direct feature-module subprocess execution is outside the product contract. |
+| Restricted subprocess sandbox | Implemented for allowlisted low-risk argv with `shell=False`, workspace cwd containment, timeouts, and redacted output. | Brokered shell tool calls. | Sandbox and Semgrep guardrail tests. | Less isolated than Docker; reserved for low-risk commands already allowed by policy. |
+| Docker sandbox | Implemented as optional catalog/profile-gated adapter. | `/api/v1/sandbox/status`, sandbox profile APIs, Policy & Security UI. | Sandbox profile and permission grant tests. | Docker is not required for startup; unknown images/network modes are blocked. |
+| One-use permission grants | Implemented with approval reason, scoped grant, expiration, consumption, and revocation. | Jobs & Approvals UI, `/api/v1/permissions/grants/{grantId}/revoke`. | Approval/grant tests. | A broad job approval is not enough; later tool calls must present the matching grant. |
+| Productive truth scanner | Implemented in local quality gate. | `scripts/productive-truth-scan.py`, `pnpm run quality:productive-truth`. | `tests_py/test_no_mock_productive_scanner.py`. | Docs/tests are allowed to discuss prohibited terms; productive runtime/API/UI code is not. |

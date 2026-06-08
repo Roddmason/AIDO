@@ -4,7 +4,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from local_control_center.security_policy.models import PermissionGrantRecord
+from local_control_center.security_policy.models import PermissionGrantRecord, RiskLevel
 from local_control_center.shared.schemas import AuditEventRecord, EventRecord
 
 
@@ -24,6 +24,8 @@ JOB_STATUSES = {
     "cancelled",
 }
 JobStatus = Literal["queued", "running", "approval_required", "completed", "failed", "cancelled"]
+JobRunStatus = Literal["queued", "running", "completed", "failed", "cancelled"]
+ActionRequestStatus = Literal["pending", "approved", "denied", "expired"]
 
 
 class JobCreateRequest(BaseModel):
@@ -62,7 +64,7 @@ class JobRunRecord(BaseModel):
     id: str
     job_id: str = Field(alias="jobId")
     provider_id: str | None = Field(default=None, alias="providerId")
-    status: str
+    status: JobRunStatus
     started_at: str = Field(alias="startedAt")
     completed_at: str | None = Field(default=None, alias="completedAt")
     summary: str
@@ -74,12 +76,21 @@ class ActionRequestRecord(BaseModel):
     job_id: str = Field(alias="jobId")
     project_id: str = Field(alias="projectId")
     action_type: str = Field(alias="actionType")
-    status: str
-    risk_level: str = Field(alias="riskLevel")
+    status: ActionRequestStatus
+    risk_level: RiskLevel = Field(alias="riskLevel")
     command: str
+    command_argv: list[str] = Field(default_factory=list, alias="commandArgv")
+    workspace_id: str | None = Field(default=None, alias="workspaceId")
+    workspace_path: str | None = Field(default=None, alias="workspacePath")
+    workspace: dict[str, Any] = Field(default_factory=dict)
+    runtime_id: str | None = Field(default=None, alias="runtimeId")
+    runtime: dict[str, Any] = Field(default_factory=dict)
+    evidence_refs: list[str] = Field(default_factory=list, alias="evidenceRefs")
+    diff_refs: list[Any] = Field(default_factory=list, alias="diffRefs")
     payload: dict[str, Any]
     reason: str
     requested_at: str = Field(alias="requestedAt")
+    expires_at: str | None = Field(default=None, alias="expiresAt")
     decided_at: str | None = Field(default=None, alias="decidedAt")
     decided_by: str | None = Field(default=None, alias="decidedBy")
 

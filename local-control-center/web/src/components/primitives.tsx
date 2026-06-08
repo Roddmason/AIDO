@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import type { ReactNode } from 'react';
 
 export function Badge({ children, tone }: { children: ReactNode; tone?: 'ok' | 'warn' | 'danger' | 'info' }) {
@@ -87,6 +88,14 @@ export function Drawer({
 	open: boolean;
 	onClose: () => void;
 }) {
+	useEffect(() => {
+		if (!open) return undefined;
+		const closeOnEscape = (event: KeyboardEvent) => {
+			if (event.key === 'Escape') onClose();
+		};
+		window.addEventListener('keydown', closeOnEscape);
+		return () => window.removeEventListener('keydown', closeOnEscape);
+	}, [open, onClose]);
 	if (!open) return null;
 	return (
 		<div className="drawer-layer" role="presentation">

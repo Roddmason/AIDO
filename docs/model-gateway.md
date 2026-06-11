@@ -15,6 +15,9 @@ unless `executable=true`.
 
 - Keep real calls disabled by default: `AIDO_ENABLE_REAL_PROVIDER_CALLS=false`.
 - Enable providers through `/api/v1/model-gateway/providers/{id}`.
+- Anthropic API uses `AIDO_ANTHROPIC_API_KEY` and
+  `AIDO_ANTHROPIC_MODEL`; health/discovery use `GET /v1/models` and chat uses
+  `POST /v1/messages`.
 - Store only `credential_ref` values such as
   `openbao:secret/providers/nvidia_nim#api_key`; never store raw keys. See
   `docs/credentials.md`.
@@ -79,12 +82,21 @@ corepack pnpm@10.24.0 run openapi:generate
   gates return `blocked`; configured providers whose endpoint fails return
   `unavailable` with a redacted technical reason.
 - Usage records only contain provider-reported token counts. If a provider
-  response lacks usage, token state is `unknown`/`unavailable`; if configured
+  response lacks usage, token state and usage source are `unknown`; if configured
   pricing is missing, `costStatus` is `unknown` and cost fields remain null.
+- Anthropic usage is recorded only from provider `usage` fields. A text response
+  without Anthropic usage does not create token estimates or zero-cost free-tier
+  assumptions.
 - Provider health checks are fail-closed. Disabled providers return
   `configuration_required`; API/gateway providers require a configured
   credential and `AIDO_ENABLE_REAL_PROVIDER_CALLS=true` before any remote
   health adapter is called. Real 429 responses update provider cooldown state.
+- Runtime provider status exposes `healthStatus`, `healthCheckedAt`,
+  `lastError`, and `reason` to the UI. `lastError` is populated with the
+  sanitized health failure message when a check fails. A remote provider is
+  executable only when configuration is present, the provider account is
+  enabled, a real health check has recorded `healthy` with `lastHealthCheckAt`,
+  and `AIDO_ENABLE_REAL_PROVIDER_CALLS=true`.
 - Provider model discovery is real-only. API/gateway discovery requires the
   provider to be enabled, `AIDO_ENABLE_REAL_PROVIDER_CALLS=true`, and a valid
   credential reference before the adapter is called. Discovery audit payloads

@@ -161,6 +161,26 @@ captured diff/evidence, passing QA, and required approval resolution are all
 present. Missing QA, missing evidence, or unavailable runtime produces a
 blocked/review state instead of a false success.
 
+Approving an issue-to-patch patch is not the same as completing the workflow.
+The generic action approval endpoint creates the scoped grant and records the
+human reason. `POST /api/v1/workflows/issue-to-patch/{runId}/approve` performs
+the audited workflow transition after verifying that the action request is
+approved, the evidence package is linked and valid, the git patch artifact is
+hash-matched and non-empty, QA is passed or human-reviewed with passing command
+evidence, and security findings are not blocking. The transition sets
+`workflow.status` and `workflowRun.status` to `approved_for_integration`, sets
+the linked job and agent run to `approved`, writes workflow/event/audit records,
+and leaves `completedAt` empty because PR creation or branch promotion has not
+run yet.
+
+Branch promotion is handled by `promote_patch_to_branch`
+(`POST /api/v1/workflows/issue-to-patch/{runId}/promote`). It requires the
+approved evidence package, verifies the patch artifact SHA-256, creates a local
+worktree branch from the evidence base commit, applies the verified patch, runs
+QA again, and writes a separate promotion evidence package. Failed apply or QA
+attempts produce `promotion_failed` evidence instead of marking the run
+promoted.
+
 Evidence package records carry direct linkage for `workflowStepId`, `jobId`,
 `agentRunId`, `workspaceId`, `runtimeId`, `artifactIds`, and `diffSummary`.
 Detailed run, job, workspace, artifact, and test records remain normalized and
@@ -182,6 +202,14 @@ does not create simulated successful agent runs. MCP executes only when
 or auto-detect installed CLIs and run `--version` through the broker, policy,
 and restricted sandbox. Version commands are treated as low-risk diagnostics,
 while implementation commands still go through approval and evidence.
+Release-grade OpenHands/SWE-agent `issue_to_patch` validation uses
+`local-control-center/scripts/release_validate_optional_cli_runtime.py` via
+`smoke:openhands:release` and `smoke:swe-agent:release`. Those scripts create a
+temporary Git repository, require `AIDO_ENABLE_CLI_RUNTIMES=true`, require the
+runtime-specific command env var, and fail if the CLI cannot edit the worktree,
+produce a non-empty patch, pass QA, and link stdout/stderr evidence artifacts.
+The old `openhands run --workspace` and `sweagent run --repo` forms are not
+accepted as the AIDO issue-to-patch contract.
 
 Workspace archive captures a lightweight evidence snapshot of non-ignored
 workspace files. The snapshot is stored as a diff reference in an evidence
@@ -223,7 +251,7 @@ path traversal through malicious artifact rows.
 | FastAPI composition | Implemented through `local_control_center.api.create_app()` and mounted vertical-slice routers. | v1 API surface, dashboard startup. | Broad `tests_py` coverage plus OpenAPI client generation tests. | Removed compatibility routes are not mounted; callers must use v1 routes. |
 | Runtime provider status | Implemented from provider configuration, health records, local CLI detection, and safety gates. | `GET /api/v1/runtime/providers`, Runtime & Model Gateway UI. | `tests_py/test_aido_real_runtime_slice.py`, `tests_py/test_internal_mock_product_boundary.py`. | `configured`, `available`, and `executable` are separate states; enabled plus real health is required. |
 | Provider configuration read model | Implemented as env-only inspection with secret fingerprints. | `GET /api/v1/runtime/provider-configuration`. | Runtime provider configuration tests. | It does not mutate provider accounts or persist credentials. |
-| `issue_to_patch` execution | Implemented fail-closed through Git worktree allocation, `ToolBroker`, QAAgent, evidence, and approval request creation. | `POST /api/v1/workflows/issue-to-patch`, workflow detail endpoint. | `tests_py/test_aido_real_runtime_slice.py`, workflow/evidence tests. | CLI productive execution requires Git worktree evidence. Missing runtime, diff, QA, or evidence blocks completion. |
+| `issue_to_patch` execution | Implemented fail-closed through Git worktree allocation, `ToolBroker`, QAAgent, evidence, approval request creation, and reviewed-patch transition. | `POST /api/v1/workflows/issue-to-patch`, `POST /api/v1/workflows/issue-to-patch/{runId}/approve`, workflow detail endpoint. | `tests_py/test_aido_real_runtime_slice.py`, workflow/evidence tests. | CLI productive execution requires Git worktree evidence. Missing runtime, diff, QA, evidence, approved review, or non-blocking security evidence blocks completion/approval. |
 | Policy-gated tool execution | Implemented through tool broker, policy engine, one-use grants, sandbox adapters, and evidence package creation. | Agent run APIs, jobs/approvals APIs, Policy & Security UI. | `tests_py/test_execution_boundary_architecture.py`, sandbox/policy tests. | Direct subprocess is limited to approved boundary modules; arbitrary command strings are not product execution. |
 | Evidence artifact serving | Implemented with token, package ownership, artifact-root confinement, and SHA-256 verification. | `GET /api/v1/evidence/{evidenceId}/artifacts/{artifactId}`. | Evidence and security policy tests. | Local artifact files must exist and hash-match; path rows cannot bypass root confinement. |
 

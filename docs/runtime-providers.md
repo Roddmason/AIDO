@@ -17,6 +17,7 @@ Required environment variables:
 - OpenRouter: `AIDO_OPENROUTER_API_KEY`, `AIDO_OPENROUTER_MODEL`.
 - NVIDIA NIM / Build: `AIDO_NVIDIA_API_KEY`, `AIDO_NVIDIA_BASE_URL`,
   `AIDO_NVIDIA_MODEL`.
+- Anthropic API: `AIDO_ANTHROPIC_API_KEY`, `AIDO_ANTHROPIC_MODEL`.
 - Ollama: `AIDO_OLLAMA_BASE_URL`.
 - CLI runtimes: `AIDO_CODEX_COMMAND`, `AIDO_CLAUDE_COMMAND`.
 
@@ -39,6 +40,8 @@ $env:AIDO_OPENROUTER_MODEL = "provider/model"
 $env:AIDO_NVIDIA_API_KEY = "<real API key>"
 $env:AIDO_NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
 $env:AIDO_NVIDIA_MODEL = "provider/model"
+$env:AIDO_ANTHROPIC_API_KEY = "<real API key>"
+$env:AIDO_ANTHROPIC_MODEL = "claude-model-id"
 $env:AIDO_OLLAMA_BASE_URL = "http://127.0.0.1:11434"
 $env:AIDO_CODEX_COMMAND = "codex"
 $env:AIDO_CLAUDE_COMMAND = "claude"
@@ -75,6 +78,12 @@ Each provider record exposes:
 - `requiredConfiguration`: the concrete config fields required before the
   provider can become configured.
 - `reason`: the human-readable reason for unavailable or non-executable state.
+- `healthStatus`: persisted provider health state such as `unknown`,
+  `healthy`, `offline`, `degraded`, or `misconfigured`.
+- `healthCheckedAt`: timestamp of the latest explicit health check. Env vars do
+  not populate this field.
+- `lastError`: sanitized technical health failure reason. It must not contain
+  API keys, bearer tokens, endpoints with tokens, or raw secrets.
 - `capabilities`: versioned runtime capabilities such as `version_check` or
   `issue_to_patch`.
 - safety metadata: argv, workspace, sandbox, approval, network, and capability
@@ -89,6 +98,11 @@ Routing must consume the same truth model. A provider account and model catalog
 seed are not sufficient for selection: non-manual providers must be enabled,
 healthy, and have a recorded health check timestamp before productive routing.
 The legacy manual provider is optional human state, not automated availability.
+
+Remote provider health is not called by `/api/v1/runtime/providers`. That
+endpoint reports persisted truth only. Health calls happen only through the
+explicit Model Gateway health-check action, and failed checks persist
+`lastHealthCheckAt` plus a sanitized reason.
 
 `developerAgent` is a derived readiness record in the same response. It is not
 persisted on `agent_profiles`; it is computed from configured provider status,
@@ -126,6 +140,43 @@ gateway, runtime registry, evidence, jobs, API, UI, or adapters.
   require `shutil.which` detection, a safe `--version` health check, structured
   argv, workspace boundary checks, and capability support before productive
   execution.
+
+### NVIDIA NIM Usage And Cost
+
+NVIDIA NIM is treated as an OpenAI-compatible API provider for execution, but
+its cost and token accounting must remain conservative:
+
+- `estimate_cost()` returns `estimatedCostUsd = null` unless a real pricing
+  source is configured elsewhere. Unknown trial/free-tier status is not a zero
+  cost.
+- Response text is not token evidence. If the provider response does not include
+  a `usage` object with token fields, token counts stay `0`, `tokenStatus` is
+  `unknown`, and `usageSource` is `unknown`.
+- Token counts are `actual` only when NVIDIA returns provider usage fields such
+  as `prompt_tokens`, `completion_tokens`, or `total_tokens`.
+- Catalog seeds must not mark NVIDIA NIM as `freeTier=true` or set token prices
+  to `0.0` unless a real pricing snapshot documents that state.
+
+### Anthropic Usage And Cost
+
+Anthropic API execution uses the real Anthropic Messages API:
+
+- Health check and discovery call `GET /v1/models` with `x-api-key` and
+  `anthropic-version`.
+- Chat execution calls `POST /v1/messages`; system messages are sent in the
+  Anthropic `system` field and user/assistant messages in `messages`.
+- Runtime configuration requires `AIDO_ANTHROPIC_API_KEY` and
+  `AIDO_ANTHROPIC_MODEL`. Without both, provider status is
+  `configuration_required`; without a successful health check and
+  `AIDO_ENABLE_REAL_PROVIDER_CALLS=true`, it is not executable.
+- Usage is `actual` only when the response contains provider `usage` fields
+  such as `input_tokens`, `cache_creation_input_tokens`,
+  `cache_read_input_tokens`, or `output_tokens`.
+- If Anthropic returns text without usage, token counts stay `0`,
+  `tokenStatus` is `unknown`, and `usageSource` is `unknown`.
+- `estimate_cost()` returns `estimatedCostUsd = null`; costs are recorded only
+  when an external pricing catalog/snapshot supplies real pricing for the
+  selected model.
 
 ## Issue To Patch
 

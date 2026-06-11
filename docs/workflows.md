@@ -24,6 +24,10 @@ API coverage:
 - workflows can declare controlled steps through `metadata.steps`
 - `issue_to_patch` can run as a real runtime slice only through provider
   truth, workspace allocation, policy, QA evidence, and approval gates
+- `POST /api/v1/workflows/issue-to-patch/{runId}/approve` transitions a
+  reviewed patch to `approved_for_integration` after validating approved action
+  request state, evidence, patch artifact, QA, and non-blocking security
+  findings
 
 ## Target Lifecycle
 
@@ -72,6 +76,42 @@ missing diff evidence, missing patch artifacts, skipped QA, failed QA, or
 pending approval produce `runtime_unavailable`, `qa_failed`, or
 `evidence_ready`, never a productive success state. `requireApproval` defaults
 to true for sensitive patch output.
+
+Human approval is a two-step contract. Approving the granular action request
+creates a scoped grant and records the human reason, but it does not by itself
+advance the workflow. After that action request is approved, callers must invoke
+`POST /api/v1/workflows/issue-to-patch/{runId}/approve` with a non-empty
+reason. The endpoint validates:
+
+- the approved `workflow.issue_to_patch.approve_patch` action request belongs
+  to the workflow run and evidence package;
+- the evidence package satisfies the runtime/evidence contract and has artifact
+  hashes;
+- the patch artifact exists, hash-matches, and is non-empty;
+- QA is `passed`, or `needs_human_review` with the approved action request and
+  real passing QA command evidence;
+- the security findings artifact exists and is not blocking.
+
+On success, the workflow and workflow run move to
+`approved_for_integration`, the job and agent run move to `approved`, workflow
+events and audit events are written, and `completedAt` stays empty. This is an
+integration-ready state, not completion: PR creation, branch promotion, and
+release gates remain separate work.
+
+Approved patch promotion is an explicit follow-up command:
+`POST /api/v1/workflows/issue-to-patch/{runId}/promote`. The request requires
+a non-empty reason and can optionally provide `branchName`, `evidencePackageId`
+and `qaCommands`.
+
+`promote_patch_to_branch` validates the approved evidence package again,
+verifies the linked `git_patch` artifact by SHA-256 before reading it, creates
+a new local Git worktree/branch from the base commit captured in the evidence,
+runs `git apply --check`, applies the patch from that verified artifact, then
+runs QA again in the promoted worktree. Success moves the workflow and run to
+`promoted_to_branch` and writes a fresh promotion evidence package with branch,
+base commit, git status, git command output, QA results, artifact refs and
+hashes. If `git apply` or post-apply QA fails, the command returns
+`promotion_failed` with evidence and does not mark the workflow promoted.
 
 ## PR, Release And Retro Gates
 
@@ -123,6 +163,6 @@ uv run pytest tests_py/test_workflow_pr_release_retro_control.py tests_py/test_p
 | Capability | Real state | Endpoint/UI | Tests | Limitations |
 | --- | --- | --- | --- | --- |
 | Workflow CRUD/run control | Implemented for create/list/get/start/pause/resume/cancel and step advance. | `/api/v1/workflows`, `/api/v1/workflows/{id}`, Workflows UI. | Workflow control tests. | Workflows are local control-plane records; distributed durable execution is not part of the local MVP. |
-| `issue_to_patch` | Implemented as real fail-closed workflow execution. | `POST /api/v1/workflows/issue-to-patch`, Command Center. | `tests_py/test_aido_real_runtime_slice.py`, web Command Center tests. | Completion requires executable runtime, Git worktree, real diff, passed QA evidence, evidence package, and no pending approval. |
+| `issue_to_patch` | Implemented as real fail-closed workflow execution plus explicit reviewed-patch and branch-promotion transitions. | `POST /api/v1/workflows/issue-to-patch`, `POST /api/v1/workflows/issue-to-patch/{runId}/approve`, `POST /api/v1/workflows/issue-to-patch/{runId}/promote`, Command Center, Jobs & Approvals, Workflows UI. | `tests_py/test_aido_real_runtime_slice.py`, web Command Center tests. | Completion requires executable runtime, Git worktree, real diff, passed QA evidence, evidence package, and no pending approval. Human review moves to `approved_for_integration`; branch promotion re-verifies SHA-256 and QA before `promoted_to_branch`. |
 | PR/release/retro gates | Implemented as auditable control gates. | Workflow step advance endpoint, Workflows UI. | `tests_py/test_workflow_pr_release_retro_control.py`. | These gates do not deploy or mutate protected branches. |
 | Workflow traceability | Implemented by joining workflow runs with workspaces, jobs, agent runs, evidence, tool calls, policy decisions, and approvals. | `GET /api/v1/workflows/{id}`, overview/workflow inspectors. | Traceability and frontend tests. | Traceability depends on linked records produced by actual executions; missing execution remains visible as blocked state. |

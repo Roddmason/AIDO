@@ -29,6 +29,8 @@ in SQLite.
 $env:AIDO_NVIDIA_API_KEY = "<real key outside repo>"
 $env:AIDO_NVIDIA_BASE_URL = "<provider endpoint>"
 $env:AIDO_NVIDIA_MODEL = "<provider model>"
+$env:AIDO_ANTHROPIC_API_KEY = "<real key outside repo>"
+$env:AIDO_ANTHROPIC_MODEL = "<provider model>"
 ```
 
 If you also create a provider account, store only a ref such as

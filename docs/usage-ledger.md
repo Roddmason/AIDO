@@ -2,7 +2,7 @@
 
 ## What It Does
 
-`usage_ledger` records API and CLI usage with input, cached input, output, reasoning and tool token counts plus estimated and actual cost fields. `usageSource` is now a first-class field with `actual`, `estimated` or `unavailable`; `tokenStatus` and `costStatus` make unknown provider usage and pricing explicit. `rawUsage` remains the redacted provider/runtime payload.
+`usage_ledger` records API and CLI usage with input, cached input, output, reasoning and tool token counts plus estimated and actual cost fields. `usageSource` is now a first-class field with `actual`, `estimated`, `unavailable`, or `unknown`; `tokenStatus` and `costStatus` make unknown provider usage and pricing explicit. `rawUsage` remains the redacted provider/runtime payload.
 
 ## Configuration
 
@@ -26,8 +26,9 @@ are not evidence of completed model work.
 
 ## Risks
 
-- Providers without exact usage must set `usageSource = "unavailable"` or a
-  non-completed planning state; they must not fabricate token counts. If real
+- Providers without exact usage must set `usageSource = "unknown"` for completed
+  provider responses without usage, `usageSource = "unavailable"` for blocked or
+  unavailable execution, or a non-completed planning state; they must not fabricate token counts. If real
   tokens are reported but pricing is absent, `costStatus = "unknown"` and cost
   fields stay null.
 - Existing `cost_usage` is updated only as a temporary read-model for older

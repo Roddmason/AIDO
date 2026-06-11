@@ -333,9 +333,9 @@ def test_generated_core_runtime_workflow_evidence_contracts_are_strict() -> None
 
     workflow = _generated_type_line(content, "WorkflowRecord")
     assert '"kind": "idea_to_pr" | "project_discovery" | "issue_to_patch"' in workflow
-    assert '"status": "queued" | "running" | "paused" | "completed" | "failed" | "cancelled" | "runtime_unavailable" | "qa_failed" | "evidence_ready" | "approved_for_integration" | "promotion_failed" | "promoted_to_branch"' in workflow
+    assert '"status": "queued" | "running" | "paused" | "completed" | "failed" | "cancelled" | "runtime_unavailable" | "qa_failed" | "evidence_ready" | "approved_for_integration" | "promotion_failed" | "promoted_to_branch" | "pr_created"' in workflow
     workflow_run = _generated_type_line(content, "WorkflowRunRecord")
-    assert '"status": "running" | "completed" | "failed" | "cancelled" | "runtime_unavailable" | "qa_failed" | "evidence_ready" | "approved_for_integration" | "promotion_failed" | "promoted_to_branch"' in workflow_run
+    assert '"status": "running" | "completed" | "failed" | "cancelled" | "runtime_unavailable" | "qa_failed" | "evidence_ready" | "approved_for_integration" | "promotion_failed" | "promoted_to_branch" | "pr_created"' in workflow_run
     workflow_step = _generated_type_line(content, "WorkflowStepRecord")
     assert '"riskLevel"?: "low" | "medium" | "high" | "critical" | null' in workflow_step
     assert '"status": "pending" | "ready" | "running" | "completed" | "failed" | "blocked" | "skipped"' in workflow_step
@@ -346,7 +346,10 @@ def test_generated_core_runtime_workflow_evidence_contracts_are_strict() -> None
     api_client = (ROOT / "local-control-center" / "web" / "src" / "api" / "client.ts").read_text(encoding="utf-8")
     assert "approveIssueToPatch" in api_client
     assert "promotePatchToBranch" in api_client
+    assert "createPullRequestFromPromotedBranch" in api_client
+    assert '"pullRequest"?: JsonObject | null' in _generated_type_line(content, "IssueToPatchResponse")
     assert "promote_patch_to_branch_api_v1_workflows_issue_to_patch__run_id__promote_post" in content
+    assert "create_pull_request_from_promoted_branch_api_v1_workflows_issue_to_patch__run_id__pull_request_post" in content
     assert "{ providers: Dictionary[] }" not in api_client
     assert "{ overview: Dictionary }" not in api_client
     assert "apiRequest<{ providers: Dictionary[] }>('/api/v1/runtime/provider-configuration'" not in api_client

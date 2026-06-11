@@ -22,6 +22,11 @@ from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.event_bus import EventBus
 from local_control_center.shared.serialization import json_dumps, json_loads
 from local_control_center.shared.time import utc_now
+from local_control_center.workflows.github_pull_requests import (
+    GitHubPullRequestConfigError,
+    create_github_pull_request,
+    github_pull_request_config_from_env,
+)
 from local_control_center.workflows.repository import ISSUE_TO_PATCH_STEPS, WorkflowsRepository
 from local_control_center.workspaces_projects.cleanup import capture_workspace_snapshot
 from local_control_center.workspaces_projects.git_worktrees import capture_git_diff
@@ -34,6 +39,9 @@ RUNTIME_UNAVAILABLE_STATUS = "runtime_unavailable"
 APPROVED_FOR_INTEGRATION_STATUS = "approved_for_integration"
 PROMOTED_TO_BRANCH_STATUS = "promoted_to_branch"
 PROMOTION_FAILED_STATUS = "promotion_failed"
+PR_CREATED_STATUS = "pr_created"
+PR_FAILED_STATUS = "pr_failed"
+PR_UNAVAILABLE_STATUS = "pr_unavailable"
 ISSUE_TO_PATCH_APPROVAL_ACTION = "workflow.issue_to_patch.approve_patch"
 TERMINAL_STATUSES = {"completed", RUNTIME_UNAVAILABLE_STATUS, "qa_failed", "evidence_ready", "failed"}
 CLI_SYNTAX_ERROR_MARKERS = (
@@ -456,6 +464,116 @@ def _git_operation_result(args: list[str], *, cwd: Path) -> dict[str, Any]:
     }
 
 
+def _approval_reason_summary(
+    *,
+    approval_actions: list[dict[str, Any]],
+    run_metadata: dict[str, Any],
+) -> dict[str, str]:
+    approved = next((action for action in approval_actions if action.get("status") == "approved"), {})
+    return {
+        "integrationApprovalReason": str(run_metadata.get("reason") or "").strip(),
+        "approvalActionReason": str(approved.get("decisionReason") or approved.get("reason") or "").strip(),
+    }
+
+
+def _pr_qa_summary_lines(results: list[dict[str, Any]]) -> list[str]:
+    if not results:
+        return ["- No QA results were captured in the promotion evidence."]
+    lines: list[str] = []
+    for result in results:
+        command = str(result.get("command") or _display_command(result.get("argv") or []) or "qa_command")
+        status = str(result.get("status") or "unknown")
+        duration = result.get("durationMs")
+        duration_text = f" ({duration} ms)" if isinstance(duration, int) else ""
+        lines.append(f"- {status}: `{command}`{duration_text}")
+    return lines
+
+
+def _security_findings_lines(security_findings: dict[str, Any]) -> list[str]:
+    status = str(security_findings.get("status") or "unknown")
+    findings = security_findings.get("findings") if isinstance(security_findings.get("findings"), list) else []
+    lines = [f"- status: {status}", f"- findings: {len(findings)}"]
+    for index, finding in enumerate(findings[:10], start=1):
+        if not isinstance(finding, dict):
+            continue
+        decision = str(finding.get("decision") or finding.get("status") or "not_reported")
+        summary = str(finding.get("summary") or finding.get("description") or finding.get("rule") or "finding")
+        lines.append(f"- {index}. {decision}: {summary}")
+    if len(findings) > 10:
+        lines.append(f"- truncated: {len(findings) - 10} additional findings omitted from PR body")
+    return lines
+
+
+def _hash_lines(label: str, hashes: dict[str, str]) -> list[str]:
+    if not hashes:
+        return [f"- {label}: no artifact hashes recorded"]
+    lines = [f"### {label}"]
+    for name, value in sorted(hashes.items()):
+        lines.append(f"- `{name}`: `{value}`")
+    return lines
+
+
+def _default_pull_request_title(workflow: dict[str, Any], branch_name: str) -> str:
+    title = str(workflow.get("title") or "").strip()
+    if title:
+        return title[:180]
+    return f"AIDO patch promotion: {branch_name}"[:180]
+
+
+def _pull_request_base_branch(*, requested: str | None, promotion_workspace: dict[str, Any]) -> str:
+    if requested and requested.strip():
+        return requested.strip()
+    metadata = promotion_workspace.get("metadata") or {}
+    git_worktree = metadata.get("gitWorktree") if isinstance(metadata.get("gitWorktree"), dict) else {}
+    source_branch = str(git_worktree.get("sourceBranch") or "").strip()
+    if source_branch:
+        return source_branch
+    workspace_manifest = metadata.get("workspaceManifest") if isinstance(metadata.get("workspaceManifest"), dict) else {}
+    manifest_branch = str(workspace_manifest.get("sourceBranch") or "").strip()
+    if manifest_branch:
+        return manifest_branch
+    raise ValueError(
+        "create_pull_request requires baseBranch because the promoted workspace did not capture a source branch."
+    )
+
+
+def _build_pull_request_body(
+    *,
+    approved_evidence: dict[str, Any],
+    promotion_evidence: dict[str, Any],
+    security_findings: dict[str, Any],
+    approval_reason: dict[str, str],
+    request_reason: str,
+    branch_name: str,
+    base_branch: str,
+) -> str:
+    lines = [
+        "# AIDO Promoted Patch",
+        "",
+        "## Evidence Package",
+        f"- approved evidence package id: `{approved_evidence['id']}`",
+        f"- promotion evidence package id: `{promotion_evidence['id']}`",
+        f"- branch: `{branch_name}`",
+        f"- base branch: `{base_branch}`",
+        "",
+        "## QA Summary",
+        *_pr_qa_summary_lines(promotion_evidence.get("testResults") or []),
+        "",
+        "## Security Findings",
+        *_security_findings_lines(security_findings),
+        "",
+        "## Artifact Hashes",
+        *_hash_lines("Approved Evidence", approved_evidence.get("hashes") or {}),
+        *_hash_lines("Promotion Evidence", promotion_evidence.get("hashes") or {}),
+        "",
+        "## Approval Reason",
+        f"- integration approval: {approval_reason.get('integrationApprovalReason') or 'not recorded'}",
+        f"- approval action: {approval_reason.get('approvalActionReason') or 'not recorded'}",
+        f"- PR request: {request_reason}",
+    ]
+    return "\n".join(lines).strip() + "\n"
+
+
 def _promotion_status_from_results(
     *,
     apply_check: dict[str, Any],
@@ -491,6 +609,34 @@ def _validate_qa_for_patch_approval(evidence: dict[str, Any], *, action_approved
             raise ValueError("Human-reviewed patch approval still requires real passing QA command evidence.")
         return
     raise ValueError("issue_to_patch approval requires passed QA or needs_human_review with approval.")
+
+
+def _record_pull_request(
+    connection: sqlite3.Connection,
+    *,
+    project_id: str,
+    workspace_id: str | None,
+    status: str,
+    pull_request: dict[str, Any] | None,
+    metadata: dict[str, Any],
+) -> None:
+    url = str((pull_request or {}).get("htmlUrl") or (pull_request or {}).get("url") or "")
+    connection.execute(
+        """
+        INSERT INTO pull_requests (id, workspace_id, project_id, provider, url, status, metadata, created_at, updated_at)
+        VALUES (?, ?, ?, 'github', ?, ?, ?, ?, ?)
+        """,
+        (
+            f"pull-request-{uuid.uuid4()}",
+            workspace_id,
+            project_id,
+            url,
+            status,
+            json_dumps(redact_secrets(metadata)),
+            utc_now(),
+            utc_now(),
+        ),
+    )
 
 
 def _write_git_status_artifacts(
@@ -1259,6 +1405,464 @@ class IssueToPatchRunner:
             "runtimeResult": {"gitApplyCheck": apply_check, "gitApply": apply_result},
             "qaResults": qa_results,
             "diffSummary": diff_summary,
+        }
+
+    def create_pull_request_from_promoted_branch(
+        self,
+        run_id: str,
+        *,
+        reason: str,
+        title: str | None = None,
+        base_branch: str | None = None,
+        actor: str = "operator",
+    ) -> dict[str, Any]:
+        clean_reason = str(redact_secrets(reason or "")).strip()
+        if not clean_reason:
+            raise ValueError("Pull request creation reason is required.")
+
+        workflow_run = self.workflows.get_workflow_run(run_id)
+        workflow = self.workflows.get_workflow(workflow_run["workflowId"])
+        if workflow["kind"] != "issue_to_patch":
+            raise ValueError("Only issue_to_patch workflow runs can create pull requests from promoted branches.")
+        if workflow_run["status"] == PR_CREATED_STATUS:
+            raise ValueError("Pull request was already created for this workflow run.")
+
+        run_metadata = workflow_run.get("metadata") or {}
+        promoted_branch_name = str(run_metadata.get("promotedBranchName") or "").strip()
+        promotion_evidence_id = str(run_metadata.get("promotionEvidencePackageId") or "").strip()
+        approved_evidence_id = str(
+            run_metadata.get("originalEvidencePackageId") or run_metadata.get("evidencePackageId") or ""
+        ).strip()
+        promotion_workspace_id = str(run_metadata.get("promotionWorkspaceId") or "").strip()
+        if (
+            run_metadata.get("promotionStatus") != PROMOTED_TO_BRANCH_STATUS
+            or not promoted_branch_name
+            or not promotion_evidence_id
+            or not approved_evidence_id
+            or not promotion_workspace_id
+        ):
+            raise ValueError("create_pull_request requires a promoted_to_branch workflow run.")
+
+        promotion_evidence = self.evidence.get_evidence_package(promotion_evidence_id)
+        approved_evidence = self.evidence.get_evidence_package(approved_evidence_id)
+        if promotion_evidence["workflowRunId"] != run_id or approved_evidence["workflowRunId"] != run_id:
+            raise ValueError("create_pull_request requires evidence packages from the target workflow run.")
+        if promotion_evidence.get("qaVerdict") != "passed" or not qa_verdict_allows_completion(
+            "passed",
+            promotion_evidence.get("testResults") or [],
+        ):
+            raise ValueError("create_pull_request requires passed promotion QA evidence.")
+
+        approved_artifacts = self.evidence.list_artifacts(approved_evidence_id)
+        _validate_patch_artifact(approved_evidence, approved_artifacts)
+        security_findings = _validate_security_findings(approved_evidence, approved_artifacts)
+        _validate_qa_for_patch_approval(approved_evidence, action_approved=True)
+        promotion_workspace = self.workspaces.get_workspace(promotion_workspace_id)
+        resolved_base_branch = _pull_request_base_branch(
+            requested=base_branch,
+            promotion_workspace=promotion_workspace,
+        )
+        steps = {step["name"]: step for step in self.workflows.list_workflow_steps(workflow_run_id=run_id)}
+        workflow_step_id = (steps.get("pr_creation") or steps.get("technical_review") or {}).get("id")
+        original_job_id = str(approved_evidence.get("jobId") or run_metadata.get("jobId") or "")
+        approval_actions = [
+            action
+            for action in self.jobs.list_action_requests(original_job_id)
+            if action["actionType"] == ISSUE_TO_PATCH_APPROVAL_ACTION
+            and action["status"] == "approved"
+            and (action.get("payload") or {}).get("workflowRunId") == run_id
+            and (action.get("payload") or {}).get("evidencePackageId") == approved_evidence_id
+        ]
+        if not approval_actions:
+            raise ValueError("create_pull_request requires approved patch evidence before PR creation.")
+        approval_reason = _approval_reason_summary(approval_actions=approval_actions, run_metadata=run_metadata)
+        pr_title = str(title or "").strip() or _default_pull_request_title(workflow, promoted_branch_name)
+        pr_body = _build_pull_request_body(
+            approved_evidence=approved_evidence,
+            promotion_evidence=promotion_evidence,
+            security_findings=security_findings,
+            approval_reason=approval_reason,
+            request_reason=clean_reason,
+            branch_name=promoted_branch_name,
+            base_branch=resolved_base_branch,
+        )
+
+        project_id = workflow["projectId"]
+        profile_id = "aido_pull_request_creator"
+        profile = self.agents.upsert_agent_profile(
+            {
+                "id": profile_id,
+                "name": "AIDO Pull Request Creator",
+                "role": "release_manager",
+                "runtimeMode": "api",
+                "permissionProfile": "release",
+                "allowedTools": [],
+                "allowedProviders": ["github"],
+                "allowedRuntimes": ["github.rest"],
+                "allowRemote": True,
+                "allowCli": False,
+                "allowApi": True,
+            }
+        )
+        pr_job = self.jobs.create_job(
+            project_id=project_id,
+            kind="workflow.issue_to_patch.create_pull_request",
+            workflow_run_id=run_id,
+            workflow_step_id=workflow_step_id,
+            status="running",
+            payload={
+                "command": "create_pull_request",
+                "workflowRunId": run_id,
+                "approvedEvidencePackageId": approved_evidence_id,
+                "promotionEvidencePackageId": promotion_evidence_id,
+                "branchName": promoted_branch_name,
+                "baseBranch": resolved_base_branch,
+            },
+        )["job"]
+        pr_agent_run = self.agents.create_agent_run(
+            project_id=project_id,
+            agent_profile_id=profile["id"],
+            task_id="create_pull_request",
+            input_payload={
+                "workflowRunId": run_id,
+                "approvedEvidencePackageId": approved_evidence_id,
+                "promotionEvidencePackageId": promotion_evidence_id,
+                "branchName": promoted_branch_name,
+                "baseBranch": resolved_base_branch,
+                "title": pr_title,
+            },
+            output_payload={},
+            job_id=pr_job["id"],
+            workflow_run_id=run_id,
+            workflow_step_id=workflow_step_id,
+            status="running",
+        )
+
+        github_result: dict[str, Any]
+        pull_request: dict[str, Any] | None
+        try:
+            github_config = github_pull_request_config_from_env()
+        except GitHubPullRequestConfigError as error:
+            final_status = PR_UNAVAILABLE_STATUS
+            qa_verdict = "blocked"
+            final_reason = error.reason
+            github_result = {
+                "status": "unavailable",
+                "reason": error.reason,
+                "missing": error.missing,
+                "request": None,
+                "response": {},
+            }
+            pull_request = None
+            configured = False
+        else:
+            configured = True
+            github_result = create_github_pull_request(
+                github_config,
+                title=pr_title,
+                head=promoted_branch_name,
+                base=resolved_base_branch,
+                body=pr_body,
+            )
+            if github_result.get("status") == "created":
+                final_status = PR_CREATED_STATUS
+                qa_verdict = "passed"
+                final_reason = "GitHub pull request created from promoted branch."
+                pull_request = {
+                    "status": "created",
+                    "number": github_result.get("number"),
+                    "id": github_result.get("id"),
+                    "url": github_result.get("url"),
+                    "htmlUrl": github_result.get("htmlUrl"),
+                    "repository": github_result.get("repository"),
+                    "head": promoted_branch_name,
+                    "base": resolved_base_branch,
+                }
+            else:
+                final_status = PR_FAILED_STATUS
+                qa_verdict = "failed"
+                final_reason = str(github_result.get("reason") or "GitHub pull request creation failed.")
+                pull_request = {
+                    "status": "failed",
+                    "httpStatus": github_result.get("httpStatus"),
+                    "repository": github_config.repository,
+                    "head": promoted_branch_name,
+                    "base": resolved_base_branch,
+                    "reason": final_reason,
+                }
+
+        request_payload = github_result.get("request") if isinstance(github_result.get("request"), dict) else None
+        request_path = str((request_payload or {}).get("url") or "github_config")
+        qa_results = [
+            {
+                "command": "POST /repos/{owner}/{repo}/pulls" if request_payload else "github_pull_request_config",
+                "status": "passed" if final_status == PR_CREATED_STATUS else "blocked" if final_status == PR_UNAVAILABLE_STATUS else "failed",
+                "durationMs": None,
+                "metadata": {
+                    "url": request_path,
+                    "httpStatus": github_result.get("httpStatus"),
+                    "status": github_result.get("status"),
+                },
+            }
+        ]
+        diff_summary = {
+            "branch": promoted_branch_name,
+            "baseBranch": resolved_base_branch,
+            "approvedEvidencePackageId": approved_evidence_id,
+            "promotionEvidencePackageId": promotion_evidence_id,
+            "pullRequestStatus": final_status,
+            "pullRequest": pull_request,
+        }
+        pr_logs = [
+            {
+                "source": "create_pull_request",
+                "status": final_status,
+                "reason": final_reason,
+                "configured": configured,
+                "approvedEvidencePackageId": approved_evidence_id,
+                "promotionEvidencePackageId": promotion_evidence_id,
+                "branchName": promoted_branch_name,
+                "baseBranch": resolved_base_branch,
+                "request": request_payload,
+                "response": github_result.get("response") or {},
+            }
+        ]
+        evidence = self.evidence.create_evidence_package(
+            project_id=project_id,
+            workflow_run_id=run_id,
+            workflow_step_id=workflow_step_id,
+            agent_id=profile_id,
+            agent_run_id=pr_agent_run["id"],
+            job_id=pr_job["id"],
+            workspace_id=promotion_workspace["id"],
+            runtime_id="github.rest",
+            task_id="create_pull_request",
+            test_plan="Create a GitHub pull request only after approved evidence, branch promotion, and passed promotion QA.",
+            acceptance_checklist=[
+                "Approved issue_to_patch evidence exists.",
+                "Promotion evidence exists and QA passed after applying the patch.",
+                "Pull request is created only from the promoted branch.",
+                "GitHub configuration is read only when PR creation is requested.",
+                "GitHub API result is recorded without fabricating success.",
+            ],
+            test_results=qa_results,
+            logs=pr_logs,
+            diff_refs=promotion_evidence.get("diffRefs") or [],
+            diff_summary=diff_summary,
+            runtime_health={
+                "id": "github.rest",
+                "status": final_status,
+                "configured": configured,
+                "available": final_status == PR_CREATED_STATUS,
+                "reason": final_reason,
+                "remote": (request_payload or {}).get("repository"),
+            },
+            approvals=approval_actions,
+            qa_verdict=qa_verdict,
+            risk_notes=[
+                {
+                    "severity": "low" if final_status == PR_CREATED_STATUS else "high",
+                    "description": final_reason,
+                    "mitigation": "Configure GitHub or resolve the GitHub API error, then retry from the promoted branch.",
+                }
+            ],
+        )
+        request_artifact = _write_json_evidence_artifact(
+            root=self.root,
+            project_id=project_id,
+            evidence_id=evidence["id"],
+            name="pull-request-request.json",
+            kind="evidence_manifest",
+            payload={
+                "status": final_status,
+                "title": pr_title,
+                "body": pr_body,
+                "request": request_payload,
+                "missingConfig": github_result.get("missing") or [],
+            },
+            repo=self.evidence,
+            source="create_pull_request",
+        )
+        response_artifact = _write_json_evidence_artifact(
+            root=self.root,
+            project_id=project_id,
+            evidence_id=evidence["id"],
+            name="pull-request-response.json",
+            kind="evidence_manifest",
+            payload={
+                "status": final_status,
+                "reason": final_reason,
+                "pullRequest": pull_request,
+                "httpStatus": github_result.get("httpStatus"),
+                "response": github_result.get("response") or {},
+            },
+            repo=self.evidence,
+            source="create_pull_request",
+        )
+        manifest_artifact = _write_json_evidence_artifact(
+            root=self.root,
+            project_id=project_id,
+            evidence_id=evidence["id"],
+            name="pull-request-evidence.json",
+            kind="evidence_manifest",
+            payload={
+                "command": "create_pull_request",
+                "status": final_status,
+                "reason": final_reason,
+                "workflowRunId": run_id,
+                "approvedEvidencePackageId": approved_evidence_id,
+                "promotionEvidencePackageId": promotion_evidence_id,
+                "pullRequestEvidencePackageId": evidence["id"],
+                "jobId": pr_job["id"],
+                "agentRunId": pr_agent_run["id"],
+                "workspaceId": promotion_workspace["id"],
+                "branchName": promoted_branch_name,
+                "baseBranch": resolved_base_branch,
+                "pullRequest": pull_request,
+            },
+            repo=self.evidence,
+            source="create_pull_request",
+        )
+        pr_artifacts = [request_artifact, response_artifact, manifest_artifact]
+        diff_summary["requestArtifactId"] = request_artifact["id"]
+        diff_summary["responseArtifactId"] = response_artifact["id"]
+        diff_summary["manifestArtifactId"] = manifest_artifact["id"]
+        evidence = self.evidence.update_evidence_links(
+            evidence["id"],
+            artifact_ids=[artifact["id"] for artifact in pr_artifacts],
+            diff_summary=diff_summary,
+            artifacts=[artifact_ref(artifact) for artifact in pr_artifacts],
+            hashes=artifact_hashes(pr_artifacts),
+        )
+        if final_status == PR_CREATED_STATUS and pull_request:
+            _record_pull_request(
+                self.connection,
+                project_id=project_id,
+                workspace_id=promotion_workspace["id"],
+                status="created",
+                pull_request=pull_request,
+                metadata={
+                    "workflowRunId": run_id,
+                    "approvedEvidencePackageId": approved_evidence_id,
+                    "promotionEvidencePackageId": promotion_evidence_id,
+                    "pullRequestEvidencePackageId": evidence["id"],
+                    "branchName": promoted_branch_name,
+                    "baseBranch": resolved_base_branch,
+                },
+            )
+
+        pr_agent_run = self.agents.update_agent_run_status(
+            pr_agent_run["id"],
+            status="completed" if final_status == PR_CREATED_STATUS else "blocked" if final_status == PR_UNAVAILABLE_STATUS else "failed",
+            output_payload={
+                "verdict": final_status,
+                "summary": final_reason,
+                "pullRequest": pull_request,
+                "approvedEvidencePackageId": approved_evidence_id,
+                "promotionEvidencePackageId": promotion_evidence_id,
+                "pullRequestEvidencePackageId": evidence["id"],
+                "evidence_refs": [approved_evidence_id, promotion_evidence_id, evidence["id"]],
+            },
+        )
+        pr_job = self.jobs.update_job_status(
+            pr_job["id"],
+            status="completed" if final_status == PR_CREATED_STATUS else "failed",
+            metadata={
+                "status": final_status,
+                "reason": final_reason,
+                "approvedEvidencePackageId": approved_evidence_id,
+                "promotionEvidencePackageId": promotion_evidence_id,
+                "pullRequestEvidencePackageId": evidence["id"],
+                "pullRequest": pull_request,
+            },
+        )
+        workflow_metadata = {
+            **run_metadata,
+            "pullRequestStatus": final_status,
+            "pullRequestReason": final_reason,
+            "pullRequestEvidencePackageId": evidence["id"],
+            "pullRequestJobId": pr_job["id"],
+            "pullRequestAgentRunId": pr_agent_run["id"],
+            "pullRequest": pull_request,
+        }
+        workflow_completed = final_status == PR_CREATED_STATUS
+        workflow_run = self.workflows.update_workflow_run_status(
+            run_id,
+            status=PR_CREATED_STATUS if workflow_completed else PROMOTED_TO_BRANCH_STATUS,
+            metadata=workflow_metadata,
+            completed=workflow_completed,
+            clear_completed=not workflow_completed,
+        )
+        workflow = self.workflows.update_workflow_status(
+            workflow["id"],
+            status=PR_CREATED_STATUS if workflow_completed else PROMOTED_TO_BRANCH_STATUS,
+            reason=final_reason,
+        )
+        if "pr_creation" in steps:
+            self.workflows.update_workflow_step(
+                steps["pr_creation"]["id"],
+                status="completed" if workflow_completed else "blocked",
+                output={
+                    **(steps["pr_creation"].get("output") or {}),
+                    "pullRequestStatus": final_status,
+                    "pullRequestEvidencePackageId": evidence["id"],
+                    "pullRequest": pull_request,
+                },
+                metadata={
+                    **(steps["pr_creation"].get("metadata") or {}),
+                    "gateState": final_status,
+                },
+            )
+        event_payload = {
+            "workflowId": workflow["id"],
+            "workflowRunId": run_id,
+            "approvedEvidencePackageId": approved_evidence_id,
+            "promotionEvidencePackageId": promotion_evidence_id,
+            "pullRequestEvidencePackageId": evidence["id"],
+            "jobId": pr_job["id"],
+            "agentRunId": pr_agent_run["id"],
+            "branchName": promoted_branch_name,
+            "baseBranch": resolved_base_branch,
+            "status": final_status,
+            "reason": final_reason,
+            "pullRequest": pull_request,
+        }
+        self.workflows.record_workflow_event(
+            workflow_id=workflow["id"],
+            workflow_run_id=run_id,
+            project_id=project_id,
+            event_type=f"workflow.issue_to_patch.{final_status}",
+            payload=event_payload,
+            severity="info" if workflow_completed else "warning",
+        )
+        EventBus(self.connection).record_event(
+            project_id=project_id,
+            job_id=pr_job["id"],
+            event_type=f"workflow.issue_to_patch.{final_status}",
+            payload=event_payload,
+        )
+        EventBus(self.connection).record_audit(
+            project_id=project_id,
+            action=f"workflow.issue_to_patch.{final_status}",
+            actor=actor,
+            target=run_id,
+            payload=event_payload,
+        )
+        return {
+            "status": final_status,
+            "reason": final_reason,
+            "workflow": workflow,
+            "workflowRun": workflow_run,
+            "workflowSteps": self.workflows.list_workflow_steps(workflow_run_id=run_id),
+            "workspace": promotion_workspace,
+            "job": pr_job,
+            "agentRun": pr_agent_run,
+            "evidencePackage": evidence,
+            "runtime": evidence.get("runtimeHealth") or {},
+            "runtimeResult": github_result,
+            "qaResults": qa_results,
+            "diffSummary": diff_summary,
+            "pullRequest": pull_request,
         }
 
     def run(self, payload: dict[str, Any]) -> dict[str, Any]:

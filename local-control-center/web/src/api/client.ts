@@ -22,6 +22,9 @@ export type ModelGatewayBenchmarkOutcomeRequest = MutationBody<'create_benchmark
 export type ModelGatewayProviderPatchRequest = MutationBody<'patch_provider_api_v1_model_gateway_providers__provider_id__patch'>;
 export type IssueToPatchRequest = MutationBody<'run_issue_to_patch_api_v1_workflows_issue_to_patch_post'>;
 export type IssueToPatchResponse = OperationResponse<'run_issue_to_patch_api_v1_workflows_issue_to_patch_post'>;
+export type IssueToPatchApprovalResponse = OperationResponse<'approve_issue_to_patch_api_v1_workflows_issue_to_patch__run_id__approve_post'>;
+export type PromotePatchToBranchRequest = MutationBody<'promote_patch_to_branch_api_v1_workflows_issue_to_patch__run_id__promote_post'>;
+export type PromotePatchToBranchResponse = OperationResponse<'promote_patch_to_branch_api_v1_workflows_issue_to_patch__run_id__promote_post'>;
 export type EvidenceDetailResponse = OperationResponse<'get_evidence_api_v1_evidence__evidence_id__get'>;
 export type DeveloperAgentRunRequest = MutationBody<'run_developer_agent_api_v1_agents_developer_runs_post'>;
 export type DeveloperAgentRunResponse = OperationResponse<'run_developer_agent_api_v1_agents_developer_runs_post'>;
@@ -305,6 +308,28 @@ export function createWorkflowWithBody(token: string, body: MutationBody<'create
 export function runIssueToPatch(token: string, body: IssueToPatchRequest) {
 	return requestGeneratedOperation('run_issue_to_patch_api_v1_workflows_issue_to_patch_post', {
 		token,
+		body,
+	});
+}
+
+export function approveIssueToPatch(token: string, runId: string, reason: string) {
+	return requestGeneratedOperation<'approve_issue_to_patch_api_v1_workflows_issue_to_patch__run_id__approve_post', IssueToPatchApprovalResponse>(
+		'approve_issue_to_patch_api_v1_workflows_issue_to_patch__run_id__approve_post',
+		{
+			token,
+			pathParams: { run_id: runId },
+			body: { reason },
+		},
+	);
+}
+
+export function promotePatchToBranch(token: string, runId: string, body: PromotePatchToBranchRequest) {
+	return requestGeneratedOperation<
+		'promote_patch_to_branch_api_v1_workflows_issue_to_patch__run_id__promote_post',
+		PromotePatchToBranchResponse
+	>('promote_patch_to_branch_api_v1_workflows_issue_to_patch__run_id__promote_post', {
+		token,
+		pathParams: { run_id: runId },
 		body,
 	});
 }

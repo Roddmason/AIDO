@@ -112,6 +112,7 @@ class WorkspacesRepository:
         workflow_run_id: str | None = None,
         workflow_step_id: str | None = None,
         base_branch: str = "HEAD",
+        branch_name: str | None = None,
         devcontainer: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         placeholders = ",".join("?" for _ in ACTIVE_WORKSPACE_STATUSES)
@@ -141,6 +142,7 @@ class WorkspacesRepository:
                 task_id=task_id,
                 workspace_id=workspace_id,
                 base_branch=base_branch,
+                branch_name=branch_name,
             )
             metadata["gitWorktree"] = result
             if result["status"] != "created":

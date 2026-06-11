@@ -73,6 +73,13 @@ def _command_argv(command: str) -> list[str]:
         return [command]
 
 
+def _payload_requests_execution(payload: dict[str, Any]) -> bool:
+    if payload.get("execute") is True:
+        return True
+    runtime = payload.get("runtime")
+    return isinstance(runtime, dict) and runtime.get("execute") is True
+
+
 def row_to_action_request(row: sqlite3.Row) -> dict[str, Any]:
     payload = json_loads(row["payload"])
     return {
@@ -223,7 +230,7 @@ class JobsRepository:
             clean_payload["commandArgv"] = (
                 [str(item) for item in payload_argv]
                 if isinstance(payload_argv, list)
-                else _command_argv(clean_command)
+                else [] if _payload_requests_execution(clean_payload) else _command_argv(clean_command)
             )
         expires_at = expires_at or add_millis(ACTION_REQUEST_TTL_MS)
         self.connection.execute(

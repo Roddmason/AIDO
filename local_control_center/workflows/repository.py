@@ -461,16 +461,19 @@ class WorkflowsRepository:
         status: str,
         metadata: dict[str, Any] | None = None,
         completed: bool = False,
+        clear_completed: bool = False,
     ) -> dict[str, Any]:
         current = self.get_workflow_run(run_id)
         next_metadata = current["metadata"] if metadata is None else metadata
         self.connection.execute(
             """
             UPDATE workflow_runs
-            SET status = ?, completed_at = CASE WHEN ? THEN ? ELSE completed_at END, metadata = ?
+            SET status = ?,
+                completed_at = CASE WHEN ? THEN ? WHEN ? THEN NULL ELSE completed_at END,
+                metadata = ?
             WHERE id = ?
             """,
-            (status, 1 if completed else 0, utc_now(), json_dumps(next_metadata), run_id),
+            (status, 1 if completed else 0, utc_now(), 1 if clear_completed else 0, json_dumps(next_metadata), run_id),
         )
         self.record_workflow_event(
             workflow_id=current["workflowId"],

@@ -132,6 +132,15 @@ RUNTIME_PROVIDER_CONFIG_SPECS: tuple[RuntimeProviderConfigSpec, ...] = (
         ),
     ),
     RuntimeProviderConfigSpec(
+        provider_id="anthropic_api",
+        display_name="Anthropic API",
+        kind="api",
+        variables=(
+            RuntimeConfigVariableSpec("apiKey", "AIDO_ANTHROPIC_API_KEY", secret=True),
+            RuntimeConfigVariableSpec("model", "AIDO_ANTHROPIC_MODEL", secret=False),
+        ),
+    ),
+    RuntimeProviderConfigSpec(
         provider_id="ollama",
         display_name="Ollama Local",
         kind="local",
@@ -148,6 +157,34 @@ RUNTIME_PROVIDER_CONFIG_SPECS: tuple[RuntimeProviderConfigSpec, ...] = (
         display_name="Claude Code CLI",
         kind="cli",
         variables=(RuntimeConfigVariableSpec("command", "AIDO_CLAUDE_COMMAND", secret=False),),
+    ),
+    RuntimeProviderConfigSpec(
+        provider_id="openhands",
+        display_name="OpenHands",
+        kind="cli",
+        variables=(
+            RuntimeConfigVariableSpec("command", "AIDO_OPENHANDS_COMMAND", secret=False),
+            RuntimeConfigVariableSpec(
+                "issueToPatchArgv",
+                "AIDO_OPENHANDS_ISSUE_TO_PATCH_ARGV_JSON",
+                secret=False,
+                required=False,
+            ),
+        ),
+    ),
+    RuntimeProviderConfigSpec(
+        provider_id="swe_agent",
+        display_name="SWE-agent",
+        kind="cli",
+        variables=(
+            RuntimeConfigVariableSpec("command", "AIDO_SWE_AGENT_COMMAND", secret=False),
+            RuntimeConfigVariableSpec(
+                "issueToPatchArgv",
+                "AIDO_SWE_AGENT_ISSUE_TO_PATCH_ARGV_JSON",
+                secret=False,
+                required=False,
+            ),
+        ),
     ),
 )
 

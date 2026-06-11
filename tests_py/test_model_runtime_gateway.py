@@ -23,7 +23,8 @@ from local_control_center.agents.credentials import CredentialResolver
 from local_control_center.agents.model_gateway import ModelGateway
 from local_control_center.agents.model_benchmarks import ModelBenchmarkStore
 from local_control_center.agents.provider_accounts import ProviderAccountStore
-from local_control_center.agents.providers.base import ModelInfo, ProviderHealth
+from local_control_center.agents.providers.base import ModelInfo, ModelRequest, ProviderHealth
+from local_control_center.agents.providers.anthropic_api import AnthropicAPIProvider
 from local_control_center.agents.providers.nvidia_nim import NvidiaNimProvider
 from local_control_center.agents.providers.openai_compatible import OpenAICompatibleProvider
 from local_control_center.agents.pricing_catalog import PricingCatalog
@@ -87,12 +88,26 @@ def register_workspace(connection, workspace_id: str, path: Path) -> None:
 
 class JsonGatewayHandler(BaseHTTPRequestHandler):
     response_payload: dict[str, object] = {}
+    get_response_payloads: dict[str, dict[str, object]] = {}
     seen_requests: list[dict[str, object]] = []
 
     def log_message(self, format: str, *args: object) -> None:
         return
 
     def do_GET(self) -> None:  # noqa: N802
+        type(self).seen_requests.append(
+            {
+                "method": "GET",
+                "path": self.path,
+                "authorization": self.headers.get("Authorization"),
+                "x_api_key": self.headers.get("x-api-key"),
+                "anthropic_version": self.headers.get("anthropic-version"),
+                "body": {},
+            }
+        )
+        if self.path in type(self).get_response_payloads:
+            self._send_json(type(self).get_response_payloads[self.path])
+            return
         if self.path == "/api/tags":
             self._send_json({"models": [{"name": "llama3:latest"}]})
             return
@@ -104,8 +119,11 @@ class JsonGatewayHandler(BaseHTTPRequestHandler):
         body = json.loads(raw_body) if raw_body else {}
         type(self).seen_requests.append(
             {
+                "method": "POST",
                 "path": self.path,
                 "authorization": self.headers.get("Authorization"),
+                "x_api_key": self.headers.get("x-api-key"),
+                "anthropic_version": self.headers.get("anthropic-version"),
                 "body": body,
             }
         )
@@ -124,7 +142,27 @@ def run_json_gateway_server(payload: dict[str, object]) -> tuple[str, type[JsonG
     handler = type(
         "GatewayTestHandler",
         (JsonGatewayHandler,),
-        {"response_payload": payload, "seen_requests": []},
+        {"response_payload": payload, "get_response_payloads": {}, "seen_requests": []},
+    )
+    server = HTTPServer(("127.0.0.1", 0), handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    return f"http://127.0.0.1:{server.server_port}", handler, server
+
+
+def run_anthropic_gateway_server(
+    *,
+    message_payload: dict[str, object],
+    models_payload: dict[str, object],
+) -> tuple[str, type[JsonGatewayHandler], HTTPServer]:
+    handler = type(
+        "AnthropicGatewayTestHandler",
+        (JsonGatewayHandler,),
+        {
+            "response_payload": message_payload,
+            "get_response_payloads": {"/v1/models": models_payload},
+            "seen_requests": [],
+        },
     )
     server = HTTPServer(("127.0.0.1", 0), handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -826,6 +864,188 @@ def test_model_gateway_openai_compatible_executes_real_http_and_records_actual_u
         server.shutdown()
 
 
+def test_anthropic_provider_health_and_model_listing_use_real_endpoints(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ANTHROPIC_TEST_KEY", "sk-ant-health123456")
+    monkeypatch.setenv("AIDO_ENABLE_REAL_PROVIDER_CALLS", "true")
+    base_url, handler, server = run_anthropic_gateway_server(
+        message_payload={},
+        models_payload={
+            "data": [
+                {
+                    "id": "claude-test-model",
+                    "display_name": "Claude Test Model",
+                }
+            ]
+        },
+    )
+    try:
+        provider = AnthropicAPIProvider(base_url=f"{base_url}/v1", credential_ref="env:ANTHROPIC_TEST_KEY")
+
+        health = provider.health_check()
+        models = provider.list_models()
+
+        assert health.status == "available"
+        assert health.health_status == "healthy"
+        assert [model.model for model in models] == ["claude-test-model"]
+        assert models[0].display_name == "Claude Test Model"
+        assert handler.seen_requests[0]["path"] == "/v1/models"
+        assert handler.seen_requests[0]["x_api_key"] == "sk-ant-health123456"
+        assert handler.seen_requests[0]["anthropic_version"] == "2023-06-01"
+    finally:
+        server.shutdown()
+
+
+def test_model_gateway_anthropic_executes_real_http_and_records_actual_usage(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ANTHROPIC_TEST_KEY", "sk-ant-gateway123456")
+    monkeypatch.setenv("AIDO_ENABLE_REAL_PROVIDER_CALLS", "true")
+    base_url, handler, server = run_anthropic_gateway_server(
+        message_payload={
+            "id": "msg-test",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-test-model",
+            "content": [{"type": "text", "text": "real anthropic response"}],
+            "usage": {
+                "input_tokens": 11,
+                "cache_creation_input_tokens": 2,
+                "cache_read_input_tokens": 3,
+                "output_tokens": 5,
+            },
+        },
+        models_payload={"data": []},
+    )
+    try:
+        with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+            initialize_platform_schema(connection)
+            ProviderAccountStore(connection).upsert_provider_account(
+                {
+                    "providerId": "anthropic_api",
+                    "providerType": "api",
+                    "apiFormat": "anthropic",
+                    "baseUrl": f"{base_url}/v1",
+                    "credentialRef": "env:ANTHROPIC_TEST_KEY",
+                    "enabled": True,
+                    "healthStatus": "healthy",
+                    "lastHealthCheckAt": "2026-01-01T00:00:00Z",
+                }
+            )
+
+            plan = ModelGateway(connection).plan_model_call(
+                project_id="project-anthropic",
+                provider="anthropic_api",
+                model="claude-test-model",
+                runtime_type="api",
+                messages=[
+                    {"role": "system", "content": "Be concise."},
+                    {"role": "user", "content": "hello"},
+                ],
+                max_tokens=128,
+            )
+            result = ModelGateway(connection).execute_model_call(plan)
+
+        message_request = next(item for item in handler.seen_requests if item["method"] == "POST")
+        assert result["status"] == "completed"
+        assert result["content"] == "real anthropic response"
+        assert result["usage"]["inputTokens"] == 11
+        assert result["usage"]["cachedInputTokens"] == 5
+        assert result["usage"]["outputTokens"] == 5
+        assert result["usage"]["totalTokens"] == 21
+        assert result["usage"]["estimatedCostUsd"] is None
+        assert result["usage"]["actualCostUsd"] is None
+        assert result["usage"]["usageSource"] == "actual"
+        assert result["usage"]["rawUsage"]["usage_source"] == "provider"
+        assert result["usage"]["rawUsage"]["token_status"] == "actual"
+        assert result["usage"]["rawUsage"]["cost_status"] == "unknown"
+        assert result["modelCall"]["promptTokens"] == 11
+        assert result["modelCall"]["completionTokens"] == 5
+        assert result["modelCall"]["costUsd"] == 0.0
+        assert message_request["path"] == "/v1/messages"
+        assert message_request["x_api_key"] == "sk-ant-gateway123456"
+        assert message_request["anthropic_version"] == "2023-06-01"
+        assert message_request["body"]["model"] == "claude-test-model"
+        assert message_request["body"]["max_tokens"] == 128
+        assert message_request["body"]["system"] == "Be concise."
+        assert message_request["body"]["messages"] == [{"role": "user", "content": "hello"}]
+    finally:
+        server.shutdown()
+
+
+def test_anthropic_provider_without_usage_marks_tokens_unknown() -> None:
+    provider = AnthropicAPIProvider(base_url="https://api.anthropic.com/v1", credential_ref="env:ANTHROPIC_TEST_KEY")
+
+    usage = provider.parse_usage({"content": [{"type": "text", "text": "text without usage"}]})
+
+    assert usage.input_tokens == 0
+    assert usage.cached_input_tokens == 0
+    assert usage.output_tokens == 0
+    assert usage.total_tokens == 0
+    assert usage.raw_usage == {
+        "usage_source": "unknown",
+        "reason": "provider_response_missing_usage",
+    }
+
+
+def test_nvidia_nim_without_provider_usage_does_not_invent_cost_or_tokens(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("NVIDIA_NIM_API_KEY", "sk-nvidiarealusage123456")
+    monkeypatch.setenv("AIDO_ENABLE_REAL_PROVIDER_CALLS", "true")
+    base_url, _handler, server = run_json_gateway_server(
+        {
+            "id": "chatcmpl-nvidia-no-usage",
+            "model": "auto_best_available",
+            "choices": [{"message": {"role": "assistant", "content": "provider text without usage"}}],
+        }
+    )
+    try:
+        with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+            initialize_platform_schema(connection)
+            store = ProviderAccountStore(connection)
+            store.upsert_provider_account(
+                {
+                    "providerId": "nvidia_nim",
+                    "providerType": "api",
+                    "apiFormat": "openai_compatible",
+                    "baseUrl": f"{base_url}/v1",
+                    "credentialRef": "env:NVIDIA_NIM_API_KEY",
+                    "enabled": True,
+                    "healthStatus": "healthy",
+                    "lastHealthCheckAt": "2026-01-01T00:00:00Z",
+                }
+            )
+
+            plan = ModelGateway(connection).plan_model_call(
+                project_id="project-nvidia",
+                provider="nvidia_nim",
+                model="auto_best_available",
+                runtime_type="api",
+                messages=[{"role": "user", "content": "hello"}],
+            )
+            result = ModelGateway(connection).execute_model_call(plan)
+
+        assert result["status"] == "completed"
+        assert result["usage"]["inputTokens"] == 0
+        assert result["usage"]["outputTokens"] == 0
+        assert result["usage"]["totalTokens"] == 0
+        assert result["usage"]["estimatedCostUsd"] is None
+        assert result["usage"]["actualCostUsd"] is None
+        assert result["usage"]["usageSource"] == "unknown"
+        assert result["usage"]["tokenStatus"] == "unknown"
+        assert result["usage"]["costStatus"] == "unknown"
+        assert result["usage"]["rawUsage"]["usage_source"] == "unknown"
+        assert result["modelCall"]["promptTokens"] == 0
+        assert result["modelCall"]["completionTokens"] == 0
+        assert result["modelCall"]["costUsd"] == 0.0
+    finally:
+        server.shutdown()
+
+
 def test_model_catalog_crud_endpoints(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     client = create_client(tmp_path, monkeypatch)
     headers = auth_headers(client)
@@ -1249,7 +1469,7 @@ def test_budget_rule_warn_keeps_selection_and_surfaces_warning(
     assert payload["budgetResult"]["warnings"] == ["budget_rule_exceeded"]
 
 
-def test_pricing_catalog_marks_unknown_free_and_stale_prices(tmp_path: Path) -> None:
+def test_pricing_catalog_marks_nvidia_unknown_price_and_stale_prices(tmp_path: Path) -> None:
     with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
         initialize_platform_schema(connection)
         connection.execute(
@@ -1258,7 +1478,7 @@ def test_pricing_catalog_marks_unknown_free_and_stale_prices(tmp_path: Path) -> 
         )
         catalog = PricingCatalog(connection)
 
-        free = catalog.estimate(
+        nvidia_unknown = catalog.estimate(
             provider_id="nvidia_nim",
             model="auto_best_available",
             input_tokens=1000,
@@ -1277,9 +1497,10 @@ def test_pricing_catalog_marks_unknown_free_and_stale_prices(tmp_path: Path) -> 
             output_tokens=500,
         )
 
-    assert free["estimatedCostUsd"] == 0.0
-    assert free["freeTier"] is True
-    assert free["priceKnown"] is True
+    assert nvidia_unknown["estimatedCostUsd"] is None
+    assert nvidia_unknown["freeTier"] is False
+    assert nvidia_unknown["priceKnown"] is False
+    assert nvidia_unknown["staleness"] == "unknown"
     assert unknown["estimatedCostUsd"] is None
     assert unknown["freeTier"] is False
     assert unknown["priceKnown"] is False
@@ -1926,6 +2147,10 @@ def test_nvidia_provider_parses_usage_and_handles_429(tmp_path: Path) -> None:
     with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
         initialize_platform_schema(connection)
         provider = NvidiaNimProvider(connection=connection)
+        estimate = provider.estimate_cost(
+            ModelRequest(model="auto_best_available", messages=[{"role": "user", "content": "hello"}]),
+            "auto_best_available",
+        )
         usage = provider.parse_usage(
             {
                 "usage": {
@@ -1935,9 +2160,20 @@ def test_nvidia_provider_parses_usage_and_handles_429(tmp_path: Path) -> None:
                 }
             }
         )
+        missing_usage = provider.parse_usage({"choices": [{"message": {"content": "text without provider usage"}}]})
 
+        assert estimate.estimated_cost_usd is None
+        assert estimate.source == "unknown:nvidia_nim:auto_best_available"
         assert usage.input_tokens > 0
         assert usage.output_tokens > 0
+        assert usage.raw_usage["usage_source"] == "provider"
+        assert missing_usage.input_tokens == 0
+        assert missing_usage.output_tokens == 0
+        assert missing_usage.total_tokens == 0
+        assert missing_usage.raw_usage == {
+            "usage_source": "unknown",
+            "reason": "provider_response_missing_usage",
+        }
 
         limited = provider.handle_error(status_code=429, message="rate limit", model="auto_best_available")
         assert limited.health_status == "degraded"

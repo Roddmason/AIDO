@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
 from typing import Any
@@ -9,6 +10,7 @@ from .provider_accounts import ProviderAccountStore
 from .developer_agent_contract import developer_agent_readiness
 from .runtime_provider_config import RuntimeProviderConfiguration, runtime_provider_configuration
 from .runtime_registry import RuntimeRegistry
+from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.time import utc_now
 
 
@@ -86,7 +88,10 @@ def _status_payload(
     capabilities: list[str],
     required_configuration: list[str],
     requires_approval: bool,
+    health_status: str = "unknown",
+    last_error: str = "",
 ) -> dict[str, Any]:
+    sanitized_last_error = str(redact_secrets(last_error or ""))
     return {
         "id": provider_id,
         "kind": kind,
@@ -99,7 +104,9 @@ def _status_payload(
         "reason": reason,
         "version": version,
         "detectedCommand": detected_command,
+        "healthStatus": health_status,
         "healthCheckedAt": health_checked_at,
+        "lastError": sanitized_last_error,
         "capabilities": capabilities,
         "requiredConfiguration": required_configuration,
         "safety": _base_safety(kind),
@@ -111,7 +118,7 @@ def _api_required_configuration(account: dict[str, Any]) -> list[str]:
     if api_format in OPENAI_COMPATIBLE_FORMATS or account["providerId"] in {"openai_compatible", "litellm"}:
         return ["baseUrl", "apiKey", "model"]
     if account["providerId"] == "anthropic_api":
-        return ["apiKey"]
+        return ["apiKey", "model"]
     return ["baseUrl", "apiKey"]
 
 
@@ -132,6 +139,19 @@ def _runtime_configuration_present(configuration: RuntimeProviderConfiguration |
     return bool(configuration and configuration.value(key))
 
 
+def _configured_argv(configuration: RuntimeProviderConfiguration | None, key: str) -> tuple[list[str] | None, str | None]:
+    raw = configuration.value(key) if configuration else None
+    if not raw:
+        return None, None
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        return None, f"{key} must be valid JSON."
+    if not isinstance(parsed, list) or not parsed or not all(isinstance(item, str) and item for item in parsed):
+        return None, f"{key} must be a non-empty JSON array of strings."
+    return list(parsed), None
+
+
 def _api_provider_status(
     connection: sqlite3.Connection,
     account: dict[str, Any],
@@ -142,7 +162,7 @@ def _api_provider_status(
     enabled = bool(account.get("enabled"))
     health_status = str(account.get("healthStatus") or "unknown")
     health_checked_at = account.get("lastHealthCheckAt")
-    last_error = str(account.get("lastError") or "").strip()
+    last_error = str(redact_secrets(str(account.get("lastError") or "").strip()))
     account_configuration = _api_account_configuration(connection, account)
     required_configuration = account_configuration["requiredConfiguration"]
     has_model = bool(account_configuration["hasModel"] or _runtime_configuration_present(configuration, "model"))
@@ -183,7 +203,9 @@ def _api_provider_status(
         reason=reason,
         version=None,
         detected_command=None,
+        health_status=health_status,
         health_checked_at=health_checked_at,
+        last_error=last_error,
         capabilities=capabilities or ["chat"],
         required_configuration=required_configuration,
         requires_approval=True,
@@ -199,11 +221,12 @@ def _cli_provider_status(
     detected = detection.get("status") == "installed"
     enabled = bool(account.get("enabled"))
     cli_enabled = _env_flag("AIDO_ENABLE_CLI_RUNTIMES")
-    can_patch = bool(set(capabilities) & {"issue_to_patch", "code_edit"})
+    can_patch = "issue_to_patch" in set(capabilities)
+    issue_to_patch_argv, issue_to_patch_argv_error = _configured_argv(configuration, "issueToPatchArgv")
     version = detection.get("version") if detected else None
     configured = bool(configuration.configured if configuration is not None else detected)
     available = configured and detected and bool(version)
-    executable = available and enabled and cli_enabled and can_patch
+    executable = available and enabled and cli_enabled and can_patch and issue_to_patch_argv_error is None
     if not configured and configuration is not None:
         reason = f"{configuration.reason}; CLI runtime was not detected because command configuration is missing."
     elif not detected:
@@ -214,11 +237,13 @@ def _cli_provider_status(
         reason = "CLI runtime is available but the provider account is disabled for execution."
     elif not cli_enabled:
         reason = "CLI runtime is available but execution is disabled by AIDO_ENABLE_CLI_RUNTIMES=false."
+    elif issue_to_patch_argv_error:
+        reason = issue_to_patch_argv_error
     elif not can_patch:
-        reason = "Runtime does not advertise a patch-edit capability."
+        reason = "Runtime does not advertise the issue_to_patch capability required to edit a workspace and generate a patch artifact."
     else:
         reason = "CLI runtime is detected, enabled, and executable."
-    return _status_payload(
+    payload = _status_payload(
         provider_id=str(account["providerId"]),
         kind="cli",
         display_name=str(account["displayName"]),
@@ -228,12 +253,19 @@ def _cli_provider_status(
         executable=executable,
         reason=reason,
         version=version,
-    detected_command=detection.get("executable") if detected else None,
+        detected_command=detection.get("executable") if detected else None,
+        health_status="healthy" if available else "offline",
         health_checked_at=utc_now(),
+        last_error="" if available else str(detection.get("message") or ""),
         capabilities=capabilities,
         required_configuration=["command"],
         requires_approval=True,
     )
+    if issue_to_patch_argv is not None:
+        payload["issueToPatchArgv"] = issue_to_patch_argv
+    if issue_to_patch_argv_error:
+        payload["lastError"] = issue_to_patch_argv_error
+    return payload
 
 
 def _ollama_provider_status(
@@ -278,7 +310,9 @@ def _ollama_provider_status(
         reason=reason,
         version=None,
         detected_command=None,
+        health_status="healthy" if daemon_available else "offline",
         health_checked_at=utc_now(),
+        last_error="" if daemon_available else reason,
         capabilities=capabilities or ["chat"],
         required_configuration=["baseUrl"],
         requires_approval=False,
@@ -300,7 +334,9 @@ def _manual_provider_status(account: dict[str, Any], capabilities: list[str]) ->
         reason="Manual operator path is configured but is not an automated available or executable runtime.",
         version=None,
         detected_command=None,
+        health_status=str(account.get("healthStatus") or "unknown"),
         health_checked_at=account.get("lastHealthCheckAt"),
+        last_error=str(account.get("lastError") or ""),
         capabilities=capabilities or ["approval"],
         required_configuration=["operator"],
         requires_approval=True,
@@ -317,7 +353,7 @@ class RuntimeStatusService:
         capabilities = _capabilities(self.connection)
         configurations = {
             provider_id: runtime_provider_configuration(provider_id)
-            for provider_id in CLI_RUNTIME_IDS | {"openai_compatible", "openrouter", "nvidia_nim", "ollama"}
+            for provider_id in CLI_RUNTIME_IDS | {"openai_compatible", "openrouter", "nvidia_nim", "anthropic_api", "ollama"}
         }
         detections: dict[str, dict[str, Any]] = {}
         for runtime_id in sorted(CLI_RUNTIME_IDS):
@@ -374,7 +410,9 @@ class RuntimeStatusService:
                         reason="Provider type is not executable by the local control plane.",
                         version=None,
                         detected_command=None,
+                        health_status=str(account.get("healthStatus") or "unknown"),
                         health_checked_at=account.get("lastHealthCheckAt"),
+                        last_error=str(account.get("lastError") or ""),
                         capabilities=provider_capabilities,
                         required_configuration=[],
                         requires_approval=True,

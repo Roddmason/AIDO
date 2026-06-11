@@ -11,7 +11,7 @@ export type AgentProfileResponse = { "agentProfile": AgentProfileRecord };
 export type AgentProfileUpsertRequest = { "allowApi"?: boolean; "allowCli"?: boolean; "allowRemote"?: boolean; "allowedProviders"?: Array<string>; "allowedRuntimes"?: Array<string>; "allowedSkills"?: Array<string>; "allowedTools"?: Array<string>; "id": string; "maxCostPerRun"?: number; "maxRuntimeSeconds"?: number; "maxTokensPerRun"?: number; "memoryScope"?: string; "modelPolicyId"?: null | string; "name"?: null | string; "outputSchema"?: JsonObject; "permissionProfile"?: "plan" | "dev_safe" | "qa" | "release"; "qualityGates"?: Array<JsonValue>; "requiresApprovalOverUsd"?: null | number; "role"?: "analyst" | "product_owner" | "technical_lead" | "technical_lead_shadow" | "developer" | "backend_engineer" | "frontend_engineer" | "implementer" | "devops" | "qa" | "qa_reviewer" | "security_reviewer" | "release_manager"; "roleModelPolicyId"?: null | string; "routingProfileId"?: null | string; "runtimeMode"?: "api" | "cli" | "ollama" | "hybrid" | "manual"; "runtimeType"?: "api" | "cli" | "ollama" | "hybrid" | "manual" | null; "status"?: "active" | "disabled" };
 export type AgentProfilesListResponse = { "agentProfiles": Array<AgentProfileRecord> };
 export type AgentRunCreateRequest = { "agentProfileId": string; "input"?: JsonObject; "jobId"?: null | string; "projectId": string; "taskId"?: string; "workflowRunId"?: null | string; "workflowStepId"?: null | string };
-export type AgentRunRecord = { "createdAt": string; "id": string; "input": JsonObject; "jobId"?: null | string; "metadata": JsonObject; "output": JsonObject; "projectId": string; "status": "queued" | "running" | "completed" | "failed" | "blocked" | "runtime_unavailable" | "qa_failed" | "evidence_ready" | "approval_required" | "awaiting_permission" | "cancelled"; "updatedAt": string; "workflowRunId"?: null | string; "workflowStepId"?: null | string };
+export type AgentRunRecord = { "createdAt": string; "id": string; "input": JsonObject; "jobId"?: null | string; "metadata": JsonObject; "output": JsonObject; "projectId": string; "status": "queued" | "running" | "completed" | "approved" | "failed" | "blocked" | "runtime_unavailable" | "qa_failed" | "evidence_ready" | "approval_required" | "awaiting_permission" | "cancelled"; "updatedAt": string; "workflowRunId"?: null | string; "workflowStepId"?: null | string };
 export type AgentRunResponse = { "agentRun": AgentRunRecord };
 export type AgentRunsListResponse = { "agentRuns": Array<AgentRunRecord> };
 export type AgentToolCallRecord = { "agentRunId": string; "createdAt": string; "id": string; "payload": JsonObject; "status": "pending" | "allowed" | "denied" | "requires_approval" | "approval_required" | "completed" | "failed" | "blocked"; "toolName": string; "updatedAt": string };
@@ -100,7 +100,7 @@ export type IssueToPatchRequest = { "issueText": string; "maxCostUsd"?: null | n
 export type IssueToPatchResponse = { "agentRun": AgentRunRecord; "diffSummary": JsonObject; "evidencePackage": EvidencePackageRecord; "job": JobRecord; "qaResults": Array<JsonObject>; "reason": string; "runtime": JsonObject; "runtimeResult": JsonObject; "status": string; "workflow": WorkflowRecord; "workflowRun": WorkflowRunRecord; "workflowSteps": Array<WorkflowStepRecord>; "workspace": WorkspaceRecord };
 export type JobCreateRequest = { "idempotencyKey"?: null | string; "kind": string; "payload"?: JsonObject; "projectId": string; "workflowRunId"?: null | string; "workflowStepId"?: null | string };
 export type JobMutationResponse = { "actionRequest"?: ActionRequestRecord | null; "actionRequests"?: Array<ActionRequestRecord>; "auditEvent"?: AuditEventRecord | null; "events"?: Array<EventRecord>; "job": JobRecord; "permissionGrant"?: ApprovalGrantRecord | null };
-export type JobRecord = { "createdAt": string; "id": string; "idempotencyKey"?: null | string; "kind": string; "leaseExpiresAt"?: null | string; "leaseOwner"?: null | string; "payload": JsonObject; "projectId": string; "status": "queued" | "running" | "approval_required" | "completed" | "failed" | "cancelled"; "updatedAt": string; "workflowRunId"?: null | string; "workflowStepId"?: null | string };
+export type JobRecord = { "createdAt": string; "id": string; "idempotencyKey"?: null | string; "kind": string; "leaseExpiresAt"?: null | string; "leaseOwner"?: null | string; "payload": JsonObject; "projectId": string; "status": "queued" | "running" | "approval_required" | "completed" | "approved" | "failed" | "cancelled"; "updatedAt": string; "workflowRunId"?: null | string; "workflowStepId"?: null | string };
 export type JobRunRecord = { "completedAt"?: null | string; "id": string; "jobId": string; "metadata": JsonObject; "providerId"?: null | string; "startedAt": string; "status": "queued" | "running" | "completed" | "failed" | "cancelled"; "summary": string };
 export type JobsListResponse = { "events"?: Array<EventRecord>; "jobs": Array<JobRecord> };
 export type McpServerRecord = { "command": string; "createdAt": string; "id": string; "metadata": JsonObject; "status": string; "transport": "stdio"; "updatedAt": string };
@@ -160,6 +160,7 @@ export type ProjectResponse = { "auditEvent"?: AuditEventRecord | null; "project
 export type ProjectTemplateRecord = { "id": string; "kind": string; "name": string };
 export type ProjectTemplatesResponse = { "projectTemplates": Array<ProjectTemplateRecord> };
 export type ProjectsListResponse = { "projects": Array<ProjectRecord> };
+export type PromotePatchToBranchRequest = { "branchName"?: null | string; "evidencePackageId"?: null | string; "qaCommands"?: Array<Array<string>> | null; "reason": string };
 export type PromptResponse = { "promptTemplate": PromptTemplateRecord };
 export type PromptTemplateRecord = { "appliesTo": JsonObject; "body": string; "createdAt": string; "id": string; "mode": string; "name": string; "optimizer": string; "projectId": string; "updatedAt": string; "version": number };
 export type PromptTemplatesListResponse = { "promptTemplates": Array<PromptTemplateRecord> };
@@ -220,7 +221,7 @@ export type RuntimeProviderConfigurationRecord = { "configured": boolean; "displ
 export type RuntimeProviderConfigurationResponse = { "providers": Array<RuntimeProviderConfigurationRecord> };
 export type RuntimeProviderConfigurationVariable = { "configured": boolean; "fingerprint"?: null | string; "key": string; "name": string; "required": boolean; "secret": boolean };
 export type RuntimeProviderSafety = { "network"?: "blocked_by_default" | "runtime_policy_gated" | "remote_calls_disabled_by_default" | "local_only"; "shell"?: boolean; "structuredArgv"?: boolean; "workspaceBound"?: boolean };
-export type RuntimeProviderStatus = { "available": boolean; "capabilities"?: Array<string>; "configured": boolean; "detected"?: boolean; "detectedCommand"?: null | string; "displayName": string; "executable": boolean; "healthCheckedAt"?: null | string; "id": string; "kind": "api" | "gateway" | "local" | "cli" | "manual"; "reason": string; "requiredConfiguration"?: Array<string>; "requiresApproval"?: boolean; "safety"?: RuntimeProviderSafety; "version"?: null | string };
+export type RuntimeProviderStatus = { "available": boolean; "capabilities"?: Array<string>; "configured": boolean; "detected"?: boolean; "detectedCommand"?: null | string; "displayName": string; "executable": boolean; "healthCheckedAt"?: null | string; "healthStatus"?: string; "id": string; "kind": "api" | "gateway" | "local" | "cli" | "manual"; "lastError"?: string; "reason": string; "requiredConfiguration"?: Array<string>; "requiresApproval"?: boolean; "safety"?: RuntimeProviderSafety; "version"?: null | string };
 export type RuntimeProvidersResponse = { "api": ApiRuntimeProviderStatus; "cli": CliRuntimeProviderStatus; "developerAgent": DeveloperAgentStatus; "ollama": OllamaRuntimeProviderStatus; "providers": Array<RuntimeProviderStatus>; "runtimeModes": Array<"api" | "cli" | "ollama" | "hybrid" | "manual"> };
 export type SandboxProfileMutationResponse = { "policyRevision"?: PolicyRevisionRecord | null; "sandboxProfile": SandboxProfileRecord };
 export type SandboxProfilePatchRequest = { "allowedImages"?: Array<string> | null; "allowedNetworks"?: Array<string> | null; "cpus"?: null | string; "defaultNetwork"?: null | string; "memory"?: null | string; "name"?: null | string; "reason": string; "status"?: "active" | "disabled" | "revoked" | null; "timeoutSeconds"?: null | number };
@@ -256,10 +257,10 @@ export type WorkflowCreateRequest = { "idea"?: null | string; "kind"?: "idea_to_
 export type WorkflowDetailResponse = { "agentRuns": Array<AgentRunRecord>; "evidencePackages": Array<EvidencePackageRecord>; "jobs": Array<JobRecord>; "workflow": WorkflowRecord; "workflowRunDetails"?: Array<WorkflowRunDetail>; "workflowRuns": Array<WorkflowRunRecord>; "workflowSteps": Array<WorkflowStepRecord>; "workspaces": Array<WorkspaceRecord> };
 export type WorkflowGateAdvanceRequest = { "evidencePackageId"?: null | string; "reason"?: string };
 export type WorkflowGateAdvanceResponse = { "advanced": boolean; "gateState": string; "reason": string; "workflowStep": WorkflowStepRecord };
-export type WorkflowRecord = { "createdAt": string; "id": string; "kind": "idea_to_pr" | "project_discovery" | "issue_to_patch" | "issue_to_pr" | "qa_validation" | "release_candidate" | "pr_release_retro"; "metadata": JsonObject; "projectId": string; "status": "queued" | "running" | "paused" | "completed" | "failed" | "cancelled" | "runtime_unavailable" | "qa_failed" | "evidence_ready"; "title": string; "updatedAt": string };
+export type WorkflowRecord = { "createdAt": string; "id": string; "kind": "idea_to_pr" | "project_discovery" | "issue_to_patch" | "issue_to_pr" | "qa_validation" | "release_candidate" | "pr_release_retro"; "metadata": JsonObject; "projectId": string; "status": "queued" | "running" | "paused" | "completed" | "failed" | "cancelled" | "runtime_unavailable" | "qa_failed" | "evidence_ready" | "approved_for_integration" | "promotion_failed" | "promoted_to_branch"; "title": string; "updatedAt": string };
 export type WorkflowResponse = { "workflow": WorkflowRecord };
 export type WorkflowRunDetail = { "agentRuns": Array<AgentRunRecord>; "evidencePackages": Array<EvidencePackageRecord>; "jobs": Array<JobRecord>; "workflowRun": WorkflowRunRecord; "workflowSteps": Array<WorkflowStepRecord>; "workspaces": Array<WorkspaceRecord> };
-export type WorkflowRunRecord = { "completedAt"?: null | string; "id": string; "metadata": JsonObject; "projectId": string; "startedAt": string; "status": "running" | "completed" | "failed" | "cancelled" | "runtime_unavailable" | "qa_failed" | "evidence_ready"; "workflowId": string };
+export type WorkflowRunRecord = { "completedAt"?: null | string; "id": string; "metadata": JsonObject; "projectId": string; "startedAt": string; "status": "running" | "completed" | "failed" | "cancelled" | "runtime_unavailable" | "qa_failed" | "evidence_ready" | "approved_for_integration" | "promotion_failed" | "promoted_to_branch"; "workflowId": string };
 export type WorkflowStartResponse = { "workflow": WorkflowRecord; "workflowRun": WorkflowRunRecord; "workflowSteps": Array<WorkflowStepRecord> };
 export type WorkflowStatusChangeRequest = { "reason"?: string };
 export type WorkflowStepRecord = { "agentProfileId"?: null | string; "createdAt": string; "id": string; "input": JsonObject; "manualModelOverride"?: null | string; "metadata": JsonObject; "modelMode"?: null | string; "name": string; "output": JsonObject; "projectId": string; "riskLevel"?: "low" | "medium" | "high" | "critical" | null; "role"?: null | string; "status": "pending" | "ready" | "running" | "completed" | "failed" | "blocked" | "skipped"; "taskType"?: null | string; "updatedAt": string; "workflowId": string; "workflowRunId": string };
@@ -395,6 +396,8 @@ export const API_ENDPOINTS = [
 	{"method": "GET", "operationId": "list_workflows_api_v1_workflows_get", "path": "/api/v1/workflows", "summary": "List Workflows"},
 	{"method": "POST", "operationId": "create_workflow_api_v1_workflows_post", "path": "/api/v1/workflows", "summary": "Create Workflow"},
 	{"method": "POST", "operationId": "run_issue_to_patch_api_v1_workflows_issue_to_patch_post", "path": "/api/v1/workflows/issue-to-patch", "summary": "Run Issue To Patch"},
+	{"method": "POST", "operationId": "approve_issue_to_patch_api_v1_workflows_issue_to_patch__run_id__approve_post", "path": "/api/v1/workflows/issue-to-patch/{run_id}/approve", "summary": "Approve Issue To Patch"},
+	{"method": "POST", "operationId": "promote_patch_to_branch_api_v1_workflows_issue_to_patch__run_id__promote_post", "path": "/api/v1/workflows/issue-to-patch/{run_id}/promote", "summary": "Promote Patch To Branch"},
 	{"method": "GET", "operationId": "get_workflow_api_v1_workflows__workflow_id__get", "path": "/api/v1/workflows/{workflow_id}", "summary": "Get Workflow"},
 	{"method": "POST", "operationId": "cancel_workflow_api_v1_workflows__workflow_id__cancel_post", "path": "/api/v1/workflows/{workflow_id}/cancel", "summary": "Cancel Workflow"},
 	{"method": "POST", "operationId": "pause_workflow_api_v1_workflows__workflow_id__pause_post", "path": "/api/v1/workflows/{workflow_id}/pause", "summary": "Pause Workflow"},
@@ -422,6 +425,7 @@ export type OperationRequestBodies = {
 	"apply_artifact_retention_action_api_v1_evidence_artifacts_retention_actions_post": ArtifactRetentionActionRequest,
 	"approvals_api_v1_approvals_get": never,
 	"approve_action_api_v1_jobs__job_id__actions__action_id__approve_post": ApprovalReasonRequest,
+	"approve_issue_to_patch_api_v1_workflows_issue_to_patch__run_id__approve_post": WorkflowStatusChangeRequest,
 	"approve_job_api_v1_jobs__job_id__approve_post": ApprovalReasonRequest,
 	"architect_agent_status_api_v1_agents_architect_status_get": never,
 	"archive_workspace_api_v1_workspaces__workspace_id__archive_post": WorkspaceArchiveRequest,
@@ -513,6 +517,7 @@ export type OperationRequestBodies = {
 	"plan_artifact_retention_api_v1_evidence_artifacts_retention_post": ArtifactRetentionPlanRequest,
 	"project_templates_api_v1_project_templates_get": never,
 	"projects_api_v1_projects_get": never,
+	"promote_patch_to_branch_api_v1_workflows_issue_to_patch__run_id__promote_post": PromotePatchToBranchRequest,
 	"provider_health_check_api_v1_model_gateway_providers__provider_id__health_check_post": unknown,
 	"providers_api_v1_providers_get": never,
 	"put_i18n_catalog_api_v1_i18n_catalog_put": I18nCatalog,
@@ -555,6 +560,7 @@ export type OperationResponseBodies = {
 	"apply_artifact_retention_action_api_v1_evidence_artifacts_retention_actions_post": ArtifactRetentionActionResponse,
 	"approvals_api_v1_approvals_get": ApprovalsListResponse,
 	"approve_action_api_v1_jobs__job_id__actions__action_id__approve_post": JobMutationResponse,
+	"approve_issue_to_patch_api_v1_workflows_issue_to_patch__run_id__approve_post": IssueToPatchResponse,
 	"approve_job_api_v1_jobs__job_id__approve_post": JobMutationResponse,
 	"architect_agent_status_api_v1_agents_architect_status_get": ArchitectAgentStatusResponse,
 	"archive_workspace_api_v1_workspaces__workspace_id__archive_post": WorkspaceArchiveResponse,
@@ -646,6 +652,7 @@ export type OperationResponseBodies = {
 	"plan_artifact_retention_api_v1_evidence_artifacts_retention_post": ArtifactRetentionPlanResponse,
 	"project_templates_api_v1_project_templates_get": ProjectTemplatesResponse,
 	"projects_api_v1_projects_get": ProjectsListResponse,
+	"promote_patch_to_branch_api_v1_workflows_issue_to_patch__run_id__promote_post": IssueToPatchResponse,
 	"provider_health_check_api_v1_model_gateway_providers__provider_id__health_check_post": ProviderHealthResponse,
 	"providers_api_v1_providers_get": ProvidersListResponse,
 	"put_i18n_catalog_api_v1_i18n_catalog_put": I18nCatalogResponse,
@@ -805,6 +812,8 @@ export const OPERATIONS_BY_ID = {
 	"list_workflows_api_v1_workflows_get": {"method": "GET", "operationId": "list_workflows_api_v1_workflows_get", "path": "/api/v1/workflows", "summary": "List Workflows"},
 	"create_workflow_api_v1_workflows_post": {"method": "POST", "operationId": "create_workflow_api_v1_workflows_post", "path": "/api/v1/workflows", "summary": "Create Workflow"},
 	"run_issue_to_patch_api_v1_workflows_issue_to_patch_post": {"method": "POST", "operationId": "run_issue_to_patch_api_v1_workflows_issue_to_patch_post", "path": "/api/v1/workflows/issue-to-patch", "summary": "Run Issue To Patch"},
+	"approve_issue_to_patch_api_v1_workflows_issue_to_patch__run_id__approve_post": {"method": "POST", "operationId": "approve_issue_to_patch_api_v1_workflows_issue_to_patch__run_id__approve_post", "path": "/api/v1/workflows/issue-to-patch/{run_id}/approve", "summary": "Approve Issue To Patch"},
+	"promote_patch_to_branch_api_v1_workflows_issue_to_patch__run_id__promote_post": {"method": "POST", "operationId": "promote_patch_to_branch_api_v1_workflows_issue_to_patch__run_id__promote_post", "path": "/api/v1/workflows/issue-to-patch/{run_id}/promote", "summary": "Promote Patch To Branch"},
 	"get_workflow_api_v1_workflows__workflow_id__get": {"method": "GET", "operationId": "get_workflow_api_v1_workflows__workflow_id__get", "path": "/api/v1/workflows/{workflow_id}", "summary": "Get Workflow"},
 	"cancel_workflow_api_v1_workflows__workflow_id__cancel_post": {"method": "POST", "operationId": "cancel_workflow_api_v1_workflows__workflow_id__cancel_post", "path": "/api/v1/workflows/{workflow_id}/cancel", "summary": "Cancel Workflow"},
 	"pause_workflow_api_v1_workflows__workflow_id__pause_post": {"method": "POST", "operationId": "pause_workflow_api_v1_workflows__workflow_id__pause_post", "path": "/api/v1/workflows/{workflow_id}/pause", "summary": "Pause Workflow"},

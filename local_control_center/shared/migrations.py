@@ -1292,7 +1292,7 @@ def init_phase12_schema(connection: sqlite3.Connection) -> None:
         ("nvidia_nim", "nvidia_nim", "NVIDIA NIM / Build", "api", "openai_compatible", "https://integrate.api.nvidia.com/v1", "NVIDIA_NIM_API_KEY", 0, "trial_rate_limited", "unknown"),
         ("ollama", "ollama", "Ollama Local", "local", "custom", "http://localhost:11434", "", 0, "none", "unknown"),
         ("openai_api", "openai_api", "OpenAI API", "api", "responses", "https://api.openai.com/v1", "OPENAI_API_KEY", 0, "provider_reported", "unknown"),
-        ("anthropic_api", "anthropic_api", "Anthropic API", "api", "anthropic", "", "ANTHROPIC_API_KEY", 0, "provider_reported", "unknown"),
+        ("anthropic_api", "anthropic_api", "Anthropic API", "api", "anthropic", "", "AIDO_ANTHROPIC_API_KEY", 0, "provider_reported", "unknown"),
         ("openai_compatible", "openai_compatible", "OpenAI-compatible API", "api", "openai_compatible", "", "OPENAI_API_KEY", 0, "manual", "unknown"),
         ("openrouter", "openrouter", "OpenRouter", "gateway", "openai_compatible", "https://openrouter.ai/api/v1", "OPENROUTER_API_KEY", 0, "provider_reported", "unknown"),
         ("litellm", "litellm", "LiteLLM Proxy", "gateway", "openai_compatible", "", "LITELLM_API_KEY", 0, "manual", "unknown"),
@@ -1314,7 +1314,7 @@ def init_phase12_schema(connection: sqlite3.Connection) -> None:
         )
 
     model_catalog = [
-        ("nvidia_nim:auto_best_available", "nvidia_nim", "auto_best_available", "NVIDIA NIM auto best available", "nim", 128000, 4096, 0, 1, 1, 0, 0, 0, 0, 0, ["low", "medium"], 0.0, 0.0, 0.0, 0.0, 1, "trial/free-limited; exact quota unknown", 1),
+        ("nvidia_nim:auto_best_available", "nvidia_nim", "auto_best_available", "NVIDIA NIM auto best available", "nim", 128000, 4096, 0, 1, 1, 0, 0, 0, 0, 0, ["low", "medium"], None, None, None, None, 0, "unknown_price; provider pricing not configured", 1),
         ("ollama:local_default", "ollama", "local_default", "Ollama local default", "local", 32000, 4096, 0, 1, 1, 0, 0, 0, 0, 0, ["low", "medium"], 0.0, 0.0, 0.0, 0.0, 1, "local runtime cost only", 1),
         ("openai_compatible:configured_model", "openai_compatible", "configured_model", "Configured OpenAI-compatible model", "configured", 128000, 4096, 1, 1, 1, 0, 0, 0, 1, 1, ["low", "medium", "high"], 0.25, 0.05, 1.0, 1.0, 0, "manual seed, staleness unknown", 0),
         ("openrouter:configured_model", "openrouter", "configured_model", "Configured OpenRouter model", "configured", 128000, 4096, 1, 1, 1, 0, 0, 0, 1, 1, ["low", "medium", "high"], 0.25, 0.05, 1.0, 1.0, 0, "manual seed, staleness unknown", 0),
@@ -1429,7 +1429,7 @@ def init_phase12_schema(connection: sqlite3.Connection) -> None:
         )
 
     provider_limits = [
-        ("nvidia_nim:*", "nvidia_nim", "*", None, None, None, None, None, None, 0.0, "conservative"),
+        ("nvidia_nim:*", "nvidia_nim", "*", None, None, None, None, None, None, None, "conservative"),
         ("openai_compatible:*", "openai_compatible", "*", None, None, None, None, None, None, None, "conservative"),
     ]
     for row in provider_limits:
@@ -1470,8 +1470,6 @@ def init_phase12_schema(connection: sqlite3.Connection) -> None:
     runtime_capabilities = [
         ("codex_cli:code_edit", "codex_cli", "code_edit", 1, {"workspaceBound": True}),
         ("claude_code_cli:code_edit", "claude_code_cli", "code_edit", 1, {"workspaceBound": True}),
-        ("openhands:issue_to_patch", "openhands", "issue_to_patch", 1, {"optional": True}),
-        ("swe_agent:issue_to_patch", "swe_agent", "issue_to_patch", 1, {"optional": True}),
         ("manual:approval", "manual", "approval", 1, {"operator": True}),
     ]
     for row in runtime_capabilities:
@@ -1483,6 +1481,15 @@ def init_phase12_schema(connection: sqlite3.Connection) -> None:
             """,
             (row[0], row[1], row[2], row[3], json_dumps(row[4]), timestamp, timestamp),
         )
+    connection.execute(
+        """
+        DELETE FROM runtime_capabilities
+        WHERE runtime IN ('openhands', 'swe_agent')
+          AND capability = 'issue_to_patch'
+          AND metadata = ?
+        """,
+        (json_dumps({"optional": True}),),
+    )
 
     for provider_id, provider, label, status, allow_remote, metadata in [
         ("nvidia_nim", "nvidia_nim", "NVIDIA NIM / Build", "optional", 1, {"runtime": "api", "quotaMode": "trial_rate_limited"}),

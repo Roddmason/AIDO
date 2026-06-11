@@ -139,6 +139,21 @@ def test_frontend_mutation_helpers_use_generated_request_response_types() -> Non
     assert "body: MutationBody<'update_risk_api_v1_risks__risk_id__patch'>" in client_source
 
 
+def test_runtime_provider_ui_exposes_healthcheck_state_and_sanitized_reasons() -> None:
+    page_source = read(SRC / "features" / "model-gateway" / "ModelGatewayPage.tsx")
+    generated_types = read(SRC / "api" / "generated" / "openapi.ts")
+
+    assert '"healthStatus"' in generated_types
+    assert '"lastError"' in generated_types
+    assert "Health status" in page_source
+    assert "Last error" in page_source
+    assert "row.healthStatus" in page_source
+    assert "row.lastError" in page_source
+    assert "redactVisibleSecret(row.reason)" in page_source
+    assert "redactVisibleSecret(row.lastError" in page_source
+    assert "row.healthCheckedAt" in page_source
+
+
 def test_governance_surface_has_filtering_and_risk_update_controls() -> None:
     pages_source = read(SRC / "features" / "pages.tsx")
 

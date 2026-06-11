@@ -88,6 +88,7 @@ function buildIssueTimeline(result: IssueToPatchResponse | null, issueBusy: bool
 	const isRuntimeUnavailable = status === 'runtime_unavailable' || status === 'unavailable';
 	const isFailed = isRuntimeUnavailable || status === 'failed' || String(workflowRun?.status ?? '') === 'failed';
 	const isCompleted = status === 'completed' || String(workflowRun?.status ?? '') === 'completed';
+	const isApprovedForIntegration = status === 'approved_for_integration' || String(workflowRun?.status ?? '') === 'approved_for_integration';
 	const awaitingApproval = Boolean(rawResult.actionRequest) || (Boolean(rawResult.approvalRequired) && (status === 'evidence_ready' || String(workflowRun?.status ?? '') === 'awaiting_permission'));
 	const stageDetails: Record<(typeof issueTimelineOrder)[number], string> = {
 		created: String(workflowRun?.id ?? objectRecord(result.workflow)?.id ?? 'workflow not recorded'),
@@ -96,7 +97,7 @@ function buildIssueTimeline(result: IssueToPatchResponse | null, issueBusy: bool
 		running: String(runtimeResult?.status ?? (status || 'not started')),
 		qa_running: qaResults.length ? String(objectRecord(qaResults[0])?.status ?? objectRecord(qaResults[0])?.verdict ?? 'qa_recorded') : 'qa_not_run',
 		evidence_ready: String(evidence?.id ?? 'evidence not created'),
-		awaiting_approval: awaitingApproval ? 'approval gate open' : 'no pending approval',
+		awaiting_approval: isApprovedForIntegration ? 'approved for integration' : awaitingApproval ? 'approval gate open' : 'no pending approval',
 	};
 	const stageStatuses: Record<(typeof issueTimelineOrder)[number], TimelineStatus> = {
 		created: workflowRun?.id || objectRecord(result.workflow)?.id ? 'done' : isFailed ? 'failed' : 'pending',
@@ -105,10 +106,10 @@ function buildIssueTimeline(result: IssueToPatchResponse | null, issueBusy: bool
 		running: isFailed ? 'failed' : isCompleted || runtimeResult ? 'done' : issueBusy ? 'active' : 'pending',
 		qa_running: qaResults.length ? (String(objectRecord(qaResults[0])?.status ?? objectRecord(qaResults[0])?.verdict ?? '') === 'failed' ? 'failed' : 'done') : 'pending',
 		evidence_ready: evidence?.id ? 'done' : isFailed ? 'failed' : 'pending',
-		awaiting_approval: awaitingApproval ? 'active' : isCompleted ? 'done' : 'pending',
+		awaiting_approval: awaitingApproval ? 'active' : isCompleted || isApprovedForIntegration ? 'done' : 'pending',
 	};
-	const terminalId = isCompleted ? 'completed' : isFailed ? 'failed' : 'completed/failed';
-	const terminalStatus: TimelineStatus = isCompleted ? 'done' : isFailed ? 'failed' : 'pending';
+	const terminalId = isCompleted ? 'completed' : isApprovedForIntegration ? 'approved_for_integration' : isFailed ? 'failed' : 'completed/failed';
+	const terminalStatus: TimelineStatus = isCompleted || isApprovedForIntegration ? 'done' : isFailed ? 'failed' : 'pending';
 	return [
 		...issueTimelineOrder.map((id) => ({ id, status: stageStatuses[id], detail: stageDetails[id] })),
 		{ id: terminalId, status: terminalStatus, detail: status || String(workflowRun?.status ?? 'not terminal') },

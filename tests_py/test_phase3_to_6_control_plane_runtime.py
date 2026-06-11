@@ -1472,7 +1472,10 @@ def test_sandbox_profile_revocation_is_audited_and_blocks_docker_execution(
     assert any(event["action"] == "sandbox.profile.revoke" for event in store.events.list_audit_events())
 
 
-def test_cli_tool_call_execute_true_without_argv_is_denied_by_sandbox(tmp_path: Path, monkeypatch) -> None:
+def test_cli_tool_call_execute_true_with_command_string_and_no_argv_is_denied_before_policy_execution(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
     store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
     store.init()
@@ -1528,9 +1531,58 @@ def test_cli_tool_call_execute_true_without_argv_is_denied_by_sandbox(tmp_path: 
     overview = client.get("/api/v1/overview").json()
     tool_call = next(call for call in overview["agentToolCalls"] if call["agentRunId"] == agent_run["id"])
     assert tool_call["status"] == "denied"
-    assert tool_call["payload"]["execution"] == "restricted_subprocess"
-    assert tool_call["payload"]["executionResult"]["blocked"] is True
-    assert "structured argv" in tool_call["payload"]["executionResult"]["reason"]
+    assert tool_call["payload"]["execution"] == "not_executed"
+    assert "executionResult" not in tool_call["payload"]
+    assert tool_call["payload"]["decision"] == "deny"
+    assert "structured argv" in tool_call["payload"]["decisionReason"]
+    assert tool_call["payload"]["command"] == "python --version"
+    assert any(
+        decision["decision"] == "deny"
+        and decision["command"] == "python --version"
+        and "structured argv" in decision["reason"]
+        for decision in overview["permissionDecisions"]
+    )
+
+
+def test_action_request_does_not_derive_argv_from_command_string_for_executable_actions(tmp_path: Path) -> None:
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        jobs = JobsRepository(connection)
+        job = jobs.create_job(project_id="project-action", kind="chat.route", payload={"prompt": "install"})["job"]
+
+        action = jobs.create_action_request(
+            job_id=job["id"],
+            project_id="project-action",
+            action_type="tool.call",
+            risk_level="medium",
+            command="pnpm add left-pad",
+            payload={"runtime": {"execute": True}},
+            reason="Sensitive install requires approval.",
+        )
+
+        assert action["command"] == "pnpm add left-pad"
+        assert action["commandArgv"] == []
+
+
+def test_action_request_keeps_explicit_argv_for_executable_actions(tmp_path: Path) -> None:
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        jobs = JobsRepository(connection)
+        job = jobs.create_job(project_id="project-action", kind="chat.route", payload={"prompt": "install"})["job"]
+
+        action = jobs.create_action_request(
+            job_id=job["id"],
+            project_id="project-action",
+            action_type="tool.call",
+            risk_level="medium",
+            command="pnpm add left-pad",
+            command_argv=["pnpm", "add", "left-pad"],
+            payload={"runtime": {"execute": True}},
+            reason="Sensitive install requires approval.",
+        )
+
+        assert action["command"] == "pnpm add left-pad"
+        assert action["commandArgv"] == ["pnpm", "add", "left-pad"]
 
 
 def test_docker_sandbox_is_optional_and_builds_locked_down_container_args(tmp_path: Path, monkeypatch) -> None:

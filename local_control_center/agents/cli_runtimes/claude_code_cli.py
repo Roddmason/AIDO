@@ -36,7 +36,7 @@ class ClaudeCodeCliRuntime(CliRuntime):
         self._validate_safe_args(request)
         profile = CLAUDE_PROFILES.get(request.profile or "", {})
         model = request.model or profile.get("model")
-        command = [self.executable, "--print", "--cwd", str(workspace)]
+        command = [self.executable, "--print", "--permission-mode", "acceptEdits", "--add-dir", str(workspace)]
         if model:
             command.extend(["--model", str(model)])
         command.extend(request.extra_args)

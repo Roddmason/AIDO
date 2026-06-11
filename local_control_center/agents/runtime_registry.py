@@ -46,13 +46,57 @@ def developer_agent_prompt(*, instruction: str, qa_commands: list[list[str]]) ->
     )
 
 
-def _explicit_issue_to_patch_argv(runtime: dict[str, Any]) -> list[str] | None:
+def _expand_issue_to_patch_argv(
+    argv: list[str],
+    *,
+    workspace_path: str,
+    title: str,
+    issue_text: str,
+) -> list[str]:
+    prompt = issue_to_patch_prompt(title=title, issue_text=issue_text)
+    replacements = {
+        "{workspace}": workspace_path,
+        "{workspace_path}": workspace_path,
+        "{title}": title,
+        "{issue_text}": issue_text,
+        "{prompt}": prompt,
+    }
+    expanded: list[str] = []
+    for item in argv:
+        value = item
+        for token, replacement in replacements.items():
+            value = value.replace(token, replacement)
+        expanded.append(value)
+    return expanded
+
+
+def _explicit_issue_to_patch_argv(
+    runtime: dict[str, Any],
+    *,
+    runtime_id: str,
+    workspace_path: str,
+    title: str,
+    issue_text: str,
+) -> list[str] | None:
     argv = runtime.get("issueToPatchArgv")
     if argv is None:
         return None
     if not isinstance(argv, list) or not argv or not all(isinstance(item, str) and item for item in argv):
         raise RuntimeCommandUnavailableError("Runtime issueToPatchArgv must be a non-empty structured argv list.")
-    return list(argv)
+    if runtime_id in {"openhands", "swe_agent"}:
+        executable_name = Path(argv[0]).name.lower()
+        required_tokens = CLI_EXECUTABLE_TOKENS.get(runtime_id, ())
+        if required_tokens and not all(token in executable_name for token in required_tokens):
+            display_name = "OpenHands" if runtime_id == "openhands" else "SWE-agent"
+            raise RuntimeCommandUnavailableError(
+                f"{display_name} issueToPatchArgv must start with its own CLI executable."
+            )
+    return _expand_issue_to_patch_argv(
+        list(argv),
+        workspace_path=workspace_path,
+        title=title,
+        issue_text=issue_text,
+    )
 
 
 def _explicit_developer_agent_argv(runtime: dict[str, Any]) -> list[str] | None:
@@ -76,7 +120,13 @@ def build_issue_to_patch_argv(
     agent_id: str,
     connection: sqlite3.Connection,
 ) -> list[str]:
-    explicit = _explicit_issue_to_patch_argv(runtime)
+    explicit = _explicit_issue_to_patch_argv(
+        runtime,
+        runtime_id=str(runtime.get("id") or ""),
+        workspace_path=workspace_path,
+        title=title,
+        issue_text=issue_text,
+    )
     if explicit is not None:
         return explicit
     runtime_id = str(runtime.get("id") or "")

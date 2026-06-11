@@ -1023,6 +1023,10 @@
       "en": "Health check",
       "es": "control de salud"
     },
+    "ui.static.health.status.a4a97cf0": {
+      "en": "Health status",
+      "es": "Estado de salud"
+    },
     "ui.static.high.and.critical.risks.require.mitigation.d2100035": {
       "en": "High and critical risks require mitigation.",
       "es": "Los riesgos elevados y críticos requieren mitigación."

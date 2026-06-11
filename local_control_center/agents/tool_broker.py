@@ -23,10 +23,16 @@ from .runtime_adapters import (
 )
 
 
-def _structured_argv(tool_call: dict[str, Any], command: str) -> list[str]:
+def _valid_argv(value: Any) -> bool:
+    return isinstance(value, list) and bool(value) and all(isinstance(item, str) and item for item in value)
+
+
+def _structured_argv(tool_call: dict[str, Any], command: str, *, executable: bool = False) -> list[str]:
     argv = tool_call.get("argv")
-    if isinstance(argv, list):
+    if _valid_argv(argv):
         return [str(item) for item in argv]
+    if executable:
+        return []
     command = command.strip()
     if not command:
         return []
@@ -34,6 +40,21 @@ def _structured_argv(tool_call: dict[str, Any], command: str) -> list[str]:
         return [str(item) for item in shlex.split(command)]
     except ValueError:
         return [command]
+
+
+def _executable_argv_boundary(tool_call: dict[str, Any], *, tool_name: str, command: str) -> dict[str, Any] | None:
+    if tool_call.get("execute") is not True:
+        return None
+    if _valid_argv(tool_call.get("argv")):
+        return None
+    if tool_name != "shell" and not command.strip():
+        return None
+    return {
+        "decision": "deny",
+        "riskLevel": "high",
+        "reason": "Executable agent tool calls require a non-empty structured argv list; command strings are audit/display only.",
+        "categories": ["structured_argv_required"],
+    }
 
 
 def default_runtime_adapters(
@@ -161,8 +182,9 @@ class ToolBroker:
         command = str(tool_call.get("command") or "")
         if not command and tool_name in RUNTIME_ADAPTER_TOOLS and isinstance(tool_call.get("argv"), list):
             command = " ".join(str(item) for item in tool_call["argv"])
-        command_argv = _structured_argv(tool_call, command)
+        command_argv = _structured_argv(tool_call, command, executable=tool_call.get("execute") is True)
         path = str(tool_call.get("path") or "") or None
+        argv_result = _executable_argv_boundary(tool_call, tool_name=tool_name, command=command)
         boundary_result, registered_workspace_path = self._execution_workspace_boundary(tool_call)
         workspace_path = registered_workspace_path or tool_call.get("workspacePath") or path
         runtime_id = str(tool_call.get("runtimeId") or tool_call.get("sandbox") or "").strip() or None
@@ -187,7 +209,9 @@ class ToolBroker:
             "agentRunId": agent_run_id,
             "capability": tool_call.get("capability"),
         }
-        if boundary_result is not None:
+        if argv_result is not None:
+            result = argv_result
+        elif boundary_result is not None:
             result = boundary_result
         elif not self._profile_allows_tool(agent_profile, tool_name):
             result = {

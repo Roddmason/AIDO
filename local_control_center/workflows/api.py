@@ -19,6 +19,7 @@ from ..workspaces_projects.repository import WorkspacesRepository
 from .models import (
     IssueToPatchRequest,
     IssueToPatchResponse,
+    PromotePatchToBranchRequest,
     WorkflowCreateRequest,
     WorkflowDetailResponse,
     WorkflowGateAdvanceRequest,
@@ -262,6 +263,60 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
                 "workflowRunId": result["workflowRun"]["id"],
                 "runtimeId": result["runtime"]["id"],
                 "evidencePackageId": result["evidencePackage"]["id"],
+            },
+        )
+        return result
+
+    @router.post("/api/v1/workflows/issue-to-patch/{run_id}/approve", status_code=202, response_model=IssueToPatchResponse)
+    async def approve_issue_to_patch(run_id: str, body: WorkflowStatusChangeRequest, request: Request) -> dict[str, Any]:
+        require_write(request)
+        reason = str(body.reason or "").strip()
+        if not reason:
+            raise HTTPException(status_code=422, detail="Approval reason is required.")
+        try:
+            result = IssueToPatchRunner(platform.connection, root=platform.cwd).approve_patch(run_id, reason=reason)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        event_bus().record_event(
+            project_id=result["workflow"]["projectId"],
+            event_type=f"workflow.issue_to_patch.{result['status']}",
+            payload={
+                "workflowId": result["workflow"]["id"],
+                "workflowRunId": result["workflowRun"]["id"],
+                "evidencePackageId": result["evidencePackage"]["id"],
+                "jobId": result["job"]["id"],
+                "agentRunId": result["agentRun"]["id"],
+            },
+        )
+        return result
+
+    @router.post("/api/v1/workflows/issue-to-patch/{run_id}/promote", status_code=202, response_model=IssueToPatchResponse)
+    async def promote_patch_to_branch(run_id: str, body: PromotePatchToBranchRequest, request: Request) -> dict[str, Any]:
+        require_write(request)
+        try:
+            result = IssueToPatchRunner(platform.connection, root=platform.cwd).promote_patch_to_branch(
+                run_id,
+                reason=body.reason,
+                branch_name=body.branch_name,
+                evidence_package_id=body.evidence_package_id,
+                qa_commands=body.qa_commands,
+            )
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        event_bus().record_event(
+            project_id=result["workflow"]["projectId"],
+            event_type=f"workflow.issue_to_patch.{result['status']}",
+            payload={
+                "workflowId": result["workflow"]["id"],
+                "workflowRunId": result["workflowRun"]["id"],
+                "evidencePackageId": result["evidencePackage"]["id"],
+                "jobId": result["job"]["id"],
+                "agentRunId": result["agentRun"]["id"],
+                "branchName": result["diffSummary"].get("branch"),
             },
         )
         return result

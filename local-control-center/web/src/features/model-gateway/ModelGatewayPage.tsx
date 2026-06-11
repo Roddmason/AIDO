@@ -529,6 +529,13 @@ export function ModelGatewayPage({
 					{ key: 'available', label: 'Available', render: (row) => runtimeStateBadge(Boolean(row.available), 'available', 'not available') },
 					{ key: 'executable', label: 'Executable', render: (row) => runtimeStateBadge(Boolean(row.executable), 'executable', 'not executable') },
 					{
+						key: 'healthStatus',
+						label: 'Health status',
+						render: (row) => (
+							<Badge tone={row.healthStatus === 'healthy' ? 'ok' : 'warn'}>{redactVisibleSecret(row.healthStatus, 'unknown')}</Badge>
+						),
+					},
+					{
 						key: 'capabilities',
 						label: 'Capabilities',
 						render: (row) => (
@@ -570,6 +577,7 @@ export function ModelGatewayPage({
 						},
 					},
 					{ key: 'reason', label: 'Reason', render: (row) => redactVisibleSecret(row.reason) },
+					{ key: 'lastError', label: 'Last error', render: (row) => redactVisibleSecret(row.lastError, 'none') },
 					{ key: 'version', label: 'Version', render: (row) => <span className="mono">{redactVisibleSecret(row.version)}</span> },
 					{ key: 'command', label: 'Detected command', render: (row) => <span className="mono">{redactVisibleSecret(row.detectedCommand)}</span> },
 					{

@@ -20,10 +20,11 @@ JOB_STATUSES = {
     "running",
     "approval_required",
     "completed",
+    "approved",
     "failed",
     "cancelled",
 }
-JobStatus = Literal["queued", "running", "approval_required", "completed", "failed", "cancelled"]
+JobStatus = Literal["queued", "running", "approval_required", "completed", "approved", "failed", "cancelled"]
 JobRunStatus = Literal["queued", "running", "completed", "failed", "cancelled"]
 ActionRequestStatus = Literal["pending", "approved", "denied", "expired"]
 

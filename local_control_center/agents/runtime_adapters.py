@@ -220,6 +220,22 @@ class _ArtifactRecorder:
             return None, redacted
         return self.record_output(request=request, name=f"{stream}.log", stream=stream, content=clean_content), redacted
 
+    def record_stream_artifact(
+        self,
+        *,
+        request: RuntimeExecutionRequest,
+        stream: str,
+        content: str,
+    ) -> tuple[str | None, bool]:
+        clean_content, redacted = _redact_text(content)
+        return self.record_output(
+            request=request,
+            name=f"{stream}.log",
+            stream=stream,
+            content=clean_content,
+            allow_empty=True,
+        ), redacted
+
     def record_output(
         self,
         *,
@@ -227,8 +243,9 @@ class _ArtifactRecorder:
         name: str,
         content: str,
         stream: str = "output",
+        allow_empty: bool = False,
     ) -> str | None:
-        if self.connection is None or self.artifact_root is None or not content:
+        if self.connection is None or self.artifact_root is None or (not content and not allow_empty):
             return None
         artifact_id = f"artifact-{uuid.uuid4()}"
         suffix = Path(name).suffix or ".log"
@@ -379,16 +396,30 @@ class RestrictedSubprocessAdapter:
                 redacted=True,
             )
 
-        stdout_id, stdout_redacted = self.recorder.record_large_stream(
-            request=request,
-            stream="stdout",
-            content=str(completed.get("stdout") or ""),
-        )
-        stderr_id, stderr_redacted = self.recorder.record_large_stream(
-            request=request,
-            stream="stderr",
-            content=str(completed.get("stderr") or ""),
-        )
+        stdout = str(completed.get("stdout") or "")
+        stderr = str(completed.get("stderr") or "")
+        if request.capability == "issue_to_patch_runtime":
+            stdout_id, stdout_redacted = self.recorder.record_stream_artifact(
+                request=request,
+                stream="stdout",
+                content=stdout,
+            )
+            stderr_id, stderr_redacted = self.recorder.record_stream_artifact(
+                request=request,
+                stream="stderr",
+                content=stderr,
+            )
+        else:
+            stdout_id, stdout_redacted = self.recorder.record_large_stream(
+                request=request,
+                stream="stdout",
+                content=stdout,
+            )
+            stderr_id, stderr_redacted = self.recorder.record_large_stream(
+                request=request,
+                stream="stderr",
+                content=stderr,
+            )
         return_code = completed.get("returnCode")
         status = "completed" if return_code == 0 else "failed"
         reason = None if return_code == 0 else f"Process exited with code {return_code}."

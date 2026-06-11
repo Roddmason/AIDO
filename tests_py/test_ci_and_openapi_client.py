@@ -308,7 +308,7 @@ def test_generated_core_runtime_workflow_evidence_contracts_are_strict() -> None
     assert '"permissionGrants": Array<ApprovalGrantRecord>' in content
 
     agent_run = _generated_type_line(content, "AgentRunRecord")
-    assert '"status": "queued" | "running" | "completed" | "failed" | "blocked" | "runtime_unavailable"' in agent_run
+    assert '"status": "queued" | "running" | "completed" | "approved" | "failed" | "blocked" | "runtime_unavailable"' in agent_run
     assert '"status": string' not in agent_run
     tool_call = _generated_type_line(content, "AgentToolCallRecord")
     assert '"status": "pending" | "allowed" | "denied" | "requires_approval" | "approval_required"' in tool_call
@@ -328,11 +328,14 @@ def test_generated_core_runtime_workflow_evidence_contracts_are_strict() -> None
     assert '"kind": "execution_log" | "screenshot" | "test_report" | "qa_report" | "generic_artifact"' in artifact
     assert '"kind": string' not in artifact
 
+    job = _generated_type_line(content, "JobRecord")
+    assert '"status": "queued" | "running" | "approval_required" | "completed" | "approved" | "failed" | "cancelled"' in job
+
     workflow = _generated_type_line(content, "WorkflowRecord")
     assert '"kind": "idea_to_pr" | "project_discovery" | "issue_to_patch"' in workflow
-    assert '"status": "queued" | "running" | "paused" | "completed" | "failed" | "cancelled"' in workflow
+    assert '"status": "queued" | "running" | "paused" | "completed" | "failed" | "cancelled" | "runtime_unavailable" | "qa_failed" | "evidence_ready" | "approved_for_integration" | "promotion_failed" | "promoted_to_branch"' in workflow
     workflow_run = _generated_type_line(content, "WorkflowRunRecord")
-    assert '"status": "running" | "completed" | "failed" | "cancelled" | "runtime_unavailable"' in workflow_run
+    assert '"status": "running" | "completed" | "failed" | "cancelled" | "runtime_unavailable" | "qa_failed" | "evidence_ready" | "approved_for_integration" | "promotion_failed" | "promoted_to_branch"' in workflow_run
     workflow_step = _generated_type_line(content, "WorkflowStepRecord")
     assert '"riskLevel"?: "low" | "medium" | "high" | "critical" | null' in workflow_step
     assert '"status": "pending" | "ready" | "running" | "completed" | "failed" | "blocked" | "skipped"' in workflow_step
@@ -341,6 +344,9 @@ def test_generated_core_runtime_workflow_evidence_contracts_are_strict() -> None
     assert '"workflowRunDetails"?: Array<WorkflowRunDetail>' in workflow_detail
 
     api_client = (ROOT / "local-control-center" / "web" / "src" / "api" / "client.ts").read_text(encoding="utf-8")
+    assert "approveIssueToPatch" in api_client
+    assert "promotePatchToBranch" in api_client
+    assert "promote_patch_to_branch_api_v1_workflows_issue_to_patch__run_id__promote_post" in content
     assert "{ providers: Dictionary[] }" not in api_client
     assert "{ overview: Dictionary }" not in api_client
     assert "apiRequest<{ providers: Dictionary[] }>('/api/v1/runtime/provider-configuration'" not in api_client

@@ -84,7 +84,7 @@ def provider_instance(provider_id: str, *, connection: sqlite3.Connection):
     if provider_id in {"openai", "openai_api"}:
         return OpenAIAPIProvider(base_url=base_url, credential_ref=credential_ref or "")
     if provider_id == "anthropic_api":
-        return AnthropicAPIProvider()
+        return AnthropicAPIProvider(base_url=base_url, credential_ref=credential_ref or None)
     if provider_id == "openrouter":
         return OpenRouterProvider(base_url=base_url, credential_ref=credential_ref or "")
     if provider_id == "litellm":
@@ -473,7 +473,7 @@ class ModelGateway:
         enriched_usage = redact_secrets(
             {
                 **raw_usage,
-                "usage_source": "provider" if token_status == "actual" else "unavailable",
+                "usage_source": "provider" if token_status == "actual" else "unknown",
                 "token_status": token_status,
                 "cost_status": cost_status,
                 "pricing_source": pricing["source"],
@@ -499,7 +499,7 @@ class ModelGateway:
             actual_cost_usd=actual_cost_usd,
             latency_ms=latency_ms,
             raw_usage=enriched_usage,
-            usage_source="actual" if token_status == "actual" else "unavailable",
+            usage_source="actual" if token_status == "actual" else "unknown",
         )
         return {
             "usage": usage,

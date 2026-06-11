@@ -6,8 +6,27 @@ from typing import Any
 from local_control_center.agents.quota_manager import QuotaManager
 from local_control_center.agents.runtime_provider_config import runtime_provider_configuration
 
-from .base import CostEstimate, ModelInfo, ModelRequest, ProviderHealth
+from .base import CostEstimate, ModelInfo, ModelRequest, ProviderHealth, UsageRecord
 from .openai_compatible import OpenAICompatibleProvider
+
+
+USAGE_TOKEN_KEYS = {
+    "prompt_tokens",
+    "input_tokens",
+    "completion_tokens",
+    "output_tokens",
+    "total_tokens",
+    "reasoning_tokens",
+    "cached_input_tokens",
+    "tool_tokens",
+}
+
+
+def _provider_returned_usage(raw_response: Any) -> bool:
+    if not isinstance(raw_response, dict):
+        return False
+    usage = raw_response.get("usage")
+    return isinstance(usage, dict) and any(usage.get(key) is not None for key in USAGE_TOKEN_KEYS)
 
 
 class NvidiaNimProvider(OpenAICompatibleProvider):
@@ -32,7 +51,7 @@ class NvidiaNimProvider(OpenAICompatibleProvider):
         return super().list_models()
 
     def estimate_cost(self, request: ModelRequest, model: str) -> CostEstimate:
-        return CostEstimate(estimatedCostUsd=0.0, source="nvidia_nim_free_tier_unknown")
+        return CostEstimate(estimatedCostUsd=None, source=f"unknown:nvidia_nim:{model}")
 
     def handle_error(self, *, status_code: int, message: str, model: str) -> ProviderHealth:
         health = "degraded" if status_code == 429 else "offline"
@@ -41,11 +60,8 @@ class NvidiaNimProvider(OpenAICompatibleProvider):
         return ProviderHealth(providerId=self.provider_id, status="rate_limited" if status_code == 429 else "error", healthStatus=health, message=message)
 
     def parse_usage(self, raw_response: Any):
+        if not _provider_returned_usage(raw_response):
+            return UsageRecord(rawUsage={"usage_source": "unknown", "reason": "provider_response_missing_usage"})
         usage = super().parse_usage(raw_response)
-        if usage.total_tokens == 0 and isinstance(raw_response, dict):
-            text = str(raw_response)
-            estimated = max(1, len(text.split()) * 2)
-            usage.input_tokens = estimated
-            usage.total_tokens = estimated
-            usage.raw_usage = {"usage_source": "estimated", "reason": "provider_response_missing_usage"}
+        usage.raw_usage = {"usage_source": "provider", **usage.raw_usage}
         return usage

@@ -143,7 +143,7 @@ def test_runtime_adapter_is_not_invoked_when_agent_profile_does_not_allow_tool(t
     assert "not allowed by the agent profile" in result["decision"]["reason"]
 
 
-def test_runtime_adapter_is_not_invoked_for_sensitive_command_without_approval(tmp_path: Path) -> None:
+def test_runtime_adapter_command_string_without_argv_is_denied_before_approval(tmp_path: Path) -> None:
     store, project, profile, run, workspace = make_agent_run(tmp_path, allowed_tools=["openhands"])
     adapter = FakeRuntimeAdapter()
     workspace_path = str(workspace["path"])
@@ -163,9 +163,10 @@ def test_runtime_adapter_is_not_invoked_for_sensitive_command_without_approval(t
     )
 
     assert adapter.calls == []
-    assert result["decision"]["decision"] == "requires_approval"
-    assert result["toolCall"]["status"] == "approval_required"
-    assert "Runtime adapter command" in result["decision"]["reason"]
+    assert result["decision"]["decision"] == "deny"
+    assert result["toolCall"]["status"] == "denied"
+    assert result["actionRequest"] is None
+    assert "structured argv" in result["decision"]["reason"]
 
 
 def test_agent_and_model_configuration_endpoints_reject_invalid_catalog_values(tmp_path: Path) -> None:

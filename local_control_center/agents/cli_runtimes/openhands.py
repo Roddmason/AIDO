@@ -17,11 +17,12 @@ class OpenHandsRuntime(CliRuntime):
         connection: sqlite3.Connection | None = None,
     ):
         super().__init__(
-            executable=executable or os.environ.get("OPENHANDS_CLI_PATH", "openhands"),
+            executable=executable or os.environ.get("AIDO_OPENHANDS_COMMAND") or os.environ.get("OPENHANDS_CLI_PATH", "openhands"),
             connection=connection,
         )
 
     def build_command(self, request: RuntimeRequest) -> list[str]:
         workspace = self._validate_workspace(request)
+        self._validate_git_workspace(workspace)
         self._validate_safe_args(request)
-        return [self.executable, "run", "--workspace", str(workspace), *request.extra_args, request.prompt]
+        return [self.executable, "--headless", "--json", *request.extra_args, "-t", request.prompt]

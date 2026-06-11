@@ -9,7 +9,7 @@ export function shortId(id?: string | null) {
 
 export function toneForStatus(status?: string): 'ok' | 'warn' | 'danger' | 'info' {
 	if (!status) return 'info';
-	if (['completed', 'passed', 'approved', 'active', 'available'].includes(status)) return 'ok';
+	if (['completed', 'passed', 'approved', 'approved_for_integration', 'active', 'available'].includes(status)) return 'ok';
 	if (['queued', 'running', 'awaiting_human', 'approval_required', 'optional'].includes(status)) return 'warn';
 	if (['failed', 'blocked', 'denied', 'cancelled'].includes(status)) return 'danger';
 	return 'info';

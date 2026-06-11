@@ -333,6 +333,11 @@ class ProviderAccountStore:
     def record_health_check(self, *, provider_id: str, status: str, payload: dict[str, Any]) -> dict[str, Any]:
         now = utc_now()
         check_id = f"provider-health-{uuid.uuid4()}"
+        health_status = str(payload.get("healthStatus") or status)
+        last_error = str(payload.get("lastError") or "")
+        if not last_error and health_status != "healthy":
+            last_error = str(payload.get("message") or payload.get("status") or "")
+        last_error = str(redact_secrets(last_error))
         self.connection.execute(
             """
             INSERT INTO provider_health_checks (id, provider_id, status, payload, created_at)
@@ -340,5 +345,8 @@ class ProviderAccountStore:
             """,
             (check_id, provider_id, status, json_dumps(redact_secrets(payload)), now),
         )
-        self.patch_provider_account(provider_id, {"healthStatus": payload.get("healthStatus", status), "lastHealthCheckAt": now, "lastError": payload.get("lastError", "")})
+        self.patch_provider_account(
+            provider_id,
+            {"healthStatus": health_status, "lastHealthCheckAt": now, "lastError": last_error},
+        )
         return {"id": check_id, "providerId": provider_id, "status": status, "payload": redact_secrets(payload), "createdAt": now}

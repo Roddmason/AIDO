@@ -34,6 +34,7 @@ AgentRunStatus = Literal[
     "queued",
     "running",
     "completed",
+    "approved",
     "failed",
     "blocked",
     "runtime_unavailable",
@@ -286,7 +287,9 @@ class RuntimeProviderStatus(BaseModel):
     reason: str
     version: str | None = None
     detected_command: str | None = Field(default=None, alias="detectedCommand")
+    health_status: str = Field(default="unknown", alias="healthStatus")
     health_checked_at: str | None = Field(default=None, alias="healthCheckedAt")
+    last_error: str = Field(default="", alias="lastError")
     capabilities: list[str] = Field(default_factory=list)
     required_configuration: list[str] = Field(default_factory=list, alias="requiredConfiguration")
     safety: RuntimeProviderSafety = Field(default_factory=RuntimeProviderSafety)

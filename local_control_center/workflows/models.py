@@ -29,6 +29,9 @@ WorkflowStatus = Literal[
     "runtime_unavailable",
     "qa_failed",
     "evidence_ready",
+    "approved_for_integration",
+    "promotion_failed",
+    "promoted_to_branch",
 ]
 WorkflowRunStatus = Literal[
     "running",
@@ -38,6 +41,9 @@ WorkflowRunStatus = Literal[
     "runtime_unavailable",
     "qa_failed",
     "evidence_ready",
+    "approved_for_integration",
+    "promotion_failed",
+    "promoted_to_branch",
 ]
 WorkflowStepStatus = Literal["pending", "ready", "running", "completed", "failed", "blocked", "skipped"]
 WorkflowRiskLevel = Literal["low", "medium", "high", "critical"]
@@ -53,6 +59,13 @@ class WorkflowCreateRequest(BaseModel):
 
 class WorkflowStatusChangeRequest(BaseModel):
     reason: str = ""
+
+
+class PromotePatchToBranchRequest(BaseModel):
+    reason: str
+    branch_name: str | None = Field(default=None, alias="branchName")
+    evidence_package_id: str | None = Field(default=None, alias="evidencePackageId")
+    qa_commands: list[list[str]] | None = Field(default=None, alias="qaCommands")
 
 
 class WorkflowGateAdvanceRequest(BaseModel):

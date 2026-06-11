@@ -353,6 +353,7 @@ export function WorkflowsPage({ overview, token }: { overview: Overview; token: 
 								]} />
 								<DataTable rows={linked.approvals} empty={<EmptyState title="No approvals" body="Granular approvals linked to workflow jobs appear here." />} columns={[
 									{ key: 'action', label: 'Action', render: (row) => <span className="mono">{row.actionType}</span> },
+									{ key: 'status', label: 'Status', render: (row) => <Badge tone={toneForStatus(row.status)}>{row.status}</Badge> },
 									{ key: 'risk', label: 'Risk', render: (row) => <Badge tone={toneForStatus(row.riskLevel)}>{row.riskLevel}</Badge> },
 								]} />
 							</Surface>

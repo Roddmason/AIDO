@@ -16,18 +16,35 @@ from local_control_center.evidence.artifacts import artifact_hashes, artifact_re
 from local_control_center.evidence.quality import evidence_package_contract_errors
 from local_control_center.evidence.repository import EvidenceRepository
 from local_control_center.jobs_approvals.repository import JobsRepository
+from local_control_center.security_policy.git_command_runner import git_available, run_git
 from local_control_center.security_policy.repository import SecurityPolicyRepository
 from local_control_center.shared.redaction import redact_secrets
-from local_control_center.shared.serialization import json_dumps
+from local_control_center.shared.event_bus import EventBus
+from local_control_center.shared.serialization import json_dumps, json_loads
+from local_control_center.shared.time import utc_now
 from local_control_center.workflows.repository import ISSUE_TO_PATCH_STEPS, WorkflowsRepository
 from local_control_center.workspaces_projects.cleanup import capture_workspace_snapshot
 from local_control_center.workspaces_projects.git_worktrees import capture_git_diff
+from local_control_center.workspaces_projects.git_worktrees import slugify_branch_segment
 from local_control_center.workspaces_projects.repository import WorkspacesRepository
 
 
 CLI_RUNTIME_IDS = {"codex_cli", "claude_code_cli", "openhands", "swe_agent"}
 RUNTIME_UNAVAILABLE_STATUS = "runtime_unavailable"
+APPROVED_FOR_INTEGRATION_STATUS = "approved_for_integration"
+PROMOTED_TO_BRANCH_STATUS = "promoted_to_branch"
+PROMOTION_FAILED_STATUS = "promotion_failed"
+ISSUE_TO_PATCH_APPROVAL_ACTION = "workflow.issue_to_patch.approve_patch"
 TERMINAL_STATUSES = {"completed", RUNTIME_UNAVAILABLE_STATUS, "qa_failed", "evidence_ready", "failed"}
+CLI_SYNTAX_ERROR_MARKERS = (
+    "unknown option",
+    "unknown flag",
+    "unrecognized option",
+    "unrecognized arguments",
+    "invalid option",
+    "did you mean",
+    "usage:",
+)
 
 
 def _runtime_mode(runtime_id: str) -> str:
@@ -71,7 +88,7 @@ def _select_runtime(
         (
             status
             for status in statuses
-            if status.get("executable") and set(status.get("capabilities") or []) & {"issue_to_patch", "code_edit"}
+            if status.get("executable") and "issue_to_patch" in set(status.get("capabilities") or [])
         ),
         {
             "id": "unresolved",
@@ -81,7 +98,7 @@ def _select_runtime(
             "available": False,
             "executable": False,
             "requiresApproval": True,
-            "reason": "No executable issue_to_patch/code_edit runtime is configured.",
+            "reason": "No executable issue_to_patch runtime is configured.",
             "capabilities": [],
             "safety": {"workspaceBound": True, "shell": False, "structuredArgv": True, "network": "unknown"},
         },
@@ -145,6 +162,25 @@ def _display_command(argv: list[str]) -> str:
 def _execution_result_from_tool_call(tool_call: dict[str, Any]) -> dict[str, Any]:
     payload = tool_call.get("payload") or {}
     execution_result = payload.get("executionResult") or {}
+    raw_output = f"{execution_result.get('stderr') or ''}\n{execution_result.get('stdout') or ''}".lower()
+    syntax_error = bool(
+        tool_call.get("status") == "failed"
+        and execution_result.get("returnCode") not in {0, None}
+        and any(marker in raw_output for marker in CLI_SYNTAX_ERROR_MARKERS)
+    )
+    if syntax_error:
+        return {
+            "status": RUNTIME_UNAVAILABLE_STATUS,
+            "toolCallId": tool_call.get("id"),
+            "execution": payload.get("execution"),
+            "returnCode": execution_result.get("returnCode"),
+            "timedOut": bool(execution_result.get("timedOut", False)),
+            "blocked": bool(execution_result.get("blocked", False)),
+            "reason": "CLI syntax mismatch for configured issue_to_patch runtime: "
+            + str(execution_result.get("stderr") or execution_result.get("stdout") or "").strip()[:500],
+            "stdoutArtifactId": execution_result.get("stdoutArtifactId"),
+            "stderrArtifactId": execution_result.get("stderrArtifactId"),
+        }
     return {
         "status": "completed" if tool_call.get("status") == "completed" else "failed",
         "toolCallId": tool_call.get("id"),
@@ -236,6 +272,7 @@ def _write_text_evidence_artifact(
     content: str,
     mime_type: str,
     repo: EvidenceRepository,
+    source: str = "issue_to_patch",
 ) -> dict[str, Any]:
     artifact_id = f"artifact-{uuid.uuid4()}"
     artifact_file = write_text_artifact(root=root, artifact_id=artifact_id, suffix=suffix, content=content)
@@ -248,7 +285,7 @@ def _write_text_evidence_artifact(
         content_hash=artifact_file["hash"] or hashlib.sha256(content.encode("utf-8")).hexdigest(),
         metadata={
             "name": name,
-            "source": "issue_to_patch",
+            "source": source,
             "mimeType": mime_type,
             "sizeBytes": artifact_file["sizeBytes"],
             "hashAlgorithm": "sha256",
@@ -265,6 +302,7 @@ def _write_json_evidence_artifact(
     kind: str,
     payload: Any,
     repo: EvidenceRepository,
+    source: str = "issue_to_patch",
 ) -> dict[str, Any]:
     return _write_text_evidence_artifact(
         root=root,
@@ -276,7 +314,183 @@ def _write_json_evidence_artifact(
         content=json_dumps(redact_secrets(payload)),
         mime_type="application/json",
         repo=repo,
+        source=source,
     )
+
+
+def _artifact_content_bytes(artifact: dict[str, Any]) -> bytes:
+    path = Path(str(artifact.get("path") or ""))
+    if not path.exists() or not path.is_file():
+        raise ValueError(f"Artifact file is missing: {artifact.get('id')}")
+    content = path.read_bytes()
+    expected_hash = str(artifact.get("hash") or "")
+    if not expected_hash:
+        raise ValueError(f"Artifact hash is missing: {artifact.get('id')}")
+    actual_hash = hashlib.sha256(content).hexdigest()
+    if actual_hash != expected_hash:
+        raise ValueError(f"Artifact hash mismatch: {artifact.get('id')}")
+    return content
+
+
+def _find_linked_artifact(
+    artifacts: list[dict[str, Any]],
+    *,
+    artifact_id: str | None = None,
+    kind: str | None = None,
+    name: str | None = None,
+) -> dict[str, Any] | None:
+    for artifact in artifacts:
+        metadata = artifact.get("metadata") if isinstance(artifact.get("metadata"), dict) else {}
+        if artifact_id and artifact.get("id") == artifact_id:
+            return artifact
+        if kind and artifact.get("kind") != kind:
+            continue
+        if name and metadata.get("name") != name:
+            continue
+        if kind or name:
+            return artifact
+    return None
+
+
+def _validate_patch_artifact(evidence: dict[str, Any], artifacts: list[dict[str, Any]]) -> dict[str, Any]:
+    diff_summary = evidence.get("diffSummary") if isinstance(evidence.get("diffSummary"), dict) else {}
+    patch_artifact = _find_linked_artifact(
+        artifacts,
+        artifact_id=diff_summary.get("patchArtifactId"),
+        kind="git_patch",
+    ) or _find_linked_artifact(artifacts, kind="git_patch", name="diff.patch")
+    if not patch_artifact:
+        raise ValueError("issue_to_patch approval requires a git_patch artifact.")
+    patch_content = _artifact_content_bytes(patch_artifact)
+    if not patch_content.strip():
+        raise ValueError("issue_to_patch approval requires a non-empty patch artifact.")
+    return patch_artifact
+
+
+def _validate_security_findings(evidence: dict[str, Any], artifacts: list[dict[str, Any]]) -> dict[str, Any]:
+    diff_summary = evidence.get("diffSummary") if isinstance(evidence.get("diffSummary"), dict) else {}
+    findings_artifact = _find_linked_artifact(
+        artifacts,
+        artifact_id=diff_summary.get("securityFindingsArtifactId"),
+        kind="security_findings",
+    ) or _find_linked_artifact(artifacts, kind="security_findings", name="security-findings.json")
+    if not findings_artifact:
+        raise ValueError("issue_to_patch approval requires a security findings artifact.")
+    payload = json_loads(_artifact_content_bytes(findings_artifact).decode("utf-8"), {})
+    if not isinstance(payload, dict):
+        raise ValueError("Security findings artifact must contain a JSON object.")
+    if str(payload.get("status") or "").lower() == "blocked":
+        raise ValueError("Security findings are blocking; patch cannot be approved for integration.")
+    findings = payload.get("findings") if isinstance(payload.get("findings"), list) else []
+    for finding in findings:
+        if not isinstance(finding, dict):
+            continue
+        if str(finding.get("decision") or "").lower() in {"deny", "requires_human", "requires_approval"}:
+            raise ValueError("Security findings include a blocking policy decision.")
+    return payload
+
+
+def _project_path(connection: sqlite3.Connection, project_id: str) -> Path:
+    row = connection.execute("SELECT path FROM projects WHERE id = ?", (project_id,)).fetchone()
+    if not row:
+        raise KeyError(f"Project not found: {project_id}")
+    return Path(row["path"])
+
+
+def _approved_evidence_base_commit(evidence: dict[str, Any], workspace: dict[str, Any]) -> str:
+    for diff_ref in evidence.get("diffRefs") or []:
+        if not isinstance(diff_ref, dict) or diff_ref.get("kind") != "git_diff":
+            continue
+        head_commit = str(diff_ref.get("headCommit") or "").strip()
+        if head_commit:
+            return head_commit
+    workspace_manifest = ((workspace.get("metadata") or {}).get("workspaceManifest") or {})
+    source_commit = str(workspace_manifest.get("sourceCommit") or "").strip()
+    if source_commit:
+        return source_commit
+    git_worktree = (workspace.get("metadata") or {}).get("gitWorktree") or {}
+    source_commit = str(git_worktree.get("sourceCommit") or "").strip()
+    if source_commit:
+        return source_commit
+    raise ValueError("promote_patch_to_branch requires a base commit captured in approved evidence.")
+
+
+def _verify_base_commit(repo_path: Path, base_commit: str) -> None:
+    if not git_available():
+        raise ValueError("promote_patch_to_branch requires the git CLI.")
+    result = run_git(["-C", str(repo_path), "cat-file", "-e", f"{base_commit}^{{commit}}"])
+    if result.returncode != 0:
+        raise ValueError("promote_patch_to_branch base commit is not present in the project repository.")
+
+
+def _promotion_branch_name(*, requested: str | None, workflow: dict[str, Any], run_id: str) -> str:
+    if requested and requested.strip():
+        return requested.strip()
+    title = slugify_branch_segment(str(workflow.get("title") or "issue-to-patch"))
+    suffix = run_id.removeprefix("workflow-run-")[:8] or uuid.uuid4().hex[:8]
+    return f"aido/promote/{title}/{suffix}"
+
+
+def _promotion_qa_commands(original_evidence: dict[str, Any], requested: list[list[str]] | None) -> list[list[str]]:
+    if requested is not None:
+        return requested
+    commands: list[list[str]] = []
+    for result in original_evidence.get("testResults") or []:
+        argv = result.get("argv") if isinstance(result, dict) else None
+        if isinstance(argv, list) and argv and all(isinstance(item, str) and item for item in argv):
+            commands.append([str(item) for item in argv])
+    return commands
+
+
+def _git_operation_result(args: list[str], *, cwd: Path) -> dict[str, Any]:
+    display = subprocess.list2cmdline(["git", *args])
+    result = run_git(args, cwd=cwd)
+    return {
+        "command": display,
+        "argv": ["git", *args],
+        "cwd": str(cwd),
+        "returnCode": result.returncode,
+        "stdout": (result.stdout or "")[:4000],
+        "stderr": (result.stderr or "")[:4000],
+        "status": "passed" if result.returncode == 0 else "failed",
+    }
+
+
+def _promotion_status_from_results(
+    *,
+    apply_check: dict[str, Any],
+    apply_result: dict[str, Any] | None,
+    qa_results: list[dict[str, Any]],
+    diff: dict[str, Any],
+) -> tuple[str, str, str]:
+    if apply_check["returnCode"] != 0:
+        return PROMOTION_FAILED_STATUS, "blocked", "git apply --check failed for the approved patch artifact."
+    if not apply_result or apply_result["returnCode"] != 0:
+        return PROMOTION_FAILED_STATUS, "blocked", "git apply failed for the approved patch artifact."
+    if not diff.get("nameOnly"):
+        return PROMOTION_FAILED_STATUS, "blocked", "Promotion applied no auditable file changes."
+    if not qa_results:
+        return PROMOTION_FAILED_STATUS, "blocked", "Promotion requires QA commands after patch application."
+    if any(result.get("status") == "failed" for result in qa_results):
+        return PROMOTION_FAILED_STATUS, "failed", "Promotion QA failed after applying the approved patch."
+    if any(result.get("status") != "passed" for result in qa_results):
+        return PROMOTION_FAILED_STATUS, "blocked", "Promotion QA did not produce a passing verdict."
+    if not qa_verdict_allows_completion("passed", qa_results):
+        return PROMOTION_FAILED_STATUS, "blocked", "Promotion QA requires real command execution evidence."
+    return PROMOTED_TO_BRANCH_STATUS, "passed", "Approved patch was applied to a local branch and QA passed."
+
+
+def _validate_qa_for_patch_approval(evidence: dict[str, Any], *, action_approved: bool) -> None:
+    qa_verdict = str(evidence.get("qaVerdict") or "").lower()
+    if qa_verdict == "passed":
+        if not qa_verdict_allows_completion("passed", evidence.get("testResults") or []):
+            raise ValueError("Passed QA verdict requires real passing QA command evidence.")
+        return
+    if qa_verdict == "needs_human_review" and action_approved:
+        if not qa_verdict_allows_completion("passed", evidence.get("testResults") or []):
+            raise ValueError("Human-reviewed patch approval still requires real passing QA command evidence.")
+        return
+    raise ValueError("issue_to_patch approval requires passed QA or needs_human_review with approval.")
 
 
 def _write_git_status_artifacts(
@@ -286,6 +500,7 @@ def _write_git_status_artifacts(
     evidence_id: str,
     diff: dict[str, Any],
     repo: EvidenceRepository,
+    source: str = "issue_to_patch",
 ) -> list[dict[str, Any]]:
     status_payload = {
         "state": diff.get("state"),
@@ -308,6 +523,7 @@ def _write_git_status_artifacts(
             content=str(diff.get("statusRaw") or ""),
             mime_type="text/plain",
             repo=repo,
+            source=source,
         ),
         _write_json_evidence_artifact(
             root=root,
@@ -317,6 +533,7 @@ def _write_git_status_artifacts(
             kind="git_status",
             payload=status_payload,
             repo=repo,
+            source=source,
         ),
     ]
 
@@ -392,6 +609,657 @@ class IssueToPatchRunner:
         self.workspaces = WorkspacesRepository(connection, root=root)
         self.evidence = EvidenceRepository(connection)
         self.security = SecurityPolicyRepository(connection)
+
+    def approve_patch(self, run_id: str, *, reason: str, actor: str = "operator") -> dict[str, Any]:
+        clean_reason = str(redact_secrets(reason or "")).strip()
+        if not clean_reason:
+            raise ValueError("Approval reason is required.")
+
+        workflow_run = self.workflows.get_workflow_run(run_id)
+        workflow = self.workflows.get_workflow(workflow_run["workflowId"])
+        if workflow["kind"] != "issue_to_patch":
+            raise ValueError("Only issue_to_patch workflow runs can use this approval transition.")
+        if workflow_run["status"] == APPROVED_FOR_INTEGRATION_STATUS:
+            raise ValueError("issue_to_patch workflow run is already approved for integration.")
+        if workflow_run["status"] != "evidence_ready":
+            raise ValueError("issue_to_patch approval requires an evidence_ready workflow run.")
+
+        run_metadata = workflow_run.get("metadata") or {}
+        evidence_id = str(run_metadata.get("evidencePackageId") or "")
+        if not evidence_id:
+            evidence_packages = self.evidence.list_evidence_for_workflow_runs([run_id])
+            evidence_id = str(evidence_packages[0]["id"]) if evidence_packages else ""
+        if not evidence_id:
+            raise ValueError("issue_to_patch approval requires an evidence package.")
+        evidence = self.evidence.get_evidence_package(evidence_id)
+        if evidence["workflowRunId"] != run_id:
+            raise ValueError("Evidence package does not belong to this workflow run.")
+
+        job_id = str(evidence.get("jobId") or run_metadata.get("jobId") or "")
+        agent_run_id = str(evidence.get("agentRunId") or run_metadata.get("agentRunId") or "")
+        workspace_id = str(evidence.get("workspaceId") or run_metadata.get("workspaceId") or "")
+        if not job_id or not agent_run_id or not workspace_id:
+            raise ValueError("issue_to_patch approval requires linked job, agent run, and workspace records.")
+        job = self.jobs.get_job(job_id)
+        agent_run = self.agents.get_agent_run(agent_run_id)
+        workspace = self.workspaces.get_workspace(workspace_id)
+
+        action_requests = self.jobs.list_action_requests(job_id)
+        approval_actions = [
+            action
+            for action in action_requests
+            if action["actionType"] == ISSUE_TO_PATCH_APPROVAL_ACTION
+            and (action.get("payload") or {}).get("workflowRunId") == run_id
+            and (action.get("payload") or {}).get("evidencePackageId") == evidence_id
+        ]
+        if not approval_actions:
+            raise ValueError("issue_to_patch approval requires an approved action request for this evidence package.")
+        approved_action = next((action for action in approval_actions if action["status"] == "approved"), None)
+        if not approved_action:
+            raise ValueError("issue_to_patch approval requires an approved action request before workflow transition.")
+
+        latest_approvals = self.jobs.list_action_requests(job_id)
+        evidence = self.evidence.update_evidence_links(evidence_id, approvals=latest_approvals)
+        contract_errors = evidence_package_contract_errors(
+            evidence,
+            require_runtime_links=True,
+            require_workflow_run=True,
+        )
+        if contract_errors:
+            raise ValueError("Evidence package contract is incomplete: " + "; ".join(contract_errors))
+        artifacts = self.evidence.list_artifacts(evidence_id)
+        _validate_patch_artifact(evidence, artifacts)
+        _validate_qa_for_patch_approval(evidence, action_approved=True)
+        security_findings = _validate_security_findings(evidence, artifacts)
+
+        approved_at = utc_now()
+        transition_payload = {
+            "status": APPROVED_FOR_INTEGRATION_STATUS,
+            "reason": clean_reason,
+            "approvedAt": approved_at,
+            "approvedBy": actor,
+            "actionRequestId": approved_action["id"],
+            "evidencePackageId": evidence_id,
+            "jobId": job_id,
+            "agentRunId": agent_run_id,
+            "workspaceId": workspace_id,
+            "securityFindingsStatus": security_findings.get("status"),
+        }
+        workflow_run = self.workflows.update_workflow_run_status(
+            run_id,
+            status=APPROVED_FOR_INTEGRATION_STATUS,
+            metadata={**run_metadata, **transition_payload},
+            completed=False,
+            clear_completed=True,
+        )
+        workflow = self.workflows.update_workflow_status(
+            workflow["id"],
+            status=APPROVED_FOR_INTEGRATION_STATUS,
+            reason=clean_reason,
+        )
+        job = self.jobs.update_job_status(
+            job_id,
+            status="approved",
+            metadata=transition_payload,
+        )
+        agent_output = dict(agent_run.get("output") or {})
+        agent_output.update(
+            {
+                "verdict": APPROVED_FOR_INTEGRATION_STATUS,
+                "summary": clean_reason,
+                "approvedForIntegration": True,
+                "approvalActionRequestId": approved_action["id"],
+                "evidence_refs": sorted({*agent_output.get("evidence_refs", []), evidence_id}),
+            }
+        )
+        agent_run = self.agents.update_agent_run_status(agent_run_id, status="approved", output_payload=agent_output)
+
+        for step in self.workflows.list_workflow_steps(workflow_run_id=run_id):
+            if step["name"] == "qa_validation":
+                self.workflows.update_workflow_step(
+                    step["id"],
+                    status="completed",
+                    output={
+                        **(step.get("output") or {}),
+                        "qaVerdict": evidence["qaVerdict"],
+                        "evidencePackageId": evidence_id,
+                        "approvalActionRequestId": approved_action["id"],
+                    },
+                )
+            if step["name"] == "technical_review":
+                self.workflows.update_workflow_step(
+                    step["id"],
+                    status="completed",
+                    output={"approvedForIntegration": True, "reason": clean_reason},
+                    metadata={**(step.get("metadata") or {}), "gateState": APPROVED_FOR_INTEGRATION_STATUS},
+                )
+
+        self.workflows.record_workflow_event(
+            workflow_id=workflow["id"],
+            workflow_run_id=run_id,
+            project_id=workflow["projectId"],
+            event_type=f"workflow.issue_to_patch.{APPROVED_FOR_INTEGRATION_STATUS}",
+            payload=transition_payload,
+        )
+        EventBus(self.connection).record_event(
+            project_id=workflow["projectId"],
+            job_id=job_id,
+            event_type=f"workflow.issue_to_patch.{APPROVED_FOR_INTEGRATION_STATUS}",
+            payload=transition_payload,
+        )
+        EventBus(self.connection).record_audit(
+            project_id=workflow["projectId"],
+            action=f"workflow.issue_to_patch.{APPROVED_FOR_INTEGRATION_STATUS}",
+            actor=actor,
+            target=run_id,
+            payload=transition_payload,
+        )
+
+        return {
+            "status": APPROVED_FOR_INTEGRATION_STATUS,
+            "reason": clean_reason,
+            "workflow": workflow,
+            "workflowRun": workflow_run,
+            "workflowSteps": self.workflows.list_workflow_steps(workflow_run_id=run_id),
+            "workspace": workspace,
+            "job": job,
+            "agentRun": agent_run,
+            "evidencePackage": self.evidence.get_evidence_package(evidence_id),
+            "runtime": evidence.get("runtimeHealth") or (run_metadata.get("runtime") or {}),
+            "runtimeResult": (agent_run.get("output") or {}).get("runtimeResult") or {},
+            "qaResults": evidence.get("testResults") or [],
+            "diffSummary": evidence.get("diffSummary") or {},
+        }
+
+    def promote_patch_to_branch(
+        self,
+        run_id: str,
+        *,
+        reason: str,
+        branch_name: str | None = None,
+        evidence_package_id: str | None = None,
+        qa_commands: list[list[str]] | None = None,
+        actor: str = "operator",
+    ) -> dict[str, Any]:
+        clean_reason = str(redact_secrets(reason or "")).strip()
+        if not clean_reason:
+            raise ValueError("Promotion reason is required.")
+
+        workflow_run = self.workflows.get_workflow_run(run_id)
+        workflow = self.workflows.get_workflow(workflow_run["workflowId"])
+        if workflow["kind"] != "issue_to_patch":
+            raise ValueError("Only issue_to_patch workflow runs can use promote_patch_to_branch.")
+        if workflow_run["status"] not in {APPROVED_FOR_INTEGRATION_STATUS, PROMOTION_FAILED_STATUS}:
+            raise ValueError("promote_patch_to_branch requires an approved_for_integration workflow run.")
+
+        run_metadata = workflow_run.get("metadata") or {}
+        approved_evidence_id = str(
+            evidence_package_id
+            or run_metadata.get("originalEvidencePackageId")
+            or run_metadata.get("evidencePackageId")
+            or ""
+        )
+        if not approved_evidence_id:
+            raise ValueError("promote_patch_to_branch requires an approved evidence package.")
+        approved_evidence = self.evidence.get_evidence_package(approved_evidence_id)
+        if approved_evidence["workflowRunId"] != run_id:
+            raise ValueError("Approved evidence package does not belong to this workflow run.")
+
+        original_job_id = str(approved_evidence.get("jobId") or run_metadata.get("jobId") or "")
+        original_agent_run_id = str(approved_evidence.get("agentRunId") or run_metadata.get("agentRunId") or "")
+        original_workspace_id = str(approved_evidence.get("workspaceId") or run_metadata.get("workspaceId") or "")
+        if not original_job_id or not original_agent_run_id or not original_workspace_id:
+            raise ValueError("promote_patch_to_branch requires linked approved job, agent run, and workspace records.")
+        original_workspace = self.workspaces.get_workspace(original_workspace_id)
+
+        approval_actions = [
+            action
+            for action in self.jobs.list_action_requests(original_job_id)
+            if action["actionType"] == ISSUE_TO_PATCH_APPROVAL_ACTION
+            and action["status"] == "approved"
+            and (action.get("payload") or {}).get("workflowRunId") == run_id
+            and (action.get("payload") or {}).get("evidencePackageId") == approved_evidence_id
+        ]
+        if not approval_actions:
+            raise ValueError("promote_patch_to_branch requires approved patch evidence before branch promotion.")
+
+        approved_evidence = self.evidence.update_evidence_links(
+            approved_evidence_id,
+            approvals=self.jobs.list_action_requests(original_job_id),
+        )
+        contract_errors = evidence_package_contract_errors(
+            approved_evidence,
+            require_runtime_links=True,
+            require_workflow_run=True,
+        )
+        if contract_errors:
+            raise ValueError("Approved evidence package contract is incomplete: " + "; ".join(contract_errors))
+        approved_artifacts = self.evidence.list_artifacts(approved_evidence_id)
+        patch_artifact = _validate_patch_artifact(approved_evidence, approved_artifacts)
+        patch_content = _artifact_content_bytes(patch_artifact)
+        _validate_qa_for_patch_approval(approved_evidence, action_approved=True)
+        _validate_security_findings(approved_evidence, approved_artifacts)
+
+        project_id = workflow["projectId"]
+        project_path = _project_path(self.connection, project_id)
+        base_commit = _approved_evidence_base_commit(approved_evidence, original_workspace)
+        _verify_base_commit(project_path, base_commit)
+        target_branch = _promotion_branch_name(requested=branch_name, workflow=workflow, run_id=run_id)
+        steps = {step["name"]: step for step in self.workflows.list_workflow_steps(workflow_run_id=run_id)}
+
+        profile_id = "aido_patch_promoter"
+        profile = self.agents.upsert_agent_profile(
+            {
+                "id": profile_id,
+                "name": "AIDO Patch Promoter",
+                "role": "release_manager",
+                "runtimeMode": "manual",
+                "permissionProfile": "release",
+                "allowedTools": [],
+                "allowedProviders": [],
+                "allowedRuntimes": [],
+                "allowRemote": False,
+                "allowCli": True,
+                "allowApi": False,
+            }
+        )
+        promotion_job = self.jobs.create_job(
+            project_id=project_id,
+            kind="workflow.issue_to_patch.promote_patch_to_branch",
+            workflow_run_id=run_id,
+            workflow_step_id=steps.get("technical_review", {}).get("id"),
+            status="running",
+            payload={
+                "command": "promote_patch_to_branch",
+                "workflowRunId": run_id,
+                "approvedEvidencePackageId": approved_evidence_id,
+                "patchArtifactId": patch_artifact["id"],
+                "patchArtifactHash": patch_artifact["hash"],
+                "baseCommit": base_commit,
+                "branchName": target_branch,
+            },
+        )["job"]
+        promoter_run = self.agents.create_agent_run(
+            project_id=project_id,
+            agent_profile_id=profile["id"],
+            task_id="promote_patch_to_branch",
+            input_payload={
+                "workflowRunId": run_id,
+                "approvedEvidencePackageId": approved_evidence_id,
+                "patchArtifactId": patch_artifact["id"],
+                "patchArtifactHash": patch_artifact["hash"],
+                "baseCommit": base_commit,
+                "branchName": target_branch,
+            },
+            output_payload={},
+            job_id=promotion_job["id"],
+            workflow_run_id=run_id,
+            workflow_step_id=steps.get("technical_review", {}).get("id"),
+            status="running",
+        )
+
+        workspace = self.workspaces.allocate_workspace(
+            project_id=project_id,
+            task_id=f"promote-patch-{run_id}-{uuid.uuid4().hex[:8]}",
+            agent_id=profile_id,
+            reason="promote_patch_to_branch local branch",
+            isolation_type="git_worktree",
+            workflow_run_id=run_id,
+            workflow_step_id=steps.get("technical_review", {}).get("id"),
+            base_branch=base_commit,
+            branch_name=target_branch,
+        )
+        workspace_path = Path(workspace["path"])
+        patch_path = Path(str(patch_artifact["path"])).resolve(strict=False)
+        apply_check = _git_operation_result(["apply", "--check", str(patch_path)], cwd=workspace_path)
+        apply_result: dict[str, Any] | None = None
+        qa_summary: dict[str, Any] | None = None
+        if apply_check["returnCode"] == 0:
+            apply_result = _git_operation_result(["apply", str(patch_path)], cwd=workspace_path)
+            if apply_result["returnCode"] == 0:
+                qa_summary = QAAgentRunner(self.connection, root=self.root).run_for_context(
+                    project_id=project_id,
+                    workspace_id=workspace["id"],
+                    task_id="promote_patch_to_branch",
+                    commands=_promotion_qa_commands(approved_evidence, qa_commands),
+                    workflow_run_id=run_id,
+                    workflow_step_id=steps.get("qa_validation", {}).get("id"),
+                    job_id=promotion_job["id"],
+                    parent_agent_run_id=promoter_run["id"],
+                    metadata={
+                        "source": "promote_patch_to_branch",
+                        "approvedEvidencePackageId": approved_evidence_id,
+                        "patchArtifactId": patch_artifact["id"],
+                    },
+                )
+        qa_results = (qa_summary or {}).get("results") or []
+        qa_artifact_ids = (qa_summary or {}).get("artifactIds") or []
+        diff = capture_git_diff(workspace_path)
+        final_status, qa_verdict, final_reason = _promotion_status_from_results(
+            apply_check=apply_check,
+            apply_result=apply_result,
+            qa_results=qa_results,
+            diff=diff,
+        )
+
+        diff_summary = _diff_summary(diff)
+        diff_summary.update(
+            {
+                "branch": target_branch,
+                "baseCommit": base_commit,
+                "patchArtifactId": patch_artifact["id"],
+                "patchArtifactHash": patch_artifact["hash"],
+                "approvedEvidencePackageId": approved_evidence_id,
+                "promotionCommand": "promote_patch_to_branch",
+            }
+        )
+        promotion_logs = [
+            {
+                "source": "promote_patch_to_branch",
+                "reason": final_reason,
+                "approvedEvidencePackageId": approved_evidence_id,
+                "patchArtifactId": patch_artifact["id"],
+                "patchArtifactHash": patch_artifact["hash"],
+                "patchSizeBytes": len(patch_content),
+                "baseCommit": base_commit,
+                "branchName": target_branch,
+                "gitApplyCheck": apply_check,
+                "gitApply": apply_result,
+                "qaAgentRunId": (qa_summary or {}).get("agentRun", {}).get("id"),
+            }
+        ]
+        evidence = self.evidence.create_evidence_package(
+            project_id=project_id,
+            workflow_run_id=run_id,
+            workflow_step_id=steps.get("qa_validation", {}).get("id"),
+            agent_id=profile_id,
+            agent_run_id=promoter_run["id"],
+            job_id=promotion_job["id"],
+            workspace_id=workspace["id"],
+            runtime_id="git.cli",
+            task_id="promote_patch_to_branch",
+            test_plan="Create a local branch from the approved base commit, apply the verified patch artifact, and rerun QA.",
+            acceptance_checklist=[
+                "Approved evidence exists.",
+                "Patch artifact SHA-256 matches before application.",
+                "Branch is created from the captured base commit.",
+                "Patch applies with git apply.",
+                "QA commands pass after patch application.",
+            ],
+            test_results=qa_results,
+            logs=promotion_logs,
+            diff_refs=_final_diff_refs(workspace, diff),
+            diff_summary=diff_summary,
+            runtime_health={
+                "id": "git.cli",
+                "status": final_status,
+                "available": git_available(),
+                "executable": git_available(),
+                "baseCommit": base_commit,
+                "branchName": target_branch,
+                "reason": final_reason,
+            },
+            approvals=self.jobs.list_action_requests(original_job_id),
+            qa_verdict=qa_verdict,
+            risk_notes=[
+                {
+                    "severity": "low" if final_status == PROMOTED_TO_BRANCH_STATUS else "high",
+                    "description": final_reason,
+                    "mitigation": "Fix the branch promotion blocker and retry from the approved evidence package.",
+                }
+            ],
+        )
+        if qa_artifact_ids:
+            QAAgentRunner(self.connection, root=self.root).attach_artifacts_to_evidence(
+                evidence_id=evidence["id"],
+                artifact_ids=qa_artifact_ids,
+            )
+        status_artifacts = _write_git_status_artifacts(
+            root=self.root,
+            project_id=project_id,
+            evidence_id=evidence["id"],
+            diff=diff,
+            repo=self.evidence,
+            source="promote_patch_to_branch",
+        )
+        command_artifact = _write_json_evidence_artifact(
+            root=self.root,
+            project_id=project_id,
+            evidence_id=evidence["id"],
+            name="promotion-git-commands.json",
+            kind="qa_report",
+            payload={
+                "command": "promote_patch_to_branch",
+                "gitApplyCheck": apply_check,
+                "gitApply": apply_result,
+                "qaResults": qa_results,
+            },
+            repo=self.evidence,
+            source="promote_patch_to_branch",
+        )
+        qa_results_artifact = _write_json_evidence_artifact(
+            root=self.root,
+            project_id=project_id,
+            evidence_id=evidence["id"],
+            name="promotion-qa-results.json",
+            kind="qa_report",
+            payload={"results": qa_results, "qaAgentRunId": (qa_summary or {}).get("agentRun", {}).get("id")},
+            repo=self.evidence,
+            source="promote_patch_to_branch",
+        )
+        manifest_artifact = _write_json_evidence_artifact(
+            root=self.root,
+            project_id=project_id,
+            evidence_id=evidence["id"],
+            name="promotion-evidence.json",
+            kind="evidence_manifest",
+            payload={
+                "command": "promote_patch_to_branch",
+                "status": final_status,
+                "reason": final_reason,
+                "workflowRunId": run_id,
+                "approvedEvidencePackageId": approved_evidence_id,
+                "promotionEvidencePackageId": evidence["id"],
+                "jobId": promotion_job["id"],
+                "agentRunId": promoter_run["id"],
+                "workspaceId": workspace["id"],
+                "branchName": target_branch,
+                "baseCommit": base_commit,
+                "patchArtifact": artifact_ref(patch_artifact),
+                "diffSummary": diff_summary,
+                "qaResults": qa_results,
+            },
+            repo=self.evidence,
+            source="promote_patch_to_branch",
+        )
+        qa_artifacts = artifact_records_from_ids(self.evidence, qa_artifact_ids)
+        promotion_artifacts = [
+            patch_artifact,
+            *qa_artifacts,
+            *status_artifacts,
+            command_artifact,
+            qa_results_artifact,
+            manifest_artifact,
+        ]
+        diff_summary["gitStatusArtifactIds"] = [artifact["id"] for artifact in status_artifacts]
+        diff_summary["qaResultsArtifactId"] = qa_results_artifact["id"]
+        diff_summary["manifestArtifactId"] = manifest_artifact["id"]
+        related_agent_run_ids = {promoter_run["id"]}
+        if qa_summary and (qa_summary.get("agentRun") or {}).get("id"):
+            related_agent_run_ids.add(str(qa_summary["agentRun"]["id"]))
+        tool_calls = [
+            tool_call
+            for tool_call in self.agents.list_agent_tool_calls()
+            if str(tool_call.get("agentRunId")) in related_agent_run_ids
+        ]
+        evidence = self.evidence.update_evidence_links(
+            evidence["id"],
+            artifact_ids=[
+                str(artifact["id"])
+                for artifact in promotion_artifacts
+                if artifact.get("id") and artifact.get("evidencePackageId") == evidence["id"]
+            ],
+            diff_summary=diff_summary,
+            tool_calls=tool_calls,
+            artifacts=[artifact_ref(artifact) for artifact in promotion_artifacts],
+            hashes=artifact_hashes(promotion_artifacts),
+        )
+        completed = final_status == PROMOTED_TO_BRANCH_STATUS
+        contract_errors = evidence_package_contract_errors(
+            evidence,
+            require_runtime_links=completed,
+            require_workflow_run=True,
+        )
+        if completed and contract_errors:
+            final_status = PROMOTION_FAILED_STATUS
+            qa_verdict = "blocked"
+            final_reason = "Promotion evidence package contract is incomplete: " + "; ".join(contract_errors)
+            evidence = self.evidence.update_evidence_links(
+                evidence["id"],
+                qa_verdict=qa_verdict,
+                risk_notes=[
+                    {
+                        "severity": "high",
+                        "description": final_reason,
+                        "mitigation": "Regenerate promotion evidence with artifact refs and SHA-256 hashes before marking promoted.",
+                    }
+                ],
+            )
+            completed = False
+
+        promoter_run = self.agents.update_agent_run_status(
+            promoter_run["id"],
+            status="completed" if completed else "failed",
+            output_payload={
+                "verdict": final_status,
+                "summary": final_reason,
+                "branchName": target_branch,
+                "baseCommit": base_commit,
+                "approvedEvidencePackageId": approved_evidence_id,
+                "promotionEvidencePackageId": evidence["id"],
+                "patchArtifactId": patch_artifact["id"],
+                "qaResults": qa_results,
+                "diffSummary": diff_summary,
+                "evidence_refs": [approved_evidence_id, evidence["id"]],
+            },
+        )
+        promotion_job = self.jobs.update_job_status(
+            promotion_job["id"],
+            status="completed" if completed else "failed",
+            metadata={
+                "status": final_status,
+                "reason": final_reason,
+                "approvedEvidencePackageId": approved_evidence_id,
+                "promotionEvidencePackageId": evidence["id"],
+                "branchName": target_branch,
+                "baseCommit": base_commit,
+            },
+        )
+        workflow_metadata = {
+            **run_metadata,
+            "originalEvidencePackageId": approved_evidence_id,
+            "promotionEvidencePackageId": evidence["id"],
+            "promotionJobId": promotion_job["id"],
+            "promotionAgentRunId": promoter_run["id"],
+            "promotionWorkspaceId": workspace["id"],
+            "promotedBranchName": target_branch if completed else None,
+            "promotionStatus": final_status,
+            "promotionReason": final_reason,
+            "promotionDiffSummary": diff_summary,
+        }
+        workflow_run = self.workflows.update_workflow_run_status(
+            run_id,
+            status=final_status,
+            metadata=workflow_metadata,
+            completed=completed,
+            clear_completed=not completed,
+        )
+        workflow = self.workflows.update_workflow_status(workflow["id"], status=final_status, reason=final_reason)
+        if "local_tests" in steps:
+            self.workflows.update_workflow_step(
+                steps["local_tests"]["id"],
+                status="completed" if qa_verdict_allows_completion(qa_verdict, qa_results) else "blocked",
+                output={
+                    **(steps["local_tests"].get("output") or {}),
+                    "promotionQaResults": qa_results,
+                    "promotionEvidencePackageId": evidence["id"],
+                },
+            )
+        if "qa_validation" in steps:
+            self.workflows.update_workflow_step(
+                steps["qa_validation"]["id"],
+                status="completed" if completed else "blocked",
+                output={
+                    **(steps["qa_validation"].get("output") or {}),
+                    "promotionQaVerdict": qa_verdict,
+                    "promotionEvidencePackageId": evidence["id"],
+                },
+            )
+        if "technical_review" in steps:
+            self.workflows.update_workflow_step(
+                steps["technical_review"]["id"],
+                status="completed" if completed else "blocked",
+                output={
+                    **(steps["technical_review"].get("output") or {}),
+                    "promotionStatus": final_status,
+                    "branchName": target_branch,
+                    "promotionEvidencePackageId": evidence["id"],
+                    "reason": final_reason,
+                },
+                metadata={
+                    **(steps["technical_review"].get("metadata") or {}),
+                    "gateState": final_status,
+                },
+            )
+        event_payload = {
+            "workflowId": workflow["id"],
+            "workflowRunId": run_id,
+            "approvedEvidencePackageId": approved_evidence_id,
+            "promotionEvidencePackageId": evidence["id"],
+            "jobId": promotion_job["id"],
+            "agentRunId": promoter_run["id"],
+            "workspaceId": workspace["id"],
+            "branchName": target_branch,
+            "baseCommit": base_commit,
+            "status": final_status,
+            "reason": final_reason,
+        }
+        self.workflows.record_workflow_event(
+            workflow_id=workflow["id"],
+            workflow_run_id=run_id,
+            project_id=project_id,
+            event_type=f"workflow.issue_to_patch.{final_status}",
+            payload=event_payload,
+            severity="info" if completed else "warning",
+        )
+        EventBus(self.connection).record_event(
+            project_id=project_id,
+            job_id=promotion_job["id"],
+            event_type=f"workflow.issue_to_patch.{final_status}",
+            payload=event_payload,
+        )
+        EventBus(self.connection).record_audit(
+            project_id=project_id,
+            action=f"workflow.issue_to_patch.{final_status}",
+            actor=actor,
+            target=run_id,
+            payload=event_payload,
+        )
+        return {
+            "status": final_status,
+            "reason": final_reason,
+            "workflow": workflow,
+            "workflowRun": workflow_run,
+            "workflowSteps": self.workflows.list_workflow_steps(workflow_run_id=run_id),
+            "workspace": workspace,
+            "job": promotion_job,
+            "agentRun": promoter_run,
+            "evidencePackage": evidence,
+            "runtime": evidence.get("runtimeHealth") or {},
+            "runtimeResult": {"gitApplyCheck": apply_check, "gitApply": apply_result},
+            "qaResults": qa_results,
+            "diffSummary": diff_summary,
+        }
 
     def run(self, payload: dict[str, Any]) -> dict[str, Any]:
         title = str(payload["title"]).strip()
@@ -489,8 +1357,12 @@ class IssueToPatchRunner:
         runtime_status, reason = _status_for_failure(runtime)
         runtime_result: dict[str, Any] = _runtime_unavailable_result(reason)
         broker = ToolBroker(self.connection, artifact_root=self.root)
+        has_issue_to_patch_contract = "issue_to_patch" in set(runtime.get("capabilities") or [])
         if runtime.get("executable") and str(runtime["id"]) in CLI_RUNTIME_IDS and not workspace_auditable:
             reason = "issue_to_patch requires a Git worktree workspace before executing a productive runtime."
+            runtime_result = _runtime_unavailable_result(reason)
+        elif runtime.get("executable") and not has_issue_to_patch_contract:
+            reason = "Runtime is executable but does not advertise the issue_to_patch capability required by this workflow."
             runtime_result = _runtime_unavailable_result(reason)
         elif runtime.get("executable"):
             try:
@@ -700,8 +1572,15 @@ class IssueToPatchRunner:
             if model_calls
             else None
         )
+        runtime_artifact_ids = [
+            str(artifact_id)
+            for artifact_id in (runtime_result.get("stdoutArtifactId"), runtime_result.get("stderrArtifactId"))
+            if artifact_id
+        ]
+        runtime_artifacts = artifact_records_from_ids(self.evidence, runtime_artifact_ids)
         qa_artifacts = artifact_records_from_ids(self.evidence, qa_artifact_ids)
         artifact_records = [
+            *runtime_artifacts,
             *qa_artifacts,
             *status_artifacts,
             qa_results_artifact,

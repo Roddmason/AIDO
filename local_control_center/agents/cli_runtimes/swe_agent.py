@@ -17,11 +17,19 @@ class SweAgentRuntime(CliRuntime):
         connection: sqlite3.Connection | None = None,
     ):
         super().__init__(
-            executable=executable or os.environ.get("SWE_AGENT_CLI_PATH", "sweagent"),
+            executable=executable or os.environ.get("AIDO_SWE_AGENT_COMMAND") or os.environ.get("SWE_AGENT_CLI_PATH", "sweagent"),
             connection=connection,
         )
 
     def build_command(self, request: RuntimeRequest) -> list[str]:
         workspace = self._validate_workspace(request)
+        self._validate_git_workspace(workspace)
         self._validate_safe_args(request)
-        return [self.executable, "run", "--repo", str(workspace), *request.extra_args, request.prompt]
+        return [
+            self.executable,
+            "run",
+            f"--env.repo.path={workspace}",
+            f"--problem_statement.text={request.prompt}",
+            "--actions.apply_patch_locally",
+            *request.extra_args,
+        ]

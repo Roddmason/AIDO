@@ -109,6 +109,10 @@ class CliRuntime(ABC):
                 raise ValueError("workspace_path does not match registered workspace")
         return workspace
 
+    def _validate_git_workspace(self, workspace: Path) -> None:
+        if not (workspace / ".git").exists():
+            raise ValueError("workspace_path must be a Git worktree for this CLI runtime contract")
+
     def _validate_safe_args(self, request: RuntimeRequest) -> None:
         lowered = {str(arg).lower() for arg in request.extra_args}
         if lowered & DANGEROUS_CLI_FLAGS:

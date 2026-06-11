@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 
-import { approveAction, cancelJob, denyAction, downloadEvidenceArtifact, fetchEvidenceArtifact, retryJob } from '../../api/client';
+import { approveAction, approveIssueToPatch, cancelJob, denyAction, downloadEvidenceArtifact, fetchEvidenceArtifact, retryJob } from '../../api/client';
 import type { ArtifactPayload } from '../../api/client';
 import type { ActionRequest, Artifact, Job, Overview } from '../../api/types';
 import { Badge, DataTable, Drawer, EmptyState, PageHeader, Surface } from '../../components/primitives';
@@ -51,6 +51,13 @@ function linkedArtifacts(action: ActionRequest, overview: Overview): Artifact[] 
 function linkedEvidence(action: ActionRequest, overview: Overview) {
 	const ids = referenceIds(action);
 	return overview.evidencePackages.filter((evidence) => ids.has(String(evidence.id ?? '')) || String(evidence.jobId ?? '') === action.jobId);
+}
+
+function issueToPatchWorkflowRunId(action: ActionRequest): string {
+	if (action.actionType !== 'workflow.issue_to_patch.approve_patch') return '';
+	const payload = asRecord(action.payload);
+	const workflowRunId = payload.workflowRunId;
+	return typeof workflowRunId === 'string' ? workflowRunId : '';
 }
 
 function DetailRow({ label, value }: { label: string; value: string }) {
@@ -114,11 +121,17 @@ export function JobsApprovalsPage({
 		}
 		setDecisionError('');
 		try {
-			await mutate((writeToken) =>
-				kind === 'approve'
-					? approveAction(writeToken, selectedAction.jobId, selectedAction.id, trimmedDecisionReason)
-					: denyAction(writeToken, selectedAction.jobId, selectedAction.id, trimmedDecisionReason),
-			);
+			await mutate(async (writeToken) => {
+				if (kind === 'reject') {
+					return denyAction(writeToken, selectedAction.jobId, selectedAction.id, trimmedDecisionReason);
+				}
+				const approved = await approveAction(writeToken, selectedAction.jobId, selectedAction.id, trimmedDecisionReason);
+				const workflowRunId = issueToPatchWorkflowRunId(selectedAction);
+				if (workflowRunId) {
+					return approveIssueToPatch(writeToken, workflowRunId, trimmedDecisionReason);
+				}
+				return approved;
+			});
 			closeReview();
 		} catch (error) {
 			setDecisionError(error instanceof Error ? error.message : 'Decision failed.');

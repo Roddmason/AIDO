@@ -37,6 +37,31 @@ def git_current_branch(path: Path) -> str | None:
     return result.stdout.strip() or None
 
 
+def git_branch_name_error(repo_path: Path, branch_name: str) -> str | None:
+    clean_name = branch_name.strip()
+    if not clean_name:
+        return "Branch name is required."
+    lowered = clean_name.lower()
+    if lowered in {"head", "main", "master"}:
+        return "Promotion branch cannot target HEAD, main, or master."
+    if clean_name.startswith("-"):
+        return "Branch name cannot start with '-'."
+    if "\\" in clean_name or any(part in {"", ".", ".."} for part in clean_name.split("/")):
+        return "Branch name contains an unsafe path segment."
+    if clean_name.endswith(("/", ".", ".lock")) or ".." in clean_name or "@{" in clean_name:
+        return "Branch name is not a valid Git branch ref."
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._/-]{0,127}", clean_name):
+        return "Branch name must contain only letters, numbers, '.', '_', '-' and '/'."
+
+    ref_check = run_git(["-C", str(repo_path), "check-ref-format", "--branch", clean_name])
+    if ref_check.returncode != 0:
+        return ref_check.stderr.strip() or "Branch name is not accepted by git check-ref-format."
+    existing = run_git(["-C", str(repo_path), "show-ref", "--verify", "--quiet", f"refs/heads/{clean_name}"])
+    if existing.returncode == 0:
+        return f"Branch already exists: {clean_name}"
+    return None
+
+
 def create_git_worktree(
     *,
     repo_path: Path,
@@ -44,6 +69,7 @@ def create_git_worktree(
     task_id: str,
     workspace_id: str,
     base_branch: str = "HEAD",
+    branch_name: str | None = None,
 ) -> dict[str, Any]:
     if not git_available():
         return {"status": "degraded_git_unavailable"}
@@ -51,18 +77,25 @@ def create_git_worktree(
         return {"status": "degraded_not_git_repo"}
     source_commit = git_head_commit(repo_path, base_branch)
     source_branch = git_current_branch(repo_path)
-    branch_name = f"aido/{slugify_branch_segment(task_id)}/{workspace_id.removeprefix('workspace-')[:8]}"
+    resolved_branch_name = branch_name or f"aido/{slugify_branch_segment(task_id)}/{workspace_id.removeprefix('workspace-')[:8]}"
+    branch_error = git_branch_name_error(repo_path, resolved_branch_name)
+    if branch_error:
+        return {
+            "status": "degraded_invalid_branch_name",
+            "branchName": resolved_branch_name,
+            "stderr": branch_error,
+        }
     worktree_path.parent.mkdir(parents=True, exist_ok=True)
-    result = run_git(["-C", str(repo_path), "worktree", "add", "-b", branch_name, str(worktree_path), base_branch])
+    result = run_git(["-C", str(repo_path), "worktree", "add", "-b", resolved_branch_name, str(worktree_path), base_branch])
     if result.returncode != 0:
         return {
             "status": "degraded_worktree_failed",
-            "branchName": branch_name,
+            "branchName": resolved_branch_name,
             "stderr": result.stderr.strip()[:1000],
         }
     return {
         "status": "created",
-        "branchName": branch_name,
+        "branchName": resolved_branch_name,
         "baseBranch": base_branch,
         "sourceCommit": source_commit,
         "sourceBranch": source_branch,

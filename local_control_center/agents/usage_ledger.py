@@ -45,7 +45,7 @@ def row_to_usage(row: sqlite3.Row) -> dict[str, Any]:
 
 def _usage_source_from_raw(raw_usage: dict[str, Any] | None, actual_cost_usd: float | None) -> str:
     raw_source = str((raw_usage or {}).get("usage_source") or "").strip().lower()
-    if raw_source in {"actual", "estimated", "unavailable"}:
+    if raw_source in {"actual", "estimated", "unavailable", "unknown"}:
         return raw_source
     if raw_source in {"not_available", "none"}:
         return "unavailable"

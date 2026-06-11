@@ -450,6 +450,40 @@ This sets the workflow run to `approved_for_integration` and the linked job and
 agent run to `approved`. It does not mark the work `completed`; PR creation,
 branch promotion, and release gates remain explicit later steps.
 
+After approval, promote the verified patch to a local branch and rerun QA:
+
+```powershell
+Invoke-RestMethod "$base/api/v1/workflows/issue-to-patch/<workflow-run-id>/promote" `
+  -Method Post `
+  -Headers @{ "X-AIDO-Token" = $token } `
+  -ContentType "application/json" `
+  -Body (@{
+    reason = "Promote approved patch to an auditable local branch."
+    branchName = "aido/promote/example"
+  } | ConvertTo-Json)
+```
+
+GitHub PR creation is optional and is not required for startup. Configure it
+only when needed:
+
+```powershell
+$env:AIDO_GITHUB_TOKEN = "<token>"
+$env:AIDO_GITHUB_REMOTE = "owner/repo"
+
+Invoke-RestMethod "$base/api/v1/workflows/issue-to-patch/<workflow-run-id>/pull-request" `
+  -Method Post `
+  -Headers @{ "X-AIDO-Token" = $token } `
+  -ContentType "application/json" `
+  -Body (@{
+    reason = "Open PR after approved evidence, promotion QA, and audit review."
+    baseBranch = "main"
+  } | ConvertTo-Json)
+```
+
+If GitHub config is missing the command returns `pr_unavailable`. If GitHub
+rejects the request it returns `pr_failed` with evidence; no PR URL is
+fabricated.
+
 ## Common Commands
 
 ```powershell

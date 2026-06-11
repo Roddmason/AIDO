@@ -181,6 +181,20 @@ QA again, and writes a separate promotion evidence package. Failed apply or QA
 attempts produce `promotion_failed` evidence instead of marking the run
 promoted.
 
+GitHub pull request creation is optional and request-scoped. Startup does not
+require GitHub credentials or remote configuration. `POST
+/api/v1/workflows/issue-to-patch/{runId}/pull-request` reads
+`AIDO_GITHUB_TOKEN` and `AIDO_GITHUB_REMOTE` only when called. The command
+creates a PR only from the previously promoted branch and only after approved
+evidence, promotion evidence, passed promotion QA, artifact hashes, and
+non-blocking security findings are available. Missing GitHub configuration
+returns `pr_unavailable` with evidence. GitHub API failure returns `pr_failed`
+with the real HTTP response and leaves the workflow run at
+`promoted_to_branch`; no placeholder PR URL or success state is recorded. A
+real GitHub HTTP 201 response records `pr_created`, persists evidence artifacts
+for the request, response, and manifest, and stores the PR metadata without the
+token.
+
 Evidence package records carry direct linkage for `workflowStepId`, `jobId`,
 `agentRunId`, `workspaceId`, `runtimeId`, `artifactIds`, and `diffSummary`.
 Detailed run, job, workspace, artifact, and test records remain normalized and

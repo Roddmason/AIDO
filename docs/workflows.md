@@ -113,6 +113,28 @@ base commit, git status, git command output, QA results, artifact refs and
 hashes. If `git apply` or post-apply QA fails, the command returns
 `promotion_failed` with evidence and does not mark the workflow promoted.
 
+Optional GitHub PR creation is a separate command:
+`POST /api/v1/workflows/issue-to-patch/{runId}/pull-request`. GitHub is not
+required for process startup. The command reads configuration only at request
+time from:
+
+- `AIDO_GITHUB_TOKEN`
+- `AIDO_GITHUB_REMOTE`
+
+`create_pull_request_from_promoted_branch` requires a prior
+`promoted_to_branch` state, a promoted branch name, the promotion evidence
+package, passed promotion QA, approved evidence, a non-blocking security
+findings artifact, and an approval reason. If GitHub configuration is missing,
+the command returns `pr_unavailable` evidence and leaves the workflow run at
+`promoted_to_branch` so it can be retried after configuration. If GitHub
+returns an error, the command returns `pr_failed` evidence and does not invent a
+PR URL. Only an HTTP 201 GitHub response moves the workflow run to
+`pr_created`.
+
+The PR body is generated from audited evidence and includes the approved and
+promotion evidence package ids, promotion QA summary, security findings,
+artifact hashes, and approval/request reasons.
+
 ## PR, Release And Retro Gates
 
 The `pr_release_retro` kind and declared `metadata.steps` support controlled

@@ -32,6 +32,7 @@ WorkflowStatus = Literal[
     "approved_for_integration",
     "promotion_failed",
     "promoted_to_branch",
+    "pr_created",
 ]
 WorkflowRunStatus = Literal[
     "running",
@@ -44,6 +45,7 @@ WorkflowRunStatus = Literal[
     "approved_for_integration",
     "promotion_failed",
     "promoted_to_branch",
+    "pr_created",
 ]
 WorkflowStepStatus = Literal["pending", "ready", "running", "completed", "failed", "blocked", "skipped"]
 WorkflowRiskLevel = Literal["low", "medium", "high", "critical"]
@@ -66,6 +68,12 @@ class PromotePatchToBranchRequest(BaseModel):
     branch_name: str | None = Field(default=None, alias="branchName")
     evidence_package_id: str | None = Field(default=None, alias="evidencePackageId")
     qa_commands: list[list[str]] | None = Field(default=None, alias="qaCommands")
+
+
+class PullRequestCreateRequest(BaseModel):
+    reason: str
+    title: str | None = None
+    base_branch: str | None = Field(default=None, alias="baseBranch")
 
 
 class WorkflowGateAdvanceRequest(BaseModel):
@@ -175,6 +183,7 @@ class IssueToPatchResponse(BaseModel):
     runtime_result: dict[str, Any] = Field(alias="runtimeResult")
     qa_results: list[dict[str, Any]] = Field(alias="qaResults")
     diff_summary: dict[str, Any] = Field(alias="diffSummary")
+    pull_request: dict[str, Any] | None = Field(default=None, alias="pullRequest")
 
 
 class WorkflowGateAdvanceResponse(BaseModel):

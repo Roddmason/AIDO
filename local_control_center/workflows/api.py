@@ -20,6 +20,7 @@ from .models import (
     IssueToPatchRequest,
     IssueToPatchResponse,
     PromotePatchToBranchRequest,
+    PullRequestCreateRequest,
     WorkflowCreateRequest,
     WorkflowDetailResponse,
     WorkflowGateAdvanceRequest,
@@ -317,6 +318,38 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
                 "jobId": result["job"]["id"],
                 "agentRunId": result["agentRun"]["id"],
                 "branchName": result["diffSummary"].get("branch"),
+            },
+        )
+        return result
+
+    @router.post("/api/v1/workflows/issue-to-patch/{run_id}/pull-request", status_code=202, response_model=IssueToPatchResponse)
+    async def create_pull_request_from_promoted_branch(
+        run_id: str,
+        body: PullRequestCreateRequest,
+        request: Request,
+    ) -> dict[str, Any]:
+        require_write(request)
+        try:
+            result = IssueToPatchRunner(platform.connection, root=platform.cwd).create_pull_request_from_promoted_branch(
+                run_id,
+                reason=body.reason,
+                title=body.title,
+                base_branch=body.base_branch,
+            )
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        event_bus().record_event(
+            project_id=result["workflow"]["projectId"],
+            event_type=f"workflow.issue_to_patch.{result['status']}",
+            payload={
+                "workflowId": result["workflow"]["id"],
+                "workflowRunId": result["workflowRun"]["id"],
+                "evidencePackageId": result["evidencePackage"]["id"],
+                "jobId": result["job"]["id"],
+                "agentRunId": result["agentRun"]["id"],
+                "pullRequest": result.get("pullRequest"),
             },
         )
         return result

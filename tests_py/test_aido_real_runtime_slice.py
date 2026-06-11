@@ -3,6 +3,8 @@ from __future__ import annotations
 import hashlib
 import json
 import sys
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +30,8 @@ def create_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Cont
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
     monkeypatch.delenv("AIDO_ENABLE_REAL_PROVIDER_CALLS", raising=False)
     monkeypatch.delenv("AIDO_ENABLE_CLI_RUNTIMES", raising=False)
+    monkeypatch.delenv("AIDO_GITHUB_TOKEN", raising=False)
+    monkeypatch.delenv("AIDO_GITHUB_REMOTE", raising=False)
     store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
     store.init()
     app = create_app(runtime=store, static_dir=None)
@@ -220,6 +224,103 @@ def approve_issue_to_patch_for_integration(
     )
     assert approved.status_code == 202
     return approved.json()
+
+
+def start_github_pr_http_mock(
+    *,
+    response_status: int = 201,
+    response_payload: dict[str, Any] | None = None,
+) -> tuple[ThreadingHTTPServer, str, list[dict[str, Any]]]:
+    requests: list[dict[str, Any]] = []
+    payload = response_payload or {
+        "id": 9001,
+        "number": 42,
+        "url": "https://api.github.test/repos/aido/patches/pulls/42",
+        "html_url": "https://github.test/aido/patches/pull/42",
+    }
+
+    class GitHubPRHandler(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            length = int(self.headers.get("Content-Length") or "0")
+            raw_body = self.rfile.read(length)
+            try:
+                body = json.loads(raw_body.decode("utf-8") or "{}")
+            except json.JSONDecodeError:
+                body = {"raw": raw_body.decode("utf-8", errors="replace")}
+            requests.append(
+                {
+                    "path": self.path,
+                    "headers": dict(self.headers),
+                    "body": body,
+                }
+            )
+            self.send_response(response_status)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(payload).encode("utf-8"))
+
+        def log_message(self, _format: str, *_args: Any) -> None:
+            return
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), GitHubPRHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    origin = f"http://127.0.0.1:{server.server_address[1]}"
+    return server, origin, requests
+
+
+def create_promoted_issue_to_patch(
+    store: ControlPlaneFixture,
+    client: TestClient,
+    headers: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    branch_name: str,
+    project_name: str,
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any]]:
+    project = create_git_project(store, tmp_path, name=project_name)
+    monkeypatch.setattr(
+        "local_control_center.workflows.issue_to_patch_runner.RuntimeStatusService.list_provider_statuses",
+        lambda _service: controlled_issue_to_patch_runtime_status(),
+    )
+    created_response = client.post(
+        "/api/v1/workflows/issue-to-patch",
+        headers=headers,
+        json={
+            "projectId": project["id"],
+            "title": "Create patch for pull request",
+            "issueText": "Create patched.txt.",
+            "preferredRuntime": "codex_cli",
+            "qaCommands": [[sys.executable, "--version"]],
+            "requireApproval": True,
+        },
+    )
+    assert created_response.status_code == 202
+    created = created_response.json()
+    approved = approve_issue_to_patch_for_integration(client, headers, created)
+    promoted_response = client.post(
+        f"/api/v1/workflows/issue-to-patch/{created['workflowRun']['id']}/promote",
+        headers=headers,
+        json={"reason": "Promote approved patch before PR creation.", "branchName": branch_name},
+    )
+    assert promoted_response.status_code == 202
+    promoted = promoted_response.json()
+    assert promoted["status"] == "promoted_to_branch"
+    return project, created, approved, promoted
+
+
+def test_github_pull_request_config_is_not_required_for_startup(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("AIDO_GITHUB_TOKEN", raising=False)
+    monkeypatch.delenv("AIDO_GITHUB_REMOTE", raising=False)
+    _store, client, _headers = create_client(tmp_path, monkeypatch)
+
+    response = client.get("/api/v1/workflows")
+
+    assert response.status_code == 200
 
 
 def test_runtime_provider_configuration_endpoint_detects_aido_env_without_exposing_values(
@@ -1294,6 +1395,198 @@ def test_promote_patch_to_branch_does_not_mark_promoted_when_post_apply_qa_fails
     overview = client.get("/api/v1/overview").json()
     run = next(item for item in overview["workflowRuns"] if item["id"] == created["workflowRun"]["id"])
     assert run["status"] == "promotion_failed"
+
+
+@pytest.mark.skipif(not git_available(), reason="git CLI is not available")
+def test_create_pull_request_rejects_runs_without_promoted_branch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store, client, headers = create_client(tmp_path, monkeypatch)
+    project = create_git_project(store, tmp_path, name="PR Requires Promotion")
+    monkeypatch.setattr(
+        "local_control_center.workflows.issue_to_patch_runner.RuntimeStatusService.list_provider_statuses",
+        lambda _service: controlled_issue_to_patch_runtime_status(),
+    )
+    created = client.post(
+        "/api/v1/workflows/issue-to-patch",
+        headers=headers,
+        json={
+            "projectId": project["id"],
+            "title": "Create patch without promoting",
+            "issueText": "Create patched.txt.",
+            "preferredRuntime": "codex_cli",
+            "qaCommands": [[sys.executable, "--version"]],
+            "requireApproval": True,
+        },
+    ).json()
+    approve_issue_to_patch_for_integration(client, headers, created)
+    server, origin, requests = start_github_pr_http_mock()
+    try:
+        monkeypatch.setenv("AIDO_GITHUB_TOKEN", "unit-test-github-token")
+        monkeypatch.setenv("AIDO_GITHUB_REMOTE", f"{origin}/aido/patches.git")
+
+        response = client.post(
+            f"/api/v1/workflows/issue-to-patch/{created['workflowRun']['id']}/pull-request",
+            headers=headers,
+            json={"reason": "Create PR before branch promotion should be blocked."},
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+
+    assert response.status_code == 409
+    assert "promoted_to_branch" in response.json()["detail"]
+    assert requests == []
+
+
+@pytest.mark.skipif(not git_available(), reason="git CLI is not available")
+def test_create_pull_request_reports_pr_unavailable_when_github_config_is_missing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store, client, headers = create_client(tmp_path, monkeypatch)
+    _project, created, _approved, _promoted = create_promoted_issue_to_patch(
+        store,
+        client,
+        headers,
+        tmp_path,
+        monkeypatch,
+        branch_name="aido/promote/pr-config-missing",
+        project_name="PR Missing Config",
+    )
+
+    response = client.post(
+        f"/api/v1/workflows/issue-to-patch/{created['workflowRun']['id']}/pull-request",
+        headers=headers,
+        json={"reason": "Create PR when GitHub is configured."},
+    )
+
+    assert response.status_code == 202
+    body = response.json()
+    assert body["status"] == "pr_unavailable"
+    assert "AIDO_GITHUB_TOKEN" in body["reason"]
+    assert "AIDO_GITHUB_REMOTE" in body["reason"]
+    assert body["workflowRun"]["status"] == "promoted_to_branch"
+    assert body["evidencePackage"]["taskId"] == "create_pull_request"
+    assert body["evidencePackage"]["qaVerdict"] == "blocked"
+    assert body["pullRequest"] is None
+    overview = client.get("/api/v1/overview").json()
+    assert any(
+        event["action"] == "workflow.issue_to_patch.pr_unavailable"
+        and event["target"] == created["workflowRun"]["id"]
+        for event in overview["auditEvents"]
+    )
+
+
+@pytest.mark.skipif(not git_available(), reason="git CLI is not available")
+def test_create_pull_request_posts_audited_pr_body_from_promoted_branch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store, client, headers = create_client(tmp_path, monkeypatch)
+    branch_name = "aido/promote/pr-success"
+    _project, created, approved, promoted = create_promoted_issue_to_patch(
+        store,
+        client,
+        headers,
+        tmp_path,
+        monkeypatch,
+        branch_name=branch_name,
+        project_name="PR Success",
+    )
+    server, origin, requests = start_github_pr_http_mock()
+    try:
+        monkeypatch.setenv("AIDO_GITHUB_TOKEN", "unit-test-github-token")
+        monkeypatch.setenv("AIDO_GITHUB_REMOTE", f"{origin}/aido/patches.git")
+
+        response = client.post(
+            f"/api/v1/workflows/issue-to-patch/{created['workflowRun']['id']}/pull-request",
+            headers=headers,
+            json={
+                "reason": "Open a PR after promoted evidence is reviewed.",
+                "title": "Patch: create audited file",
+                "baseBranch": "main",
+            },
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+
+    assert response.status_code == 202
+    body = response.json()
+    assert body["status"] == "pr_created"
+    assert body["workflowRun"]["status"] == "pr_created"
+    assert body["pullRequest"]["status"] == "created"
+    assert body["pullRequest"]["number"] == 42
+    assert body["pullRequest"]["htmlUrl"] == "https://github.test/aido/patches/pull/42"
+    assert len(requests) == 1
+    captured = requests[0]
+    captured_headers = {key.lower(): value for key, value in captured["headers"].items()}
+    assert captured["path"] == "/repos/aido/patches/pulls"
+    assert captured_headers["authorization"] == "Bearer unit-test-github-token"
+    assert "application/vnd.github+json" in captured_headers["accept"]
+    assert captured_headers["x-github-api-version"]
+    assert captured["body"]["head"] == branch_name
+    assert captured["body"]["base"] == "main"
+    assert captured["body"]["title"] == "Patch: create audited file"
+    pr_body = captured["body"]["body"]
+    assert promoted["evidencePackage"]["id"] in pr_body
+    assert approved["evidencePackage"]["id"] in pr_body
+    assert "QA Summary" in pr_body
+    assert "Security Findings" in pr_body
+    assert "Artifact Hashes" in pr_body
+    assert "Approval Reason" in pr_body
+    assert "Human reviewer approves the patch for branch integration." in pr_body
+    assert approved["diffSummary"]["patchArtifactId"] in pr_body
+    assert approved["diffSummary"]["securityFindingsArtifactId"] in pr_body
+    assert "unit-test-github-token" not in json.dumps(body)
+    artifact_names = {artifact.get("name") for artifact in body["evidencePackage"]["artifacts"]}
+    assert {"pull-request-request.json", "pull-request-response.json", "pull-request-evidence.json"} <= artifact_names
+
+
+@pytest.mark.skipif(not git_available(), reason="git CLI is not available")
+def test_create_pull_request_does_not_fake_success_when_github_api_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store, client, headers = create_client(tmp_path, monkeypatch)
+    branch_name = "aido/promote/pr-api-fails"
+    _project, created, _approved, _promoted = create_promoted_issue_to_patch(
+        store,
+        client,
+        headers,
+        tmp_path,
+        monkeypatch,
+        branch_name=branch_name,
+        project_name="PR API Fails",
+    )
+    server, origin, requests = start_github_pr_http_mock(
+        response_status=422,
+        response_payload={"message": "Validation Failed", "errors": [{"field": "head", "code": "invalid"}]},
+    )
+    try:
+        monkeypatch.setenv("AIDO_GITHUB_TOKEN", "unit-test-github-token")
+        monkeypatch.setenv("AIDO_GITHUB_REMOTE", f"{origin}/aido/patches.git")
+
+        response = client.post(
+            f"/api/v1/workflows/issue-to-patch/{created['workflowRun']['id']}/pull-request",
+            headers=headers,
+            json={"reason": "GitHub API failure must remain auditable.", "baseBranch": "main"},
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+
+    assert response.status_code == 202
+    body = response.json()
+    assert body["status"] == "pr_failed"
+    assert body["workflowRun"]["status"] == "promoted_to_branch"
+    assert body["pullRequest"]["status"] == "failed"
+    assert body["pullRequest"]["httpStatus"] == 422
+    assert "htmlUrl" not in body["pullRequest"]
+    assert len(requests) == 1
+    assert requests[0]["body"]["head"] == branch_name
 
 
 @pytest.mark.skipif(not git_available(), reason="git CLI is not available")

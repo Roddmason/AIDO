@@ -114,7 +114,7 @@ Fecha: 2026-05-20
 - `Authorization`, tokens y secret env names sensibles deben redacted en logs, artifacts y raw usage.
 - CLI runtimes son de alto riesgo: deben bloquear flags de bypass, ejecución fuera de workspace, acceso a secretos y network sin policy.
 - `local_private` debe bloquear proveedores remotos por defecto.
-- NVIDIA NIM debe tratarse como remote API trial/free-limited, no como runtime de edición de código.
+- NVIDIA NIM debe tratarse como remote API con pricing/usage desconocido hasta que el provider devuelva `usage` real y exista pricing verificado; no es runtime de edición de código.
 
 ## Dependencias existentes
 

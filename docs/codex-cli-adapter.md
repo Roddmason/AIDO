@@ -6,7 +6,7 @@
 
 ## Configuration
 
-- `CODEX_CLI_PATH=codex`
+- `AIDO_CODEX_COMMAND=codex`
 - `AIDO_ENABLE_CLI_RUNTIMES=false`
 
 Profiles seeded in the catalog include `codex_gpt55_developer`, `codex_gpt55_reviewer` and `codex_gpt55_xhigh_architect`.
@@ -20,6 +20,20 @@ Profiles seeded in the catalog include `codex_gpt55_developer`, `codex_gpt55_rev
 ## Testing
 
 Tests verify missing binary status and dangerous flag rejection.
+
+Release validation is a real opt-in smoke, not part of the unit suite:
+
+```powershell
+$env:AIDO_CODEX_COMMAND = "codex"
+$env:AIDO_ENABLE_CLI_RUNTIMES = "true"
+corepack pnpm@10.24.0 run smoke:codex:release
+```
+
+The smoke creates a temporary real Git repository, runs `issue_to_patch` through
+the configured Codex CLI, and fails the release validation if Codex is missing,
+the CLI syntax no longer matches the adapter, the workspace is not a Git
+worktree, the patch is empty, QA fails, or evidence artifacts/hashes are
+missing.
 
 ## Risks
 

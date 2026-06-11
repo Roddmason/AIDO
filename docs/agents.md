@@ -292,27 +292,31 @@ detection or subprocess execution. This prevents an unavailable local runtime
 from hiding malformed or unsafe adapter payloads.
 
 The optional runtime smoke script runs version checks automatically when a
-runtime CLI is detected. Deeper `issue_to_patch` smoke is intentionally
-release-profile only: set `AIDO_RUNTIME_ISSUE_TO_PATCH_SMOKE=1` plus
-`AIDO_OPENHANDS_ISSUE_TO_PATCH_ARGV_JSON` or
-`AIDO_SWE_AGENT_ISSUE_TO_PATCH_ARGV_JSON` with the exact installed CLI syntax.
-The script still submits the run through the agent profile, tool broker,
-policy, sandbox, and evidence path; it never launches those runtimes directly.
+runtime CLI is detected. Deeper `issue_to_patch` validation is intentionally
+release-profile only. OpenHands and SWE-agent now have dedicated opt-in release
+validators:
 
-For release validation runners, set `AIDO_RUNTIME_RELEASE_VALIDATION=1`.
-That mode forces `issue_to_patch` smoke on and fails early unless both runtime
-argv variables and their matching issue text variables are supplied:
-`AIDO_OPENHANDS_ISSUE_TO_PATCH_ARGV_JSON`,
-`AIDO_OPENHANDS_ISSUE_TEXT`, `AIDO_SWE_AGENT_ISSUE_TO_PATCH_ARGV_JSON`, and
-`AIDO_SWE_AGENT_ISSUE_TEXT`. The first argv element must resolve to an
-installed command or an existing executable path on the runner.
+```powershell
+$env:AIDO_OPENHANDS_COMMAND = "openhands"
+$env:AIDO_ENABLE_CLI_RUNTIMES = "true"
+corepack pnpm@10.24.0 run smoke:openhands:release
 
-Release validation runners should export those environment variables and run
-`local-control-center/scripts/smoke-runtime-adapters.ps1 -PreflightOnly` before
-starting the control center. That preflight emits a JSON report per adapter and
-fails before server startup if any required argv, issue text, or executable is
-missing. The repo does not ship a GitHub quality workflow; optional runtime
-validation remains an explicit local or release-runner action.
+$env:AIDO_SWE_AGENT_COMMAND = "sweagent"
+$env:AIDO_ENABLE_CLI_RUNTIMES = "true"
+corepack pnpm@10.24.0 run smoke:swe-agent:release
+```
+
+Those validators create a temporary Git repository, run the real
+`issue_to_patch` workflow, and fail unless patch, QA, evidence, hashes, and
+stdout/stderr artifacts are present. `AIDO_OPENHANDS_ISSUE_TO_PATCH_ARGV_JSON`
+and `AIDO_SWE_AGENT_ISSUE_TO_PATCH_ARGV_JSON` can override argv with explicit
+structured JSON. Supported placeholders are `{workspace}`, `{workspace_path}`,
+`{prompt}`, `{issue_text}` and `{title}`. Invalid syntax reports
+`runtime_unavailable` or release validation failure; it is not converted into a
+capability.
+
+The repo does not ship a GitHub quality workflow; optional runtime validation
+remains an explicit local or release-runner action.
 
 ## Runtime Adapter Execution
 

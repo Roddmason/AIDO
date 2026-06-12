@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 from local_control_center.app import create_app
 from local_control_center.shared.serialization import json_loads
 from tests_py.control_plane_fixture import ControlPlaneFixture
+from tests_py.evidence_helpers import real_qa_evidence_fields
 
 
 def auth_headers(client: TestClient) -> dict[str, str]:
@@ -210,9 +211,9 @@ def test_pr_review_gate_advances_only_with_passed_qa_evidence(tmp_path: Path, mo
             "workflowRunId": run["id"],
             "taskId": "qa_validation",
             "testPlan": "Regression gate",
-            "testResults": [{"command": "uv run pytest tests_py -q", "status": "passed"}],
             "logs": [{"name": "qa-results.log", "content": qa_log}],
             "qaVerdict": "passed",
+            **real_qa_evidence_fields(),
         },
         headers=headers,
     )
@@ -258,6 +259,7 @@ def test_pr_review_rejects_passed_verdict_with_failed_test_results(tmp_path: Pat
             {"command": "uv run pytest", "status": "passed"},
             {"command": "corepack pnpm test:web", "status": "failed"},
         ],
+        evidence_source="qa_passed_by_command",
         qa_verdict="passed",
     )
 

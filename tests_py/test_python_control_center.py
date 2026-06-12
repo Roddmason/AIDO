@@ -139,6 +139,27 @@ def test_fastapi_contracts_jobs_approvals_sse_and_retrieval(tmp_path: Path, monk
     assert search.json()["results"][0]["memoryItem"]["content"].startswith("Python FastAPI workers")
 
 
+def test_static_routes_resolve_relative_static_dir_at_app_creation(tmp_path: Path, monkeypatch) -> None:
+    app_root = tmp_path / "app-root"
+    static_dir = app_root / "dist"
+    other_cwd = tmp_path / "other"
+    static_dir.mkdir(parents=True)
+    other_cwd.mkdir()
+    (static_dir / "index.html").write_text("<html><body>control shell</body></html>", encoding="utf-8")
+
+    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store.init()
+
+    monkeypatch.chdir(app_root)
+    app = create_app(runtime=store, static_dir=Path("dist"))
+    monkeypatch.chdir(other_cwd)
+
+    response = TestClient(app).get("/")
+
+    assert response.status_code == 200
+    assert "control shell" in response.text
+
+
 def test_sse_snapshot_does_not_race_shared_store_connection(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
     store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")

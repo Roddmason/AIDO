@@ -19,6 +19,8 @@ from ..workspaces_projects.repository import WorkspacesRepository
 from .models import (
     IssueToPatchRequest,
     IssueToPatchResponse,
+    IssueToPrRequest,
+    IssueToPrResponse,
     PromotePatchToBranchRequest,
     PullRequestCreateRequest,
     WorkflowCreateRequest,
@@ -31,6 +33,7 @@ from .models import (
     WorkflowStatusChangeRequest,
 )
 from .issue_to_patch_runner import IssueToPatchRunner
+from .issue_to_pr_runner import IssueToPrRunner
 from .repository import WorkflowsRepository
 from .repository import validate_workflow_metadata
 
@@ -110,6 +113,11 @@ def validate_issue_to_patch_body(body: IssueToPatchRequest) -> dict[str, Any]:
     for index, argv in enumerate(qa_commands):
         if not isinstance(argv, list) or not argv or not all(isinstance(item, str) and item for item in argv):
             raise HTTPException(status_code=422, detail=f"qaCommands[{index}] must be a non-empty structured argv list.")
+    return payload
+
+
+def validate_issue_to_pr_body(body: IssueToPrRequest) -> dict[str, Any]:
+    payload = validate_issue_to_patch_body(body)
     return payload
 
 
@@ -343,6 +351,115 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         event_bus().record_event(
             project_id=result["workflow"]["projectId"],
             event_type=f"workflow.issue_to_patch.{result['status']}",
+            payload={
+                "workflowId": result["workflow"]["id"],
+                "workflowRunId": result["workflowRun"]["id"],
+                "evidencePackageId": result["evidencePackage"]["id"],
+                "jobId": result["job"]["id"],
+                "agentRunId": result["agentRun"]["id"],
+                "pullRequest": result.get("pullRequest"),
+            },
+        )
+        return result
+
+    @router.post("/api/v1/workflows/issue-to-pr", status_code=202, response_model=IssueToPrResponse)
+    async def run_issue_to_pr(body: IssueToPrRequest, request: Request) -> dict[str, Any]:
+        require_write(request)
+        payload = validate_issue_to_pr_body(body)
+        try:
+            result = IssueToPrRunner(platform.connection, root=platform.cwd).run(payload)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        event_bus().record_event(
+            project_id=result["workflow"]["projectId"],
+            event_type=f"workflow.issue_to_pr.{result['status']}",
+            payload={
+                "workflowId": result["workflow"]["id"],
+                "workflowRunId": result["workflowRun"]["id"],
+                "evidencePackageId": result["evidencePackage"]["id"],
+                "jobId": result["job"]["id"],
+                "agentRunId": result["agentRun"]["id"],
+            },
+        )
+        return result
+
+    @router.post("/api/v1/workflows/issue-to-pr/{run_id}/approve", status_code=202, response_model=IssueToPrResponse)
+    async def approve_issue_to_pr(run_id: str, body: WorkflowStatusChangeRequest, request: Request) -> dict[str, Any]:
+        require_write(request)
+        reason = str(body.reason or "").strip()
+        if not reason:
+            raise HTTPException(status_code=422, detail="Approval reason is required.")
+        try:
+            result = IssueToPrRunner(platform.connection, root=platform.cwd).approve_issue_to_pr(run_id, reason=reason)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        event_bus().record_event(
+            project_id=result["workflow"]["projectId"],
+            event_type=f"workflow.issue_to_pr.{result['status']}",
+            payload={
+                "workflowId": result["workflow"]["id"],
+                "workflowRunId": result["workflowRun"]["id"],
+                "evidencePackageId": result["evidencePackage"]["id"],
+                "jobId": result["job"]["id"],
+                "agentRunId": result["agentRun"]["id"],
+            },
+        )
+        return result
+
+    @router.post("/api/v1/workflows/issue-to-pr/{run_id}/promote", status_code=202, response_model=IssueToPrResponse)
+    async def promote_issue_to_pr_branch(run_id: str, body: PromotePatchToBranchRequest, request: Request) -> dict[str, Any]:
+        require_write(request)
+        try:
+            result = IssueToPrRunner(platform.connection, root=platform.cwd).promote_branch(
+                run_id,
+                reason=body.reason,
+                branch_name=body.branch_name,
+                evidence_package_id=body.evidence_package_id,
+                qa_commands=body.qa_commands,
+            )
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        event_bus().record_event(
+            project_id=result["workflow"]["projectId"],
+            event_type=f"workflow.issue_to_pr.{result['status']}",
+            payload={
+                "workflowId": result["workflow"]["id"],
+                "workflowRunId": result["workflowRun"]["id"],
+                "evidencePackageId": result["evidencePackage"]["id"],
+                "jobId": result["job"]["id"],
+                "agentRunId": result["agentRun"]["id"],
+                "branchName": result["diffSummary"].get("branch"),
+            },
+        )
+        return result
+
+    @router.post("/api/v1/workflows/issue-to-pr/{run_id}/pull-request", status_code=202, response_model=IssueToPrResponse)
+    async def create_pull_request_from_issue_to_pr(
+        run_id: str,
+        body: PullRequestCreateRequest,
+        request: Request,
+    ) -> dict[str, Any]:
+        require_write(request)
+        try:
+            result = IssueToPrRunner(platform.connection, root=platform.cwd).create_pull_request(
+                run_id,
+                reason=body.reason,
+                title=body.title,
+                base_branch=body.base_branch,
+            )
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        event_bus().record_event(
+            project_id=result["workflow"]["projectId"],
+            event_type=f"workflow.issue_to_pr.{result['status']}",
             payload={
                 "workflowId": result["workflow"]["id"],
                 "workflowRunId": result["workflowRun"]["id"],

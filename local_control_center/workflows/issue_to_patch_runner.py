@@ -7,11 +7,12 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from local_control_center.agents.developer_agent import DeveloperAgentRunner
+from local_control_center.agents.developer_agent_contract import is_developer_runtime
 from local_control_center.agents.qa_agent import QAAgentRunner, qa_verdict_allows_completion
 from local_control_center.agents.repository import AgentsRepository
-from local_control_center.agents.runtime_registry import RuntimeCommandUnavailableError, build_issue_to_patch_argv
+from local_control_center.agents.runtime_registry import issue_to_patch_prompt
 from local_control_center.agents.runtime_status import RuntimeStatusService
-from local_control_center.agents.tool_broker import ToolBroker
 from local_control_center.evidence.artifacts import artifact_hashes, artifact_records_from_ids, artifact_ref, write_text_artifact
 from local_control_center.evidence.quality import evidence_package_contract_errors
 from local_control_center.evidence.repository import EvidenceRepository
@@ -43,6 +44,7 @@ PR_CREATED_STATUS = "pr_created"
 PR_FAILED_STATUS = "pr_failed"
 PR_UNAVAILABLE_STATUS = "pr_unavailable"
 ISSUE_TO_PATCH_APPROVAL_ACTION = "workflow.issue_to_patch.approve_patch"
+ISSUE_TO_PR_APPROVAL_ACTION = "workflow.issue_to_pr.approve_issue_to_pr"
 TERMINAL_STATUSES = {"completed", RUNTIME_UNAVAILABLE_STATUS, "qa_failed", "evidence_ready", "failed"}
 CLI_SYNTAX_ERROR_MARKERS = (
     "unknown option",
@@ -96,7 +98,7 @@ def _select_runtime(
         (
             status
             for status in statuses
-            if status.get("executable") and "issue_to_patch" in set(status.get("capabilities") or [])
+            if is_developer_runtime(status)
         ),
         {
             "id": "unresolved",
@@ -106,7 +108,7 @@ def _select_runtime(
             "available": False,
             "executable": False,
             "requiresApproval": True,
-            "reason": "No executable issue_to_patch runtime is configured.",
+            "reason": "No executable DeveloperAgent runtime is configured for issue_to_patch.",
             "capabilities": [],
             "safety": {"workspaceBound": True, "shell": False, "structuredArgv": True, "network": "unknown"},
         },
@@ -326,6 +328,30 @@ def _write_json_evidence_artifact(
     )
 
 
+def _dedupe_artifact_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    deduped: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for record in records:
+        record_id = str(record.get("id") or "")
+        if not record_id or record_id in seen:
+            continue
+        seen.add(record_id)
+        deduped.append(record)
+    return deduped
+
+
+def _developer_instruction_for_issue(
+    *,
+    title: str,
+    issue_text: str,
+    target_path: str | None,
+) -> str:
+    instruction = issue_to_patch_prompt(title=title, issue_text=issue_text)
+    if target_path:
+        instruction = f"{instruction}\nTarget path constraint:\n{target_path}\n"
+    return instruction
+
+
 def _artifact_content_bytes(artifact: dict[str, Any]) -> bytes:
     path = Path(str(artifact.get("path") or ""))
     if not path.exists() or not path.is_file():
@@ -349,13 +375,13 @@ def _find_linked_artifact(
 ) -> dict[str, Any] | None:
     for artifact in artifacts:
         metadata = artifact.get("metadata") if isinstance(artifact.get("metadata"), dict) else {}
-        if artifact_id and artifact.get("id") == artifact_id:
-            return artifact
+        if artifact_id and artifact.get("id") != artifact_id:
+            continue
         if kind and artifact.get("kind") != kind:
             continue
         if name and metadata.get("name") != name:
             continue
-        if kind or name:
+        if artifact_id or kind or name:
             return artifact
     return None
 
@@ -933,10 +959,11 @@ class IssueToPatchRunner:
 
         workflow_run = self.workflows.get_workflow_run(run_id)
         workflow = self.workflows.get_workflow(workflow_run["workflowId"])
-        if workflow["kind"] != "issue_to_patch":
-            raise ValueError("Only issue_to_patch workflow runs can use promote_patch_to_branch.")
+        if workflow["kind"] not in {"issue_to_patch", "issue_to_pr"}:
+            raise ValueError("Only issue_to_patch or issue_to_pr workflow runs can use promote_patch_to_branch.")
         if workflow_run["status"] not in {APPROVED_FOR_INTEGRATION_STATUS, PROMOTION_FAILED_STATUS}:
             raise ValueError("promote_patch_to_branch requires an approved_for_integration workflow run.")
+        approval_action_type = ISSUE_TO_PR_APPROVAL_ACTION if workflow["kind"] == "issue_to_pr" else ISSUE_TO_PATCH_APPROVAL_ACTION
 
         run_metadata = workflow_run.get("metadata") or {}
         approved_evidence_id = str(
@@ -961,7 +988,7 @@ class IssueToPatchRunner:
         approval_actions = [
             action
             for action in self.jobs.list_action_requests(original_job_id)
-            if action["actionType"] == ISSUE_TO_PATCH_APPROVAL_ACTION
+            if action["actionType"] == approval_action_type
             and action["status"] == "approved"
             and (action.get("payload") or {}).get("workflowRunId") == run_id
             and (action.get("payload") or {}).get("evidencePackageId") == approved_evidence_id
@@ -1146,6 +1173,7 @@ class IssueToPatchRunner:
                 "reason": final_reason,
             },
             approvals=self.jobs.list_action_requests(original_job_id),
+            evidence_source="verified_completion" if qa_verdict == "passed" else "evidence_collected",
             qa_verdict=qa_verdict,
             risk_notes=[
                 {
@@ -1422,10 +1450,11 @@ class IssueToPatchRunner:
 
         workflow_run = self.workflows.get_workflow_run(run_id)
         workflow = self.workflows.get_workflow(workflow_run["workflowId"])
-        if workflow["kind"] != "issue_to_patch":
-            raise ValueError("Only issue_to_patch workflow runs can create pull requests from promoted branches.")
+        if workflow["kind"] not in {"issue_to_patch", "issue_to_pr"}:
+            raise ValueError("Only issue_to_patch or issue_to_pr workflow runs can create pull requests from promoted branches.")
         if workflow_run["status"] == PR_CREATED_STATUS:
             raise ValueError("Pull request was already created for this workflow run.")
+        approval_action_type = ISSUE_TO_PR_APPROVAL_ACTION if workflow["kind"] == "issue_to_pr" else ISSUE_TO_PATCH_APPROVAL_ACTION
 
         run_metadata = workflow_run.get("metadata") or {}
         promoted_branch_name = str(run_metadata.get("promotedBranchName") or "").strip()
@@ -1468,7 +1497,7 @@ class IssueToPatchRunner:
         approval_actions = [
             action
             for action in self.jobs.list_action_requests(original_job_id)
-            if action["actionType"] == ISSUE_TO_PATCH_APPROVAL_ACTION
+            if action["actionType"] == approval_action_type
             and action["status"] == "approved"
             and (action.get("payload") or {}).get("workflowRunId") == run_id
             and (action.get("payload") or {}).get("evidencePackageId") == approved_evidence_id
@@ -1566,7 +1595,7 @@ class IssueToPatchRunner:
             )
             if github_result.get("status") == "created":
                 final_status = PR_CREATED_STATUS
-                qa_verdict = "passed"
+                qa_verdict = "evidence_collected"
                 final_reason = "GitHub pull request created from promoted branch."
                 pull_request = {
                     "status": "created",
@@ -1658,6 +1687,7 @@ class IssueToPatchRunner:
                 "remote": (request_payload or {}).get("repository"),
             },
             approvals=approval_actions,
+            evidence_source="evidence_collected",
             qa_verdict=qa_verdict,
             risk_notes=[
                 {
@@ -1876,7 +1906,7 @@ class IssueToPatchRunner:
         runtime = _select_runtime(runtime_statuses, preferred_runtime=preferred_runtime)
         profile_id = "aido_issue_to_patch_runner"
         runtime_mode = _runtime_mode(str(runtime["id"]))
-        profile = self.agents.upsert_agent_profile(
+        self.agents.upsert_agent_profile(
             {
                 "id": profile_id,
                 "name": "AIDO Issue-to-Patch Runner",
@@ -1938,96 +1968,49 @@ class IssueToPatchRunner:
                 output={"workspaceId": workspace["id"], "path": workspace["path"]},
             )
 
-        agent_run = self.agents.create_agent_run(
-            project_id=payload["projectId"],
-            agent_profile_id=profile_id,
-            task_id="issue_to_patch",
-            input_payload=redact_secrets(
-                {
-                    **payload,
-                    "workflowRunId": workflow_run["id"],
-                    "workspaceId": workspace["id"],
-                    "workspacePath": workspace["path"],
-                }
-            ),
-            output_payload={},
-            job_id=job_result["job"]["id"],
-            workflow_run_id=workflow_run["id"],
-            workflow_step_id=steps.get("implementation", {}).get("id"),
-            status="running",
-        )
-
         workspace_auditable = workspace["isolationType"] == "git_worktree"
-        runtime_status, reason = _status_for_failure(runtime)
-        runtime_result: dict[str, Any] = _runtime_unavailable_result(reason)
-        broker = ToolBroker(self.connection, artifact_root=self.root)
-        has_issue_to_patch_contract = "issue_to_patch" in set(runtime.get("capabilities") or [])
-        if runtime.get("executable") and str(runtime["id"]) in CLI_RUNTIME_IDS and not workspace_auditable:
-            reason = "issue_to_patch requires a Git worktree workspace before executing a productive runtime."
-            runtime_result = _runtime_unavailable_result(reason)
-        elif runtime.get("executable") and not has_issue_to_patch_contract:
-            reason = "Runtime is executable but does not advertise the issue_to_patch capability required by this workflow."
-            runtime_result = _runtime_unavailable_result(reason)
-        elif runtime.get("executable"):
-            try:
-                runtime_argv = build_issue_to_patch_argv(
-                    runtime=runtime,
-                    workspace_id=workspace["id"],
-                    workspace_path=workspace["path"],
+        preflight_block_reason = ""
+        diff_blocker_state = RUNTIME_UNAVAILABLE_STATUS
+        if runtime.get("executable") and not workspace_auditable:
+            preflight_block_reason = "issue_to_patch requires a Git worktree workspace before executing a productive runtime."
+            diff_blocker_state = "workspace_not_auditable"
+
+        developer_result = DeveloperAgentRunner(self.connection, root=self.root).run(
+            {
+                "projectId": payload["projectId"],
+                "workspaceId": workspace["id"],
+                "taskId": "issue_to_patch",
+                "instruction": _developer_instruction_for_issue(
                     title=title,
                     issue_text=issue_text,
-                    workflow_run_id=workflow_run["id"],
-                    workflow_step_id=steps.get("implementation", {}).get("id"),
-                    agent_id=profile_id,
-                    connection=self.connection,
-                )
-            except RuntimeCommandUnavailableError as error:
-                reason = str(error)
-                runtime_result = _runtime_unavailable_result(reason)
-            else:
-                runtime_eval = broker.evaluate_tool_call(
-                    project_id=payload["projectId"],
-                    agent_run_id=agent_run["id"],
-                    agent_profile=profile,
-                    job_id=job_result["job"]["id"],
-                    tool_call={
-                        "tool": "shell",
-                        "command": _display_command(runtime_argv),
-                        "argv": runtime_argv,
-                        "workspaceId": workspace["id"],
-                        "workspacePath": workspace["path"],
-                        "path": workspace["path"],
-                        "operation": "issue_to_patch_runtime",
-                        "runtimeId": runtime["id"],
-                        "workflowKind": "issue_to_patch",
-                        "execute": True,
-                        "timeoutSeconds": 900,
-                    },
-                )
-                runtime_result = _execution_result_from_tool_call(runtime_eval["toolCall"])
-                runtime_status = str(runtime_result["status"])
+                    target_path=payload.get("targetPath"),
+                ),
+                "preferredRuntime": preferred_runtime,
+                "qaCommands": payload.get("qaCommands") or [],
+                "requireApproval": False,
+                "maxCostUsd": payload.get("maxCostUsd"),
+                "workflowRunId": workflow_run["id"],
+                "workflowStepId": steps.get("implementation", {}).get("id"),
+                "qaWorkflowStepId": steps.get("qa_validation", {}).get("id"),
+                "jobId": job_result["job"]["id"],
+                "preflightBlockReason": preflight_block_reason,
+                "diffBlockerState": diff_blocker_state,
+            }
+        )
 
+        workspace = developer_result["workspace"]
+        job = developer_result["job"]
+        agent_run = developer_result["agentRun"]
+        runtime = developer_result["runtime"]
+        runtime_result: dict[str, Any] = developer_result["runtimeResult"]
+        runtime_status = str(runtime_result.get("status") or developer_result["status"])
+        reason = str(runtime_result.get("reason") or developer_result.get("reason") or "")
         diff = capture_git_diff(Path(workspace["path"]))
         if runtime_status == RUNTIME_UNAVAILABLE_STATUS:
-            diff["blockerState"] = "workspace_not_auditable" if runtime.get("executable") and not workspace_auditable else RUNTIME_UNAVAILABLE_STATUS
-        qa_results: list[dict[str, Any]] = []
-        qa_artifact_ids: list[str] = []
-        qa_agent_run: dict[str, Any] | None = None
-        if runtime_status == "completed":
-            qa_summary = QAAgentRunner(self.connection, root=self.root).run_for_context(
-                project_id=payload["projectId"],
-                workspace_id=workspace["id"],
-                task_id="issue_to_patch",
-                commands=payload.get("qaCommands") or [],
-                workflow_run_id=workflow_run["id"],
-                workflow_step_id=steps.get("qa_validation", {}).get("id"),
-                job_id=job_result["job"]["id"],
-                parent_agent_run_id=agent_run["id"],
-                metadata={"source": "issue_to_patch"},
-            )
-            qa_results = qa_summary["results"]
-            qa_artifact_ids = qa_summary["artifactIds"]
-            qa_agent_run = qa_summary["agentRun"]
+            diff["blockerState"] = diff_blocker_state
+        qa_results = developer_result["qaResults"]
+        qa_agent_run_id = str((agent_run.get("output") or {}).get("qaAgentRunId") or "")
+        evidence = developer_result["evidencePackage"]
 
         final_status, qa_verdict, final_reason = _complete_run_status(
             runtime_status=runtime_status,
@@ -2037,54 +2020,7 @@ class IssueToPatchRunner:
             evidence_created=True,
         )
         if final_status == RUNTIME_UNAVAILABLE_STATUS:
-            final_reason = reason
-        evidence = self.evidence.create_evidence_package(
-            project_id=payload["projectId"],
-            workflow_run_id=workflow_run["id"],
-            workflow_step_id=steps.get("qa_validation", {}).get("id"),
-            agent_id=profile_id,
-            agent_run_id=agent_run["id"],
-            job_id=job_result["job"]["id"],
-            workspace_id=workspace["id"],
-            runtime_id=str(runtime["id"]),
-            task_id="issue_to_patch",
-            test_plan="Execute issue_to_patch through a configured runtime, capture diff, and run QA commands.",
-            acceptance_checklist=[
-                "Runtime is executable.",
-                "Workspace is isolated.",
-                "Patch diff is non-empty.",
-                "QA commands pass.",
-                "Approval gate is satisfied when required.",
-            ],
-            test_results=qa_results,
-            logs=[
-                redact_secrets(
-                    {
-                        "runtime": runtime,
-                        "runtimeResult": runtime_result,
-                        "jobId": job_result["job"]["id"],
-                        "workspaceId": workspace["id"],
-                        "qaAgentRunId": (qa_agent_run or {}).get("id"),
-                    }
-                )
-            ],
-            diff_refs=_final_diff_refs(workspace, diff),
-            diff_summary=_diff_summary(diff),
-            risk_notes=[
-                {
-                    "severity": "medium" if final_status != "completed" else "low",
-                    "description": final_reason,
-                    "mitigation": "Configure and approve a real coding runtime, then retry the workflow.",
-                }
-            ],
-            artifact_ids=qa_artifact_ids,
-            qa_verdict=qa_verdict,
-        )
-        if qa_artifact_ids:
-            QAAgentRunner(self.connection, root=self.root).attach_artifacts_to_evidence(
-                evidence_id=evidence["id"],
-                artifact_ids=qa_artifact_ids,
-            )
+            final_reason = reason or final_reason
         patch_artifact = _write_patch_artifact(
             root=self.root,
             project_id=payload["projectId"],
@@ -2105,7 +2041,7 @@ class IssueToPatchRunner:
             evidence_id=evidence["id"],
             name="qa-results.json",
             kind="qa_report",
-            payload={"results": qa_results, "qaAgentRunId": (qa_agent_run or {}).get("id")},
+            payload={"results": qa_results, "qaAgentRunId": qa_agent_run_id or None},
             repo=self.evidence,
         )
         diff_summary = _diff_summary(diff)
@@ -2115,19 +2051,19 @@ class IssueToPatchRunner:
         diff_summary["qaResultsArtifactId"] = qa_results_artifact["id"]
 
         related_agent_run_ids = {agent_run["id"]}
-        if qa_agent_run:
-            related_agent_run_ids.add(str(qa_agent_run["id"]))
+        if qa_agent_run_id:
+            related_agent_run_ids.add(qa_agent_run_id)
         tool_calls = [
             tool_call
             for tool_call in self.agents.list_agent_tool_calls()
             if str(tool_call.get("agentRunId")) in related_agent_run_ids
-        ]
+        ] or list(evidence.get("toolCalls") or [])
         model_calls = [
             model_call for model_call in self.agents.list_model_calls() if model_call.get("agentRunId") == agent_run["id"]
-        ]
+        ] or list(evidence.get("modelCalls") or [])
         if final_status == "evidence_ready" and qa_verdict == "needs_human_review":
             self.jobs.create_action_request(
-                job_id=job_result["job"]["id"],
+                job_id=job["id"],
                 project_id=payload["projectId"],
                 action_type="workflow.issue_to_patch.approve_patch",
                 risk_level="medium",
@@ -2142,7 +2078,7 @@ class IssueToPatchRunner:
                     "diffSummary": diff_summary,
                 },
             )
-        approvals = self.jobs.list_action_requests(job_result["job"]["id"])
+        approvals = self.jobs.list_action_requests(job["id"])
         permission_decision_ids = {
             str((tool_call.get("payload") or {}).get("permissionDecisionId"))
             for tool_call in tool_calls
@@ -2178,22 +2114,29 @@ class IssueToPatchRunner:
         )
         runtime_artifact_ids = [
             str(artifact_id)
-            for artifact_id in (runtime_result.get("stdoutArtifactId"), runtime_result.get("stderrArtifactId"))
+            for artifact_id in (
+                runtime_result.get("stdoutArtifactId"),
+                runtime_result.get("stderrArtifactId"),
+                runtime_result.get("outputArtifactId"),
+            )
             if artifact_id
         ]
         runtime_artifacts = artifact_records_from_ids(self.evidence, runtime_artifact_ids)
-        qa_artifacts = artifact_records_from_ids(self.evidence, qa_artifact_ids)
-        artifact_records = [
-            *runtime_artifacts,
-            *qa_artifacts,
-            *status_artifacts,
-            qa_results_artifact,
-            security_findings_artifact,
-        ]
+        existing_artifacts = artifact_records_from_ids(self.evidence, list(evidence.get("artifactIds") or []))
+        artifact_records = _dedupe_artifact_records(
+            [
+                *existing_artifacts,
+                *runtime_artifacts,
+                *status_artifacts,
+                qa_results_artifact,
+                security_findings_artifact,
+            ]
+        )
         if patch_artifact:
             artifact_records.append(patch_artifact)
         if model_call_artifact:
             artifact_records.append(model_call_artifact)
+        artifact_records = _dedupe_artifact_records(artifact_records)
         artifact_refs = [artifact_ref(artifact) for artifact in artifact_records]
         runtime_health = redact_secrets(
             {
@@ -2210,7 +2153,7 @@ class IssueToPatchRunner:
             manifest={
                 "workflow": {"id": workflow["id"], "kind": workflow["kind"], "status": final_status},
                 "workflowRun": {"id": workflow_run["id"], "status": final_status},
-                "job": {"id": job_result["job"]["id"], "kind": job_result["job"]["kind"], "status": final_status},
+                "job": {"id": job["id"], "kind": job["kind"], "status": final_status},
                 "agentRun": {"id": agent_run["id"], "status": final_status},
                 "workspace": {
                     "id": workspace["id"],
@@ -2223,7 +2166,7 @@ class IssueToPatchRunner:
                 "approvals": approvals,
                 "modelCalls": model_calls,
                 "toolCalls": tool_calls,
-                "qaAgentRunId": (qa_agent_run or {}).get("id"),
+                "qaAgentRunId": qa_agent_run_id or None,
                 "qaResults": qa_results,
                 "diffSummary": diff_summary,
                 "artifacts": artifact_refs,
@@ -2246,6 +2189,14 @@ class IssueToPatchRunner:
             approvals=approvals,
             artifacts=artifact_refs,
             hashes=hashes,
+            qa_verdict=qa_verdict,
+            risk_notes=[
+                {
+                    "severity": "medium" if final_status != "completed" else "low",
+                    "description": final_reason,
+                    "mitigation": "Configure and approve a real DeveloperAgent runtime, then retry the workflow.",
+                }
+            ],
         )
         contract_errors = evidence_package_contract_errors(evidence, require_runtime_links=final_status == "completed")
         if final_status == "completed" and contract_errors:
@@ -2284,7 +2235,7 @@ class IssueToPatchRunner:
                 "summary": final_reason,
                 "runtime": runtime,
                 "runtimeResult": runtime_result,
-                "qaAgentRunId": (qa_agent_run or {}).get("id"),
+                "qaAgentRunId": qa_agent_run_id or None,
                 "qaResults": qa_results,
                 "diffSummary": diff_summary,
                 "evidence_refs": [evidence["id"]],
@@ -2300,7 +2251,7 @@ class IssueToPatchRunner:
             self.workflows.update_workflow_step(
                 steps["local_tests"]["id"],
                 status="completed" if qa_verdict_allows_completion(qa_verdict, qa_results) else "blocked",
-                output={"qaResults": qa_results, "qaAgentRunId": (qa_agent_run or {}).get("id")},
+                output={"qaResults": qa_results, "qaAgentRunId": qa_agent_run_id or None},
             )
         if "qa_validation" in steps:
             self.workflows.update_workflow_step(
@@ -2315,7 +2266,7 @@ class IssueToPatchRunner:
             metadata={
                 **workflow_run["metadata"],
                 "runtime": runtime,
-                "jobId": job_result["job"]["id"],
+                "jobId": job["id"],
                 "workspaceId": workspace["id"],
                 "agentRunId": agent_run["id"],
                 "evidencePackageId": evidence["id"],
@@ -2334,7 +2285,7 @@ class IssueToPatchRunner:
             else "failed"
         )
         job = self.jobs.update_job_status(
-            job_result["job"]["id"],
+            job["id"],
             status=job_status,
             metadata={"status": final_status, "reason": final_reason, "evidencePackageId": evidence["id"]},
         )

@@ -28,8 +28,19 @@ DEFAULT_WORKFLOW_STEPS = [
 ]
 
 RELEASE_CONTROL_STEPS = {"pr_review", "release_gate", "retro"}
-ALLOWED_DECLARED_STEP_NAMES = set(DEFAULT_WORKFLOW_STEPS) | RELEASE_CONTROL_STEPS
 ISSUE_TO_PATCH_STEPS = ["workspace_create", "implementation", "local_tests", "qa_validation", "technical_review"]
+ISSUE_TO_PR_STEPS = [
+    "developer_agent",
+    "qa_validation",
+    "security_review",
+    "architecture_review",
+    "devops_validation",
+    "evidence_aggregation",
+    "approval",
+    "branch_promotion",
+    "pr_creation",
+]
+ALLOWED_DECLARED_STEP_NAMES = set(DEFAULT_WORKFLOW_STEPS) | RELEASE_CONTROL_STEPS | set(ISSUE_TO_PR_STEPS)
 BLOCKED_MAIN_OPERATIONS = {
     "commit_to_main",
     "direct_main_edit",
@@ -148,6 +159,22 @@ def row_to_workflow_step(row: sqlite3.Row) -> dict[str, Any]:
         "metadata": json_loads(row["metadata"]),
         "createdAt": row["created_at"],
         "updatedAt": row["updated_at"],
+    }
+
+
+def row_to_workflow_event(row: sqlite3.Row) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "workflowId": row["workflow_id"],
+        "workflowRunId": row["workflow_run_id"],
+        "workflowStepId": row["step_id"],
+        "projectId": row["project_id"],
+        "type": row["type"],
+        "payload": json_loads(row["payload"]),
+        "severity": row["severity"],
+        "createdAt": row["created_at"],
+        "correlationId": row["correlation_id"],
+        "causationId": row["causation_id"],
     }
 
 
@@ -283,9 +310,15 @@ class WorkflowsRepository:
             "sprint_plan": "product_owner",
             "workspace_create": "developer",
             "implementation": "developer",
+            "developer_agent": "developer",
             "local_tests": "qa",
             "qa_validation": "qa",
+            "security_review": "security_reviewer",
             "technical_review": "technical_lead",
+            "devops_validation": "release_manager",
+            "evidence_aggregation": "technical_lead",
+            "approval": "technical_lead",
+            "branch_promotion": "release_manager",
             "pr_creation": "developer",
             "release_candidate": "release_manager",
             "pr_review": "technical_lead",
@@ -510,6 +543,16 @@ class WorkflowsRepository:
             rows = self.connection.execute("SELECT * FROM workflow_steps ORDER BY created_at ASC").fetchall()
         return [row_to_workflow_step(row) for row in rows]
 
+    def list_workflow_events(self, workflow_run_id: str | None = None) -> list[dict[str, Any]]:
+        if workflow_run_id:
+            rows = self.connection.execute(
+                "SELECT * FROM workflow_events WHERE workflow_run_id = ? ORDER BY created_at ASC",
+                (workflow_run_id,),
+            ).fetchall()
+        else:
+            rows = self.connection.execute("SELECT * FROM workflow_events ORDER BY created_at DESC").fetchall()
+        return [row_to_workflow_event(row) for row in rows]
+
     def get_workflow_step(self, step_id: str) -> dict[str, Any]:
         row = self.connection.execute("SELECT * FROM workflow_steps WHERE id = ?", (step_id,)).fetchone()
         if not row:
@@ -566,15 +609,6 @@ class WorkflowsRepository:
             (event_id, workflow_id, workflow_run_id, step_id, project_id, event_type, json_dumps(payload or {}), severity, utc_now()),
         )
         row = self.connection.execute("SELECT * FROM workflow_events WHERE id = ?", (event_id,)).fetchone()
-        return {
-            "id": row["id"],
-            "workflowId": row["workflow_id"],
-            "workflowRunId": row["workflow_run_id"],
-            "projectId": row["project_id"],
-            "type": row["type"],
-            "payload": json_loads(row["payload"]),
-            "severity": row["severity"],
-            "createdAt": row["created_at"],
-        }
+        return row_to_workflow_event(row)
 
 

@@ -800,12 +800,13 @@ export function EvidencePage({ overview, token }: { overview: Overview; token: s
 	const packageArtifactRefs = Array.isArray(selectedPackage?.artifacts) ? selectedPackage.artifacts : [];
 	return (
 		<>
-			<PageHeader kicker="Proof before approval" title="Evidence & QA" summary="QA cannot be accepted without test results, artifacts and explicit verdict records." />
+			<PageHeader kicker="Proof before approval" title="Evidence & QA" summary="QA passed requires real command execution evidence; collected artifacts remain separate from QA verdicts." />
 			<div className="grid two">
 				<Surface title="Evidence packages">
 					<DataTable rows={overview.evidencePackages} empty={<EmptyState title="No evidence packages" body="Workflow QA steps will produce evidence before review." />} columns={[
 						{ key: 'task', label: 'Task', render: (row) => <span className="mono">{String(row.taskId ?? '')}</span> },
 						{ key: 'verdict', label: 'Verdict', render: (row) => <Badge tone={toneForStatus(String(row.qaVerdict ?? ''))}>{String(row.qaVerdict ?? '')}</Badge> },
+						{ key: 'source', label: 'Source', render: (row) => <span className="mono">{String(row.evidenceSource ?? 'operator_attested')}</span> },
 						{ key: 'agent', label: 'Agent', render: (row) => String(row.agentId ?? '') },
 						{ key: 'diffs', label: 'Diff refs', render: (row) => String(Array.isArray(row.diffRefs) ? row.diffRefs.length : 0) },
 						{
@@ -870,6 +871,7 @@ export function EvidencePage({ overview, token }: { overview: Overview; token: s
 							<div className="stack">
 								<div className="inline">
 									<Badge tone={toneForStatus(String(selectedPackage.qaVerdict ?? ''))}>QA {String(selectedPackage.qaVerdict ?? 'not_started')}</Badge>
+									<Badge>{String(selectedPackage.evidenceSource ?? 'operator_attested')}</Badge>
 									<Badge>{detailArtifacts.length} artifacts</Badge>
 									{changedFiles !== null ? <span className="mono">changed files {changedFiles}</span> : null}
 								</div>

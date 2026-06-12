@@ -34,7 +34,7 @@ from local_control_center.security_policy.models import (
 )
 from local_control_center.sessions_chats.models import ChatRecord, SessionRecord
 from local_control_center.shared.schemas import AuditEventRecord, EventRecord
-from local_control_center.workflows.models import WorkflowRecord, WorkflowRunRecord, WorkflowStepRecord
+from local_control_center.workflows.models import WorkflowEventRecord, WorkflowRecord, WorkflowRunRecord, WorkflowStepRecord
 from local_control_center.workspaces_projects.models import WorkspaceRecord
 
 
@@ -68,6 +68,7 @@ class OverviewResponse(BaseModel):
     workflows: list[WorkflowRecord]
     workflow_runs: list[WorkflowRunRecord] = Field(alias="workflowRuns")
     workflow_steps: list[WorkflowStepRecord] = Field(alias="workflowSteps")
+    workflow_events: list[WorkflowEventRecord] = Field(alias="workflowEvents")
     permission_decisions: list[PermissionDecisionRecord] = Field(alias="permissionDecisions")
     policy_revisions: list[PolicyRevisionRecord] = Field(alias="policyRevisions")
     permission_grants: list[PermissionGrantRecord] = Field(alias="permissionGrants")

@@ -86,6 +86,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             test_plan="Workspace archive snapshot",
             diff_refs=diff_refs,
             logs=[{"event": "workspace.archived", "reason": body.reason}],
+            evidence_source="evidence_collected",
             qa_verdict="evidence_collected",
         )
         for artifact in artifact_specs:

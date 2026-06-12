@@ -4,6 +4,8 @@ from typing import Any
 
 
 FAILED_TEST_STATUSES = {"blocked", "denied", "error", "failed", "timeout", "timed_out"}
+REAL_QA_EVIDENCE_SOURCES = {"qa_passed_by_command", "verified_completion"}
+QA_EXECUTION_MODES = {"restricted_subprocess", "docker"}
 REQUIRED_EVIDENCE_PACKAGE_KEYS = {
     "workflowRunId",
     "jobId",
@@ -23,6 +25,71 @@ REQUIRED_EVIDENCE_PACKAGE_KEYS = {
 }
 
 
+def _policy_decision_allows(decision: dict[str, Any]) -> bool:
+    return str(decision.get("decision") or "").strip().lower() == "allow"
+
+
+def real_qa_command_errors(evidence: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    test_results = evidence.get("testResults") or []
+    tool_calls = evidence.get("toolCalls") if isinstance(evidence.get("toolCalls"), list) else []
+    policy_decisions = (
+        evidence.get("policyDecisions") if isinstance(evidence.get("policyDecisions"), list) else []
+    )
+    hashes = evidence.get("hashes") if isinstance(evidence.get("hashes"), dict) else {}
+    tool_call_ids = {str(item.get("id")) for item in tool_calls if isinstance(item, dict) and item.get("id")}
+    allowed_policy_ids = {
+        str(item.get("id"))
+        for item in policy_decisions
+        if isinstance(item, dict) and item.get("id") and _policy_decision_allows(item)
+    }
+
+    if not isinstance(test_results, list) or not test_results:
+        errors.append("QA passed requires at least one command test result.")
+        return errors
+    if not tool_call_ids:
+        errors.append("QA passed requires linked toolCalls.")
+    if not hashes:
+        errors.append("QA passed requires evidence package hashes.")
+    if not allowed_policy_ids:
+        errors.append("QA passed requires an allow policy decision.")
+
+    for index, result in enumerate(test_results):
+        if not isinstance(result, dict):
+            errors.append(f"testResults[{index}] must be an object.")
+            continue
+        if result.get("status") != "passed":
+            errors.append(f"testResults[{index}] must have status=passed.")
+        if result.get("exitCode") != 0:
+            errors.append(f"testResults[{index}] must have exitCode=0.")
+        if result.get("execution") not in QA_EXECUTION_MODES:
+            errors.append(f"testResults[{index}] must record a real command execution mode.")
+        tool_call_id = str(result.get("toolCallId") or "")
+        if not tool_call_id:
+            errors.append(f"testResults[{index}] requires toolCallId.")
+        elif tool_call_id not in tool_call_ids:
+            errors.append(f"testResults[{index}] toolCallId is not linked in toolCalls.")
+        artifact_hashes = result.get("artifactHashes") if isinstance(result.get("artifactHashes"), dict) else {}
+        for required_hash in ("stdoutHash", "stderrHash", "outputArtifactHash"):
+            if not artifact_hashes.get(required_hash):
+                errors.append(f"testResults[{index}] requires artifactHashes.{required_hash}.")
+        metadata = result.get("metadata") if isinstance(result.get("metadata"), dict) else {}
+        policy_decision_id = str(metadata.get("permissionDecisionId") or metadata.get("policyDecisionId") or "")
+        if not policy_decision_id:
+            errors.append(f"testResults[{index}] requires a policy decision reference.")
+        elif allowed_policy_ids and policy_decision_id not in allowed_policy_ids:
+            errors.append(f"testResults[{index}] policy decision is not an allow decision.")
+    return errors
+
+
+def evidence_has_real_qa_pass(evidence: dict[str, Any]) -> bool:
+    return (
+        str(evidence.get("qaVerdict") or "").lower() == "passed"
+        and str(evidence.get("evidenceSource") or "") in REAL_QA_EVIDENCE_SOURCES
+        and not real_qa_command_errors(evidence)
+    )
+
+
 def failed_test_results(test_results: list[dict[str, Any]] | list[Any]) -> list[dict[str, Any]]:
     failed: list[dict[str, Any]] = []
     for result in test_results:
@@ -35,13 +102,7 @@ def failed_test_results(test_results: list[dict[str, Any]] | list[Any]) -> list[
 
 
 def qa_passed_without_failed_results(evidence: dict[str, Any]) -> bool:
-    test_results = evidence.get("testResults") or []
-    return (
-        str(evidence.get("qaVerdict") or "").lower() == "passed"
-        and bool(test_results)
-        and not failed_test_results(test_results)
-        and bool(evidence.get("artifactIds") or evidence.get("artifacts") or evidence.get("diffRefs") or evidence.get("screenshotRefs"))
-    )
+    return evidence_has_real_qa_pass(evidence)
 
 
 def evidence_package_contract_errors(

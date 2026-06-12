@@ -14,6 +14,13 @@ Pricing catalog records expose `source` and staleness (`fresh`, `stale` or
 `unknown`). Unknown prices are not treated as zero unless the model is explicitly
 marked `freeTier=true`.
 
+Role policies include `allowUnknownCost` and
+`requireApprovalForUnknownCost`. Defaults are conservative for remote
+`api`/`gateway` providers: a selected route with `estimatedCostUsd=null`
+requires approval, and setting `allowUnknownCost=false` rejects that candidate
+with `unknown_remote_cost_not_allowed`. This prevents providers without real
+pricing from winning as if they were low-cost.
+
 Manual pricing changes should be recorded through
 `POST /api/v1/model-gateway/pricing-snapshots`. When a snapshot is applied to
 the catalog, the model source becomes `pricing_snapshot:{id}` so routing
@@ -45,6 +52,10 @@ Tests cover NVIDIA-first free routing, `local_private` remote blocking, CLI pref
   is surfaced as `benchmarkInsufficientData=true` and cannot dominate routing.
   With sufficient samples, benchmark performance contributes a small additive
   score factor after hard filters for policy, budget, quota, context and privacy.
+- Benchmark scoring uses only objective provenance: `automated_run` and
+  `release_validation`. `operator_reported` outcomes are listed and counted as
+  manual reports, but they do not satisfy the sample threshold and do not add
+  `benchmarkContribution`.
 - Real execution does not override approval gates. If a selected route requires approval, `/route/execute` creates a pending `model.route.execute` action request and returns `409` before any provider or CLI call.
 
 ## Example

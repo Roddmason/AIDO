@@ -8,6 +8,8 @@ ALLOWED_PNPM_TEST_SCRIPTS = frozenset({"test", "test:py", "test:web", "test:e2e"
 ALLOWED_PNPM_BUILD_SCRIPTS = frozenset({"build", "build:web", "build:control-center"})
 ALLOWED_PNPM_LINT_SCRIPTS = frozenset({"lint", "lint:py", "lint:web"})
 ALLOWED_PNPM_TYPECHECK_SCRIPTS = frozenset({"typecheck", "typecheck:web"})
+ALLOWED_PNPM_QUALITY_SCRIPTS = frozenset({"quality", "quality:productive-truth", "quality:architecture", "test:all"})
+ALLOWED_PNPM_SECURITY_SCRIPTS = frozenset({"security:secrets", "security:sast"})
 PACKAGE_SCRIPT_HOOKS = frozenset(
     {
         "preinstall",
@@ -26,7 +28,24 @@ PACKAGE_MANAGER_INSTALL_VERBS = frozenset({"install", "add", "remove", "uninstal
 NETWORK_EXECUTABLES = frozenset({"curl", "curl.exe", "invoke-webrequest", "wget", "wget.exe", "ssh", "scp"})
 READ_ONLY_EXECUTABLES = frozenset({"rg", "rg.exe", "get-content", "ls", "dir"})
 RUNTIME_VERSION_EXECUTABLES = frozenset(
-    {"openhands", "openhands.exe", "sweagent", "sweagent.exe", "swe-agent", "swe-agent.exe"}
+    {
+        "corepack",
+        "corepack.cmd",
+        "corepack.exe",
+        "node",
+        "node.exe",
+        "openhands",
+        "openhands.exe",
+        "pnpm",
+        "pnpm.cmd",
+        "pnpm.exe",
+        "sweagent",
+        "sweagent.exe",
+        "swe-agent",
+        "swe-agent.exe",
+        "uv",
+        "uv.exe",
+    }
 )
 
 
@@ -81,6 +100,10 @@ def pnpm_script_category(parsed: ParsedCommand) -> str | None:
         return "lint"
     if script in ALLOWED_PNPM_TYPECHECK_SCRIPTS:
         return "typecheck"
+    if script in ALLOWED_PNPM_QUALITY_SCRIPTS:
+        return "quality"
+    if script in ALLOWED_PNPM_SECURITY_SCRIPTS:
+        return "security_scan"
     return "package_script"
 
 
@@ -102,8 +125,12 @@ def package_manager_category(parsed: ParsedCommand) -> str | None:
 
 def low_risk_shell_category(parsed: ParsedCommand) -> str | None:
     pnpm_category = pnpm_script_category(parsed)
-    if pnpm_category in {"test", "build", "lint", "typecheck"}:
+    if pnpm_category in {"test", "build", "lint", "typecheck", "quality", "security_scan"}:
         return pnpm_category
+    if parsed.executable == "corepack" and len(parsed.args) == 2:
+        pnpm_spec, version_arg = parsed.args
+        if pnpm_spec.lower().startswith("pnpm") and version_arg in {"--version", "-V", "version"}:
+            return "interpreter_version"
     if parsed.executable in {"uv", "uv.exe"} and len(parsed.args) >= 2 and parsed.args[0] == "run":
         if parsed.args[1] == "pytest":
             return "test"
@@ -118,8 +145,8 @@ def low_risk_shell_category(parsed: ParsedCommand) -> str | None:
             return "test"
     if parsed.executable in {"python", "python.exe", "python3", "py", "py.exe"} and parsed.args == ("--version",):
         return "interpreter_version"
-    if parsed.executable in RUNTIME_VERSION_EXECUTABLES and parsed.args in {("--version",), ("version",)}:
-        return "runtime_version"
+    if parsed.executable in RUNTIME_VERSION_EXECUTABLES and parsed.args in {("--version",), ("-V",), ("version",)}:
+        return "interpreter_version"
     if parsed.executable in READ_ONLY_EXECUTABLES:
         return "read_only"
     if parsed.executable == "git" and parsed.args[:1] in {("status",), ("diff",)}:

@@ -63,6 +63,10 @@ def allowlisted_shell_categories(profile: str, categories: list[str]) -> list[st
             allowed.append("allowlisted_lint")
         if "typecheck" in categories:
             allowed.append("allowlisted_typecheck")
+        if "quality" in categories:
+            allowed.append("allowlisted_quality")
+        if "security_scan" in categories:
+            allowed.append("allowlisted_security_scan")
         if "interpreter_version" in categories:
             allowed.append("allowlisted_diagnostic")
         if "read_only" in categories:
@@ -197,6 +201,77 @@ def evaluate_action(input_payload: dict[str, Any]) -> dict[str, Any]:
             "riskLevel": "medium",
             "reason": "DevOpsAgent command is not in the low-risk local validation allowlist.",
             "categories": categories + ["devops_agent_command_gated"],
+        }
+
+    if operation == "security_agent_scanner":
+        if input_payload.get("agentId") != "security_agent":
+            categories.append("security_agent_scanner_agent_denied")
+            return {
+                "decision": "deny",
+                "riskLevel": "high",
+                "reason": "SecurityAgent scanner execution is restricted to the SecurityAgent profile.",
+                "categories": categories,
+            }
+        if tool != "shell":
+            categories.append("security_agent_scanner_tool_denied")
+            return {
+                "decision": "deny",
+                "riskLevel": "high",
+                "reason": "SecurityAgent scanners must execute through shell with structured argv.",
+                "categories": categories,
+            }
+        if permission_profile != "qa":
+            categories.append("security_agent_scanner_profile_denied")
+            return {
+                "decision": "deny",
+                "riskLevel": "high",
+                "reason": "SecurityAgent scanner execution requires the qa permission profile.",
+                "categories": categories,
+            }
+        if not input_payload.get("workspaceId") or not input_payload.get("workspacePath") or not input_payload.get("agentRunId"):
+            categories.append("security_agent_scanner_context_required")
+            return {
+                "decision": "deny",
+                "riskLevel": "high",
+                "reason": "SecurityAgent scanner execution requires workspace and agent run context.",
+                "categories": categories,
+            }
+        if input_payload.get("networkRequired") or input_payload.get("secretsRequired"):
+            categories.append("security_agent_scanner_remote_or_secret_denied")
+            return {
+                "decision": "deny",
+                "riskLevel": "high",
+                "reason": "SecurityAgent scanners must run as local scans without network or injected secrets.",
+                "categories": categories,
+            }
+        argv = input_payload.get("commandArgv")
+        if not isinstance(argv, list) or not argv or not all(isinstance(item, str) and item for item in argv):
+            categories.append("security_agent_scanner_argv_required")
+            return {
+                "decision": "deny",
+                "riskLevel": "high",
+                "reason": "SecurityAgent scanner execution requires structured argv.",
+                "categories": categories,
+            }
+        scanner = str(input_payload.get("runtimeId") or "").strip().lower()
+        executable = Path(str(argv[0])).name.lower()
+        scanner_executables = {
+            "gitleaks": {"gitleaks", "gitleaks.cmd", "gitleaks.exe"},
+            "semgrep": {"semgrep", "semgrep.cmd", "semgrep.exe"},
+        }
+        if scanner not in scanner_executables or executable not in scanner_executables[scanner]:
+            categories.append("security_agent_scanner_executable_denied")
+            return {
+                "decision": "deny",
+                "riskLevel": "high",
+                "reason": "SecurityAgent scanner execution is limited to gitleaks or semgrep local CLIs.",
+                "categories": categories,
+            }
+        return {
+            "decision": "allow",
+            "riskLevel": "low",
+            "reason": f"SecurityAgent {scanner} scanner execution is allowlisted for local security evidence.",
+            "categories": categories + ["security_agent_scanner", scanner],
         }
 
     if operation in {

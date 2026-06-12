@@ -4,7 +4,7 @@ import type {
 	ModelGatewayModel,
 	ModelGatewayProviderAccount,
 } from '../../api/types';
-import { DataTable, EmptyState } from '../../components/primitives';
+import { Badge, DataTable, EmptyState } from '../../components/primitives';
 import { PanelShell } from './PanelShell';
 import { boolLabel, EXECUTABLE_AGENT_ROLES, money, text } from './utils';
 
@@ -18,7 +18,36 @@ type BenchmarkForm = {
 	rework: boolean;
 	cost: string;
 	latency: string;
+	provenance: 'operator_reported';
 };
+
+function provenanceLabel(provenance: unknown) {
+	const value = text(provenance, 'operator_reported');
+	if (value === 'automated_run') return 'Automated run';
+	if (value === 'release_validation') return 'Release validation';
+	return 'Manual/operator-reported';
+}
+
+function provenanceTone(provenance: unknown) {
+	const value = text(provenance, 'operator_reported');
+	return value === 'operator_reported' ? 'warn' : 'ok';
+}
+
+function objectiveCount(row: ModelGatewayBenchmark) {
+	return Number(row.objectiveTasksAttempted ?? 0);
+}
+
+function operatorReportedCount(row: ModelGatewayBenchmark) {
+	return Number(row.operatorReportedTasks ?? 0);
+}
+
+function benchmarkValidity(row: ModelGatewayBenchmark) {
+	if (objectiveCount(row) === 0 && operatorReportedCount(row) > 0) {
+		return <Badge tone="warn">Manual reports are not objective proof</Badge>;
+	}
+	if (row.insufficientData) return <Badge tone="warn">insufficient objective data</Badge>;
+	return <Badge tone="ok">objective benchmark evidence</Badge>;
+}
 
 export function BenchmarksPanel({
 	benchmarks,
@@ -94,6 +123,8 @@ export function BenchmarksPanel({
 					</div>
 				</div>
 				<div className="inline">
+					<Badge tone="warn">{provenanceLabel(form.provenance)}</Badge>
+					<span className="muted">Manual reports are not objective proof.</span>
 					<label className="checkbox-row" htmlFor="benchmark-success"><input id="benchmark-success" type="checkbox" checked={form.success} onChange={(event) => onChange('success', event.target.checked)} />Benchmark success</label>
 					<label className="checkbox-row" htmlFor="benchmark-qa"><input id="benchmark-qa" type="checkbox" checked={form.qaPass} onChange={(event) => onChange('qaPass', event.target.checked)} />Benchmark QA pass</label>
 					<label className="checkbox-row" htmlFor="benchmark-rework"><input id="benchmark-rework" type="checkbox" checked={form.rework} onChange={(event) => onChange('rework', event.target.checked)} />Benchmark rework</label>
@@ -106,6 +137,8 @@ export function BenchmarksPanel({
 				{ key: 'model', label: 'Model', render: (row) => text(row.model) },
 				{ key: 'role', label: 'Role', render: (row) => text(row.role) },
 				{ key: 'attempts', label: 'Tasks attempted', render: (row) => text(row.tasksAttempted, '0') },
+				{ key: 'evidenceMix', label: 'Evidence mix', render: (row) => `${objectiveCount(row)} objective / ${operatorReportedCount(row)} manual` },
+				{ key: 'validity', label: 'Validity', render: (row) => benchmarkValidity(row) },
 				{ key: 'success', label: 'Success rate', render: (row) => row.successRate === null || row.successRate === undefined ? 'insufficient data' : `${(Number(row.successRate) * 100).toFixed(2)}%` },
 				{ key: 'qa', label: 'QA pass rate', render: (row) => row.qaPassRate === null || row.qaPassRate === undefined ? 'insufficient data' : `${(Number(row.qaPassRate) * 100).toFixed(2)}%` },
 				{ key: 'cost', label: 'Avg cost', render: (row) => row.avgCost === null || row.avgCost === undefined ? 'unknown' : money(row.avgCost) },
@@ -117,6 +150,16 @@ export function BenchmarksPanel({
 				{ key: 'provider', label: 'Provider', render: (row) => text(row.providerId) },
 				{ key: 'model', label: 'Model', render: (row) => text(row.model) },
 				{ key: 'role', label: 'Role', render: (row) => text(row.role) },
+				{
+					key: 'provenance',
+					label: 'Provenance',
+					render: (row) => (
+						<div className="stack">
+							<Badge tone={provenanceTone(row.provenance)}>{provenanceLabel(row.provenance)}</Badge>
+							<span className="mono">{text(row.provenance, 'operator_reported')}</span>
+						</div>
+					),
+				},
 				{ key: 'success', label: 'Success', render: (row) => boolLabel(row.success) },
 				{ key: 'qa', label: 'QA pass', render: (row) => boolLabel(row.qaPass) },
 				{ key: 'rework', label: 'Rework', render: (row) => boolLabel(row.rework) },

@@ -1,5 +1,9 @@
 defaultMode: balanced_best_value
 
+unknownCostPolicy:
+  allowUnknownCost: true
+  requireApprovalForUnknownCost: true
+
 modes:
   free_first:
     objective: minimize_paid_usage

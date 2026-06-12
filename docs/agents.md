@@ -196,13 +196,13 @@ It does not require Docker and it does not execute scripts directly.
 Its contract requires:
 
 - input: `projectId`, `workspaceId`, `taskId`, optional `buildScripts`,
-  `dockerHealthcheck`, and metadata;
+  `qualityScripts`, `dockerHealthcheck`, and metadata;
 - output: `status`, `verdict`, command results, versions, config findings,
   scanned files, Docker status, config artifact, workspace, job, agent run, and
   evidence package;
 - tools: `shell` only;
-- runtime capability: deterministic config checks and brokered command
-  execution;
+- runtime capability: deterministic config checks, brokered command execution,
+  release toolchain validation, and quality gate execution;
 - allocated workspace and linked evidence.
 
 The runner scans PowerShell scripts, Docker files, `package.json`, lockfiles,
@@ -212,17 +212,26 @@ missing package manager metadata, and local-first violations such as `0.0.0.0`
 binds. Product-wide simulation-token enforcement belongs to the local quality
 scanner, not to DevOpsAgent runtime execution.
 
+Release validation starts with brokered `node --version`, `uv --version`,
+`corepack --version`, and `corepack pnpm@<packageManager> --version` checks.
+The installed Node version is compared with `package.json` `engines.node` when
+declared. Missing release tools are recorded as `skipped_with_reason` and turn
+the verdict into `risk`; they are not converted into passed evidence.
+
 Build scripts are executed only when present in `package.json`, using
 structured argv and `operation=devops_agent_command` through `ToolBroker`.
-Missing requested build scripts are recorded as `skipped_with_reason` with a
-technical reason. Optional Docker health uses the active sandbox profile and is
-skipped when Docker is unavailable or not allowed; startup remains healthy
-without Docker.
+Quality validation executes `quality` by default; callers may pass
+`qualityScripts` to run a specific subset, including an empty list for
+toolchain/config-only validation. Missing requested build or quality scripts
+are recorded as `skipped_with_reason` with a technical reason. Optional Docker
+health uses the active sandbox profile and is skipped when Docker is
+unavailable or not allowed; startup remains healthy without Docker.
 
 ## SecurityAgent
 
 SecurityAgent is the deterministic security review agent. It does not depend on
-LLM text for approval and it does not execute commands directly.
+LLM text for approval and it executes only allowlisted local scanner commands
+through the restricted subprocess sandbox.
 
 Its contract requires:
 
@@ -231,8 +240,10 @@ Its contract requires:
   `preferredRuntime`, `approvalGrantId`, and model metadata;
 - output: `status`, `verdict`, findings, scanned files, dependency files,
   findings artifact, workspace, job, agent run, and evidence package;
-- tools: `openai_compatible` and `ollama` only for optional analysis;
-- runtime capability: deterministic local security checks;
+- tools: restricted `shell` execution for optional local scanners, plus
+  `openai_compatible` and `ollama` only for optional analysis;
+- runtime capability: deterministic local security checks and optional external
+  security scanners;
 - allocated workspace and linked evidence.
 
 The runner scans the allocated workspace and optional diff artifact for
@@ -241,10 +252,21 @@ dependency files such as `package.json`, checks explicit path candidates for
 traversal outside the workspace, detects dangerous command flags, and includes
 recorded policy violations in the findings payload.
 
+When `gitleaks` is installed, the runner executes `gitleaks dir` over the
+allocated workspace, writes a redacted JSON report artifact, and attaches its
+SHA-256 hash to the evidence package. A `.gitleaks.toml`/`gitleaks.toml` file is
+used when present; otherwise the Gitleaks built-in default rules are recorded
+as the active configuration. When `semgrep` is installed, the runner executes
+`semgrep scan` only when a local `.semgrep.yml`, `.semgrep.yaml`,
+`semgrep.yml`, or `semgrep.yaml` file exists; registry auto-config is not used.
+Missing scanners or Semgrep config are recorded as `skipped_with_reason`, not
+as passed scanner results.
+
 Verdict calculation is deterministic: critical secret, traversal, dangerous
-Docker, or denied policy findings return `blocked`; non-critical findings
-return `risk`; only a clean scan returns `passed`. Findings are written to a
-JSON artifact and attached to the evidence package. Optional model analysis is
+Docker, denied policy, Gitleaks secret, or Semgrep secret findings return
+`blocked`; non-critical findings return `risk`; only a clean scan returns
+`passed`. Findings and external scanner reports are written to JSON artifacts
+and attached to the evidence package with hashes. Optional model analysis is
 brokered through `operation=security_agent_model_call` and can only add
 secondary context; it cannot replace checks or change the verdict.
 
@@ -283,18 +305,22 @@ and risk records are persisted only after that validation succeeds; invalid
 JSON or ungrounded evidence refs produce `failed_validation` and leave
 governance records unchanged.
 
-Each optional code runtime now exposes a versioned execution contract. Contract
-version 1 supports `version_check` and `issue_to_patch`, requires structured
-`argv`, requires a workspace path, and requires `issueText` for issue-to-patch
-runs. Dangerous runtime flags such as `--no-sandbox`, `--privileged`,
+Productive implementation execution has one canonical path:
+`DeveloperAgentRunner`. `issue_to_patch` is a workflow wrapper around that
+runner; it owns workflow creation, Git worktree isolation, evidence enrichment,
+security findings, human approval, promotion, and pull-request gates. It does
+not submit a separate `issue_to_patch` shell operation for implementation.
+
+Optional code runtimes still expose versioned diagnostic and release-validation
+contracts. Dangerous runtime flags such as `--no-sandbox`, `--privileged`,
 `--mount`, `--volume`, `--network=host`, and split `--network host` are rejected before install
 detection or subprocess execution. This prevents an unavailable local runtime
 from hiding malformed or unsafe adapter payloads.
 
 The optional runtime smoke script runs version checks automatically when a
-runtime CLI is detected. Deeper `issue_to_patch` validation is intentionally
-release-profile only. OpenHands and SWE-agent now have dedicated opt-in release
-validators:
+runtime CLI is detected. OpenHands and SWE-agent remain optional adapter
+validations, not DeveloperAgent implementations. Their dedicated opt-in release
+validators are:
 
 ```powershell
 $env:AIDO_OPENHANDS_COMMAND = "openhands"
@@ -306,14 +332,11 @@ $env:AIDO_ENABLE_CLI_RUNTIMES = "true"
 corepack pnpm@10.24.0 run smoke:swe-agent:release
 ```
 
-Those validators create a temporary Git repository, run the real
-`issue_to_patch` workflow, and fail unless patch, QA, evidence, hashes, and
-stdout/stderr artifacts are present. `AIDO_OPENHANDS_ISSUE_TO_PATCH_ARGV_JSON`
-and `AIDO_SWE_AGENT_ISSUE_TO_PATCH_ARGV_JSON` can override argv with explicit
-structured JSON. Supported placeholders are `{workspace}`, `{workspace_path}`,
-`{prompt}`, `{issue_text}` and `{title}`. Invalid syntax reports
-`runtime_unavailable` or release validation failure; it is not converted into a
-capability.
+Those validators create a temporary Git repository and must fail unless patch,
+QA, evidence, hashes, and stdout/stderr artifacts are present. They do not make
+OpenHands or SWE-agent part of the canonical DeveloperAgent execution path.
+Invalid syntax reports `runtime_unavailable` or release validation failure; it
+is not converted into a capability.
 
 The repo does not ship a GitHub quality workflow; optional runtime validation
 remains an explicit local or release-runner action.

@@ -130,19 +130,23 @@ def test_claude_release_validation_accepts_completed_real_contract_result() -> N
             "qaResults": [
                 {
                     "status": "passed",
+                    "execution": "restricted_subprocess",
                     "exitCode": 0,
+                    "toolCallId": "tool-call-1",
                     "artifactHashes": {
                         "stdoutHash": "stdout-sha",
                         "stderrHash": "stderr-sha",
                         "outputArtifactHash": "output-sha",
                     },
+                    "metadata": {"permissionDecisionId": "policy-1"},
                 }
             ],
             "evidencePackage": {
                 "qaVerdict": "passed",
+                "evidenceSource": "qa_passed_by_command",
                 "runtimeId": "claude_code_cli",
                 "toolCalls": [{"id": "tool-call-1"}],
-                "policyDecisions": [{"id": "policy-1"}],
+                "policyDecisions": [{"id": "policy-1", "decision": "allow"}],
                 "artifacts": [
                     {"id": "artifact-patch", "name": "diff.patch", "hash": "patch-sha"},
                     {"id": "artifact-qa", "name": "qa-results.json", "hash": "qa-sha"},
@@ -179,7 +183,7 @@ def test_claude_code_runtime_uses_supported_workspace_edit_syntax(tmp_path: Path
     assert command[-1] == "Create a patch"
 
 
-def test_claude_code_is_not_executable_for_issue_to_patch_without_contract_capability(
+def test_claude_code_is_not_executable_when_configured_command_does_not_match_runtime(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -202,7 +206,7 @@ def test_claude_code_is_not_executable_for_issue_to_patch_without_contract_capab
     assert status["detected"] is True
     assert status["available"] is True
     assert status["executable"] is False
-    assert "issue_to_patch" in status["reason"]
+    assert "declared runtime command" in status["reason"]
 
 
 def test_claude_cli_syntax_failure_maps_to_runtime_unavailable() -> None:

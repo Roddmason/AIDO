@@ -65,3 +65,19 @@ def test_model_gateway_frontend_surfaces_budget_quota_and_usage_source() -> None
     assert "quotaResult" in source
     assert "usageSource" in source
     assert "rawUsage" not in source or "usage_source" not in source
+
+
+def test_model_gateway_frontend_separates_manual_benchmark_provenance_from_score() -> None:
+    benchmark_source = (FEATURE_DIR / "BenchmarksPanel.tsx").read_text(encoding="utf-8")
+    route_preview_source = (FEATURE_DIR / "RoutePreviewPanel.tsx").read_text(encoding="utf-8")
+
+    assert "provenance" in benchmark_source
+    assert "operator_reported" in benchmark_source
+    assert "automated_run" in benchmark_source
+    assert "release_validation" in benchmark_source
+    assert "Manual/operator-reported" in benchmark_source
+    assert "not objective proof" in benchmark_source
+    assert "objectiveTasksAttempted" in benchmark_source
+    assert "operatorReportedTasks" in benchmark_source
+    assert "scoreBreakdown" in route_preview_source
+    assert "benchmarkOperatorReportedSampleCount" in route_preview_source

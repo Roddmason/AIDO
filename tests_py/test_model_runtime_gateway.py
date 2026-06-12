@@ -34,6 +34,7 @@ from local_control_center.shared.db import open_sqlite_connection
 from local_control_center.shared.migrations import initialize_platform_schema
 from local_control_center.shared.redaction import redact_secrets
 from tests_py.control_plane_fixture import ControlPlaneFixture
+from tests_py.evidence_helpers import real_qa_evidence_fields
 
 
 def auth_headers(client: TestClient) -> dict[str, str]:
@@ -255,9 +256,14 @@ def test_phase13_schema_adds_benchmark_outcomes(tmp_path: Path) -> None:
         migrations = {
             row[0] for row in connection.execute("SELECT version FROM schema_migrations").fetchall()
         }
+        columns = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(model_benchmark_outcomes)").fetchall()
+        }
 
     assert 13 in migrations
     assert "model_benchmark_outcomes" in tables
+    assert "provenance" in columns
 
 
 def test_provider_accounts_crud_endpoints_do_not_expose_raw_credentials(
@@ -1095,6 +1101,8 @@ def test_routing_profiles_and_role_policy_seeds_are_exposed(
     analyst = next(item for item in policies.json()["rolePolicies"] if item["role"] == "analyst")
     assert analyst["maxCostPerTaskUsd"] == 0.10
     assert analyst["allowApi"] is True
+    assert analyst["allowUnknownCost"] is True
+    assert analyst["requireApprovalForUnknownCost"] is True
     seeded_roles = {item["role"] for item in policies.json()["rolePolicies"]}
     assert {
         "technical_lead_shadow",
@@ -1173,9 +1181,63 @@ def test_route_preview_free_first_chooses_nvidia_when_enabled_healthy_and_in_quo
     selected = response.json()["selected"]
     assert selected["provider"] == "nvidia_nim"
     assert selected["runtime"] == "api"
+    nvidia_candidate = next(item for item in response.json()["candidates"] if item["provider"] == "nvidia_nim")
+    assert nvidia_candidate["priceKnown"] is False
+    assert nvidia_candidate["scoreBreakdown"]["costPenalty"] == 1.0
     assert response.json()["decisionReason"]
     assert response.json()["budgetResult"]["allowed"] is True
     assert response.json()["quotaResult"]["allowed"] is True
+    assert response.json()["policyResult"]["requiresApproval"] is True
+    assert response.json()["policyResult"]["unknownCostPolicy"] == {
+        "action": "require_approval",
+        "reason": "unknown_remote_cost_requires_approval",
+        "provider": "nvidia_nim",
+        "runtime": "api",
+    }
+
+
+def test_route_preview_rejects_remote_unknown_cost_when_role_policy_disallows_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    headers = auth_headers(client)
+    enable_provider(client, headers, "nvidia_nim")
+    enable_provider(client, headers, "ollama")
+
+    patched_policy = client.patch(
+        "/api/v1/model-gateway/role-policies/analyst",
+        headers=headers,
+        json={"allowUnknownCost": False, "requireApprovalForUnknownCost": True},
+    )
+    assert patched_policy.status_code == 200
+    assert patched_policy.json()["rolePolicy"]["allowUnknownCost"] is False
+
+    response = client.post(
+        "/api/v1/model-gateway/route/preview",
+        headers=headers,
+        json={
+            "role": "analyst",
+            "taskType": "research_brief",
+            "mode": "free_first",
+            "riskLevel": "low",
+            "contextTokensEstimate": 4000,
+            "requiresCodeEdit": False,
+            "requiresTools": False,
+            "requiresSearch": True,
+            "privacyLevel": "remote_allowed",
+            "budgetRemainingUsd": 0.5,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["selected"]["provider"] == "ollama"
+    assert payload["policyResult"]["requiresApproval"] is False
+    assert any(
+        item["provider"] == "nvidia_nim"
+        and item["reason"] == "unknown_remote_cost_not_allowed"
+        for item in payload["rejected"]
+    )
 
 
 def test_route_preview_local_private_blocks_remote_providers(
@@ -1742,6 +1804,7 @@ def test_benchmark_routing_ignores_insufficient_data_in_score(
                 "runtimeType": "cli",
                 "role": "developer",
                 "taskId": f"bench-small-{index}",
+                "provenance": "automated_run",
                 "success": True,
                 "qaPass": True,
                 "rework": False,
@@ -1793,6 +1856,7 @@ def test_benchmark_routing_uses_sufficient_data_without_overriding_quota(
                 "runtimeType": "cli",
                 "role": "developer",
                 "taskId": f"bench-enough-{index}",
+                "provenance": "automated_run",
                 "success": True,
                 "qaPass": True,
                 "rework": False,
@@ -1821,6 +1885,58 @@ def test_benchmark_routing_uses_sufficient_data_without_overriding_quota(
 
     assert rejected["reason"] == "provider_in_cooldown"
     assert payload["selected"]["provider"] != "openhands"
+
+
+def test_operator_reported_benchmarks_are_separated_from_objective_routing_score(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    headers = auth_headers(client)
+    enable_provider(client, headers, "codex_cli")
+    enable_provider(client, headers, "openhands")
+    for index in range(5):
+        created = client.post(
+            "/api/v1/model-gateway/benchmark-outcomes",
+            headers=headers,
+            json={
+                "providerId": "openhands",
+                "model": "auto",
+                "runtimeType": "cli",
+                "role": "developer",
+                "taskId": f"operator-reported-{index}",
+                "provenance": "operator_reported",
+                "success": True,
+                "qaPass": True,
+                "rework": False,
+                "estimatedCostUsd": 0.01,
+                "latencyMs": 100,
+            },
+        )
+        assert created.status_code == 201
+
+    response = client.post(
+        "/api/v1/model-gateway/route/preview",
+        headers=headers,
+        json={
+            "role": "developer",
+            "taskType": "implementation",
+            "mode": "balanced_best_value",
+            "contextTokensEstimate": 1000,
+            "requiresCodeEdit": True,
+            "requiresTools": True,
+            "privacyLevel": "remote_allowed",
+            "budgetRemainingUsd": 4,
+        },
+    )
+
+    assert response.status_code == 200
+    candidate = next(item for item in response.json()["candidates"] if item["provider"] == "openhands")
+    breakdown = candidate["scoreBreakdown"]
+    assert breakdown["benchmarkObjectiveSampleCount"] == 0.0
+    assert breakdown["benchmarkOperatorReportedSampleCount"] == 5.0
+    assert breakdown["benchmarkInsufficientData"] == 1.0
+    assert breakdown["benchmarkScore"] == 0.0
+    assert breakdown["benchmarkContribution"] == 0.0
 
 
 def test_provider_health_real_mode_requires_explicit_env_and_uses_real_adapter_path(
@@ -2014,6 +2130,7 @@ def test_benchmark_outcome_endpoint_records_success_qa_and_rework_rates(
         "runtimeType": "cli",
         "role": "developer",
         "taskId": "implementation",
+        "provenance": "automated_run",
         "success": True,
         "qaPass": True,
         "rework": False,
@@ -2035,11 +2152,97 @@ def test_benchmark_outcome_endpoint_records_success_qa_and_rework_rates(
         if item["providerId"] == "codex_cli" and item["model"] == "gpt-5.5"
     )
     assert benchmark["tasksAttempted"] == 1
+    assert benchmark["objectiveTasksAttempted"] == 1
+    assert benchmark["operatorReportedTasks"] == 0
+    assert benchmark["automatedRunTasks"] == 1
     assert benchmark["successRate"] == 1.0
     assert benchmark["qaPassRate"] == 1.0
     assert benchmark["reworkRate"] == 0.0
     assert benchmark["avgCost"] == 0.42
     assert benchmark["avgLatencyMs"] == 1200
+
+
+def test_operator_reported_benchmark_outcomes_do_not_create_objective_rates(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    headers = auth_headers(client)
+
+    created = client.post(
+        "/api/v1/model-gateway/benchmark-outcomes",
+        headers=headers,
+        json={
+            "providerId": "codex_cli",
+            "model": "gpt-5.5",
+            "runtimeType": "cli",
+            "role": "developer",
+            "taskId": "operator-reported-benchmark",
+            "success": True,
+            "qaPass": True,
+            "rework": False,
+            "estimatedCostUsd": 0.42,
+            "latencyMs": 1200,
+            "metadata": {"source": "operator_console"},
+        },
+    )
+    benchmarks = client.get("/api/v1/model-gateway/benchmarks")
+
+    assert created.status_code == 201
+    outcome = created.json()["outcome"]
+    assert outcome["provenance"] == "operator_reported"
+    benchmark = next(
+        item
+        for item in benchmarks.json()["benchmarks"]
+        if item["providerId"] == "codex_cli" and item["model"] == "gpt-5.5"
+    )
+    assert benchmark["tasksAttempted"] == 1
+    assert benchmark["objectiveTasksAttempted"] == 0
+    assert benchmark["operatorReportedTasks"] == 1
+    assert benchmark["automatedRunTasks"] == 0
+    assert benchmark["releaseValidationTasks"] == 0
+    assert benchmark["successRate"] is None
+    assert benchmark["qaPassRate"] is None
+    assert benchmark["reworkRate"] is None
+    assert benchmark["avgCost"] is None
+    assert benchmark["avgLatencyMs"] is None
+    assert benchmark["insufficientData"] is True
+
+
+def test_release_validation_benchmark_provenance_is_accepted_as_objective(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    headers = auth_headers(client)
+
+    created = client.post(
+        "/api/v1/model-gateway/benchmark-outcomes",
+        headers=headers,
+        json={
+            "providerId": "claude_code_cli",
+            "model": "sonnet",
+            "runtimeType": "cli",
+            "role": "developer",
+            "taskId": "release-validation-benchmark",
+            "provenance": "release_validation",
+            "success": True,
+            "qaPass": True,
+            "rework": False,
+            "estimatedCostUsd": 0.12,
+            "latencyMs": 900,
+        },
+    )
+    benchmarks = client.get("/api/v1/model-gateway/benchmarks")
+
+    assert created.status_code == 201
+    assert created.json()["outcome"]["provenance"] == "release_validation"
+    benchmark = next(
+        item
+        for item in benchmarks.json()["benchmarks"]
+        if item["providerId"] == "claude_code_cli" and item["model"] == "sonnet"
+    )
+    assert benchmark["objectiveTasksAttempted"] == 1
+    assert benchmark["releaseValidationTasks"] == 1
+    assert benchmark["successRate"] == 1.0
 
 
 def test_evidence_creation_ingests_benchmark_outcome_from_usage_ledger(
@@ -2077,8 +2280,8 @@ def test_evidence_creation_ingests_benchmark_outcome_from_usage_ledger(
             "taskId": "implementation",
             "usageLedgerId": usage["id"],
             "testPlan": "Verify routed implementation",
-            "testResults": [{"command": "pytest", "status": "passed", "durationMs": 900}],
             "qaVerdict": "passed",
+            **real_qa_evidence_fields(command="pytest", duration_ms=900),
         },
     )
     outcomes = client.get("/api/v1/model-gateway/benchmark-outcomes")
@@ -2090,6 +2293,7 @@ def test_evidence_creation_ingests_benchmark_outcome_from_usage_ledger(
     assert outcome["model"] == "gpt-5.5"
     assert outcome["runtimeType"] == "cli"
     assert outcome["workflowStepId"] == "workflow-step-benchmark"
+    assert outcome["provenance"] == "automated_run"
     assert outcome["success"] is True
     assert outcome["qaPass"] is True
     assert outcome["rework"] is False

@@ -1,5 +1,5 @@
 import type { ModelGatewayRoutePreviewResponse } from '../../api/client';
-import { Badge, Surface } from '../../components/primitives';
+import { Badge, DataTable, EmptyState, Surface } from '../../components/primitives';
 import { PanelShell } from './PanelShell';
 import { EXECUTABLE_AGENT_ROLES, money } from './utils';
 
@@ -18,6 +18,12 @@ type RoutePreviewForm = {
 	requiresJson: boolean;
 };
 
+function unknownCostTone(action: string): 'ok' | 'warn' | 'danger' {
+	if (action === 'reject') return 'danger';
+	if (action === 'require_approval') return 'warn';
+	return 'ok';
+}
+
 export function RoutePreviewPanel({
 	form,
 	preview,
@@ -31,6 +37,16 @@ export function RoutePreviewPanel({
 	onChange: (field: keyof RoutePreviewForm, value: string | boolean) => void;
 	onSubmit: () => void;
 }) {
+	const candidateRows = preview?.candidates ?? [];
+	const hasOperatorReportedBenchmarks = candidateRows.some(
+		(row) => Number(row.scoreBreakdown?.benchmarkOperatorReportedSampleCount ?? 0) > 0,
+	);
+	const scoreMetric = (row: ModelGatewayRoutePreviewResponse['candidates'][number], key: string) => (
+		Number(row.scoreBreakdown?.[key] ?? 0).toFixed(2)
+	);
+	const unknownCostPolicy = preview?.policyResult?.unknownCostPolicy;
+	const unknownCostAction = typeof unknownCostPolicy?.action === 'string' ? unknownCostPolicy.action : '';
+	const unknownCostReason = typeof unknownCostPolicy?.reason === 'string' ? unknownCostPolicy.reason : '';
 	return (
 		<PanelShell title="Route Preview">
 			<div className="form-grid">
@@ -97,8 +113,10 @@ export function RoutePreviewPanel({
 							<Badge>{preview.selected?.runtime ?? 'no runtime'}</Badge>
 							<Badge>{preview.selected?.effort ?? 'default effort'}</Badge>
 							<Badge>{money(preview.estimatedCostUsd)}</Badge>
+							{unknownCostAction ? <Badge tone={unknownCostTone(unknownCostAction)}>unknown cost: {unknownCostAction}</Badge> : null}
 						</div>
 						<div className="muted">{preview.decisionReason}</div>
+						{unknownCostReason ? <div className="muted">Unknown cost policy: {unknownCostReason}</div> : null}
 						<div className="grid two">
 							<Surface flat>
 								<div className="metric-label">Budget result</div>
@@ -109,6 +127,20 @@ export function RoutePreviewPanel({
 								<div className="mono">{JSON.stringify(preview.quotaResult ?? {})}</div>
 							</Surface>
 						</div>
+						<Surface flat>
+							<h3 className="surface-title">Candidate scores</h3>
+							{hasOperatorReportedBenchmarks ? <div className="muted">Manual benchmarks are not objective proof.</div> : null}
+							<DataTable rows={candidateRows} empty={<EmptyState title="No candidates" body="Hard filters rejected every provider/model candidate." />} columns={[
+								{ key: 'provider', label: 'Provider', render: (row) => <span className="mono">{row.provider}</span> },
+								{ key: 'model', label: 'Model', render: (row) => <span className="mono">{row.model}</span> },
+								{ key: 'runtime', label: 'Runtime', render: (row) => <Badge>{row.runtime}</Badge> },
+								{ key: 'score', label: 'Score', render: (row) => Number(row.score ?? 0).toFixed(6) },
+								{ key: 'objectiveSamples', label: 'Objective samples', render: (row) => scoreMetric(row, 'benchmarkObjectiveSampleCount') },
+								{ key: 'manualSamples', label: 'Manual samples', render: (row) => scoreMetric(row, 'benchmarkOperatorReportedSampleCount') },
+								{ key: 'benchmarkScore', label: 'Benchmark score', render: (row) => scoreMetric(row, 'benchmarkScore') },
+								{ key: 'benchmarkContribution', label: 'Benchmark contribution', render: (row) => scoreMetric(row, 'benchmarkContribution') },
+							]} />
+						</Surface>
 					</div>
 				) : null}
 			</div>

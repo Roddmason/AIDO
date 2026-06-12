@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import shutil
 import sqlite3
 import uuid
 from pathlib import Path
@@ -69,6 +70,10 @@ DANGEROUS_FLAGS = {
 DOCKER_CRITICAL_FLAGS = {"--mount", "--network=host", "--privileged", "--volume", "-v"}
 MAX_FILE_BYTES = 512 * 1024
 MAX_FILES_SCANNED = 5000
+EXTERNAL_SCANNER_TIMEOUT_SECONDS = 120
+SCANNER_REPORT_DIR = "security-scanner-reports"
+SEMGREP_CONFIG_CANDIDATES = (".semgrep.yml", ".semgrep.yaml", "semgrep.yml", "semgrep.yaml")
+GITLEAKS_CONFIG_CANDIDATES = (".gitleaks.toml", "gitleaks.toml")
 
 
 def _inside(path: Path, root: Path) -> bool:
@@ -160,7 +165,7 @@ class SecurityAgentRunner:
                 "allowedProviders": list(SECURITY_AGENT_MODEL_RUNTIMES),
                 "allowedRuntimes": list(SECURITY_AGENT_MODEL_RUNTIMES),
                 "allowRemote": True,
-                "allowCli": False,
+                "allowCli": True,
                 "allowApi": True,
                 "outputSchema": security_agent_contract()["outputSchema"],
             }
@@ -389,10 +394,10 @@ class SecurityAgentRunner:
 
     def _verdict(self, findings: list[dict[str, Any]]) -> tuple[str, str]:
         if any(finding["severity"] == "critical" for finding in findings):
-            return "blocked", "Critical deterministic security finding blocks completion."
+            return "blocked", "Critical security finding blocks completion."
         if findings:
-            return "risk", "Deterministic security controls found reviewable risk."
-        return "passed", "Deterministic security controls passed."
+            return "risk", "Security controls found reviewable risk."
+        return "passed", "Security controls passed."
 
     def _write_findings_artifact(
         self,
@@ -418,6 +423,474 @@ class SecurityAgentRunner:
                 "hashAlgorithm": "sha256",
             },
         )
+
+    def _external_scanner_executable(self, name: str) -> str | None:
+        for candidate in (name, f"{name}.cmd", f"{name}.exe"):
+            executable = shutil.which(candidate)
+            if executable:
+                return executable
+        return None
+
+    def _external_scanner_config(self, candidates: tuple[str, ...]) -> Path | None:
+        for candidate in candidates:
+            path = self.root / candidate
+            if path.exists() and path.is_file():
+                return path.resolve(strict=False)
+        return None
+
+    def _scanner_report_path(self, scanner_name: str) -> Path:
+        report_dir = self.root / ".tmp" / SCANNER_REPORT_DIR
+        report_dir.mkdir(parents=True, exist_ok=True)
+        return report_dir / f"{scanner_name}-{uuid.uuid4()}.json"
+
+    def _load_scanner_report(self, path: Path) -> Any:
+        if not path.exists() or not path.is_file():
+            return {"parseError": "report_file_missing", "reportPath": str(path)}
+        raw = path.read_text(encoding="utf-8", errors="replace")
+        if not raw.strip():
+            return []
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError as exc:
+            return {"parseError": str(exc), "rawPreview": raw[:1000]}
+
+    def _write_scanner_report_artifact(
+        self,
+        *,
+        project_id: str,
+        scanner_name: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        artifact_id = f"artifact-{uuid.uuid4()}"
+        content = json_dumps(redact_secrets(payload))
+        artifact_file = write_text_artifact(root=self.root, artifact_id=artifact_id, suffix=f".{scanner_name}.security.json", content=content)
+        return self.evidence.create_artifact(
+            artifact_id=artifact_id,
+            project_id=project_id,
+            evidence_package_id=None,
+            kind="security_report",
+            path=artifact_file["path"],
+            content_hash=artifact_file["hash"],
+            metadata={
+                "name": f"{scanner_name}-report.json",
+                "source": f"{SECURITY_AGENT_ID}.{scanner_name}",
+                "scanner": scanner_name,
+                "mimeType": "application/json",
+                "sizeBytes": artifact_file["sizeBytes"],
+                "hashAlgorithm": "sha256",
+            },
+        )
+
+    def _skipped_scanner_result(self, *, name: str, reason: str, executable: str | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
+        scanner = {
+            "name": name,
+            "status": "skipped_with_reason",
+            "reason": reason,
+            "executable": bool(executable),
+            "configured": False,
+            "reportArtifactId": None,
+            "reportHash": None,
+            "findingCount": 0,
+        }
+        test_result = {
+            "command": f"security_agent.{name}",
+            "status": "skipped_with_reason",
+            "durationMs": 0,
+            "metadata": {
+                "scanner": name,
+                "reason": reason,
+                "executable": bool(executable),
+                "configured": False,
+            },
+        }
+        return scanner, test_result
+
+    def _scanner_test_result(self, scanner: dict[str, Any]) -> dict[str, Any]:
+        status = str(scanner.get("status") or "failed")
+        test_status = status if status in {"passed", "blocked", "skipped_with_reason"} else "failed"
+        return {
+            "command": f"security_agent.{scanner['name']}",
+            "status": test_status,
+            "durationMs": scanner.get("durationMs"),
+            "exitCode": scanner.get("exitCode"),
+            "toolCallId": scanner.get("toolCallId"),
+            "execution": scanner.get("execution"),
+            "outputRef": scanner.get("reportArtifactId"),
+            "metadata": {
+                "scanner": scanner.get("name"),
+                "status": status,
+                "reason": scanner.get("reason"),
+                "findingCount": scanner.get("findingCount"),
+                "reportHash": scanner.get("reportHash"),
+                "configured": scanner.get("configured"),
+                "executable": scanner.get("executable"),
+                "command": scanner.get("command"),
+                "permissionDecisionId": scanner.get("permissionDecisionId"),
+                "toolCallStatus": scanner.get("toolCallStatus"),
+            },
+        }
+
+    def _execute_scanner_command(
+        self,
+        *,
+        broker: ToolBroker,
+        project_id: str,
+        workspace: dict[str, Any],
+        agent_run: dict[str, Any],
+        job: dict[str, Any],
+        profile: dict[str, Any],
+        scanner_name: str,
+        argv: list[str],
+    ) -> dict[str, Any]:
+        broker_result = broker.evaluate_tool_call(
+            project_id=project_id,
+            agent_run_id=agent_run["id"],
+            agent_profile=profile,
+            job_id=job["id"],
+            tool_call={
+                "tool": "shell",
+                "command": _command_display(argv),
+                "argv": argv,
+                "workspaceId": workspace["id"],
+                "workspacePath": workspace["path"],
+                "path": workspace["path"],
+                "operation": "security_agent_scanner",
+                "runtimeId": scanner_name,
+                "capability": "security_scan",
+                "networkRequired": False,
+                "secretsRequired": False,
+                "execute": True,
+                "timeoutSeconds": EXTERNAL_SCANNER_TIMEOUT_SECONDS,
+            },
+        )
+        tool_call = broker_result["toolCall"]
+        payload = tool_call.get("payload") or {}
+        execution_result = payload.get("executionResult")
+        if not isinstance(execution_result, dict):
+            execution_result = {
+                "executed": False,
+                "blocked": True,
+                "reason": payload.get("decisionReason") or "Scanner execution did not produce a broker execution result.",
+                "returnCode": None,
+            }
+        return {
+            **execution_result,
+            "toolCallId": tool_call["id"],
+            "toolCallStatus": tool_call.get("status"),
+            "permissionDecisionId": payload.get("permissionDecisionId"),
+            "execution": payload.get("execution"),
+            "decision": payload.get("decision"),
+            "decisionReason": payload.get("decisionReason"),
+        }
+
+    def _run_gitleaks_scanner(
+        self,
+        *,
+        broker: ToolBroker,
+        project_id: str,
+        workspace: dict[str, Any],
+        agent_run: dict[str, Any],
+        job: dict[str, Any],
+        profile: dict[str, Any],
+    ) -> tuple[dict[str, Any], list[dict[str, Any]], list[str], dict[str, Any]]:
+        scanner_name = "gitleaks"
+        executable = self._external_scanner_executable(scanner_name)
+        if not executable:
+            scanner, test_result = self._skipped_scanner_result(
+                name=scanner_name,
+                reason="Gitleaks executable was not found on PATH.",
+            )
+            return scanner, [], [], test_result
+
+        workspace_path = Path(workspace["path"]).resolve(strict=False)
+        report_path = self._scanner_report_path(scanner_name)
+        config = self._external_scanner_config(GITLEAKS_CONFIG_CANDIDATES)
+        argv = [
+            executable,
+            "dir",
+            str(workspace_path),
+            "--redact",
+            "--report-format",
+            "json",
+            "--report-path",
+            str(report_path),
+        ]
+        if config:
+            argv.extend(["--config", str(config)])
+
+        result = self._execute_scanner_command(
+            broker=broker,
+            project_id=project_id,
+            workspace=workspace,
+            agent_run=agent_run,
+            job=job,
+            profile=profile,
+            scanner_name=scanner_name,
+            argv=argv,
+        )
+        parsed_report = self._load_scanner_report(report_path)
+        report_payload = {
+            "scanner": scanner_name,
+            "command": _command_display(argv),
+            "returnCode": result.get("returnCode"),
+            "timedOut": bool(result.get("timedOut")),
+            "stdout": result.get("stdout", ""),
+            "stderr": result.get("stderr", ""),
+            "report": parsed_report,
+        }
+        report_artifact = self._write_scanner_report_artifact(project_id=project_id, scanner_name=scanner_name, payload=report_payload)
+        report_hash = str(report_artifact["hash"])
+        entries = parsed_report if isinstance(parsed_report, list) else []
+        findings: list[dict[str, Any]] = []
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            rule_id = str(entry.get("RuleID") or entry.get("rule") or "gitleaks")
+            description = str(entry.get("Description") or entry.get("Match") or rule_id)
+            file_path = str(entry.get("File") or entry.get("file") or "")
+            line = entry.get("StartLine") or entry.get("Line")
+            findings.append(
+                _finding(
+                    check_id="gitleaks_secret",
+                    severity="critical",
+                    message=f"Gitleaks detected a secret: {description}.",
+                    location=_redacted_location(file_path, int(line) if isinstance(line, int) else None),
+                    evidence={
+                        "scanner": scanner_name,
+                        "ruleId": rule_id,
+                        "reportArtifactId": report_artifact["id"],
+                        "reportHash": report_hash,
+                    },
+                )
+            )
+
+        if result.get("timedOut"):
+            status = "failed"
+            reason = "Gitleaks execution timed out."
+        elif not result.get("executed") or result.get("blocked"):
+            status = "failed"
+            reason = str(result.get("reason") or "Gitleaks execution was blocked by runtime policy.")
+        elif findings:
+            status = "blocked"
+            reason = f"Gitleaks detected {len(findings)} secret finding(s)."
+        elif result.get("returnCode") == 0:
+            status = "passed"
+            reason = "Gitleaks completed with no secret findings."
+        else:
+            status = "failed"
+            reason = f"Gitleaks exited with code {result.get('returnCode')} without parseable secret findings."
+
+        scanner = {
+            "name": scanner_name,
+            "status": status,
+            "reason": reason,
+            "executable": True,
+            "configured": True,
+            "configuration": str(config) if config else "builtin_default",
+            "exitCode": result.get("returnCode"),
+            "durationMs": result.get("durationMs"),
+            "toolCallId": result.get("toolCallId"),
+            "toolCallStatus": result.get("toolCallStatus"),
+            "permissionDecisionId": result.get("permissionDecisionId"),
+            "execution": result.get("execution"),
+            "reportArtifactId": report_artifact["id"],
+            "reportHash": report_hash,
+            "findingCount": len(findings),
+            "command": "gitleaks dir --redact --report-format json --report-path <artifact>",
+        }
+        return scanner, findings, [report_artifact["id"]], self._scanner_test_result(scanner)
+
+    def _semgrep_severity(self, finding: dict[str, Any]) -> str:
+        extra = finding.get("extra") if isinstance(finding.get("extra"), dict) else {}
+        severity = str(extra.get("severity") or "").upper()
+        if self._semgrep_secret_finding(finding):
+            return "critical"
+        if severity in {"ERROR", "HIGH", "CRITICAL"}:
+            return "high"
+        if severity in {"WARNING", "MEDIUM"}:
+            return "medium"
+        return "low"
+
+    def _semgrep_secret_finding(self, finding: dict[str, Any]) -> bool:
+        extra = finding.get("extra") if isinstance(finding.get("extra"), dict) else {}
+        metadata = extra.get("metadata") if isinstance(extra.get("metadata"), dict) else {}
+        haystack = " ".join(
+            str(value)
+            for value in (
+                finding.get("check_id"),
+                extra.get("message"),
+                metadata.get("category"),
+                metadata.get("technology"),
+                metadata.get("owasp"),
+            )
+            if value is not None
+        ).lower()
+        return any(token in haystack for token in ("secret", "credential", "api-key", "apikey", "token", "password"))
+
+    def _run_semgrep_scanner(
+        self,
+        *,
+        broker: ToolBroker,
+        project_id: str,
+        workspace: dict[str, Any],
+        agent_run: dict[str, Any],
+        job: dict[str, Any],
+        profile: dict[str, Any],
+    ) -> tuple[dict[str, Any], list[dict[str, Any]], list[str], dict[str, Any]]:
+        scanner_name = "semgrep"
+        executable = self._external_scanner_executable(scanner_name)
+        if not executable:
+            scanner, test_result = self._skipped_scanner_result(
+                name=scanner_name,
+                reason="Semgrep executable was not found on PATH.",
+            )
+            return scanner, [], [], test_result
+
+        config = self._external_scanner_config(SEMGREP_CONFIG_CANDIDATES)
+        if not config:
+            scanner, test_result = self._skipped_scanner_result(
+                name=scanner_name,
+                reason=(
+                    "Semgrep executable was found, but no local .semgrep.yml, .semgrep.yaml, "
+                    "semgrep.yml, or semgrep.yaml config file is configured. Registry auto-config is not used."
+                ),
+                executable=executable,
+            )
+            return scanner, [], [], test_result
+
+        workspace_path = Path(workspace["path"]).resolve(strict=False)
+        report_path = self._scanner_report_path(scanner_name)
+        argv = [
+            executable,
+            "scan",
+            "--config",
+            str(config),
+            "--json",
+            "--json-output",
+            str(report_path),
+            "--metrics=off",
+            str(workspace_path),
+        ]
+        result = self._execute_scanner_command(
+            broker=broker,
+            project_id=project_id,
+            workspace=workspace,
+            agent_run=agent_run,
+            job=job,
+            profile=profile,
+            scanner_name=scanner_name,
+            argv=argv,
+        )
+        parsed_report = self._load_scanner_report(report_path)
+        report_payload = {
+            "scanner": scanner_name,
+            "command": _command_display(argv),
+            "returnCode": result.get("returnCode"),
+            "timedOut": bool(result.get("timedOut")),
+            "stdout": result.get("stdout", ""),
+            "stderr": result.get("stderr", ""),
+            "report": parsed_report,
+        }
+        report_artifact = self._write_scanner_report_artifact(project_id=project_id, scanner_name=scanner_name, payload=report_payload)
+        report_hash = str(report_artifact["hash"])
+        results = parsed_report.get("results") if isinstance(parsed_report, dict) else []
+        findings: list[dict[str, Any]] = []
+        for item in results if isinstance(results, list) else []:
+            if not isinstance(item, dict):
+                continue
+            extra = item.get("extra") if isinstance(item.get("extra"), dict) else {}
+            start = item.get("start") if isinstance(item.get("start"), dict) else {}
+            rule_id = str(item.get("check_id") or "semgrep")
+            severity = self._semgrep_severity(item)
+            findings.append(
+                _finding(
+                    check_id="semgrep_secret" if severity == "critical" else "semgrep_finding",
+                    severity=severity,
+                    message=f"Semgrep detected {rule_id}: {extra.get('message') or rule_id}.",
+                    location=_redacted_location(str(item.get("path") or ""), start.get("line") if isinstance(start.get("line"), int) else None),
+                    evidence={
+                        "scanner": scanner_name,
+                        "ruleId": rule_id,
+                        "semgrepSeverity": extra.get("severity"),
+                        "reportArtifactId": report_artifact["id"],
+                        "reportHash": report_hash,
+                    },
+                )
+            )
+
+        if result.get("timedOut"):
+            status = "failed"
+            reason = "Semgrep execution timed out."
+        elif not result.get("executed") or result.get("blocked"):
+            status = "failed"
+            reason = str(result.get("reason") or "Semgrep execution was blocked by runtime policy.")
+        elif result.get("returnCode") not in {0, 1}:
+            status = "failed"
+            reason = f"Semgrep exited with code {result.get('returnCode')}."
+        elif findings:
+            status = "risk"
+            reason = f"Semgrep detected {len(findings)} finding(s)."
+        else:
+            status = "passed"
+            reason = "Semgrep completed with no findings."
+
+        scanner = {
+            "name": scanner_name,
+            "status": status,
+            "reason": reason,
+            "executable": True,
+            "configured": True,
+            "configuration": str(config),
+            "exitCode": result.get("returnCode"),
+            "durationMs": result.get("durationMs"),
+            "toolCallId": result.get("toolCallId"),
+            "toolCallStatus": result.get("toolCallStatus"),
+            "permissionDecisionId": result.get("permissionDecisionId"),
+            "execution": result.get("execution"),
+            "reportArtifactId": report_artifact["id"],
+            "reportHash": report_hash,
+            "findingCount": len(findings),
+            "command": "semgrep scan --config <local> --json --json-output <artifact> --metrics=off <workspace>",
+        }
+        return scanner, findings, [report_artifact["id"]], self._scanner_test_result(scanner)
+
+    def _run_external_scanners(
+        self,
+        *,
+        broker: ToolBroker,
+        project_id: str,
+        workspace: dict[str, Any],
+        agent_run: dict[str, Any],
+        job: dict[str, Any],
+        profile: dict[str, Any],
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[str], list[dict[str, Any]]]:
+        scanners: list[dict[str, Any]] = []
+        findings: list[dict[str, Any]] = []
+        artifact_ids: list[str] = []
+        test_results: list[dict[str, Any]] = []
+        for scanner, scanner_findings, scanner_artifacts, test_result in (
+            self._run_gitleaks_scanner(
+                broker=broker,
+                project_id=project_id,
+                workspace=workspace,
+                agent_run=agent_run,
+                job=job,
+                profile=profile,
+            ),
+            self._run_semgrep_scanner(
+                broker=broker,
+                project_id=project_id,
+                workspace=workspace,
+                agent_run=agent_run,
+                job=job,
+                profile=profile,
+            ),
+        ):
+            scanners.append(scanner)
+            findings.extend(scanner_findings)
+            artifact_ids.extend(scanner_artifacts)
+            test_results.append(test_result)
+        return scanners, findings, artifact_ids, test_results
 
     def _model_runtime(self, preferred_runtime: str | None) -> dict[str, Any] | None:
         statuses = RuntimeStatusService(self.connection).list_provider_statuses()
@@ -501,11 +974,15 @@ class SecurityAgentRunner:
         workspace = self._workspace(project_id=project_id, workspace_id=str(payload["workspaceId"]))
         diff_artifact = self._diff_artifact(project_id=project_id, artifact_id=payload.get("diffArtifactId"))
         task_id = str(payload.get("taskId") or "security_agent")
+        workflow_run_id = str(payload.get("workflowRunId") or "").strip() or None
+        workflow_step_id = str(payload.get("workflowStepId") or "").strip() or None
         profile = self._ensure_profile()
         job_result = self.jobs.create_job(
             project_id=project_id,
             kind="agent.security",
             status="running",
+            workflow_run_id=workflow_run_id,
+            workflow_step_id=workflow_step_id,
             payload={"taskId": task_id, "workspaceId": workspace["id"], "diffArtifactId": payload.get("diffArtifactId")},
         )
         job = job_result["job"]
@@ -516,6 +993,8 @@ class SecurityAgentRunner:
             input_payload=redact_secrets({**payload, "workspacePath": workspace["path"]}),
             output_payload={},
             job_id=job["id"],
+            workflow_run_id=workflow_run_id,
+            workflow_step_id=workflow_step_id,
             status="running",
         )
 
@@ -525,6 +1004,16 @@ class SecurityAgentRunner:
         self._scan_paths(workspace_path=workspace["path"], paths_to_check=payload.get("pathsToCheck") or [], findings=findings)
         self._scan_commands(payload.get("commandCandidates") or [], findings)
         self._scan_policy_decisions(project_id=project_id, workspace_id=workspace["id"], findings=findings)
+        scanner_broker = ToolBroker(self.connection, artifact_root=self.root)
+        external_scanners, scanner_findings, scanner_artifact_ids, scanner_test_results = self._run_external_scanners(
+            broker=scanner_broker,
+            project_id=project_id,
+            workspace=workspace,
+            agent_run=agent_run,
+            job=job,
+            profile=profile,
+        )
+        findings.extend(scanner_findings)
         verdict, reason = self._verdict(findings)
         findings_payload = {
             "status": verdict,
@@ -534,6 +1023,7 @@ class SecurityAgentRunner:
             "filesScanned": files_scanned,
             "dependencyFiles": dependency_files,
             "diffArtifacts": diff_artifacts,
+            "externalScanners": external_scanners,
         }
         model_analysis = self._execute_optional_model_analysis(
             project_id=project_id,
@@ -547,7 +1037,7 @@ class SecurityAgentRunner:
         if model_analysis:
             findings_payload["modelAnalysis"] = model_analysis
         findings_artifact = self._write_findings_artifact(project_id=project_id, payload=findings_payload)
-        artifact_ids = [findings_artifact["id"], *[item["artifactId"] for item in diff_artifacts]]
+        artifact_ids = [findings_artifact["id"], *scanner_artifact_ids, *[item["artifactId"] for item in diff_artifacts]]
         if model_analysis and isinstance(model_analysis.get("outputArtifactId"), str):
             artifact_ids.append(str(model_analysis["outputArtifactId"]))
         qa_verdict = {
@@ -563,17 +1053,24 @@ class SecurityAgentRunner:
         ]
         evidence = self.evidence.create_evidence_package(
             project_id=project_id,
-            workflow_run_id=None,
+            workflow_run_id=workflow_run_id,
+            workflow_step_id=workflow_step_id,
             agent_id=SECURITY_AGENT_ID,
             agent_run_id=agent_run["id"],
             job_id=job["id"],
             workspace_id=workspace["id"],
             runtime_id=f"{SECURITY_AGENT_ID}.deterministic_controls",
             task_id=task_id,
-            test_plan="Run deterministic SecurityAgent controls over workspace, commands, paths, dependencies, and policy decisions.",
+            test_plan=(
+                "Run SecurityAgent controls over workspace, commands, paths, dependencies, policy decisions, "
+                "and optional external scanners when their local CLIs are available/configured."
+            ),
             acceptance_checklist=[
                 "Workspace files scanned with hashes.",
                 "Secret-like tokens are blocked.",
+                "External scanners run when installed and configured.",
+                "Missing external scanners are recorded as skipped_with_reason, not passed.",
+                "External scanner reports are attached with SHA-256 hashes.",
                 "Dangerous command flags are detected.",
                 "Path traversal candidates are blocked.",
                 "Policy violations are included in findings.",
@@ -588,9 +1085,19 @@ class SecurityAgentRunner:
                     "dependencyFiles": len(dependency_files),
                     "outputRef": findings_artifact["id"],
                     "metadata": {"checks": ["secret_scan", "dangerous_command", "dependency_file_scan", "policy_violation", "path_traversal"]},
-                }
+                },
+                *scanner_test_results,
             ],
-            logs=[redact_secrets({"source": SECURITY_AGENT_ID, "reason": reason, "modelAnalysis": model_analysis})],
+            logs=[
+                redact_secrets(
+                    {
+                        "source": SECURITY_AGENT_ID,
+                        "reason": reason,
+                        "modelAnalysis": model_analysis,
+                        "externalScanners": external_scanners,
+                    }
+                )
+            ],
             risk_notes=[
                 {
                     "severity": "low" if verdict == "passed" else "critical" if verdict == "blocked" else "high",
@@ -607,6 +1114,7 @@ class SecurityAgentRunner:
                 "executable": True,
                 "filesScanned": len(files_scanned),
                 "dependencyFiles": len(dependency_files),
+                "externalScanners": external_scanners,
                 "modelAnalysisStatus": (model_analysis or {}).get("status") if model_analysis else "not_requested",
             },
             model_calls=[],
@@ -615,6 +1123,7 @@ class SecurityAgentRunner:
             approvals=self.jobs.list_action_requests(job["id"]),
             artifacts=[artifact_ref(artifact) for artifact in artifact_records],
             hashes=artifact_hashes(artifact_records),
+            evidence_source="evidence_collected",
             qa_verdict=qa_verdict,
         )
         for artifact_id in artifact_ids:
@@ -622,7 +1131,7 @@ class SecurityAgentRunner:
         contract_errors = evidence_package_contract_errors(
             evidence,
             require_runtime_links=verdict == "passed",
-            require_workflow_run=False,
+            require_workflow_run=bool(workflow_run_id) if verdict == "passed" else False,
         )
         if verdict == "passed" and contract_errors:
             verdict = "blocked"
@@ -668,6 +1177,7 @@ class SecurityAgentRunner:
             "findings": findings,
             "filesScanned": files_scanned,
             "dependencyFiles": dependency_files,
+            "externalScanners": external_scanners,
             "findingsArtifact": findings_artifact,
             "modelAnalysis": model_analysis,
         }

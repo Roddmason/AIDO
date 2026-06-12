@@ -419,6 +419,7 @@ class DevOpsAgentRunRequest(BaseModel):
     workspace_id: str = Field(alias="workspaceId")
     task_id: str = Field(default="devops_agent", alias="taskId")
     build_scripts: list[str] = Field(default_factory=list, alias="buildScripts")
+    quality_scripts: list[str] | None = Field(default=None, alias="qualityScripts")
     docker_healthcheck: bool = Field(default=False, alias="dockerHealthcheck")
     metadata: dict[str, Any] = Field(default_factory=dict)
 
@@ -500,6 +501,7 @@ class SecurityAgentRunResponse(BaseModel):
     findings: list[dict[str, Any]]
     files_scanned: list[dict[str, Any]] = Field(alias="filesScanned")
     dependency_files: list[dict[str, Any]] = Field(alias="dependencyFiles")
+    external_scanners: list[dict[str, Any]] = Field(default_factory=list, alias="externalScanners")
     findings_artifact: dict[str, Any] = Field(alias="findingsArtifact")
     model_analysis: dict[str, Any] | None = Field(default=None, alias="modelAnalysis")
 

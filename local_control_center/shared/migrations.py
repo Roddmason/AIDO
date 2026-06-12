@@ -401,6 +401,7 @@ def init_phase2_schema(connection: sqlite3.Connection) -> None:
             approvals TEXT NOT NULL DEFAULT '[]',
             artifact_refs TEXT NOT NULL DEFAULT '[]',
             hashes TEXT NOT NULL DEFAULT '{}',
+            evidence_source TEXT NOT NULL DEFAULT 'operator_attested',
             qa_verdict TEXT NOT NULL,
             created_at TEXT NOT NULL
         );
@@ -655,6 +656,12 @@ def init_phase3_schema(connection: sqlite3.Connection) -> None:
     _add_column_if_missing(connection, "evidence_packages", "approvals", "approvals TEXT NOT NULL DEFAULT '[]'")
     _add_column_if_missing(connection, "evidence_packages", "artifact_refs", "artifact_refs TEXT NOT NULL DEFAULT '[]'")
     _add_column_if_missing(connection, "evidence_packages", "hashes", "hashes TEXT NOT NULL DEFAULT '{}'")
+    _add_column_if_missing(
+        connection,
+        "evidence_packages",
+        "evidence_source",
+        "evidence_source TEXT NOT NULL DEFAULT 'operator_attested'",
+    )
     _add_column_if_missing(connection, "action_requests", "expires_at", "expires_at TEXT NOT NULL DEFAULT ''")
     _add_column_if_missing(connection, "test_results", "status", "status TEXT NOT NULL DEFAULT 'unknown'")
     connection.executescript(
@@ -1109,6 +1116,8 @@ def init_phase12_schema(connection: sqlite3.Connection) -> None:
             allow_local INTEGER NOT NULL,
             allow_cli INTEGER NOT NULL,
             allow_api INTEGER NOT NULL,
+            allow_unknown_cost INTEGER NOT NULL DEFAULT 1,
+            require_approval_for_unknown_cost INTEGER NOT NULL DEFAULT 1,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         );
@@ -1264,6 +1273,18 @@ def init_phase12_schema(connection: sqlite3.Connection) -> None:
     _add_column_if_missing(connection, "agent_profiles", "allow_cli", "allow_cli INTEGER NOT NULL DEFAULT 1")
     _add_column_if_missing(connection, "agent_profiles", "allow_api", "allow_api INTEGER NOT NULL DEFAULT 1")
     _add_column_if_missing(connection, "agent_profiles", "requires_approval_over_usd", "requires_approval_over_usd REAL")
+    _add_column_if_missing(
+        connection,
+        "role_model_policies",
+        "allow_unknown_cost",
+        "allow_unknown_cost INTEGER NOT NULL DEFAULT 1",
+    )
+    _add_column_if_missing(
+        connection,
+        "role_model_policies",
+        "require_approval_for_unknown_cost",
+        "require_approval_for_unknown_cost INTEGER NOT NULL DEFAULT 1",
+    )
     _add_column_if_missing(connection, "routing_decisions", "workflow_run_id", "workflow_run_id TEXT")
     _add_column_if_missing(connection, "routing_decisions", "workflow_step_id", "workflow_step_id TEXT")
     _add_column_if_missing(connection, "routing_decisions", "agent_id", "agent_id TEXT")
@@ -1537,6 +1558,7 @@ def init_phase13_schema(connection: sqlite3.Connection) -> None:
             estimated_cost_usd REAL,
             actual_cost_usd REAL,
             latency_ms INTEGER,
+            provenance TEXT NOT NULL DEFAULT 'operator_reported',
             metadata TEXT NOT NULL,
             created_at TEXT NOT NULL
         );
@@ -1545,6 +1567,12 @@ def init_phase13_schema(connection: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_model_benchmark_outcomes_workflow
             ON model_benchmark_outcomes(workflow_run_id, workflow_step_id);
         """
+    )
+    _add_column_if_missing(
+        connection,
+        "model_benchmark_outcomes",
+        "provenance",
+        "provenance TEXT NOT NULL DEFAULT 'operator_reported'",
     )
     connection.execute(
         "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",

@@ -38,7 +38,7 @@ from .models import (
     EvidenceListResponse,
     EvidencePackageResponse,
 )
-from .quality import failed_test_results
+from .quality import REAL_QA_EVIDENCE_SOURCES, failed_test_results, real_qa_command_errors
 from .qa_reports import build_markdown_report
 from .repository import EvidenceRepository
 from .test_results import TestReportError, normalize_test_result_reports
@@ -235,18 +235,37 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         except TestReportError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
         test_results = [*(payload.get("testResults") or []), *normalized_report_results]
+        evidence_source = str(payload.get("evidenceSource") or "operator_attested")
         if payload.get("qaVerdict") == "passed" and failed_test_results(test_results):
             raise HTTPException(
                 status_code=422,
                 detail="QA cannot pass when any failed test result is present.",
             )
-        if payload.get("qaVerdict") == "passed" and not (
-            test_results or payload.get("diffRefs") or payload.get("screenshotRefs")
-        ):
-            raise HTTPException(
-                status_code=422,
-                detail="QA cannot pass without test results, diff refs, or screenshot/artifact refs.",
+        if payload.get("qaVerdict") == "passed":
+            if evidence_source not in REAL_QA_EVIDENCE_SOURCES:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        "qaVerdict=passed requires evidenceSource=qa_passed_by_command or "
+                        "verified_completion."
+                    ),
+                )
+            real_qa_errors = real_qa_command_errors(
+                {
+                    "evidenceSource": evidence_source,
+                    "qaVerdict": payload.get("qaVerdict"),
+                    "testResults": test_results,
+                    "toolCalls": payload.get("toolCalls") or [],
+                    "policyDecisions": payload.get("policyDecisions") or [],
+                    "artifacts": payload.get("artifacts") or [],
+                    "hashes": payload.get("hashes") or {},
+                }
             )
+            if real_qa_errors:
+                raise HTTPException(
+                    status_code=422,
+                    detail="QA passed requires real command execution evidence: " + "; ".join(real_qa_errors),
+                )
         logs, log_artifacts = promote_large_logs(root=platform.cwd, logs=redact_secrets(payload.get("logs") or []))
         screenshot_refs, screenshot_artifacts = promote_screenshots(
             root=platform.cwd,
@@ -303,6 +322,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             approvals=payload.get("approvals") or [],
             artifacts=[*payload_artifacts, *generated_artifact_refs],
             hashes={**payload_hashes, **generated_hashes},
+            evidence_source=evidence_source,
             qa_verdict=payload.get("qaVerdict", "not_started"),
         )
         for artifact in [*log_artifacts, *screenshot_artifacts]:

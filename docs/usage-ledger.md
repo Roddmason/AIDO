@@ -34,7 +34,7 @@ are not evidence of completed model work.
 - Existing `cost_usage` is updated only as a temporary read-model for older
   dashboards. New code must use `usage_ledger`; `cost_usage` compatibility is
   scheduled for removal on 2026-09-01.
-- Benchmark rows derived only from usage intentionally leave success, QA pass and rework metrics empty. Once `model_benchmark_outcomes` rows exist, those rates are computed as fractions from explicit or evidence-ingested outcomes.
+- Benchmark rows derived only from usage intentionally leave success, QA pass and rework metrics empty. Once `model_benchmark_outcomes` rows exist, objective rates are computed only from outcomes with `provenance=automated_run` or `provenance=release_validation`; `operator_reported` rows are manual audit records and are not routing evidence.
 
 ## Limitations
 

@@ -221,7 +221,7 @@ def test_seed_does_not_enable_openhands_or_swe_agent_issue_to_patch_capabilities
     assert rows == []
 
 
-def test_openhands_and_swe_agent_are_not_executable_without_validated_issue_to_patch_capability(
+def test_openhands_and_swe_agent_are_not_executable_without_developer_agent_capability(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -241,10 +241,10 @@ def test_openhands_and_swe_agent_are_not_executable_without_validated_issue_to_p
     assert statuses["swe_agent"]["available"] is True
     assert statuses["openhands"]["executable"] is False
     assert statuses["swe_agent"]["executable"] is False
-    assert "issue_to_patch" not in statuses["openhands"]["capabilities"]
-    assert "issue_to_patch" not in statuses["swe_agent"]["capabilities"]
-    assert "issue_to_patch" in statuses["openhands"]["reason"]
-    assert "issue_to_patch" in statuses["swe_agent"]["reason"]
+    assert "code_edit" not in statuses["openhands"]["capabilities"]
+    assert "code_edit" not in statuses["swe_agent"]["capabilities"]
+    assert "code_edit" in statuses["openhands"]["reason"]
+    assert "code_edit" in statuses["swe_agent"]["reason"]
 
 
 def test_optional_cli_explicit_argv_must_match_declared_runtime(tmp_path: Path) -> None:
@@ -284,19 +284,23 @@ def test_optional_cli_release_contract_requires_stdout_and_stderr_artifacts() ->
             "qaResults": [
                 {
                     "status": "passed",
+                    "execution": "restricted_subprocess",
                     "exitCode": 0,
+                    "toolCallId": "tool-call-1",
                     "artifactHashes": {
                         "stdoutHash": "stdout-sha",
                         "stderrHash": "stderr-sha",
                         "outputArtifactHash": "output-sha",
                     },
+                    "metadata": {"permissionDecisionId": "policy-1"},
                 }
             ],
             "evidencePackage": {
                 "qaVerdict": "passed",
+                "evidenceSource": "qa_passed_by_command",
                 "runtimeId": "openhands",
                 "toolCalls": [{"id": "tool-call-1"}],
-                "policyDecisions": [{"id": "policy-1"}],
+                "policyDecisions": [{"id": "policy-1", "decision": "allow"}],
                 "artifacts": [
                     {"id": "artifact-patch", "name": "diff.patch", "hash": "patch-sha"},
                     {"id": "artifact-qa", "name": "qa-results.json", "hash": "qa-sha"},

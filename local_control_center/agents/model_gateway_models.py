@@ -1,10 +1,13 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from .providers.base import ProviderHealth
+
+
+BenchmarkProvenance = Literal["operator_reported", "automated_run", "release_validation"]
 
 
 class GatewayFlexibleModel(BaseModel):
@@ -244,6 +247,8 @@ class RolePolicyRecord(BaseModel):
     allow_local: bool = Field(alias="allowLocal")
     allow_cli: bool = Field(alias="allowCli")
     allow_api: bool = Field(alias="allowApi")
+    allow_unknown_cost: bool = Field(alias="allowUnknownCost")
+    require_approval_for_unknown_cost: bool = Field(alias="requireApprovalForUnknownCost")
     created_at: str = Field(alias="createdAt")
     updated_at: str = Field(alias="updatedAt")
 
@@ -264,6 +269,8 @@ class RolePolicyUpsertRequest(GatewayFlexibleModel):
     allow_local: bool = Field(default=True, alias="allowLocal")
     allow_cli: bool = Field(default=True, alias="allowCli")
     allow_api: bool = Field(default=True, alias="allowApi")
+    allow_unknown_cost: bool = Field(default=True, alias="allowUnknownCost")
+    require_approval_for_unknown_cost: bool = Field(default=True, alias="requireApprovalForUnknownCost")
 
 
 class RolePolicyPatchRequest(RolePolicyUpsertRequest):
@@ -306,6 +313,9 @@ class RoutingPolicyResult(BaseModel):
     requires_approval: bool = Field(alias="requiresApproval")
     role_policy_id: str = Field(alias="rolePolicyId")
     max_cost_per_task_usd: float | None = Field(default=None, alias="maxCostPerTaskUsd")
+    allow_unknown_cost: bool = Field(default=True, alias="allowUnknownCost")
+    require_approval_for_unknown_cost: bool = Field(default=True, alias="requireApprovalForUnknownCost")
+    unknown_cost_policy: dict[str, Any] = Field(default_factory=dict, alias="unknownCostPolicy")
 
 
 class RoutingPreviewRequest(GatewayFlexibleModel):
@@ -601,6 +611,10 @@ class ModelBenchmarkRecord(BaseModel):
     model: str
     role: str | None = None
     tasks_attempted: int = Field(alias="tasksAttempted")
+    objective_tasks_attempted: int = Field(alias="objectiveTasksAttempted")
+    operator_reported_tasks: int = Field(alias="operatorReportedTasks")
+    automated_run_tasks: int = Field(alias="automatedRunTasks")
+    release_validation_tasks: int = Field(alias="releaseValidationTasks")
     success_rate: float | None = Field(default=None, alias="successRate")
     qa_pass_rate: float | None = Field(default=None, alias="qaPassRate")
     avg_cost: float | None = Field(default=None, alias="avgCost")
@@ -608,6 +622,7 @@ class ModelBenchmarkRecord(BaseModel):
     rework_rate: float | None = Field(default=None, alias="reworkRate")
     last_used_at: str | None = Field(default=None, alias="lastUsedAt")
     insufficient_data: bool = Field(alias="insufficientData")
+    provenance_counts: dict[str, int] = Field(alias="provenanceCounts")
     metadata: dict[str, Any]
     created_at: str = Field(alias="createdAt")
     updated_at: str = Field(alias="updatedAt")
@@ -629,6 +644,7 @@ class ModelBenchmarkOutcomeRecord(BaseModel):
     job_id: str | None = Field(default=None, alias="jobId")
     task_id: str | None = Field(default=None, alias="taskId")
     usage_ledger_id: str | None = Field(default=None, alias="usageLedgerId")
+    provenance: BenchmarkProvenance
     success: bool | None = None
     qa_pass: bool | None = Field(default=None, alias="qaPass")
     rework: bool | None = None
@@ -650,6 +666,7 @@ class ModelBenchmarkOutcomeCreateRequest(GatewayFlexibleModel):
     job_id: str | None = Field(default=None, alias="jobId")
     task_id: str | None = Field(default=None, alias="taskId")
     usage_ledger_id: str | None = Field(default=None, alias="usageLedgerId")
+    provenance: BenchmarkProvenance = "operator_reported"
     success: bool | None = None
     qa_pass: bool | None = Field(default=None, alias="qaPass")
     rework: bool | None = None

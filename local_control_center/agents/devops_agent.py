@@ -56,6 +56,19 @@ CONFIG_FILENAMES = {
 MAX_FILE_BYTES = 512 * 1024
 MAX_FILES_SCANNED = 2000
 DEFAULT_BUILD_SCRIPT_CANDIDATES = ("build:control-center", "build:web", "build")
+DEFAULT_QUALITY_SCRIPTS = ("quality",)
+TOOL_VERSION_TIMEOUT_SECONDS = 20
+QUALITY_TIMEOUT_SECONDS = 120
+NODE_ENGINE_CHECK_ID = "node_engine"
+MISSING_TOOL_PATTERNS = (
+    "cannot find the file",
+    "command not found",
+    "executable is not available",
+    "not found",
+    "not recognized as",
+    "no such file or directory",
+    "the system cannot find",
+)
 
 
 def _hash_bytes(content: bytes) -> str:
@@ -87,9 +100,17 @@ def _command_result_artifact_payload(result: dict[str, Any]) -> dict[str, Any]:
     return redact_secrets({"kind": "devops_command_result", **result})
 
 
+def _resolve_executable(name: str) -> str:
+    candidates = (f"{name}.cmd", f"{name}.exe", name) if "." not in name else (name,)
+    for candidate in candidates:
+        executable = shutil.which(candidate)
+        if executable:
+            return executable
+    return name
+
+
 def _corepack_argv(script: str) -> list[str]:
-    executable = shutil.which("corepack.cmd") or shutil.which("corepack") or "corepack"
-    return [executable, "pnpm@10.24.0", "run", script]
+    return [_resolve_executable("corepack"), "pnpm@10.24.0", "run", script]
 
 
 def _corepack_policy_command(script: str) -> str:
@@ -104,6 +125,60 @@ def _status_from_findings_and_commands(findings: list[dict[str, Any]], commands:
     if findings or any(command.get("status") == "skipped_with_reason" for command in commands):
         return "risk", "DevOps validation found configuration or command risks."
     return "passed", "DevOps file and command checks passed."
+
+
+def _first_output_line(result: dict[str, Any]) -> str:
+    output = str(result.get("stdout") or "").strip() or str(result.get("stderr") or "").strip()
+    return next((line.strip() for line in output.splitlines() if line.strip()), "")
+
+
+def _version_token(value: str) -> str:
+    match = re.search(r"v?(\d+\.\d+\.\d+)", value)
+    return match.group(1) if match else value.strip()
+
+
+def _parse_semver(value: str) -> tuple[int, int, int] | None:
+    match = re.search(r"v?(\d+(?:\.\d+){0,2})", value)
+    if not match:
+        return None
+    parts = [int(part) for part in match.group(1).split(".")]
+    while len(parts) < 3:
+        parts.append(0)
+    return (parts[0], parts[1], parts[2])
+
+
+def _node_engine_satisfied(actual: str, requirement: str) -> bool | None:
+    actual_version = _parse_semver(actual)
+    if actual_version is None:
+        return None
+    comparisons = re.findall(r"(>=|<=|>|<|=)\s*v?(\d+(?:\.\d+){0,2})", requirement)
+    if not comparisons:
+        return None
+    for operator, expected_text in comparisons:
+        expected = _parse_semver(expected_text)
+        if expected is None:
+            return None
+        if operator == ">=" and actual_version < expected:
+            return False
+        if operator == "<=" and actual_version > expected:
+            return False
+        if operator == ">" and actual_version <= expected:
+            return False
+        if operator == "<" and actual_version >= expected:
+            return False
+        if operator == "=" and actual_version != expected:
+            return False
+    return True
+
+
+def _missing_tool_reason(result: dict[str, Any]) -> str | None:
+    text = " ".join(
+        str(result.get(key) or "")
+        for key in ("reason", "stdout", "stderr")
+    ).lower()
+    if any(pattern in text for pattern in MISSING_TOOL_PATTERNS):
+        return "Required executable was unavailable for this validation command."
+    return None
 
 
 class DevOpsAgentRunner:
@@ -232,8 +307,20 @@ class DevOpsAgentRunner:
                 )
             )
         engines = package.get("engines") if isinstance(package, dict) else None
+        node_engine = ""
         if isinstance(engines, dict) and engines.get("node"):
-            versions["nodeEngine"] = str(engines["node"])
+            node_engine = str(engines["node"])
+            versions["nodeEngine"] = node_engine
+        else:
+            findings.append(
+                _finding(
+                    check_id=NODE_ENGINE_CHECK_ID,
+                    severity="medium",
+                    message="package.json does not declare engines.node; Node runtime compatibility cannot be certified.",
+                    location={"path": rel},
+                    evidence={"contentHash": content_hash},
+                )
+            )
         for name, command in scripts.items():
             text = str(command)
             if re.search(r"\bnpm\s+(run\s+)?(build|test|start|install)\b", text, re.I):
@@ -256,7 +343,7 @@ class DevOpsAgentRunner:
                         evidence={"contentHash": content_hash},
                     )
                 )
-        return {"path": str(path), "scripts": scripts}
+        return {"path": str(path), "scripts": scripts, "packageManager": package_manager, "nodeEngine": node_engine}
 
     def _scan_pyproject(
         self,
@@ -357,6 +444,12 @@ class DevOpsAgentRunner:
         scripts = (package_info or {}).get("scripts") or {}
         return [candidate for candidate in DEFAULT_BUILD_SCRIPT_CANDIDATES if candidate in scripts][:1]
 
+    def _requested_quality_scripts(self, payload: dict[str, Any]) -> list[str]:
+        requested = payload.get("qualityScripts")
+        if requested is None:
+            return list(DEFAULT_QUALITY_SCRIPTS)
+        return [str(script) for script in requested if isinstance(script, str) and script.strip()]
+
     def _output_artifact(self, *, project_id: str, result: dict[str, Any]) -> dict[str, Any]:
         artifact_id = f"artifact-{uuid.uuid4()}"
         content = json_dumps(_command_result_artifact_payload(result))
@@ -383,24 +476,37 @@ class DevOpsAgentRunner:
         project_id: str,
         index: int,
         label: str,
+        command: str | None = None,
         argv: list[str],
         critical: bool,
         tool_call: dict[str, Any],
+        result_metadata: dict[str, Any] | None = None,
     ) -> tuple[dict[str, Any], list[str]]:
         payload = tool_call.get("payload") or {}
         execution_result = payload.get("executionResult") or {}
         return_code = execution_result.get("returnCode")
         timed_out = bool(execution_result.get("timedOut", False))
+        raw_result = {
+            "reason": execution_result.get("reason") or payload.get("decisionReason"),
+            "stdout": execution_result.get("stdout") if isinstance(execution_result.get("stdout"), str) else "",
+            "stderr": execution_result.get("stderr") if isinstance(execution_result.get("stderr"), str) else "",
+        }
+        missing_tool_reason = _missing_tool_reason(raw_result)
         if tool_call.get("status") == "completed" and return_code == 0 and not timed_out:
             status = "passed"
+        elif missing_tool_reason:
+            status = "skipped_with_reason"
         elif critical:
             status = "failed"
         else:
             status = "skipped_with_reason"
+        reason = execution_result.get("reason") or payload.get("decisionReason")
+        if missing_tool_reason and not reason:
+            reason = missing_tool_reason
         result = {
             "index": index,
             "label": label,
-            "command": _display_command(argv),
+            "command": command or _display_command(argv),
             "argv": argv,
             "critical": critical,
             "status": status,
@@ -410,7 +516,7 @@ class DevOpsAgentRunner:
             "returnCode": return_code,
             "timedOut": timed_out,
             "blocked": bool(execution_result.get("blocked", False)) or tool_call.get("status") in {"denied", "approval_required"},
-            "reason": execution_result.get("reason") or payload.get("decisionReason"),
+            "reason": reason,
             "durationMs": execution_result.get("durationMs"),
             "toolCallId": tool_call.get("id"),
             "stdout": execution_result.get("stdout") if isinstance(execution_result.get("stdout"), str) else "",
@@ -428,6 +534,8 @@ class DevOpsAgentRunner:
                 "permissionDecisionId": payload.get("permissionDecisionId"),
             },
         }
+        if result_metadata:
+            result["metadata"].update(redact_secrets(result_metadata))
         output_artifact = self._output_artifact(project_id=project_id, result=result)
         result["outputArtifactId"] = output_artifact["id"]
         result["artifactHashes"]["outputArtifactHash"] = output_artifact["hash"]
@@ -444,6 +552,249 @@ class DevOpsAgentRunner:
         result["outputRefs"] = artifact_ids
         return result, artifact_ids
 
+    def _skipped_command_result(
+        self,
+        *,
+        project_id: str,
+        index: int,
+        label: str,
+        command: str,
+        argv: list[str],
+        reason: str,
+        result_metadata: dict[str, Any] | None = None,
+    ) -> tuple[dict[str, Any], list[str]]:
+        result = {
+            "index": index,
+            "label": label,
+            "command": command,
+            "argv": argv,
+            "critical": False,
+            "status": "skipped_with_reason",
+            "toolCallStatus": "not_executed",
+            "execution": "not_executed",
+            "exitCode": None,
+            "returnCode": None,
+            "timedOut": False,
+            "blocked": False,
+            "reason": reason,
+            "durationMs": None,
+            "toolCallId": None,
+            "stdout": "",
+            "stderr": "",
+            "stdoutArtifactId": None,
+            "stderrArtifactId": None,
+            "artifactHashes": {
+                "stdoutHash": _hash_text(""),
+                "stderrHash": _hash_text(""),
+            },
+            "metadata": {
+                "operation": "devops_agent_command",
+                "decision": "skipped_with_reason",
+                "decisionReason": reason,
+                "permissionDecisionId": None,
+            },
+        }
+        if result_metadata:
+            result["metadata"].update(redact_secrets(result_metadata))
+        output_artifact = self._output_artifact(project_id=project_id, result=result)
+        result["outputArtifactId"] = output_artifact["id"]
+        result["artifactHashes"]["outputArtifactHash"] = output_artifact["hash"]
+        result["outputRef"] = output_artifact["id"]
+        result["outputRefs"] = [output_artifact["id"]]
+        return result, [output_artifact["id"]]
+
+    def _execute_broker_command(
+        self,
+        *,
+        broker: ToolBroker,
+        project_id: str,
+        workspace: dict[str, Any],
+        agent_run: dict[str, Any],
+        job: dict[str, Any],
+        profile: dict[str, Any],
+        index: int,
+        label: str,
+        command: str,
+        argv: list[str],
+        critical: bool,
+        timeout_seconds: int,
+        result_metadata: dict[str, Any] | None = None,
+    ) -> tuple[dict[str, Any], list[str]]:
+        tool_result = broker.evaluate_tool_call(
+            project_id=project_id,
+            agent_run_id=agent_run["id"],
+            agent_profile=profile,
+            job_id=job["id"],
+            tool_call={
+                "tool": "shell",
+                "command": command,
+                "argv": argv,
+                "workspaceId": workspace["id"],
+                "workspacePath": workspace["path"],
+                "path": workspace["path"],
+                "operation": "devops_agent_command",
+                "execute": True,
+                "timeoutSeconds": timeout_seconds,
+            },
+        )
+        return self._result_from_tool_call(
+            project_id=project_id,
+            index=index,
+            label=label,
+            command=command,
+            argv=argv,
+            critical=critical,
+            tool_call=tool_result["toolCall"],
+            result_metadata=result_metadata,
+        )
+
+    def _package_manager_prerequisite_reason(self, tool_results: list[dict[str, Any]], *, include_uv: bool) -> str | None:
+        required = {"node", "corepack", "pnpm"}
+        if include_uv:
+            required.add("uv")
+        unavailable = sorted(
+            str((result.get("metadata") or {}).get("tool"))
+            for result in tool_results
+            if (result.get("metadata") or {}).get("tool") in required and result.get("status") != "passed"
+        )
+        if not unavailable:
+            return None
+        return "Required release validation tools are unavailable: " + ", ".join(unavailable)
+
+    def _tool_version_specs(self, package_info: dict[str, Any] | None) -> list[dict[str, Any]]:
+        package_manager = str((package_info or {}).get("packageManager") or "")
+        pnpm_spec = package_manager if package_manager.startswith("pnpm@") else "pnpm@10.24.0"
+        return [
+            {
+                "tool": "node",
+                "label": "Tool version: node",
+                "command": "node --version",
+                "argv": [_resolve_executable("node"), "--version"],
+            },
+            {
+                "tool": "uv",
+                "label": "Tool version: uv",
+                "command": "uv --version",
+                "argv": [_resolve_executable("uv"), "--version"],
+            },
+            {
+                "tool": "corepack",
+                "label": "Tool version: corepack",
+                "command": "corepack --version",
+                "argv": [_resolve_executable("corepack"), "--version"],
+            },
+            {
+                "tool": "pnpm",
+                "label": "Tool version: pnpm",
+                "command": f"corepack {pnpm_spec} --version",
+                "argv": [_resolve_executable("corepack"), pnpm_spec, "--version"],
+                "required": pnpm_spec,
+            },
+        ]
+
+    def _record_version_result(
+        self,
+        *,
+        versions: dict[str, Any],
+        findings: list[dict[str, Any]],
+        result: dict[str, Any],
+        package_info: dict[str, Any] | None,
+    ) -> None:
+        tool = str((result.get("metadata") or {}).get("tool") or "")
+        if not tool:
+            return
+        output_line = _first_output_line(result)
+        version = _version_token(output_line)
+        versions[tool] = {
+            "status": result["status"],
+            "command": result["command"],
+            "version": version,
+            "rawOutput": output_line,
+            "exitCode": result.get("exitCode"),
+            "reason": result.get("reason"),
+            "outputRef": result.get("outputRef"),
+            "outputRefs": result.get("outputRefs") or [],
+            "artifactHashes": result.get("artifactHashes") or {},
+        }
+        if tool == "node":
+            required = str((package_info or {}).get("nodeEngine") or versions.get("nodeEngine") or "")
+            versions[tool]["required"] = required
+            if result["status"] != "passed":
+                versions[tool]["engineStatus"] = "skipped_with_reason"
+                return
+            if not required:
+                versions[tool]["engineStatus"] = "skipped_with_reason"
+                return
+            satisfied = _node_engine_satisfied(version, required)
+            if satisfied is True:
+                versions[tool]["engineStatus"] = "passed"
+            elif satisfied is False:
+                versions[tool]["engineStatus"] = "failed"
+                findings.append(
+                    _finding(
+                        check_id=NODE_ENGINE_CHECK_ID,
+                        severity="high",
+                        message="Installed Node version does not satisfy package.json engines.node.",
+                        location={"path": "package.json"},
+                        evidence={"required": required, "actual": version, "command": result["command"]},
+                    )
+                )
+            else:
+                versions[tool]["engineStatus"] = "skipped_with_reason"
+                findings.append(
+                    _finding(
+                        check_id=NODE_ENGINE_CHECK_ID,
+                        severity="medium",
+                        message="package.json engines.node range could not be evaluated by DevOpsAgent.",
+                        location={"path": "package.json"},
+                        evidence={"required": required, "actual": version, "command": result["command"]},
+                    )
+                )
+        elif tool == "pnpm":
+            package_manager = str((package_info or {}).get("packageManager") or versions.get("packageManager") or "")
+            versions[tool]["required"] = str((result.get("metadata") or {}).get("required") or "")
+            versions[tool]["packageManager"] = package_manager
+
+    def _execute_tool_version_commands(
+        self,
+        *,
+        project_id: str,
+        workspace: dict[str, Any],
+        agent_run: dict[str, Any],
+        job: dict[str, Any],
+        profile: dict[str, Any],
+        package_info: dict[str, Any] | None,
+        findings: list[dict[str, Any]],
+        versions: dict[str, Any],
+    ) -> tuple[list[dict[str, Any]], list[str]]:
+        broker = ToolBroker(self.connection, artifact_root=self.root)
+        results: list[dict[str, Any]] = []
+        artifact_ids: list[str] = []
+        for index, spec in enumerate(self._tool_version_specs(package_info)):
+            result, command_artifacts = self._execute_broker_command(
+                broker=broker,
+                project_id=project_id,
+                workspace=workspace,
+                agent_run=agent_run,
+                job=job,
+                profile=profile,
+                index=index,
+                label=str(spec["label"]),
+                command=str(spec["command"]),
+                argv=list(spec["argv"]),
+                critical=False,
+                timeout_seconds=TOOL_VERSION_TIMEOUT_SECONDS,
+                result_metadata={
+                    "validationType": "tool_version",
+                    "tool": spec["tool"],
+                    "required": spec.get("required"),
+                },
+            )
+            results.append(result)
+            artifact_ids.extend(command_artifacts)
+            self._record_version_result(versions=versions, findings=findings, result=result, package_info=package_info)
+        return results, artifact_ids
+
     def _execute_build_commands(
         self,
         *,
@@ -454,6 +805,7 @@ class DevOpsAgentRunner:
         profile: dict[str, Any],
         build_scripts: list[str],
         package_info: dict[str, Any] | None,
+        prerequisite_reason: str | None,
     ) -> tuple[list[dict[str, Any]], list[str]]:
         package_scripts = ((package_info or {}).get("scripts") or {}) if package_info else {}
         broker = ToolBroker(self.connection, artifact_root=self.root)
@@ -461,50 +813,114 @@ class DevOpsAgentRunner:
         artifact_ids: list[str] = []
         for index, script in enumerate(build_scripts):
             label = f"Build script: {script}"
-            if script not in package_scripts:
-                results.append(
-                    {
-                        "index": index,
-                        "label": label,
-                        "command": _corepack_policy_command(script),
-                        "argv": _corepack_argv(script),
-                        "critical": False,
-                        "status": "skipped_with_reason",
-                        "exitCode": None,
-                        "reason": f"Requested build script is missing from package.json: {script}",
-                        "artifactHashes": {
-                            "stdoutHash": _hash_text(""),
-                            "stderrHash": _hash_text(""),
-                            "outputArtifactHash": _hash_text(f"missing:{script}"),
-                        },
-                    }
-                )
-                continue
+            command = _corepack_policy_command(script)
             argv = _corepack_argv(script)
-            tool_result = broker.evaluate_tool_call(
+            if script not in package_scripts:
+                result, skipped_artifacts = self._skipped_command_result(
+                    project_id=project_id,
+                    index=index,
+                    label=label,
+                    command=command,
+                    argv=argv,
+                    reason=f"Requested build script is missing from package.json: {script}",
+                    result_metadata={"validationType": "build_script", "script": script},
+                )
+                results.append(result)
+                artifact_ids.extend(skipped_artifacts)
+                continue
+            if prerequisite_reason:
+                result, skipped_artifacts = self._skipped_command_result(
+                    project_id=project_id,
+                    index=index,
+                    label=label,
+                    command=command,
+                    argv=argv,
+                    reason=prerequisite_reason,
+                    result_metadata={"validationType": "build_script", "script": script},
+                )
+                results.append(result)
+                artifact_ids.extend(skipped_artifacts)
+                continue
+            result, command_artifacts = self._execute_broker_command(
+                broker=broker,
                 project_id=project_id,
-                agent_run_id=agent_run["id"],
-                agent_profile=profile,
-                job_id=job["id"],
-                tool_call={
-                    "tool": "shell",
-                    "command": _corepack_policy_command(script),
-                    "argv": argv,
-                    "workspaceId": workspace["id"],
-                    "workspacePath": workspace["path"],
-                    "path": workspace["path"],
-                    "operation": "devops_agent_command",
-                    "execute": True,
-                    "timeoutSeconds": 120,
-                },
-            )
-            result, command_artifacts = self._result_from_tool_call(
-                project_id=project_id,
+                workspace=workspace,
+                agent_run=agent_run,
+                job=job,
+                profile=profile,
                 index=index,
                 label=label,
+                command=command,
                 argv=argv,
                 critical=True,
-                tool_call=tool_result["toolCall"],
+                timeout_seconds=QUALITY_TIMEOUT_SECONDS,
+                result_metadata={"validationType": "build_script", "script": script},
+            )
+            results.append(result)
+            artifact_ids.extend(command_artifacts)
+        return results, artifact_ids
+
+    def _execute_quality_commands(
+        self,
+        *,
+        project_id: str,
+        workspace: dict[str, Any],
+        agent_run: dict[str, Any],
+        job: dict[str, Any],
+        profile: dict[str, Any],
+        quality_scripts: list[str],
+        package_info: dict[str, Any] | None,
+        prerequisite_reason: str | None,
+    ) -> tuple[list[dict[str, Any]], list[str]]:
+        package_scripts = ((package_info or {}).get("scripts") or {}) if package_info else {}
+        broker = ToolBroker(self.connection, artifact_root=self.root)
+        results: list[dict[str, Any]] = []
+        artifact_ids: list[str] = []
+        for index, script in enumerate(quality_scripts):
+            label = f"Quality script: {script}"
+            command = _corepack_policy_command(script)
+            argv = _corepack_argv(script)
+            metadata = {"validationType": "quality_script", "script": script}
+            if script not in package_scripts:
+                result, skipped_artifacts = self._skipped_command_result(
+                    project_id=project_id,
+                    index=index,
+                    label=label,
+                    command=command,
+                    argv=argv,
+                    reason=f"Requested quality script is missing from package.json: {script}",
+                    result_metadata=metadata,
+                )
+                results.append(result)
+                artifact_ids.extend(skipped_artifacts)
+                continue
+            if prerequisite_reason:
+                result, skipped_artifacts = self._skipped_command_result(
+                    project_id=project_id,
+                    index=index,
+                    label=label,
+                    command=command,
+                    argv=argv,
+                    reason=prerequisite_reason,
+                    result_metadata=metadata,
+                )
+                results.append(result)
+                artifact_ids.extend(skipped_artifacts)
+                continue
+            result, command_artifacts = self._execute_broker_command(
+                broker=broker,
+                project_id=project_id,
+                workspace=workspace,
+                agent_run=agent_run,
+                job=job,
+                profile=profile,
+                index=index,
+                label=label,
+                command=command,
+                argv=argv,
+                critical=True,
+                timeout_seconds=QUALITY_TIMEOUT_SECONDS,
+                result_metadata=metadata,
             )
             results.append(result)
             artifact_ids.extend(command_artifacts)
@@ -565,9 +981,11 @@ class DevOpsAgentRunner:
             project_id=project_id,
             index=0,
             label="Docker healthcheck",
+            command="python --version",
             argv=["python", "--version"],
             critical=False,
             tool_call=tool_result["toolCall"],
+            result_metadata={"validationType": "docker_healthcheck"},
         )
         health = {
             "status": result["status"],
@@ -601,11 +1019,15 @@ class DevOpsAgentRunner:
         project_id = str(payload["projectId"])
         workspace = self._workspace(project_id=project_id, workspace_id=str(payload["workspaceId"]))
         task_id = str(payload.get("taskId") or "devops_agent")
+        workflow_run_id = str(payload.get("workflowRunId") or "").strip() or None
+        workflow_step_id = str(payload.get("workflowStepId") or "").strip() or None
         profile = self._ensure_profile()
         job_result = self.jobs.create_job(
             project_id=project_id,
             kind="agent.devops",
             status="running",
+            workflow_run_id=workflow_run_id,
+            workflow_step_id=workflow_step_id,
             payload={"workspaceId": workspace["id"], "taskId": task_id},
         )
         job = job_result["job"]
@@ -616,14 +1038,28 @@ class DevOpsAgentRunner:
             input_payload=redact_secrets({**payload, "workspacePath": workspace["path"]}),
             output_payload={},
             job_id=job["id"],
+            workflow_run_id=workflow_run_id,
+            workflow_step_id=workflow_step_id,
             status="running",
         )
 
         findings: list[dict[str, Any]] = []
         versions: dict[str, Any] = {}
         files_scanned, package_info = self._scan_workspace(workspace["path"], findings, versions)
+        tool_commands, tool_artifacts = self._execute_tool_version_commands(
+            project_id=project_id,
+            workspace=workspace,
+            agent_run=agent_run,
+            job=job,
+            profile=profile,
+            package_info=package_info,
+            findings=findings,
+            versions=versions,
+        )
+        package_tool_prerequisite = self._package_manager_prerequisite_reason(tool_commands, include_uv=False)
+        quality_prerequisite = self._package_manager_prerequisite_reason(tool_commands, include_uv=True)
         build_scripts = self._requested_build_scripts(payload, package_info)
-        commands, command_artifacts = self._execute_build_commands(
+        build_commands, build_artifacts = self._execute_build_commands(
             project_id=project_id,
             workspace=workspace,
             agent_run=agent_run,
@@ -631,6 +1067,18 @@ class DevOpsAgentRunner:
             profile=profile,
             build_scripts=build_scripts,
             package_info=package_info,
+            prerequisite_reason=package_tool_prerequisite,
+        )
+        quality_scripts = self._requested_quality_scripts(payload)
+        quality_commands, quality_artifacts = self._execute_quality_commands(
+            project_id=project_id,
+            workspace=workspace,
+            agent_run=agent_run,
+            job=job,
+            profile=profile,
+            quality_scripts=quality_scripts,
+            package_info=package_info,
+            prerequisite_reason=quality_prerequisite,
         )
         docker, docker_artifacts, docker_commands = self._docker_health(
             project_id=project_id,
@@ -640,8 +1088,9 @@ class DevOpsAgentRunner:
             profile=profile,
             requested=bool(payload.get("dockerHealthcheck", False)),
         )
+        commands = [*tool_commands, *build_commands, *quality_commands]
         commands.extend(docker_commands)
-        artifact_ids = [*command_artifacts, *docker_artifacts]
+        artifact_ids = [*tool_artifacts, *build_artifacts, *quality_artifacts, *docker_artifacts]
         status, reason = _status_from_findings_and_commands(findings, commands)
         report_payload = {
             "status": status,
@@ -656,9 +1105,9 @@ class DevOpsAgentRunner:
         config_artifact = self._write_config_artifact(project_id=project_id, payload=report_payload)
         artifact_ids.append(config_artifact["id"])
         qa_verdict = {
-            "passed": "devops_passed",
+            "passed": "passed",
             "risk": "devops_risk",
-            "failed": "devops_failed",
+            "failed": "failed",
             "blocked": "devops_blocked",
         }[status]
         artifact_records = artifact_records_from_ids(self.evidence, artifact_ids)
@@ -679,18 +1128,22 @@ class DevOpsAgentRunner:
         ]
         evidence = self.evidence.create_evidence_package(
             project_id=project_id,
-            workflow_run_id=None,
+            workflow_run_id=workflow_run_id,
+            workflow_step_id=workflow_step_id,
             agent_id=DEVOPS_AGENT_ID,
             agent_run_id=agent_run["id"],
             job_id=job["id"],
             workspace_id=workspace["id"],
             runtime_id=f"{DEVOPS_AGENT_ID}.deterministic_checks",
             task_id=task_id,
-            test_plan="Run deterministic DevOpsAgent checks over local config files and brokered build/Docker commands.",
+            test_plan="Run deterministic DevOpsAgent checks over local config files, release toolchain, quality scripts, and brokered build/Docker commands.",
             acceptance_checklist=[
                 "PowerShell scripts scanned with hashes.",
                 "Docker files scanned when present.",
                 "package.json and pyproject.toml parsed when present.",
+                "Node engine is compared against the installed Node version when package.json declares engines.node.",
+                "uv, corepack, and pnpm are validated with brokered version commands.",
+                "Quality scripts execute through ToolBroker when configured.",
                 "Build commands execute through ToolBroker when configured.",
                 "Docker remains optional and missing Docker is recorded as skipped_with_reason.",
                 "Evidence contains command outputs, versions, config findings, and artifact hashes.",
@@ -715,16 +1168,23 @@ class DevOpsAgentRunner:
                 }
             ],
             artifact_ids=artifact_ids,
-            diff_summary={"configArtifactId": config_artifact["id"], "commandArtifactIds": command_artifacts, "dockerArtifactIds": docker_artifacts},
+            diff_summary={
+                "configArtifactId": config_artifact["id"],
+                "toolArtifactIds": tool_artifacts,
+                "buildArtifactIds": build_artifacts,
+                "qualityArtifactIds": quality_artifacts,
+                "dockerArtifactIds": docker_artifacts,
+            },
             runtime_health={
                 "id": f"{DEVOPS_AGENT_ID}.deterministic_checks",
                 "status": status,
-                "available": True,
-                "executable": True,
+                "available": status == "passed",
+                "executable": not any(command.get("blocked") and command.get("status") == "failed" for command in commands),
                 "commands": len(commands),
                 "filesScanned": len(files_scanned),
                 "dockerAvailable": bool(docker.get("available")),
                 "dockerHealthcheck": docker.get("healthcheck"),
+                "toolchain": {key: value for key, value in versions.items() if key in {"node", "uv", "corepack", "pnpm"}},
             },
             model_calls=[],
             tool_calls=tool_calls,
@@ -732,6 +1192,7 @@ class DevOpsAgentRunner:
             approvals=self.jobs.list_action_requests(job["id"]),
             artifacts=[artifact_ref(artifact) for artifact in artifact_records],
             hashes=artifact_hashes(artifact_records),
+            evidence_source="evidence_collected",
             qa_verdict=qa_verdict,
         )
         for artifact_id in sorted(set(artifact_ids)):
@@ -739,7 +1200,7 @@ class DevOpsAgentRunner:
         contract_errors = evidence_package_contract_errors(
             evidence,
             require_runtime_links=status == "passed",
-            require_workflow_run=False,
+            require_workflow_run=bool(workflow_run_id) if status == "passed" else False,
         )
         if status == "passed" and contract_errors:
             status = "blocked"

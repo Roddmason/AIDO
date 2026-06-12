@@ -26,6 +26,7 @@ from local_control_center.shared.db import open_sqlite_connection
 from local_control_center.shared.migrations import initialize_platform_schema
 from local_control_center.workspaces_projects.repository import WorkspacesRepository
 from tests_py.control_plane_fixture import ControlPlaneFixture
+from tests_py.evidence_helpers import real_qa_evidence_fields
 
 
 def auth_headers(client: TestClient) -> dict[str, str]:
@@ -2140,7 +2141,7 @@ def test_skills_sync_reads_versionable_local_skills(tmp_path: Path, monkeypatch)
     assert listed.json()["skills"][0]["name"] == "backend-api-contract"
 
 
-def test_qa_cannot_pass_without_test_results_or_artifacts(tmp_path: Path, monkeypatch) -> None:
+def test_qa_cannot_pass_without_real_command_evidence(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
     store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
     store.init()
@@ -2155,6 +2156,7 @@ def test_qa_cannot_pass_without_test_results_or_artifacts(tmp_path: Path, monkey
             "projectId": project["id"],
             "taskId": "story-no-evidence",
             "testPlan": "Run tests",
+            "evidenceSource": "qa_passed_by_command",
             "qaVerdict": "passed",
         },
         headers=headers,
@@ -2168,7 +2170,7 @@ def test_qa_cannot_pass_without_test_results_or_artifacts(tmp_path: Path, monkey
             "taskId": "story-with-evidence",
             "testPlan": "Run tests",
             "qaVerdict": "passed",
-            "testResults": [{"command": "uv run pytest tests_py -q", "status": "passed"}],
+            **real_qa_evidence_fields(),
         },
         headers=headers,
     )
@@ -2193,7 +2195,8 @@ def test_create_evidence_promotes_large_logs_and_screenshots_to_artifacts(tmp_pa
             "projectId": project["id"],
             "taskId": "story-artifacts",
             "testPlan": "Capture logs and screenshots",
-            "qaVerdict": "passed",
+            "evidenceSource": "evidence_collected",
+            "qaVerdict": "evidence_collected",
             "logs": [{"name": "pytest.log", "content": large_log}],
             "screenshotRefs": [
                 {
@@ -2238,7 +2241,8 @@ def test_artifact_download_requires_token_and_returns_owned_artifact(tmp_path: P
             "projectId": project["id"],
             "taskId": "story-download",
             "testPlan": "Download artifact",
-            "qaVerdict": "passed",
+            "evidenceSource": "evidence_collected",
+            "qaVerdict": "evidence_collected",
             "testResults": [{"command": "manual", "status": "passed"}],
             "logs": [{"name": "download.log", "content": large_log}],
         },
@@ -2268,7 +2272,8 @@ def test_artifact_download_rejects_paths_outside_artifact_root(tmp_path: Path, m
         task_id="story-path-traversal",
         test_plan="Reject artifact path traversal",
         test_results=[{"command": "manual", "status": "passed"}],
-        qa_verdict="passed",
+        evidence_source="evidence_collected",
+        qa_verdict="evidence_collected",
     )
     outside = tmp_path / "outside-secret.txt"
     outside.write_text("must not be readable through artifact endpoint", encoding="utf-8")
@@ -2325,7 +2330,8 @@ def test_artifact_cleanup_deletes_orphans_but_keeps_referenced_artifacts(tmp_pat
             "projectId": project["id"],
             "taskId": "story-cleanup",
             "testPlan": "Retain referenced artifacts",
-            "qaVerdict": "passed",
+            "evidenceSource": "evidence_collected",
+            "qaVerdict": "evidence_collected",
             "testResults": [{"command": "manual", "status": "passed"}],
             "logs": [{"name": "cleanup.log", "content": large_log}],
         },
@@ -2379,7 +2385,8 @@ def test_artifact_retention_plan_surfaces_expired_referenced_artifacts_as_govern
         task_id="story-retention",
         test_plan="Keep evidence auditable",
         test_results=[{"command": "manual", "status": "passed"}],
-        qa_verdict="passed",
+        evidence_source="evidence_collected",
+        qa_verdict="evidence_collected",
     )
     artifact_path = tmp_path / ".tmp" / "evidence-artifacts" / "expired.log"
     artifact_path.parent.mkdir(parents=True)

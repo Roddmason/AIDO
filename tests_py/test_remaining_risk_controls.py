@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 from local_control_center.app import create_app
 from tests_py.control_plane_fixture import ControlPlaneFixture
+from tests_py.evidence_helpers import real_qa_evidence_fields
 
 
 def auth_headers(client: TestClient) -> dict[str, str]:
@@ -115,7 +116,7 @@ def test_overview_exposes_evidence_artifacts_for_workflow_inspection(tmp_path: P
             "taskId": "story-artifact-inspection",
             "testPlan": "Collect QA report",
             "qaVerdict": "passed",
-            "testResults": [{"command": "uv run pytest tests_py -q", "status": "passed"}],
+            **real_qa_evidence_fields(),
         },
         headers=headers,
     ).json()["evidencePackage"]

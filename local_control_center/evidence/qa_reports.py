@@ -17,6 +17,7 @@ def build_markdown_report(
         f"- Workflow Run: `{evidence.get('workflowRunId') or 'none'}`",
         f"- Agent: `{evidence.get('agentId') or 'none'}`",
         f"- Verdict: {evidence['qaVerdict']}",
+        f"- Source: {evidence.get('evidenceSource') or 'operator_attested'}",
         f"- Created: {evidence['createdAt']}",
         "",
         "## Test Plan",

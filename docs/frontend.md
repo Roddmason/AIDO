@@ -68,7 +68,7 @@ local-control-center/web/
   `/api/v1/runtime/providers`, including unavailable reasons, required
   configuration, and executable state. The `issue_to_patch` form requires an
   explicit project, issue title, issue text, executable provider with
-  `issue_to_patch` or `code_edit` capability, QA preset, and approval setting.
+  DeveloperAgent `code_edit` capability, QA preset, and approval setting.
   It must not list `internal_mock` or non-executable providers. When no
   executable runtime exists it shows `runtime_unavailable` with the technical
   reason and disables submission. Results show the workflow timeline plus

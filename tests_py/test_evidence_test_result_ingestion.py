@@ -6,11 +6,127 @@ from fastapi.testclient import TestClient
 
 from local_control_center.app import create_app
 from tests_py.control_plane_fixture import ControlPlaneFixture
+from tests_py.evidence_helpers import REAL_QA_HASH, real_qa_evidence_fields
 
 
 def auth_headers(client: TestClient) -> dict[str, str]:
     token = client.get("/api/v1/security/handshake").json()["token"]
     return {"X-Local-Control-Token": token, "Origin": "http://127.0.0.1"}
+
+
+def make_evidence_client(tmp_path: Path, monkeypatch) -> tuple[TestClient, dict[str, str], dict[str, str]]:
+    monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
+    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store.init()
+    project = store.create_project(name="Evidence Source", path=tmp_path / "evidence-source", template_id="other")
+    client = TestClient(create_app(runtime=store, static_dir=None))
+    return client, auth_headers(client), project
+
+
+def test_generic_evidence_api_rejects_manual_attestation_as_qa_passed(tmp_path: Path, monkeypatch) -> None:
+    client, headers, project = make_evidence_client(tmp_path, monkeypatch)
+
+    response = client.post(
+        "/api/v1/evidence",
+        json={
+            "projectId": project["id"],
+            "taskId": "manual-attestation-is-not-qa",
+            "testPlan": "Operator says tests passed",
+            "evidenceSource": "operator_attested",
+            "qaVerdict": "passed",
+            "testResults": [{"command": "manual", "status": "passed"}],
+            "diffRefs": [{"kind": "git_diff", "changedFiles": ["app.py"]}],
+            "screenshotRefs": [{"name": "green-ui.png"}],
+            "artifacts": [{"id": "artifact-manual", "kind": "qa_report", "hash": REAL_QA_HASH}],
+            "hashes": {"artifact-manual": REAL_QA_HASH},
+        },
+        headers=headers,
+    )
+
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert "qaVerdict=passed requires evidenceSource=qa_passed_by_command or verified_completion" in detail
+
+
+def test_generic_evidence_api_rejects_qa_passed_without_real_command_execution(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    client, headers, project = make_evidence_client(tmp_path, monkeypatch)
+
+    response = client.post(
+        "/api/v1/evidence",
+        json={
+            "projectId": project["id"],
+            "taskId": "qa-missing-real-command",
+            "testPlan": "Run tests",
+            "evidenceSource": "qa_passed_by_command",
+            "qaVerdict": "passed",
+            "testResults": [{"command": "uv run pytest tests_py -q", "status": "passed"}],
+            "artifacts": [{"id": "artifact-qa", "kind": "qa_report", "hash": REAL_QA_HASH}],
+            "hashes": {"artifact-qa": REAL_QA_HASH},
+        },
+        headers=headers,
+    )
+
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert "toolCallId" in detail
+    assert "exitCode=0" in detail
+    assert "artifactHashes" in detail
+    assert "policy decision" in detail
+
+
+def test_generic_evidence_api_accepts_qa_passed_only_with_real_command_execution(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    client, headers, project = make_evidence_client(tmp_path, monkeypatch)
+
+    response = client.post(
+        "/api/v1/evidence",
+        json={
+            "projectId": project["id"],
+            "taskId": "qa-real-command",
+            "testPlan": "Run tests",
+            "qaVerdict": "passed",
+            **real_qa_evidence_fields(),
+        },
+        headers=headers,
+    )
+
+    assert response.status_code == 201
+    evidence = response.json()["evidencePackage"]
+    assert evidence["qaVerdict"] == "passed"
+    assert evidence["evidenceSource"] == "qa_passed_by_command"
+
+
+def test_generic_evidence_api_allows_collected_artifacts_without_qa_passed(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    client, headers, project = make_evidence_client(tmp_path, monkeypatch)
+
+    response = client.post(
+        "/api/v1/evidence",
+        json={
+            "projectId": project["id"],
+            "taskId": "collected-artifacts",
+            "testPlan": "Collect screenshots and diff",
+            "evidenceSource": "evidence_collected",
+            "qaVerdict": "evidence_collected",
+            "diffRefs": [{"kind": "git_diff", "changedFiles": ["app.py"]}],
+            "screenshotRefs": [{"name": "state.png"}],
+            "artifacts": [{"id": "artifact-state", "kind": "generic_artifact", "hash": REAL_QA_HASH}],
+            "hashes": {"artifact-state": REAL_QA_HASH},
+        },
+        headers=headers,
+    )
+
+    assert response.status_code == 201
+    evidence = response.json()["evidencePackage"]
+    assert evidence["qaVerdict"] == "evidence_collected"
+    assert evidence["evidenceSource"] == "evidence_collected"
 
 
 def test_evidence_ingests_junit_xml_into_normalized_test_results(tmp_path: Path, monkeypatch) -> None:
@@ -73,7 +189,8 @@ def test_evidence_ingests_pytest_summary_into_normalized_test_result(tmp_path: P
             "projectId": project["id"],
             "taskId": "story-pytest-ingest",
             "testPlan": "Run pytest smoke",
-            "qaVerdict": "passed",
+            "evidenceSource": "evidence_collected",
+            "qaVerdict": "evidence_collected",
             "testResultReports": [
                 {
                     "format": "pytest",
@@ -87,7 +204,8 @@ def test_evidence_ingests_pytest_summary_into_normalized_test_result(tmp_path: P
 
     assert response.status_code == 201
     evidence = response.json()["evidencePackage"]
-    assert evidence["qaVerdict"] == "passed"
+    assert evidence["qaVerdict"] == "evidence_collected"
+    assert evidence["evidenceSource"] == "evidence_collected"
     assert evidence["testResults"][0]["status"] == "passed"
     assert evidence["testResults"][0]["durationMs"] == 11420
     assert evidence["testResults"][0]["metadata"]["counts"] == {"passed": 97, "skipped": 2}

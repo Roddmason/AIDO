@@ -364,6 +364,7 @@ class QAAgentRunner:
         broker = ToolBroker(self.connection, artifact_root=self.root)
         results: list[dict[str, Any]] = []
         artifact_ids: list[str] = []
+        policy_decisions: list[dict[str, Any]] = []
         for index, command in enumerate(normalized):
             tool_result = broker.evaluate_tool_call(
                 project_id=project_id,
@@ -382,6 +383,8 @@ class QAAgentRunner:
                     "timeoutSeconds": command["timeoutSeconds"],
                 },
             )
+            if isinstance(tool_result.get("decision"), dict):
+                policy_decisions.append(tool_result["decision"])
             result, command_artifacts = self._result_from_tool_call(
                 project_id=project_id,
                 command=command,
@@ -402,6 +405,7 @@ class QAAgentRunner:
                 "reason": reason,
                 "results": results,
                 "artifactIds": sorted(set(artifact_ids)),
+                "policyDecisions": policy_decisions,
             },
         )
         return {
@@ -412,6 +416,7 @@ class QAAgentRunner:
             "agentRun": agent_run,
             "results": results,
             "artifactIds": sorted(set(artifact_ids)),
+            "policyDecisions": policy_decisions,
             "contract": qa_agent_contract(),
         }
 
@@ -423,10 +428,14 @@ class QAAgentRunner:
         project_id = str(payload["projectId"])
         workspace_id = str(payload["workspaceId"])
         task_id = str(payload.get("taskId") or "qa_agent")
+        workflow_run_id = str(payload.get("workflowRunId") or "").strip() or None
+        workflow_step_id = str(payload.get("workflowStepId") or "").strip() or None
         job_result = self.jobs.create_job(
             project_id=project_id,
             kind="agent.qa",
             status="running",
+            workflow_run_id=workflow_run_id,
+            workflow_step_id=workflow_step_id,
             payload={"workspaceId": workspace_id, "taskId": task_id},
         )
         qa_run = self.run_for_context(
@@ -434,6 +443,8 @@ class QAAgentRunner:
             workspace_id=workspace_id,
             task_id=task_id,
             commands=payload.get("commands") or [],
+            workflow_run_id=workflow_run_id,
+            workflow_step_id=workflow_step_id,
             job_id=job_result["job"]["id"],
             metadata=payload.get("metadata") or {},
         )
@@ -445,7 +456,8 @@ class QAAgentRunner:
         ]
         evidence = self.evidence.create_evidence_package(
             project_id=project_id,
-            workflow_run_id=None,
+            workflow_run_id=workflow_run_id,
+            workflow_step_id=workflow_step_id,
             agent_id=QA_AGENT_ID,
             agent_run_id=qa_run["agentRun"]["id"],
             job_id=job_result["job"]["id"],
@@ -480,10 +492,11 @@ class QAAgentRunner:
             },
             model_calls=[],
             tool_calls=tool_calls,
-            policy_decisions=[],
+            policy_decisions=qa_run["policyDecisions"],
             approvals=self.jobs.list_action_requests(job_result["job"]["id"]),
             artifacts=[artifact_ref(artifact) for artifact in artifact_records],
             hashes=artifact_hashes(artifact_records),
+            evidence_source="qa_passed_by_command" if qa_run["verdict"] == "passed" else "evidence_collected",
             qa_verdict=qa_run["verdict"],
         )
         self.attach_artifacts_to_evidence(evidence_id=evidence["id"], artifact_ids=qa_run["artifactIds"])
@@ -491,7 +504,7 @@ class QAAgentRunner:
         contract_errors = evidence_package_contract_errors(
             evidence,
             require_runtime_links=completed,
-            require_workflow_run=False,
+            require_workflow_run=bool(workflow_run_id) if completed else False,
         )
         if completed and contract_errors:
             completed = False

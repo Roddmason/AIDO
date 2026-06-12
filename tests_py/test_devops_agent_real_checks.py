@@ -55,6 +55,115 @@ def devops_request(project: dict[str, Any], workspace: dict[str, Any], **extra: 
     }
 
 
+def _commands_by_label(body: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    return {str(command["label"]): command for command in body["commands"]}
+
+
+def _write_release_package(path: str | Path, *, scripts: dict[str, str]) -> None:
+    Path(path, "package.json").write_text(
+        json.dumps(
+            {
+                "scripts": scripts,
+                "packageManager": "pnpm@10.24.0",
+                "engines": {"node": ">=0.0.0"},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+def test_devops_agent_runs_release_toolchain_and_default_quality_with_evidence(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store, client, headers = create_client(tmp_path, monkeypatch)
+    project, workspace = create_project_and_workspace(store, tmp_path, task_id="devops-release-toolchain")
+    _write_release_package(workspace["path"], scripts={"quality": "node --version"})
+
+    response = client.post(
+        "/api/v1/agents/devops/runs",
+        headers=headers,
+        json=devops_request(project, workspace, buildScripts=[]),
+    )
+
+    assert response.status_code == 202
+    body = response.json()
+    commands = _commands_by_label(body)
+    for label in ("Tool version: node", "Tool version: uv", "Tool version: corepack", "Tool version: pnpm"):
+        result = commands[label]
+        assert result["status"] in {"passed", "skipped_with_reason"}
+        assert result["command"]
+        assert result["outputArtifactId"].startswith("artifact-")
+        assert result["artifactHashes"]["outputArtifactHash"]
+    quality = commands["Quality script: quality"]
+    assert quality["command"] == "corepack pnpm@10.24.0 run quality"
+    assert quality["status"] in {"passed", "skipped_with_reason"}
+    assert quality["outputArtifactId"].startswith("artifact-")
+    assert body["versions"]["node"]["required"] == ">=0.0.0"
+    assert body["versions"]["node"]["status"] in {"passed", "skipped_with_reason"}
+    assert body["versions"]["uv"]["command"] == "uv --version"
+    assert body["versions"]["corepack"]["command"] == "corepack --version"
+    assert body["versions"]["pnpm"]["command"] == "corepack pnpm@10.24.0 --version"
+    assert body["evidencePackage"]["artifactIds"]
+
+
+def test_devops_agent_accepts_configurable_quality_subset(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store, client, headers = create_client(tmp_path, monkeypatch)
+    project, workspace = create_project_and_workspace(store, tmp_path, task_id="devops-quality-subset")
+    _write_release_package(
+        workspace["path"],
+        scripts={
+            "quality": "node -e \"process.exit(1)\"",
+            "test:py": "node --version",
+        },
+    )
+
+    response = client.post(
+        "/api/v1/agents/devops/runs",
+        headers=headers,
+        json=devops_request(project, workspace, buildScripts=[], qualityScripts=["test:py"]),
+    )
+
+    assert response.status_code == 202
+    commands = _commands_by_label(response.json())
+    assert "Quality script: test:py" in commands
+    assert "Quality script: quality" not in commands
+
+
+def test_devops_agent_missing_release_tools_are_skipped_with_reason_not_failed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    empty_path = tmp_path / "empty-path"
+    empty_path.mkdir()
+    monkeypatch.setenv("PATH", str(empty_path))
+    store, client, headers = create_client(tmp_path, monkeypatch)
+    project, workspace = create_project_and_workspace(store, tmp_path, task_id="devops-missing-tools")
+    _write_release_package(workspace["path"], scripts={"quality": "node --version"})
+
+    response = client.post(
+        "/api/v1/agents/devops/runs",
+        headers=headers,
+        json=devops_request(project, workspace, buildScripts=[], qualityScripts=[]),
+    )
+
+    assert response.status_code == 202
+    body = response.json()
+    tool_results = [
+        result
+        for result in body["commands"]
+        if str(result["label"]).startswith("Tool version:")
+    ]
+    assert tool_results
+    assert {result["status"] for result in tool_results} == {"skipped_with_reason"}
+    assert body["status"] == "risk"
+    assert body["evidencePackage"]["qaVerdict"] == "devops_risk"
+    assert not [result for result in tool_results if result["status"] == "failed"]
+
+
 def test_devops_agent_without_docker_does_not_fail_startup(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -99,7 +208,7 @@ def test_devops_agent_missing_build_command_reports_reason(
     response = client.post(
         "/api/v1/agents/devops/runs",
         headers=headers,
-        json=devops_request(project, workspace, buildScripts=["build"]),
+        json=devops_request(project, workspace, buildScripts=["build"], qualityScripts=[]),
     )
 
     assert response.status_code == 202
@@ -155,13 +264,14 @@ def test_devops_agent_existing_build_command_executes_through_broker_with_artifa
     response = client.post(
         "/api/v1/agents/devops/runs",
         headers=headers,
-        json=devops_request(project, workspace, buildScripts=["build"]),
+        json=devops_request(project, workspace, buildScripts=["build"], qualityScripts=[]),
     )
 
     assert response.status_code == 202
     body = response.json()
     command = next(result for result in body["commands"] if result["label"] == "Build script: build")
     assert body["status"] == "passed"
+    assert body["evidencePackage"]["qaVerdict"] == "passed"
     assert command["status"] == "passed"
     assert command["exitCode"] == 0
     assert command["toolCallId"]

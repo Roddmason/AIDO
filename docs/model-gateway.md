@@ -101,7 +101,13 @@ corepack pnpm@10.24.0 run openapi:generate
   provider to be enabled, `AIDO_ENABLE_REAL_PROVIDER_CALLS=true`, and a valid
   credential reference before the adapter is called. Discovery audit payloads
   record provider source and model count, never mock source.
-- Benchmarks derive usage/cost/latency from `usage_ledger` and success/QA/rework from `model_benchmark_outcomes`. Outcomes can be recorded manually from the console or automatically during evidence creation when the evidence includes `usageLedgerId` or model identity fields.
+- Benchmarks derive usage/cost/latency from `usage_ledger` and success/QA/rework
+  from `model_benchmark_outcomes`. Each outcome has `provenance`:
+  `operator_reported`, `automated_run`, or `release_validation`. Manual console
+  entries are stored as `operator_reported`; they remain visible for audit but
+  are not objective benchmark evidence and do not influence routing score.
+  Evidence-created outcomes use `automated_run`; release smoke/validation
+  workflows may record `release_validation`.
 
 ## Example
 

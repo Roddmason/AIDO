@@ -51,17 +51,18 @@ corepack pnpm@10.24.0 run smoke:claude:release
 ```
 
 These commands use temporary Git repositories and the real `issue_to_patch`
-runner. They must fail if the CLI is not installed, the configured command or
-CLI syntax fails, the execution is not workspace-bound, the patch is empty, QA
-does not pass, or evidence artifacts and SHA-256 hashes are incomplete. A CLI
-provider may be `available` after detection/version checks, but it is not
-`executable` for productive workflow use unless it advertises the
-`issue_to_patch` capability.
+workflow. Productive implementation still runs through `DeveloperAgentRunner`.
+They must fail if the CLI is not installed, the configured command or CLI syntax
+fails, the execution is not workspace-bound, the patch is empty, QA does not
+pass, or evidence artifacts and SHA-256 hashes are incomplete. A CLI provider
+may be `available` after detection/version checks, but it is not `executable`
+for DeveloperAgent workflow use unless it advertises the `code_edit`
+capability.
 
-OpenHands and SWE-agent do not receive `issue_to_patch` from the seed data. A
-detected binary proves only version-check availability, not workspace editing
-compatibility. Their release smokes insert `issue_to_patch` only in the
-temporary validation database used by the smoke run.
+OpenHands and SWE-agent do not receive `code_edit` from the seed data. A
+detected binary proves only version-check availability, not DeveloperAgent
+workspace editing compatibility. Their release smokes are optional adapter
+validations and do not make them canonical implementation runtimes.
 
 Supported default syntax:
 
@@ -74,8 +75,8 @@ The process working directory is the allocated Git worktree. The old
 `openhands run --workspace` and `sweagent run --repo` forms are not part of the
 AIDO contract.
 
-If an installed CLI needs a different supported syntax, provide structured argv
-JSON through:
+If an installed optional adapter needs a different supported syntax, provide
+structured argv JSON through:
 
 ```powershell
 $env:AIDO_OPENHANDS_ISSUE_TO_PATCH_ARGV_JSON = '["openhands","--headless","--json","-t","{prompt}"]'

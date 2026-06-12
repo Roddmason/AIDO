@@ -484,6 +484,41 @@ If GitHub config is missing the command returns `pr_unavailable`. If GitHub
 rejects the request it returns `pr_failed` with evidence; no PR URL is
 fabricated.
 
+## Run A Real `issue_to_pr` Workflow
+
+`issue_to_pr` is a first-class DAG, not an alias for `issue_to_patch`. It runs
+DeveloperAgent, QAAgent, SecurityAgent, ArchitectAgent, DevOpsAgent, evidence
+aggregation, approval, branch promotion, and optional PR creation as explicit
+gates. Each agent must write linked evidence. Completion stays blocked until
+all required gates pass.
+
+```powershell
+$body = @{
+  projectId = "<existing-project-id>"
+  title = "Implement the issue and prepare PR evidence"
+  issueText = "Concrete issue description and acceptance criteria."
+  preferredRuntime = "codex_cli"
+  qaCommands = @(
+    @("uv", "run", "pytest", "tests_py", "-q")
+  )
+  maxReworkAttempts = 1
+  createPullRequest = $false
+  requireApproval = $true
+} | ConvertTo-Json -Depth 8
+
+Invoke-RestMethod "$base/api/v1/workflows/issue-to-pr" `
+  -Method Post `
+  -Headers @{ "X-AIDO-Token" = $token } `
+  -ContentType "application/json" `
+  -Body $body
+```
+
+The response includes `dag`, `gateResults`, `rework`, `completion`, and
+`timeline`. Missing runtime, QA, security, architecture, DevOps, approval,
+promotion, or GitHub configuration returns a blocked/unavailable state with a
+technical reason. Use the matching `/issue-to-pr/{run_id}/approve`,
+`/promote`, and `/pull-request` endpoints for the post-evidence steps.
+
 ## Common Commands
 
 ```powershell
@@ -590,6 +625,10 @@ High-signal v1 endpoints:
 - `GET/POST /api/v1/workflows`
 - `POST /api/v1/workflows/issue-to-patch`
 - `POST /api/v1/workflows/issue-to-patch/{run_id}/approve`
+- `POST /api/v1/workflows/issue-to-pr`
+- `POST /api/v1/workflows/issue-to-pr/{run_id}/approve`
+- `POST /api/v1/workflows/issue-to-pr/{run_id}/promote`
+- `POST /api/v1/workflows/issue-to-pr/{run_id}/pull-request`
 - `GET/POST /api/v1/jobs`
 - `GET /api/v1/approvals`
 - `GET/POST /api/v1/workspaces`

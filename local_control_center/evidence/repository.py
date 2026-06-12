@@ -58,6 +58,7 @@ def row_to_evidence_package(row: sqlite3.Row) -> dict[str, Any]:
         "approvals": json_loads(row["approvals"], []) if "approvals" in row.keys() else [],
         "artifacts": json_loads(row["artifact_refs"], []) if "artifact_refs" in row.keys() else [],
         "hashes": json_loads(row["hashes"], {}) if "hashes" in row.keys() else {},
+        "evidenceSource": row["evidence_source"] if "evidence_source" in row.keys() else "operator_attested",
         "qaVerdict": row["qa_verdict"],
         "createdAt": row["created_at"],
     }
@@ -122,6 +123,7 @@ class EvidenceRepository:
         approvals: list[dict[str, Any]] | None = None,
         artifacts: list[dict[str, Any]] | None = None,
         hashes: dict[str, str] | None = None,
+        evidence_source: str = "operator_attested",
         qa_verdict: str = "not_started",
     ) -> dict[str, Any]:
         evidence_id = f"evidence-{uuid.uuid4()}"
@@ -140,6 +142,7 @@ class EvidenceRepository:
         clean_approvals = redact_secrets(approvals or [])
         clean_artifacts = redact_secrets(artifacts or [])
         clean_hashes = {str(key): str(value) for key, value in (hashes or {}).items() if isinstance(value, str)}
+        clean_evidence_source = str(evidence_source or "operator_attested")
         self.connection.execute(
             """
             INSERT INTO evidence_packages
@@ -147,8 +150,9 @@ class EvidenceRepository:
                  job_id, workspace_id, runtime_id, task_id, test_plan,
                  acceptance_checklist, test_results, logs, diff_refs, screenshot_refs,
                  risk_notes, artifact_ids, diff_summary, runtime_health, model_calls,
-                 tool_calls, policy_decisions, approvals, artifact_refs, hashes, qa_verdict, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 tool_calls, policy_decisions, approvals, artifact_refs, hashes, evidence_source,
+                 qa_verdict, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 evidence_id,
@@ -177,6 +181,7 @@ class EvidenceRepository:
                 json_dumps(clean_approvals),
                 json_dumps(clean_artifacts),
                 json_dumps(clean_hashes),
+                clean_evidence_source,
                 qa_verdict,
                 utc_now(),
             ),

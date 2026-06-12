@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -52,6 +54,44 @@ def security_request(project: dict[str, Any], workspace: dict[str, Any], **extra
         "taskId": "security-review",
         **extra,
     }
+
+
+def write_scanner_cli(bin_dir: Path, name: str, script: str) -> None:
+    impl = bin_dir / f"{name}_impl.py"
+    impl.write_text(script, encoding="utf-8")
+    command = bin_dir / f"{name}.cmd"
+    command.write_text(f'@echo off\r\n"{sys.executable}" "{impl}" %*\r\n', encoding="utf-8")
+
+
+def configure_external_scanners(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    gitleaks_script: str,
+    semgrep_script: str,
+) -> Path:
+    scanner_bin = tmp_path / "scanner-bin"
+    scanner_bin.mkdir(parents=True, exist_ok=True)
+    write_scanner_cli(scanner_bin, "gitleaks", gitleaks_script)
+    write_scanner_cli(scanner_bin, "semgrep", semgrep_script)
+    monkeypatch.setenv("PATH", f"{scanner_bin}{os.pathsep}{os.environ.get('PATH', '')}")
+    (tmp_path / ".gitleaks.toml").write_text("[allowlist]\ndescription = \"test config\"\n", encoding="utf-8")
+    (tmp_path / ".semgrep.yml").write_text(
+        "rules:\n"
+        "  - id: test-noop\n"
+        "    patterns:\n"
+        "      - pattern: $X\n"
+        "      - pattern-not: $X\n"
+        "    message: noop\n"
+        "    severity: INFO\n"
+        "    languages: [generic]\n",
+        encoding="utf-8",
+    )
+    return scanner_bin
+
+
+def evidence_test_result(body: dict[str, Any], command: str) -> dict[str, Any]:
+    return next(result for result in body["evidencePackage"]["testResults"] if result["command"] == command)
 
 
 def test_security_agent_secret_like_key_in_workspace_blocks_with_evidence(
@@ -160,3 +200,126 @@ def test_security_agent_dangerous_docker_flags_block(
     assert findings
     assert any("--privileged" in finding["message"] or "--network host" in finding["message"] for finding in findings)
     assert body["evidencePackage"]["qaVerdict"] == "security_blocked"
+
+
+def test_security_agent_missing_external_scanners_records_skipped_results(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    scanner_bin = tmp_path / "empty-scanner-bin"
+    scanner_bin.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("PATH", str(scanner_bin))
+    store, client, headers = create_client(tmp_path, monkeypatch)
+    project, workspace = create_project_and_workspace(store, tmp_path, task_id="security-scanners-missing")
+
+    response = client.post(
+        "/api/v1/agents/security/runs",
+        headers=headers,
+        json=security_request(project, workspace),
+    )
+
+    assert response.status_code == 202
+    body = response.json()
+    assert body["status"] == "passed"
+    scanners = {scanner["name"]: scanner for scanner in body["externalScanners"]}
+    assert scanners["gitleaks"]["status"] == "skipped_with_reason"
+    assert scanners["semgrep"]["status"] == "skipped_with_reason"
+    assert all(scanner["status"] != "passed" for scanner in scanners.values())
+    assert evidence_test_result(body, "security_agent.gitleaks")["status"] == "skipped_with_reason"
+    assert evidence_test_result(body, "security_agent.semgrep")["status"] == "skipped_with_reason"
+
+
+def test_security_agent_runs_external_scanners_and_attaches_report_hashes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    configure_external_scanners(
+        tmp_path,
+        monkeypatch,
+        gitleaks_script=(
+            "from pathlib import Path\n"
+            "import sys\n"
+            "report = Path(sys.argv[sys.argv.index('--report-path') + 1])\n"
+            "report.write_text('[]', encoding='utf-8')\n"
+            "raise SystemExit(0)\n"
+        ),
+        semgrep_script=(
+            "from pathlib import Path\n"
+            "import sys\n"
+            "report = Path(sys.argv[sys.argv.index('--json-output') + 1])\n"
+            "report.write_text('{\"results\": []}', encoding='utf-8')\n"
+            "raise SystemExit(0)\n"
+        ),
+    )
+    store, client, headers = create_client(tmp_path, monkeypatch)
+    project, workspace = create_project_and_workspace(store, tmp_path, task_id="security-scanners-clean")
+
+    response = client.post(
+        "/api/v1/agents/security/runs",
+        headers=headers,
+        json=security_request(project, workspace),
+    )
+
+    assert response.status_code == 202
+    body = response.json()
+    assert body["status"] == "passed"
+    scanners = {scanner["name"]: scanner for scanner in body["externalScanners"]}
+    assert scanners["gitleaks"]["status"] == "passed"
+    assert scanners["semgrep"]["status"] == "passed"
+    assert scanners["gitleaks"]["reportArtifactId"].startswith("artifact-")
+    assert scanners["semgrep"]["reportArtifactId"].startswith("artifact-")
+    assert scanners["gitleaks"]["reportHash"]
+    assert scanners["semgrep"]["reportHash"]
+    artifact_names = {artifact["name"] for artifact in body["evidencePackage"]["artifacts"]}
+    assert {"gitleaks-report.json", "semgrep-report.json"} <= artifact_names
+    assert body["evidencePackage"]["hashes"][scanners["gitleaks"]["reportArtifactId"]] == scanners["gitleaks"]["reportHash"]
+    assert body["evidencePackage"]["hashes"][scanners["semgrep"]["reportArtifactId"]] == scanners["semgrep"]["reportHash"]
+    assert evidence_test_result(body, "security_agent.gitleaks")["outputRef"] == scanners["gitleaks"]["reportArtifactId"]
+    assert evidence_test_result(body, "security_agent.semgrep")["outputRef"] == scanners["semgrep"]["reportArtifactId"]
+
+
+def test_security_agent_gitleaks_secret_blocks_with_report_evidence(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    leaked_secret = "secret-value-from-report"
+    configure_external_scanners(
+        tmp_path,
+        monkeypatch,
+        gitleaks_script=(
+            "from pathlib import Path\n"
+            "import json\n"
+            "import sys\n"
+            "report = Path(sys.argv[sys.argv.index('--report-path') + 1])\n"
+            f"report.write_text(json.dumps([{{'RuleID': 'generic-api-key', 'Description': 'Hardcoded API key', 'File': 'settings.ini', 'StartLine': 1, 'Secret': '{leaked_secret}'}}]), encoding='utf-8')\n"
+            "raise SystemExit(1)\n"
+        ),
+        semgrep_script=(
+            "from pathlib import Path\n"
+            "import sys\n"
+            "report = Path(sys.argv[sys.argv.index('--json-output') + 1])\n"
+            "report.write_text('{\"results\": []}', encoding='utf-8')\n"
+            "raise SystemExit(0)\n"
+        ),
+    )
+    store, client, headers = create_client(tmp_path, monkeypatch)
+    project, workspace = create_project_and_workspace(store, tmp_path, task_id="security-gitleaks-block")
+    Path(workspace["path"], "settings.ini").write_text("plain_value=not-a-regex-secret\n", encoding="utf-8")
+
+    response = client.post(
+        "/api/v1/agents/security/runs",
+        headers=headers,
+        json=security_request(project, workspace),
+    )
+
+    assert response.status_code == 202
+    body = response.json()
+    assert body["status"] == "blocked"
+    assert body["verdict"] == "blocked"
+    assert body["evidencePackage"]["qaVerdict"] == "security_blocked"
+    assert any(finding["checkId"] == "gitleaks_secret" and finding["severity"] == "critical" for finding in body["findings"])
+    assert leaked_secret not in json.dumps(body)
+    scanners = {scanner["name"]: scanner for scanner in body["externalScanners"]}
+    assert scanners["gitleaks"]["status"] == "blocked"
+    assert scanners["gitleaks"]["reportArtifactId"].startswith("artifact-")
+    assert body["evidencePackage"]["hashes"][scanners["gitleaks"]["reportArtifactId"]] == scanners["gitleaks"]["reportHash"]

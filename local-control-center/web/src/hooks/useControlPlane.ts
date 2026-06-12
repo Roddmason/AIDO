@@ -27,67 +27,74 @@ const initialState: ControlPlaneState = {
 	busy: false,
 };
 
+function optionalWithTimeout<T>(promise: Promise<T>, timeoutMs = 4000): Promise<T | null> {
+	return new Promise((resolve) => {
+		const timeoutId = window.setTimeout(() => resolve(null), timeoutMs);
+		promise
+			.then((value) => {
+				window.clearTimeout(timeoutId);
+				resolve(value);
+			})
+			.catch(() => {
+				window.clearTimeout(timeoutId);
+				resolve(null);
+			});
+	});
+}
+
 export function useControlPlane() {
 	const [state, setState] = useState(initialState);
 	const mountedRef = useRef(false);
+	const controllersRef = useRef<Set<AbortController>>(new Set());
 
 	const refresh = useCallback(async (silent = false) => {
 		const controller = new AbortController();
+		controllersRef.current.add(controller);
 		if (!silent) setState((current) => ({ ...current, loading: true, error: '' }));
 		try {
-			const [handshake, overview, retrievalStatus, runtimeProviders] = await Promise.all([
+			const [handshake, overview] = await Promise.all([
 				getHandshake(controller.signal),
 				getOverview(controller.signal),
-				getRetrievalStatus(controller.signal),
-				getRuntimeProviders(controller.signal),
+			]);
+			const [retrievalStatus, runtimeProviders] = await Promise.all([
+				optionalWithTimeout(getRetrievalStatus(controller.signal)),
+				optionalWithTimeout(getRuntimeProviders(controller.signal)),
 			]);
 			if (!mountedRef.current) return;
 			setState((current) => ({
 				...current,
 				token: handshake.token,
 				overview,
-				retrievalStatus,
-				runtimeProviders,
+				retrievalStatus: retrievalStatus ?? current.retrievalStatus,
+				runtimeProviders: runtimeProviders ?? current.runtimeProviders,
 				loading: false,
 				error: '',
 				lastUpdatedAt: new Date().toISOString(),
 			}));
 		} catch (error) {
+			if (controller.signal.aborted) return;
 			if (!mountedRef.current) return;
 			setState((current) => ({
 				...current,
 				loading: false,
 				error: error instanceof Error ? error.message : 'Unable to load control plane state.',
 			}));
+		} finally {
+			controllersRef.current.delete(controller);
 		}
-		return () => controller.abort();
 	}, []);
 
 	useEffect(() => {
 		mountedRef.current = true;
 		void refresh();
-		let source: EventSource | null = null;
-		try {
-			source = new EventSource('/api/v1/events');
-			source.addEventListener('snapshot', (event) => {
-				const overview = JSON.parse((event as MessageEvent).data) as Overview;
-				setState((current) => ({
-					...current,
-					overview,
-					connected: true,
-					lastUpdatedAt: new Date().toISOString(),
-				}));
-			});
-			source.onopen = () => setState((current) => ({ ...current, connected: true }));
-			source.onerror = () => setState((current) => ({ ...current, connected: false }));
-		} catch {
-			setState((current) => ({ ...current, connected: false }));
-		}
 		const interval = window.setInterval(() => void refresh(true), 5000);
 		return () => {
 			mountedRef.current = false;
 			window.clearInterval(interval);
-			source?.close();
+			for (const controller of controllersRef.current) {
+				controller.abort();
+			}
+			controllersRef.current.clear();
 		};
 	}, [refresh]);
 

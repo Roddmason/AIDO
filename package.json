@@ -19,7 +19,7 @@
     "test": "uv run pytest tests_py -q",
     "test:py": "uv run pytest tests_py -q",
     "test:all": "corepack pnpm@10.24.0 run typecheck:web && corepack pnpm@10.24.0 run build:control-center && corepack pnpm@10.24.0 run test:py",
-    "test:web": "vite build --config local-control-center/web/vite.config.ts && playwright test",
+    "test:web": "node scripts/run-web-tests.mjs",
     "typecheck:web": "tsc --noEmit -p local-control-center/web/tsconfig.json",
     "lint": "corepack pnpm@10.24.0 run lint:py",
     "lint:py": "uv run --extra dev ruff check .",

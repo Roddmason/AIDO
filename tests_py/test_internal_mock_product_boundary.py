@@ -81,6 +81,28 @@ def test_issue_to_patch_rejects_internal_mock_runtime(tmp_path: Path) -> None:
     assert "internal_mock" in response.json()["detail"]
 
 
+def test_issue_to_pr_rejects_internal_mock_runtime(tmp_path: Path) -> None:
+    store, client, headers = make_client(tmp_path)
+    project_path = tmp_path / "project-pr"
+    project_path.mkdir()
+    project = store.create_project(name="Project PR", path=project_path, template_id="other")
+
+    response = client.post(
+        "/api/v1/workflows/issue-to-pr",
+        headers=headers,
+        json={
+            "projectId": project["id"],
+            "title": "Reject internal runtime",
+            "issueText": "This must not be simulated.",
+            "preferredRuntime": "internal_mock",
+            "qaCommands": [["python", "--version"]],
+        },
+    )
+
+    assert response.status_code == 422
+    assert "internal_mock" in response.json()["detail"]
+
+
 def test_product_seeds_do_not_create_internal_mock_runtime_records(tmp_path: Path) -> None:
     store, _client, _headers = make_client(tmp_path)
     connection = store.connection

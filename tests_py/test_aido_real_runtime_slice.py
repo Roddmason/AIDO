@@ -155,7 +155,7 @@ def executable_runtime_status() -> list[dict[str, Any]]:
             "version": "test",
             "detectedCommand": sys.executable,
             "healthCheckedAt": None,
-            "capabilities": ["issue_to_patch"],
+            "capabilities": ["code_edit"],
             "safety": {
                 "workspaceBound": True,
                 "shell": False,
@@ -179,14 +179,14 @@ def controlled_issue_to_patch_runtime_status(*, argv: list[str] | None = None) -
             "reason": "Controlled runtime command is available for this test.",
             "version": "test",
             "detectedCommand": sys.executable,
-            "issueToPatchArgv": argv
+            "developerAgentArgv": argv
             or [
                 sys.executable,
                 "-c",
                 "from pathlib import Path; Path('patched.txt').write_text('real runtime patch\\n', encoding='utf-8')",
             ],
             "healthCheckedAt": None,
-            "capabilities": ["issue_to_patch"],
+            "capabilities": ["code_edit"],
             "safety": {
                 "workspaceBound": True,
                 "shell": False,

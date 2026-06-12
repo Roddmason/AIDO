@@ -57,13 +57,16 @@ no executor return `failed` with `configuration_required`; unknown kinds return
 
 ## Issue To Patch Completion Contract
 
-`issue_to_patch` is intentionally fail-closed. The workflow runner may create
-jobs, workspaces, evidence packages, artifacts, and approval requests, but it
-can report `completed` only when all of these are true:
+`issue_to_patch` is intentionally fail-closed. The workflow runner creates the
+workflow/job/workspace envelope and delegates implementation execution to
+`DeveloperAgentRunner`. It may create evidence artifacts and approval requests,
+but it can report `completed` only when all of these are true:
 
-- an executable runtime provider with `issue_to_patch` capability was used;
+- an executable DeveloperAgent runtime provider with `code_edit` capability, or
+  a configured real model runtime plus structured patch application, was used;
 - the implementation ran inside an allocated Git worktree workspace;
-- runtime execution entered through `ToolBroker` with structured `argv`;
+- runtime/model/patch execution entered through DeveloperAgent's `ToolBroker`
+  operations;
 - real git status/diff evidence and a non-empty patch artifact were captured;
 - QAAgent executed real allowlisted commands through `ToolBroker` and produced
   a passed verdict from exit codes plus artifact hashes;
@@ -185,6 +188,6 @@ uv run pytest tests_py/test_workflow_pr_release_retro_control.py tests_py/test_p
 | Capability | Real state | Endpoint/UI | Tests | Limitations |
 | --- | --- | --- | --- | --- |
 | Workflow CRUD/run control | Implemented for create/list/get/start/pause/resume/cancel and step advance. | `/api/v1/workflows`, `/api/v1/workflows/{id}`, Workflows UI. | Workflow control tests. | Workflows are local control-plane records; distributed durable execution is not part of the local MVP. |
-| `issue_to_patch` | Implemented as real fail-closed workflow execution plus explicit reviewed-patch and branch-promotion transitions. | `POST /api/v1/workflows/issue-to-patch`, `POST /api/v1/workflows/issue-to-patch/{runId}/approve`, `POST /api/v1/workflows/issue-to-patch/{runId}/promote`, Command Center, Jobs & Approvals, Workflows UI. | `tests_py/test_aido_real_runtime_slice.py`, web Command Center tests. | Completion requires executable runtime, Git worktree, real diff, passed QA evidence, evidence package, and no pending approval. Human review moves to `approved_for_integration`; branch promotion re-verifies SHA-256 and QA before `promoted_to_branch`. |
+| `issue_to_patch` | Implemented as real fail-closed workflow gates around the canonical `DeveloperAgentRunner`, plus explicit reviewed-patch and branch-promotion transitions. | `POST /api/v1/workflows/issue-to-patch`, `POST /api/v1/workflows/issue-to-patch/{runId}/approve`, `POST /api/v1/workflows/issue-to-patch/{runId}/promote`, Command Center, Jobs & Approvals, Workflows UI. | `tests_py/test_aido_real_runtime_slice.py`, web Command Center tests. | Completion requires DeveloperAgent runtime readiness, Git worktree, real diff, passed QA evidence, evidence package, and no pending approval. Human review moves to `approved_for_integration`; branch promotion re-verifies SHA-256 and QA before `promoted_to_branch`. |
 | PR/release/retro gates | Implemented as auditable control gates. | Workflow step advance endpoint, Workflows UI. | `tests_py/test_workflow_pr_release_retro_control.py`. | These gates do not deploy or mutate protected branches. |
 | Workflow traceability | Implemented by joining workflow runs with workspaces, jobs, agent runs, evidence, tool calls, policy decisions, and approvals. | `GET /api/v1/workflows/{id}`, overview/workflow inspectors. | Traceability and frontend tests. | Traceability depends on linked records produced by actual executions; missing execution remains visible as blocked state. |

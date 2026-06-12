@@ -26,6 +26,7 @@ WorkflowStatus = Literal[
     "completed",
     "failed",
     "cancelled",
+    "blocked",
     "runtime_unavailable",
     "qa_failed",
     "evidence_ready",
@@ -39,6 +40,7 @@ WorkflowRunStatus = Literal[
     "completed",
     "failed",
     "cancelled",
+    "blocked",
     "runtime_unavailable",
     "qa_failed",
     "evidence_ready",
@@ -122,6 +124,20 @@ class WorkflowStepRecord(BaseModel):
     updated_at: str = Field(alias="updatedAt")
 
 
+class WorkflowEventRecord(BaseModel):
+    id: str
+    workflow_id: str = Field(alias="workflowId")
+    workflow_run_id: str | None = Field(default=None, alias="workflowRunId")
+    workflow_step_id: str | None = Field(default=None, alias="workflowStepId")
+    project_id: str | None = Field(default=None, alias="projectId")
+    type: str
+    payload: dict[str, Any]
+    severity: str
+    created_at: str = Field(alias="createdAt")
+    correlation_id: str | None = Field(default=None, alias="correlationId")
+    causation_id: str | None = Field(default=None, alias="causationId")
+
+
 class WorkflowResponse(BaseModel):
     workflow: WorkflowRecord
 
@@ -169,6 +185,14 @@ class IssueToPatchRequest(BaseModel):
     require_approval: bool = Field(default=True, alias="requireApproval")
 
 
+class IssueToPrRequest(IssueToPatchRequest):
+    max_rework_attempts: int = Field(default=1, ge=0, le=3, alias="maxReworkAttempts")
+    create_pull_request: bool = Field(default=False, alias="createPullRequest")
+    build_scripts: list[str] = Field(default_factory=list, alias="buildScripts")
+    quality_scripts: list[str] = Field(default_factory=list, alias="qualityScripts")
+    docker_healthcheck: bool = Field(default=False, alias="dockerHealthcheck")
+
+
 class IssueToPatchResponse(BaseModel):
     status: str
     reason: str
@@ -184,6 +208,14 @@ class IssueToPatchResponse(BaseModel):
     qa_results: list[dict[str, Any]] = Field(alias="qaResults")
     diff_summary: dict[str, Any] = Field(alias="diffSummary")
     pull_request: dict[str, Any] | None = Field(default=None, alias="pullRequest")
+
+
+class IssueToPrResponse(IssueToPatchResponse):
+    dag: dict[str, Any]
+    gate_results: list[dict[str, Any]] = Field(alias="gateResults")
+    rework: dict[str, Any]
+    completion: dict[str, Any]
+    timeline: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class WorkflowGateAdvanceResponse(BaseModel):

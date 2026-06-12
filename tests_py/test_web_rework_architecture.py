@@ -198,13 +198,23 @@ def test_web_tooling_has_motion_and_visual_smoke_scripts() -> None:
     assert "@gsap/react" not in package["dependencies"]
     assert "@playwright/test" in package["devDependencies"]
     assert "vite" in package["devDependencies"]
-    assert package["scripts"]["test:web"] == "vite build --config local-control-center/web/vite.config.ts && playwright test"
+    assert package["scripts"]["test:web"] == "node scripts/run-web-tests.mjs"
     assert "corepack" not in package["scripts"]["test:web"]
     assert package["scripts"]["typecheck:web"] == "tsc --noEmit -p local-control-center/web/tsconfig.json"
 
+    web_test_runner = ROOT / "scripts" / "run-web-tests.mjs"
+    assert web_test_runner.exists()
+    web_test_runner_source = read(web_test_runner)
+    assert "cleanup-playwright-webserver.mjs" in web_test_runner_source
+    assert "../node_modules/vite/bin/vite.js" in web_test_runner_source
+    assert "../node_modules/@playwright/test/cli.js" in web_test_runner_source
+    assert "'test'" in web_test_runner_source
+
     playwright_config = ROOT / "playwright.config.mjs"
     assert playwright_config.exists()
-    assert "uv run python -m local_control_center" in read(playwright_config)
+    playwright_source = read(playwright_config)
+    assert "-m local_control_center" in playwright_source
+    assert "uv run python" in playwright_source
 
     smoke = ROOT / "tests_web" / "control-center.spec.js"
     assert smoke.exists()

@@ -131,7 +131,7 @@ def create_app(
             media_type="text/event-stream",
         )
 
-    resolved_static_dir = Path(static_dir) if static_dir is not None else None
+    resolved_static_dir = Path(static_dir).expanduser().resolve() if static_dir is not None else None
     if resolved_static_dir and resolved_static_dir.exists():
         assets_dir = resolved_static_dir / "assets"
         if assets_dir.exists():

@@ -511,6 +511,62 @@
       "en": "Before",
       "es": "Antes"
     },
+    "ui.static.benchmark.contribution.benchmark.provenance": {
+      "en": "Benchmark contribution",
+      "es": "Contribucion de benchmark"
+    },
+    "ui.static.benchmark.score.benchmark.provenance": {
+      "en": "Benchmark score",
+      "es": "Puntaje de benchmark"
+    },
+    "ui.static.candidate.scores.benchmark.provenance": {
+      "en": "Candidate scores",
+      "es": "Puntajes candidatos"
+    },
+    "ui.static.evidence.mix.benchmark.provenance": {
+      "en": "Evidence mix",
+      "es": "Mezcla de evidencia"
+    },
+    "ui.static.hard.filters.rejected.every.provider.model.candidate.benchmark.provenance": {
+      "en": "Hard filters rejected every provider/model candidate.",
+      "es": "Los filtros duros rechazaron todos los candidatos de proveedor/modelo."
+    },
+    "ui.static.manual.benchmarks.are.not.objective.proof.benchmark.provenance": {
+      "en": "Manual benchmarks are not objective proof.",
+      "es": "Los benchmarks manuales no son prueba objetiva."
+    },
+    "ui.static.manual.reports.are.not.objective.proof.benchmark.provenance": {
+      "en": "Manual reports are not objective proof",
+      "es": "Los reportes manuales no son prueba objetiva"
+    },
+    "ui.static.manual.reports.are.not.objective.proof.period.benchmark.provenance": {
+      "en": "Manual reports are not objective proof.",
+      "es": "Los reportes manuales no son prueba objetiva."
+    },
+    "ui.static.manual.samples.benchmark.provenance": {
+      "en": "Manual samples",
+      "es": "Muestras manuales"
+    },
+    "ui.static.no.candidates.benchmark.provenance": {
+      "en": "No candidates",
+      "es": "Sin candidatos"
+    },
+    "ui.static.objective.samples.benchmark.provenance": {
+      "en": "Objective samples",
+      "es": "Muestras objetivas"
+    },
+    "ui.static.provenance.benchmark.provenance": {
+      "en": "Provenance",
+      "es": "Procedencia"
+    },
+    "ui.static.score.benchmark.provenance": {
+      "en": "Score",
+      "es": "Puntaje"
+    },
+    "ui.static.validity.benchmark.provenance": {
+      "en": "Validity",
+      "es": "Validez"
+    },
     "ui.static.benchmark.qa.pass.3bceae7f": {
       "en": "Benchmark QA pass",
       "es": "Pasar el control de calidad de referencia"
@@ -1899,6 +1955,10 @@
       "en": "QA cannot be accepted without test results, artifacts and explicit verdict records.",
       "es": "No se puede aceptar el control de calidad sin resultados de pruebas, artefactos y registros de veredicto explícitos."
     },
+    "ui.static.qa.passed.requires.real.command.execution.evidence.collected.3b2b198a": {
+      "en": "QA passed requires real command execution evidence; collected artifacts remain separate from QA verdicts.",
+      "es": "QA aprobado requiere evidencia de ejecución real de comandos; los artefactos recolectados permanecen separados de los veredictos QA."
+    },
     "ui.static.qa.packages.linked.to.this.workflow.run.appear.here.37481b29": {
       "en": "QA packages linked to this workflow run appear here.",
       "es": "Los paquetes de control de calidad vinculados a esta ejecución de flujo de trabajo aparecen aquí."
@@ -2539,6 +2599,10 @@
       "en": "Unknown limit strategy",
       "es": "Estrategia de límite desconocido"
     },
+    "ui.static.unknown.remote.cost.ed33ec72": {
+      "en": "Unknown remote cost",
+      "es": "Costo remoto desconocido"
+    },
     "ui.static.update.risk.status.4ed521f0": {
       "en": "Update risk status",
       "es": "Actualizar el estado del riesgo"
@@ -3138,6 +3202,14 @@
     "ui.static.patch.read.through.protected.endpoint.c0474547": {
       "en": "The patch is read through the protected artifact endpoint.",
       "es": "El patch se lee a traves del endpoint protegido de artefactos."
+    },
+    "ui.static.no.workflow.timeline.workflows.2d8544e4": {
+      "en": "No workflow timeline",
+      "es": "No hay linea de tiempo del workflow"
+    },
+    "ui.static.run.linked.workflow.events.and.step.evidence.have.not.been.recorded.6ad61027": {
+      "en": "Run-linked workflow events and step evidence have not been recorded.",
+      "es": "Los eventos de workflow vinculados al run y la evidencia de pasos aun no se han registrado."
     },
     "ui.static.no.downloadable.artifacts.evidence.package.e73dbe66": {
       "en": "This evidence package has no downloadable artifacts.",

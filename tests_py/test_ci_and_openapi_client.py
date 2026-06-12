@@ -114,6 +114,20 @@ def test_generated_openapi_client_is_checked_in_and_v1_only() -> None:
     assert "/api/v1/model-policies" not in content
     assert '"list_benchmarks_api_v1_model_gateway_benchmarks_get": ModelBenchmarksListResponse' in content
     assert '"create_benchmark_outcome_api_v1_model_gateway_benchmark_outcomes_post": ModelBenchmarkOutcomeCreateRequest' in content
+    outcome_create_line = next(
+        line for line in content.splitlines() if line.startswith("export type ModelBenchmarkOutcomeCreateRequest = ")
+    )
+    outcome_record_line = next(
+        line for line in content.splitlines() if line.startswith("export type ModelBenchmarkOutcomeRecord = ")
+    )
+    benchmark_record_line = next(
+        line for line in content.splitlines() if line.startswith("export type ModelBenchmarkRecord = ")
+    )
+    assert '"provenance"?: "operator_reported" | "automated_run" | "release_validation"' in outcome_create_line
+    assert '"provenance": "operator_reported" | "automated_run" | "release_validation"' in outcome_record_line
+    assert '"objectiveTasksAttempted": number' in benchmark_record_line
+    assert '"operatorReportedTasks": number' in benchmark_record_line
+    assert '"provenanceCounts": JsonObject' in benchmark_record_line
     assert '"sync_skills_api_v1_skills_sync_post": SkillsSyncRequest' in content
     assert '"create_evidence_api_v1_evidence_post": EvidenceCreateRequest' in content
     assert '"ingest_artifact_api_v1_evidence__evidence_id__artifacts_post": ArtifactIngestRequest' in content
@@ -318,9 +332,17 @@ def test_generated_core_runtime_workflow_evidence_contracts_are_strict() -> None
     assert '"status": string' not in model_call
 
     evidence_package = _generated_type_line(content, "EvidencePackageRecord")
+    evidence_source_enum = (
+        '"evidenceSource": "operator_attested" | "evidence_collected" | '
+        '"qa_passed_by_command" | "verified_completion"'
+    )
+    assert evidence_source_enum in evidence_package
+    assert '"evidenceSource": string' not in evidence_package
     assert '"qaVerdict": "not_started" | "passed" | "failed" | "blocked" | "needs_human_review"' in evidence_package
     assert '"qaVerdict": string' not in evidence_package
     evidence_create = _generated_type_line(content, "EvidenceCreateRequest")
+    assert evidence_source_enum.replace('"evidenceSource"', '"evidenceSource"?') in evidence_create
+    assert '"evidenceSource"?: string' not in evidence_create
     assert '"qaVerdict"?: "not_started" | "passed" | "failed" | "blocked" | "needs_human_review"' in evidence_create
     assert '"qaVerdict"?: string' not in evidence_create
 
@@ -332,13 +354,18 @@ def test_generated_core_runtime_workflow_evidence_contracts_are_strict() -> None
     assert '"status": "queued" | "running" | "approval_required" | "completed" | "approved" | "failed" | "cancelled"' in job
 
     workflow = _generated_type_line(content, "WorkflowRecord")
-    assert '"kind": "idea_to_pr" | "project_discovery" | "issue_to_patch"' in workflow
-    assert '"status": "queued" | "running" | "paused" | "completed" | "failed" | "cancelled" | "runtime_unavailable" | "qa_failed" | "evidence_ready" | "approved_for_integration" | "promotion_failed" | "promoted_to_branch" | "pr_created"' in workflow
+    assert '"kind": "idea_to_pr" | "project_discovery" | "issue_to_patch" | "issue_to_pr"' in workflow
+    assert '"status": "queued" | "running" | "paused" | "completed" | "failed" | "cancelled" | "blocked" | "runtime_unavailable" | "qa_failed" | "evidence_ready" | "approved_for_integration" | "promotion_failed" | "promoted_to_branch" | "pr_created"' in workflow
     workflow_run = _generated_type_line(content, "WorkflowRunRecord")
-    assert '"status": "running" | "completed" | "failed" | "cancelled" | "runtime_unavailable" | "qa_failed" | "evidence_ready" | "approved_for_integration" | "promotion_failed" | "promoted_to_branch" | "pr_created"' in workflow_run
+    assert '"status": "running" | "completed" | "failed" | "cancelled" | "blocked" | "runtime_unavailable" | "qa_failed" | "evidence_ready" | "approved_for_integration" | "promotion_failed" | "promoted_to_branch" | "pr_created"' in workflow_run
     workflow_step = _generated_type_line(content, "WorkflowStepRecord")
     assert '"riskLevel"?: "low" | "medium" | "high" | "critical" | null' in workflow_step
     assert '"status": "pending" | "ready" | "running" | "completed" | "failed" | "blocked" | "skipped"' in workflow_step
+    overview = _generated_type_line(content, "OverviewResponse")
+    assert '"workflowEvents": Array<WorkflowEventRecord>' in overview
+    workflow_event = _generated_type_line(content, "WorkflowEventRecord")
+    assert '"workflowStepId"?: null | string' in workflow_event
+    assert '"payload": JsonObject' in workflow_event
     assert "export type WorkflowRunDetail" in content
     workflow_detail = _generated_type_line(content, "WorkflowDetailResponse")
     assert '"workflowRunDetails"?: Array<WorkflowRunDetail>' in workflow_detail
@@ -347,7 +374,16 @@ def test_generated_core_runtime_workflow_evidence_contracts_are_strict() -> None
     assert "approveIssueToPatch" in api_client
     assert "promotePatchToBranch" in api_client
     assert "createPullRequestFromPromotedBranch" in api_client
+    assert "runIssueToPr" in api_client
+    assert "approveIssueToPr" in api_client
+    assert "promoteIssueToPrBranch" in api_client
+    assert "createPullRequestFromIssueToPr" in api_client
     assert '"pullRequest"?: JsonObject | null' in _generated_type_line(content, "IssueToPatchResponse")
+    assert '"dag": JsonObject' in _generated_type_line(content, "IssueToPrResponse")
+    assert "run_issue_to_pr_api_v1_workflows_issue_to_pr_post" in content
+    assert "approve_issue_to_pr_api_v1_workflows_issue_to_pr__run_id__approve_post" in content
+    assert "promote_issue_to_pr_branch_api_v1_workflows_issue_to_pr__run_id__promote_post" in content
+    assert "create_pull_request_from_issue_to_pr_api_v1_workflows_issue_to_pr__run_id__pull_request_post" in content
     assert "promote_patch_to_branch_api_v1_workflows_issue_to_patch__run_id__promote_post" in content
     assert "create_pull_request_from_promoted_branch_api_v1_workflows_issue_to_patch__run_id__pull_request_post" in content
     assert "{ providers: Dictionary[] }" not in api_client

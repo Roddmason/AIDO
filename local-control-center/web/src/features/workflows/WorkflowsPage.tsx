@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 
 import { downloadEvidenceArtifact, fetchEvidenceArtifact, type ArtifactPayload } from '../../api/client';
 import type { Artifact, Overview, WorkflowStep } from '../../api/types';
-import { Badge, DataTable, Drawer, EmptyState, PageHeader, Surface } from '../../components/primitives';
+import { Badge, DataTable, Drawer, EmptyState, PageHeader, StatusDot, Surface } from '../../components/primitives';
 import { artifactDisplayName, artifactMimeType, artifactSizeLabel } from '../../lib/artifacts';
 import { shortId, toneForStatus } from '../../lib/format';
 
@@ -34,6 +34,189 @@ function edgesFromNodes(nodes: Node[]): Edge[] {
 
 function objectValue(value: unknown): Record<string, unknown> {
 	return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+type WorkflowLinks = {
+	runs: Overview['workflowRuns'];
+	steps: Overview['workflowSteps'];
+	events: Overview['workflowEvents'];
+	workspaces: Overview['runtimeWorkspaces'];
+	jobs: Overview['jobs'];
+	agentRuns: Overview['agentRuns'];
+	toolCalls: Overview['agentToolCalls'];
+	permissionDecisions: Overview['permissionDecisions'];
+	evidence: Overview['evidencePackages'];
+	artifacts: Overview['artifacts'];
+	testResults: Overview['testResultRecords'];
+	approvals: Overview['actionRequests'];
+};
+
+type WorkflowTimelineItem = {
+	id: string;
+	label: string;
+	status: string;
+	tone: ReturnType<typeof toneForStatus>;
+	detail: string;
+	source: string;
+	createdAt: string;
+	sortKey: number;
+};
+
+const GATE_TO_STEP: Record<string, string> = {
+	DeveloperAgent: 'developer_agent',
+	QAAgent: 'qa_validation',
+	SecurityAgent: 'security_review',
+	ArchitectAgent: 'architecture_review',
+	DevOpsAgent: 'devops_validation',
+};
+
+function stringValue(value: unknown, fallback = ''): string {
+	return typeof value === 'string' && value.trim() ? value : fallback;
+}
+
+function sortTime(value?: string | null, fallback = 0): number {
+	if (!value) return fallback;
+	const parsed = Date.parse(value);
+	return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function workflowEventStatus(severity?: string): string {
+	if (severity === 'warning') return 'warning';
+	if (severity === 'error') return 'error';
+	if (severity === 'critical') return 'critical';
+	return severity || 'info';
+}
+
+function workflowEventDetail(payload: Record<string, unknown>, fallback: string): string {
+	const reason = stringValue(payload.reason);
+	if (reason) return reason;
+	const blockedGate = stringValue(payload.blockedGate);
+	if (blockedGate) return `blocked gate: ${blockedGate}`;
+	const gate = stringValue(payload.gate);
+	if (gate) return `gate: ${gate}`;
+	const status = stringValue(payload.status);
+	if (status) return `status: ${status}`;
+	const workflowStepId = stringValue(payload.workflowStepId);
+	if (workflowStepId) return `step: ${shortId(workflowStepId)}`;
+	return fallback;
+}
+
+function stepDetail(
+	step: Overview['workflowSteps'][number],
+	gateResult: Record<string, unknown> | undefined,
+	evidence: Overview['evidencePackages'][number] | undefined,
+	agentRun: Overview['agentRuns'][number] | undefined,
+	job: Overview['jobs'][number] | undefined,
+): string {
+	const output = objectValue(step.output);
+	const metadata = objectValue(step.metadata);
+	const gateReason = stringValue(gateResult?.reason);
+	if (gateReason) return gateReason;
+	const outputReason = stringValue(output.reason);
+	if (outputReason) return outputReason;
+	if (evidence?.qaVerdict) return `evidence: ${evidence.qaVerdict}`;
+	if (agentRun?.status) return `agent run: ${agentRun.status}`;
+	if (job?.status) return `job: ${job.status}`;
+	const gateState = stringValue(metadata.gateState);
+	if (gateState) return gateState;
+	return stringValue(step.taskType, 'waiting for linked execution records');
+}
+
+function latestRun(linked: WorkflowLinks): Overview['workflowRuns'][number] | undefined {
+	return linked.runs
+		.slice()
+		.sort((left, right) => sortTime(String(right.startedAt ?? '')) - sortTime(String(left.startedAt ?? '')))[0];
+}
+
+function buildWorkflowTimeline(linked: WorkflowLinks): WorkflowTimelineItem[] {
+	const run = latestRun(linked);
+	const runId = String(run?.id ?? '');
+	const steps = runId ? linked.steps.filter((step) => String(step.workflowRunId ?? '') === runId) : linked.steps;
+	const events = runId ? linked.events.filter((event) => String(event.workflowRunId ?? '') === runId) : linked.events;
+	const evidenceByStep = new Map(
+		linked.evidence
+			.filter((item) => !runId || String(item.workflowRunId ?? '') === runId)
+			.map((item) => [String(item.workflowStepId ?? ''), item]),
+	);
+	const agentRunByStep = new Map(
+		linked.agentRuns
+			.filter((item) => !runId || String(item.workflowRunId ?? '') === runId)
+			.map((item) => [String(item.workflowStepId ?? ''), item]),
+	);
+	const jobByStep = new Map(
+		linked.jobs
+			.filter((item) => !runId || String(item.workflowRunId ?? '') === runId)
+			.map((item) => [String(item.workflowStepId ?? ''), item]),
+	);
+	const runMetadata = objectValue(run?.metadata);
+	const gateResults = Array.isArray(runMetadata.gateResults)
+		? runMetadata.gateResults.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object' && !Array.isArray(item))
+		: [];
+	const gateByStep = new Map<string, Record<string, unknown>>();
+	for (const gate of gateResults) {
+		const stepName = GATE_TO_STEP[stringValue(gate.name)];
+		if (stepName) gateByStep.set(stepName, gate);
+	}
+	const stepItems = steps
+		.slice()
+		.sort((left, right) => Number(objectValue(left.metadata).order ?? 0) - Number(objectValue(right.metadata).order ?? 0))
+		.map((step, index) => {
+			const gateResult = gateByStep.get(step.name);
+			const evidence = evidenceByStep.get(step.id);
+			const agentRun = agentRunByStep.get(step.id);
+			const job = jobByStep.get(step.id);
+			const status = stringValue(gateResult?.status, step.status);
+			return {
+				id: `step-${step.id}`,
+				label: step.name,
+				status,
+				tone: toneForStatus(status),
+				detail: stepDetail(step, gateResult, evidence, agentRun, job),
+				source: `step ${index + 1}`,
+				createdAt: step.updatedAt,
+				sortKey: sortTime(step.createdAt) + index,
+			};
+		});
+	const eventItems = events.map((event, index) => {
+		const status = workflowEventStatus(event.severity);
+		return {
+			id: `event-${event.id}`,
+			label: event.type,
+			status,
+			tone: toneForStatus(status),
+			detail: workflowEventDetail(objectValue(event.payload), event.severity),
+			source: 'workflow event',
+			createdAt: event.createdAt,
+			sortKey: sortTime(event.createdAt) + index / 100,
+		};
+	});
+	return [...stepItems, ...eventItems].sort((left, right) => left.sortKey - right.sortKey);
+}
+
+function WorkflowTimeline({ items }: { items: WorkflowTimelineItem[] }) {
+	if (!items.length) {
+		return <EmptyState title="No workflow timeline" body="Run-linked workflow events and step evidence have not been recorded." />;
+	}
+	return (
+		<ol className="workflow-timeline" aria-label="Workflow timeline">
+			{items.map((item) => (
+				<li className="workflow-timeline-item" key={item.id}>
+					<StatusDot tone={item.tone} />
+					<div className="workflow-timeline-content">
+						<div className="workflow-timeline-heading">
+							<strong>{item.label}</strong>
+							<Badge tone={item.tone}>{item.status}</Badge>
+						</div>
+						<p className="workflow-timeline-detail">{item.detail}</p>
+						<div className="workflow-timeline-meta">
+							<span className="mono">{item.source}</span>
+							<span className="mono">{item.createdAt ? new Date(item.createdAt).toLocaleString() : 'time unavailable'}</span>
+						</div>
+					</div>
+				</li>
+			))}
+		</ol>
+	);
 }
 
 export function WorkflowsPage({ overview, token }: { overview: Overview; token: string }) {
@@ -96,11 +279,12 @@ export function WorkflowsPage({ overview, token }: { overview: Overview; token: 
 		}
 	};
 	const selectedWorkflow = overview.workflows.find((workflow) => workflow.id === selectedWorkflowId) ?? overview.workflows[0];
-	const linked = useMemo(() => {
+	const linked = useMemo<WorkflowLinks>(() => {
 		if (!selectedWorkflow) {
 			return {
 				runs: [],
 				steps: [],
+				events: [],
 				workspaces: [],
 				jobs: [],
 				agentRuns: [],
@@ -134,6 +318,9 @@ export function WorkflowsPage({ overview, token }: { overview: Overview; token: 
 		return {
 			runs,
 			steps,
+			events: overview.workflowEvents.filter(
+				(event) => String(event.workflowId ?? '') === selectedWorkflow.id || runIds.has(String(event.workflowRunId ?? '')),
+			),
 			workspaces: overview.runtimeWorkspaces.filter((workspace) => runIds.has(String(workspace.workflowRunId ?? ''))),
 			jobs,
 			agentRuns,
@@ -147,6 +334,7 @@ export function WorkflowsPage({ overview, token }: { overview: Overview; token: 
 	}, [overview, selectedWorkflow]);
 	const nodes = nodesFromSteps(linked.steps);
 	const edges = edgesFromNodes(nodes);
+	const timelineItems = useMemo(() => buildWorkflowTimeline(linked), [linked]);
 	return (
 		<>
 			<PageHeader
@@ -224,6 +412,9 @@ export function WorkflowsPage({ overview, token }: { overview: Overview; token: 
 									<span className="mono">{selectedWorkflow.kind ?? 'workflow'}</span>
 								</div>
 							</Surface>
+							<Surface title="Workflow timeline" flat>
+								<WorkflowTimeline items={timelineItems} />
+							</Surface>
 							<Surface title="Runtime and run state" flat>
 								<DataTable rows={linked.runs} empty={<EmptyState title="No workflow runs" body="A run record appears after workflow execution starts." />} columns={[
 									{ key: 'run', label: 'Run', render: (row) => <span className="mono">{shortId(String(row.id ?? ''))}</span> },
@@ -279,6 +470,7 @@ export function WorkflowsPage({ overview, token }: { overview: Overview; token: 
 								<DataTable rows={linked.evidence} empty={<EmptyState title="No evidence" body="QA packages linked to this workflow run appear here." />} columns={[
 									{ key: 'task', label: 'Task', render: (row) => String(row.taskId ?? '') },
 									{ key: 'verdict', label: 'Verdict', render: (row) => <Badge tone={toneForStatus(String(row.qaVerdict ?? ''))}>{String(row.qaVerdict ?? '')}</Badge> },
+									{ key: 'source', label: 'Source', render: (row) => <span className="mono">{String(row.evidenceSource ?? 'operator_attested')}</span> },
 									{ key: 'diffs', label: 'Diff refs', render: (row) => String(Array.isArray(row.diffRefs) ? row.diffRefs.length : 0) },
 									{
 										key: 'completeness',

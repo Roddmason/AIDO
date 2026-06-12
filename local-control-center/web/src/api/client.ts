@@ -23,10 +23,17 @@ export type ModelGatewayProviderPatchRequest = MutationBody<'patch_provider_api_
 export type IssueToPatchRequest = MutationBody<'run_issue_to_patch_api_v1_workflows_issue_to_patch_post'>;
 export type IssueToPatchResponse = OperationResponse<'run_issue_to_patch_api_v1_workflows_issue_to_patch_post'>;
 export type IssueToPatchApprovalResponse = OperationResponse<'approve_issue_to_patch_api_v1_workflows_issue_to_patch__run_id__approve_post'>;
+export type IssueToPrRequest = MutationBody<'run_issue_to_pr_api_v1_workflows_issue_to_pr_post'>;
+export type IssueToPrResponse = OperationResponse<'run_issue_to_pr_api_v1_workflows_issue_to_pr_post'>;
+export type IssueToPrApprovalResponse = OperationResponse<'approve_issue_to_pr_api_v1_workflows_issue_to_pr__run_id__approve_post'>;
 export type PromotePatchToBranchRequest = MutationBody<'promote_patch_to_branch_api_v1_workflows_issue_to_patch__run_id__promote_post'>;
 export type PromotePatchToBranchResponse = OperationResponse<'promote_patch_to_branch_api_v1_workflows_issue_to_patch__run_id__promote_post'>;
+export type PromoteIssueToPrBranchRequest = MutationBody<'promote_issue_to_pr_branch_api_v1_workflows_issue_to_pr__run_id__promote_post'>;
+export type PromoteIssueToPrBranchResponse = OperationResponse<'promote_issue_to_pr_branch_api_v1_workflows_issue_to_pr__run_id__promote_post'>;
 export type PullRequestCreateRequest = MutationBody<'create_pull_request_from_promoted_branch_api_v1_workflows_issue_to_patch__run_id__pull_request_post'>;
 export type PullRequestCreateResponse = OperationResponse<'create_pull_request_from_promoted_branch_api_v1_workflows_issue_to_patch__run_id__pull_request_post'>;
+export type IssueToPrPullRequestCreateRequest = MutationBody<'create_pull_request_from_issue_to_pr_api_v1_workflows_issue_to_pr__run_id__pull_request_post'>;
+export type IssueToPrPullRequestCreateResponse = OperationResponse<'create_pull_request_from_issue_to_pr_api_v1_workflows_issue_to_pr__run_id__pull_request_post'>;
 export type EvidenceDetailResponse = OperationResponse<'get_evidence_api_v1_evidence__evidence_id__get'>;
 export type DeveloperAgentRunRequest = MutationBody<'run_developer_agent_api_v1_agents_developer_runs_post'>;
 export type DeveloperAgentRunResponse = OperationResponse<'run_developer_agent_api_v1_agents_developer_runs_post'>;
@@ -314,9 +321,27 @@ export function runIssueToPatch(token: string, body: IssueToPatchRequest) {
 	});
 }
 
+export function runIssueToPr(token: string, body: IssueToPrRequest) {
+	return requestGeneratedOperation('run_issue_to_pr_api_v1_workflows_issue_to_pr_post', {
+		token,
+		body,
+	});
+}
+
 export function approveIssueToPatch(token: string, runId: string, reason: string) {
 	return requestGeneratedOperation<'approve_issue_to_patch_api_v1_workflows_issue_to_patch__run_id__approve_post', IssueToPatchApprovalResponse>(
 		'approve_issue_to_patch_api_v1_workflows_issue_to_patch__run_id__approve_post',
+		{
+			token,
+			pathParams: { run_id: runId },
+			body: { reason },
+		},
+	);
+}
+
+export function approveIssueToPr(token: string, runId: string, reason: string) {
+	return requestGeneratedOperation<'approve_issue_to_pr_api_v1_workflows_issue_to_pr__run_id__approve_post', IssueToPrApprovalResponse>(
+		'approve_issue_to_pr_api_v1_workflows_issue_to_pr__run_id__approve_post',
 		{
 			token,
 			pathParams: { run_id: runId },
@@ -336,11 +361,33 @@ export function promotePatchToBranch(token: string, runId: string, body: Promote
 	});
 }
 
+export function promoteIssueToPrBranch(token: string, runId: string, body: PromoteIssueToPrBranchRequest) {
+	return requestGeneratedOperation<
+		'promote_issue_to_pr_branch_api_v1_workflows_issue_to_pr__run_id__promote_post',
+		PromoteIssueToPrBranchResponse
+	>('promote_issue_to_pr_branch_api_v1_workflows_issue_to_pr__run_id__promote_post', {
+		token,
+		pathParams: { run_id: runId },
+		body,
+	});
+}
+
 export function createPullRequestFromPromotedBranch(token: string, runId: string, body: PullRequestCreateRequest) {
 	return requestGeneratedOperation<
 		'create_pull_request_from_promoted_branch_api_v1_workflows_issue_to_patch__run_id__pull_request_post',
 		PullRequestCreateResponse
 	>('create_pull_request_from_promoted_branch_api_v1_workflows_issue_to_patch__run_id__pull_request_post', {
+		token,
+		pathParams: { run_id: runId },
+		body,
+	});
+}
+
+export function createPullRequestFromIssueToPr(token: string, runId: string, body: IssueToPrPullRequestCreateRequest) {
+	return requestGeneratedOperation<
+		'create_pull_request_from_issue_to_pr_api_v1_workflows_issue_to_pr__run_id__pull_request_post',
+		IssueToPrPullRequestCreateResponse
+	>('create_pull_request_from_issue_to_pr_api_v1_workflows_issue_to_pr__run_id__pull_request_post', {
 		token,
 		pathParams: { run_id: runId },
 		body,

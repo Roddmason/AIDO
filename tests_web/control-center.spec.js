@@ -1,5 +1,34 @@
 import { expect, test } from '@playwright/test';
 
+const REAL_QA_HASH = 'a'.repeat(64);
+
+function realQaEvidenceFields() {
+	return {
+		evidenceSource: 'qa_passed_by_command',
+		testResults: [
+			{
+				command: 'uv run pytest tests_py -q',
+				status: 'passed',
+				execution: 'restricted_subprocess',
+				exitCode: 0,
+				returnCode: 0,
+				toolCallId: 'agent-tool-call-real-qa-web',
+				outputArtifactId: 'artifact-real-qa-output-web',
+				artifactHashes: {
+					stdoutHash: REAL_QA_HASH,
+					stderrHash: REAL_QA_HASH,
+					outputArtifactHash: REAL_QA_HASH,
+				},
+				metadata: { permissionDecisionId: 'permission-decision-real-qa-web' },
+			},
+		],
+		toolCalls: [{ id: 'agent-tool-call-real-qa-web', status: 'completed' }],
+		policyDecisions: [{ id: 'permission-decision-real-qa-web', decision: 'allow' }],
+		artifacts: [{ id: 'artifact-real-qa-output-web', kind: 'test_report', hash: REAL_QA_HASH }],
+		hashes: { 'artifact-real-qa-output-web': REAL_QA_HASH },
+	};
+}
+
 async function createApprovalJob(page) {
 	const handshake = await page.request.get('/api/v1/security/handshake');
 	const { token } = await handshake.json();
@@ -60,7 +89,7 @@ async function createWorkflowEvidence(page) {
 			taskId: 'web-story-evidence',
 			testPlan: 'Run web smoke',
 			qaVerdict: 'passed',
-			testResults: [{ command: 'uv run pytest tests_py -q', status: 'passed' }],
+			...realQaEvidenceFields(),
 		},
 	});
 	const { evidencePackage } = await evidenceResponse.json();
@@ -401,6 +430,10 @@ async function createWebProject(page, overrides = {}) {
 	return (await response.json()).project;
 }
 
+async function expectControlPlaneLoaded(page) {
+	await expect(page.getByText('Loading control plane')).toBeHidden({ timeout: 30_000 });
+}
+
 async function createModelGatewayTrace(page) {
 	const handshake = await page.request.get('/api/v1/security/handshake');
 	const { token } = await handshake.json();
@@ -520,16 +553,34 @@ test('New Project wizard validates input creates project and selects it', async 
 
 	await expect(page.getByLabel('Operational project')).toHaveValue(/project-/);
 	await expect(page.getByText(projectName).first()).toBeVisible();
-	const projectsResponse = await page.request.get('/api/v1/projects');
-	const { projects } = await projectsResponse.json();
-	const created = projects.find((item) => item.name === projectName);
-	expect(created.templateId).toBe('python-fastapi');
-	expect(created.status).toBe('active');
-	expect(created.path.endsWith(projectDirectoryName)).toBe(true);
-	expect(created.metadata.workspaceBasePath).toBe('.tmp');
-	expect(created.metadata.projectDirectoryName).toBe(projectDirectoryName);
-	expect(created.metadata.creationMode).toBe('new_under_workspace');
-	expect(created.metadata.workspaceFlow).toBe('create_from_zero');
+	await expect
+		.poll(
+			async () => {
+				const projectsResponse = await page.request.get('/api/v1/projects');
+				const { projects } = await projectsResponse.json();
+				const created = projects.find((item) => item.name === projectName);
+				if (!created) return null;
+				return {
+					templateId: created.templateId,
+					status: created.status,
+					pathEndsWithDirectory: created.path.endsWith(projectDirectoryName),
+					workspaceBasePath: created.metadata.workspaceBasePath,
+					projectDirectoryName: created.metadata.projectDirectoryName,
+					creationMode: created.metadata.creationMode,
+					workspaceFlow: created.metadata.workspaceFlow,
+				};
+			},
+			{ timeout: 30_000 },
+		)
+		.toEqual({
+			templateId: 'python-fastapi',
+			status: 'active',
+			pathEndsWithDirectory: true,
+			workspaceBasePath: '.tmp',
+			projectDirectoryName,
+			creationMode: 'new_under_workspace',
+			workspaceFlow: 'create_from_zero',
+		});
 });
 
 test('New Project wizard exposes attach existing mode and discovery controls', async ({ page }) => {
@@ -708,6 +759,7 @@ test('language control localizes Settings and New Project wizard chrome', async 
 
 test('language control localizes catalog-backed operational surfaces', async ({ page }) => {
 	await page.goto('/#command');
+	await expectControlPlaneLoaded(page);
 	await expect(page.getByRole('heading', { name: 'Command Center' })).toBeVisible();
 	await expect(page.getByRole('heading', { name: 'issue_to_patch real runtime' })).toBeVisible();
 
@@ -1107,7 +1159,11 @@ test('Model Gateway console renders provider catalog routing usage budgets and C
 	await page.getByLabel('Benchmark cost USD').fill('0.42');
 	await page.getByLabel('Benchmark latency ms').fill('1200');
 	await page.getByRole('button', { name: 'Record benchmark outcome' }).click();
-	await expect(page.getByText('100.00%').first()).toBeVisible();
+	await expect(page.getByText('Manual/operator-reported').first()).toBeVisible();
+	await expect(page.getByText('Manual reports are not objective proof').first()).toBeVisible();
+	await expect(page.getByText('0 objective / 1 manual').first()).toBeVisible();
+	await expect(page.getByText('operator_reported').first()).toBeVisible();
+	await expect(page.getByText('100.00%')).toHaveCount(0);
 	await expect(page.getByRole('cell', { name: '$0.4200' }).first()).toBeVisible();
 });
 
@@ -1636,6 +1692,10 @@ test('command palette executes v1 actions and workflow inspector shows linked re
 	await page.getByRole('button', { name: `Inspect workflow ${workflow.title}` }).click();
 	await expect(page.getByRole('dialog', { name: 'Workflow inspector' })).toBeVisible();
 	await expect(page.getByText(workflow.title).first()).toBeVisible();
+	await expect(page.getByText('Workflow timeline')).toBeVisible();
+	const workflowTimeline = page.getByLabel('Workflow timeline');
+	await expect(workflowTimeline).toContainText('workspace_create');
+	await expect(workflowTimeline).toContainText('workflow.started');
 	await expect(page.getByText('workspace_create').first()).toBeVisible();
 	await expect(page.getByText('web-story-evidence').first()).toBeVisible();
 	await expect(page.getByText('python --version').first()).toBeVisible();

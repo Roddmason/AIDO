@@ -306,6 +306,7 @@ class _ArtifactRecorder:
                 }
             ],
             artifact_ids=artifact_ids,
+            evidence_source="evidence_collected",
             qa_verdict=qa_verdict,
         )
         for artifact_id in artifact_ids:

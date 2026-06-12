@@ -119,6 +119,14 @@ def release_result_contract_errors(result: Mapping[str, Any], runtime_id: str | 
     diff_summary = result.get("diffSummary") if isinstance(result.get("diffSummary"), Mapping) else {}
     evidence = result.get("evidencePackage") if isinstance(result.get("evidencePackage"), Mapping) else {}
     qa_results = result.get("qaResults") if isinstance(result.get("qaResults"), list) else []
+    tool_calls = evidence.get("toolCalls") if isinstance(evidence.get("toolCalls"), list) else []
+    policy_decisions = evidence.get("policyDecisions") if isinstance(evidence.get("policyDecisions"), list) else []
+    tool_call_ids = {str(item.get("id")) for item in tool_calls if isinstance(item, Mapping) and item.get("id")}
+    allowed_policy_ids = {
+        str(item.get("id"))
+        for item in policy_decisions
+        if isinstance(item, Mapping) and item.get("id") and str(item.get("decision") or "").lower() == "allow"
+    }
 
     if result.get("status") != "completed":
         errors.append(f"issue_to_patch did not complete: {result.get('status') or 'unknown'}.")
@@ -152,9 +160,22 @@ def release_result_contract_errors(result: Mapping[str, Any], runtime_id: str | 
     for index, qa_result in enumerate(qa_results):
         if qa_result.get("exitCode") != 0:
             errors.append(f"QA result {index} did not exit with code 0.")
+        if qa_result.get("execution") not in {"restricted_subprocess", "docker"}:
+            errors.append(f"QA result {index} must record real command execution.")
+        tool_call_id = str(qa_result.get("toolCallId") or "")
+        if not tool_call_id:
+            errors.append(f"QA result {index} is missing toolCallId.")
+        elif tool_call_ids and tool_call_id not in tool_call_ids:
+            errors.append(f"QA result {index} toolCallId is not linked in the evidence package.")
         hashes = qa_result.get("artifactHashes") if isinstance(qa_result.get("artifactHashes"), Mapping) else {}
         if not hashes.get("stdoutHash") or not hashes.get("stderrHash") or not hashes.get("outputArtifactHash"):
             errors.append(f"QA result {index} is missing stdout/stderr/output artifact hashes.")
+        metadata = qa_result.get("metadata") if isinstance(qa_result.get("metadata"), Mapping) else {}
+        policy_decision_id = str(metadata.get("permissionDecisionId") or metadata.get("policyDecisionId") or "")
+        if not policy_decision_id:
+            errors.append(f"QA result {index} is missing policy decision reference.")
+        elif allowed_policy_ids and policy_decision_id not in allowed_policy_ids:
+            errors.append(f"QA result {index} policy decision is not an allow decision.")
 
     artifacts = evidence.get("artifacts") if isinstance(evidence.get("artifacts"), list) else []
     artifact_names = {artifact.get("name") for artifact in artifacts if isinstance(artifact, Mapping)}
@@ -167,6 +188,8 @@ def release_result_contract_errors(result: Mapping[str, Any], runtime_id: str | 
         errors.append("Runtime stderr artifact must be linked in the evidence package.")
     if evidence.get("qaVerdict") != "passed":
         errors.append("Evidence package QA verdict must be passed.")
+    if evidence.get("evidenceSource") not in {"qa_passed_by_command", "verified_completion"}:
+        errors.append("Evidence package QA passed requires real command evidence source.")
     if evidence.get("runtimeId") != expected_runtime:
         errors.append(f"Evidence package must be linked to {expected_runtime}.")
     if missing_artifacts:
@@ -175,9 +198,9 @@ def release_result_contract_errors(result: Mapping[str, Any], runtime_id: str | 
         errors.append("Evidence package artifacts must include SHA-256 hashes.")
     if not evidence.get("hashes"):
         errors.append("Evidence package must include artifact hashes.")
-    if not evidence.get("toolCalls"):
+    if not tool_calls:
         errors.append(f"Evidence package must include the {spec['displayName']} CLI tool call.")
-    if not evidence.get("policyDecisions"):
+    if not allowed_policy_ids:
         errors.append("Evidence package must include policy decisions.")
     return errors
 

@@ -177,6 +177,12 @@ def validate_devops_agent_run_body(body: DevOpsAgentRunRequest) -> dict[str, Any
         raise HTTPException(status_code=422, detail="DevOpsAgent accepts at most 20 build scripts.")
     if not all(isinstance(script, str) and CATALOG_ID_RE.match(script) for script in build_scripts):
         raise HTTPException(status_code=422, detail="DevOpsAgent buildScripts must be compact script names.")
+    quality_scripts = payload.get("qualityScripts")
+    if quality_scripts is not None:
+        if len(quality_scripts) > 20:
+            raise HTTPException(status_code=422, detail="DevOpsAgent accepts at most 20 quality scripts.")
+        if not all(isinstance(script, str) and CATALOG_ID_RE.match(script) for script in quality_scripts):
+            raise HTTPException(status_code=422, detail="DevOpsAgent qualityScripts must be compact script names.")
     return payload
 
 
@@ -335,6 +341,7 @@ def _create_execution_evidence(
                 "mitigation": "Keep command stdout/stderr redacted and attach larger logs as artifacts in a later hardening pass.",
             }
         ],
+        evidence_source="evidence_collected",
         qa_verdict="failed" if failed else "evidence_collected",
     )
     for artifact_id in _execution_artifact_ids(executed_tool_calls):

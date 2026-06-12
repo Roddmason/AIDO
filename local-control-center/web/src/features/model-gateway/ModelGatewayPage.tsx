@@ -184,11 +184,11 @@ export function ModelGatewayPage({
 	const [benchmarkModel, setBenchmarkModel] = useState('gpt-5.5');
 	const [benchmarkRuntime, setBenchmarkRuntime] = useState('cli');
 	const [benchmarkRole, setBenchmarkRole] = useState('developer');
-	const [benchmarkSuccess, setBenchmarkSuccess] = useState(true);
-	const [benchmarkQaPass, setBenchmarkQaPass] = useState(true);
+	const [benchmarkSuccess, setBenchmarkSuccess] = useState(false);
+	const [benchmarkQaPass, setBenchmarkQaPass] = useState(false);
 	const [benchmarkRework, setBenchmarkRework] = useState(false);
-	const [benchmarkCost, setBenchmarkCost] = useState('0.42');
-	const [benchmarkLatency, setBenchmarkLatency] = useState('1200');
+	const [benchmarkCost, setBenchmarkCost] = useState('');
+	const [benchmarkLatency, setBenchmarkLatency] = useState('');
 	const [benchmarkError, setBenchmarkError] = useState('');
 
 	const reload = useCallback(async () => {
@@ -456,14 +456,16 @@ export function ModelGatewayPage({
 	};
 
 	const recordBenchmarkOutcome = async () => {
-		const estimatedCost = Number(benchmarkCost);
-		const latencyMs = Number(benchmarkLatency);
-		if (!Number.isFinite(estimatedCost) || estimatedCost < 0) {
-			setBenchmarkError('Benchmark cost must be zero or positive.');
+		const costInput = benchmarkCost.trim();
+		const latencyInput = benchmarkLatency.trim();
+		const estimatedCost = costInput ? Number(costInput) : undefined;
+		const latencyMs = latencyInput ? Number(latencyInput) : undefined;
+		if (estimatedCost !== undefined && (!Number.isFinite(estimatedCost) || estimatedCost < 0)) {
+			setBenchmarkError('Benchmark cost must be blank, zero or positive.');
 			return;
 		}
-		if (!Number.isInteger(latencyMs) || latencyMs < 0) {
-			setBenchmarkError('Benchmark latency must be a positive integer.');
+		if (latencyMs !== undefined && (!Number.isInteger(latencyMs) || latencyMs < 0)) {
+			setBenchmarkError('Benchmark latency must be blank, zero or a positive integer.');
 			return;
 		}
 		setBenchmarkError('');
@@ -475,11 +477,12 @@ export function ModelGatewayPage({
 				runtimeType: benchmarkRuntime,
 				role: benchmarkRole,
 				taskId: 'manual_benchmark_outcome',
+				provenance: 'operator_reported',
 				success: benchmarkSuccess,
 				qaPass: benchmarkQaPass,
 				rework: benchmarkRework,
-				estimatedCostUsd: estimatedCost,
-				latencyMs,
+				...(estimatedCost === undefined ? {} : { estimatedCostUsd: estimatedCost }),
+				...(latencyMs === undefined ? {} : { latencyMs }),
 				metadata: { source: 'operator_console' },
 			});
 			await reload();
@@ -747,6 +750,7 @@ export function ModelGatewayPage({
 					rework: benchmarkRework,
 					cost: benchmarkCost,
 					latency: benchmarkLatency,
+					provenance: 'operator_reported',
 				}}
 				onProviderChange={(provider, firstModel) => {
 					setBenchmarkProvider(provider);

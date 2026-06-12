@@ -196,6 +196,7 @@ class ToolBroker:
             "permissionProfile": agent_profile.get("permissionProfile"),
             "tool": tool_name,
             "command": command,
+            "commandArgv": command_argv,
             "path": path,
             "workspacePath": workspace_path,
             "gitOperation": tool_call.get("gitOperation"),

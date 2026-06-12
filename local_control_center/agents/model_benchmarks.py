@@ -7,7 +7,12 @@ from typing import Any
 from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.serialization import json_dumps, json_loads
 from local_control_center.shared.time import utc_now
-from local_control_center.evidence.quality import failed_test_results
+from local_control_center.evidence.quality import evidence_has_real_qa_pass, failed_test_results
+
+
+DEFAULT_BENCHMARK_PROVENANCE = "operator_reported"
+OBJECTIVE_BENCHMARK_PROVENANCES = {"automated_run", "release_validation"}
+BENCHMARK_PROVENANCES = {DEFAULT_BENCHMARK_PROVENANCE, *OBJECTIVE_BENCHMARK_PROVENANCES}
 
 
 def _benchmark_key(provider_id: str, model: str, role: str | None) -> str:
@@ -16,20 +21,43 @@ def _benchmark_key(provider_id: str, model: str, role: str | None) -> str:
 
 def _row_to_benchmark(row: sqlite3.Row) -> dict[str, Any]:
     tasks_attempted = int(row["tasks_attempted"] or 0)
+    metadata = json_loads(row["metadata"], {})
+    objective_tasks_attempted = _int_row_value(
+        row,
+        "objective_tasks_attempted",
+        metadata.get("objectiveTasksAttempted", tasks_attempted),
+    )
+    operator_reported_tasks = _int_row_value(row, "operator_reported_tasks", metadata.get("operatorReportedTasks", 0))
+    automated_run_tasks = _int_row_value(row, "automated_run_tasks", metadata.get("automatedRunTasks", 0))
+    release_validation_tasks = _int_row_value(
+        row,
+        "release_validation_tasks",
+        metadata.get("releaseValidationTasks", 0),
+    )
+    provenance_counts = {
+        "operator_reported": operator_reported_tasks,
+        "automated_run": automated_run_tasks,
+        "release_validation": release_validation_tasks,
+    }
     return {
         "id": row["id"],
         "providerId": row["provider_id"],
         "model": row["model"],
         "role": row["role"],
         "tasksAttempted": tasks_attempted,
+        "objectiveTasksAttempted": objective_tasks_attempted,
+        "operatorReportedTasks": operator_reported_tasks,
+        "automatedRunTasks": automated_run_tasks,
+        "releaseValidationTasks": release_validation_tasks,
         "successRate": row["success_rate"],
         "qaPassRate": row["qa_pass_rate"],
         "avgCost": row["avg_cost"],
         "avgLatencyMs": row["avg_latency_ms"],
         "reworkRate": row["rework_rate"],
         "lastUsedAt": row["last_used_at"],
-        "insufficientData": tasks_attempted < 3 or row["success_rate"] is None,
-        "metadata": json_loads(row["metadata"], {}),
+        "insufficientData": objective_tasks_attempted < 3 or row["success_rate"] is None,
+        "provenanceCounts": provenance_counts,
+        "metadata": metadata,
         "createdAt": row["created_at"],
         "updatedAt": row["updated_at"],
     }
@@ -48,6 +76,7 @@ def _row_to_outcome(row: sqlite3.Row) -> dict[str, Any]:
         "jobId": row["job_id"],
         "taskId": row["task_id"],
         "usageLedgerId": row["usage_ledger_id"],
+        "provenance": _row_value(row, "provenance", DEFAULT_BENCHMARK_PROVENANCE),
         "success": _optional_bool(row["success"]),
         "qaPass": _optional_bool(row["qa_pass"]),
         "rework": _optional_bool(row["rework"]),
@@ -81,11 +110,15 @@ class ModelBenchmarkStore:
                    model,
                    role,
                    COUNT(*) AS tasks_attempted,
-                   AVG(CASE WHEN success IS NULL THEN NULL ELSE success END) AS success_rate,
-                   AVG(CASE WHEN qa_pass IS NULL THEN NULL ELSE qa_pass END) AS qa_pass_rate,
-                   AVG(CASE WHEN rework IS NULL THEN NULL ELSE rework END) AS rework_rate,
-                   AVG(COALESCE(actual_cost_usd, estimated_cost_usd)) AS avg_cost,
-                   AVG(latency_ms) AS avg_latency_ms,
+                   SUM(CASE WHEN provenance IN ('automated_run', 'release_validation') THEN 1 ELSE 0 END) AS objective_tasks_attempted,
+                   SUM(CASE WHEN provenance = 'operator_reported' THEN 1 ELSE 0 END) AS operator_reported_tasks,
+                   SUM(CASE WHEN provenance = 'automated_run' THEN 1 ELSE 0 END) AS automated_run_tasks,
+                   SUM(CASE WHEN provenance = 'release_validation' THEN 1 ELSE 0 END) AS release_validation_tasks,
+                   AVG(CASE WHEN provenance IN ('automated_run', 'release_validation') AND success IS NOT NULL THEN success ELSE NULL END) AS success_rate,
+                   AVG(CASE WHEN provenance IN ('automated_run', 'release_validation') AND qa_pass IS NOT NULL THEN qa_pass ELSE NULL END) AS qa_pass_rate,
+                   AVG(CASE WHEN provenance IN ('automated_run', 'release_validation') AND rework IS NOT NULL THEN rework ELSE NULL END) AS rework_rate,
+                   AVG(CASE WHEN provenance IN ('automated_run', 'release_validation') THEN COALESCE(actual_cost_usd, estimated_cost_usd) ELSE NULL END) AS avg_cost,
+                   AVG(CASE WHEN provenance IN ('automated_run', 'release_validation') THEN latency_ms ELSE NULL END) AS avg_latency_ms,
                    MAX(created_at) AS last_used_at
             FROM model_benchmark_outcomes
             GROUP BY provider_id, model, role
@@ -98,6 +131,10 @@ class ModelBenchmarkStore:
             if key in seen:
                 continue
             tasks_attempted = int(row["tasks_attempted"] or 0)
+            objective_tasks_attempted = int(row["objective_tasks_attempted"] or 0)
+            operator_reported_tasks = int(row["operator_reported_tasks"] or 0)
+            automated_run_tasks = int(row["automated_run_tasks"] or 0)
+            release_validation_tasks = int(row["release_validation_tasks"] or 0)
             benchmarks.append(
                 {
                     "id": f"outcome-derived:{key}",
@@ -105,14 +142,26 @@ class ModelBenchmarkStore:
                     "model": row["model"],
                     "role": row["role"],
                     "tasksAttempted": tasks_attempted,
+                    "objectiveTasksAttempted": objective_tasks_attempted,
+                    "operatorReportedTasks": operator_reported_tasks,
+                    "automatedRunTasks": automated_run_tasks,
+                    "releaseValidationTasks": release_validation_tasks,
                     "successRate": row["success_rate"],
                     "qaPassRate": row["qa_pass_rate"],
                     "avgCost": row["avg_cost"],
                     "avgLatencyMs": int(row["avg_latency_ms"]) if row["avg_latency_ms"] is not None else None,
                     "reworkRate": row["rework_rate"],
                     "lastUsedAt": row["last_used_at"],
-                    "insufficientData": tasks_attempted < 3,
-                    "metadata": {"source": "model_benchmark_outcomes"},
+                    "insufficientData": objective_tasks_attempted < 3 or row["success_rate"] is None,
+                    "provenanceCounts": {
+                        "operator_reported": operator_reported_tasks,
+                        "automated_run": automated_run_tasks,
+                        "release_validation": release_validation_tasks,
+                    },
+                    "metadata": {
+                        "source": "model_benchmark_outcomes",
+                        "objectiveProvenance": sorted(OBJECTIVE_BENCHMARK_PROVENANCES),
+                    },
                     "createdAt": row["last_used_at"] or now,
                     "updatedAt": row["last_used_at"] or now,
                 }
@@ -145,6 +194,10 @@ class ModelBenchmarkStore:
                     "model": row["model"],
                     "role": row["role"],
                     "tasksAttempted": tasks_attempted,
+                    "objectiveTasksAttempted": 0,
+                    "operatorReportedTasks": 0,
+                    "automatedRunTasks": 0,
+                    "releaseValidationTasks": 0,
                     "successRate": None,
                     "qaPassRate": None,
                     "avgCost": row["avg_cost"],
@@ -152,6 +205,11 @@ class ModelBenchmarkStore:
                     "reworkRate": None,
                     "lastUsedAt": row["last_used_at"],
                     "insufficientData": True,
+                    "provenanceCounts": {
+                        "operator_reported": 0,
+                        "automated_run": 0,
+                        "release_validation": 0,
+                    },
                     "metadata": {"source": "usage_ledger", "outcome_metrics": "not_collected"},
                     "createdAt": row["last_used_at"] or now,
                     "updatedAt": row["last_used_at"] or now,
@@ -162,13 +220,14 @@ class ModelBenchmarkStore:
     def record_outcome(self, body: dict[str, Any]) -> dict[str, Any]:
         outcome_id = str(body.get("id") or f"benchmark-outcome-{uuid.uuid4()}")
         now = utc_now()
+        provenance = normalize_benchmark_provenance(body.get("provenance"), metadata=body.get("metadata"))
         self.connection.execute(
             """
             INSERT INTO model_benchmark_outcomes
                 (id, provider_id, model, runtime_type, role, workflow_run_id, workflow_step_id,
                  agent_id, job_id, task_id, usage_ledger_id, success, qa_pass, rework,
-                 estimated_cost_usd, actual_cost_usd, latency_ms, metadata, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 estimated_cost_usd, actual_cost_usd, latency_ms, provenance, metadata, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 outcome_id,
@@ -188,6 +247,7 @@ class ModelBenchmarkStore:
                 body.get("estimatedCostUsd"),
                 body.get("actualCostUsd"),
                 body.get("latencyMs"),
+                provenance,
                 json_dumps(redact_secrets(body.get("metadata") or {})),
                 now,
             ),
@@ -212,7 +272,15 @@ class ModelBenchmarkStore:
             return None
         verdict = str(evidence.get("qaVerdict") or "").lower()
         any_failed = bool(failed_test_results(test_results))
-        qa_pass = False if any_failed else True if verdict == "passed" else False if verdict in {"failed", "blocked", "needs_human_review"} else None
+        qa_pass = (
+            False
+            if any_failed
+            else evidence_has_real_qa_pass({**evidence, "testResults": test_results})
+            if verdict == "passed"
+            else False
+            if verdict in {"failed", "blocked", "needs_human_review"}
+            else None
+        )
         success = True if qa_pass is True else False if qa_pass is False else None
         rework = False if qa_pass is True else True if qa_pass is False else None
         return self.record_outcome(
@@ -233,6 +301,7 @@ class ModelBenchmarkStore:
                 "estimatedCostUsd": _value_or_default(payload.get("estimatedCostUsd"), (usage or {}).get("estimatedCostUsd")),
                 "actualCostUsd": _value_or_default(payload.get("actualCostUsd"), (usage or {}).get("actualCostUsd")),
                 "latencyMs": _value_or_default(payload.get("latencyMs"), (usage or {}).get("latencyMs")),
+                "provenance": _evidence_benchmark_provenance(evidence=evidence, payload=payload),
                 "metadata": {
                     "source": "evidence_ingestion",
                     "evidencePackageId": evidence.get("id"),
@@ -283,3 +352,41 @@ def _bool_to_int(value: Any) -> int | None:
 
 def _value_or_default(value: Any, default: Any) -> Any:
     return default if value is None else value
+
+
+def _row_value(row: sqlite3.Row, key: str, default: Any = None) -> Any:
+    return row[key] if key in row.keys() else default
+
+
+def _int_row_value(row: sqlite3.Row, key: str, default: Any = 0) -> int:
+    try:
+        return int(_row_value(row, key, default) or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def normalize_benchmark_provenance(value: Any, *, metadata: Any | None = None) -> str:
+    if value is None:
+        if isinstance(metadata, dict) and metadata.get("source") == "release_validation":
+            return "release_validation"
+        return DEFAULT_BENCHMARK_PROVENANCE
+    provenance = str(value).strip()
+    if provenance not in BENCHMARK_PROVENANCES:
+        raise ValueError("Benchmark provenance must be operator_reported, automated_run or release_validation.")
+    return provenance
+
+
+def _evidence_benchmark_provenance(*, evidence: dict[str, Any], payload: dict[str, Any]) -> str:
+    explicit = payload.get("provenance") or payload.get("benchmarkProvenance")
+    if explicit:
+        return normalize_benchmark_provenance(explicit)
+    metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+    source_values = {
+        str(payload.get("source") or ""),
+        str(metadata.get("source") or ""),
+        str(metadata.get("sourceType") or ""),
+        str(evidence.get("source") or ""),
+    }
+    if "release_validation" in source_values:
+        return "release_validation"
+    return "automated_run"

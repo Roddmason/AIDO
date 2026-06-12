@@ -24,6 +24,12 @@ ArtifactKind = Literal[
     "cli_runtime_log",
     "workspace_patch_manifest",
 ]
+EvidenceSource = Literal[
+    "operator_attested",
+    "evidence_collected",
+    "qa_passed_by_command",
+    "verified_completion",
+]
 QAVerdict = Literal[
     "not_started",
     "passed",
@@ -106,6 +112,7 @@ class EvidenceCreateRequest(BaseModel):
     approvals: list[dict[str, Any]] = Field(default_factory=list)
     artifacts: list[dict[str, Any]] = Field(default_factory=list)
     hashes: dict[str, str] = Field(default_factory=dict)
+    evidence_source: EvidenceSource = Field(default="operator_attested", alias="evidenceSource")
     qa_verdict: QAVerdict = Field(default="not_started", alias="qaVerdict")
 
 
@@ -144,6 +151,7 @@ class EvidencePackageRecord(BaseModel):
     approvals: list[dict[str, Any]]
     artifacts: list[dict[str, Any]]
     hashes: dict[str, str]
+    evidence_source: EvidenceSource = Field(alias="evidenceSource")
     qa_verdict: QAVerdict = Field(alias="qaVerdict")
     created_at: str = Field(alias="createdAt")
 

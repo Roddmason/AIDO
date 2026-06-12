@@ -124,13 +124,13 @@ before policy approval and before any runtime adapter is invoked. Low-risk shell
 commands are allowed only when the requested path is inside the workspace root.
 Requests outside that root are denied, not converted into approval prompts.
 
-`issue_to_patch` runtime execution is a named policy operation, not a generic
-shell bypass. The runner may submit `operation=issue_to_patch_runtime` only
-after selecting a configured executable runtime, allocating a workspace, and
-building structured `argv`. The policy allows that operation only for the
-`aido_issue_to_patch_runner` agent, with `workflowKind=issue_to_patch`,
-`runtimeId`, a `dev_safe` profile, and a registered workspace. Networked or
-secret-bearing runtime execution still requires approval.
+`issue_to_patch` does not own a separate productive implementation executor.
+The workflow allocates and gates the workspace, then delegates implementation
+execution to `DeveloperAgentRunner`. Its workflow-specific checks cover Git
+worktree isolation, non-empty patch artifacts, QA evidence, security findings,
+human approval, promotion, and PR creation. Missing runtime, workspace, QA, or
+evidence returns `runtime_unavailable`, `evidence_ready`, `qa_failed`, or
+`blocked`; it is not converted into a simulated success.
 
 DeveloperAgent uses named operations as well:
 
@@ -159,12 +159,14 @@ according to command criticity.
 DevOpsAgent uses `devops_agent_command` for brokered local validation commands.
 The operation is allowed only for `agentId=devops_agent`,
 `permissionProfile=qa`, a registered workspace, an agent run audit id,
-`tool=shell`, and low-risk build, lint, typecheck, test, diagnostic, or
-read-only categories. Missing build scripts are recorded as
-`skipped_with_reason` with a technical reason; they are not converted into
-passed evidence. Docker is optional. A Docker healthcheck may run only through
-the broker and active sandbox policy; absent Docker records skipped evidence
-instead of failing startup.
+`tool=shell`, and low-risk build, lint, typecheck, test, quality, local
+security scan, diagnostic, or read-only categories. Node, uv, corepack, and
+corepack-managed pnpm version checks are diagnostic evidence for local/release
+runner certification. Missing build scripts, quality scripts, or required
+release tools are recorded as `skipped_with_reason` with a technical reason;
+they are not converted into passed evidence. Docker is optional. A Docker
+healthcheck may run only through the broker and active sandbox policy; absent
+Docker records skipped evidence instead of failing startup.
 
 ArchitectAgent uses `architect_agent_model_call` for architecture review model
 execution. The operation is allowed only for `agentId=architect_agent`,
@@ -180,16 +182,24 @@ evidence.
 SecurityAgent uses deterministic controls for security review. It scans the
 allocated workspace and optional diff artifact for secret-like tokens, path
 traversal inputs, dangerous command flags, dependency file integrity, and
-recorded policy violations. The verdict is computed only from those controls:
-secrets, traversal, denied policy decisions, or critical Docker flags block the
-run; non-critical findings produce risk; a clean scan passes.
+recorded policy violations. It also runs allowlisted local external scanners
+when available: `gitleaks dir` for secret scanning and `semgrep scan` for local
+Semgrep rules. Missing scanner CLIs are recorded as `skipped_with_reason`.
+Semgrep is skipped with the same status unless a local config file exists;
+registry auto-config is not used. Scanner JSON reports are stored as evidence
+artifacts with SHA-256 hashes.
+
+The verdict is computed only from real controls and scanner reports: secrets,
+traversal, denied policy decisions, critical Docker flags, Gitleaks secrets, or
+Semgrep secret findings block the run; non-critical findings produce risk; a
+clean scan passes.
 
 The optional `security_agent_model_call` operation is secondary analysis only.
 It is allowed only for `agentId=security_agent`, `permissionProfile=qa`, a
 registered workspace, an agent run audit id, and matching `tool/runtimeId` in
 `ollama` or `openai_compatible`. The model call cannot request secrets and
 cannot override the deterministic verdict or replace the findings JSON,
-scanned-file list, hashes, and evidence package.
+scanned-file list, scanner report hashes, and evidence package.
 
 DeveloperAgent completion is forbidden unless runtime execution was real, the
 workspace diff is non-empty, QAAgent command evidence passed, and an evidence

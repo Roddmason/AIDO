@@ -41,7 +41,8 @@ def test_evidence_report_export_requires_token_and_returns_markdown_without_loca
         ],
         diff_refs=[{"kind": "git_diff", "files": ["local_control_center/evidence/api.py"]}],
         risk_notes=["No production deployment performed."],
-        qa_verdict="passed",
+        evidence_source="evidence_collected",
+        qa_verdict="evidence_collected",
     )
     artifact_file = write_text_artifact(
         root=tmp_path,
@@ -70,7 +71,7 @@ def test_evidence_report_export_requires_token_and_returns_markdown_without_loca
     assert response.headers["x-aido-evidence-id"] == evidence["id"]
     report = response.text
     assert "# QA Evidence Package: story-report" in report
-    assert "Verdict: passed" in report
+    assert "Verdict: evidence_collected" in report
     assert "uv run pytest tests_py -q" in report
     assert "107 passed" in report
     assert "artifact-report-log" in report

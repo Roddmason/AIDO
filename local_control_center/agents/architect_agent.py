@@ -667,6 +667,7 @@ class ArchitectAgentRunner:
             approvals=self.jobs.list_action_requests(job["id"]),
             artifacts=[artifact_ref(artifact) for artifact in artifact_records],
             hashes=artifact_hashes(artifact_records),
+            evidence_source="evidence_collected",
             qa_verdict=qa_verdict,
         )
         for artifact_id in artifact_ids:

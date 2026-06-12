@@ -4,7 +4,7 @@ from typing import Any
 
 
 SECURITY_AGENT_ID = "security_agent"
-SECURITY_AGENT_ALLOWED_TOOLS = ["openai_compatible", "ollama"]
+SECURITY_AGENT_ALLOWED_TOOLS = ["shell", "openai_compatible", "ollama"]
 SECURITY_AGENT_MODEL_RUNTIMES = {"openai_compatible", "ollama"}
 SECURITY_AGENT_RUNTIME_ORDER = ["openai_compatible", "ollama"]
 SECURITY_AGENT_VERDICTS = {"passed", "risk", "blocked"}
@@ -32,22 +32,23 @@ def security_agent_contract() -> dict[str, Any]:
         },
         "outputSchema": {
             "type": "object",
-            "required": ["status", "verdict", "findings", "filesScanned", "findingsArtifact"],
+            "required": ["status", "verdict", "findings", "filesScanned", "externalScanners", "findingsArtifact"],
             "properties": {
                 "status": {"type": "string", "enum": sorted(SECURITY_AGENT_VERDICTS)},
                 "verdict": {"type": "string", "enum": sorted(SECURITY_AGENT_VERDICTS)},
                 "findings": {"type": "array", "items": {"type": "object"}},
                 "filesScanned": {"type": "array", "items": {"type": "object"}},
                 "dependencyFiles": {"type": "array", "items": {"type": "object"}},
+                "externalScanners": {"type": "array", "items": {"type": "object"}},
                 "findingsArtifact": {"type": "object"},
                 "evidencePackage": {"type": "object"},
             },
         },
         "allowedTools": SECURITY_AGENT_ALLOWED_TOOLS,
-        "requiredRuntimeCapabilities": ["deterministic_security_checks"],
+        "requiredRuntimeCapabilities": ["deterministic_security_checks", "optional_external_security_scanners"],
         "requiredWorkspace": True,
         "requiredEvidence": True,
-        "verdictSource": "deterministic_controls_only",
+        "verdictSource": "deterministic_controls_with_optional_external_scanners",
     }
 
 
@@ -79,7 +80,7 @@ def security_agent_status(runtime_statuses: list[dict[str, Any]]) -> dict[str, A
         "id": SECURITY_AGENT_ID,
         "executable": True,
         "status": "executable",
-        "reason": "SecurityAgent deterministic controls are executable without model runtime.",
+        "reason": "SecurityAgent deterministic controls are executable without model runtime; external scanners run only when their local CLIs are available/configured.",
         "selectedRuntimeId": str(ordered[0]["id"]) if ordered else None,
         "candidateRuntimeIds": [str(runtime["id"]) for runtime in ordered],
         "contract": security_agent_contract(),

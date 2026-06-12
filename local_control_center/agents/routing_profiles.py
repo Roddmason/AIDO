@@ -42,6 +42,10 @@ def row_to_role_policy(row: sqlite3.Row) -> dict[str, Any]:
         "allowLocal": _bool(row["allow_local"]),
         "allowCli": _bool(row["allow_cli"]),
         "allowApi": _bool(row["allow_api"]),
+        "allowUnknownCost": _bool(row["allow_unknown_cost"]) if "allow_unknown_cost" in row.keys() else True,
+        "requireApprovalForUnknownCost": _bool(row["require_approval_for_unknown_cost"])
+        if "require_approval_for_unknown_cost" in row.keys()
+        else True,
         "createdAt": row["created_at"],
         "updatedAt": row["updated_at"],
     }
@@ -199,8 +203,8 @@ class RoutingProfileStore:
                 (id, role, routing_profile_id, preferred_json, fallback_json, escalation_json, blocked_json,
                  max_cost_per_task_usd, max_tokens_per_run, requires_approval_over_usd,
                  requires_approval_for_reasoning_max, allow_remote, allow_local, allow_cli, allow_api,
-                 created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 allow_unknown_cost, require_approval_for_unknown_cost, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(role) DO UPDATE SET
                 routing_profile_id = excluded.routing_profile_id,
                 preferred_json = excluded.preferred_json,
@@ -215,6 +219,8 @@ class RoutingProfileStore:
                 allow_local = excluded.allow_local,
                 allow_cli = excluded.allow_cli,
                 allow_api = excluded.allow_api,
+                allow_unknown_cost = excluded.allow_unknown_cost,
+                require_approval_for_unknown_cost = excluded.require_approval_for_unknown_cost,
                 updated_at = excluded.updated_at
             """,
             (
@@ -233,6 +239,8 @@ class RoutingProfileStore:
                 1 if body.get("allowLocal", True) else 0,
                 1 if body.get("allowCli", True) else 0,
                 1 if body.get("allowApi", True) else 0,
+                1 if body.get("allowUnknownCost", True) else 0,
+                1 if body.get("requireApprovalForUnknownCost", True) else 0,
                 now,
                 now,
             ),

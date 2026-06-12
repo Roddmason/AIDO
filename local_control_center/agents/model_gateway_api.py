@@ -348,7 +348,7 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
     async def patch_role_policy(policy_id: str, body: RolePolicyPatchRequest, request: Request) -> dict[str, Any]:
         require_write(request)
         try:
-            payload = _payload(body)
+            payload = body.model_dump(by_alias=True, exclude_none=True, exclude_unset=True)
             existing = routing().get_role_policy(policy_id)
             provider_ids = {item["providerId"] for item in providers().list_provider_accounts()}
             _validate_role_policy_payload({**existing, **payload}, provider_ids=provider_ids)

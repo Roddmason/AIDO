@@ -121,19 +121,23 @@ def test_codex_release_validation_accepts_completed_real_contract_result() -> No
             "qaResults": [
                 {
                     "status": "passed",
+                    "execution": "restricted_subprocess",
                     "exitCode": 0,
+                    "toolCallId": "tool-call-1",
                     "artifactHashes": {
                         "stdoutHash": "stdout-sha",
                         "stderrHash": "stderr-sha",
                         "outputArtifactHash": "output-sha",
                     },
+                    "metadata": {"permissionDecisionId": "policy-1"},
                 }
             ],
             "evidencePackage": {
                 "qaVerdict": "passed",
+                "evidenceSource": "qa_passed_by_command",
                 "runtimeId": "codex_cli",
                 "toolCalls": [{"id": "tool-call-1"}],
-                "policyDecisions": [{"id": "policy-1"}],
+                "policyDecisions": [{"id": "policy-1", "decision": "allow"}],
                 "artifacts": [
                     {"id": "artifact-patch", "name": "diff.patch", "hash": "patch-sha"},
                     {"id": "artifact-qa", "name": "qa-results.json", "hash": "qa-sha"},

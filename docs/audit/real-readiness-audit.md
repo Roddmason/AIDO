@@ -46,7 +46,7 @@ evidencia actual.
 | --- | --- | --- | --- |
 | Product runtime catalog without internal mock provider | Closed | `RUNTIME_MODES` contiene `api`, `cli`, `ollama`, `hybrid`, `manual`; tests de boundary y OpenAPI pasan; no hay `internal_mock` en codigo productivo fuera de generado excluido. | Referencias en docs/tests siguen permitidas como historial o fixtures. |
 | Provider readiness truth | Partial | `runtime_status.py` separa `configured`, `available`, `executable`, `reason`, `requiredConfiguration`, `healthStatus`, `healthCheckedAt` y `lastError`; OpenAI-compatible, OpenRouter, NVIDIA NIM y Anthropic fallan cerrado sin config, health, cuenta enabled y flag real. | No se validaron credenciales, endpoints ni healthchecks reales contra entornos externos en esta reauditoria. |
-| `issue_to_patch` completion gate | Closed para contrato local | Tests cubren runtime unavailable, QA argv estructurado, falta de diff, falta de QA, evidencia incompleta, approval y QA failed. | No hubo ejecucion real de Codex CLI, Claude Code, OpenHands o SWE-agent contra un workspace productivo. |
+| `issue_to_patch` completion gate | Closed para contrato local | El workflow delega implementacion en `DeveloperAgentRunner` y mantiene gates de runtime unavailable, QA argv estructurado, falta de diff, falta de QA, evidencia incompleta, approval y QA failed. | No hubo ejecucion real de Codex CLI o Claude Code contra un workspace productivo. OpenHands/SWE-agent quedan como validadores opcionales, no ruta canonica. |
 | Quality no-mock scanner | Closed | `quality:productive-truth` paso y tests unitarios del scanner pasan. | El scanner no cubre todos los falsos exitos semanticos; ver Open sobre benchmarks manuales. |
 | Local quality gate | Partial | Los dos gates pedidos y el set enfocado pasan. `scripts/quality-local.ps1` esta cableado para scanner, Python tests, web tests, build, typecheck, lint, arquitectura, gitleaks y Semgrep. | El comando completo `corepack pnpm@10.24.0 run quality` no fue ejecutado en esta reauditoria. |
 | Evidence-backed blocked state | Partial | `issue_to_patch` devuelve `runtime_unavailable` con evidence y reason tecnico cuando falta runtime ejecutable. | La API general de evidencia todavia puede alimentar benchmark outcomes desde evidencia/usage manual; ver Open. |
@@ -71,9 +71,9 @@ evidencia actual.
 - Los CLI runtimes ya no tienen modo `mock` productivo. La ejecucion pasa por
   argv estructurado, workspace registrado, policy engine, flag
   `AIDO_ENABLE_CLI_RUNTIMES` y sandbox restringido.
-- `issue_to_patch` no marca `completed` sin runtime completado, QA real
-  pasada, diff no vacio, artifact patch no vacio, evidence package creado y
-  contrato de evidence completo.
+- `issue_to_patch` no marca `completed` sin ejecucion de DeveloperAgent
+  completada, QA real pasada, diff no vacio, artifact patch no vacio, evidence
+  package creado y contrato de evidence completo.
 - La ausencia de runtime ejecutable produce `runtime_unavailable` y
   `qaVerdict=blocked`, no success.
 - El scanner productivo bloquea tokens de simulacion en codigo productivo,
@@ -90,10 +90,11 @@ evidencia actual.
   `quality:productive-truth`, `quality:architecture` y tests enfocados. No hay
   evidencia fresca del pipeline completo con web tests, build, lint, gitleaks y
   Semgrep.
-- La evidencia de `issue_to_patch` es completion-grade cuando viene del runner,
-  pero la API general `/api/v1/evidence` acepta `qaVerdict=passed` con
-  `testResults` o refs y puede generar benchmark outcome si el payload trae
-  `providerId/model/usageLedgerId`.
+- La evidencia de `issue_to_patch` es completion-grade cuando viene del runner.
+  La API general `/api/v1/evidence` ya distingue `operator_attested`,
+  `evidence_collected`, `qa_passed_by_command` y `verified_completion`; un
+  `qaVerdict=passed` requiere ejecución real con `toolCallId`, `exitCode=0`,
+  hashes y policy decision `allow`.
 - El catalogo de modelos ya distingue precios desconocidos con `None` en algunos
   proveedores, pero todavia hay seeds con modelos, ventanas de contexto, precios
   y free-tier estaticos etiquetados como `manual_seed` o `staleness unknown`.

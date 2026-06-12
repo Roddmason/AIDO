@@ -280,6 +280,7 @@ export function JobsApprovalsPage({
 									columns={[
 										{ key: 'id', label: 'Evidence', render: (row) => <span className="mono">{String(row.id ?? '')}</span> },
 										{ key: 'verdict', label: 'QA', render: (row) => <Badge tone={toneForStatus(String(row.qaVerdict ?? ''))}>{String(row.qaVerdict ?? '')}</Badge> },
+										{ key: 'source', label: 'Source', render: (row) => <span className="mono">{String(row.evidenceSource ?? 'operator_attested')}</span> },
 										{ key: 'task', label: 'Task', render: (row) => String(row.taskId ?? '') },
 									]}
 								/>

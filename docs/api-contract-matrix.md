@@ -58,6 +58,10 @@ contracts expose enum-backed states instead of loose strings for:
 - `POST /api/v1/workflows/{id}/pause`
 - `POST /api/v1/workflows/{id}/resume`
 - `POST /api/v1/workflows/{id}/cancel`
+- `POST /api/v1/workflows/issue-to-pr` executes the full DeveloperAgent -> QAAgent -> SecurityAgent -> ArchitectAgent -> DevOpsAgent DAG and returns gate evidence, completion, rework, and timeline state
+- `POST /api/v1/workflows/issue-to-pr/{run_id}/approve`
+- `POST /api/v1/workflows/issue-to-pr/{run_id}/promote`
+- `POST /api/v1/workflows/issue-to-pr/{run_id}/pull-request`
 
 ## Agents And Runtime
 

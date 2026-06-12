@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 
 from local_control_center.app import create_app
 from tests_py.control_plane_fixture import ControlPlaneFixture
+from tests_py.evidence_helpers import real_qa_evidence_fields
 
 
 def auth_headers(client: TestClient) -> dict[str, str]:
@@ -217,7 +218,8 @@ def test_workflow_workspace_evidence_traceability_is_exposed(tmp_path: Path, mon
             "agentId": "implementer",
             "taskId": "story-trace",
             "testPlan": "Run local tests",
-            "qaVerdict": "passed",
+            "evidenceSource": "evidence_collected",
+            "qaVerdict": "evidence_collected",
             "testResults": [{"command": "uv run pytest tests_py -q", "status": "passed"}],
             "workspaceId": workspace["id"],
         },
@@ -303,14 +305,10 @@ def test_evidence_detail_exposes_persisted_test_result_records(tmp_path: Path, m
             "taskId": "story-evidence-detail",
             "testPlan": "Run focused tests",
             "qaVerdict": "passed",
-            "testResults": [
-                {
-                    "command": "uv run pytest tests_py/test_phase7_workspace_policy_traceability.py -q",
-                    "status": "passed",
-                    "durationMs": 1200,
-                    "outputRef": "artifact://pytest-log",
-                }
-            ],
+            **real_qa_evidence_fields(
+                command="uv run pytest tests_py/test_phase7_workspace_policy_traceability.py -q",
+                duration_ms=1200,
+            ),
         },
         headers=headers,
     ).json()["evidencePackage"]

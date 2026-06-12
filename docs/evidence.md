@@ -18,7 +18,7 @@ Evidence packages are required to make QA decisions auditable.
 Every `EvidencePackageRecord` returned by the API includes the operational
 closure fields `workflowRunId`, `jobId`, `agentRunId`, `workspaceId`,
 `runtimeId`, `runtimeHealth`, `modelCalls`, `toolCalls`, `policyDecisions`,
-`approvals`, `qaVerdict`, `artifacts`, `diffSummary`, `hashes`, and
+`approvals`, `qaVerdict`, `evidenceSource`, `artifacts`, `diffSummary`, `hashes`, and
 `createdAt`. Workflow completion requires a completion-grade package: real
 runtime health, linked job/agent/workspace/runtime records, artifact refs, and
 SHA-256 hashes. Direct agent runs may have `workflowRunId=null`, but they still
@@ -30,6 +30,17 @@ reporting `completed`.
 `architecture_reviewed`, `devops_risk`, `devops_blocked`,
 `security_passed`, `security_blocked`, and `skipped_with_reason`.
 
+`evidenceSource` separates how a package was produced:
+
+- `operator_attested`: a human/operator statement. This can document review,
+  but it cannot create a QA pass.
+- `evidence_collected`: artifacts, diffs, screenshots, reports, or logs were
+  collected without proving a fresh command execution pass.
+- `qa_passed_by_command`: QA passed because command execution produced a real
+  result with policy, tool-call, exit-code, and hash evidence.
+- `verified_completion`: a workflow completed with real QA command evidence
+  plus the required runtime/workspace/artifact closure.
+
 `issue_to_patch` writes concrete evidence artifacts for `diff.patch`,
 `git-status.txt`, `git-status.json`, `qa-results.json`, stdout/stderr command
 logs, generated security findings, and `model-call.json` when a model call is
@@ -39,14 +50,22 @@ configuration-required with a technical reason.
 
 ## QA Gate
 
-A package cannot be marked `passed` unless it includes at least one evidence
-signal:
+A package cannot be marked `passed` through `POST /api/v1/evidence` unless it
+uses `evidenceSource=qa_passed_by_command` or `verified_completion` and includes
+real command result evidence:
 
-- test results
-- diff references
-- screenshot references
+- at least one `testResults[]` item with `status=passed`;
+- `execution` recorded as `restricted_subprocess` or `docker`;
+- `toolCallId` linked to package `toolCalls[]`;
+- `exitCode=0`;
+- `artifactHashes.stdoutHash`, `artifactHashes.stderrHash`, and
+  `artifactHashes.outputArtifactHash`;
+- package-level artifact `hashes`;
+- a referenced policy decision with `decision=allow`.
 
-This prevents a reviewer or agent from approving work without recorded proof.
+Diff refs, screenshots, artifact refs, parsed JUnit XML, or pasted pytest
+summaries can be stored as `evidence_collected`, but they are not sufficient for
+`qaVerdict=passed`.
 
 `GET /api/v1/evidence/{id}` returns both the package and normalized
 `testResultRecords` plus `artifacts` from SQLite. The package JSON is useful for
@@ -71,7 +90,13 @@ Gateway benchmark outcomes table. `POST /api/v1/evidence` accepts
 `usageLedgerId` or explicit `providerId`, `model`, `runtimeType`, `role`,
 `workflowStepId`, `jobId`, cost and latency fields. If enough model identity is
 present, the control plane records a `model_benchmark_outcomes` row with
-success, QA pass and rework inferred from `qaVerdict` and test result status.
+success, QA pass and rework inferred from real QA evidence, `qaVerdict`, and
+test result status. A manual or artifact-only package with `qaVerdict=passed`
+does not count as a QA pass.
+Evidence-ingested benchmark outcomes are marked `provenance=automated_run`.
+Only `automated_run` and `release_validation` benchmark outcomes count as
+objective samples for routing; operator-reported rows stay audit-visible but do
+not prove model quality.
 Prompts and raw secrets are not copied into benchmark metadata.
 
 ## Artifact Retrieval
@@ -103,7 +128,8 @@ does not accept client-supplied filesystem paths.
 
 The Evidence & QA page must use `GET /api/v1/evidence/{evidenceId}` for package
 detail. The viewer shows package metadata, workflow/job/agent/workspace/runtime
-links, QA verdict, artifacts with full SHA-256 hashes, and download actions.
+links, QA verdict, evidence source, artifacts with full SHA-256 hashes, and
+download actions.
 Diff, security findings, model-call, and tool-call evidence are rendered from
 linked artifacts or package fields after frontend redaction of secret-like text.
 

@@ -414,6 +414,12 @@ class DeveloperAgentRunner:
             raise ValueError("Workspace does not belong to the requested project.")
         if workspace["status"] == "archived":
             raise ValueError("DeveloperAgent cannot execute in an archived workspace.")
+        workflow_run_id = str(payload.get("workflowRunId") or "").strip() or None
+        workflow_step_id = str(payload.get("workflowStepId") or "").strip() or None
+        qa_workflow_step_id = str(payload.get("qaWorkflowStepId") or "").strip() or workflow_step_id
+        job_id = str(payload.get("jobId") or "").strip() or None
+        preflight_block_reason = str(payload.get("preflightBlockReason") or "").strip()
+        diff_blocker_state = str(payload.get("diffBlockerState") or "").strip() or RUNTIME_UNAVAILABLE_STATUS
 
         readiness = self.status(preferred_runtime=payload.get("preferredRuntime"))
         runtime = self._runtime_by_id(readiness.get("selectedRuntimeId")) or {
@@ -424,19 +430,26 @@ class DeveloperAgentRunner:
             "capabilities": [],
         }
         profile = self._create_profile(str(runtime.get("id") or "unresolved"))
-        job_result = self.jobs.create_job(
-            project_id=payload["projectId"],
-            kind="agent.developer",
-            status="running",
-            payload={
-                "taskId": payload["taskId"],
-                "runtime": runtime,
-                "workspaceId": workspace["id"],
-                "qaCommands": payload.get("qaCommands") or [],
-                "maxCostUsd": payload.get("maxCostUsd"),
-            },
-        )
-        job = job_result["job"]
+        if job_id:
+            job = self.jobs.get_job(job_id)
+            if job["projectId"] != payload["projectId"]:
+                raise ValueError("DeveloperAgent job does not belong to the requested project.")
+        else:
+            job_result = self.jobs.create_job(
+                project_id=payload["projectId"],
+                kind="agent.developer",
+                status="running",
+                workflow_run_id=workflow_run_id,
+                workflow_step_id=workflow_step_id,
+                payload={
+                    "taskId": payload["taskId"],
+                    "runtime": runtime,
+                    "workspaceId": workspace["id"],
+                    "qaCommands": payload.get("qaCommands") or [],
+                    "maxCostUsd": payload.get("maxCostUsd"),
+                },
+            )
+            job = job_result["job"]
         agent_run = self.agents.create_agent_run(
             project_id=payload["projectId"],
             agent_profile_id=profile["id"],
@@ -444,13 +457,15 @@ class DeveloperAgentRunner:
             input_payload=redact_secrets({**payload, "workspacePath": workspace["path"]}),
             output_payload={},
             job_id=job["id"],
+            workflow_run_id=workflow_run_id,
+            workflow_step_id=workflow_step_id,
             status="running",
         )
 
         broker = ToolBroker(self.connection, artifact_root=self.root)
         runtime_status = RUNTIME_UNAVAILABLE_STATUS
-        runtime_result = _runtime_unavailable_result(readiness["reason"])
-        if readiness["executable"]:
+        runtime_result = _runtime_unavailable_result(preflight_block_reason or readiness["reason"])
+        if readiness["executable"] and not preflight_block_reason:
             try:
                 if str(runtime["id"]) in DEVELOPER_AGENT_CLI_RUNTIMES:
                     runtime_result = self._execute_cli_runtime(
@@ -479,7 +494,7 @@ class DeveloperAgentRunner:
 
         diff = capture_git_diff(Path(workspace["path"]))
         if runtime_status == RUNTIME_UNAVAILABLE_STATUS:
-            diff["blockerState"] = RUNTIME_UNAVAILABLE_STATUS
+            diff["blockerState"] = diff_blocker_state
 
         qa_results: list[dict[str, Any]] = []
         qa_artifact_ids: list[str] = []
@@ -490,6 +505,8 @@ class DeveloperAgentRunner:
                 workspace_id=workspace["id"],
                 task_id=payload["taskId"],
                 commands=payload.get("qaCommands") or [],
+                workflow_run_id=workflow_run_id,
+                workflow_step_id=qa_workflow_step_id,
                 job_id=job["id"],
                 parent_agent_run_id=agent_run["id"],
                 metadata={"source": DEVELOPER_AGENT_ID},
@@ -510,7 +527,8 @@ class DeveloperAgentRunner:
 
         evidence = self.evidence.create_evidence_package(
             project_id=payload["projectId"],
-            workflow_run_id=None,
+            workflow_run_id=workflow_run_id,
+            workflow_step_id=qa_workflow_step_id,
             agent_id=DEVELOPER_AGENT_ID,
             agent_run_id=agent_run["id"],
             job_id=job["id"],
@@ -547,6 +565,7 @@ class DeveloperAgentRunner:
                 }
             ],
             artifact_ids=qa_artifact_ids,
+            evidence_source="verified_completion" if qa_verdict == "passed" else "evidence_collected",
             qa_verdict=qa_verdict,
         )
         if qa_artifact_ids:

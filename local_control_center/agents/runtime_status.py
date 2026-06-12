@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+from pathlib import Path
 from typing import Any
 
 from .model_gateway import ollama_status
@@ -18,6 +19,10 @@ RUNTIME_MODES = ["api", "cli", "ollama", "hybrid", "manual"]
 CLI_RUNTIME_IDS = {"codex_cli", "claude_code_cli", "openhands", "swe_agent"}
 API_RUNTIME_KINDS = {"api", "gateway"}
 OPENAI_COMPATIBLE_FORMATS = {"openai_compatible", "responses"}
+CLI_EXECUTABLE_TOKENS = {
+    "codex_cli": ("codex",),
+    "claude_code_cli": ("claude",),
+}
 
 
 def _env_flag(name: str) -> bool:
@@ -152,6 +157,17 @@ def _configured_argv(configuration: RuntimeProviderConfiguration | None, key: st
     return list(parsed), None
 
 
+def _cli_command_matches_provider(provider_id: str, detection: dict[str, Any]) -> bool:
+    required_tokens = CLI_EXECUTABLE_TOKENS.get(provider_id)
+    if not required_tokens:
+        return True
+    executable = str(detection.get("executable") or "").strip()
+    if not executable:
+        return False
+    executable_name = Path(executable).name.lower()
+    return all(token in executable_name for token in required_tokens)
+
+
 def _api_provider_status(
     connection: sqlite3.Connection,
     account: dict[str, Any],
@@ -221,12 +237,20 @@ def _cli_provider_status(
     detected = detection.get("status") == "installed"
     enabled = bool(account.get("enabled"))
     cli_enabled = _env_flag("AIDO_ENABLE_CLI_RUNTIMES")
-    can_patch = "issue_to_patch" in set(capabilities)
+    can_code_edit = "code_edit" in set(capabilities)
     issue_to_patch_argv, issue_to_patch_argv_error = _configured_argv(configuration, "issueToPatchArgv")
     version = detection.get("version") if detected else None
     configured = bool(configuration.configured if configuration is not None else detected)
     available = configured and detected and bool(version)
-    executable = available and enabled and cli_enabled and can_patch and issue_to_patch_argv_error is None
+    command_matches_provider = _cli_command_matches_provider(str(account["providerId"]), detection) if can_code_edit else True
+    executable = (
+        available
+        and enabled
+        and cli_enabled
+        and can_code_edit
+        and command_matches_provider
+        and issue_to_patch_argv_error is None
+    )
     if not configured and configuration is not None:
         reason = f"{configuration.reason}; CLI runtime was not detected because command configuration is missing."
     elif not detected:
@@ -239,8 +263,10 @@ def _cli_provider_status(
         reason = "CLI runtime is available but execution is disabled by AIDO_ENABLE_CLI_RUNTIMES=false."
     elif issue_to_patch_argv_error:
         reason = issue_to_patch_argv_error
-    elif not can_patch:
-        reason = "Runtime does not advertise the issue_to_patch capability required to edit a workspace and generate a patch artifact."
+    elif not can_code_edit:
+        reason = "Runtime does not advertise the code_edit capability required by DeveloperAgent."
+    elif not command_matches_provider:
+        reason = "Runtime detected executable does not match the declared runtime command."
     else:
         reason = "CLI runtime is detected, enabled, and executable."
     payload = _status_payload(

@@ -1,7 +1,13 @@
 import type { ModelGatewayRolePolicy } from '../../api/types';
-import { DataTable, EmptyState } from '../../components/primitives';
+import { Badge, DataTable, EmptyState } from '../../components/primitives';
 import { PanelShell } from './PanelShell';
 import { boolLabel, listLabel, money, text } from './utils';
+
+function unknownCostPolicyLabel(row: ModelGatewayRolePolicy) {
+	if (!row.allowUnknownCost) return <Badge tone="danger">reject unknown remote cost</Badge>;
+	if (row.requireApprovalForUnknownCost) return <Badge tone="warn">approval required</Badge>;
+	return <Badge tone="ok">allowed by policy</Badge>;
+}
 
 export function RoleAssignmentsPanel({ rolePolicies }: { rolePolicies: ModelGatewayRolePolicy[] }) {
 	return (
@@ -18,6 +24,7 @@ export function RoleAssignmentsPanel({ rolePolicies }: { rolePolicies: ModelGate
 				{ key: 'api', label: 'API allowed', render: (row) => boolLabel(row.allowApi) },
 				{ key: 'thinking', label: 'Thinking/effort', render: (row) => row.requiresApprovalForReasoningMax ? 'max requires approval' : 'profile default' },
 				{ key: 'approval', label: 'Approval threshold', render: (row) => money(row.requiresApprovalOverUsd ?? row.maxCostPerTaskUsd) },
+				{ key: 'unknownCost', label: 'Unknown remote cost', render: (row) => unknownCostPolicyLabel(row) },
 			]} />
 		</PanelShell>
 	);

@@ -26,7 +26,8 @@ def make_evidence(tmp_path: Path, store: ControlPlaneFixture) -> dict:
         task_id="artifact-ingest",
         test_plan="Collect delayed runner artifacts",
         test_results=[{"command": "manual", "status": "passed"}],
-        qa_verdict="passed",
+        evidence_source="evidence_collected",
+        qa_verdict="evidence_collected",
     )
 
 

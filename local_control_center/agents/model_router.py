@@ -17,6 +17,8 @@ REMOTE_PROVIDER_TYPES = {"api", "gateway"}
 LOCAL_PROVIDER_TYPES = {"local"}
 CLI_PROVIDER_TYPES = {"cli"}
 MIN_BENCHMARK_SAMPLES = 5
+UNKNOWN_REMOTE_COST_NOT_ALLOWED = "unknown_remote_cost_not_allowed"
+UNKNOWN_REMOTE_COST_REQUIRES_APPROVAL = "unknown_remote_cost_requires_approval"
 
 
 class RoutingRequest(BaseModel):
@@ -105,6 +107,17 @@ class ModelRouter:
                 rejected.append({"provider": provider["providerId"], "model": model["model"], "runtime": self._runtime_type(provider), "reason": reason})
                 continue
             estimate = self._estimate(request, provider, model)
+            unknown_cost_policy = self._unknown_cost_policy(role_policy, provider, estimate)
+            if unknown_cost_policy and unknown_cost_policy["action"] == "reject":
+                rejected.append(
+                    {
+                        "provider": provider["providerId"],
+                        "model": model["model"],
+                        "runtime": self._runtime_type(provider),
+                        "reason": unknown_cost_policy["reason"],
+                    }
+                )
+                continue
             budget = self.budgets.evaluate(
                 role=request.role,
                 provider_id=provider["providerId"],
@@ -146,6 +159,7 @@ class ModelRouter:
                 "freeTier": estimate["freeTier"],
                 "score": score_breakdown["score"],
                 "scoreBreakdown": score_breakdown,
+                "_unknownCostPolicy": unknown_cost_policy,
                 "_budgetResult": budget.as_dict(),
                 "_quotaResult": quota.as_dict(),
             }
@@ -169,6 +183,7 @@ class ModelRouter:
             selected_quota_result = selected.get("_quotaResult") or last_quota_result
 
         estimated_cost = selected.get("estimatedCostUsd") if selected else None
+        selected_unknown_cost_policy = selected.get("_unknownCostPolicy") if selected else None
         approval_threshold = role_policy.get("requiresApprovalOverUsd")
         if approval_threshold is None:
             approval_threshold = role_policy.get("maxCostPerTaskUsd")
@@ -181,6 +196,8 @@ class ModelRouter:
         if selected and selected.get("effort") in {"xhigh", "max"} and role_policy.get("requiresApprovalForReasoningMax"):
             requires_approval = True
         if selected_budget_result and selected_budget_result.get("requiresApproval"):
+            requires_approval = True
+        if selected_unknown_cost_policy and selected_unknown_cost_policy.get("action") == "require_approval":
             requires_approval = True
 
         result = {
@@ -202,6 +219,10 @@ class ModelRouter:
                 "requiresApproval": requires_approval,
                 "rolePolicyId": role_policy["id"],
                 "maxCostPerTaskUsd": role_policy.get("maxCostPerTaskUsd"),
+                "allowUnknownCost": bool(role_policy.get("allowUnknownCost", True)),
+                "requireApprovalForUnknownCost": bool(role_policy.get("requireApprovalForUnknownCost", True)),
+                "unknownCostPolicy": selected_unknown_cost_policy
+                or {"action": "not_applicable", "reason": "cost_known_or_not_remote"},
             },
             "budgetResult": selected_budget_result or last_budget_result,
             "quotaResult": selected_quota_result or last_quota_result,
@@ -331,6 +352,36 @@ class ModelRouter:
             "freeTier": pricing["freeTier"],
         }
 
+    def _unknown_cost_policy(
+        self,
+        role_policy: dict[str, Any],
+        provider: dict[str, Any],
+        estimate: dict[str, Any],
+    ) -> dict[str, str] | None:
+        if estimate.get("cost") is not None or provider["providerType"] not in REMOTE_PROVIDER_TYPES:
+            return None
+        policy = {
+            "provider": provider["providerId"],
+            "runtime": self._runtime_type(provider),
+        }
+        if not role_policy.get("allowUnknownCost", True):
+            return {
+                **policy,
+                "action": "reject",
+                "reason": UNKNOWN_REMOTE_COST_NOT_ALLOWED,
+            }
+        if role_policy.get("requireApprovalForUnknownCost", True):
+            return {
+                **policy,
+                "action": "require_approval",
+                "reason": UNKNOWN_REMOTE_COST_REQUIRES_APPROVAL,
+            }
+        return {
+            **policy,
+            "action": "allow",
+            "reason": "unknown_remote_cost_allowed_by_policy",
+        }
+
     def _score(
         self,
         request: RoutingRequest,
@@ -425,11 +476,20 @@ class ModelRouter:
         )
 
     def _benchmark_score(self, benchmark: dict[str, Any] | None) -> dict[str, float]:
-        sample_count = int((benchmark or {}).get("tasksAttempted") or 0)
+        total_sample_count = int((benchmark or {}).get("tasksAttempted") or 0)
+        sample_count = int((benchmark or {}).get("objectiveTasksAttempted") or 0)
+        operator_reported_count = int((benchmark or {}).get("operatorReportedTasks") or 0)
+        automated_run_count = int((benchmark or {}).get("automatedRunTasks") or 0)
+        release_validation_count = int((benchmark or {}).get("releaseValidationTasks") or 0)
         insufficient = 1.0 if sample_count < MIN_BENCHMARK_SAMPLES or not benchmark else 0.0
         if insufficient:
             return {
-                "benchmarkSampleCount": float(sample_count),
+                "benchmarkSampleCount": float(total_sample_count),
+                "benchmarkTotalSampleCount": float(total_sample_count),
+                "benchmarkObjectiveSampleCount": float(sample_count),
+                "benchmarkOperatorReportedSampleCount": float(operator_reported_count),
+                "benchmarkAutomatedRunSampleCount": float(automated_run_count),
+                "benchmarkReleaseValidationSampleCount": float(release_validation_count),
                 "benchmarkInsufficientData": 1.0,
                 "benchmarkScore": 0.0,
                 "benchmarkContribution": 0.0,
@@ -439,7 +499,12 @@ class ModelRouter:
         rework = float(benchmark.get("reworkRate") if benchmark.get("reworkRate") is not None else 0.5)
         benchmark_score = max(0.0, min((success * 0.45) + (qa_pass * 0.35) + ((1.0 - rework) * 0.20), 1.0))
         return {
-            "benchmarkSampleCount": float(sample_count),
+            "benchmarkSampleCount": float(total_sample_count),
+            "benchmarkTotalSampleCount": float(total_sample_count),
+            "benchmarkObjectiveSampleCount": float(sample_count),
+            "benchmarkOperatorReportedSampleCount": float(operator_reported_count),
+            "benchmarkAutomatedRunSampleCount": float(automated_run_count),
+            "benchmarkReleaseValidationSampleCount": float(release_validation_count),
             "benchmarkInsufficientData": 0.0,
             "benchmarkScore": round(benchmark_score, 6),
             "benchmarkContribution": round(benchmark_score * 0.10, 6),

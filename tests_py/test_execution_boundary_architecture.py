@@ -151,6 +151,48 @@ def test_issue_to_patch_runtime_policy_operation_is_runner_scoped() -> None:
     assert "workflow runner" in decision["reason"]
 
 
+def test_security_agent_scanner_policy_allows_only_local_scanner_executables() -> None:
+    allowed = evaluate_action(
+        {
+            "tool": "shell",
+            "command": "gitleaks dir . --report-format json",
+            "commandArgv": ["gitleaks", "dir", "."],
+            "operation": "security_agent_scanner",
+            "permissionProfile": "qa",
+            "agentId": "security_agent",
+            "workspaceId": "workspace-test",
+            "workspacePath": "H:\\workspace",
+            "path": "H:\\workspace",
+            "runtimeId": "gitleaks",
+            "agentRunId": "agent-run-test",
+            "networkRequired": False,
+            "secretsRequired": False,
+        }
+    )
+    denied = evaluate_action(
+        {
+            "tool": "shell",
+            "command": "python -c pass",
+            "commandArgv": ["python", "-c", "pass"],
+            "operation": "security_agent_scanner",
+            "permissionProfile": "qa",
+            "agentId": "security_agent",
+            "workspaceId": "workspace-test",
+            "workspacePath": "H:\\workspace",
+            "path": "H:\\workspace",
+            "runtimeId": "gitleaks",
+            "agentRunId": "agent-run-test",
+            "networkRequired": False,
+            "secretsRequired": False,
+        }
+    )
+
+    assert allowed["decision"] == "allow"
+    assert "security_agent_scanner" in allowed["categories"]
+    assert denied["decision"] == "deny"
+    assert "security_agent_scanner_executable_denied" in denied["categories"]
+
+
 def test_developer_agent_runtime_policy_operation_is_agent_scoped() -> None:
     decision = evaluate_action(
         {
@@ -464,3 +506,12 @@ def test_developer_agent_runner_uses_broker_not_direct_runtime_execution() -> No
     assert "RuntimeAdapterRegistry(" not in source
     assert "RestrictedSubprocessSandbox" not in source
     assert ".chat_completion(" not in source
+
+
+def test_issue_to_patch_delegates_implementation_execution_to_developer_agent() -> None:
+    source = (PRODUCT_ROOT / "workflows" / "issue_to_patch_runner.py").read_text(encoding="utf-8")
+
+    assert "DeveloperAgentRunner(" in source
+    assert "build_issue_to_patch_argv" not in source
+    assert '"operation": "issue_to_patch_runtime"' not in source
+    assert "ToolBroker(" not in source

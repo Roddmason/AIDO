@@ -25,7 +25,8 @@ def make_expired_artifact(tmp_path: Path, store: ControlPlaneFixture) -> tuple[d
         task_id="expired-artifact",
         test_plan="Retain evidence",
         test_results=[{"command": "manual", "status": "passed"}],
-        qa_verdict="passed",
+        evidence_source="evidence_collected",
+        qa_verdict="evidence_collected",
     )
     artifact_file = write_text_artifact(
         root=tmp_path,

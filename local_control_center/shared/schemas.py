@@ -15,6 +15,9 @@ class HandshakeResponse(BaseModel):
 
 
 class RetrievalStatusResponse(BaseModel):
+    status: str
+    available: bool
+    reason: str
     backend: str
     degraded: bool
     faiss_available: bool = Field(alias="faissAvailable")

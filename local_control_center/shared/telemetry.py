@@ -164,13 +164,14 @@ def configure_external_telemetry_from_env(environ: Mapping[str, str] | None = No
         }
         return external_telemetry_status()
 
+    exporter_available = _external_exporter is not None
     _external_status = {
-        "enabled": True,
+        "enabled": exporter_available,
         "mode": "otlp_http",
-        "available": True,
-        "tracesEnabled": True,
-        "metricsEnabled": True,
-        "reason": "",
+        "available": exporter_available,
+        "tracesEnabled": exporter_available,
+        "metricsEnabled": exporter_available,
+        "reason": "" if exporter_available else "OpenTelemetry exporter was not initialized.",
         "serviceName": service_name,
         "tracesEndpoint": traces_endpoint,
         "metricsEndpoint": metrics_endpoint,
@@ -185,13 +186,14 @@ def external_telemetry_status() -> dict[str, Any]:
 def set_external_exporter_for_tests(exporter: ExternalTelemetryExporter, *, mode: str = "test") -> None:
     global _external_exporter, _external_status
     _external_exporter = exporter
+    exporter_available = _external_exporter is not None
     _external_status = {
-        "enabled": True,
+        "enabled": exporter_available,
         "mode": mode,
-        "available": True,
-        "tracesEnabled": True,
-        "metricsEnabled": True,
-        "reason": "",
+        "available": exporter_available,
+        "tracesEnabled": exporter_available,
+        "metricsEnabled": exporter_available,
+        "reason": "" if exporter_available else "External telemetry exporter is not configured.",
     }
 
 

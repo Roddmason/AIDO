@@ -48,7 +48,7 @@ from .skills import SkillRegistry
 from .tool_broker import ToolBroker
 
 
-EXECUTION_MODES_WITH_EVIDENCE = {"restricted_subprocess", "docker"}
+EXECUTION_MODES_WITH_EVIDENCE = {"restricted_subprocess", "docker", "runtime_adapter:mcp"}
 ID_RE = re.compile(r"^[a-z0-9_-]{3,64}$")
 TOOL_ID_RE = re.compile(r"^[a-z0-9_.:-]{2,80}$")
 CATALOG_ID_RE = re.compile(r"^[a-z0-9_.:-]{2,96}$")
@@ -239,14 +239,21 @@ def validate_architect_agent_run_body(body: ArchitectAgentRunRequest) -> dict[st
 def _execution_test_result(tool_call: dict[str, Any]) -> dict[str, Any]:
     payload = tool_call.get("payload") or {}
     execution_result = payload.get("executionResult") or {}
+    tool_status = str(tool_call.get("status") or "")
+    runtime_status = str(execution_result.get("status") or "")
+    evidence_status = (
+        "skipped_with_reason"
+        if tool_status in {"configuration_required", "unavailable"} or runtime_status in {"configuration_required", "unavailable"}
+        else tool_status
+    )
     output_refs = [
         artifact_id
         for artifact_id in (execution_result.get("stdoutArtifactId"), execution_result.get("stderrArtifactId"))
         if artifact_id
     ]
     return {
-        "command": payload.get("command") or tool_call.get("toolName"),
-        "status": tool_call.get("status"),
+        "command": payload.get("command") or execution_result.get("operation") or tool_call.get("toolName"),
+        "status": evidence_status,
         "execution": payload.get("execution"),
         "returnCode": execution_result.get("returnCode"),
         "timedOut": bool(execution_result.get("timedOut", False)),
@@ -256,6 +263,7 @@ def _execution_test_result(tool_call: dict[str, Any]) -> dict[str, Any]:
         "toolCallId": tool_call.get("id"),
         "outputRef": output_refs[0] if output_refs else None,
         "outputRefs": output_refs,
+        "metadata": {"toolCallStatus": tool_status, "runtimeStatus": runtime_status},
     }
 
 
@@ -325,7 +333,11 @@ def _create_execution_evidence(
         return []
 
     test_results = [_execution_test_result(tool_call) for tool_call in executed_tool_calls]
-    failed = any(result["status"] in {"denied", "failed"} or result["returnCode"] not in {0, None} for result in test_results)
+    failed = any(
+        result["status"] in {"denied", "failed", "blocked", "skipped_with_reason", "error", "timed_out"}
+        or result["returnCode"] not in {0, None}
+        for result in test_results
+    )
     evidence_repo = EvidenceRepository(platform.connection)
     evidence = evidence_repo.create_evidence_package(
         project_id=project_id,
@@ -610,11 +622,15 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
                 tool_calls=tool_call_records,
             )
             if any(decision == "deny" for decision in decisions) or any(
-                tool_status in {"denied", "failed"} for tool_status in tool_statuses
+                tool_status in {"denied", "failed", "blocked"} for tool_status in tool_statuses
             ):
                 status = "failed"
                 verdict = "blocked"
                 summary = "At least one tool call was denied by policy or failed sandbox execution."
+            elif any(tool_status in {"configuration_required", "unavailable"} for tool_status in tool_statuses):
+                status = "runtime_unavailable"
+                verdict = "blocked"
+                summary = "At least one runtime adapter is unavailable or missing required configuration."
             elif any(decision in {"requires_approval", "requires_human"} for decision in decisions):
                 status = "awaiting_permission"
                 verdict = "awaiting_permission"

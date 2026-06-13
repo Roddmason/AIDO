@@ -17,8 +17,8 @@ frontend bundles, caches, and dependency folders are not source of truth.
 - `agents`: agent profiles, runtime modes, real runtime provider status, model
   policies, model calls, cost usage, skills, model-gateway budget checks, and
   the tool broker.
-- `memory_retrieval`: SQLite memory metadata plus rebuildable NumPy/FAISS
-  retrieval indexes.
+- `memory_retrieval`: SQLite memory metadata plus persisted real embedding
+  metadata and rebuildable NumPy/FAISS retrieval indexes.
 - `evidence`: evidence packages, test results, QA verdict gates, artifacts.
 - `governance`: architecture decisions, risk register, and actionable next
   steps.
@@ -39,10 +39,10 @@ live in `local_control_center/shared/time.py` and
 `local_control_center/shared/serialization.py`. Project catalog operations have
 moved to `projects.repository`, IDE connection operations have moved to
 `integrations.repository`, and prompt template/version operations have moved to
-`prompts.repository`. Memory creation, listing, embedding persistence, and
-retrieval rebuild/search now compose `MemoryRepository`, `EventBus`, and
-`RetrievalIndex` directly from the memory/retrieval slice instead of calling
-through a store facade. Project/catalog HTTP routes now live in
+`prompts.repository`. Memory creation, listing, retention/deletion, embedding
+persistence, and project-scoped retrieval rebuild/search now compose
+`MemoryRepository`, `EventBus`, and `RetrievalIndex` directly from the
+memory/retrieval slice instead of calling through a store facade. Project/catalog HTTP routes now live in
 `projects.api`/`projects.commands`, and the concurrent worker opens SQLite and
 uses `JobsRepository` directly. Slice routers must use `EventBus` for events and
 audit records; guardrail tests reject `platform.record_event`,
@@ -226,14 +226,18 @@ Evidence package records carry direct linkage for `workflowStepId`, `jobId`,
 Detailed run, job, workspace, artifact, and test records remain normalized and
 are joined in workflow/detail responses.
 
-Integrations are registry-first. MCP servers can be registered and audited.
-MCP, OpenHands, and SWE-agent can execute only as runtime adapters invoked by
-`ToolBroker` after the agent profile allows the tool and the policy engine
-returns `allow` or a one-use grant has been consumed. MCP read-only discovery
-operations such as `tools/list` can run after policy allow; MCP tool execution
-and sensitive OpenHands/SWE-agent commands require approval. Adapter output is
-persisted as `agent_tool_calls` and feeds evidence generation just like shell or
-Docker execution.
+Integrations are registry-first, but registry presence is not runtime
+availability. MCP servers can be registered and audited, then executed only as
+runtime adapters invoked by `ToolBroker` after the agent profile allows the tool
+and the policy engine returns `allow` or a one-use grant has been consumed. The
+MCP adapter performs a real stdio JSON-RPC lifecycle (`initialize`,
+`notifications/initialized`, requested operation). MCP read-only discovery
+operations such as `tools/list` can run after policy allow; `tools/call` and
+other non-read-only operations require approval/grant. Missing response, invalid
+protocol output, unavailable process, or missing configuration returns a
+blocked/unavailable state with reason, never simulated success. Adapter output
+is persisted as `agent_tool_calls`, `mcp_tool_calls`, and evidence for
+`runtime_adapter:mcp` just like shell or Docker execution.
 Runtime adapter smokes are opt-in through
 `local-control-center/scripts/smoke-runtime-adapters.ps1`. The default path
 does not create simulated successful agent runs. MCP executes only when
@@ -299,8 +303,10 @@ path traversal through malicious artifact rows.
 
 ## Migration Policy
 
-Migrations are additive. SQLite tables are not dropped automatically. FAISS is
-optional and treated as a rebuildable index; NumPy fallback remains supported.
+Migrations are additive. SQLite tables are not dropped automatically. FAISS and
+NumPy are treated only as rebuildable indexes over persisted real embeddings;
+missing embeddings must report `configuration_required` rather than generating
+local vectors or returning simulated retrieval results.
 Schema creation and migration seeds are centralized in
 `local_control_center/shared/migrations.py`; slice repositories own operational
 reads/writes after tables exist.

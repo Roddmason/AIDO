@@ -56,3 +56,10 @@ def test_product_code_does_not_expose_internal_mock_runtime_paths() -> None:
         + "\n".join(violations[:80])
         + (f"\n... {len(violations) - 80} more" if len(violations) > 80 else "")
     )
+
+
+def test_memory_retrieval_does_not_generate_local_hash_embeddings_in_product_code() -> None:
+    source = (ROOT / "local_control_center" / "memory_retrieval" / "index.py").read_text(encoding="utf-8")
+    forbidden = ("text_embedding", "hashing-bow", "TOKEN_RE")
+
+    assert not any(token in source for token in forbidden)

@@ -56,8 +56,8 @@ be a manual utility outside the normal server path.
 
 - `jobs_approvals`: job queue, leases, runs, events, audit, and granular action
   approvals.
-- `memory_retrieval`: memory records, embedding metadata, FAISS/NumPy index,
-  and retrieval APIs.
+- `memory_retrieval`: memory records, persisted real embedding metadata,
+  rebuildable FAISS/NumPy indexes, and retrieval APIs.
 - `sessions_chats`: v1 session and chat read models.
 - `pipelines`: v1 pipeline read models.
 - `prompts`: prompt templates and append-only prompt version history.
@@ -94,9 +94,12 @@ specific action receives an approval reason.
 
 ## Retrieval
 
-FAISS is optional. `/api/v1/retrieval/status` reports the active mode:
-`faiss`, `numpy`, `pgvector`, or `qdrant` when future adapters are introduced.
-SQLite metadata remains canonical.
+FAISS is optional, and NumPy is only a rebuildable vector-index backend.
+Neither backend generates embeddings or acts as a semantic fallback. If a
+project has no persisted real embeddings, retrieval reports
+`configuration_required` and search returns no memory context. SQLite memory
+metadata remains canonical; index files can be rebuilt per project from active,
+non-deleted, non-expired memory embeddings.
 
 ## Security
 

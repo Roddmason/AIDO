@@ -57,6 +57,16 @@ def _executable_argv_boundary(tool_call: dict[str, Any], *, tool_name: str, comm
     }
 
 
+def _normalized_operation(tool_name: str, tool_call: dict[str, Any]) -> str | None:
+    operation = tool_call.get("operation")
+    if operation:
+        return str(operation)
+    request = tool_call.get("request")
+    if tool_name == "mcp" and isinstance(request, dict) and request.get("method"):
+        return str(request["method"])
+    return None
+
+
 def default_runtime_adapters(
     connection: sqlite3.Connection,
     *,
@@ -180,6 +190,8 @@ class ToolBroker:
     ) -> dict[str, Any]:
         tool_name = str(tool_call.get("tool") or tool_call.get("toolName") or "")
         command = str(tool_call.get("command") or "")
+        operation = _normalized_operation(tool_name, tool_call)
+        normalized_tool_call = {**tool_call, "operation": operation} if operation else tool_call
         if not command and tool_name in RUNTIME_ADAPTER_TOOLS and isinstance(tool_call.get("argv"), list):
             command = " ".join(str(item) for item in tool_call["argv"])
         command_argv = _structured_argv(tool_call, command, executable=tool_call.get("execute") is True)
@@ -203,7 +215,7 @@ class ToolBroker:
             "deploymentTarget": tool_call.get("deploymentTarget"),
             "networkRequired": tool_call.get("networkRequired"),
             "secretsRequired": tool_call.get("secretsRequired"),
-            "operation": tool_call.get("operation"),
+            "operation": operation,
             "runtimeId": runtime_id,
             "workflowKind": tool_call.get("workflowKind"),
             "jobId": job_id or tool_call.get("jobId"),
@@ -226,13 +238,14 @@ class ToolBroker:
         approval_grant_id = str(tool_call.get("approvalGrantId") or "")
         grant_validation: dict[str, Any] | None = None
         if result["decision"] in {"requires_approval", "requires_human"} and approval_grant_id:
+            grant_command = command or tool_name
             grant_validation = self.policies.validate_and_consume_grant(
                 grant_id=approval_grant_id,
                 project_id=project_id,
                 job_id=job_id,
                 agent_id=agent_profile["id"],
                 tool=tool_name,
-                command=command,
+                command=grant_command,
                 command_argv=command_argv,
                 workspace_id=tool_call.get("workspaceId"),
                 runtime_id=runtime_id,
@@ -394,12 +407,15 @@ class ToolBroker:
                 status = "failed"
             else:
                 execution_result = adapter.execute(
-                    tool_call={**tool_call, "agentRunId": agent_run_id, "jobId": job_id},
+                    tool_call={**normalized_tool_call, "agentRunId": agent_run_id, "jobId": job_id},
                     policy_input=policy_input,
                 )
-                if execution_result.get("blocked"):
+                adapter_status = str(execution_result.get("status") or "")
+                if adapter_status in {"completed", "failed", "blocked", "configuration_required", "unavailable"}:
+                    status = adapter_status
+                elif execution_result.get("blocked"):
                     status = "failed"
-                elif execution_result.get("returnCode") in {0, None}:
+                elif execution_result.get("returnCode") == 0:
                     status = "completed"
                 else:
                     status = "failed"

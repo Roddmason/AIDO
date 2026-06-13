@@ -131,12 +131,18 @@ def test_fastapi_contracts_jobs_approvals_sse_and_retrieval(tmp_path: Path, monk
 
     reindex = client.post(
         "/api/v1/retrieval/reindex",
+        json={"projectId": project["id"]},
         headers={"X-Local-Control-Token": token, "Origin": "http://127.0.0.1"},
     )
     assert reindex.status_code == 202
-    search = client.post("/api/v1/retrieval/search", json={"query": "leases approvals", "limit": 3})
+    assert reindex.json()["index"]["status"] == "configuration_required"
+    search = client.post(
+        "/api/v1/retrieval/search",
+        json={"projectId": project["id"], "query": "leases approvals", "limit": 3},
+    )
     assert search.status_code == 200
-    assert search.json()["results"][0]["memoryItem"]["content"].startswith("Python FastAPI workers")
+    assert search.json()["status"] == "configuration_required"
+    assert search.json()["results"] == []
 
 
 def test_static_routes_resolve_relative_static_dir_at_app_creation(tmp_path: Path, monkeypatch) -> None:
@@ -388,7 +394,9 @@ def test_fastapi_covers_v1_sessions_chats_and_pipelines(tmp_path: Path, monkeypa
     assert any(item["id"] == pipeline.json()["pipeline"]["id"] for item in overview["pipelines"])
 
 
-def test_retrieval_status_reports_faiss_or_explicit_degraded_fallback(tmp_path: Path, monkeypatch) -> None:
+def test_retrieval_status_reports_configuration_required_without_real_embeddings(
+    tmp_path: Path, monkeypatch
+) -> None:
     from local_control_center.memory_retrieval import index as retrieval_index
 
     monkeypatch.setattr(retrieval_index, "faiss", None)
@@ -398,8 +406,10 @@ def test_retrieval_status_reports_faiss_or_explicit_degraded_fallback(tmp_path: 
     status = TestClient(app).get("/api/v1/retrieval/status")
     assert status.status_code == 200
     body = status.json()
-    assert body["backend"] == "numpy"
-    assert body["degraded"] is (body["backend"] != "faiss")
+    assert body["status"] == "configuration_required"
+    assert body["available"] is False
+    assert body["backend"] == "unavailable"
+    assert body["reason"]
 
 
 def test_package_manager_is_pnpm_only() -> None:
@@ -490,12 +500,19 @@ def test_worker_fails_unknown_job_kind_instead_of_simulating_success(tmp_path: P
     assert "Unsupported job kind" in run["summary"]
 
 
-def test_retrieval_index_uses_sqlite_metadata_and_is_rebuildable(tmp_path: Path) -> None:
+def test_retrieval_index_uses_persisted_real_embeddings_per_project_and_is_rebuildable(
+    tmp_path: Path,
+) -> None:
     with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
         initialize_platform_schema(connection)
         project = ProjectsRepository(connection).create_project(
             name="Retrieval",
             path=tmp_path / "retrieval",
+            template_id="other",
+        )
+        other_project = ProjectsRepository(connection).create_project(
+            name="Other Retrieval",
+            path=tmp_path / "other-retrieval",
             template_id="other",
         )
         memory = MemoryRepository(connection)
@@ -507,13 +524,132 @@ def test_retrieval_index_uses_sqlite_metadata_and_is_rebuildable(tmp_path: Path)
             content="FAISS retrieval should be rebuildable from SQLite memory metadata",
             source_ref="test",
         )
+        other_item = memory.create_memory_item(
+            project_id=other_project["id"],
+            scope="project",
+            scope_id=other_project["id"],
+            kind="note",
+            content="Other project memory must not leak into this project search",
+            source_ref="test",
+        )
+        expired_item = memory.create_memory_item(
+            project_id=project["id"],
+            scope="project",
+            scope_id=project["id"],
+            kind="note",
+            content="Expired memory must not be indexed",
+            source_ref="test",
+            expires_at="2000-01-01T00:00:00.000Z",
+        )
+        deleted_item = memory.create_memory_item(
+            project_id=project["id"],
+            scope="project",
+            scope_id=project["id"],
+            kind="note",
+            content="Deleted memory must not be indexed",
+            source_ref="test",
+        )
+        memory.delete_memory_item(deleted_item["id"], reason="unit test retention policy")
+
+        memory.upsert_memory_embedding(
+            memory_item_id=item["id"],
+            provider="openai_api",
+            model="text-embedding-3-small",
+            embedding=[1.0, 0.0, 0.0],
+        )
+        memory.upsert_memory_embedding(
+            memory_item_id=other_item["id"],
+            provider="openai_api",
+            model="text-embedding-3-small",
+            embedding=[1.0, 0.0, 0.0],
+        )
+        memory.upsert_memory_embedding(
+            memory_item_id=expired_item["id"],
+            provider="openai_api",
+            model="text-embedding-3-small",
+            embedding=[1.0, 0.0, 0.0],
+        )
+        memory.upsert_memory_embedding(
+            memory_item_id=deleted_item["id"],
+            provider="openai_api",
+            model="text-embedding-3-small",
+            embedding=[1.0, 0.0, 0.0],
+        )
 
         index = RetrievalIndex(memory=memory, index_dir=tmp_path / "index")
-        summary = index.rebuild()
+        summary = index.rebuild(project_id=project["id"])
+        assert summary["status"] == "available"
         assert summary["indexed"] == 1
-        results = index.search("rebuildable memory metadata", limit=1)
+        assert summary["ids"] == [item["id"]]
+        results = index.search_embedding(project_id=project["id"], embedding=[1.0, 0.0, 0.0], limit=5)
         assert results[0]["memoryItem"]["id"] == item["id"]
-        assert (tmp_path / "index" / "manifest.json").exists()
+        assert all(result["memoryItem"]["projectId"] == project["id"] for result in results)
+        assert index.manifest_path(project["id"]).exists()
+
+        visible_items = memory.list_memory_items(project_id=project["id"])
+        assert [visible["id"] for visible in visible_items] == [item["id"]]
+        all_items = memory.list_memory_items(project_id=project["id"], include_inactive=True)
+        assert {inactive["id"] for inactive in all_items} == {item["id"], expired_item["id"], deleted_item["id"]}
+
+
+def test_retrieval_reindex_without_persisted_real_embeddings_is_configuration_required(
+    tmp_path: Path,
+) -> None:
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        project = ProjectsRepository(connection).create_project(
+            name="No Embeddings",
+            path=tmp_path / "no-embeddings",
+            template_id="other",
+        )
+        memory = MemoryRepository(connection)
+        memory.create_memory_item(
+            project_id=project["id"],
+            scope="project",
+            scope_id=project["id"],
+            kind="note",
+            content="This must not receive a synthetic local embedding",
+            source_ref="test",
+        )
+
+        index = RetrievalIndex(memory=memory, index_dir=tmp_path / "index")
+        summary = index.rebuild(project_id=project["id"])
+
+    assert summary["status"] == "configuration_required"
+    assert summary["indexed"] == 0
+    assert summary["ids"] == []
+
+
+def test_retrieval_reindex_ignores_non_api_embedding_providers(tmp_path: Path) -> None:
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        project = ProjectsRepository(connection).create_project(
+            name="Manual Embeddings",
+            path=tmp_path / "manual-embeddings",
+            template_id="other",
+        )
+        memory = MemoryRepository(connection)
+        item = memory.create_memory_item(
+            project_id=project["id"],
+            scope="project",
+            scope_id=project["id"],
+            kind="note",
+            content="Manual operator metadata is not a real embedding provider.",
+            source_ref="test",
+        )
+        memory.upsert_memory_embedding(
+            memory_item_id=item["id"],
+            provider="manual",
+            model="manual_selection",
+            embedding=[1.0, 0.0, 0.0],
+        )
+
+        index = RetrievalIndex(memory=memory, index_dir=tmp_path / "index")
+        summary = index.rebuild(project_id=project["id"])
+
+    assert summary["status"] == "configuration_required"
+    assert summary["indexed"] == 0
+    assert summary["ids"] == []
 
 
 def test_sqlite_schema_contains_python_control_plane_tables(tmp_path: Path) -> None:

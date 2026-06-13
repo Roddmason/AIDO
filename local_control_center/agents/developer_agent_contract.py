@@ -111,11 +111,16 @@ def developer_agent_readiness(
         selected = ordered_eligible[0]
 
     if selected and is_developer_runtime(selected):
+        selected_runtime_executable = is_developer_runtime(selected)
         return {
             "id": DEVELOPER_AGENT_ID,
-            "executable": True,
-            "status": "executable",
-            "reason": "DeveloperAgent has a configured executable runtime.",
+            "executable": selected_runtime_executable,
+            "status": "executable" if selected_runtime_executable else "runtime_unavailable",
+            "reason": (
+                "DeveloperAgent has a configured executable runtime."
+                if selected_runtime_executable
+                else _developer_runtime_reason(selected)
+            ),
             "selectedRuntimeId": str(selected["id"]),
             "candidateRuntimeIds": [str(runtime["id"]) for runtime in ordered_eligible],
             "contract": developer_agent_contract(),

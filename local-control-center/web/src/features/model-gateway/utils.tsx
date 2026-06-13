@@ -25,8 +25,11 @@ export function boolLabel(value: unknown) {
 }
 
 export function money(value: unknown) {
-	const number = Number(value ?? 0);
-	return `$${Number.isFinite(number) ? number.toFixed(4) : '0.0000'}`;
+	if (value === null || value === undefined || value === '') {
+		return 'unknown';
+	}
+	const number = Number(value);
+	return Number.isFinite(number) ? `$${number.toFixed(4)}` : 'unknown';
 }
 
 export function listLabel(value: unknown) {

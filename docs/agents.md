@@ -309,7 +309,9 @@ Productive implementation execution has one canonical path:
 `DeveloperAgentRunner`. `issue_to_patch` is a workflow wrapper around that
 runner; it owns workflow creation, Git worktree isolation, evidence enrichment,
 security findings, human approval, promotion, and pull-request gates. It does
-not submit a separate `issue_to_patch` shell operation for implementation.
+not submit a separate `issue_to_patch` shell operation for implementation, and
+it does not recreate DeveloperAgent patch, QA, or implementation manifest
+artifacts.
 
 Optional code runtimes still expose versioned diagnostic and release-validation
 contracts. Dangerous runtime flags such as `--no-sandbox`, `--privileged`,
@@ -345,9 +347,11 @@ remains an explicit local or release-runner action.
 
 The broker has executable adapter hooks for:
 
-- `mcp`: registered stdio MCP servers; read-only discovery is allowed when the
-  policy allows it, while `tools/call` and other non-read-only operations are
-  gated.
+- `mcp`: registered stdio MCP servers; `tools/list` performs a real
+  initialize/initialized JSON-RPC exchange and records `mcp_tool_calls`.
+  `tools/call` and other non-read-only operations are gated by approval/grant.
+  A registered server that does not answer the protocol returns `unavailable`
+  with reason and blocked evidence, not completion.
 - `ollama` and `openai_compatible`: real model adapter calls. DeveloperAgent
   may use them only with structured patch output and subsequent
   `workspace_patch` application.

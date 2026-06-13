@@ -118,11 +118,16 @@ def architect_agent_readiness(
         selected = ordered_eligible[0]
 
     if selected and is_architect_runtime(selected):
+        selected_runtime_executable = is_architect_runtime(selected)
         return {
             "id": ARCHITECT_AGENT_ID,
-            "executable": True,
-            "status": "executable",
-            "reason": "ArchitectAgent has a configured executable model runtime.",
+            "executable": selected_runtime_executable,
+            "status": "executable" if selected_runtime_executable else "runtime_unavailable",
+            "reason": (
+                "ArchitectAgent has a configured executable model runtime."
+                if selected_runtime_executable
+                else _architect_runtime_reason(selected)
+            ),
             "selectedRuntimeId": str(selected["id"]),
             "candidateRuntimeIds": [str(runtime["id"]) for runtime in ordered_eligible],
             "contract": architect_agent_contract(),

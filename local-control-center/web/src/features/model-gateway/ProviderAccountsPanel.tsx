@@ -2,7 +2,7 @@ import type { ModelGatewayProviderAccount } from '../../api/types';
 import { Badge, DataTable, EmptyState } from '../../components/primitives';
 import { toneForStatus } from '../../lib/format';
 import { PanelShell } from './PanelShell';
-import { boolLabel, money, SecretSafeValue, text } from './utils';
+import { boolLabel, SecretSafeValue, text } from './utils';
 
 export function ProviderAccountsPanel({
 	providers,
@@ -27,7 +27,7 @@ export function ProviderAccountsPanel({
 				{ key: 'last', label: 'Last check', render: (row) => text(row.lastHealthCheckAt) },
 				{ key: 'error', label: 'Last error', render: (row) => <SecretSafeValue value={row.lastError} /> },
 				{ key: 'metadata', label: 'Metadata', render: (row) => <SecretSafeValue value={JSON.stringify(row.metadata ?? {})} /> },
-				{ key: 'cost', label: 'Cost today', render: () => money(0) },
+				{ key: 'cost', label: 'Cost today', render: () => 'cost unavailable' },
 				{ key: 'actions', label: 'Actions', render: (row) => {
 					const providerId = text(row.providerId, '');
 					return (

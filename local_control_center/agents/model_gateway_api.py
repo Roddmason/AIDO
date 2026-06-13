@@ -68,12 +68,20 @@ from .usage_ledger import UsageLedger
 
 
 CATALOG_ID_RE = re.compile(r"^[a-z0-9_.:-]{2,96}$")
+SERVER_OWNED_PROVIDER_HEALTH_FIELDS = {"healthStatus", "lastHealthCheckAt", "lastError"}
 
 
 def _payload(body: Any, *, exclude_none: bool = True) -> dict[str, Any]:
     if hasattr(body, "model_dump"):
         return body.model_dump(by_alias=True, exclude_none=exclude_none)
     return dict(body)
+
+
+def _provider_client_payload(body: Any) -> dict[str, Any]:
+    payload = _payload(body)
+    for field in SERVER_OWNED_PROVIDER_HEALTH_FIELDS:
+        payload.pop(field, None)
+    return payload
 
 
 def _provider_instance(provider_id: str, *, connection: Any):
@@ -207,7 +215,7 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
     async def create_provider(body: ProviderAccountUpsertRequest, request: Request) -> dict[str, Any]:
         require_write(request)
         try:
-            provider = providers().upsert_provider_account(_payload(body))
+            provider = providers().upsert_provider_account(_provider_client_payload(body))
         except ValueError as error:
             raise HTTPException(status_code=400, detail=f"Invalid credential_ref: {error}") from error
         audit("model_gateway.provider.upserted", provider["providerId"], {"providerId": provider["providerId"]})
@@ -224,7 +232,7 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
     async def patch_provider(provider_id: str, body: ProviderAccountPatchRequest, request: Request) -> dict[str, Any]:
         require_write(request)
         try:
-            provider = providers().patch_provider_account(provider_id, _payload(body))
+            provider = providers().patch_provider_account(provider_id, _provider_client_payload(body))
         except ValueError as error:
             raise HTTPException(status_code=400, detail=f"Invalid credential_ref: {error}") from error
         except KeyError as error:

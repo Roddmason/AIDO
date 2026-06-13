@@ -14,7 +14,7 @@ export type AgentRunCreateRequest = { "agentProfileId": string; "input"?: JsonOb
 export type AgentRunRecord = { "createdAt": string; "id": string; "input": JsonObject; "jobId"?: null | string; "metadata": JsonObject; "output": JsonObject; "projectId": string; "status": "queued" | "running" | "completed" | "approved" | "failed" | "blocked" | "runtime_unavailable" | "qa_failed" | "evidence_ready" | "approval_required" | "awaiting_permission" | "cancelled"; "updatedAt": string; "workflowRunId"?: null | string; "workflowStepId"?: null | string };
 export type AgentRunResponse = { "agentRun": AgentRunRecord };
 export type AgentRunsListResponse = { "agentRuns": Array<AgentRunRecord> };
-export type AgentToolCallRecord = { "agentRunId": string; "createdAt": string; "id": string; "payload": JsonObject; "status": "pending" | "allowed" | "denied" | "requires_approval" | "approval_required" | "completed" | "failed" | "blocked"; "toolName": string; "updatedAt": string };
+export type AgentToolCallRecord = { "agentRunId": string; "createdAt": string; "id": string; "payload": JsonObject; "status": "pending" | "allowed" | "denied" | "requires_approval" | "approval_required" | "completed" | "failed" | "blocked" | "configuration_required" | "unavailable"; "toolName": string; "updatedAt": string };
 export type AgentsListResponse = { "agents": Array<CatalogAgentRecord> };
 export type ApiRuntimeProviderStatus = { "adapters": Array<string>; "available": boolean; "provider": string };
 export type ApprovalGrantRecord = { "actionRequestId"?: null | string; "agentId"?: null | string; "command"?: null | string; "commandArgv"?: Array<string>; "consumedAt"?: null | string; "consumedByAgentRunId"?: null | string; "expiresAt"?: null | string; "grantedAt"?: null | string; "grantedBy"?: null | string; "id": string; "jobId"?: null | string; "path"?: null | string; "payload": JsonObject; "permissionDecisionId"?: null | string; "projectId"?: null | string; "reason": string; "revokeReason"?: null | string; "revokedAt"?: null | string; "revokedBy"?: null | string; "runtimeId"?: null | string; "status": "active" | "consumed" | "expired" | "revoked"; "tool"?: null | string; "workspaceId"?: null | string };
@@ -74,7 +74,6 @@ export type DirectoryPickerRequest = { "initialPath"?: null | string; "title"?: 
 export type DirectoryPickerResponse = { "reason"?: null | string; "selectedPath"?: null | string; "status": string };
 export type DiscoverModelsResponse = { "models": Array<ModelCatalogRecord> };
 export type DockerSandboxStatus = { "available": boolean; "defaultNetwork": string; "executable"?: null | string; "fallback": string; "hostMount": string; "mode": string; "policy": SandboxProfileRecord; "required": boolean; "writes": string };
-export type EmptyObjectRequest = JsonObject;
 export type EventRecord = { "createdAt": string; "id": string; "jobId"?: null | string; "payload": JsonObject; "projectId"?: null | string; "severity"?: string; "type": string };
 export type EvidenceCreateRequest = { "acceptanceChecklist"?: Array<JsonValue>; "actualCostUsd"?: null | number; "agentId"?: null | string; "agentRunId"?: null | string; "approvals"?: Array<JsonObject>; "artifactIds"?: Array<string>; "artifacts"?: Array<JsonObject>; "diffRefs"?: Array<JsonValue>; "diffSummary"?: JsonObject; "estimatedCostUsd"?: null | number; "evidenceSource"?: "operator_attested" | "evidence_collected" | "qa_passed_by_command" | "verified_completion"; "hashes"?: JsonObject; "jobId"?: null | string; "latencyMs"?: null | number; "logs"?: Array<JsonValue>; "model"?: null | string; "modelCalls"?: Array<JsonObject>; "policyDecisions"?: Array<JsonObject>; "projectId": string; "providerId"?: null | string; "qaVerdict"?: "not_started" | "passed" | "failed" | "blocked" | "needs_human_review" | "evidence_collected" | "architecture_reviewed" | "devops_risk" | "devops_blocked" | "security_passed" | "security_blocked" | "skipped_with_reason"; "rework"?: boolean | null; "riskNotes"?: Array<JsonValue>; "role"?: null | string; "runtimeHealth"?: JsonObject; "runtimeId"?: null | string; "runtimeType"?: null | string; "screenshotRefs"?: Array<JsonValue>; "taskId"?: string; "testPlan"?: string; "testResultReports"?: Array<JsonObject>; "testResults"?: Array<JsonObject>; "toolCalls"?: Array<JsonObject>; "usageLedgerId"?: null | string; "workflowRunId"?: null | string; "workflowStepId"?: null | string; "workspaceId"?: null | string };
 export type EvidenceDetailResponse = { "artifacts": Array<ArtifactRecord>; "evidencePackage": EvidencePackageRecord; "testResultRecords": Array<TestResultRecord> };
@@ -108,8 +107,9 @@ export type JobsListResponse = { "events"?: Array<EventRecord>; "jobs": Array<Jo
 export type McpServerRecord = { "command": string; "createdAt": string; "id": string; "metadata": JsonObject; "status": string; "transport": "stdio"; "updatedAt": string };
 export type McpServerRegisterRequest = { "command": string; "id": string; "metadata"?: JsonObject; "transport"?: "stdio" };
 export type McpServerResponse = { "mcpServer": McpServerRecord };
-export type MemoryCreateRequest = { "content": string; "kind"?: string; "metadata"?: JsonObject; "projectId": string; "scope"?: string; "scopeId"?: null | string; "sourceRef"?: string };
-export type MemoryItemRecord = { "content": string; "createdAt": string; "createdByRunId"?: null | string; "hash": string; "id": string; "kind": string; "metadata": JsonObject; "projectId": string; "scope": string; "scopeId"?: null | string; "sourceRef": string; "supersedesId"?: null | string; "updatedAt": string; "validFrom": string; "version": number };
+export type MemoryCreateRequest = { "content": string; "expiresAt"?: null | string; "kind"?: string; "metadata"?: JsonObject; "projectId": string; "scope"?: string; "scopeId"?: null | string; "sourceRef"?: string; "ttlSeconds"?: null | number };
+export type MemoryDeleteRequest = { "reason"?: string };
+export type MemoryItemRecord = { "content": string; "createdAt": string; "createdByRunId"?: null | string; "deletedAt"?: null | string; "expiresAt"?: null | string; "hash": string; "id": string; "kind": string; "metadata": JsonObject; "projectId": string; "scope": string; "scopeId"?: null | string; "sourceRef": string; "supersedesId"?: null | string; "updatedAt": string; "validFrom": string; "version": number };
 export type MemoryListResponse = { "memoryItems": Array<MemoryItemRecord> };
 export type MemoryResponse = { "memoryItem": MemoryItemRecord };
 export type ModelBenchmarkOutcomeCreateRequest = { "actualCostUsd"?: null | number; "agentId"?: null | string; "estimatedCostUsd"?: null | number; "jobId"?: null | string; "latencyMs"?: null | number; "metadata"?: JsonObject; "model": string; "provenance"?: "operator_reported" | "automated_run" | "release_validation"; "providerId": string; "qaPass"?: boolean | null; "rework"?: boolean | null; "role"?: null | string; "runtimeType"?: string; "success"?: boolean | null; "taskId"?: null | string; "usageLedgerId"?: null | string; "workflowRunId"?: null | string; "workflowStepId"?: null | string };
@@ -167,10 +167,10 @@ export type PromptResponse = { "promptTemplate": PromptTemplateRecord };
 export type PromptTemplateRecord = { "appliesTo": JsonObject; "body": string; "createdAt": string; "id": string; "mode": string; "name": string; "optimizer": string; "projectId": string; "updatedAt": string; "version": number };
 export type PromptTemplatesListResponse = { "promptTemplates": Array<PromptTemplateRecord> };
 export type PromptUpsertRequest = { "appliesTo"?: JsonObject; "body": string; "id"?: null | string; "mode"?: string; "name": string; "optimizer"?: string; "projectId": string };
-export type ProviderAccountPatchRequest = { "apiFormat"?: null | string; "baseUrl"?: null | string; "credentialRef"?: null | string; "displayName"?: null | string; "enabled"?: boolean | null; "healthStatus"?: null | string; "lastError"?: null | string; "lastHealthCheckAt"?: null | string; "metadata"?: JsonObject | null; "providerType"?: null | string; "quotaMode"?: null | string };
+export type ProviderAccountPatchRequest = { "apiFormat"?: null | string; "baseUrl"?: null | string; "credentialRef"?: null | string; "displayName"?: null | string; "enabled"?: boolean | null; "metadata"?: JsonObject | null; "providerType"?: null | string; "quotaMode"?: null | string };
 export type ProviderAccountRecord = { "apiFormat": string; "baseUrl"?: null | string; "createdAt": string; "credentialRef"?: null | string; "credentialStatus": string; "displayName": string; "enabled": boolean; "healthStatus": string; "id": string; "lastError": string; "lastHealthCheckAt"?: null | string; "metadata"?: JsonObject; "providerId": string; "providerType": string; "quotaMode": string; "updatedAt": string };
 export type ProviderAccountResponse = { "provider": ProviderAccountRecord };
-export type ProviderAccountUpsertRequest = { "apiFormat"?: string; "baseUrl"?: string; "credentialRef"?: string; "displayName"?: null | string; "enabled"?: boolean; "healthStatus"?: string; "lastError"?: string; "lastHealthCheckAt"?: null | string; "metadata"?: JsonObject; "providerId": string; "providerType"?: string; "quotaMode"?: string };
+export type ProviderAccountUpsertRequest = { "apiFormat"?: string; "baseUrl"?: string; "credentialRef"?: string; "displayName"?: null | string; "enabled"?: boolean; "metadata"?: JsonObject; "providerId": string; "providerType"?: string; "quotaMode"?: string };
 export type ProviderAccountsListResponse = { "providers": Array<ProviderAccountRecord> };
 export type ProviderHealth = { "healthStatus": string; "lastError"?: null | string; "message"?: string; "providerId": string; "status": string };
 export type ProviderHealthResponse = { "health": ProviderHealth };
@@ -187,12 +187,13 @@ export type QAAgentRunRequest = { "commands"?: Array<QAAgentCommandRequest>; "me
 export type QAAgentRunResponse = { "agentRun": AgentRunRecord; "contract": QAAgentContract; "evidencePackage": JsonObject; "job": JsonObject; "reason": string; "results": Array<JsonObject>; "status": string; "verdict": string; "workspace": JsonObject };
 export type RequiredReasonRequest = { "reason": string };
 export type RestrictedSubprocessStatus = { "available": boolean; "fallbackOnlyForLowRisk": boolean; "requiresArgv": boolean; "shell": boolean; "workspaceBound": boolean };
-export type RetrievalIndexSummary = { "backend": string; "dimensions": number; "ids": Array<string>; "indexed": number };
+export type RetrievalIndexSummary = { "backend": string; "degraded": boolean; "dimensions": number; "ids": Array<string>; "indexed": number; "projectId": string; "reason": string; "status": string };
+export type RetrievalReindexRequest = { "projectId": string };
 export type RetrievalReindexResponse = { "index": RetrievalIndexSummary };
-export type RetrievalSearchRequest = { "limit"?: number; "query"?: string };
-export type RetrievalSearchResponse = { "results": Array<RetrievalSearchResultRecord> };
+export type RetrievalSearchRequest = { "limit"?: number; "projectId": string; "query"?: string };
+export type RetrievalSearchResponse = { "reason": string; "results": Array<RetrievalSearchResultRecord>; "status": string };
 export type RetrievalSearchResultRecord = { "memoryItem": MemoryItemRecord; "score": number };
-export type RetrievalStatusResponse = { "backend": string; "degraded": boolean; "dimensions": number; "faissAvailable": boolean; "indexDir": string; "indexed": number };
+export type RetrievalStatusResponse = { "available": boolean; "backend": string; "degraded": boolean; "dimensions": number; "faissAvailable": boolean; "indexDir": string; "indexed": number; "reason": string; "status": string };
 export type RiskCreateRequest = { "description"?: string; "evidenceRefs"?: Array<string>; "metadata"?: JsonObject; "mitigation"?: string; "owner"?: string; "projectId": string; "severity"?: "low" | "medium" | "high" | "critical"; "status"?: "open" | "monitoring" | "mitigating" | "mitigated" | "accepted" | "closed"; "title": string };
 export type RiskRecord = { "createdAt": string; "description": string; "evidenceRefs": Array<string>; "id": string; "metadata": JsonObject; "mitigation": string; "owner": string; "projectId": string; "severity": "low" | "medium" | "high" | "critical"; "status": "open" | "monitoring" | "mitigating" | "mitigated" | "accepted" | "closed"; "title": string; "updatedAt": string };
 export type RiskResponse = { "risk": RiskRecord };
@@ -257,13 +258,13 @@ export type UsageSummaryRecord = { "actualCostUsd": number; "byProvider": Array<
 export type UsageSummaryResponse = { "summary": UsageSummaryRecord };
 export type ValidationError = { "ctx"?: JsonObject; "input"?: JsonValue; "loc": Array<number | string>; "msg": string; "type": string };
 export type WorkflowCreateRequest = { "idea"?: null | string; "kind"?: "idea_to_pr" | "project_discovery" | "issue_to_patch" | "issue_to_pr" | "qa_validation" | "release_candidate" | "pr_release_retro"; "metadata"?: JsonObject; "projectId": string; "title"?: null | string };
-export type WorkflowDetailResponse = { "agentRuns": Array<AgentRunRecord>; "evidencePackages": Array<EvidencePackageRecord>; "jobs": Array<JobRecord>; "workflow": WorkflowRecord; "workflowRunDetails"?: Array<WorkflowRunDetail>; "workflowRuns": Array<WorkflowRunRecord>; "workflowSteps": Array<WorkflowStepRecord>; "workspaces": Array<WorkspaceRecord> };
+export type WorkflowDetailResponse = { "actionRequests"?: Array<ActionRequestRecord>; "agentRuns": Array<AgentRunRecord>; "agentToolCalls"?: Array<AgentToolCallRecord>; "artifacts"?: Array<ArtifactRecord>; "evidencePackages": Array<EvidencePackageRecord>; "jobRuns"?: Array<JobRunRecord>; "jobs": Array<JobRecord>; "modelCalls"?: Array<ModelCallRecord>; "permissionDecisions"?: Array<PermissionDecisionRecord>; "testResultRecords"?: Array<TestResultRecord>; "workflow": WorkflowRecord; "workflowEvents"?: Array<WorkflowEventRecord>; "workflowRunDetails"?: Array<WorkflowRunDetail>; "workflowRuns": Array<WorkflowRunRecord>; "workflowSteps": Array<WorkflowStepRecord>; "workspaces": Array<WorkspaceRecord> };
 export type WorkflowEventRecord = { "causationId"?: null | string; "correlationId"?: null | string; "createdAt": string; "id": string; "payload": JsonObject; "projectId"?: null | string; "severity": string; "type": string; "workflowId": string; "workflowRunId"?: null | string; "workflowStepId"?: null | string };
 export type WorkflowGateAdvanceRequest = { "evidencePackageId"?: null | string; "reason"?: string };
 export type WorkflowGateAdvanceResponse = { "advanced": boolean; "gateState": string; "reason": string; "workflowStep": WorkflowStepRecord };
 export type WorkflowRecord = { "createdAt": string; "id": string; "kind": "idea_to_pr" | "project_discovery" | "issue_to_patch" | "issue_to_pr" | "qa_validation" | "release_candidate" | "pr_release_retro"; "metadata": JsonObject; "projectId": string; "status": "queued" | "running" | "paused" | "completed" | "failed" | "cancelled" | "blocked" | "runtime_unavailable" | "qa_failed" | "evidence_ready" | "approved_for_integration" | "promotion_failed" | "promoted_to_branch" | "pr_created"; "title": string; "updatedAt": string };
 export type WorkflowResponse = { "workflow": WorkflowRecord };
-export type WorkflowRunDetail = { "agentRuns": Array<AgentRunRecord>; "evidencePackages": Array<EvidencePackageRecord>; "jobs": Array<JobRecord>; "workflowRun": WorkflowRunRecord; "workflowSteps": Array<WorkflowStepRecord>; "workspaces": Array<WorkspaceRecord> };
+export type WorkflowRunDetail = { "actionRequests"?: Array<ActionRequestRecord>; "agentRuns": Array<AgentRunRecord>; "agentToolCalls"?: Array<AgentToolCallRecord>; "artifacts"?: Array<ArtifactRecord>; "evidencePackages": Array<EvidencePackageRecord>; "jobRuns"?: Array<JobRunRecord>; "jobs": Array<JobRecord>; "modelCalls"?: Array<ModelCallRecord>; "permissionDecisions"?: Array<PermissionDecisionRecord>; "testResultRecords"?: Array<TestResultRecord>; "workflowEvents"?: Array<WorkflowEventRecord>; "workflowRun": WorkflowRunRecord; "workflowSteps": Array<WorkflowStepRecord>; "workspaces": Array<WorkspaceRecord> };
 export type WorkflowRunRecord = { "completedAt"?: null | string; "id": string; "metadata": JsonObject; "projectId": string; "startedAt": string; "status": "running" | "completed" | "failed" | "cancelled" | "blocked" | "runtime_unavailable" | "qa_failed" | "evidence_ready" | "approved_for_integration" | "promotion_failed" | "promoted_to_branch" | "pr_created"; "workflowId": string };
 export type WorkflowStartResponse = { "workflow": WorkflowRecord; "workflowRun": WorkflowRunRecord; "workflowSteps": Array<WorkflowStepRecord> };
 export type WorkflowStatusChangeRequest = { "reason"?: string };
@@ -326,6 +327,7 @@ export const API_ENDPOINTS = [
 	{"method": "POST", "operationId": "select_directory_api_v1_local_paths_select_directory_post", "path": "/api/v1/local-paths/select-directory", "summary": "Select Directory"},
 	{"method": "GET", "operationId": "list_memory_api_v1_memory_get", "path": "/api/v1/memory", "summary": "List Memory"},
 	{"method": "POST", "operationId": "create_memory_api_v1_memory_post", "path": "/api/v1/memory", "summary": "Create Memory"},
+	{"method": "DELETE", "operationId": "delete_memory_api_v1_memory__memory_id__delete", "path": "/api/v1/memory/{memory_id}", "summary": "Delete Memory"},
 	{"method": "GET", "operationId": "list_benchmark_outcomes_api_v1_model_gateway_benchmark_outcomes_get", "path": "/api/v1/model-gateway/benchmark-outcomes", "summary": "List Benchmark Outcomes"},
 	{"method": "POST", "operationId": "create_benchmark_outcome_api_v1_model_gateway_benchmark_outcomes_post", "path": "/api/v1/model-gateway/benchmark-outcomes", "summary": "Create Benchmark Outcome"},
 	{"method": "GET", "operationId": "list_benchmarks_api_v1_model_gateway_benchmarks_get", "path": "/api/v1/model-gateway/benchmarks", "summary": "List Benchmarks"},
@@ -463,6 +465,7 @@ export type OperationRequestBodies = {
 	"create_routing_profile_api_v1_model_gateway_routing_profiles_post": RoutingProfileUpsertRequest,
 	"create_session_api_v1_sessions_post": SessionCreateRequest,
 	"create_workflow_api_v1_workflows_post": WorkflowCreateRequest,
+	"delete_memory_api_v1_memory__memory_id__delete": MemoryDeleteRequest,
 	"deny_action_api_v1_jobs__job_id__actions__action_id__deny_post": ApprovalReasonRequest,
 	"detect_cli_runtime_api_v1_model_gateway_cli_runtimes__runtime_id__detect_post": unknown,
 	"developer_agent_status_api_v1_agents_developer_status_get": never,
@@ -536,7 +539,7 @@ export type OperationRequestBodies = {
 	"put_i18n_catalog_api_v1_i18n_catalog_put": I18nCatalog,
 	"register_mcp_server_api_v1_integrations_mcp_register_post": McpServerRegisterRequest,
 	"resume_workflow_api_v1_workflows__workflow_id__resume_post": WorkflowStatusChangeRequest,
-	"retrieval_reindex_api_v1_retrieval_reindex_post": EmptyObjectRequest,
+	"retrieval_reindex_api_v1_retrieval_reindex_post": RetrievalReindexRequest,
 	"retrieval_search_api_v1_retrieval_search_post": RetrievalSearchRequest,
 	"retrieval_status_api_v1_retrieval_status_get": never,
 	"retry_job_api_v1_jobs__job_id__retry_post": OptionalReasonRequest,
@@ -603,6 +606,7 @@ export type OperationResponseBodies = {
 	"create_routing_profile_api_v1_model_gateway_routing_profiles_post": RoutingProfileResponse,
 	"create_session_api_v1_sessions_post": SessionResponse,
 	"create_workflow_api_v1_workflows_post": WorkflowResponse,
+	"delete_memory_api_v1_memory__memory_id__delete": MemoryResponse,
 	"deny_action_api_v1_jobs__job_id__actions__action_id__deny_post": JobMutationResponse,
 	"detect_cli_runtime_api_v1_model_gateway_cli_runtimes__runtime_id__detect_post": RuntimeDetectionResponse,
 	"developer_agent_status_api_v1_agents_developer_status_get": DeveloperAgentStatusResponse,
@@ -757,6 +761,7 @@ export const OPERATIONS_BY_ID = {
 	"select_directory_api_v1_local_paths_select_directory_post": {"method": "POST", "operationId": "select_directory_api_v1_local_paths_select_directory_post", "path": "/api/v1/local-paths/select-directory", "summary": "Select Directory"},
 	"list_memory_api_v1_memory_get": {"method": "GET", "operationId": "list_memory_api_v1_memory_get", "path": "/api/v1/memory", "summary": "List Memory"},
 	"create_memory_api_v1_memory_post": {"method": "POST", "operationId": "create_memory_api_v1_memory_post", "path": "/api/v1/memory", "summary": "Create Memory"},
+	"delete_memory_api_v1_memory__memory_id__delete": {"method": "DELETE", "operationId": "delete_memory_api_v1_memory__memory_id__delete", "path": "/api/v1/memory/{memory_id}", "summary": "Delete Memory"},
 	"list_benchmark_outcomes_api_v1_model_gateway_benchmark_outcomes_get": {"method": "GET", "operationId": "list_benchmark_outcomes_api_v1_model_gateway_benchmark_outcomes_get", "path": "/api/v1/model-gateway/benchmark-outcomes", "summary": "List Benchmark Outcomes"},
 	"create_benchmark_outcome_api_v1_model_gateway_benchmark_outcomes_post": {"method": "POST", "operationId": "create_benchmark_outcome_api_v1_model_gateway_benchmark_outcomes_post", "path": "/api/v1/model-gateway/benchmark-outcomes", "summary": "Create Benchmark Outcome"},
 	"list_benchmarks_api_v1_model_gateway_benchmarks_get": {"method": "GET", "operationId": "list_benchmarks_api_v1_model_gateway_benchmarks_get", "path": "/api/v1/model-gateway/benchmarks", "summary": "List Benchmarks"},

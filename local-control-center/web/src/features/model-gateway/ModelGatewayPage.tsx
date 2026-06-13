@@ -18,6 +18,7 @@ import {
 	getModelGatewayRoutingProfiles,
 	getModelGatewayUsageLedger,
 	getModelGatewayUsageSummary,
+	getRuntimeProviders,
 	getRuntimeProviderConfiguration,
 	healthCheckModelGatewayProvider,
 	patchModelGatewayProvider,
@@ -114,6 +115,50 @@ function text(value: unknown, fallback = 'n/a') {
 	return result || fallback;
 }
 
+function upsertNewestById<T extends { id: string; updatedAt?: string; createdAt?: string }>(records: T[], incoming: T) {
+	const existing = records.find((record) => record.id === incoming.id);
+	const incomingTime = Date.parse(String(incoming.updatedAt ?? incoming.createdAt ?? ''));
+	const existingTime = Date.parse(String(existing?.updatedAt ?? existing?.createdAt ?? ''));
+	if (existing && !Number.isNaN(existingTime) && (Number.isNaN(incomingTime) || existingTime > incomingTime)) return records;
+	return existing ? records.map((record) => (record.id === incoming.id ? incoming : record)) : [incoming, ...records];
+}
+
+function benchmarkFromOutcome(outcome: ModelGatewayBenchmarkOutcome): ModelGatewayBenchmark {
+	const now = new Date().toISOString();
+	const createdAt = text(outcome.createdAt, now);
+	const provenance = text(outcome.provenance, 'operator_reported');
+	const operatorReportedTasks = provenance === 'operator_reported' ? 1 : 0;
+	const automatedRunTasks = provenance === 'automated_run' ? 1 : 0;
+	const releaseValidationTasks = provenance === 'release_validation' ? 1 : 0;
+	const objectiveTasksAttempted = automatedRunTasks + releaseValidationTasks;
+	return {
+		id: `outcome-derived:${text(outcome.providerId, '')}:${text(outcome.model, '')}:${text(outcome.role, '')}`,
+		providerId: outcome.providerId,
+		model: outcome.model,
+		role: outcome.role,
+		tasksAttempted: 1,
+		objectiveTasksAttempted,
+		operatorReportedTasks,
+		automatedRunTasks,
+		releaseValidationTasks,
+		successRate: objectiveTasksAttempted ? (outcome.success ? 1 : 0) : null,
+		qaPassRate: objectiveTasksAttempted ? (outcome.qaPass ? 1 : 0) : null,
+		reworkRate: objectiveTasksAttempted ? (outcome.rework ? 1 : 0) : null,
+		avgCost: objectiveTasksAttempted ? outcome.actualCostUsd ?? outcome.estimatedCostUsd ?? null : null,
+		avgLatencyMs: objectiveTasksAttempted ? outcome.latencyMs ?? null : null,
+		lastUsedAt: createdAt,
+		insufficientData: objectiveTasksAttempted < 3,
+		provenanceCounts: {
+			operator_reported: operatorReportedTasks,
+			automated_run: automatedRunTasks,
+			release_validation: releaseValidationTasks,
+		},
+		metadata: { source: 'local_projection_from_persisted_outcome' },
+		createdAt,
+		updatedAt: createdAt,
+	};
+}
+
 function redactVisibleSecret(value: unknown, fallback = 'n/a') {
 	return text(value, fallback)
 		.replace(/\bBearer\s+[A-Za-z0-9._~+/=-]{8,}/gi, '[redacted_secret]')
@@ -123,12 +168,18 @@ function redactVisibleSecret(value: unknown, fallback = 'n/a') {
 }
 
 function money(value: unknown) {
-	const number = Number(value ?? 0);
-	return `$${Number.isFinite(number) ? number.toFixed(4) : '0.0000'}`;
+	if (value === null || value === undefined || value === '') return 'unknown';
+	const number = Number(value);
+	return Number.isFinite(number) ? `$${number.toFixed(4)}` : 'unknown';
 }
 
 function policyBudgetUsd(row: Overview['modelPolicies'][number] | ModelGatewayRolePolicy) {
 	return 'maxCostPerTaskUsd' in row ? row.maxCostPerTaskUsd : row.maxCostUsd;
+}
+
+function sumRecordedCost(rows: Overview['costUsage']) {
+	const amounts = rows.map((row) => Number(row.amountUsd)).filter((amount) => Number.isFinite(amount));
+	return amounts.length ? amounts.reduce((sum, amount) => sum + amount, 0) : null;
 }
 
 function Metric({ label, value }: { label: string; value: unknown }) {
@@ -180,6 +231,8 @@ export function ModelGatewayPage({
 	const [policyAllowLocal, setPolicyAllowLocal] = useState(true);
 	const [policyError, setPolicyError] = useState('');
 	const [createdPolicies, setCreatedPolicies] = useState<ModelGatewayRolePolicy[]>([]);
+	const [policyCatalogModels, setPolicyCatalogModels] = useState<ModelGatewayModel[]>([]);
+	const [policyCatalogLoaded, setPolicyCatalogLoaded] = useState(false);
 	const [benchmarkProvider, setBenchmarkProvider] = useState('codex_cli');
 	const [benchmarkModel, setBenchmarkModel] = useState('gpt-5.5');
 	const [benchmarkRuntime, setBenchmarkRuntime] = useState('cli');
@@ -190,11 +243,24 @@ export function ModelGatewayPage({
 	const [benchmarkCost, setBenchmarkCost] = useState('');
 	const [benchmarkLatency, setBenchmarkLatency] = useState('');
 	const [benchmarkError, setBenchmarkError] = useState('');
+	const [runtimeProviderState, setRuntimeProviderState] = useState<RuntimeProviders | null>(runtimeProviders);
+
+	useEffect(() => {
+		setRuntimeProviderState(runtimeProviders);
+	}, [runtimeProviders]);
 
 	const reload = useCallback(async () => {
 		setLoading(true);
 		setError('');
 		try {
+			setPolicyCatalogLoaded(false);
+			const modelCatalogPromise = getModelGatewayModels();
+			void modelCatalogPromise
+				.then((payload) => {
+					setPolicyCatalogModels(payload.models);
+					setPolicyCatalogLoaded(true);
+				})
+				.catch(() => setPolicyCatalogLoaded(true));
 			const [
 				gatewayOverview,
 				providers,
@@ -214,7 +280,7 @@ export function ModelGatewayPage({
 			] = await Promise.all([
 				getModelGatewayOverview(),
 				getModelGatewayProviders(),
-				getModelGatewayModels(),
+				modelCatalogPromise,
 				getModelGatewayRoutingProfiles(),
 				getModelGatewayRolePolicies(),
 				getModelGatewayUsageLedger(),
@@ -245,6 +311,11 @@ export function ModelGatewayPage({
 				benchmarkOutcomes: benchmarkOutcomes.outcomes,
 				runtimeProviderConfiguration: runtimeProviderConfiguration.providers,
 			});
+			setPolicyCatalogModels(models.models);
+			setPolicyCatalogLoaded(true);
+			void getRuntimeProviders()
+				.then((runtimeProviderStatus) => setRuntimeProviderState(runtimeProviderStatus))
+				.catch(() => undefined);
 		} catch (loadError) {
 			setError(loadError instanceof Error ? loadError.message : 'Model Gateway state failed to load.');
 		} finally {
@@ -278,28 +349,29 @@ export function ModelGatewayPage({
 		);
 	}, [decisionFilter, gateway.routingDecisions]);
 
-	const totalCost = overview.costUsage.reduce((sum, row) => sum + Number(row.amountUsd ?? 0), 0);
+	const totalCost = sumRecordedCost(overview.costUsage);
 	const providerCatalog = useMemo(() => {
+		const policyModels = policyCatalogLoaded ? policyCatalogModels : gateway.models;
 		const modelsFor = (providerId: string) =>
 			Array.from(
 				new Set(
-					gateway.models
+					policyModels
 						.filter((item) => item.providerId === providerId && item.enabled !== false)
 						.map((item) => text(item.model, ''))
 						.filter(Boolean),
 				),
 			);
 		return [
-			{ provider: 'ollama', models: Array.from(new Set([...(runtimeProviders?.ollama.models ?? []), ...modelsFor('ollama')])), remote: false },
+			{ provider: 'ollama', models: Array.from(new Set([...(runtimeProviderState?.ollama.models ?? []), ...modelsFor('ollama')])), remote: false },
 			{ provider: 'openai_compatible', models: modelsFor('openai_compatible'), remote: true },
 			{ provider: 'openrouter', models: modelsFor('openrouter'), remote: true },
 			{ provider: 'openai_agents', models: modelsFor('openai_agents'), remote: true },
 		];
-	}, [gateway.models, runtimeProviders]);
+	}, [gateway.models, policyCatalogLoaded, policyCatalogModels, runtimeProviderState]);
 	const modelOptions = providerCatalog.find((item) => item.provider === policyProvider)?.models ?? [];
 	useEffect(() => {
 		const currentCatalog = providerCatalog.find((item) => item.provider === policyProvider);
-		if (!currentCatalog) {
+		if (!currentCatalog || currentCatalog.models.length === 0) {
 			const firstAvailable = providerCatalog.find((item) => item.models.length > 0);
 			if (firstAvailable) {
 				setPolicyProvider(firstAvailable.provider);
@@ -310,6 +382,8 @@ export function ModelGatewayPage({
 		if (policyModel && currentCatalog.models.includes(policyModel)) return;
 		setPolicyModel(currentCatalog.models[0] ?? '');
 	}, [policyModel, policyProvider, providerCatalog]);
+	const policyProviderOptions = providerCatalog.filter((item) => item.models.length > 0);
+	const policyCatalogReady = policyCatalogLoaded || !loading;
 	const benchmarkModelOptions = useMemo(() => {
 		const models = gateway.models.filter((item) => item.providerId === benchmarkProvider).map((item) => text(item.model, '')).filter(Boolean);
 		return models.length ? models : [benchmarkModel || 'configured_model'];
@@ -324,7 +398,7 @@ export function ModelGatewayPage({
 			return true;
 		});
 	}, [createdPolicies, overview.modelPolicies]);
-	const runtimeRows = runtimeProviders?.providers ?? [];
+	const runtimeRows = runtimeProviderState?.providers ?? [];
 	const executableRuntimeCount = runtimeRows.filter((runtime) => runtime.executable).length;
 	const unavailableRuntimeCount = runtimeRows.filter((runtime) => !runtime.available).length;
 	const runtimeConfigurationRows = gateway.runtimeProviderConfiguration;
@@ -471,7 +545,7 @@ export function ModelGatewayPage({
 		setBenchmarkError('');
 		setBusyAction('record-benchmark-outcome');
 		try {
-			await recordModelGatewayBenchmarkOutcome(token, {
+			const result = await recordModelGatewayBenchmarkOutcome(token, {
 				providerId: benchmarkProvider,
 				model: benchmarkModel,
 				runtimeType: benchmarkRuntime,
@@ -485,7 +559,20 @@ export function ModelGatewayPage({
 				...(latencyMs === undefined ? {} : { latencyMs }),
 				metadata: { source: 'operator_console' },
 			});
-			await reload();
+			setGateway((current) => ({
+				...current,
+				benchmarks: upsertNewestById(current.benchmarks, benchmarkFromOutcome(result.outcome)),
+				benchmarkOutcomes: upsertNewestById(current.benchmarkOutcomes, result.outcome),
+			}));
+			const [benchmarks, outcomes] = await Promise.all([
+				getModelGatewayBenchmarks(),
+				getModelGatewayBenchmarkOutcomes(),
+			]);
+			setGateway((current) => ({
+				...current,
+				benchmarks: benchmarks.benchmarks,
+				benchmarkOutcomes: outcomes.outcomes,
+			}));
 		} catch (saveError) {
 			setBenchmarkError(saveError instanceof Error ? saveError.message : 'Benchmark outcome save failed.');
 		} finally {
@@ -652,6 +739,11 @@ export function ModelGatewayPage({
 			/>
 
 			<Surface title="Strict model policy form">
+				{!policyCatalogReady ? (
+					<EmptyState title="Loading model catalog" body="Model policies can be edited after the backend catalog is loaded." />
+				) : policyProviderOptions.length === 0 ? (
+					<EmptyState title="Model catalog unavailable" body="No enabled model catalog entries are available for policy creation." />
+				) : (
 				<div className="form-grid">
 					<div className="field">
 						<label htmlFor="model-policy-id">Policy id</label>
@@ -676,8 +768,8 @@ export function ModelGatewayPage({
 								setPolicyAllowLocal(!nextCatalog?.remote);
 							}}
 						>
-							{providerCatalog.map((item) => (
-								<option key={item.provider} value={item.provider} disabled={item.models.length === 0}>{item.provider}</option>
+							{policyProviderOptions.map((item) => (
+								<option key={item.provider} value={item.provider}>{item.provider}</option>
 							))}
 						</select>
 					</div>
@@ -706,6 +798,7 @@ export function ModelGatewayPage({
 					{policyError ? <div className="form-error" role="alert">{policyError}</div> : null}
 					<button className="button primary" type="button" disabled={busyAction === 'save-model-policy'} onClick={() => void savePolicy()}>Save model policy</button>
 				</div>
+				)}
 			</Surface>
 
 			<Surface title="Model policies">
@@ -789,7 +882,7 @@ export function ModelGatewayPage({
 				]} />
 			</Surface>
 			<Surface title="Cost ledger">
-				<div className="metric-value">${totalCost.toFixed(4)}</div>
+				<div className="metric-value">{money(totalCost)}</div>
 				<div className="metric-label">recorded legacy model usage</div>
 			</Surface>
 		</>

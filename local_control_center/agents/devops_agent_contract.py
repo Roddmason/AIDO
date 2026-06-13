@@ -53,10 +53,15 @@ def devops_agent_contract() -> dict[str, Any]:
 
 
 def devops_agent_status() -> dict[str, Any]:
+    deterministic_checks_executable = bool(DEVOPS_AGENT_ALLOWED_TOOLS)
     return {
         "id": DEVOPS_AGENT_ID,
-        "executable": True,
-        "status": "executable",
-        "reason": "DevOpsAgent deterministic file checks and brokered release validation are executable; Docker health is optional.",
+        "executable": deterministic_checks_executable,
+        "status": "executable" if deterministic_checks_executable else "configuration_required",
+        "reason": (
+            "DevOpsAgent deterministic file checks and brokered release validation are executable; Docker health is optional."
+            if deterministic_checks_executable
+            else "DevOpsAgent deterministic release validation tools are not configured."
+        ),
         "contract": devops_agent_contract(),
     }

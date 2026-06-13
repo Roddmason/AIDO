@@ -81,3 +81,20 @@ def test_model_gateway_frontend_separates_manual_benchmark_provenance_from_score
     assert "operatorReportedTasks" in benchmark_source
     assert "scoreBreakdown" in route_preview_source
     assert "benchmarkOperatorReportedSampleCount" in route_preview_source
+
+
+def test_model_gateway_cost_surfaces_preserve_unknown_instead_of_zero() -> None:
+    utils_source = (FEATURE_DIR / "utils.tsx").read_text(encoding="utf-8")
+    page_source = (FEATURE_DIR / "ModelGatewayPage.tsx").read_text(encoding="utf-8")
+    provider_accounts_source = (FEATURE_DIR / "ProviderAccountsPanel.tsx").read_text(encoding="utf-8")
+    app_source = (ROOT / "local-control-center" / "web" / "src" / "app" / "App.tsx").read_text(encoding="utf-8")
+    catalog_source = (ROOT / "local_control_center" / "i18n" / "default_catalog.json").read_text(encoding="utf-8")
+
+    assert "Number(value ?? 0)" not in utils_source
+    assert "Number(value ?? 0)" not in page_source
+    assert "row.amountUsd ?? 0" not in page_source
+    assert "row.amountUsd ?? 0" not in app_source
+    assert "usdToday" not in app_source
+    assert "USD today" not in catalog_source
+    assert "money(0)" not in provider_accounts_source
+    assert "cost unavailable" in provider_accounts_source

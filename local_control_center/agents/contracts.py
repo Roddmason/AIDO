@@ -53,6 +53,8 @@ AgentToolCallStatus = Literal[
     "completed",
     "failed",
     "blocked",
+    "configuration_required",
+    "unavailable",
 ]
 ModelCallStatus = Literal["planned", "completed", "failed", "blocked", "unavailable"]
 

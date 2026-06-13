@@ -58,12 +58,17 @@ local-control-center/web/
   hidden mutation paths: `Ctrl+Alt+A` opens approvals, `Ctrl+Alt+E` opens the
   event ledger, and `Ctrl+Alt+W` navigates to workflows. Shortcuts are ignored
   while focus is inside editable form controls.
-- Workflow inspectors read linked workflow runs, steps, workspaces, jobs, agent
-  runs, tool calls, policy decisions, evidence packages, artifacts, test
-  results, and approvals from `/api/v1/overview`.
+- Workflow inspectors read linked workflow runs, steps, workspaces, jobs, job
+  runs/leases, agent runs, tool calls, model calls, policy/security decisions,
+  evidence packages, artifacts, test results, approvals, and workflow/audit
+  events from `/api/v1/overview`.
 - Workflows graph, step table, agent run list, and evidence detail are scoped to
   the selected/default workflow. The page must not mix a selected workflow with
   global step rows.
+- The workflow detail drawer must show what is still missing before completion,
+  blockers with technical reasons, and links to diff/evidence/PR records when
+  those records exist. It must not turn missing runtime, QA, security, approval,
+  artifact, or PR records into synthetic success.
 - The Command Center renders runtime/provider state from
   `/api/v1/runtime/providers`, including unavailable reasons, required
   configuration, and executable state. The `issue_to_patch` form requires an
@@ -84,6 +89,16 @@ local-control-center/web/
 - Evidence and workflow inspectors preview and download artifacts only through
   `GET /api/v1/evidence/{evidenceId}/artifacts/{artifactId}` with the local
   control token. The UI never reads local artifact paths directly.
+- Jobs & Approvals renders patch workflow reviews for both `issue_to_patch` and
+  `issue_to_pr` as operational control surfaces, not as a generic grant drawer.
+  Patch approvals must show the linked evidence package, full patch diff
+  artifact, QA result, patch hash, non-blocking security findings artifact, and
+  missing evidence reasons before enabling `Approve patch`. `Reject` remains
+  available with a human reason, while `Promote branch` and `Create PR` are
+  separate workflow-run commands backed by the generated API client for the
+  workflow kind. Their visible result must come from the backend response,
+  including `approved_for_integration`, `promoted_to_branch`, `pr_created`,
+  `pr_unavailable`, or failure reasons.
 - Evidence & QA owns the evidence detail viewer. Selecting a package calls
   `GET /api/v1/evidence/{evidenceId}` and renders package metadata,
   workflow/job/agent links, QA verdict, artifact SHA-256 hashes, diff patch

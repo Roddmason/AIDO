@@ -42,9 +42,6 @@ class ProviderAccountUpsertRequest(GatewayFlexibleModel):
     credential_ref: str = Field(default="", alias="credentialRef")
     enabled: bool = False
     quota_mode: str = Field(default="none", alias="quotaMode")
-    health_status: str = Field(default="unknown", alias="healthStatus")
-    last_health_check_at: str | None = Field(default=None, alias="lastHealthCheckAt")
-    last_error: str = Field(default="", alias="lastError")
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -56,9 +53,6 @@ class ProviderAccountPatchRequest(GatewayFlexibleModel):
     credential_ref: str | None = Field(default=None, alias="credentialRef")
     enabled: bool | None = None
     quota_mode: str | None = Field(default=None, alias="quotaMode")
-    health_status: str | None = Field(default=None, alias="healthStatus")
-    last_health_check_at: str | None = Field(default=None, alias="lastHealthCheckAt")
-    last_error: str | None = Field(default=None, alias="lastError")
     metadata: dict[str, Any] | None = None
 
 

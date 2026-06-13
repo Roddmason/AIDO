@@ -213,64 +213,6 @@ def _runtime_unavailable_result(reason: str) -> dict[str, Any]:
     }
 
 
-def _write_patch_artifact(
-    *,
-    root: Path,
-    project_id: str,
-    evidence_id: str,
-    diff: dict[str, Any],
-    repo: EvidenceRepository,
-) -> dict[str, Any] | None:
-    patch = str(diff.get("patchFull") or "")
-    if not patch:
-        return None
-    artifact_id = f"artifact-{uuid.uuid4()}"
-    artifact_file = write_text_artifact(root=root, artifact_id=artifact_id, suffix=".patch", content=patch)
-    return repo.create_artifact(
-        artifact_id=artifact_id,
-        project_id=project_id,
-        evidence_package_id=evidence_id,
-        kind="git_patch",
-        path=artifact_file["path"],
-        content_hash=artifact_file["hash"] or hashlib.sha256(patch.encode("utf-8")).hexdigest(),
-        metadata={
-            "name": "diff.patch",
-            "source": "issue_to_patch",
-            "mimeType": "text/x-diff",
-            "sizeBytes": artifact_file["sizeBytes"],
-            "hashAlgorithm": "sha256",
-        },
-    )
-
-
-def _write_manifest_artifact(
-    *,
-    root: Path,
-    project_id: str,
-    evidence_id: str,
-    manifest: dict[str, Any],
-    repo: EvidenceRepository,
-) -> dict[str, Any]:
-    artifact_id = f"artifact-{uuid.uuid4()}"
-    content = json_dumps(redact_secrets(manifest))
-    artifact_file = write_text_artifact(root=root, artifact_id=artifact_id, suffix=".json", content=content)
-    return repo.create_artifact(
-        artifact_id=artifact_id,
-        project_id=project_id,
-        evidence_package_id=evidence_id,
-        kind="evidence_manifest",
-        path=artifact_file["path"],
-        content_hash=artifact_file["hash"] or hashlib.sha256(content.encode("utf-8")).hexdigest(),
-        metadata={
-            "name": "issue-to-patch-evidence.json",
-            "source": "issue_to_patch",
-            "mimeType": "application/json",
-            "sizeBytes": artifact_file["sizeBytes"],
-            "hashAlgorithm": "sha256",
-        },
-    )
-
-
 def _write_text_evidence_artifact(
     *,
     root: Path,
@@ -737,38 +679,37 @@ def _security_findings_from_policy(policy_decisions: list[dict[str, Any]]) -> di
     }
 
 
-def _complete_run_status(
+def _status_from_developer_result(
+    developer_result: dict[str, Any],
     *,
-    runtime_status: str,
     require_approval: bool,
-    qa_results: list[dict[str, Any]],
-    diff: dict[str, Any],
-    evidence_created: bool,
     evidence_package_valid: bool = True,
 ) -> tuple[str, str, str]:
-    if runtime_status == RUNTIME_UNAVAILABLE_STATUS:
-        return RUNTIME_UNAVAILABLE_STATUS, "blocked", "No executable runtime was available."
-    if runtime_status != "completed":
-        return "failed", "failed", "Runtime execution failed."
-    if not qa_results:
-        return "evidence_ready", "blocked", "QA results are required before issue_to_patch can complete."
-    if any(result.get("status") == "failed" for result in qa_results):
-        return "qa_failed", "failed", "QA command failed or was blocked."
-    if any(result.get("status") != "passed" for result in qa_results):
-        return "evidence_ready", "blocked", "QA command was skipped or did not produce a passing verdict."
-    if not qa_verdict_allows_completion("passed", qa_results):
-        return "evidence_ready", "blocked", "QA verdict requires real command execution evidence before completion."
-    if not diff.get("nameOnly"):
-        return "evidence_ready", "blocked", "Patch workflow produced no file changes."
-    if not evidence_created:
+    developer_status = str(developer_result.get("status") or "").strip()
+    developer_reason = str(developer_result.get("reason") or "").strip()
+    evidence = developer_result.get("evidencePackage") if isinstance(developer_result.get("evidencePackage"), dict) else {}
+    qa_verdict = str(evidence.get("qaVerdict") or "blocked").strip() or "blocked"
+
+    if developer_status == "completed" and not evidence:
         return "evidence_ready", "blocked", "Evidence package was not created."
     if not evidence_package_valid:
         return "evidence_ready", "blocked", "Evidence package contract is incomplete or unverifiable."
-    if not str(diff.get("patchFull") or diff.get("patch") or "").strip():
-        return "evidence_ready", "blocked", "Patch artifact requires a non-empty diff."
-    if require_approval:
+
+    if developer_status == "completed":
+        if require_approval:
+            return "evidence_ready", "needs_human_review", "Patch evidence is ready and requires approval."
+        return "completed", "passed", "Patch evidence and QA passed."
+    if developer_status == RUNTIME_UNAVAILABLE_STATUS:
+        return RUNTIME_UNAVAILABLE_STATUS, "blocked", developer_reason or "No executable DeveloperAgent runtime was available."
+    if developer_status == "qa_failed":
+        return "qa_failed", "failed", developer_reason or "DeveloperAgent QA command failed or was blocked."
+    if developer_status == "evidence_ready":
+        return "evidence_ready", qa_verdict, developer_reason or "DeveloperAgent evidence is not ready for completion."
+    if developer_status == "failed":
+        return "failed", "failed", developer_reason or "DeveloperAgent runtime execution failed."
+    if require_approval and qa_verdict == "needs_human_review":
         return "evidence_ready", "needs_human_review", "Patch evidence is ready and requires approval."
-    return "completed", "passed", "Patch evidence and QA passed."
+    return "failed", "failed", developer_reason or f"DeveloperAgent returned unsupported status: {developer_status or 'missing'}."
 
 
 class IssueToPatchRunner:
@@ -2003,52 +1944,17 @@ class IssueToPatchRunner:
         agent_run = developer_result["agentRun"]
         runtime = developer_result["runtime"]
         runtime_result: dict[str, Any] = developer_result["runtimeResult"]
-        runtime_status = str(runtime_result.get("status") or developer_result["status"])
         reason = str(runtime_result.get("reason") or developer_result.get("reason") or "")
-        diff = capture_git_diff(Path(workspace["path"]))
-        if runtime_status == RUNTIME_UNAVAILABLE_STATUS:
-            diff["blockerState"] = diff_blocker_state
         qa_results = developer_result["qaResults"]
         qa_agent_run_id = str((agent_run.get("output") or {}).get("qaAgentRunId") or "")
         evidence = developer_result["evidencePackage"]
-
-        final_status, qa_verdict, final_reason = _complete_run_status(
-            runtime_status=runtime_status,
+        diff_summary = dict(developer_result.get("diffSummary") or evidence.get("diffSummary") or {})
+        final_status, qa_verdict, final_reason = _status_from_developer_result(
+            developer_result,
             require_approval=bool(payload.get("requireApproval", True)),
-            qa_results=qa_results,
-            diff=diff,
-            evidence_created=True,
         )
         if final_status == RUNTIME_UNAVAILABLE_STATUS:
             final_reason = reason or final_reason
-        patch_artifact = _write_patch_artifact(
-            root=self.root,
-            project_id=payload["projectId"],
-            evidence_id=evidence["id"],
-            diff=diff,
-            repo=self.evidence,
-        )
-        status_artifacts = _write_git_status_artifacts(
-            root=self.root,
-            project_id=payload["projectId"],
-            evidence_id=evidence["id"],
-            diff=diff,
-            repo=self.evidence,
-        )
-        qa_results_artifact = _write_json_evidence_artifact(
-            root=self.root,
-            project_id=payload["projectId"],
-            evidence_id=evidence["id"],
-            name="qa-results.json",
-            kind="qa_report",
-            payload={"results": qa_results, "qaAgentRunId": qa_agent_run_id or None},
-            repo=self.evidence,
-        )
-        diff_summary = _diff_summary(diff)
-        if patch_artifact:
-            diff_summary["patchArtifactId"] = patch_artifact["id"]
-        diff_summary["gitStatusArtifactIds"] = [artifact["id"] for artifact in status_artifacts]
-        diff_summary["qaResultsArtifactId"] = qa_results_artifact["id"]
 
         related_agent_run_ids = {agent_run["id"]}
         if qa_agent_run_id:
@@ -2099,19 +2005,6 @@ class IssueToPatchRunner:
             repo=self.evidence,
         )
         diff_summary["securityFindingsArtifactId"] = security_findings_artifact["id"]
-        model_call_artifact = (
-            _write_json_evidence_artifact(
-                root=self.root,
-                project_id=payload["projectId"],
-                evidence_id=evidence["id"],
-                name="model-call.json",
-                kind="model_call",
-                payload={"modelCalls": model_calls},
-                repo=self.evidence,
-            )
-            if model_calls
-            else None
-        )
         runtime_artifact_ids = [
             str(artifact_id)
             for artifact_id in (
@@ -2127,15 +2020,9 @@ class IssueToPatchRunner:
             [
                 *existing_artifacts,
                 *runtime_artifacts,
-                *status_artifacts,
-                qa_results_artifact,
                 security_findings_artifact,
             ]
         )
-        if patch_artifact:
-            artifact_records.append(patch_artifact)
-        if model_call_artifact:
-            artifact_records.append(model_call_artifact)
         artifact_records = _dedupe_artifact_records(artifact_records)
         artifact_refs = [artifact_ref(artifact) for artifact in artifact_records]
         runtime_health = redact_secrets(
@@ -2145,37 +2032,6 @@ class IssueToPatchRunner:
                 "resultReason": runtime_result.get("reason") or runtime.get("reason"),
             }
         )
-        manifest_artifact = _write_manifest_artifact(
-            root=self.root,
-            project_id=payload["projectId"],
-            evidence_id=evidence["id"],
-            repo=self.evidence,
-            manifest={
-                "workflow": {"id": workflow["id"], "kind": workflow["kind"], "status": final_status},
-                "workflowRun": {"id": workflow_run["id"], "status": final_status},
-                "job": {"id": job["id"], "kind": job["kind"], "status": final_status},
-                "agentRun": {"id": agent_run["id"], "status": final_status},
-                "workspace": {
-                    "id": workspace["id"],
-                    "path": workspace["path"],
-                    "isolationType": workspace["isolationType"],
-                    "status": workspace["status"],
-                },
-                "runtime": runtime,
-                "policyDecisions": policy_decisions,
-                "approvals": approvals,
-                "modelCalls": model_calls,
-                "toolCalls": tool_calls,
-                "qaAgentRunId": qa_agent_run_id or None,
-                "qaResults": qa_results,
-                "diffSummary": diff_summary,
-                "artifacts": artifact_refs,
-                "hashes": artifact_hashes(artifact_records),
-            },
-        )
-        diff_summary["manifestArtifactId"] = manifest_artifact["id"]
-        artifact_records.append(manifest_artifact)
-        artifact_refs = [artifact_ref(artifact) for artifact in artifact_records]
         hashes = artifact_hashes(artifact_records)
         evidence = self.evidence.update_evidence_links(
             evidence["id"],
@@ -2200,12 +2056,9 @@ class IssueToPatchRunner:
         )
         contract_errors = evidence_package_contract_errors(evidence, require_runtime_links=final_status == "completed")
         if final_status == "completed" and contract_errors:
-            final_status, qa_verdict, final_reason = _complete_run_status(
-                runtime_status=runtime_status,
+            final_status, qa_verdict, final_reason = _status_from_developer_result(
+                developer_result,
                 require_approval=bool(payload.get("requireApproval", True)),
-                qa_results=qa_results,
-                diff=diff,
-                evidence_created=True,
                 evidence_package_valid=False,
             )
             evidence = self.evidence.update_evidence_links(

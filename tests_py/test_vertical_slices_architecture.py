@@ -383,7 +383,7 @@ def test_model_gateway_repository_tests_use_direct_sqlite_setup() -> None:
 def test_retrieval_and_base_schema_tests_use_direct_sqlite_setup() -> None:
     control_center_tests = read("tests_py/test_python_control_center.py")
     retrieval_test = control_center_tests.split(
-        "def test_retrieval_index_uses_sqlite_metadata_and_is_rebuildable",
+        "def test_retrieval_index_uses_persisted_real_embeddings_per_project_and_is_rebuildable",
         1,
     )[1].split("def test_sqlite_schema_contains_python_control_plane_tables", 1)[0]
     schema_test = control_center_tests.split(
@@ -419,7 +419,7 @@ def test_jobs_and_worker_repository_tests_use_direct_sqlite_setup() -> None:
     worker_test = control_center_tests.split(
         "def test_worker_records_runs_events_and_rejects_unapproved_actions",
         1,
-    )[1].split("def test_retrieval_index_uses_sqlite_metadata_and_is_rebuildable", 1)[0]
+    )[1].split("def test_retrieval_index_uses_persisted_real_embeddings_per_project_and_is_rebuildable", 1)[0]
 
     assert "ControlPlaneFixture" not in jobs_test
     assert "JobsRepository" in jobs_test

@@ -154,6 +154,42 @@ def test_runtime_provider_ui_exposes_healthcheck_state_and_sanitized_reasons() -
     assert "row.healthCheckedAt" in page_source
 
 
+def test_agents_page_does_not_fallback_to_unverified_provider_catalogs() -> None:
+    source = read(SRC / "features" / "agents" / "AgentsPage.tsx")
+
+    assert "fallbackProviders" not in source
+    assert "fallbackRuntimes" not in source
+    assert "catalogAvailable" in source
+    assert "configuration_required" in source
+
+
+def test_control_plane_optional_state_does_not_reuse_stale_health_snapshots() -> None:
+    source = read(SRC / "hooks" / "useControlPlane.ts")
+
+    assert "retrievalStatus ?? current.retrievalStatus" not in source
+    assert "runtimeProviders ?? current.runtimeProviders" not in source
+    assert "retrievalStatus," in source
+    assert "runtimeProviders," in source
+
+
+def test_frontend_does_not_invent_cost_or_token_limits_from_null_values() -> None:
+    pages_source = read(SRC / "features" / "pages.tsx")
+    agents_source = read(SRC / "features" / "agents" / "AgentsPage.tsx")
+    workflows_source = read(SRC / "features" / "workflows" / "WorkflowsPage.tsx")
+
+    assert "row.amountUsd ?? 0" not in pages_source
+    assert "row.costUsd ?? 0" not in pages_source
+    assert "row.costUsd ?? 0" not in workflows_source
+    assert "row.promptTokens ?? 0" not in workflows_source
+    assert "row.completionTokens ?? 0" not in workflows_source
+    assert "tokenLabel(row.promptTokens)" in workflows_source
+    assert "costLabel(row.costUsd)" in workflows_source
+    assert "maxTokensPerRun ?? 0" not in agents_source
+    assert "maxCostPerRun ?? 0" not in agents_source
+    assert "numericLabel(row.maxTokensPerRun)" in agents_source
+    assert "moneyLabel(row.requiresApprovalOverUsd ?? row.maxCostPerRun)" in agents_source
+
+
 def test_governance_surface_has_filtering_and_risk_update_controls() -> None:
     pages_source = read(SRC / "features" / "pages.tsx")
 

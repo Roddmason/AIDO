@@ -680,11 +680,12 @@ class SecurityAgentRunner:
             status = "failed"
             reason = f"Gitleaks exited with code {result.get('returnCode')} without parseable secret findings."
 
+        scanner_executable = bool(result.get("executed")) and not bool(result.get("blocked"))
         scanner = {
             "name": scanner_name,
             "status": status,
             "reason": reason,
-            "executable": True,
+            "executable": scanner_executable,
             "configured": True,
             "configuration": str(config) if config else "builtin_default",
             "exitCode": result.get("returnCode"),
@@ -834,11 +835,12 @@ class SecurityAgentRunner:
             status = "passed"
             reason = "Semgrep completed with no findings."
 
+        scanner_executable = bool(result.get("executed")) and not bool(result.get("blocked"))
         scanner = {
             "name": scanner_name,
             "status": status,
             "reason": reason,
-            "executable": True,
+            "executable": scanner_executable,
             "configured": True,
             "configuration": str(config),
             "exitCode": result.get("returnCode"),
@@ -1045,6 +1047,7 @@ class SecurityAgentRunner:
             "risk": "security_risk",
             "blocked": "security_blocked",
         }[verdict]
+        deterministic_controls_available = bool(findings_artifact.get("id"))
         artifact_records = artifact_records_from_ids(self.evidence, artifact_ids)
         tool_calls = [
             tool_call
@@ -1110,8 +1113,8 @@ class SecurityAgentRunner:
             runtime_health={
                 "id": f"{SECURITY_AGENT_ID}.deterministic_controls",
                 "status": "completed",
-                "available": True,
-                "executable": True,
+                "available": deterministic_controls_available,
+                "executable": deterministic_controls_available,
                 "filesScanned": len(files_scanned),
                 "dependencyFiles": len(dependency_files),
                 "externalScanners": external_scanners,

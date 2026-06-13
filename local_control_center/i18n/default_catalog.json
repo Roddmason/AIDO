@@ -179,9 +179,13 @@
       "en": "running",
       "es": "en ejecucion"
     },
-    "app.global.usdToday": {
-      "en": "USD today",
-      "es": "USD hoy"
+    "app.global.recordedUsd": {
+      "en": "recorded USD",
+      "es": "USD registrados"
+    },
+    "app.global.costUnavailable": {
+      "en": "cost unavailable",
+      "es": "costo no disponible"
     },
     "app.global.openCommandPalette": {
       "en": "Open command palette",
@@ -214,6 +218,18 @@
     "app.global.sandboxGated": {
       "en": "Sandbox gated",
       "es": "Sandbox controlado"
+    },
+    "ui.static.patch.workflow.operations": {
+      "en": "Patch workflow operations",
+      "es": "Operaciones de workflow de parche"
+    },
+    "ui.static.no.patch.workflow.operations": {
+      "en": "No patch workflow operations",
+      "es": "No hay operaciones de workflow de parche"
+    },
+    "ui.static.configuration.required.agent.profile.catalogs": {
+      "en": "configuration_required: Provider, routing, role policy and runtime catalogs must load before saving an agent profile.",
+      "es": "configuration_required: Los catalogos de proveedor, ruteo, politica de rol y runtime deben cargar antes de guardar el perfil de agente."
     },
     "i18n.maintainer.title": {
       "en": "Translation maintainer",
@@ -1330,6 +1346,22 @@
     "ui.static.model.catalog.entries.appear.after.seeds.or.provider.discove.babcd23e": {
       "en": "Model catalog entries appear after seeds or provider discovery.",
       "es": "Las entradas del catálogo de modelos aparecen después del descubrimiento de semillas o proveedores."
+    },
+    "ui.static.loading.model.catalog.2a1f6d83": {
+      "en": "Loading model catalog",
+      "es": "Cargando catálogo de modelos"
+    },
+    "ui.static.model.catalog.unavailable.c0e4b5a7": {
+      "en": "Model catalog unavailable",
+      "es": "Catálogo de modelos no disponible"
+    },
+    "ui.static.model.policies.can.be.edited.after.backend.catalog.loaded.6450fcb1": {
+      "en": "Model policies can be edited after the backend catalog is loaded.",
+      "es": "Las políticas de modelos se pueden editar después de cargar el catálogo del backend."
+    },
+    "ui.static.no.enabled.model.catalog.entries.available.for.policy.creation.1afeb0fb": {
+      "en": "No enabled model catalog entries are available for policy creation.",
+      "es": "No hay entradas habilitadas del catálogo de modelos disponibles para crear políticas."
     },
     "ui.static.model.parameters.appear.here.when.routing.policies.are.confi.71a70605": {
       "en": "Model parameters appear here when routing policies are configured.",
@@ -3034,6 +3066,174 @@
     "ui.static.approve.or.reject.is.blocked.until.this.reason.is.recorded.f865c28b": {
       "en": "Approve or reject is blocked until this reason is recorded.",
       "es": "Aprobar o rechazar queda bloqueado hasta registrar esta razon."
+    },
+    "ui.static.a.patch.approval.requires.a.linked.diff.artifact.before.the.approve.patch.action.is.enabled.9f5a1b2c": {
+      "en": "A patch approval requires a linked diff artifact before the approve patch action is enabled.",
+      "es": "Una aprobacion de patch requiere un artefacto de diff vinculado antes de habilitar aprobar patch."
+    },
+    "ui.static.approve.a.reviewed.patch.before.branch.promotion.and.pr.creation.become.available.44f8d22c": {
+      "en": "Approve a reviewed patch before branch promotion and PR creation become available.",
+      "es": "Aprueba un patch revisado antes de habilitar promocion de rama y creacion de PR."
+    },
+    "ui.static.evidence.branch.1b5ef53d": {
+      "en": "Evidence / branch",
+      "es": "Evidencia / rama"
+    },
+    "ui.static.evidence.completeness.9a6c2f01": {
+      "en": "Evidence completeness",
+      "es": "Completitud de evidencia"
+    },
+    "ui.static.full.diff.before.approval.4c0c93c5": {
+      "en": "Full diff before approval",
+      "es": "Diff completo antes de aprobar"
+    },
+    "ui.static.issue.to.patch.operations.72f3e5e1": {
+      "en": "Issue-to-patch operations",
+      "es": "Operaciones issue-to-patch"
+    },
+    "ui.static.loading.patch.artifact.19f1d8a6": {
+      "en": "Loading patch artifact",
+      "es": "Cargando artefacto de patch"
+    },
+    "ui.static.no.issue.to.patch.workflow.operations.2f94e70c": {
+      "en": "No issue-to-patch workflow operations",
+      "es": "No hay operaciones de workflow issue-to-patch"
+    },
+    "ui.static.operation.812f0d99": {
+      "en": "Operation",
+      "es": "Operacion"
+    },
+    "ui.static.pr.base.branch.optional.a00b34a5": {
+      "en": "PR base branch (optional)",
+      "es": "Rama base del PR (opcional)"
+    },
+    "ui.static.pr.title.optional.d1bb86b0": {
+      "en": "PR title (optional)",
+      "es": "Titulo del PR (opcional)"
+    },
+    "ui.static.patch.artifact.has.no.proven.changes.66c87331": {
+      "en": "Patch artifact has no proven changes",
+      "es": "El artefacto de patch no prueba cambios"
+    },
+    "ui.static.promotion.and.pr.creation.stay.disabled.until.a.reason.is.recorded.928ed8b9": {
+      "en": "Promotion and PR creation stay disabled until a reason is recorded.",
+      "es": "Promocion y creacion de PR siguen deshabilitadas hasta registrar una razon."
+    },
+    "ui.static.promotion.branch.optional.1a9de010": {
+      "en": "Promotion branch (optional)",
+      "es": "Rama de promocion (opcional)"
+    },
+    "ui.static.the.diff.is.read.through.the.protected.evidence.artifact.endpoint.e9955146": {
+      "en": "The diff is read through the protected evidence artifact endpoint.",
+      "es": "El diff se lee a traves del endpoint protegido de artefactos de evidencia."
+    },
+    "ui.static.the.patch.artifact.is.empty.or.malformed.so.approve.patch.remains.blocked.b0f0d46a": {
+      "en": "The patch artifact is empty or malformed, so approve patch remains blocked.",
+      "es": "El artefacto de patch esta vacio o malformado, por eso aprobar patch sigue bloqueado."
+    },
+    "ui.static.workflow.operation.reason.2a67177b": {
+      "en": "Workflow operation reason",
+      "es": "Razon de operacion del workflow"
+    },
+    "ui.static.blockers.0b9f1d72": {
+      "en": "Blockers",
+      "es": "Bloqueadores"
+    },
+    "ui.static.completion.prerequisites.satisfied.by.linked.records.51ee9c46": {
+      "en": "Completion prerequisites satisfied by linked records.",
+      "es": "Los registros vinculados satisfacen los prerequisitos de finalizacion."
+    },
+    "ui.static.diff.artifact.4b3d14f2": {
+      "en": "Diff artifact",
+      "es": "Artefacto de diff"
+    },
+    "ui.static.installed.mcp.server.command.a52d6621": {
+      "en": "Installed MCP server command",
+      "es": "Comando de servidor MCP instalado"
+    },
+    "ui.static.jobs.and.leases.4768364f": {
+      "en": "Jobs and leases",
+      "es": "Jobs y leases"
+    },
+    "ui.static.links.0974c8fd": {
+      "en": "Links",
+      "es": "Enlaces"
+    },
+    "ui.static.model.calls.linked.to.workflow.agent.runs.appear.here.0ae76932": {
+      "en": "Model calls linked to workflow agent runs appear here.",
+      "es": "Las llamadas de modelo vinculadas a runs de agentes del workflow aparecen aqui."
+    },
+    "ui.static.model.mode.f9d81107": {
+      "en": "Model mode",
+      "es": "Modo de modelo"
+    },
+    "ui.static.no.pr.link.recorded.5d6bb7dc": {
+      "en": "No PR link recorded.",
+      "es": "No hay enlace de PR registrado."
+    },
+    "ui.static.no.blockers.cbc83d23": {
+      "en": "No blockers",
+      "es": "Sin bloqueadores"
+    },
+    "ui.static.no.diff.artifact.link.recorded.074dd704": {
+      "en": "No diff artifact link recorded.",
+      "es": "No hay enlace de artefacto de diff registrado."
+    },
+    "ui.static.no.evidence.link.recorded.090f170c": {
+      "en": "No evidence link recorded.",
+      "es": "No hay enlace de evidencia registrado."
+    },
+    "ui.static.no.job.runs.4e3be714": {
+      "en": "No job runs",
+      "es": "Sin runs de jobs"
+    },
+    "ui.static.no.linked.blocker.reason.has.been.recorded.e960291f": {
+      "en": "No linked blocker reason has been recorded.",
+      "es": "No se registro razon de bloqueo vinculada."
+    },
+    "ui.static.no.security.findings.recorded.5199261c": {
+      "en": "No security findings recorded",
+      "es": "Sin hallazgos de seguridad registrados"
+    },
+    "ui.static.patch.approval.requires.linked.non.blocking.security.findings.before.the.approve.patch.action.is.enabled.22bc9b5c": {
+      "en": "Patch approval requires linked non-blocking security findings before the approve patch action is enabled.",
+      "es": "La aprobacion de patch requiere hallazgos de seguridad vinculados y no bloqueantes antes de habilitar aprobar patch."
+    },
+    "ui.static.security.and.policy.decisions.f06bb7ad": {
+      "en": "Security and policy decisions",
+      "es": "Decisiones de seguridad y politica"
+    },
+    "ui.static.security.evidence.is.read.through.the.protected.evidence.artifact.endpoint.7dd786fd": {
+      "en": "Security evidence is read through the protected evidence artifact endpoint.",
+      "es": "La evidencia de seguridad se lee a traves del endpoint protegido de artefactos de evidencia."
+    },
+    "ui.static.security.findings.are.blocking.or.unreadable.62a7c2ac": {
+      "en": "Security findings are blocking or unreadable",
+      "es": "Los hallazgos de seguridad bloquean o no se pueden leer"
+    },
+    "ui.static.security.findings.before.approval.967fe426": {
+      "en": "Security findings before approval",
+      "es": "Hallazgos de seguridad antes de aprobar"
+    },
+    "ui.static.summary.b5473fa1": {
+      "en": "Summary",
+      "es": "Resumen"
+    },
+    "ui.static.the.security.findings.artifact.must.be.valid.json.with.no.blocking.policy.decision.29a79e28": {
+      "en": "The security findings artifact must be valid JSON with no blocking policy decision.",
+      "es": "El artefacto de hallazgos de seguridad debe ser JSON valido sin decisiones de politica bloqueantes."
+    },
+    "ui.static.tokens.9a1f9463": {
+      "en": "Tokens",
+      "es": "Uso de tokens"
+    },
+    "ui.static.what.is.missing.for.completed.f6ca783a": {
+      "en": "What is missing for completed",
+      "es": "Que falta para completed"
+    },
+    "ui.static.worker.lease.attempts.appear.here.when.jobs.execute.35553b89": {
+      "en": "Worker lease attempts appear here when jobs execute.",
+      "es": "Los intentos de lease del worker aparecen aqui cuando los jobs se ejecutan."
     },
     "ui.static.argv.2f50d8a9": {
       "en": "Argv",

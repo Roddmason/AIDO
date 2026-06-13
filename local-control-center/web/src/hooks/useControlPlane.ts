@@ -65,8 +65,8 @@ export function useControlPlane() {
 				...current,
 				token: handshake.token,
 				overview,
-				retrievalStatus: retrievalStatus ?? current.retrievalStatus,
-				runtimeProviders: runtimeProviders ?? current.runtimeProviders,
+				retrievalStatus,
+				runtimeProviders,
 				loading: false,
 				error: '',
 				lastUpdatedAt: new Date().toISOString(),
@@ -74,10 +74,11 @@ export function useControlPlane() {
 		} catch (error) {
 			if (controller.signal.aborted) return;
 			if (!mountedRef.current) return;
+			const message = error instanceof Error ? error.message : 'Unable to load control plane state.';
 			setState((current) => ({
 				...current,
 				loading: false,
-				error: error instanceof Error ? error.message : 'Unable to load control plane state.',
+				error: silent && current.overview ? '' : message,
 			}));
 		} finally {
 			controllersRef.current.delete(controller);
@@ -99,11 +100,16 @@ export function useControlPlane() {
 	}, [refresh]);
 
 	const mutate = useCallback(
-		async <T,>(operation: (token: string) => Promise<T>) => {
+		async <T,>(operation: (token: string) => Promise<T>, options: { awaitRefresh?: boolean } = {}) => {
 			setState((current) => ({ ...current, busy: true, error: '' }));
 			try {
 				const result = await operation(state.token);
-				await refresh(true);
+				const refreshPromise = refresh(true);
+				if (options.awaitRefresh === false) {
+					void refreshPromise.catch(() => undefined).finally(() => setState((current) => ({ ...current, busy: false })));
+					return result;
+				}
+				await refreshPromise;
 				setState((current) => ({ ...current, busy: false }));
 				return result;
 			} catch (error) {

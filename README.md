@@ -533,6 +533,7 @@ corepack pnpm@10.24.0 run security:secrets
 corepack pnpm@10.24.0 run security:sast
 corepack pnpm@10.24.0 run smoke:runtime:preflight
 corepack pnpm@10.24.0 run quality
+corepack pnpm@10.24.0 run release:certify
 ```
 
 `quality` runs `scripts/quality-local.ps1` and includes:
@@ -549,6 +550,14 @@ corepack pnpm@10.24.0 run quality
 
 `test:all` is faster and narrower: web typecheck, frontend build, and Python
 tests. Use `quality` before release-grade local evidence.
+
+`release:certify` is optional and not part of startup. It runs `quality`, writes
+redacted report/log artifacts under `.tmp/release-certification/`, and then
+runs Codex, Claude Code, OpenHands, or SWE-agent release smokes only when their
+real env vars are configured. Missing optional smoke configuration is reported
+as `status=configuration_required` with `execution=skipped`, and the top-level
+`certificationScope` records that the run is not a full-smoke certification.
+Configured smoke failures fail the certification.
 
 ## Architecture
 
@@ -703,7 +712,8 @@ Before opening a pull request:
 3. Add or update tests for behavior changes.
 4. Regenerate OpenAPI client output after backend schema changes.
 5. Run the relevant focused checks.
-6. Run `corepack pnpm@10.24.0 run quality` for release-grade local evidence.
+6. Run `corepack pnpm@10.24.0 run quality` for release-grade local evidence, or
+   `corepack pnpm@10.24.0 run release:certify` when preparing release artifacts.
 7. Do not commit secrets, `.env`, local databases, generated runtime artifacts,
    dependency folders, prompt dumps, or private workspace snapshots.
 

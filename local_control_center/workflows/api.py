@@ -13,6 +13,7 @@ from ..evidence.quality import qa_passed_without_failed_results
 from ..governance.repository import GovernanceRepository
 from ..governance.signals import record_governance_risk
 from ..jobs_approvals.repository import JobsRepository
+from ..security_policy.repository import SecurityPolicyRepository
 from ..shared.event_bus import EventBus
 from ..shared.time import utc_now
 from ..workspaces_projects.repository import WorkspacesRepository
@@ -142,8 +143,20 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     def agents() -> AgentsRepository:
         return AgentsRepository(platform.connection)
 
+    def security_policy() -> SecurityPolicyRepository:
+        return SecurityPolicyRepository(platform.connection)
+
     def event_bus() -> EventBus:
         return EventBus(platform.connection)
+
+    def permission_decision_ids_from_tool_calls(tool_calls: list[dict[str, Any]]) -> set[str]:
+        decision_ids: set[str] = set()
+        for tool_call in tool_calls:
+            payload = tool_call.get("payload") if isinstance(tool_call.get("payload"), dict) else {}
+            decision_id = str(payload.get("permissionDecisionId") or "").strip()
+            if decision_id:
+                decision_ids.add(decision_id)
+        return decision_ids
 
     def route_started_workflow_steps(result: dict[str, Any]) -> None:
         router = ModelRouter(platform.connection)
@@ -475,39 +488,123 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     async def get_workflow(workflow_id: str) -> dict[str, Any]:
         repo = repository()
         try:
+            workflow = repo.get_workflow(workflow_id)
             workflow_runs = repo.list_workflow_runs(workflow_id=workflow_id)
             workflow_run_ids = [run["id"] for run in workflow_runs]
+            workflow_run_id_set = set(workflow_run_ids)
             workflow_steps = [
                 step
                 for run_id in workflow_run_ids
                 for step in repo.list_workflow_steps(workflow_run_id=run_id)
             ]
-            runtime_workspaces = workspaces().list_workspaces_for_workflow(workflow_run_ids)
-            evidence_packages = evidence().list_evidence_for_workflow_runs(workflow_run_ids)
-            workflow_jobs = jobs().list_jobs_for_workflow_runs(workflow_run_ids)
-            agent_runs = agents().list_agent_runs_for_workflow_runs(workflow_run_ids)
-            workflow_run_details = [
-                {
-                    "workflowRun": run,
-                    "workflowSteps": [step for step in workflow_steps if step["workflowRunId"] == run["id"]],
-                    "workspaces": [workspace for workspace in runtime_workspaces if workspace["workflowRunId"] == run["id"]],
-                    "evidencePackages": [
-                        package for package in evidence_packages if package["workflowRunId"] == run["id"]
-                    ],
-                    "jobs": [job for job in workflow_jobs if job["workflowRunId"] == run["id"]],
-                    "agentRuns": [agent_run for agent_run in agent_runs if agent_run["workflowRunId"] == run["id"]],
-                }
-                for run in workflow_runs
+            workflow_events = [
+                event
+                for event in repo.list_workflow_events()
+                if event["workflowId"] == workflow_id
+                or (event.get("workflowRunId") and event["workflowRunId"] in workflow_run_id_set)
             ]
+            runtime_workspaces = workspaces().list_workspaces_for_workflow(workflow_run_ids)
+            evidence_repo = evidence()
+            evidence_packages = evidence_repo.list_evidence_for_workflow_runs(workflow_run_ids)
+            evidence_ids = {package["id"] for package in evidence_packages}
+            artifacts = [artifact for artifact in evidence_repo.list_all_artifacts() if artifact.get("evidencePackageId") in evidence_ids]
+            test_result_records = [
+                result for result in evidence_repo.list_all_test_results() if result.get("evidencePackageId") in evidence_ids
+            ]
+            jobs_repo = jobs()
+            workflow_jobs = jobs_repo.list_jobs_for_workflow_runs(workflow_run_ids)
+            job_ids = {job["id"] for job in workflow_jobs}
+            job_runs = [run for job_id in job_ids for run in jobs_repo.list_job_runs(job_id)]
+            action_requests = [request for job_id in job_ids for request in jobs_repo.list_action_requests(job_id)]
+            agents_repo = agents()
+            agent_runs = agents_repo.list_agent_runs_for_workflow_runs(workflow_run_ids)
+            agent_run_ids = {run["id"] for run in agent_runs}
+            agent_tool_calls = [
+                tool_call
+                for tool_call in agents_repo.list_agent_tool_calls()
+                if tool_call.get("agentRunId") in agent_run_ids
+            ]
+            permission_decision_ids = permission_decision_ids_from_tool_calls(agent_tool_calls)
+            model_calls = [
+                model_call
+                for model_call in agents_repo.list_model_calls()
+                if model_call.get("agentRunId") in agent_run_ids
+                or (model_call.get("metadata") or {}).get("workflowRunId") in workflow_run_id_set
+            ]
+            permission_decisions = [
+                decision
+                for decision in security_policy().list_decisions(project_id=workflow["projectId"])
+                if decision["id"] in permission_decision_ids
+                or (decision.get("payload") or {}).get("workflowRunId") in workflow_run_id_set
+            ]
+            workflow_run_details = []
+            for run in workflow_runs:
+                run_id = run["id"]
+                run_evidence = [package for package in evidence_packages if package["workflowRunId"] == run_id]
+                run_evidence_ids = {package["id"] for package in run_evidence}
+                run_jobs = [job for job in workflow_jobs if job["workflowRunId"] == run_id]
+                run_job_ids = {job["id"] for job in run_jobs}
+                run_agent_runs = [agent_run for agent_run in agent_runs if agent_run["workflowRunId"] == run_id]
+                run_agent_run_ids = {agent_run["id"] for agent_run in run_agent_runs}
+                run_tool_calls = [
+                    tool_call for tool_call in agent_tool_calls if tool_call["agentRunId"] in run_agent_run_ids
+                ]
+                run_permission_decision_ids = permission_decision_ids_from_tool_calls(run_tool_calls)
+                workflow_run_details.append(
+                    {
+                        "workflowRun": run,
+                        "workflowSteps": [step for step in workflow_steps if step["workflowRunId"] == run_id],
+                        "workflowEvents": [event for event in workflow_events if event.get("workflowRunId") == run_id],
+                        "workspaces": [
+                            workspace for workspace in runtime_workspaces if workspace["workflowRunId"] == run_id
+                        ],
+                        "evidencePackages": run_evidence,
+                        "artifacts": [
+                            artifact for artifact in artifacts if artifact.get("evidencePackageId") in run_evidence_ids
+                        ],
+                        "testResultRecords": [
+                            result
+                            for result in test_result_records
+                            if result.get("evidencePackageId") in run_evidence_ids
+                        ],
+                        "jobs": run_jobs,
+                        "jobRuns": [job_run for job_run in job_runs if job_run["jobId"] in run_job_ids],
+                        "actionRequests": [
+                            action for action in action_requests if action["jobId"] in run_job_ids
+                        ],
+                        "agentRuns": run_agent_runs,
+                        "agentToolCalls": run_tool_calls,
+                        "modelCalls": [
+                            model_call
+                            for model_call in model_calls
+                            if model_call.get("agentRunId") in run_agent_run_ids
+                            or (model_call.get("metadata") or {}).get("workflowRunId") == run_id
+                        ],
+                        "permissionDecisions": [
+                            decision
+                            for decision in permission_decisions
+                            if (decision.get("payload") or {}).get("workflowRunId") == run_id
+                            or decision["id"] in run_permission_decision_ids
+                        ],
+                    }
+                )
             return {
-                "workflow": repo.get_workflow(workflow_id),
+                "workflow": workflow,
                 "workflowRuns": workflow_runs,
                 "workflowSteps": workflow_steps,
+                "workflowEvents": workflow_events,
                 "workflowRunDetails": workflow_run_details,
                 "workspaces": runtime_workspaces,
                 "evidencePackages": evidence_packages,
+                "artifacts": artifacts,
+                "testResultRecords": test_result_records,
                 "jobs": workflow_jobs,
+                "jobRuns": job_runs,
+                "actionRequests": action_requests,
                 "agentRuns": agent_runs,
+                "agentToolCalls": agent_tool_calls,
+                "modelCalls": model_calls,
+                "permissionDecisions": permission_decisions,
             }
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error

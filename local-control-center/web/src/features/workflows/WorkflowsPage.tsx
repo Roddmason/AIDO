@@ -5,7 +5,9 @@ import { downloadEvidenceArtifact, fetchEvidenceArtifact, type ArtifactPayload }
 import type { Artifact, Overview, WorkflowStep } from '../../api/types';
 import { Badge, DataTable, Drawer, EmptyState, PageHeader, StatusDot, Surface } from '../../components/primitives';
 import { artifactDisplayName, artifactMimeType, artifactSizeLabel } from '../../lib/artifacts';
+import { findPatchArtifact } from '../../lib/diff';
 import { shortId, toneForStatus } from '../../lib/format';
+import { redactVisibleText } from '../../lib/redaction';
 
 function nodesFromSteps(steps: WorkflowStep[]): Node[] {
 	return steps.slice(0, 12).map((step, index) => ({
@@ -42,13 +44,16 @@ type WorkflowLinks = {
 	events: Overview['workflowEvents'];
 	workspaces: Overview['runtimeWorkspaces'];
 	jobs: Overview['jobs'];
+	jobRuns: Overview['jobRuns'];
 	agentRuns: Overview['agentRuns'];
 	toolCalls: Overview['agentToolCalls'];
+	modelCalls: Overview['modelCalls'];
 	permissionDecisions: Overview['permissionDecisions'];
 	evidence: Overview['evidencePackages'];
 	artifacts: Overview['artifacts'];
 	testResults: Overview['testResultRecords'];
 	approvals: Overview['actionRequests'];
+	auditEvents: Overview['auditEvents'];
 };
 
 type WorkflowTimelineItem = {
@@ -62,6 +67,13 @@ type WorkflowTimelineItem = {
 	sortKey: number;
 };
 
+type WorkflowBlocker = {
+	id: string;
+	source: string;
+	status: string;
+	reason: string;
+};
+
 const GATE_TO_STEP: Record<string, string> = {
 	DeveloperAgent: 'developer_agent',
 	QAAgent: 'qa_validation',
@@ -72,6 +84,27 @@ const GATE_TO_STEP: Record<string, string> = {
 
 function stringValue(value: unknown, fallback = ''): string {
 	return typeof value === 'string' && value.trim() ? value : fallback;
+}
+
+function finiteNumber(value: unknown): number | null {
+	if (typeof value === 'number') {
+		return Number.isFinite(value) ? value : null;
+	}
+	if (typeof value === 'string' && value.trim().length > 0) {
+		const parsed = Number(value);
+		return Number.isFinite(parsed) ? parsed : null;
+	}
+	return null;
+}
+
+function tokenLabel(value: unknown): string {
+	const valueNumber = finiteNumber(value);
+	return valueNumber === null ? 'unknown' : String(valueNumber);
+}
+
+function costLabel(value: unknown): string {
+	const valueNumber = finiteNumber(value);
+	return valueNumber === null ? 'unknown' : `$${valueNumber.toFixed(4)}`;
 }
 
 function sortTime(value?: string | null, fallback = 0): number {
@@ -101,6 +134,13 @@ function workflowEventDetail(payload: Record<string, unknown>, fallback: string)
 	return fallback;
 }
 
+function auditEventStatus(action: string, payload: Record<string, unknown>): string {
+	const status = stringValue(payload.status);
+	if (status) return status;
+	const parts = action.split('.');
+	return parts[parts.length - 1] || 'recorded';
+}
+
 function stepDetail(
 	step: Overview['workflowSteps'][number],
 	gateResult: Record<string, unknown> | undefined,
@@ -128,11 +168,120 @@ function latestRun(linked: WorkflowLinks): Overview['workflowRuns'][number] | un
 		.sort((left, right) => sortTime(String(right.startedAt ?? '')) - sortTime(String(left.startedAt ?? '')))[0];
 }
 
+function statusIsPassed(value: unknown): boolean {
+	return ['passed', 'completed', 'approved', 'pr_created'].includes(String(value ?? '').toLowerCase());
+}
+
+function hasDiffEvidence(linked: WorkflowLinks): boolean {
+	if (findPatchArtifact(linked.artifacts)) return true;
+	return linked.evidence.some((item) => Array.isArray(item.diffRefs) && item.diffRefs.length > 0);
+}
+
+function hasPassingQaEvidence(linked: WorkflowLinks): boolean {
+	if (linked.testResults.some((item) => statusIsPassed(item.status))) return true;
+	return linked.evidence.some((item) =>
+		Array.isArray(item.testResults) && item.testResults.some((result) => statusIsPassed(objectValue(result).status)),
+	);
+}
+
+function completionMissing(linked: WorkflowLinks): string[] {
+	const missing: string[] = [];
+	const run = latestRun(linked);
+	if (!run) return ['No workflow run recorded.'];
+	if (!linked.steps.length) missing.push('No workflow steps recorded.');
+	const unfinishedSteps = linked.steps.filter((step) => !statusIsPassed(step.status) && step.status !== 'skipped');
+	if (unfinishedSteps.length) {
+		missing.push(`Unfinished steps: ${unfinishedSteps.map((step) => step.name).join(', ')}.`);
+	}
+	if (!linked.evidence.length) missing.push('No evidence package recorded.');
+	if (!hasDiffEvidence(linked)) missing.push('No diff evidence refs recorded.');
+	if (!hasPassingQaEvidence(linked)) missing.push('No passing QA test results recorded.');
+	const pendingApprovals = linked.approvals.filter((approval) => approval.status === 'pending');
+	if (pendingApprovals.length) missing.push(`Pending approvals: ${pendingApprovals.length}.`);
+	const blockingStatuses = new Set(['blocked', 'runtime_unavailable', 'qa_failed', 'failed']);
+	if (blockingStatuses.has(String(run.status ?? ''))) missing.push(`Run status is ${String(run.status)}.`);
+	return Array.from(new Set(missing));
+}
+
+function blockerReason(payload: Record<string, unknown>, fallback: string): string {
+	return stringValue(payload.reason) || stringValue(payload.blockedReason) || stringValue(payload.error) || fallback;
+}
+
+function workflowBlockers(linked: WorkflowLinks): WorkflowBlocker[] {
+	const blockers: WorkflowBlocker[] = [];
+	const blockingStatuses = new Set(['blocked', 'runtime_unavailable', 'qa_failed', 'failed', 'denied', 'error', 'critical']);
+	for (const run of linked.runs) {
+		if (blockingStatuses.has(String(run.status ?? ''))) {
+			blockers.push({
+				id: `run-${run.id}`,
+				source: `run ${shortId(String(run.id ?? ''))}`,
+				status: String(run.status ?? ''),
+				reason: blockerReason(objectValue(run.metadata), `Run status is ${String(run.status ?? '')}.`),
+			});
+		}
+	}
+	for (const step of linked.steps) {
+		if (blockingStatuses.has(String(step.status ?? ''))) {
+			blockers.push({
+				id: `step-${step.id}`,
+				source: `step ${step.name}`,
+				status: step.status,
+				reason: blockerReason(objectValue(step.output), blockerReason(objectValue(step.metadata), `Step status is ${step.status}.`)),
+			});
+		}
+	}
+	for (const event of linked.events) {
+		if (['warning', 'error', 'critical'].includes(String(event.severity ?? ''))) {
+			blockers.push({
+				id: `event-${event.id}`,
+				source: event.type,
+				status: String(event.severity ?? ''),
+				reason: blockerReason(objectValue(event.payload), event.type),
+			});
+		}
+	}
+	for (const job of linked.jobs) {
+		if (blockingStatuses.has(String(job.status ?? ''))) {
+			blockers.push({
+				id: `job-${job.id}`,
+				source: `job ${job.kind}`,
+				status: job.status,
+				reason: blockerReason(objectValue(job.payload), `Job status is ${job.status}.`),
+			});
+		}
+	}
+	const seen = new Set<string>();
+	return blockers.filter((blocker) => {
+		const key = `${blocker.source}:${blocker.status}:${blocker.reason}`;
+		if (seen.has(key)) return false;
+		seen.add(key);
+		return true;
+	});
+}
+
+function pullRequestUrlFrom(value: unknown): string {
+	const payload = objectValue(value);
+	const pullRequest = objectValue(payload.pullRequest);
+	return stringValue(pullRequest.htmlUrl) || stringValue(pullRequest.html_url) || stringValue(pullRequest.url);
+}
+
+function workflowPullRequestUrls(linked: WorkflowLinks): string[] {
+	const urls = [
+		...linked.runs.map((run) => pullRequestUrlFrom(run.metadata)),
+		...linked.auditEvents.map((event) => pullRequestUrlFrom(event.payload)),
+		...linked.events.map((event) => pullRequestUrlFrom(event.payload)),
+	].filter(Boolean);
+	return Array.from(new Set(urls));
+}
+
 function buildWorkflowTimeline(linked: WorkflowLinks): WorkflowTimelineItem[] {
 	const run = latestRun(linked);
 	const runId = String(run?.id ?? '');
 	const steps = runId ? linked.steps.filter((step) => String(step.workflowRunId ?? '') === runId) : linked.steps;
 	const events = runId ? linked.events.filter((event) => String(event.workflowRunId ?? '') === runId) : linked.events;
+	const auditEvents = runId
+		? linked.auditEvents.filter((event) => String(event.target ?? '') === runId || stringValue(objectValue(event.payload).workflowRunId) === runId)
+		: linked.auditEvents;
 	const evidenceByStep = new Map(
 		linked.evidence
 			.filter((item) => !runId || String(item.workflowRunId ?? '') === runId)
@@ -190,7 +339,21 @@ function buildWorkflowTimeline(linked: WorkflowLinks): WorkflowTimelineItem[] {
 			sortKey: sortTime(event.createdAt) + index / 100,
 		};
 	});
-	return [...stepItems, ...eventItems].sort((left, right) => left.sortKey - right.sortKey);
+	const auditItems = auditEvents.map((event, index) => {
+		const payload = objectValue(event.payload);
+		const status = auditEventStatus(event.action, payload);
+		return {
+			id: `audit-${event.id}`,
+			label: event.action,
+			status,
+			tone: toneForStatus(status),
+			detail: workflowEventDetail(payload, status),
+			source: 'audit event',
+			createdAt: event.createdAt,
+			sortKey: sortTime(event.createdAt) + index / 100 + 0.5,
+		};
+	});
+	return [...stepItems, ...eventItems, ...auditItems].sort((left, right) => left.sortKey - right.sortKey);
 }
 
 function WorkflowTimeline({ items }: { items: WorkflowTimelineItem[] }) {
@@ -287,13 +450,16 @@ export function WorkflowsPage({ overview, token }: { overview: Overview; token: 
 				events: [],
 				workspaces: [],
 				jobs: [],
+				jobRuns: [],
 				agentRuns: [],
 				toolCalls: [],
+				modelCalls: [],
 				permissionDecisions: [],
 				evidence: [],
 				artifacts: [],
 				testResults: [],
 				approvals: [],
+				auditEvents: [],
 			};
 		}
 		const runs = overview.workflowRuns.filter((run) => String(run.workflowId ?? '') === selectedWorkflow.id);
@@ -323,18 +489,31 @@ export function WorkflowsPage({ overview, token }: { overview: Overview; token: 
 			),
 			workspaces: overview.runtimeWorkspaces.filter((workspace) => runIds.has(String(workspace.workflowRunId ?? ''))),
 			jobs,
+			jobRuns: overview.jobRuns.filter((jobRun) => jobIds.has(String(jobRun.jobId ?? ''))),
 			agentRuns,
 			toolCalls,
+			modelCalls: overview.modelCalls.filter((modelCall) => {
+				const metadata = objectValue(modelCall.metadata);
+				return agentRunIds.has(String(modelCall.agentRunId ?? '')) || runIds.has(stringValue(metadata.workflowRunId));
+			}),
 			permissionDecisions: overview.permissionDecisions.filter((decision) => permissionDecisionIds.has(String(decision.id ?? ''))),
 			evidence,
 			artifacts: overview.artifacts.filter((artifact) => evidenceIds.has(String(artifact.evidencePackageId ?? ''))),
 			testResults: overview.testResultRecords.filter((item) => evidenceIds.has(String(item.evidencePackageId ?? ''))),
 			approvals: overview.actionRequests.filter((approval) => jobIds.has(approval.jobId)),
+			auditEvents: overview.auditEvents.filter((event) => {
+				const payload = objectValue(event.payload);
+				return runIds.has(String(event.target ?? '')) || runIds.has(stringValue(payload.workflowRunId));
+			}),
 		};
 	}, [overview, selectedWorkflow]);
 	const nodes = nodesFromSteps(linked.steps);
 	const edges = edgesFromNodes(nodes);
 	const timelineItems = useMemo(() => buildWorkflowTimeline(linked), [linked]);
+	const missingForCompleted = useMemo(() => completionMissing(linked), [linked]);
+	const blockers = useMemo(() => workflowBlockers(linked), [linked]);
+	const patchArtifact = useMemo(() => findPatchArtifact(linked.artifacts), [linked.artifacts]);
+	const pullRequestUrls = useMemo(() => workflowPullRequestUrls(linked), [linked]);
 	return (
 		<>
 			<PageHeader
@@ -412,6 +591,47 @@ export function WorkflowsPage({ overview, token }: { overview: Overview; token: 
 									<span className="mono">{selectedWorkflow.kind ?? 'workflow'}</span>
 								</div>
 							</Surface>
+							<Surface title="What is missing for completed" flat>
+								{missingForCompleted.length ? (
+									<ul className="compact-list">
+										{missingForCompleted.map((item) => (
+											<li key={item}>{item}</li>
+										))}
+									</ul>
+								) : (
+									<p className="text-muted">Completion prerequisites satisfied by linked records.</p>
+								)}
+							</Surface>
+							<Surface title="Blockers" flat>
+								<DataTable rows={blockers} empty={<EmptyState title="No blockers" body="No linked blocker reason has been recorded." />} columns={[
+									{ key: 'source', label: 'Source', render: (row) => <span className="mono">{row.source}</span> },
+									{ key: 'status', label: 'Status', render: (row) => <Badge tone={toneForStatus(row.status)}>{row.status}</Badge> },
+									{ key: 'reason', label: 'Reason', render: (row) => redactVisibleText(row.reason) },
+								]} />
+							</Surface>
+							<Surface title="Links" flat>
+								<div className="stack">
+									{patchArtifact ? (
+										<div className="inline">
+											<span className="mono">Diff artifact</span>
+											<span>{artifactDisplayName(patchArtifact)}</span>
+											<span className="mono">{shortId(String(patchArtifact.hash ?? ''))}</span>
+										</div>
+									) : (
+										<p className="text-muted">No diff artifact link recorded.</p>
+									)}
+									<div className="inline">
+										{linked.evidence.length ? linked.evidence.map((item) => (
+											<a className="button" href="#evidence" key={item.id}>Evidence {item.id}</a>
+										)) : <span className="text-muted">No evidence link recorded.</span>}
+									</div>
+									<div className="inline">
+										{pullRequestUrls.length ? pullRequestUrls.map((url) => (
+											<a className="button" href={url} key={url} rel="noreferrer" target="_blank">PR {url}</a>
+										)) : <span className="text-muted">No PR link recorded.</span>}
+									</div>
+								</div>
+							</Surface>
 							<Surface title="Workflow timeline" flat>
 								<WorkflowTimeline items={timelineItems} />
 							</Surface>
@@ -460,10 +680,21 @@ export function WorkflowsPage({ overview, token }: { overview: Overview; token: 
 									{ key: 'status', label: 'Status', render: (row) => <Badge tone={toneForStatus(String(row.status ?? ''))}>{String(row.status ?? '')}</Badge> },
 								]} />
 							</Surface>
+							<Surface title="Model calls" flat>
+								<DataTable rows={linked.modelCalls} empty={<EmptyState title="No model calls" body="Model calls linked to workflow agent runs appear here." />} columns={[
+									{ key: 'provider', label: 'Provider', render: (row) => <span className="mono">{String(row.provider ?? '')}</span> },
+									{ key: 'model', label: 'Model', render: (row) => <span className="mono">{String(row.model ?? '')}</span> },
+									{ key: 'status', label: 'Status', render: (row) => <Badge tone={toneForStatus(String(row.status ?? ''))}>{String(row.status ?? '')}</Badge> },
+									{ key: 'tokens', label: 'Tokens', render: (row) => <span className="mono">{tokenLabel(row.promptTokens)} / {tokenLabel(row.completionTokens)}</span> },
+									{ key: 'cost', label: 'Cost', render: (row) => <span className="mono">{costLabel(row.costUsd)}</span> },
+								]} />
+							</Surface>
 							<Surface title="Steps" flat>
 								<DataTable rows={linked.steps} empty={<EmptyState title="No steps" body="Start the workflow to expand steps." />} columns={[
 									{ key: 'name', label: 'Step', render: (row) => <span className="mono">{row.name}</span> },
 									{ key: 'status', label: 'Status', render: (row) => <Badge tone={toneForStatus(row.status)}>{row.status}</Badge> },
+									{ key: 'risk', label: 'Risk', render: (row) => <span className="mono">{String(row.riskLevel ?? 'not recorded')}</span> },
+									{ key: 'model', label: 'Model mode', render: (row) => <span className="mono">{String(row.modelMode ?? row.manualModelOverride ?? 'policy')}</span> },
 								]} />
 							</Surface>
 							<Surface title="Evidence and tests" flat>
@@ -518,7 +749,7 @@ export function WorkflowsPage({ overview, token }: { overview: Overview; token: 
 									},
 								]} />
 							</Surface>
-							<Surface title="Policy decisions" flat>
+							<Surface title="Security and policy decisions" flat>
 								<DataTable rows={linked.permissionDecisions} empty={<EmptyState title="No policy decisions" body="Policy decisions linked through workflow tool calls appear here." />} columns={[
 									{ key: 'decision', label: 'Decision', render: (row) => <Badge tone={toneForStatus(String(row.decision ?? ''))}>{String(row.decision ?? '')}</Badge> },
 									{ key: 'risk', label: 'Risk', render: (row) => <Badge tone={toneForStatus(String(row.riskLevel ?? ''))}>{String(row.riskLevel ?? '')}</Badge> },
@@ -549,14 +780,17 @@ export function WorkflowsPage({ overview, token }: { overview: Overview; token: 
 									{ key: 'risk', label: 'Risk', render: (row) => <Badge tone={toneForStatus(row.riskLevel)}>{row.riskLevel}</Badge> },
 								]} />
 							</Surface>
-							<Surface title="Workspaces and jobs" flat>
+							<Surface title="Workspaces" flat>
 								<DataTable rows={linked.workspaces} empty={<EmptyState title="No workspaces" body="Workspace allocations appear after implementation steps." />} columns={[
 									{ key: 'task', label: 'Task', render: (row) => <span className="mono">{String(row.taskId ?? '')}</span> },
 									{ key: 'status', label: 'Status', render: (row) => <Badge tone={toneForStatus(String(row.status ?? ''))}>{String(row.status ?? '')}</Badge> },
 								]} />
+							</Surface>
+							<Surface title="Jobs and leases" flat>
 								<DataTable rows={linked.jobs} empty={<EmptyState title="No jobs" body="Jobs linked to workflow runs appear here." />} columns={[
 									{ key: 'kind', label: 'Kind', render: (row) => <span className="mono">{row.kind}</span> },
 									{ key: 'status', label: 'Status', render: (row) => <Badge tone={toneForStatus(row.status)}>{row.status}</Badge> },
+									{ key: 'lease', label: 'Lease', render: (row) => <span>{row.leaseOwner ? `${row.leaseOwner} until ${row.leaseExpiresAt}` : 'none'}</span> },
 									{
 										key: 'runtime',
 										label: 'Runtime',
@@ -566,6 +800,12 @@ export function WorkflowsPage({ overview, token }: { overview: Overview; token: 
 											return <span className="mono">{String(runtime.id ?? 'not selected')}</span>;
 										},
 									},
+								]} />
+								<DataTable rows={linked.jobRuns} empty={<EmptyState title="No job runs" body="Worker lease attempts appear here when jobs execute." />} columns={[
+									{ key: 'run', label: 'Run', render: (row) => <span className="mono">{shortId(String(row.id ?? ''))}</span> },
+									{ key: 'provider', label: 'Provider', render: (row) => <span className="mono">{String(row.providerId ?? 'not recorded')}</span> },
+									{ key: 'status', label: 'Status', render: (row) => <Badge tone={toneForStatus(String(row.status ?? ''))}>{String(row.status ?? '')}</Badge> },
+									{ key: 'summary', label: 'Summary', render: (row) => redactVisibleText(row.summary) },
 								]} />
 							</Surface>
 						</>
@@ -594,7 +834,7 @@ export function WorkflowsPage({ overview, token }: { overview: Overview; token: 
 							{previewError ? <div className="form-error" role="alert">{previewError}</div> : null}
 							{downloadLoadingId ? <div className="sr-only" role="status">Downloading artifact</div> : null}
 							{previewPayload?.text ? (
-								<pre className="artifact-preview">{previewPayload.text}</pre>
+								<pre className="artifact-preview">{redactVisibleText(previewPayload.text, '')}</pre>
 							) : (
 								<EmptyState title={previewLoadingId ? 'Loading artifact' : 'Binary or empty artifact'} body="Non-text artifacts remain downloadable, but are not rendered inline." />
 							)}

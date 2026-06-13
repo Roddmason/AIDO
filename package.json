@@ -38,6 +38,7 @@
     "quality:productive-truth": "uv run python scripts/productive-truth-scan.py",
     "quality:architecture": "uv run pytest tests_py/test_real_readiness_architecture.py tests_py/test_internal_mock_product_boundary.py tests_py/test_execution_boundary_architecture.py tests_py/test_vertical_slices_architecture.py tests_py/test_web_rework_architecture.py -q",
     "quality": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/quality-local.ps1",
+    "release:certify": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/release-certify.ps1",
     "node:use": "powershell -NoProfile -ExecutionPolicy Bypass -File local-control-center/scripts/use-node.ps1",
     "codegraph": "codegraph",
     "codegraph:init": "codegraph init -i",

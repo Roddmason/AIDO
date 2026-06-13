@@ -12,6 +12,7 @@ slice. It is not a promise that unavailable runtimes are executable.
 | `issue_to_patch` completion gate | Closed for local contract. Completion requires real runtime execution, Git worktree, non-empty diff, QA evidence, valid evidence, and approval state. | `POST /api/v1/workflows/issue-to-patch`, Command Center. | `tests_py/test_aido_real_runtime_slice.py`, web Command Center tests. | Installed CLIs must provide a real workspace-bound issue-to-patch/code-edit command contract. |
 | Quality no-mock scanner | Closed. Local quality fails on prohibited product tokens, hardcoded provider availability, and `shell=True` outside controlled tests. | `scripts/productive-truth-scan.py`, `pnpm run quality:productive-truth`. | `tests_py/test_no_mock_productive_scanner.py`. | Markdown docs and test folders are allowed to discuss prohibited terms. |
 | Local quality gate | Closed as local command. | `corepack pnpm@10.24.0 run quality`, `scripts/quality-local.ps1`. | Prior local run covered scanner, Python tests, web tests, build, typecheck, lint, architecture guardrails, gitleaks, and Semgrep. | It depends on local CLIs and Node engine; no mandatory GitHub Actions workflow is shipped. |
+| Release certification runner | Closed as optional local command. | `corepack pnpm@10.24.0 run release:certify`, `scripts/release-certify.ps1`. | `tests_py/test_release_certification_runner.py`; runner executes the full `quality` gate and configured release smokes. | Optional CLI smokes report `configuration_required` with skipped execution unless real env vars are present; use `-FailOnSkippedSmokes` for strict release machines. |
 | Evidence-backed blocked state | Closed. Missing runtime produces `runtime_unavailable` with evidence and reason, not success. | Workflow response, Evidence & QA UI. | `test_issue_to_patch_without_executable_runtime_finishes_unavailable_not_success`. | Diagnostic evidence is not implementation evidence. |
 
 ## Closed Modules
@@ -29,15 +30,70 @@ slice. It is not a promise that unavailable runtimes are executable.
 - Local quality command: `scripts/quality-local.ps1` runs scanner, Python
   tests, web tests, build, optional typecheck/lint, architecture guardrails,
   secret scan, and Semgrep.
+- Release certification runner: `scripts/release-certify.ps1` writes redacted
+  report/log artifacts under `.tmp/release-certification/`, always runs
+  `quality`, and runs only release smokes with real configured env vars.
 - Productive truth scanner: productive code fails for no-mock token leakage,
   hardcoded runtime `available=true`, and `shell=True` outside controlled tests.
 - Documentation state: README and target docs now distinguish configured,
   available, executable, blocked, and completed.
 
+## Final Semantic Audit - 2026-06-13
+
+This audit closes only repo-local truth guarantees. It does not certify that
+missing external CLIs, provider credentials, endpoints, workspaces, QA commands,
+or release environments exist.
+
+### Closed
+
+- Productive truth scanner prunes ignored/generated directories before
+  recursion and rejects quoted or unquoted hardcoded product
+  `available=true` patterns.
+- Product runtime providers, model gateway, retrieval indexing, workflow
+  runners, and agent contracts no longer depend on `internal_mock` or simulated
+  success paths for product readiness.
+- Provider account create/patch requests cannot write server-owned health
+  fields; config changes reset health to `unknown` until a real health check
+  records a new state.
+- Runtime, sandbox, telemetry, QA, security, architecture, developer, DevOps,
+  and model gateway health fields derive `available`, `executable`, `status`,
+  and `reason` from observed config/execution state.
+- Model-call cost metadata and frontend cost/token surfaces preserve unknown
+  values instead of coercing missing values to zero.
+- Agents UI no longer falls back to synthetic provider, routing, role-policy, or
+  runtime catalogs. Catalog load failures block save with
+  `configuration_required`.
+- Control-plane polling does not reuse stale optional retrieval/runtime health
+  snapshots when the backend omits or cannot refresh them.
+- `issue_to_pr` and `issue_to_patch` blocked states report unavailable runtime
+  health with a technical reason instead of executable success.
+
+### Requires Real Environment
+
+- Provider accounts need real credentials, configured endpoints, and successful
+  server-side health checks before product code may report them available.
+- CLI runtimes such as Codex, Claude, OpenHands, and SWE-agent need installed
+  binaries, explicit argv contracts, enabled execution flags, a real workspace,
+  and executable smoke evidence before workflows may run them.
+- External scanners, OTLP exporters, GitHub/PR publication, and release smokes
+  remain unavailable or configuration-required until their CLIs, tokens,
+  endpoints, and policies are present.
+- QA evidence must come from real configured commands and artifacts. Missing QA
+  command, failed execution, missing evidence, or empty diff remains blocked.
+
+### Out Of Scope
+
+- Supplying secrets, provider accounts, paid API access, external endpoints, or
+  organization-specific release infrastructure.
+- Certifying external provider behavior beyond local contracts and healthcheck
+  boundaries.
+- Publishing commits, pushing branches, creating pull requests, or adding CI
+  workflows without an explicit release request.
+- Replacing human review for sensitive patches, destructive operations,
+  production releases, or secret-bearing configuration.
+
 ## Pending Modules
 
-- Future: real release-runner smoke for OpenHands/SWE-agent `issue_to_patch`
-  with operator-supplied argv contracts and installed CLIs.
 - Future: richer provider account editing UI for credentials or provider
   account lifecycle, if the product decides to manage secrets instead of
   environment-only configuration.
@@ -51,12 +107,13 @@ slice. It is not a promise that unavailable runtimes are executable.
 - No external provider credential was configured by this documentation update.
   API providers remain configuration-required or unavailable until a developer
   supplies real env vars and passes health.
-- No local Codex, Claude, OpenHands, or SWE-agent issue-to-patch execution was
-  performed by this documentation update. CLI providers remain non-executable
+- No local Codex, Claude, OpenHands, or SWE-agent issue-to-patch execution is
+  implied by the release runner alone. CLI providers remain non-executable
   until commands resolve, version checks pass, execution flags are enabled, and
   the CLI exposes a real workspace-bound patch contract.
-- No GitHub Actions quality workflow was added. The quality gate is intentionally
-  local through `scripts/quality-local.ps1`.
+- No GitHub Actions quality workflow was added. The quality and certification
+  gates are intentionally local through `scripts/quality-local.ps1` and
+  `scripts/release-certify.ps1`.
 - No product fallback was added for missing runtime, missing CLI, missing QA, or
   missing evidence.
 

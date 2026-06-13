@@ -55,6 +55,15 @@ def test_scanner_allows_test_path_references_from_package_scripts(tmp_path: Path
     assert scanner.scan_root(tmp_path) == []
 
 
+def test_scanner_prunes_ignored_and_allowed_directories_before_walk(tmp_path: Path) -> None:
+    scanner = _load_scanner()
+
+    assert scanner._should_prune_directory(tmp_path, tmp_path / "node_modules") is True
+    assert scanner._should_prune_directory(tmp_path, tmp_path / "docs") is True
+    assert scanner._should_prune_directory(tmp_path, tmp_path / "tests_py") is True
+    assert scanner._should_prune_directory(tmp_path, tmp_path / "local_control_center") is False
+
+
 def test_scanner_rejects_hardcoded_available_true_in_runtime_provider(tmp_path: Path) -> None:
     scanner = _load_scanner()
     _write(
@@ -66,6 +75,31 @@ def test_scanner_rejects_hardcoded_available_true_in_runtime_provider(tmp_path: 
 
     assert [violation.rule_id for violation in violations] == ["hardcoded-runtime-available"]
     assert "available=True" in violations[0].message
+
+
+def test_scanner_rejects_quoted_available_true_in_runtime_provider(tmp_path: Path) -> None:
+    scanner = _load_scanner()
+    _write(
+        tmp_path / "local_control_center" / "agents" / "runtime_status.py",
+        "return {'available': True}\n",
+    )
+
+    violations = scanner.scan_root(tmp_path)
+
+    assert [violation.rule_id for violation in violations] == ["hardcoded-runtime-available"]
+
+
+def test_scanner_rejects_hardcoded_available_true_in_mcp_gateway(tmp_path: Path) -> None:
+    scanner = _load_scanner()
+    _write(
+        tmp_path / "local_control_center" / "integrations" / "mcp_gateway.py",
+        "return {'available': True}\n",
+    )
+
+    violations = scanner.scan_root(tmp_path)
+
+    assert [violation.rule_id for violation in violations] == ["hardcoded-runtime-available"]
+    assert violations[0].relative_path == "local_control_center/integrations/mcp_gateway.py"
 
 
 def test_scanner_rejects_shell_true_outside_tests(tmp_path: Path) -> None:

@@ -17,7 +17,7 @@ from local_control_center.agents.providers.anthropic_api import AnthropicAPIProv
 from local_control_center.agents.providers.openai_compatible import OpenAICompatibleProvider
 from local_control_center.security_policy.sandbox import RestrictedSubprocessSandbox
 from local_control_center.security_policy.git_command_runner import git_available, run_git
-from local_control_center.workflows.issue_to_patch_runner import _complete_run_status
+from local_control_center.workflows.issue_to_patch_runner import _status_from_developer_result
 from tests_py.control_plane_fixture import ControlPlaneFixture
 
 
@@ -321,6 +321,163 @@ def test_github_pull_request_config_is_not_required_for_startup(
     response = client.get("/api/v1/workflows")
 
     assert response.status_code == 200
+
+
+def test_workflow_detail_contract_exposes_full_audit_records(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store, client, _headers = create_client(tmp_path, monkeypatch)
+    project = create_project(store, tmp_path, name="Workflow Detail")
+    workflow = store.workflows.create_workflow(
+        project_id=project["id"],
+        kind="issue_to_patch",
+        title="Auditable workflow detail",
+        metadata={"steps": ["implementation", "qa_validation", "technical_review"]},
+    )
+    started = store.workflows.start_workflow(workflow["id"], reason="audit detail")
+    workflow_run = started["workflowRun"]
+    implementation_step = next(step for step in started["workflowSteps"] if step["name"] == "implementation")
+
+    workspace = store.workspaces.allocate_workspace(
+        project_id=project["id"],
+        task_id="workflow-detail",
+        agent_id="developer_agent",
+        workflow_run_id=workflow_run["id"],
+        workflow_step_id=implementation_step["id"],
+    )
+    job_result = store.jobs.create_job(
+        project_id=project["id"],
+        kind="workflow.issue_to_patch",
+        payload={"workflowRunId": workflow_run["id"], "workflowStepId": implementation_step["id"], "command": "issue_to_patch"},
+        workflow_run_id=workflow_run["id"],
+        workflow_step_id=implementation_step["id"],
+    )
+    claimed = store.jobs.claim_next_job(worker_id="workflow-detail-worker")
+    assert claimed is not None
+    job = claimed["job"]
+    job_run = claimed["run"]
+    action_request = store.jobs.create_action_request(
+        job_id=job_result["job"]["id"],
+        project_id=project["id"],
+        action_type="workflow.issue_to_patch.approve_patch",
+        risk_level="medium",
+        command="workflow issue-to-patch approve",
+        payload={"workflowRunId": workflow_run["id"], "workspaceId": workspace["id"], "runtimeId": "codex_cli"},
+        reason="Human review is required before integration.",
+    )
+    profile = store.agents.upsert_agent_profile(
+        {
+            "id": "workflow_detail_agent",
+            "name": "Workflow Detail Agent",
+            "role": "developer",
+            "runtimeMode": "cli",
+            "permissionProfile": "dev_safe",
+            "allowedTools": ["shell"],
+        }
+    )
+    agent_run = store.agents.create_agent_run(
+        project_id=project["id"],
+        agent_profile_id=profile["id"],
+        task_id="workflow-detail",
+        input_payload={"workflowRunId": workflow_run["id"], "workspaceId": workspace["id"]},
+        output_payload={"reason": "Runtime captured diff evidence."},
+        job_id=job["id"],
+        workflow_run_id=workflow_run["id"],
+        workflow_step_id=implementation_step["id"],
+        status="evidence_ready",
+    )
+    decision = store.security.record_decision(
+        project_id=project["id"],
+        workspace_id=workspace["id"],
+        agent_id=profile["id"],
+        role=profile["role"],
+        tool="shell",
+        command="git diff -- src/detail.py",
+        path=workspace["path"],
+        decision="allow",
+        risk_level="medium",
+        reason="Read-only diff capture is allowed.",
+        payload={"workflowRunId": workflow_run["id"], "operation": "developer_agent_runtime"},
+    )
+    tool_call = store.agents.record_agent_tool_call(
+        agent_run_id=agent_run["id"],
+        tool_name="shell",
+        status="completed",
+        payload={"command": "git diff -- src/detail.py", "permissionDecisionId": decision["id"]},
+    )
+    model_call = store.agents.record_model_call(
+        project_id=project["id"],
+        agent_run_id=agent_run["id"],
+        model_policy_id="implementation_default",
+        provider="openai_compatible",
+        model="configured_model",
+        status="completed",
+        prompt_tokens=17,
+        completion_tokens=5,
+        cost_usd=0.0,
+        metadata={"workflowRunId": workflow_run["id"]},
+    )
+    evidence = store.evidence.create_evidence_package(
+        project_id=project["id"],
+        workflow_run_id=workflow_run["id"],
+        workflow_step_id=implementation_step["id"],
+        agent_id=profile["id"],
+        agent_run_id=agent_run["id"],
+        job_id=job["id"],
+        workspace_id=workspace["id"],
+        runtime_id="codex_cli",
+        task_id="workflow-detail",
+        test_plan="Run real local QA.",
+        test_results=[{"command": "uv run pytest tests_py -q", "status": "passed"}],
+        diff_refs=[{"kind": "git_patch", "artifactId": "artifact-workflow-detail", "name": "diff.patch"}],
+        model_calls=[{"id": model_call["id"], "status": model_call["status"]}],
+        tool_calls=[{"id": tool_call["id"], "status": tool_call["status"]}],
+        policy_decisions=[{"id": decision["id"], "decision": decision["decision"]}],
+        approvals=[{"id": action_request["id"], "status": action_request["status"]}],
+        evidence_source="qa_passed_by_command",
+        qa_verdict="needs_human_review",
+    )
+    artifact = store.evidence.create_artifact(
+        project_id=project["id"],
+        evidence_package_id=evidence["id"],
+        kind="git_patch",
+        path=str(tmp_path / "diff.patch"),
+        content_hash="sha256:workflow-detail",
+        metadata={"name": "diff.patch", "workflowRunId": workflow_run["id"]},
+        artifact_id="artifact-workflow-detail",
+    )
+    event = store.workflows.record_workflow_event(
+        workflow_id=workflow["id"],
+        workflow_run_id=workflow_run["id"],
+        project_id=project["id"],
+        step_id=implementation_step["id"],
+        event_type="workflow.run.blocked",
+        payload={"reason": "Human review is required before completion."},
+        severity="warning",
+    )
+
+    response = client.get(f"/api/v1/workflows/{workflow['id']}")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert any(item["id"] == event["id"] for item in body["workflowEvents"])
+    assert any(item["id"] == job_run["id"] for item in body["jobRuns"])
+    assert any(item["id"] == action_request["id"] for item in body["actionRequests"])
+    assert any(item["id"] == tool_call["id"] for item in body["agentToolCalls"])
+    assert any(item["id"] == model_call["id"] for item in body["modelCalls"])
+    assert any(item["id"] == decision["id"] for item in body["permissionDecisions"])
+    assert any(item["id"] == artifact["id"] for item in body["artifacts"])
+    assert any(item["evidencePackageId"] == evidence["id"] for item in body["testResultRecords"])
+    run_detail = body["workflowRunDetails"][0]
+    assert any(item["id"] == event["id"] for item in run_detail["workflowEvents"])
+    assert any(item["id"] == job_run["id"] for item in run_detail["jobRuns"])
+    assert any(item["id"] == action_request["id"] for item in run_detail["actionRequests"])
+    assert any(item["id"] == tool_call["id"] for item in run_detail["agentToolCalls"])
+    assert any(item["id"] == model_call["id"] for item in run_detail["modelCalls"])
+    assert any(item["id"] == decision["id"] for item in run_detail["permissionDecisions"])
+    assert any(item["id"] == artifact["id"] for item in run_detail["artifacts"])
+    assert any(item["evidencePackageId"] == evidence["id"] for item in run_detail["testResultRecords"])
 
 
 def test_runtime_provider_configuration_endpoint_detects_aido_env_without_exposing_values(
@@ -911,12 +1068,13 @@ def test_issue_to_patch_completed_requires_diff_evidence_and_passed_qa(
 
 
 def test_issue_to_patch_cannot_complete_without_qa_results() -> None:
-    final_status, qa_verdict, reason = _complete_run_status(
-        runtime_status="completed",
+    final_status, qa_verdict, reason = _status_from_developer_result(
+        {
+            "status": "evidence_ready",
+            "reason": "QA results are required before DeveloperAgent can complete.",
+            "evidencePackage": {"qaVerdict": "blocked"},
+        },
         require_approval=False,
-        qa_results=[],
-        diff={"nameOnly": ["local_control_center/example.py"]},
-        evidence_created=True,
     )
 
     assert final_status != "completed"
@@ -1637,13 +1795,13 @@ def test_issue_to_patch_real_runtime_completes_only_with_qa_evidence_and_no_revi
     assert package["hashes"]
     artifact_names = {artifact.get("name") for artifact in package["artifacts"]}
     assert {
-        "diff.patch",
-        "git-status.txt",
-        "git-status.json",
-        "qa-results.json",
+        "developer-agent.diff",
+        "developer-agent-evidence.json",
         "security-findings.json",
-        "issue-to-patch-evidence.json",
     } <= artifact_names
+    assert "diff.patch" not in artifact_names
+    assert "issue-to-patch-evidence.json" not in artifact_names
+    assert "qa-results.json" not in artifact_names
     assert all(artifact.get("hash") for artifact in package["artifacts"])
     overview = client.get("/api/v1/overview").json()
     qa_decisions = [decision for decision in overview["permissionDecisions"] if decision["agentId"] == "qa_agent"]
@@ -1687,24 +1845,13 @@ def test_issue_to_patch_real_runtime_with_failing_qa_finishes_qa_failed(
 
 
 def test_issue_to_patch_completed_is_forbidden_without_evidence() -> None:
-    final_status, qa_verdict, reason = _complete_run_status(
-        runtime_status="completed",
+    final_status, qa_verdict, reason = _status_from_developer_result(
+        {
+            "status": "completed",
+            "reason": "DeveloperAgent runtime, diff, QA, and evidence passed.",
+            "evidencePackage": {},
+        },
         require_approval=False,
-        qa_results=[
-            {
-                "status": "passed",
-                "exitCode": 0,
-                "execution": "restricted_subprocess",
-                "toolCallId": "agent-tool-call-1",
-                "artifactHashes": {
-                    "stdoutHash": "stdout-hash",
-                    "stderrHash": "stderr-hash",
-                    "outputArtifactHash": "output-hash",
-                },
-            }
-        ],
-        diff={"nameOnly": ["patched.txt"]},
-        evidence_created=False,
     )
 
     assert final_status != "completed"
@@ -1713,24 +1860,13 @@ def test_issue_to_patch_completed_is_forbidden_without_evidence() -> None:
 
 
 def test_issue_to_patch_completed_requires_valid_evidence_package_contract() -> None:
-    final_status, qa_verdict, reason = _complete_run_status(
-        runtime_status="completed",
+    final_status, qa_verdict, reason = _status_from_developer_result(
+        {
+            "status": "completed",
+            "reason": "DeveloperAgent runtime, diff, QA, and evidence passed.",
+            "evidencePackage": {"id": "evidence-1", "qaVerdict": "passed"},
+        },
         require_approval=False,
-        qa_results=[
-            {
-                "status": "passed",
-                "exitCode": 0,
-                "execution": "restricted_subprocess",
-                "toolCallId": "agent-tool-call-1",
-                "artifactHashes": {
-                    "stdoutHash": "stdout-hash",
-                    "stderrHash": "stderr-hash",
-                    "outputArtifactHash": "output-hash",
-                },
-            }
-        ],
-        diff={"nameOnly": ["patched.txt"], "patchFull": "diff --git a/patched.txt b/patched.txt\n"},
-        evidence_created=True,
         evidence_package_valid=False,
     )
 

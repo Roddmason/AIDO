@@ -29,6 +29,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'reac
 import { useControlPlane } from '../hooks/useControlPlane';
 import { useMotionPreference, usePageMotion } from '../motion/useControlMotion';
 import { createWorkflowWithBody } from '../api/client';
+import type { Overview } from '../api/types';
 import { Badge, DataTable, Drawer, EmptyState, StatusDot } from '../components/primitives';
 import { ActiveProjectsPage } from '../features/active-projects/ActiveProjectsPage';
 import type { Language, ProjectStatusView } from '../features/active-projects/ActiveProjectsPage';
@@ -54,6 +55,11 @@ import {
 import { countByStatus, shortId, toneForStatus } from '../lib/format';
 
 const SELECTED_PROJECT_STORAGE_KEY = 'aido:selectedProjectId';
+
+function sumRecordedCost(rows: Overview['costUsage']) {
+	const amounts = rows.map((row) => Number(row.amountUsd)).filter((amount) => Number.isFinite(amount));
+	return amounts.length ? amounts.reduce((sum, amount) => sum + amount, 0) : null;
+}
 
 const pageIds = [
 	'projects-active',
@@ -295,10 +301,7 @@ export function App() {
 	const runningJobs = overview ? countByStatus(overview.jobs, 'running') : 0;
 	const pendingApprovals = overview?.actionRequests.filter((item) => item.status === 'pending').length ?? 0;
 	const executableRuntimes = state.runtimeProviders?.providers.filter((provider) => provider.executable).length ?? 0;
-	const costToday = useMemo(
-		() => overview?.costUsage.reduce((total, row) => total + Number(row.amountUsd ?? 0), 0) ?? 0,
-		[overview],
-	);
+	const recordedCost = useMemo(() => (overview ? sumRecordedCost(overview.costUsage) : null), [overview]);
 	const filteredEvents = useMemo(() => {
 		const query = eventFilter.trim().toLowerCase();
 		const events = overview?.events ?? [];
@@ -469,7 +472,7 @@ export function App() {
 			case 'workflows':
 				return <WorkflowsPage overview={overview} token={state.token} />;
 			case 'jobs':
-				return <JobsApprovalsPage overview={overview} token={state.token} mutate={state.mutate} />;
+				return <JobsApprovalsPage overview={overview} token={state.token} mutate={state.mutate} refresh={state.refresh} />;
 			case 'agents':
 				return <AgentsPage overview={overview} runtimeProviders={state.runtimeProviders} mutate={state.mutate} />;
 			case 'workspaces':
@@ -550,7 +553,11 @@ export function App() {
 							</div>
 							<Badge tone={pendingApprovals ? 'warn' : 'ok'}>{pendingApprovals} {t('app.global.approvals', 'approvals')}</Badge>
 							<Badge tone={runningJobs ? 'warn' : 'ok'}>{runningJobs} {t('app.global.running', 'running')}</Badge>
-							<Badge>{costToday.toFixed(2)} {t('app.global.usdToday', 'USD today')}</Badge>
+							<Badge>
+								{recordedCost === null
+									? t('app.global.costUnavailable', 'cost unavailable')
+									: `${recordedCost.toFixed(2)} ${t('app.global.recordedUsd', 'recorded USD')}`}
+							</Badge>
 							<button className="button" type="button" onClick={() => setCommandPaletteOpen(true)}>
 								{t('app.global.openCommandPalette', 'Open command palette')}
 							</button>

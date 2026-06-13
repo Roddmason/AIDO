@@ -31,9 +31,11 @@ import type {
 } from '../api/types';
 import { Badge, DataTable, Drawer, EmptyState, PageHeader, Surface } from '../components/primitives';
 import { artifactDisplayName, artifactMimeType, artifactSizeLabel } from '../lib/artifacts';
+import { findPatchArtifact, hasRealPatchChanges } from '../lib/diff';
 import { toneForStatus } from '../lib/format';
+import { redactVisibleText } from '../lib/redaction';
 
-type Mutate = <T>(operation: (token: string) => Promise<T>) => Promise<T>;
+type Mutate = <T>(operation: (token: string) => Promise<T>, options?: { awaitRefresh?: boolean }) => Promise<T>;
 
 const issueQaPresets = [
 	{ id: 'none', label: 'No QA command', commands: [] as string[][] },
@@ -62,6 +64,32 @@ function activeProjects(projects: Project[]) {
 
 function objectRecord(value: unknown) {
 	return value && typeof value === 'object' ? (value as Record<string, unknown>) : undefined;
+}
+
+function money(value: unknown) {
+	if (value === null || value === undefined || value === '') return 'unknown';
+	const amount = Number(value);
+	return Number.isFinite(amount) ? `$${amount.toFixed(4)}` : 'unknown';
+}
+
+function sumRecordedCost(rows: Overview['costUsage']) {
+	const amounts = rows.map((row) => Number(row.amountUsd)).filter((amount) => Number.isFinite(amount));
+	return amounts.length ? amounts.reduce((sum, amount) => sum + amount, 0) : null;
+}
+
+function recordTimestamp(record: { updatedAt?: string; createdAt?: string }) {
+	const parsed = Date.parse(String(record.updatedAt ?? record.createdAt ?? ''));
+	return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+function upsertNewestById<T extends { id: string; updatedAt?: string; createdAt?: string }>(records: T[], incoming: T) {
+	const existing = records.find((record) => record.id === incoming.id);
+	if (existing && recordTimestamp(existing) > recordTimestamp(incoming)) return records;
+	return existing ? records.map((record) => (record.id === incoming.id ? incoming : record)) : [incoming, ...records];
+}
+
+function mergeNewestById<T extends { id: string; updatedAt?: string; createdAt?: string }>(current: T[], incoming: T[]) {
+	return incoming.reduce((merged, record) => upsertNewestById(merged, record), current);
 }
 
 function buildIssueTimeline(result: IssueToPatchResponse | null, issueBusy: boolean, hasExecutableRuntime: boolean) {
@@ -408,7 +436,9 @@ export function WorkspacesPage({ overview }: { overview: Overview }) {
 }
 
 export function PolicySecurityPage({ overview, mutate }: { overview: Overview; mutate: Mutate }) {
-	const defaultProfile = String(overview.sandboxProfiles[0]?.id ?? 'default_docker');
+	const [sandboxProfiles, setSandboxProfiles] = useState(overview.sandboxProfiles);
+	const [policyRevisions, setPolicyRevisions] = useState(overview.policyRevisions);
+	const defaultProfile = String(sandboxProfiles[0]?.id ?? 'default_docker');
 	const [profileId, setProfileId] = useState(defaultProfile);
 	const [selectedRevision, setSelectedRevision] = useState<PolicyRevision | null>(null);
 	const [sandboxReason, setSandboxReason] = useState('');
@@ -417,7 +447,34 @@ export function PolicySecurityPage({ overview, mutate }: { overview: Overview; m
 	const [sandboxCpus, setSandboxCpus] = useState('1');
 	const [sandboxTimeout, setSandboxTimeout] = useState('120');
 	const [error, setError] = useState('');
-	const saveSandboxProfile = () => {
+	const [busy, setBusy] = useState(false);
+	useEffect(() => {
+		setSandboxProfiles((current) => {
+			const merged = new Map(current.map((profile) => [String(profile.id), profile]));
+			for (const profile of overview.sandboxProfiles) {
+				const existing = merged.get(String(profile.id));
+				const incomingTime = Date.parse(String(profile.updatedAt ?? ''));
+				const existingTime = Date.parse(String(existing?.updatedAt ?? ''));
+				if (!existing || Number.isNaN(existingTime) || (!Number.isNaN(incomingTime) && incomingTime >= existingTime)) {
+					merged.set(String(profile.id), profile);
+				}
+			}
+			return Array.from(merged.values());
+		});
+		setPolicyRevisions((current) => {
+			const merged = new Map(current.map((revision) => [String(revision.id), revision]));
+			for (const revision of overview.policyRevisions) {
+				merged.set(String(revision.id), revision);
+			}
+			return Array.from(merged.values());
+		});
+	}, [overview.policyRevisions, overview.sandboxProfiles]);
+	useEffect(() => {
+		if (!sandboxProfiles.some((profile) => String(profile.id) === profileId)) {
+			setProfileId(String(sandboxProfiles[0]?.id ?? 'default_docker'));
+		}
+	}, [profileId, sandboxProfiles]);
+	const saveSandboxProfile = async () => {
 		if (!sandboxReason.trim()) {
 			setError('Sandbox update reason is required.');
 			return;
@@ -432,18 +489,36 @@ export function PolicySecurityPage({ overview, mutate }: { overview: Overview; m
 			return;
 		}
 		setError('');
-		void mutate((token) =>
-			updateSandboxProfile(token, profileId, {
-				reason: sandboxReason.trim(),
-				allowedImages: [sandboxImage.trim()],
-				allowedNetworks: ['none'],
-				defaultNetwork: 'none',
-				memory: sandboxMemory.trim(),
-				cpus: sandboxCpus.trim(),
-				timeoutSeconds,
-				status: 'active',
-			}),
-		);
+		setBusy(true);
+		try {
+			const result = await mutate((token) =>
+				updateSandboxProfile(token, profileId, {
+					reason: sandboxReason.trim(),
+					allowedImages: [sandboxImage.trim()],
+					allowedNetworks: ['none'],
+					defaultNetwork: 'none',
+					memory: sandboxMemory.trim(),
+					cpus: sandboxCpus.trim(),
+					timeoutSeconds,
+					status: 'active',
+				}),
+				{ awaitRefresh: false },
+			);
+			setSandboxProfiles((current) => {
+				const updated = result.sandboxProfile;
+				return current.some((profile) => profile.id === updated.id)
+					? current.map((profile) => (profile.id === updated.id ? updated : profile))
+					: [updated, ...current];
+			});
+			const revision = result.policyRevision;
+			if (revision) {
+				setPolicyRevisions((current) => [revision, ...current.filter((item) => item.id !== revision.id)]);
+			}
+		} catch (saveError) {
+			setError(saveError instanceof Error ? saveError.message : 'Sandbox profile update failed.');
+		} finally {
+			setBusy(false);
+		}
 	};
 	return (
 		<>
@@ -454,7 +529,7 @@ export function PolicySecurityPage({ overview, mutate }: { overview: Overview; m
 						<div className="field">
 							<label htmlFor="sandbox-profile">Sandbox profile</label>
 							<select id="sandbox-profile" className="select" value={profileId} onChange={(event) => setProfileId(event.target.value)}>
-								{overview.sandboxProfiles.map((profile) => (
+								{sandboxProfiles.map((profile) => (
 									<option key={String(profile.id)} value={String(profile.id)}>{String(profile.id)}</option>
 								))}
 							</select>
@@ -480,7 +555,7 @@ export function PolicySecurityPage({ overview, mutate }: { overview: Overview; m
 							<input id="sandbox-timeout" className="input" type="number" min="1" max="900" value={sandboxTimeout} onChange={(event) => setSandboxTimeout(event.target.value)} />
 						</div>
 						{error ? <div className="form-error" role="alert">{error}</div> : null}
-						<button className="button primary" type="button" onClick={saveSandboxProfile}>Save sandbox profile</button>
+						<button className="button primary" type="button" disabled={busy} onClick={() => { void saveSandboxProfile(); }}>Save sandbox profile</button>
 					</div>
 				</Surface>
 				<Surface title="Policy decisions">
@@ -491,7 +566,7 @@ export function PolicySecurityPage({ overview, mutate }: { overview: Overview; m
 					]} />
 				</Surface>
 				<Surface title="Policy revisions">
-					<DataTable rows={overview.policyRevisions} empty={<EmptyState title="No revisions" body="Policy and sandbox changes will create explicit revision records." />} columns={[
+					<DataTable rows={policyRevisions} empty={<EmptyState title="No revisions" body="Policy and sandbox changes will create explicit revision records." />} columns={[
 						{ key: 'subject', label: 'Subject', render: (row) => <span className="mono">{String(row.subjectId ?? '')}</span> },
 						{ key: 'version', label: 'Version', render: (row) => <Badge>v{String(row.version ?? '')}</Badge> },
 						{ key: 'fields', label: 'Changed', render: (row) => Array.isArray(row.changedFields) ? row.changedFields.join(', ') : '' },
@@ -519,7 +594,7 @@ export function PolicySecurityPage({ overview, mutate }: { overview: Overview; m
 					]} />
 				</Surface>
 				<Surface title="Sandbox profiles">
-					<DataTable rows={overview.sandboxProfiles} empty={<EmptyState title="No profiles" body="Docker sandbox catalog and resource limits appear here." />} columns={[
+					<DataTable rows={sandboxProfiles} empty={<EmptyState title="No profiles" body="Docker sandbox catalog and resource limits appear here." />} columns={[
 						{ key: 'id', label: 'Profile', render: (row) => <span className="mono">{String(row.id ?? '')}</span> },
 						{ key: 'status', label: 'Status', render: (row) => <Badge tone={toneForStatus(String(row.status ?? ''))}>{String(row.status ?? '')}</Badge> },
 						{ key: 'images', label: 'Images', render: (row) => Array.isArray(row.allowedImages) ? row.allowedImages.length : 0 },
@@ -580,13 +655,21 @@ export function PolicySecurityPage({ overview, mutate }: { overview: Overview; m
 }
 
 export function MemoryPage({ overview, retrievalStatus }: { overview: Overview; retrievalStatus: RetrievalStatus | null }) {
+	const retrievalPosture = retrievalStatus
+		? retrievalStatus.available
+			? retrievalStatus.degraded
+				? 'index degraded'
+				: 'available'
+			: retrievalStatus.status
+		: 'unknown';
+
 	return (
 		<>
 			<PageHeader kicker="Semantic context" title="Memory & Retrieval" summary="SQLite is canonical. FAISS, NumPy and future vector stores are rebuildable indexes, not source of truth." />
 			<div className="grid two">
 				<Surface title="Retrieval backend">
 					<div className="metric-value">{String(retrievalStatus?.backend ?? 'unknown')}</div>
-					<div className="metric-label">{String(retrievalStatus?.degraded ? 'degraded fallback' : 'operational')}</div>
+					<div className="metric-label">{retrievalPosture}</div>
 				</Surface>
 				<Surface title="Memory items">
 					<div className="metric-value">{overview.memoryItems.length}</div>
@@ -599,25 +682,6 @@ export function MemoryPage({ overview, retrievalStatus }: { overview: Overview; 
 
 type EvidencePackage = EvidenceDetailResponse['evidencePackage'];
 
-function redactVisibleText(value: unknown, fallback = 'not recorded') {
-	const raw = typeof value === 'string'
-		? value
-		: value === undefined || value === null
-			? fallback
-			: JSON.stringify(value, null, 2);
-	return raw
-		.replace(/\bBearer\s+[A-Za-z0-9._~+/=-]{8,}/gi, '[redacted]')
-		.replace(/\bsk-[A-Za-z0-9_-]{8,}/gi, '[redacted]')
-		.replace(/\bghp_[A-Za-z0-9_]{12,}/gi, '[redacted]')
-		.replace(/\bgithub_pat_[A-Za-z0-9_]{20,}/gi, '[redacted]')
-		.replace(/\bglpat-[A-Za-z0-9_-]{12,}/gi, '[redacted]')
-		.replace(/\bxox[baprs]-[A-Za-z0-9-]{10,}/gi, '[redacted]')
-		.replace(/\bAKIA[0-9A-Z]{16}\b/g, '[redacted]')
-		.replace(/(["']?(?:api[_-]?key|authorization|credential|secret|token|password|client[_-]?secret|clientSecret|private[_-]?key|privateKey|OPENAI_API_KEY)["']?\s*[:=]\s*["']?)[^"',\s}]+(["']?)/gi, '$1[redacted]$2')
-		.replace(/([?&](?:api[_-]?key|token|secret)=)[^&\s"]+/gi, '$1[redacted]')
-		.replace(/\b(?:api[_-]?key|authorization|credential|secret|token|password|client[_-]?secret|clientSecret|private[_-]?key|privateKey|OPENAI_API_KEY)\s*[:=]\s*"?[^",\s}]+/gi, '[redacted]');
-}
-
 function redactedJson(value: unknown, fallback = '[]') {
 	return redactVisibleText(value, fallback);
 }
@@ -626,36 +690,12 @@ function artifactNameLower(artifact: Artifact) {
 	return artifactDisplayName(artifact).toLowerCase();
 }
 
-function findPatchArtifact(artifacts: Artifact[]) {
-	return artifacts.find((artifact) => {
-		const name = artifactNameLower(artifact);
-		const kind = String(artifact.kind ?? '').toLowerCase();
-		return name === 'diff.patch' || name.endsWith('.patch') || kind.includes('patch');
-	}) ?? null;
-}
-
 function findSecurityArtifact(artifacts: Artifact[]) {
 	return artifacts.find((artifact) => {
 		const name = artifactNameLower(artifact);
 		const kind = String(artifact.kind ?? '').toLowerCase();
 		return name === 'security-findings.json' || (name.includes('security') && name.includes('finding')) || kind.includes('security');
 	}) ?? null;
-}
-
-function hasRealPatchChanges(text: string) {
-	const trimmed = text.trim();
-	if (!trimmed) return false;
-	let inHunk = false;
-	for (const line of trimmed.split(/\r?\n/)) {
-		if (line.startsWith('diff --git')) inHunk = false;
-		if (line.startsWith('@@')) {
-			inHunk = true;
-			continue;
-		}
-		if (!inHunk) continue;
-		if ((line.startsWith('+') && !line.startsWith('+++')) || (line.startsWith('-') && !line.startsWith('---'))) return true;
-	}
-	return false;
 }
 
 function evidenceDiffChangedFiles(evidence: EvidencePackage | null) {
@@ -1027,7 +1067,7 @@ export function ModelGatewayPage({
 	runtimeProviders: RuntimeProviders | null;
 	mutate: Mutate;
 }) {
-	const totalCost = overview.costUsage.reduce((sum, row) => sum + Number(row.amountUsd ?? 0), 0);
+	const totalCost = sumRecordedCost(overview.costUsage);
 	const [policyId, setPolicyId] = useState('implementation_default');
 	const [policyName, setPolicyName] = useState('Implementation Default');
 	const [provider, setProvider] = useState('ollama');
@@ -1193,13 +1233,13 @@ export function ModelGatewayPage({
 					<button className="button primary" type="button" onClick={savePolicy}>Save model policy</button>
 				</Surface>
 				<Surface title="Cost ledger">
-					<div className="metric-value">${totalCost.toFixed(4)}</div>
+					<div className="metric-value">{money(totalCost)}</div>
 					<div className="metric-label">recorded model usage</div>
 				</Surface>
 				<Surface title="Model policies">
 					<DataTable rows={overview.modelPolicies} empty={<EmptyState title="No model policies" body="Model policies define allowed providers, fallback chains and budgets." />} columns={[
 						{ key: 'id', label: 'Policy', render: (row) => <span className="mono">{String(row.id ?? '')}</span> },
-						{ key: 'budget', label: 'Budget', render: (row) => `$${Number(row.maxCostUsd ?? 0).toFixed(2)}` },
+						{ key: 'budget', label: 'Budget', render: (row) => money(row.maxCostUsd) },
 						{ key: 'remote', label: 'Remote', render: (row) => (row.allowRemote ? 'allowed' : 'blocked') },
 					]} />
 				</Surface>
@@ -1209,7 +1249,7 @@ export function ModelGatewayPage({
 					{ key: 'provider', label: 'Provider', render: (row) => <span className="mono">{String(row.provider ?? '')}</span> },
 					{ key: 'model', label: 'Model', render: (row) => <span className="mono">{String(row.model ?? '')}</span> },
 					{ key: 'status', label: 'Status', render: (row) => <Badge tone={toneForStatus(String(row.status ?? ''))}>{String(row.status ?? '')}</Badge> },
-					{ key: 'cost', label: 'Cost', render: (row) => `$${Number(row.costUsd ?? 0).toFixed(4)}` },
+					{ key: 'cost', label: 'Cost', render: (row) => money(row.costUsd) },
 				]} />
 			</Surface>
 		</>
@@ -1218,6 +1258,9 @@ export function ModelGatewayPage({
 
 export function GovernancePage({ overview, selectedProject, mutate }: { overview: Overview; selectedProject: Project | null; mutate: Mutate }) {
 	const project = selectedProject;
+	const [riskRows, setRiskRows] = useState(overview.riskRegister);
+	const [decisionRows, setDecisionRows] = useState(overview.architectureDecisions);
+	const [nextStepRows, setNextStepRows] = useState(overview.nextSteps);
 	const [riskTitle, setRiskTitle] = useState('');
 	const [riskSeverity, setRiskSeverity] = useState<RiskSeverity>('medium');
 	const [riskMitigation, setRiskMitigation] = useState('');
@@ -1232,22 +1275,28 @@ export function GovernancePage({ overview, selectedProject, mutate }: { overview
 	const [riskUpdateId, setRiskUpdateId] = useState('');
 	const [riskUpdateStatus, setRiskUpdateStatus] = useState<RiskStatus>('monitoring');
 	const [error, setError] = useState('');
+	const [busy, setBusy] = useState(false);
 	const query = governanceFilter.trim().toLowerCase();
 	const matchesQuery = (...values: Array<string | null | undefined>) =>
 		!query || values.some((value) => String(value ?? '').toLowerCase().includes(query));
-	const filteredRisks = overview.riskRegister.filter(
+	const filteredRisks = riskRows.filter(
 		(risk) =>
 			(riskStatusFilter === 'all' || risk.status === riskStatusFilter) &&
 			matchesQuery(risk.title, risk.severity, risk.status, risk.owner, risk.mitigation),
 	);
-	const filteredDecisions = overview.architectureDecisions.filter((decision) =>
+	const filteredDecisions = decisionRows.filter((decision) =>
 		matchesQuery(decision.title, decision.status, decision.context, decision.decision),
 	);
-	const filteredNextSteps = overview.nextSteps.filter((step) =>
+	const filteredNextSteps = nextStepRows.filter((step) =>
 		matchesQuery(step.title, step.priority, step.status, step.owner),
 	);
-	const selectedRiskId = riskUpdateId || overview.riskRegister[0]?.id || '';
-	const saveRisk = () => {
+	const selectedRiskId = riskUpdateId || riskRows[0]?.id || '';
+	useEffect(() => {
+		setRiskRows((current) => mergeNewestById(current, overview.riskRegister));
+		setDecisionRows((current) => mergeNewestById(current, overview.architectureDecisions));
+		setNextStepRows((current) => mergeNewestById(current, overview.nextSteps));
+	}, [overview.architectureDecisions, overview.nextSteps, overview.riskRegister]);
+	const saveRisk = async () => {
 		if (!riskTitle.trim()) {
 			setError('Risk title is required.');
 			return;
@@ -1261,26 +1310,43 @@ export function GovernancePage({ overview, selectedProject, mutate }: { overview
 			return;
 		}
 		setError('');
-		void mutate((token) =>
-			createRisk(token, {
-				projectId: project.id,
-				title: riskTitle.trim(),
-				severity: riskSeverity,
-				status: 'open',
-				mitigation: riskMitigation.trim(),
-				owner: 'technical_lead',
-			}),
-		);
+		setBusy(true);
+		try {
+			const result = await mutate((token) =>
+				createRisk(token, {
+					projectId: project.id,
+					title: riskTitle.trim(),
+					severity: riskSeverity,
+					status: 'open',
+					mitigation: riskMitigation.trim(),
+					owner: 'technical_lead',
+				}),
+				{ awaitRefresh: false },
+			);
+			setRiskRows((current) => upsertNewestById(current, result.risk));
+		} catch (saveError) {
+			setError(saveError instanceof Error ? saveError.message : 'Risk creation failed.');
+		} finally {
+			setBusy(false);
+		}
 	};
-	const saveRiskUpdate = () => {
+	const saveRiskUpdate = async () => {
 		if (!selectedRiskId) {
 			setError('A risk is required before updating status.');
 			return;
 		}
 		setError('');
-		void mutate((token) => updateRisk(token, selectedRiskId, { status: riskUpdateStatus }));
+		setBusy(true);
+		try {
+			const result = await mutate((token) => updateRisk(token, selectedRiskId, { status: riskUpdateStatus }), { awaitRefresh: false });
+			setRiskRows((current) => upsertNewestById(current, result.risk));
+		} catch (saveError) {
+			setError(saveError instanceof Error ? saveError.message : 'Risk update failed.');
+		} finally {
+			setBusy(false);
+		}
 	};
-	const saveDecision = () => {
+	const saveDecision = async () => {
 		if (!decisionTitle.trim()) {
 			setError('Decision title is required.');
 			return;
@@ -1294,18 +1360,27 @@ export function GovernancePage({ overview, selectedProject, mutate }: { overview
 			return;
 		}
 		setError('');
-		void mutate((token) =>
-			createArchitectureDecision(token, {
-				projectId: project.id,
-				title: decisionTitle.trim(),
-				status: decisionStatus,
-				context: decisionContext.trim(),
-				decision: decisionText.trim(),
-				consequences: [],
-			}),
-		);
+		setBusy(true);
+		try {
+			const result = await mutate((token) =>
+				createArchitectureDecision(token, {
+					projectId: project.id,
+					title: decisionTitle.trim(),
+					status: decisionStatus,
+					context: decisionContext.trim(),
+					decision: decisionText.trim(),
+					consequences: [],
+				}),
+				{ awaitRefresh: false },
+			);
+			setDecisionRows((current) => upsertNewestById(current, result.architectureDecision));
+		} catch (saveError) {
+			setError(saveError instanceof Error ? saveError.message : 'Decision creation failed.');
+		} finally {
+			setBusy(false);
+		}
 	};
-	const saveNextStep = () => {
+	const saveNextStep = async () => {
 		if (!nextStepTitle.trim()) {
 			setError('Next step title is required.');
 			return;
@@ -1315,23 +1390,32 @@ export function GovernancePage({ overview, selectedProject, mutate }: { overview
 			return;
 		}
 		setError('');
-		void mutate((token) =>
-			createNextStep(token, {
-				projectId: project.id,
-				title: nextStepTitle.trim(),
-				priority: nextStepPriority,
-				status: 'planned',
-				owner: 'technical_lead',
-			}),
-		);
+		setBusy(true);
+		try {
+			const result = await mutate((token) =>
+				createNextStep(token, {
+					projectId: project.id,
+					title: nextStepTitle.trim(),
+					priority: nextStepPriority,
+					status: 'planned',
+					owner: 'technical_lead',
+				}),
+				{ awaitRefresh: false },
+			);
+			setNextStepRows((current) => upsertNewestById(current, result.nextStep));
+		} catch (saveError) {
+			setError(saveError instanceof Error ? saveError.message : 'Next step creation failed.');
+		} finally {
+			setBusy(false);
+		}
 	};
 	return (
 		<>
 			<PageHeader kicker="Engineering judgement" title="Governance" summary="Risks, decisions and next steps are operational records, not comments buried in chat." />
 			<div className="grid three">
-				<Surface title="Risks"><div className="metric-value">{overview.riskRegister.length}</div></Surface>
-				<Surface title="Decisions"><div className="metric-value">{overview.architectureDecisions.length}</div></Surface>
-				<Surface title="Next steps"><div className="metric-value">{overview.nextSteps.length}</div></Surface>
+				<Surface title="Risks"><div className="metric-value">{riskRows.length}</div></Surface>
+				<Surface title="Decisions"><div className="metric-value">{decisionRows.length}</div></Surface>
+				<Surface title="Next steps"><div className="metric-value">{nextStepRows.length}</div></Surface>
 			</div>
 			<Surface title="Strict record forms">
 				<div className="inline">
@@ -1357,7 +1441,7 @@ export function GovernancePage({ overview, selectedProject, mutate }: { overview
 							<label htmlFor="risk-mitigation">Risk mitigation</label>
 							<input id="risk-mitigation" className="input" value={riskMitigation} onChange={(event) => setRiskMitigation(event.target.value)} />
 						</div>
-						<button className="button primary" type="button" onClick={saveRisk}>Save risk</button>
+						<button className="button primary" type="button" disabled={busy} onClick={() => { void saveRisk(); }}>Save risk</button>
 					</div>
 					<div className="form-grid">
 						<div className="field">
@@ -1382,7 +1466,7 @@ export function GovernancePage({ overview, selectedProject, mutate }: { overview
 							<label htmlFor="decision-text">Decision text</label>
 							<input id="decision-text" className="input" value={decisionText} onChange={(event) => setDecisionText(event.target.value)} />
 						</div>
-						<button className="button primary" type="button" onClick={saveDecision}>Save decision</button>
+						<button className="button primary" type="button" disabled={busy} onClick={() => { void saveDecision(); }}>Save decision</button>
 					</div>
 					<div className="form-grid">
 						<div className="field">
@@ -1398,7 +1482,7 @@ export function GovernancePage({ overview, selectedProject, mutate }: { overview
 								<option value="urgent">urgent</option>
 							</select>
 						</div>
-						<button className="button primary" type="button" onClick={saveNextStep}>Save next step</button>
+						<button className="button primary" type="button" disabled={busy} onClick={() => { void saveNextStep(); }}>Save next step</button>
 					</div>
 				</div>
 				{error ? <div className="form-error" role="alert">{error}</div> : null}
@@ -1443,10 +1527,10 @@ export function GovernancePage({ overview, selectedProject, mutate }: { overview
 								id="risk-update-id"
 								className="select"
 								value={selectedRiskId}
-								disabled={!overview.riskRegister.length}
+								disabled={!riskRows.length}
 								onChange={(event) => setRiskUpdateId(event.target.value)}
 							>
-								{overview.riskRegister.map((risk) => (
+								{riskRows.map((risk) => (
 									<option key={risk.id} value={risk.id}>{risk.title}</option>
 								))}
 							</select>
@@ -1467,7 +1551,7 @@ export function GovernancePage({ overview, selectedProject, mutate }: { overview
 								<option value="closed">closed</option>
 							</select>
 						</div>
-						<button className="button primary" type="button" disabled={!selectedRiskId} onClick={saveRiskUpdate}>Update risk status</button>
+						<button className="button primary" type="button" disabled={!selectedRiskId || busy} onClick={() => { void saveRiskUpdate(); }}>Update risk status</button>
 					</div>
 				</Surface>
 			</div>
@@ -1497,11 +1581,16 @@ export function GovernancePage({ overview, selectedProject, mutate }: { overview
 }
 
 export function IntegrationsPage({ overview, mutate }: { overview: Overview; mutate: Mutate }) {
+	const [mcpServers, setMcpServers] = useState(overview.mcpServers);
 	const [serverId, setServerId] = useState('mcp_local');
-	const [command, setCommand] = useState('python -m local_mcp_server');
+	const [command, setCommand] = useState('');
 	const [transport, setTransport] = useState<McpTransport>('stdio');
 	const [error, setError] = useState('');
-	const registerServer = () => {
+	const [busy, setBusy] = useState(false);
+	useEffect(() => {
+		setMcpServers((current) => mergeNewestById(current, overview.mcpServers));
+	}, [overview.mcpServers]);
+	const registerServer = async () => {
 		if (!/^[a-z0-9][a-z0-9_-]{2,63}$/.test(serverId)) {
 			setError('MCP server id must use lowercase letters, numbers, dashes or underscores.');
 			return;
@@ -1515,7 +1604,18 @@ export function IntegrationsPage({ overview, mutate }: { overview: Overview; mut
 			return;
 		}
 		setError('');
-		void mutate((token) => registerMcpServer(token, { id: serverId, command: command.trim(), transport, metadata: { source: 'integrations_form' } }));
+		setBusy(true);
+		try {
+			const result = await mutate(
+				(token) => registerMcpServer(token, { id: serverId, command: command.trim(), transport, metadata: { source: 'integrations_form' } }),
+				{ awaitRefresh: false },
+			);
+			setMcpServers((current) => upsertNewestById(current, result.mcpServer));
+		} catch (registerError) {
+			setError(registerError instanceof Error ? registerError.message : 'MCP registration failed.');
+		} finally {
+			setBusy(false);
+		}
 	};
 	return (
 		<>
@@ -1529,7 +1629,7 @@ export function IntegrationsPage({ overview, mutate }: { overview: Overview; mut
 						</div>
 						<div className="field">
 							<label htmlFor="mcp-command">MCP command</label>
-							<input id="mcp-command" className="input" value={command} onChange={(event) => setCommand(event.target.value)} />
+							<input id="mcp-command" className="input" value={command} placeholder="Installed MCP server command" onChange={(event) => setCommand(event.target.value)} />
 							<div className="field-help">Stored as argv-style config; execution still goes through broker, policy and sandbox.</div>
 						</div>
 						<div className="field">
@@ -1539,11 +1639,11 @@ export function IntegrationsPage({ overview, mutate }: { overview: Overview; mut
 							</select>
 						</div>
 						{error ? <div className="form-error" role="alert">{error}</div> : null}
-						<button className="button primary" type="button" onClick={registerServer}>Register MCP server</button>
+						<button className="button primary" type="button" onClick={() => { void registerServer(); }} disabled={busy}>{busy ? 'Registering MCP server' : 'Register MCP server'}</button>
 					</div>
 				</Surface>
 				<Surface title="Registered MCP servers">
-					<DataTable rows={overview.mcpServers} empty={<EmptyState title="No MCP servers" body="Register local stdio MCP servers before runtime adapters can call them." />} columns={[
+					<DataTable rows={mcpServers} empty={<EmptyState title="No MCP servers" body="Register local stdio MCP servers before runtime adapters can call them." />} columns={[
 						{ key: 'id', label: 'Server', render: (row) => <span className="mono">{String(row.id ?? '')}</span> },
 						{ key: 'transport', label: 'Transport', render: (row) => String(row.transport ?? '') },
 						{ key: 'status', label: 'Status', render: (row) => <Badge tone={toneForStatus(String(row.status ?? ''))}>{String(row.status ?? '')}</Badge> },

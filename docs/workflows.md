@@ -138,6 +138,21 @@ The PR body is generated from audited evidence and includes the approved and
 promotion evidence package ids, promotion QA summary, security findings,
 artifact hashes, and approval/request reasons.
 
+`issue_to_pr` uses the same post-approval contract after its multi-agent DAG
+has produced aggregate evidence. Its approval action is
+`workflow.issue_to_pr.approve_issue_to_pr`, and callers must use
+`POST /api/v1/workflows/issue-to-pr/{runId}/approve` to move the run to
+`approved_for_integration`. Branch promotion and PR creation remain explicit
+follow-up commands through `/promote` and `/pull-request`; missing GitHub
+configuration returns `pr_unavailable` instead of a synthetic PR.
+
+The Workflows UI must keep those post-approval states visible in the run
+timeline. `approved_for_integration`, `promoted_to_branch`, `pr_created`,
+`pr_unavailable`, `pr_failed`, and `promotion_failed` are rendered from workflow
+events or audit events instead of inferred in the client. Approval is therefore
+observable as an operational state change, not just as an invisible permission
+grant.
+
 ## PR, Release And Retro Gates
 
 The `pr_release_retro` kind and declared `metadata.steps` support controlled
@@ -172,8 +187,16 @@ Gate advancement is explicit:
 Workspace allocation can carry `workflowRunId` and `workflowStepId`. Evidence
 packages carry `workflowRunId`, `workflowStepId`, `jobId`, `agentRunId`,
 `workspaceId`, `runtimeId`, `artifactIds`, and `diffSummary`. `GET
-/api/v1/workflows/{id}` aggregates these links so the UI can inspect a workflow
-without inventing client-side joins.
+/api/v1/workflows/{id}` aggregates these links with job runs/leases, action
+requests, tool calls, model calls, permission decisions, artifacts, test
+results, and workflow events so the UI can inspect a workflow without inventing
+client-side joins.
+
+The workflow detail view is the operator audit surface. It shows linked steps,
+jobs, leases, agents, tool calls, model calls, QA, security/policy decisions,
+evidence, approvals, and artifacts; lists what is still missing before the run
+can be completed; renders blockers with their technical reason; and links to
+diff, evidence, and PR records only when those records exist.
 
 ## Testing
 
@@ -189,5 +212,6 @@ uv run pytest tests_py/test_workflow_pr_release_retro_control.py tests_py/test_p
 | --- | --- | --- | --- | --- |
 | Workflow CRUD/run control | Implemented for create/list/get/start/pause/resume/cancel and step advance. | `/api/v1/workflows`, `/api/v1/workflows/{id}`, Workflows UI. | Workflow control tests. | Workflows are local control-plane records; distributed durable execution is not part of the local MVP. |
 | `issue_to_patch` | Implemented as real fail-closed workflow gates around the canonical `DeveloperAgentRunner`, plus explicit reviewed-patch and branch-promotion transitions. | `POST /api/v1/workflows/issue-to-patch`, `POST /api/v1/workflows/issue-to-patch/{runId}/approve`, `POST /api/v1/workflows/issue-to-patch/{runId}/promote`, Command Center, Jobs & Approvals, Workflows UI. | `tests_py/test_aido_real_runtime_slice.py`, web Command Center tests. | Completion requires DeveloperAgent runtime readiness, Git worktree, real diff, passed QA evidence, evidence package, and no pending approval. Human review moves to `approved_for_integration`; branch promotion re-verifies SHA-256 and QA before `promoted_to_branch`. |
+| `issue_to_pr` | Implemented as a real multi-agent DAG with aggregate evidence, explicit human approval, branch promotion, and PR creation transitions. | `POST /api/v1/workflows/issue-to-pr`, `POST /api/v1/workflows/issue-to-pr/{runId}/approve`, `POST /api/v1/workflows/issue-to-pr/{runId}/promote`, `POST /api/v1/workflows/issue-to-pr/{runId}/pull-request`, Jobs & Approvals, Workflows UI. | `tests_py/test_aido_real_runtime_slice.py`, Jobs & Approvals web tests. | The UI must not treat the approved action request as final. It must call the workflow transition endpoint and show `approved_for_integration`, `promoted_to_branch`, `pr_created`, `pr_unavailable`, or failure states returned by the backend. |
 | PR/release/retro gates | Implemented as auditable control gates. | Workflow step advance endpoint, Workflows UI. | `tests_py/test_workflow_pr_release_retro_control.py`. | These gates do not deploy or mutate protected branches. |
-| Workflow traceability | Implemented by joining workflow runs with workspaces, jobs, agent runs, evidence, tool calls, policy decisions, and approvals. | `GET /api/v1/workflows/{id}`, overview/workflow inspectors. | Traceability and frontend tests. | Traceability depends on linked records produced by actual executions; missing execution remains visible as blocked state. |
+| Workflow traceability | Implemented by joining workflow runs with workspaces, jobs, job runs/leases, agent runs, evidence, tool calls, model calls, policy decisions, approvals, artifacts, test results, and workflow events. | `GET /api/v1/workflows/{id}`, overview/workflow inspectors. | Traceability and frontend tests. | Traceability depends on linked records produced by actual executions; missing execution remains visible as blocked or incomplete state. |

@@ -41,12 +41,15 @@ reporting `completed`.
 - `verified_completion`: a workflow completed with real QA command evidence
   plus the required runtime/workspace/artifact closure.
 
-`issue_to_patch` writes concrete evidence artifacts for `diff.patch`,
-`git-status.txt`, `git-status.json`, `qa-results.json`, stdout/stderr command
-logs, generated security findings, and `model-call.json` when a model call is
-used. Missing credentials, runtimes, tools, endpoints, or artifact integrity do
-not produce a simulated success; they keep the run blocked, unavailable, or
-configuration-required with a technical reason.
+`DeveloperAgentRunner` is the canonical implementation evidence producer.
+`issue_to_patch` consumes the DeveloperAgent evidence package, including the
+`developer-agent.diff` patch artifact, DeveloperAgent manifest, QA command
+evidence, runtime logs, tool calls, and model calls. The workflow may enrich the
+same package with gate-specific artifacts such as generated security findings,
+promotion evidence, or pull-request evidence, but it must not recreate a second
+implementation patch or QA summary. Missing credentials, runtimes, tools,
+endpoints, or artifact integrity do not produce a simulated success; they keep
+the run blocked, unavailable, or configuration-required with a technical reason.
 
 ## QA Gate
 
@@ -133,10 +136,10 @@ download actions.
 Diff, security findings, model-call, and tool-call evidence are rendered from
 linked artifacts or package fields after frontend redaction of secret-like text.
 
-`diff.patch` is not treated as success merely because an artifact exists. If
-the patch artifact is missing or has no real hunk additions/deletions, the UI
-shows `no real changes` and must not present the patch as proof of completed
-implementation.
+The patch artifact is not treated as success merely because it exists. If the
+DeveloperAgent `git_patch` artifact is missing or has no real hunk
+additions/deletions, the UI shows `no real changes` and must not present the
+patch as proof of completed implementation.
 
 ## Artifact Cleanup
 
@@ -218,10 +221,14 @@ silently lose the most important evidence.
 
 Agent tool calls that execute through the control plane create an evidence
 package automatically. This covers both the restricted subprocess fallback and
-the Docker sandbox adapter. The package records the command, tool-call ID,
-execution mode, return code, timeout flag, duration, and blocked reason when
-applicable. The agent run output stores the evidence package ID in
-`evidence_refs`, so reviewers can trace:
+the Docker sandbox adapter, plus `runtime_adapter:mcp` calls. The package
+records the command or MCP operation, tool-call ID, execution mode, return code,
+timeout flag, duration, and blocked/unavailable reason when applicable. MCP
+`unavailable` or `configuration_required` tool-call states are stored in
+test-results as `skipped_with_reason` with the original runtime status in
+metadata, so diagnostic evidence is not converted into passed QA. The agent run
+output stores the evidence package ID in `evidence_refs`, so reviewers can
+trace:
 
 ```text
 agent run -> tool call -> policy decision -> sandbox result -> evidence package

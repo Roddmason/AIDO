@@ -4,9 +4,10 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from local_control_center.agents.contracts import AgentRunRecord
-from local_control_center.evidence.models import EvidencePackageRecord
-from local_control_center.jobs_approvals.models import JobRecord
+from local_control_center.agents.contracts import AgentRunRecord, AgentToolCallRecord, ModelCallRecord
+from local_control_center.evidence.models import ArtifactRecord, EvidencePackageRecord, TestResultRecord
+from local_control_center.jobs_approvals.models import ActionRequestRecord, JobRecord, JobRunRecord
+from local_control_center.security_policy.models import PermissionDecisionRecord
 from local_control_center.workspaces_projects.models import WorkspaceRecord
 
 
@@ -151,21 +152,37 @@ class WorkflowsListResponse(BaseModel):
 class WorkflowRunDetail(BaseModel):
     workflow_run: WorkflowRunRecord = Field(alias="workflowRun")
     workflow_steps: list[WorkflowStepRecord] = Field(alias="workflowSteps")
+    workflow_events: list[WorkflowEventRecord] = Field(default_factory=list, alias="workflowEvents")
     workspaces: list[WorkspaceRecord]
     evidence_packages: list[EvidencePackageRecord] = Field(alias="evidencePackages")
+    artifacts: list[ArtifactRecord] = Field(default_factory=list)
+    test_result_records: list[TestResultRecord] = Field(default_factory=list, alias="testResultRecords")
     jobs: list[JobRecord]
+    job_runs: list[JobRunRecord] = Field(default_factory=list, alias="jobRuns")
+    action_requests: list[ActionRequestRecord] = Field(default_factory=list, alias="actionRequests")
     agent_runs: list[AgentRunRecord] = Field(alias="agentRuns")
+    agent_tool_calls: list[AgentToolCallRecord] = Field(default_factory=list, alias="agentToolCalls")
+    model_calls: list[ModelCallRecord] = Field(default_factory=list, alias="modelCalls")
+    permission_decisions: list[PermissionDecisionRecord] = Field(default_factory=list, alias="permissionDecisions")
 
 
 class WorkflowDetailResponse(BaseModel):
     workflow: WorkflowRecord
     workflow_runs: list[WorkflowRunRecord] = Field(alias="workflowRuns")
     workflow_steps: list[WorkflowStepRecord] = Field(alias="workflowSteps")
+    workflow_events: list[WorkflowEventRecord] = Field(default_factory=list, alias="workflowEvents")
     workflow_run_details: list[WorkflowRunDetail] = Field(default_factory=list, alias="workflowRunDetails")
     workspaces: list[WorkspaceRecord]
     evidence_packages: list[EvidencePackageRecord] = Field(alias="evidencePackages")
+    artifacts: list[ArtifactRecord] = Field(default_factory=list)
+    test_result_records: list[TestResultRecord] = Field(default_factory=list, alias="testResultRecords")
     jobs: list[JobRecord]
+    job_runs: list[JobRunRecord] = Field(default_factory=list, alias="jobRuns")
+    action_requests: list[ActionRequestRecord] = Field(default_factory=list, alias="actionRequests")
     agent_runs: list[AgentRunRecord] = Field(alias="agentRuns")
+    agent_tool_calls: list[AgentToolCallRecord] = Field(default_factory=list, alias="agentToolCalls")
+    model_calls: list[ModelCallRecord] = Field(default_factory=list, alias="modelCalls")
+    permission_decisions: list[PermissionDecisionRecord] = Field(default_factory=list, alias="permissionDecisions")
 
 
 class WorkflowStartResponse(BaseModel):

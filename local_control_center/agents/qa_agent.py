@@ -290,6 +290,7 @@ class QAAgentRunner:
             "status": status,
             "toolCallStatus": tool_call.get("status"),
             "execution": execution,
+            "executed": executed,
             "exitCode": return_code,
             "returnCode": return_code,
             "timedOut": timed_out,
@@ -454,6 +455,11 @@ class QAAgentRunner:
             for tool_call in self.agents.list_agent_tool_calls()
             if str(tool_call.get("agentRunId")) == qa_run["agentRun"]["id"]
         ]
+        qa_runtime_available = bool(qa_run["results"])
+        qa_runtime_executable = any(
+            bool(result.get("executed")) and not bool(result.get("blocked"))
+            for result in qa_run["results"]
+        )
         evidence = self.evidence.create_evidence_package(
             project_id=project_id,
             workflow_run_id=workflow_run_id,
@@ -485,8 +491,8 @@ class QAAgentRunner:
             runtime_health={
                 "id": f"{QA_AGENT_ID}.tool_broker",
                 "status": qa_run["verdict"],
-                "available": True,
-                "executable": True,
+                "available": qa_runtime_available,
+                "executable": qa_runtime_executable,
                 "commands": len(qa_run["results"]),
                 "reason": qa_run["reason"],
             },

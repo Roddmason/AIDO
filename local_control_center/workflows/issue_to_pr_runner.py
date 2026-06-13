@@ -345,7 +345,7 @@ class IssueToPrRunner:
                 "id": "workflow.issue_to_pr.dag",
                 "status": completion["status"],
                 "available": all_gates_passed,
-                "executable": True,
+                "executable": all_gates_passed,
                 "reason": "All issue_to_pr gates passed." if all_gates_passed else f"Blocked gate: {completion['blockedGate']}.",
             },
             approvals=[],

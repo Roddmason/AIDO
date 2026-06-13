@@ -101,6 +101,9 @@ def test_issue_to_pr_executes_real_agents_and_blocks_without_architect_runtime(
     assert body["rework"]["maxAttempts"] == 1
     assert body["completion"]["allGatesPassed"] is False
     assert body["completion"]["blockedGate"] == "architecture_review"
+    assert body["runtime"]["available"] is False
+    assert body["runtime"]["executable"] is False
+    assert body["runtime"]["reason"] == "Blocked gate: architecture_review."
 
     step_names = [step["name"] for step in body["workflowSteps"]]
     assert step_names == ISSUE_TO_PR_STEP_NAMES

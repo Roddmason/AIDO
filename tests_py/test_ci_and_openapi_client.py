@@ -58,6 +58,8 @@ def test_generated_openapi_client_is_checked_in_and_v1_only() -> None:
     assert "/api/v1/workflows" in content
     assert "/api/v1/agent-profiles" in content
     assert "/api/v1/integrations/mcp/register" in content
+    assert "/api/v1/integrations/mcp/tools" not in content
+    assert "/api/v1/integrations/mcp/call" not in content
     assert ("/api/" + "state") not in content
     assert "export type ApiPath" in content
     assert "export type ApiEndpoint" in content
@@ -96,7 +98,7 @@ def test_generated_openapi_client_is_checked_in_and_v1_only() -> None:
     assert '"create_pipeline_api_v1_pipelines_post": PipelineCreateRequest' in content
     assert '"create_memory_api_v1_memory_post": MemoryCreateRequest' in content
     assert '"retrieval_search_api_v1_retrieval_search_post": RetrievalSearchRequest' in content
-    assert '"retrieval_reindex_api_v1_retrieval_reindex_post": EmptyObjectRequest' in content
+    assert '"retrieval_reindex_api_v1_retrieval_reindex_post": RetrievalReindexRequest' in content
     assert '"upsert_prompt_api_v1_prompts_post": PromptUpsertRequest' in content
     assert '"create_agent_run_api_v1_agent_runs_post": AgentRunCreateRequest' in content
     assert '"overview_api_v1_model_gateway_overview_get": ModelGatewayOverviewResponse' in content
@@ -233,7 +235,9 @@ def test_generated_openapi_client_is_checked_in_and_v1_only() -> None:
     assert 'IdeConnectionsListResponse = { "ideConnections": Array<IdeConnectionRecord> }' in content
     assert "export type RetrievalSearchResultRecord" in content
     assert "export type RetrievalIndexSummary" in content
-    assert 'RetrievalSearchResponse = { "results": Array<RetrievalSearchResultRecord> }' in content
+    assert 'RetrievalReindexRequest = { "projectId": string }' in content
+    assert '"projectId": string; "reason": string; "status": string' in content
+    assert 'RetrievalSearchResponse = { "reason": string; "results": Array<RetrievalSearchResultRecord>; "status": string }' in content
     assert 'RetrievalReindexResponse = { "index": RetrievalIndexSummary }' in content
     assert "export type SkillRecord" in content
     assert 'SkillsListResponse = { "skills": Array<SkillRecord> }' in content
@@ -325,7 +329,10 @@ def test_generated_core_runtime_workflow_evidence_contracts_are_strict() -> None
     assert '"status": "queued" | "running" | "completed" | "approved" | "failed" | "blocked" | "runtime_unavailable"' in agent_run
     assert '"status": string' not in agent_run
     tool_call = _generated_type_line(content, "AgentToolCallRecord")
-    assert '"status": "pending" | "allowed" | "denied" | "requires_approval" | "approval_required"' in tool_call
+    assert (
+        '"status": "pending" | "allowed" | "denied" | "requires_approval" | "approval_required" | '
+        '"completed" | "failed" | "blocked" | "configuration_required" | "unavailable"'
+    ) in tool_call
     assert '"status": string' not in tool_call
     model_call = _generated_type_line(content, "ModelCallRecord")
     assert '"status": "planned" | "completed" | "failed" | "blocked" | "unavailable"' in model_call
@@ -403,8 +410,31 @@ def test_openapi_generation_script_documents_no_network_dependency() -> None:
 
 def test_playwright_uses_isolated_state_for_mutating_e2e() -> None:
     config = ROOT / "playwright.config.mjs"
+    runner = ROOT / "scripts" / "run-web-tests.mjs"
+    cleanup = ROOT / "scripts" / "cleanup-playwright-webserver.mjs"
     assert config.exists()
+    assert runner.exists()
+    assert cleanup.exists()
     content = config.read_text(encoding="utf-8")
+    runner_content = runner.read_text(encoding="utf-8")
+    cleanup_content = cleanup.read_text(encoding="utf-8")
     assert "playwright-control-center-${process.pid}.sqlite" in content
     assert "workers: 1" in content
     assert "reuseExistingServer: false" in content
+    assert "'--reporter=line'" in runner_content
+    assert "'--list'" in runner_content
+    assert "chunkTests(tests)" in runner_content
+    assert "PLAYWRIGHT_TESTS_PER_CHUNK" in runner_content
+    assert "PLAYWRIGHT_ARTIFACT_ROOT" in runner_content
+    assert "'--output', chunkOutput" in runner_content
+    assert "safePathSegment(project)" in runner_content
+    assert "defaultDashboardPort" in runner_content
+    assert "30000 + (process.pid % 20000)" in runner_content
+    assert "playwrightProjects = ['desktop', 'mobile']" in runner_content
+    assert "`--project=${project}`" in runner_content
+    assert "dashboardServerCommand" in runner_content
+    assert "waitForDashboardHealth" in runner_content
+    assert "PLAYWRIGHT_EXTERNAL_SERVER: '1'" in runner_content
+    assert "dashboard server exited before healthcheck" in runner_content
+    assert "projectCleanupStatus" in runner_content
+    assert "Wait-Process" in cleanup_content

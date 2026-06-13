@@ -54,7 +54,8 @@ flowchart LR
   allowlists, permission decisions, restricted sandbox.
 - `workspaces_projects`: isolated task workspaces and archive lifecycle.
 - `evidence`: evidence packages, test results, QA verdicts, archive snapshots.
-- `memory_retrieval`: SQLite memory plus NumPy/FAISS retrieval backends.
+- `memory_retrieval`: SQLite memory plus persisted real embeddings and
+  project-scoped NumPy/FAISS retrieval indexes.
 - `governance`: risks, ADRs, and actionable next steps.
 - `integrations`: IDE connection records, MCP registry, and optional external
   runtime adapter status.

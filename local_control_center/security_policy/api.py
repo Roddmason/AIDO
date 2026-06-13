@@ -23,7 +23,7 @@ from .models import (
 )
 from .policy_engine import evaluate_action
 from .repository import SecurityPolicyRepository
-from .sandbox import DockerSandbox
+from .sandbox import DockerSandbox, RestrictedSubprocessSandbox
 
 
 def required_reason(body: dict[str, Any]) -> str:
@@ -113,13 +113,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         docker_status["policy"] = repository().get_sandbox_profile("default_docker")
         return {
             "docker": docker_status,
-            "restrictedSubprocess": {
-                "available": True,
-                "shell": False,
-                "requiresArgv": True,
-                "workspaceBound": True,
-                "fallbackOnlyForLowRisk": True,
-            },
+            "restrictedSubprocess": RestrictedSubprocessSandbox().status(),
         }
 
     @router.post(

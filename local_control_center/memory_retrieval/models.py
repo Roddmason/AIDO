@@ -5,10 +5,6 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 
-class EmptyObjectRequest(BaseModel):
-    pass
-
-
 class MemoryCreateRequest(BaseModel):
     project_id: str = Field(alias="projectId")
     scope: str = "project"
@@ -16,7 +12,13 @@ class MemoryCreateRequest(BaseModel):
     kind: str = "note"
     content: str
     source_ref: str = Field(default="api", alias="sourceRef")
+    expires_at: str | None = Field(default=None, alias="expiresAt")
+    ttl_seconds: int | None = Field(default=None, alias="ttlSeconds", ge=1)
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class MemoryDeleteRequest(BaseModel):
+    reason: str = ""
 
 
 class MemoryItemRecord(BaseModel):
@@ -32,6 +34,8 @@ class MemoryItemRecord(BaseModel):
     supersedes_id: str | None = Field(default=None, alias="supersedesId")
     created_by_run_id: str | None = Field(default=None, alias="createdByRunId")
     valid_from: str = Field(alias="validFrom")
+    expires_at: str | None = Field(default=None, alias="expiresAt")
+    deleted_at: str | None = Field(default=None, alias="deletedAt")
     metadata: dict[str, Any]
     created_at: str = Field(alias="createdAt")
     updated_at: str = Field(alias="updatedAt")
@@ -46,6 +50,7 @@ class MemoryListResponse(BaseModel):
 
 
 class RetrievalSearchRequest(BaseModel):
+    project_id: str = Field(alias="projectId")
     query: str = ""
     limit: int = 5
 
@@ -56,14 +61,24 @@ class RetrievalSearchResultRecord(BaseModel):
 
 
 class RetrievalSearchResponse(BaseModel):
+    status: str
+    reason: str
     results: list[RetrievalSearchResultRecord]
 
 
 class RetrievalIndexSummary(BaseModel):
+    status: str
+    reason: str
+    project_id: str = Field(alias="projectId")
     backend: str
+    degraded: bool
     dimensions: int
     ids: list[str]
     indexed: int
+
+
+class RetrievalReindexRequest(BaseModel):
+    project_id: str = Field(alias="projectId")
 
 
 class RetrievalReindexResponse(BaseModel):

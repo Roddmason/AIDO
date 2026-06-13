@@ -84,6 +84,54 @@ def _dangerous_arg(argv: list[str]) -> str | None:
     return None
 
 
+def _validate_restricted_process(argv: Any, cwd: str | None, workspace_path: str | None) -> str | None:
+    if not isinstance(argv, list) or not argv or not all(isinstance(item, str) and item for item in argv):
+        return "Restricted subprocess requires a structured argv list."
+
+    executable = Path(argv[0]).name.lower()
+    if executable not in ALLOWED_EXECUTABLES:
+        return f"Executable is not allowlisted for restricted subprocess: {executable}"
+    blocked_arg = _dangerous_arg(argv)
+    if blocked_arg:
+        return f"Dangerous subprocess flag is blocked by runtime policy: {blocked_arg}"
+
+    if cwd or workspace_path:
+        workspace = Path(workspace_path or cwd or ".").resolve(strict=False)
+        run_cwd = Path(cwd or workspace).resolve(strict=False)
+        if not _inside(run_cwd, workspace):
+            return "Working directory is outside the allocated workspace."
+        if not run_cwd.exists() or not run_cwd.is_dir():
+            return "Working directory does not exist."
+    return None
+
+
+def validate_restricted_process(argv: Any, cwd: str | None, workspace_path: str | None) -> str | None:
+    return _validate_restricted_process(argv, cwd, workspace_path)
+
+
+def open_restricted_text_process(
+    *,
+    argv: Any,
+    cwd: str | None,
+    workspace_path: str | None,
+) -> subprocess.Popen[str]:
+    error = _validate_restricted_process(argv, cwd, workspace_path)
+    if error:
+        raise PermissionError(error)
+    run_cwd = str(Path(cwd).resolve(strict=False)) if cwd else None
+    return subprocess.Popen(
+        argv,
+        cwd=run_cwd,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        bufsize=1,
+        shell=False,
+    )
+
+
 def run_version_check(
     *,
     argv: Any,
@@ -147,6 +195,15 @@ class RestrictedSubprocessSandbox:
     replacement for Docker isolation; it only executes already policy-allowed,
     structured argv calls in the allocated workspace.
     """
+
+    def status(self) -> dict[str, Any]:
+        return {
+            "available": bool(ALLOWED_EXECUTABLES),
+            "shell": False,
+            "requiresArgv": True,
+            "workspaceBound": True,
+            "fallbackOnlyForLowRisk": True,
+        }
 
     def execute(
         self,

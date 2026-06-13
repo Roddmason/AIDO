@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 PRODUCT_ROOT = ROOT / "local_control_center"
 
 APPROVED_SUBPROCESS_FILES = {
+    "local_control_center/integrations/mcp_gateway.py",
     "local_control_center/security_policy/git_command_runner.py",
     "local_control_center/security_policy/sandbox.py",
 }
@@ -488,6 +489,9 @@ def test_security_agent_runner_uses_deterministic_checks_and_brokered_optional_m
     assert "path_traversal" in source
     assert "dangerous_command" in source
     assert "policy_violation" in source
+    assert "deterministic_controls_available" in source
+    assert '"available": True' not in source
+    assert '"executable": True' not in source
     assert "import subprocess" not in source
     assert "subprocess.run" not in source
     assert "os.system" not in source
@@ -515,3 +519,12 @@ def test_issue_to_patch_delegates_implementation_execution_to_developer_agent() 
     assert "build_issue_to_patch_argv" not in source
     assert '"operation": "issue_to_patch_runtime"' not in source
     assert "ToolBroker(" not in source
+
+
+def test_issue_to_patch_does_not_recreate_developer_implementation_evidence() -> None:
+    source = (PRODUCT_ROOT / "workflows" / "issue_to_patch_runner.py").read_text(encoding="utf-8")
+
+    assert "def _complete_run_status(" not in source
+    assert "def _write_patch_artifact(" not in source
+    assert "patch_artifact = _write_patch_artifact(" not in source
+    assert 'diff = capture_git_diff(Path(workspace["path"]))' not in source

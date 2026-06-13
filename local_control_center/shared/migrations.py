@@ -144,6 +144,8 @@ def init_base_schema(connection: sqlite3.Connection) -> None:
             supersedes_id TEXT,
             created_by_run_id TEXT,
             valid_from TEXT NOT NULL,
+            expires_at TEXT,
+            deleted_at TEXT,
             metadata TEXT NOT NULL,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
@@ -1609,6 +1611,8 @@ def init_phase14_schema(connection: sqlite3.Connection) -> None:
 
 
 def init_phase15_schema(connection: sqlite3.Connection) -> None:
+    _add_column_if_missing(connection, "memory_items", "expires_at", "expires_at TEXT")
+    _add_column_if_missing(connection, "memory_items", "deleted_at", "deleted_at TEXT")
     connection.executescript(
         """
         CREATE TABLE IF NOT EXISTS i18n_languages (
@@ -1634,6 +1638,8 @@ def init_phase15_schema(connection: sqlite3.Connection) -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_i18n_translations_language
             ON i18n_translations(language_code, key);
+        CREATE INDEX IF NOT EXISTS idx_memory_items_project_active
+            ON memory_items(project_id, deleted_at, expires_at, created_at);
         """
     )
     connection.execute(

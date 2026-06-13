@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from fastapi import APIRouter, Body, Request
+from fastapi import APIRouter, Body, Query, Request
 
 from local_control_center.shared.event_bus import EventBus
 from local_control_center.shared.schemas import RetrievalStatusResponse
@@ -11,17 +11,19 @@ from local_control_center.shared.schemas import RetrievalStatusResponse
 from . import commands
 from .index import RetrievalIndex
 from .models import (
-    EmptyObjectRequest,
     MemoryCreateRequest,
+    MemoryDeleteRequest,
     MemoryListResponse,
     MemoryResponse,
+    RetrievalReindexRequest,
     RetrievalReindexResponse,
     RetrievalSearchRequest,
     RetrievalSearchResponse,
 )
 from .repository import MemoryRepository
 
-EMPTY_REINDEX_BODY = Body(default_factory=EmptyObjectRequest)
+
+DELETE_MEMORY_BODY = Body(default_factory=MemoryDeleteRequest)
 
 
 def create_router(*, platform: Any, require_write: Callable[[Request], None]) -> APIRouter:
@@ -37,8 +39,8 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         return RetrievalIndex(memory=memory_repository(), index_dir=platform.db_path.parent / "faiss-index")
 
     @router.get("/api/v1/memory", response_model=MemoryListResponse)
-    async def list_memory() -> dict[str, Any]:
-        return commands.list_memory(memory_repository())
+    async def list_memory(project_id: str | None = Query(default=None, alias="projectId")) -> dict[str, Any]:
+        return commands.list_memory(memory_repository(), project_id=project_id)
 
     @router.post("/api/v1/memory", status_code=201, response_model=MemoryResponse)
     async def create_memory(body: MemoryCreateRequest, request: Request) -> MemoryResponse:
@@ -50,22 +52,40 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         )
         return MemoryResponse(memoryItem=payload["memoryItem"])
 
+    @router.delete("/api/v1/memory/{memory_id}", response_model=MemoryResponse)
+    async def delete_memory(
+        memory_id: str,
+        request: Request,
+        body: MemoryDeleteRequest = DELETE_MEMORY_BODY,
+    ) -> MemoryResponse:
+        require_write(request)
+        payload = commands.delete_memory(
+            memory_repository(),
+            event_bus(),
+            memory_id,
+            body.model_dump(by_alias=True),
+        )
+        return MemoryResponse(memoryItem=payload["memoryItem"])
+
     @router.get("/api/v1/retrieval/status", response_model=RetrievalStatusResponse)
-    async def retrieval_status() -> dict[str, Any]:
-        return commands.retrieval_status(retrieval_index())
+    async def retrieval_status(project_id: str | None = Query(default=None, alias="projectId")) -> dict[str, Any]:
+        return commands.retrieval_status(retrieval_index(), project_id=project_id)
 
     @router.post("/api/v1/retrieval/reindex", status_code=202, response_model=RetrievalReindexResponse)
     async def retrieval_reindex(
-        request: Request, body: EmptyObjectRequest = EMPTY_REINDEX_BODY
+        request: Request, body: RetrievalReindexRequest
     ) -> RetrievalReindexResponse:
         require_write(request)
-        _ = body
-        payload = commands.retrieval_reindex(retrieval_index())
+        payload = commands.retrieval_reindex(retrieval_index(), body.model_dump(by_alias=True))
         return RetrievalReindexResponse(index=payload["index"])
 
     @router.post("/api/v1/retrieval/search", response_model=RetrievalSearchResponse)
     async def retrieval_search(body: RetrievalSearchRequest) -> RetrievalSearchResponse:
-        payload = commands.retrieval_search(retrieval_index(), body.model_dump())
-        return RetrievalSearchResponse(results=payload["results"])
+        payload = commands.retrieval_search(retrieval_index(), body.model_dump(by_alias=True))
+        return RetrievalSearchResponse(
+            status=payload["status"],
+            reason=payload["reason"],
+            results=payload["results"],
+        )
 
     return router

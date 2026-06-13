@@ -29,6 +29,7 @@ from local_control_center.agents.providers.nvidia_nim import NvidiaNimProvider
 from local_control_center.agents.providers.openai_compatible import OpenAICompatibleProvider
 from local_control_center.agents.pricing_catalog import PricingCatalog
 from local_control_center.agents.quota_manager import QuotaManager
+from local_control_center.agents.repository import AgentsRepository
 from local_control_center.agents.usage_ledger import UsageLedger
 from local_control_center.shared.db import open_sqlite_connection
 from local_control_center.shared.migrations import initialize_platform_schema
@@ -51,17 +52,23 @@ def create_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient
 
 
 def enable_provider(client: TestClient, headers: dict[str, str], provider_id: str, **extra: object) -> None:
+    health_status = str(extra.pop("healthStatus", "healthy"))
+    health_message = str(extra.pop("lastError", "") or "Test helper recorded provider health.")
     response = client.patch(
         f"/api/v1/model-gateway/providers/{provider_id}",
         json={
             "enabled": True,
-            "healthStatus": "healthy",
-            "lastHealthCheckAt": "2026-01-01T00:00:00Z",
             **extra,
         },
         headers=headers,
     )
     assert response.status_code == 200
+    with open_sqlite_connection(Path(os.environ["LOCAL_CONTROL_CENTER_DB"])) as connection:
+        ProviderAccountStore(connection).record_health_check(
+            provider_id=provider_id,
+            status="available" if health_status == "healthy" else health_status,
+            payload={"healthStatus": health_status, "message": health_message},
+        )
 
 
 def register_workspace(connection, workspace_id: str, path: Path) -> None:
@@ -296,15 +303,106 @@ def test_provider_accounts_crud_endpoints_do_not_expose_raw_credentials(
     patched = client.patch(
         "/api/v1/model-gateway/providers/test_compatible",
         headers=headers,
-        json={"enabled": True, "lastError": "Authorization: Bearer sk-testsecret123456"},
+        json={"enabled": True, "metadata": {"lastErrorSample": "Authorization: Bearer sk-testsecret123456"}},
     )
     assert patched.status_code == 200
     assert patched.json()["provider"]["enabled"] is True
-    assert "[redacted]" in patched.json()["provider"]["lastError"]
+    assert "[redacted]" in patched.json()["provider"]["metadata"]["lastErrorSample"]
 
     listed = client.get("/api/v1/model-gateway/providers")
     assert listed.status_code == 200
     assert any(item["providerId"] == "test_compatible" for item in listed.json()["providers"])
+
+
+def test_provider_account_requests_cannot_write_health_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    headers = auth_headers(client)
+
+    created = client.post(
+        "/api/v1/model-gateway/providers",
+        headers=headers,
+        json={
+            "providerId": "client_health_provider",
+            "displayName": "Client Health Provider",
+            "providerType": "api",
+            "apiFormat": "openai_compatible",
+            "baseUrl": "https://example.invalid/v1",
+            "credentialRef": "CLIENT_HEALTH_PROVIDER_API_KEY",
+            "enabled": True,
+            "healthStatus": "healthy",
+            "lastHealthCheckAt": "2026-01-01T00:00:00Z",
+            "lastError": "client supplied health must not persist",
+        },
+    )
+    assert created.status_code == 201
+    provider = created.json()["provider"]
+    assert provider["healthStatus"] == "unknown"
+    assert provider["lastHealthCheckAt"] is None
+    assert provider["lastError"] == ""
+
+    patched = client.patch(
+        "/api/v1/model-gateway/providers/client_health_provider",
+        headers=headers,
+        json={
+            "healthStatus": "healthy",
+            "lastHealthCheckAt": "2026-01-01T00:00:00Z",
+            "lastError": "still client supplied",
+        },
+    )
+    assert patched.status_code == 200
+    provider = patched.json()["provider"]
+    assert provider["healthStatus"] == "unknown"
+    assert provider["lastHealthCheckAt"] is None
+    assert provider["lastError"] == ""
+
+
+def test_provider_account_config_change_resets_server_owned_health(tmp_path: Path) -> None:
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        store = ProviderAccountStore(connection)
+        store.patch_provider_account(
+            "openai_compatible",
+            {"enabled": True, "baseUrl": "https://old.example.invalid/v1", "credentialRef": "env:OPENAI_KEY"},
+        )
+        healthy = store.record_health_check(
+            provider_id="openai_compatible",
+            status="available",
+            payload={"healthStatus": "healthy", "message": "health check passed"},
+        )
+        assert healthy["status"] == "available"
+
+        provider = store.patch_provider_account(
+            "openai_compatible",
+            {"baseUrl": "https://new.example.invalid/v1"},
+        )
+
+    assert provider["healthStatus"] == "unknown"
+    assert provider["lastHealthCheckAt"] is None
+    assert provider["lastError"] == ""
+
+
+def test_prepare_model_call_preserves_unknown_estimated_cost(tmp_path: Path) -> None:
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        policy = AgentsRepository(connection).upsert_model_policy(
+            {
+                "id": "unknown_cost_policy",
+                "preferred": [{"provider": "openai_compatible", "model": "configured_model"}],
+                "fallback": [],
+            }
+        )
+
+        result = ModelGateway(connection).prepare_model_call(
+            project_id="project-unknown-cost",
+            model_policy_id=policy["id"],
+        )
+
+    assert result["status"] == "planned"
+    metadata = result["modelCall"]["metadata"]
+    assert metadata["costStatus"] == "unknown"
+    assert metadata["estimatedCostUsd"] is None
 
 
 def test_provider_accounts_reject_raw_credential_refs_and_support_env_scheme(

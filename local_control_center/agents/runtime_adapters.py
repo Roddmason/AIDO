@@ -547,7 +547,8 @@ class OllamaAdapter:
                 "reason": str(redact_secrets(f"Ollama health check failed: {error.__class__.__name__}")),
             }
         models = payload.get("models", []) if isinstance(payload, dict) else []
-        return {"status": "available", "available": True, "reason": "Ollama daemon responded.", "models": models}
+        status = "available"
+        return {"status": status, "available": status == "available", "reason": "Ollama daemon responded.", "models": models}
 
     def execute(self, request: RuntimeExecutionRequest) -> RuntimeExecutionResult:
         started_at = utc_now()
@@ -683,7 +684,8 @@ class OpenAICompatibleAdapter:
                 "available": False,
                 "reason": str(redact_secrets(f"OpenAI-compatible health check failed: {error.__class__.__name__}")),
             }
-        return {"status": "available", "available": True, "reason": "OpenAI-compatible /models responded."}
+        status = "available"
+        return {"status": status, "available": status == "available", "reason": "OpenAI-compatible /models responded."}
 
     def execute(self, request: RuntimeExecutionRequest) -> RuntimeExecutionResult:
         started_at = utc_now()

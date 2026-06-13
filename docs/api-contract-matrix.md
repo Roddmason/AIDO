@@ -17,7 +17,10 @@ contracts expose enum-backed states instead of loose strings for:
 - `EvidencePackageRecord.qaVerdict`, `ArtifactRecord.kind`
 
 `GET /api/v1/workflows/{id}` returns both the legacy flat arrays and
-`workflowRunDetails[]`, a grouped run detail contract for new consumers.
+`workflowRunDetails[]`, a grouped run detail contract for new consumers. The
+detail contract includes runs, steps, workspaces, jobs, job runs/leases, action
+requests, agent runs, tool calls, model calls, permission decisions, evidence
+packages, artifacts, test results, and workflow events.
 
 ## Platform
 
@@ -53,11 +56,16 @@ contracts expose enum-backed states instead of loose strings for:
 ## Workflows
 
 - `GET|POST /api/v1/workflows`
-- `GET /api/v1/workflows/{id}`
+- `GET /api/v1/workflows/{id}` returns the workflow audit detail; missing linked
+  execution records remain absent instead of being synthesized by the API.
 - `POST /api/v1/workflows/{id}/start`
 - `POST /api/v1/workflows/{id}/pause`
 - `POST /api/v1/workflows/{id}/resume`
 - `POST /api/v1/workflows/{id}/cancel`
+- `POST /api/v1/workflows/issue-to-patch` executes the real issue-to-patch workflow and returns runtime, QA, diff, evidence, approval, and timeline state without simulated success
+- `POST /api/v1/workflows/issue-to-patch/{run_id}/approve`
+- `POST /api/v1/workflows/issue-to-patch/{run_id}/promote`
+- `POST /api/v1/workflows/issue-to-patch/{run_id}/pull-request`
 - `POST /api/v1/workflows/issue-to-pr` executes the full DeveloperAgent -> QAAgent -> SecurityAgent -> ArchitectAgent -> DevOpsAgent DAG and returns gate evidence, completion, rework, and timeline state
 - `POST /api/v1/workflows/issue-to-pr/{run_id}/approve`
 - `POST /api/v1/workflows/issue-to-pr/{run_id}/promote`
@@ -97,10 +105,13 @@ contracts expose enum-backed states instead of loose strings for:
 ## Memory And Retrieval
 
 - `GET|POST /api/v1/memory`
+- `DELETE /api/v1/memory/{memoryId}` soft-deletes memory from active retrieval.
 - `GET|POST /api/v1/prompts`
 - `GET /api/v1/retrieval/status`
-- `POST /api/v1/retrieval/search`
-- `POST /api/v1/retrieval/reindex`
+- `POST /api/v1/retrieval/search` requires `projectId` and returns
+  `status/reason/results`.
+- `POST /api/v1/retrieval/reindex` requires `projectId`; without persisted real
+  embeddings it returns `configuration_required` with `indexed=0`.
 
 ## Model Gateway
 

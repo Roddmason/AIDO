@@ -9,6 +9,8 @@ from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.serialization import json_dumps, json_loads
 from local_control_center.shared.time import utc_now
 
+PROVIDER_HEALTH_RESET_FIELDS = {"providerType", "provider_type", "apiFormat", "api_format", "baseUrl", "base_url", "credentialRef", "credential_ref"}
+
 
 def _bool(value: Any) -> bool:
     return bool(int(value)) if isinstance(value, int) else bool(value)
@@ -154,6 +156,10 @@ class ProviderAccountStore:
     def patch_provider_account(self, provider_id: str, body: dict[str, Any]) -> dict[str, Any]:
         existing = self.get_provider_account(provider_id)
         merged = {**existing, **body, "providerId": existing["providerId"]}
+        if any(field in body and body[field] != existing.get(field) for field in PROVIDER_HEALTH_RESET_FIELDS):
+            merged["healthStatus"] = "unknown"
+            merged["lastHealthCheckAt"] = None
+            merged["lastError"] = ""
         return self.upsert_provider_account(merged)
 
     def list_models(self, provider_id: str | None = None) -> list[dict[str, Any]]:

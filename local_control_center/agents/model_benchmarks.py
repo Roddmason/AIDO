@@ -281,8 +281,8 @@ class ModelBenchmarkStore:
             if verdict in {"failed", "blocked", "needs_human_review"}
             else None
         )
-        success = True if qa_pass is True else False if qa_pass is False else None
-        rework = False if qa_pass is True else True if qa_pass is False else None
+        success = qa_pass if qa_pass is not None else None
+        rework = (not qa_pass) if qa_pass is not None else None
         return self.record_outcome(
             {
                 "providerId": provider_id,

@@ -104,6 +104,22 @@ requires a non-empty patch, passing QA, evidence hashes, and linked stdout and
 stderr artifacts. Missing CLI, syntax mismatch, non-Git workspace, empty patch,
 or incomplete artifacts fails the release validation.
 
+To certify a release candidate with quality plus every configured release
+smoke, run:
+
+```powershell
+corepack pnpm@10.24.0 run release:certify
+```
+
+The runner writes `.tmp/release-certification/<timestamp>/reports/` and
+`.tmp/release-certification/<timestamp>/logs/`, redacts secret-like output, and
+passes `--report-path` to each configured smoke. It does not auto-detect a CLI
+as proof of execution: Codex, Claude Code, OpenHands, and SWE-agent smokes run
+only when their command env var and `AIDO_ENABLE_CLI_RUNTIMES=true` are present.
+Missing optional variables are recorded as `configuration_required`. Use
+`scripts/release-certify.ps1 -FailOnSkippedSmokes` for a strict release profile
+where skipped optional smokes must fail the certification.
+
 ## Risks
 
 - Real CLI execution must stay workspace-bound and policy-approved.

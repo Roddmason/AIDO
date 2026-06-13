@@ -65,6 +65,7 @@ def is_security_model_runtime(runtime: dict[str, Any]) -> bool:
 
 
 def security_agent_status(runtime_statuses: list[dict[str, Any]]) -> dict[str, Any]:
+    deterministic_controls_executable = bool(SECURITY_AGENT_ALLOWED_TOOLS)
     model_candidates = [
         runtime
         for runtime in runtime_statuses
@@ -78,9 +79,13 @@ def security_agent_status(runtime_statuses: list[dict[str, Any]]) -> dict[str, A
     )
     return {
         "id": SECURITY_AGENT_ID,
-        "executable": True,
-        "status": "executable",
-        "reason": "SecurityAgent deterministic controls are executable without model runtime; external scanners run only when their local CLIs are available/configured.",
+        "executable": deterministic_controls_executable,
+        "status": "executable" if deterministic_controls_executable else "configuration_required",
+        "reason": (
+            "SecurityAgent deterministic controls are executable without model runtime; external scanners run only when their local CLIs are available/configured."
+            if deterministic_controls_executable
+            else "SecurityAgent deterministic controls are not configured."
+        ),
         "selectedRuntimeId": str(ordered[0]["id"]) if ordered else None,
         "candidateRuntimeIds": [str(runtime["id"]) for runtime in ordered],
         "contract": security_agent_contract(),

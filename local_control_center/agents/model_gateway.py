@@ -515,7 +515,7 @@ class ModelGateway:
         *,
         project_id: str,
         model_policy_id: str,
-        estimated_cost_usd: float = 0.0,
+        estimated_cost_usd: float | None = None,
         prompt_tokens: int = 0,
         completion_tokens: int = 0,
         agent_run_id: str | None = None,
@@ -572,7 +572,7 @@ class ModelGateway:
                 "execution": "not_started",
                 "tokenStatus": "unknown",
                 "costStatus": "unknown",
-                "estimatedCostUsd": float(estimated_cost_usd or 0),
+                "estimatedCostUsd": float(estimated_cost_usd) if estimated_cost_usd is not None else None,
                 **sanitized_metadata,
             },
         )
@@ -594,9 +594,10 @@ def ollama_status(*, base_url: str | None = None) -> dict[str, Any]:
         return {"provider": "ollama", "available": False, "models": [], "reason": _public_error(error)}
 
     models = [str(item.get("name")) for item in payload.get("models", []) if item.get("name")]
+    status = "available"
     return {
         "provider": "ollama",
-        "available": True,
+        "available": status == "available",
         "models": models,
         "reason": "",
     }

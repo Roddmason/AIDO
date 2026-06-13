@@ -4,7 +4,8 @@
 
 - Audit and MIT open-source license baseline.
 - PNPM/uv quality scripts.
-- Optional FAISS with NumPy fallback.
+- Optional FAISS; NumPy remains an index backend only over persisted real
+  embeddings.
 - Clean active API cutover to FastAPI v1.
 - Vite + React + TypeScript console.
 - Workflow, policy, evidence, agents, model-policy, workspace, skill, risk,

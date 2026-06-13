@@ -16,6 +16,7 @@ $processes = Get-CimInstance Win32_Process | Where-Object {
 }
 foreach ($process in $processes) {
 	Stop-Process -Id $process.ProcessId -Force -ErrorAction SilentlyContinue
+	Wait-Process -Id $process.ProcessId -Timeout 5 -ErrorAction SilentlyContinue
 }
 `;
 	return spawnSync(

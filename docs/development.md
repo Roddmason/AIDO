@@ -31,6 +31,7 @@ corepack pnpm@10.24.0 run security:secrets
 corepack pnpm@10.24.0 run security:sast
 corepack pnpm@10.24.0 run smoke:runtime:preflight
 corepack pnpm@10.24.0 run quality
+corepack pnpm@10.24.0 run release:certify
 ```
 
 `quality` runs the local PowerShell gate at `scripts/quality-local.ps1`. It
@@ -62,11 +63,28 @@ These scripts write ignored JSON evidence under `.tmp/runtime-validation/`;
 keep those reports with release notes when validating optional external
 runtimes.
 
+For a reproducible release certification run, use:
+
+```powershell
+corepack pnpm@10.24.0 run release:certify
+```
+
+The release runner is local-first and opt-in. It always executes
+`corepack pnpm@10.24.0 run quality`, writes redacted logs and JSON reports under
+`.tmp/release-certification/<timestamp>/`, and then runs each real CLI release
+smoke only when its required environment variables are present. Missing optional
+runtime configuration is recorded as `status=configuration_required` with
+`execution=skipped`, and the top-level `certificationScope` remains
+`quality_with_configuration_required_smokes`; configured smoke failures fail the certification. Use
+`scripts/release-certify.ps1 -FailOnSkippedSmokes` when a release requires every
+optional smoke profile to be configured and executed.
+
 ## Real Capability Table
 
 | Capability | Real state | Endpoint/UI | Tests | Limitations |
 | --- | --- | --- | --- | --- |
 | Local quality command | Implemented as `corepack pnpm@10.24.0 run quality`. | `scripts/quality-local.ps1`. | Full local quality sequence when tooling is installed. | No GitHub Actions dependency; local machine must provide required CLIs and Node engine. |
+| Release certification runner | Implemented as `corepack pnpm@10.24.0 run release:certify`. | `scripts/release-certify.ps1`. | `tests_py/test_release_certification_runner.py` plus the full local quality command during certification. | Optional smokes run only with real configured CLIs; absent env vars are reported as `configuration_required`, not treated as runtime success. |
 | Productive truth scanner | Implemented as required first quality step. | `scripts/productive-truth-scan.py`, `pnpm run quality:productive-truth`. | `tests_py/test_no_mock_productive_scanner.py`. | Allows prohibited terms in tests/docs/readmes only; product code fails. |
 | Architecture guardrails | Implemented as focused pytest script. | `pnpm run quality:architecture`. | `tests_py/test_real_readiness_architecture.py`, boundary/slice/web guardrails. | Guardrails are static/contract tests; they do not replace runtime smokes. |
 | Frontend validation | Implemented through Vite build, TypeScript check, and Playwright. | `build:control-center`, `typecheck:web`, `test:web`. | Playwright and TypeScript checks. | Playwright requires browser dependencies installed locally. |

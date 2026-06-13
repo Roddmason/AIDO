@@ -1,4 +1,5 @@
 import argparse
+import os
 import re
 import sys
 from dataclasses import dataclass
@@ -57,7 +58,7 @@ TOKEN_PATTERN = re.compile(
     r"(?i)(?<![A-Za-z0-9])(" + "|".join(re.escape(token) for token in PROHIBITED_TOKENS) + r")(?![A-Za-z0-9])"
 )
 ALLOWED_REFERENCE_PATTERN = re.compile(r"(?i)\b(docs|tests|tests_py|tests_web)[\\/][^\s\"']+")
-AVAILABLE_TRUE_PATTERN = re.compile(r"(?i)\bavailable\s*(?::|=)\s*(true|True)\b")
+AVAILABLE_TRUE_PATTERN = re.compile(r"(?i)(?<![A-Za-z0-9_])[\"']?available[\"']?\s*(?::|=)\s*(true|True)\b")
 SHELL_TRUE_PATTERN = re.compile(r"\bshell\s*=\s*True\b")
 
 
@@ -103,16 +104,27 @@ def _is_runtime_provider_path(relative_path: str) -> bool:
     return (
         "local_control_center/agents/runtime" in normalized
         or "local_control_center/agents/providers/" in normalized
+        or normalized == "local_control_center/integrations/mcp_gateway.py"
         or "local-control-center/web/src/features/model-gateway/" in normalized
     )
 
 
+def _should_prune_directory(root: Path, path: Path) -> bool:
+    return _is_ignored_path(root, path) or _is_allowed_path(root, path)
+
+
 def _iter_scannable_files(root: Path) -> list[Path]:
-    return sorted(
-        path
-        for path in root.rglob("*")
-        if _is_scannable(path) and not _is_ignored_path(root, path) and not _is_allowed_path(root, path)
-    )
+    files: list[Path] = []
+    for dirpath, dirnames, filenames in os.walk(root):
+        current = Path(dirpath)
+        dirnames[:] = sorted(
+            dirname for dirname in dirnames if not _should_prune_directory(root, current / dirname)
+        )
+        for filename in sorted(filenames):
+            path = current / filename
+            if _is_scannable(path) and not _is_ignored_path(root, path) and not _is_allowed_path(root, path):
+                files.append(path)
+    return files
 
 
 def _read_text(path: Path) -> str | None:

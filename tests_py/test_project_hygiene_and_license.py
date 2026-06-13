@@ -173,6 +173,16 @@ def test_quality_scripts_include_web_typecheck() -> None:
     assert "security:sast" in quality_local
 
 
+def test_quality_local_runs_direct_commands_for_long_gates() -> None:
+    quality_local = read("scripts/quality-local.ps1")
+
+    assert "Resolve-LocalPython" in quality_local
+    assert 'Command @($PythonCommand, "-m", "pytest", "tests_py", "-q")' in quality_local
+    assert 'Command @("uv", "run", "--extra", "dev", "ruff", "check", ".")' in quality_local
+    assert 'Command @("uv", "run", "--extra", "dev", "semgrep", "scan"' in quality_local
+    assert '& corepack pnpm@10.24.0 run $Script' not in quality_local
+
+
 def test_native_process_start_command_is_cross_platform() -> None:
     package = json.loads(read("package.json"))
     scripts = package["scripts"]

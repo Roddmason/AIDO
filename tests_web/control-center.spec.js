@@ -557,32 +557,14 @@ async function routeIssueToPatchApprovalOverview(page, fixtures) {
 	}
 }
 
-async function expectWheelOptionsNotToOverlap(page) {
-	const failures = await page.locator('[role="group"][aria-label$="navigation wheel"]').evaluateAll((groups) => {
+async function expectNavigationTargetsReachable(page) {
+	const failures = await page.locator('.ide-nav .nav-item').evaluateAll((buttons) => {
 		const results = [];
-		for (const group of groups) {
-			const groupName = group.getAttribute('aria-label') || 'wheel';
-			const buttons = Array.from(group.querySelectorAll('.wheel-option'));
-			const boxes = buttons.map((button) => {
-				const rect = button.getBoundingClientRect();
-				const label = button.getAttribute('aria-label') || button.textContent?.trim() || 'option';
-				return { label, x: rect.x, y: rect.y, width: rect.width, height: rect.height };
-			});
-			for (const box of boxes) {
-				if (box.width < 44 || box.height < 44) {
-					results.push(`${groupName}: ${box.label} target ${box.width.toFixed(1)}x${box.height.toFixed(1)}`);
-				}
-			}
-			for (let index = 0; index < boxes.length; index += 1) {
-				for (let otherIndex = index + 1; otherIndex < boxes.length; otherIndex += 1) {
-					const first = boxes[index];
-					const second = boxes[otherIndex];
-					const overlapX = Math.min(first.x + first.width, second.x + second.width) - Math.max(first.x, second.x);
-					const overlapY = Math.min(first.y + first.height, second.y + second.height) - Math.max(first.y, second.y);
-					if (overlapX > 1 && overlapY > 1) {
-						results.push(`${groupName}: ${first.label} <> ${second.label} overlap ${overlapX.toFixed(1)}x${overlapY.toFixed(1)}`);
-					}
-				}
+		for (const button of buttons) {
+			const rect = button.getBoundingClientRect();
+			const label = button.getAttribute('aria-label') || button.textContent?.trim() || 'nav item';
+			if (rect.width < 44 || rect.height < 44) {
+				results.push(`${label} target ${rect.width.toFixed(1)}x${rect.height.toFixed(1)}`);
 			}
 		}
 		return results;
@@ -731,7 +713,7 @@ test('Active Projects shows only active projects and ignores stale selected proj
 
 	await page.goto('/');
 
-	await expect(page.getByRole('heading', { name: 'Active Projects' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Workspace Workbench' })).toBeVisible();
 	await expect(page.getByText('Active Ledger Project').first()).toBeVisible();
 	await expect(page.getByText('Dormant Project')).toBeHidden();
 });
@@ -834,67 +816,49 @@ test('Workspaces shows allocated workspaces without the project catalog', async 
 	await expect(page.getByRole('heading', { name: 'Projects' })).toHaveCount(0);
 });
 
-test('radial navigation keeps every wheel visible when a module is focused', async ({ page }) => {
+test('IDE navigation keeps primary sections visible when context changes', async ({ page }) => {
 	await page.goto('/');
 
-	const projectWheel = page.getByRole('group', { name: 'Project navigation wheel' });
-	const commandWheel = page.getByRole('group', { name: 'Command center navigation wheel' });
-	const settingsWheel = page.getByRole('group', { name: 'Settings navigation wheel' });
+	const nav = page.getByRole('navigation', { name: 'Primary navigation' });
 
-	await expect(projectWheel).toBeVisible();
-	await expect(commandWheel).toBeVisible();
-	await expect(settingsWheel).toBeVisible();
-	await expect(projectWheel.getByRole('button', { name: 'Active' })).toBeVisible();
-	await expect(projectWheel.getByRole('button', { name: 'Finished' })).toBeVisible();
-	await expect(projectWheel.getByRole('button', { name: 'With error' })).toBeVisible();
-	await expect(projectWheel.getByRole('button', { name: 'Cancelled' })).toBeVisible();
+	await expect(nav.getByRole('button', { name: 'Workbench' })).toBeVisible();
+	await expect(nav.getByRole('button', { name: 'Projects' })).toBeVisible();
+	await expect(nav.getByRole('button', { name: 'Active' })).toBeVisible();
+	await expect(nav.getByRole('button', { name: 'Finished' })).toBeVisible();
+	await expect(nav.getByRole('button', { name: 'With error' })).toBeVisible();
+	await expect(nav.getByRole('button', { name: 'Cancelled' })).toBeVisible();
+	await expect(nav.getByRole('button', { name: 'Command Center' })).toBeVisible();
+	await expect(nav.getByRole('button', { name: 'Settings', exact: true })).toBeVisible();
 
 	await page.getByRole('button', { name: 'Settings', exact: true }).click();
 
-	await expect(projectWheel).toBeVisible();
-	await expect(commandWheel).toBeVisible();
-	await expect(settingsWheel).toBeVisible();
-	await expect(commandWheel.getByRole('button', { name: 'Execute' })).toBeVisible();
-	await expect(commandWheel.getByRole('button', { name: 'Guard' })).toBeVisible();
-	await expect(settingsWheel.getByRole('button', { name: 'User settings' })).toBeVisible();
-	await expect(settingsWheel.getByRole('button', { name: 'Defaults' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
+	await expect(nav.getByRole('button', { name: 'User settings' })).toBeVisible();
+	await expect(nav.getByRole('button', { name: 'Defaults' })).toBeVisible();
+	await expect(nav.getByRole('button', { name: 'Workspace settings' })).toBeVisible();
 });
 
-test('radial navigation grows with option count and renders detail below the wheel', async ({ page }) => {
+test('IDE navigation groups dense sections without hiding workspace routes', async ({ page }) => {
 	await page.goto('/');
-	const settingsWheel = page.getByRole('group', { name: 'Settings navigation wheel' });
-	const projectWheel = page.getByRole('group', { name: 'Project navigation wheel' });
 
-	const settingsCount = Number(await settingsWheel.getAttribute('data-option-count'));
-	const projectCount = Number(await projectWheel.getAttribute('data-option-count'));
-	expect(settingsCount).toBeGreaterThan(projectCount);
-
-	await settingsWheel.getByRole('button', { name: 'CLI settings' }).click();
-	const wheelBox = await settingsWheel.locator('.rotary-wheel').boundingBox();
-	const detailBox = await settingsWheel.locator('.wheel-detail').boundingBox();
-	expect(wheelBox).toBeTruthy();
-	expect(detailBox).toBeTruthy();
-	expect(detailBox.y).toBeGreaterThan(wheelBox.y + wheelBox.height * 0.88);
-	await expect(settingsWheel.locator('.wheel-detail')).toContainText('Terminal and local shell');
+	await expect(page.locator('.ide-nav .nav-section')).toHaveCount(5);
+	await expect(page.getByRole('button', { name: 'Workspace settings' })).toBeVisible();
+	await page.getByRole('button', { name: 'CLI settings' }).click();
+	await expect(page.getByRole('heading', { name: 'CLI configuration' })).toBeVisible();
+	await expect(page.locator('.ide-nav .nav-item[aria-current="page"]')).toHaveAttribute('aria-label', 'CLI settings');
 });
 
-test('radial wheel options do not collide and keep touch-safe targets', async ({ page }) => {
+test('IDE navigation keeps touch-safe targets across key routes', async ({ page }) => {
 	await page.goto('/');
-	await expectWheelOptionsNotToOverlap(page);
+	await expectNavigationTargetsReachable(page);
 
-	for (const groupName of ['Project navigation wheel', 'Command center navigation wheel', 'Settings navigation wheel']) {
-		const wheel = page.getByRole('group', { name: groupName });
-		const optionNames = await wheel.locator('.wheel-option').evaluateAll((buttons) =>
-			buttons.map((button) => button.getAttribute('aria-label') || button.textContent?.trim() || ''),
-		);
-		for (const optionName of optionNames) {
-			await wheel.getByRole('button', { name: optionName, exact: true }).click();
-			await expectWheelOptionsNotToOverlap(page);
-		}
+	for (const routeName of ['Workbench', 'Projects', 'Command Center', 'Workflows', 'Jobs & Approvals', 'Workspace settings']) {
+		await page.getByRole('button', { name: routeName, exact: true }).click();
+		await expectNavigationTargetsReachable(page);
 	}
 });
 
-test('Open Design shell uses dark futuristic surfaces and rotary hardware', async ({ page }) => {
+test('IDE shell uses dark modern surfaces and compact navigation', async ({ page }) => {
 	await page.goto('/');
 
 	const shell = await page.evaluate(() => {
@@ -913,25 +877,52 @@ test('Open Design shell uses dark futuristic surfaces and rotary hardware', asyn
 	expect(shell.bodyLuminance).toBeLessThan(70);
 	expect(shell.mainLuminance).toBeLessThan(70);
 
-	await expect(page.locator('.rotor-ring')).toHaveCount(3);
-	await expect(page.locator('.finger-stop')).toHaveCount(3);
+	await expect(page.locator('.ide-nav')).toBeVisible();
+	await expect(page.locator('.workbench-layout')).toBeVisible();
+	await expect(page.locator('.rotor-ring')).toHaveCount(0);
 	await expect(page.locator('.console-grid')).toBeVisible();
 });
 
-test('Settings wheel exposes workspaces and command wheel exposes history from the Open Design flow', async ({ page }) => {
+test('IDE navigation exposes workspace settings and history from the shell', async ({ page }) => {
 	await page.goto('/');
-	const commandWheel = page.getByRole('group', { name: 'Command center navigation wheel' });
-	const settingsWheel = page.getByRole('group', { name: 'Settings navigation wheel' });
 
-	await expect(commandWheel.getByRole('button', { name: 'History' })).toBeVisible();
-	await commandWheel.getByRole('button', { name: 'History' }).click();
+	await expect(page.getByRole('button', { name: 'History' })).toBeVisible();
+	await page.getByRole('button', { name: 'History' }).click();
 	await expect(page.getByRole('heading', { name: 'Audit Log' })).toBeVisible();
-	await expect(commandWheel.locator('.wheel-detail')).toContainText('Recent executions');
 
-	await expect(settingsWheel.getByRole('button', { name: 'Workspace settings' })).toBeVisible();
-	await settingsWheel.getByRole('button', { name: 'Workspace settings' }).click();
+	await expect(page.getByRole('button', { name: 'Workspace settings' })).toBeVisible();
+	await page.getByRole('button', { name: 'Workspace settings' }).click();
 	await expect(page.getByRole('heading', { name: 'Settings Workspaces' })).toBeVisible();
 	await expect(page.getByText('IDE-style workspace roots')).toBeVisible();
+});
+
+test('Workbench chat creates a chat intake and linked pipeline', async ({ page }) => {
+	const project = await getActiveProject(page);
+	const prompt = `Workbench intake ${Date.now()}`;
+	await page.goto('/');
+
+	await expect(page.getByRole('heading', { name: 'Workspace Workbench' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Work sessions' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'AI delivery team' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Project delivery flow' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Deliverables and evidence' })).toBeVisible();
+	await page.getByLabel('Workspace folder', { exact: true }).selectOption(project.id);
+	await page.getByRole('button', { name: 'New work session' }).click();
+	await page.getByLabel('Task prompt').fill(prompt);
+	await page.getByRole('button', { name: 'Start intake' }).click();
+
+	await expect(page.getByText('Chat intake created')).toBeVisible({ timeout: 30_000 });
+	await expect(page.getByText(prompt).first()).toBeVisible();
+	await expect
+		.poll(async () => {
+			const overviewResponse = await page.request.get('/api/v1/overview');
+			const overview = await overviewResponse.json();
+			const chat = overview.chats.find((item) => item.prompt === prompt);
+			const pipeline = overview.pipelines.find((item) => item.chatId === chat?.id);
+			const session = overview.sessions.find((item) => item.id === chat?.sessionId);
+			return Boolean(chat && session && pipeline && pipeline.projectId === project.id && pipeline.sessionId === session.id);
+		})
+		.toBe(true);
 });
 
 test('navigation groups projects and settings with an ES EN header language control', async ({ page }) => {
@@ -1072,7 +1063,7 @@ test('settings separates configuration types and keeps defaults collapsed', asyn
 
 test('shell renders the editorial control plane', async ({ page }) => {
 	await page.goto('/');
-	await expect(page.getByRole('heading', { name: 'Active Projects' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Workspace Workbench' })).toBeVisible();
 	await expect(page.getByRole('button', { name: 'Jobs & Approvals' })).toBeVisible();
 	await expect(page.getByText('AIDO Control Center')).toBeVisible();
 });
@@ -2137,7 +2128,7 @@ test('command palette executes v1 actions and workflow inspector shows linked re
 	await expect(page.getByText('python --version').first()).toBeVisible();
 	await expect(page.getByText('Policy decisions')).toBeVisible();
 	await expect(page.getByText('allowlisted_diagnostic').first()).toBeVisible();
-	await expect(page.getByText('Artifacts')).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Artifacts' })).toBeVisible();
 	await expect(page.getByText(workflow.artifactName).first()).toBeVisible();
 	await page.getByRole('button', { name: `Preview workflow artifact ${workflow.artifactName}` }).click();
 	await expect(page.getByRole('dialog', { name: 'Workflow artifact preview' })).toBeVisible();

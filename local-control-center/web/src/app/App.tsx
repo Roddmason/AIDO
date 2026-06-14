@@ -11,6 +11,7 @@ import {
 	Gauge,
 	GitBranch,
 	History,
+	Home,
 	KeyRound,
 	ListChecks,
 	Network,
@@ -33,9 +34,8 @@ import type { Overview } from '../api/types';
 import { Badge, DataTable, Drawer, EmptyState, StatusDot } from '../components/primitives';
 import { ActiveProjectsPage } from '../features/active-projects/ActiveProjectsPage';
 import type { Language, ProjectStatusView } from '../features/active-projects/ActiveProjectsPage';
+import { WorkbenchPage } from '../features/workbench/WorkbenchPage';
 import { useI18n } from '../i18n/I18nProvider';
-import { RadialNavigation } from './RadialNavigation';
-import type { RadialNavigationModule } from './RadialNavigation';
 import { JobsApprovalsPage } from '../features/jobs-approvals/JobsApprovalsPage';
 import { WorkflowsPage } from '../features/workflows/WorkflowsPage';
 import { AgentsPage } from '../features/agents/AgentsPage';
@@ -62,6 +62,7 @@ function sumRecordedCost(rows: Overview['costUsage']) {
 }
 
 const pageIds = [
+	'workbench',
 	'projects-active',
 	'projects-finished',
 	'projects-error',
@@ -110,11 +111,16 @@ const settingsSectionByPage: Partial<Record<PageId, SettingsTab>> = {
 
 const routeAliases: Record<string, PageId> = {
 	active: 'projects-active',
+	home: 'workbench',
+	ide: 'workbench',
 	settings: 'settings-projects',
+	workspace: 'workbench',
 };
 
 const navCopy = {
 	en: {
+		workbench: 'Workbench',
+		workspace: 'Workspace',
 		projects: 'Projects',
 		active: 'Active',
 		finished: 'Finished',
@@ -146,6 +152,8 @@ const navCopy = {
 		history: 'History',
 	},
 	es: {
+		workbench: 'Workbench',
+		workspace: 'Workspace',
 		projects: 'Proyectos',
 		active: 'Activos',
 		finished: 'Finalizados',
@@ -180,7 +188,7 @@ const navCopy = {
 
 function currentHash(): PageId {
 	const value = window.location.hash.replace('#', '');
-	return routeAliases[value] ?? (pageIds.includes(value as PageId) ? (value as PageId) : 'projects-active');
+	return routeAliases[value] ?? (pageIds.includes(value as PageId) ? (value as PageId) : 'workbench');
 }
 
 function readStoredSelectedProjectId() {
@@ -352,104 +360,92 @@ export function App() {
 		const query = commandFilter.trim().toLowerCase();
 		return !query || action.label.toLowerCase().includes(query) || action.hint.toLowerCase().includes(query);
 	});
-	const navigationModules = useMemo<RadialNavigationModule<PageId>[]>(() => {
-		const copy = {
-			active: bilingualLanguage === 'es' ? 'Proyectos activos listos para recibir trabajo operacional.' : 'Active projects ready to receive operational work.',
-			finished: bilingualLanguage === 'es' ? 'Entregas cerradas para auditoria y trazabilidad.' : 'Closed delivery records for audit and traceability.',
-			error: bilingualLanguage === 'es' ? 'Proyectos aislados para triage de excepciones.' : 'Exception lanes isolated for triage.',
-			cancelled: bilingualLanguage === 'es' ? 'Registros cancelados visibles, no mutables.' : 'Cancelled records remain visible but non-operational.',
-			execute: bilingualLanguage === 'es' ? 'Inicia workflows y comandos contra el proyecto seleccionado.' : 'Start workflows and commands against the selected project.',
-			guard: bilingualLanguage === 'es' ? 'Revisa politicas, permisos y postura antes de ejecutar.' : 'Review policy, permissions and execution posture.',
-			workflows: bilingualLanguage === 'es' ? 'Runs, pasos, evidencias y estados de los flujos.' : 'Runs, steps, evidence and workflow status.',
-			jobs: bilingualLanguage === 'es' ? 'Cola operacional con aprobaciones granulares.' : 'Operational queue with granular approvals.',
-			agents: bilingualLanguage === 'es' ? 'Perfiles tecnicos, permisos y runtimes de agentes.' : 'Technical profiles, permissions and agent runtimes.',
-			workspaces: bilingualLanguage === 'es' ? 'Workspaces asignados por tarea y aislamiento.' : 'Task-owned workspaces and isolation.',
-			policy: bilingualLanguage === 'es' ? 'Sandbox, tool calls y decisiones de seguridad.' : 'Sandbox, tool calls and security decisions.',
-			memory: bilingualLanguage === 'es' ? 'Memoria local, recuperacion y estado del backend.' : 'Local memory, retrieval and backend status.',
-			evidence: bilingualLanguage === 'es' ? 'Resultados de QA, artefactos y paquetes de evidencia.' : 'QA results, artifacts and evidence packages.',
-			models: bilingualLanguage === 'es' ? 'Ruteo de modelos, proveedores, costos y benchmarks.' : 'Model routing, providers, cost and benchmarks.',
-			governance: bilingualLanguage === 'es' ? 'Riesgos, decisiones y proximos pasos del proyecto.' : 'Risks, decisions and project next steps.',
-			audit: bilingualLanguage === 'es' ? 'Eventos auditables de la operacion local.' : 'Auditable events from local operations.',
-			history: bilingualLanguage === 'es' ? 'Ejecuciones recientes con resultado, evento y evidencia.' : 'Recent executions with result, event and evidence.',
-			integrations: bilingualLanguage === 'es' ? 'MCP, proveedores y adaptadores externos.' : 'MCP, providers and external adapters.',
-			projectSelection: bilingualLanguage === 'es' ? 'Selecciona el proyecto activo para mutaciones.' : 'Select the active project used by mutation surfaces.',
-			userSettings: bilingualLanguage === 'es' ? 'Idioma, densidad, movimiento y preferencias.' : 'Language, density, motion and user preferences.',
-			cliSettings: bilingualLanguage === 'es' ? 'Terminal y shell local para la operacion diaria.' : 'Terminal and local shell settings for daily operations.',
-			apiSettings: bilingualLanguage === 'es' ? 'Endpoints, proveedores y postura de API local.' : 'Endpoints, providers and local API posture.',
-			parameters: bilingualLanguage === 'es' ? 'Politicas de modelos y parametros operativos.' : 'Model policies and operational parameters.',
-			maintainers: bilingualLanguage === 'es' ? 'Catalogos tecnicos: templates, equipos, agentes y providers.' : 'Technical catalogs: templates, teams, agents and providers.',
-			settingsWorkspaces: bilingualLanguage === 'es' ? 'Raices importadas y proyectos detectados dentro de cada workspace.' : 'Imported roots and detected projects inside each workspace.',
-			defaults: bilingualLanguage === 'es' ? 'Configuraciones base en un collapse separado.' : 'Baseline settings kept in a separate collapse.',
-		};
-		return [
+	const navigationSections = useMemo(
+		() => [
 			{
-				id: 'projects',
-				title: labels.projects,
-				ariaLabel: 'Project navigation wheel',
-				kicker: bilingualLanguage === 'es' ? 'Rueda de proyectos' : 'Project wheel',
-				centerLabel: 'STATUS',
-				primaryPage: 'projects-active',
-				icon: FolderKanban,
-				options: [
-					{ id: 'active', label: labels.active, description: copy.active, page: 'projects-active', icon: Gauge, tone: 'moss' },
-					{ id: 'finished', label: labels.finished, description: copy.finished, page: 'projects-finished', icon: CheckCircle2, tone: 'blue' },
-					{ id: 'error', label: labels.error, description: copy.error, page: 'projects-error', icon: XCircle, tone: 'oxblood' },
-					{ id: 'cancelled', label: labels.cancelled, description: copy.cancelled, page: 'projects-cancelled', icon: Ban, tone: 'amber' },
+				id: 'workspace',
+				label: labels.workspace,
+				items: [
+					{ page: 'workbench' as PageId, label: labels.workbench, description: bilingualLanguage === 'es' ? 'Chat, contexto y ejecucion' : 'Chat, context and execution', icon: Home, primary: true },
 				],
 			},
 			{
-				id: 'command',
-				title: labels.command,
-				ariaLabel: 'Command center navigation wheel',
-				kicker: bilingualLanguage === 'es' ? 'Rueda operacional' : 'Command wheel',
-				centerLabel: 'OPS',
-				primaryPage: 'command',
-				icon: TerminalSquare,
-				options: [
-					{ id: 'execute', label: labels.execute, shortLabel: 'Exec', description: copy.execute, page: 'command', icon: TerminalSquare, tone: 'moss' },
-					{ id: 'guard', label: labels.guard, description: copy.guard, page: 'policy', icon: ShieldCheck, tone: 'amber' },
-					{ id: 'workflows', label: labels.workflows, shortLabel: 'Flows', description: copy.workflows, page: 'workflows', icon: Workflow, tone: 'blue' },
-					{ id: 'jobs', label: labels.jobs, shortLabel: 'Jobs', description: copy.jobs, page: 'jobs', icon: ClipboardCheck, tone: 'amber' },
-					{ id: 'agents', label: labels.agents, description: copy.agents, page: 'agents', icon: Bot, tone: 'violet' },
-					{ id: 'workspaces', label: labels.workspaces, shortLabel: 'Spaces', description: copy.workspaces, page: 'workspaces', icon: GitBranch, tone: 'moss' },
-					{ id: 'policy', label: labels.policy, shortLabel: 'Policy', description: copy.policy, page: 'policy', icon: ShieldCheck, tone: 'oxblood' },
-					{ id: 'memory', label: labels.memory, shortLabel: 'Memory', description: copy.memory, page: 'memory', icon: Brain, tone: 'violet' },
-					{ id: 'evidence', label: labels.evidence, shortLabel: 'QA', description: copy.evidence, page: 'evidence', icon: FileCheck2, tone: 'moss' },
-					{ id: 'models', label: labels.models, shortLabel: 'Models', description: copy.models, page: 'models', icon: Network, tone: 'blue' },
-					{ id: 'governance', label: labels.governance, shortLabel: 'Gov', description: copy.governance, page: 'governance', icon: KeyRound, tone: 'amber' },
-					{ id: 'history', label: labels.history, description: copy.history, page: 'audit', icon: History, tone: 'blue' },
-					{ id: 'audit', label: labels.audit, description: copy.audit, page: 'audit', icon: History, tone: 'blue' },
-					{ id: 'integrations', label: labels.integrations, shortLabel: 'MCP', description: copy.integrations, page: 'integrations', icon: Archive, tone: 'violet' },
+				id: 'projects',
+				label: labels.projects,
+				items: [
+					{ page: 'projects-active' as PageId, label: labels.projects, description: bilingualLanguage === 'es' ? 'Catalogo operacional' : 'Operational catalog', icon: FolderKanban, primary: true },
+					{ page: 'projects-active' as PageId, label: labels.active, description: bilingualLanguage === 'es' ? 'Listos para trabajar' : 'Ready to work', icon: Gauge },
+					{ page: 'projects-finished' as PageId, label: labels.finished, description: bilingualLanguage === 'es' ? 'Cerrados' : 'Closed', icon: CheckCircle2 },
+					{ page: 'projects-error' as PageId, label: labels.error, description: bilingualLanguage === 'es' ? 'Con excepciones' : 'With exceptions', icon: XCircle },
+					{ page: 'projects-cancelled' as PageId, label: labels.cancelled, description: bilingualLanguage === 'es' ? 'Cancelados' : 'Cancelled', icon: Ban },
+				],
+			},
+			{
+				id: 'operations',
+				label: labels.operations,
+				items: [
+					{ page: 'command' as PageId, label: labels.command, description: bilingualLanguage === 'es' ? 'Ejecucion gobernada' : 'Governed execution', icon: TerminalSquare, primary: true },
+					{ page: 'workflows' as PageId, label: labels.workflows, description: bilingualLanguage === 'es' ? 'Runs y pasos' : 'Runs and steps', icon: Workflow },
+					{ page: 'jobs' as PageId, label: labels.jobs, description: bilingualLanguage === 'es' ? 'Cola y permisos' : 'Queue and gates', icon: ClipboardCheck },
+					{ page: 'agents' as PageId, label: labels.agents, description: bilingualLanguage === 'es' ? 'Perfiles runtime' : 'Runtime profiles', icon: Bot },
+					{ page: 'workspaces' as PageId, label: labels.workspaces, description: bilingualLanguage === 'es' ? 'Aislamiento por tarea' : 'Task isolation', icon: GitBranch },
+					{ page: 'audit' as PageId, label: labels.history, description: bilingualLanguage === 'es' ? 'Eventos recientes' : 'Recent events', icon: History },
+				],
+			},
+			{
+				id: 'knowledge',
+				label: bilingualLanguage === 'es' ? 'Gobierno' : 'Governance',
+				items: [
+					{ page: 'policy' as PageId, label: labels.policy, description: bilingualLanguage === 'es' ? 'Sandbox y permisos' : 'Sandbox and permissions', icon: ShieldCheck },
+					{ page: 'memory' as PageId, label: labels.memory, description: bilingualLanguage === 'es' ? 'Contexto local' : 'Local context', icon: Brain },
+					{ page: 'evidence' as PageId, label: labels.evidence, description: bilingualLanguage === 'es' ? 'QA y artefactos' : 'QA and artifacts', icon: FileCheck2 },
+					{ page: 'models' as PageId, label: labels.models, description: bilingualLanguage === 'es' ? 'Modelos y costo' : 'Models and cost', icon: Network },
+					{ page: 'governance' as PageId, label: labels.governance, description: bilingualLanguage === 'es' ? 'Riesgos y ADR' : 'Risks and ADRs', icon: KeyRound },
+					{ page: 'audit' as PageId, label: labels.audit, description: bilingualLanguage === 'es' ? 'Trazabilidad' : 'Traceability', icon: History },
+					{ page: 'integrations' as PageId, label: labels.integrations, description: bilingualLanguage === 'es' ? 'MCP y proveedores' : 'MCP and providers', icon: Archive },
 				],
 			},
 			{
 				id: 'settings',
-				title: labels.settings,
-				ariaLabel: 'Settings navigation wheel',
-				kicker: bilingualLanguage === 'es' ? 'Rueda de configuracion' : 'Settings wheel',
-				centerLabel: 'CONFIG',
-				primaryPage: 'settings-projects',
-				icon: SettingsIcon,
-				options: [
-					{ id: 'projects', label: labels.projectSelection, shortLabel: bilingualLanguage === 'es' ? 'Proyecto' : 'Project', description: copy.projectSelection, page: 'settings-projects', icon: FolderKanban, tone: 'moss' },
-					{ id: 'user', label: labels.userSettings, shortLabel: 'User', description: copy.userSettings, page: 'settings-user', icon: UserRound, tone: 'blue' },
-					{ id: 'cli', label: labels.cliSettings, description: copy.cliSettings, page: 'settings-cli', icon: Code2, tone: 'amber' },
-					{ id: 'api', label: labels.apiSettings, description: copy.apiSettings, page: 'settings-api', icon: PlugZap, tone: 'violet' },
-					{ id: 'parameters', label: labels.parameters, shortLabel: 'Params', description: copy.parameters, page: 'settings-parameters', icon: ListChecks, tone: 'blue' },
-					{ id: 'maintainers', label: labels.maintainers, shortLabel: 'Catalogs', description: copy.maintainers, page: 'settings-maintainers', icon: SlidersHorizontal, tone: 'moss' },
-					{ id: 'workspaces', label: labels.workspaces, shortLabel: 'Spaces', ariaLabel: 'Workspace settings', description: copy.settingsWorkspaces, page: 'settings-workspaces', icon: GitBranch, tone: 'violet' },
-					{ id: 'defaults', label: labels.defaults, description: copy.defaults, page: 'settings-defaults', icon: SettingsIcon, tone: 'amber' },
+				label: labels.settings,
+				items: [
+					{ page: 'settings-projects' as PageId, label: labels.settings, description: bilingualLanguage === 'es' ? 'Preferencias base' : 'Baseline preferences', icon: SettingsIcon, primary: true },
+					{ page: 'settings-projects' as PageId, label: labels.projectSelection, description: bilingualLanguage === 'es' ? 'Proyecto operativo' : 'Operational project', icon: FolderKanban },
+					{ page: 'settings-user' as PageId, label: labels.userSettings, description: bilingualLanguage === 'es' ? 'Idioma y densidad' : 'Language and density', icon: UserRound },
+					{ page: 'settings-cli' as PageId, label: labels.cliSettings, description: bilingualLanguage === 'es' ? 'Terminal local' : 'Local terminal', icon: Code2 },
+					{ page: 'settings-api' as PageId, label: labels.apiSettings, description: bilingualLanguage === 'es' ? 'Endpoints v1' : 'v1 endpoints', icon: PlugZap },
+					{ page: 'settings-parameters' as PageId, label: labels.parameters, description: bilingualLanguage === 'es' ? 'Politicas de modelo' : 'Model policies', icon: ListChecks },
+					{ page: 'settings-maintainers' as PageId, label: labels.maintainers, description: bilingualLanguage === 'es' ? 'Catalogos' : 'Catalogs', icon: SlidersHorizontal },
+					{ page: 'settings-workspaces' as PageId, label: labels.workspaces, ariaLabel: bilingualLanguage === 'es' ? 'Configuracion de workspaces' : 'Workspace settings', description: bilingualLanguage === 'es' ? 'Raices IDE' : 'IDE roots', icon: GitBranch },
+					{ page: 'settings-defaults' as PageId, label: labels.defaults, description: bilingualLanguage === 'es' ? 'Colapsado' : 'Collapsed', icon: SettingsIcon },
 				],
 			},
-		];
-	}, [bilingualLanguage, labels]);
-
+		],
+		[bilingualLanguage, labels],
+	);
 	const pageContent = () => {
 		if (state.loading || !overview) {
 			return <EmptyState title="Loading control plane" body="Waiting for FastAPI v1, SQLite and runtime providers." />;
 		}
 		if (state.error) {
 			return <EmptyState title="Control plane unavailable" body={state.error} />;
+		}
+		if (page === 'workbench') {
+			return (
+				<WorkbenchPage
+					overview={overview}
+					selectedProject={selectedProject}
+					runtimeProviders={state.runtimeProviders}
+					mutate={state.mutate}
+					onSelectProject={setOperationalProject}
+					onCreateProject={openNewProjectWizard}
+					onOpenCommandCenter={() => navigateTo('command')}
+					onOpenWorkflows={() => navigateTo('workflows')}
+					onOpenJobs={() => navigateTo('jobs')}
+					onOpenWorkspaces={() => navigateTo('workspaces')}
+					onOpenEvidence={() => navigateTo('evidence')}
+				/>
+			);
 		}
 		const projectStatusView = projectStatusByPage[page];
 		if (projectStatusView) {
@@ -527,7 +523,32 @@ export function App() {
 						<h1 className="brand-title">{t('app.brand.title', 'AIDO Control Center')}</h1>
 					</div>
 				</div>
-				<RadialNavigation modules={navigationModules} currentPage={page} onNavigate={navigateTo} />
+				<nav className="nav-list ide-nav" aria-label={t('app.global.primaryNavigation', 'Primary navigation')}>
+					{navigationSections.map((section) => (
+						<section className="nav-section" key={section.id} aria-label={section.label}>
+							<div className="nav-section-label">{section.label}</div>
+							<div className="nav-sublist">
+								{section.items.map((item) => {
+									const Icon = item.icon;
+									return (
+										<button
+											key={`${section.id}-${item.page}-${item.label}`}
+											className={`nav-item${item.primary ? ' nav-primary' : ''}`}
+											type="button"
+											aria-label={item.ariaLabel ?? item.label}
+											aria-current={page === item.page ? 'page' : undefined}
+											onClick={() => navigateTo(item.page)}
+										>
+											<Icon aria-hidden="true" size={16} />
+											<span>{item.label}</span>
+											<small className="nav-item-meta" aria-hidden="true">{item.description}</small>
+										</button>
+									);
+								})}
+							</div>
+						</section>
+					))}
+				</nav>
 				<div className="sidebar-footer">
 					<div className="inline"><StatusDot tone={state.connected ? 'ok' : 'warn'} /> {state.connected ? t('app.global.sseConnected', 'SSE connected') : t('app.global.pollingFallback', 'polling fallback')}</div>
 					<div>{state.lastUpdatedAt ? `${t('app.global.updated', 'Updated')} ${new Date(state.lastUpdatedAt).toLocaleTimeString()}` : t('app.global.waitingForData', 'Waiting for data')}</div>

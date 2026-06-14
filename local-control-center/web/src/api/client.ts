@@ -20,6 +20,12 @@ export type ModelGatewayRoutePreviewRequest = MutationBody<'route_preview_api_v1
 export type ModelGatewayRoutePreviewResponse = OperationResponse<'route_preview_api_v1_model_gateway_route_preview_post'>;
 export type ModelGatewayBenchmarkOutcomeRequest = MutationBody<'create_benchmark_outcome_api_v1_model_gateway_benchmark_outcomes_post'>;
 export type ModelGatewayProviderPatchRequest = MutationBody<'patch_provider_api_v1_model_gateway_providers__provider_id__patch'>;
+export type ChatCreateRequest = MutationBody<'create_chat_api_v1_chats_post'>;
+export type ChatCreateResponse = OperationResponse<'create_chat_api_v1_chats_post'>;
+export type SessionCreateRequest = MutationBody<'create_session_api_v1_sessions_post'>;
+export type SessionCreateResponse = OperationResponse<'create_session_api_v1_sessions_post'>;
+export type PipelineCreateRequest = MutationBody<'create_pipeline_api_v1_pipelines_post'>;
+export type PipelineCreateResponse = OperationResponse<'create_pipeline_api_v1_pipelines_post'>;
 export type IssueToPatchRequest = MutationBody<'run_issue_to_patch_api_v1_workflows_issue_to_patch_post'>;
 export type IssueToPatchResponse = OperationResponse<'run_issue_to_patch_api_v1_workflows_issue_to_patch_post'>;
 export type IssueToPatchApprovalResponse = OperationResponse<'approve_issue_to_patch_api_v1_workflows_issue_to_patch__run_id__approve_post'>;
@@ -309,6 +315,27 @@ export function createWorkflow(token: string, projectId: string, title: string) 
 
 export function createWorkflowWithBody(token: string, body: MutationBody<'create_workflow_api_v1_workflows_post'>) {
 	return requestGeneratedOperation('create_workflow_api_v1_workflows_post', {
+		token,
+		body,
+	});
+}
+
+export function createChat(token: string, body: ChatCreateRequest) {
+	return requestGeneratedOperation<'create_chat_api_v1_chats_post', ChatCreateResponse>('create_chat_api_v1_chats_post', {
+		token,
+		body,
+	});
+}
+
+export function createSession(token: string, body: SessionCreateRequest) {
+	return requestGeneratedOperation<'create_session_api_v1_sessions_post', SessionCreateResponse>('create_session_api_v1_sessions_post', {
+		token,
+		body,
+	});
+}
+
+export function createPipeline(token: string, body: PipelineCreateRequest) {
+	return requestGeneratedOperation<'create_pipeline_api_v1_pipelines_post', PipelineCreateResponse>('create_pipeline_api_v1_pipelines_post', {
 		token,
 		body,
 	});

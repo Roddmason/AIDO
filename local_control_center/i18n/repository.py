@@ -97,4 +97,57 @@ class I18nRepository:
     def ensure_seeded(self, catalog: I18nCatalog) -> dict[str, Any]:
         if not self.has_catalog():
             return self.replace_catalog(catalog)
+        timestamp = utc_now()
+        with immediate_transaction(self.connection):
+            default_exists = self.connection.execute(
+                "SELECT 1 FROM i18n_settings WHERE key = 'default_language'"
+            ).fetchone()
+            if default_exists is None:
+                self.connection.execute(
+                    """
+                    INSERT INTO i18n_settings (key, value, updated_at)
+                    VALUES ('default_language', ?, ?)
+                    """,
+                    (catalog.default_language, timestamp),
+                )
+            for language in catalog.languages:
+                existing_language = self.connection.execute(
+                    "SELECT 1 FROM i18n_languages WHERE code = ?",
+                    (language.code,),
+                ).fetchone()
+                if existing_language is None:
+                    self.connection.execute(
+                        """
+                        INSERT INTO i18n_languages
+                            (code, name, native_name, enabled, created_at, updated_at)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            language.code,
+                            language.name,
+                            language.native_name,
+                            1 if language.enabled else 0,
+                            timestamp,
+                            timestamp,
+                        ),
+                    )
+            for key, values in sorted(catalog.translations.items()):
+                for language_code, value in sorted(values.items()):
+                    existing_translation = self.connection.execute(
+                        """
+                        SELECT 1
+                        FROM i18n_translations
+                        WHERE key = ? AND language_code = ?
+                        """,
+                        (key, language_code),
+                    ).fetchone()
+                    if existing_translation is None:
+                        self.connection.execute(
+                            """
+                            INSERT INTO i18n_translations
+                                (key, language_code, value, updated_at)
+                            VALUES (?, ?, ?, ?)
+                            """,
+                            (key, language_code, str(value), timestamp),
+                        )
         return self.get_catalog()

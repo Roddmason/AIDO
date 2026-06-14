@@ -3426,6 +3426,446 @@
     "ui.static.workflow.run.evidence.viewer.1495cb66": {
       "en": "Workflow run",
       "es": "Run de workflow"
+    },
+    "app.nav.workbench": {
+      "en": "Workbench",
+      "es": "Workbench local"
+    },
+    "app.nav.workspace": {
+      "en": "Workspace",
+      "es": "Espacio de trabajo"
+    },
+    "app.workbench.error.noProject": {
+      "en": "Select a workspace folder before starting intake.",
+      "es": "Selecciona una carpeta workspace antes de iniciar el intake."
+    },
+    "app.workbench.error.noPrompt": {
+      "en": "Write a prompt before starting intake.",
+      "es": "Escribe un prompt antes de iniciar el intake."
+    },
+    "app.workbench.error.submitFailed": {
+      "en": "Workbench intake failed.",
+      "es": "Fallo el intake del workbench."
+    },
+    "app.workbench.kicker": {
+      "en": "AI project workbench",
+      "es": "Workbench de proyecto IA"
+    },
+    "app.workbench.title": {
+      "en": "Workspace Workbench",
+      "es": "Workbench de workspace"
+    },
+    "app.workbench.summary": {
+      "en": "Select a folder workspace, open a work session and coordinate the AI team from intake to evidence-backed delivery.",
+      "es": "Selecciona una carpeta workspace, abre una sesion de trabajo y coordina el equipo IA desde intake hasta entrega con evidencia."
+    },
+    "app.workbench.primaryRegion": {
+      "en": "Chat and progress",
+      "es": "Chat y avance"
+    },
+    "app.workbench.sideRegion": {
+      "en": "AI team and deliverables",
+      "es": "Equipo IA y entregables"
+    },
+    "app.workbench.workspace.title": {
+      "en": "Workspace folder",
+      "es": "Carpeta workspace"
+    },
+    "app.workbench.workspace.label": {
+      "en": "Workspace folder",
+      "es": "Carpeta workspace"
+    },
+    "app.workbench.workspace.none": {
+      "en": "No active workspace",
+      "es": "Sin workspace activo"
+    },
+    "app.workbench.workspace.path": {
+      "en": "Path",
+      "es": "Ruta"
+    },
+    "app.workbench.workspace.rootPath": {
+      "en": "Root path",
+      "es": "Ruta raiz"
+    },
+    "app.workbench.workspace.branchNotDetected": {
+      "en": "not detected",
+      "es": "no detectada"
+    },
+    "app.workbench.workspace.missingPath": {
+      "en": "not selected",
+      "es": "no seleccionado"
+    },
+    "app.workbench.workspace.status": {
+      "en": "Status",
+      "es": "Estado"
+    },
+    "app.workbench.workspace.noSelection": {
+      "en": "no selection",
+      "es": "sin seleccion"
+    },
+    "app.workbench.workspace.template": {
+      "en": "Template",
+      "es": "Plantilla"
+    },
+    "app.workbench.workspace.create": {
+      "en": "Import or create workspace",
+      "es": "Importar o crear workspace"
+    },
+    "app.workbench.open.command": {
+      "en": "Command Center",
+      "es": "Centro de comandos"
+    },
+    "app.workbench.open.workflows": {
+      "en": "Workflows",
+      "es": "Flujos de trabajo"
+    },
+    "app.workbench.chat.title": {
+      "en": "Start from chat",
+      "es": "Iniciar desde chat"
+    },
+    "app.workbench.chat.history": {
+      "en": "Session chat history",
+      "es": "Historial de chat de la sesion"
+    },
+    "app.workbench.chat.emptyTitle": {
+      "en": "No chat in this session",
+      "es": "Sin chat en esta sesion"
+    },
+    "app.workbench.chat.emptyBody": {
+      "en": "Use the composer to start coordinated project work for this workspace.",
+      "es": "Usa el compositor para iniciar trabajo coordinado de proyecto en este workspace."
+    },
+    "app.workbench.chat.promptLabel": {
+      "en": "Task prompt",
+      "es": "Prompt de tarea"
+    },
+    "app.workbench.chat.placeholder": {
+      "en": "Ask the AI team to plan, implement, test or prepare a long-running delivery inside this workspace.",
+      "es": "Pide al equipo IA planificar, implementar, probar o preparar una entrega de largo aliento dentro de este workspace."
+    },
+    "app.workbench.chat.creating": {
+      "en": "Creating work session",
+      "es": "Creando sesion de trabajo"
+    },
+    "app.workbench.chat.submit": {
+      "en": "Start intake",
+      "es": "Iniciar intake"
+    },
+    "app.workbench.chat.quickPrompt": {
+      "en": "Inspect this workspace, identify the real architecture and propose the smallest safe execution plan with QA evidence.",
+      "es": "Inspecciona este workspace, identifica la arquitectura real y propone el plan de ejecucion seguro mas pequeno con evidencia QA."
+    },
+    "app.workbench.chat.quickAction": {
+      "en": "Scope with team",
+      "es": "Acotar con equipo"
+    },
+    "app.workbench.chat.created": {
+      "en": "Chat intake created",
+      "es": "Intake de chat creado"
+    },
+    "app.workbench.chat.pipelineLinked": {
+      "en": "pipeline",
+      "es": "flujo"
+    },
+    "app.workbench.sessions.region": {
+      "en": "Workspace sessions",
+      "es": "Sesiones del workspace"
+    },
+    "app.workbench.sessions.title": {
+      "en": "Work sessions",
+      "es": "Sesiones de trabajo"
+    },
+    "app.workbench.sessions.new": {
+      "en": "New work session",
+      "es": "Nueva sesion de trabajo"
+    },
+    "app.workbench.sessions.newHint": {
+      "en": "Starts a chat, session and intake pipeline",
+      "es": "Inicia chat, sesion y pipeline de intake"
+    },
+    "app.workbench.sessions.chatCount": {
+      "en": "chats",
+      "es": "conversaciones"
+    },
+    "app.workbench.sessions.emptyTitle": {
+      "en": "No work sessions",
+      "es": "Sin sesiones de trabajo"
+    },
+    "app.workbench.sessions.emptyBody": {
+      "en": "Your first prompt will create a session for this workspace folder.",
+      "es": "Tu primer prompt creara una sesion para esta carpeta workspace."
+    },
+    "app.workbench.signals.title": {
+      "en": "Operational signals",
+      "es": "Senales operacionales"
+    },
+    "app.workbench.signals.runtimes": {
+      "en": "Executable runtimes",
+      "es": "Runtimes ejecutables"
+    },
+    "app.workbench.signals.approvals": {
+      "en": "Pending approvals",
+      "es": "Aprobaciones pendientes"
+    },
+    "app.workbench.signals.workspaces": {
+      "en": "Runtime workspaces",
+      "es": "Workspaces runtime"
+    },
+    "app.workbench.signals.workflows": {
+      "en": "Recent workflows",
+      "es": "Workflows recientes"
+    },
+    "app.workbench.signals.evidence": {
+      "en": "Evidence packages",
+      "es": "Paquetes de evidencia"
+    },
+    "app.workbench.actions.title": {
+      "en": "Execution lanes",
+      "es": "Carriles de ejecucion"
+    },
+    "app.workbench.actions.command": {
+      "en": "Run governed command",
+      "es": "Ejecutar comando gobernado"
+    },
+    "app.workbench.actions.commandHint": {
+      "en": "issue_to_patch, runtime selection and QA gates",
+      "es": "issue_to_patch, seleccion de runtime y gates QA"
+    },
+    "app.workbench.actions.workflows": {
+      "en": "Open project workflows",
+      "es": "Abrir workflows de proyecto"
+    },
+    "app.workbench.actions.workflowsHint": {
+      "en": "Agile flow, steps, handoffs and current state",
+      "es": "Flujo agil, pasos, handoffs y estado actual"
+    },
+    "app.workbench.actions.jobs": {
+      "en": "Review approvals",
+      "es": "Revisar aprobaciones"
+    },
+    "app.workbench.actions.jobsHint": {
+      "en": "human gates, leases and job state",
+      "es": "gates humanos, leases y estado de jobs"
+    },
+    "app.workbench.actions.evidence": {
+      "en": "Inspect evidence",
+      "es": "Inspeccionar evidencia"
+    },
+    "app.workbench.actions.evidenceHint": {
+      "en": "diffs, QA records and artifacts",
+      "es": "diffs, registros QA y artefactos"
+    },
+    "app.workbench.actions.workspaces": {
+      "en": "Runtime workspaces",
+      "es": "Workspaces runtime"
+    },
+    "app.workbench.actions.workspacesHint": {
+      "en": "isolated task allocations",
+      "es": "asignaciones aisladas por tarea"
+    },
+    "app.workbench.team.title": {
+      "en": "AI delivery team",
+      "es": "Equipo IA de entrega"
+    },
+    "app.workbench.team.notConnected": {
+      "en": "not connected",
+      "es": "no conectado"
+    },
+    "app.workbench.team.role.jp": {
+      "en": "JP / Product Owner",
+      "es": "JP / Responsable de producto"
+    },
+    "app.workbench.team.role.jpBody": {
+      "en": "Backlog, priority and acceptance criteria for long-running work.",
+      "es": "Backlog, prioridad y criterios de aceptacion para trabajo de largo aliento."
+    },
+    "app.workbench.team.role.tl": {
+      "en": "Technical Lead",
+      "es": "Lider tecnico"
+    },
+    "app.workbench.team.role.tlBody": {
+      "en": "Technical strategy, handoffs and quality gates across agents.",
+      "es": "Estrategia tecnica, handoffs y gates de calidad entre agentes."
+    },
+    "app.workbench.team.role.architect": {
+      "en": "Architecture",
+      "es": "Arquitectura"
+    },
+    "app.workbench.team.role.architectBody": {
+      "en": "Architecture decisions, environment assumptions and risk framing.",
+      "es": "Decisiones de arquitectura, supuestos de ambiente y encuadre de riesgos."
+    },
+    "app.workbench.team.role.developer": {
+      "en": "Engineering",
+      "es": "Ingenieria"
+    },
+    "app.workbench.team.role.developerBody": {
+      "en": "Frontend, backend and implementation work inside the selected workspace.",
+      "es": "Frontend, backend e implementacion dentro del workspace seleccionado."
+    },
+    "app.workbench.team.role.devops": {
+      "en": "DevOps",
+      "es": "Operaciones DevOps"
+    },
+    "app.workbench.team.role.devopsBody": {
+      "en": "Local runtime, scripts, containers and release readiness.",
+      "es": "Runtime local, scripts, contenedores y preparacion de release."
+    },
+    "app.workbench.team.role.qa": {
+      "en": "QA",
+      "es": "Calidad QA"
+    },
+    "app.workbench.team.role.qaBody": {
+      "en": "Tests, evidence packages and regression verdicts.",
+      "es": "Pruebas, paquetes de evidencia y veredictos de regresion."
+    },
+    "app.workbench.team.role.security": {
+      "en": "Security",
+      "es": "Seguridad"
+    },
+    "app.workbench.team.role.securityBody": {
+      "en": "Policy, permissions, sandbox posture and sensitive-output review.",
+      "es": "Politicas, permisos, postura de sandbox y revision de salidas sensibles."
+    },
+    "app.workbench.team.lane.direction": {
+      "en": "Direction",
+      "es": "Direccion"
+    },
+    "app.workbench.team.lane.guidance": {
+      "en": "Guidance",
+      "es": "Guia"
+    },
+    "app.workbench.team.lane.design": {
+      "en": "Design",
+      "es": "Diseno"
+    },
+    "app.workbench.team.lane.build": {
+      "en": "Build",
+      "es": "Construccion"
+    },
+    "app.workbench.team.lane.environment": {
+      "en": "Environment",
+      "es": "Ambiente"
+    },
+    "app.workbench.team.lane.validation": {
+      "en": "Validation",
+      "es": "Validacion"
+    },
+    "app.workbench.team.lane.guardrails": {
+      "en": "Guardrails",
+      "es": "Controles"
+    },
+    "app.workbench.delivery.title": {
+      "en": "Project delivery flow",
+      "es": "Flujo de entrega del proyecto"
+    },
+    "app.workbench.delivery.region": {
+      "en": "Project delivery flow",
+      "es": "Flujo de entrega del proyecto"
+    },
+    "app.workbench.delivery.intake": {
+      "en": "Intake",
+      "es": "Recepcion"
+    },
+    "app.workbench.delivery.planning": {
+      "en": "Planning",
+      "es": "Planificacion"
+    },
+    "app.workbench.delivery.architecture": {
+      "en": "Architecture and environment",
+      "es": "Arquitectura y ambiente"
+    },
+    "app.workbench.delivery.implementation": {
+      "en": "Implementation",
+      "es": "Implementacion"
+    },
+    "app.workbench.delivery.validation": {
+      "en": "QA and security",
+      "es": "QA y seguridad"
+    },
+    "app.workbench.delivery.delivery": {
+      "en": "Deliverables",
+      "es": "Entregables"
+    },
+    "app.workbench.progress.title": {
+      "en": "Current progress",
+      "es": "Avance actual"
+    },
+    "app.workbench.progress.workflow": {
+      "en": "Latest workflow",
+      "es": "Ultimo workflow"
+    },
+    "app.workbench.progress.evidence": {
+      "en": "Latest evidence",
+      "es": "Ultima evidencia"
+    },
+    "app.workbench.progress.none": {
+      "en": "No workflow yet",
+      "es": "Sin workflow aun"
+    },
+    "app.workbench.progress.noEvidence": {
+      "en": "No evidence yet",
+      "es": "Sin evidencia aun"
+    },
+    "app.workbench.deliverables.title": {
+      "en": "Deliverables and evidence",
+      "es": "Entregables y evidencia"
+    },
+    "app.workbench.deliverables.emptyTitle": {
+      "en": "No deliverables yet",
+      "es": "Sin entregables aun"
+    },
+    "app.workbench.deliverables.emptyBody": {
+      "en": "Artifacts, QA reports, patches and evidence manifests appear after real execution.",
+      "es": "Artefactos, reportes QA, patches y manifiestos de evidencia apareceran despues de una ejecucion real."
+    },
+    "app.workbench.deliverables.columnKind": {
+      "en": "Kind",
+      "es": "Tipo"
+    },
+    "app.workbench.deliverables.columnPath": {
+      "en": "Path",
+      "es": "Ruta"
+    },
+    "app.workbench.pipelines.title": {
+      "en": "Session pipelines",
+      "es": "Pipelines de sesion"
+    },
+    "app.workbench.pipelines.emptyTitle": {
+      "en": "No intake pipelines",
+      "es": "Sin pipelines de intake"
+    },
+    "app.workbench.pipelines.emptyBody": {
+      "en": "Chat intake creates the first pipeline record for the selected work session.",
+      "es": "El intake de chat crea el primer registro de pipeline para la sesion de trabajo seleccionada."
+    },
+    "app.workbench.pipelines.columnTitle": {
+      "en": "Pipeline",
+      "es": "Flujo"
+    },
+    "app.workbench.pipelines.columnStatus": {
+      "en": "Status",
+      "es": "Estado"
+    },
+    "app.workbench.workspaces.title": {
+      "en": "Allocated runtime workspaces",
+      "es": "Workspaces runtime asignados"
+    },
+    "app.workbench.workspaces.emptyTitle": {
+      "en": "No runtime workspaces",
+      "es": "Sin workspaces runtime"
+    },
+    "app.workbench.workspaces.emptyBody": {
+      "en": "Governed execution creates isolated task workspaces.",
+      "es": "La ejecucion gobernada crea workspaces aislados por tarea."
+    },
+    "app.workbench.workspaces.columnTask": {
+      "en": "Task",
+      "es": "Tarea"
+    },
+    "app.workbench.workspaces.columnStatus": {
+      "en": "Status",
+      "es": "Estado"
     }
   }
 }

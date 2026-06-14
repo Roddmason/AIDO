@@ -159,3 +159,41 @@ def test_i18n_catalog_can_be_edited_without_redeploy(tmp_path: Path) -> None:
     assert persisted["translations"]["app.brand.kicker"]["fr"] == "Windows local · v1"
 
     runtime.close()
+
+
+def test_existing_i18n_catalog_merges_missing_default_keys_without_overwriting_edits(tmp_path: Path) -> None:
+    sys.modules["faiss"] = None
+
+    from local_control_center.app import create_app
+    from local_control_center.control_plane.runtime import ControlCenterRuntime
+
+    runtime = ControlCenterRuntime(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    app = create_app(runtime=runtime, static_dir=None)
+    client = TestClient(app)
+    token = client.get("/api/v1/security/handshake").json()["token"]
+
+    partial = client.put(
+        "/api/v1/i18n/catalog",
+        headers={"X-Local-Control-Token": token},
+        json={
+            "defaultLanguage": "en",
+            "languages": [
+                {"code": "en", "name": "English", "nativeName": "English", "enabled": True},
+                {"code": "es", "name": "Spanish", "nativeName": "Espanol", "enabled": True},
+            ],
+            "translations": {
+                "app.brand.kicker": {
+                    "en": "Windows native · v1 only",
+                    "es": "Windows local editado",
+                },
+            },
+        },
+    )
+    assert partial.status_code == 200
+
+    merged = client.get("/api/v1/i18n/catalog").json()
+    assert merged["translations"]["app.brand.kicker"]["es"] == "Windows local editado"
+    assert merged["translations"]["app.workbench.team.title"]["en"] == "AI delivery team"
+    assert merged["translations"]["app.workbench.team.title"]["es"] == "Equipo IA de entrega"
+
+    runtime.close()

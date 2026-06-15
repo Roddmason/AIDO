@@ -37,7 +37,7 @@ import {
 } from '../features/pages';
 import { countByStatus, shortId, toneForStatus } from '../lib/format';
 import { AppShell } from './AppShell';
-import { areaForPage, pageIds } from './navigation';
+import { areaForPage, pageIds, titleForPage } from './navigation';
 import type { PageId } from './navigation';
 
 const SELECTED_PROJECT_STORAGE_KEY = 'aido:selectedProjectId';
@@ -143,6 +143,10 @@ export function App() {
 	useEffect(() => {
 		document.documentElement.lang = language;
 	}, [language]);
+
+	useEffect(() => {
+		document.title = `${titleForPage(page, language)} · AIDO Control Center`;
+	}, [page, language]);
 
 	useEffect(() => {
 		const onHash = () => setPage(currentHash());

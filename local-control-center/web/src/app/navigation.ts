@@ -214,3 +214,14 @@ export const EXPLORER_TITLE: Record<AreaId, BilingualLabel> = {
 export function pickLabel(label: BilingualLabel, language: string): string {
 	return language === 'es' ? label.es : label.en;
 }
+
+/** Best human-readable title for the browser tab: prefer an Explorer link label,
+ *  then fall back to the owning area's label. */
+export function titleForPage(page: PageId, language: string): string {
+	for (const areaLinks of Object.values(EXPLORER_LINKS)) {
+		const link = areaLinks.find((item) => item.page === page);
+		if (link) return pickLabel(link.label, language);
+	}
+	const area = AREAS.find((item) => item.pages.includes(page));
+	return area ? pickLabel(area.label, language) : 'AIDO';
+}

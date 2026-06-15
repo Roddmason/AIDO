@@ -53,6 +53,25 @@ def test_project_discovery_prefers_package_name_and_detects_node_python(tmp_path
     assert {runtime["id"] for runtime in discovery["detectedRuntimes"]} >= {"node", "python"}
 
 
+def test_project_discovery_detects_git_requirements_and_go(tmp_path: Path) -> None:
+    project_path = tmp_path / "polyglot"
+    project_path.mkdir()
+    (project_path / ".git").mkdir()
+    (project_path / "requirements.txt").write_text("fastapi==0.110.0\nuvicorn\n", encoding="utf-8")
+    (project_path / "go.mod").write_text("module example.com/payments-svc\n\ngo 1.22\n", encoding="utf-8")
+
+    discovery = discover_project_path(project_path)
+
+    assert discovery["exists"] is True
+    assert discovery["templateId"] == "other"
+    manifests = {source["manifest"] for source in discovery["manifestSources"]}
+    assert {".git", "requirements.txt", "go.mod"} <= manifests
+    runtime_ids = {runtime["id"] for runtime in discovery["detectedRuntimes"]}
+    assert {"python", "go"} <= runtime_ids
+    # The Go module name is the only name candidate, so it becomes the suggested name.
+    assert discovery["suggestedName"] == "payments-svc"
+
+
 def test_project_discovery_endpoint_requires_local_write_token(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
     runtime = ControlCenterRuntime(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")

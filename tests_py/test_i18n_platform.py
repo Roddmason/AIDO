@@ -58,7 +58,8 @@ def extract_static_ui_copy() -> set[str]:
     for path in WEB_SRC.rglob("*.tsx"):
         source = path.read_text(encoding="utf-8")
         for match in UI_COPY_PROPERTY_RE.finditer(source):
-            value = bytes(match.group("value"), "utf-8").decode("unicode_escape")
+            # Unescape JS string escapes (\' \" \\) without corrupting UTF-8 (e.g. accented Spanish).
+            value = re.sub(r"\\(.)", r"\1", match.group("value"))
             if _is_static_ui_copy(value):
                 values.add(re.sub(r"\s+", " ", value.strip()))
         for match in JSX_TEXT_RE.finditer(source):

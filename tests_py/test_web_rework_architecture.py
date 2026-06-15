@@ -45,7 +45,7 @@ def test_dashboard_entrypoint_uses_vite_typescript_app() -> None:
 
 def test_frontend_feature_slices_are_explicit() -> None:
     expected = [
-        "overview",
+        "home",
         "jobs-approvals",
         "memory",
         "agents",

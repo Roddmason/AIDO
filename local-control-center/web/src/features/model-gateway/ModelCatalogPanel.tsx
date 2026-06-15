@@ -1,3 +1,8 @@
+/**
+ * @file AIDO frontend source module.
+ * @copyright Copyright (c) AIDO.
+ * @author Roddmason
+ */
 import type { ModelGatewayModel } from '../../api/types';
 import { Badge, DataTable, EmptyState } from '../../components/primitives';
 import { PanelShell } from './PanelShell';

@@ -1,3 +1,8 @@
+/**
+ * @file AIDO frontend source module.
+ * @copyright Copyright (c) AIDO.
+ * @author Roddmason
+ */
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 

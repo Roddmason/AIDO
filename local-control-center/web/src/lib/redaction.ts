@@ -1,3 +1,8 @@
+/**
+ * @file AIDO frontend source module.
+ * @copyright Copyright (c) AIDO.
+ * @author Roddmason
+ */
 export function redactVisibleText(value: unknown, fallback = 'not recorded') {
 	const raw = typeof value === 'string'
 		? value

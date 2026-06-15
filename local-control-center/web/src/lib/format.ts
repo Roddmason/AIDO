@@ -1,3 +1,8 @@
+/**
+ * @file AIDO frontend source module.
+ * @copyright Copyright (c) AIDO.
+ * @author Roddmason
+ */
 export function countByStatus(items: Array<{ status?: string }>, status: string) {
 	return items.filter((item) => item.status === status).length;
 }

@@ -1,3 +1,8 @@
+/**
+ * @file AIDO frontend source module.
+ * @copyright Copyright (c) AIDO.
+ * @author Roddmason
+ */
 import type { Overview, RetrievalStatus, RuntimeProviders } from './types';
 import { requestGeneratedOperation } from './generated/openapi';
 import type { ApiOperationId, OperationRequestBody, OperationResponse } from './generated/openapi';

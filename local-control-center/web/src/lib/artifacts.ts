@@ -1,3 +1,8 @@
+/**
+ * @file AIDO frontend source module.
+ * @copyright Copyright (c) AIDO.
+ * @author Roddmason
+ */
 import type { ArtifactPayload } from '../api/client';
 import type { Artifact, Dictionary } from '../api/types';
 

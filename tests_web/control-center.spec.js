@@ -736,30 +736,28 @@ test('Settings owns selected project and persists it across reloads', async ({ p
 test('New Project wizard validates input creates project and selects it', async ({ page }) => {
 	const suffix = Date.now();
 	const projectName = `Wizard Project ${suffix}`;
-	const workspaceBasePath = './.tmp';
+	const workspaceBasePath = '.tmp';
 	const projectDirectoryName = `wizard-project-${suffix}`;
 
 	await page.goto('/#settings');
 	await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name: 'Settings', exact: true }).click();
 	await page.getByRole('button', { name: 'New project' }).click();
-	await page.getByRole('button', { name: 'Create from zero' }).click();
+	await page.locator('.workspace-mode-card').filter({ hasText: 'Create workspace' }).click();
 
-	await page.getByRole('button', { name: 'Next' }).click();
-	await expect(page.getByText('Project name is required.')).toBeVisible();
-	await page.getByLabel('Project name').fill(projectName);
 	await page.getByRole('button', { name: 'Next' }).click();
 	await expect(page.getByText('Workspace base path is required.')).toBeVisible();
 	await page.getByLabel('Workspace base path').fill(workspaceBasePath);
-	await page.getByLabel('Workspace name').fill(projectDirectoryName);
-	await expect(page.getByText(`Final path: ${workspaceBasePath}/${projectDirectoryName}`)).toBeVisible();
 	await page.getByRole('button', { name: 'Next' }).click();
+	await expect(page.getByText('Workspace name is required.')).toBeVisible();
+	await page.getByLabel('Workspace name').fill(projectDirectoryName);
+	await expect(page.getByText(new RegExp(`Final path:.*${projectDirectoryName}`))).toBeVisible();
+	await page.getByRole('button', { name: 'Next' }).click();
+
+	await page.getByLabel('Project name').fill(projectName);
 	await page.getByLabel('Project template').selectOption('python-fastapi');
 	await page.getByRole('button', { name: 'Next' }).click();
-	await page.getByLabel('Create directory').check();
-	await page.getByRole('button', { name: 'Next' }).click();
-	await page.getByRole('button', { name: 'Create workspace' }).click();
+	await page.getByRole('button', { name: 'Open in workbench' }).click();
 
-	await expect(page.getByLabel('Operational project')).toHaveValue(/project-/);
 	await expect(page.getByText(projectName).first()).toBeVisible();
 	await expect
 		.poll(
@@ -796,15 +794,18 @@ test('New Project wizard exposes attach existing mode and discovery controls', a
 	await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name: 'Settings', exact: true }).click();
 	await page.getByRole('button', { name: 'New project' }).click();
 
-	await expect(page.getByRole('button', { name: 'Import existing workspace' })).toHaveAttribute('aria-pressed', 'true');
+	const openCard = page.locator('.workspace-mode-card').filter({ hasText: 'Open folder' });
+	const createCard = page.locator('.workspace-mode-card').filter({ hasText: 'Create workspace' });
+	await expect(openCard).toHaveAttribute('aria-pressed', 'true');
 	await expect(page.getByLabel('Workspace folder')).toBeVisible();
-	await page.getByRole('button', { name: 'Create from zero' }).click();
+	await createCard.click();
+	await expect(createCard).toHaveAttribute('aria-pressed', 'true');
 	await expect(page.getByLabel('Workspace base path')).toBeVisible();
-	await page.getByRole('button', { name: 'Import existing workspace' }).click();
+	await expect(page.getByLabel('Workspace name')).toBeVisible();
+	await openCard.click();
 
 	await expect(page.getByLabel('Workspace folder')).toBeVisible();
-	await expect(page.getByRole('button', { name: 'Select folder' }).first()).toBeVisible();
-	await expect(page.getByRole('button', { name: 'Detect technologies' })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Detect project' })).toBeVisible();
 });
 
 test('Workspaces shows allocated workspaces without the project catalog', async ({ page }) => {
@@ -968,10 +969,10 @@ test('language control localizes Settings and New Project wizard chrome', async 
 	await expect(page.getByRole('button', { name: 'Nuevo proyecto' })).toBeVisible();
 
 	await page.getByRole('button', { name: 'Nuevo proyecto' }).click();
-	await expect(page.getByRole('button', { name: 'Importar workspace existente' })).toBeVisible();
-	await expect(page.getByRole('button', { name: 'Crear desde cero' })).toBeVisible();
-	await page.getByRole('button', { name: 'Siguiente' }).click();
-	await expect(page.getByText('El nombre del proyecto es obligatorio.')).toBeVisible();
+	await expect(page.locator('.workspace-mode-card').filter({ hasText: 'Abrir carpeta' })).toBeVisible();
+	await expect(page.locator('.workspace-mode-card').filter({ hasText: 'Crear workspace' })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Siguiente' })).toBeVisible();
+	await page.getByRole('button', { name: 'Cancelar' }).click();
 
 	await page.getByRole('button', { name: 'EN', exact: true }).click();
 	await expect(page.locator('html')).toHaveAttribute('lang', 'en');
@@ -1004,14 +1005,11 @@ test('New Project wizard uses IDE workspace import and blocks duplicate workspac
 	await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name: 'Settings', exact: true }).click();
 	await page.getByRole('button', { name: 'New project' }).click();
 
-	await expect(page.getByRole('button', { name: 'Import existing workspace' })).toBeVisible();
-	await expect(page.getByRole('button', { name: 'Create from zero' })).toBeVisible();
+	await expect(page.locator('.workspace-mode-card').filter({ hasText: 'Open folder' })).toHaveAttribute('aria-pressed', 'true');
+	await expect(page.locator('.workspace-mode-card').filter({ hasText: 'Create workspace' })).toBeVisible();
 	await expect(page.getByLabel('Workspace folder')).toBeVisible();
-	await expect(page.getByText('package.json')).toBeVisible();
-	await expect(page.getByText('pom.xml')).toBeVisible();
-	await expect(page.getByText('pyproject.toml')).toBeVisible();
 
-	await page.getByRole('button', { name: 'Create from zero' }).click();
+	await page.locator('.workspace-mode-card').filter({ hasText: 'Create workspace' }).click();
 	await page.getByLabel('Workspace name').fill(existing.name);
 
 	await expect(page.getByText('Workspace name already exists.')).toBeVisible();
@@ -2153,13 +2151,6 @@ test('command palette executes v1 actions and workflow inspector shows linked re
 	await expect(page.getByRole('dialog', { name: 'Approval drawer' })).toBeVisible();
 });
 
-test('command palette can create a workflow through typed v1 mutation', async ({ page }) => {
-	await page.goto('/');
-
-	await page.getByRole('button', { name: 'Open command palette' }).click();
-	await page.getByLabel('Command palette filter').fill('create workflow');
-	await page.getByRole('button', { name: 'Create Workflow' }).click();
-
-	await expect(page.getByRole('heading', { name: 'Workflows' })).toBeVisible();
-	await expect(page.getByText('Palette workflow').first()).toBeVisible();
-});
+// NOTE: 'command palette can create a workflow' was removed — the redesigned palette
+// (commandActions.ts) intentionally dropped the Create Workflow action; the palette is
+// covered by command-palette.spec.js. Restore the action + this test if the removal was unintended.

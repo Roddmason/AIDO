@@ -558,7 +558,7 @@ async function routeIssueToPatchApprovalOverview(page, fixtures) {
 }
 
 async function expectNavigationTargetsReachable(page) {
-	const failures = await page.locator('.ide-nav .nav-item').evaluateAll((buttons) => {
+	const failures = await page.locator('.ide-nav .nav-item, .activity-bar-item').evaluateAll((buttons) => {
 		const results = [];
 		for (const button of buttons) {
 			const rect = button.getBoundingClientRect();
@@ -711,9 +711,9 @@ test('Active Projects shows only active projects and ignores stale selected proj
 	await page.route('/api/v1/events', (route) => route.abort());
 	await page.addInitScript(() => window.localStorage.setItem('aido:selectedProjectId', 'project-web-inactive'));
 
-	await page.goto('/');
+	await page.goto('/#workbench');
 
-	await expect(page.getByRole('heading', { name: 'Workspace Workbench' })).toBeVisible();
+	await expect(page.locator('.workbench-layout')).toBeVisible();
 	await expect(page.getByText('Active Ledger Project').first()).toBeVisible();
 	await expect(page.getByText('Dormant Project')).toBeHidden();
 });
@@ -729,7 +729,7 @@ test('Settings owns selected project and persists it across reloads', async ({ p
 	await page.reload();
 
 	await expect(page.getByLabel('Operational project')).toHaveValue(project.id);
-	await page.getByRole('button', { name: 'Command Center' }).click();
+	await page.goto('/#command');
 	await expect(page.getByText(project.name).first()).toBeVisible();
 });
 
@@ -816,50 +816,50 @@ test('Workspaces shows allocated workspaces without the project catalog', async 
 	await expect(page.getByRole('heading', { name: 'Projects' })).toHaveCount(0);
 });
 
-test('IDE navigation keeps primary sections visible when context changes', async ({ page }) => {
+test('IDE ActivityBar exposes the primary destinations across context changes', async ({ page }) => {
 	await page.goto('/');
 
 	const nav = page.getByRole('navigation', { name: 'Primary navigation' });
+	const explorer = page.locator('.explorer-panel');
 
-	await expect(nav.getByRole('button', { name: 'Workbench' })).toBeVisible();
-	await expect(nav.getByRole('button', { name: 'Projects' })).toBeVisible();
-	await expect(nav.getByRole('button', { name: 'Active' })).toBeVisible();
-	await expect(nav.getByRole('button', { name: 'Finished' })).toBeVisible();
-	await expect(nav.getByRole('button', { name: 'With error' })).toBeVisible();
-	await expect(nav.getByRole('button', { name: 'Cancelled' })).toBeVisible();
-	await expect(nav.getByRole('button', { name: 'Command Center' })).toBeVisible();
-	await expect(nav.getByRole('button', { name: 'Settings', exact: true })).toBeVisible();
+	for (const name of ['Home', 'Workbench', 'Runs', 'Review', 'Settings']) {
+		await expect(nav.getByRole('button', { name, exact: true })).toBeVisible();
+	}
 
-	await page.getByRole('button', { name: 'Settings', exact: true }).click();
+	await nav.getByRole('button', { name: 'Settings', exact: true }).click();
 
-	await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
-	await expect(nav.getByRole('button', { name: 'User settings' })).toBeVisible();
-	await expect(nav.getByRole('button', { name: 'Defaults' })).toBeVisible();
-	await expect(nav.getByRole('button', { name: 'Workspace settings' })).toBeVisible();
+	for (const name of ['Home', 'Workbench', 'Runs', 'Review', 'Settings']) {
+		await expect(nav.getByRole('button', { name, exact: true })).toBeVisible();
+	}
+	await expect(explorer.getByRole('button', { name: 'User settings' })).toBeVisible();
+	await expect(explorer.getByRole('button', { name: 'Workspace settings' })).toBeVisible();
 });
 
-test('IDE navigation groups dense sections without hiding workspace routes', async ({ page }) => {
+test('IDE ActivityBar has five destinations and marks the active route', async ({ page }) => {
 	await page.goto('/');
 
-	await expect(page.locator('.ide-nav .nav-section')).toHaveCount(5);
-	await expect(page.getByRole('button', { name: 'Workspace settings' })).toBeVisible();
-	await page.getByRole('button', { name: 'CLI settings' }).click();
+	await expect(page.locator('.activity-bar-nav .activity-bar-item')).toHaveCount(5);
+
+	const explorer = page.locator('.explorer-panel');
+	await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name: 'Settings', exact: true }).click();
+	await explorer.getByRole('button', { name: 'CLI settings' }).click();
 	await expect(page.getByRole('heading', { name: 'CLI configuration' })).toBeVisible();
-	await expect(page.locator('.ide-nav .nav-item[aria-current="page"]')).toHaveAttribute('aria-label', 'CLI settings');
+	await expect(page.locator('.explorer-panel .nav-item[aria-current="page"]')).toHaveAttribute('aria-label', 'CLI settings');
 });
 
-test('IDE navigation keeps touch-safe targets across key routes', async ({ page }) => {
+test('IDE navigation keeps touch-safe targets across key destinations', async ({ page }) => {
 	await page.goto('/');
 	await expectNavigationTargetsReachable(page);
 
-	for (const routeName of ['Workbench', 'Projects', 'Command Center', 'Workflows', 'Jobs & Approvals', 'Workspace settings']) {
-		await page.getByRole('button', { name: routeName, exact: true }).click();
+	const nav = page.getByRole('navigation', { name: 'Primary navigation' });
+	for (const area of ['Home', 'Workbench', 'Runs', 'Review', 'Settings']) {
+		await nav.getByRole('button', { name: area, exact: true }).click();
 		await expectNavigationTargetsReachable(page);
 	}
 });
 
 test('IDE shell uses dark modern surfaces and compact navigation', async ({ page }) => {
-	await page.goto('/');
+	await page.goto('/#workbench');
 
 	const shell = await page.evaluate(() => {
 		const htmlStyle = window.getComputedStyle(document.documentElement);
@@ -883,15 +883,18 @@ test('IDE shell uses dark modern surfaces and compact navigation', async ({ page
 	await expect(page.locator('.console-grid')).toBeVisible();
 });
 
-test('IDE navigation exposes workspace settings and history from the shell', async ({ page }) => {
+test('IDE Explorer exposes audit log and workspace settings from the shell', async ({ page }) => {
 	await page.goto('/');
 
-	await expect(page.getByRole('button', { name: 'History' })).toBeVisible();
-	await page.getByRole('button', { name: 'History' }).click();
+	const nav = page.getByRole('navigation', { name: 'Primary navigation' });
+	const explorer = page.locator('.explorer-panel');
+
+	await nav.getByRole('button', { name: 'Review', exact: true }).click();
+	await explorer.getByRole('button', { name: 'Audit Log' }).click();
 	await expect(page.getByRole('heading', { name: 'Audit Log' })).toBeVisible();
 
-	await expect(page.getByRole('button', { name: 'Workspace settings' })).toBeVisible();
-	await page.getByRole('button', { name: 'Workspace settings' }).click();
+	await nav.getByRole('button', { name: 'Settings', exact: true }).click();
+	await explorer.getByRole('button', { name: 'Workspace settings' }).click();
 	await expect(page.getByRole('heading', { name: 'Settings Workspaces' })).toBeVisible();
 	await expect(page.getByText('IDE-style workspace roots')).toBeVisible();
 });
@@ -899,13 +902,28 @@ test('IDE navigation exposes workspace settings and history from the shell', asy
 test('Workbench chat creates a chat intake and linked pipeline', async ({ page }) => {
 	const project = await getActiveProject(page);
 	const prompt = `Workbench intake ${Date.now()}`;
-	await page.goto('/');
+	await page.goto('/#workbench');
 
-	await expect(page.getByRole('heading', { name: 'Workspace Workbench' })).toBeVisible();
+	await expect(page.locator('.workbench-layout')).toBeVisible();
 	await expect(page.getByRole('heading', { name: 'Work sessions' })).toBeVisible();
+
+	// The five primary views are exposed as accessible tabs.
+	for (const tabName of ['Task', 'Timeline', 'Diff', 'Evidence', 'Logs']) {
+		await expect(page.getByRole('tab', { name: new RegExp(`^${tabName}`) })).toBeVisible();
+	}
+
+	// The AI delivery team is reachable from the composer drawer.
+	await page.getByRole('button', { name: 'AI team' }).click();
 	await expect(page.getByRole('heading', { name: 'AI delivery team' })).toBeVisible();
+	await page.getByRole('dialog', { name: 'AI delivery team' }).getByRole('button', { name: 'Close AI delivery team' }).click();
+	await expect(page.getByRole('heading', { name: 'AI delivery team' })).toBeHidden();
+
+	// The project delivery flow lives in the Timeline tab.
+	await page.getByRole('tab', { name: /^Timeline/ }).click();
 	await expect(page.getByRole('heading', { name: 'Project delivery flow' })).toBeVisible();
-	await expect(page.getByRole('heading', { name: 'Deliverables and evidence' })).toBeVisible();
+
+	// Compose the intake from the Task tab.
+	await page.getByRole('tab', { name: /^Task/ }).click();
 	await page.getByLabel('Workspace folder', { exact: true }).selectOption(project.id);
 	await page.getByRole('button', { name: 'New work session' }).click();
 	await page.getByLabel('Task prompt').fill(prompt);
@@ -925,34 +943,20 @@ test('Workbench chat creates a chat intake and linked pipeline', async ({ page }
 		.toBe(true);
 });
 
-test('navigation groups projects and settings with an ES EN header language control', async ({ page }) => {
+test('IDE ActivityBar localizes primary destinations with the ES EN control', async ({ page }) => {
 	await page.goto('/');
 
-	await expect(page.getByRole('button', { name: 'Projects' })).toBeVisible();
-	await expect(page.getByRole('button', { name: 'Active' })).toBeVisible();
-	await expect(page.getByRole('button', { name: 'Finished' })).toBeVisible();
-	await expect(page.getByRole('button', { name: 'With error' })).toBeVisible();
-	await expect(page.getByRole('button', { name: 'Cancelled' })).toBeVisible();
-	await expect(page.getByRole('button', { name: 'Command Center' })).toBeVisible();
-	await expect(page.getByRole('button', { name: 'Settings', exact: true })).toBeVisible();
-	await expect(page.getByRole('button', { name: 'User settings' })).toBeVisible();
-	await expect(page.getByRole('button', { name: 'CLI settings' })).toBeVisible();
-	await expect(page.getByRole('button', { name: 'API settings' })).toBeVisible();
-	await expect(page.getByRole('button', { name: 'Parameters' })).toBeVisible();
+	const bar = page.locator('.activity-bar');
+	for (const name of ['Home', 'Workbench', 'Runs', 'Review', 'Settings']) {
+		await expect(bar.getByRole('button', { name, exact: true })).toBeVisible();
+	}
 
 	await page.getByRole('button', { name: 'ES', exact: true }).click();
+	await expect(page.locator('html')).toHaveAttribute('lang', 'es');
 
-	await expect(page.getByRole('button', { name: 'Proyectos' })).toBeVisible();
-	await expect(page.getByRole('button', { name: 'Activos' })).toBeVisible();
-	await expect(page.getByRole('button', { name: 'Finalizados' })).toBeVisible();
-	await expect(page.getByRole('button', { name: 'Con error' })).toBeVisible();
-	await expect(page.getByRole('button', { name: 'Cancelados' })).toBeVisible();
-	await expect(page.getByRole('button', { name: 'Centro de comandos' })).toBeVisible();
-	await expect(page.getByRole('button', { name: 'Configuraciones', exact: true })).toBeVisible();
-	await expect(page.getByRole('button', { name: 'Configuraciones de usuario' })).toBeVisible();
-	await expect(page.getByRole('button', { name: 'Configuracion de cli' })).toBeVisible();
-	await expect(page.getByRole('button', { name: "Configuracion de api's" })).toBeVisible();
-	await expect(page.getByRole('button', { name: 'Configuraciones de parametros' })).toBeVisible();
+	for (const name of ['Inicio', 'Ejecuciones', 'Revisión', 'Configuración']) {
+		await expect(bar.getByRole('button', { name, exact: true })).toBeVisible();
+	}
 });
 
 test('language control localizes Settings and New Project wizard chrome', async ({ page }) => {
@@ -975,21 +979,22 @@ test('language control localizes Settings and New Project wizard chrome', async 
 });
 
 test('language control localizes catalog-backed operational surfaces', async ({ page }) => {
-	await page.goto('/#command');
+	await page.goto('/#workbench');
 	await expectControlPlaneLoaded(page);
-	await expect(page.getByRole('heading', { name: 'Command Center' })).toBeVisible();
-	await expect(page.getByRole('heading', { name: 'issue_to_patch real runtime' })).toBeVisible();
+	await expect(page.locator('.workbench-layout')).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Work sessions' })).toBeVisible();
+	await expect(page.getByText('AI project workbench')).toBeVisible();
 
 	await page.getByRole('button', { name: 'ES', exact: true }).click();
 
 	await expect(page.locator('html')).toHaveAttribute('lang', 'es');
-	await expect(page.getByRole('heading', { name: 'Centro de comandos' })).toBeVisible();
-	await expect(page.getByRole('heading', { name: 'runtime real issue_to_patch' })).toBeVisible();
-	await expect(page.getByRole('heading', { name: 'issue_to_patch real runtime' })).toHaveCount(0);
+	await expect(page.getByRole('heading', { name: 'Sesiones de trabajo' })).toBeVisible();
+	await expect(page.getByText('Workbench de proyecto IA')).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Work sessions' })).toHaveCount(0);
 
 	await page.getByRole('button', { name: 'EN', exact: true }).click();
 	await expect(page.locator('html')).toHaveAttribute('lang', 'en');
-	await expect(page.getByRole('heading', { name: 'issue_to_patch real runtime' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Work sessions' })).toBeVisible();
 });
 
 test('New Project wizard uses IDE workspace import and blocks duplicate workspace names', async ({ page }) => {
@@ -1030,18 +1035,18 @@ test('project status navigation filters finished error and cancelled projects', 
 
 	await page.goto('/#projects-finished');
 	await expect(page.getByRole('heading', { name: 'Finished Projects' })).toBeVisible();
-	await expect(page.getByRole('table').getByText('Status Finished Project')).toBeVisible();
-	await expect(page.getByRole('table').getByText('Status Active Project')).toBeHidden();
+	await expect(page.locator('.masonry-grid').getByText('Status Finished Project')).toBeVisible();
+	await expect(page.locator('.masonry-grid').getByText('Status Active Project')).toBeHidden();
 
 	await page.getByRole('button', { name: 'With error' }).click();
 	await expect(page.getByRole('heading', { name: 'Projects With Error' })).toBeVisible();
-	await expect(page.getByRole('table').getByText('Status Error Project')).toBeVisible();
-	await expect(page.getByRole('table').getByText('Status Finished Project')).toBeHidden();
+	await expect(page.locator('.masonry-grid').getByText('Status Error Project')).toBeVisible();
+	await expect(page.locator('.masonry-grid').getByText('Status Finished Project')).toBeHidden();
 
 	await page.getByRole('button', { name: 'Cancelled' }).click();
 	await expect(page.getByRole('heading', { name: 'Cancelled Projects' })).toBeVisible();
-	await expect(page.getByRole('table').getByText('Status Cancelled Project')).toBeVisible();
-	await expect(page.getByRole('table').getByText('Status Error Project')).toBeHidden();
+	await expect(page.locator('.masonry-grid').getByText('Status Cancelled Project')).toBeVisible();
+	await expect(page.locator('.masonry-grid').getByText('Status Error Project')).toBeHidden();
 });
 
 test('settings separates configuration types and keeps defaults collapsed', async ({ page }) => {
@@ -1052,7 +1057,7 @@ test('settings separates configuration types and keeps defaults collapsed', asyn
 	await expect(page.getByRole('button', { name: 'CLI settings' })).toBeVisible();
 	await expect(page.getByRole('button', { name: 'API settings' })).toBeVisible();
 	await expect(page.getByRole('button', { name: 'Parameters' })).toBeVisible();
-	await expect(page.getByRole('button', { name: 'Mantenedores' })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Maintainers' })).toBeVisible();
 	await expect(page.getByRole('heading', { name: 'CLI configuration' })).toBeVisible();
 	await expect(page.getByText('PNPM package manager')).toBeVisible();
 	await expect(page.getByText('Backend: FastAPI v1')).toBeHidden();
@@ -1062,10 +1067,20 @@ test('settings separates configuration types and keeps defaults collapsed', asyn
 });
 
 test('shell renders the editorial control plane', async ({ page }) => {
-	await page.goto('/');
-	await expect(page.getByRole('heading', { name: 'Workspace Workbench' })).toBeVisible();
-	await expect(page.getByRole('button', { name: 'Jobs & Approvals' })).toBeVisible();
+	await page.goto('/#workbench');
+	await expect(page.locator('.workbench-layout')).toBeVisible();
+	await expect(page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name: 'Review', exact: true })).toBeVisible();
 	await expect(page.getByText('AIDO Control Center')).toBeVisible();
+});
+
+test('Home is the default landing and leads with the open-folder action', async ({ page }) => {
+	await page.goto('/');
+
+	await expect(page.getByRole('heading', { name: 'Open or continue a project' })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Open folder' }).first()).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Create workspace' })).toBeVisible();
+	// Home is a card gallery, not a table-driven dashboard.
+	await expect(page.locator('.content-frame table')).toHaveCount(0);
 });
 
 test('Jobs/Approvals requires contextual review before action decision', async ({ page }) => {
@@ -1605,7 +1620,7 @@ test('Runtime provider tables report unavailable states honestly', async ({ page
 	await expect(page.getByRole('heading', { name: 'Runtime Providers' })).toBeVisible();
 	await expect(page.getByText('not executable').first()).toBeVisible();
 
-	await page.getByRole('button', { name: 'Agents' }).click();
+	await page.goto('/#agents');
 	await expect(page.getByRole('heading', { name: 'Runtime detection' })).toBeVisible();
 	await expect(page.getByText('not executable').first()).toBeVisible();
 });
@@ -1787,7 +1802,7 @@ test('Runtime & Model Gateway refreshes CLI healthcheck through backend endpoint
 	await expect.poll(() => detectCalled).toBe(true);
 });
 
-test('Command Center blocks issue_to_patch when no executable runtime exists', async ({ page }) => {
+test('Workbench governed patch blocks issue_to_patch when no executable runtime exists', async ({ page }) => {
 	const blockReason = 'No executable issue_to_patch/code_edit runtime is configured.';
 	await page.route('/api/v1/runtime/providers', async (route) => {
 		await route.fulfill({
@@ -1832,19 +1847,20 @@ test('Command Center blocks issue_to_patch when no executable runtime exists', a
 		});
 	});
 	await page.goto('/#command');
-	await page.getByRole('button', { name: 'Command Center' }).click();
+	await expect(page.locator('.workbench-layout')).toBeVisible();
+	await page.getByRole('button', { name: 'Governed patch' }).click();
 
 	await page.getByLabel('Issue title').fill(`Web issue_to_patch ${Date.now()}`);
 	await page.getByLabel('Issue text').fill('Change a small file through the real runtime slice.');
 	await expect(page.getByText('runtime_unavailable').first()).toBeVisible();
-	await expect(page.getByText(blockReason)).toBeVisible();
+	await expect(page.getByText(blockReason).first()).toBeVisible();
 	await expect(page.getByLabel('Preferred runtime')).toBeDisabled();
 	await expect(page.getByLabel('Preferred runtime')).not.toContainText('manual');
 	await expect(page.getByLabel('Preferred runtime')).not.toContainText('internal_mock');
 	await expect(page.getByRole('button', { name: 'Run issue_to_patch' })).toBeDisabled();
 });
 
-test('Command Center enables issue_to_patch only with an executable runtime', async ({ page }) => {
+test('Workbench governed patch enables issue_to_patch only with an executable runtime', async ({ page }) => {
 	await page.route('/api/v1/runtime/providers', async (route) => {
 		await route.fulfill({
 			json: runtimeProvidersFixture([
@@ -1888,7 +1904,8 @@ test('Command Center enables issue_to_patch only with an executable runtime', as
 		});
 	});
 	await page.goto('/#command');
-	await page.getByRole('button', { name: 'Command Center' }).click();
+	await expect(page.locator('.workbench-layout')).toBeVisible();
+	await page.getByRole('button', { name: 'Governed patch' }).click();
 
 	await expect(page.getByLabel('Preferred runtime')).toBeEnabled();
 	await expect(page.getByLabel('Preferred runtime')).toContainText('codex_cli - executable');
@@ -1899,7 +1916,7 @@ test('Command Center enables issue_to_patch only with an executable runtime', as
 	await expect(page.getByRole('button', { name: 'Run issue_to_patch' })).toBeEnabled();
 });
 
-test('Command Center surfaces runtime_unavailable status honestly', async ({ page }) => {
+test('Workbench governed patch surfaces runtime_unavailable status honestly', async ({ page }) => {
 	const runtimeUnavailableReason = 'Executable runtime failed its launch healthcheck.';
 	await page.route('/api/v1/runtime/providers', async (route) => {
 		await route.fulfill({
@@ -1939,7 +1956,8 @@ test('Command Center surfaces runtime_unavailable status honestly', async ({ pag
 		});
 	});
 	await page.goto('/#command');
-	await page.getByRole('button', { name: 'Command Center' }).click();
+	await expect(page.locator('.workbench-layout')).toBeVisible();
+	await page.getByRole('button', { name: 'Governed patch' }).click();
 
 	await page.getByLabel('Issue title').fill(`Web issue_to_patch ${Date.now()}`);
 	await page.getByLabel('Issue text').fill('Change a small file through the real runtime slice.');
@@ -1951,7 +1969,7 @@ test('Command Center surfaces runtime_unavailable status honestly', async ({ pag
 	await expect(result).toContainText('runtime_unavailable');
 	await expect(result).toContainText(runtimeUnavailableReason);
 	await expect(result).toContainText(/Evidence .* changed files 0/);
-	const timeline = page.getByLabel('issue_to_patch timeline');
+	const timeline = page.getByLabel('Run timeline').first();
 	await expect(timeline).toContainText('runtime_selected');
 	await expect(timeline).toContainText('failed');
 });
@@ -2021,7 +2039,7 @@ test('strict configuration forms prevent manual JSON edits', async ({ page }) =>
 	expect(profile.requiresApprovalOverUsd).toBe(1.25);
 
 	await ensureLocalModelGatewayCatalog(page);
-	await page.getByRole('button', { name: 'Model Gateway' }).click();
+	await page.goto('/#models');
 	await expect(page.getByLabel('Policy id')).toBeVisible();
 	await expect(page.locator('textarea[data-json-editor="true"]')).toHaveCount(0);
 	await page.getByLabel('Policy id').fill('Bad Policy!');
@@ -2041,9 +2059,10 @@ test('strict configuration forms prevent manual JSON edits', async ({ page }) =>
 
 test('strict operational forms cover workflows governance sandbox and MCP settings', async ({ page }) => {
 	await page.goto('/#command');
-	await page.getByRole('button', { name: 'Command Center' }).click();
+	await expect(page.locator('.workbench-layout')).toBeVisible();
+	await page.getByRole('button', { name: 'Governed patch' }).click();
 
-	await expect(page.getByLabel('Project', { exact: true })).toBeVisible();
+	await expect(page.getByLabel('Workspace folder', { exact: true })).toBeVisible();
 	await expect(page.getByLabel('Issue title')).toBeVisible();
 	await expect(page.getByLabel('Issue text')).toBeVisible();
 	await expect(page.getByLabel('Preferred runtime')).not.toContainText('internal_mock');
@@ -2055,7 +2074,7 @@ test('strict operational forms cover workflows governance sandbox and MCP settin
 
 	const suffix = Date.now();
 
-	await page.getByRole('button', { name: 'Governance' }).click();
+	await page.goto('/#governance');
 	await expect(page.getByLabel('Risk title')).toBeVisible();
 	await page.getByLabel('Risk title').fill(`High risk ${suffix}`);
 	await page.getByLabel('Risk severity').selectOption('high');
@@ -2079,7 +2098,7 @@ test('strict operational forms cover workflows governance sandbox and MCP settin
 	await page.getByRole('button', { name: 'Save next step' }).click();
 	await expect(page.getByRole('cell', { name: `Next step ${suffix}` })).toBeVisible();
 
-	await page.getByRole('button', { name: 'Policy & Security' }).click();
+	await page.goto('/#policy');
 	await page.getByLabel('Sandbox update reason').fill('');
 	await page.getByRole('button', { name: 'Save sandbox profile' }).click();
 	await expect(page.getByText('Sandbox update reason is required.')).toBeVisible();
@@ -2091,7 +2110,7 @@ test('strict operational forms cover workflows governance sandbox and MCP settin
 	await page.getByRole('button', { name: 'Save sandbox profile' }).click();
 	await expect(page.getByText('768m').first()).toBeVisible();
 
-	await page.getByRole('button', { name: 'Integrations' }).click();
+	await page.goto('/#integrations');
 	await expect(page.getByLabel('MCP server id')).toBeVisible();
 	await page.getByLabel('MCP server id').fill('Bad Server!');
 	await page.getByRole('button', { name: 'Register MCP server' }).click();

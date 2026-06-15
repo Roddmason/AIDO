@@ -1,1 +1,5 @@
-"""Architecture decisions, risks, and next-step governance."""
+"""AIDO backend source module.
+
+Copyright (c) AIDO.
+Author: Roddmason.
+"""

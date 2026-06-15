@@ -1,3 +1,8 @@
+"""AIDO backend source module.
+
+Copyright (c) AIDO.
+Author: Roddmason.
+"""
 from __future__ import annotations
 
 import base64

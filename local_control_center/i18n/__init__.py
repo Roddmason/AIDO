@@ -1,2 +1,5 @@
-"""Runtime-editable translation catalog for the local control center."""
+"""AIDO backend source module.
 
+Copyright (c) AIDO.
+Author: Roddmason.
+"""

@@ -1,3 +1,8 @@
+"""AIDO backend source module.
+
+Copyright (c) AIDO.
+Author: Roddmason.
+"""
 from __future__ import annotations
 
 import json
@@ -143,6 +148,45 @@ def _parse_cargo(root: Path) -> tuple[str | None, list[dict[str, Any]], list[dic
     ]
 
 
+def _parse_requirements(root: Path) -> tuple[str | None, list[dict[str, Any]], list[dict[str, Any]]]:
+    manifest = root / "requirements.txt"
+    if not manifest.exists():
+        return None, [], []
+    return None, [_source("requirements.txt", kind="backend")], [
+        _runtime("python", kind="backend", label="Python", manifest="requirements.txt")
+    ]
+
+
+def _parse_go_mod(root: Path) -> tuple[str | None, list[dict[str, Any]], list[dict[str, Any]]]:
+    manifest = root / "go.mod"
+    if not manifest.exists():
+        return None, [], []
+    match = re.search(r"^module\s+(\S+)", _read_text(manifest), re.MULTILINE)
+    module_path = match.group(1).strip() if match else ""
+    name = module_path.rsplit("/", 1)[-1] or None
+    return name, [_source("go.mod", name=name, kind="backend")], [
+        _runtime("go", kind="backend", label="Go", manifest="go.mod")
+    ]
+
+
+def _detect_git(root: Path) -> list[dict[str, Any]]:
+    if (root / ".git").is_dir():
+        return [_source(".git", kind="vcs")]
+    return []
+
+
+def _dedupe_runtimes_by_id(runtimes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    seen: set[str] = set()
+    unique: list[dict[str, Any]] = []
+    for runtime in runtimes:
+        runtime_id = str(runtime.get("id", ""))
+        if runtime_id in seen:
+            continue
+        seen.add(runtime_id)
+        unique.append(runtime)
+    return unique
+
+
 def _detect_terraform(root: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     sources: list[dict[str, Any]] = []
     runtimes: list[dict[str, Any]] = []
@@ -165,7 +209,7 @@ def discover_project_path(path: str | Path) -> dict[str, Any]:
     template_id = "other"
 
     if exists and manifest_root.is_dir():
-        for parser in (_parse_package_json, _parse_pyproject, _parse_build_json, _parse_pom, _parse_gradle, _parse_cargo):
+        for parser in (_parse_package_json, _parse_pyproject, _parse_build_json, _parse_pom, _parse_gradle, _parse_cargo, _parse_requirements, _parse_go_mod):
             parsed = parser(manifest_root)
             if len(parsed) == 4:
                 name, sources, runtimes, parsed_template = parsed
@@ -185,6 +229,9 @@ def discover_project_path(path: str | Path) -> dict[str, Any]:
         manifest_sources.extend(terraform_sources)
         detected_runtimes.extend(terraform_runtimes)
 
+        manifest_sources.extend(_detect_git(manifest_root))
+
+    detected_runtimes = _dedupe_runtimes_by_id(detected_runtimes)
     suggested_name = name_candidates[0] if name_candidates else (root.name or "Project")
     return {
         "path": str(root),

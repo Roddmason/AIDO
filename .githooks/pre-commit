@@ -1,0 +1,20 @@
+#!/bin/sh
+# AIDO secret-scanning pre-commit hook.
+# Blocks commits that introduce secrets into staged changes.
+# Mirrors `pnpm run security:secrets` but scoped to the staged diff for speed.
+# Activate per clone with:  git config core.hooksPath .githooks
+set -e
+
+if ! command -v gitleaks >/dev/null 2>&1; then
+	echo "pre-commit: gitleaks is not on PATH — staged changes were NOT secret-scanned." >&2
+	echo "            install gitleaks (https://github.com/gitleaks/gitleaks) to enable this gate." >&2
+	exit 0
+fi
+
+if gitleaks git --staged --redact --config .gitleaks.toml; then
+	exit 0
+fi
+
+echo "pre-commit: gitleaks found potential secrets in staged changes — commit blocked." >&2
+echo "            review the findings above; never commit .env files, keys, tokens or credentials." >&2
+exit 1

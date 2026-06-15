@@ -181,21 +181,11 @@ export function App() {
 						return;
 					}
 				}
-				const key = event.key.toLowerCase();
-				const code = event.code;
-				if (key === 'e' || code === 'KeyE') {
-					event.preventDefault();
-					setEventDrawerOpen(true);
-				}
-				if (key === 'w' || code === 'KeyW') {
-					event.preventDefault();
-					navigateTo('workflows');
-				}
 			}
 		};
 		window.addEventListener('keydown', onKeyDown, true);
 		return () => window.removeEventListener('keydown', onKeyDown, true);
-	}, [navigateTo]);
+	}, []);
 
 	const overview = state.overview;
 	const activeProjects = useMemo(() => overview?.projects.filter((project) => project.status === 'active') ?? [], [overview?.projects]);

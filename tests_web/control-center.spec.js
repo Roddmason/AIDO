@@ -1290,13 +1290,13 @@ test('keyboard shortcuts open operational surfaces without mouse navigation', as
 	await page.keyboard.press('Escape');
 	await expect(page.getByRole('dialog', { name: 'Approval drawer' })).toBeHidden();
 
+	// Legacy Ctrl+Alt+E (event drawer) and Ctrl+Alt+W (workflows) bindings were removed in the
+	// AIDO Studio redesign; only the palette shortcuts (Ctrl+Alt+A/V/O/R) exist now. The event
+	// drawer stays reachable via its toolbar button (covered above).
 	await page.keyboard.press('Control+Alt+E');
-	await expect(page.getByRole('dialog', { name: 'Event drawer' })).toBeVisible();
-	await page.keyboard.press('Escape');
 	await expect(page.getByRole('dialog', { name: 'Event drawer' })).toBeHidden();
-
 	await page.keyboard.press('Control+Alt+W');
-	await expect(page.getByRole('heading', { name: 'Workflows' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Workflows' })).toBeHidden();
 });
 
 test('Memory & Retrieval shows backend status and memory records', async ({ page }) => {

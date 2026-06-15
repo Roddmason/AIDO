@@ -1,8 +1,13 @@
+/**
+ * @file AIDO frontend source module.
+ * @copyright Copyright (c) AIDO.
+ * @author Roddmason
+ */
 import { FolderPlus, Settings } from 'lucide-react';
 
 import type { Overview, Project, RuntimeProviders } from '../../api/types';
-import { Badge, DataTable, EmptyState, PageHeader, StatusDot, Surface } from '../../components/primitives';
-import { countByStatus, shortId, toneForStatus } from '../../lib/format';
+import { Badge, EmptyState, PageHeader, Surface } from '../../components/primitives';
+import { shortId, toneForStatus } from '../../lib/format';
 
 export type ProjectStatusView = 'active' | 'finished' | 'error' | 'cancelled';
 export type Language = 'en' | 'es';
@@ -80,7 +85,6 @@ function matchesProjectStatus(status: string, view: ProjectStatusView) {
 
 export function ActiveProjectsPage({
 	overview,
-	runtimeProviders,
 	selectedProject,
 	statusView = 'active',
 	language = 'en',
@@ -98,141 +102,103 @@ export function ActiveProjectsPage({
 	onOpenSettings: () => void;
 }) {
 	const copy = statusCopy[language][statusView];
-	const activeProjects = overview.projects.filter((project) => project.status === 'active');
+	const lang = (en: string, es: string) => (language === 'es' ? es : en);
+	const isActiveView = statusView === 'active';
 	const visibleProjects = overview.projects.filter((project) => matchesProjectStatus(project.status, statusView));
-	const pendingApprovals = overview.actionRequests.filter((item) => item.status === 'pending').length;
-	const runningJobs = countByStatus(overview.jobs, 'running');
-	const executableRuntimes = runtimeProviders?.providers.filter((provider) => provider.executable).length ?? 0;
-	const runtimeCount = runtimeProviders?.providers.length ?? 0;
-	const projectWorkspaces = (projectId: string) => overview.runtimeWorkspaces.filter((workspace) => workspace.projectId === projectId);
-	const projectJobs = (projectId: string) => overview.jobs.filter((job) => job.projectId === projectId);
-	const projectEvents = (projectId: string) => overview.events.filter((event) => event.projectId === projectId);
+	const pendingApprovals = overview.actionRequests.filter((item) => item.status === 'pending');
+	const activeWorkspaces = overview.runtimeWorkspaces.filter((workspace) => workspace.status === 'active');
+	const projectJobCount = (projectId: string) => overview.jobs.filter((job) => job.projectId === projectId).length;
+	const projectWorkspaceCount = (projectId: string) => overview.runtimeWorkspaces.filter((workspace) => workspace.projectId === projectId).length;
+	const hasPendingApproval = (projectId: string) => overview.actionRequests.some((item) => item.projectId === projectId && item.status === 'pending');
 
 	return (
 		<>
-			<PageHeader
-				kicker={copy.kicker}
-				title={copy.title}
-				summary={copy.summary}
-			/>
-			<div className="grid metrics">
-				<Surface>
-					<div className="inline"><StatusDot tone={activeProjects.length ? 'ok' : 'warn'} /> Active projects</div>
-					<div className="metric-value">{activeProjects.length}</div>
-					<div className="metric-label">{overview.projects.length} total catalog records</div>
-				</Surface>
-				<Surface>
-					<div className="inline"><StatusDot tone={runningJobs ? 'warn' : 'ok'} /> Running jobs</div>
-					<div className="metric-value">{runningJobs}</div>
-					<div className="metric-label">across active lanes</div>
-				</Surface>
-				<Surface>
-					<div className="inline"><StatusDot tone={pendingApprovals ? 'warn' : 'ok'} /> Pending approvals</div>
-					<div className="metric-value">{pendingApprovals}</div>
-					<div className="metric-label">granular action requests</div>
-				</Surface>
-				<Surface>
-					<div className="inline"><StatusDot tone={executableRuntimes ? 'ok' : 'warn'} /> Runtime providers</div>
-					<div className="metric-value">{executableRuntimes}</div>
-					<div className="metric-label">{runtimeCount} providers reported</div>
-				</Surface>
-			</div>
-			<Surface title={statusView === 'active' ? 'Active project register' : 'Project register'}>
-				<div className="surface-toolbar">
-					<div className="inline">
-						<Badge tone={selectedProject ? 'ok' : 'warn'}>{selectedProject ? `selected ${selectedProject.name}` : 'no operational project'}</Badge>
-					</div>
-					<div className="inline">
-						<button className="button" type="button" onClick={onOpenSettings}>
-							<Settings aria-hidden="true" size={16} />
-							Project settings
-						</button>
-						<button className="button primary" type="button" onClick={onCreateProject}>
-							<FolderPlus aria-hidden="true" size={16} />
-							New project
-						</button>
-					</div>
+			<PageHeader kicker={copy.kicker} title={copy.title} summary={copy.summary} />
+
+			<div className="surface-toolbar" data-motion-item>
+				<Badge tone={selectedProject ? 'ok' : 'warn'}>
+					{selectedProject ? `${lang('Selected', 'Seleccionado')}: ${selectedProject.name}` : lang('No operational project', 'Sin proyecto operativo')}
+				</Badge>
+				<div className="inline">
+					<button className="button" type="button" onClick={onOpenSettings}>
+						<Settings aria-hidden="true" size={16} />
+						{lang('Project settings', 'Configuración de proyecto')}
+					</button>
+					<button className="button primary" type="button" onClick={onCreateProject}>
+						<FolderPlus aria-hidden="true" size={16} />
+						{lang('New project', 'Nuevo proyecto')}
+					</button>
 				</div>
-				<DataTable
-					rows={visibleProjects}
-					empty={
-						<EmptyState
-							title={copy.emptyTitle}
-							body={copy.emptyBody}
-						/>
-					}
-					columns={[
-						{
-							key: 'name',
-							label: 'Project',
-							render: (project) => (
-								<div className="stack compact">
-									<strong>{project.name}</strong>
-									<span className="mono muted">{shortId(project.id)}</span>
+			</div>
+
+			{visibleProjects.length ? (
+				<div className="masonry-grid" data-motion-item>
+					{visibleProjects.map((project) => {
+						const selected = selectedProject?.id === project.id;
+						const pending = hasPendingApproval(project.id);
+						return (
+							<article className="card" data-selected={selected ? 'true' : undefined} key={project.id}>
+								<div className="card-header">
+									<strong className="card-title">{project.name}</strong>
+									<Badge tone={toneForStatus(project.status)}>{project.status}</Badge>
 								</div>
-							),
-						},
-						{ key: 'path', label: 'Path', render: (project) => <span className="mono">{project.path}</span> },
-						{ key: 'status', label: 'Status', render: (project) => <Badge tone="ok">{project.status}</Badge> },
-						{
-							key: 'work',
-							label: 'Work',
-							render: (project) => {
-								const jobs = projectJobs(project.id);
-								const workspaces = projectWorkspaces(project.id);
-								return `${jobs.length} jobs / ${workspaces.length} workspaces`;
-							},
-						},
-						{
-							key: 'lastEvent',
-							label: 'Last event',
-							render: (project) => {
-								const event = projectEvents(project.id)[0];
-								return event ? <span className="mono">{event.type}</span> : <span className="muted">none</span>;
-							},
-						},
-						{
-							key: 'posture',
-							label: 'Posture',
-							render: (project) => {
-								const hasPendingApproval = overview.actionRequests.some((item) => item.projectId === project.id && item.status === 'pending');
-								return <Badge tone={hasPendingApproval ? 'warn' : 'ok'}>{hasPendingApproval ? 'approval' : 'clear'}</Badge>;
-							},
-						},
-						{
-							key: 'select',
-							label: 'Action',
-							render: (project) => (
-								<button className="button" type="button" disabled={statusView !== 'active' || selectedProject?.id === project.id} onClick={() => onSelectProject(project.id)}>
-									{statusView !== 'active' ? 'Audit only' : selectedProject?.id === project.id ? 'Selected' : 'Select'}
-								</button>
-							),
-						},
-					]}
-				/>
-			</Surface>
+								<span className="mono muted">{project.path}</span>
+								<div className="card-meta">
+									<span>{projectJobCount(project.id)} {lang('jobs', 'trabajos')}</span>
+									<span>{projectWorkspaceCount(project.id)} {lang('workspaces', 'workspaces')}</span>
+									<Badge tone={pending ? 'warn' : 'ok'}>{pending ? lang('approval', 'aprobación') : lang('clear', 'sin pendientes')}</Badge>
+								</div>
+								{isActiveView ? (
+									<button className="button" type="button" disabled={selected} onClick={() => onSelectProject(project.id)}>
+										{selected ? lang('Selected', 'Seleccionado') : lang('Select', 'Seleccionar')}
+									</button>
+								) : (
+									<Badge>{lang('Audit only', 'Solo auditoría')}</Badge>
+								)}
+							</article>
+						);
+					})}
+				</div>
+			) : (
+				<EmptyState title={copy.emptyTitle} body={copy.emptyBody} />
+			)}
+
 			<div className="grid two">
-				<Surface title="Recent approvals">
-					<DataTable
-						rows={overview.actionRequests.filter((item) => item.status === 'pending').slice(0, 5)}
-						empty={<EmptyState title="No pending approvals" body="Risky actions stop in the approval queue before execution." />}
-						columns={[
-							{ key: 'action', label: 'Action', render: (row) => <span className="mono">{row.actionType}</span> },
-							{ key: 'risk', label: 'Risk', render: (row) => <Badge tone={toneForStatus(row.riskLevel)}>{row.riskLevel}</Badge> },
-							{ key: 'project', label: 'Project', render: (row) => <span className="mono">{shortId(row.projectId)}</span> },
-						]}
-					/>
+				<Surface title={lang('Recent approvals', 'Aprobaciones recientes')}>
+					{pendingApprovals.length ? (
+						<div className="stack">
+							{pendingApprovals.slice(0, 5).map((item) => (
+								<div className="inline" key={item.id}>
+									<span className="mono">{item.actionType}</span>
+									<Badge tone={toneForStatus(item.riskLevel)}>{item.riskLevel}</Badge>
+									<span className="mono muted">{shortId(item.projectId)}</span>
+								</div>
+							))}
+						</div>
+					) : (
+						<EmptyState
+							title={lang('No pending approvals', 'Sin aprobaciones pendientes')}
+							body={lang('Risky actions stop in the approval queue before execution.', 'Las acciones riesgosas se detienen en la cola de aprobación antes de ejecutarse.')}
+						/>
+					)}
 				</Surface>
-				<Surface title="Workspace posture">
-					<DataTable
-						rows={overview.runtimeWorkspaces.filter((workspace) => workspace.status === 'active').slice(0, 5)}
-						empty={<EmptyState title="No active workspaces" body="Workflow implementation steps allocate isolated workspaces." />}
-						columns={[
-							{ key: 'task', label: 'Task', render: (row) => <span className="mono">{row.taskId}</span> },
-							{ key: 'owner', label: 'Owner', render: (row) => row.ownerAgentId },
-							{ key: 'status', label: 'Status', render: (row) => <Badge tone={toneForStatus(row.status)}>{row.status}</Badge> },
-						]}
-					/>
+				<Surface title={lang('Workspace posture', 'Estado de workspaces')}>
+					{activeWorkspaces.length ? (
+						<div className="stack">
+							{activeWorkspaces.slice(0, 5).map((workspace) => (
+								<div className="inline" key={workspace.id}>
+									<span className="mono">{workspace.taskId}</span>
+									<span className="muted">{workspace.ownerAgentId}</span>
+									<Badge tone={toneForStatus(workspace.status)}>{workspace.status}</Badge>
+								</div>
+							))}
+						</div>
+					) : (
+						<EmptyState
+							title={lang('No active workspaces', 'Sin workspaces activos')}
+							body={lang('Workflow implementation steps allocate isolated workspaces.', 'Los pasos de implementación asignan workspaces aislados.')}
+						/>
+					)}
 				</Surface>
 			</div>
 		</>

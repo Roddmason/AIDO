@@ -15,6 +15,186 @@
     }
   ],
   "translations": {
+    "app.workspace.dialog.title": {
+      "en": "New workspace",
+      "es": "Nuevo workspace"
+    },
+    "app.workspace.steps.aria": {
+      "en": "Workspace setup steps",
+      "es": "Pasos de configuración del workspace"
+    },
+    "app.workspace.step.source": {
+      "en": "Choose source",
+      "es": "Elegir origen"
+    },
+    "app.workspace.step.review": {
+      "en": "Review detection",
+      "es": "Revisar detección"
+    },
+    "app.workspace.step.open": {
+      "en": "Open",
+      "es": "Abrir"
+    },
+    "app.workspace.mode.aria": {
+      "en": "Workspace source",
+      "es": "Origen del workspace"
+    },
+    "app.workspace.mode.openFolder": {
+      "en": "Open folder",
+      "es": "Abrir carpeta"
+    },
+    "app.workspace.mode.openFolderHint": {
+      "en": "Use a local folder that already contains a project.",
+      "es": "Usa una carpeta local que ya contiene un proyecto."
+    },
+    "app.workspace.mode.create": {
+      "en": "Create workspace",
+      "es": "Crear workspace"
+    },
+    "app.workspace.mode.createHint": {
+      "en": "Create a new folder and start an empty workspace.",
+      "es": "Crea una carpeta nueva e inicia un workspace vacío."
+    },
+    "app.workspace.field.folder": {
+      "en": "Workspace folder",
+      "es": "Carpeta del workspace"
+    },
+    "app.workspace.field.folderHelp": {
+      "en": "Pick a folder and AIDO detects the project automatically.",
+      "es": "Elige una carpeta y AIDO detecta el proyecto automáticamente."
+    },
+    "app.workspace.field.basePath": {
+      "en": "Workspace base path",
+      "es": "Carpeta base del workspace"
+    },
+    "app.workspace.field.workspaceName": {
+      "en": "Workspace name",
+      "es": "Nombre del workspace"
+    },
+    "app.workspace.field.finalPath": {
+      "en": "Final path:",
+      "es": "Ruta final:"
+    },
+    "app.workspace.field.projectName": {
+      "en": "Project name",
+      "es": "Nombre del proyecto"
+    },
+    "app.workspace.field.template": {
+      "en": "Project template",
+      "es": "Plantilla del proyecto"
+    },
+    "app.workspace.action.openFolder": {
+      "en": "Open folder",
+      "es": "Abrir carpeta"
+    },
+    "app.workspace.action.detect": {
+      "en": "Detect project",
+      "es": "Detectar proyecto"
+    },
+    "app.workspace.action.openInWorkbench": {
+      "en": "Open in workbench",
+      "es": "Abrir en workbench"
+    },
+    "app.workspace.action.next": {
+      "en": "Next",
+      "es": "Siguiente"
+    },
+    "app.workspace.action.back": {
+      "en": "Back",
+      "es": "Volver"
+    },
+    "app.workspace.action.cancel": {
+      "en": "Cancel",
+      "es": "Cancelar"
+    },
+    "app.workspace.detection.aria": {
+      "en": "Detected project markers",
+      "es": "Marcadores de proyecto detectados"
+    },
+    "app.workspace.detection.found": {
+      "en": "Detected",
+      "es": "Detectado"
+    },
+    "app.workspace.detection.missing": {
+      "en": "Not found",
+      "es": "No encontrado"
+    },
+    "app.workspace.detection.runtimes": {
+      "en": "Runtimes detected",
+      "es": "Runtimes detectados"
+    },
+    "app.workspace.detection.noRuntimes": {
+      "en": "No runtimes detected yet.",
+      "es": "Aún no se detectan runtimes."
+    },
+    "app.workspace.detection.none": {
+      "en": "none",
+      "es": "ninguno"
+    },
+    "app.workspace.summary.name": {
+      "en": "Name",
+      "es": "Nombre"
+    },
+    "app.workspace.summary.source": {
+      "en": "Source",
+      "es": "Origen"
+    },
+    "app.workspace.summary.path": {
+      "en": "Path",
+      "es": "Ruta"
+    },
+    "app.workspace.summary.template": {
+      "en": "Template",
+      "es": "Plantilla"
+    },
+    "app.workspace.picker.title": {
+      "en": "Open project folder",
+      "es": "Abrir carpeta del proyecto"
+    },
+    "app.workspace.error.folderRequired": {
+      "en": "Workspace folder is required.",
+      "es": "La carpeta del workspace es obligatoria."
+    },
+    "app.workspace.error.basePathRequired": {
+      "en": "Workspace base path is required.",
+      "es": "La carpeta base del workspace es obligatoria."
+    },
+    "app.workspace.error.basePathAndName": {
+      "en": "Workspace base path and workspace name are required.",
+      "es": "La carpeta base y el nombre del workspace son obligatorios."
+    },
+    "app.workspace.error.nameMissing": {
+      "en": "Workspace name is required.",
+      "es": "El nombre del workspace es obligatorio."
+    },
+    "app.workspace.error.nameExists": {
+      "en": "Workspace name already exists.",
+      "es": "El nombre del workspace ya existe."
+    },
+    "app.workspace.error.nameRequired": {
+      "en": "Project name is required.",
+      "es": "El nombre del proyecto es obligatorio."
+    },
+    "app.workspace.error.templateInvalid": {
+      "en": "Project template is invalid.",
+      "es": "La plantilla del proyecto no es válida."
+    },
+    "app.workspace.error.detect": {
+      "en": "Project discovery failed.",
+      "es": "Falló la detección del proyecto."
+    },
+    "app.workspace.error.pickerUnavailable": {
+      "en": "Native directory picker is unavailable. Enter the path manually.",
+      "es": "El selector nativo de carpetas no está disponible. Ingresa la ruta manualmente."
+    },
+    "app.workspace.error.picker": {
+      "en": "Directory picker failed.",
+      "es": "Falló el selector de carpetas."
+    },
+    "app.workspace.error.create": {
+      "en": "Project creation failed.",
+      "es": "Falló la creación del proyecto."
+    },
     "app.brand.kicker": {
       "en": "Windows native · v1 only",
       "es": "Nativo Windows · solo v1"
@@ -3866,6 +4046,798 @@
     "app.workbench.workspaces.columnStatus": {
       "en": "Status",
       "es": "Estado"
+    },
+    "app.global.inspector": {
+      "en": "Inspector",
+      "es": "Inspector de contexto"
+    },
+    "app.workbench.diff.blocked": {
+      "en": "review blocked",
+      "es": "revisión bloqueada"
+    },
+    "app.workbench.diff.changedFiles": {
+      "en": "changed files",
+      "es": "archivos modificados"
+    },
+    "app.workbench.diff.changedFilesLabel": {
+      "en": "Changed files",
+      "es": "Archivos modificados"
+    },
+    "app.workbench.diff.emptyPatchBody": {
+      "en": "No additions or deletions are recorded, so no changes are proven. Approval stays blocked.",
+      "es": "No hay adiciones ni eliminaciones registradas, así que no se prueba ningún cambio. La aprobación queda bloqueada."
+    },
+    "app.workbench.diff.emptyPatchTitle": {
+      "en": "Patch artifact is empty",
+      "es": "El artefacto de parche está vacío"
+    },
+    "app.workbench.diff.error": {
+      "en": "The patch artifact could not be read.",
+      "es": "No se pudo leer el artefacto de parche."
+    },
+    "app.workbench.diff.loadingBody": {
+      "en": "The patch is read through the protected artifact endpoint.",
+      "es": "El parche se lee a través del endpoint protegido de artefactos."
+    },
+    "app.workbench.diff.loadingTitle": {
+      "en": "Loading diff artifact",
+      "es": "Cargando artefacto de diff"
+    },
+    "app.workbench.diff.noPatchBody": {
+      "en": "No downloadable patch artifact was produced; diff refs alone do not prove code changes. Approval stays blocked until a real patch exists.",
+      "es": "No se produjo un artefacto de parche descargable; las referencias de diff por sí solas no prueban cambios de código. La aprobación queda bloqueada hasta que exista un parche real."
+    },
+    "app.workbench.diff.noPatchTitle": {
+      "en": "No real diff to review",
+      "es": "Sin diff real para revisar"
+    },
+    "app.workbench.diff.realChanges": {
+      "en": "real changes",
+      "es": "cambios reales"
+    },
+    "app.workbench.empty.body": {
+      "en": "Select a project folder or import an existing workspace to start coordinated, evidence-backed work.",
+      "es": "Selecciona una carpeta de proyecto o importa un workspace existente para iniciar trabajo coordinado y respaldado por evidencia."
+    },
+    "app.workbench.empty.cta": {
+      "en": "Open folder",
+      "es": "Abrir carpeta"
+    },
+    "app.workbench.empty.title": {
+      "en": "Open a workspace to begin",
+      "es": "Abre un workspace para comenzar"
+    },
+    "app.workbench.evidence.artifact": {
+      "en": "Artifact",
+      "es": "Artefacto"
+    },
+    "app.workbench.evidence.artifacts": {
+      "en": "artifacts",
+      "es": "artefactos"
+    },
+    "app.workbench.evidence.binary": {
+      "en": "Binary artifact; download to inspect.",
+      "es": "Artefacto binario; descarga para inspeccionar."
+    },
+    "app.workbench.evidence.callsTitle": {
+      "en": "Model & tool calls",
+      "es": "Llamadas de modelo y herramientas"
+    },
+    "app.workbench.evidence.changedFiles": {
+      "en": "changed files",
+      "es": "archivos modificados"
+    },
+    "app.workbench.evidence.colAction": {
+      "en": "Action",
+      "es": "Acción"
+    },
+    "app.workbench.evidence.colCommand": {
+      "en": "Command",
+      "es": "Comando"
+    },
+    "app.workbench.evidence.colDuration": {
+      "en": "Duration ms",
+      "es": "Duración ms"
+    },
+    "app.workbench.evidence.colHash": {
+      "en": "SHA-256",
+      "es": "Hash SHA-256"
+    },
+    "app.workbench.evidence.colKind": {
+      "en": "Kind",
+      "es": "Tipo"
+    },
+    "app.workbench.evidence.colName": {
+      "en": "Name",
+      "es": "Nombre"
+    },
+    "app.workbench.evidence.colSize": {
+      "en": "Size",
+      "es": "Tamaño"
+    },
+    "app.workbench.evidence.colStatus": {
+      "en": "Status",
+      "es": "Estado"
+    },
+    "app.workbench.evidence.deliverablesEmptyBody": {
+      "en": "Artifacts, patches and reports appear after real execution.",
+      "es": "Los artefactos, parches y reportes aparecen tras una ejecución real."
+    },
+    "app.workbench.evidence.deliverablesEmptyTitle": {
+      "en": "No deliverables yet",
+      "es": "Aún no hay entregables"
+    },
+    "app.workbench.evidence.deliverablesTitle": {
+      "en": "Deliverables & hashes",
+      "es": "Entregables y hashes"
+    },
+    "app.workbench.evidence.download": {
+      "en": "Download",
+      "es": "Descargar"
+    },
+    "app.workbench.evidence.downloadError": {
+      "en": "Artifact download failed.",
+      "es": "Falló la descarga del artefacto."
+    },
+    "app.workbench.evidence.downloading": {
+      "en": "Downloading",
+      "es": "Descargando"
+    },
+    "app.workbench.evidence.hashesTitle": {
+      "en": "Artifact hashes",
+      "es": "Hashes de artefactos"
+    },
+    "app.workbench.evidence.incomplete": {
+      "en": "Artifact metadata is incomplete.",
+      "es": "Los metadatos del artefacto están incompletos."
+    },
+    "app.workbench.evidence.loading": {
+      "en": "Loading artifact",
+      "es": "Cargando artefacto"
+    },
+    "app.workbench.evidence.modelCalls": {
+      "en": "model calls",
+      "es": "llamadas de modelo"
+    },
+    "app.workbench.evidence.noPackageBody": {
+      "en": "Run a governed task to produce an evidence package; QA, hashes and findings appear here without leaving the workbench.",
+      "es": "Ejecuta una tarea gobernada para producir un paquete de evidencia; QA, hashes y hallazgos aparecen aquí sin salir del workbench."
+    },
+    "app.workbench.evidence.noPackageTitle": {
+      "en": "No evidence yet",
+      "es": "Aún no hay evidencia"
+    },
+    "app.workbench.evidence.noPreview": {
+      "en": "no preview",
+      "es": "sin vista previa"
+    },
+    "app.workbench.evidence.packageTitle": {
+      "en": "Evidence package",
+      "es": "Paquete de evidencia"
+    },
+    "app.workbench.evidence.policy": {
+      "en": "policy decisions & approvals",
+      "es": "decisiones de política y aprobaciones"
+    },
+    "app.workbench.evidence.preview": {
+      "en": "Preview",
+      "es": "Vista previa"
+    },
+    "app.workbench.evidence.previewError": {
+      "en": "Artifact could not be read.",
+      "es": "No se pudo leer el artefacto."
+    },
+    "app.workbench.evidence.qaTitle": {
+      "en": "QA results",
+      "es": "Resultados de QA"
+    },
+    "app.workbench.evidence.securityEmptyBody": {
+      "en": "No security-findings.json artifact is linked to this evidence package.",
+      "es": "No hay un artefacto security-findings.json vinculado a este paquete de evidencia."
+    },
+    "app.workbench.evidence.securityEmptyTitle": {
+      "en": "No security findings artifact",
+      "es": "Sin artefacto de hallazgos de seguridad"
+    },
+    "app.workbench.evidence.securityError": {
+      "en": "Security findings could not be read.",
+      "es": "No se pudieron leer los hallazgos de seguridad."
+    },
+    "app.workbench.evidence.securityLoading": {
+      "en": "Loading security findings",
+      "es": "Cargando hallazgos de seguridad"
+    },
+    "app.workbench.evidence.securityLoadingBody": {
+      "en": "Findings are read from the linked artifact.",
+      "es": "Los hallazgos se leen del artefacto vinculado."
+    },
+    "app.workbench.evidence.securityTitle": {
+      "en": "Security findings",
+      "es": "Hallazgos de seguridad"
+    },
+    "app.workbench.evidence.testsEmptyBody": {
+      "en": "QA commands record pass/fail results against an evidence package.",
+      "es": "Los comandos de QA registran resultados de aprobado/fallido contra un paquete de evidencia."
+    },
+    "app.workbench.evidence.testsEmptyTitle": {
+      "en": "No QA results",
+      "es": "Sin resultados de QA"
+    },
+    "app.workbench.evidence.toolCalls": {
+      "en": "tool calls",
+      "es": "llamadas de herramientas"
+    },
+    "app.workbench.explorer.region": {
+      "en": "Workspace explorer",
+      "es": "Explorador del workspace"
+    },
+    "app.workbench.inspector.approvals": {
+      "en": "Approvals",
+      "es": "Aprobaciones"
+    },
+    "app.workbench.inspector.available": {
+      "en": "Available",
+      "es": "Disponibles"
+    },
+    "app.workbench.inspector.blockers": {
+      "en": "Blockers",
+      "es": "Bloqueos"
+    },
+    "app.workbench.inspector.colAction": {
+      "en": "Action",
+      "es": "Acción"
+    },
+    "app.workbench.inspector.colRisk": {
+      "en": "Risk",
+      "es": "Riesgo"
+    },
+    "app.workbench.inspector.executable": {
+      "en": "Executable",
+      "es": "Ejecutables"
+    },
+    "app.workbench.inspector.failed": {
+      "en": "Failed",
+      "es": "Fallidos"
+    },
+    "app.workbench.inspector.inspectEvidence": {
+      "en": "Full evidence audit",
+      "es": "Auditoría completa de evidencia"
+    },
+    "app.workbench.inspector.noApprovals": {
+      "en": "No pending approvals",
+      "es": "Sin aprobaciones pendientes"
+    },
+    "app.workbench.inspector.noApprovalsBody": {
+      "en": "Risky actions stop here until a human records a reason.",
+      "es": "Las acciones riesgosas se detienen aquí hasta que un humano registre un motivo."
+    },
+    "app.workbench.inspector.noBlockers": {
+      "en": "No blockers",
+      "es": "Sin bloqueos"
+    },
+    "app.workbench.inspector.noBlockersBody": {
+      "en": "No runtime, QA or risk blocker is recorded for this workspace.",
+      "es": "No hay bloqueo de runtime, QA o riesgo registrado para este workspace."
+    },
+    "app.workbench.inspector.noVerdict": {
+      "en": "no_evidence",
+      "es": "sin_evidencia"
+    },
+    "app.workbench.inspector.passed": {
+      "en": "Passed",
+      "es": "Aprobados"
+    },
+    "app.workbench.inspector.pending": {
+      "en": "Pending",
+      "es": "Pendientes"
+    },
+    "app.workbench.inspector.projectSettings": {
+      "en": "Project settings",
+      "es": "Configuración del proyecto"
+    },
+    "app.workbench.inspector.projectSettingsHint": {
+      "en": "Selection, templates and workspace configuration",
+      "es": "Selección, plantillas y configuración del workspace"
+    },
+    "app.workbench.inspector.qa": {
+      "en": "QA",
+      "es": "Calidad (QA)"
+    },
+    "app.workbench.inspector.region": {
+      "en": "Run inspector",
+      "es": "Inspector de ejecución"
+    },
+    "app.workbench.inspector.reviewApprovals": {
+      "en": "Review approvals",
+      "es": "Revisar aprobaciones"
+    },
+    "app.workbench.inspector.runtime": {
+      "en": "Runtime status",
+      "es": "Estado del runtime"
+    },
+    "app.workbench.inspector.runtimeConfig": {
+      "en": "Configuration required",
+      "es": "Configuración requerida"
+    },
+    "app.workbench.inspector.runtimeDiscovery": {
+      "en": "Runtime discovery pending",
+      "es": "Descubrimiento de runtime pendiente"
+    },
+    "app.workbench.inspector.runtimeReady": {
+      "en": "Runtime ready",
+      "es": "Runtime listo"
+    },
+    "app.workbench.logs.capped": {
+      "en": "Showing the latest 200 events.",
+      "es": "Mostrando los últimos 200 eventos."
+    },
+    "app.workbench.logs.colSeverity": {
+      "en": "Severity",
+      "es": "Severidad"
+    },
+    "app.workbench.logs.colSource": {
+      "en": "Source",
+      "es": "Fuente"
+    },
+    "app.workbench.logs.colType": {
+      "en": "Type",
+      "es": "Tipo"
+    },
+    "app.workbench.logs.colWhen": {
+      "en": "When",
+      "es": "Cuándo"
+    },
+    "app.workbench.logs.emptyBody": {
+      "en": "Workflow, job, policy and evidence events appear here.",
+      "es": "Los eventos de workflow, jobs, política y evidencia aparecen aquí."
+    },
+    "app.workbench.logs.emptyTitle": {
+      "en": "No events",
+      "es": "Sin eventos"
+    },
+    "app.workbench.logs.filterHint": {
+      "en": "Filter by type, severity, source or id",
+      "es": "Filtra por tipo, severidad, fuente o id"
+    },
+    "app.workbench.logs.filterLabel": {
+      "en": "Filter logs",
+      "es": "Filtrar logs"
+    },
+    "app.workbench.recentRuns.emptyBody": {
+      "en": "Governed tasks create workflow runs you can inspect here.",
+      "es": "Las tareas gobernadas crean ejecuciones de workflow que puedes inspeccionar aquí."
+    },
+    "app.workbench.recentRuns.emptyTitle": {
+      "en": "No runs yet",
+      "es": "Aún no hay ejecuciones"
+    },
+    "app.workbench.recentRuns.title": {
+      "en": "Recent runs",
+      "es": "Ejecuciones recientes"
+    },
+    "app.workbench.review.changedFiles": {
+      "en": "changed files",
+      "es": "archivos modificados"
+    },
+    "app.workbench.review.diff": {
+      "en": "Review diff",
+      "es": "Revisar diff"
+    },
+    "app.workbench.review.evidence": {
+      "en": "Review evidence",
+      "es": "Revisar evidencia"
+    },
+    "app.workbench.review.ready": {
+      "en": "Run complete — review changes without leaving the workbench.",
+      "es": "Ejecución completa — revisa los cambios sin salir del workbench."
+    },
+    "app.workbench.runTimeline.title": {
+      "en": "Run timeline",
+      "es": "Línea de tiempo de la ejecución"
+    },
+    "app.workbench.tab.diff": {
+      "en": "Diff",
+      "es": "Diferencias"
+    },
+    "app.workbench.tab.evidence": {
+      "en": "Evidence",
+      "es": "Evidencia"
+    },
+    "app.workbench.tab.logs": {
+      "en": "Logs",
+      "es": "Registros"
+    },
+    "app.workbench.tab.task": {
+      "en": "Task",
+      "es": "Tarea"
+    },
+    "app.workbench.tab.timeline": {
+      "en": "Timeline",
+      "es": "Cronología"
+    },
+    "app.workbench.task.approval": {
+      "en": "Require approval before completion",
+      "es": "Requerir aprobación antes de completar"
+    },
+    "app.workbench.task.changedFiles": {
+      "en": "changed files",
+      "es": "archivos modificados"
+    },
+    "app.workbench.task.cost": {
+      "en": "Maximum cost USD",
+      "es": "Costo máximo USD"
+    },
+    "app.workbench.task.errorCost": {
+      "en": "Maximum cost must be zero or a positive number.",
+      "es": "El costo máximo debe ser cero o un número positivo."
+    },
+    "app.workbench.task.errorProject": {
+      "en": "A project is required before running issue_to_patch.",
+      "es": "Se requiere un proyecto antes de ejecutar issue_to_patch."
+    },
+    "app.workbench.task.errorQa": {
+      "en": "Select a QA preset before running issue_to_patch.",
+      "es": "Selecciona un preset de QA antes de ejecutar issue_to_patch."
+    },
+    "app.workbench.task.errorRun": {
+      "en": "issue_to_patch failed.",
+      "es": "issue_to_patch falló."
+    },
+    "app.workbench.task.errorText": {
+      "en": "Issue text is required.",
+      "es": "El texto del issue es obligatorio."
+    },
+    "app.workbench.task.errorTitle": {
+      "en": "Issue title is required.",
+      "es": "El título del issue es obligatorio."
+    },
+    "app.workbench.task.evidenceLine": {
+      "en": "Evidence",
+      "es": "Evidencia"
+    },
+    "app.workbench.task.modeConversation": {
+      "en": "Conversation",
+      "es": "Conversación"
+    },
+    "app.workbench.task.modeGoverned": {
+      "en": "Governed patch",
+      "es": "Parche gobernado"
+    },
+    "app.workbench.task.modeLabel": {
+      "en": "Task intake mode",
+      "es": "Modo de ingreso de tarea"
+    },
+    "app.workbench.task.noReason": {
+      "en": "No runtime reason recorded.",
+      "es": "No se registró motivo del runtime."
+    },
+    "app.workbench.task.qa": {
+      "en": "QA preset",
+      "es": "Preset de QA"
+    },
+    "app.workbench.task.qaNone": {
+      "en": "No QA command selected; issue_to_patch is blocked.",
+      "es": "Ningún comando de QA seleccionado; issue_to_patch está bloqueado."
+    },
+    "app.workbench.task.run": {
+      "en": "Run issue_to_patch",
+      "es": "Ejecutar issue_to_patch"
+    },
+    "app.workbench.task.running": {
+      "en": "Running issue_to_patch",
+      "es": "Ejecutando issue_to_patch"
+    },
+    "app.workbench.task.runtime": {
+      "en": "Preferred runtime",
+      "es": "Runtime preferido"
+    },
+    "app.workbench.task.runtimeDiscovery": {
+      "en": "Runtime provider discovery has not completed.",
+      "es": "El descubrimiento de proveedores de runtime no ha finalizado."
+    },
+    "app.workbench.task.runtimeNoExecutable": {
+      "en": "No executable issue_to_patch/code_edit runtime is configured.",
+      "es": "No hay un runtime issue_to_patch/code_edit ejecutable configurado."
+    },
+    "app.workbench.task.runtimeNone": {
+      "en": "No executable runtime",
+      "es": "Sin runtime ejecutable"
+    },
+    "app.workbench.task.target": {
+      "en": "Target path",
+      "es": "Ruta objetivo"
+    },
+    "app.workbench.task.targetHint": {
+      "en": "Optional repository-relative path",
+      "es": "Ruta opcional relativa al repositorio"
+    },
+    "app.workbench.task.text": {
+      "en": "Issue text",
+      "es": "Texto del issue"
+    },
+    "app.workbench.task.title": {
+      "en": "Issue title",
+      "es": "Título del issue"
+    },
+    "app.workbench.team.open": {
+      "en": "AI team",
+      "es": "Equipo IA"
+    },
+    "app.workbench.timeline.colPipeline": {
+      "en": "Pipeline",
+      "es": "Canalización"
+    },
+    "app.workbench.timeline.colSeverity": {
+      "en": "Severity",
+      "es": "Severidad"
+    },
+    "app.workbench.timeline.colStarted": {
+      "en": "Started",
+      "es": "Iniciado"
+    },
+    "app.workbench.timeline.colStatus": {
+      "en": "Status",
+      "es": "Estado"
+    },
+    "app.workbench.timeline.colType": {
+      "en": "Type",
+      "es": "Tipo"
+    },
+    "app.workbench.timeline.colWhen": {
+      "en": "When",
+      "es": "Cuándo"
+    },
+    "app.workbench.timeline.colWorkflow": {
+      "en": "Workflow",
+      "es": "Flujo de trabajo"
+    },
+    "app.workbench.timeline.deliveryTitle": {
+      "en": "Project delivery flow",
+      "es": "Flujo de entrega del proyecto"
+    },
+    "app.workbench.timeline.eventsEmptyBody": {
+      "en": "Step and run events appear here as the workflow progresses.",
+      "es": "Los eventos de paso y ejecución aparecen aquí a medida que el workflow avanza."
+    },
+    "app.workbench.timeline.eventsEmptyTitle": {
+      "en": "No workflow events",
+      "es": "Sin eventos de workflow"
+    },
+    "app.workbench.timeline.eventsTitle": {
+      "en": "Workflow events",
+      "es": "Eventos de workflow"
+    },
+    "app.workbench.timeline.pipelinesEmptyBody": {
+      "en": "Chat intake creates the first pipeline record for the selected work session.",
+      "es": "El intake por chat crea el primer registro de pipeline para la sesión de trabajo seleccionada."
+    },
+    "app.workbench.timeline.pipelinesEmptyTitle": {
+      "en": "No intake pipelines",
+      "es": "Sin pipelines de intake"
+    },
+    "app.workbench.timeline.pipelinesTitle": {
+      "en": "Session pipelines",
+      "es": "Pipelines de la sesión"
+    },
+    "app.workbench.timeline.runLabel": {
+      "en": "Detailed run timeline",
+      "es": "Línea de tiempo detallada de la ejecución"
+    },
+    "app.workbench.timeline.runsEmptyBody": {
+      "en": "Runs are recorded once a governed task executes in this workspace.",
+      "es": "Las ejecuciones se registran una vez que una tarea gobernada se ejecuta en este workspace."
+    },
+    "app.workbench.timeline.runsEmptyTitle": {
+      "en": "No workflow runs",
+      "es": "Sin ejecuciones de workflow"
+    },
+    "app.workbench.timeline.runsTitle": {
+      "en": "Workflow runs",
+      "es": "Ejecuciones de workflow"
+    },
+    "app.workbench.timeline.runTitle": {
+      "en": "Run timeline",
+      "es": "Línea de tiempo de la ejecución"
+    },
+    "app.workbench.timeline.viewEvidence": {
+      "en": "View evidence",
+      "es": "Ver evidencia"
+    },
+    "app.explorer.aria.panel": {
+      "en": "Explorer",
+      "es": "Explorador"
+    },
+    "app.explorer.aria.nav": {
+      "en": "Explorer navigation",
+      "es": "Navegación del explorador"
+    },
+    "app.workbench.tabs.aria": {
+      "en": "Workbench views",
+      "es": "Vistas del workbench"
+    },
+    "app.home.copy.1": {
+      "en": "Open or continue a project",
+      "es": "Abre o continúa un proyecto"
+    },
+    "app.home.copy.2": {
+      "en": "Point AIDO at a local folder. It detects the project, prepares the workspace, and takes you straight to work — review the diff and evidence, then approve.",
+      "es": "Apunta AIDO a una carpeta local. Detecta el proyecto, prepara el workspace y te lleva directo a trabajar — revisa el diff y la evidencia, y aprueba."
+    },
+    "app.home.copy.4": {
+      "en": "Opening…",
+      "es": "Abriendo…"
+    },
+    "app.home.copy.7": {
+      "en": "Could not open that folder.",
+      "es": "No se pudo abrir esa carpeta."
+    },
+    "app.home.copy.8": {
+      "en": "Open a folder to start",
+      "es": "Abre una carpeta para empezar"
+    },
+    "app.home.copy.9": {
+      "en": "AIDO works on a real local folder. Open one and it detects the project type and prepares the workspace for you.",
+      "es": "AIDO trabaja sobre una carpeta local real. Abre una y detectará el tipo de proyecto y preparará el workspace por ti."
+    },
+    "app.home.copy.10": {
+      "en": "Continue",
+      "es": "Continuar"
+    },
+    "app.home.copy.13": {
+      "en": "active jobs",
+      "es": "trabajos activos"
+    },
+    "app.home.copy.14": {
+      "en": "pending",
+      "es": "pendientes"
+    },
+    "app.home.copy.15": {
+      "en": "Selected",
+      "es": "Seleccionado"
+    },
+    "app.home.copy.17": {
+      "en": "Pending reviews",
+      "es": "Revisiones pendientes"
+    },
+    "app.home.copy.18": {
+      "en": "All reviews",
+      "es": "Todas las revisiones"
+    },
+    "app.home.copy.20": {
+      "en": "Review",
+      "es": "Revisión"
+    },
+    "app.home.copy.21": {
+      "en": "Runtime blockers",
+      "es": "Bloqueos de runtime"
+    },
+    "app.home.copy.23": {
+      "en": "Configure",
+      "es": "Configurar"
+    },
+    "app.home.copy.25": {
+      "en": "Not ready",
+      "es": "No listo"
+    },
+    "app.home.copy.26": {
+      "en": "Not configured",
+      "es": "Sin configurar"
+    },
+    "app.home.copy.28": {
+      "en": "All runs",
+      "es": "Todas las ejecuciones"
+    },
+    "app.home.copy.29": {
+      "en": "Open run",
+      "es": "Abrir ejecución"
+    },
+    "app.home.copy.31": {
+      "en": "Recent evidence",
+      "es": "Evidencia reciente"
+    },
+    "app.home.copy.32": {
+      "en": "All evidence",
+      "es": "Toda la evidencia"
+    },
+    "app.home.copy.33": {
+      "en": "Open evidence",
+      "es": "Abrir evidencia"
+    },
+    "app.review.copy.0": {
+      "en": "Operational review ledger",
+      "es": "Registro operacional de revisión"
+    },
+    "app.review.copy.2": {
+      "en": "One inbox for every human decision: pending approvals, QA failures, security blockers, evidence-ready runs, approvals for integration and recent decisions. Cards reflect server state — open one to approve or reject with full evidence.",
+      "es": "Una sola bandeja para cada decisión humana: aprobaciones pendientes, fallas de QA, bloqueos de seguridad, ejecuciones con evidencia lista, aprobaciones para integración y decisiones recientes. Las cards reflejan el estado del servidor — abre una para aprobar o rechazar con evidencia completa."
+    },
+    "app.review.copy.3": {
+      "en": "Review board",
+      "es": "Tablero de revisión"
+    },
+    "app.review.copy.4": {
+      "en": "Needs review",
+      "es": "Por revisar"
+    },
+    "app.review.copy.5": {
+      "en": "Nothing waiting on you",
+      "es": "Nada esperando por ti"
+    },
+    "app.review.copy.6": {
+      "en": "Runs land here when QA produces evidence and a sensitive action needs a human decision.",
+      "es": "Las ejecuciones llegan aquí cuando QA produce evidencia y una acción sensible necesita una decisión humana."
+    },
+    "app.review.copy.7": {
+      "en": "Blocked",
+      "es": "Bloqueado"
+    },
+    "app.review.copy.8": {
+      "en": "No blocked runs",
+      "es": "Sin ejecuciones bloqueadas"
+    },
+    "app.review.copy.9": {
+      "en": "A run appears here when QA fails, a runtime is unavailable, or a decision was rejected.",
+      "es": "Una ejecución aparece aquí cuando QA falla, un runtime no está disponible o una decisión fue rechazada."
+    },
+    "app.review.copy.10": {
+      "en": "Ready",
+      "es": "Listo"
+    },
+    "app.review.copy.11": {
+      "en": "Nothing ready to ship",
+      "es": "Nada listo para integrar"
+    },
+    "app.review.copy.12": {
+      "en": "Approved runs wait here for branch promotion or PR creation.",
+      "es": "Las ejecuciones aprobadas esperan aquí la promoción de rama o la creación del PR."
+    },
+    "app.review.copy.13": {
+      "en": "Done",
+      "es": "Hecho"
+    },
+    "app.review.copy.14": {
+      "en": "No completed runs yet",
+      "es": "Aún sin ejecuciones completadas"
+    },
+    "app.review.copy.15": {
+      "en": "Runs move here once a PR is created, the workflow completes, or a request is decided.",
+      "es": "Las ejecuciones llegan aquí cuando se crea un PR, el flujo termina o se decide una solicitud."
+    },
+    "app.review.copy.16": {
+      "en": "risk",
+      "es": "riesgo"
+    },
+    "app.review.copy.19": {
+      "en": "evidence",
+      "es": "evidencia"
+    },
+    "app.review.copy.21": {
+      "en": "by",
+      "es": "por"
+    },
+    "app.review.copy.23": {
+      "en": "Action request review",
+      "es": "Revisión de solicitud de acción"
+    },
+    "app.review.copy.24": {
+      "en": "Human decision reason",
+      "es": "Razón de la decisión humana"
+    },
+    "app.review.copy.25": {
+      "en": "Approve patch also requires complete linked evidence, non-blocking security findings, and a real diff. Reject only requires a recorded reason.",
+      "es": "Aprobar el parche también requiere evidencia vinculada completa, hallazgos de seguridad no bloqueantes y un diff real. Rechazar solo requiere una razón registrada."
+    },
+    "app.review.copy.26": {
+      "en": "Approve or reject is blocked until this reason is recorded.",
+      "es": "Aprobar o rechazar está bloqueado hasta registrar esta razón."
+    },
+    "app.review.copy.28": {
+      "en": "Approve patch",
+      "es": "Aprobar parche"
+    },
+    "app.review.copy.30": {
+      "en": "items",
+      "es": "ítems"
     }
   }
 }

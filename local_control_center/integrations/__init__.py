@@ -1,1 +1,5 @@
-"""Integration adapters and IDE connection read/write models."""
+"""AIDO backend source module.
+
+Copyright (c) AIDO.
+Author: Roddmason.
+"""

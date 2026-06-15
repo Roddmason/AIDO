@@ -1,1 +1,5 @@
-"""Agent profiles and model policy slice."""
+"""AIDO backend source module.
+
+Copyright (c) AIDO.
+Author: Roddmason.
+"""

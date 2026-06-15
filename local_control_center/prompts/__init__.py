@@ -1,1 +1,5 @@
-"""Prompt template and prompt version domain slice."""
+"""AIDO backend source module.
+
+Copyright (c) AIDO.
+Author: Roddmason.
+"""

@@ -1,1 +1,5 @@
-"""Evidence and QA package slice."""
+"""AIDO backend source module.
+
+Copyright (c) AIDO.
+Author: Roddmason.
+"""

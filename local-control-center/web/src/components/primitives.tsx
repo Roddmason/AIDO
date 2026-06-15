@@ -1,3 +1,8 @@
+/**
+ * @file AIDO frontend source module.
+ * @copyright Copyright (c) AIDO.
+ * @author Roddmason
+ */
 import { useEffect } from 'react';
 import type { ReactNode } from 'react';
 
@@ -109,6 +114,42 @@ export function Drawer({
 				</div>
 				{children}
 			</aside>
+		</div>
+	);
+}
+
+export function Modal({
+	children,
+	label,
+	open,
+	onClose,
+}: {
+	children: ReactNode;
+	label: string;
+	open: boolean;
+	onClose: () => void;
+}) {
+	useEffect(() => {
+		if (!open) return undefined;
+		const closeOnEscape = (event: KeyboardEvent) => {
+			if (event.key === 'Escape') onClose();
+		};
+		window.addEventListener('keydown', closeOnEscape);
+		return () => window.removeEventListener('keydown', closeOnEscape);
+	}, [open, onClose]);
+	if (!open) return null;
+	return (
+		<div className="modal-layer" role="presentation">
+			<button className="drawer-scrim" type="button" aria-label={`Close ${label}`} onClick={onClose} />
+			<section className="modal-panel" role="dialog" aria-modal="true" aria-label={label}>
+				<div className="drawer-header">
+					<h2>{label}</h2>
+					<button className="icon-button" type="button" aria-label={`Close ${label}`} onClick={onClose}>
+						×
+					</button>
+				</div>
+				{children}
+			</section>
 		</div>
 	);
 }

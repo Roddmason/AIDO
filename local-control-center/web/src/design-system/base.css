@@ -1,19 +1,28 @@
-* {
+*,
+*::before,
+*::after {
 	box-sizing: border-box;
 }
 
 html {
 	min-height: 100%;
-	background: var(--surface-page);
+	background: var(--color-surface-canvas);
+	color: var(--color-text-primary);
 	font-family: var(--font-ui);
-	color: var(--ink);
+	font-size: 16px;
+	line-height: var(--line-normal);
+	text-rendering: optimizeLegibility;
+	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
 }
 
 body {
 	min-width: 320px;
 	min-height: 100vh;
+	min-height: 100dvh;
 	margin: 0;
-	background: var(--surface-page);
+	background: var(--color-surface-canvas);
+	color: var(--color-text-primary);
 }
 
 button,
@@ -27,18 +36,41 @@ button {
 	cursor: pointer;
 }
 
-button:disabled {
+button:disabled,
+[aria-disabled="true"] {
 	cursor: not-allowed;
 	opacity: 0.55;
 }
 
 a {
 	color: inherit;
+	text-decoration-thickness: 0.08em;
+	text-underline-offset: 0.18em;
+}
+
+img,
+svg,
+video,
+canvas {
+	max-width: 100%;
+}
+
+pre,
+code,
+kbd,
+samp {
+	font-family: var(--font-data);
+}
+
+::selection {
+	background: color-mix(in oklch, var(--color-accent) 36%, transparent);
+	color: var(--color-text-primary);
 }
 
 :focus-visible {
-	outline: 3px solid color-mix(in oklch, var(--focus) 72%, transparent);
+	outline: 2px solid var(--color-focus);
 	outline-offset: 2px;
+	box-shadow: var(--shadow-focus);
 }
 
 .sr-only {
@@ -55,4 +87,24 @@ a {
 
 #root {
 	min-height: 100vh;
+	min-height: 100dvh;
+}
+
+::-webkit-scrollbar {
+	width: 0.625rem;
+	height: 0.625rem;
+}
+
+::-webkit-scrollbar-track {
+	background: var(--color-surface-inset);
+}
+
+::-webkit-scrollbar-thumb {
+	background: var(--color-border-strong);
+	border: 3px solid var(--color-surface-inset);
+	border-radius: var(--radius-pill);
+}
+
+::-webkit-scrollbar-thumb:hover {
+	background: color-mix(in oklch, var(--color-border-strong) 76%, var(--color-text-secondary));
 }

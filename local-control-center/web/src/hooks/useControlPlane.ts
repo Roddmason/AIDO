@@ -1,3 +1,8 @@
+/**
+ * @file AIDO frontend source module.
+ * @copyright Copyright (c) AIDO.
+ * @author Roddmason
+ */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { getHandshake, getOverview, getRetrievalStatus, getRuntimeProviders } from '../api/client';

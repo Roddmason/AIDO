@@ -1,3 +1,8 @@
+/**
+ * @file AIDO frontend source module.
+ * @copyright Copyright (c) AIDO.
+ * @author Roddmason
+ */
 import { Background, Controls, ReactFlow, type Edge, type Node } from '@xyflow/react';
 import { useEffect, useMemo, useState } from 'react';
 

@@ -1,3 +1,8 @@
+/**
+ * @file AIDO frontend source module.
+ * @copyright Copyright (c) AIDO.
+ * @author Roddmason
+ */
 import { useEffect, useMemo, useState } from 'react';
 
 import {
@@ -9,11 +14,10 @@ import {
 	fetchEvidenceArtifact,
 	getEvidenceDetail,
 	registerMcpServer,
-	runIssueToPatch,
 	updateRisk,
 	updateSandboxProfile,
 } from '../api/client';
-import type { ArtifactPayload, EvidenceDetailResponse, IssueToPatchResponse } from '../api/client';
+import type { ArtifactPayload, EvidenceDetailResponse } from '../api/client';
 import type {
 	ArchitectureDecisionStatus,
 	Artifact,
@@ -26,45 +30,15 @@ import type {
 	RetrievalStatus,
 	RiskSeverity,
 	RiskStatus,
-	RuntimeProvider,
 	RuntimeProviders,
 } from '../api/types';
 import { Badge, DataTable, Drawer, EmptyState, PageHeader, Surface } from '../components/primitives';
 import { artifactDisplayName, artifactMimeType, artifactSizeLabel } from '../lib/artifacts';
-import { findPatchArtifact, hasRealPatchChanges } from '../lib/diff';
+import { evidenceDiffChangedFiles, findPatchArtifact, findSecurityArtifact, hasRealPatchChanges } from '../lib/diff';
 import { toneForStatus } from '../lib/format';
 import { redactVisibleText } from '../lib/redaction';
 
 type Mutate = <T>(operation: (token: string) => Promise<T>, options?: { awaitRefresh?: boolean }) => Promise<T>;
-
-const issueQaPresets = [
-	{ id: 'none', label: 'No QA command', commands: [] as string[][] },
-	{ id: 'python-tests', label: 'Python tests', commands: [['uv', 'run', 'pytest', '-q']] },
-	{ id: 'web-tests', label: 'Web tests', commands: [['corepack', 'pnpm@10.24.0', 'run', 'test:web']] },
-	{ id: 'quality', label: 'Quality suite', commands: [['corepack', 'pnpm@10.24.0', 'run', 'quality']] },
-];
-
-const issueRuntimeCapabilities = new Set(['issue_to_patch', 'code_edit']);
-const issueTimelineOrder = ['created', 'workspace_allocated', 'runtime_selected', 'running', 'qa_running', 'evidence_ready', 'awaiting_approval'] as const;
-
-type TimelineStatus = 'pending' | 'done' | 'active' | 'blocked' | 'failed';
-
-function runtimeSupportsIssueToPatch(runtime: RuntimeProvider) {
-	const kind = String(runtime.kind ?? '').toLowerCase();
-	return kind !== 'test' && kind !== 'simulation' && (runtime.capabilities ?? []).some((capability) => issueRuntimeCapabilities.has(capability));
-}
-
-function runtimeIsExecutableIssueRuntime(runtime: RuntimeProvider) {
-	return runtimeSupportsIssueToPatch(runtime) && runtime.executable === true;
-}
-
-function activeProjects(projects: Project[]) {
-	return projects.filter((project) => String(project.status ?? 'active') === 'active');
-}
-
-function objectRecord(value: unknown) {
-	return value && typeof value === 'object' ? (value as Record<string, unknown>) : undefined;
-}
 
 function money(value: unknown) {
 	if (value === null || value === undefined || value === '') return 'unknown';
@@ -90,332 +64,6 @@ function upsertNewestById<T extends { id: string; updatedAt?: string; createdAt?
 
 function mergeNewestById<T extends { id: string; updatedAt?: string; createdAt?: string }>(current: T[], incoming: T[]) {
 	return incoming.reduce((merged, record) => upsertNewestById(merged, record), current);
-}
-
-function buildIssueTimeline(result: IssueToPatchResponse | null, issueBusy: boolean, hasExecutableRuntime: boolean) {
-	if (!result) {
-		return [
-			{ id: 'created', status: issueBusy ? 'done' : 'pending', detail: issueBusy ? 'request submitted' : 'not started' },
-			{ id: 'workspace_allocated', status: 'pending', detail: 'waiting for workflow run' },
-			{ id: 'runtime_selected', status: hasExecutableRuntime ? 'pending' : 'blocked', detail: hasExecutableRuntime ? 'waiting for run' : 'runtime_unavailable' },
-			{ id: 'running', status: 'pending', detail: 'waiting for executable runtime' },
-			{ id: 'qa_running', status: 'pending', detail: 'waiting for runtime output' },
-			{ id: 'evidence_ready', status: 'pending', detail: 'waiting for artifact package' },
-			{ id: 'awaiting_approval', status: 'pending', detail: 'waiting for evidence' },
-			{ id: 'completed/failed', status: 'pending', detail: 'no terminal verdict' },
-		] as Array<{ id: string; status: TimelineStatus; detail: string }>;
-	}
-	const rawResult = result as unknown as Record<string, unknown>;
-	const status = String(result.status ?? '');
-	const workflowRun = objectRecord(result.workflowRun);
-	const workspace = objectRecord(result.workspace);
-	const runtime = objectRecord(result.runtime);
-	const runtimeResult = objectRecord(result.runtimeResult);
-	const evidence = objectRecord(result.evidencePackage);
-	const qaResults = Array.isArray(result.qaResults) ? result.qaResults : [];
-	const isRuntimeUnavailable = status === 'runtime_unavailable' || status === 'unavailable';
-	const isFailed = isRuntimeUnavailable || status === 'failed' || String(workflowRun?.status ?? '') === 'failed';
-	const isCompleted = status === 'completed' || String(workflowRun?.status ?? '') === 'completed';
-	const isApprovedForIntegration = status === 'approved_for_integration' || String(workflowRun?.status ?? '') === 'approved_for_integration';
-	const awaitingApproval = Boolean(rawResult.actionRequest) || (Boolean(rawResult.approvalRequired) && (status === 'evidence_ready' || String(workflowRun?.status ?? '') === 'awaiting_permission'));
-	const stageDetails: Record<(typeof issueTimelineOrder)[number], string> = {
-		created: String(workflowRun?.id ?? objectRecord(result.workflow)?.id ?? 'workflow not recorded'),
-		workspace_allocated: String(workspace?.id ?? 'workspace not allocated'),
-		runtime_selected: String(runtime?.id ?? 'runtime not selected'),
-		running: String(runtimeResult?.status ?? (status || 'not started')),
-		qa_running: qaResults.length ? String(objectRecord(qaResults[0])?.status ?? objectRecord(qaResults[0])?.verdict ?? 'qa_recorded') : 'qa_not_run',
-		evidence_ready: String(evidence?.id ?? 'evidence not created'),
-		awaiting_approval: isApprovedForIntegration ? 'approved for integration' : awaitingApproval ? 'approval gate open' : 'no pending approval',
-	};
-	const stageStatuses: Record<(typeof issueTimelineOrder)[number], TimelineStatus> = {
-		created: workflowRun?.id || objectRecord(result.workflow)?.id ? 'done' : isFailed ? 'failed' : 'pending',
-		workspace_allocated: workspace?.id ? 'done' : isFailed ? 'failed' : 'pending',
-		runtime_selected: isRuntimeUnavailable ? 'failed' : runtime?.id ? 'done' : isFailed ? 'failed' : 'pending',
-		running: isFailed ? 'failed' : isCompleted || runtimeResult ? 'done' : issueBusy ? 'active' : 'pending',
-		qa_running: qaResults.length ? (String(objectRecord(qaResults[0])?.status ?? objectRecord(qaResults[0])?.verdict ?? '') === 'failed' ? 'failed' : 'done') : 'pending',
-		evidence_ready: evidence?.id ? 'done' : isFailed ? 'failed' : 'pending',
-		awaiting_approval: awaitingApproval ? 'active' : isCompleted || isApprovedForIntegration ? 'done' : 'pending',
-	};
-	const terminalId = isCompleted ? 'completed' : isApprovedForIntegration ? 'approved_for_integration' : isFailed ? 'failed' : 'completed/failed';
-	const terminalStatus: TimelineStatus = isCompleted || isApprovedForIntegration ? 'done' : isFailed ? 'failed' : 'pending';
-	return [
-		...issueTimelineOrder.map((id) => ({ id, status: stageStatuses[id], detail: stageDetails[id] })),
-		{ id: terminalId, status: terminalStatus, detail: status || String(workflowRun?.status ?? 'not terminal') },
-	];
-}
-
-export function CommandCenterPage({
-	overview,
-	selectedProject,
-	runtimeProviders,
-	mutate,
-	onSelectProject,
-}: {
-	overview: Overview;
-	selectedProject: Project | null;
-	runtimeProviders: RuntimeProviders | null;
-	mutate: Mutate;
-	onSelectProject: (projectId: string) => void;
-}) {
-	const projectOptions = useMemo(() => activeProjects(overview.projects), [overview.projects]);
-	const initialProjectId = selectedProject?.id ?? projectOptions[0]?.id ?? '';
-	const [selectedProjectId, setSelectedProjectId] = useState(initialProjectId);
-	const [issueTitle, setIssueTitle] = useState('');
-	const [issueText, setIssueText] = useState('');
-	const [targetPath, setTargetPath] = useState('');
-	const [preferredRuntime, setPreferredRuntime] = useState('');
-	const [qaPreset, setQaPreset] = useState('python-tests');
-	const [maxCostUsd, setMaxCostUsd] = useState('');
-	const [requireApproval, setRequireApproval] = useState(true);
-	const [issueResult, setIssueResult] = useState<IssueToPatchResponse | null>(null);
-	const [issueBusy, setIssueBusy] = useState(false);
-	const [issueError, setIssueError] = useState('');
-	const runtimeRows = runtimeProviders?.providers ?? [];
-	const executableRuntimes = useMemo(() => runtimeRows.filter(runtimeIsExecutableIssueRuntime), [runtimeRows]);
-	const selectedRuntime = executableRuntimes.find((item) => item.id === preferredRuntime) ?? null;
-	const selectedQaPreset = issueQaPresets.find((item) => item.id === qaPreset) ?? issueQaPresets[0];
-	const qaMissing = selectedQaPreset.commands.length === 0;
-	const project = projectOptions.find((item) => item.id === selectedProjectId) ?? null;
-	const unavailableIssueRuntime = runtimeRows.find((runtime) => runtimeSupportsIssueToPatch(runtime) && runtime.executable !== true);
-	const runtimeBlockReason = runtimeProviders
-		? unavailableIssueRuntime?.reason ?? 'No executable issue_to_patch/code_edit runtime is configured.'
-		: 'Runtime provider discovery has not completed.';
-	const hasExecutableRuntime = executableRuntimes.length > 0;
-	const issueResultRuntime = issueResult?.runtime as Record<string, unknown> | undefined;
-	const issueResultQa = issueResult?.qaResults[0] as Record<string, unknown> | undefined;
-	const issueResultDiff = issueResult?.diffSummary as Record<string, unknown> | undefined;
-	const issueEvidence = issueResult?.evidencePackage as Record<string, unknown> | undefined;
-	const issueChangedFiles = Array.isArray(issueResultDiff?.changedFiles) ? issueResultDiff.changedFiles.length : Number(issueResultDiff?.changedFiles ?? 0);
-	const issueStatus = String(issueResult?.status ?? '');
-	const issueExecutionMode = issueStatus === 'runtime_unavailable' || issueStatus === 'unavailable' || issueResultRuntime?.executable === false ? 'runtime_unavailable' : 'productive_runtime';
-	const issueTimeline = buildIssueTimeline(issueResult, issueBusy, hasExecutableRuntime);
-	const evidenceId = String(issueEvidence?.id ?? '');
-	const artifactIds = Array.isArray(issueEvidence?.artifactIds) ? issueEvidence.artifactIds.map((item) => String(item)) : [];
-	const artifactRows = Array.isArray(issueEvidence?.artifacts) ? issueEvidence.artifacts.map((item) => objectRecord(item)).filter(Boolean) as Array<Record<string, unknown>> : [];
-	const diffRefs = [
-		...(Array.isArray(issueEvidence?.diffRefs) ? issueEvidence.diffRefs.map((item) => String(item)) : []),
-		...artifactRows
-			.filter((artifact) => String(artifact.kind ?? artifact.name ?? artifact.id ?? '').toLowerCase().includes('diff'))
-			.map((artifact) => String(artifact.id ?? artifact.name ?? 'diff')),
-		...artifactIds.filter((artifactId) => artifactId.toLowerCase().includes('diff')),
-	];
-	const runDisabled = !project || issueBusy || qaMissing || !selectedRuntime || !issueTitle.trim() || !issueText.trim();
-	const selectProject = (projectId: string) => {
-		setSelectedProjectId(projectId);
-		const nextProject = projectOptions.find((item) => item.id === projectId);
-		if (nextProject) onSelectProject(nextProject.id);
-	};
-	useEffect(() => {
-		setSelectedProjectId((current) => {
-			if (current && projectOptions.some((item) => item.id === current)) return current;
-			return selectedProject?.id ?? projectOptions[0]?.id ?? '';
-		});
-	}, [projectOptions, selectedProject?.id]);
-	useEffect(() => {
-		if (!executableRuntimes.length) {
-			setPreferredRuntime('');
-			return;
-		}
-		setPreferredRuntime((current) => executableRuntimes.some((runtime) => runtime.id === current) ? current : executableRuntimes[0].id);
-	}, [executableRuntimes]);
-	const runPatchWorkflow = async () => {
-		const title = issueTitle.trim();
-		const bodyText = issueText.trim();
-		if (!project) {
-			setIssueError('A project is required before running issue_to_patch.');
-			return;
-		}
-		if (!title) {
-			setIssueError('Issue title is required.');
-			return;
-		}
-		if (!bodyText) {
-			setIssueError('Issue text is required.');
-			return;
-		}
-		if (selectedQaPreset.commands.length === 0) {
-			setIssueError('Select a QA preset before running issue_to_patch.');
-			return;
-		}
-		if (!selectedRuntime) {
-			setIssueError(runtimeBlockReason);
-			return;
-		}
-		const parsedMaxCost = maxCostUsd.trim() ? Number(maxCostUsd) : undefined;
-		if (parsedMaxCost !== undefined && (!Number.isFinite(parsedMaxCost) || parsedMaxCost < 0)) {
-			setIssueError('Maximum cost must be zero or a positive number.');
-			return;
-		}
-		setIssueBusy(true);
-		setIssueError('');
-		setIssueResult(null);
-		try {
-			const result = await mutate((token) =>
-				runIssueToPatch(token, {
-					projectId: project.id,
-					title,
-					issueText: bodyText,
-					targetPath: targetPath.trim() || undefined,
-					preferredRuntime: selectedRuntime.id,
-					qaCommands: selectedQaPreset.commands,
-					maxCostUsd: parsedMaxCost,
-					requireApproval,
-				}),
-			);
-			setIssueResult(result);
-		} catch (submitError) {
-			setIssueError(submitError instanceof Error ? submitError.message : 'issue_to_patch failed.');
-		} finally {
-			setIssueBusy(false);
-		}
-	};
-	return (
-		<>
-			<PageHeader kicker="Operator lane" title="Command Center" summary="Start safe SDLC workflows and inspect pending human decisions without bypassing policy." />
-			<Surface title="issue_to_patch real runtime">
-				<div className="form-grid">
-					<div className="field">
-						<label htmlFor="issue-project">Project</label>
-						<select id="issue-project" className="select" value={selectedProjectId} disabled={!projectOptions.length || issueBusy} onChange={(event) => selectProject(event.target.value)}>
-							{projectOptions.length ? null : <option value="">No active project</option>}
-							{projectOptions.map((item) => (
-								<option key={item.id} value={item.id}>{item.name}</option>
-							))}
-						</select>
-						<div className="field-help">{project ? String(project.path ?? project.id) : 'Select an active operational project before running issue_to_patch.'}</div>
-					</div>
-					<div className="field">
-						<label htmlFor="issue-title">Issue title</label>
-						<input
-							id="issue-title"
-							className="input"
-							value={issueTitle}
-							maxLength={180}
-							autoComplete="off"
-							disabled={!project}
-							onChange={(event) => setIssueTitle(event.target.value)}
-						/>
-					</div>
-					<div className="field">
-						<label htmlFor="issue-text">Issue text</label>
-						<textarea
-							id="issue-text"
-							className="textarea"
-							value={issueText}
-							rows={6}
-							disabled={!project}
-							onChange={(event) => setIssueText(event.target.value)}
-						/>
-					</div>
-					<div className="field">
-						<label htmlFor="target-path">Target path</label>
-						<input id="target-path" className="input" value={targetPath} disabled={!project} placeholder="Optional repository-relative path" onChange={(event) => setTargetPath(event.target.value)} />
-					</div>
-					<div className="field">
-						<label htmlFor="preferred-runtime">Preferred runtime</label>
-						<select id="preferred-runtime" className="select" value={preferredRuntime} disabled={!project || !hasExecutableRuntime || issueBusy} onChange={(event) => setPreferredRuntime(event.target.value)}>
-							{hasExecutableRuntime ? null : <option value="">No executable runtime</option>}
-							{executableRuntimes.map((runtime) => (
-								<option key={runtime.id} value={runtime.id}>
-									{runtime.id} - {runtime.executable ? 'executable' : runtime.available ? 'available' : 'unavailable'}
-								</option>
-							))}
-						</select>
-						{selectedRuntime ? (
-							<>
-								<div className="inline">
-									<Badge tone={selectedRuntime.detected ? 'ok' : 'warn'}>{selectedRuntime.detected ? 'detected' : 'not detected'}</Badge>
-									<Badge tone={selectedRuntime.configured ? 'ok' : 'warn'}>{selectedRuntime.configured ? 'configured' : 'not configured'}</Badge>
-									<Badge tone={selectedRuntime.available ? 'ok' : 'warn'}>{selectedRuntime.available ? 'available' : 'unavailable'}</Badge>
-									<Badge tone={selectedRuntime.executable ? 'ok' : 'warn'}>{selectedRuntime.executable ? 'executable' : 'not executable'}</Badge>
-								</div>
-								<div className="field-help">
-									{`${selectedRuntime.reason}${selectedRuntime.requiredConfiguration?.length ? ` Required: ${selectedRuntime.requiredConfiguration.join(', ')}` : ''}`}
-								</div>
-							</>
-						) : (
-							<div className="form-error" role="status">
-								<Badge tone="danger">runtime_unavailable</Badge> {runtimeBlockReason}
-							</div>
-						)}
-					</div>
-					<div className="field">
-						<label htmlFor="qa-preset">QA preset</label>
-						<select id="qa-preset" className="select" value={qaPreset} disabled={!project} onChange={(event) => setQaPreset(event.target.value)}>
-							{issueQaPresets.map((preset) => (
-								<option key={preset.id} value={preset.id}>{preset.label}</option>
-							))}
-						</select>
-						<div className="field-help">{selectedQaPreset.commands.length ? selectedQaPreset.commands.map((command) => command.join(' ')).join(' | ') : 'No QA command selected; issue_to_patch is blocked.'}</div>
-					</div>
-					<div className="field">
-						<label htmlFor="issue-max-cost">Maximum cost USD</label>
-						<input id="issue-max-cost" className="input" type="number" min="0" step="0.01" value={maxCostUsd} disabled={!project} onChange={(event) => setMaxCostUsd(event.target.value)} />
-					</div>
-					<div className="inline">
-						<label className="checkbox-row" htmlFor="issue-require-approval">
-							<input id="issue-require-approval" type="checkbox" checked={requireApproval} disabled={!project} onChange={(event) => setRequireApproval(event.target.checked)} />
-							Require approval before completion
-						</label>
-					</div>
-					<div className="inline">
-						<button className="button primary" type="button" disabled={runDisabled} onClick={() => void runPatchWorkflow()}>
-							{issueBusy ? 'Running issue_to_patch' : 'Run issue_to_patch'}
-						</button>
-						<Badge tone={project ? 'ok' : 'warn'}>{project ? project.name : 'no operational project'}</Badge>
-						{selectedRuntime ? <Badge tone="ok">{selectedRuntime.id}</Badge> : <Badge tone="danger">runtime_unavailable</Badge>}
-						{qaMissing ? <Badge tone="danger">qa_not_selected</Badge> : null}
-					</div>
-					{issueError ? <div className="form-error" role="alert">{issueError}</div> : null}
-					<div className="stack" aria-label="issue_to_patch timeline">
-						<h3 className="section-subtitle">Workflow timeline</h3>
-						{issueTimeline.map((stage) => (
-							<div className="inline" key={stage.id}>
-								<Badge tone={stage.status === 'done' ? 'ok' : stage.status === 'active' ? 'info' : stage.status === 'failed' || stage.status === 'blocked' ? 'danger' : undefined}>{stage.status}</Badge>
-								<span className="mono">{stage.id}</span>
-								<span className="muted">{stage.detail}</span>
-							</div>
-						))}
-					</div>
-					{issueResult ? (
-						<div className="stack" aria-live="polite">
-							<div className="inline">
-								<Badge tone={toneForStatus(String(issueResult.status ?? ''))}>{String(issueResult.status ?? '')}</Badge>
-								<Badge>{String(issueResultRuntime?.id ?? 'no_runtime')}</Badge>
-								<Badge tone={toneForStatus(issueExecutionMode)}>{issueExecutionMode}</Badge>
-								<Badge tone={issueResult?.qaResults.length ? toneForStatus(String(issueResultQa?.status ?? issueResultQa?.verdict ?? '')) : 'warn'}>{String(issueResultQa?.status ?? issueResultQa?.verdict ?? 'qa_not_run')}</Badge>
-							</div>
-							<div className="mono">{String(issueResult.reason ?? issueResultRuntime?.reason ?? 'No runtime reason recorded.')}</div>
-							<div className="mono">Evidence {String(issueResult.evidencePackage?.id ?? 'not_created')} / changed files {Number.isFinite(issueChangedFiles) ? issueChangedFiles : 0}</div>
-							<div className="inline">
-								{evidenceId ? <a className="button" href="#evidence">Evidence package {evidenceId}</a> : <Badge tone="warn">evidence_not_created</Badge>}
-								{diffRefs.length ? <a className="button" href="#evidence">Diff {diffRefs.join(', ')}</a> : <Badge tone="warn">diff_not_recorded</Badge>}
-								<a className="button" href="#workflows">Workflow run {String(objectRecord(issueResult.workflowRun)?.id ?? 'not_recorded')}</a>
-							</div>
-						</div>
-					) : null}
-				</div>
-			</Surface>
-			<Surface title="Recent workflows">
-				<DataTable rows={overview.workflows.slice(0, 6)} empty={<EmptyState title="No workflows" body="Create an intake workflow to start the SDLC lane." />} columns={[
-					{ key: 'title', label: 'Workflow', render: (row) => String(row.title ?? '') },
-					{ key: 'kind', label: 'Kind', render: (row) => <span className="mono">{String(row.kind ?? '')}</span> },
-					{ key: 'status', label: 'Status', render: (row) => <Badge tone={toneForStatus(String(row.status ?? ''))}>{String(row.status ?? '')}</Badge> },
-				]} />
-			</Surface>
-			<Surface title="Critical queue">
-				<DataTable
-					rows={overview.actionRequests.filter((item) => item.status === 'pending')}
-					empty={<EmptyState title="No pending commands" body="Risky actions will stop here until a human records a reason." />}
-					columns={[
-						{ key: 'action', label: 'Action', render: (row) => <span className="mono">{row.actionType}</span> },
-						{ key: 'risk', label: 'Risk', render: (row) => <Badge tone={toneForStatus(row.riskLevel)}>{row.riskLevel}</Badge> },
-						{ key: 'command', label: 'Command', render: (row) => <span className="mono">{row.command || 'n/a'}</span> },
-					]}
-				/>
-			</Surface>
-		</>
-	);
 }
 
 export function WorkspacesPage({ overview }: { overview: Overview }) {
@@ -680,28 +328,8 @@ export function MemoryPage({ overview, retrievalStatus }: { overview: Overview; 
 	);
 }
 
-type EvidencePackage = EvidenceDetailResponse['evidencePackage'];
-
 function redactedJson(value: unknown, fallback = '[]') {
 	return redactVisibleText(value, fallback);
-}
-
-function artifactNameLower(artifact: Artifact) {
-	return artifactDisplayName(artifact).toLowerCase();
-}
-
-function findSecurityArtifact(artifacts: Artifact[]) {
-	return artifacts.find((artifact) => {
-		const name = artifactNameLower(artifact);
-		const kind = String(artifact.kind ?? '').toLowerCase();
-		return name === 'security-findings.json' || (name.includes('security') && name.includes('finding')) || kind.includes('security');
-	}) ?? null;
-}
-
-function evidenceDiffChangedFiles(evidence: EvidencePackage | null) {
-	const summary = objectRecord(evidence?.diffSummary);
-	const changed = Number(summary?.filesChanged ?? summary?.changedFiles ?? summary?.changed_files);
-	return Number.isFinite(changed) ? changed : null;
 }
 
 function evidenceLink(href: string, label: string, id: unknown) {

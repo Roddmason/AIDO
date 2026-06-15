@@ -5,7 +5,7 @@
  */
 import { FolderPlus, Settings } from 'lucide-react';
 
-import type { Overview, Project, RuntimeProviders } from '../../api/types';
+import type { Overview, Project } from '../../api/types';
 import { Badge, EmptyState, PageHeader, Surface } from '../../components/primitives';
 import { shortId, toneForStatus } from '../../lib/format';
 
@@ -93,7 +93,6 @@ export function ActiveProjectsPage({
 	onOpenSettings,
 }: {
 	overview: Overview;
-	runtimeProviders: RuntimeProviders | null;
 	selectedProject: Project | null;
 	statusView?: ProjectStatusView;
 	language?: Language;

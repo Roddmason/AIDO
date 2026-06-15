@@ -5334,6 +5334,78 @@
     "app.workbench.timeline.reason.terminal.pending": {
       "en": "No terminal verdict yet",
       "es": "Aún sin veredicto final"
+    },
+    "settings.grouped.summary": {
+      "en": "Grouped configuration: pick a project, get a runtime ready, and keep catalogs, defaults and audit out of the daily operation surface.",
+      "es": "Configuración agrupada: elige un proyecto, deja un runtime listo y mantén catálogos, valores por defecto y auditoría fuera de la superficie diaria."
+    },
+    "settings.runtime.section.title": {
+      "en": "Runtime & Models",
+      "es": "Runtime y modelos"
+    },
+    "settings.runtime.advanced": {
+      "en": "Advanced",
+      "es": "Avanzado"
+    },
+    "settings.project.selectionHint": {
+      "en": "Command Center and Governance use this explicit selection, not the first project the API returns.",
+      "es": "Command Center y Gobierno usan esta selección explícita, no el primer proyecto que devuelve la API."
+    },
+    "settings.runtime.providerCatalog": {
+      "en": "Provider catalog",
+      "es": "Catálogo de proveedores"
+    },
+    "settings.runtime.packageManager": {
+      "en": "Package manager",
+      "es": "Gestor de paquetes"
+    },
+    "settings.agents.catalogHint": {
+      "en": "Agent profiles live in the Agents console. This shows catalog agents owned by the selected project's teams.",
+      "es": "Los perfiles de agente viven en la consola de Agentes. Aquí se muestran los agentes de catálogo de los equipos del proyecto seleccionado."
+    },
+    "workspace.create.validateNameHint": {
+      "en": "Validate the workspace name before creating a directory and project record.",
+      "es": "Valida el nombre del workspace antes de crear un directorio y el registro del proyecto."
+    },
+    "settings.teams.emptyHint": {
+      "en": "Team catalogs appear here when they are seeded for the selected project.",
+      "es": "Los catálogos de equipo aparecen aquí cuando se siembran para el proyecto seleccionado."
+    },
+    "app.settings.summary": {
+      "en": "Grouped configuration: pick a project, get a runtime ready, and keep catalogs, defaults and audit out of the daily operation surface.",
+      "es": "Configuración agrupada: elige un proyecto, deja un runtime listo y mantén catálogos, valores por defecto y auditoría fuera de la superficie diaria."
+    },
+    "app.settings.group.runtime.title": {
+      "en": "Runtime & Models",
+      "es": "Runtime y modelos"
+    },
+    "app.settings.group.advanced.title": {
+      "en": "Advanced",
+      "es": "Avanzado"
+    },
+    "app.settings.project.selectionHelp": {
+      "en": "Command Center and Governance use this explicit selection, not the first project the API returns.",
+      "es": "Command Center y Gobierno usan esta selección explícita, no el primer proyecto que devuelve la API."
+    },
+    "app.settings.runtime.packageManager": {
+      "en": "Package manager",
+      "es": "Gestor de paquetes"
+    },
+    "app.settings.runtime.providerCatalog": {
+      "en": "Provider catalog",
+      "es": "Catálogo de proveedores"
+    },
+    "app.settings.agents.catalogHelp": {
+      "en": "Agent profiles live in the Agents console. This shows catalog agents owned by the selected project's teams.",
+      "es": "Los perfiles de agente viven en la consola de Agentes. Aquí se muestran los agentes de catálogo de los equipos del proyecto seleccionado."
+    },
+    "app.settings.workspaces.teamCatalogsHelp": {
+      "en": "Team catalogs appear here when they are seeded for the selected project.",
+      "es": "Los catálogos de equipo aparecen aquí cuando se siembran para el proyecto seleccionado."
+    },
+    "app.settings.workspaces.validateHelp": {
+      "en": "Validate the workspace name before creating a directory and project record.",
+      "es": "Valida el nombre del workspace antes de crear un directorio y un registro de proyecto."
     }
   }
 }

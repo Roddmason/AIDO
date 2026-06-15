@@ -5,14 +5,17 @@
  */
 import { ClipboardCheck, FileCheck2, SlidersHorizontal } from 'lucide-react';
 
-import type { Overview, RuntimeProviders } from '../../api/types';
+import type { Overview, RuntimeProviderConfiguration, RuntimeProviders } from '../../api/types';
 import { Badge, DataTable, EmptyState, StatusDot, Surface } from '../../components/primitives';
 import { useI18n } from '../../i18n/I18nProvider';
 import { shortId, toneForStatus } from '../../lib/format';
+import { RuntimeSetupInspectorCard } from '../runtime-setup/RuntimeSetupInspectorCard';
 import type { Blocker } from './workbenchSelectors';
 
 export function WorkbenchInspector({
 	runtimeProviders,
+	runtimeProviderConfiguration,
+	token,
 	pendingApprovals,
 	latestEvidence,
 	testResults,
@@ -20,8 +23,12 @@ export function WorkbenchInspector({
 	onOpenJobs,
 	onOpenEvidence,
 	onOpenSettings,
+	onOpenRuntimeSetup,
+	onRefresh,
 }: {
 	runtimeProviders: RuntimeProviders | null;
+	runtimeProviderConfiguration: RuntimeProviderConfiguration[] | null;
+	token: string;
 	pendingApprovals: Overview['actionRequests'];
 	latestEvidence: Overview['evidencePackages'][number] | null;
 	testResults: Overview['testResultRecords'];
@@ -29,31 +36,23 @@ export function WorkbenchInspector({
 	onOpenJobs: () => void;
 	onOpenEvidence: () => void;
 	onOpenSettings: () => void;
+	onOpenRuntimeSetup: () => void;
+	onRefresh: () => Promise<unknown> | void;
 }) {
 	const { t } = useI18n();
-	const providers = runtimeProviders?.providers ?? [];
-	const executable = providers.filter((provider) => provider.executable).length;
-	const available = providers.filter((provider) => provider.available).length;
-	const runtimeHealthy = executable > 0;
-	const runtimeHeadline = !runtimeProviders
-		? t('app.workbench.inspector.runtimeDiscovery', 'Runtime discovery pending')
-		: runtimeHealthy
-			? t('app.workbench.inspector.runtimeReady', 'Runtime ready')
-			: t('app.workbench.inspector.runtimeConfig', 'Configuration required');
 	const passedTests = testResults.filter((result) => result.status === 'passed').length;
 	const failedTests = testResults.filter((result) => result.status === 'failed').length;
 
 	return (
 		<aside className="workbench-side" aria-label={t('app.workbench.inspector.region', 'Run inspector')}>
 			<Surface title={t('app.workbench.inspector.runtime', 'Runtime status')}>
-				<div className="inline">
-					<StatusDot tone={runtimeHealthy ? 'ok' : runtimeProviders ? 'warn' : 'info'} />
-					<strong>{runtimeHeadline}</strong>
-				</div>
-				<div className="signal-grid">
-					<div className="signal-card"><span>{t('app.workbench.inspector.executable', 'Executable')}</span><strong className="tnum">{executable}</strong></div>
-					<div className="signal-card"><span>{t('app.workbench.inspector.available', 'Available')}</span><strong className="tnum">{available}</strong></div>
-				</div>
+				<RuntimeSetupInspectorCard
+					runtimeProviders={runtimeProviders}
+					runtimeProviderConfiguration={runtimeProviderConfiguration}
+					token={token}
+					onRefresh={onRefresh}
+					onOpenRuntimeSetup={onOpenRuntimeSetup}
+				/>
 			</Surface>
 
 			<Surface title={t('app.workbench.inspector.approvals', 'Approvals')}>

@@ -414,6 +414,41 @@
 	box-shadow: var(--shadow-drawer);
 }
 
+/* Command palette: a slim, top-anchored modal (IDE quick-open feel). */
+.command-palette-layer {
+	align-items: flex-start;
+	justify-content: center;
+	padding-top: clamp(var(--space-7), 13vh, 12rem);
+	z-index: var(--z-command);
+}
+
+.command-palette {
+	position: relative;
+	z-index: 1;
+	display: grid;
+	grid-template-rows: auto minmax(0, 1fr) auto;
+	gap: var(--space-3);
+	width: min(40rem, 100vw);
+	max-height: min(60dvh, 34rem);
+	padding: var(--space-4);
+	background: var(--color-surface-overlay);
+	border: 1px solid var(--color-border-default);
+	border-radius: var(--radius-lg);
+	box-shadow: var(--shadow-drawer);
+}
+
+.command-palette-results {
+	overflow: auto;
+	display: grid;
+	gap: var(--space-3);
+	align-content: start;
+}
+
+.command-palette-group {
+	display: grid;
+	gap: var(--space-2);
+}
+
 .page-header {
 	display: grid;
 	gap: var(--space-2);
@@ -807,6 +842,63 @@
 	display: grid;
 	gap: var(--space-1);
 	margin-top: var(--space-2);
+}
+
+/* IDE project region: pinned identity + actions above the scrolling nav list. */
+.explorer-top {
+	min-width: 0;
+	display: grid;
+	gap: var(--space-3);
+}
+
+.explorer-project {
+	min-width: 0;
+	display: grid;
+	gap: var(--space-3);
+}
+
+.explorer-actions {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: var(--space-2);
+}
+
+.explorer-actions .button {
+	min-width: 0;
+	min-height: var(--control-height-sm);
+	padding-inline: var(--space-2);
+	font-size: var(--font-size-sm);
+}
+
+/* Collapsible section header: caret · title · count. */
+.nav-group-trigger {
+	grid-template-columns: 1.1rem minmax(0, 1fr) auto;
+}
+
+.nav-group-caret {
+	transition: transform var(--duration-fast) var(--ease-standard);
+}
+
+.nav-group-trigger[aria-expanded="true"] .nav-group-caret {
+	transform: rotate(90deg);
+}
+
+.nav-group-count {
+	min-height: 1.5rem;
+	padding-inline: var(--space-2);
+	font-size: var(--font-size-xs);
+}
+
+/* Two classes so it beats the single-class responsive `.nav-sublist` rules. */
+.nav-sublist.nav-sublist--collapsed {
+	display: none;
+}
+
+/* EmptyState composed with a call-to-action button beneath it. */
+.empty-state-action {
+	display: grid;
+	gap: var(--space-2);
+	justify-items: start;
 }
 
 .topbar-heading {

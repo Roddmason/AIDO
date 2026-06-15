@@ -18,12 +18,12 @@ export function UsageLedgerPanel({
 	onFilterChange: (value: string) => void;
 }) {
 	return (
-		<PanelShell title="Usage Ledger">
+		<PanelShell title="Usage history">
 			<div className="field">
-				<label htmlFor="usage-ledger-filter">Usage ledger filter</label>
+				<label htmlFor="usage-ledger-filter">Usage history filter</label>
 				<input id="usage-ledger-filter" className="input" value={filter} onChange={(event) => onFilterChange(event.target.value)} placeholder="Filter provider, model, role, runtime, workflow or agent" />
 			</div>
-			<DataTable rows={rows} empty={<EmptyState title="No usage ledger entries" body="Real provider and runtime calls record reported usage here." />} columns={[
+			<DataTable rows={rows} empty={<EmptyState title="No usage history entries" body="Real provider and runtime calls record reported usage here." />} columns={[
 				{ key: 'time', label: 'Timestamp', render: (row) => text(row.createdAt) },
 				{ key: 'provider', label: 'Provider', render: (row) => text(row.providerId) },
 				{ key: 'model', label: 'Model', render: (row) => text(row.model) },

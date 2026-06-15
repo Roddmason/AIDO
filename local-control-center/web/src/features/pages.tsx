@@ -170,7 +170,7 @@ export function PolicySecurityPage({ overview, mutate }: { overview: Overview; m
 	};
 	return (
 		<>
-			<PageHeader kicker="Permission engine" title="Policy & Security" summary="Command classification, path boundaries, human gates and sandbox posture for every sensitive action." />
+			<PageHeader kicker="Permission engine" title="Policy & Security" summary="Command classification, path boundaries, human gates and sandbox settings for every sensitive action." />
 			<div className="grid two">
 				<Surface title="Strict sandbox profile form">
 					<div className="form-grid">
@@ -206,8 +206,8 @@ export function PolicySecurityPage({ overview, mutate }: { overview: Overview; m
 						<button className="button primary" type="button" disabled={busy} onClick={() => { void saveSandboxProfile(); }}>Save sandbox profile</button>
 					</div>
 				</Surface>
-				<Surface title="Policy decisions">
-					<DataTable rows={overview.permissionDecisions} empty={<EmptyState title="No policy decisions" body="Tool calls and command evaluations are recorded here." />} columns={[
+				<Surface title="Permission checks">
+					<DataTable rows={overview.permissionDecisions} empty={<EmptyState title="No permission checks" body="Tool calls and command evaluations are recorded here." />} columns={[
 						{ key: 'decision', label: 'Decision', render: (row) => <Badge tone={toneForStatus(String(row.decision ?? ''))}>{String(row.decision ?? '')}</Badge> },
 						{ key: 'risk', label: 'Risk', render: (row) => String(row.riskLevel ?? '') },
 						{ key: 'command', label: 'Command', render: (row) => <span className="mono">{String(row.command ?? '')}</span> },
@@ -643,7 +643,7 @@ export function EvidencePage({ overview, token }: { overview: Overview; token: s
 									<pre className="artifact-preview">{redactedJson(toolCalls)}</pre>
 								</div>
 								<div>
-									<div className="metric-label">Policy decisions and approvals</div>
+									<div className="metric-label">Permission checks and approvals</div>
 									<pre className="artifact-preview">{redactedJson({ policyDecisions: selectedPackage.policyDecisions, approvals: selectedPackage.approvals }, '{}')}</pre>
 								</div>
 							</div>
@@ -682,204 +682,6 @@ export function EvidencePage({ overview, token }: { overview: Overview; token: s
 					) : null}
 				</div>
 			</Drawer>
-		</>
-	);
-}
-
-export function ModelGatewayPage({
-	overview,
-	runtimeProviders,
-	mutate,
-}: {
-	overview: Overview;
-	runtimeProviders: RuntimeProviders | null;
-	mutate: Mutate;
-}) {
-	const totalCost = sumRecordedCost(overview.costUsage);
-	const [policyId, setPolicyId] = useState('implementation_default');
-	const [policyName, setPolicyName] = useState('Implementation Default');
-	const [provider, setProvider] = useState('ollama');
-	const [model, setModel] = useState('');
-	const [maxCostUsd, setMaxCostUsd] = useState('1');
-	const [maxTokens, setMaxTokens] = useState('4000');
-	const [allowRemote, setAllowRemote] = useState(false);
-	const [allowLocal, setAllowLocal] = useState(true);
-	const [error, setError] = useState('');
-	const providerCatalog = useMemo(
-		() => [
-			{ provider: 'ollama', models: runtimeProviders?.ollama.models ?? [], remote: false },
-		],
-		[runtimeProviders],
-	);
-	const modelOptions = providerCatalog.find((item) => item.provider === provider)?.models ?? [];
-	useEffect(() => {
-		const currentCatalog = providerCatalog.find((item) => item.provider === provider);
-		if (!currentCatalog || (model && currentCatalog.models.includes(model))) return;
-		setModel(currentCatalog.models[0] ?? '');
-	}, [model, provider, providerCatalog]);
-	const savePolicy = () => {
-		if (!/^[a-z0-9_-]{3,64}$/.test(policyId)) {
-			setError('Policy id must use lowercase letters, numbers, dashes or underscores.');
-			return;
-		}
-		if (!policyName.trim()) {
-			setError('Policy name is required.');
-			return;
-		}
-		if (!modelOptions.includes(model)) {
-			setError('Select a model from the catalog for the selected provider.');
-			return;
-		}
-		const maxCost = Number(maxCostUsd);
-		const tokenLimit = Number(maxTokens);
-		if (!Number.isFinite(maxCost) || maxCost < 0) {
-			setError('Maximum cost must be zero or a positive number.');
-			return;
-		}
-		if (!Number.isInteger(tokenLimit) || tokenLimit < 512 || tokenLimit > 200000) {
-			setError('Maximum tokens must be an integer between 512 and 200000.');
-			return;
-		}
-		setError('');
-		void mutate((token) =>
-			createModelGatewayRolePolicy(token, {
-				id: policyId,
-				role: policyId,
-				routingProfileId: 'balanced_best_value',
-				preferred: [{ provider, model }],
-				fallback: [],
-				maxCostPerTaskUsd: maxCost,
-				maxTokensPerRun: tokenLimit,
-				allowRemote,
-				allowLocal,
-				allowCli: false,
-				allowApi: true,
-			}),
-		);
-	};
-	return (
-		<>
-			<PageHeader kicker="Model routing" title="Model Gateway" summary="Provider catalogs, runtime modes, fallbacks and cost usage without free-form unsafe provider inputs." />
-			<div className="grid two">
-				<Surface title="Providers">
-					<DataTable rows={overview.modelProviders} empty={<EmptyState title="No providers" body="Provider catalog seeds at startup." />} columns={[
-						{ key: 'id', label: 'Provider', render: (row) => <span className="mono">{row.id}</span> },
-						{ key: 'status', label: 'Status', render: (row) => <Badge tone={toneForStatus(row.status)}>{row.status}</Badge> },
-						{ key: 'remote', label: 'Remote', render: (row) => (row.allowRemote ? 'allowed' : 'local/manual') },
-					]} />
-				</Surface>
-				<Surface title="Ollama catalog">
-					<div className="inline"><Badge tone={runtimeProviders?.ollama.available ? 'ok' : 'warn'}>{runtimeProviders?.ollama.available ? 'ready' : 'not detected'}</Badge></div>
-					<div className="mono">{runtimeProviders?.ollama.models.join(', ') || runtimeProviders?.ollama.reason || 'No local model list available'}</div>
-				</Surface>
-			</div>
-			<div className="grid two">
-				<Surface title="Strict model policy form">
-					<div className="field">
-						<label htmlFor="model-policy-id">Policy id</label>
-						<input
-							id="model-policy-id"
-							className="input"
-							value={policyId}
-							pattern="[a-z0-9_-]{3,64}"
-							onChange={(event) => setPolicyId(event.target.value)}
-						/>
-					</div>
-					<div className="field">
-						<label htmlFor="model-policy-name">Policy name</label>
-						<input
-							id="model-policy-name"
-							className="input"
-							value={policyName}
-							onChange={(event) => setPolicyName(event.target.value)}
-						/>
-					</div>
-					<div className="field">
-						<label htmlFor="preferred-provider">Preferred provider</label>
-						<select
-							id="preferred-provider"
-							className="select"
-							value={provider}
-							onChange={(event) => {
-								const nextProvider = event.target.value;
-								const nextModels = providerCatalog.find((item) => item.provider === nextProvider)?.models ?? [];
-								setProvider(nextProvider);
-								setModel(nextModels[0] ?? '');
-								setAllowRemote(Boolean(providerCatalog.find((item) => item.provider === nextProvider)?.remote));
-								setAllowLocal(!providerCatalog.find((item) => item.provider === nextProvider)?.remote);
-							}}
-						>
-							{providerCatalog.map((item) => (
-								<option key={item.provider} value={item.provider} disabled={item.models.length === 0}>
-									{item.provider}
-								</option>
-							))}
-						</select>
-					</div>
-					<div className="field">
-						<label htmlFor="model-catalog">Model</label>
-						<select id="model-catalog" className="select" value={model} onChange={(event) => setModel(event.target.value)}>
-							{modelOptions.map((item) => (
-								<option key={item} value={item}>{item}</option>
-							))}
-						</select>
-					</div>
-					<div className="field">
-						<label htmlFor="max-cost-usd">Maximum cost USD</label>
-						<input
-							id="max-cost-usd"
-							className="input"
-							type="number"
-							min="0"
-							step="0.01"
-							value={maxCostUsd}
-							onChange={(event) => setMaxCostUsd(event.target.value)}
-						/>
-					</div>
-					<div className="field">
-						<label htmlFor="max-tokens">Maximum tokens</label>
-						<input
-							id="max-tokens"
-							className="input"
-							type="number"
-							min="512"
-							max="200000"
-							step="1"
-							value={maxTokens}
-							onChange={(event) => setMaxTokens(event.target.value)}
-						/>
-					</div>
-					<label className="checkbox-row" htmlFor="allow-remote">
-						<input id="allow-remote" type="checkbox" checked={allowRemote} onChange={(event) => setAllowRemote(event.target.checked)} />
-						Allow remote providers
-					</label>
-					<label className="checkbox-row" htmlFor="allow-local">
-						<input id="allow-local" type="checkbox" checked={allowLocal} onChange={(event) => setAllowLocal(event.target.checked)} />
-						Allow local providers
-					</label>
-					{error ? <div className="form-error" role="alert">{error}</div> : null}
-					<button className="button primary" type="button" onClick={savePolicy}>Save model policy</button>
-				</Surface>
-				<Surface title="Cost ledger">
-					<div className="metric-value">{money(totalCost)}</div>
-					<div className="metric-label">recorded model usage</div>
-				</Surface>
-				<Surface title="Model policies">
-					<DataTable rows={overview.modelPolicies} empty={<EmptyState title="No model policies" body="Model policies define allowed providers, fallback chains and budgets." />} columns={[
-						{ key: 'id', label: 'Policy', render: (row) => <span className="mono">{String(row.id ?? '')}</span> },
-						{ key: 'budget', label: 'Budget', render: (row) => money(row.maxCostUsd) },
-						{ key: 'remote', label: 'Remote', render: (row) => (row.allowRemote ? 'allowed' : 'blocked') },
-					]} />
-				</Surface>
-			</div>
-			<Surface title="Model calls">
-				<DataTable rows={overview.modelCalls} empty={<EmptyState title="No model calls" body="Agent runs and model gateway preparations are recorded here." />} columns={[
-					{ key: 'provider', label: 'Provider', render: (row) => <span className="mono">{String(row.provider ?? '')}</span> },
-					{ key: 'model', label: 'Model', render: (row) => <span className="mono">{String(row.model ?? '')}</span> },
-					{ key: 'status', label: 'Status', render: (row) => <Badge tone={toneForStatus(String(row.status ?? ''))}>{String(row.status ?? '')}</Badge> },
-					{ key: 'cost', label: 'Cost', render: (row) => money(row.costUsd) },
-				]} />
-			</Surface>
 		</>
 	);
 }
@@ -1291,9 +1093,9 @@ export function IntegrationsPage({ overview, mutate }: { overview: Overview; mut
 export function AuditPage({ overview }: { overview: Overview }) {
 	return (
 		<>
-			<PageHeader kicker="Traceability" title="Audit Log" summary="Every mutation needs actor, target, payload and event correlation." />
+			<PageHeader kicker="Traceability" title="Audit Log" summary="Every change records who made it, what it targeted, the data sent and a linked event." />
 			<Surface title="Audit records">
-				<DataTable rows={overview.auditEvents} empty={<EmptyState title="No audit records" body="Mutating API calls will be recorded here." />} columns={[
+				<DataTable rows={overview.auditEvents} empty={<EmptyState title="No audit records" body="Every change to the system is recorded here." />} columns={[
 					{ key: 'action', label: 'Action', render: (row) => <span className="mono">{String(row.action ?? '')}</span> },
 					{ key: 'actor', label: 'Actor', render: (row) => String(row.actor ?? '') },
 					{ key: 'target', label: 'Target', render: (row) => String(row.target ?? '') },

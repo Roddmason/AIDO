@@ -25,7 +25,7 @@ import type { LucideIcon } from 'lucide-react';
 
 import { createChat, createPipeline, createSession } from '../../api/client';
 import type { ChatCreateResponse, IssueToPatchResponse, PipelineCreateResponse, SessionCreateResponse } from '../../api/client';
-import type { Overview, Project, RuntimeProviders } from '../../api/types';
+import type { Overview, Project, RuntimeProviderConfiguration, RuntimeProviders } from '../../api/types';
 import { Badge, Drawer, EmptyState, PageHeader, Surface } from '../../components/primitives';
 import { useI18n } from '../../i18n/I18nProvider';
 import { evidenceDiffChangedFiles } from '../../lib/diff';
@@ -58,6 +58,7 @@ type WorkbenchPageProps = {
 	overview: Overview;
 	selectedProject: Project | null;
 	runtimeProviders: RuntimeProviders | null;
+	runtimeProviderConfiguration: RuntimeProviderConfiguration[] | null;
 	mutate: Mutate;
 	token: string;
 	onSelectProject: (projectId: string) => void;
@@ -65,6 +66,8 @@ type WorkbenchPageProps = {
 	onOpenJobs: () => void;
 	onOpenEvidence: () => void;
 	onOpenSettings: () => void;
+	onOpenRuntimeSetup: () => void;
+	onRefresh: () => Promise<unknown> | void;
 };
 
 type ExpertBlueprint = {
@@ -155,6 +158,7 @@ export function WorkbenchPage({
 	overview,
 	selectedProject,
 	runtimeProviders,
+	runtimeProviderConfiguration,
 	mutate,
 	token,
 	onSelectProject,
@@ -162,6 +166,8 @@ export function WorkbenchPage({
 	onOpenJobs,
 	onOpenEvidence,
 	onOpenSettings,
+	onOpenRuntimeSetup,
+	onRefresh,
 }: WorkbenchPageProps) {
 	const { t } = useI18n();
 	const [prompt, setPrompt] = useState('');
@@ -509,6 +515,8 @@ export function WorkbenchPage({
 
 				<WorkbenchInspector
 					runtimeProviders={runtimeProviders}
+					runtimeProviderConfiguration={runtimeProviderConfiguration}
+					token={token}
 					pendingApprovals={pendingApprovals}
 					latestEvidence={latestEvidence}
 					testResults={projectTestResults}
@@ -516,6 +524,8 @@ export function WorkbenchPage({
 					onOpenJobs={onOpenJobs}
 					onOpenEvidence={onOpenEvidence}
 					onOpenSettings={onOpenSettings}
+					onOpenRuntimeSetup={onOpenRuntimeSetup}
+					onRefresh={onRefresh}
 				/>
 			</div>
 

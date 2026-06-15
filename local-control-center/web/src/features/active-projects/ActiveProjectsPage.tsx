@@ -15,62 +15,62 @@ export type Language = 'en' | 'es';
 const statusCopy: Record<Language, Record<ProjectStatusView, { title: string; kicker: string; summary: string; emptyTitle: string; emptyBody: string }>> = {
 	en: {
 		active: {
-			kicker: 'Operational ledger',
+			kicker: 'Active work',
 			title: 'Active Projects',
-			summary: 'Only active projects can receive operational work here. Inactive and archived project records stay visible in Settings for audit and configuration.',
+			summary: 'Only active projects can run work here. Inactive and archived projects stay visible in Settings for audit and configuration.',
 			emptyTitle: 'No active projects',
 			emptyBody: 'Create a project or reactivate one in Settings before starting workflows, jobs, workspaces or governance records.',
 		},
 		finished: {
-			kicker: 'Delivery ledger',
+			kicker: 'Delivered',
 			title: 'Finished Projects',
-			summary: 'Completed and archived projects stay available for audit without being selectable for new operational mutations.',
+			summary: 'Completed and archived projects stay available for audit and cannot be selected to run new work.',
 			emptyTitle: 'No finished projects',
 			emptyBody: 'Projects with completed, finished, done, finalized or archived status will appear here.',
 		},
 		error: {
-			kicker: 'Exception ledger',
+			kicker: 'Errors',
 			title: 'Projects With Error',
 			summary: 'Projects in failed or error states are isolated here so operators can triage without mixing them into active work.',
 			emptyTitle: 'No projects with error',
 			emptyBody: 'Projects with failed, error or errored status will appear here.',
 		},
 		cancelled: {
-			kicker: 'Closed ledger',
+			kicker: 'Cancelled',
 			title: 'Cancelled Projects',
-			summary: 'Cancelled projects are visible for traceability, but cannot be selected as the operational mutation target.',
+			summary: 'Cancelled projects stay visible for traceability, but cannot be selected to run new work.',
 			emptyTitle: 'No cancelled projects',
 			emptyBody: 'Projects with cancelled or canceled status will appear here.',
 		},
 	},
 	es: {
 		active: {
-			kicker: 'Registro operacional',
+			kicker: 'Trabajo activo',
 			title: 'Proyectos activos',
-			summary: 'Solo los proyectos activos pueden recibir trabajo operacional. Los registros inactivos siguen auditables en Configuraciones.',
+			summary: 'Solo los proyectos activos pueden ejecutar trabajo aquí. Los proyectos inactivos y archivados siguen visibles en Configuración para auditoría.',
 			emptyTitle: 'No hay proyectos activos',
-			emptyBody: 'Crea un proyecto o reactiva uno en Configuraciones antes de iniciar flujos, trabajos o registros de gobierno.',
+			emptyBody: 'Crea un proyecto o reactiva uno en Configuración antes de iniciar flujos de trabajo, trabajos, workspaces o registros de gobierno.',
 		},
 		finished: {
-			kicker: 'Registro de entrega',
+			kicker: 'Entregados',
 			title: 'Proyectos finalizados',
-			summary: 'Los proyectos completados y archivados quedan disponibles para auditoria sin ser seleccionables para nuevas mutaciones.',
+			summary: 'Los proyectos completados y archivados quedan disponibles para auditoría y no pueden seleccionarse para ejecutar trabajo nuevo.',
 			emptyTitle: 'No hay proyectos finalizados',
-			emptyBody: 'Apareceran proyectos con estado completed, finished, done, finalized o archived.',
+			emptyBody: 'Aparecerán proyectos con estado completed, finished, done, finalized o archived.',
 		},
 		error: {
-			kicker: 'Registro de excepciones',
+			kicker: 'Errores',
 			title: 'Proyectos con error',
-			summary: 'Los proyectos con error quedan aislados para triage sin mezclarse con el trabajo activo.',
+			summary: 'Los proyectos con error quedan aislados para revisión sin mezclarse con el trabajo activo.',
 			emptyTitle: 'No hay proyectos con error',
-			emptyBody: 'Apareceran proyectos con estado failed, error o errored.',
+			emptyBody: 'Aparecerán proyectos con estado failed, error o errored.',
 		},
 		cancelled: {
-			kicker: 'Registro cerrado',
+			kicker: 'Cancelados',
 			title: 'Proyectos cancelados',
-			summary: 'Los proyectos cancelados se mantienen visibles para trazabilidad, pero no son objetivo operacional.',
+			summary: 'Los proyectos cancelados se mantienen visibles para trazabilidad, pero no pueden seleccionarse para ejecutar trabajo nuevo.',
 			emptyTitle: 'No hay proyectos cancelados',
-			emptyBody: 'Apareceran proyectos con estado cancelled o canceled.',
+			emptyBody: 'Aparecerán proyectos con estado cancelled o canceled.',
 		},
 	},
 };
@@ -182,7 +182,7 @@ export function ActiveProjectsPage({
 						/>
 					)}
 				</Surface>
-				<Surface title={lang('Workspace posture', 'Estado de workspaces')}>
+				<Surface title={lang('Workspace status', 'Estado de workspaces')}>
 					{activeWorkspaces.length ? (
 						<div className="stack">
 							{activeWorkspaces.slice(0, 5).map((workspace) => (

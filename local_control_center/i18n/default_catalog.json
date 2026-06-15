@@ -908,8 +908,8 @@
       "es": "Rueda de navegación del centro de mando"
     },
     "ui.static.command.classification.path.boundaries.human.gates.and.sandb.48b94e83": {
-      "en": "Command classification, path boundaries, human gates and sandbox posture for every sensitive action.",
-      "es": "Clasificación de comandos, límites de caminos, puertas humanas y postura de zona de pruebas para cada acción sensible."
+      "en": "Command classification, path boundaries, human gates and sandbox settings for every sensitive action.",
+      "es": "Clasificación de comandos, límites de rutas, puertas humanas y configuración del sandbox para cada acción sensible."
     },
     "ui.static.command.palette.7b6b539e": {
       "en": "Command palette",
@@ -952,8 +952,8 @@
       "es": "Costo"
     },
     "ui.static.cost.ledger.7af91996": {
-      "en": "Cost ledger",
-      "es": "Libro mayor de costos"
+      "en": "Cost history",
+      "es": "Historial de costos"
     },
     "ui.static.cost.today.ef1eaeca": {
       "en": "Cost today",
@@ -1140,8 +1140,8 @@
       "es": "Los eventos aparecen cuando los flujos de trabajo, trabajos, políticas o pruebas cambian de estado."
     },
     "ui.static.every.mutation.needs.actor.target.payload.and.event.correlat.6735cfc2": {
-      "en": "Every mutation needs actor, target, payload and event correlation.",
-      "es": "Cada mutación necesita correlación entre actor, objetivo, carga útil y evento."
+      "en": "Every change records who made it, what it targeted, the data sent and a linked event.",
+      "es": "Cada cambio registra quién lo hizo, qué afectó, los datos enviados y un evento vinculado."
     },
     "ui.static.evidence.7ea014de": {
       "en": "Evidence",
@@ -1568,12 +1568,12 @@
       "es": "Preferencia de movimiento"
     },
     "ui.static.mutating.api.calls.will.be.recorded.here.ddf49c4f": {
-      "en": "Mutating API calls will be recorded here.",
-      "es": "Las llamadas API mutantes se registrarán aquí."
+      "en": "Every change to the system is recorded here.",
+      "es": "Cada cambio en el sistema queda registrado aquí."
     },
     "ui.static.mutating.decisions.are.recorded.here.a7acd7bf": {
-      "en": "Mutating decisions are recorded here.",
-      "es": "Las decisiones mutantes se registran aquí."
+      "en": "Every change is recorded here.",
+      "es": "Cada cambio queda registrado aquí."
     },
     "ui.static.name.709a2322": {
       "en": "Name",
@@ -1720,8 +1720,8 @@
       "es": "No hay comandos pendientes"
     },
     "ui.static.no.policy.decisions.6c679309": {
-      "en": "No policy decisions",
-      "es": "Sin decisiones políticas"
+      "en": "No permission checks",
+      "es": "Sin verificaciones de permisos"
     },
     "ui.static.no.profiles.a21ca86c": {
       "en": "No profiles",
@@ -1792,8 +1792,8 @@
       "es": "Sin llamadas de herramientas"
     },
     "ui.static.no.usage.ledger.entries.0b082a29": {
-      "en": "No usage ledger entries",
-      "es": "No hay entradas de uso"
+      "en": "No usage history entries",
+      "es": "No hay entradas de historial de uso"
     },
     "ui.static.no.workflow.selected.215ac484": {
       "en": "No workflow selected",
@@ -1832,8 +1832,8 @@
       "es": "Estado de Ollama"
     },
     "ui.static.only.active.projects.can.be.selected.for.operational.mutatio.3f45da88": {
-      "en": "Only active projects can be selected for operational mutations.",
-      "es": "Solo se pueden seleccionar proyectos activos para mutaciones operativas."
+      "en": "Only active projects can run work and receive changes.",
+      "es": "Solo los proyectos activos pueden ejecutar trabajo y recibir cambios."
     },
     "ui.static.only.active.projects.can.receive.operational.work.here.inact.903ac429": {
       "en": "Only active projects can receive operational work here. Inactive and archived project records stay visible in Settings for audit and configuration.",
@@ -1920,8 +1920,8 @@
       "es": "El camino existe"
     },
     "ui.static.pending.action.requests.8cf648d1": {
-      "en": "Pending action requests",
-      "es": "Solicitudes de acción pendientes"
+      "en": "Pending approvals",
+      "es": "Aprobaciones pendientes"
     },
     "ui.static.period.170a28a9": {
       "en": "Period",
@@ -1948,8 +1948,8 @@
       "es": "Los cambios de políticas y sandbox crearán registros de revisión explícitos."
     },
     "ui.static.policy.decisions.f9eecf70": {
-      "en": "Policy decisions",
-      "es": "Decisiones políticas"
+      "en": "Permission checks",
+      "es": "Verificaciones de permisos"
     },
     "ui.static.policy.decisions.linked.through.workflow.tool.calls.appear.h.7cf16ea5": {
       "en": "Policy decisions linked through workflow tool calls appear here.",
@@ -2200,8 +2200,8 @@
       "es": "Resultado de la cuota"
     },
     "ui.static.reading.provider.accounts.routing.policies.and.usage.ledger.e6389e35": {
-      "en": "Reading provider accounts, routing policies and usage ledger.",
-      "es": "Lectura de cuentas de proveedores, políticas de enrutamiento y libro de registro de uso."
+      "en": "Reading provider accounts, routing policies and usage history.",
+      "es": "Leyendo cuentas de proveedores, políticas de enrutamiento e historial de uso."
     },
     "ui.static.reason.f219cc06": {
       "en": "Reason",
@@ -2272,8 +2272,12 @@
       "es": "Rever"
     },
     "ui.static.review.pending.granular.action.requests.64eca29e": {
-      "en": "Review pending granular action requests",
-      "es": "Revisar solicitudes de acción granular pendientes"
+      "en": "Review pending approvals",
+      "es": "Revisar aprobaciones pendientes"
+    },
+    "ui.static.open.the.per.action.approvals.awaiting.your.decision.a1d0a1": {
+      "en": "Open the per-action approvals awaiting your decision",
+      "es": "Abre las aprobaciones por acción que esperan tu decisión"
     },
     "ui.static.review.risks.decisions.and.next.steps.35c8cc99": {
       "en": "Review risks, decisions and next steps",
@@ -2824,12 +2828,12 @@
       "es": "Uso"
     },
     "ui.static.usage.ledger.bc792665": {
-      "en": "Usage Ledger",
-      "es": "Libro de uso"
+      "en": "Usage history",
+      "es": "Historial de uso"
     },
     "ui.static.usage.ledger.filter.c94a6388": {
-      "en": "Usage ledger filter",
-      "es": "Filtro de libro mayor de uso"
+      "en": "Usage history filter",
+      "es": "Filtro de historial de uso"
     },
     "ui.static.usage.source.16f36c88": {
       "en": "Usage source",
@@ -3400,8 +3404,8 @@
       "es": "Resumen"
     },
     "ui.static.the.security.findings.artifact.must.be.valid.json.with.no.blocking.policy.decision.29a79e28": {
-      "en": "The security findings artifact must be valid JSON with no blocking policy decision.",
-      "es": "El artefacto de hallazgos de seguridad debe ser JSON valido sin decisiones de politica bloqueantes."
+      "en": "The security findings artifact must be valid JSON with no blocking security decision.",
+      "es": "El artefacto de hallazgos de seguridad debe ser JSON válido sin ninguna decisión de seguridad bloqueante."
     },
     "ui.static.tokens.9a1f9463": {
       "en": "Tokens",
@@ -3460,8 +3464,8 @@
       "es": "Razon de politica"
     },
     "ui.static.queue.mutation.reason.19c25b16": {
-      "en": "Queue mutation reason",
-      "es": "Razon de mutacion de cola"
+      "en": "Queue change reason",
+      "es": "Razón de cambio de cola"
     },
     "ui.static.reject.4c7c9dde": {
       "en": "Reject",
@@ -3552,8 +3556,8 @@
       "es": "El artefacto de patch esta vacio; no prueba cambios."
     },
     "ui.static.policy.decisions.and.approvals.c5964304": {
-      "en": "Policy decisions and approvals",
-      "es": "Decisiones de politica y aprobaciones"
+      "en": "Permission checks and approvals",
+      "es": "Verificaciones de permisos y aprobaciones"
     },
     "ui.static.runtime.health.evidence.viewer.296670dd": {
       "en": "Runtime health",
@@ -4838,6 +4842,498 @@
     "app.review.copy.30": {
       "en": "items",
       "es": "ítems"
+    },
+    "app.commandPalette.empty.body": {
+      "en": "Try open, runtime, evidence, approvals or settings.",
+      "es": "Prueba abrir, runtime, evidencia, aprobaciones o configuración."
+    },
+    "app.copy.features.active-projects.ActiveProjectsPage.0": {
+      "en": "Active work",
+      "es": "Trabajo activo"
+    },
+    "app.copy.features.active-projects.ActiveProjectsPage.1": {
+      "en": "Active Projects",
+      "es": "Proyectos activos"
+    },
+    "app.copy.features.active-projects.ActiveProjectsPage.2": {
+      "en": "Only active projects can run work here. Inactive and archived projects stay visible in Settings for audit and configuration.",
+      "es": "Solo los proyectos activos pueden ejecutar trabajo aquí. Los proyectos inactivos y archivados siguen visibles en Configuración para auditoría."
+    },
+    "app.copy.features.active-projects.ActiveProjectsPage.4": {
+      "en": "Create a project or reactivate one in Settings before starting workflows, jobs, workspaces or governance records.",
+      "es": "Crea un proyecto o reactiva uno en Configuración antes de iniciar flujos de trabajo, trabajos, workspaces o registros de gobierno."
+    },
+    "app.copy.features.active-projects.ActiveProjectsPage.5": {
+      "en": "Delivered",
+      "es": "Entregados"
+    },
+    "app.copy.features.active-projects.ActiveProjectsPage.6": {
+      "en": "Finished Projects",
+      "es": "Proyectos finalizados"
+    },
+    "app.copy.features.active-projects.ActiveProjectsPage.7": {
+      "en": "Completed and archived projects stay available for audit and cannot be selected to run new work.",
+      "es": "Los proyectos completados y archivados quedan disponibles para auditoría y no pueden seleccionarse para ejecutar trabajo nuevo."
+    },
+    "app.copy.features.active-projects.ActiveProjectsPage.8": {
+      "en": "No finished projects",
+      "es": "No hay proyectos finalizados"
+    },
+    "app.copy.features.active-projects.ActiveProjectsPage.9": {
+      "en": "Projects with completed, finished, done, finalized or archived status will appear here.",
+      "es": "Aparecerán proyectos con estado completed, finished, done, finalized o archived."
+    },
+    "app.copy.features.active-projects.ActiveProjectsPage.10": {
+      "en": "Errors",
+      "es": "Errores"
+    },
+    "app.copy.features.active-projects.ActiveProjectsPage.12": {
+      "en": "Projects in failed or error states are isolated here so operators can triage without mixing them into active work.",
+      "es": "Los proyectos con error quedan aislados para revisión sin mezclarse con el trabajo activo."
+    },
+    "app.copy.features.active-projects.ActiveProjectsPage.14": {
+      "en": "Projects with failed, error or errored status will appear here.",
+      "es": "Aparecerán proyectos con estado failed, error o errored."
+    },
+    "app.copy.features.active-projects.ActiveProjectsPage.17": {
+      "en": "Cancelled projects stay visible for traceability, but cannot be selected to run new work.",
+      "es": "Los proyectos cancelados se mantienen visibles para trazabilidad, pero no pueden seleccionarse para ejecutar trabajo nuevo."
+    },
+    "app.copy.features.active-projects.ActiveProjectsPage.19": {
+      "en": "Projects with cancelled or canceled status will appear here.",
+      "es": "Aparecerán proyectos con estado cancelled o canceled."
+    },
+    "app.copy.features.settings.SettingsPage.0": {
+      "en": "Runtime setup",
+      "es": "Configuración de runtimes"
+    },
+    "app.copy.features.settings.SettingsPage.1": {
+      "en": "Project selection",
+      "es": "Selección de proyecto"
+    },
+    "app.copy.features.settings.SettingsPage.2": {
+      "en": "User settings",
+      "es": "Configuraciones de usuario"
+    },
+    "app.copy.features.settings.SettingsPage.3": {
+      "en": "CLI settings",
+      "es": "Configuración de CLI"
+    },
+    "app.copy.features.settings.SettingsPage.4": {
+      "en": "API settings",
+      "es": "Configuración de APIs"
+    },
+    "app.copy.features.settings.SettingsPage.5": {
+      "en": "Parameters",
+      "es": "Configuraciones de parámetros"
+    },
+    "app.copy.features.settings.SettingsPage.6": {
+      "en": "Catalogs",
+      "es": "Catálogos"
+    },
+    "app.copy.features.settings.SettingsPage.8": {
+      "en": "Default configurations",
+      "es": "Configuraciones por defecto"
+    },
+    "app.copy.features.settings.SettingsPage.9": {
+      "en": "Local runtime configuration",
+      "es": "Configuración del runtime local"
+    },
+    "app.copy.features.settings.SettingsPage.10": {
+      "en": "Settings",
+      "es": "Configuraciones"
+    },
+    "app.copy.features.settings.SettingsPage.11": {
+      "en": "Project selection, all-project audit visibility, technical catalogs and runtime defaults live here instead of the daily operation surface.",
+      "es": "La selección de proyecto, la auditoría, los catálogos técnicos y los valores por defecto viven aquí, fuera de la superficie diaria."
+    },
+    "app.copy.features.settings.SettingsPage.12": {
+      "en": "New project",
+      "es": "Nuevo proyecto"
+    },
+    "app.copy.standalone.0": {
+      "en": "Only active projects can run work and receive changes.",
+      "es": "Solo los proyectos activos pueden ejecutar trabajo y recibir cambios."
+    },
+    "app.copy.standalone.1": {
+      "en": "Only active projects can run work here. Inactive and archived projects stay visible in Settings for audit and configuration.",
+      "es": "Solo los proyectos activos pueden ejecutar trabajo aquí. Los proyectos inactivos y archivados siguen visibles en Configuraciones para auditoría y configuración."
+    },
+    "app.copy.standalone.2": {
+      "en": "Every change is recorded here.",
+      "es": "Cada cambio queda registrado aquí."
+    },
+    "app.copy.standalone.3": {
+      "en": "Queue change reason",
+      "es": "Razón del cambio de cola"
+    },
+    "app.copy.standalone.4": {
+      "en": "The security findings artifact must be valid JSON with no blocking security decision.",
+      "es": "El artefacto de hallazgos de seguridad debe ser JSON válido y sin una decisión de seguridad bloqueante."
+    },
+    "app.copy.standalone.6": {
+      "en": "Command classification, path boundaries, human gates and sandbox settings for every sensitive action.",
+      "es": "Clasificación de comandos, límites de rutas, controles humanos y configuración de sandbox para cada acción sensible."
+    },
+    "app.copy.standalone.7": {
+      "en": "Every change records who made it, what it targeted, the data sent and a linked event.",
+      "es": "Cada cambio registra quién lo hizo, qué afectó, los datos enviados y un evento vinculado."
+    },
+    "app.copy.standalone.8": {
+      "en": "Every change to the system is recorded here.",
+      "es": "Cada cambio en el sistema queda registrado aquí."
+    },
+    "app.copy.standalone.9": {
+      "en": "No permission checks",
+      "es": "Sin verificaciones de permisos"
+    },
+    "app.copy.standalone.10": {
+      "en": "Permission checks",
+      "es": "Verificaciones de permisos"
+    },
+    "app.copy.standalone.11": {
+      "en": "Permission checks and approvals",
+      "es": "Verificaciones de permisos y aprobaciones"
+    },
+    "app.copy.standalone.12": {
+      "en": "Cost history",
+      "es": "Historial de costos"
+    },
+    "app.copy.standalone.13": {
+      "en": "Reading provider accounts, routing policies and usage history.",
+      "es": "Leyendo cuentas de proveedor, políticas de enrutamiento e historial de uso."
+    },
+    "app.copy.standalone.14": {
+      "en": "No usage history entries",
+      "es": "Sin entradas de historial de uso"
+    },
+    "app.copy.standalone.15": {
+      "en": "Usage history",
+      "es": "Historial de uso"
+    },
+    "app.copy.standalone.16": {
+      "en": "Usage history filter",
+      "es": "Filtro de historial de uso"
+    },
+    "app.runtime.summary": {
+      "en": "See, for each provider, exactly why it can or cannot execute — required configuration, detected command, and health.",
+      "es": "Para cada proveedor, ve exactamente por qué puede o no ejecutarse: configuración requerida, comando detectado y estado de salud."
+    },
+    "app.runtime.executable": {
+      "en": "executable",
+      "es": "ejecutables"
+    },
+    "app.runtime.refresh": {
+      "en": "Refresh health",
+      "es": "Re-verificar estado"
+    },
+    "app.runtime.state.notConfigured": {
+      "en": "Not configured",
+      "es": "Sin configurar"
+    },
+    "app.runtime.state.configured": {
+      "en": "Awaiting health check",
+      "es": "Pendiente de verificación"
+    },
+    "app.runtime.state.available": {
+      "en": "Available",
+      "es": "Disponible"
+    },
+    "app.runtime.state.executable": {
+      "en": "Executable",
+      "es": "Ejecutable"
+    },
+    "app.runtime.state.blocked": {
+      "en": "Blocked",
+      "es": "Bloqueado"
+    },
+    "app.runtime.card.noReason": {
+      "en": "No status reported yet.",
+      "es": "Aún no se reporta estado."
+    },
+    "app.runtime.card.details": {
+      "en": "Configuration details",
+      "es": "Detalles de configuración"
+    },
+    "app.runtime.card.hideDetails": {
+      "en": "Hide details",
+      "es": "Ocultar detalles"
+    },
+    "app.runtime.card.envVars": {
+      "en": "Required environment variables",
+      "es": "Variables de entorno requeridas"
+    },
+    "app.runtime.card.configured": {
+      "en": "configured",
+      "es": "configurada"
+    },
+    "app.runtime.card.missing": {
+      "en": "missing",
+      "es": "faltante"
+    },
+    "app.runtime.card.optional": {
+      "en": "optional",
+      "es": "opcional"
+    },
+    "app.runtime.card.secret": {
+      "en": "secret",
+      "es": "secreto"
+    },
+    "app.runtime.card.noEnvVars": {
+      "en": "No environment variables required.",
+      "es": "No requiere variables de entorno."
+    },
+    "app.runtime.card.noSecretsNote": {
+      "en": "Secret values are never shown — only whether they are set and a short fingerprint.",
+      "es": "Los valores secretos nunca se muestran; solo si están definidos y una huella corta."
+    },
+    "app.runtime.card.command": {
+      "en": "Command detected",
+      "es": "Comando detectado"
+    },
+    "app.runtime.card.notDetected": {
+      "en": "Not detected on PATH.",
+      "es": "No detectado en el PATH."
+    },
+    "app.runtime.card.health": {
+      "en": "Health check",
+      "es": "Chequeo de salud"
+    },
+    "app.runtime.card.unknown": {
+      "en": "unknown",
+      "es": "desconocido"
+    },
+    "app.runtime.card.lastChecked": {
+      "en": "Last checked",
+      "es": "Última verificación"
+    },
+    "app.runtime.card.never": {
+      "en": "never",
+      "es": "nunca"
+    },
+    "app.runtime.card.lastError": {
+      "en": "Last error",
+      "es": "Último error"
+    },
+    "app.runtime.card.none": {
+      "en": "none",
+      "es": "ninguno"
+    },
+    "app.runtime.card.capabilities": {
+      "en": "Capabilities",
+      "es": "Capacidades"
+    },
+    "app.runtime.card.requiresApproval": {
+      "en": "requires approval",
+      "es": "requiere aprobación"
+    },
+    "app.runtime.card.instructions": {
+      "en": "How to configure",
+      "es": "Cómo configurar"
+    },
+    "app.runtime.instructions.codex_cli": {
+      "en": "Install the Codex CLI and set AIDO_CODEX_COMMAND to its path (or put codex on PATH), enable AIDO_ENABLE_CLI_RUNTIMES, then refresh health.",
+      "es": "Instala la CLI de Codex y define AIDO_CODEX_COMMAND con su ruta (o agrega codex al PATH), habilita AIDO_ENABLE_CLI_RUNTIMES y re-verifica el estado."
+    },
+    "app.runtime.instructions.claude_code_cli": {
+      "en": "Install Claude Code and set AIDO_CLAUDE_COMMAND to its path (or put claude on PATH), enable AIDO_ENABLE_CLI_RUNTIMES, then refresh health.",
+      "es": "Instala Claude Code y define AIDO_CLAUDE_COMMAND con su ruta (o agrega claude al PATH), habilita AIDO_ENABLE_CLI_RUNTIMES y re-verifica el estado."
+    },
+    "app.runtime.instructions.ollama": {
+      "en": "Start the Ollama daemon and set AIDO_OLLAMA_BASE_URL (default http://127.0.0.1:11434), then refresh health to detect local models.",
+      "es": "Inicia el daemon de Ollama y define AIDO_OLLAMA_BASE_URL (por defecto http://127.0.0.1:11434), luego re-verifica para detectar modelos locales."
+    },
+    "app.runtime.instructions.openai_compatible": {
+      "en": "Set AIDO_OPENAI_COMPATIBLE_BASE_URL, AIDO_OPENAI_COMPATIBLE_API_KEY and AIDO_OPENAI_COMPATIBLE_MODEL, enable AIDO_ENABLE_REAL_PROVIDER_CALLS, then run a health check.",
+      "es": "Define AIDO_OPENAI_COMPATIBLE_BASE_URL, AIDO_OPENAI_COMPATIBLE_API_KEY y AIDO_OPENAI_COMPATIBLE_MODEL, habilita AIDO_ENABLE_REAL_PROVIDER_CALLS y ejecuta un chequeo de salud."
+    },
+    "app.runtime.instructions.openrouter": {
+      "en": "Set AIDO_OPENROUTER_API_KEY and AIDO_OPENROUTER_MODEL, enable AIDO_ENABLE_REAL_PROVIDER_CALLS, then run a health check.",
+      "es": "Define AIDO_OPENROUTER_API_KEY y AIDO_OPENROUTER_MODEL, habilita AIDO_ENABLE_REAL_PROVIDER_CALLS y ejecuta un chequeo de salud."
+    },
+    "app.runtime.instructions.nvidia_nim": {
+      "en": "Set AIDO_NVIDIA_API_KEY, AIDO_NVIDIA_BASE_URL and AIDO_NVIDIA_MODEL, enable AIDO_ENABLE_REAL_PROVIDER_CALLS, then run a health check.",
+      "es": "Define AIDO_NVIDIA_API_KEY, AIDO_NVIDIA_BASE_URL y AIDO_NVIDIA_MODEL, habilita AIDO_ENABLE_REAL_PROVIDER_CALLS y ejecuta un chequeo de salud."
+    },
+    "app.runtime.inspector.pending": {
+      "en": "Runtime discovery pending",
+      "es": "Descubrimiento de runtime pendiente"
+    },
+    "app.runtime.inspector.ready": {
+      "en": "Runtime ready",
+      "es": "Runtime listo"
+    },
+    "app.runtime.inspector.config": {
+      "en": "Configuration required",
+      "es": "Configuración requerida"
+    },
+    "app.runtime.inspector.list": {
+      "en": "Runtime providers",
+      "es": "Proveedores de runtime"
+    },
+    "app.runtime.inspector.open": {
+      "en": "Open runtime setup",
+      "es": "Abrir configuración de runtimes"
+    },
+    "app.workflows.noPolicyDecisions": {
+      "en": "No policy decisions",
+      "es": "Sin decisiones de política"
+    },
+    "app.review.securityFindingsInvalid": {
+      "en": "The security findings artifact must be valid JSON with no blocking policy decision.",
+      "es": "El artefacto de hallazgos de seguridad debe ser JSON válido sin una decisión de política bloqueante."
+    },
+    "app.workbench.timeline.state.created": {
+      "en": "Created",
+      "es": "Creado"
+    },
+    "app.workbench.timeline.state.workspace": {
+      "en": "Workspace",
+      "es": "Espacio de trabajo"
+    },
+    "app.workbench.timeline.state.runtime": {
+      "en": "Runtime",
+      "es": "Entorno de ejecución"
+    },
+    "app.workbench.timeline.state.editing": {
+      "en": "Editing",
+      "es": "Edición"
+    },
+    "app.workbench.timeline.state.qa": {
+      "en": "QA",
+      "es": "Calidad QA"
+    },
+    "app.workbench.timeline.state.evidence": {
+      "en": "Evidence",
+      "es": "Evidencia"
+    },
+    "app.workbench.timeline.state.review": {
+      "en": "Review",
+      "es": "Revisar"
+    },
+    "app.workbench.timeline.state.done": {
+      "en": "Done",
+      "es": "Completado"
+    },
+    "app.workbench.timeline.state.failed": {
+      "en": "Failed",
+      "es": "Fallido"
+    },
+    "app.workbench.timeline.state.terminal": {
+      "en": "Done / Failed",
+      "es": "Completado / Fallido"
+    },
+    "app.workbench.timeline.reason.created.done": {
+      "en": "Workflow run created",
+      "es": "Ejecución de workflow creada"
+    },
+    "app.workbench.timeline.reason.created.failed": {
+      "en": "Run could not be created",
+      "es": "No se pudo crear la ejecución"
+    },
+    "app.workbench.timeline.reason.created.pending": {
+      "en": "Not started yet",
+      "es": "Aún no ha comenzado"
+    },
+    "app.workbench.timeline.reason.workspace.done": {
+      "en": "Workspace allocated",
+      "es": "Workspace asignado"
+    },
+    "app.workbench.timeline.reason.workspace.failed": {
+      "en": "Workspace was not allocated",
+      "es": "No se asignó el workspace"
+    },
+    "app.workbench.timeline.reason.workspace.pending": {
+      "en": "Waiting for the workflow run",
+      "es": "Esperando la ejecución del workflow"
+    },
+    "app.workbench.timeline.reason.runtime.done": {
+      "en": "Executable runtime selected",
+      "es": "Runtime ejecutable seleccionado"
+    },
+    "app.workbench.timeline.reason.runtime.blocked": {
+      "en": "No executable runtime is configured",
+      "es": "No hay un runtime ejecutable configurado"
+    },
+    "app.workbench.timeline.reason.runtime.failed": {
+      "en": "Runtime is unavailable",
+      "es": "El runtime no está disponible"
+    },
+    "app.workbench.timeline.reason.runtime.pending": {
+      "en": "Waiting for the run",
+      "es": "Esperando la ejecución"
+    },
+    "app.workbench.timeline.reason.editing.active": {
+      "en": "Applying changes through the runtime",
+      "es": "Aplicando cambios mediante el runtime"
+    },
+    "app.workbench.timeline.reason.editing.done": {
+      "en": "Changes applied",
+      "es": "Cambios aplicados"
+    },
+    "app.workbench.timeline.reason.editing.failed": {
+      "en": "Run failed before editing finished",
+      "es": "La ejecución falló antes de terminar la edición"
+    },
+    "app.workbench.timeline.reason.editing.pending": {
+      "en": "Waiting for an executable runtime",
+      "es": "Esperando un runtime ejecutable"
+    },
+    "app.workbench.timeline.reason.qa.done": {
+      "en": "QA checks passed",
+      "es": "Verificaciones de QA aprobadas"
+    },
+    "app.workbench.timeline.reason.qa.failed": {
+      "en": "QA checks failed",
+      "es": "Verificaciones de QA fallidas"
+    },
+    "app.workbench.timeline.reason.qa.pending": {
+      "en": "QA has not run yet",
+      "es": "QA aún no se ha ejecutado"
+    },
+    "app.workbench.timeline.reason.evidence.done": {
+      "en": "Evidence package ready",
+      "es": "Paquete de evidencia listo"
+    },
+    "app.workbench.timeline.reason.evidence.failed": {
+      "en": "Evidence package is missing",
+      "es": "Falta el paquete de evidencia"
+    },
+    "app.workbench.timeline.reason.evidence.pending": {
+      "en": "Waiting for the artifact package",
+      "es": "Esperando el paquete de artefactos"
+    },
+    "app.workbench.timeline.reason.review.active": {
+      "en": "Awaiting human approval",
+      "es": "Esperando aprobación humana"
+    },
+    "app.workbench.timeline.reason.review.done": {
+      "en": "Approved for integration",
+      "es": "Aprobado para integración"
+    },
+    "app.workbench.timeline.reason.review.blocked": {
+      "en": "Review is blocked",
+      "es": "La revisión está bloqueada"
+    },
+    "app.workbench.timeline.reason.review.pending": {
+      "en": "Waiting for evidence",
+      "es": "Esperando evidencia"
+    },
+    "app.workbench.timeline.reason.terminal.done": {
+      "en": "Delivery completed",
+      "es": "Entrega completada"
+    },
+    "app.workbench.timeline.reason.terminal.failed": {
+      "en": "Delivery failed",
+      "es": "Entrega fallida"
+    },
+    "app.workbench.timeline.reason.terminal.blocked": {
+      "en": "Delivery blocked",
+      "es": "Entrega bloqueada"
+    },
+    "app.workbench.timeline.reason.terminal.pending": {
+      "en": "No terminal verdict yet",
+      "es": "Aún sin veredicto final"
     }
   }
 }

@@ -3,13 +3,15 @@
  * @copyright Copyright (c) AIDO.
  * @author Roddmason
  */
-import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import { useControlPlane } from '../hooks/useControlPlane';
 import { useMotionPreference, usePageMotion } from '../motion/useControlMotion';
-import { createWorkflowWithBody } from '../api/client';
 import type { Overview } from '../api/types';
 import { Badge, DataTable, Drawer, EmptyState } from '../components/primitives';
+import { CommandPalette } from './CommandPalette';
+import { matchesShortcut, useCommandActions } from './commandActions';
+import type { CommandAction } from './commandActions';
 import { ActiveProjectsPage } from '../features/active-projects/ActiveProjectsPage';
 import type { Language, ProjectStatusView } from '../features/active-projects/ActiveProjectsPage';
 import { WorkbenchPage } from '../features/workbench/WorkbenchPage';
@@ -23,7 +25,7 @@ import { WorkflowsPage } from '../features/workflows/WorkflowsPage';
 import { AgentsPage } from '../features/agents/AgentsPage';
 import { ModelGatewayPage } from '../features/model-gateway/ModelGatewayPage';
 import { SettingsPage } from '../features/settings/SettingsPage';
-import type { SettingsTab } from '../features/settings/SettingsPage';
+import type { SettingsGroupId } from '../features/settings/SettingsPage';
 import {
 	AuditPage,
 	EvidencePage,
@@ -52,15 +54,14 @@ const projectStatusByPage: Partial<Record<PageId, ProjectStatusView>> = {
 	'projects-cancelled': 'cancelled',
 };
 
-const settingsSectionByPage: Partial<Record<PageId, SettingsTab>> = {
-	'settings-projects': 'projects',
-	'settings-user': 'user',
-	'settings-cli': 'cli',
-	'settings-api': 'api',
-	'settings-parameters': 'parameters',
-	'settings-maintainers': 'maintainers',
+const settingsGroupByPage: Partial<Record<PageId, SettingsGroupId>> = {
+	'settings-project': 'project',
+	'settings-runtime': 'runtime',
+	'settings-agents': 'agents',
+	'settings-security': 'security',
 	'settings-workspaces': 'workspaces',
-	'settings-defaults': 'defaults',
+	'settings-integrations': 'integrations',
+	'settings-advanced': 'advanced',
 };
 
 const routeAliases: Record<string, PageId> = {
@@ -70,7 +71,15 @@ const routeAliases: Record<string, PageId> = {
 	command: 'workbench',
 	runs: 'workflows',
 	review: 'jobs',
-	settings: 'settings-projects',
+	settings: 'settings-project',
+	// Backward-compat: resolve the retired per-tab settings hashes to their owning group.
+	'settings-projects': 'settings-project',
+	'settings-user': 'settings-advanced',
+	'settings-cli': 'settings-runtime',
+	'settings-api': 'settings-runtime',
+	'settings-parameters': 'settings-advanced',
+	'settings-maintainers': 'settings-advanced',
+	'settings-defaults': 'settings-advanced',
 };
 
 function currentHash(): PageId {
@@ -109,10 +118,10 @@ export function App() {
 	const [approvalDrawerOpen, setApprovalDrawerOpen] = useState(false);
 	const [eventDrawerOpen, setEventDrawerOpen] = useState(false);
 	const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
-	const [commandFilter, setCommandFilter] = useState('');
 	const [eventFilter, setEventFilter] = useState('');
 	const state = useControlPlane();
 	const motionRef = usePageMotion(page);
+	const commandActionsRef = useRef<CommandAction[]>([]);
 
 	const navigateTo = useCallback((nextPage: PageId) => {
 		window.location.hash = nextPage;
@@ -123,6 +132,9 @@ export function App() {
 		setWorkspaceDialogMode(mode);
 		setWorkspaceDialogOpen(true);
 	}, []);
+
+	const closeCommandPalette = useCallback(() => setCommandPaletteOpen(false), []);
+	const openApprovals = useCallback(() => setApprovalDrawerOpen(true), []);
 
 	const changeLanguage = useCallback((nextLanguage: string) => {
 		setLanguage(nextLanguage);
@@ -154,14 +166,19 @@ export function App() {
 			if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
 				event.preventDefault();
 				setCommandPaletteOpen((open) => !open);
+				return;
 			}
-			if (!editableTarget && event.ctrlKey && event.altKey) {
+			if (editableTarget) return;
+			if (event.ctrlKey && event.altKey) {
+				for (const action of commandActionsRef.current) {
+					if (action.shortcut && !action.disabled && matchesShortcut(event, action.shortcut)) {
+						event.preventDefault();
+						action.run();
+						return;
+					}
+				}
 				const key = event.key.toLowerCase();
 				const code = event.code;
-				if (key === 'a' || code === 'KeyA') {
-					event.preventDefault();
-					setApprovalDrawerOpen(true);
-				}
 				if (key === 'e' || code === 'KeyE') {
 					event.preventDefault();
 					setEventDrawerOpen(true);
@@ -208,41 +225,23 @@ export function App() {
 			);
 		});
 	}, [eventFilter, overview?.events]);
-	const commandActions = useMemo(
-		() => [
-			{
-				id: 'create-workflow',
-				label: 'Create Workflow',
-				hint: 'Create an idea-to-PR workflow for the selected project',
-				run: async () => {
-					if (!selectedProject?.id) return;
-					const title = `Palette workflow ${new Date().toISOString()}`;
-					await state.mutate((token) =>
-						createWorkflowWithBody(token, {
-							projectId: selectedProject.id,
-							title,
-							kind: 'idea_to_pr',
-							metadata: { source: 'command_palette' },
-						}),
-					);
-					navigateTo('workflows');
-					setCommandPaletteOpen(false);
-				},
-			},
-			{ id: 'go-workflows', label: 'Go to Workflows', hint: 'Inspect workflow runs, steps, evidence and tool calls', run: () => { navigateTo('workflows'); setCommandPaletteOpen(false); } },
-			{ id: 'open-approvals', label: 'Open Pending Approvals', hint: 'Review pending granular action requests', run: () => { setApprovalDrawerOpen(true); setCommandPaletteOpen(false); } },
-			{ id: 'go-jobs', label: 'Go to Jobs & Approvals', hint: 'Open the queue and approval surface', run: () => { navigateTo('jobs'); setCommandPaletteOpen(false); } },
-			{ id: 'go-governance', label: 'Go to Governance', hint: 'Review risks, decisions and next steps', run: () => { navigateTo('governance'); setCommandPaletteOpen(false); } },
-			{ id: 'go-policy', label: 'Go to Policy & Security', hint: 'Inspect policy decisions and sandbox posture', run: () => { navigateTo('policy'); setCommandPaletteOpen(false); } },
-			{ id: 'open-events', label: 'Open Event Drawer', hint: 'Inspect recent operational events', run: () => { setEventDrawerOpen(true); setCommandPaletteOpen(false); } },
-			{ id: 'search-events', label: 'Search Events', hint: 'Search events by type, severity, id or payload', run: () => { setEventDrawerOpen(true); setCommandPaletteOpen(false); } },
-		],
-		[navigateTo, selectedProject?.id, state.mutate],
+	const pendingApprovalsCount = useMemo(
+		() => overview?.actionRequests.filter((item) => item.status === 'pending').length ?? 0,
+		[overview?.actionRequests],
 	);
-	const filteredCommands = commandActions.filter((action) => {
-		const query = commandFilter.trim().toLowerCase();
-		return !query || action.label.toLowerCase().includes(query) || action.hint.toLowerCase().includes(query);
+	const commandActions = useCommandActions({
+		navigateTo,
+		openWorkspaceDialog,
+		onOpenApprovals: openApprovals,
+		refresh: state.refresh,
+		selectedProject,
+		runtimeProviders: state.runtimeProviders,
+		pendingApprovalsCount,
+		evidenceCount: overview?.evidencePackages.length ?? 0,
+		connected: state.connected,
+		close: closeCommandPalette,
 	});
+	commandActionsRef.current = commandActions;
 
 	const pageContent = () => {
 		if (!overview) return null;
@@ -274,13 +273,16 @@ export function App() {
 					overview={overview}
 					selectedProject={selectedProject}
 					runtimeProviders={state.runtimeProviders}
+					runtimeProviderConfiguration={state.runtimeProviderConfiguration}
 					mutate={state.mutate}
 					token={state.token}
 					onSelectProject={setOperationalProject}
 					onCreateProject={() => openWorkspaceDialog('open_folder')}
 					onOpenJobs={() => navigateTo('jobs')}
 					onOpenEvidence={() => navigateTo('evidence')}
-					onOpenSettings={() => navigateTo('settings-projects')}
+					onOpenSettings={() => navigateTo('settings-project')}
+					onOpenRuntimeSetup={() => navigateTo('settings-runtime')}
+					onRefresh={() => state.refresh(true)}
 				/>
 			);
 		}
@@ -294,7 +296,7 @@ export function App() {
 					statusView={projectStatusView}
 					language={bilingualLanguage}
 					onSelectProject={setOperationalProject}
-					onOpenSettings={() => navigateTo('settings-projects')}
+					onOpenSettings={() => navigateTo('settings-project')}
 					onCreateProject={() => openWorkspaceDialog('open_folder')}
 				/>
 			);
@@ -324,14 +326,13 @@ export function App() {
 				return <AuditPage overview={overview} />;
 			case 'integrations':
 				return <IntegrationsPage overview={overview} mutate={state.mutate} />;
-			case 'settings-projects':
-			case 'settings-user':
-			case 'settings-cli':
-			case 'settings-api':
-			case 'settings-parameters':
-			case 'settings-maintainers':
+			case 'settings-project':
+			case 'settings-runtime':
+			case 'settings-agents':
+			case 'settings-security':
+			case 'settings-integrations':
+			case 'settings-advanced':
 			case 'settings-workspaces':
-			case 'settings-defaults':
 				return (
 					<SettingsPage
 						overview={overview}
@@ -339,12 +340,16 @@ export function App() {
 						onSelectProject={setOperationalProject}
 						onCreateProject={() => openWorkspaceDialog('open_folder')}
 						mutate={state.mutate}
-						section={settingsSectionByPage[page]}
+						section={settingsGroupByPage[page]}
+							runtimeProviders={state.runtimeProviders}
+							runtimeProviderConfiguration={state.runtimeProviderConfiguration}
+							token={state.token}
+							onRefresh={() => state.refresh(true)}
 						language={bilingualLanguage}
 					/>
 				);
 			default:
-				return <ActiveProjectsPage overview={overview} runtimeProviders={state.runtimeProviders} selectedProject={selectedProject} language={bilingualLanguage} onSelectProject={setOperationalProject} onOpenSettings={() => navigateTo('settings-projects')} onCreateProject={() => openWorkspaceDialog('open_folder')} />;
+				return <ActiveProjectsPage overview={overview} runtimeProviders={state.runtimeProviders} selectedProject={selectedProject} language={bilingualLanguage} onSelectProject={setOperationalProject} onOpenSettings={() => navigateTo('settings-project')} onCreateProject={() => openWorkspaceDialog('open_folder')} />;
 		}
 	};
 
@@ -440,30 +445,7 @@ export function App() {
 					]}
 				/>
 			</Drawer>
-			<Drawer label="Command palette" open={commandPaletteOpen} onClose={() => setCommandPaletteOpen(false)}>
-				<div className="drawer-body">
-					<div className="field">
-						<label htmlFor="command-palette-filter">Command palette filter</label>
-						<input
-							id="command-palette-filter"
-							className="input"
-							value={commandFilter}
-							onChange={(event) => setCommandFilter(event.target.value)}
-							placeholder="Filter actions"
-							autoFocus
-						/>
-					</div>
-					<div className="command-list" role="list">
-						{filteredCommands.map((action) => (
-							<button key={action.id} className="command-item" type="button" onClick={() => void action.run()}>
-								<span>{action.label}</span>
-								<small>{action.hint}</small>
-							</button>
-						))}
-						{filteredCommands.length === 0 ? <EmptyState title="No commands" body="Try workflows, approvals, governance, policy or events." /> : null}
-					</div>
-				</div>
-			</Drawer>
+			<CommandPalette open={commandPaletteOpen} onClose={closeCommandPalette} actions={commandActions} />
 		</>
 	);
 }

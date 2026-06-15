@@ -3,6 +3,8 @@
  * @copyright Copyright (c) AIDO.
  * @author Roddmason
  */
+import { maskSecrets } from './redaction';
+
 export function countByStatus(items: Array<{ status?: string }>, status: string) {
 	return items.filter((item) => item.status === status).length;
 }
@@ -16,14 +18,12 @@ export function shortId(id?: string | null) {
  * Render free-text provider fields (reason, lastError, detected command, …) with
  * secret-bearing substrings masked. The backend already redacts these, but UI code
  * applies the same masking defensively so a leaked token can never reach the DOM.
+ * Shares its pattern set with `redactVisibleText` via `maskSecrets`; only the
+ * marker differs (`[redacted_secret]`), which the Playwright contract pins.
  */
 export function redactVisibleSecret(value: unknown, fallback = 'n/a'): string {
 	const base = String(value ?? '').trim() || fallback;
-	return base
-		.replace(/\bBearer\s+[A-Za-z0-9._~+/=-]{8,}/gi, '[redacted_secret]')
-		.replace(/\bsk-[A-Za-z0-9_-]{8,}/gi, '[redacted_secret]')
-		.replace(/([?&](?:api[_-]?key|token|secret)=)[^&\s]+/gi, '$1[redacted_secret]')
-		.replace(/\b(?:api[_-]?key|token|secret)\s*[:=]\s*[^,\s;]+/gi, '[redacted_secret]');
+	return maskSecrets(base, '[redacted_secret]');
 }
 
 export function toneForStatus(status?: string): 'ok' | 'warn' | 'danger' | 'info' {

@@ -1,60 +1,207 @@
+/*
+ * AIDO Studio design tokens — single source of truth.
+ * Sober, IDE-first, card-first. Neutral slate surfaces + one calm blue accent.
+ * Dark is the default; light is an opt-in override via :root[data-theme="light"].
+ * Token NAMES are stable: components and the legacy-alias block depend on them.
+ */
 :root {
 	color-scheme: dark;
-	--font-display: "Bahnschrift", "Aptos Display", "Segoe UI", sans-serif;
+
+	/* ---- Typography ---- */
+	--font-display: "Bahnschrift", "Aptos Display", "Segoe UI", system-ui, sans-serif;
 	--font-ui: "Aptos", "Segoe UI", system-ui, sans-serif;
-	--font-data: "Cascadia Code", "Consolas", monospace;
+	--font-data: "Cascadia Code", "SFMono-Regular", "Consolas", monospace;
+	--font-size-2xs: 0.6875rem;
+	--font-size-xs: 0.75rem;
+	--font-size-sm: 0.875rem;
+	--font-size-md: 1rem;
+	--font-size-lg: 1.125rem;
+	--font-size-xl: 1.375rem;
+	--font-size-2xl: 1.75rem;
+	--font-size-3xl: 2.125rem;
+	--line-tight: 1.12;
+	--line-snug: 1.35;
+	--line-normal: 1.55;
+	--line-relaxed: 1.7;
+	--weight-regular: 400;
+	--weight-medium: 560;
+	--weight-semibold: 650;
+	--weight-bold: 750;
 
-	--surface-page: oklch(14% 0.026 264);
-	--surface-rail: oklch(12% 0.03 264);
-	--surface-main: oklch(17% 0.027 264);
-	--surface-panel: oklch(22% 0.032 262);
-	--surface-panel-strong: oklch(27% 0.038 258);
-	--ink: oklch(94% 0.014 104);
-	--ink-soft: oklch(78% 0.024 245);
-	--ink-muted: oklch(64% 0.034 248);
-	--rail-ink: oklch(95% 0.014 104);
-	--line: oklch(36% 0.05 258);
-	--line-strong: oklch(52% 0.052 254);
-	--moss: oklch(73% 0.17 154);
-	--amber: oklch(84% 0.18 98);
-	--oxblood: oklch(62% 0.2 24);
-	--blueprint: oklch(68% 0.16 255);
-	--violet: oklch(71% 0.18 320);
-	--electric: oklch(73% 0.15 194);
-	--steel: oklch(66% 0.034 248);
-	--focus: var(--amber);
-
-	--ok: var(--moss);
-	--warn: var(--amber);
-	--danger: var(--oxblood);
-	--info: var(--blueprint);
-
+	/* ---- Spacing (4pt rhythm) ---- */
+	--space-0: 0;
 	--space-1: 0.25rem;
 	--space-2: 0.5rem;
 	--space-3: 0.75rem;
 	--space-4: 1rem;
-	--space-5: 1.5rem;
-	--space-6: 2rem;
-	--space-7: 3rem;
+	--space-5: 1.25rem;
+	--space-6: 1.5rem;
+	--space-7: 2rem;
+	--space-8: 2.5rem;
+	--space-9: 3rem;
+	--space-10: 4rem;
 
+	/* ---- Radius ---- */
+	--radius-xs: 0.1875rem;
 	--radius-sm: 0.25rem;
 	--radius-md: 0.375rem;
 	--radius-lg: 0.5rem;
-	--shadow-panel: 0 1.15rem 3rem color-mix(in oklch, black 28%, transparent);
-	--shadow-drawer: -1rem 0 2.5rem color-mix(in oklch, black 34%, transparent);
+	--radius-xl: 0.5rem; /* alias of --radius-lg, kept for call-site stability */
+	--radius-pill: 999px;
+
+	/* ---- Shadow (soft, no glow) ---- */
+	--shadow-xs: 0 1px 0 color-mix(in oklch, white 5%, transparent);
+	--shadow-sm: 0 0.375rem 1rem color-mix(in oklch, black 18%, transparent);
+	--shadow-md: 0 0.875rem 2rem color-mix(in oklch, black 24%, transparent);
+	--shadow-lg: 0 1.25rem 3rem color-mix(in oklch, black 32%, transparent);
+	--shadow-focus: 0 0 0 3px color-mix(in oklch, var(--color-focus) 36%, transparent);
+
+	/* ---- Color · Surface (neutral slate elevation ramp) ---- */
+	--color-surface-canvas: oklch(15% 0.006 255);
+	--color-surface-shell: oklch(17% 0.007 255);
+	--color-surface-rail: oklch(19% 0.008 255);
+	--color-surface-workbench: oklch(20% 0.007 255);
+	--color-surface-panel: oklch(23% 0.008 255);
+	--color-surface-panel-raised: oklch(26.5% 0.009 255);
+	--color-surface-card: oklch(24.5% 0.008 255);
+	--color-surface-card-hover: oklch(29% 0.01 255);
+	--color-surface-inset: oklch(17.5% 0.007 255);
+	--color-surface-overlay: oklch(20.5% 0.008 255);
+	--color-surface-scrim: oklch(8% 0.008 260 / 0.62);
+
+	/* ---- Color · Text ---- */
+	--color-text-primary: oklch(94% 0.008 255);
+	--color-text-secondary: oklch(80% 0.012 255);
+	--color-text-muted: oklch(64% 0.014 255);
+	--color-text-disabled: oklch(51% 0.012 255);
+	--color-text-inverse: oklch(16% 0.01 255);
+
+	/* ---- Color · Border ---- */
+	--color-border-subtle: oklch(31% 0.01 255);
+	--color-border-default: oklch(38% 0.012 255);
+	--color-border-strong: oklch(49% 0.014 255);
+	--color-border-selected: oklch(64% 0.12 250);
+
+	/* ---- Color · Accent (one calm blue) ---- */
+	--color-accent: oklch(62% 0.12 250);
+	--color-accent-strong: oklch(68% 0.13 250);
+	--color-accent-muted: oklch(46% 0.07 250);
+	--color-accent-secondary: oklch(70% 0.08 235);
+
+	/* ---- Color · Status (semantic; success stays green) ---- */
+	--color-status-success: oklch(72% 0.13 152);
+	--color-status-warning: oklch(80% 0.14 82);
+	--color-status-danger: oklch(64% 0.18 28);
+	--color-status-info: oklch(68% 0.11 248);
+	--color-status-pending: oklch(70% 0.08 282);
+
+	/* ---- Color · Focus ---- */
+	--color-focus: oklch(64% 0.13 250);
+
+	/* ---- Layout sizes (IDE shell) ---- */
+	--size-activity-bar: 3.5rem;
+	--size-explorer: 19.5rem;
+	--size-inspector: 22rem;
+	--size-status-bar: 2rem;
+	--content-max: 92rem;
+
+	/* ---- Density (control sizing; default stays touch-safe) ---- */
+	--control-height: 2.75rem;
+	--control-height-sm: 2.25rem;
+	--control-height-xs: 1.9rem;
+
+	/* ---- Motion ---- */
+	--duration-fast: 120ms;
+	--duration-normal: 180ms;
+	--duration-slow: 260ms;
+	--ease-standard: cubic-bezier(0.2, 0, 0, 1);
+	--ease-emphasized: cubic-bezier(0.22, 1, 0.36, 1);
+
+	/* ---- Z-index scale ---- */
+	--z-base: 0;
+	--z-raised: 5;
+	--z-sticky: 20;
 	--z-drawer: 40;
 	--z-command: 50;
+	--z-toast: 60;
+
+	/* ---- Legacy aliases: kept so migrating components keep compiling.
+	   They resolve to canonical tokens above, so they inherit the new palette. ---- */
+	--surface-page: var(--color-surface-canvas);
+	--surface-rail: var(--color-surface-rail);
+	--surface-main: var(--color-surface-workbench);
+	--surface-panel: var(--color-surface-panel);
+	--surface-panel-strong: var(--color-surface-panel-raised);
+	--ink: var(--color-text-primary);
+	--ink-soft: var(--color-text-secondary);
+	--ink-muted: var(--color-text-muted);
+	--rail-ink: var(--color-text-primary);
+	--line: var(--color-border-default);
+	--line-strong: var(--color-border-strong);
+	--moss: var(--color-status-success);
+	--amber: var(--color-status-warning);
+	--oxblood: var(--color-status-danger);
+	--blueprint: var(--color-status-info);
+	--violet: var(--color-status-pending);
+	--electric: var(--color-accent-secondary);
+	--steel: var(--color-text-muted);
+	--focus: var(--color-focus);
+	--ok: var(--color-status-success);
+	--warn: var(--color-status-warning);
+	--danger: var(--color-status-danger);
+	--info: var(--color-status-info);
+	--shadow-panel: var(--shadow-md);
+	--shadow-drawer: var(--shadow-lg);
 }
 
 :root[data-theme="light"] {
 	color-scheme: light;
-	--surface-page: oklch(95% 0.014 106);
-	--surface-main: oklch(97% 0.01 106);
-	--surface-panel: oklch(99% 0.007 104);
-	--surface-panel-strong: oklch(92% 0.018 104);
-	--ink: oklch(18% 0.022 266);
-	--ink-soft: oklch(32% 0.024 266);
-	--ink-muted: oklch(48% 0.022 256);
-	--line: oklch(82% 0.021 104);
-	--line-strong: oklch(56% 0.032 258);
+
+	/* Surface */
+	--color-surface-canvas: oklch(96.5% 0.006 255);
+	--color-surface-shell: oklch(98.5% 0.004 255);
+	--color-surface-rail: oklch(94% 0.007 255);
+	--color-surface-workbench: oklch(98% 0.004 255);
+	--color-surface-panel: oklch(99% 0.003 255);
+	--color-surface-panel-raised: oklch(95% 0.006 255);
+	--color-surface-card: oklch(99.5% 0.003 255);
+	--color-surface-card-hover: oklch(94.5% 0.007 255);
+	--color-surface-inset: oklch(93% 0.007 255);
+	--color-surface-overlay: oklch(99.5% 0.003 255);
+	--color-surface-scrim: oklch(20% 0.01 260 / 0.42);
+
+	/* Text */
+	--color-text-primary: oklch(22% 0.012 255);
+	--color-text-secondary: oklch(38% 0.014 255);
+	--color-text-muted: oklch(50% 0.014 255);
+	--color-text-disabled: oklch(64% 0.012 255);
+	--color-text-inverse: oklch(98% 0.004 255);
+
+	/* Border */
+	--color-border-subtle: oklch(89% 0.008 255);
+	--color-border-default: oklch(82% 0.01 255);
+	--color-border-strong: oklch(68% 0.012 255);
+	--color-border-selected: oklch(52% 0.12 250);
+
+	/* Accent */
+	--color-accent: oklch(50% 0.13 250);
+	--color-accent-strong: oklch(44% 0.13 250);
+	--color-accent-muted: oklch(82% 0.06 250);
+	--color-accent-secondary: oklch(52% 0.09 235);
+
+	/* Status */
+	--color-status-success: oklch(46% 0.12 150);
+	--color-status-warning: oklch(56% 0.12 78);
+	--color-status-danger: oklch(52% 0.18 28);
+	--color-status-info: oklch(48% 0.12 248);
+	--color-status-pending: oklch(50% 0.09 282);
+
+	/* Focus */
+	--color-focus: oklch(48% 0.14 250);
+
+	/* Shadow (lighter on light surfaces) */
+	--shadow-xs: 0 1px 0 color-mix(in oklch, white 90%, transparent);
+	--shadow-sm: 0 0.375rem 1rem color-mix(in oklch, black 8%, transparent);
+	--shadow-md: 0 0.875rem 2rem color-mix(in oklch, black 12%, transparent);
+	--shadow-lg: 0 1.25rem 3rem color-mix(in oklch, black 16%, transparent);
 }

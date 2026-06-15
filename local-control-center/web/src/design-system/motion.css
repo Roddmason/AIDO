@@ -1,3 +1,38 @@
+.motion-scope [data-motion-item] {
+	will-change: transform, opacity;
+}
+
+.card,
+.workspace-card,
+.task-card,
+.run-card,
+.setting-card,
+.session-item,
+.command-item,
+.button,
+.icon-button,
+.nav-item,
+.activity-bar-item,
+.panel-tab {
+	transition-duration: var(--duration-normal);
+	transition-timing-function: var(--ease-standard);
+}
+
+@keyframes panel-enter {
+	from {
+		opacity: 0;
+		transform: translateY(0.35rem);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
+.panel-enter {
+	animation: panel-enter var(--duration-slow) var(--ease-emphasized);
+}
+
 @media (prefers-reduced-motion: reduce) {
 	*,
 	*::before,
@@ -7,8 +42,12 @@
 		scroll-behavior: auto !important;
 		transition-duration: 0.01ms !important;
 	}
-}
 
-.motion-scope [data-motion-item] {
-	will-change: transform, opacity;
+	.card:hover,
+	.workspace-card:hover,
+	.task-card:hover,
+	.run-card:hover,
+	.setting-card:hover {
+		transform: none;
+	}
 }

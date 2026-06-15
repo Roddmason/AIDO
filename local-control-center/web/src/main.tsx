@@ -1,3 +1,8 @@
+/**
+ * @file AIDO frontend source module.
+ * @copyright Copyright (c) AIDO.
+ * @author Roddmason
+ */
 import '@xyflow/react/dist/style.css';
 import './design-system/tokens.css';
 import './design-system/base.css';

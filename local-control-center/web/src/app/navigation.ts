@@ -1,0 +1,235 @@
+/**
+ * @file AIDO frontend source module.
+ * @copyright Copyright (c) AIDO.
+ * @author Roddmason
+ */
+import type { ComponentType } from 'react';
+import type { LucideProps } from 'lucide-react';
+import {
+	Archive,
+	Ban,
+	Bot,
+	Brain,
+	CheckCircle2,
+	ClipboardCheck,
+	Code2,
+	FileCheck2,
+	FolderKanban,
+	GitBranch,
+	History,
+	Home,
+	KeyRound,
+	LayoutGrid,
+	ListChecks,
+	Network,
+	PlugZap,
+	Settings as SettingsIcon,
+	ShieldCheck,
+	SlidersHorizontal,
+	UserRound,
+	Workflow,
+	XCircle,
+} from 'lucide-react';
+
+type IconComponent = ComponentType<LucideProps>;
+
+export const pageIds = [
+	'home',
+	'workbench',
+	'projects-active',
+	'projects-finished',
+	'projects-error',
+	'projects-cancelled',
+	'workflows',
+	'review-board',
+	'jobs',
+	'agents',
+	'workspaces',
+	'policy',
+	'memory',
+	'evidence',
+	'models',
+	'governance',
+	'audit',
+	'integrations',
+	'settings-projects',
+	'settings-user',
+	'settings-cli',
+	'settings-api',
+	'settings-parameters',
+	'settings-maintainers',
+	'settings-workspaces',
+	'settings-defaults',
+] as const;
+
+export type PageId = (typeof pageIds)[number];
+
+export type AreaId = 'home' | 'workbench' | 'runs' | 'review' | 'settings';
+
+export type BilingualLabel = { en: string; es: string };
+
+export type AreaDef = {
+	id: AreaId;
+	leadPage: PageId;
+	icon: IconComponent;
+	label: BilingualLabel;
+	pages: PageId[];
+};
+
+export type ExplorerLink = {
+	page: PageId;
+	icon: IconComponent;
+	label: BilingualLabel;
+};
+
+/** A labelled set of ExplorerLinks, used to group dense areas (Settings)
+ *  into a progressive, scannable order instead of one flat list. */
+export type ExplorerGroup = {
+	label: BilingualLabel;
+	links: ExplorerLink[];
+};
+
+/** Settings grouped progressively: project first, then runtime, then the
+ *  data/rules layer, then personal preferences. The flat EXPLORER_LINKS entry
+ *  below is derived from this so there is a single source of truth. */
+const SETTINGS_GROUPS: ExplorerGroup[] = [
+	{
+		label: { en: 'Project', es: 'Proyecto' },
+		links: [
+			{ page: 'settings-projects', icon: FolderKanban, label: { en: 'Project selection', es: 'Selección de proyecto' } },
+			{ page: 'settings-workspaces', icon: GitBranch, label: { en: 'Workspace settings', es: 'Configuración de workspaces' } },
+		],
+	},
+	{
+		label: { en: 'Runtime & models', es: 'Runtime y modelos' },
+		links: [
+			{ page: 'models', icon: Network, label: { en: 'Model Gateway', es: 'Gateway de modelos' } },
+			{ page: 'settings-cli', icon: Code2, label: { en: 'CLI settings', es: 'Configuración de cli' } },
+			{ page: 'settings-api', icon: PlugZap, label: { en: 'API settings', es: "Configuración de api's" } },
+			{ page: 'integrations', icon: Archive, label: { en: 'Integrations', es: 'Integraciones' } },
+		],
+	},
+	{
+		label: { en: 'Memory & rules', es: 'Memoria y reglas' },
+		links: [
+			{ page: 'memory', icon: Brain, label: { en: 'Memory & Retrieval', es: 'Memoria y búsqueda' } },
+			{ page: 'settings-parameters', icon: ListChecks, label: { en: 'Parameters', es: 'Configuraciones de parametros' } },
+			{ page: 'settings-maintainers', icon: SlidersHorizontal, label: { en: 'Maintainers', es: 'Mantenedores' } },
+		],
+	},
+	{
+		label: { en: 'Preferences', es: 'Preferencias' },
+		links: [
+			{ page: 'settings-user', icon: UserRound, label: { en: 'User settings', es: 'Configuraciones de usuario' } },
+			{ page: 'settings-defaults', icon: SettingsIcon, label: { en: 'Defaults', es: 'Defaults' } },
+		],
+	},
+];
+
+/** Primary destinations shown as icons in the narrow ActivityBar (in order). */
+export const AREAS: AreaDef[] = [
+	{
+		id: 'home',
+		leadPage: 'home',
+		icon: Home,
+		label: { en: 'Home', es: 'Inicio' },
+		pages: ['home', 'projects-active', 'projects-finished', 'projects-error', 'projects-cancelled'],
+	},
+	{
+		id: 'workbench',
+		leadPage: 'workbench',
+		icon: Code2,
+		label: { en: 'Workbench', es: 'Workbench' },
+		pages: ['workbench', 'workspaces'],
+	},
+	{
+		id: 'runs',
+		leadPage: 'workflows',
+		icon: Workflow,
+		label: { en: 'Runs', es: 'Ejecuciones' },
+		pages: ['workflows', 'agents'],
+	},
+	{
+		id: 'review',
+		leadPage: 'jobs',
+		icon: ClipboardCheck,
+		label: { en: 'Review', es: 'Revisión' },
+		pages: ['review-board', 'jobs', 'evidence', 'governance', 'policy', 'audit'],
+	},
+	{
+		id: 'settings',
+		leadPage: 'settings-projects',
+		icon: SettingsIcon,
+		label: { en: 'Settings', es: 'Configuración' },
+		pages: [
+			'settings-projects',
+			'settings-user',
+			'settings-cli',
+			'settings-api',
+			'settings-parameters',
+			'settings-maintainers',
+			'settings-workspaces',
+			'settings-defaults',
+			'models',
+			'integrations',
+			'memory',
+		],
+	},
+];
+
+const AREA_BY_PAGE: Record<PageId, AreaId> = pageIds.reduce((map, page) => {
+	const owner = AREAS.find((area) => area.pages.includes(page)) ?? AREAS[1];
+	map[page] = owner.id;
+	return map;
+}, {} as Record<PageId, AreaId>);
+
+export function areaForPage(page: PageId): AreaId {
+	return AREA_BY_PAGE[page] ?? 'workbench';
+}
+
+/** Static, contextual ExplorerPanel links per area (dynamic lists are added in the component). */
+export const EXPLORER_LINKS: Record<AreaId, ExplorerLink[]> = {
+	home: [
+		{ page: 'home', icon: LayoutGrid, label: { en: 'Home', es: 'Inicio' } },
+		{ page: 'projects-active', icon: CheckCircle2, label: { en: 'Active', es: 'Activos' } },
+		{ page: 'projects-finished', icon: FolderKanban, label: { en: 'Finished', es: 'Finalizados' } },
+		{ page: 'projects-error', icon: XCircle, label: { en: 'With error', es: 'Con error' } },
+		{ page: 'projects-cancelled', icon: Ban, label: { en: 'Cancelled', es: 'Cancelados' } },
+	],
+	workbench: [
+		{ page: 'workbench', icon: Code2, label: { en: 'Workbench', es: 'Workbench' } },
+		{ page: 'workspaces', icon: GitBranch, label: { en: 'Workspaces', es: 'Workspaces' } },
+	],
+	runs: [
+		{ page: 'workflows', icon: Workflow, label: { en: 'Workflows', es: 'Flujos de trabajo' } },
+		{ page: 'agents', icon: Bot, label: { en: 'Agents', es: 'Agentes' } },
+	],
+	review: [
+		{ page: 'review-board', icon: LayoutGrid, label: { en: 'Review board', es: 'Tablero de revisión' } },
+		{ page: 'jobs', icon: ClipboardCheck, label: { en: 'Jobs & Approvals', es: 'Trabajos y aprobaciones' } },
+		{ page: 'evidence', icon: FileCheck2, label: { en: 'Evidence & QA', es: 'Evidencia y QA' } },
+		{ page: 'governance', icon: KeyRound, label: { en: 'Governance', es: 'Gobierno' } },
+		{ page: 'policy', icon: ShieldCheck, label: { en: 'Policy & Security', es: 'Política y seguridad' } },
+		{ page: 'audit', icon: History, label: { en: 'Audit Log', es: 'Auditoría' } },
+	],
+	settings: SETTINGS_GROUPS.flatMap((group) => group.links),
+};
+
+/** Areas whose ExplorerPanel renders grouped, progressive sections instead of
+ *  a single flat list. Areas absent here fall back to the flat EXPLORER_LINKS. */
+export const EXPLORER_GROUPS: Partial<Record<AreaId, ExplorerGroup[]>> = {
+	settings: SETTINGS_GROUPS,
+};
+
+/** Short bilingual title for the ExplorerPanel header per area. */
+export const EXPLORER_TITLE: Record<AreaId, BilingualLabel> = {
+	home: { en: 'Projects', es: 'Proyectos' },
+	workbench: { en: 'Workspace', es: 'Workspace' },
+	runs: { en: 'Runs', es: 'Ejecuciones' },
+	review: { en: 'Review', es: 'Revisión' },
+	settings: { en: 'Settings', es: 'Configuración' },
+};
+
+export function pickLabel(label: BilingualLabel, language: string): string {
+	return language === 'es' ? label.es : label.en;
+}

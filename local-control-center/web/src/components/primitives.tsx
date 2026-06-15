@@ -3,8 +3,8 @@
  * @copyright Copyright (c) AIDO.
  * @author Roddmason
  */
-import { useEffect } from 'react';
-import type { ReactNode } from 'react';
+import { useEffect, useRef } from 'react';
+import type { ReactNode, RefObject } from 'react';
 
 export function Badge({ children, tone }: { children: ReactNode; tone?: 'ok' | 'warn' | 'danger' | 'info' }) {
 	return (
@@ -85,6 +85,49 @@ export function DataTable<T>({
 	);
 }
 
+const DIALOG_FOCUSABLE =
+	'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+/**
+ * Modal dialog focus management for Drawer/Modal (WAI-ARIA dialog pattern):
+ * move focus into the panel on open, keep Tab cycling inside it, and restore
+ * focus to the previously focused element on close. Escape handling stays in the
+ * caller's own effect so closing behaviour is unchanged.
+ */
+function useDialogFocus(open: boolean, panelRef: RefObject<HTMLElement | null>) {
+	useEffect(() => {
+		if (!open) return undefined;
+		const panel = panelRef.current;
+		const previouslyFocused = document.activeElement as HTMLElement | null;
+		const focusable = () => Array.from(panel?.querySelectorAll<HTMLElement>(DIALOG_FOCUSABLE) ?? []);
+		(focusable()[0] ?? panel)?.focus();
+		const onKeyDown = (event: KeyboardEvent) => {
+			if (event.key !== 'Tab') return;
+			const items = focusable();
+			if (!items.length) {
+				event.preventDefault();
+				panel?.focus();
+				return;
+			}
+			const first = items[0];
+			const last = items[items.length - 1];
+			const active = document.activeElement;
+			if (event.shiftKey && (active === first || active === panel)) {
+				event.preventDefault();
+				last.focus();
+			} else if (!event.shiftKey && active === last) {
+				event.preventDefault();
+				first.focus();
+			}
+		};
+		document.addEventListener('keydown', onKeyDown, true);
+		return () => {
+			document.removeEventListener('keydown', onKeyDown, true);
+			previouslyFocused?.focus?.();
+		};
+	}, [open, panelRef]);
+}
+
 export function Drawer({
 	children,
 	label,
@@ -96,6 +139,8 @@ export function Drawer({
 	open: boolean;
 	onClose: () => void;
 }) {
+	const panelRef = useRef<HTMLDivElement>(null);
+	useDialogFocus(open, panelRef);
 	useEffect(() => {
 		if (!open) return undefined;
 		const closeOnEscape = (event: KeyboardEvent) => {
@@ -108,7 +153,7 @@ export function Drawer({
 	return (
 		<div className="drawer-layer" role="presentation">
 			<button className="drawer-scrim" type="button" aria-label={`Close ${label}`} onClick={onClose} />
-			<aside className="drawer-panel" role="dialog" aria-modal="true" aria-label={label}>
+			<div ref={panelRef} tabIndex={-1} className="drawer-panel" role="dialog" aria-modal="true" aria-label={label}>
 				<div className="drawer-header">
 					<h2>{label}</h2>
 					<button className="icon-button" type="button" aria-label={`Close ${label}`} onClick={onClose}>
@@ -116,7 +161,7 @@ export function Drawer({
 					</button>
 				</div>
 				{children}
-			</aside>
+			</div>
 		</div>
 	);
 }
@@ -132,6 +177,8 @@ export function Modal({
 	open: boolean;
 	onClose: () => void;
 }) {
+	const panelRef = useRef<HTMLDivElement>(null);
+	useDialogFocus(open, panelRef);
 	useEffect(() => {
 		if (!open) return undefined;
 		const closeOnEscape = (event: KeyboardEvent) => {
@@ -144,7 +191,7 @@ export function Modal({
 	return (
 		<div className="modal-layer" role="presentation">
 			<button className="drawer-scrim" type="button" aria-label={`Close ${label}`} onClick={onClose} />
-			<section className="modal-panel" role="dialog" aria-modal="true" aria-label={label}>
+			<div ref={panelRef} tabIndex={-1} className="modal-panel" role="dialog" aria-modal="true" aria-label={label}>
 				<div className="drawer-header">
 					<h2>{label}</h2>
 					<button className="icon-button" type="button" aria-label={`Close ${label}`} onClick={onClose}>
@@ -152,7 +199,7 @@ export function Modal({
 					</button>
 				</div>
 				{children}
-			</section>
+			</div>
 		</div>
 	);
 }

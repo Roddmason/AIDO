@@ -170,7 +170,8 @@ def _parse_go_mod(root: Path) -> tuple[str | None, list[dict[str, Any]], list[di
 
 
 def _detect_git(root: Path) -> list[dict[str, Any]]:
-    if (root / ".git").is_dir():
+    # `.git` is a directory in normal clones but a file in linked worktrees and submodules.
+    if (root / ".git").exists():
         return [_source(".git", kind="vcs")]
     return []
 

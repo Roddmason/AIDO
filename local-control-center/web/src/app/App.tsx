@@ -291,7 +291,6 @@ export function App() {
 			return (
 				<ActiveProjectsPage
 					overview={overview}
-					runtimeProviders={state.runtimeProviders}
 					selectedProject={selectedProject}
 					statusView={projectStatusView}
 					language={bilingualLanguage}
@@ -349,7 +348,7 @@ export function App() {
 					/>
 				);
 			default:
-				return <ActiveProjectsPage overview={overview} runtimeProviders={state.runtimeProviders} selectedProject={selectedProject} language={bilingualLanguage} onSelectProject={setOperationalProject} onOpenSettings={() => navigateTo('settings-project')} onCreateProject={() => openWorkspaceDialog('open_folder')} />;
+				return <ActiveProjectsPage overview={overview} selectedProject={selectedProject} language={bilingualLanguage} onSelectProject={setOperationalProject} onOpenSettings={() => navigateTo('settings-project')} onCreateProject={() => openWorkspaceDialog('open_folder')} />;
 		}
 	};
 

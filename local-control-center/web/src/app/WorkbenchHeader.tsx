@@ -65,6 +65,7 @@ export function WorkbenchHeader({
 					</div>
 					<button className="button" type="button" onClick={onOpenCommandPalette}>
 						{t('app.global.openCommandPalette', 'Open command palette')}
+						<kbd className="command-kbd">{'Ctrl K'}</kbd>
 					</button>
 					<button className="button" type="button" onClick={onOpenApprovals}>
 						{t('app.global.openApprovalsDrawer', 'Open approvals drawer')}

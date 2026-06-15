@@ -52,7 +52,7 @@ import type {
 	RuntimeProviders,
 } from '../../api/types';
 import { Badge, DataTable, EmptyState, PageHeader, Surface } from '../../components/primitives';
-import { toneForStatus } from '../../lib/format';
+import { redactVisibleSecret, toneForStatus } from '../../lib/format';
 import { BenchmarksPanel } from './BenchmarksPanel';
 import { BudgetsPanel } from './BudgetsPanel';
 import { CliSessionsPanel } from './CliSessionsPanel';
@@ -162,14 +162,6 @@ function benchmarkFromOutcome(outcome: ModelGatewayBenchmarkOutcome): ModelGatew
 		createdAt,
 		updatedAt: createdAt,
 	};
-}
-
-function redactVisibleSecret(value: unknown, fallback = 'n/a') {
-	return text(value, fallback)
-		.replace(/\bBearer\s+[A-Za-z0-9._~+/=-]{8,}/gi, '[redacted_secret]')
-		.replace(/\bsk-[A-Za-z0-9_-]{8,}/gi, '[redacted_secret]')
-		.replace(/([?&](?:api[_-]?key|token|secret)=)[^&\s]+/gi, '$1[redacted_secret]')
-		.replace(/\b(?:api[_-]?key|token|secret)\s*[:=]\s*[^,\s;]+/gi, '[redacted_secret]');
 }
 
 function money(value: unknown) {
@@ -593,7 +585,7 @@ export function ModelGatewayPage({
 				summary="Control API model providers, CLI coding runtimes, routing policies, token usage, cost, quota and audit decisions from one local-first console."
 			/>
 			{error ? <div className="form-error" role="alert">{error}</div> : null}
-			{loading ? <EmptyState title="Loading Model Gateway" body="Reading provider accounts, routing policies and usage ledger." /> : null}
+			{loading ? <EmptyState title="Loading Model Gateway" body="Reading provider accounts, routing policies and usage history." /> : null}
 
 			<Surface title="Overview">
 				<div className="grid metrics">
@@ -886,7 +878,7 @@ export function ModelGatewayPage({
 					{ key: 'cost', label: 'Cost', render: (row) => money(row.costUsd) },
 				]} />
 			</Surface>
-			<Surface title="Cost ledger">
+			<Surface title="Cost history">
 				<div className="metric-value">{money(totalCost)}</div>
 				<div className="metric-label">recorded legacy model usage</div>
 			</Surface>

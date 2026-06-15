@@ -122,7 +122,10 @@ export function getEvidenceDetail(evidenceId: string, signal?: AbortSignal) {
 }
 
 export function getRuntimeProviderConfiguration(signal?: AbortSignal) {
-	return requestGeneratedOperation('list_runtime_provider_configuration_api_v1_runtime_provider_configuration_get', { signal });
+	return requestGeneratedOperation<
+		'list_runtime_provider_configuration_api_v1_runtime_provider_configuration_get',
+		OperationResponse<'list_runtime_provider_configuration_api_v1_runtime_provider_configuration_get'>
+	>('list_runtime_provider_configuration_api_v1_runtime_provider_configuration_get', { signal });
 }
 
 export function getDeveloperAgentStatus(signal?: AbortSignal) {
@@ -170,6 +173,34 @@ export function updateI18nCatalog(token: string, body: I18nCatalogResponse) {
 		token,
 		body,
 	});
+}
+
+/**
+ * Project file index — prepared contract for a future backend endpoint.
+ *
+ * CONTRACT: the control plane does not yet expose a project file tree. These
+ * types plus `getProjectFiles` define the seam so the ExplorerPanel can render a
+ * real tree the moment the route ships. Until then the panel gates consumption
+ * behind a capability flag and never calls this; flipping the flag is the only
+ * change needed once `/api/v1/projects/{id}/files` exists server-side.
+ */
+export interface ProjectFileNode {
+	path: string;
+	name: string;
+	kind: 'file' | 'directory';
+	size?: number | null;
+	children?: ProjectFileNode[];
+}
+
+export interface ProjectFilesResponse {
+	projectId: string;
+	root: string;
+	truncated: boolean;
+	nodes: ProjectFileNode[];
+}
+
+export function getProjectFiles(projectId: string, signal?: AbortSignal): Promise<ProjectFilesResponse> {
+	return apiRequest<ProjectFilesResponse>(`/api/v1/projects/${encodeURIComponent(projectId)}/files`, { signal });
 }
 
 export function listProjects(signal?: AbortSignal) {

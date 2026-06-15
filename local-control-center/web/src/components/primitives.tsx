@@ -50,15 +50,18 @@ export function DataTable<T>({
 	columns,
 	rows,
 	empty,
+	caption,
 }: {
 	columns: Array<{ key: string; label: string; render: (row: T) => ReactNode }>;
 	rows: T[];
 	empty: ReactNode;
+	caption?: string;
 }) {
 	if (!rows.length) return <>{empty}</>;
 	return (
 		<div className="table-wrap">
 			<table className="data-table">
+				{caption ? <caption className="sr-only">{caption}</caption> : null}
 				<thead>
 					<tr>
 						{columns.map((column) => (

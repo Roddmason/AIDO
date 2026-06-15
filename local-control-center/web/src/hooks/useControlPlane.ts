@@ -5,14 +5,15 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { getHandshake, getOverview, getRetrievalStatus, getRuntimeProviders } from '../api/client';
-import type { Overview, RetrievalStatus, RuntimeProviders } from '../api/types';
+import { getHandshake, getOverview, getRetrievalStatus, getRuntimeProviderConfiguration, getRuntimeProviders } from '../api/client';
+import type { Overview, RetrievalStatus, RuntimeProviderConfiguration, RuntimeProviders } from '../api/types';
 
 type ControlPlaneState = {
 	token: string;
 	overview: Overview | null;
 	retrievalStatus: RetrievalStatus | null;
 	runtimeProviders: RuntimeProviders | null;
+	runtimeProviderConfiguration: RuntimeProviderConfiguration[] | null;
 	loading: boolean;
 	error: string;
 	connected: boolean;
@@ -25,6 +26,7 @@ const initialState: ControlPlaneState = {
 	overview: null,
 	retrievalStatus: null,
 	runtimeProviders: null,
+	runtimeProviderConfiguration: null,
 	loading: true,
 	error: '',
 	connected: false,
@@ -61,9 +63,10 @@ export function useControlPlane() {
 				getHandshake(controller.signal),
 				getOverview(controller.signal),
 			]);
-			const [retrievalStatus, runtimeProviders] = await Promise.all([
+			const [retrievalStatus, runtimeProviders, runtimeProviderConfigurationResponse] = await Promise.all([
 				optionalWithTimeout(getRetrievalStatus(controller.signal)),
 				optionalWithTimeout(getRuntimeProviders(controller.signal)),
+				optionalWithTimeout(getRuntimeProviderConfiguration(controller.signal)),
 			]);
 			if (!mountedRef.current) return;
 			setState((current) => ({
@@ -72,6 +75,7 @@ export function useControlPlane() {
 				overview,
 				retrievalStatus,
 				runtimeProviders,
+				runtimeProviderConfiguration: runtimeProviderConfigurationResponse?.providers ?? null,
 				loading: false,
 				error: '',
 				lastUpdatedAt: new Date().toISOString(),

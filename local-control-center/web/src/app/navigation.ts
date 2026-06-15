@@ -6,10 +6,8 @@
 import type { ComponentType } from 'react';
 import type { LucideProps } from 'lucide-react';
 import {
-	Archive,
 	Ban,
 	Bot,
-	Brain,
 	CheckCircle2,
 	ClipboardCheck,
 	Code2,
@@ -20,13 +18,11 @@ import {
 	Home,
 	KeyRound,
 	LayoutGrid,
-	ListChecks,
 	Network,
 	PlugZap,
 	Settings as SettingsIcon,
 	ShieldCheck,
 	SlidersHorizontal,
-	UserRound,
 	Workflow,
 	XCircle,
 } from 'lucide-react';
@@ -52,14 +48,13 @@ export const pageIds = [
 	'governance',
 	'audit',
 	'integrations',
-	'settings-projects',
-	'settings-user',
-	'settings-cli',
-	'settings-api',
-	'settings-parameters',
-	'settings-maintainers',
+	'settings-project',
+	'settings-runtime',
+	'settings-agents',
+	'settings-security',
 	'settings-workspaces',
-	'settings-defaults',
+	'settings-integrations',
+	'settings-advanced',
 ] as const;
 
 export type PageId = (typeof pageIds)[number];
@@ -89,39 +84,26 @@ export type ExplorerGroup = {
 	links: ExplorerLink[];
 };
 
-/** Settings grouped progressively: project first, then runtime, then the
- *  data/rules layer, then personal preferences. The flat EXPLORER_LINKS entry
- *  below is derived from this so there is a single source of truth. */
+/** Settings is a grouped configuration hub: a "Setup" section with the six
+ *  run-readiness groups, then an "Advanced" section for defaults, maintainers and
+ *  preferences. Each link targets one group card in the hub. The flat
+ *  EXPLORER_LINKS entry below derives from this so there is a single source of truth. */
 const SETTINGS_GROUPS: ExplorerGroup[] = [
 	{
-		label: { en: 'Project', es: 'Proyecto' },
+		label: { en: 'Setup', es: 'Configuración' },
 		links: [
-			{ page: 'settings-projects', icon: FolderKanban, label: { en: 'Project selection', es: 'Selección de proyecto' } },
-			{ page: 'settings-workspaces', icon: GitBranch, label: { en: 'Workspace settings', es: 'Configuración de workspaces' } },
+			{ page: 'settings-project', icon: FolderKanban, label: { en: 'Project', es: 'Proyecto' } },
+			{ page: 'settings-runtime', icon: Network, label: { en: 'Runtime & Models', es: 'Runtime y modelos' } },
+			{ page: 'settings-agents', icon: Bot, label: { en: 'Agents', es: 'Agentes' } },
+			{ page: 'settings-security', icon: ShieldCheck, label: { en: 'Security', es: 'Seguridad' } },
+			{ page: 'settings-workspaces', icon: GitBranch, label: { en: 'Workspaces', es: 'Workspaces' } },
+			{ page: 'settings-integrations', icon: PlugZap, label: { en: 'Integrations', es: 'Integraciones' } },
 		],
 	},
 	{
-		label: { en: 'Runtime & models', es: 'Runtime y modelos' },
+		label: { en: 'Advanced', es: 'Avanzado' },
 		links: [
-			{ page: 'models', icon: Network, label: { en: 'Model Gateway', es: 'Gateway de modelos' } },
-			{ page: 'settings-cli', icon: Code2, label: { en: 'CLI settings', es: 'Configuración de cli' } },
-			{ page: 'settings-api', icon: PlugZap, label: { en: 'API settings', es: "Configuración de api's" } },
-			{ page: 'integrations', icon: Archive, label: { en: 'Integrations', es: 'Integraciones' } },
-		],
-	},
-	{
-		label: { en: 'Memory & rules', es: 'Memoria y reglas' },
-		links: [
-			{ page: 'memory', icon: Brain, label: { en: 'Memory & Retrieval', es: 'Memoria y búsqueda' } },
-			{ page: 'settings-parameters', icon: ListChecks, label: { en: 'Parameters', es: 'Configuraciones de parametros' } },
-			{ page: 'settings-maintainers', icon: SlidersHorizontal, label: { en: 'Maintainers', es: 'Mantenedores' } },
-		],
-	},
-	{
-		label: { en: 'Preferences', es: 'Preferencias' },
-		links: [
-			{ page: 'settings-user', icon: UserRound, label: { en: 'User settings', es: 'Configuraciones de usuario' } },
-			{ page: 'settings-defaults', icon: SettingsIcon, label: { en: 'Defaults', es: 'Defaults' } },
+			{ page: 'settings-advanced', icon: SlidersHorizontal, label: { en: 'Advanced', es: 'Avanzado' } },
 		],
 	},
 ];
@@ -158,18 +140,17 @@ export const AREAS: AreaDef[] = [
 	},
 	{
 		id: 'settings',
-		leadPage: 'settings-projects',
+		leadPage: 'settings-project',
 		icon: SettingsIcon,
 		label: { en: 'Settings', es: 'Configuración' },
 		pages: [
-			'settings-projects',
-			'settings-user',
-			'settings-cli',
-			'settings-api',
-			'settings-parameters',
-			'settings-maintainers',
+			'settings-project',
+			'settings-runtime',
+			'settings-agents',
+			'settings-security',
 			'settings-workspaces',
-			'settings-defaults',
+			'settings-integrations',
+			'settings-advanced',
 			'models',
 			'integrations',
 			'memory',

@@ -723,7 +723,7 @@ test('Settings owns selected project and persists it across reloads', async ({ p
 
 	await page.goto('/#settings');
 	await expectControlPlaneLoaded(page);
-	await page.getByRole('button', { name: 'Settings', exact: true }).click();
+	await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name: 'Settings', exact: true }).click();
 	await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
 	await page.getByLabel('Operational project').selectOption(project.id);
 	await page.reload();
@@ -740,7 +740,7 @@ test('New Project wizard validates input creates project and selects it', async 
 	const projectDirectoryName = `wizard-project-${suffix}`;
 
 	await page.goto('/#settings');
-	await page.getByRole('button', { name: 'Settings', exact: true }).click();
+	await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name: 'Settings', exact: true }).click();
 	await page.getByRole('button', { name: 'New project' }).click();
 	await page.getByRole('button', { name: 'Create from zero' }).click();
 
@@ -793,7 +793,7 @@ test('New Project wizard validates input creates project and selects it', async 
 
 test('New Project wizard exposes attach existing mode and discovery controls', async ({ page }) => {
 	await page.goto('/#settings');
-	await page.getByRole('button', { name: 'Settings', exact: true }).click();
+	await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name: 'Settings', exact: true }).click();
 	await page.getByRole('button', { name: 'New project' }).click();
 
 	await expect(page.getByRole('button', { name: 'Import existing workspace' })).toHaveAttribute('aria-pressed', 'true');
@@ -809,7 +809,7 @@ test('New Project wizard exposes attach existing mode and discovery controls', a
 
 test('Workspaces shows allocated workspaces without the project catalog', async ({ page }) => {
 	await page.goto('/#workspaces');
-	await page.getByRole('button', { name: 'Workspaces' }).click();
+	await page.getByRole('button', { name: 'Workspaces', exact: true }).click();
 
 	await expect(page.getByRole('heading', { name: 'Workspaces', exact: true })).toBeVisible();
 	await expect(page.getByRole('heading', { name: 'Allocated workspaces' })).toBeVisible();
@@ -831,8 +831,8 @@ test('IDE ActivityBar exposes the primary destinations across context changes', 
 	for (const name of ['Home', 'Workbench', 'Runs', 'Review', 'Settings']) {
 		await expect(nav.getByRole('button', { name, exact: true })).toBeVisible();
 	}
-	await expect(explorer.getByRole('button', { name: 'User settings' })).toBeVisible();
-	await expect(explorer.getByRole('button', { name: 'Workspace settings' })).toBeVisible();
+	await expect(explorer.getByRole('button', { name: 'Project', exact: true })).toBeVisible();
+	await expect(explorer.getByRole('button', { name: 'Workspaces', exact: true })).toBeVisible();
 });
 
 test('IDE ActivityBar has five destinations and marks the active route', async ({ page }) => {
@@ -842,9 +842,9 @@ test('IDE ActivityBar has five destinations and marks the active route', async (
 
 	const explorer = page.locator('.explorer-panel');
 	await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name: 'Settings', exact: true }).click();
-	await explorer.getByRole('button', { name: 'CLI settings' }).click();
-	await expect(page.getByRole('heading', { name: 'CLI configuration' })).toBeVisible();
-	await expect(page.locator('.explorer-panel .nav-item[aria-current="page"]')).toHaveAttribute('aria-label', 'CLI settings');
+	await explorer.getByRole('button', { name: 'Runtime & Models' }).click();
+	await expect(page.getByRole('heading', { name: 'Runtime & Models' })).toBeVisible();
+	await expect(page.locator('.explorer-panel .nav-item[aria-current="page"]')).toHaveAttribute('aria-label', 'Runtime & Models');
 });
 
 test('IDE navigation keeps touch-safe targets across key destinations', async ({ page }) => {
@@ -894,9 +894,9 @@ test('IDE Explorer exposes audit log and workspace settings from the shell', asy
 	await expect(page.getByRole('heading', { name: 'Audit Log' })).toBeVisible();
 
 	await nav.getByRole('button', { name: 'Settings', exact: true }).click();
-	await explorer.getByRole('button', { name: 'Workspace settings' }).click();
-	await expect(page.getByRole('heading', { name: 'Settings Workspaces' })).toBeVisible();
-	await expect(page.getByText('IDE-style workspace roots')).toBeVisible();
+	await explorer.getByRole('button', { name: 'Workspaces', exact: true }).click();
+	await expect(page.getByRole('heading', { name: 'Workspaces', exact: true })).toBeVisible();
+	await expect(page.getByText('IDE-style workspace roots').first()).toBeVisible();
 });
 
 test('Workbench chat creates a chat intake and linked pipeline', async ({ page }) => {
@@ -964,7 +964,7 @@ test('language control localizes Settings and New Project wizard chrome', async 
 	await page.getByRole('button', { name: 'ES', exact: true }).click();
 
 	await expect(page.locator('html')).toHaveAttribute('lang', 'es');
-	await expect(page.getByRole('heading', { name: 'Configuraciones' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Configuraciones', exact: true })).toBeVisible();
 	await expect(page.getByRole('button', { name: 'Nuevo proyecto' })).toBeVisible();
 
 	await page.getByRole('button', { name: 'Nuevo proyecto' }).click();
@@ -1001,7 +1001,7 @@ test('New Project wizard uses IDE workspace import and blocks duplicate workspac
 	const existing = await getActiveProject(page);
 
 	await page.goto('/#settings');
-	await page.getByRole('button', { name: 'Settings', exact: true }).click();
+	await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name: 'Settings', exact: true }).click();
 	await page.getByRole('button', { name: 'New project' }).click();
 
 	await expect(page.getByRole('button', { name: 'Import existing workspace' })).toBeVisible();
@@ -1053,13 +1053,13 @@ test('settings separates configuration types and keeps defaults collapsed', asyn
 	await page.goto('/#settings-cli');
 
 	await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
-	await expect(page.getByRole('button', { name: 'User settings' })).toBeVisible();
-	await expect(page.getByRole('button', { name: 'CLI settings' })).toBeVisible();
-	await expect(page.getByRole('button', { name: 'API settings' })).toBeVisible();
-	await expect(page.getByRole('button', { name: 'Parameters' })).toBeVisible();
-	await expect(page.getByRole('button', { name: 'Maintainers' })).toBeVisible();
-	await expect(page.getByRole('heading', { name: 'CLI configuration' })).toBeVisible();
-	await expect(page.getByText('PNPM package manager')).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Project', exact: true })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Runtime & Models' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Agents', exact: true })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Security', exact: true })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Workspaces', exact: true })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Integrations', exact: true })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Advanced', exact: true })).toBeVisible();
 	await expect(page.getByText('Backend: FastAPI v1')).toBeHidden();
 
 	await page.getByRole('button', { name: 'Default configurations' }).click();
@@ -1269,13 +1269,11 @@ test('Event drawer exposes recent operational events', async ({ page }) => {
 	await expect(page.getByText('job.created').first()).toBeVisible();
 });
 
-test('command palette opens searchable event drawer', async ({ page }) => {
+test('event drawer filters operational events by query', async ({ page }) => {
 	await createApprovalJob(page);
 	await page.goto('/');
 
-	await page.getByRole('button', { name: 'Open command palette' }).click();
-	await page.getByLabel('Command palette filter').fill('search events');
-	await page.getByRole('button', { name: 'Search Events' }).click();
+	await page.getByRole('button', { name: 'Open event drawer' }).click();
 
 	await expect(page.getByRole('dialog', { name: 'Event drawer' })).toBeVisible();
 	await page.getByLabel('Event filter').fill('job.created');
@@ -1287,6 +1285,7 @@ test('command palette opens searchable event drawer', async ({ page }) => {
 test('keyboard shortcuts open operational surfaces without mouse navigation', async ({ page }) => {
 	await createApprovalJob(page);
 	await page.goto('/');
+	await expectControlPlaneLoaded(page);
 
 	await page.keyboard.press('Control+Alt+A');
 	await expect(page.getByRole('dialog', { name: 'Approval drawer' })).toBeVisible();
@@ -1304,7 +1303,6 @@ test('keyboard shortcuts open operational surfaces without mouse navigation', as
 
 test('Memory & Retrieval shows backend status and memory records', async ({ page }) => {
 	await page.goto('/#memory');
-	await page.getByRole('button', { name: 'Memory & Retrieval' }).click();
 
 	await expect(page.getByRole('heading', { name: 'Memory & Retrieval' })).toBeVisible();
 	await expect(page.getByText('Retrieval Backend')).toBeVisible();
@@ -1405,7 +1403,7 @@ test('Evidence and QA shows persisted test result records', async ({ page }) => 
 
 	await expect(page.getByRole('heading', { name: 'Evidence & QA' })).toBeVisible();
 	await expect(page.getByText('uv run pytest tests_py -q').first()).toBeVisible();
-	await expect(page.getByText('passed').first()).toBeVisible();
+	await expect(page.locator('.content-frame').getByText('passed').first()).toBeVisible();
 });
 
 test('Evidence and QA previews token-protected artifacts', async ({ page }) => {
@@ -1435,7 +1433,7 @@ test('Evidence and QA renders auditable evidence detail with diff and redacted m
 	await expect(page.getByRole('link', { name: `Job ${evidence.jobId}` })).toBeVisible();
 	await expect(page.getByRole('link', { name: `Agent run ${evidence.agentRunId}` })).toBeVisible();
 	await expect(page.getByText(evidence.workspaceId).first()).toBeVisible();
-	await expect(page.getByText('failed').first()).toBeVisible();
+	await expect(page.locator('.content-frame').getByText('failed').first()).toBeVisible();
 	await expect(page.getByText(evidence.patchHash).first()).toBeVisible();
 	await expect(page.getByText('diff.patch').first()).toBeVisible();
 	await expect(page.getByRole('heading', { name: 'Diff viewer' })).toBeVisible();
@@ -1565,17 +1563,15 @@ test('Policy & Security shows sandbox policy revision diffs', async ({ page }) =
 test('Model Gateway renders model calls and cost ledger without synthetic runtime traces', async ({ page }) => {
 	await createModelGatewayTrace(page);
 	await page.goto('/#models');
-	await page.getByRole('button', { name: 'Model Gateway' }).click();
 
 	await expect(page.getByRole('heading', { name: 'Model Gateway', exact: true })).toBeVisible();
 	await expect(page.getByRole('heading', { name: 'Model calls' })).toBeVisible();
-	await expect(page.getByText('Cost ledger')).toBeVisible();
+	await expect(page.getByText('Cost history')).toBeVisible();
 	await expect(page.locator('body')).not.toContainText('internal_mock');
 });
 
 test('Model Gateway console renders provider catalog routing usage budgets and CLI sessions', async ({ page }) => {
 	await page.goto('/#models');
-	await page.getByRole('button', { name: 'Model Gateway' }).click();
 
 	await expect(page.getByRole('heading', { name: 'Model Gateway', exact: true })).toBeVisible();
 	await expect(page.getByRole('heading', { name: 'Overview' })).toBeVisible();
@@ -1583,14 +1579,14 @@ test('Model Gateway console renders provider catalog routing usage budgets and C
 	await expect(page.getByRole('heading', { name: 'Model Catalog' })).toBeVisible();
 	await expect(page.getByRole('heading', { name: 'Routing Profiles' })).toBeVisible();
 	await expect(page.getByRole('heading', { name: 'Role Assignments' })).toBeVisible();
-	await expect(page.getByRole('heading', { name: 'Usage Ledger' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Usage history' })).toBeVisible();
 	await expect(page.getByRole('heading', { name: 'Budgets' })).toBeVisible();
 	await expect(page.getByRole('heading', { name: 'Provider Limits' })).toBeVisible();
 	await expect(page.getByRole('heading', { name: 'Routing Decisions' })).toBeVisible();
 	await expect(page.getByRole('heading', { name: 'CLI Sessions' })).toBeVisible();
 	await expect(page.getByRole('heading', { name: 'Benchmarks' })).toBeVisible();
 	await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
-	await expect(page.getByText('No usage ledger entries')).toBeVisible();
+	await expect(page.getByText('No usage history entries')).toBeVisible();
 	await expect(page.getByText('No CLI sessions')).toBeVisible();
 	await expect(page.getByLabel('Benchmark provider')).toBeVisible();
 	await page.getByLabel('Benchmark provider').selectOption('codex_cli');
@@ -1616,7 +1612,6 @@ test('Runtime provider tables report unavailable states honestly', async ({ page
 	expect(runtimeStatus.providers.some((provider) => provider.available === false || provider.executable === false)).toBe(true);
 
 	await page.goto('/#models');
-	await page.getByRole('button', { name: 'Model Gateway' }).click();
 	await expect(page.getByRole('heading', { name: 'Runtime Providers' })).toBeVisible();
 	await expect(page.getByText('not executable').first()).toBeVisible();
 
@@ -1677,7 +1672,6 @@ test('Runtime & Model Gateway shows missing config without marking provider read
 		});
 	});
 	await page.goto('/#models');
-	await page.getByRole('button', { name: 'Model Gateway' }).click();
 
 	await expect(page.getByRole('heading', { name: 'Runtime & Model Gateway' })).toBeVisible();
 	const row = page.getByRole('row', { name: /codex_cli/ }).first();
@@ -1711,7 +1705,6 @@ test('Runtime & Model Gateway shows CLI not detected as separate state', async (
 		});
 	});
 	await page.goto('/#models');
-	await page.getByRole('button', { name: 'Model Gateway' }).click();
 
 	await expect(page.getByRole('columnheader', { name: 'Detected', exact: true })).toBeVisible();
 	await expect(page.getByRole('columnheader', { name: 'Configured', exact: true })).toBeVisible();
@@ -1761,7 +1754,6 @@ test('Runtime & Model Gateway does not render provider secrets', async ({ page }
 		});
 	});
 	await page.goto('/#models');
-	await page.getByRole('button', { name: 'Model Gateway' }).click();
 
 	await expect(page.locator('body')).not.toContainText('sk-web-secret-runtime');
 	await expect(page.locator('body')).not.toContainText('Bearer ');
@@ -1796,7 +1788,6 @@ test('Runtime & Model Gateway refreshes CLI healthcheck through backend endpoint
 		await route.fulfill({ json: { detection: { runtime: 'codex_cli', status: 'missing', message: 'CLI runtime was not detected.' } } });
 	});
 	await page.goto('/#models');
-	await page.getByRole('button', { name: 'Model Gateway' }).click();
 
 	await page.getByRole('button', { name: 'Refresh healthcheck for codex_cli' }).click();
 	await expect.poll(() => detectCalled).toBe(true);
@@ -1982,7 +1973,6 @@ test('Model Gateway route preview submits request without exposing credentials',
 		data: { enabled: true, healthStatus: 'healthy', lastError: 'Authorization: Bearer sk-websecret123456' },
 	});
 	await page.goto('/#models');
-	await page.getByRole('button', { name: 'Model Gateway' }).click();
 
 	await expect(page.locator('body')).not.toContainText('sk-websecret');
 	await expect(page.getByText('AIDO_NVIDIA_API_KEY').first()).toBeVisible();
@@ -2129,26 +2119,24 @@ test('command palette executes v1 actions and workflow inspector shows linked re
 	await createApprovalJob(page);
 	await page.goto('/');
 
-	await page.getByRole('button', { name: 'Open command palette' }).click();
-	await expect(page.getByRole('dialog', { name: 'Command palette' })).toBeVisible();
-	await page.getByLabel('Command palette filter').fill('workflow');
-	await page.getByRole('button', { name: 'Go to Workflows' }).click();
+	await page.goto('/#workflows');
 	await expect(page.getByRole('heading', { name: 'Workflows' })).toBeVisible();
 
 	await page.getByRole('button', { name: `Inspect workflow ${workflow.title}` }).click();
-	await expect(page.getByRole('dialog', { name: 'Workflow inspector' })).toBeVisible();
-	await expect(page.getByText(workflow.title).first()).toBeVisible();
-	await expect(page.getByText('Workflow timeline')).toBeVisible();
+	const inspector = page.getByRole('dialog', { name: 'Workflow inspector' });
+	await expect(inspector).toBeVisible();
+	await expect(inspector.getByText(workflow.title).first()).toBeVisible();
+	await expect(inspector.getByText('Workflow timeline')).toBeVisible();
 	const workflowTimeline = page.getByLabel('Workflow timeline');
 	await expect(workflowTimeline).toContainText('workspace_create');
 	await expect(workflowTimeline).toContainText('workflow.started');
-	await expect(page.getByText('workspace_create').first()).toBeVisible();
-	await expect(page.getByText('web-story-evidence').first()).toBeVisible();
-	await expect(page.getByText('python --version').first()).toBeVisible();
-	await expect(page.getByText('Policy decisions')).toBeVisible();
-	await expect(page.getByText('allowlisted_diagnostic').first()).toBeVisible();
-	await expect(page.getByRole('heading', { name: 'Artifacts' })).toBeVisible();
-	await expect(page.getByText(workflow.artifactName).first()).toBeVisible();
+	await expect(inspector.getByText('workspace_create').first()).toBeVisible();
+	await expect(inspector.getByText('web-story-evidence').first()).toBeVisible();
+	await expect(inspector.getByText('python --version').first()).toBeVisible();
+	await expect(inspector.getByText('Policy decisions')).toBeVisible();
+	await expect(inspector.getByText('allowlisted_diagnostic').first()).toBeVisible();
+	await expect(inspector.getByRole('heading', { name: 'Artifacts' })).toBeVisible();
+	await expect(inspector.getByText(workflow.artifactName).first()).toBeVisible();
 	await page.getByRole('button', { name: `Preview workflow artifact ${workflow.artifactName}` }).click();
 	await expect(page.getByRole('dialog', { name: 'Workflow artifact preview' })).toBeVisible();
 	await expect(page.getByText('Workflow inspector artifact smoke.')).toBeVisible();
@@ -2159,8 +2147,9 @@ test('command palette executes v1 actions and workflow inspector shows linked re
 	await expect(page.getByRole('dialog', { name: 'Workflow inspector' })).toBeHidden();
 
 	await page.getByRole('button', { name: 'Open command palette' }).click();
-	await page.getByLabel('Command palette filter').fill('approval');
-	await page.getByRole('button', { name: 'Open Pending Approvals' }).click();
+	const approvalsPalette = page.getByRole('dialog', { name: 'Command palette' });
+	await approvalsPalette.getByRole('combobox', { name: 'Filter commands' }).fill('approval');
+	await approvalsPalette.getByRole('option', { name: /Review pending approvals/ }).click();
 	await expect(page.getByRole('dialog', { name: 'Approval drawer' })).toBeVisible();
 });
 

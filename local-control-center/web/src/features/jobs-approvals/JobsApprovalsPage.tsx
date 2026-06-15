@@ -492,7 +492,7 @@ export function JobsApprovalsPage({
 				summary="Queue leases and command-level approvals. Approving a job never approves all sensitive actions by implication."
 			/>
 			<div className="grid two">
-				<Surface title="Pending action requests">
+				<Surface title="Pending approvals">
 					<DataTable<ActionRequest>
 						rows={pendingActions}
 						empty={<EmptyState title="No pending approvals" body="Sensitive commands will appear here before execution." />}
@@ -515,7 +515,7 @@ export function JobsApprovalsPage({
 				</Surface>
 				<Surface title="Queue state">
 					<div className="field">
-						<label htmlFor="job-mutation-reason">Queue mutation reason</label>
+						<label htmlFor="job-mutation-reason">Queue change reason</label>
 						<textarea id="job-mutation-reason" className="textarea" value={jobReason} onChange={(event) => setJobReason(event.target.value)} />
 					</div>
 					<DataTable<Job>
@@ -634,7 +634,7 @@ export function JobsApprovalsPage({
 			<Surface title="Audit trail">
 				<DataTable
 					rows={overview.auditEvents.slice(0, 12)}
-					empty={<EmptyState title="No audit entries" body="Mutating decisions are recorded here." />}
+					empty={<EmptyState title="No audit entries" body="Every change is recorded here." />}
 					columns={[
 						{ key: 'action', label: 'Action', render: (row) => <span className="mono">{String(row.action ?? '')}</span> },
 						{ key: 'target', label: 'Target', render: (row) => <span>{shortId(String(row.target ?? ''))}</span> },
@@ -739,7 +739,7 @@ export function JobsApprovalsPage({
 									{securityLoadingId ? <EmptyState title="Loading security findings" body="Security evidence is read through the protected evidence artifact endpoint." /> : null}
 									{securityError ? <div className="form-error" role="alert">{securityError}</div> : null}
 									{!selectedSecurityArtifact ? <EmptyState title="No security findings recorded" body="Patch approval requires linked non-blocking security findings before the approve patch action is enabled." /> : null}
-									{selectedSecurityArtifact && securityPayload?.text && !securityFindingsAreNonBlocking(securityPayload) ? <EmptyState title="Security findings are blocking or unreadable" body="The security findings artifact must be valid JSON with no blocking policy decision." /> : null}
+									{selectedSecurityArtifact && securityPayload?.text && !securityFindingsAreNonBlocking(securityPayload) ? <EmptyState title="Security findings are blocking or unreadable" body="The security findings artifact must be valid JSON with no blocking security decision." /> : null}
 									{securityPayload?.text ? <pre className="artifact-preview">{redactVisibleText(securityPayload.text, '')}</pre> : null}
 								</Surface>
 							) : null}

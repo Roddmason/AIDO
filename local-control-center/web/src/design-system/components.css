@@ -93,6 +93,11 @@
 	color: color-mix(in oklch, var(--color-status-info) 80%, var(--color-text-primary));
 }
 
+.badge[data-tone="pending"] {
+	border-color: color-mix(in oklch, var(--color-status-pending) 48%, var(--color-border-default));
+	color: color-mix(in oklch, var(--color-status-pending) 80%, var(--color-text-primary));
+}
+
 .status-dot {
 	width: 0.65rem;
 	height: 0.65rem;
@@ -119,6 +124,11 @@
 .status-dot[data-tone="info"] {
 	background: var(--color-status-info);
 	box-shadow: 0 0 0 3px color-mix(in oklch, var(--color-status-info) 18%, transparent);
+}
+
+.status-dot[data-tone="pending"] {
+	background: var(--color-status-pending);
+	box-shadow: 0 0 0 3px color-mix(in oklch, var(--color-status-pending) 18%, transparent);
 }
 
 .surface {
@@ -836,6 +846,35 @@ kbd.command-kbd {
 
 .settings-console-link:hover {
 	text-decoration: underline;
+}
+
+/* Group of "config lives elsewhere" deep links (wraps .settings-console-link). */
+.settings-deeplinks {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-2) var(--space-4);
+}
+
+/* Read-only key/value readouts (label · value) inside a settings group body. */
+.settings-readouts {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+	gap: var(--space-2) var(--space-4);
+}
+
+.settings-readouts > div {
+	min-width: 0;
+	display: grid;
+	gap: var(--space-1);
+	padding-block: var(--space-2);
+	border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.settings-readouts strong {
+	color: var(--color-text-muted);
+	font-size: var(--font-size-xs);
+	font-weight: var(--weight-medium);
 }
 
 .disclosure {

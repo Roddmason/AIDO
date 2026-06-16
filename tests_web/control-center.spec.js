@@ -1286,7 +1286,7 @@ test('Review board promotes branches and creates PRs for approved runs with reas
 
 	// Promote a reviewed/approved run straight from the board — reason-gated.
 	await page.getByRole('button', { name: new RegExp(`Promote branch: ${approved.workflow.title}`) }).click();
-	const promoteDrawer = page.getByRole('dialog', { name: 'Ship reviewed run' });
+	const promoteDrawer = page.getByRole('dialog', { name: 'Run detail' });
 	await expect(promoteDrawer).toBeVisible();
 	await expect(promoteDrawer.getByRole('button', { name: 'Promote branch', exact: true })).toBeDisabled();
 	await promoteDrawer.getByLabel('Workflow operation reason').fill('Promote reviewed patch from the board.');
@@ -1298,7 +1298,7 @@ test('Review board promotes branches and creates PRs for approved runs with reas
 
 	// Create a PR from a promoted run — honest pr_unavailable is surfaced on the board.
 	await page.getByRole('button', { name: new RegExp(`Create PR: ${promoted.workflow.title}`) }).click();
-	const prDrawer = page.getByRole('dialog', { name: 'Ship reviewed run' });
+	const prDrawer = page.getByRole('dialog', { name: 'Run detail' });
 	await expect(prDrawer.getByRole('button', { name: 'Create PR', exact: true })).toBeDisabled();
 	await prDrawer.getByLabel('Workflow operation reason').fill('Create PR from the board.');
 	await prDrawer.getByRole('button', { name: 'Create PR', exact: true }).click();

@@ -1212,6 +1212,54 @@ test('Review board previews linked artifacts through the protected endpoint', as
 	await expect(review.getByText(/^sha256 /).first()).toBeVisible();
 });
 
+test('Review board serializes artifact downloads to a single in-flight request', async ({ page }) => {
+	const project = await getActiveProject(page);
+	const complete = issueToPatchApprovalFixture(project.id, 'board-dl-serialize', { completeEvidence: true });
+	await routeIssueToPatchApprovalOverview(page, [complete]);
+
+	// Hold the patch-artifact response in flight so the download cannot resolve
+	// until released, exercising the serialize-while-downloading guard.
+	let releaseDownload = () => {};
+	const downloadGate = new Promise((resolve) => { releaseDownload = resolve; });
+	await page.route(`/api/v1/evidence/${complete.evidencePackage.id}/artifacts/${complete.artifact.id}`, async (route) => {
+		await downloadGate;
+		await route.fulfill({
+			status: 200,
+			contentType: 'text/x-patch',
+			headers: {
+				'X-AIDO-Artifact-Id': complete.artifact.id,
+				'X-AIDO-Artifact-Hash': complete.artifact.hash,
+				'Content-Disposition': 'attachment; filename="diff.patch"',
+			},
+			body: complete.patchText,
+		});
+	});
+
+	await page.goto('/#review-board');
+	await page.getByRole('button', { name: new RegExp(`Review: ${complete.workflow.title}`) }).click();
+	const review = page.getByRole('dialog', { name: 'Action request review' });
+	const patchDownload = review.getByRole('button', { name: 'Download artifact diff.patch' });
+	const securityDownload = review.getByRole('button', { name: 'Download artifact security-findings.json' });
+	await expect(patchDownload).toBeEnabled();
+	await expect(securityDownload).toBeEnabled();
+
+	const downloadPromise = page.waitForEvent('download');
+	await patchDownload.click();
+
+	// While the patch download is in flight, BOTH download buttons are disabled
+	// so a second concurrent download cannot race the shared downloadingId/error slot.
+	await expect(patchDownload).toHaveText('Downloading');
+	await expect(patchDownload).toBeDisabled();
+	await expect(securityDownload).toBeDisabled();
+
+	releaseDownload();
+	await downloadPromise;
+
+	// Once the download resolves, both buttons re-enable.
+	await expect(patchDownload).toBeEnabled();
+	await expect(securityDownload).toBeEnabled();
+});
+
 test('Review board promotes branches and creates PRs for approved runs with reason gating', async ({ page }) => {
 	const project = await getActiveProject(page);
 	const approved = issueToPatchApprovalFixture(project.id, 'board-approved', { completeEvidence: true, runStatus: 'approved_for_integration' });

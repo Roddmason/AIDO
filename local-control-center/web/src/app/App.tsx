@@ -70,7 +70,7 @@ const routeAliases: Record<string, PageId> = {
 	workspace: 'workbench',
 	command: 'workbench',
 	runs: 'workflows',
-	review: 'jobs',
+	review: 'review-board',
 	settings: 'settings-project',
 	// Backward-compat: resolve the retired per-tab settings hashes to their owning group.
 	'settings-projects': 'settings-project',

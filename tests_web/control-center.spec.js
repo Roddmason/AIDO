@@ -1084,7 +1084,6 @@ test('Home is the default landing and leads with the open-folder action', async 
 test('Jobs/Approvals requires contextual review before action decision', async ({ page }) => {
 	await createApprovalJob(page);
 	await page.goto('/#jobs');
-	await page.getByRole('button', { name: 'Jobs & Approvals' }).click();
 
 	await expect(page.getByRole('heading', { name: 'Jobs & Approvals' })).toBeVisible();
 	await expect(page.getByText('pipeline.start').first()).toBeVisible();
@@ -1148,7 +1147,6 @@ test('Jobs/Approvals shows approve patch reject promote and PR operations with e
 	});
 
 	await page.goto('/#jobs');
-	await page.getByRole('button', { name: 'Jobs & Approvals' }).click();
 
 	await expect(page.getByRole('heading', { name: 'Patch workflow operations' })).toBeVisible();
 	await expect(page.getByRole('button', { name: `Promote branch for ${approved.workflow.title}` })).toBeDisabled();
@@ -1232,7 +1230,6 @@ test('Jobs/Approvals executes issue-to-pr approval promotion and PR through work
 	});
 
 	await page.goto('/#jobs');
-	await page.getByRole('button', { name: 'Jobs & Approvals' }).click();
 
 	await page.getByRole('row', { name: /approve_issue_to_pr issue-to-pr-complete/ }).getByRole('button', { name: 'Review request' }).click();
 	const review = page.getByRole('dialog', { name: 'Action request review' });
@@ -1256,6 +1253,58 @@ test('Jobs/Approvals executes issue-to-pr approval promotion and PR through work
 	await expect.poll(() => prIssueToPrCalled).toBe(true);
 	await expect(page.getByText('pr_unavailable').first()).toBeVisible();
 	await expect(page.getByText('AIDO_GITHUB_TOKEN is missing.').first()).toBeVisible();
+});
+
+test('Review board promotes branches and creates PRs for approved runs with reason gating', async ({ page }) => {
+	const project = await getActiveProject(page);
+	const approved = issueToPatchApprovalFixture(project.id, 'board-approved', { completeEvidence: true, runStatus: 'approved_for_integration' });
+	const promoted = issueToPatchApprovalFixture(project.id, 'board-promoted', { completeEvidence: true, runStatus: 'promoted_to_branch' });
+	let promoteCalled = false;
+	let prCalled = false;
+	await routeIssueToPatchApprovalOverview(page, [approved, promoted]);
+	await page.route(`/api/v1/workflows/issue-to-patch/${approved.workflowRun.id}/promote`, async (route) => {
+		promoteCalled = true;
+		const body = route.request().postDataJSON();
+		expect(body.reason).toBe('Promote reviewed patch from the board.');
+		await route.fulfill({
+			status: 202,
+			json: { status: 'promoted_to_branch', reason: body.reason, workflowRun: { ...approved.workflowRun, status: 'promoted_to_branch' } },
+		});
+	});
+	await page.route(`/api/v1/workflows/issue-to-patch/${promoted.workflowRun.id}/pull-request`, async (route) => {
+		prCalled = true;
+		const body = route.request().postDataJSON();
+		expect(body.reason).toBe('Create PR from the board.');
+		await route.fulfill({
+			status: 202,
+			json: { status: 'pr_unavailable', reason: 'AIDO_GITHUB_TOKEN is missing.', workflowRun: promoted.workflowRun, pullRequest: null },
+		});
+	});
+
+	await page.goto('/#review-board');
+	await expect(page.getByRole('region', { name: 'Review board' })).toBeVisible();
+
+	// Promote a reviewed/approved run straight from the board — reason-gated.
+	await page.getByRole('button', { name: new RegExp(`Promote branch: ${approved.workflow.title}`) }).click();
+	const promoteDrawer = page.getByRole('dialog', { name: 'Ship reviewed run' });
+	await expect(promoteDrawer).toBeVisible();
+	await expect(promoteDrawer.getByRole('button', { name: 'Promote branch', exact: true })).toBeDisabled();
+	await promoteDrawer.getByLabel('Workflow operation reason').fill('Promote reviewed patch from the board.');
+	await expect(promoteDrawer.getByRole('button', { name: 'Promote branch', exact: true })).toBeEnabled();
+	await promoteDrawer.getByRole('button', { name: 'Promote branch', exact: true }).click();
+	await expect.poll(() => promoteCalled).toBe(true);
+	await expect(promoteDrawer.getByText('promoted_to_branch').first()).toBeVisible();
+	await page.keyboard.press('Escape');
+
+	// Create a PR from a promoted run — honest pr_unavailable is surfaced on the board.
+	await page.getByRole('button', { name: new RegExp(`Create PR: ${promoted.workflow.title}`) }).click();
+	const prDrawer = page.getByRole('dialog', { name: 'Ship reviewed run' });
+	await expect(prDrawer.getByRole('button', { name: 'Create PR', exact: true })).toBeDisabled();
+	await prDrawer.getByLabel('Workflow operation reason').fill('Create PR from the board.');
+	await prDrawer.getByRole('button', { name: 'Create PR', exact: true }).click();
+	await expect.poll(() => prCalled).toBe(true);
+	await expect(prDrawer.getByText('pr_unavailable').first()).toBeVisible();
+	await expect(prDrawer.getByText('AIDO_GITHUB_TOKEN is missing.').first()).toBeVisible();
 });
 
 test('Event drawer exposes recent operational events', async ({ page }) => {

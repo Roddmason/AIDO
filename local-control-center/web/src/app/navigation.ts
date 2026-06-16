@@ -133,7 +133,7 @@ export const AREAS: AreaDef[] = [
 	},
 	{
 		id: 'review',
-		leadPage: 'jobs',
+		leadPage: 'review-board',
 		icon: ClipboardCheck,
 		label: { en: 'Review', es: 'Revisión' },
 		pages: ['review-board', 'jobs', 'evidence', 'governance', 'policy', 'audit'],
@@ -187,7 +187,6 @@ export const EXPLORER_LINKS: Record<AreaId, ExplorerLink[]> = {
 	],
 	review: [
 		{ page: 'review-board', icon: LayoutGrid, label: { en: 'Review board', es: 'Tablero de revisión' } },
-		{ page: 'jobs', icon: ClipboardCheck, label: { en: 'Jobs & Approvals', es: 'Trabajos y aprobaciones' } },
 		{ page: 'evidence', icon: FileCheck2, label: { en: 'Evidence & QA', es: 'Evidencia y QA' } },
 		{ page: 'governance', icon: KeyRound, label: { en: 'Governance', es: 'Gobierno' } },
 		{ page: 'policy', icon: ShieldCheck, label: { en: 'Policy & Security', es: 'Política y seguridad' } },

@@ -477,10 +477,14 @@ export function ReviewPage({
 											render: (row) => {
 												const loading = artifactPreview.loadingId === String(row.id ?? '');
 												const downloading = artifactPreview.downloadingId === String(row.id ?? '');
+												// Serialize downloads: while any artifact is downloading, every Download
+												// button is disabled so two concurrent downloads cannot race on the shared
+												// downloadingId/error slot. The active row keeps its "Downloading" label.
+												const downloadBusy = Boolean(artifactPreview.downloadingId);
 												return (
 													<div className="inline" aria-busy={loading || downloading}>
 														<button className="button" type="button" aria-label={`Preview artifact ${artifactDisplayName(row)}`} disabled={loading} onClick={() => void artifactPreview.openPreview(row)}>{loading ? 'Opening' : 'Preview'}</button>
-														<button className="button" type="button" aria-label={`Download artifact ${artifactDisplayName(row)}`} disabled={downloading} onClick={() => void artifactPreview.download(row)}>{downloading ? 'Downloading' : 'Download'}</button>
+														<button className="button" type="button" aria-label={`Download artifact ${artifactDisplayName(row)}`} disabled={downloadBusy} onClick={() => void artifactPreview.download(row)}>{downloading ? 'Downloading' : 'Download'}</button>
 													</div>
 												);
 											},

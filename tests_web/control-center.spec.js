@@ -1946,14 +1946,15 @@ test('Workbench governed patch blocks issue_to_patch when no executable runtime 
 	await expect(page.locator('.workbench-layout')).toBeVisible();
 	await page.getByRole('button', { name: 'Governed patch' }).click();
 
-	await page.getByLabel('Issue title').fill(`Web issue_to_patch ${Date.now()}`);
-	await page.getByLabel('Issue text').fill('Change a small file through the real runtime slice.');
+	await page.getByLabel('What should AIDO change?').fill('Change a small file through the real runtime slice.');
 	await expect(page.getByText('runtime_unavailable').first()).toBeVisible();
 	await expect(page.getByText(blockReason).first()).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Configure runtime' })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Request change' })).toBeDisabled();
+	await page.getByRole('button', { name: 'Advanced' }).click();
 	await expect(page.getByLabel('Preferred runtime')).toBeDisabled();
 	await expect(page.getByLabel('Preferred runtime')).not.toContainText('manual');
 	await expect(page.getByLabel('Preferred runtime')).not.toContainText('internal_mock');
-	await expect(page.getByRole('button', { name: 'Run issue_to_patch' })).toBeDisabled();
 });
 
 test('Workbench governed patch enables issue_to_patch only with an executable runtime', async ({ page }) => {
@@ -2003,13 +2004,14 @@ test('Workbench governed patch enables issue_to_patch only with an executable ru
 	await expect(page.locator('.workbench-layout')).toBeVisible();
 	await page.getByRole('button', { name: 'Governed patch' }).click();
 
+	await expect(page.getByRole('button', { name: 'Request change' })).toBeDisabled();
+	await page.getByRole('button', { name: 'Advanced' }).click();
 	await expect(page.getByLabel('Preferred runtime')).toBeEnabled();
 	await expect(page.getByLabel('Preferred runtime')).toContainText('codex_cli - executable');
 	await expect(page.getByLabel('Preferred runtime')).not.toContainText('manual');
 	await expect(page.getByLabel('Preferred runtime')).not.toContainText('internal_mock');
-	await page.getByLabel('Issue title').fill(`Web issue_to_patch ${Date.now()}`);
-	await page.getByLabel('Issue text').fill('Change a small file through the real runtime slice.');
-	await expect(page.getByRole('button', { name: 'Run issue_to_patch' })).toBeEnabled();
+	await page.getByLabel('What should AIDO change?').fill('Change a small file through the real runtime slice.');
+	await expect(page.getByRole('button', { name: 'Request change' })).toBeEnabled();
 });
 
 test('Workbench governed patch surfaces runtime_unavailable status honestly', async ({ page }) => {
@@ -2055,19 +2057,19 @@ test('Workbench governed patch surfaces runtime_unavailable status honestly', as
 	await expect(page.locator('.workbench-layout')).toBeVisible();
 	await page.getByRole('button', { name: 'Governed patch' }).click();
 
-	await page.getByLabel('Issue title').fill(`Web issue_to_patch ${Date.now()}`);
-	await page.getByLabel('Issue text').fill('Change a small file through the real runtime slice.');
-	await page.getByRole('button', { name: 'Run issue_to_patch' }).click();
-	await expect(page.getByRole('button', { name: 'Run issue_to_patch' })).toBeEnabled({ timeout: 60_000 });
+	await page.getByLabel('What should AIDO change?').fill('Change a small file through the real runtime slice.');
+	await page.getByRole('button', { name: 'Request change' }).click();
+	await expect(page.getByRole('button', { name: 'Request change' })).toBeEnabled({ timeout: 60_000 });
 
 	const result = page.locator('div[aria-live="polite"]').filter({ hasText: runtimeUnavailableReason });
 	await expect(result).toBeVisible();
 	await expect(result).toContainText('runtime_unavailable');
 	await expect(result).toContainText(runtimeUnavailableReason);
 	await expect(result).toContainText(/Evidence .* changed files 0/);
+	// Assert the post-run failure state, not substrings that exist in the default timeline.
 	const timeline = page.getByLabel('Run timeline').first();
-	await expect(timeline).toContainText('runtime_selected');
-	await expect(timeline).toContainText('failed');
+	await expect(timeline.locator('.run-flow-step[data-phase="runtime"][data-status="failed"]')).toBeVisible();
+	await expect(timeline.locator('.run-flow-step[data-phase="terminal"][data-status="failed"]')).toBeVisible();
 });
 
 test('Model Gateway route preview submits request without exposing credentials', async ({ page }) => {
@@ -2158,14 +2160,16 @@ test('strict operational forms cover workflows governance sandbox and MCP settin
 	await page.getByRole('button', { name: 'Governed patch' }).click();
 
 	await expect(page.getByLabel('Workspace folder', { exact: true })).toBeVisible();
-	await expect(page.getByLabel('Issue title')).toBeVisible();
-	await expect(page.getByLabel('Issue text')).toBeVisible();
-	await expect(page.getByLabel('Preferred runtime')).not.toContainText('internal_mock');
+	await expect(page.getByLabel('What should AIDO change?')).toBeVisible();
+	// Runtime/QA/cost stay behind the Advanced disclosure by default.
+	await expect(page.getByLabel('Preferred runtime')).toBeHidden();
+	await expect(page.getByLabel('QA preset')).toBeHidden();
+	await expect(page.getByLabel('Maximum cost USD')).toBeHidden();
 	await expect(page.locator('textarea[data-json-editor="true"]')).toHaveCount(0);
-	await expect(page.getByRole('button', { name: 'Run issue_to_patch' })).toBeDisabled();
-	await page.getByLabel('QA preset').selectOption('none');
-	await expect(page.getByText('qa_not_selected')).toBeVisible();
-	await expect(page.getByRole('button', { name: 'Run issue_to_patch' })).toBeDisabled();
+	await expect(page.getByRole('button', { name: 'Request change' })).toBeDisabled();
+	await page.getByRole('button', { name: 'Advanced' }).click();
+	await expect(page.getByLabel('Preferred runtime')).toBeVisible();
+	await expect(page.getByLabel('Preferred runtime')).not.toContainText('internal_mock');
 
 	const suffix = Date.now();
 

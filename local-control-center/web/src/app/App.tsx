@@ -19,7 +19,6 @@ import { HomePage } from '../features/home/HomePage';
 import { NewWorkspaceDialog } from '../features/workspace/NewWorkspaceDialog';
 import type { WorkspaceMode } from '../features/workspace/useProjectDiscovery';
 import { useI18n } from '../i18n/I18nProvider';
-import { JobsApprovalsPage } from '../features/jobs-approvals/JobsApprovalsPage';
 import { ReviewPage } from '../features/review/ReviewPage';
 import { WorkflowsPage } from '../features/workflows/WorkflowsPage';
 import { AgentsPage } from '../features/agents/AgentsPage';
@@ -71,6 +70,7 @@ const routeAliases: Record<string, PageId> = {
 	command: 'workbench',
 	runs: 'workflows',
 	review: 'review-board',
+	jobs: 'review-board',
 	settings: 'settings-project',
 	// Backward-compat: resolve the retired per-tab settings hashes to their owning group.
 	'settings-projects': 'settings-project',
@@ -264,7 +264,7 @@ export function App() {
 					onOpenFolder={() => openWorkspaceDialog('open_folder')}
 					onOpenWorkbench={() => navigateTo('workbench')}
 					onOpenProjects={() => navigateTo('projects-active')}
-					onOpenReview={() => navigateTo('jobs')}
+					onOpenReview={() => navigateTo('review-board')}
 					onOpenRuns={() => navigateTo('workflows')}
 					onOpenEvidence={() => navigateTo('evidence')}
 					onOpenRuntimes={() => navigateTo('models')}
@@ -282,7 +282,7 @@ export function App() {
 					token={state.token}
 					onSelectProject={setOperationalProject}
 					onCreateProject={() => openWorkspaceDialog('open_folder')}
-					onOpenJobs={() => navigateTo('jobs')}
+					onOpenJobs={() => navigateTo('review-board')}
 					onOpenEvidence={() => navigateTo('evidence')}
 					onOpenSettings={() => navigateTo('settings-project')}
 					onOpenRuntimeSetup={() => navigateTo('settings-runtime')}
@@ -309,8 +309,6 @@ export function App() {
 				return <WorkflowsPage overview={overview} token={state.token} mutate={state.mutate} />;
 			case 'review-board':
 				return <ReviewPage overview={overview} token={state.token} mutate={state.mutate} refresh={state.refresh} />;
-			case 'jobs':
-				return <JobsApprovalsPage overview={overview} token={state.token} mutate={state.mutate} refresh={state.refresh} />;
 			case 'agents':
 				return <AgentsPage overview={overview} runtimeProviders={state.runtimeProviders} mutate={state.mutate} />;
 			case 'workspaces':

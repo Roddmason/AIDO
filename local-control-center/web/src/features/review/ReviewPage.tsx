@@ -9,6 +9,7 @@ import { AlertTriangle, FileCheck2, GitBranch, ShieldAlert } from 'lucide-react'
 
 import type { ActionRequest, Overview } from '../../api/types';
 import { Badge, DataTable, Drawer, EmptyState, PageHeader, StatusDot, Surface } from '../../components/primitives';
+import { Disclosure } from '../../components/Disclosure';
 import { artifactDisplayName } from '../../lib/artifacts';
 import { hasRealPatchChanges } from '../../lib/diff';
 import { shortId, toneForStatus } from '../../lib/format';
@@ -19,13 +20,34 @@ import {
 	REVIEW_COLUMNS,
 	buildReviewItems,
 	groupReviewItems,
+	patchWorkflowKind,
 	prettyJson,
 	requiresPatchEvidenceGate,
 	riskTone,
 	securityFindingsAreNonBlocking,
 } from './model';
-import type { ReviewColumn, ReviewItem } from './model';
+import type { PatchWorkflowKind, ReviewColumn, ReviewItem } from './model';
 import { useReviewDecision } from './useReviewDecision';
+import { useShipOperations } from './useShipOperations';
+import type { ShipOperation } from './useShipOperations';
+
+/**
+ * A shippable board item: a reviewed patch-workflow run whose status allows the
+ * next ship step. Promote when approved (or a prior promotion failed); create a
+ * PR once promoted to a branch. Status guards mirror the Jobs queue contract.
+ */
+function shipOperationFor(item: ReviewItem): { operation: ShipOperation; kind: PatchWorkflowKind } | null {
+	if (!item.runId) return null;
+	const kind = patchWorkflowKind(item.workflowKind);
+	if (!kind) return null;
+	if (item.runStatus === 'approved_for_integration' || item.runStatus === 'promotion_failed') {
+		return { operation: 'promote', kind };
+	}
+	if (item.runStatus === 'promoted_to_branch') {
+		return { operation: 'pull-request', kind };
+	}
+	return null;
+}
 
 type Mutate = <T>(operation: (token: string) => Promise<T>) => Promise<T>;
 type Refresh = (silent?: boolean) => Promise<void>;
@@ -52,6 +74,17 @@ const COPY: Record<Lang, {
 	approvePatch: string;
 	reject: string;
 	itemsSuffix: string;
+	ship: string;
+	shipDrawerLabel: string;
+	promote: string;
+	createPr: string;
+	shipReasonLabel: string;
+	shipReasonHelp: string;
+	shipBranchLabel: string;
+	shipPrTitleLabel: string;
+	shipPrBaseLabel: string;
+	shipAdvanced: string;
+	shipPromoted: string;
 }> = {
 	en: {
 		kicker: 'Operational review ledger',
@@ -91,6 +124,17 @@ const COPY: Record<Lang, {
 		approvePatch: 'Approve patch',
 		reject: 'Reject',
 		itemsSuffix: 'items',
+		ship: 'Ship',
+		shipDrawerLabel: 'Ship reviewed run',
+		promote: 'Promote branch',
+		createPr: 'Create PR',
+		shipReasonLabel: 'Workflow operation reason',
+		shipReasonHelp: 'Branch promotion and PR creation stay blocked until a reason is recorded.',
+		shipBranchLabel: 'Promotion branch (optional)',
+		shipPrTitleLabel: 'PR title (optional)',
+		shipPrBaseLabel: 'PR base branch (optional)',
+		shipAdvanced: 'Advanced options',
+		shipPromoted: 'Last operation',
 	},
 	es: {
 		kicker: 'Registro operacional de revisión',
@@ -130,6 +174,17 @@ const COPY: Record<Lang, {
 		approvePatch: 'Aprobar parche',
 		reject: 'Rechazar',
 		itemsSuffix: 'ítems',
+		ship: 'Integrar',
+		shipDrawerLabel: 'Integrar ejecución revisada',
+		promote: 'Promover rama',
+		createPr: 'Crear PR',
+		shipReasonLabel: 'Razón de la operación de workflow',
+		shipReasonHelp: 'La promoción de rama y la creación de PR quedan bloqueadas hasta registrar una razón.',
+		shipBranchLabel: 'Rama de promoción (opcional)',
+		shipPrTitleLabel: 'Título del PR (opcional)',
+		shipPrBaseLabel: 'Rama base del PR (opcional)',
+		shipAdvanced: 'Opciones avanzadas',
+		shipPromoted: 'Última operación',
 	},
 };
 
@@ -148,15 +203,19 @@ function ReviewCard({
 	selected,
 	onOpenReview,
 	onOpenEvidence,
+	onShip,
 }: {
 	item: ReviewItem;
 	copy: (typeof COPY)[Lang];
 	selected: boolean;
 	onOpenReview: (item: ReviewItem, trigger: HTMLElement | null) => void;
 	onOpenEvidence: () => void;
+	onShip: (item: ReviewItem, trigger: HTMLElement | null) => void;
 }) {
 	const titleId = `review-card-${item.key}`;
 	const triggerRef = useRef<HTMLButtonElement>(null);
+	const shipTriggerRef = useRef<HTMLButtonElement>(null);
+	const shipOp = shipOperationFor(item);
 	const open = () => onOpenReview(item, triggerRef.current);
 
 	const handleCardKeyDown = (event: KeyboardEvent<HTMLElement>) => {
@@ -215,6 +274,16 @@ function ReviewCard({
 					>
 						{copy.review}
 					</button>
+				) : shipOp ? (
+					<button
+						ref={shipTriggerRef}
+						className="button primary review-card-cta"
+						type="button"
+						aria-label={`${shipOp.operation === 'promote' ? copy.promote : copy.createPr}: ${item.runLabel} · ${item.projectName}`}
+						onClick={() => onShip(item, shipTriggerRef.current)}
+					>
+						{shipOp.operation === 'promote' ? copy.promote : copy.createPr}
+					</button>
 				) : (item.hasEvidence ? (
 					<button className="button review-evidence-link" type="button" onClick={onOpenEvidence}>
 						{copy.openEvidence}
@@ -252,6 +321,18 @@ export function ReviewPage({
 	);
 	const decision = useReviewDecision(selectedAction, overview, token, mutate);
 
+	// Ship lifecycle (promote/PR) for a reviewed, approved run — additive to the
+	// decision flow. Keyed by item key so it re-resolves the live run after a
+	// refresh (promote → the same drawer then offers Create PR).
+	const ship = useShipOperations(token, refresh);
+	const [shipItemKey, setShipItemKey] = useState('');
+	const shipTriggerRef = useRef<HTMLElement | null>(null);
+	const liveShipItem = useMemo(
+		() => (shipItemKey ? items.find((item) => item.key === shipItemKey) ?? null : null),
+		[items, shipItemKey],
+	);
+	const shipOp = liveShipItem ? shipOperationFor(liveShipItem) : null;
+
 	const openReview = (item: ReviewItem, trigger: HTMLElement | null) => {
 		if (!item.actionId) return;
 		triggerRef.current = trigger;
@@ -265,6 +346,18 @@ export function ReviewPage({
 	};
 	const openEvidence = () => {
 		window.location.hash = 'evidence';
+	};
+	const openShip = (item: ReviewItem, trigger: HTMLElement | null) => {
+		shipTriggerRef.current = trigger;
+		ship.reset();
+		setShipItemKey(item.key);
+	};
+	const closeShip = () => {
+		setShipItemKey('');
+		ship.reset();
+		const trigger = shipTriggerRef.current;
+		shipTriggerRef.current = null;
+		if (trigger) trigger.focus();
 	};
 	const submitDecision = async (kind: 'approve' | 'reject') => {
 		const ok = await decision.decide(kind);
@@ -311,6 +404,7 @@ export function ReviewPage({
 											selected={item.actionId === selectedActionId && Boolean(selectedActionId)}
 											onOpenReview={openReview}
 											onOpenEvidence={openEvidence}
+											onShip={openShip}
 										/>
 									))
 								)}
@@ -412,6 +506,68 @@ export function ReviewPage({
 									{copy.reject}
 								</button>
 							</div>
+						</div>
+					) : null}
+				</div>
+			</Drawer>
+
+			<Drawer label={copy.shipDrawerLabel} open={Boolean(liveShipItem)} onClose={closeShip}>
+				<div className="drawer-body">
+					{liveShipItem ? (
+						<div className="stack">
+							<div className="inline">
+								<Badge tone={toneForStatus(liveShipItem.runStatus ?? undefined)}>{liveShipItem.runStatus}</Badge>
+								{liveShipItem.workflowKind ? <Badge>{liveShipItem.workflowKind}</Badge> : null}
+								<span className="mono">{shortId(liveShipItem.runId)}</span>
+							</div>
+							<p className="card-body">{liveShipItem.runLabel}</p>
+							<div className="field">
+								<label htmlFor="review-ship-reason">{copy.shipReasonLabel}</label>
+								<textarea
+									id="review-ship-reason"
+									className="textarea"
+									value={ship.reason}
+									onChange={(event) => {
+										ship.setReason(event.target.value);
+										ship.setError('');
+									}}
+								/>
+								<div className="field-help">{copy.shipReasonHelp}</div>
+							</div>
+							<Disclosure title={copy.shipAdvanced}>
+								<div className="field">
+									<label htmlFor="review-ship-branch">{copy.shipBranchLabel}</label>
+									<input id="review-ship-branch" className="input" value={ship.branchName} onChange={(event) => ship.setBranchName(event.target.value)} />
+								</div>
+								<div className="field">
+									<label htmlFor="review-ship-pr-title">{copy.shipPrTitleLabel}</label>
+									<input id="review-ship-pr-title" className="input" value={ship.pullRequestTitle} onChange={(event) => ship.setPullRequestTitle(event.target.value)} />
+								</div>
+								<div className="field">
+									<label htmlFor="review-ship-pr-base">{copy.shipPrBaseLabel}</label>
+									<input id="review-ship-pr-base" className="input" value={ship.pullRequestBaseBranch} onChange={(event) => ship.setPullRequestBaseBranch(event.target.value)} />
+								</div>
+							</Disclosure>
+							{ship.error ? <div className="form-error" role="alert">{ship.error}</div> : null}
+							{ship.lastOperation ? (
+								<div className="inline" role="status">
+									<Badge tone={toneForStatus(ship.lastOperation.status)}>{ship.lastOperation.status}</Badge>
+									<span>{ship.lastOperation.reason || copy.shipPromoted}</span>
+									{ship.lastOperation.runId ? <span className="mono">{shortId(ship.lastOperation.runId)}</span> : null}
+								</div>
+							) : null}
+							{shipOp ? (
+								<div className="inline">
+									<button
+										className="button primary"
+										type="button"
+										disabled={!ship.reasonRecorded || Boolean(ship.busyId)}
+										onClick={() => void ship.run(shipOp.operation, liveShipItem.runId ?? '', shipOp.kind)}
+									>
+										{shipOp.operation === 'promote' ? copy.promote : copy.createPr}
+									</button>
+								</div>
+							) : null}
 						</div>
 					) : null}
 				</div>

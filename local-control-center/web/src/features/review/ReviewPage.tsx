@@ -85,6 +85,8 @@ const COPY: Record<Lang, {
 	shipPrBaseLabel: string;
 	shipAdvanced: string;
 	shipPromoted: string;
+	evidenceSectionTitle: string;
+	openFullEvidence: string;
 }> = {
 	en: {
 		kicker: 'Operational review ledger',
@@ -125,7 +127,7 @@ const COPY: Record<Lang, {
 		reject: 'Reject',
 		itemsSuffix: 'items',
 		ship: 'Ship',
-		shipDrawerLabel: 'Ship reviewed run',
+		shipDrawerLabel: 'Run detail',
 		promote: 'Promote branch',
 		createPr: 'Create PR',
 		shipReasonLabel: 'Workflow operation reason',
@@ -135,6 +137,8 @@ const COPY: Record<Lang, {
 		shipPrBaseLabel: 'PR base branch (optional)',
 		shipAdvanced: 'Advanced options',
 		shipPromoted: 'Last operation',
+		evidenceSectionTitle: 'Linked evidence',
+		openFullEvidence: 'Open full evidence',
 	},
 	es: {
 		kicker: 'Registro operacional de revisión',
@@ -175,7 +179,7 @@ const COPY: Record<Lang, {
 		reject: 'Rechazar',
 		itemsSuffix: 'ítems',
 		ship: 'Integrar',
-		shipDrawerLabel: 'Integrar ejecución revisada',
+		shipDrawerLabel: 'Detalle de la ejecución',
 		promote: 'Promover rama',
 		createPr: 'Crear PR',
 		shipReasonLabel: 'Razón de la operación de workflow',
@@ -185,6 +189,8 @@ const COPY: Record<Lang, {
 		shipPrBaseLabel: 'Rama base del PR (opcional)',
 		shipAdvanced: 'Opciones avanzadas',
 		shipPromoted: 'Última operación',
+		evidenceSectionTitle: 'Evidencia vinculada',
+		openFullEvidence: 'Abrir evidencia completa',
 	},
 };
 
@@ -202,15 +208,13 @@ function ReviewCard({
 	copy,
 	selected,
 	onOpenReview,
-	onOpenEvidence,
-	onShip,
+	onOpenDetail,
 }: {
 	item: ReviewItem;
 	copy: (typeof COPY)[Lang];
 	selected: boolean;
 	onOpenReview: (item: ReviewItem, trigger: HTMLElement | null) => void;
-	onOpenEvidence: () => void;
-	onShip: (item: ReviewItem, trigger: HTMLElement | null) => void;
+	onOpenDetail: (item: ReviewItem, trigger: HTMLElement | null) => void;
 }) {
 	const titleId = `review-card-${item.key}`;
 	const triggerRef = useRef<HTMLButtonElement>(null);
@@ -280,12 +284,18 @@ function ReviewCard({
 						className="button primary review-card-cta"
 						type="button"
 						aria-label={`${shipOp.operation === 'promote' ? copy.promote : copy.createPr}: ${item.runLabel} · ${item.projectName}`}
-						onClick={() => onShip(item, shipTriggerRef.current)}
+						onClick={() => onOpenDetail(item, shipTriggerRef.current)}
 					>
 						{shipOp.operation === 'promote' ? copy.promote : copy.createPr}
 					</button>
 				) : (item.hasEvidence ? (
-					<button className="button review-evidence-link" type="button" onClick={onOpenEvidence}>
+					<button
+						ref={shipTriggerRef}
+						className="button review-evidence-link"
+						type="button"
+						aria-label={`${copy.openEvidence}: ${item.runLabel} · ${item.projectName}`}
+						onClick={() => onOpenDetail(item, shipTriggerRef.current)}
+					>
 						{copy.openEvidence}
 					</button>
 				) : null)}
@@ -332,6 +342,14 @@ export function ReviewPage({
 		[items, shipItemKey],
 	);
 	const shipOp = liveShipItem ? shipOperationFor(liveShipItem) : null;
+	const detailEvidence = useMemo(() => {
+		if (!liveShipItem) return [];
+		const pkgId = liveShipItem.evidencePackageId;
+		const runId = liveShipItem.runId;
+		return overview.evidencePackages.filter(
+			(record) => (pkgId && String(record.id ?? '') === pkgId) || (runId && String(record.workflowRunId ?? '') === runId),
+		);
+	}, [overview, liveShipItem]);
 
 	const openReview = (item: ReviewItem, trigger: HTMLElement | null) => {
 		if (!item.actionId) return;
@@ -344,15 +362,12 @@ export function ReviewPage({
 		triggerRef.current = null;
 		if (trigger) trigger.focus();
 	};
-	const openEvidence = () => {
-		window.location.hash = 'evidence';
-	};
-	const openShip = (item: ReviewItem, trigger: HTMLElement | null) => {
+	const openDetail = (item: ReviewItem, trigger: HTMLElement | null) => {
 		shipTriggerRef.current = trigger;
 		ship.reset();
 		setShipItemKey(item.key);
 	};
-	const closeShip = () => {
+	const closeDetail = () => {
 		setShipItemKey('');
 		ship.reset();
 		const trigger = shipTriggerRef.current;
@@ -403,8 +418,7 @@ export function ReviewPage({
 											copy={copy}
 											selected={item.actionId === selectedActionId && Boolean(selectedActionId)}
 											onOpenReview={openReview}
-											onOpenEvidence={openEvidence}
-											onShip={openShip}
+											onOpenDetail={openDetail}
 										/>
 									))
 								)}
@@ -511,7 +525,7 @@ export function ReviewPage({
 				</div>
 			</Drawer>
 
-			<Drawer label={copy.shipDrawerLabel} open={Boolean(liveShipItem)} onClose={closeShip}>
+			<Drawer label={copy.shipDrawerLabel} open={Boolean(liveShipItem)} onClose={closeDetail}>
 				<div className="drawer-body">
 					{liveShipItem ? (
 						<div className="stack">
@@ -521,6 +535,22 @@ export function ReviewPage({
 								<span className="mono">{shortId(liveShipItem.runId)}</span>
 							</div>
 							<p className="card-body">{liveShipItem.runLabel}</p>
+								<Surface title={copy.evidenceSectionTitle} flat>
+									<DataTable
+										rows={detailEvidence}
+										empty={<EmptyState title="No linked evidence packages" body="This run did not record evidence package references." />}
+										columns={[
+											{ key: 'id', label: 'Evidence', render: (row) => <span className="mono">{String(row.id ?? '')}</span> },
+											{ key: 'verdict', label: 'QA', render: (row) => <Badge tone={toneForStatus(String(row.qaVerdict ?? ''))}>{String(row.qaVerdict ?? '')}</Badge> },
+											{ key: 'source', label: 'Source', render: (row) => <span className="mono">{String(row.evidenceSource ?? 'operator_attested')}</span> },
+											{ key: 'task', label: 'Task', render: (row) => String(row.taskId ?? '') },
+										]}
+									/>
+									<a className="settings-console-link" href="#evidence">{copy.openFullEvidence}</a>
+								</Surface>
+								{shipOp ? (
+								<>
+								{/* Ship operations: promote / create PR (shippable runs only) */}
 							<div className="field">
 								<label htmlFor="review-ship-reason">{copy.shipReasonLabel}</label>
 								<textarea
@@ -567,6 +597,8 @@ export function ReviewPage({
 										{shipOp.operation === 'promote' ? copy.promote : copy.createPr}
 									</button>
 								</div>
+							) : null}
+							</>
 							) : null}
 						</div>
 					) : null}

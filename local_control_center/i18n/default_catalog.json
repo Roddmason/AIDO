@@ -15,6 +15,14 @@
     }
   ],
   "translations": {
+    "app.workflows.queueReasonHelp": {
+      "en": "Retry and Cancel are disabled until a reason is recorded.",
+      "es": "Reintentar y Cancelar quedan deshabilitados hasta registrar una razon."
+    },
+    "app.review.noLinkedEvidenceRun": {
+      "en": "This run did not record evidence package references.",
+      "es": "Esta ejecucion no registro referencias a paquetes de evidencia."
+    },
     "app.workspace.dialog.title": {
       "en": "New workspace",
       "es": "Nuevo workspace"

@@ -46,7 +46,6 @@ def test_dashboard_entrypoint_uses_vite_typescript_app() -> None:
 def test_frontend_feature_slices_are_explicit() -> None:
     expected = [
         "home",
-        "jobs-approvals",
         "memory",
         "agents",
         "workflows",
@@ -255,7 +254,7 @@ def test_web_tooling_has_motion_and_visual_smoke_scripts() -> None:
     smoke = ROOT / "tests_web" / "control-center.spec.js"
     assert smoke.exists()
     smoke_source = read(smoke)
-    assert "Jobs & Approvals" in smoke_source
+    assert "Review board" in smoke_source
     assert "Memory & Retrieval" in smoke_source
     assert "reduced motion" in smoke_source.lower()
 

@@ -18,10 +18,10 @@ type Refresh = (silent?: boolean) => Promise<void>;
 export type ShipOperation = 'promote' | 'pull-request';
 
 /**
- * Shared promote/PR ship lifecycle for a reviewed patch-workflow run. Both the
- * Review board and the (legacy) Jobs & Approvals queue consume this so the
- * status-gated, reason-gated branch-promotion and PR-creation contract has a
- * single implementation. The reason stays mandatory; status guards live at the
+ * Shared promote/PR ship lifecycle for a reviewed patch-workflow run. The Review
+ * board consumes this so the status-gated, reason-gated branch-promotion and
+ * PR-creation contract has a single implementation (the retired Jobs & Approvals
+ * queue used the same hook). The reason stays mandatory; status guards live at the
  * call sites (a run is only promotable / PR-able in the right state).
  */
 export type ShipOperations = {
@@ -38,7 +38,6 @@ export type ShipOperations = {
 	busyId: string;
 	reasonRecorded: boolean;
 	lastOperation: { status: string; reason: string; runId: string } | null;
-	recordOperation: (result: unknown, fallbackStatus: string) => void;
 	run: (operation: ShipOperation, runId: string, kind: PatchWorkflowKind) => Promise<void>;
 	reset: () => void;
 };
@@ -127,7 +126,6 @@ export function useShipOperations(token: string, refresh: Refresh): ShipOperatio
 		busyId,
 		reasonRecorded: Boolean(trimmedReason),
 		lastOperation,
-		recordOperation,
 		run,
 		reset,
 	};

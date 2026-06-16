@@ -3,7 +3,7 @@
  * @copyright Copyright (c) AIDO.
  * @author Roddmason
  */
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 
 import { downloadEvidenceArtifact, fetchEvidenceArtifact } from '../../api/client';
 import type { ArtifactPayload } from '../../api/client';
@@ -34,6 +34,12 @@ export function useArtifactPreview(token: string): ArtifactPreview {
 	const [loadingId, setLoadingId] = useState('');
 	const [downloadingId, setDownloadingId] = useState('');
 	const [error, setError] = useState('');
+	// Invalidates an in-flight preview when the drawer closes or a different
+	// artifact is opened, so a slow response cannot overwrite newer state.
+	const requestRef = useRef(0);
+	// Separate generation for downloads so an abandoned download cannot bleed a
+	// stale error into a later drawer, without cancelling an in-flight preview.
+	const downloadRef = useRef(0);
 
 	const openPreview = async (next: Artifact) => {
 		const artifactId = String(next.id ?? '');
@@ -42,16 +48,18 @@ export function useArtifactPreview(token: string): ArtifactPreview {
 			setError('Artifact metadata is incomplete.');
 			return;
 		}
+		const generation = ++requestRef.current;
 		setArtifact(next);
 		setPayload(null);
 		setError('');
 		setLoadingId(artifactId);
 		try {
-			setPayload(await fetchEvidenceArtifact(token, evidenceId, artifactId));
+			const result = await fetchEvidenceArtifact(token, evidenceId, artifactId);
+			if (requestRef.current === generation) setPayload(result);
 		} catch (caught) {
-			setError(caught instanceof Error ? caught.message : 'Artifact preview failed.');
+			if (requestRef.current === generation) setError(caught instanceof Error ? caught.message : 'Artifact preview failed.');
 		} finally {
-			setLoadingId('');
+			if (requestRef.current === generation) setLoadingId('');
 		}
 	};
 
@@ -62,18 +70,21 @@ export function useArtifactPreview(token: string): ArtifactPreview {
 			setError('Artifact metadata is incomplete.');
 			return;
 		}
+		const generation = ++downloadRef.current;
 		setError('');
 		setDownloadingId(artifactId);
 		try {
 			await downloadEvidenceArtifact(token, evidenceId, artifactId, artifactDisplayName(next));
 		} catch (caught) {
-			setError(caught instanceof Error ? caught.message : 'Artifact download failed.');
+			if (downloadRef.current === generation) setError(caught instanceof Error ? caught.message : 'Artifact download failed.');
 		} finally {
-			setDownloadingId('');
+			if (downloadRef.current === generation) setDownloadingId('');
 		}
 	};
 
 	const clear = () => {
+		requestRef.current += 1;
+		downloadRef.current += 1;
 		setArtifact(null);
 		setPayload(null);
 		setLoadingId('');

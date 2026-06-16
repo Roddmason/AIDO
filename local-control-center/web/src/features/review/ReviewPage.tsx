@@ -441,15 +441,15 @@ export function ReviewPage({
 								<Badge>{selectedAction.expiresAt ? `expires ${selectedAction.expiresAt}` : 'no expiration recorded'}</Badge>
 							</div>
 							<div className="diff-grid" role="table" aria-label="Action request scope">
-								<DetailRow label="Command" value={selectedAction.command || 'not recorded'} />
-								<DetailRow label="Argv" value={(selectedAction.commandArgv ?? []).join(' ')} />
+								<DetailRow label="Command" value={redactVisibleText(selectedAction.command || 'not recorded', 'not recorded')} />
+								<DetailRow label="Argv" value={redactVisibleText((selectedAction.commandArgv ?? []).join(' '), '')} />
 								<DetailRow label="Workspace" value={`${selectedAction.workspaceId || 'not recorded'} ${selectedAction.workspacePath || ''}`.trim()} />
-								<DetailRow label="Runtime" value={`${selectedAction.runtimeId || 'not recorded'} ${prettyJson(selectedAction.runtime)}`} />
+								<DetailRow label="Runtime" value={`${selectedAction.runtimeId || 'not recorded'} ${redactVisibleText(prettyJson(selectedAction.runtime), '')}`} />
 								<DetailRow label="Job" value={selectedAction.jobId} />
 								<DetailRow label="Project" value={selectedAction.projectId} />
 							</div>
 							<Surface title="Policy reason" flat>
-								<pre className="artifact-preview">{selectedAction.reason}</pre>
+								<pre className="artifact-preview">{redactVisibleText(selectedAction.reason, '')}</pre>
 							</Surface>
 							<Surface title="Linked evidence packages" flat>
 								<DataTable
@@ -613,7 +613,7 @@ export function ReviewPage({
 							{ship.lastOperation ? (
 								<div className="inline" role="status">
 									<Badge tone={toneForStatus(ship.lastOperation.status)}>{ship.lastOperation.status}</Badge>
-									<span>{ship.lastOperation.reason || copy.shipPromoted}</span>
+									<span>{redactVisibleText(ship.lastOperation.reason || copy.shipPromoted, copy.shipPromoted)}</span>
 									{ship.lastOperation.runId ? <span className="mono">{shortId(ship.lastOperation.runId)}</span> : null}
 								</div>
 							) : null}

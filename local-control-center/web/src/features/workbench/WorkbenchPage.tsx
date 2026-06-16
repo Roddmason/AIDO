@@ -337,7 +337,7 @@ export function WorkbenchPage({
 										</div>
 									</div>
 								) : (
-									<TaskComposer project={project} runtimeProviders={runtimeProviders} mutate={mutate} result={issueResult} busy={issueBusy} onResult={setIssueResult} onBusy={setIssueBusy} />
+									<TaskComposer project={project} runtimeProviders={runtimeProviders} mutate={mutate} result={issueResult} busy={issueBusy} onResult={setIssueResult} onBusy={setIssueBusy} onConfigureRuntime={onOpenRuntimeSetup} />
 								)}
 							</div>
 						) : null}

@@ -23,6 +23,82 @@
       "en": "This run did not record evidence package references.",
       "es": "Esta ejecucion no registro referencias a paquetes de evidencia."
     },
+    "app.workbench.task.changePrompt": {
+      "en": "What should AIDO change?",
+      "es": "Que debe cambiar AIDO?"
+    },
+    "app.workbench.task.changePlaceholder": {
+      "en": "Describe the change in plain language. The AI team plans, implements and tests it inside this workspace.",
+      "es": "Describe el cambio en lenguaje simple. El equipo IA lo planifica, implementa y prueba dentro de este workspace."
+    },
+    "app.workbench.task.modeGroup": {
+      "en": "Change type",
+      "es": "Tipo de cambio"
+    },
+    "app.workbench.task.modeFix": {
+      "en": "Fix bug",
+      "es": "Corregir error"
+    },
+    "app.workbench.task.modeFeature": {
+      "en": "Add feature",
+      "es": "Agregar funcionalidad"
+    },
+    "app.workbench.task.modeRefactor": {
+      "en": "Refactor",
+      "es": "Refactorizar"
+    },
+    "app.workbench.task.modeTests": {
+      "en": "Write tests",
+      "es": "Escribir pruebas"
+    },
+    "app.workbench.task.runChecks": {
+      "en": "Run project checks",
+      "es": "Ejecutar verificaciones del proyecto"
+    },
+    "app.workbench.task.requireReview": {
+      "en": "Require review before applying",
+      "es": "Requerir revision antes de aplicar"
+    },
+    "app.workbench.task.targetDisclosure": {
+      "en": "Target path (optional)",
+      "es": "Ruta objetivo (opcional)"
+    },
+    "app.workbench.task.advanced": {
+      "en": "Advanced",
+      "es": "Avanzado"
+    },
+    "app.workbench.task.advancedSummary": {
+      "en": "Runtime, checks and cost limit",
+      "es": "Runtime, verificaciones y limite de costo"
+    },
+    "app.workbench.task.configureRuntime": {
+      "en": "Configure runtime",
+      "es": "Configurar runtime"
+    },
+    "app.workbench.task.submit": {
+      "en": "Request change",
+      "es": "Pedir cambio"
+    },
+    "app.workbench.task.submitting": {
+      "en": "Requesting change",
+      "es": "Pidiendo cambio"
+    },
+    "app.workbench.task.blockerTitle": {
+      "en": "No executable runtime",
+      "es": "Sin runtime ejecutable"
+    },
+    "app.workbench.task.autoLine": {
+      "en": "AIDO auto-selects the best runtime; open Advanced to override runtime, checks or cost.",
+      "es": "AIDO selecciona el mejor runtime; abre Avanzado para ajustar runtime, verificaciones o costo."
+    },
+    "app.workbench.task.errorDescription": {
+      "en": "Describe the change before requesting it.",
+      "es": "Describe el cambio antes de pedirlo."
+    },
+    "app.workbench.task.checksOffWarning": {
+      "en": "Without checks, AIDO auto-detects them; if none exist the change stops for QA evidence before it can be approved.",
+      "es": "Sin verificaciones, AIDO las autodetecta; si no existen, el cambio se detiene por evidencia de QA antes de aprobarse."
+    },
     "app.workspace.dialog.title": {
       "en": "New workspace",
       "es": "Nuevo workspace"

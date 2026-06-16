@@ -3,24 +3,42 @@
  * @copyright Copyright (c) AIDO.
  * @author Roddmason
  */
+import { AlertTriangle, Rocket, SlidersHorizontal } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 
 import { runIssueToPatch } from '../../api/client';
 import type { IssueToPatchResponse } from '../../api/client';
 import type { Project, RuntimeProviders } from '../../api/types';
 import { Badge } from '../../components/primitives';
+import { Disclosure } from '../../components/Disclosure';
 import { useI18n } from '../../i18n/I18nProvider';
 import { toneForStatus } from '../../lib/format';
 import { objectRecord, runtimeIsExecutableIssueRuntime, runtimeSupportsIssueToPatch } from './workbenchSelectors';
 
 type Mutate = <T>(operation: (token: string) => Promise<T>, options?: { awaitRefresh?: boolean }) => Promise<T>;
+type TaskModeId = 'fix' | 'feature' | 'refactor' | 'tests';
 
 const issueQaPresets = [
-	{ id: 'none', label: 'No QA command', commands: [] as string[][] },
 	{ id: 'python-tests', label: 'Python tests', commands: [['uv', 'run', 'pytest', '-q']] },
 	{ id: 'web-tests', label: 'Web tests', commands: [['corepack', 'pnpm@10.24.0', 'run', 'test:web']] },
 	{ id: 'quality', label: 'Quality suite', commands: [['corepack', 'pnpm@10.24.0', 'run', 'quality']] },
 ];
+
+const taskModes: { id: TaskModeId; labelKey: string; label: string }[] = [
+	{ id: 'fix', labelKey: 'app.workbench.task.modeFix', label: 'Fix bug' },
+	{ id: 'feature', labelKey: 'app.workbench.task.modeFeature', label: 'Add feature' },
+	{ id: 'refactor', labelKey: 'app.workbench.task.modeRefactor', label: 'Refactor' },
+	{ id: 'tests', labelKey: 'app.workbench.task.modeTests', label: 'Write tests' },
+];
+
+/** Auto-selects a QA preset from the detected project stack so a non-expert never
+ *  has to reason about test commands. Overridable inside the Advanced disclosure. */
+function autoQaPresetId(project: Project | null): string {
+	const template = String(project?.templateId ?? '').toLowerCase();
+	if (template.startsWith('python') || template.includes('fastapi') || template.includes('django') || template.includes('flask')) return 'python-tests';
+	if (/(node|react|vue|next|vite|web|typescript|javascript|frontend)/.test(template)) return 'web-tests';
+	return 'python-tests';
+}
 
 export function TaskComposer({
 	project,
@@ -30,6 +48,7 @@ export function TaskComposer({
 	busy,
 	onResult,
 	onBusy,
+	onConfigureRuntime,
 }: {
 	project: Project | null;
 	runtimeProviders: RuntimeProviders | null;
@@ -38,27 +57,34 @@ export function TaskComposer({
 	busy: boolean;
 	onResult: (result: IssueToPatchResponse | null) => void;
 	onBusy: (busy: boolean) => void;
+	onConfigureRuntime: () => void;
 }) {
 	const { t } = useI18n();
-	const [issueTitle, setIssueTitle] = useState('');
-	const [issueText, setIssueText] = useState('');
+	const [description, setDescription] = useState('');
+	const [mode, setMode] = useState<TaskModeId>('fix');
 	const [targetPath, setTargetPath] = useState('');
+	const [runChecks, setRunChecks] = useState(true);
+	const [requireReview, setRequireReview] = useState(true);
 	const [preferredRuntime, setPreferredRuntime] = useState('');
-	const [qaPreset, setQaPreset] = useState('python-tests');
+	const [qaPreset, setQaPreset] = useState(() => autoQaPresetId(project));
 	const [maxCostUsd, setMaxCostUsd] = useState('');
-	const [requireApproval, setRequireApproval] = useState(true);
 	const [issueError, setIssueError] = useState('');
 
 	const runtimeRows = runtimeProviders?.providers ?? [];
 	const executableRuntimes = useMemo(() => runtimeRows.filter(runtimeIsExecutableIssueRuntime), [runtimeRows]);
 	const selectedRuntime = executableRuntimes.find((item) => item.id === preferredRuntime) ?? null;
 	const selectedQaPreset = issueQaPresets.find((item) => item.id === qaPreset) ?? issueQaPresets[0];
-	const qaMissing = selectedQaPreset.commands.length === 0;
 	const hasExecutableRuntime = executableRuntimes.length > 0;
 	const unavailableIssueRuntime = runtimeRows.find((runtime) => runtimeSupportsIssueToPatch(runtime) && runtime.executable !== true);
 	const runtimeBlockReason = runtimeProviders
 		? unavailableIssueRuntime?.reason ?? t('app.workbench.task.runtimeNoExecutable', 'No executable issue_to_patch/code_edit runtime is configured.')
 		: t('app.workbench.task.runtimeDiscovery', 'Runtime provider discovery has not completed.');
+
+	const activeMode = taskModes.find((item) => item.id === mode) ?? taskModes[0];
+	const modeLabel = t(activeMode.labelKey, activeMode.label);
+	const firstLineText = description.trim().split(/\r?\n/)[0]?.slice(0, 140) ?? '';
+	const derivedTitle = firstLineText ? `${modeLabel}: ${firstLineText}`.slice(0, 180) : '';
+	const effectiveQaCommands = runChecks ? selectedQaPreset.commands : [];
 
 	const resultRuntime = objectRecord(result?.runtime);
 	const resultQa = Array.isArray(result?.qaResults) ? objectRecord(result?.qaResults[0]) : undefined;
@@ -68,33 +94,36 @@ export function TaskComposer({
 	const resultStatus = String(result?.status ?? '');
 	const executionMode = resultStatus === 'runtime_unavailable' || resultStatus === 'unavailable' || resultRuntime?.executable === false ? 'runtime_unavailable' : 'productive_runtime';
 
-	const runDisabled = !project || busy || qaMissing || !selectedRuntime || !issueTitle.trim() || !issueText.trim();
+	const runDisabled = !project || busy || !description.trim() || !selectedRuntime;
 
+	// Auto-select the best executable runtime (prefer a detected one); preserve a
+	// valid manual override from the Advanced disclosure.
 	useEffect(() => {
 		if (!executableRuntimes.length) {
 			setPreferredRuntime('');
 			return;
 		}
-		setPreferredRuntime((current) => (executableRuntimes.some((runtime) => runtime.id === current) ? current : executableRuntimes[0].id));
+		setPreferredRuntime((current) =>
+			executableRuntimes.some((runtime) => runtime.id === current)
+				? current
+				: (executableRuntimes.find((runtime) => runtime.detected) ?? executableRuntimes[0]).id,
+		);
 	}, [executableRuntimes]);
 
+	// Re-derive the QA preset from the project stack when the project changes; a
+	// manual override inside Advanced persists until the project switches.
+	useEffect(() => {
+		setQaPreset(autoQaPresetId(project));
+	}, [project?.id]);
+
 	const runPatchWorkflow = async () => {
-		const title = issueTitle.trim();
-		const bodyText = issueText.trim();
+		const bodyText = description.trim();
 		if (!project) {
 			setIssueError(t('app.workbench.task.errorProject', 'A project is required before running issue_to_patch.'));
 			return;
 		}
-		if (!title) {
-			setIssueError(t('app.workbench.task.errorTitle', 'Issue title is required.'));
-			return;
-		}
 		if (!bodyText) {
-			setIssueError(t('app.workbench.task.errorText', 'Issue text is required.'));
-			return;
-		}
-		if (selectedQaPreset.commands.length === 0) {
-			setIssueError(t('app.workbench.task.errorQa', 'Select a QA preset before running issue_to_patch.'));
+			setIssueError(t('app.workbench.task.errorDescription', 'Describe the change before requesting it.'));
 			return;
 		}
 		if (!selectedRuntime) {
@@ -113,13 +142,13 @@ export function TaskComposer({
 			const response = await mutate((token) =>
 				runIssueToPatch(token, {
 					projectId: project.id,
-					title,
+					title: derivedTitle,
 					issueText: bodyText,
 					targetPath: targetPath.trim() || undefined,
 					preferredRuntime: selectedRuntime.id,
-					qaCommands: selectedQaPreset.commands,
+					qaCommands: effectiveQaCommands.length ? effectiveQaCommands : undefined,
 					maxCostUsd: parsedMaxCost,
-					requireApproval,
+					requireApproval: requireReview,
 				}),
 			);
 			onResult(response);
@@ -132,84 +161,108 @@ export function TaskComposer({
 
 	return (
 		<div className="form-grid">
+			{!hasExecutableRuntime ? (
+				<div className="form-error" role="status">
+					<div className="inline">
+						<AlertTriangle aria-hidden="true" size={16} />
+						<Badge tone="danger">runtime_unavailable</Badge>
+						<strong>{t('app.workbench.task.blockerTitle', 'No executable runtime')}</strong>
+					</div>
+					<p>{runtimeBlockReason}</p>
+					<button className="button" type="button" onClick={onConfigureRuntime}>
+						<SlidersHorizontal aria-hidden="true" size={15} /> {t('app.workbench.task.configureRuntime', 'Configure runtime')}
+					</button>
+				</div>
+			) : null}
+
 			<div className="field">
-				<label htmlFor="task-title">{t('app.workbench.task.title', 'Issue title')}</label>
-				<input
-					id="task-title"
-					className="input"
-					value={issueTitle}
-					maxLength={180}
-					autoComplete="off"
+				<label htmlFor="task-change">{t('app.workbench.task.changePrompt', 'What should AIDO change?')}</label>
+				<textarea
+					id="task-change"
+					className="textarea"
+					value={description}
+					rows={6}
 					disabled={!project || busy}
-					onChange={(event) => setIssueTitle(event.target.value)}
+					placeholder={t('app.workbench.task.changePlaceholder', 'Describe the change in plain language. The AI team plans, implements and tests it inside this workspace.')}
+					onChange={(event) => setDescription(event.target.value)}
 				/>
 			</div>
-			<div className="field">
-				<label htmlFor="task-text">{t('app.workbench.task.text', 'Issue text')}</label>
-				<textarea id="task-text" className="textarea" value={issueText} rows={6} disabled={!project || busy} onChange={(event) => setIssueText(event.target.value)} />
+
+			<div className="wizard-mode-toggle" role="group" aria-label={t('app.workbench.task.modeGroup', 'Change type')}>
+				{taskModes.map((item) => (
+					<button key={item.id} className="button" type="button" aria-pressed={mode === item.id} disabled={!project || busy} onClick={() => setMode(item.id)}>
+						{t(item.labelKey, item.label)}
+					</button>
+				))}
 			</div>
-			<div className="field">
-				<label htmlFor="task-target">{t('app.workbench.task.target', 'Target path')}</label>
-				<input
-					id="task-target"
-					className="input"
-					value={targetPath}
-					disabled={!project || busy}
-					placeholder={t('app.workbench.task.targetHint', 'Optional repository-relative path')}
-					onChange={(event) => setTargetPath(event.target.value)}
-				/>
+
+			<div className="stack compact">
+				<label className="checkbox-row" htmlFor="task-run-checks">
+					<input id="task-run-checks" type="checkbox" checked={runChecks} disabled={!project || busy} onChange={(event) => setRunChecks(event.target.checked)} />
+					{t('app.workbench.task.runChecks', 'Run project checks')}
+				</label>
+				<label className="checkbox-row" htmlFor="task-require-review">
+					<input id="task-require-review" type="checkbox" checked={requireReview} disabled={!project || busy} onChange={(event) => setRequireReview(event.target.checked)} />
+					{t('app.workbench.task.requireReview', 'Require review before applying')}
+				</label>
+				{!runChecks ? (
+					<p className="form-error" role="status">{t('app.workbench.task.checksOffWarning', 'Without checks, AIDO auto-detects them; if none exist the change stops for QA evidence before it can be approved.')}</p>
+				) : null}
+				<p className="field-help">{t('app.workbench.task.autoLine', 'AIDO auto-selects the best runtime; open Advanced to override runtime, checks or cost.')}</p>
 			</div>
-			<div className="field">
-				<label htmlFor="task-runtime">{t('app.workbench.task.runtime', 'Preferred runtime')}</label>
-				<select id="task-runtime" className="select" value={preferredRuntime} disabled={!project || !hasExecutableRuntime || busy} onChange={(event) => setPreferredRuntime(event.target.value)}>
-					{hasExecutableRuntime ? null : <option value="">{t('app.workbench.task.runtimeNone', 'No executable runtime')}</option>}
-					{executableRuntimes.map((runtime) => (
-						<option key={runtime.id} value={runtime.id}>
-							{runtime.id} - {runtime.executable ? 'executable' : runtime.available ? 'available' : 'unavailable'}
-						</option>
-					))}
-				</select>
-				{selectedRuntime ? (
-					<>
+
+			<Disclosure title={t('app.workbench.task.targetDisclosure', 'Target path (optional)')}>
+				<div className="field">
+					<label htmlFor="task-target">{t('app.workbench.task.target', 'Target path')}</label>
+					<input
+						id="task-target"
+						className="input"
+						value={targetPath}
+						disabled={!project || busy}
+						placeholder={t('app.workbench.task.targetHint', 'Optional repository-relative path')}
+						onChange={(event) => setTargetPath(event.target.value)}
+					/>
+				</div>
+			</Disclosure>
+
+			<Disclosure title={t('app.workbench.task.advanced', 'Advanced')} summary={t('app.workbench.task.advancedSummary', 'Runtime, checks and cost limit')}>
+				<div className="field">
+					<label htmlFor="task-runtime">{t('app.workbench.task.runtime', 'Preferred runtime')}</label>
+					<select id="task-runtime" className="select" value={preferredRuntime} disabled={!project || !hasExecutableRuntime || busy} onChange={(event) => setPreferredRuntime(event.target.value)}>
+						{hasExecutableRuntime ? null : <option value="">{t('app.workbench.task.runtimeNone', 'No executable runtime')}</option>}
+						{executableRuntimes.map((runtime) => (
+							<option key={runtime.id} value={runtime.id}>
+								{runtime.id} - {runtime.executable ? 'executable' : runtime.available ? 'available' : 'unavailable'}
+							</option>
+						))}
+					</select>
+					{selectedRuntime ? (
 						<div className="inline">
 							<Badge tone={selectedRuntime.detected ? 'ok' : 'warn'}>{selectedRuntime.detected ? 'detected' : 'not detected'}</Badge>
-							<Badge tone={selectedRuntime.configured ? 'ok' : 'warn'}>{selectedRuntime.configured ? 'configured' : 'not configured'}</Badge>
-							<Badge tone={selectedRuntime.available ? 'ok' : 'warn'}>{selectedRuntime.available ? 'available' : 'unavailable'}</Badge>
 							<Badge tone={selectedRuntime.executable ? 'ok' : 'warn'}>{selectedRuntime.executable ? 'executable' : 'not executable'}</Badge>
 						</div>
-						<div className="field-help">{`${selectedRuntime.reason}${selectedRuntime.requiredConfiguration?.length ? ` Required: ${selectedRuntime.requiredConfiguration.join(', ')}` : ''}`}</div>
-					</>
-				) : (
-					<div className="form-error" role="status">
-						<Badge tone="danger">runtime_unavailable</Badge> {runtimeBlockReason}
-					</div>
-				)}
-			</div>
-			<div className="field">
-				<label htmlFor="task-qa">{t('app.workbench.task.qa', 'QA preset')}</label>
-				<select id="task-qa" className="select" value={qaPreset} disabled={!project || busy} onChange={(event) => setQaPreset(event.target.value)}>
-					{issueQaPresets.map((preset) => (
-						<option key={preset.id} value={preset.id}>{preset.label}</option>
-					))}
-				</select>
-				<div className="field-help">{selectedQaPreset.commands.length ? selectedQaPreset.commands.map((command) => command.join(' ')).join(' | ') : t('app.workbench.task.qaNone', 'No QA command selected; issue_to_patch is blocked.')}</div>
-			</div>
-			<div className="field">
-				<label htmlFor="task-cost">{t('app.workbench.task.cost', 'Maximum cost USD')}</label>
-				<input id="task-cost" className="input tnum" type="number" min="0" step="0.01" value={maxCostUsd} disabled={!project || busy} onChange={(event) => setMaxCostUsd(event.target.value)} />
-			</div>
-			<div className="inline">
-				<label className="checkbox-row" htmlFor="task-approval">
-					<input id="task-approval" type="checkbox" checked={requireApproval} disabled={!project || busy} onChange={(event) => setRequireApproval(event.target.checked)} />
-					{t('app.workbench.task.approval', 'Require approval before completion')}
-				</label>
-			</div>
+					) : null}
+				</div>
+				<div className="field">
+					<label htmlFor="task-qa">{t('app.workbench.task.qa', 'QA preset')}</label>
+					<select id="task-qa" className="select" value={qaPreset} disabled={!project || busy} onChange={(event) => setQaPreset(event.target.value)}>
+						{issueQaPresets.map((preset) => (
+							<option key={preset.id} value={preset.id}>{preset.label}</option>
+						))}
+					</select>
+					<div className="field-help">{selectedQaPreset.commands.map((command) => command.join(' ')).join(' | ')}</div>
+				</div>
+				<div className="field">
+					<label htmlFor="task-cost">{t('app.workbench.task.cost', 'Maximum cost USD')}</label>
+					<input id="task-cost" className="input tnum" type="number" min="0" step="0.01" value={maxCostUsd} disabled={!project || busy} onChange={(event) => setMaxCostUsd(event.target.value)} />
+				</div>
+			</Disclosure>
+
 			<div className="inline">
 				<button className="button primary" type="button" disabled={runDisabled} onClick={() => void runPatchWorkflow()}>
-					{busy ? t('app.workbench.task.running', 'Running issue_to_patch') : t('app.workbench.task.run', 'Run issue_to_patch')}
+					<Rocket aria-hidden="true" size={16} /> {busy ? t('app.workbench.task.submitting', 'Requesting change') : t('app.workbench.task.submit', 'Request change')}
 				</button>
 				{selectedRuntime ? <Badge tone="ok">{selectedRuntime.id}</Badge> : <Badge tone="danger">runtime_unavailable</Badge>}
-				{qaMissing ? <Badge tone="danger">qa_not_selected</Badge> : null}
 			</div>
 			{issueError ? <div className="form-error" role="alert">{issueError}</div> : null}
 			{result ? (

@@ -26,166 +26,22 @@ import { artifactDisplayName, artifactMimeType, artifactSizeLabel } from '../../
 import { findPatchArtifact, hasRealPatchChanges } from '../../lib/diff';
 import { shortId, toneForStatus } from '../../lib/format';
 import { redactVisibleText } from '../../lib/redaction';
+import {
+	asRecord,
+	evidenceCompleteness,
+	findSecurityFindingsArtifact,
+	linkedArtifacts,
+	linkedEvidence,
+	patchWorkflowApproval,
+	patchWorkflowKind,
+	prettyJson,
+	requiresPatchEvidenceGate,
+	securityFindingsAreNonBlocking,
+} from '../review/model';
+import type { PatchWorkflowKind } from '../review/model';
 
 type Mutate = <T>(operation: (token: string) => Promise<T>) => Promise<T>;
 type Refresh = (silent?: boolean) => Promise<void>;
-type PatchWorkflowKind = 'issue_to_patch' | 'issue_to_pr';
-type PatchWorkflowApproval = { kind: PatchWorkflowKind; runId: string };
-
-function asRecord(value: unknown): Record<string, unknown> {
-	return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
-}
-
-function prettyJson(value: unknown): string {
-	return JSON.stringify(value ?? null, null, 2);
-}
-
-function referenceIds(action: ActionRequest): Set<string> {
-	const ids = new Set<string>();
-	for (const ref of action.evidenceRefs ?? []) ids.add(String(ref));
-	for (const ref of action.diffRefs ?? []) {
-		if (typeof ref === 'string') {
-			ids.add(ref);
-			continue;
-		}
-		const record = asRecord(ref);
-		for (const key of ['artifactId', 'artifactID', 'id', 'evidencePackageId']) {
-			const value = record[key];
-			if (typeof value === 'string' && value.trim()) ids.add(value);
-		}
-	}
-	const payload = asRecord(action.payload);
-	for (const key of ['artifactId', 'diffArtifactId', 'evidencePackageId']) {
-		const value = payload[key];
-		if (typeof value === 'string' && value.trim()) ids.add(value);
-	}
-	return ids;
-}
-
-function linkedArtifacts(action: ActionRequest, overview: Overview): Artifact[] {
-	const ids = referenceIds(action);
-	return overview.artifacts.filter((artifact) => {
-		const artifactId = String(artifact.id ?? '');
-		const evidenceId = String(artifact.evidencePackageId ?? '');
-		return ids.has(artifactId) || ids.has(evidenceId);
-	});
-}
-
-function linkedEvidence(action: ActionRequest, overview: Overview) {
-	const ids = referenceIds(action);
-	return overview.evidencePackages.filter((evidence) => ids.has(String(evidence.id ?? '')) || String(evidence.jobId ?? '') === action.jobId);
-}
-
-function patchWorkflowKind(value: unknown): PatchWorkflowKind | null {
-	return value === 'issue_to_patch' || value === 'issue_to_pr' ? value : null;
-}
-
-function patchWorkflowApproval(action: ActionRequest): PatchWorkflowApproval | null {
-	const kind = action.actionType === 'workflow.issue_to_patch.approve_patch'
-		? 'issue_to_patch'
-		: action.actionType === 'workflow.issue_to_pr.approve_issue_to_pr'
-			? 'issue_to_pr'
-			: null;
-	if (!kind) return null;
-	const payload = asRecord(action.payload);
-	const workflowRunId = payload.workflowRunId;
-	return typeof workflowRunId === 'string' && workflowRunId.trim() ? { kind, runId: workflowRunId } : null;
-}
-
-function requiresPatchEvidenceGate(action: ActionRequest): boolean {
-	return Boolean(patchWorkflowApproval(action)) || action.actionType === 'agent.developer.approve_patch';
-}
-
-function isSecurityFindingsArtifact(artifact: Artifact): boolean {
-	const name = artifactDisplayName(artifact).toLowerCase();
-	const kind = String(artifact.kind ?? '').toLowerCase();
-	return name === 'security-findings.json' || kind.includes('security_findings');
-}
-
-function findSecurityFindingsArtifact(artifacts: Artifact[]) {
-	return artifacts.find(isSecurityFindingsArtifact) ?? null;
-}
-
-function evidenceHasPassingQa(evidence: Overview['evidencePackages'][number]): boolean {
-	return (evidence.testResults ?? []).some((result) => {
-		const record = asRecord(result);
-		const status = String(record.status ?? '').toLowerCase();
-		return status === 'passed';
-	});
-}
-
-function securityFindingsAreNonBlocking(payload: ArtifactPayload | null): boolean {
-	if (!payload?.text) return false;
-	try {
-		const parsed = JSON.parse(payload.text) as unknown;
-		const record = asRecord(parsed);
-		if (String(record.status ?? '').toLowerCase() === 'blocked') return false;
-		const findings = Array.isArray(record.findings) ? record.findings : [];
-		return findings.every((finding) => {
-			const decision = String(asRecord(finding).decision ?? '').toLowerCase();
-			return !['deny', 'requires_human', 'requires_approval'].includes(decision);
-		});
-	} catch {
-		return false;
-	}
-}
-
-function evidenceCompleteness({
-	action,
-	artifacts,
-	diffError,
-	diffLoading,
-	diffPayload,
-	evidence,
-	securityError,
-	securityLoading,
-	securityPayload,
-}: {
-	action: ActionRequest;
-	artifacts: Artifact[];
-	diffError: string;
-	diffLoading: boolean;
-	diffPayload: ArtifactPayload | null;
-	evidence: Overview['evidencePackages'];
-	securityError: string;
-	securityLoading: boolean;
-	securityPayload: ArtifactPayload | null;
-}) {
-	const required = requiresPatchEvidenceGate(action);
-	if (!required) return { required, complete: true, reasons: ['No patch evidence gate is required for this action request.'] };
-	const patchArtifact = findPatchArtifact(artifacts);
-	const securityArtifact = findSecurityFindingsArtifact(artifacts);
-	const hasEvidencePackage = evidence.length > 0;
-	const hasDiffRefs = evidence.some((item) => Array.isArray(item.diffRefs) && item.diffRefs.length > 0) || Boolean(action.diffRefs?.length);
-	const hasPassingQa = evidence.some(evidenceHasPassingQa);
-	const hasPatchArtifact = Boolean(patchArtifact);
-	const hasPatchHash = Boolean(patchArtifact?.hash || diffPayload?.hash);
-	const hasLoadedPatch = Boolean(diffPayload?.text);
-	const hasPatchChanges = hasLoadedPatch && hasRealPatchChanges(diffPayload?.text ?? '');
-	const hasSecurityArtifact = Boolean(securityArtifact);
-	const hasSecurityHash = Boolean(securityArtifact?.hash || securityPayload?.hash);
-	const hasNonBlockingSecurityFindings = securityFindingsAreNonBlocking(securityPayload);
-	const checks = [
-		{ ok: hasEvidencePackage, message: 'linked evidence package recorded' },
-		{ ok: hasDiffRefs, message: 'diff refs recorded' },
-		{ ok: hasPatchArtifact, message: 'patch artifact linked' },
-		{ ok: !diffLoading, message: 'patch artifact loaded' },
-		{ ok: !diffError, message: diffError || 'patch artifact readable' },
-		{ ok: hasPatchHash, message: 'patch artifact hash recorded' },
-		{ ok: hasPatchChanges, message: 'patch artifact contains real unified diff changes' },
-		{ ok: hasPassingQa, message: 'QA command evidence passed' },
-		{ ok: hasSecurityArtifact, message: 'security findings artifact linked' },
-		{ ok: !securityLoading, message: 'security findings artifact loaded' },
-		{ ok: !securityError, message: securityError || 'security findings artifact readable' },
-		{ ok: hasSecurityHash, message: 'security findings artifact hash recorded' },
-		{ ok: hasNonBlockingSecurityFindings, message: 'security findings are non-blocking' },
-	];
-	return {
-		required,
-		complete: checks.every((check) => check.ok),
-		reasons: checks.map((check) => `${check.ok ? 'ok' : 'missing'}: ${check.message}`),
-	};
-}
 
 function DetailRow({ label, value }: { label: string; value: string }) {
 	return (

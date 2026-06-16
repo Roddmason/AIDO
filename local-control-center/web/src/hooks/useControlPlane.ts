@@ -78,6 +78,10 @@ export function useControlPlane() {
 				runtimeProviderConfiguration: runtimeProviderConfigurationResponse?.providers ?? null,
 				loading: false,
 				error: '',
+				// A successful authenticated handshake + overview means the local control
+				// API is reachable. This is honest reachability (last fetch succeeded),
+				// not a live/SSE stream — the data layer still polls every 5s.
+				connected: true,
 				lastUpdatedAt: new Date().toISOString(),
 			}));
 		} catch (error) {
@@ -87,6 +91,9 @@ export function useControlPlane() {
 			setState((current) => ({
 				...current,
 				loading: false,
+				// The last fetch did not reach the API: drop back to the un-connected
+				// ("polling"/retrying) state. The 5s interval keeps trying.
+				connected: false,
 				error: silent && current.overview ? '' : message,
 			}));
 		} finally {

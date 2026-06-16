@@ -30,6 +30,7 @@ import type { PatchWorkflowKind, ReviewColumn, ReviewItem } from './model';
 import { useReviewDecision } from './useReviewDecision';
 import { useShipOperations } from './useShipOperations';
 import type { ShipOperation } from './useShipOperations';
+import { useArtifactPreview } from './useArtifactPreview';
 
 /**
  * A shippable board item: a reviewed patch-workflow run whose status allows the
@@ -330,6 +331,7 @@ export function ReviewPage({
 		[overview, selectedActionId],
 	);
 	const decision = useReviewDecision(selectedAction, overview, token, mutate);
+	const artifactPreview = useArtifactPreview(token);
 
 	// Ship lifecycle (promote/PR) for a reviewed, approved run — additive to the
 	// decision flow. Keyed by item key so it re-resolves the live run after a
@@ -358,6 +360,7 @@ export function ReviewPage({
 	};
 	const closeReview = () => {
 		setSelectedActionId('');
+		artifactPreview.clear();
 		const trigger = triggerRef.current;
 		triggerRef.current = null;
 		if (trigger) trigger.focus();
@@ -468,8 +471,36 @@ export function ReviewPage({
 										{ key: 'name', label: 'Name', render: (row) => artifactDisplayName(row) },
 										{ key: 'kind', label: 'Kind', render: (row) => <span className="mono">{String(row.kind ?? '')}</span> },
 										{ key: 'hash', label: 'Hash', render: (row) => <span className="mono">{String(row.hash ?? '').slice(0, 12) || 'not recorded'}</span> },
+										{
+											key: 'action',
+											label: 'Action',
+											render: (row) => {
+												const loading = artifactPreview.loadingId === String(row.id ?? '');
+												const downloading = artifactPreview.downloadingId === String(row.id ?? '');
+												return (
+													<div className="inline" aria-busy={loading || downloading}>
+														<button className="button" type="button" aria-label={`Preview artifact ${artifactDisplayName(row)}`} disabled={loading} onClick={() => void artifactPreview.openPreview(row)}>{loading ? 'Opening' : 'Preview'}</button>
+														<button className="button" type="button" aria-label={`Download artifact ${artifactDisplayName(row)}`} disabled={downloading} onClick={() => void artifactPreview.download(row)}>{downloading ? 'Downloading' : 'Download'}</button>
+													</div>
+												);
+											},
+										},
 									]}
 								/>
+								{artifactPreview.error ? <div className="form-error" role="alert">{artifactPreview.error}</div> : null}
+								{artifactPreview.artifact ? (
+									<div className="stack">
+										<div className="inline">
+											<Badge>{String(artifactPreview.artifact.kind ?? 'artifact')}</Badge>
+											<span className="mono">sha256 {String(artifactPreview.payload?.hash || artifactPreview.artifact.hash || 'not recorded')}</span>
+										</div>
+										{artifactPreview.payload?.text ? (
+											<pre className="artifact-preview">{redactVisibleText(artifactPreview.payload.text, '')}</pre>
+										) : (
+											<EmptyState title={artifactPreview.loadingId ? 'Loading artifact' : 'Binary or empty artifact'} body="Non-text artifacts remain downloadable, but are not rendered inline." />
+										)}
+									</div>
+								) : null}
 							</Surface>
 							{decision.patchGate?.required ? (
 								<Surface title="Evidence completeness" flat>

@@ -6,7 +6,7 @@
 import { Background, Controls, ReactFlow, type Edge, type Node } from '@xyflow/react';
 import { useEffect, useMemo, useState } from 'react';
 
-import { downloadEvidenceArtifact, fetchEvidenceArtifact, type ArtifactPayload } from '../../api/client';
+import { cancelJob, downloadEvidenceArtifact, fetchEvidenceArtifact, retryJob, type ArtifactPayload } from '../../api/client';
 import type { Artifact, Overview, WorkflowStep } from '../../api/types';
 import { Badge, DataTable, Drawer, EmptyState, PageHeader, StatusDot, Surface } from '../../components/primitives';
 import { artifactDisplayName, artifactMimeType, artifactSizeLabel } from '../../lib/artifacts';
@@ -387,13 +387,35 @@ function WorkflowTimeline({ items }: { items: WorkflowTimelineItem[] }) {
 	);
 }
 
-export function WorkflowsPage({ overview, token }: { overview: Overview; token: string }) {
+type Mutate = <T>(operation: (token: string) => Promise<T>) => Promise<T>;
+
+export function WorkflowsPage({ overview, token, mutate }: { overview: Overview; token: string; mutate: Mutate }) {
 	const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(null);
 	const [previewArtifact, setPreviewArtifact] = useState<Artifact | null>(null);
 	const [previewPayload, setPreviewPayload] = useState<ArtifactPayload | null>(null);
 	const [previewLoadingId, setPreviewLoadingId] = useState('');
 	const [downloadLoadingId, setDownloadLoadingId] = useState('');
 	const [previewError, setPreviewError] = useState('');
+	const [jobMutationReason, setJobMutationReason] = useState('');
+	const [jobMutationBusyId, setJobMutationBusyId] = useState('');
+	const [jobMutationError, setJobMutationError] = useState('');
+	// Queue recovery (retry/cancel) relocated from the retired Jobs & Approvals page.
+	// A non-empty reason is mandatory (the old page allowed an empty reason).
+	const runJobMutation = async (op: 'retry' | 'cancel', jobId: string, reason: string) => {
+		if (!reason.trim()) {
+			setJobMutationError('Queue change reason is required.');
+			return;
+		}
+		setJobMutationBusyId(jobId);
+		setJobMutationError('');
+		try {
+			await mutate((writeToken) => (op === 'retry' ? retryJob(writeToken, jobId, reason.trim()) : cancelJob(writeToken, jobId, reason.trim())));
+		} catch (error) {
+			setJobMutationError(error instanceof Error ? error.message : 'Queue operation failed.');
+		} finally {
+			setJobMutationBusyId('');
+		}
+	};
 	useEffect(() => {
 		const onKeyDown = (event: KeyboardEvent) => {
 			if (event.key === 'Escape') {
@@ -792,6 +814,12 @@ export function WorkflowsPage({ overview, token }: { overview: Overview; token: 
 								]} />
 							</Surface>
 							<Surface title="Jobs and leases" flat>
+								<div className="field">
+									<label htmlFor="workflow-job-mutation-reason">Queue change reason</label>
+									<textarea id="workflow-job-mutation-reason" className="textarea" value={jobMutationReason} onChange={(event) => { setJobMutationReason(event.target.value); setJobMutationError(''); }} />
+									<div className="field-help">Retry and Cancel are disabled until a reason is recorded.</div>
+								</div>
+								{jobMutationError ? <div className="form-error" role="alert">{jobMutationError}</div> : null}
 								<DataTable rows={linked.jobs} empty={<EmptyState title="No jobs" body="Jobs linked to workflow runs appear here." />} columns={[
 									{ key: 'kind', label: 'Kind', render: (row) => <span className="mono">{row.kind}</span> },
 									{ key: 'status', label: 'Status', render: (row) => <Badge tone={toneForStatus(row.status)}>{row.status}</Badge> },
@@ -803,6 +831,20 @@ export function WorkflowsPage({ overview, token }: { overview: Overview; token: 
 											const payload = objectValue(row.payload);
 											const runtime = objectValue(payload.runtime);
 											return <span className="mono">{String(runtime.id ?? 'not selected')}</span>;
+										},
+									},
+									{
+										key: 'actions',
+										label: 'Actions',
+										render: (row) => {
+											const busy = jobMutationBusyId === row.id;
+											const blocked = !jobMutationReason.trim() || Boolean(jobMutationBusyId);
+											return (
+												<div className="inline" aria-busy={busy}>
+													<button className="button" type="button" aria-label={`Retry job ${row.kind}`} disabled={blocked} onClick={() => void runJobMutation('retry', row.id, jobMutationReason)}>{busy ? 'Retrying' : 'Retry'}</button>
+													<button className="button danger" type="button" aria-label={`Cancel job ${row.kind}`} disabled={blocked} onClick={() => void runJobMutation('cancel', row.id, jobMutationReason)}>{busy ? 'Cancelling' : 'Cancel'}</button>
+												</div>
+											);
 										},
 									},
 								]} />

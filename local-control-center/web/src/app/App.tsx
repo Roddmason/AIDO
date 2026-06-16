@@ -306,7 +306,7 @@ export function App() {
 		}
 		switch (page) {
 			case 'workflows':
-				return <WorkflowsPage overview={overview} token={state.token} />;
+				return <WorkflowsPage overview={overview} token={state.token} mutate={state.mutate} />;
 			case 'review-board':
 				return <ReviewPage overview={overview} token={state.token} mutate={state.mutate} refresh={state.refresh} />;
 			case 'jobs':

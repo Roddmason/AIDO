@@ -1129,8 +1129,10 @@ test('Review board approve patch is evidence-first blocked while reject stays op
 	await expect(review.getByRole('heading', { name: 'Evidence completeness' })).toBeVisible();
 	await expect(review.getByText('evidence_complete')).toBeVisible();
 	await expect(review.getByRole('button', { name: 'Approve patch' })).toBeDisabled();
+	await expect(review.getByRole('button', { name: 'Reject' })).toBeDisabled();
 	await review.getByLabel('Human decision reason').fill('Reviewed full diff and QA evidence.');
 	await expect(review.getByRole('button', { name: 'Approve patch' })).toBeEnabled();
+	await expect(review.getByRole('button', { name: 'Reject' })).toBeEnabled();
 	await review.getByRole('button', { name: 'Approve patch' }).click();
 	await expect.poll(() => approvePatchCalled).toBe(true);
 
@@ -1262,6 +1264,13 @@ test('Review board promotes branches and creates PRs for approved runs with reas
 	await expect(prDrawer.getByText('AIDO_GITHUB_TOKEN is missing.').first()).toBeVisible();
 });
 
+test('legacy /#jobs route resolves to the Review board surface', async ({ page }) => {
+	await page.goto('/#jobs');
+	await expectControlPlaneLoaded(page);
+	await expect(page.getByRole('region', { name: 'Review board' })).toBeVisible();
+	await expect(page.locator('.activity-bar-item[aria-current="page"]')).toHaveAttribute('aria-label', 'Review');
+});
+
 test('Event drawer exposes recent operational events', async ({ page }) => {
 	await createApprovalJob(page);
 	await page.goto('/');
@@ -1360,6 +1369,29 @@ test('Workflow inspector retries a job with a mandatory reason', async ({ page }
 	await expect(retry).toBeEnabled();
 	await retry.click();
 	await expect.poll(() => retryCalled).toBe(true);
+});
+
+test('Workflow inspector cancels a job with a mandatory reason', async ({ page }) => {
+	const project = await getActiveProject(page);
+	const fixture = issueToPatchApprovalFixture(project.id, 'queue-cancel', { completeEvidence: true });
+	let cancelCalled = false;
+	await routeIssueToPatchApprovalOverview(page, [fixture]);
+	await page.route(`/api/v1/jobs/${fixture.job.id}/cancel`, async (route) => {
+		cancelCalled = true;
+		const body = route.request().postDataJSON();
+		expect(body.reason).toBe('Abort the superseded QA lease.');
+		await route.fulfill({ status: 202, json: { job: { ...fixture.job, status: 'cancelled' } } });
+	});
+	await page.goto('/#workflows');
+	await page.getByRole('button', { name: 'Workflows' }).click();
+	await page.getByRole('button', { name: `Inspect workflow ${fixture.workflow.title}` }).click();
+	const cancel = page.getByRole('button', { name: `Cancel job ${fixture.job.kind}` }).first();
+	await expect(cancel).toBeVisible();
+	await expect(cancel).toBeDisabled();
+	await page.getByLabel('Queue change reason').fill('Abort the superseded QA lease.');
+	await expect(cancel).toBeEnabled();
+	await cancel.click();
+	await expect.poll(() => cancelCalled).toBe(true);
 });
 
 test('Workflow timeline shows approval promotion and PR operational states', async ({ page }) => {

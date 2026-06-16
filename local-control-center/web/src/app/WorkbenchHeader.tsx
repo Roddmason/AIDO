@@ -3,7 +3,9 @@
  * @copyright Copyright (c) AIDO.
  * @author Roddmason
  */
-import { PanelRight, RefreshCw } from 'lucide-react';
+import { Moon, PanelRight, RefreshCw, Sun } from 'lucide-react';
+
+import { useTheme } from '../hooks/useTheme';
 
 type LanguageOption = { code: string; name: string; nativeName: string; enabled: boolean };
 
@@ -34,6 +36,7 @@ export function WorkbenchHeader({
 	inspectorOpen: boolean;
 	onToggleInspector: () => void;
 }) {
+	const { theme, toggleTheme } = useTheme();
 	const languageOptions = languages.length
 		? languages
 		: [
@@ -63,6 +66,15 @@ export function WorkbenchHeader({
 							</button>
 						))}
 					</div>
+					<button
+						className="icon-button"
+						type="button"
+						aria-pressed={theme === 'light'}
+						aria-label={t('app.global.toggleTheme', 'Toggle light and dark theme')}
+						onClick={toggleTheme}
+					>
+						{theme === 'light' ? <Moon aria-hidden="true" size={18} /> : <Sun aria-hidden="true" size={18} />}
+					</button>
 					<button className="button" type="button" onClick={onOpenCommandPalette}>
 						{t('app.global.openCommandPalette', 'Open command palette')}
 						<kbd className="command-kbd">{'Ctrl K'}</kbd>

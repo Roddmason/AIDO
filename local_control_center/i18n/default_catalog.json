@@ -99,6 +99,10 @@
       "en": "Without checks, AIDO auto-detects them; if none exist the change stops for QA evidence before it can be approved.",
       "es": "Sin verificaciones, AIDO las autodetecta; si no existen, el cambio se detiene por evidencia de QA antes de aprobarse."
     },
+    "app.global.toggleTheme": {
+      "en": "Toggle light and dark theme",
+      "es": "Cambiar entre tema claro y oscuro"
+    },
     "app.workspace.dialog.title": {
       "en": "New workspace",
       "es": "Nuevo workspace"

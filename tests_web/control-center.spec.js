@@ -884,6 +884,36 @@ test('IDE shell uses dark modern surfaces and compact navigation', async ({ page
 	await expect(page.locator('.console-grid')).toBeVisible();
 });
 
+test('theme toggle switches to light, applies the light surface and persists across reloads', async ({ page }) => {
+	// Read color as the browser serializes it (oklch) — compare equality/scheme, not parsed luminance.
+	const surface = () =>
+		page.evaluate(() => ({
+			bodyBg: window.getComputedStyle(document.body).backgroundColor,
+			colorScheme: window.getComputedStyle(document.documentElement).colorScheme,
+		}));
+
+	await page.goto('/');
+	await expectControlPlaneLoaded(page);
+	await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+	const dark = await surface();
+	expect(dark.colorScheme).toContain('dark');
+
+	await page.getByRole('button', { name: 'Toggle light and dark theme' }).click();
+	await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+	const light = await surface();
+	expect(light.colorScheme).toContain('light');
+	// The light theme actually re-skins the surface (color-space-agnostic).
+	expect(light.bodyBg).not.toBe(dark.bodyBg);
+
+	// The choice persists across a reload (applied before first paint).
+	await page.reload();
+	await expectControlPlaneLoaded(page);
+	await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+
+	await page.getByRole('button', { name: 'Toggle light and dark theme' }).click();
+	await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+});
+
 test('IDE Explorer exposes audit log and workspace settings from the shell', async ({ page }) => {
 	await page.goto('/');
 

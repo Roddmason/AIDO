@@ -862,16 +862,25 @@ test('IDE navigation keeps touch-safe targets across key destinations', async ({
 test('IDE shell uses dark modern surfaces and compact navigation', async ({ page }) => {
 	await page.goto('/#workbench');
 
+	// Resolve each surface color to true sRGB pixels via a canvas, so the darkness
+	// check is agnostic to how the browser serializes oklch()/color()/rgb(). The
+	// '#888888' sentinel makes an unparseable color fail loudly, not pass vacuously.
 	const shell = await page.evaluate(() => {
-		const htmlStyle = window.getComputedStyle(document.documentElement);
-		const bodyStyle = window.getComputedStyle(document.body);
-		const mainStyle = window.getComputedStyle(document.querySelector('.main-area'));
-		const colorValue = (value) => value.match(/\d+(\.\d+)?/g)?.slice(0, 3).map(Number) ?? [255, 255, 255];
-		const luminance = ([red, green, blue]) => 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+		const luminanceOf = (cssColor) => {
+			const canvas = document.createElement('canvas');
+			canvas.width = 1;
+			canvas.height = 1;
+			const ctx = canvas.getContext('2d');
+			ctx.fillStyle = '#888888';
+			ctx.fillStyle = cssColor;
+			ctx.fillRect(0, 0, 1, 1);
+			const [red, green, blue] = ctx.getImageData(0, 0, 1, 1).data;
+			return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+		};
 		return {
-			colorScheme: htmlStyle.colorScheme,
-			bodyLuminance: luminance(colorValue(bodyStyle.backgroundColor)),
-			mainLuminance: luminance(colorValue(mainStyle.backgroundColor)),
+			colorScheme: window.getComputedStyle(document.documentElement).colorScheme,
+			bodyLuminance: luminanceOf(window.getComputedStyle(document.body).backgroundColor),
+			mainLuminance: luminanceOf(window.getComputedStyle(document.querySelector('.main-area')).backgroundColor),
 		};
 	});
 	expect(shell.colorScheme).toContain('dark');

@@ -1081,24 +1081,22 @@ test('Home is the default landing and leads with the open-folder action', async 
 	await expect(page.locator('.content-frame table')).toHaveCount(0);
 });
 
-test('Jobs/Approvals requires contextual review before action decision', async ({ page }) => {
+test('Review board requires contextual review before action decision', async ({ page }) => {
 	await createApprovalJob(page);
-	await page.goto('/#jobs');
-
-	await expect(page.getByRole('heading', { name: 'Jobs & Approvals' })).toBeVisible();
+	await page.goto('/#review-board');
+	await expect(page.getByRole('region', { name: 'Review board' })).toBeVisible();
 	await expect(page.getByText('pipeline.start').first()).toBeVisible();
-	await expect(page.getByRole('button', { name: 'Review request' }).first()).toBeVisible();
-	await page.getByRole('button', { name: 'Review request' }).first().click();
+	await page.getByRole('button', { name: /^Review:/ }).first().click();
 	const review = page.getByRole('dialog', { name: 'Action request review' });
 	await expect(review).toBeVisible();
 	await expect(review.getByRole('table', { name: 'Action request scope' })).toBeVisible();
 	await expect(review.getByText('Argv')).toBeVisible();
 	await expect(review.getByLabel('Human decision reason')).toBeVisible();
-	await expect(review.getByRole('button', { name: 'Approve' })).toBeDisabled();
-	await expect(review.getByRole('button', { name: 'Reject' })).toBeDisabled();
+	await expect(review.getByRole('button', { name: 'Approve', exact: true })).toBeDisabled();
+	await expect(review.getByRole('button', { name: 'Reject', exact: true })).toBeDisabled();
 	await review.getByLabel('Human decision reason').fill('Reviewed command scope and recorded evidence context.');
-	await expect(review.getByRole('button', { name: 'Approve' })).toBeEnabled();
-	await expect(review.getByRole('button', { name: 'Reject' })).toBeEnabled();
+	await expect(review.getByRole('button', { name: 'Approve', exact: true })).toBeEnabled();
+	await expect(review.getByRole('button', { name: 'Reject', exact: true })).toBeEnabled();
 	await page.keyboard.press('Escape');
 	await page.getByRole('button', { name: 'Open approvals drawer' }).click();
 	await expect(page.getByRole('dialog', { name: 'Approval drawer' })).toBeVisible();
@@ -1107,152 +1105,109 @@ test('Jobs/Approvals requires contextual review before action decision', async (
 	await expect(page.getByRole('dialog', { name: 'Approval drawer' })).toBeHidden();
 });
 
-test('Jobs/Approvals shows approve patch reject promote and PR operations with evidence-first blocking', async ({ page }) => {
+test('Review board approve patch is evidence-first blocked while reject stays open', async ({ page }) => {
 	const project = await getActiveProject(page);
-	const complete = issueToPatchApprovalFixture(project.id, 'complete', { completeEvidence: true });
-	const incomplete = issueToPatchApprovalFixture(project.id, 'incomplete', { completeEvidence: false });
-	const approved = issueToPatchApprovalFixture(project.id, 'approved', { completeEvidence: true, runStatus: 'approved_for_integration' });
-	const promoted = issueToPatchApprovalFixture(project.id, 'promoted', { completeEvidence: true, runStatus: 'promoted_to_branch' });
+	const complete = issueToPatchApprovalFixture(project.id, 'board-complete', { completeEvidence: true });
+	const incomplete = issueToPatchApprovalFixture(project.id, 'board-incomplete', { completeEvidence: false });
 	let approvePatchCalled = false;
-	let promoteCalled = false;
-	let prCalled = false;
-	await routeIssueToPatchApprovalOverview(page, [complete, incomplete, approved, promoted]);
+	await routeIssueToPatchApprovalOverview(page, [complete, incomplete]);
 	await page.route(`/api/v1/jobs/${complete.job.id}/actions/${complete.actionRequest.id}/approve`, async (route) => {
 		await route.fulfill({ status: 202, json: { actionRequest: { ...complete.actionRequest, status: 'approved' }, job: complete.job } });
 	});
 	await page.route(`/api/v1/workflows/issue-to-patch/${complete.workflowRun.id}/approve`, async (route) => {
 		approvePatchCalled = true;
-		await route.fulfill({
-			status: 202,
-			json: { status: 'approved_for_integration', reason: 'approved from UI', workflow: complete.workflow, workflowRun: { ...complete.workflowRun, status: 'approved_for_integration' }, workflowSteps: complete.workflowSteps, workspace: {}, job: { ...complete.job, status: 'approved' }, agentRun: {}, evidencePackage: complete.evidencePackage, runtime: {}, runtimeResult: {}, qaResults: complete.evidencePackage.testResults, diffSummary: complete.evidencePackage.diffSummary },
-		});
-	});
-	await page.route(`/api/v1/workflows/issue-to-patch/${approved.workflowRun.id}/promote`, async (route) => {
-		promoteCalled = true;
-		const body = route.request().postDataJSON();
-		expect(body.reason).toBe('Promote reviewed patch from Jobs.');
-		await route.fulfill({
-			status: 202,
-			json: { status: 'promoted_to_branch', reason: body.reason, workflow: approved.workflow, workflowRun: { ...approved.workflowRun, status: 'promoted_to_branch' }, workflowSteps: approved.workflowSteps, workspace: {}, job: approved.job, agentRun: {}, evidencePackage: approved.evidencePackage, runtime: {}, runtimeResult: {}, qaResults: approved.evidencePackage.testResults, diffSummary: { ...approved.evidencePackage.diffSummary, branch: 'aido/promote/ui' } },
-		});
-	});
-	await page.route(`/api/v1/workflows/issue-to-patch/${promoted.workflowRun.id}/pull-request`, async (route) => {
-		prCalled = true;
-		const body = route.request().postDataJSON();
-		expect(body.reason).toBe('Create PR from promoted evidence.');
-		await route.fulfill({
-			status: 202,
-			json: { status: 'pr_unavailable', reason: 'AIDO_GITHUB_TOKEN is missing.', workflow: promoted.workflow, workflowRun: promoted.workflowRun, workflowSteps: promoted.workflowSteps, workspace: {}, job: promoted.job, agentRun: {}, evidencePackage: promoted.evidencePackage, runtime: {}, runtimeResult: {}, qaResults: [], diffSummary: { pullRequestStatus: 'pr_unavailable' }, pullRequest: null },
-		});
+		await route.fulfill({ status: 202, json: { status: 'approved_for_integration', reason: 'approved from UI', workflowRun: { ...complete.workflowRun, status: 'approved_for_integration' } } });
 	});
 
-	await page.goto('/#jobs');
-
-	await expect(page.getByRole('heading', { name: 'Patch workflow operations' })).toBeVisible();
-	await expect(page.getByRole('button', { name: `Promote branch for ${approved.workflow.title}` })).toBeDisabled();
-	await expect(page.getByRole('button', { name: `Create PR for ${promoted.workflow.title}` })).toBeDisabled();
-
-	await page.getByRole('row', { name: /approve_patch complete/ }).getByRole('button', { name: 'Review request' }).click();
-	const completeReview = page.getByRole('dialog', { name: 'Action request review' });
-	await expect(completeReview.getByRole('heading', { name: 'Full diff before approval' })).toBeVisible();
-	await expect(completeReview.getByText('diff --git a/src/approval.ts b/src/approval.ts')).toBeVisible();
-	await expect(completeReview.getByRole('heading', { name: 'Security findings before approval' })).toBeVisible();
-	await expect(completeReview.getByText('"status": "passed"')).toBeVisible();
-	await expect(completeReview.getByText('ok: security findings are non-blocking')).toBeVisible();
-	await expect(completeReview.getByRole('heading', { name: 'Evidence completeness' })).toBeVisible();
-	await expect(completeReview.getByText('evidence_complete')).toBeVisible();
-	await expect(completeReview.getByRole('button', { name: 'Approve patch' })).toBeDisabled();
-	await expect(completeReview.getByRole('button', { name: 'Reject' })).toBeDisabled();
-	await completeReview.getByLabel('Human decision reason').fill('Reviewed full diff and QA evidence.');
-	await expect(completeReview.getByRole('button', { name: 'Approve patch' })).toBeEnabled();
-	await expect(completeReview.getByRole('button', { name: 'Reject' })).toBeEnabled();
-	await completeReview.getByRole('button', { name: 'Approve patch' }).click();
+	await page.goto('/#review-board');
+	await page.getByRole('button', { name: new RegExp(`Review: ${complete.workflow.title}`) }).click();
+	const review = page.getByRole('dialog', { name: 'Action request review' });
+	await expect(review.getByRole('heading', { name: 'Full diff before approval' })).toBeVisible();
+	await expect(review.getByText('diff --git a/src/approval.ts b/src/approval.ts')).toBeVisible();
+	await expect(review.getByRole('heading', { name: 'Security findings before approval' })).toBeVisible();
+	await expect(review.getByText('ok: security findings are non-blocking')).toBeVisible();
+	await expect(review.getByRole('heading', { name: 'Evidence completeness' })).toBeVisible();
+	await expect(review.getByText('evidence_complete')).toBeVisible();
+	await expect(review.getByRole('button', { name: 'Approve patch' })).toBeDisabled();
+	await review.getByLabel('Human decision reason').fill('Reviewed full diff and QA evidence.');
+	await expect(review.getByRole('button', { name: 'Approve patch' })).toBeEnabled();
+	await review.getByRole('button', { name: 'Approve patch' }).click();
 	await expect.poll(() => approvePatchCalled).toBe(true);
 
-	await page.getByRole('row', { name: /approve_patch missing-evidence/ }).getByRole('button', { name: 'Review request' }).click();
+	await page.getByRole('button', { name: new RegExp(`Review: ${incomplete.workflow.title}`) }).click();
 	const incompleteReview = page.getByRole('dialog', { name: 'Action request review' });
 	await incompleteReview.getByLabel('Human decision reason').fill('Evidence is incomplete; reject remains possible.');
 	await expect(incompleteReview.getByText('evidence_incomplete')).toBeVisible();
 	await expect(incompleteReview.getByRole('button', { name: 'Approve patch' })).toBeDisabled();
 	await expect(incompleteReview.getByRole('button', { name: 'Reject' })).toBeEnabled();
-	await page.keyboard.press('Escape');
-
-	await page.getByLabel('Workflow operation reason').fill('Promote reviewed patch from Jobs.');
-	await expect(page.getByRole('button', { name: `Promote branch for ${approved.workflow.title}` })).toBeEnabled();
-	await page.getByRole('button', { name: `Promote branch for ${approved.workflow.title}` }).click();
-	await expect.poll(() => promoteCalled).toBe(true);
-	await expect(page.getByText('promoted_to_branch').first()).toBeVisible();
-
-	await page.getByLabel('Workflow operation reason').fill('Create PR from promoted evidence.');
-	await expect(page.getByRole('button', { name: `Create PR for ${promoted.workflow.title}` })).toBeEnabled();
-	await page.getByRole('button', { name: `Create PR for ${promoted.workflow.title}` }).click();
-	await expect.poll(() => prCalled).toBe(true);
-	await expect(page.getByText('pr_unavailable').first()).toBeVisible();
-	await expect(page.getByText('AIDO_GITHUB_TOKEN is missing.').first()).toBeVisible();
 });
 
-test('Jobs/Approvals executes issue-to-pr approval promotion and PR through workflow endpoints', async ({ page }) => {
+test('Review board executes issue-to-pr approval, promotion and PR through workflow endpoints', async ({ page }) => {
 	const project = await getActiveProject(page);
-	const complete = issueToPatchApprovalFixture(project.id, 'issue-to-pr-complete', { completeEvidence: true, workflowKind: 'issue_to_pr' });
-	const approved = issueToPatchApprovalFixture(project.id, 'issue-to-pr-approved', { completeEvidence: true, runStatus: 'approved_for_integration', workflowKind: 'issue_to_pr' });
-	const promoted = issueToPatchApprovalFixture(project.id, 'issue-to-pr-promoted', { completeEvidence: true, runStatus: 'promoted_to_branch', workflowKind: 'issue_to_pr' });
-	let approveIssueToPrCalled = false;
-	let promoteIssueToPrCalled = false;
-	let prIssueToPrCalled = false;
+	const complete = issueToPatchApprovalFixture(project.id, 'board-pr-complete', { completeEvidence: true, workflowKind: 'issue_to_pr' });
+	const approved = issueToPatchApprovalFixture(project.id, 'board-pr-approved', { completeEvidence: true, runStatus: 'approved_for_integration', workflowKind: 'issue_to_pr' });
+	const promoted = issueToPatchApprovalFixture(project.id, 'board-pr-promoted', { completeEvidence: true, runStatus: 'promoted_to_branch', workflowKind: 'issue_to_pr' });
+	let approveCalled = false;
+	let promoteCalled = false;
+	let prCalled = false;
 	await routeIssueToPatchApprovalOverview(page, [complete, approved, promoted]);
 	await page.route(`/api/v1/jobs/${complete.job.id}/actions/${complete.actionRequest.id}/approve`, async (route) => {
 		await route.fulfill({ status: 202, json: { actionRequest: { ...complete.actionRequest, status: 'approved' }, job: complete.job } });
 	});
 	await page.route(`/api/v1/workflows/issue-to-pr/${complete.workflowRun.id}/approve`, async (route) => {
-		approveIssueToPrCalled = true;
-		await route.fulfill({
-			status: 202,
-			json: { status: 'approved_for_integration', reason: 'approved from UI', workflow: complete.workflow, workflowRun: { ...complete.workflowRun, status: 'approved_for_integration' }, workflowSteps: complete.workflowSteps, workspace: {}, job: { ...complete.job, status: 'approved' }, agentRun: {}, evidencePackage: complete.evidencePackage, runtime: {}, runtimeResult: {}, qaResults: complete.evidencePackage.testResults, diffSummary: complete.evidencePackage.diffSummary },
-		});
+		approveCalled = true;
+		await route.fulfill({ status: 202, json: { status: 'approved_for_integration', workflowRun: { ...complete.workflowRun, status: 'approved_for_integration' } } });
 	});
 	await page.route(`/api/v1/workflows/issue-to-pr/${approved.workflowRun.id}/promote`, async (route) => {
-		promoteIssueToPrCalled = true;
+		promoteCalled = true;
 		const body = route.request().postDataJSON();
-		expect(body.reason).toBe('Promote reviewed issue_to_pr patch from Jobs.');
-		await route.fulfill({
-			status: 202,
-			json: { status: 'promoted_to_branch', reason: body.reason, workflow: approved.workflow, workflowRun: { ...approved.workflowRun, status: 'promoted_to_branch' }, workflowSteps: approved.workflowSteps, workspace: {}, job: approved.job, agentRun: {}, evidencePackage: approved.evidencePackage, runtime: {}, runtimeResult: {}, qaResults: approved.evidencePackage.testResults, diffSummary: { ...approved.evidencePackage.diffSummary, branch: 'aido/promote/issue-to-pr' } },
-		});
+		expect(body.reason).toBe('Promote reviewed issue_to_pr from the board.');
+		await route.fulfill({ status: 202, json: { status: 'promoted_to_branch', reason: body.reason, workflowRun: { ...approved.workflowRun, status: 'promoted_to_branch' } } });
 	});
 	await page.route(`/api/v1/workflows/issue-to-pr/${promoted.workflowRun.id}/pull-request`, async (route) => {
-		prIssueToPrCalled = true;
+		prCalled = true;
 		const body = route.request().postDataJSON();
-		expect(body.reason).toBe('Create PR from reviewed issue_to_pr evidence.');
-		await route.fulfill({
-			status: 202,
-			json: { status: 'pr_unavailable', reason: 'AIDO_GITHUB_TOKEN is missing.', workflow: promoted.workflow, workflowRun: promoted.workflowRun, workflowSteps: promoted.workflowSteps, workspace: {}, job: promoted.job, agentRun: {}, evidencePackage: promoted.evidencePackage, runtime: {}, runtimeResult: {}, qaResults: [], diffSummary: { pullRequestStatus: 'pr_unavailable' }, pullRequest: null },
-		});
+		expect(body.reason).toBe('Create PR from the board.');
+		await route.fulfill({ status: 202, json: { status: 'pr_unavailable', reason: 'AIDO_GITHUB_TOKEN is missing.', workflowRun: promoted.workflowRun, pullRequest: null } });
 	});
 
-	await page.goto('/#jobs');
-
-	await page.getByRole('row', { name: /approve_issue_to_pr issue-to-pr-complete/ }).getByRole('button', { name: 'Review request' }).click();
+	await page.goto('/#review-board');
+	await page.getByRole('button', { name: new RegExp(`Review: ${complete.workflow.title}`) }).click();
 	const review = page.getByRole('dialog', { name: 'Action request review' });
-	await expect(review.getByRole('heading', { name: 'Full diff before approval' })).toBeVisible();
-	await expect(review.getByRole('heading', { name: 'Security findings before approval' })).toBeVisible();
 	await expect(review.getByRole('button', { name: 'Approve patch' })).toBeDisabled();
-	await review.getByLabel('Human decision reason').fill('Reviewed issue_to_pr diff, QA, and security evidence.');
+	await review.getByLabel('Human decision reason').fill('Reviewed issue_to_pr diff, QA and security evidence.');
 	await expect(review.getByRole('button', { name: 'Approve patch' })).toBeEnabled();
 	await review.getByRole('button', { name: 'Approve patch' }).click();
-	await expect.poll(() => approveIssueToPrCalled).toBe(true);
+	await expect.poll(() => approveCalled).toBe(true);
+	await page.keyboard.press('Escape');
 
-	await page.getByLabel('Workflow operation reason').fill('Promote reviewed issue_to_pr patch from Jobs.');
-	await expect(page.getByRole('button', { name: `Promote branch for ${approved.workflow.title}` })).toBeEnabled();
-	await page.getByRole('button', { name: `Promote branch for ${approved.workflow.title}` }).click();
-	await expect.poll(() => promoteIssueToPrCalled).toBe(true);
-	await expect(page.getByText('promoted_to_branch').first()).toBeVisible();
+	await page.getByRole('button', { name: new RegExp(`Promote branch: ${approved.workflow.title}`) }).click();
+	const promoteDrawer = page.getByRole('dialog', { name: 'Run detail' });
+	await promoteDrawer.getByLabel('Workflow operation reason').fill('Promote reviewed issue_to_pr from the board.');
+	await promoteDrawer.getByRole('button', { name: 'Promote branch', exact: true }).click();
+	await expect.poll(() => promoteCalled).toBe(true);
+	await page.keyboard.press('Escape');
 
-	await page.getByLabel('Workflow operation reason').fill('Create PR from reviewed issue_to_pr evidence.');
-	await expect(page.getByRole('button', { name: `Create PR for ${promoted.workflow.title}` })).toBeEnabled();
-	await page.getByRole('button', { name: `Create PR for ${promoted.workflow.title}` }).click();
-	await expect.poll(() => prIssueToPrCalled).toBe(true);
-	await expect(page.getByText('pr_unavailable').first()).toBeVisible();
-	await expect(page.getByText('AIDO_GITHUB_TOKEN is missing.').first()).toBeVisible();
+	await page.getByRole('button', { name: new RegExp(`Create PR: ${promoted.workflow.title}`) }).click();
+	const prDrawer = page.getByRole('dialog', { name: 'Run detail' });
+	await prDrawer.getByLabel('Workflow operation reason').fill('Create PR from the board.');
+	await prDrawer.getByRole('button', { name: 'Create PR', exact: true }).click();
+	await expect.poll(() => prCalled).toBe(true);
+	await expect(prDrawer.getByText('pr_unavailable').first()).toBeVisible();
+	await expect(prDrawer.getByText('AIDO_GITHUB_TOKEN is missing.').first()).toBeVisible();
+});
+
+test('Review board previews linked artifacts through the protected endpoint', async ({ page }) => {
+	const project = await getActiveProject(page);
+	const complete = issueToPatchApprovalFixture(project.id, 'board-artifact', { completeEvidence: true });
+	await routeIssueToPatchApprovalOverview(page, [complete]);
+	await page.goto('/#review-board');
+	await page.getByRole('button', { name: new RegExp(`Review: ${complete.workflow.title}`) }).click();
+	const review = page.getByRole('dialog', { name: 'Action request review' });
+	await expect(review.getByRole('button', { name: /^Preview artifact/ }).first()).toBeVisible();
+	await expect(review.getByRole('button', { name: /^Download artifact/ }).first()).toBeVisible();
+	await review.getByRole('button', { name: /^Preview artifact/ }).first().click();
+	await expect(review.getByText(/^sha256 /).first()).toBeVisible();
 });
 
 test('Review board promotes branches and creates PRs for approved runs with reason gating', async ({ page }) => {
@@ -1382,6 +1337,29 @@ test('Workflows shows runs, steps, workspaces and evidence from backend', async 
 	await expect(page.getByRole('cell', { name: workflow.title, exact: true })).toBeVisible();
 	await expect(page.getByText('workspace_create').first()).toBeVisible();
 	await expect(page.getByText('Workflow graph')).toBeVisible();
+});
+
+test('Workflow inspector retries a job with a mandatory reason', async ({ page }) => {
+	const project = await getActiveProject(page);
+	const fixture = issueToPatchApprovalFixture(project.id, 'queue', { completeEvidence: true });
+	let retryCalled = false;
+	await routeIssueToPatchApprovalOverview(page, [fixture]);
+	await page.route(`/api/v1/jobs/${fixture.job.id}/retry`, async (route) => {
+		retryCalled = true;
+		const body = route.request().postDataJSON();
+		expect(body.reason).toBe('Re-run the stuck QA lease.');
+		await route.fulfill({ status: 202, json: { job: { ...fixture.job, status: 'queued' } } });
+	});
+	await page.goto('/#workflows');
+	await page.getByRole('button', { name: 'Workflows' }).click();
+	await page.getByRole('button', { name: `Inspect workflow ${fixture.workflow.title}` }).click();
+	const retry = page.getByRole('button', { name: `Retry job ${fixture.job.kind}` }).first();
+	await expect(retry).toBeVisible();
+	await expect(retry).toBeDisabled();
+	await page.getByLabel('Queue change reason').fill('Re-run the stuck QA lease.');
+	await expect(retry).toBeEnabled();
+	await retry.click();
+	await expect.poll(() => retryCalled).toBe(true);
 });
 
 test('Workflow timeline shows approval promotion and PR operational states', async ({ page }) => {

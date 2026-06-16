@@ -38,7 +38,6 @@ export const pageIds = [
 	'projects-cancelled',
 	'workflows',
 	'review-board',
-	'jobs',
 	'agents',
 	'workspaces',
 	'policy',
@@ -136,7 +135,7 @@ export const AREAS: AreaDef[] = [
 		leadPage: 'review-board',
 		icon: ClipboardCheck,
 		label: { en: 'Review', es: 'Revisión' },
-		pages: ['review-board', 'jobs', 'evidence', 'governance', 'policy', 'audit'],
+		pages: ['review-board', 'evidence', 'governance', 'policy', 'audit'],
 	},
 	{
 		id: 'settings',

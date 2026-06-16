@@ -246,7 +246,7 @@ export function ExplorerPanel({
 								<FolderOpen aria-hidden="true" size={15} />
 								{lang('Open folder', 'Abrir carpeta')}
 							</button>
-							<button className="button" type="button" onClick={() => onNavigate('jobs')}>
+							<button className="button" type="button" onClick={() => onNavigate('review-board')}>
 								<ClipboardCheck aria-hidden="true" size={15} />
 								{lang('Review', 'Revisar')}
 							</button>
@@ -312,7 +312,7 @@ export function ExplorerPanel({
 							emptyLabel={lang('No pending approvals', 'Sin aprobaciones pendientes')}
 						>
 							{scope.approvals.slice(0, SECTION_ROW_CAP).map((request) => (
-								<button key={request.id} className="nav-item" type="button" onClick={() => onNavigate('jobs')}>
+								<button key={request.id} className="nav-item" type="button" onClick={() => onNavigate('review-board')}>
 									<ClipboardCheck aria-hidden="true" size={16} />
 									<span className="mono">{String(request.actionType ?? request.id)}</span>
 									<span className="nav-item-meta">
@@ -321,7 +321,7 @@ export function ExplorerPanel({
 								</button>
 							))}
 							{scope.approvals.length > SECTION_ROW_CAP ? (
-								<button className="nav-item" type="button" onClick={() => onNavigate('jobs')}>
+								<button className="nav-item" type="button" onClick={() => onNavigate('review-board')}>
 									<ChevronRight aria-hidden="true" size={16} />
 									<span>{showAll(scope.approvals.length)}</span>
 								</button>

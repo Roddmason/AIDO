@@ -548,7 +548,7 @@ export function EvidencePage({ overview, token }: { overview: Overview; token: s
 									{ label: 'Created at', value: <span className="mono">{String(selectedPackage.createdAt ?? '')}</span> },
 									{ label: 'Project', value: <span className="mono">{String(selectedPackage.projectId ?? '')}</span> },
 									{ label: 'Workflow run', value: evidenceLink('#workflows', 'Workflow', selectedPackage.workflowRunId) },
-									{ label: 'Job', value: evidenceLink('#jobs', 'Job', selectedPackage.jobId) },
+									{ label: 'Job', value: evidenceLink('#workflows', 'Job', selectedPackage.jobId) },
 									{ label: 'Agent run', value: evidenceLink('#agents', 'Agent run', selectedPackage.agentRunId ?? selectedPackage.agentId) },
 									{ label: 'Workspace', value: <span className="mono">{String(selectedPackage.workspaceId ?? 'not linked')}</span> },
 									{ label: 'Runtime', value: <span className="mono">{String(selectedPackage.runtimeId ?? 'not linked')}</span> },

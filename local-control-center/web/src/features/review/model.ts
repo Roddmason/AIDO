@@ -54,7 +54,8 @@ export const DONE_LIMIT = 25;
 const RISK_RANK: Record<string, number> = { critical: 4, high: 3, medium: 2, low: 1 };
 
 // ----------------------------------------------------------------------------
-// Pure helpers (copied verbatim from JobsApprovalsPage to preserve behavior).
+// Pure helpers — the single source of truth for the evidence gate (the legacy
+// JobsApprovalsPage that once duplicated these was retired).
 // ----------------------------------------------------------------------------
 
 export function asRecord(value: unknown): Record<string, unknown> {

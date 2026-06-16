@@ -617,7 +617,6 @@ export function ReviewPage({
 									{ship.lastOperation.runId ? <span className="mono">{shortId(ship.lastOperation.runId)}</span> : null}
 								</div>
 							) : null}
-							{shipOp ? (
 								<div className="inline">
 									<button
 										className="button primary"
@@ -628,7 +627,6 @@ export function ReviewPage({
 										{shipOp.operation === 'promote' ? copy.promote : copy.createPr}
 									</button>
 								</div>
-							) : null}
 							</>
 							) : null}
 						</div>

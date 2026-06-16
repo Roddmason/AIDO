@@ -4,6 +4,7 @@
  * @author Roddmason
  */
 import { useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import type { ReactNode, RefObject } from 'react';
 
 export function Badge({ children, tone }: { children: ReactNode; tone?: 'ok' | 'warn' | 'danger' | 'info' }) {
@@ -150,7 +151,7 @@ export function Drawer({
 		return () => window.removeEventListener('keydown', closeOnEscape);
 	}, [open, onClose]);
 	if (!open) return null;
-	return (
+	return createPortal(
 		<div className="drawer-layer" role="presentation">
 			<button className="drawer-scrim" type="button" aria-label={`Close ${label}`} onClick={onClose} />
 			<div ref={panelRef} tabIndex={-1} className="drawer-panel" role="dialog" aria-modal="true" aria-label={label}>
@@ -162,7 +163,8 @@ export function Drawer({
 				</div>
 				{children}
 			</div>
-		</div>
+		</div>,
+		document.body,
 	);
 }
 
@@ -188,7 +190,7 @@ export function Modal({
 		return () => window.removeEventListener('keydown', closeOnEscape);
 	}, [open, onClose]);
 	if (!open) return null;
-	return (
+	return createPortal(
 		<div className="modal-layer" role="presentation">
 			<button className="drawer-scrim" type="button" aria-label={`Close ${label}`} onClick={onClose} />
 			<div ref={panelRef} tabIndex={-1} className="modal-panel" role="dialog" aria-modal="true" aria-label={label}>
@@ -200,6 +202,7 @@ export function Modal({
 				</div>
 				{children}
 			</div>
-		</div>
+		</div>,
+		document.body,
 	);
 }

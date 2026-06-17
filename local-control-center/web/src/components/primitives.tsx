@@ -7,6 +7,8 @@ import { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import type { ReactNode, RefObject } from 'react';
 
+import { useI18n } from '../i18n/I18nProvider';
+
 export function Badge({ children, tone }: { children: ReactNode; tone?: 'ok' | 'warn' | 'danger' | 'info' | 'pending' }) {
 	return (
 		<span className="badge" data-tone={tone}>
@@ -141,6 +143,7 @@ export function Drawer({
 	onClose: () => void;
 }) {
 	const panelRef = useRef<HTMLDivElement>(null);
+	const { t } = useI18n();
 	useDialogFocus(open, panelRef);
 	useEffect(() => {
 		if (!open) return undefined;
@@ -153,11 +156,11 @@ export function Drawer({
 	if (!open) return null;
 	return createPortal(
 		<div className="drawer-layer" role="presentation">
-			<button className="drawer-scrim" type="button" aria-label={`Close ${label}`} onClick={onClose} />
+			<button className="drawer-scrim" type="button" aria-label={`${t('app.global.close', 'Close')} ${label}`} onClick={onClose} />
 			<div ref={panelRef} tabIndex={-1} className="drawer-panel" role="dialog" aria-modal="true" aria-label={label}>
 				<div className="drawer-header">
 					<h2>{label}</h2>
-					<button className="icon-button" type="button" aria-label={`Close ${label}`} onClick={onClose}>
+					<button className="icon-button" type="button" aria-label={`${t('app.global.close', 'Close')} ${label}`} onClick={onClose}>
 						×
 					</button>
 				</div>
@@ -180,6 +183,7 @@ export function Modal({
 	onClose: () => void;
 }) {
 	const panelRef = useRef<HTMLDivElement>(null);
+	const { t } = useI18n();
 	useDialogFocus(open, panelRef);
 	useEffect(() => {
 		if (!open) return undefined;
@@ -192,11 +196,11 @@ export function Modal({
 	if (!open) return null;
 	return createPortal(
 		<div className="modal-layer" role="presentation">
-			<button className="drawer-scrim" type="button" aria-label={`Close ${label}`} onClick={onClose} />
+			<button className="drawer-scrim" type="button" aria-label={`${t('app.global.close', 'Close')} ${label}`} onClick={onClose} />
 			<div ref={panelRef} tabIndex={-1} className="modal-panel" role="dialog" aria-modal="true" aria-label={label}>
 				<div className="drawer-header">
 					<h2>{label}</h2>
-					<button className="icon-button" type="button" aria-label={`Close ${label}`} onClick={onClose}>
+					<button className="icon-button" type="button" aria-label={`${t('app.global.close', 'Close')} ${label}`} onClick={onClose}>
 						×
 					</button>
 				</div>

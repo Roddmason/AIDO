@@ -225,7 +225,7 @@ export function PolicySecurityPage({ overview, mutate }: { overview: Overview; m
 							key: 'diff',
 							label: t('app.workbench.tab.diff', 'Diff'),
 							render: (row) => (
-								<button className="button" type="button" aria-label={`View policy revision diff for ${String(row.subjectId ?? '')}`} onClick={() => setSelectedRevision(row)}>
+								<button className="button" type="button" aria-label={`${t('app.pages.viewPolicyRevisionDiff', 'View policy revision diff for')} ${String(row.subjectId ?? '')}`} onClick={() => setSelectedRevision(row)}>
 									{t('app.pages.viewDiff', 'View diff')}
 								</button>
 							),
@@ -488,7 +488,7 @@ export function EvidencePage({ overview, token }: { overview: Overview; token: s
 							render: (row) => {
 								const evidenceId = String(row.id ?? '');
 								return (
-									<button className="button" type="button" aria-label={`View evidence package ${evidenceId}`} disabled={!evidenceId || detailLoading} onClick={() => setSelectedEvidenceId(evidenceId)}>
+									<button className="button" type="button" aria-label={`${t('app.pages.viewEvidencePackage', 'View evidence package')} ${evidenceId}`} disabled={!evidenceId || detailLoading} onClick={() => setSelectedEvidenceId(evidenceId)}>
 										{selectedEvidenceId === evidenceId && detailLoading ? t('app.pages.evidenceLoading', 'Loading') : t('app.pages.evidenceView', 'View')}
 									</button>
 								);
@@ -518,7 +518,7 @@ export function EvidencePage({ overview, token }: { overview: Overview; token: s
 								const downloading = downloadLoadingId === String(row.id ?? '');
 								return (
 									<div className="inline" aria-busy={loading || downloading}>
-										<button className="button" type="button" aria-label={`Preview artifact ${name}`} disabled={loading} onClick={() => void openPreview(row)}>
+										<button className="button" type="button" aria-label={`${t('app.review.previewArtifact', 'Preview artifact')} ${name}`} disabled={loading} onClick={() => void openPreview(row)}>
 											{loading ? t('app.review.opening', 'Opening') : t('app.workbench.evidence.preview', 'Preview')}
 										</button>
 										<button className="button" type="button" aria-label={`${t('app.review.downloadArtifact', 'Download artifact')} ${name}`} disabled={downloading} onClick={() => void downloadArtifact(row)}>
@@ -587,7 +587,7 @@ export function EvidencePage({ overview, token }: { overview: Overview; token: s
 										const downloading = downloadLoadingId === String(row.id ?? '');
 										return (
 											<div className="inline" aria-busy={loading || downloading}>
-												<button className="button" type="button" aria-label={`Preview artifact ${name}`} disabled={loading} onClick={() => void openPreview(row)}>
+												<button className="button" type="button" aria-label={`${t('app.review.previewArtifact', 'Preview artifact')} ${name}`} disabled={loading} onClick={() => void openPreview(row)}>
 													{loading ? t('app.review.opening', 'Opening') : t('app.workbench.evidence.preview', 'Preview')}
 												</button>
 												<button className="button" type="button" aria-label={`${t('app.review.downloadArtifact', 'Download artifact')} ${name}`} disabled={downloading} onClick={() => void downloadArtifact(row)}>
@@ -680,7 +680,7 @@ export function EvidencePage({ overview, token }: { overview: Overview; token: s
 							) : (
 								<EmptyState title={previewLoadingId ? t('app.workbench.evidence.loading', 'Loading artifact') : t('app.review.binaryOrEmptyArtifact', 'Binary or empty artifact')} body={t('ui.static.non.text.artifacts.remain.downloadable.but.are.not.rendered.42481492', 'Non-text artifacts remain downloadable, but are not rendered inline.')} />
 							)}
-							<button className="button primary" type="button" disabled={downloadLoadingId === String(previewArtifact.id ?? '')} aria-label={`Download preview artifact ${artifactDisplayName(previewArtifact)}`} onClick={() => void downloadArtifact(previewArtifact)}>
+							<button className="button primary" type="button" disabled={downloadLoadingId === String(previewArtifact.id ?? '')} aria-label={`${t('app.pages.downloadPreviewArtifact', 'Download preview artifact')} ${artifactDisplayName(previewArtifact)}`} onClick={() => void downloadArtifact(previewArtifact)}>
 								{downloadLoadingId === String(previewArtifact.id ?? '') ? t('ui.static.downloading.artifact.b640e8fe', 'Downloading artifact') : t('app.review.downloadArtifact', 'Download artifact')}
 							</button>
 						</>

@@ -15,6 +15,22 @@
     }
   ],
   "translations": {
+    "app.global.close": {
+      "en": "Close",
+      "es": "Cerrar"
+    },
+    "app.pages.downloadPreviewArtifact": {
+      "en": "Download preview artifact",
+      "es": "Descargar artefacto de vista previa"
+    },
+    "app.pages.viewEvidencePackage": {
+      "en": "View evidence package",
+      "es": "Ver paquete de evidencia"
+    },
+    "app.pages.viewPolicyRevisionDiff": {
+      "en": "View policy revision diff for",
+      "es": "Ver diff de revisión de política para"
+    },
     "app.pages.errSandboxProfileUpdate": {
       "en": "Sandbox profile update failed.",
       "es": "No se pudo actualizar el perfil del sandbox."

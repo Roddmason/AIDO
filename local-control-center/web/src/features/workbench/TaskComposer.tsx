@@ -19,9 +19,9 @@ type Mutate = <T>(operation: (token: string) => Promise<T>, options?: { awaitRef
 type TaskModeId = 'fix' | 'feature' | 'refactor' | 'tests';
 
 const issueQaPresets = [
-	{ id: 'python-tests', label: 'Python tests', commands: [['uv', 'run', 'pytest', '-q']] },
-	{ id: 'web-tests', label: 'Web tests', commands: [['corepack', 'pnpm@10.24.0', 'run', 'test:web']] },
-	{ id: 'quality', label: 'Quality suite', commands: [['corepack', 'pnpm@10.24.0', 'run', 'quality']] },
+	{ id: 'python-tests', labelKey: 'ui.static.python.tests.3e8b6a1b', label: 'Python tests', commands: [['uv', 'run', 'pytest', '-q']] },
+	{ id: 'web-tests', labelKey: 'ui.static.web.tests.fb1b43aa', label: 'Web tests', commands: [['corepack', 'pnpm@10.24.0', 'run', 'test:web']] },
+	{ id: 'quality', labelKey: 'ui.static.quality.suite.01a5288b', label: 'Quality suite', commands: [['corepack', 'pnpm@10.24.0', 'run', 'quality']] },
 ];
 
 const taskModes: { id: TaskModeId; labelKey: string; label: string }[] = [
@@ -232,14 +232,14 @@ export function TaskComposer({
 						{hasExecutableRuntime ? null : <option value="">{t('app.workbench.task.runtimeNone', 'No executable runtime')}</option>}
 						{executableRuntimes.map((runtime) => (
 							<option key={runtime.id} value={runtime.id}>
-								{runtime.id} - {runtime.executable ? 'executable' : runtime.available ? 'available' : 'unavailable'}
+								{runtime.id} - {runtime.executable ? t('app.runtime.executable', 'executable') : runtime.available ? t('app.modelGateway.runtime.available', 'available') : t('app.taskComposer.unavailable', 'unavailable')}
 							</option>
 						))}
 					</select>
 					{selectedRuntime ? (
 						<div className="inline">
-							<Badge tone={selectedRuntime.detected ? 'ok' : 'warn'}>{selectedRuntime.detected ? 'detected' : 'not detected'}</Badge>
-							<Badge tone={selectedRuntime.executable ? 'ok' : 'warn'}>{selectedRuntime.executable ? 'executable' : 'not executable'}</Badge>
+							<Badge tone={selectedRuntime.detected ? 'ok' : 'warn'}>{selectedRuntime.detected ? t('app.modelGateway.runtime.detected', 'detected') : t('app.taskComposer.notDetected', 'not detected')}</Badge>
+							<Badge tone={selectedRuntime.executable ? 'ok' : 'warn'}>{selectedRuntime.executable ? t('app.runtime.executable', 'executable') : t('app.modelGateway.runtime.notExecutable', 'not executable')}</Badge>
 						</div>
 					) : null}
 				</div>
@@ -247,7 +247,7 @@ export function TaskComposer({
 					<label htmlFor="task-qa">{t('app.workbench.task.qa', 'QA preset')}</label>
 					<select id="task-qa" className="select" value={qaPreset} disabled={!project || busy} onChange={(event) => setQaPreset(event.target.value)}>
 						{issueQaPresets.map((preset) => (
-							<option key={preset.id} value={preset.id}>{preset.label}</option>
+							<option key={preset.id} value={preset.id}>{t(preset.labelKey, preset.label)}</option>
 						))}
 					</select>
 					<div className="field-help">{selectedQaPreset.commands.map((command) => command.join(' ')).join(' | ')}</div>

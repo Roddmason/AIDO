@@ -7,71 +7,42 @@ import { FolderPlus, Settings } from 'lucide-react';
 
 import type { Overview, Project } from '../../api/types';
 import { Badge, EmptyState, PageHeader, Surface } from '../../components/primitives';
+import { useI18n } from '../../i18n/I18nProvider';
 import { shortId, toneForStatus } from '../../lib/format';
 
 export type ProjectStatusView = 'active' | 'finished' | 'error' | 'cancelled';
 export type Language = 'en' | 'es';
 
-const statusCopy: Record<Language, Record<ProjectStatusView, { title: string; kicker: string; summary: string; emptyTitle: string; emptyBody: string }>> = {
-	en: {
-		active: {
-			kicker: 'Active work',
-			title: 'Active Projects',
-			summary: 'Only active projects can run work here. Inactive and archived projects stay visible in Settings for audit and configuration.',
-			emptyTitle: 'No active projects',
-			emptyBody: 'Create a project or reactivate one in Settings before starting workflows, jobs, workspaces or governance records.',
-		},
-		finished: {
-			kicker: 'Delivered',
-			title: 'Finished Projects',
-			summary: 'Completed and archived projects stay available for audit and cannot be selected to run new work.',
-			emptyTitle: 'No finished projects',
-			emptyBody: 'Projects with completed, finished, done, finalized or archived status will appear here.',
-		},
-		error: {
-			kicker: 'Errors',
-			title: 'Projects With Error',
-			summary: 'Projects in failed or error states are isolated here so operators can triage without mixing them into active work.',
-			emptyTitle: 'No projects with error',
-			emptyBody: 'Projects with failed, error or errored status will appear here.',
-		},
-		cancelled: {
-			kicker: 'Cancelled',
-			title: 'Cancelled Projects',
-			summary: 'Cancelled projects stay visible for traceability, but cannot be selected to run new work.',
-			emptyTitle: 'No cancelled projects',
-			emptyBody: 'Projects with cancelled or canceled status will appear here.',
-		},
+type StatusCopyField = { key: string; en: string };
+
+const statusCopy: Record<ProjectStatusView, { kicker: StatusCopyField; title: StatusCopyField; summary: StatusCopyField; emptyTitle: StatusCopyField; emptyBody: StatusCopyField }> = {
+	active: {
+		kicker: { key: 'app.activeProjects.active.kicker', en: 'Active work' },
+		title: { key: 'app.activeProjects.active.title', en: 'Active Projects' },
+		summary: { key: 'app.activeProjects.active.summary', en: 'Only active projects can run work here. Inactive and archived projects stay visible in Settings for audit and configuration.' },
+		emptyTitle: { key: 'app.activeProjects.active.emptyTitle', en: 'No active projects' },
+		emptyBody: { key: 'app.activeProjects.active.emptyBody', en: 'Create a project or reactivate one in Settings before starting workflows, jobs, workspaces or governance records.' },
 	},
-	es: {
-		active: {
-			kicker: 'Trabajo activo',
-			title: 'Proyectos activos',
-			summary: 'Solo los proyectos activos pueden ejecutar trabajo aquí. Los proyectos inactivos y archivados siguen visibles en Configuración para auditoría.',
-			emptyTitle: 'No hay proyectos activos',
-			emptyBody: 'Crea un proyecto o reactiva uno en Configuración antes de iniciar flujos de trabajo, trabajos, workspaces o registros de gobierno.',
-		},
-		finished: {
-			kicker: 'Entregados',
-			title: 'Proyectos finalizados',
-			summary: 'Los proyectos completados y archivados quedan disponibles para auditoría y no pueden seleccionarse para ejecutar trabajo nuevo.',
-			emptyTitle: 'No hay proyectos finalizados',
-			emptyBody: 'Aparecerán proyectos con estado completed, finished, done, finalized o archived.',
-		},
-		error: {
-			kicker: 'Errores',
-			title: 'Proyectos con error',
-			summary: 'Los proyectos con error quedan aislados para revisión sin mezclarse con el trabajo activo.',
-			emptyTitle: 'No hay proyectos con error',
-			emptyBody: 'Aparecerán proyectos con estado failed, error o errored.',
-		},
-		cancelled: {
-			kicker: 'Cancelados',
-			title: 'Proyectos cancelados',
-			summary: 'Los proyectos cancelados se mantienen visibles para trazabilidad, pero no pueden seleccionarse para ejecutar trabajo nuevo.',
-			emptyTitle: 'No hay proyectos cancelados',
-			emptyBody: 'Aparecerán proyectos con estado cancelled o canceled.',
-		},
+	finished: {
+		kicker: { key: 'app.activeProjects.finished.kicker', en: 'Delivered' },
+		title: { key: 'app.activeProjects.finished.title', en: 'Finished Projects' },
+		summary: { key: 'app.activeProjects.finished.summary', en: 'Completed and archived projects stay available for audit and cannot be selected to run new work.' },
+		emptyTitle: { key: 'app.activeProjects.finished.emptyTitle', en: 'No finished projects' },
+		emptyBody: { key: 'app.activeProjects.finished.emptyBody', en: 'Projects with completed, finished, done, finalized or archived status will appear here.' },
+	},
+	error: {
+		kicker: { key: 'app.activeProjects.error.kicker', en: 'Errors' },
+		title: { key: 'app.activeProjects.error.title', en: 'Projects With Error' },
+		summary: { key: 'app.activeProjects.error.summary', en: 'Projects in failed or error states are isolated here so operators can triage without mixing them into active work.' },
+		emptyTitle: { key: 'app.activeProjects.error.emptyTitle', en: 'No projects with error' },
+		emptyBody: { key: 'app.activeProjects.error.emptyBody', en: 'Projects with failed, error or errored status will appear here.' },
+	},
+	cancelled: {
+		kicker: { key: 'app.activeProjects.cancelled.kicker', en: 'Cancelled' },
+		title: { key: 'app.activeProjects.cancelled.title', en: 'Cancelled Projects' },
+		summary: { key: 'app.activeProjects.cancelled.summary', en: 'Cancelled projects stay visible for traceability, but cannot be selected to run new work.' },
+		emptyTitle: { key: 'app.activeProjects.cancelled.emptyTitle', en: 'No cancelled projects' },
+		emptyBody: { key: 'app.activeProjects.cancelled.emptyBody', en: 'Projects with cancelled or canceled status will appear here.' },
 	},
 };
 
@@ -87,7 +58,6 @@ export function ActiveProjectsPage({
 	overview,
 	selectedProject,
 	statusView = 'active',
-	language = 'en',
 	onSelectProject,
 	onCreateProject,
 	onOpenSettings,
@@ -100,8 +70,8 @@ export function ActiveProjectsPage({
 	onCreateProject: () => void;
 	onOpenSettings: () => void;
 }) {
-	const copy = statusCopy[language][statusView];
-	const lang = (en: string, es: string) => (language === 'es' ? es : en);
+	const { t } = useI18n();
+	const copy = statusCopy[statusView];
 	const isActiveView = statusView === 'active';
 	const visibleProjects = overview.projects.filter((project) => matchesProjectStatus(project.status, statusView));
 	const pendingApprovals = overview.actionRequests.filter((item) => item.status === 'pending');
@@ -112,20 +82,20 @@ export function ActiveProjectsPage({
 
 	return (
 		<>
-			<PageHeader kicker={copy.kicker} title={copy.title} summary={copy.summary} />
+			<PageHeader kicker={t(copy.kicker.key, copy.kicker.en)} title={t(copy.title.key, copy.title.en)} summary={t(copy.summary.key, copy.summary.en)} />
 
 			<div className="surface-toolbar" data-motion-item>
 				<Badge tone={selectedProject ? 'ok' : 'warn'}>
-					{selectedProject ? `${lang('Selected', 'Seleccionado')}: ${selectedProject.name}` : lang('No operational project', 'Sin proyecto operativo')}
+					{selectedProject ? `${t('app.activeProjects.selected', 'Selected')}: ${selectedProject.name}` : t('app.activeProjects.noOperationalProject', 'No operational project')}
 				</Badge>
 				<div className="inline">
 					<button className="button" type="button" onClick={onOpenSettings}>
 						<Settings aria-hidden="true" size={16} />
-						{lang('Project settings', 'Configuración de proyecto')}
+						{t('app.activeProjects.projectSettings', 'Project settings')}
 					</button>
 					<button className="button primary" type="button" onClick={onCreateProject}>
 						<FolderPlus aria-hidden="true" size={16} />
-						{lang('New project', 'Nuevo proyecto')}
+						{t('app.activeProjects.newProject', 'New project')}
 					</button>
 				</div>
 			</div>
@@ -143,27 +113,27 @@ export function ActiveProjectsPage({
 								</div>
 								<span className="mono muted">{project.path}</span>
 								<div className="card-meta">
-									<span>{projectJobCount(project.id)} {lang('jobs', 'trabajos')}</span>
-									<span>{projectWorkspaceCount(project.id)} {lang('workspaces', 'workspaces')}</span>
-									<Badge tone={pending ? 'warn' : 'ok'}>{pending ? lang('approval', 'aprobación') : lang('clear', 'sin pendientes')}</Badge>
+									<span>{projectJobCount(project.id)} {t('app.activeProjects.jobs', 'jobs')}</span>
+									<span>{projectWorkspaceCount(project.id)} workspaces</span>
+									<Badge tone={pending ? 'warn' : 'ok'}>{pending ? t('app.activeProjects.approval', 'approval') : t('app.activeProjects.clear', 'clear')}</Badge>
 								</div>
 								{isActiveView ? (
 									<button className="button" type="button" disabled={selected} onClick={() => onSelectProject(project.id)}>
-										{selected ? lang('Selected', 'Seleccionado') : lang('Select', 'Seleccionar')}
+										{selected ? t('app.activeProjects.selected', 'Selected') : t('app.activeProjects.select', 'Select')}
 									</button>
 								) : (
-									<Badge>{lang('Audit only', 'Solo auditoría')}</Badge>
+									<Badge>{t('app.activeProjects.auditOnly', 'Audit only')}</Badge>
 								)}
 							</article>
 						);
 					})}
 				</div>
 			) : (
-				<EmptyState title={copy.emptyTitle} body={copy.emptyBody} />
+				<EmptyState title={t(copy.emptyTitle.key, copy.emptyTitle.en)} body={t(copy.emptyBody.key, copy.emptyBody.en)} />
 			)}
 
 			<div className="grid two">
-				<Surface title={lang('Recent approvals', 'Aprobaciones recientes')}>
+				<Surface title={t('app.activeProjects.recentApprovals', 'Recent approvals')}>
 					{pendingApprovals.length ? (
 						<div className="stack">
 							{pendingApprovals.slice(0, 5).map((item) => (
@@ -176,12 +146,12 @@ export function ActiveProjectsPage({
 						</div>
 					) : (
 						<EmptyState
-							title={lang('No pending approvals', 'Sin aprobaciones pendientes')}
-							body={lang('Risky actions stop in the approval queue before execution.', 'Las acciones riesgosas se detienen en la cola de aprobación antes de ejecutarse.')}
+							title={t('app.activeProjects.noPendingApprovals', 'No pending approvals')}
+							body={t('app.activeProjects.noPendingApprovalsBody', 'Risky actions stop in the approval queue before execution.')}
 						/>
 					)}
 				</Surface>
-				<Surface title={lang('Workspace status', 'Estado de workspaces')}>
+				<Surface title={t('app.activeProjects.workspaceStatus', 'Workspace status')}>
 					{activeWorkspaces.length ? (
 						<div className="stack">
 							{activeWorkspaces.slice(0, 5).map((workspace) => (
@@ -194,8 +164,8 @@ export function ActiveProjectsPage({
 						</div>
 					) : (
 						<EmptyState
-							title={lang('No active workspaces', 'Sin workspaces activos')}
-							body={lang('Workflow implementation steps allocate isolated workspaces.', 'Los pasos de implementación asignan workspaces aislados.')}
+							title={t('app.activeProjects.noActiveWorkspaces', 'No active workspaces')}
+							body={t('app.activeProjects.noActiveWorkspacesBody', 'Workflow implementation steps allocate isolated workspaces.')}
 						/>
 					)}
 				</Surface>

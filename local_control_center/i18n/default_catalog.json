@@ -15,6 +15,714 @@
     }
   ],
   "translations": {
+    "app.i18nMaintainer.languageNamePlaceholder": {
+      "en": "Portuguese",
+      "es": "Portugués"
+    },
+    "app.i18nMaintainer.nativeNamePlaceholder": {
+      "en": "Portugues",
+      "es": "Português"
+    },
+    "app.global.noProject": {
+      "en": "no project",
+      "es": "sin proyecto"
+    },
+    "app.commandPalette.close": {
+      "en": "Close command palette",
+      "es": "Cerrar paleta de comandos"
+    },
+    "app.commandPalette.title": {
+      "en": "Command palette",
+      "es": "Paleta de comandos"
+    },
+    "app.commandPalette.filter": {
+      "en": "Filter commands",
+      "es": "Filtrar comandos"
+    },
+    "app.commandPalette.placeholder": {
+      "en": "Type a command or search…",
+      "es": "Escribe un comando o busca…"
+    },
+    "app.review.title": {
+      "en": "Review",
+      "es": "Revisión"
+    },
+    "app.review.colDoneTitle": {
+      "en": "Done",
+      "es": "Hecho"
+    },
+    "app.review.promote": {
+      "en": "Promote branch",
+      "es": "Promover rama"
+    },
+    "app.review.createPr": {
+      "en": "Create PR",
+      "es": "Crear PR"
+    },
+    "app.review.shipDrawerLabel": {
+      "en": "Run detail",
+      "es": "Detalle de la ejecución"
+    },
+    "app.review.shipReasonLabel": {
+      "en": "Workflow operation reason",
+      "es": "Razón de la operación de workflow"
+    },
+    "app.review.shipReasonHelp": {
+      "en": "Branch promotion and PR creation stay blocked until a reason is recorded.",
+      "es": "La promoción de rama y la creación de PR quedan bloqueadas hasta registrar una razón."
+    },
+    "app.review.shipPrTitleLabel": {
+      "en": "PR title (optional)",
+      "es": "Título del PR (opcional)"
+    },
+    "app.review.shipAdvanced": {
+      "en": "Advanced options",
+      "es": "Opciones avanzadas"
+    },
+    "app.review.shipPromoted": {
+      "en": "Last operation",
+      "es": "Última operación"
+    },
+    "app.review.evidenceSectionTitle": {
+      "en": "Linked evidence",
+      "es": "Evidencia vinculada"
+    },
+    "app.review.openFullEvidence": {
+      "en": "Open full evidence",
+      "es": "Abrir evidencia completa"
+    },
+    "app.review.notRecorded": {
+      "en": "not recorded",
+      "es": "sin registrar"
+    },
+    "app.review.noExpiration": {
+      "en": "no expiration recorded",
+      "es": "sin expiración registrada"
+    },
+    "app.review.expiresPrefix": {
+      "en": "expires",
+      "es": "expira"
+    },
+    "app.review.previewArtifact": {
+      "en": "Preview artifact",
+      "es": "Previsualizar artefacto"
+    },
+    "app.review.downloadArtifact": {
+      "en": "Download artifact",
+      "es": "Descargar artefacto"
+    },
+    "app.review.opening": {
+      "en": "Opening",
+      "es": "Abriendo"
+    },
+    "app.review.artifact": {
+      "en": "artifact",
+      "es": "artefacto"
+    },
+    "app.review.binaryOrEmptyArtifact": {
+      "en": "Binary or empty artifact",
+      "es": "Artefacto binario o vacío"
+    },
+    "app.review.patchGateComplete": {
+      "en": "Approve patch can proceed after a human reason.",
+      "es": "Aprobar el parche puede continuar tras una razón humana."
+    },
+    "app.review.patchGateBlocked": {
+      "en": "Approve patch is blocked until evidence is complete.",
+      "es": "Aprobar el parche está bloqueado hasta que la evidencia esté completa."
+    },
+    "app.home.title": {
+      "en": "Open or continue a project",
+      "es": "Abre o continúa un proyecto"
+    },
+    "app.home.summary": {
+      "en": "Point AIDO at a local folder. It detects the project, prepares the workspace, and takes you straight to work — review the diff and evidence, then approve.",
+      "es": "Apunta AIDO a una carpeta local. Detecta el proyecto, prepara el workspace y te lleva directo a trabajar — revisa el diff y la evidencia, y aprueba."
+    },
+    "app.home.openFolder": {
+      "en": "Open folder",
+      "es": "Abrir carpeta"
+    },
+    "app.home.createWorkspace": {
+      "en": "Create workspace",
+      "es": "Crear workspace"
+    },
+    "app.home.emptyTitle": {
+      "en": "Open a folder to start",
+      "es": "Abre una carpeta para empezar"
+    },
+    "app.home.emptyBody": {
+      "en": "AIDO works on a real local folder. Open one and it detects the project type and prepares the workspace for you.",
+      "es": "AIDO trabaja sobre una carpeta local real. Abre una y detectará el tipo de proyecto y preparará el workspace por ti."
+    },
+    "app.home.continueTitle": {
+      "en": "Continue",
+      "es": "Continuar"
+    },
+    "app.home.allProjects": {
+      "en": "All projects",
+      "es": "Todos los proyectos"
+    },
+    "app.home.openInWorkbench": {
+      "en": "Open in workbench",
+      "es": "Abrir en workbench"
+    },
+    "app.home.kindProject": {
+      "en": "Project",
+      "es": "Proyecto"
+    },
+    "app.home.selected": {
+      "en": "Selected",
+      "es": "Seleccionado"
+    },
+    "app.home.openJobs": {
+      "en": "active jobs",
+      "es": "trabajos activos"
+    },
+    "app.home.pending": {
+      "en": "pending",
+      "es": "pendientes"
+    },
+    "app.home.reviewsTitle": {
+      "en": "Pending reviews",
+      "es": "Revisiones pendientes"
+    },
+    "app.home.allReviews": {
+      "en": "All reviews",
+      "es": "Todas las revisiones"
+    },
+    "app.home.review": {
+      "en": "Review",
+      "es": "Revisar"
+    },
+    "app.home.kindReview": {
+      "en": "Review",
+      "es": "Revisión"
+    },
+    "app.home.blockersTitle": {
+      "en": "Runtime blockers",
+      "es": "Bloqueos de runtime"
+    },
+    "app.home.configure": {
+      "en": "Configure",
+      "es": "Configurar"
+    },
+    "app.home.notReady": {
+      "en": "Not ready",
+      "es": "No listo"
+    },
+    "app.home.notConfigured": {
+      "en": "Not configured",
+      "es": "Sin configurar"
+    },
+    "app.home.runsTitle": {
+      "en": "Recent runs",
+      "es": "Ejecuciones recientes"
+    },
+    "app.home.allRuns": {
+      "en": "All runs",
+      "es": "Todas las ejecuciones"
+    },
+    "app.home.openRun": {
+      "en": "Open run",
+      "es": "Abrir ejecución"
+    },
+    "app.home.kindRun": {
+      "en": "Run",
+      "es": "Ejecución"
+    },
+    "app.home.evidenceTitle": {
+      "en": "Recent evidence",
+      "es": "Evidencia reciente"
+    },
+    "app.home.allEvidence": {
+      "en": "All evidence",
+      "es": "Toda la evidencia"
+    },
+    "app.home.openEvidence": {
+      "en": "Open evidence",
+      "es": "Abrir evidencia"
+    },
+    "app.home.kindEvidence": {
+      "en": "Evidence",
+      "es": "Evidencia"
+    },
+    "app.settings.group.project.purpose": {
+      "en": "Pick the active project that work runs against.",
+      "es": "Elige el proyecto activo sobre el que se ejecuta el trabajo."
+    },
+    "app.settings.group.runtime.purpose": {
+      "en": "Get a runtime provider ready and route models so an agent can actually run.",
+      "es": "Deja un runtime listo y rutea modelos para que un agente pueda ejecutar."
+    },
+    "app.settings.group.agents.purpose": {
+      "en": "Agent profiles and runtime readiness.",
+      "es": "Perfiles de agentes y disponibilidad de runtime."
+    },
+    "app.settings.group.security.purpose": {
+      "en": "Policy, sandbox posture and the audit trail.",
+      "es": "Política, sandbox y la traza de auditoría."
+    },
+    "app.settings.group.workspaces.purpose": {
+      "en": "IDE-style workspace roots and import rules.",
+      "es": "Raíces de workspace estilo IDE y reglas de importación."
+    },
+    "app.settings.group.integrations.purpose": {
+      "en": "MCP servers and external tool connections.",
+      "es": "Servidores MCP y conexiones de herramientas externas."
+    },
+    "app.settings.group.advanced.purpose": {
+      "en": "Parameters, defaults, catalogs and personal preferences.",
+      "es": "Parámetros, valores por defecto, catálogos y preferencias personales."
+    },
+    "app.settings.openModelGateway": {
+      "en": "Open Model Gateway",
+      "es": "Abrir Model Gateway"
+    },
+    "app.settings.openMemory": {
+      "en": "Open Memory & Retrieval",
+      "es": "Abrir Memoria y búsqueda"
+    },
+    "app.settings.openAgents": {
+      "en": "Open Agents",
+      "es": "Abrir Agentes"
+    },
+    "app.settings.openPolicy": {
+      "en": "Open Policy & Security",
+      "es": "Abrir Política y seguridad"
+    },
+    "app.settings.openEvidence": {
+      "en": "Open Evidence & QA",
+      "es": "Abrir Evidencia y QA"
+    },
+    "app.settings.openAudit": {
+      "en": "Open Audit Log",
+      "es": "Abrir Auditoría"
+    },
+    "app.settings.openIntegrations": {
+      "en": "Open Integrations",
+      "es": "Abrir Integraciones"
+    },
+    "app.settings.advCatalogAgents": {
+      "en": "Catalog agents",
+      "es": "Agentes de catálogo"
+    },
+    "app.settings.advWorkspaceRoots": {
+      "en": "Workspace roots",
+      "es": "Raíces de workspace"
+    },
+    "app.settings.security.statusLabel": {
+      "en": "Local token",
+      "es": "Token local"
+    },
+    "app.settings.project.noneSelected": {
+      "en": "None selected",
+      "es": "Sin proyecto"
+    },
+    "app.settings.project.noOperationalBadge": {
+      "en": "no operational project",
+      "es": "sin proyecto operativo"
+    },
+    "app.settings.agents.profilesWord": {
+      "en": "profiles",
+      "es": "perfiles"
+    },
+    "app.settings.workspaces.rootsWord": {
+      "en": "roots",
+      "es": "raíces"
+    },
+    "app.settings.runtime.recordsWord": {
+      "en": "records",
+      "es": "registros"
+    },
+    "app.settings.runtime.pythonRunnerLabel": {
+      "en": "Python runner",
+      "es": "Corredor de Python"
+    },
+    "app.settings.agents.modesNote": {
+      "en": "agent profiles. Runtime modes (CLI / API / Ollama / hybrid) sit behind the same governance layer.",
+      "es": "perfiles de agente. Los modos de runtime (CLI / API / Ollama / híbrido) operan tras la misma capa de gobierno."
+    },
+    "app.settings.security.localTokenRequired": {
+      "en": "local token required",
+      "es": "token local requerido"
+    },
+    "app.settings.security.strictForms": {
+      "en": "strict forms",
+      "es": "formularios estrictos"
+    },
+    "app.settings.security.sandboxWord": {
+      "en": "sandbox",
+      "es": "sandbox de"
+    },
+    "app.settings.security.sandboxDefault": {
+      "en": "default",
+      "es": "por defecto"
+    },
+    "app.settings.security.consoleNote": {
+      "en": "Command classification, path boundaries, human gates and sandbox posture are managed in the Policy & Security console. Write operations use the local security handshake.",
+      "es": "La clasificación de comandos, los límites de rutas, las compuertas humanas y la postura de sandbox se gestionan en la consola de Política y seguridad. Las operaciones de escritura usan el handshake de seguridad local."
+    },
+    "app.settings.workspaces.existingHint": {
+      "en": "Open a folder; detect package.json, pom.xml, pyproject.toml, requirements.txt, go.mod.",
+      "es": "Abre una carpeta; detecta package.json, pom.xml, pyproject.toml, requirements.txt, go.mod."
+    },
+    "app.settings.workspaces.duplicateGuard": {
+      "en": "duplicate-name guard active",
+      "es": "protección de nombres duplicados activa"
+    },
+    "app.settings.integrations.registeredNote": {
+      "en": "MCP servers registered. Registration, transports and IDE connections live in the Integrations console; execution still goes through broker, policy and sandbox.",
+      "es": "servidores MCP registrados. El registro, los transportes y las conexiones de IDE viven en la consola de Integraciones; la ejecución igual pasa por broker, política y sandbox."
+    },
+    "app.settings.prefs.languageSpanish": {
+      "en": "Spanish",
+      "es": "Español"
+    },
+    "app.settings.prefs.languageEnglish": {
+      "en": "English",
+      "es": "Inglés"
+    },
+    "app.activeProjects.active.kicker": {
+      "en": "Active work",
+      "es": "Trabajo activo"
+    },
+    "app.activeProjects.active.title": {
+      "en": "Active Projects",
+      "es": "Proyectos activos"
+    },
+    "app.activeProjects.active.summary": {
+      "en": "Only active projects can run work here. Inactive and archived projects stay visible in Settings for audit and configuration.",
+      "es": "Solo los proyectos activos pueden ejecutar trabajo aquí. Los proyectos inactivos y archivados siguen visibles en Configuración para auditoría."
+    },
+    "app.activeProjects.active.emptyTitle": {
+      "en": "No active projects",
+      "es": "No hay proyectos activos"
+    },
+    "app.activeProjects.active.emptyBody": {
+      "en": "Create a project or reactivate one in Settings before starting workflows, jobs, workspaces or governance records.",
+      "es": "Crea un proyecto o reactiva uno en Configuración antes de iniciar flujos de trabajo, trabajos, workspaces o registros de gobierno."
+    },
+    "app.activeProjects.finished.kicker": {
+      "en": "Delivered",
+      "es": "Entregados"
+    },
+    "app.activeProjects.finished.title": {
+      "en": "Finished Projects",
+      "es": "Proyectos finalizados"
+    },
+    "app.activeProjects.finished.summary": {
+      "en": "Completed and archived projects stay available for audit and cannot be selected to run new work.",
+      "es": "Los proyectos completados y archivados quedan disponibles para auditoría y no pueden seleccionarse para ejecutar trabajo nuevo."
+    },
+    "app.activeProjects.finished.emptyTitle": {
+      "en": "No finished projects",
+      "es": "No hay proyectos finalizados"
+    },
+    "app.activeProjects.finished.emptyBody": {
+      "en": "Projects with completed, finished, done, finalized or archived status will appear here.",
+      "es": "Aparecerán proyectos con estado completed, finished, done, finalized o archived."
+    },
+    "app.activeProjects.error.kicker": {
+      "en": "Errors",
+      "es": "Errores"
+    },
+    "app.activeProjects.error.title": {
+      "en": "Projects With Error",
+      "es": "Proyectos con error"
+    },
+    "app.activeProjects.error.summary": {
+      "en": "Projects in failed or error states are isolated here so operators can triage without mixing them into active work.",
+      "es": "Los proyectos con error quedan aislados para revisión sin mezclarse con el trabajo activo."
+    },
+    "app.activeProjects.error.emptyTitle": {
+      "en": "No projects with error",
+      "es": "No hay proyectos con error"
+    },
+    "app.activeProjects.error.emptyBody": {
+      "en": "Projects with failed, error or errored status will appear here.",
+      "es": "Aparecerán proyectos con estado failed, error o errored."
+    },
+    "app.activeProjects.cancelled.kicker": {
+      "en": "Cancelled",
+      "es": "Cancelados"
+    },
+    "app.activeProjects.cancelled.title": {
+      "en": "Cancelled Projects",
+      "es": "Proyectos cancelados"
+    },
+    "app.activeProjects.cancelled.summary": {
+      "en": "Cancelled projects stay visible for traceability, but cannot be selected to run new work.",
+      "es": "Los proyectos cancelados se mantienen visibles para trazabilidad, pero no pueden seleccionarse para ejecutar trabajo nuevo."
+    },
+    "app.activeProjects.cancelled.emptyTitle": {
+      "en": "No cancelled projects",
+      "es": "No hay proyectos cancelados"
+    },
+    "app.activeProjects.cancelled.emptyBody": {
+      "en": "Projects with cancelled or canceled status will appear here.",
+      "es": "Aparecerán proyectos con estado cancelled o canceled."
+    },
+    "app.activeProjects.selected": {
+      "en": "Selected",
+      "es": "Seleccionado"
+    },
+    "app.activeProjects.noOperationalProject": {
+      "en": "No operational project",
+      "es": "Sin proyecto operativo"
+    },
+    "app.activeProjects.projectSettings": {
+      "en": "Project settings",
+      "es": "Configuración de proyecto"
+    },
+    "app.activeProjects.newProject": {
+      "en": "New project",
+      "es": "Nuevo proyecto"
+    },
+    "app.activeProjects.jobs": {
+      "en": "jobs",
+      "es": "trabajos"
+    },
+    "app.activeProjects.approval": {
+      "en": "approval",
+      "es": "aprobación"
+    },
+    "app.activeProjects.clear": {
+      "en": "clear",
+      "es": "sin pendientes"
+    },
+    "app.activeProjects.select": {
+      "en": "Select",
+      "es": "Seleccionar"
+    },
+    "app.activeProjects.auditOnly": {
+      "en": "Audit only",
+      "es": "Solo auditoría"
+    },
+    "app.activeProjects.recentApprovals": {
+      "en": "Recent approvals",
+      "es": "Aprobaciones recientes"
+    },
+    "app.activeProjects.noPendingApprovals": {
+      "en": "No pending approvals",
+      "es": "Sin aprobaciones pendientes"
+    },
+    "app.activeProjects.noPendingApprovalsBody": {
+      "en": "Risky actions stop in the approval queue before execution.",
+      "es": "Las acciones riesgosas se detienen en la cola de aprobación antes de ejecutarse."
+    },
+    "app.activeProjects.workspaceStatus": {
+      "en": "Workspace status",
+      "es": "Estado de workspaces"
+    },
+    "app.activeProjects.noActiveWorkspaces": {
+      "en": "No active workspaces",
+      "es": "Sin workspaces activos"
+    },
+    "app.activeProjects.noActiveWorkspacesBody": {
+      "en": "Workflow implementation steps allocate isolated workspaces.",
+      "es": "Los pasos de implementación asignan workspaces aislados."
+    },
+    "app.explorer.showAll": {
+      "en": "Show all",
+      "es": "Ver todas"
+    },
+    "app.explorer.newProject": {
+      "en": "New project",
+      "es": "Nuevo proyecto"
+    },
+    "app.explorer.currentProject": {
+      "en": "Current project",
+      "es": "Proyecto actual"
+    },
+    "app.explorer.project": {
+      "en": "Project",
+      "es": "Proyecto"
+    },
+    "app.explorer.stackNotDetected": {
+      "en": "Stack not detected",
+      "es": "Stack no detectado"
+    },
+    "app.explorer.newTask": {
+      "en": "New task",
+      "es": "Nueva tarea"
+    },
+    "app.explorer.openFolder": {
+      "en": "Open folder",
+      "es": "Abrir carpeta"
+    },
+    "app.explorer.review": {
+      "en": "Review",
+      "es": "Revisar"
+    },
+    "app.explorer.settings": {
+      "en": "Settings",
+      "es": "Configuración"
+    },
+    "app.explorer.noProjectSelected": {
+      "en": "No project selected",
+      "es": "Sin proyecto seleccionado"
+    },
+    "app.explorer.noProjectSelectedBody": {
+      "en": "Open or pick a project to keep its context in view.",
+      "es": "Abre o elige un proyecto para mantener su contexto a la vista."
+    },
+    "app.explorer.activeRuns": {
+      "en": "Active runs",
+      "es": "Ejecuciones activas"
+    },
+    "app.explorer.noActiveRuns": {
+      "en": "No active runs",
+      "es": "Sin ejecuciones activas"
+    },
+    "app.explorer.approvals": {
+      "en": "Approvals",
+      "es": "Aprobaciones"
+    },
+    "app.explorer.noPendingApprovals": {
+      "en": "No pending approvals",
+      "es": "Sin aprobaciones pendientes"
+    },
+    "app.explorer.noWorkspaces": {
+      "en": "No workspaces",
+      "es": "Sin workspaces"
+    },
+    "app.explorer.evidence": {
+      "en": "Evidence",
+      "es": "Evidencia"
+    },
+    "app.explorer.noEvidencePackages": {
+      "en": "No evidence packages",
+      "es": "Sin paquetes de evidencia"
+    },
+    "app.explorer.projectFiles": {
+      "en": "Project files",
+      "es": "Archivos del proyecto"
+    },
+    "app.explorer.projectFilesUnavailable": {
+      "en": "Project files unavailable",
+      "es": "Archivos del proyecto no disponibles"
+    },
+    "app.explorer.projectFilesUnavailableBody": {
+      "en": "This control plane does not index project files yet. Open the folder to browse it in your OS file manager.",
+      "es": "Este panel aún no indexa archivos del proyecto. Abre la carpeta para explorarla en tu administrador de archivos."
+    },
+    "app.explorer.navigate": {
+      "en": "Navigate",
+      "es": "Navegar"
+    },
+    "app.explorer.switchProject": {
+      "en": "Switch project",
+      "es": "Cambiar proyecto"
+    },
+    "app.inspector.closeInspector": {
+      "en": "Close inspector",
+      "es": "Cerrar inspector"
+    },
+    "app.inspector.project": {
+      "en": "Project",
+      "es": "Proyecto"
+    },
+    "app.inspector.pendingApprovals": {
+      "en": "Pending approvals",
+      "es": "Aprobaciones pendientes"
+    },
+    "app.inspector.evidence": {
+      "en": "Evidence",
+      "es": "Evidencia"
+    },
+    "app.inspector.workflows": {
+      "en": "Workflows",
+      "es": "Flujos"
+    },
+    "app.inspector.noProjectSelected": {
+      "en": "No project selected",
+      "es": "Sin proyecto seleccionado"
+    },
+    "app.inspector.pickWorkspaceContext": {
+      "en": "Pick a workspace to see its context here.",
+      "es": "Elige un workspace para ver su contexto aquí."
+    },
+    "app.statusBar.apiConnected": {
+      "en": "API connected",
+      "es": "API conectada"
+    },
+    "app.statusBar.polling": {
+      "en": "polling",
+      "es": "sondeo"
+    },
+    "app.statusBar.project": {
+      "en": "Project",
+      "es": "Proyecto"
+    },
+    "app.statusBar.executableRuntimes": {
+      "en": "executable runtimes",
+      "es": "runtimes ejecutables"
+    },
+    "app.statusBar.approvals": {
+      "en": "approvals",
+      "es": "aprobaciones"
+    },
+    "app.statusBar.cost": {
+      "en": "Cost",
+      "es": "Costo"
+    },
+    "app.statusBar.unavailable": {
+      "en": "unavailable",
+      "es": "no disponible"
+    },
+    "app.commandPalette.groupNavigate": {
+      "en": "Navigate",
+      "es": "Navegar"
+    },
+    "app.commandPalette.groupActions": {
+      "en": "Actions",
+      "es": "Acciones"
+    },
+    "app.commandPalette.groupRuntime": {
+      "en": "Runtime",
+      "es": "Entorno de ejecución"
+    },
+    "app.commandPalette.commandSingular": {
+      "en": "command",
+      "es": "comando"
+    },
+    "app.commandPalette.commandPlural": {
+      "en": "commands",
+      "es": "comandos"
+    },
+    "app.commandPalette.hintNavigate": {
+      "en": "navigate",
+      "es": "navegar"
+    },
+    "app.commandPalette.hintRun": {
+      "en": "run",
+      "es": "ejecutar"
+    },
+    "app.commandPalette.hintDismiss": {
+      "en": "dismiss",
+      "es": "descartar"
+    },
+    "app.taskComposer.unavailable": {
+      "en": "unavailable",
+      "es": "no disponible"
+    },
+    "app.taskComposer.notDetected": {
+      "en": "not detected",
+      "es": "no detectado"
+    },
+    "app.workbenchEvidence.previewArtifact": {
+      "en": "Preview artifact",
+      "es": "Previsualizar artefacto"
+    },
+    "app.workbenchEvidence.downloadArtifact": {
+      "en": "Download artifact",
+      "es": "Descargar artefacto"
+    },
+    "app.workbenchEvidence.notRecorded": {
+      "en": "not recorded",
+      "es": "no registrado"
+    },
     "app.modelGateway.overview.healthy": {
       "en": "healthy",
       "es": "saludables"

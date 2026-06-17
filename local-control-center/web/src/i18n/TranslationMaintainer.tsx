@@ -166,11 +166,11 @@ export function TranslationMaintainer({ mutate }: { mutate: Mutate }) {
 						</div>
 						<div className="field">
 							<label htmlFor="i18n-language-name">{t('i18n.maintainer.languageName', 'Language name')}</label>
-							<input id="i18n-language-name" className="input" value={newLanguageName} onChange={(event) => setNewLanguageName(event.target.value)} placeholder="Portuguese" />
+							<input id="i18n-language-name" className="input" value={newLanguageName} onChange={(event) => setNewLanguageName(event.target.value)} placeholder={t('app.i18nMaintainer.languageNamePlaceholder', 'Portuguese')} />
 						</div>
 						<div className="field">
 							<label htmlFor="i18n-language-native">{t('i18n.maintainer.nativeName', 'Native name')}</label>
-							<input id="i18n-language-native" className="input" value={newLanguageNativeName} onChange={(event) => setNewLanguageNativeName(event.target.value)} placeholder="Portugues" />
+							<input id="i18n-language-native" className="input" value={newLanguageNativeName} onChange={(event) => setNewLanguageNativeName(event.target.value)} placeholder={t('app.i18nMaintainer.nativeNamePlaceholder', 'Portugues')} />
 						</div>
 						<button className="button settings-action" type="button" onClick={addLanguage}>
 							<Plus aria-hidden="true" size={16} />

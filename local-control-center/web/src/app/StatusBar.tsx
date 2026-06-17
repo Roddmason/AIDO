@@ -32,34 +32,33 @@ export function StatusBar({
 	const qaPassed = evidence.filter((item) => String(item.qaVerdict ?? '') === 'passed').length;
 	const qaBlocking = evidence.filter((item) => ['failed', 'blocked', 'security_blocked', 'devops_blocked'].includes(String(item.qaVerdict ?? ''))).length;
 	const recordedCost = sumRecordedCost(overview.costUsage);
-	const projectName = selectedProject?.name ?? t('app.global.noProject', language === 'es' ? 'sin proyecto' : 'no project');
-	const lang = (en: string, es: string) => (language === 'es' ? es : en);
+	const projectName = selectedProject?.name ?? t('app.global.noProject', 'no project');
 
 	return (
 		<footer className="status-bar" aria-label={t('app.global.globalStatus', 'Global status')}>
 			<span className="status-bar-item">
 				<StatusDot tone={connected ? 'ok' : 'warn'} />
-				{connected ? lang('API connected', 'API conectada') : lang('polling', 'sondeo')}
+				{connected ? t('app.statusBar.apiConnected', 'API connected') : t('app.statusBar.polling', 'polling')}
 			</span>
 			<span className="status-bar-item" title={String(selectedProject?.path ?? '')}>
-				<span className="status-bar-label">{lang('Project', 'Proyecto')}</span>
+				<span className="status-bar-label">{t('app.statusBar.project', 'Project')}</span>
 				<strong>{projectName}</strong>
 			</span>
 			<span className="status-bar-item">
 				<StatusDot tone={executableRuntimes ? 'ok' : 'warn'} />
-				{executableRuntimes} {lang('executable runtimes', 'runtimes ejecutables')}
+				{executableRuntimes} {t('app.statusBar.executableRuntimes', 'executable runtimes')}
 			</span>
 			<span className="status-bar-item">
 				<StatusDot tone={pendingApprovals ? 'warn' : 'ok'} />
-				{pendingApprovals} {lang('approvals', 'aprobaciones')}
+				{pendingApprovals} {t('app.statusBar.approvals', 'approvals')}
 			</span>
 			<span className="status-bar-item">
 				<StatusDot tone={qaBlocking ? 'danger' : 'ok'} />
-				{lang('QA', 'QA')} {qaPassed}/{evidence.length}
+				QA {qaPassed}/{evidence.length}
 			</span>
 			<span className="status-bar-item">
-				<span className="status-bar-label">{lang('Cost', 'Costo')}</span>
-				<strong>{recordedCost === null ? lang('unavailable', 'no disponible') : `$${recordedCost.toFixed(2)}`}</strong>
+				<span className="status-bar-label">{t('app.statusBar.cost', 'Cost')}</span>
+				<strong>{recordedCost === null ? t('app.statusBar.unavailable', 'unavailable') : `$${recordedCost.toFixed(2)}`}</strong>
 			</span>
 		</footer>
 	);

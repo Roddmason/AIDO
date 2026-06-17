@@ -11,10 +11,10 @@ import { useI18n } from '../i18n/I18nProvider';
 import type { CommandAction, CommandGroupId } from './commandActions';
 
 const GROUP_ORDER: CommandGroupId[] = ['navigate', 'actions', 'runtime'];
-const GROUP_LABELS: Record<CommandGroupId, string> = {
-	navigate: 'Navigate',
-	actions: 'Actions',
-	runtime: 'Runtime',
+const GROUP_LABELS: Record<CommandGroupId, { labelKey: string; label: string }> = {
+	navigate: { labelKey: 'app.commandPalette.groupNavigate', label: 'Navigate' },
+	actions: { labelKey: 'app.commandPalette.groupActions', label: 'Actions' },
+	runtime: { labelKey: 'app.commandPalette.groupRuntime', label: 'Runtime' },
 };
 
 const LISTBOX_ID = 'command-palette-listbox';
@@ -54,10 +54,12 @@ export function CommandPalette({ open, onClose, actions }: { open: boolean; onCl
 
 	const groups = useMemo(
 		() =>
-			GROUP_ORDER.map((group) => ({ group, label: GROUP_LABELS[group], items: results.filter((action) => action.group === group) })).filter(
-				(entry) => entry.items.length > 0,
-			),
-		[results],
+			GROUP_ORDER.map((group) => ({
+				group,
+				label: t(GROUP_LABELS[group].labelKey, GROUP_LABELS[group].label),
+				items: results.filter((action) => action.group === group),
+			})).filter((entry) => entry.items.length > 0),
+		[results, t],
 	);
 
 	// Reset the highlight whenever the filter changes or the palette reopens.
@@ -167,7 +169,10 @@ export function CommandPalette({ open, onClose, actions }: { open: boolean; onCl
 
 				<div ref={listRef} id={LISTBOX_ID} className="command-palette-results" role="listbox" aria-label={t('app.commandPalette.title', 'Command palette')}>
 					{results.length === 0 ? (
-						<EmptyState title="No commands" body="Try open, runtime, evidence, approvals or settings." />
+						<EmptyState
+							title={t('ui.static.no.commands.c0f14586', 'No commands')}
+							body={t('app.commandPalette.empty.body', 'Try open, runtime, evidence, approvals or settings.')}
+						/>
 					) : (
 						groups.map((entry) => (
 							<div key={entry.group} className="command-palette-group" role="group" aria-labelledby={groupHeaderId(entry.group)}>
@@ -223,16 +228,18 @@ export function CommandPalette({ open, onClose, actions }: { open: boolean; onCl
 
 				<div className="command-palette-footer">
 					<span className="sr-only" aria-live="polite">
-						{resultCount === 1 ? '1 command' : `${resultCount} commands`}
+						{resultCount === 1
+							? `${resultCount} ${t('app.commandPalette.commandSingular', 'command')}`
+							: `${resultCount} ${t('app.commandPalette.commandPlural', 'commands')}`}
 					</span>
 					<span className="command-palette-hints" aria-hidden="true">
 						<kbd className="command-kbd">↑</kbd>
 						<kbd className="command-kbd">↓</kbd>
-						<span>navigate</span>
+						<span>{t('app.commandPalette.hintNavigate', 'navigate')}</span>
 						<kbd className="command-kbd">↵</kbd>
-						<span>run</span>
+						<span>{t('app.commandPalette.hintRun', 'run')}</span>
 						<kbd className="command-kbd">esc</kbd>
-						<span>dismiss</span>
+						<span>{t('app.commandPalette.hintDismiss', 'dismiss')}</span>
 					</span>
 				</div>
 			</section>

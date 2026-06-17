@@ -15,6 +15,58 @@
     }
   ],
   "translations": {
+    "app.modelGateway.action.enable": {
+      "en": "Enable",
+      "es": "Activar"
+    },
+    "app.modelGateway.action.disable": {
+      "en": "Disable",
+      "es": "Desactivar"
+    },
+    "app.modelGateway.routePreview.submit": {
+      "en": "Preview route",
+      "es": "Previsualizar ruta"
+    },
+    "app.modelGateway.routePreview.noModel": {
+      "en": "no model",
+      "es": "sin modelo"
+    },
+    "app.modelGateway.routePreview.noRuntime": {
+      "en": "no runtime",
+      "es": "sin entorno"
+    },
+    "app.modelGateway.routePreview.defaultEffort": {
+      "en": "default effort",
+      "es": "esfuerzo predeterminado"
+    },
+    "app.modelGateway.routePreview.unknownCostBadge": {
+      "en": "unknown cost",
+      "es": "costo desconocido"
+    },
+    "app.modelGateway.routePreview.unknownCostPolicy": {
+      "en": "Unknown cost policy",
+      "es": "Política de costo desconocido"
+    },
+    "app.modelGateway.benchmark.provenance.automatedRun": {
+      "en": "Automated run",
+      "es": "Ejecución automatizada"
+    },
+    "app.modelGateway.benchmark.provenance.releaseValidation": {
+      "en": "Release validation",
+      "es": "Validación de versión"
+    },
+    "app.modelGateway.benchmark.provenance.operatorReported": {
+      "en": "Manual/operator-reported",
+      "es": "Manual/reportado por operador"
+    },
+    "app.modelGateway.benchmark.validity.insufficientObjective": {
+      "en": "insufficient objective data",
+      "es": "datos objetivos insuficientes"
+    },
+    "app.modelGateway.benchmark.validity.objectiveEvidence": {
+      "en": "objective benchmark evidence",
+      "es": "evidencia objetiva de benchmark"
+    },
     "app.workflows.queueReasonHelp": {
       "en": "Retry and Cancel are disabled until a reason is recorded.",
       "es": "Reintentar y Cancelar quedan deshabilitados hasta registrar una razón."

@@ -5,23 +5,25 @@
  */
 import type { ModelGatewayProviderLimit } from '../../api/types';
 import { DataTable, EmptyState } from '../../components/primitives';
+import { useI18n } from '../../i18n/I18nProvider';
 import { PanelShell } from './PanelShell';
 import { money, text } from './utils';
 
 export function ProviderLimitsPanel({ providerLimits }: { providerLimits: ModelGatewayProviderLimit[] }) {
+	const { t } = useI18n();
 	return (
-		<PanelShell title="Provider Limits">
-			<DataTable rows={providerLimits} empty={<EmptyState title="No provider limits" body="Provider limit records appear after seeds or rate-limit events." />} columns={[
-				{ key: 'provider', label: 'Provider', render: (row) => text(row.providerId) },
-				{ key: 'model', label: 'Model', render: (row) => text(row.model) },
+		<PanelShell title={t('ui.static.provider.limits.7533783c', 'Provider Limits')}>
+			<DataTable rows={providerLimits} empty={<EmptyState title={t('ui.static.no.provider.limits.b14ad2ba', 'No provider limits')} body={t('ui.static.provider.limit.records.appear.after.seeds.or.rate.limit.even.0c737940', 'Provider limit records appear after seeds or rate-limit events.')} />} columns={[
+				{ key: 'provider', label: t('ui.static.provider.7ceee3f3', 'Provider'), render: (row) => text(row.providerId) },
+				{ key: 'model', label: t('ui.static.model.68c2cc7f', 'Model'), render: (row) => text(row.model) },
 				{ key: 'rpm', label: 'RPM', render: (row) => text(row.rpm) },
 				{ key: 'tpm', label: 'TPM', render: (row) => text(row.tpm) },
-				{ key: 'dailyRequests', label: 'Daily requests', render: (row) => text(row.dailyRequests) },
-				{ key: 'dailyTokens', label: 'Daily tokens', render: (row) => text(row.dailyTokens) },
-				{ key: 'monthlyBudget', label: 'Monthly budget', render: (row) => money(row.monthlyBudgetUsd) },
-				{ key: 'cooldown', label: 'Cooldown', render: (row) => text(row.cooldownUntil) },
-				{ key: 'last429', label: 'Last 429', render: (row) => text(row.last429At) },
-				{ key: 'strategy', label: 'Unknown limit strategy', render: (row) => text(row.unknownLimitStrategy) },
+				{ key: 'dailyRequests', label: t('ui.static.daily.requests.aa9a0d5f', 'Daily requests'), render: (row) => text(row.dailyRequests) },
+				{ key: 'dailyTokens', label: t('ui.static.daily.tokens.4a4f692d', 'Daily tokens'), render: (row) => text(row.dailyTokens) },
+				{ key: 'monthlyBudget', label: t('ui.static.monthly.budget.f260ddaf', 'Monthly budget'), render: (row) => money(row.monthlyBudgetUsd) },
+				{ key: 'cooldown', label: t('ui.static.cooldown.98fd67d9', 'Cooldown'), render: (row) => text(row.cooldownUntil) },
+				{ key: 'last429', label: t('ui.static.last.429.465b5393', 'Last 429'), render: (row) => text(row.last429At) },
+				{ key: 'strategy', label: t('ui.static.unknown.limit.strategy.c9e71d1c', 'Unknown limit strategy'), render: (row) => text(row.unknownLimitStrategy) },
 			]} />
 		</PanelShell>
 	);

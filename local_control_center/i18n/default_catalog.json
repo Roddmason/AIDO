@@ -103,6 +103,26 @@
       "en": "Toggle light and dark theme",
       "es": "Cambiar entre tema claro y oscuro"
     },
+    "app.modelGateway.role.rejectUnknownCost": {
+      "en": "reject unknown remote cost",
+      "es": "rechazar costo remoto desconocido"
+    },
+    "app.modelGateway.role.approvalRequired": {
+      "en": "approval required",
+      "es": "aprobación requerida"
+    },
+    "app.modelGateway.role.allowedByPolicy": {
+      "en": "allowed by policy",
+      "es": "permitido por política"
+    },
+    "app.modelGateway.role.maxRequiresApproval": {
+      "en": "max requires approval",
+      "es": "máximo requiere aprobación"
+    },
+    "app.modelGateway.role.profileDefault": {
+      "en": "profile default",
+      "es": "predeterminado del perfil"
+    },
     "app.workspace.dialog.title": {
       "en": "New workspace",
       "es": "Nuevo workspace"

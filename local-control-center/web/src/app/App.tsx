@@ -250,7 +250,7 @@ export function App() {
 	const pageContent = () => {
 		if (!overview) return null;
 		if (state.error) {
-			return <EmptyState title="Control plane unavailable" body={state.error} />;
+			return <EmptyState title={t('ui.static.control.plane.unavailable.6196ca6f', 'Control plane unavailable')} body={state.error} />;
 		}
 		if (page === 'home') {
 			return (
@@ -362,8 +362,8 @@ export function App() {
 				<main className="workbench main-area">
 					<section className="content-frame">
 						<EmptyState
-							title={failed ? 'Control plane unavailable' : 'Loading control plane'}
-							body={failed ? state.error : 'Waiting for FastAPI v1, SQLite and runtime providers.'}
+							title={failed ? t('ui.static.control.plane.unavailable.6196ca6f', 'Control plane unavailable') : t('ui.static.loading.control.plane.b6b0a909', 'Loading control plane')}
+							body={failed ? state.error : t('ui.static.waiting.for.fastapi.v1.sqlite.and.runtime.providers.534adb14', 'Waiting for FastAPI v1, SQLite and runtime providers.')}
 						/>
 					</section>
 				</main>
@@ -411,38 +411,38 @@ export function App() {
 				}}
 			/>
 
-			<Drawer label="Approval drawer" open={approvalDrawerOpen} onClose={() => setApprovalDrawerOpen(false)}>
+			<Drawer label={t('ui.static.approval.drawer.4e143a24', 'Approval drawer')} open={approvalDrawerOpen} onClose={() => setApprovalDrawerOpen(false)}>
 				<DataTable
 					rows={overview.actionRequests.filter((item) => item.status === 'pending').slice(0, 12)}
-					empty={<EmptyState title="No pending approvals" body="Action requests appear here when policy gates execution." />}
+					empty={<EmptyState title={t('app.workbench.inspector.noApprovals', 'No pending approvals')} body={t('ui.static.action.requests.appear.here.when.policy.gates.execution.f9e13dac', 'Action requests appear here when policy gates execution.')} />}
 					columns={[
-						{ key: 'action', label: 'Action', render: (row) => <span className="mono">{row.actionType}</span> },
-						{ key: 'risk', label: 'Risk', render: (row) => <Badge tone={toneForStatus(row.riskLevel)}>{row.riskLevel}</Badge> },
-						{ key: 'command', label: 'Command', render: (row) => <span className="mono">{row.command || 'n/a'}</span> },
-						{ key: 'job', label: 'Job', render: (row) => <span className="mono">{shortId(row.jobId)}</span> },
+						{ key: 'action', label: t('ui.static.action.97c89a4d', 'Action'), render: (row) => <span className="mono">{row.actionType}</span> },
+						{ key: 'risk', label: t('ui.static.risk.5a8f23f5', 'Risk'), render: (row) => <Badge tone={toneForStatus(row.riskLevel)}>{row.riskLevel}</Badge> },
+						{ key: 'command', label: t('app.workbench.evidence.colCommand', 'Command'), render: (row) => <span className="mono">{row.command || 'n/a'}</span> },
+						{ key: 'job', label: t('ui.static.job.30c8cb83', 'Job'), render: (row) => <span className="mono">{shortId(row.jobId)}</span> },
 					]}
 				/>
 			</Drawer>
-			<Drawer label="Event drawer" open={eventDrawerOpen} onClose={() => setEventDrawerOpen(false)}>
+			<Drawer label={t('ui.static.event.drawer.be20f85b', 'Event drawer')} open={eventDrawerOpen} onClose={() => setEventDrawerOpen(false)}>
 				<div className="drawer-body">
 					<div className="field">
-						<label htmlFor="event-filter">Event filter</label>
+						<label htmlFor="event-filter">{t('ui.static.event.filter.2ecf15a5', 'Event filter')}</label>
 						<input
 							id="event-filter"
 							className="input"
 							value={eventFilter}
 							onChange={(event) => setEventFilter(event.target.value)}
-							placeholder="Filter by type, severity, id or payload"
+							placeholder={t('ui.static.filter.by.type.severity.id.or.payload.c700f550', 'Filter by type, severity, id or payload')}
 						/>
 					</div>
 				</div>
 				<DataTable
 					rows={filteredEvents.slice(0, 16)}
-					empty={<EmptyState title="No events" body="Workflow, job, policy, and evidence events appear here." />}
+					empty={<EmptyState title={t('ui.static.no.events.e339ba73', 'No events')} body={t('ui.static.workflow.job.policy.and.evidence.events.appear.here.4d1f02f5', 'Workflow, job, policy, and evidence events appear here.')} />}
 					columns={[
-						{ key: 'type', label: 'Type', render: (row) => <span className="mono">{row.type}</span> },
-						{ key: 'severity', label: 'Severity', render: (row) => <Badge tone={toneForStatus(row.severity)}>{row.severity ?? 'info'}</Badge> },
-						{ key: 'id', label: 'Event', render: (row) => <span className="mono">{shortId(row.id)}</span> },
+						{ key: 'type', label: t('ui.static.type.3deb7456', 'Type'), render: (row) => <span className="mono">{row.type}</span> },
+						{ key: 'severity', label: t('app.workbench.logs.colSeverity', 'Severity'), render: (row) => <Badge tone={toneForStatus(row.severity)}>{row.severity ?? 'info'}</Badge> },
+						{ key: 'id', label: t('ui.static.event.ad8919ac', 'Event'), render: (row) => <span className="mono">{shortId(row.id)}</span> },
 					]}
 				/>
 			</Drawer>

@@ -5,6 +5,7 @@
  */
 import { PanelLeft } from 'lucide-react';
 
+import { useI18n } from '../i18n/I18nProvider';
 import { AREAS, pickLabel } from './navigation';
 import type { AreaId, PageId } from './navigation';
 
@@ -21,12 +22,13 @@ export function ActivityBar({
 	explorerCollapsed: boolean;
 	onToggleExplorer: () => void;
 }) {
+	const { t } = useI18n();
 	const toggleLabel = explorerCollapsed
 		? (language === 'es' ? 'Mostrar explorador' : 'Show explorer')
 		: (language === 'es' ? 'Ocultar explorador' : 'Hide explorer');
 
 	return (
-		<nav className="activity-bar" role="navigation" aria-label="Primary navigation">
+		<nav className="activity-bar" role="navigation" aria-label={t('app.global.primaryNavigation', 'Primary navigation')}>
 			<div className="brand-orb" aria-hidden="true"><span /></div>
 			<div className="activity-bar-nav">
 				{AREAS.map((area) => {

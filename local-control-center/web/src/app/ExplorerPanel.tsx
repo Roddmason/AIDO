@@ -20,6 +20,7 @@ import type { ReactNode } from 'react';
 
 import type { Overview, Project } from '../api/types';
 import { Badge, EmptyState, StatusDot } from '../components/primitives';
+import { useI18n } from '../i18n/I18nProvider';
 import { shortId, toneForStatus } from '../lib/format';
 import { EXPLORER_GROUPS, EXPLORER_LINKS, EXPLORER_TITLE, pickLabel } from './navigation';
 import type { AreaId, ExplorerLink, PageId } from './navigation';
@@ -142,10 +143,10 @@ export function ExplorerPanel({
 	onSelectProject: (projectId: string) => void;
 	onCreateProject: () => void;
 }) {
+	const { t } = useI18n();
 	const links = EXPLORER_LINKS[activeArea];
 	const groups = EXPLORER_GROUPS[activeArea];
 	const title = pickLabel(EXPLORER_TITLE[activeArea], language);
-	const lang = (en: string, es: string) => (language === 'es' ? es : en);
 
 	const renderLink = (link: ExplorerLink) => {
 		const Icon = link.icon;
@@ -197,25 +198,25 @@ export function ExplorerPanel({
 	const evidenceBlocking =
 		scope?.evidence.some((item) => BLOCKING_VERDICTS.includes(String(item.qaVerdict ?? ''))) ?? false;
 
-	const showAll = (count: number) => lang(`Show all (${count})`, `Ver todas (${count})`);
+	const showAll = (count: number) => `${t('app.explorer.showAll', 'Show all')} (${count})`;
 
 	return (
-		<aside className="explorer-panel" aria-label="Explorer">
+		<aside className="explorer-panel" aria-label={t('app.explorer.aria.panel', 'Explorer')}>
 			<div className="explorer-top">
 				<div className="explorer-header">
 					<div className="explorer-title">{title}</div>
 					{activeArea === 'home' ? (
 						<button className="button explorer-action" type="button" onClick={onCreateProject}>
 							<FolderPlus aria-hidden="true" size={15} />
-							{lang('New project', 'Nuevo proyecto')}
+							{t('app.explorer.newProject', 'New project')}
 						</button>
 					) : null}
 				</div>
 
 				{selectedProject ? (
-					<section className="explorer-project" aria-label={lang('Current project', 'Proyecto actual')}>
+					<section className="explorer-project" aria-label={t('app.explorer.currentProject', 'Current project')}>
 						<div className="workspace-root-card">
-							<span>{lang('Project', 'Proyecto')}</span>
+							<span>{t('app.explorer.project', 'Project')}</span>
 							<strong>{selectedProject.name}</strong>
 							<strong className="mono" title={String(selectedProject.path ?? '')}>
 								{String(selectedProject.path ?? selectedProject.id)}
@@ -231,7 +232,7 @@ export function ExplorerPanel({
 										</Badge>
 									))
 								) : (
-									<Badge tone="info">{lang('Stack not detected', 'Stack no detectado')}</Badge>
+									<Badge tone="info">{t('app.explorer.stackNotDetected', 'Stack not detected')}</Badge>
 								)}
 								{stack.length > 3 ? <Badge tone="info">{`+${stack.length - 3}`}</Badge> : null}
 							</div>
@@ -240,50 +241,50 @@ export function ExplorerPanel({
 						<div className="explorer-actions">
 							<button className="button primary" type="button" onClick={() => onNavigate('workbench')}>
 								<MessageSquarePlus aria-hidden="true" size={15} />
-								{lang('New task', 'Nueva tarea')}
+								{t('app.explorer.newTask', 'New task')}
 							</button>
 							<button className="button" type="button" onClick={onCreateProject}>
 								<FolderOpen aria-hidden="true" size={15} />
-								{lang('Open folder', 'Abrir carpeta')}
+								{t('app.explorer.openFolder', 'Open folder')}
 							</button>
 							<button className="button" type="button" onClick={() => onNavigate('review-board')}>
 								<ClipboardCheck aria-hidden="true" size={15} />
-								{lang('Review', 'Revisar')}
+								{t('app.explorer.review', 'Review')}
 							</button>
 							<button className="button" type="button" onClick={() => onNavigate('settings-project')}>
 								<SettingsIcon aria-hidden="true" size={15} />
-								{lang('Settings', 'Configuración')}
+								{t('app.explorer.settings', 'Settings')}
 							</button>
 						</div>
 					</section>
 				) : (
 					<div className="empty-state-action">
 						<EmptyState
-							title={lang('No project selected', 'Sin proyecto seleccionado')}
-							body={lang(
+							title={t('app.explorer.noProjectSelected', 'No project selected')}
+							body={t(
+								'app.explorer.noProjectSelectedBody',
 								'Open or pick a project to keep its context in view.',
-								'Abre o elige un proyecto para mantener su contexto a la vista.',
 							)}
 						/>
 						<button className="button" type="button" onClick={onCreateProject}>
 							<FolderOpen aria-hidden="true" size={15} />
-							{lang('Open folder', 'Abrir carpeta')}
+							{t('app.explorer.openFolder', 'Open folder')}
 						</button>
 					</div>
 				)}
 			</div>
 
-			<nav className="nav-list ide-nav" aria-label="Explorer navigation">
+			<nav className="nav-list ide-nav" aria-label={t('app.explorer.aria.nav', 'Explorer navigation')}>
 				{scope ? (
 					<>
 						<ProjectSection
 							id="runs"
-							title={lang('Active runs', 'Ejecuciones activas')}
+							title={t('app.explorer.activeRuns', 'Active runs')}
 							count={scope.runs.length}
 							tone={scope.runs.length ? 'info' : undefined}
 							open={sectionOpen('runs', scope.runs.length > 0)}
 							onToggle={() => toggleSection('runs', scope.runs.length > 0)}
-							emptyLabel={lang('No active runs', 'Sin ejecuciones activas')}
+							emptyLabel={t('app.explorer.noActiveRuns', 'No active runs')}
 						>
 							{scope.runs.slice(0, SECTION_ROW_CAP).map((run) => (
 								<button key={run.id} className="nav-item" type="button" onClick={() => onNavigate('workflows')}>
@@ -304,12 +305,12 @@ export function ExplorerPanel({
 
 						<ProjectSection
 							id="approvals"
-							title={lang('Approvals', 'Aprobaciones')}
+							title={t('app.explorer.approvals', 'Approvals')}
 							count={scope.approvals.length}
 							tone={scope.approvals.length ? 'warn' : undefined}
 							open={sectionOpen('approvals', scope.approvals.length > 0)}
 							onToggle={() => toggleSection('approvals', scope.approvals.length > 0)}
-							emptyLabel={lang('No pending approvals', 'Sin aprobaciones pendientes')}
+							emptyLabel={t('app.explorer.noPendingApprovals', 'No pending approvals')}
 						>
 							{scope.approvals.slice(0, SECTION_ROW_CAP).map((request) => (
 								<button key={request.id} className="nav-item" type="button" onClick={() => onNavigate('review-board')}>
@@ -330,12 +331,12 @@ export function ExplorerPanel({
 
 						<ProjectSection
 							id="workspaces"
-							title={lang('Workspaces', 'Workspaces')}
+							title={t('app.nav.workspaces', 'Workspaces')}
 							count={scope.workspaces.length}
 							tone={scope.workspaces.length ? 'info' : undefined}
 							open={sectionOpen('workspaces', false)}
 							onToggle={() => toggleSection('workspaces', false)}
-							emptyLabel={lang('No workspaces', 'Sin workspaces')}
+							emptyLabel={t('app.explorer.noWorkspaces', 'No workspaces')}
 						>
 							{scope.workspaces.slice(0, SECTION_ROW_CAP).map((workspace) => (
 								<button key={workspace.id} className="nav-item" type="button" onClick={() => onNavigate('workspaces')}>
@@ -354,12 +355,12 @@ export function ExplorerPanel({
 
 						<ProjectSection
 							id="evidence"
-							title={lang('Evidence', 'Evidencia')}
+							title={t('app.explorer.evidence', 'Evidence')}
 							count={scope.evidence.length}
 							tone={evidenceBlocking ? 'danger' : scope.evidence.length ? 'info' : undefined}
 							open={sectionOpen('evidence', false)}
 							onToggle={() => toggleSection('evidence', false)}
-							emptyLabel={lang('No evidence packages', 'Sin paquetes de evidencia')}
+							emptyLabel={t('app.explorer.noEvidencePackages', 'No evidence packages')}
 						>
 							{scope.evidence.slice(0, SECTION_ROW_CAP).map((item) => (
 								<button key={item.id} className="nav-item" type="button" onClick={() => onNavigate('evidence')}>
@@ -379,18 +380,18 @@ export function ExplorerPanel({
 						</ProjectSection>
 
 						<div className="explorer-section">
-							<div className="nav-section-label">{lang('Project files', 'Archivos del proyecto')}</div>
+							<div className="nav-section-label">{t('app.explorer.projectFiles', 'Project files')}</div>
 							<div className="empty-state-action">
 								<EmptyState
-									title={lang('Project files unavailable', 'Archivos del proyecto no disponibles')}
-									body={lang(
+									title={t('app.explorer.projectFilesUnavailable', 'Project files unavailable')}
+									body={t(
+										'app.explorer.projectFilesUnavailableBody',
 										'This control plane does not index project files yet. Open the folder to browse it in your OS file manager.',
-										'Este panel aún no indexa archivos del proyecto. Abre la carpeta para explorarla en tu administrador de archivos.',
 									)}
 								/>
 								<button className="button explorer-action" type="button" onClick={onCreateProject}>
 									<FolderOpen aria-hidden="true" size={15} />
-									{lang('Open folder', 'Abrir carpeta')}
+									{t('app.explorer.openFolder', 'Open folder')}
 								</button>
 							</div>
 						</div>
@@ -406,14 +407,14 @@ export function ExplorerPanel({
 					))
 				) : (
 					<div className="explorer-section">
-						<div className="nav-section-label">{lang('Navigate', 'Navegar')}</div>
+						<div className="nav-section-label">{t('app.explorer.navigate', 'Navigate')}</div>
 						{links.map(renderLink)}
 					</div>
 				)}
 
 				{activeArea === 'home' && activeProjects.length ? (
 					<div className="explorer-section">
-						<div className="nav-section-label">{lang('Switch project', 'Cambiar proyecto')}</div>
+						<div className="nav-section-label">{t('app.explorer.switchProject', 'Switch project')}</div>
 						{activeProjects.slice(0, 8).map((project) => (
 							<button
 								key={project.id}

@@ -48,7 +48,7 @@ export function WorkbenchHeader({
 		<header className="topbar">
 			<div className="topbar-primary">
 				<div className="topbar-heading">
-					<h1 className="brand-wordmark">AIDO Control Center</h1>
+					<h1 className="brand-wordmark">{t('app.brand.title', 'AIDO Control Center')}</h1>
 					<div className="page-kicker">{kicker}</div>
 					<h2 className="topbar-title">{title}</h2>
 				</div>

@@ -155,7 +155,7 @@ export function WorkbenchEvidencePanel({
 						{ key: 'name', label: t('app.workbench.evidence.colName', 'Name'), render: (row) => <span className="mono">{artifactDisplayName(row)}</span> },
 						{ key: 'kind', label: t('app.workbench.evidence.colKind', 'Kind'), render: (row) => <Badge>{row.kind}</Badge> },
 						{ key: 'size', label: t('app.workbench.evidence.colSize', 'Size'), render: (row) => artifactSizeLabel(row) },
-						{ key: 'sha256', label: t('app.workbench.evidence.colHash', 'SHA-256'), render: (row) => <span className="mono">{String(row.hash ?? 'not recorded')}</span> },
+						{ key: 'sha256', label: t('app.workbench.evidence.colHash', 'SHA-256'), render: (row) => <span className="mono">{String(row.hash ?? t('app.workbenchEvidence.notRecorded', 'not recorded'))}</span> },
 						{
 							key: 'action',
 							label: t('app.workbench.evidence.colAction', 'Action'),
@@ -165,10 +165,10 @@ export function WorkbenchEvidencePanel({
 								if (!packageId) return <span className="muted">{t('app.workbench.evidence.noPreview', 'no preview')}</span>;
 								return (
 									<div className="inline" aria-busy={downloading}>
-										<button className="button" type="button" aria-label={`Preview artifact ${artifactDisplayName(row)}`} onClick={() => void openPreview(packageId, row.id, artifactDisplayName(row))}>
+										<button className="button" type="button" aria-label={`${t('app.workbenchEvidence.previewArtifact', 'Preview artifact')} ${artifactDisplayName(row)}`} onClick={() => void openPreview(packageId, row.id, artifactDisplayName(row))}>
 											{t('app.workbench.evidence.preview', 'Preview')}
 										</button>
-										<button className="button" type="button" aria-label={`Download artifact ${artifactDisplayName(row)}`} disabled={downloading} onClick={() => void downloadArtifact(row)}>
+										<button className="button" type="button" aria-label={`${t('app.workbenchEvidence.downloadArtifact', 'Download artifact')} ${artifactDisplayName(row)}`} disabled={downloading} onClick={() => void downloadArtifact(row)}>
 											{downloading ? t('app.workbench.evidence.downloading', 'Downloading') : t('app.workbench.evidence.download', 'Download')}
 										</button>
 									</div>
@@ -196,7 +196,7 @@ export function WorkbenchEvidencePanel({
 					) : (
 						<div className="inline">
 							<Badge>{artifactDisplayName(securityArtifact)}</Badge>
-							<span className="mono">sha256 {String(securityArtifact.hash ?? 'not recorded')}</span>
+							<span className="mono">sha256 {String(securityArtifact.hash ?? t('app.workbenchEvidence.notRecorded', 'not recorded'))}</span>
 						</div>
 					)}
 					{securityText ? <pre className="artifact-preview">{redactVisibleText(securityText, '')}</pre> : null}

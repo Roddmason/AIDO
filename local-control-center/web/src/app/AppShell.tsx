@@ -113,8 +113,6 @@ export function AppShell({
 				<InspectorPanel
 					overview={overview}
 					selectedProject={selectedProject}
-					language={language}
-					t={t}
 					onClose={() => setInspectorOpen(false)}
 				/>
 			) : null}

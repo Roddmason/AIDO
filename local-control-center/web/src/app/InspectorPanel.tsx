@@ -7,22 +7,19 @@ import { useMemo } from 'react';
 
 import type { Overview, Project } from '../api/types';
 import { Badge, EmptyState } from '../components/primitives';
+import { useI18n } from '../i18n/I18nProvider';
 import { toneForStatus } from '../lib/format';
 
 export function InspectorPanel({
 	overview,
 	selectedProject,
-	language,
-	t,
 	onClose,
 }: {
 	overview: Overview;
 	selectedProject: Project | null;
-	language: string;
-	t: (key: string, fallback?: string) => string;
 	onClose: () => void;
 }) {
-	const lang = (en: string, es: string) => (language === 'es' ? es : en);
+	const { t } = useI18n();
 	const stats = useMemo(() => {
 		if (!selectedProject) return null;
 		const id = selectedProject.id;
@@ -38,7 +35,7 @@ export function InspectorPanel({
 		<aside className="inspector-panel" aria-label={t('app.global.inspector', 'Inspector')}>
 			<div className="inspector-header">
 				<h2 className="surface-title">{t('app.global.inspector', 'Inspector')}</h2>
-				<button className="icon-button" type="button" aria-label={lang('Close inspector', 'Cerrar inspector')} onClick={onClose}>
+				<button className="icon-button" type="button" aria-label={t('app.inspector.closeInspector', 'Close inspector')} onClick={onClose}>
 					×
 				</button>
 			</div>
@@ -46,7 +43,7 @@ export function InspectorPanel({
 			{selectedProject && stats ? (
 				<>
 					<div className="workspace-root-card">
-						<span>{lang('Project', 'Proyecto')}</span>
+						<span>{t('app.inspector.project', 'Project')}</span>
 						<strong>{selectedProject.name}</strong>
 						<strong className="mono">{String(selectedProject.path ?? selectedProject.id)}</strong>
 						<div className="workspace-root-meta">
@@ -55,27 +52,27 @@ export function InspectorPanel({
 					</div>
 					<div className="signal-grid">
 						<div className="signal-card">
-							<span>{lang('Pending approvals', 'Aprobaciones pendientes')}</span>
+							<span>{t('app.inspector.pendingApprovals', 'Pending approvals')}</span>
 							<strong>{stats.approvals}</strong>
 						</div>
 						<div className="signal-card">
-							<span>{lang('Evidence', 'Evidencia')}</span>
+							<span>{t('app.inspector.evidence', 'Evidence')}</span>
 							<strong>{stats.evidence}</strong>
 						</div>
 						<div className="signal-card">
-							<span>{lang('Workspaces', 'Workspaces')}</span>
+							<span>{t('app.nav.workspaces', 'Workspaces')}</span>
 							<strong>{stats.workspaces}</strong>
 						</div>
 						<div className="signal-card">
-							<span>{lang('Workflows', 'Flujos')}</span>
+							<span>{t('app.inspector.workflows', 'Workflows')}</span>
 							<strong>{stats.workflows}</strong>
 						</div>
 					</div>
 				</>
 			) : (
 				<EmptyState
-					title={lang('No project selected', 'Sin proyecto seleccionado')}
-					body={lang('Pick a workspace to see its context here.', 'Elige un workspace para ver su contexto aquí.')}
+					title={t('app.inspector.noProjectSelected', 'No project selected')}
+					body={t('app.inspector.pickWorkspaceContext', 'Pick a workspace to see its context here.')}
 				/>
 			)}
 		</aside>

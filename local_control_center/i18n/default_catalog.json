@@ -2207,10 +2207,6 @@
       "en": "Command Center can create a workflow when a project is selected.",
       "es": "Command Center puede crear un flujo de trabajo cuando se selecciona un proyecto."
     },
-    "ui.static.command.center.navigation.wheel.20fd2842": {
-      "en": "Command center navigation wheel",
-      "es": "Rueda de navegación del centro de mando"
-    },
     "ui.static.command.classification.path.boundaries.human.gates.and.sandb.48b94e83": {
       "en": "Command classification, path boundaries, human gates and sandbox settings for every sensitive action.",
       "es": "Clasificación de comandos, límites de rutas, puertas humanas y configuración del sandbox para cada acción sensible."
@@ -3355,10 +3351,6 @@
       "en": "Primary provider/model/runtime",
       "es": "Proveedor principal/modelo/tiempo de ejecución"
     },
-    "ui.static.primary.wheel.navigation.ae7c73ea": {
-      "en": "Primary wheel navigation",
-      "es": "Navegación con rueda principal"
-    },
     "ui.static.priority.886cbff9": {
       "en": "Priority",
       "es": "Prioridad"
@@ -3382,10 +3374,6 @@
     "ui.static.project.name.ab9773fc": {
       "en": "Project name",
       "es": "Nombre del proyecto"
-    },
-    "ui.static.project.navigation.wheel.6fb89a58": {
-      "en": "Project navigation wheel",
-      "es": "Rueda de navegación del proyecto"
     },
     "ui.static.project.template.d517df22": {
       "en": "Project template",
@@ -3906,10 +3894,6 @@
     "ui.static.settings.workspaces.d7809f0a": {
       "en": "Settings Workspaces",
       "es": "Workspaces de configuración"
-    },
-    "ui.static.settings.navigation.wheel.8cd4839d": {
-      "en": "Settings navigation wheel",
-      "es": "Rueda de navegación de configuración"
     },
     "ui.static.settings.sections.2e7109bd": {
       "en": "Settings sections",

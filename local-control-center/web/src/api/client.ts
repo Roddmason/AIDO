@@ -164,12 +164,11 @@ export function runQAAgent(token: string, body: QAAgentRunRequest) {
 }
 
 export function getI18nCatalog(signal?: AbortSignal) {
-	return apiRequest<I18nCatalogResponse>('/api/v1/i18n/catalog', { signal });
+	return requestGeneratedOperation<'get_i18n_catalog_api_v1_i18n_catalog_get', I18nCatalogResponse>('get_i18n_catalog_api_v1_i18n_catalog_get', { signal });
 }
 
 export function updateI18nCatalog(token: string, body: I18nCatalogResponse) {
-	return apiRequest<I18nCatalogResponse>('/api/v1/i18n/catalog', {
-		method: 'PUT',
+	return requestGeneratedOperation<'put_i18n_catalog_api_v1_i18n_catalog_put', I18nCatalogResponse>('put_i18n_catalog_api_v1_i18n_catalog_put', {
 		token,
 		body,
 	});

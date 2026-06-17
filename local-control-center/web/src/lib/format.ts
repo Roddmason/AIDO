@@ -26,9 +26,11 @@ export function redactVisibleSecret(value: unknown, fallback = 'n/a'): string {
 	return maskSecrets(base, '[redacted_secret]');
 }
 
-export function toneForStatus(status?: string): 'ok' | 'warn' | 'danger' | 'info' {
+export function toneForStatus(status?: string): 'ok' | 'warn' | 'danger' | 'info' | 'pending' {
 	if (!status) return 'info';
 	if (['completed', 'passed', 'approved', 'approved_for_integration', 'pr_created', 'active', 'available', 'security_passed'].includes(status)) return 'ok';
+	// Waiting on a human decision — use the distinct "pending" tone the palette defines.
+	if (['pending', 'awaiting_permission', 'awaiting_approval'].includes(status)) return 'pending';
 	if ([
 		'queued',
 		'running',

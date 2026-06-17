@@ -7,6 +7,7 @@ import { useRef } from 'react';
 import type { KeyboardEvent, ReactNode } from 'react';
 
 import { Badge } from '../../components/primitives';
+import { useI18n } from '../../i18n/I18nProvider';
 
 export type WorkbenchTabId = 'task' | 'timeline' | 'diff' | 'evidence' | 'logs';
 export type WorkbenchTabDef = { id: WorkbenchTabId; label: string; count?: number };
@@ -22,6 +23,7 @@ export function WorkbenchTabs({
 	onChangeTab: (tab: WorkbenchTabId) => void;
 	children: ReactNode;
 }) {
+	const { t } = useI18n();
 	const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
 	const focusTab = (tabId: WorkbenchTabId) => {
@@ -48,7 +50,7 @@ export function WorkbenchTabs({
 
 	return (
 		<div className="workbench-tabs">
-			<div className="tabs" role="tablist" aria-label="Workbench views" aria-orientation="horizontal" onKeyDown={onKeyDown}>
+			<div className="tabs" role="tablist" aria-label={t('app.workbench.tabs.aria', 'Workbench views')} aria-orientation="horizontal" onKeyDown={onKeyDown}>
 				{tabs.map((tab) => {
 					const selected = tab.id === activeTab;
 					return (

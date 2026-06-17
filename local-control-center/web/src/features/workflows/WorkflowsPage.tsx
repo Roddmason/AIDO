@@ -9,6 +9,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { cancelJob, downloadEvidenceArtifact, fetchEvidenceArtifact, retryJob, type ArtifactPayload } from '../../api/client';
 import type { Artifact, Overview, WorkflowStep } from '../../api/types';
 import { Badge, DataTable, Drawer, EmptyState, PageHeader, StatusDot, Surface } from '../../components/primitives';
+import { useI18n } from '../../i18n/I18nProvider';
 import { artifactDisplayName, artifactMimeType, artifactSizeLabel } from '../../lib/artifacts';
 import { findPatchArtifact } from '../../lib/diff';
 import { shortId, toneForStatus } from '../../lib/format';
@@ -362,11 +363,12 @@ function buildWorkflowTimeline(linked: WorkflowLinks): WorkflowTimelineItem[] {
 }
 
 function WorkflowTimeline({ items }: { items: WorkflowTimelineItem[] }) {
+	const { t } = useI18n();
 	if (!items.length) {
-		return <EmptyState title="No workflow timeline" body="Run-linked workflow events and step evidence have not been recorded." />;
+		return <EmptyState title={t('ui.static.no.workflow.timeline.workflows.2d8544e4', 'No workflow timeline')} body={t('ui.static.run.linked.workflow.events.and.step.evidence.have.not.been.recorded.6ad61027', 'Run-linked workflow events and step evidence have not been recorded.')} />;
 	}
 	return (
-		<ol className="workflow-timeline" aria-label="Workflow timeline">
+		<ol className="workflow-timeline" aria-label={t('ui.static.workflow.timeline.c2b65038', 'Workflow timeline')}>
 			{items.map((item) => (
 				<li className="workflow-timeline-item" key={item.id}>
 					<StatusDot tone={item.tone} />
@@ -390,6 +392,7 @@ function WorkflowTimeline({ items }: { items: WorkflowTimelineItem[] }) {
 type Mutate = <T>(operation: (token: string) => Promise<T>) => Promise<T>;
 
 export function WorkflowsPage({ overview, token, mutate }: { overview: Overview; token: string; mutate: Mutate }) {
+	const { t } = useI18n();
 	const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(null);
 	const [previewArtifact, setPreviewArtifact] = useState<Artifact | null>(null);
 	const [previewPayload, setPreviewPayload] = useState<ArtifactPayload | null>(null);
@@ -435,7 +438,7 @@ export function WorkflowsPage({ overview, token, mutate }: { overview: Overview;
 		const artifactId = String(artifact.id ?? '');
 		const evidenceId = String(artifact.evidencePackageId ?? '');
 		if (!artifactId || !evidenceId) {
-			setPreviewError('Artifact metadata is incomplete.');
+			setPreviewError(t('app.workbench.evidence.incomplete', 'Artifact metadata is incomplete.'));
 			return;
 		}
 		setPreviewArtifact(artifact);
@@ -455,7 +458,7 @@ export function WorkflowsPage({ overview, token, mutate }: { overview: Overview;
 		const artifactId = String(artifact.id ?? '');
 		const evidenceId = String(artifact.evidencePackageId ?? '');
 		if (!artifactId || !evidenceId) {
-			setPreviewError('Artifact metadata is incomplete.');
+			setPreviewError(t('app.workbench.evidence.incomplete', 'Artifact metadata is incomplete.'));
 			return;
 		}
 		setPreviewError('');
@@ -544,11 +547,11 @@ export function WorkflowsPage({ overview, token, mutate }: { overview: Overview;
 	return (
 		<>
 			<PageHeader
-				kicker="SDLC graph"
-				title="Workflows"
-				summary="Durable workflow runs with steps, evidence and permission checkpoints represented as operational state."
+				kicker={t('ui.static.sdlc.graph.45dff846', 'SDLC graph')}
+				title={t('app.nav.workflows', 'Workflows')}
+				summary={t('ui.static.durable.workflow.runs.with.steps.evidence.and.permission.che.37de4524', 'Durable workflow runs with steps, evidence and permission checkpoints represented as operational state.')}
 			/>
-			<Surface title="Workflow graph">
+			<Surface title={t('ui.static.workflow.graph.32f4369a', 'Workflow graph')}>
 				{selectedWorkflow && nodes.length ? (
 					<div className="flow-board" aria-label={`Workflow graph for ${selectedWorkflow.title}`}>
 						<ReactFlow nodes={nodes} edges={edges} fitView>
@@ -557,20 +560,20 @@ export function WorkflowsPage({ overview, token, mutate }: { overview: Overview;
 						</ReactFlow>
 					</div>
 				) : (
-					<EmptyState title="No workflow steps" body="Select or start a workflow run before reading a graph." />
+					<EmptyState title={t('ui.static.no.workflow.steps', 'No workflow steps')} body={t('ui.static.select.or.start.workflow.run.before.reading.graph', 'Select or start a workflow run before reading a graph.')} />
 				)}
 			</Surface>
 			<div className="grid two">
-				<Surface title="Workflow catalog">
+				<Surface title={t('ui.static.workflow.catalog', 'Workflow catalog')}>
 					<DataTable
 						rows={overview.workflows}
-						empty={<EmptyState title="No workflows" body="Command Center can create a workflow when a project is selected." />}
+						empty={<EmptyState title={t('ui.static.no.workflows.52b4f780', 'No workflows')} body={t('ui.static.command.center.can.create.a.workflow.when.a.project.is.selec.7f8ad419', 'Command Center can create a workflow when a project is selected.')} />}
 						columns={[
-							{ key: 'title', label: 'Title', render: (row) => row.title },
-							{ key: 'status', label: 'Status', render: (row) => <Badge tone={toneForStatus(row.status)}>{row.status}</Badge> },
+							{ key: 'title', label: t('ui.static.title.768e0c1c', 'Title'), render: (row) => row.title },
+							{ key: 'status', label: t('ui.static.status.bae7d5be', 'Status'), render: (row) => <Badge tone={toneForStatus(row.status)}>{row.status}</Badge> },
 							{
 								key: 'inspect',
-								label: 'Inspect',
+								label: t('ui.static.inspect.18ca87af', 'Inspect'),
 								render: (row) => (
 									<button className="button" type="button" aria-label={`Inspect workflow ${row.title}`} onClick={() => setSelectedWorkflowId(row.id)}>
 										Inspect
@@ -580,34 +583,34 @@ export function WorkflowsPage({ overview, token, mutate }: { overview: Overview;
 						]}
 					/>
 				</Surface>
-				<Surface title="Workflow runs">
+				<Surface title={t('app.workbench.timeline.runsTitle', 'Workflow runs')}>
 					<DataTable
 						rows={linked.runs}
-						empty={<EmptyState title="No workflow runs" body="Starting a workflow creates a run record." />}
+						empty={<EmptyState title={t('app.workbench.timeline.runsEmptyTitle', 'No workflow runs')} body={t('ui.static.starting.workflow.creates.run.record', 'Starting a workflow creates a run record.')} />}
 						columns={[
-							{ key: 'run', label: 'Run', render: (row) => <span className="mono">{shortId(String(row.id ?? ''))}</span> },
+							{ key: 'run', label: t('ui.static.run.44c29edb', 'Run'), render: (row) => <span className="mono">{shortId(String(row.id ?? ''))}</span> },
 							{
 								key: 'workflow',
-								label: 'Workflow',
+								label: t('app.workbench.timeline.colWorkflow', 'Workflow'),
 								render: (row) => <span className="mono">{shortId(String(row.workflowId ?? ''))}</span>,
 							},
-							{ key: 'status', label: 'Status', render: (row) => <Badge tone={toneForStatus(String(row.status ?? ''))}>{String(row.status ?? '')}</Badge> },
+							{ key: 'status', label: t('ui.static.status.bae7d5be', 'Status'), render: (row) => <Badge tone={toneForStatus(String(row.status ?? ''))}>{String(row.status ?? '')}</Badge> },
 						]}
 					/>
 				</Surface>
-				<Surface title="Selected workflow steps">
+				<Surface title={t('ui.static.selected.workflow.steps', 'Selected workflow steps')}>
 					<DataTable
 						rows={linked.steps}
-						empty={<EmptyState title="No selected workflow steps" body="Inspect a workflow with a run to see its step plan." />}
+						empty={<EmptyState title={t('ui.static.no.selected.workflow.steps', 'No selected workflow steps')} body={t('ui.static.inspect.workflow.with.run.to.see.step.plan', 'Inspect a workflow with a run to see its step plan.')} />}
 						columns={[
-							{ key: 'name', label: 'Step', render: (row) => <span className="mono">{row.name}</span> },
-							{ key: 'status', label: 'Status', render: (row) => <Badge tone={toneForStatus(row.status)}>{row.status}</Badge> },
-							{ key: 'agent', label: 'Agent', render: (row) => row.agentProfileId ?? 'unassigned' },
+							{ key: 'name', label: t('ui.static.step.dc416e10', 'Step'), render: (row) => <span className="mono">{row.name}</span> },
+							{ key: 'status', label: t('ui.static.status.bae7d5be', 'Status'), render: (row) => <Badge tone={toneForStatus(row.status)}>{row.status}</Badge> },
+							{ key: 'agent', label: t('ui.static.agent.5ce2e6f4', 'Agent'), render: (row) => row.agentProfileId ?? 'unassigned' },
 						]}
 					/>
 				</Surface>
 			</div>
-			<Drawer label="Workflow inspector" open={selectedWorkflowId !== null} onClose={() => setSelectedWorkflowId(null)}>
+			<Drawer label={t('ui.static.workflow.inspector.d8560d75', 'Workflow inspector')} open={selectedWorkflowId !== null} onClose={() => setSelectedWorkflowId(null)}>
 				<div className="drawer-body">
 					{selectedWorkflow ? (
 						<>
@@ -618,7 +621,7 @@ export function WorkflowsPage({ overview, token, mutate }: { overview: Overview;
 									<span className="mono">{selectedWorkflow.kind ?? 'workflow'}</span>
 								</div>
 							</Surface>
-							<Surface title="What is missing for completed" flat>
+							<Surface title={t('ui.static.what.is.missing.for.completed.f6ca783a', 'What is missing for completed')} flat>
 								{missingForCompleted.length ? (
 									<ul className="compact-list">
 										{missingForCompleted.map((item) => (
@@ -626,49 +629,49 @@ export function WorkflowsPage({ overview, token, mutate }: { overview: Overview;
 										))}
 									</ul>
 								) : (
-									<p className="text-muted">Completion prerequisites satisfied by linked records.</p>
+									<p className="text-muted">{t('ui.static.completion.prerequisites.satisfied.by.linked.records.51ee9c46', 'Completion prerequisites satisfied by linked records.')}</p>
 								)}
 							</Surface>
-							<Surface title="Blockers" flat>
-								<DataTable rows={blockers} empty={<EmptyState title="No blockers" body="No linked blocker reason has been recorded." />} columns={[
-									{ key: 'source', label: 'Source', render: (row) => <span className="mono">{row.source}</span> },
-									{ key: 'status', label: 'Status', render: (row) => <Badge tone={toneForStatus(row.status)}>{row.status}</Badge> },
-									{ key: 'reason', label: 'Reason', render: (row) => redactVisibleText(row.reason) },
+							<Surface title={t('app.workbench.inspector.blockers', 'Blockers')} flat>
+								<DataTable rows={blockers} empty={<EmptyState title={t('app.workbench.inspector.noBlockers', 'No blockers')} body={t('ui.static.no.linked.blocker.reason.has.been.recorded.e960291f', 'No linked blocker reason has been recorded.')} />} columns={[
+									{ key: 'source', label: t('ui.static.source.6da13add', 'Source'), render: (row) => <span className="mono">{row.source}</span> },
+									{ key: 'status', label: t('ui.static.status.bae7d5be', 'Status'), render: (row) => <Badge tone={toneForStatus(row.status)}>{row.status}</Badge> },
+									{ key: 'reason', label: t('ui.static.reason.f219cc06', 'Reason'), render: (row) => redactVisibleText(row.reason) },
 								]} />
 							</Surface>
-							<Surface title="Links" flat>
+							<Surface title={t('ui.static.links.0974c8fd', 'Links')} flat>
 								<div className="stack">
 									{patchArtifact ? (
 										<div className="inline">
-											<span className="mono">Diff artifact</span>
+											<span className="mono">{t('ui.static.diff.artifact.4b3d14f2', 'Diff artifact')}</span>
 											<span>{artifactDisplayName(patchArtifact)}</span>
 											<span className="mono">{shortId(String(patchArtifact.hash ?? ''))}</span>
 										</div>
 									) : (
-										<p className="text-muted">No diff artifact link recorded.</p>
+										<p className="text-muted">{t('ui.static.no.diff.artifact.link.recorded.074dd704', 'No diff artifact link recorded.')}</p>
 									)}
 									<div className="inline">
 										{linked.evidence.length ? linked.evidence.map((item) => (
 											<a className="button" href="#evidence" key={item.id}>Evidence {item.id}</a>
-										)) : <span className="text-muted">No evidence link recorded.</span>}
+										)) : <span className="text-muted">{t('ui.static.no.evidence.link.recorded.090f170c', 'No evidence link recorded.')}</span>}
 									</div>
 									<div className="inline">
 										{pullRequestUrls.length ? pullRequestUrls.map((url) => (
 											<a className="button" href={url} key={url} rel="noreferrer" target="_blank">PR {url}</a>
-										)) : <span className="text-muted">No PR link recorded.</span>}
+										)) : <span className="text-muted">{t('ui.static.no.pr.link.recorded.5d6bb7dc', 'No PR link recorded.')}</span>}
 									</div>
 								</div>
 							</Surface>
-							<Surface title="Workflow timeline" flat>
+							<Surface title={t('ui.static.workflow.timeline.c2b65038', 'Workflow timeline')} flat>
 								<WorkflowTimeline items={timelineItems} />
 							</Surface>
-							<Surface title="Runtime and run state" flat>
-								<DataTable rows={linked.runs} empty={<EmptyState title="No workflow runs" body="A run record appears after workflow execution starts." />} columns={[
-									{ key: 'run', label: 'Run', render: (row) => <span className="mono">{shortId(String(row.id ?? ''))}</span> },
-									{ key: 'status', label: 'Status', render: (row) => <Badge tone={toneForStatus(String(row.status ?? ''))}>{String(row.status ?? '')}</Badge> },
+							<Surface title={t('ui.static.runtime.and.run.state.944e320d', 'Runtime and run state')} flat>
+								<DataTable rows={linked.runs} empty={<EmptyState title={t('app.workbench.timeline.runsEmptyTitle', 'No workflow runs')} body={t('ui.static.a.run.record.appears.after.workflow.execution.starts.2d1d2f67', 'A run record appears after workflow execution starts.')} />} columns={[
+									{ key: 'run', label: t('ui.static.run.44c29edb', 'Run'), render: (row) => <span className="mono">{shortId(String(row.id ?? ''))}</span> },
+									{ key: 'status', label: t('ui.static.status.bae7d5be', 'Status'), render: (row) => <Badge tone={toneForStatus(String(row.status ?? ''))}>{String(row.status ?? '')}</Badge> },
 									{
 										key: 'runtime',
-										label: 'Runtime',
+										label: t('ui.static.runtime.c4740e4c', 'Runtime'),
 										render: (row) => {
 											const metadata = objectValue(row.metadata);
 											const runtime = objectValue(metadata.runtime);
@@ -677,7 +680,7 @@ export function WorkflowsPage({ overview, token, mutate }: { overview: Overview;
 									},
 									{
 										key: 'qa',
-										label: 'QA verdict',
+										label: t('ui.static.qa.verdict.48a65c68', 'QA verdict'),
 										render: (row) => {
 											const metadata = objectValue(row.metadata);
 											return <Badge tone={toneForStatus(String(metadata.qaVerdict ?? 'not_run'))}>{String(metadata.qaVerdict ?? 'not_run')}</Badge>;
@@ -685,7 +688,7 @@ export function WorkflowsPage({ overview, token, mutate }: { overview: Overview;
 									},
 									{
 										key: 'diff',
-										label: 'Diff',
+										label: t('app.workbench.tab.diff', 'Diff'),
 										render: (row) => {
 											const metadata = objectValue(row.metadata);
 											const diff = objectValue(metadata.diffSummary);
@@ -694,45 +697,45 @@ export function WorkflowsPage({ overview, token, mutate }: { overview: Overview;
 										},
 									},
 								]} />
-								<DataTable rows={linked.agentRuns} empty={<EmptyState title="No agent runs" body="Agent run records appear after runtime selection." />} columns={[
-									{ key: 'agent', label: 'Agent run', render: (row) => <span className="mono">{shortId(String(row.id ?? ''))}</span> },
+								<DataTable rows={linked.agentRuns} empty={<EmptyState title={t('ui.static.no.agent.runs.5482c9e5', 'No agent runs')} body={t('ui.static.agent.run.records.appear.after.runtime.selection.72e0d9bd', 'Agent run records appear after runtime selection.')} />} columns={[
+									{ key: 'agent', label: t('ui.static.agent.run.b458871f', 'Agent run'), render: (row) => <span className="mono">{shortId(String(row.id ?? ''))}</span> },
 									{
 										key: 'profile',
-										label: 'Profile',
+										label: t('ui.static.profile.ff4fc027', 'Profile'),
 										render: (row) => {
 											const metadata = objectValue(row.metadata);
 											return <span className="mono">{String(metadata.agentProfileId ?? metadata.runtimeType ?? 'unknown')}</span>;
 										},
 									},
-									{ key: 'status', label: 'Status', render: (row) => <Badge tone={toneForStatus(String(row.status ?? ''))}>{String(row.status ?? '')}</Badge> },
+									{ key: 'status', label: t('ui.static.status.bae7d5be', 'Status'), render: (row) => <Badge tone={toneForStatus(String(row.status ?? ''))}>{String(row.status ?? '')}</Badge> },
 								]} />
 							</Surface>
-							<Surface title="Model calls" flat>
-								<DataTable rows={linked.modelCalls} empty={<EmptyState title="No model calls" body="Model calls linked to workflow agent runs appear here." />} columns={[
-									{ key: 'provider', label: 'Provider', render: (row) => <span className="mono">{String(row.provider ?? '')}</span> },
-									{ key: 'model', label: 'Model', render: (row) => <span className="mono">{String(row.model ?? '')}</span> },
-									{ key: 'status', label: 'Status', render: (row) => <Badge tone={toneForStatus(String(row.status ?? ''))}>{String(row.status ?? '')}</Badge> },
-									{ key: 'tokens', label: 'Tokens', render: (row) => <span className="mono">{tokenLabel(row.promptTokens)} / {tokenLabel(row.completionTokens)}</span> },
-									{ key: 'cost', label: 'Cost', render: (row) => <span className="mono">{costLabel(row.costUsd)}</span> },
+							<Surface title={t('ui.static.model.calls.88e40906', 'Model calls')} flat>
+								<DataTable rows={linked.modelCalls} empty={<EmptyState title={t('ui.static.no.model.calls.3e3394fe', 'No model calls')} body={t('ui.static.model.calls.linked.to.workflow.agent.runs.appear.here.0ae76932', 'Model calls linked to workflow agent runs appear here.')} />} columns={[
+									{ key: 'provider', label: t('ui.static.provider.7ceee3f3', 'Provider'), render: (row) => <span className="mono">{String(row.provider ?? '')}</span> },
+									{ key: 'model', label: t('ui.static.model.68c2cc7f', 'Model'), render: (row) => <span className="mono">{String(row.model ?? '')}</span> },
+									{ key: 'status', label: t('ui.static.status.bae7d5be', 'Status'), render: (row) => <Badge tone={toneForStatus(String(row.status ?? ''))}>{String(row.status ?? '')}</Badge> },
+									{ key: 'tokens', label: t('ui.static.tokens.9a1f9463', 'Tokens'), render: (row) => <span className="mono">{tokenLabel(row.promptTokens)} / {tokenLabel(row.completionTokens)}</span> },
+									{ key: 'cost', label: t('ui.static.cost.64ae43e8', 'Cost'), render: (row) => <span className="mono">{costLabel(row.costUsd)}</span> },
 								]} />
 							</Surface>
-							<Surface title="Steps" flat>
-								<DataTable rows={linked.steps} empty={<EmptyState title="No steps" body="Start the workflow to expand steps." />} columns={[
-									{ key: 'name', label: 'Step', render: (row) => <span className="mono">{row.name}</span> },
-									{ key: 'status', label: 'Status', render: (row) => <Badge tone={toneForStatus(row.status)}>{row.status}</Badge> },
-									{ key: 'risk', label: 'Risk', render: (row) => <span className="mono">{String(row.riskLevel ?? 'not recorded')}</span> },
-									{ key: 'model', label: 'Model mode', render: (row) => <span className="mono">{String(row.modelMode ?? row.manualModelOverride ?? 'policy')}</span> },
+							<Surface title={t('ui.static.steps.cdde4f20', 'Steps')} flat>
+								<DataTable rows={linked.steps} empty={<EmptyState title={t('ui.static.no.steps.00a23c5b', 'No steps')} body={t('ui.static.start.the.workflow.to.expand.steps.a5f96b0b', 'Start the workflow to expand steps.')} />} columns={[
+									{ key: 'name', label: t('ui.static.step.dc416e10', 'Step'), render: (row) => <span className="mono">{row.name}</span> },
+									{ key: 'status', label: t('ui.static.status.bae7d5be', 'Status'), render: (row) => <Badge tone={toneForStatus(row.status)}>{row.status}</Badge> },
+									{ key: 'risk', label: t('ui.static.risk.5a8f23f5', 'Risk'), render: (row) => <span className="mono">{String(row.riskLevel ?? 'not recorded')}</span> },
+									{ key: 'model', label: t('ui.static.model.mode.f9d81107', 'Model mode'), render: (row) => <span className="mono">{String(row.modelMode ?? row.manualModelOverride ?? 'policy')}</span> },
 								]} />
 							</Surface>
-							<Surface title="Evidence and tests" flat>
-								<DataTable rows={linked.evidence} empty={<EmptyState title="No evidence" body="QA packages linked to this workflow run appear here." />} columns={[
-									{ key: 'task', label: 'Task', render: (row) => String(row.taskId ?? '') },
-									{ key: 'verdict', label: 'Verdict', render: (row) => <Badge tone={toneForStatus(String(row.qaVerdict ?? ''))}>{String(row.qaVerdict ?? '')}</Badge> },
-									{ key: 'source', label: 'Source', render: (row) => <span className="mono">{String(row.evidenceSource ?? 'operator_attested')}</span> },
-									{ key: 'diffs', label: 'Diff refs', render: (row) => String(Array.isArray(row.diffRefs) ? row.diffRefs.length : 0) },
+							<Surface title={t('ui.static.evidence.and.tests.0c061aed', 'Evidence and tests')} flat>
+								<DataTable rows={linked.evidence} empty={<EmptyState title={t('ui.static.no.evidence.fade4ede', 'No evidence')} body={t('ui.static.qa.packages.linked.to.this.workflow.run.appear.here.37481b29', 'QA packages linked to this workflow run appear here.')} />} columns={[
+									{ key: 'task', label: t('ui.static.task.7bb0ddf9', 'Task'), render: (row) => String(row.taskId ?? '') },
+									{ key: 'verdict', label: t('ui.static.verdict.7f6e5a6e', 'Verdict'), render: (row) => <Badge tone={toneForStatus(String(row.qaVerdict ?? ''))}>{String(row.qaVerdict ?? '')}</Badge> },
+									{ key: 'source', label: t('ui.static.source.6da13add', 'Source'), render: (row) => <span className="mono">{String(row.evidenceSource ?? 'operator_attested')}</span> },
+									{ key: 'diffs', label: t('ui.static.diff.refs.cc464235', 'Diff refs'), render: (row) => String(Array.isArray(row.diffRefs) ? row.diffRefs.length : 0) },
 									{
 										key: 'completeness',
-										label: 'Completeness',
+										label: t('ui.static.completeness.4008e0b6', 'Completeness'),
 										render: (row) => {
 											const hasQa = Array.isArray(row.testResults) && row.testResults.length > 0;
 											const hasDiffRefs = Array.isArray(row.diffRefs) && row.diffRefs.length > 0;
@@ -740,24 +743,24 @@ export function WorkflowsPage({ overview, token, mutate }: { overview: Overview;
 										},
 									},
 								]} />
-								<DataTable rows={linked.testResults} empty={<EmptyState title="No test records" body="Test results appear after evidence ingestion." />} columns={[
-									{ key: 'command', label: 'Command', render: (row) => <span className="mono">{String(row.command ?? '')}</span> },
-									{ key: 'status', label: 'Status', render: (row) => <Badge tone={toneForStatus(String(row.status ?? ''))}>{String(row.status ?? '')}</Badge> },
+								<DataTable rows={linked.testResults} empty={<EmptyState title={t('ui.static.no.test.records.4878c3ab', 'No test records')} body={t('ui.static.test.results.appear.after.evidence.ingestion.26f3959e', 'Test results appear after evidence ingestion.')} />} columns={[
+									{ key: 'command', label: t('app.workbench.evidence.colCommand', 'Command'), render: (row) => <span className="mono">{String(row.command ?? '')}</span> },
+									{ key: 'status', label: t('ui.static.status.bae7d5be', 'Status'), render: (row) => <Badge tone={toneForStatus(String(row.status ?? ''))}>{String(row.status ?? '')}</Badge> },
 								]} />
 							</Surface>
-							<Surface title="Artifacts" flat>
-								<DataTable rows={linked.artifacts} empty={<EmptyState title="No artifacts" body="Logs, reports and screenshots linked to evidence appear here." />} columns={[
+							<Surface title={t('ui.static.artifacts.a5b79f59', 'Artifacts')} flat>
+								<DataTable rows={linked.artifacts} empty={<EmptyState title={t('ui.static.no.artifacts.3e0935de', 'No artifacts')} body={t('ui.static.logs.reports.and.screenshots.linked.to.evidence.appear.here.9ce88334', 'Logs, reports and screenshots linked to evidence appear here.')} />} columns={[
 									{
 										key: 'name',
-										label: 'Name',
+										label: t('ui.static.name.709a2322', 'Name'),
 										render: (row) => <span className="mono">{artifactDisplayName(row)}</span>,
 									},
-									{ key: 'kind', label: 'Kind', render: (row) => <Badge>{String(row.kind ?? 'artifact')}</Badge> },
-									{ key: 'size', label: 'Size', render: (row) => artifactSizeLabel(row) },
-									{ key: 'hash', label: 'Hash', render: (row) => <span className="mono">{shortId(String(row.hash ?? ''))}</span> },
+									{ key: 'kind', label: t('app.workbench.evidence.colKind', 'Kind'), render: (row) => <Badge>{String(row.kind ?? 'artifact')}</Badge> },
+									{ key: 'size', label: t('ui.static.size.b7152342', 'Size'), render: (row) => artifactSizeLabel(row) },
+									{ key: 'hash', label: t('ui.static.hash.873507a0', 'Hash'), render: (row) => <span className="mono">{shortId(String(row.hash ?? ''))}</span> },
 									{
 										key: 'action',
-										label: 'Action',
+										label: t('ui.static.action.97c89a4d', 'Action'),
 										render: (row) => {
 											const name = artifactDisplayName(row);
 											const loading = previewLoadingId === String(row.id ?? '');
@@ -776,57 +779,57 @@ export function WorkflowsPage({ overview, token, mutate }: { overview: Overview;
 									},
 								]} />
 							</Surface>
-							<Surface title="Security and policy decisions" flat>
-								<DataTable rows={linked.permissionDecisions} empty={<EmptyState title="No policy decisions" body="Policy decisions linked through workflow tool calls appear here." />} columns={[
-									{ key: 'decision', label: 'Decision', render: (row) => <Badge tone={toneForStatus(String(row.decision ?? ''))}>{String(row.decision ?? '')}</Badge> },
-									{ key: 'risk', label: 'Risk', render: (row) => <Badge tone={toneForStatus(String(row.riskLevel ?? ''))}>{String(row.riskLevel ?? '')}</Badge> },
+							<Surface title={t('ui.static.security.and.policy.decisions.f06bb7ad', 'Security and policy decisions')} flat>
+								<DataTable rows={linked.permissionDecisions} empty={<EmptyState title={t('app.workflows.noPolicyDecisions', 'No policy decisions')} body={t('ui.static.policy.decisions.linked.through.workflow.tool.calls.appear.h.7cf16ea5', 'Policy decisions linked through workflow tool calls appear here.')} />} columns={[
+									{ key: 'decision', label: t('ui.static.decision.7f59a1f1', 'Decision'), render: (row) => <Badge tone={toneForStatus(String(row.decision ?? ''))}>{String(row.decision ?? '')}</Badge> },
+									{ key: 'risk', label: t('ui.static.risk.5a8f23f5', 'Risk'), render: (row) => <Badge tone={toneForStatus(String(row.riskLevel ?? ''))}>{String(row.riskLevel ?? '')}</Badge> },
 									{
 										key: 'categories',
-										label: 'Categories',
+										label: t('ui.static.categories.6ccb6007', 'Categories'),
 										render: (row) => {
 											const payload = row.payload as Record<string, unknown> | undefined;
 											const categories = Array.isArray(payload?.categories) ? payload.categories.join(', ') : '';
 											return <span className="mono">{categories}</span>;
 										},
 									},
-									{ key: 'reason', label: 'Reason', render: (row) => String(row.reason ?? '') },
+									{ key: 'reason', label: t('ui.static.reason.f219cc06', 'Reason'), render: (row) => String(row.reason ?? '') },
 								]} />
 							</Surface>
-							<Surface title="Tool calls and approvals" flat>
-								<DataTable rows={linked.toolCalls} empty={<EmptyState title="No tool calls" body="Agent runtime calls linked to this workflow appear here." />} columns={[
-									{ key: 'tool', label: 'Tool', render: (row) => <span className="mono">{String(row.toolName ?? '')}</span> },
-									{ key: 'status', label: 'Status', render: (row) => <Badge tone={toneForStatus(String(row.status ?? ''))}>{String(row.status ?? '')}</Badge> },
-									{ key: 'command', label: 'Command', render: (row) => {
+							<Surface title={t('ui.static.tool.calls.and.approvals.3788745c', 'Tool calls and approvals')} flat>
+								<DataTable rows={linked.toolCalls} empty={<EmptyState title={t('ui.static.no.tool.calls.7ab6a86e', 'No tool calls')} body={t('ui.static.agent.runtime.calls.linked.to.this.workflow.appear.here.7fb6ecbb', 'Agent runtime calls linked to this workflow appear here.')} />} columns={[
+									{ key: 'tool', label: t('ui.static.tool.9a830c71', 'Tool'), render: (row) => <span className="mono">{String(row.toolName ?? '')}</span> },
+									{ key: 'status', label: t('ui.static.status.bae7d5be', 'Status'), render: (row) => <Badge tone={toneForStatus(String(row.status ?? ''))}>{String(row.status ?? '')}</Badge> },
+									{ key: 'command', label: t('app.workbench.evidence.colCommand', 'Command'), render: (row) => {
 										const payload = row.payload as Record<string, unknown> | undefined;
 										return <span className="mono">{String(payload?.command ?? '')}</span>;
 									} },
 								]} />
-								<DataTable rows={linked.approvals} empty={<EmptyState title="No approvals" body="Granular approvals linked to workflow jobs appear here." />} columns={[
-									{ key: 'action', label: 'Action', render: (row) => <span className="mono">{row.actionType}</span> },
-									{ key: 'status', label: 'Status', render: (row) => <Badge tone={toneForStatus(row.status)}>{row.status}</Badge> },
-									{ key: 'risk', label: 'Risk', render: (row) => <Badge tone={toneForStatus(row.riskLevel)}>{row.riskLevel}</Badge> },
+								<DataTable rows={linked.approvals} empty={<EmptyState title={t('ui.static.no.approvals.380cc620', 'No approvals')} body={t('ui.static.granular.approvals.linked.to.workflow.jobs.appear.here.7308c236', 'Granular approvals linked to workflow jobs appear here.')} />} columns={[
+									{ key: 'action', label: t('ui.static.action.97c89a4d', 'Action'), render: (row) => <span className="mono">{row.actionType}</span> },
+									{ key: 'status', label: t('ui.static.status.bae7d5be', 'Status'), render: (row) => <Badge tone={toneForStatus(row.status)}>{row.status}</Badge> },
+									{ key: 'risk', label: t('ui.static.risk.5a8f23f5', 'Risk'), render: (row) => <Badge tone={toneForStatus(row.riskLevel)}>{row.riskLevel}</Badge> },
 								]} />
 							</Surface>
-							<Surface title="Workspaces" flat>
-								<DataTable rows={linked.workspaces} empty={<EmptyState title="No workspaces" body="Workspace allocations appear after implementation steps." />} columns={[
-									{ key: 'task', label: 'Task', render: (row) => <span className="mono">{String(row.taskId ?? '')}</span> },
-									{ key: 'status', label: 'Status', render: (row) => <Badge tone={toneForStatus(String(row.status ?? ''))}>{String(row.status ?? '')}</Badge> },
+							<Surface title={t('app.nav.workspaces', 'Workspaces')} flat>
+								<DataTable rows={linked.workspaces} empty={<EmptyState title={t('ui.static.no.workspaces.09e5b922', 'No workspaces')} body={t('ui.static.workspace.allocations.appear.after.implementation.steps.64d15c62', 'Workspace allocations appear after implementation steps.')} />} columns={[
+									{ key: 'task', label: t('ui.static.task.7bb0ddf9', 'Task'), render: (row) => <span className="mono">{String(row.taskId ?? '')}</span> },
+									{ key: 'status', label: t('ui.static.status.bae7d5be', 'Status'), render: (row) => <Badge tone={toneForStatus(String(row.status ?? ''))}>{String(row.status ?? '')}</Badge> },
 								]} />
 							</Surface>
-							<Surface title="Jobs and leases" flat>
+							<Surface title={t('ui.static.jobs.and.leases.4768364f', 'Jobs and leases')} flat>
 								<div className="field">
-									<label htmlFor="workflow-job-mutation-reason">Queue change reason</label>
+									<label htmlFor="workflow-job-mutation-reason">{t('app.copy.standalone.3', 'Queue change reason')}</label>
 									<textarea id="workflow-job-mutation-reason" className="textarea" value={jobMutationReason} onChange={(event) => { setJobMutationReason(event.target.value); setJobMutationError(''); }} />
-									<div className="field-help">Retry and Cancel are disabled until a reason is recorded.</div>
+									<div className="field-help">{t('app.workflows.queueReasonHelp', 'Retry and Cancel are disabled until a reason is recorded.')}</div>
 								</div>
 								{jobMutationError ? <div className="form-error" role="alert">{jobMutationError}</div> : null}
-								<DataTable rows={linked.jobs} empty={<EmptyState title="No jobs" body="Jobs linked to workflow runs appear here." />} columns={[
-									{ key: 'kind', label: 'Kind', render: (row) => <span className="mono">{row.kind}</span> },
-									{ key: 'status', label: 'Status', render: (row) => <Badge tone={toneForStatus(row.status)}>{row.status}</Badge> },
-									{ key: 'lease', label: 'Lease', render: (row) => <span>{row.leaseOwner ? `${row.leaseOwner} until ${row.leaseExpiresAt}` : 'none'}</span> },
+								<DataTable rows={linked.jobs} empty={<EmptyState title={t('ui.static.no.jobs.e0f919e2', 'No jobs')} body={t('ui.static.jobs.linked.to.workflow.runs.appear.here.7c0a2243', 'Jobs linked to workflow runs appear here.')} />} columns={[
+									{ key: 'kind', label: t('app.workbench.evidence.colKind', 'Kind'), render: (row) => <span className="mono">{row.kind}</span> },
+									{ key: 'status', label: t('ui.static.status.bae7d5be', 'Status'), render: (row) => <Badge tone={toneForStatus(row.status)}>{row.status}</Badge> },
+									{ key: 'lease', label: t('ui.static.lease.b24ef8c7', 'Lease'), render: (row) => <span>{row.leaseOwner ? `${row.leaseOwner} until ${row.leaseExpiresAt}` : 'none'}</span> },
 									{
 										key: 'runtime',
-										label: 'Runtime',
+										label: t('ui.static.runtime.c4740e4c', 'Runtime'),
 										render: (row) => {
 											const payload = objectValue(row.payload);
 											const runtime = objectValue(payload.runtime);
@@ -835,7 +838,7 @@ export function WorkflowsPage({ overview, token, mutate }: { overview: Overview;
 									},
 									{
 										key: 'actions',
-										label: 'Actions',
+										label: t('ui.static.actions.c3cd636a', 'Actions'),
 										render: (row) => {
 											const busy = jobMutationBusyId === row.id;
 											const blocked = !jobMutationReason.trim() || Boolean(jobMutationBusyId);
@@ -848,20 +851,20 @@ export function WorkflowsPage({ overview, token, mutate }: { overview: Overview;
 										},
 									},
 								]} />
-								<DataTable rows={linked.jobRuns} empty={<EmptyState title="No job runs" body="Worker lease attempts appear here when jobs execute." />} columns={[
-									{ key: 'run', label: 'Run', render: (row) => <span className="mono">{shortId(String(row.id ?? ''))}</span> },
-									{ key: 'provider', label: 'Provider', render: (row) => <span className="mono">{String(row.providerId ?? 'not recorded')}</span> },
-									{ key: 'status', label: 'Status', render: (row) => <Badge tone={toneForStatus(String(row.status ?? ''))}>{String(row.status ?? '')}</Badge> },
-									{ key: 'summary', label: 'Summary', render: (row) => redactVisibleText(row.summary) },
+								<DataTable rows={linked.jobRuns} empty={<EmptyState title={t('ui.static.no.job.runs.4e3be714', 'No job runs')} body={t('ui.static.worker.lease.attempts.appear.here.when.jobs.execute.35553b89', 'Worker lease attempts appear here when jobs execute.')} />} columns={[
+									{ key: 'run', label: t('ui.static.run.44c29edb', 'Run'), render: (row) => <span className="mono">{shortId(String(row.id ?? ''))}</span> },
+									{ key: 'provider', label: t('ui.static.provider.7ceee3f3', 'Provider'), render: (row) => <span className="mono">{String(row.providerId ?? 'not recorded')}</span> },
+									{ key: 'status', label: t('ui.static.status.bae7d5be', 'Status'), render: (row) => <Badge tone={toneForStatus(String(row.status ?? ''))}>{String(row.status ?? '')}</Badge> },
+									{ key: 'summary', label: t('ui.static.summary.b5473fa1', 'Summary'), render: (row) => redactVisibleText(row.summary) },
 								]} />
 							</Surface>
 						</>
 					) : (
-						<EmptyState title="No workflow selected" body="Choose a workflow to inspect its linked records." />
+						<EmptyState title={t('ui.static.no.workflow.selected.215ac484', 'No workflow selected')} body={t('ui.static.choose.a.workflow.to.inspect.its.linked.records.4f7e51a2', 'Choose a workflow to inspect its linked records.')} />
 					)}
 				</div>
 			</Drawer>
-			<Drawer label="Workflow artifact preview" open={Boolean(previewArtifact)} onClose={() => {
+			<Drawer label={t('ui.static.workflow.artifact.preview.df9b22a5', 'Workflow artifact preview')} open={Boolean(previewArtifact)} onClose={() => {
 				setPreviewArtifact(null);
 				setPreviewPayload(null);
 				setPreviewError('');
@@ -879,11 +882,11 @@ export function WorkflowsPage({ overview, token, mutate }: { overview: Overview;
 								<div className="mono">sha256 {String(previewPayload?.hash || previewArtifact.hash || 'not recorded')}</div>
 							</div>
 							{previewError ? <div className="form-error" role="alert">{previewError}</div> : null}
-							{downloadLoadingId ? <div className="sr-only" role="status">Downloading artifact</div> : null}
+							{downloadLoadingId ? <div className="sr-only" role="status">{t('ui.static.downloading.artifact.b640e8fe', 'Downloading artifact')}</div> : null}
 							{previewPayload?.text ? (
 								<pre className="artifact-preview">{redactVisibleText(previewPayload.text, '')}</pre>
 							) : (
-								<EmptyState title={previewLoadingId ? 'Loading artifact' : 'Binary or empty artifact'} body="Non-text artifacts remain downloadable, but are not rendered inline." />
+								<EmptyState title={previewLoadingId ? 'Loading artifact' : 'Binary or empty artifact'} body={t('ui.static.non.text.artifacts.remain.downloadable.but.are.not.rendered.42481492', 'Non-text artifacts remain downloadable, but are not rendered inline.')} />
 							)}
 							<button className="button primary" type="button" disabled={downloadLoadingId === String(previewArtifact.id ?? '')} aria-label={`Download workflow preview artifact ${artifactDisplayName(previewArtifact)}`} onClick={() => void downloadArtifact(previewArtifact)}>
 								{downloadLoadingId === String(previewArtifact.id ?? '') ? 'Downloading artifact' : 'Download artifact'}

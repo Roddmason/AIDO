@@ -70,17 +70,19 @@ export type AreaDef = {
 	pages: PageId[];
 };
 
-export type ExplorerLink = {
+/** One navigable entry rendered in the ExplorerPanel (and grouped sections):
+ *  a target page, its icon and bilingual label. */
+export type NavigationItem = {
 	page: PageId;
 	icon: IconComponent;
 	label: BilingualLabel;
 };
 
-/** A labelled set of ExplorerLinks, used to group dense areas (Settings)
+/** A labelled set of NavigationItems, used to group dense areas (Settings)
  *  into a progressive, scannable order instead of one flat list. */
 export type ExplorerGroup = {
 	label: BilingualLabel;
-	links: ExplorerLink[];
+	links: NavigationItem[];
 };
 
 /** Settings is a grouped configuration hub: a "Setup" section with the six
@@ -168,7 +170,7 @@ export function areaForPage(page: PageId): AreaId {
 }
 
 /** Static, contextual ExplorerPanel links per area (dynamic lists are added in the component). */
-export const EXPLORER_LINKS: Record<AreaId, ExplorerLink[]> = {
+export const EXPLORER_LINKS: Record<AreaId, NavigationItem[]> = {
 	home: [
 		{ page: 'home', icon: LayoutGrid, label: { en: 'Home', es: 'Inicio' } },
 		{ page: 'projects-active', icon: CheckCircle2, label: { en: 'Active', es: 'Activos' } },

@@ -9,6 +9,11 @@ import { useI18n } from '../i18n/I18nProvider';
 import { AREAS, pickLabel } from './navigation';
 import type { AreaId, PageId } from './navigation';
 
+/**
+ * Narrow icon rail (primary navigation): one button per top-level area that
+ * routes to the area's lead page and marks the active one, plus a toggle to
+ * collapse/expand the ExplorerPanel.
+ */
 export function ActivityBar({
 	activeArea,
 	language,

@@ -3,14 +3,13 @@
  * @copyright Copyright (c) AIDO.
  * @author Roddmason
  */
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useControlPlane } from '../hooks/useControlPlane';
 import { useMotionPreference, usePageMotion } from '../motion/useControlMotion';
-import type { Overview } from '../api/types';
-import { Badge, DataTable, Drawer, EmptyState } from '../components/primitives';
+import { EmptyState } from '../components/primitives';
 import { CommandPalette } from './CommandPalette';
-import { matchesShortcut, useCommandActions } from './commandActions';
+import { useCommandActions } from './commandActions';
 import type { CommandAction } from './commandActions';
 import { ActiveProjectsPage } from '../features/active-projects/ActiveProjectsPage';
 import type { Language, ProjectStatusView } from '../features/active-projects/ActiveProjectsPage';
@@ -34,26 +33,26 @@ import {
 	PolicySecurityPage,
 	WorkspacesPage,
 } from '../features/pages';
-import { countByStatus, shortId, toneForStatus } from '../lib/format';
 import { AppShell } from './AppShell';
-import { areaForPage, pageIds, titleForPage } from './navigation';
-import type { PageId } from './navigation';
+import { ApprovalsDrawer } from './ApprovalsDrawer';
+import { EventsDrawer } from './EventsDrawer';
+import { areaForPage, titleForPage } from './navigation';
+import { resolveHashRoute } from './routing';
+import type { AppRoute } from './routing';
+import { useShellShortcuts } from './useShellShortcuts';
 
 const SELECTED_PROJECT_STORAGE_KEY = 'aido:selectedProjectId';
 
-function sumRecordedCost(rows: Overview['costUsage']) {
-	const amounts = rows.map((row) => Number(row.amountUsd)).filter((amount) => Number.isFinite(amount));
-	return amounts.length ? amounts.reduce((sum, amount) => sum + amount, 0) : null;
-}
-
-const projectStatusByPage: Partial<Record<PageId, ProjectStatusView>> = {
+/** Status-filtered project pages map to an ActiveProjectsPage status view. */
+const projectStatusByPage: Partial<Record<AppRoute, ProjectStatusView>> = {
 	'projects-active': 'active',
 	'projects-finished': 'finished',
 	'projects-error': 'error',
 	'projects-cancelled': 'cancelled',
 };
 
-const settingsGroupByPage: Partial<Record<PageId, SettingsGroupId>> = {
+/** Settings routes map to the SettingsPage group they should open. */
+const settingsGroupByPage: Partial<Record<AppRoute, SettingsGroupId>> = {
 	'settings-project': 'project',
 	'settings-runtime': 'runtime',
 	'settings-agents': 'agents',
@@ -62,30 +61,6 @@ const settingsGroupByPage: Partial<Record<PageId, SettingsGroupId>> = {
 	'settings-integrations': 'integrations',
 	'settings-advanced': 'advanced',
 };
-
-const routeAliases: Record<string, PageId> = {
-	active: 'projects-active',
-	ide: 'workbench',
-	workspace: 'workbench',
-	command: 'workbench',
-	runs: 'workflows',
-	review: 'review-board',
-	jobs: 'review-board',
-	settings: 'settings-project',
-	// Backward-compat: resolve the retired per-tab settings hashes to their owning group.
-	'settings-projects': 'settings-project',
-	'settings-user': 'settings-advanced',
-	'settings-cli': 'settings-runtime',
-	'settings-api': 'settings-runtime',
-	'settings-parameters': 'settings-advanced',
-	'settings-maintainers': 'settings-advanced',
-	'settings-defaults': 'settings-advanced',
-};
-
-function currentHash(): PageId {
-	const value = window.location.hash.replace('#', '');
-	return routeAliases[value] ?? (pageIds.includes(value as PageId) ? (value as PageId) : 'home');
-}
 
 function readStoredSelectedProjectId() {
 	try {
@@ -107,23 +82,29 @@ function persistSelectedProjectId(projectId: string) {
 	}
 }
 
+/**
+ * Root of the control center. Owns global shell state (active {@link AppRoute},
+ * selected project, dialog/drawer/palette flags), wires the control-plane data
+ * hook and the global keyboard layer, and routes the active page to its feature
+ * component. All chrome — navigation, header, status bar, drawers, command
+ * palette — lives in dedicated single-responsibility components.
+ */
 export function App() {
 	useMotionPreference();
 	const { language, languages, setLanguage, t } = useI18n();
 	const bilingualLanguage: Language = language === 'es' ? 'es' : 'en';
-	const [page, setPage] = useState<PageId>(currentHash());
+	const [page, setPage] = useState<AppRoute>(resolveHashRoute());
 	const [selectedProjectId, setSelectedProjectId] = useState(readStoredSelectedProjectId);
 	const [workspaceDialogOpen, setWorkspaceDialogOpen] = useState(false);
 	const [workspaceDialogMode, setWorkspaceDialogMode] = useState<WorkspaceMode>('open_folder');
 	const [approvalDrawerOpen, setApprovalDrawerOpen] = useState(false);
 	const [eventDrawerOpen, setEventDrawerOpen] = useState(false);
 	const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
-	const [eventFilter, setEventFilter] = useState('');
 	const state = useControlPlane();
 	const motionRef = usePageMotion(page);
 	const commandActionsRef = useRef<CommandAction[]>([]);
 
-	const navigateTo = useCallback((nextPage: PageId) => {
+	const navigateTo = useCallback((nextPage: AppRoute) => {
 		window.location.hash = nextPage;
 		setPage(nextPage);
 	}, []);
@@ -134,7 +115,14 @@ export function App() {
 	}, []);
 
 	const closeCommandPalette = useCallback(() => setCommandPaletteOpen(false), []);
+	const toggleCommandPalette = useCallback(() => setCommandPaletteOpen((open) => !open), []);
 	const openApprovals = useCallback(() => setApprovalDrawerOpen(true), []);
+	const openEvents = useCallback(() => setEventDrawerOpen(true), []);
+	const closeOverlays = useCallback(() => {
+		setApprovalDrawerOpen(false);
+		setEventDrawerOpen(false);
+		setCommandPaletteOpen(false);
+	}, []);
 
 	const changeLanguage = useCallback((nextLanguage: string) => {
 		setLanguage(nextLanguage);
@@ -149,53 +137,18 @@ export function App() {
 	}, [page, language]);
 
 	useEffect(() => {
-		const onHash = () => setPage(currentHash());
+		const onHash = () => setPage(resolveHashRoute());
 		window.addEventListener('hashchange', onHash);
 		return () => window.removeEventListener('hashchange', onHash);
 	}, []);
 
-	useLayoutEffect(() => {
-		const onKeyDown = (event: KeyboardEvent) => {
-			const target = event.target as HTMLElement | null;
-			const editableTarget =
-				target?.isContentEditable ||
-				target?.tagName === 'INPUT' ||
-				target?.tagName === 'TEXTAREA' ||
-				target?.tagName === 'SELECT';
-			if (event.key === 'Escape') {
-				setApprovalDrawerOpen(false);
-				setEventDrawerOpen(false);
-				setCommandPaletteOpen(false);
-			}
-			if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
-				event.preventDefault();
-				setCommandPaletteOpen((open) => !open);
-				return;
-			}
-			if (editableTarget) return;
-			if (event.ctrlKey && event.altKey) {
-				for (const action of commandActionsRef.current) {
-					if (action.shortcut && !action.disabled && matchesShortcut(event, action.shortcut)) {
-						event.preventDefault();
-						action.run();
-						return;
-					}
-				}
-				const key = event.key.toLowerCase();
-				const code = event.code;
-				if (key === 'e' || code === 'KeyE') {
-					event.preventDefault();
-					setEventDrawerOpen(true);
-				}
-				if (key === 'w' || code === 'KeyW') {
-					event.preventDefault();
-					navigateTo('workflows');
-				}
-			}
-		};
-		window.addEventListener('keydown', onKeyDown, true);
-		return () => window.removeEventListener('keydown', onKeyDown, true);
-	}, [navigateTo]);
+	useShellShortcuts({
+		commandActionsRef,
+		navigateTo,
+		onEscape: closeOverlays,
+		onToggleCommandPalette: toggleCommandPalette,
+		onOpenEvents: openEvents,
+	});
 
 	const overview = state.overview;
 	const activeProjects = useMemo(() => overview?.projects.filter((project) => project.status === 'active') ?? [], [overview?.projects]);
@@ -214,21 +167,6 @@ export function App() {
 		setSelectedProjectId(fallbackProjectId);
 		persistSelectedProjectId(fallbackProjectId);
 	}, [activeProjects, overview, selectedProjectId]);
-	const filteredEvents = useMemo(() => {
-		const query = eventFilter.trim().toLowerCase();
-		const events = overview?.events ?? [];
-		if (!query) return events;
-		return events.filter((event) => {
-			const payload = JSON.stringify(event.payload ?? {}).toLowerCase();
-			return (
-				event.type.toLowerCase().includes(query) ||
-				String(event.severity ?? '').toLowerCase().includes(query) ||
-				String(event.projectId ?? '').toLowerCase().includes(query) ||
-				String(event.jobId ?? '').toLowerCase().includes(query) ||
-				payload.includes(query)
-			);
-		});
-	}, [eventFilter, overview?.events]);
 	const pendingApprovalsCount = useMemo(
 		() => overview?.actionRequests.filter((item) => item.status === 'pending').length ?? 0,
 		[overview?.actionRequests],
@@ -250,7 +188,7 @@ export function App() {
 	const pageContent = () => {
 		if (!overview) return null;
 		if (state.error) {
-			return <EmptyState title={t('ui.static.control.plane.unavailable.6196ca6f', 'Control plane unavailable')} body={state.error} />;
+			return <EmptyState title="Control plane unavailable" body={state.error} />;
 		}
 		if (page === 'home') {
 			return (
@@ -342,10 +280,10 @@ export function App() {
 						onCreateProject={() => openWorkspaceDialog('open_folder')}
 						mutate={state.mutate}
 						section={settingsGroupByPage[page]}
-							runtimeProviders={state.runtimeProviders}
-							runtimeProviderConfiguration={state.runtimeProviderConfiguration}
-							token={state.token}
-							onRefresh={() => state.refresh(true)}
+						runtimeProviders={state.runtimeProviders}
+						runtimeProviderConfiguration={state.runtimeProviderConfiguration}
+						token={state.token}
+						onRefresh={() => state.refresh(true)}
 						language={bilingualLanguage}
 					/>
 				);
@@ -362,8 +300,8 @@ export function App() {
 				<main className="workbench main-area">
 					<section className="content-frame">
 						<EmptyState
-							title={failed ? t('ui.static.control.plane.unavailable.6196ca6f', 'Control plane unavailable') : t('ui.static.loading.control.plane.b6b0a909', 'Loading control plane')}
-							body={failed ? state.error : t('ui.static.waiting.for.fastapi.v1.sqlite.and.runtime.providers.534adb14', 'Waiting for FastAPI v1, SQLite and runtime providers.')}
+							title={failed ? 'Control plane unavailable' : 'Loading control plane'}
+							body={failed ? state.error : 'Waiting for FastAPI v1, SQLite and runtime providers.'}
 						/>
 					</section>
 				</main>
@@ -411,41 +349,16 @@ export function App() {
 				}}
 			/>
 
-			<Drawer label={t('ui.static.approval.drawer.4e143a24', 'Approval drawer')} open={approvalDrawerOpen} onClose={() => setApprovalDrawerOpen(false)}>
-				<DataTable
-					rows={overview.actionRequests.filter((item) => item.status === 'pending').slice(0, 12)}
-					empty={<EmptyState title={t('app.workbench.inspector.noApprovals', 'No pending approvals')} body={t('ui.static.action.requests.appear.here.when.policy.gates.execution.f9e13dac', 'Action requests appear here when policy gates execution.')} />}
-					columns={[
-						{ key: 'action', label: t('ui.static.action.97c89a4d', 'Action'), render: (row) => <span className="mono">{row.actionType}</span> },
-						{ key: 'risk', label: t('ui.static.risk.5a8f23f5', 'Risk'), render: (row) => <Badge tone={toneForStatus(row.riskLevel)}>{row.riskLevel}</Badge> },
-						{ key: 'command', label: t('app.workbench.evidence.colCommand', 'Command'), render: (row) => <span className="mono">{row.command || 'n/a'}</span> },
-						{ key: 'job', label: t('ui.static.job.30c8cb83', 'Job'), render: (row) => <span className="mono">{shortId(row.jobId)}</span> },
-					]}
-				/>
-			</Drawer>
-			<Drawer label={t('ui.static.event.drawer.be20f85b', 'Event drawer')} open={eventDrawerOpen} onClose={() => setEventDrawerOpen(false)}>
-				<div className="drawer-body">
-					<div className="field">
-						<label htmlFor="event-filter">{t('ui.static.event.filter.2ecf15a5', 'Event filter')}</label>
-						<input
-							id="event-filter"
-							className="input"
-							value={eventFilter}
-							onChange={(event) => setEventFilter(event.target.value)}
-							placeholder={t('ui.static.filter.by.type.severity.id.or.payload.c700f550', 'Filter by type, severity, id or payload')}
-						/>
-					</div>
-				</div>
-				<DataTable
-					rows={filteredEvents.slice(0, 16)}
-					empty={<EmptyState title={t('ui.static.no.events.e339ba73', 'No events')} body={t('ui.static.workflow.job.policy.and.evidence.events.appear.here.4d1f02f5', 'Workflow, job, policy, and evidence events appear here.')} />}
-					columns={[
-						{ key: 'type', label: t('ui.static.type.3deb7456', 'Type'), render: (row) => <span className="mono">{row.type}</span> },
-						{ key: 'severity', label: t('app.workbench.logs.colSeverity', 'Severity'), render: (row) => <Badge tone={toneForStatus(row.severity)}>{row.severity ?? 'info'}</Badge> },
-						{ key: 'id', label: t('ui.static.event.ad8919ac', 'Event'), render: (row) => <span className="mono">{shortId(row.id)}</span> },
-					]}
-				/>
-			</Drawer>
+			<ApprovalsDrawer
+				open={approvalDrawerOpen}
+				onClose={() => setApprovalDrawerOpen(false)}
+				actionRequests={overview.actionRequests}
+			/>
+			<EventsDrawer
+				open={eventDrawerOpen}
+				onClose={() => setEventDrawerOpen(false)}
+				events={overview.events}
+			/>
 			<CommandPalette open={commandPaletteOpen} onClose={closeCommandPalette} actions={commandActions} />
 		</>
 	);

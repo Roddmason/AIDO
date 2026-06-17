@@ -23,7 +23,7 @@ import { Badge, EmptyState, StatusDot } from '../components/primitives';
 import { useI18n } from '../i18n/I18nProvider';
 import { shortId, toneForStatus } from '../lib/format';
 import { EXPLORER_GROUPS, EXPLORER_LINKS, EXPLORER_TITLE, pickLabel } from './navigation';
-import type { AreaId, ExplorerLink, PageId } from './navigation';
+import type { AreaId, NavigationItem, PageId } from './navigation';
 
 type Tone = 'ok' | 'warn' | 'danger' | 'info';
 type RunStatus = Overview['workflows'][number]['status'];
@@ -124,6 +124,11 @@ function ProjectSection({
 	);
 }
 
+/**
+ * Context-aware left sidebar: per-area navigation (flat or grouped) plus, when a
+ * project is selected, collapsible sections for its active runs, approvals,
+ * workspaces and evidence. Persists section open/closed state in localStorage.
+ */
 export function ExplorerPanel({
 	activeArea,
 	page,
@@ -148,7 +153,7 @@ export function ExplorerPanel({
 	const groups = EXPLORER_GROUPS[activeArea];
 	const title = pickLabel(EXPLORER_TITLE[activeArea], language);
 
-	const renderLink = (link: ExplorerLink) => {
+	const renderLink = (link: NavigationItem) => {
 		const Icon = link.icon;
 		const label = pickLabel(link.label, language);
 		return (

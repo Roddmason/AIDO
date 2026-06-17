@@ -9,6 +9,12 @@ import { useTheme } from '../hooks/useTheme';
 
 type LanguageOption = { code: string; name: string; nativeName: string; enabled: boolean };
 
+/**
+ * Top bar for the active workspace: brand wordmark, page kicker/title, and the
+ * global controls — language switch, theme toggle, command-palette / approvals /
+ * events / inspector triggers and refresh. Stateless; all actions are delegated
+ * to the shell via callbacks.
+ */
 export function WorkbenchHeader({
 	kicker,
 	title,

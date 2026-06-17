@@ -15,6 +15,294 @@
     }
   ],
   "translations": {
+    "app.pages.errSandboxProfileUpdate": {
+      "en": "Sandbox profile update failed.",
+      "es": "No se pudo actualizar el perfil del sandbox."
+    },
+    "app.pages.memoryIndexDegraded": {
+      "en": "index degraded",
+      "es": "índice degradado"
+    },
+    "app.pages.memoryRecordsInSqlite": {
+      "en": "records in SQLite",
+      "es": "registros en SQLite"
+    },
+    "app.pages.evidenceLinkWorkflow": {
+      "en": "Workflow",
+      "es": "Flujo de trabajo"
+    },
+    "app.pages.evidenceLinkJob": {
+      "en": "Job",
+      "es": "Trabajo"
+    },
+    "app.pages.evidenceLinkAgentRun": {
+      "en": "Agent run",
+      "es": "Ejecución de agente"
+    },
+    "app.pages.evidenceNotLinked": {
+      "en": "not linked",
+      "es": "sin vincular"
+    },
+    "app.pages.grantNotConsumed": {
+      "en": "not consumed",
+      "es": "sin consumir"
+    },
+    "app.pages.viewDiff": {
+      "en": "View diff",
+      "es": "Ver diff"
+    },
+    "app.pages.errEvidenceDetail": {
+      "en": "Evidence detail failed.",
+      "es": "No se pudo cargar el detalle de la evidencia."
+    },
+    "app.pages.errDiffArtifactPreview": {
+      "en": "Diff artifact preview failed.",
+      "es": "No se pudo previsualizar el artefacto de diff."
+    },
+    "app.pages.errSecurityFindingsPreview": {
+      "en": "Security findings preview failed.",
+      "es": "No se pudo previsualizar los hallazgos de seguridad."
+    },
+    "app.pages.errArtifactPreview": {
+      "en": "Artifact preview failed.",
+      "es": "No se pudo previsualizar el artefacto."
+    },
+    "app.pages.evidenceLoading": {
+      "en": "Loading",
+      "es": "Cargando"
+    },
+    "app.pages.evidenceView": {
+      "en": "View",
+      "es": "Ver"
+    },
+    "app.pages.loadingEvidenceDetail": {
+      "en": "Loading evidence detail",
+      "es": "Cargando detalle de la evidencia"
+    },
+    "app.pages.evidenceDetailUnavailable": {
+      "en": "Evidence detail unavailable",
+      "es": "Detalle de la evidencia no disponible"
+    },
+    "app.pages.diffNoRealChanges": {
+      "en": "no real changes",
+      "es": "sin cambios reales"
+    },
+    "app.pages.noSecurityFindingsArtifactBody": {
+      "en": "No security-findings.json artifact is linked to this evidence package.",
+      "es": "No hay ningún artefacto security-findings.json vinculado a este paquete de evidencia."
+    },
+    "app.pages.artifactsCountLabel": {
+      "en": "artifacts",
+      "es": "artefactos"
+    },
+    "app.pages.changedFilesLabel": {
+      "en": "changed files",
+      "es": "archivos modificados"
+    },
+    "app.pages.modelCallsCountLabel": {
+      "en": "model calls",
+      "es": "llamadas al modelo"
+    },
+    "app.pages.toolCallsCountLabel": {
+      "en": "tool calls",
+      "es": "llamadas a herramientas"
+    },
+    "app.pages.errRiskCreation": {
+      "en": "Risk creation failed.",
+      "es": "No se pudo crear el riesgo."
+    },
+    "app.pages.errRiskUpdate": {
+      "en": "Risk update failed.",
+      "es": "No se pudo actualizar el riesgo."
+    },
+    "app.pages.errDecisionCreation": {
+      "en": "Decision creation failed.",
+      "es": "No se pudo crear la decisión."
+    },
+    "app.pages.errNextStepCreation": {
+      "en": "Next step creation failed.",
+      "es": "No se pudo crear el siguiente paso."
+    },
+    "app.pages.errMcpRegistration": {
+      "en": "MCP registration failed.",
+      "es": "No se pudo registrar el servidor MCP."
+    },
+    "app.pages.registeringMcpServer": {
+      "en": "Registering MCP server",
+      "es": "Registrando servidor MCP"
+    },
+    "app.agents.errRuntimeDiscovery": {
+      "en": "Runtime provider discovery failed.",
+      "es": "Falló la detección de proveedores de runtime."
+    },
+    "app.agents.errGatewayCatalogDiscovery": {
+      "en": "Model gateway catalog discovery failed.",
+      "es": "Falló la detección del catálogo del gateway de modelos."
+    },
+    "app.agents.errProfileSave": {
+      "en": "Agent profile save failed.",
+      "es": "Falló el guardado del perfil de agente."
+    },
+    "app.agents.runtimeProvidersDiscoveryPending": {
+      "en": "Runtime providers are not executable until provider discovery returns status.",
+      "es": "Los proveedores de runtime no son ejecutables hasta que la detección de proveedores devuelva su estado."
+    },
+    "app.agents.providersPolicyDefault": {
+      "en": "policy default",
+      "es": "predeterminado por política"
+    },
+    "app.workflows.missingNoRun": {
+      "en": "No workflow run recorded.",
+      "es": "No se registró ninguna ejecución del flujo de trabajo."
+    },
+    "app.workflows.missingNoSteps": {
+      "en": "No workflow steps recorded.",
+      "es": "No se registraron pasos del flujo de trabajo."
+    },
+    "app.workflows.missingUnfinishedSteps": {
+      "en": "Unfinished steps:",
+      "es": "Pasos sin terminar:"
+    },
+    "app.workflows.missingNoEvidence": {
+      "en": "No evidence package recorded.",
+      "es": "No se registró ningún paquete de evidencia."
+    },
+    "app.workflows.missingNoDiffRefs": {
+      "en": "No diff evidence refs recorded.",
+      "es": "No se registraron referencias de evidencia de diff."
+    },
+    "app.workflows.missingNoPassingQa": {
+      "en": "No passing QA test results recorded.",
+      "es": "No se registraron resultados de pruebas QA aprobadas."
+    },
+    "app.workflows.missingPendingApprovals": {
+      "en": "Pending approvals:",
+      "es": "Aprobaciones pendientes:"
+    },
+    "app.workflows.missingRunStatusIs": {
+      "en": "Run status is",
+      "es": "El estado de la ejecución es"
+    },
+    "app.workflows.blockerSourceRun": {
+      "en": "run",
+      "es": "ejecución"
+    },
+    "app.workflows.blockerRunStatusIs": {
+      "en": "Run status is",
+      "es": "El estado de la ejecución es"
+    },
+    "app.workflows.blockerSourceStep": {
+      "en": "step",
+      "es": "paso"
+    },
+    "app.workflows.blockerStepStatusIs": {
+      "en": "Step status is",
+      "es": "El estado del paso es"
+    },
+    "app.workflows.blockerSourceJob": {
+      "en": "job",
+      "es": "tarea"
+    },
+    "app.workflows.blockerJobStatusIs": {
+      "en": "Job status is",
+      "es": "El estado de la tarea es"
+    },
+    "app.workflows.stepDetailWaiting": {
+      "en": "waiting for linked execution records",
+      "es": "esperando registros de ejecución vinculados"
+    },
+    "app.workflows.timelineSourceStep": {
+      "en": "step",
+      "es": "paso"
+    },
+    "app.workflows.timelineSourceWorkflowEvent": {
+      "en": "workflow event",
+      "es": "evento del flujo de trabajo"
+    },
+    "app.workflows.timelineSourceAuditEvent": {
+      "en": "audit event",
+      "es": "evento de auditoría"
+    },
+    "app.workflows.timeUnavailable": {
+      "en": "time unavailable",
+      "es": "hora no disponible"
+    },
+    "app.workflows.errQueueReasonRequired": {
+      "en": "Queue change reason is required.",
+      "es": "Se requiere un motivo para cambiar la cola."
+    },
+    "app.workflows.errQueueOp": {
+      "en": "Queue operation failed.",
+      "es": "La operación sobre la cola falló."
+    },
+    "app.workflows.errArtifactPreview": {
+      "en": "Artifact preview failed.",
+      "es": "La vista previa del artefacto falló."
+    },
+    "app.workflows.ariaGraphFor": {
+      "en": "Workflow graph for",
+      "es": "Gráfico del flujo de trabajo de"
+    },
+    "app.workflows.ariaInspectWorkflow": {
+      "en": "Inspect workflow",
+      "es": "Inspeccionar flujo de trabajo"
+    },
+    "app.workflows.agentUnassigned": {
+      "en": "unassigned",
+      "es": "sin asignar"
+    },
+    "app.workflows.diffNotCaptured": {
+      "en": "not captured",
+      "es": "no capturado"
+    },
+    "app.workflows.diffFilesSuffix": {
+      "en": "files",
+      "es": "archivos"
+    },
+    "app.workflows.completenessComplete": {
+      "en": "complete",
+      "es": "completo"
+    },
+    "app.workflows.completenessPartial": {
+      "en": "partial",
+      "es": "parcial"
+    },
+    "app.workflows.ariaPreviewArtifact": {
+      "en": "Preview workflow artifact",
+      "es": "Previsualizar artefacto del flujo de trabajo"
+    },
+    "app.workflows.ariaDownloadArtifact": {
+      "en": "Download workflow artifact",
+      "es": "Descargar artefacto del flujo de trabajo"
+    },
+    "app.workflows.ariaRetryJob": {
+      "en": "Retry job",
+      "es": "Reintentar tarea"
+    },
+    "app.workflows.jobRetrying": {
+      "en": "Retrying",
+      "es": "Reintentando"
+    },
+    "app.workflows.ariaCancelJob": {
+      "en": "Cancel job",
+      "es": "Cancelar tarea"
+    },
+    "app.workflows.jobCancelling": {
+      "en": "Cancelling",
+      "es": "Cancelando"
+    },
+    "app.workflows.ariaDownloadPreviewArtifact": {
+      "en": "Download workflow preview artifact",
+      "es": "Descargar artefacto de vista previa del flujo de trabajo"
+    },
+    "app.activityBar.showExplorer": {
+      "en": "Show explorer",
+      "es": "Mostrar explorador"
+    },
+    "app.activityBar.hideExplorer": {
+      "en": "Hide explorer",
+      "es": "Ocultar explorador"
+    },
     "app.modelGateway.runtime.unconfigured": {
       "en": "unconfigured",
       "es": "sin configurar"

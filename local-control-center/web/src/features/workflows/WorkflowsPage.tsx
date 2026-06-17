@@ -44,6 +44,8 @@ function objectValue(value: unknown): Record<string, unknown> {
 	return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
 
+type Translate = (key: string, fallback?: string) => string;
+
 type WorkflowLinks = {
 	runs: Overview['workflowRuns'];
 	steps: Overview['workflowSteps'];
@@ -153,6 +155,7 @@ function stepDetail(
 	evidence: Overview['evidencePackages'][number] | undefined,
 	agentRun: Overview['agentRuns'][number] | undefined,
 	job: Overview['jobs'][number] | undefined,
+	t: Translate,
 ): string {
 	const output = objectValue(step.output);
 	const metadata = objectValue(step.metadata);
@@ -165,7 +168,7 @@ function stepDetail(
 	if (job?.status) return `job: ${job.status}`;
 	const gateState = stringValue(metadata.gateState);
 	if (gateState) return gateState;
-	return stringValue(step.taskType, 'waiting for linked execution records');
+	return stringValue(step.taskType, t('app.workflows.stepDetailWaiting', 'waiting for linked execution records'));
 }
 
 function latestRun(linked: WorkflowLinks): Overview['workflowRuns'][number] | undefined {
@@ -190,22 +193,22 @@ function hasPassingQaEvidence(linked: WorkflowLinks): boolean {
 	);
 }
 
-function completionMissing(linked: WorkflowLinks): string[] {
+function completionMissing(linked: WorkflowLinks, t: Translate): string[] {
 	const missing: string[] = [];
 	const run = latestRun(linked);
-	if (!run) return ['No workflow run recorded.'];
-	if (!linked.steps.length) missing.push('No workflow steps recorded.');
+	if (!run) return [t('app.workflows.missingNoRun', 'No workflow run recorded.')];
+	if (!linked.steps.length) missing.push(t('app.workflows.missingNoSteps', 'No workflow steps recorded.'));
 	const unfinishedSteps = linked.steps.filter((step) => !statusIsPassed(step.status) && step.status !== 'skipped');
 	if (unfinishedSteps.length) {
-		missing.push(`Unfinished steps: ${unfinishedSteps.map((step) => step.name).join(', ')}.`);
+		missing.push(`${t('app.workflows.missingUnfinishedSteps', 'Unfinished steps:')} ${unfinishedSteps.map((step) => step.name).join(', ')}.`);
 	}
-	if (!linked.evidence.length) missing.push('No evidence package recorded.');
-	if (!hasDiffEvidence(linked)) missing.push('No diff evidence refs recorded.');
-	if (!hasPassingQaEvidence(linked)) missing.push('No passing QA test results recorded.');
+	if (!linked.evidence.length) missing.push(t('app.workflows.missingNoEvidence', 'No evidence package recorded.'));
+	if (!hasDiffEvidence(linked)) missing.push(t('app.workflows.missingNoDiffRefs', 'No diff evidence refs recorded.'));
+	if (!hasPassingQaEvidence(linked)) missing.push(t('app.workflows.missingNoPassingQa', 'No passing QA test results recorded.'));
 	const pendingApprovals = linked.approvals.filter((approval) => approval.status === 'pending');
-	if (pendingApprovals.length) missing.push(`Pending approvals: ${pendingApprovals.length}.`);
+	if (pendingApprovals.length) missing.push(`${t('app.workflows.missingPendingApprovals', 'Pending approvals:')} ${pendingApprovals.length}.`);
 	const blockingStatuses = new Set(['blocked', 'runtime_unavailable', 'qa_failed', 'failed']);
-	if (blockingStatuses.has(String(run.status ?? ''))) missing.push(`Run status is ${String(run.status)}.`);
+	if (blockingStatuses.has(String(run.status ?? ''))) missing.push(`${t('app.workflows.missingRunStatusIs', 'Run status is')} ${String(run.status)}.`);
 	return Array.from(new Set(missing));
 }
 
@@ -213,16 +216,16 @@ function blockerReason(payload: Record<string, unknown>, fallback: string): stri
 	return stringValue(payload.reason) || stringValue(payload.blockedReason) || stringValue(payload.error) || fallback;
 }
 
-function workflowBlockers(linked: WorkflowLinks): WorkflowBlocker[] {
+function workflowBlockers(linked: WorkflowLinks, t: Translate): WorkflowBlocker[] {
 	const blockers: WorkflowBlocker[] = [];
 	const blockingStatuses = new Set(['blocked', 'runtime_unavailable', 'qa_failed', 'failed', 'denied', 'error', 'critical']);
 	for (const run of linked.runs) {
 		if (blockingStatuses.has(String(run.status ?? ''))) {
 			blockers.push({
 				id: `run-${run.id}`,
-				source: `run ${shortId(String(run.id ?? ''))}`,
+				source: `${t('app.workflows.blockerSourceRun', 'run')} ${shortId(String(run.id ?? ''))}`,
 				status: String(run.status ?? ''),
-				reason: blockerReason(objectValue(run.metadata), `Run status is ${String(run.status ?? '')}.`),
+				reason: blockerReason(objectValue(run.metadata), `${t('app.workflows.blockerRunStatusIs', 'Run status is')} ${String(run.status ?? '')}.`),
 			});
 		}
 	}
@@ -230,9 +233,9 @@ function workflowBlockers(linked: WorkflowLinks): WorkflowBlocker[] {
 		if (blockingStatuses.has(String(step.status ?? ''))) {
 			blockers.push({
 				id: `step-${step.id}`,
-				source: `step ${step.name}`,
+				source: `${t('app.workflows.blockerSourceStep', 'step')} ${step.name}`,
 				status: step.status,
-				reason: blockerReason(objectValue(step.output), blockerReason(objectValue(step.metadata), `Step status is ${step.status}.`)),
+				reason: blockerReason(objectValue(step.output), blockerReason(objectValue(step.metadata), `${t('app.workflows.blockerStepStatusIs', 'Step status is')} ${step.status}.`)),
 			});
 		}
 	}
@@ -250,9 +253,9 @@ function workflowBlockers(linked: WorkflowLinks): WorkflowBlocker[] {
 		if (blockingStatuses.has(String(job.status ?? ''))) {
 			blockers.push({
 				id: `job-${job.id}`,
-				source: `job ${job.kind}`,
+				source: `${t('app.workflows.blockerSourceJob', 'job')} ${job.kind}`,
 				status: job.status,
-				reason: blockerReason(objectValue(job.payload), `Job status is ${job.status}.`),
+				reason: blockerReason(objectValue(job.payload), `${t('app.workflows.blockerJobStatusIs', 'Job status is')} ${job.status}.`),
 			});
 		}
 	}
@@ -280,7 +283,7 @@ function workflowPullRequestUrls(linked: WorkflowLinks): string[] {
 	return Array.from(new Set(urls));
 }
 
-function buildWorkflowTimeline(linked: WorkflowLinks): WorkflowTimelineItem[] {
+function buildWorkflowTimeline(linked: WorkflowLinks, t: Translate): WorkflowTimelineItem[] {
 	const run = latestRun(linked);
 	const runId = String(run?.id ?? '');
 	const steps = runId ? linked.steps.filter((step) => String(step.workflowRunId ?? '') === runId) : linked.steps;
@@ -326,8 +329,8 @@ function buildWorkflowTimeline(linked: WorkflowLinks): WorkflowTimelineItem[] {
 				label: step.name,
 				status,
 				tone: toneForStatus(status),
-				detail: stepDetail(step, gateResult, evidence, agentRun, job),
-				source: `step ${index + 1}`,
+				detail: stepDetail(step, gateResult, evidence, agentRun, job, t),
+				source: `${t('app.workflows.timelineSourceStep', 'step')} ${index + 1}`,
 				createdAt: step.updatedAt,
 				sortKey: sortTime(step.createdAt) + index,
 			};
@@ -340,7 +343,7 @@ function buildWorkflowTimeline(linked: WorkflowLinks): WorkflowTimelineItem[] {
 			status,
 			tone: toneForStatus(status),
 			detail: workflowEventDetail(objectValue(event.payload), event.severity),
-			source: 'workflow event',
+			source: t('app.workflows.timelineSourceWorkflowEvent', 'workflow event'),
 			createdAt: event.createdAt,
 			sortKey: sortTime(event.createdAt) + index / 100,
 		};
@@ -354,7 +357,7 @@ function buildWorkflowTimeline(linked: WorkflowLinks): WorkflowTimelineItem[] {
 			status,
 			tone: toneForStatus(status),
 			detail: workflowEventDetail(payload, status),
-			source: 'audit event',
+			source: t('app.workflows.timelineSourceAuditEvent', 'audit event'),
 			createdAt: event.createdAt,
 			sortKey: sortTime(event.createdAt) + index / 100 + 0.5,
 		};
@@ -380,7 +383,7 @@ function WorkflowTimeline({ items }: { items: WorkflowTimelineItem[] }) {
 						<p className="workflow-timeline-detail">{item.detail}</p>
 						<div className="workflow-timeline-meta">
 							<span className="mono">{item.source}</span>
-							<span className="mono">{item.createdAt ? new Date(item.createdAt).toLocaleString() : 'time unavailable'}</span>
+							<span className="mono">{item.createdAt ? new Date(item.createdAt).toLocaleString() : t('app.workflows.timeUnavailable', 'time unavailable')}</span>
 						</div>
 					</div>
 				</li>
@@ -406,7 +409,7 @@ export function WorkflowsPage({ overview, token, mutate }: { overview: Overview;
 	// A non-empty reason is mandatory (the old page allowed an empty reason).
 	const runJobMutation = async (op: 'retry' | 'cancel', jobId: string, reason: string) => {
 		if (!reason.trim()) {
-			setJobMutationError('Queue change reason is required.');
+			setJobMutationError(t('app.workflows.errQueueReasonRequired', 'Queue change reason is required.'));
 			return;
 		}
 		setJobMutationBusyId(jobId);
@@ -414,7 +417,7 @@ export function WorkflowsPage({ overview, token, mutate }: { overview: Overview;
 		try {
 			await mutate((writeToken) => (op === 'retry' ? retryJob(writeToken, jobId, reason.trim()) : cancelJob(writeToken, jobId, reason.trim())));
 		} catch (error) {
-			setJobMutationError(error instanceof Error ? error.message : 'Queue operation failed.');
+			setJobMutationError(error instanceof Error ? error.message : t('app.workflows.errQueueOp', 'Queue operation failed.'));
 		} finally {
 			setJobMutationBusyId('');
 		}
@@ -449,7 +452,7 @@ export function WorkflowsPage({ overview, token, mutate }: { overview: Overview;
 			const payload = await fetchEvidenceArtifact(token, evidenceId, artifactId);
 			setPreviewPayload(payload);
 		} catch (error) {
-			setPreviewError(error instanceof Error ? error.message : 'Artifact preview failed.');
+			setPreviewError(error instanceof Error ? error.message : t('app.workflows.errArtifactPreview', 'Artifact preview failed.'));
 		} finally {
 			setPreviewLoadingId('');
 		}
@@ -539,9 +542,9 @@ export function WorkflowsPage({ overview, token, mutate }: { overview: Overview;
 	}, [overview, selectedWorkflow]);
 	const nodes = nodesFromSteps(linked.steps);
 	const edges = edgesFromNodes(nodes);
-	const timelineItems = useMemo(() => buildWorkflowTimeline(linked), [linked]);
-	const missingForCompleted = useMemo(() => completionMissing(linked), [linked]);
-	const blockers = useMemo(() => workflowBlockers(linked), [linked]);
+	const timelineItems = useMemo(() => buildWorkflowTimeline(linked, t), [linked, t]);
+	const missingForCompleted = useMemo(() => completionMissing(linked, t), [linked, t]);
+	const blockers = useMemo(() => workflowBlockers(linked, t), [linked, t]);
 	const patchArtifact = useMemo(() => findPatchArtifact(linked.artifacts), [linked.artifacts]);
 	const pullRequestUrls = useMemo(() => workflowPullRequestUrls(linked), [linked]);
 	return (
@@ -553,7 +556,7 @@ export function WorkflowsPage({ overview, token, mutate }: { overview: Overview;
 			/>
 			<Surface title={t('ui.static.workflow.graph.32f4369a', 'Workflow graph')}>
 				{selectedWorkflow && nodes.length ? (
-					<div className="flow-board" aria-label={`Workflow graph for ${selectedWorkflow.title}`}>
+					<div className="flow-board" aria-label={`${t('app.workflows.ariaGraphFor', 'Workflow graph for')} ${selectedWorkflow.title}`}>
 						<ReactFlow nodes={nodes} edges={edges} fitView>
 							<Background />
 							<Controls />
@@ -575,8 +578,8 @@ export function WorkflowsPage({ overview, token, mutate }: { overview: Overview;
 								key: 'inspect',
 								label: t('ui.static.inspect.18ca87af', 'Inspect'),
 								render: (row) => (
-									<button className="button" type="button" aria-label={`Inspect workflow ${row.title}`} onClick={() => setSelectedWorkflowId(row.id)}>
-										Inspect
+									<button className="button" type="button" aria-label={`${t('app.workflows.ariaInspectWorkflow', 'Inspect workflow')} ${row.title}`} onClick={() => setSelectedWorkflowId(row.id)}>
+										{t('ui.static.inspect.18ca87af', 'Inspect')}
 									</button>
 								),
 							},
@@ -605,7 +608,7 @@ export function WorkflowsPage({ overview, token, mutate }: { overview: Overview;
 						columns={[
 							{ key: 'name', label: t('ui.static.step.dc416e10', 'Step'), render: (row) => <span className="mono">{row.name}</span> },
 							{ key: 'status', label: t('ui.static.status.bae7d5be', 'Status'), render: (row) => <Badge tone={toneForStatus(row.status)}>{row.status}</Badge> },
-							{ key: 'agent', label: t('ui.static.agent.5ce2e6f4', 'Agent'), render: (row) => row.agentProfileId ?? 'unassigned' },
+							{ key: 'agent', label: t('ui.static.agent.5ce2e6f4', 'Agent'), render: (row) => row.agentProfileId ?? t('app.workflows.agentUnassigned', 'unassigned') },
 						]}
 					/>
 				</Surface>
@@ -693,7 +696,7 @@ export function WorkflowsPage({ overview, token, mutate }: { overview: Overview;
 											const metadata = objectValue(row.metadata);
 											const diff = objectValue(metadata.diffSummary);
 											const changedFiles = Array.isArray(diff.changedFiles) ? diff.changedFiles.length : Number(diff.changedFiles ?? 0);
-											return <span className="mono">{String(diff.state ?? 'not captured')} / {Number.isFinite(changedFiles) ? changedFiles : 0} files</span>;
+											return <span className="mono">{String(diff.state ?? t('app.workflows.diffNotCaptured', 'not captured'))} / {Number.isFinite(changedFiles) ? changedFiles : 0} {t('app.workflows.diffFilesSuffix', 'files')}</span>;
 										},
 									},
 								]} />
@@ -739,7 +742,7 @@ export function WorkflowsPage({ overview, token, mutate }: { overview: Overview;
 										render: (row) => {
 											const hasQa = Array.isArray(row.testResults) && row.testResults.length > 0;
 											const hasDiffRefs = Array.isArray(row.diffRefs) && row.diffRefs.length > 0;
-											return <span className="mono">{hasQa && hasDiffRefs ? 'complete' : 'partial'}</span>;
+											return <span className="mono">{hasQa && hasDiffRefs ? t('app.workflows.completenessComplete', 'complete') : t('app.workflows.completenessPartial', 'partial')}</span>;
 										},
 									},
 								]} />
@@ -767,10 +770,10 @@ export function WorkflowsPage({ overview, token, mutate }: { overview: Overview;
 											const downloading = downloadLoadingId === String(row.id ?? '');
 											return (
 												<div className="inline" aria-busy={loading || downloading}>
-													<button className="button" type="button" aria-label={`Preview workflow artifact ${name}`} disabled={loading} onClick={() => void openPreview(row)}>
+													<button className="button" type="button" aria-label={`${t('app.workflows.ariaPreviewArtifact', 'Preview workflow artifact')} ${name}`} disabled={loading} onClick={() => void openPreview(row)}>
 														{loading ? t('app.review.opening', 'Opening') : t('app.workbench.evidence.preview', 'Preview')}
 													</button>
-													<button className="button" type="button" aria-label={`Download workflow artifact ${name}`} disabled={downloading} onClick={() => void downloadArtifact(row)}>
+													<button className="button" type="button" aria-label={`${t('app.workflows.ariaDownloadArtifact', 'Download workflow artifact')} ${name}`} disabled={downloading} onClick={() => void downloadArtifact(row)}>
 														{downloading ? t('app.workbench.evidence.downloading', 'Downloading') : t('app.workbench.evidence.download', 'Download')}
 													</button>
 												</div>
@@ -844,8 +847,8 @@ export function WorkflowsPage({ overview, token, mutate }: { overview: Overview;
 											const blocked = !jobMutationReason.trim() || Boolean(jobMutationBusyId);
 											return (
 												<div className="inline" aria-busy={busy}>
-													<button className="button" type="button" aria-label={`${t('ui.static.retry.9f5cd8a2', 'Retry')} job ${row.kind}`} disabled={blocked} onClick={() => void runJobMutation('retry', row.id, jobMutationReason)}>{busy ? 'Retrying' : t('ui.static.retry.9f5cd8a2', 'Retry')}</button>
-													<button className="button danger" type="button" aria-label={`${t('ui.static.cancel.77dfd213', 'Cancel')} job ${row.kind}`} disabled={blocked} onClick={() => void runJobMutation('cancel', row.id, jobMutationReason)}>{busy ? 'Cancelling' : t('ui.static.cancel.77dfd213', 'Cancel')}</button>
+													<button className="button" type="button" aria-label={`${t('app.workflows.ariaRetryJob', 'Retry job')} ${row.kind}`} disabled={blocked} onClick={() => void runJobMutation('retry', row.id, jobMutationReason)}>{busy ? t('app.workflows.jobRetrying', 'Retrying') : t('ui.static.retry.9f5cd8a2', 'Retry')}</button>
+													<button className="button danger" type="button" aria-label={`${t('app.workflows.ariaCancelJob', 'Cancel job')} ${row.kind}`} disabled={blocked} onClick={() => void runJobMutation('cancel', row.id, jobMutationReason)}>{busy ? t('app.workflows.jobCancelling', 'Cancelling') : t('ui.static.cancel.77dfd213', 'Cancel')}</button>
 												</div>
 											);
 										},
@@ -888,7 +891,7 @@ export function WorkflowsPage({ overview, token, mutate }: { overview: Overview;
 							) : (
 								<EmptyState title={previewLoadingId ? t('app.workbench.evidence.loading', 'Loading artifact') : t('app.review.binaryOrEmptyArtifact', 'Binary or empty artifact')} body={t('ui.static.non.text.artifacts.remain.downloadable.but.are.not.rendered.42481492', 'Non-text artifacts remain downloadable, but are not rendered inline.')} />
 							)}
-							<button className="button primary" type="button" disabled={downloadLoadingId === String(previewArtifact.id ?? '')} aria-label={`Download workflow preview artifact ${artifactDisplayName(previewArtifact)}`} onClick={() => void downloadArtifact(previewArtifact)}>
+							<button className="button primary" type="button" disabled={downloadLoadingId === String(previewArtifact.id ?? '')} aria-label={`${t('app.workflows.ariaDownloadPreviewArtifact', 'Download workflow preview artifact')} ${artifactDisplayName(previewArtifact)}`} onClick={() => void downloadArtifact(previewArtifact)}>
 								{downloadLoadingId === String(previewArtifact.id ?? '') ? t('ui.static.downloading.artifact.b640e8fe', 'Downloading artifact') : t('app.review.downloadArtifact', 'Download artifact')}
 							</button>
 						</>

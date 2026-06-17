@@ -5,12 +5,13 @@
  */
 import type { Overview, Project, RuntimeProviders } from '../api/types';
 import { StatusDot } from '../components/primitives';
+import { deriveShellStatus } from './shellStatus';
 
-function sumRecordedCost(rows: Overview['costUsage']): number | null {
-	const amounts = rows.map((row) => Number(row.amountUsd)).filter((amount) => Number.isFinite(amount));
-	return amounts.length ? amounts.reduce((sum, amount) => sum + amount, 0) : null;
-}
-
+/**
+ * Persistent bottom status bar: API connection, current project, executable
+ * runtimes, pending approvals, QA pass ratio and recorded cost. Reads its data
+ * through {@link deriveShellStatus} (the single source for the cost sum).
+ */
 export function StatusBar({
 	overview,
 	runtimeProviders,
@@ -26,39 +27,34 @@ export function StatusBar({
 	language: string;
 	t: (key: string, fallback?: string) => string;
 }) {
-	const executableRuntimes = runtimeProviders?.providers.filter((provider) => provider.executable).length ?? 0;
-	const pendingApprovals = overview.actionRequests.filter((item) => item.status === 'pending').length;
-	const evidence = overview.evidencePackages;
-	const qaPassed = evidence.filter((item) => String(item.qaVerdict ?? '') === 'passed').length;
-	const qaBlocking = evidence.filter((item) => ['failed', 'blocked', 'security_blocked', 'devops_blocked'].includes(String(item.qaVerdict ?? ''))).length;
-	const recordedCost = sumRecordedCost(overview.costUsage);
-	const projectName = selectedProject?.name ?? t('app.global.noProject', 'no project');
+	const status = deriveShellStatus(overview, runtimeProviders, connected, selectedProject);
+	const projectName = status.projectName ?? t('app.global.noProject', 'no project');
 
 	return (
 		<footer className="status-bar" aria-label={t('app.global.globalStatus', 'Global status')}>
 			<span className="status-bar-item">
-				<StatusDot tone={connected ? 'ok' : 'warn'} />
-				{connected ? t('app.statusBar.apiConnected', 'API connected') : t('app.statusBar.polling', 'polling')}
+				<StatusDot tone={status.connected ? 'ok' : 'warn'} />
+				{status.connected ? t('app.statusBar.apiConnected', 'API connected') : t('app.statusBar.polling', 'polling')}
 			</span>
 			<span className="status-bar-item" title={String(selectedProject?.path ?? '')}>
 				<span className="status-bar-label">{t('app.statusBar.project', 'Project')}</span>
 				<strong>{projectName}</strong>
 			</span>
 			<span className="status-bar-item">
-				<StatusDot tone={executableRuntimes ? 'ok' : 'warn'} />
-				{executableRuntimes} {t('app.statusBar.executableRuntimes', 'executable runtimes')}
+				<StatusDot tone={status.executableRuntimes ? 'ok' : 'warn'} />
+				{status.executableRuntimes} {t('app.statusBar.executableRuntimes', 'executable runtimes')}
 			</span>
 			<span className="status-bar-item">
-				<StatusDot tone={pendingApprovals ? 'warn' : 'ok'} />
-				{pendingApprovals} {t('app.statusBar.approvals', 'approvals')}
+				<StatusDot tone={status.pendingApprovals ? 'warn' : 'ok'} />
+				{status.pendingApprovals} {t('app.statusBar.approvals', 'approvals')}
 			</span>
 			<span className="status-bar-item">
-				<StatusDot tone={qaBlocking ? 'danger' : 'ok'} />
-				QA {qaPassed}/{evidence.length}
+				<StatusDot tone={status.qaBlocking ? 'danger' : 'ok'} />
+				QA {status.qaPassed}/{status.qaTotal}
 			</span>
 			<span className="status-bar-item">
 				<span className="status-bar-label">{t('app.statusBar.cost', 'Cost')}</span>
-				<strong>{recordedCost === null ? t('app.statusBar.unavailable', 'unavailable') : `$${recordedCost.toFixed(2)}`}</strong>
+				<strong>{status.recordedCost === null ? t('app.statusBar.unavailable', 'unavailable') : `$${status.recordedCost.toFixed(2)}`}</strong>
 			</span>
 		</footer>
 	);

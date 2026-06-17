@@ -491,6 +491,18 @@
       "en": "pending",
       "es": "pendientes"
     },
+    "app.home.inProgress": {
+      "en": "in progress",
+      "es": "en curso"
+    },
+    "app.home.reviewNeeded": {
+      "en": "Pending review",
+      "es": "Revisión pendiente"
+    },
+    "app.home.galleryTitle": {
+      "en": "Pick up where you left off",
+      "es": "Retoma donde lo dejaste"
+    },
     "app.home.reviewsTitle": {
       "en": "Pending reviews",
       "es": "Revisiones pendientes"

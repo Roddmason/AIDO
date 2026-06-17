@@ -1241,6 +1241,12 @@ kbd.command-kbd {
 	color: var(--color-text-primary);
 }
 
+.home-quick-links {
+	display: inline-flex;
+	flex-wrap: wrap;
+	gap: var(--space-1);
+}
+
 .home-card {
 	min-width: 0;
 	display: grid;

@@ -42,16 +42,16 @@ function mergeNewestById<T extends { id: string; updatedAt?: string; createdAt?:
 	return incoming.reduce((merged, record) => upsertNewestById(merged, record), current);
 }
 
-function numericLabel(value: unknown, fallback = 'unknown') {
+function numericLabel(value: unknown, fallback: string) {
 	if (value === null || value === undefined || value === '') return fallback;
 	const number = Number(value);
 	return Number.isFinite(number) ? String(number) : fallback;
 }
 
-function moneyLabel(value: unknown) {
-	if (value === null || value === undefined || value === '') return 'unknown';
+function moneyLabel(value: unknown, fallback: string) {
+	if (value === null || value === undefined || value === '') return fallback;
 	const number = Number(value);
-	return Number.isFinite(number) ? `$${number.toFixed(2)}` : 'unknown';
+	return Number.isFinite(number) ? `$${number.toFixed(2)}` : fallback;
 }
 
 export function AgentsPage({
@@ -319,9 +319,9 @@ export function AgentsPage({
 								<div className="eyebrow">{t('ui.static.developeragent', 'DeveloperAgent')}</div>
 								<div className="inline">
 									<Badge tone={developerAgent.executable ? 'ok' : 'warn'}>
-										{developerAgent.executable ? 'executable' : 'not executable'}
+										{developerAgent.executable ? t('app.modelGateway.runtime.executable', 'executable') : t('app.modelGateway.runtime.notExecutable', 'not executable')}
 									</Badge>
-									<Badge>{developerAgent.selectedRuntimeId ?? 'no runtime'}</Badge>
+									<Badge>{developerAgent.selectedRuntimeId ?? t('app.modelGateway.routePreview.noRuntime', 'no runtime')}</Badge>
 								</div>
 							</div>
 							<div className="stack compact">
@@ -341,14 +341,14 @@ export function AgentsPage({
 							label: t('ui.static.state.46a2a41c', 'State'),
 							render: (row) => (
 								<div className="inline">
-									<Badge tone={row.detected ? 'ok' : 'warn'}>{row.detected ? 'detected' : 'not detected'}</Badge>
-									<Badge tone={row.configured ? 'ok' : 'warn'}>{row.configured ? 'configured' : 'unconfigured'}</Badge>
-									<Badge tone={row.available ? 'ok' : 'warn'}>{row.available ? 'available' : 'unavailable'}</Badge>
-									<Badge tone={row.executable ? 'ok' : 'warn'}>{row.executable ? 'executable' : 'not executable'}</Badge>
+									<Badge tone={row.detected ? 'ok' : 'warn'}>{row.detected ? t('app.modelGateway.runtime.detected', 'detected') : t('app.modelGateway.runtime.notDetected', 'not detected')}</Badge>
+									<Badge tone={row.configured ? 'ok' : 'warn'}>{row.configured ? t('app.modelGateway.runtime.configured', 'configured') : t('app.modelGateway.runtime.unconfigured', 'unconfigured')}</Badge>
+									<Badge tone={row.available ? 'ok' : 'warn'}>{row.available ? t('app.modelGateway.runtime.available', 'available') : t('app.statusBar.unavailable', 'unavailable')}</Badge>
+									<Badge tone={row.executable ? 'ok' : 'warn'}>{row.executable ? t('app.modelGateway.runtime.executable', 'executable') : t('app.modelGateway.runtime.notExecutable', 'not executable')}</Badge>
 								</div>
 							),
 						},
-						{ key: 'capabilities', label: t('ui.static.capabilities.ca09c54b', 'Capabilities'), render: (row) => (row.capabilities?.length ? row.capabilities.join(', ') : 'none') },
+						{ key: 'capabilities', label: t('ui.static.capabilities.ca09c54b', 'Capabilities'), render: (row) => (row.capabilities?.length ? row.capabilities.join(', ') : t('app.runtime.card.none', 'none')) },
 						{ key: 'requiredConfiguration', label: t('ui.static.required.config.4e5f80c9', 'Required config'), render: (row) => (row.requiredConfiguration?.length ? row.requiredConfiguration.join(', ') : 'n/a') },
 						{ key: 'reason', label: t('ui.static.reason.f219cc06', 'Reason'), render: (row) => String(row.reason ?? '') },
 					]} />
@@ -364,7 +364,7 @@ export function AgentsPage({
 						{ key: 'runtime', label: t('ui.static.runtime.c4740e4c', 'Runtime'), render: (row) => <Badge>{row.runtimeMode ?? row.runtimeType ?? 'unassigned'}</Badge> },
 						{ key: 'routing', label: t('ui.static.routing.7d15dd1b', 'Routing'), render: (row) => <span className="mono">{row.routingProfileId ?? 'default'}</span> },
 						{ key: 'providers', label: t('ui.static.providers.87b7c08b', 'Providers'), render: (row) => Array.isArray(row.allowedProviders) && row.allowedProviders.length ? row.allowedProviders.join(', ') : 'policy default' },
-						{ key: 'limits', label: t('ui.static.limits.61a0ae3b', 'Limits'), render: (row) => `${numericLabel(row.maxTokensPerRun)} tokens / ${moneyLabel(row.requiresApprovalOverUsd ?? row.maxCostPerRun)}` },
+						{ key: 'limits', label: t('ui.static.limits.61a0ae3b', 'Limits'), render: (row) => `${numericLabel(row.maxTokensPerRun, t('app.runtime.card.unknown', 'unknown'))} tokens / ${moneyLabel(row.requiresApprovalOverUsd ?? row.maxCostPerRun, t('app.runtime.card.unknown', 'unknown'))}` },
 						{ key: 'status', label: t('ui.static.status.bae7d5be', 'Status'), render: (row) => <Badge tone={toneForStatus(row.status)}>{row.status ?? 'active'}</Badge> },
 					]}
 				/>

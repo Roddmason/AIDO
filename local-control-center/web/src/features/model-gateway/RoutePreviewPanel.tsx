@@ -119,7 +119,7 @@ export function RoutePreviewPanel({
 							<Badge>{preview.selected?.model ?? t('app.modelGateway.routePreview.noModel', 'no model')}</Badge>
 							<Badge>{preview.selected?.runtime ?? t('app.modelGateway.routePreview.noRuntime', 'no runtime')}</Badge>
 							<Badge>{preview.selected?.effort ?? t('app.modelGateway.routePreview.defaultEffort', 'default effort')}</Badge>
-							<Badge>{money(preview.estimatedCostUsd)}</Badge>
+							<Badge>{money(preview.estimatedCostUsd, t('app.runtime.card.unknown', 'unknown'))}</Badge>
 							{unknownCostAction ? <Badge tone={unknownCostTone(unknownCostAction)}>{t('app.modelGateway.routePreview.unknownCostBadge', 'unknown cost')}: {unknownCostAction}</Badge> : null}
 						</div>
 						<div className="muted">{preview.decisionReason}</div>

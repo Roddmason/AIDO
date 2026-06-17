@@ -27,8 +27,8 @@ type JsonRecord = Record<string, unknown>;
 /** Sentinel session id meaning "compose a brand-new work session". Shared with the page. */
 export const NEW_SESSION_ID = '__new_work_session__';
 
-export function formatTime(value: string | undefined) {
-	if (!value) return 'not recorded';
+export function formatTime(value: string | undefined, notRecordedLabel = 'not recorded') {
+	if (!value) return notRecordedLabel;
 	const parsed = Date.parse(value);
 	return Number.isNaN(parsed) ? value : new Date(parsed).toLocaleString();
 }
@@ -214,7 +214,7 @@ export function useWorkbenchData({
 			configured,
 			runtime,
 			status: latestRun?.status ?? (configured ? 'configured' : t('app.workbench.team.notConnected', 'not connected')),
-			activity: latestRun ? `${shortId(latestRun.id)} - ${formatTime(latestRun.updatedAt)}` : '',
+			activity: latestRun ? `${shortId(latestRun.id)} - ${formatTime(latestRun.updatedAt, t('app.workbenchEvidence.notRecorded', 'not recorded'))}` : '',
 		};
 	});
 

@@ -150,7 +150,7 @@ export function BenchmarksPanel({
 				{ key: 'validity', label: t('ui.static.validity.benchmark.provenance', 'Validity'), render: (row) => benchmarkValidity(row, t) },
 				{ key: 'success', label: t('ui.static.success.rate.12374104', 'Success rate'), render: (row) => row.successRate === null || row.successRate === undefined ? t('ui.static.insufficient.data.ccc693ba', 'insufficient data') : `${(Number(row.successRate) * 100).toFixed(2)}%` },
 				{ key: 'qa', label: t('ui.static.qa.pass.rate.f00a47c8', 'QA pass rate'), render: (row) => row.qaPassRate === null || row.qaPassRate === undefined ? t('ui.static.insufficient.data.ccc693ba', 'insufficient data') : `${(Number(row.qaPassRate) * 100).toFixed(2)}%` },
-				{ key: 'cost', label: t('ui.static.avg.cost.4fbb932f', 'Avg cost'), render: (row) => money(row.avgCost) },
+				{ key: 'cost', label: t('ui.static.avg.cost.4fbb932f', 'Avg cost'), render: (row) => money(row.avgCost, t('app.runtime.card.unknown', 'unknown')) },
 				{ key: 'latency', label: t('ui.static.avg.latency.da781428', 'Avg latency'), render: (row) => text(row.avgLatencyMs) },
 				{ key: 'rework', label: t('ui.static.rework.rate.f1b0babc', 'Rework rate'), render: (row) => row.reworkRate === null || row.reworkRate === undefined ? t('ui.static.insufficient.data.ccc693ba', 'insufficient data') : `${(Number(row.reworkRate) * 100).toFixed(2)}%` },
 				{ key: 'last', label: t('ui.static.last.used.f1109d3d', 'Last used'), render: (row) => text(row.lastUsedAt) },
@@ -172,7 +172,7 @@ export function BenchmarksPanel({
 				{ key: 'success', label: t('ui.static.success.42a8f651', 'Success'), render: (row) => boolLabel(row.success) },
 				{ key: 'qa', label: t('ui.static.qa.pass.b8cbfae8', 'QA pass'), render: (row) => boolLabel(row.qaPass) },
 				{ key: 'rework', label: t('ui.static.rework.0ca516fc', 'Rework'), render: (row) => boolLabel(row.rework) },
-				{ key: 'cost', label: t('ui.static.cost.64ae43e8', 'Cost'), render: (row) => money(row.estimatedCostUsd) },
+				{ key: 'cost', label: t('ui.static.cost.64ae43e8', 'Cost'), render: (row) => money(row.estimatedCostUsd, t('app.runtime.card.unknown', 'unknown')) },
 				{ key: 'latency', label: t('ui.static.latency.3e399725', 'Latency'), render: (row) => text(row.latencyMs) },
 				{ key: 'time', label: t('ui.static.time.6c82e6dd', 'Time'), render: (row) => text(row.createdAt) },
 			]} />

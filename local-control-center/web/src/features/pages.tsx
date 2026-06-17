@@ -311,16 +311,16 @@ export function MemoryPage({ overview, retrievalStatus }: { overview: Overview; 
 		? retrievalStatus.available
 			? retrievalStatus.degraded
 				? 'index degraded'
-				: 'available'
+				: t('app.modelGateway.runtime.available', 'available')
 			: retrievalStatus.status
-		: 'unknown';
+		: t('app.runtime.card.unknown', 'unknown');
 
 	return (
 		<>
 			<PageHeader kicker={t('ui.static.semantic.context.8744e1fb', 'Semantic context')} title={t('app.nav.memory', 'Memory & Retrieval')} summary={t('ui.static.sqlite.is.canonical.faiss.numpy.and.future.vector.stores.are.f2fb19e8', 'SQLite is canonical. FAISS, NumPy and future vector stores are rebuildable indexes, not source of truth.')} />
 			<div className="grid two">
 				<Surface title={t('ui.static.retrieval.backend.fa3c92fd', 'Retrieval backend')}>
-					<div className="metric-value">{String(retrievalStatus?.backend ?? 'unknown')}</div>
+					<div className="metric-value">{String(retrievalStatus?.backend ?? t('app.runtime.card.unknown', 'unknown'))}</div>
 					<div className="metric-label">{retrievalPosture}</div>
 				</Surface>
 				<Surface title={t('ui.static.memory.items.d8a2b209', 'Memory items')}>
@@ -460,7 +460,7 @@ export function EvidencePage({ overview, token }: { overview: Overview; token: s
 		try {
 			await downloadEvidenceArtifact(token, evidenceId, artifactId, artifactDisplayName(artifact));
 		} catch (error) {
-			setPreviewError(error instanceof Error ? error.message : 'Artifact download failed.');
+			setPreviewError(error instanceof Error ? error.message : t('app.workbench.evidence.downloadError', 'Artifact download failed.'));
 		} finally {
 			setDownloadLoadingId('');
 		}
@@ -519,10 +519,10 @@ export function EvidencePage({ overview, token }: { overview: Overview; token: s
 								return (
 									<div className="inline" aria-busy={loading || downloading}>
 										<button className="button" type="button" aria-label={`Preview artifact ${name}`} disabled={loading} onClick={() => void openPreview(row)}>
-											{loading ? 'Opening' : 'Preview'}
+											{loading ? t('app.review.opening', 'Opening') : t('app.workbench.evidence.preview', 'Preview')}
 										</button>
-										<button className="button" type="button" aria-label={`Download artifact ${name}`} disabled={downloading} onClick={() => void downloadArtifact(row)}>
-											{downloading ? 'Downloading' : 'Download'}
+										<button className="button" type="button" aria-label={`${t('app.review.downloadArtifact', 'Download artifact')} ${name}`} disabled={downloading} onClick={() => void downloadArtifact(row)}>
+											{downloading ? t('app.workbench.evidence.downloading', 'Downloading') : t('app.workbench.evidence.download', 'Download')}
 										</button>
 									</div>
 								);
@@ -577,7 +577,7 @@ export function EvidencePage({ overview, token }: { overview: Overview; token: s
 								{ key: 'name', label: t('ui.static.name.709a2322', 'Name'), render: (row) => artifactDisplayName(row) },
 								{ key: 'kind', label: t('app.workbench.evidence.colKind', 'Kind'), render: (row) => <span className="mono">{String(row.kind ?? '')}</span> },
 								{ key: 'size', label: t('ui.static.size.b7152342', 'Size'), render: (row) => artifactSizeLabel(row) },
-								{ key: 'sha256', label: t('ui.static.sha256.evidence.viewer.74b330c2', 'SHA-256'), render: (row) => <span className="mono">{String(row.hash ?? 'not recorded')}</span> },
+								{ key: 'sha256', label: t('ui.static.sha256.evidence.viewer.74b330c2', 'SHA-256'), render: (row) => <span className="mono">{String(row.hash ?? t('app.workbenchEvidence.notRecorded', 'not recorded'))}</span> },
 								{
 									key: 'action',
 									label: t('ui.static.action.97c89a4d', 'Action'),
@@ -588,10 +588,10 @@ export function EvidencePage({ overview, token }: { overview: Overview; token: s
 										return (
 											<div className="inline" aria-busy={loading || downloading}>
 												<button className="button" type="button" aria-label={`Preview artifact ${name}`} disabled={loading} onClick={() => void openPreview(row)}>
-													{loading ? 'Opening' : 'Preview'}
+													{loading ? t('app.review.opening', 'Opening') : t('app.workbench.evidence.preview', 'Preview')}
 												</button>
-												<button className="button" type="button" aria-label={`Download artifact ${name}`} disabled={downloading} onClick={() => void downloadArtifact(row)}>
-													{downloading ? 'Downloading' : 'Download'}
+												<button className="button" type="button" aria-label={`${t('app.review.downloadArtifact', 'Download artifact')} ${name}`} disabled={downloading} onClick={() => void downloadArtifact(row)}>
+													{downloading ? t('app.workbench.evidence.downloading', 'Downloading') : t('app.workbench.evidence.download', 'Download')}
 												</button>
 											</div>
 										);
@@ -608,9 +608,9 @@ export function EvidencePage({ overview, token }: { overview: Overview; token: s
 						<Surface title={t('ui.static.diff.viewer.evidence.viewer.80e5e450', 'Diff viewer')}>
 							<div className="stack">
 								<div className="inline">
-									<Badge tone={patchArtifact && patchHasChanges ? 'ok' : 'warn'}>{patchArtifact && patchHasChanges ? 'real changes' : 'no real changes'}</Badge>
+									<Badge tone={patchArtifact && patchHasChanges ? 'ok' : 'warn'}>{patchArtifact && patchHasChanges ? t('app.workbench.diff.realChanges', 'real changes') : 'no real changes'}</Badge>
 									{changedFiles !== null ? <span className="mono">changed files {changedFiles}</span> : null}
-									{patchArtifact ? <span className="mono">sha256 {String(patchArtifact.hash ?? 'not recorded')}</span> : null}
+									{patchArtifact ? <span className="mono">sha256 {String(patchArtifact.hash ?? t('app.workbenchEvidence.notRecorded', 'not recorded'))}</span> : null}
 								</div>
 								{diffError ? <div className="form-error" role="alert">{diffError}</div> : null}
 								{diffLoading ? <EmptyState title={t('ui.static.loading.diff.artifact.f72cc0b5', 'Loading diff artifact')} body={t('app.workbench.diff.loadingBody', 'The patch is read through the protected artifact endpoint.')} /> : null}
@@ -627,7 +627,7 @@ export function EvidencePage({ overview, token }: { overview: Overview; token: s
 								{securityArtifact ? (
 									<div className="inline">
 										<Badge>{artifactDisplayName(securityArtifact)}</Badge>
-										<span className="mono">sha256 {String(securityArtifact.hash ?? 'not recorded')}</span>
+										<span className="mono">sha256 {String(securityArtifact.hash ?? t('app.workbenchEvidence.notRecorded', 'not recorded'))}</span>
 									</div>
 								) : null}
 								{securityPayload?.text ? <pre className="artifact-preview">{redactVisibleText(securityPayload.text, '')}</pre> : null}
@@ -666,22 +666,22 @@ export function EvidencePage({ overview, token }: { overview: Overview; token: s
 						<>
 							<div className="stack">
 								<div className="inline">
-									<Badge>{String(previewArtifact.kind ?? 'artifact')}</Badge>
+									<Badge>{String(previewArtifact.kind ?? t('app.review.artifact', 'artifact'))}</Badge>
 									<Badge>{artifactMimeType(previewArtifact, previewPayload)}</Badge>
 									<Badge>{artifactSizeLabel(previewArtifact)}</Badge>
 								</div>
 								<h3 className="artifact-title">{artifactDisplayName(previewArtifact)}</h3>
-								<div className="mono">sha256 {String(previewPayload?.hash || previewArtifact.hash || 'not recorded')}</div>
+								<div className="mono">sha256 {String(previewPayload?.hash || previewArtifact.hash || t('app.workbenchEvidence.notRecorded', 'not recorded'))}</div>
 							</div>
 							{previewError ? <div className="form-error" role="alert">{previewError}</div> : null}
 							{downloadLoadingId ? <div className="sr-only" role="status">{t('ui.static.downloading.artifact.b640e8fe', 'Downloading artifact')}</div> : null}
 							{previewPayload?.text ? (
 								<pre className="artifact-preview">{redactVisibleText(previewPayload.text, '')}</pre>
 							) : (
-								<EmptyState title={previewLoadingId ? 'Loading artifact' : 'Binary or empty artifact'} body={t('ui.static.non.text.artifacts.remain.downloadable.but.are.not.rendered.42481492', 'Non-text artifacts remain downloadable, but are not rendered inline.')} />
+								<EmptyState title={previewLoadingId ? t('app.workbench.evidence.loading', 'Loading artifact') : t('app.review.binaryOrEmptyArtifact', 'Binary or empty artifact')} body={t('ui.static.non.text.artifacts.remain.downloadable.but.are.not.rendered.42481492', 'Non-text artifacts remain downloadable, but are not rendered inline.')} />
 							)}
 							<button className="button primary" type="button" disabled={downloadLoadingId === String(previewArtifact.id ?? '')} aria-label={`Download preview artifact ${artifactDisplayName(previewArtifact)}`} onClick={() => void downloadArtifact(previewArtifact)}>
-								{downloadLoadingId === String(previewArtifact.id ?? '') ? 'Downloading artifact' : 'Download artifact'}
+								{downloadLoadingId === String(previewArtifact.id ?? '') ? t('ui.static.downloading.artifact.b640e8fe', 'Downloading artifact') : t('app.review.downloadArtifact', 'Download artifact')}
 							</button>
 						</>
 					) : null}
@@ -855,7 +855,7 @@ export function GovernancePage({ overview, selectedProject, mutate }: { overview
 			</div>
 			<Surface title={t('ui.static.strict.record.forms.09648e18', 'Strict record forms')}>
 				<div className="inline">
-					<Badge tone={project ? 'ok' : 'warn'}>{project ? project.name : 'no operational project'}</Badge>
+					<Badge tone={project ? 'ok' : 'warn'}>{project ? project.name : t('app.settings.project.noOperationalBadge', 'no operational project')}</Badge>
 					{project ? null : <span className="field-help">{t('ui.static.select.an.active.operational.project.in.settings.before.crea.cdedb6c4', 'Select an active operational project in Settings before creating governance records.')}</span>}
 				</div>
 				<div className="grid three">
@@ -1076,7 +1076,7 @@ export function IntegrationsPage({ overview, mutate }: { overview: Overview; mut
 							</select>
 						</div>
 						{error ? <div className="form-error" role="alert">{error}</div> : null}
-						<button className="button primary" type="button" onClick={() => { void registerServer(); }} disabled={busy}>{busy ? 'Registering MCP server' : 'Register MCP server'}</button>
+						<button className="button primary" type="button" onClick={() => { void registerServer(); }} disabled={busy}>{busy ? 'Registering MCP server' : t('ui.static.register.mcp.server.b3f30e86', 'Register MCP server')}</button>
 					</div>
 				</Surface>
 				<Surface title={t('ui.static.registered.mcp.servers.d5439a1b', 'Registered MCP servers')}>

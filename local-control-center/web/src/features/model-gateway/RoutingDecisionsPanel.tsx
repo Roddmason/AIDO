@@ -34,7 +34,7 @@ export function RoutingDecisionsPanel({
 				{ key: 'model', label: t('ui.static.selected.model.5d227e1f', 'Selected model'), render: (row) => text(row.selectedModel) },
 				{ key: 'runtime', label: t('ui.static.selected.runtime.0d70da8f', 'Selected runtime'), render: (row) => text(row.selectedRuntime) },
 				{ key: 'effort', label: t('ui.static.effort.8c974bc6', 'Effort'), render: (row) => text(row.selectedEffort) },
-				{ key: 'cost', label: t('ui.static.estimated.cost.516cbee2', 'Estimated cost'), render: (row) => money(row.estimatedCostUsd) },
+				{ key: 'cost', label: t('ui.static.estimated.cost.516cbee2', 'Estimated cost'), render: (row) => money(row.estimatedCostUsd, t('app.runtime.card.unknown', 'unknown')) },
 				{ key: 'reason', label: t('ui.static.reason.f219cc06', 'Reason'), render: (row) => text(row.decisionReason) },
 			]} />
 		</PanelShell>

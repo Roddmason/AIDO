@@ -10,8 +10,8 @@ import { Badge, EmptyState, Surface } from '../../components/primitives';
 import { useI18n } from '../../i18n/I18nProvider';
 import { shortId, toneForStatus } from '../../lib/format';
 
-function formatTime(value: string | null | undefined) {
-	if (!value) return 'not recorded';
+function formatTime(value: string | null | undefined, missingLabel: string) {
+	if (!value) return missingLabel;
 	const parsed = Date.parse(value);
 	return Number.isNaN(parsed) ? value : new Date(parsed).toLocaleString();
 }
@@ -101,7 +101,7 @@ export function WorkbenchExplorer({
 								onClick={() => onSelectSession(session.id)}
 							>
 								<span><History aria-hidden="true" size={15} /> {session.name}</span>
-								<small>{sessionChatCount} {t('app.workbench.sessions.chatCount', 'chats')} - {formatTime(session.updatedAt)}</small>
+								<small>{sessionChatCount} {t('app.workbench.sessions.chatCount', 'chats')} - {formatTime(session.updatedAt, t('app.workbenchEvidence.notRecorded', 'not recorded'))}</small>
 							</button>
 						);
 					})}
@@ -122,7 +122,7 @@ export function WorkbenchExplorer({
 							onClick={() => onSelectRun(run.id)}
 						>
 							<span><Workflow aria-hidden="true" size={15} /> {workflowTitle(run.workflowId)}</span>
-							<small>{String(run.status)} - {formatTime(run.startedAt)}</small>
+							<small>{String(run.status)} - {formatTime(run.startedAt, t('app.workbenchEvidence.notRecorded', 'not recorded'))}</small>
 						</button>
 					))}
 					{recentRuns.length ? null : (

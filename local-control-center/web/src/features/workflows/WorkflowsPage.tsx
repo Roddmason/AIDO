@@ -103,14 +103,14 @@ function finiteNumber(value: unknown): number | null {
 	return null;
 }
 
-function tokenLabel(value: unknown): string {
+function tokenLabel(value: unknown, unknownLabel = 'unknown'): string {
 	const valueNumber = finiteNumber(value);
-	return valueNumber === null ? 'unknown' : String(valueNumber);
+	return valueNumber === null ? unknownLabel : String(valueNumber);
 }
 
-function costLabel(value: unknown): string {
+function costLabel(value: unknown, unknownLabel = 'unknown'): string {
 	const valueNumber = finiteNumber(value);
-	return valueNumber === null ? 'unknown' : `$${valueNumber.toFixed(4)}`;
+	return valueNumber === null ? unknownLabel : `$${valueNumber.toFixed(4)}`;
 }
 
 function sortTime(value?: string | null, fallback = 0): number {
@@ -466,7 +466,7 @@ export function WorkflowsPage({ overview, token, mutate }: { overview: Overview;
 		try {
 			await downloadEvidenceArtifact(token, evidenceId, artifactId, artifactDisplayName(artifact));
 		} catch (error) {
-			setPreviewError(error instanceof Error ? error.message : 'Artifact download failed.');
+			setPreviewError(error instanceof Error ? error.message : t('app.workbench.evidence.downloadError', 'Artifact download failed.'));
 		} finally {
 			setDownloadLoadingId('');
 		}
@@ -675,7 +675,7 @@ export function WorkflowsPage({ overview, token, mutate }: { overview: Overview;
 										render: (row) => {
 											const metadata = objectValue(row.metadata);
 											const runtime = objectValue(metadata.runtime);
-											return <span className="mono">{String(runtime.id ?? 'not selected')}</span>;
+											return <span className="mono">{String(runtime.id ?? t('app.workbench.workspace.missingPath', 'not selected'))}</span>;
 										},
 									},
 									{
@@ -704,7 +704,7 @@ export function WorkflowsPage({ overview, token, mutate }: { overview: Overview;
 										label: t('ui.static.profile.ff4fc027', 'Profile'),
 										render: (row) => {
 											const metadata = objectValue(row.metadata);
-											return <span className="mono">{String(metadata.agentProfileId ?? metadata.runtimeType ?? 'unknown')}</span>;
+											return <span className="mono">{String(metadata.agentProfileId ?? metadata.runtimeType ?? t('app.runtime.card.unknown', 'unknown'))}</span>;
 										},
 									},
 									{ key: 'status', label: t('ui.static.status.bae7d5be', 'Status'), render: (row) => <Badge tone={toneForStatus(String(row.status ?? ''))}>{String(row.status ?? '')}</Badge> },
@@ -715,15 +715,15 @@ export function WorkflowsPage({ overview, token, mutate }: { overview: Overview;
 									{ key: 'provider', label: t('ui.static.provider.7ceee3f3', 'Provider'), render: (row) => <span className="mono">{String(row.provider ?? '')}</span> },
 									{ key: 'model', label: t('ui.static.model.68c2cc7f', 'Model'), render: (row) => <span className="mono">{String(row.model ?? '')}</span> },
 									{ key: 'status', label: t('ui.static.status.bae7d5be', 'Status'), render: (row) => <Badge tone={toneForStatus(String(row.status ?? ''))}>{String(row.status ?? '')}</Badge> },
-									{ key: 'tokens', label: t('ui.static.tokens.9a1f9463', 'Tokens'), render: (row) => <span className="mono">{tokenLabel(row.promptTokens)} / {tokenLabel(row.completionTokens)}</span> },
-									{ key: 'cost', label: t('ui.static.cost.64ae43e8', 'Cost'), render: (row) => <span className="mono">{costLabel(row.costUsd)}</span> },
+									{ key: 'tokens', label: t('ui.static.tokens.9a1f9463', 'Tokens'), render: (row) => <span className="mono">{tokenLabel(row.promptTokens, t('app.runtime.card.unknown', 'unknown'))} / {tokenLabel(row.completionTokens, t('app.runtime.card.unknown', 'unknown'))}</span> },
+									{ key: 'cost', label: t('ui.static.cost.64ae43e8', 'Cost'), render: (row) => <span className="mono">{costLabel(row.costUsd, t('app.runtime.card.unknown', 'unknown'))}</span> },
 								]} />
 							</Surface>
 							<Surface title={t('ui.static.steps.cdde4f20', 'Steps')} flat>
 								<DataTable rows={linked.steps} empty={<EmptyState title={t('ui.static.no.steps.00a23c5b', 'No steps')} body={t('ui.static.start.the.workflow.to.expand.steps.a5f96b0b', 'Start the workflow to expand steps.')} />} columns={[
 									{ key: 'name', label: t('ui.static.step.dc416e10', 'Step'), render: (row) => <span className="mono">{row.name}</span> },
 									{ key: 'status', label: t('ui.static.status.bae7d5be', 'Status'), render: (row) => <Badge tone={toneForStatus(row.status)}>{row.status}</Badge> },
-									{ key: 'risk', label: t('ui.static.risk.5a8f23f5', 'Risk'), render: (row) => <span className="mono">{String(row.riskLevel ?? 'not recorded')}</span> },
+									{ key: 'risk', label: t('ui.static.risk.5a8f23f5', 'Risk'), render: (row) => <span className="mono">{String(row.riskLevel ?? t('app.workbenchEvidence.notRecorded', 'not recorded'))}</span> },
 									{ key: 'model', label: t('ui.static.model.mode.f9d81107', 'Model mode'), render: (row) => <span className="mono">{String(row.modelMode ?? row.manualModelOverride ?? 'policy')}</span> },
 								]} />
 							</Surface>
@@ -755,7 +755,7 @@ export function WorkflowsPage({ overview, token, mutate }: { overview: Overview;
 										label: t('ui.static.name.709a2322', 'Name'),
 										render: (row) => <span className="mono">{artifactDisplayName(row)}</span>,
 									},
-									{ key: 'kind', label: t('app.workbench.evidence.colKind', 'Kind'), render: (row) => <Badge>{String(row.kind ?? 'artifact')}</Badge> },
+									{ key: 'kind', label: t('app.workbench.evidence.colKind', 'Kind'), render: (row) => <Badge>{String(row.kind ?? t('app.review.artifact', 'artifact'))}</Badge> },
 									{ key: 'size', label: t('ui.static.size.b7152342', 'Size'), render: (row) => artifactSizeLabel(row) },
 									{ key: 'hash', label: t('ui.static.hash.873507a0', 'Hash'), render: (row) => <span className="mono">{shortId(String(row.hash ?? ''))}</span> },
 									{
@@ -768,10 +768,10 @@ export function WorkflowsPage({ overview, token, mutate }: { overview: Overview;
 											return (
 												<div className="inline" aria-busy={loading || downloading}>
 													<button className="button" type="button" aria-label={`Preview workflow artifact ${name}`} disabled={loading} onClick={() => void openPreview(row)}>
-														{loading ? 'Opening' : 'Preview'}
+														{loading ? t('app.review.opening', 'Opening') : t('app.workbench.evidence.preview', 'Preview')}
 													</button>
 													<button className="button" type="button" aria-label={`Download workflow artifact ${name}`} disabled={downloading} onClick={() => void downloadArtifact(row)}>
-														{downloading ? 'Downloading' : 'Download'}
+														{downloading ? t('app.workbench.evidence.downloading', 'Downloading') : t('app.workbench.evidence.download', 'Download')}
 													</button>
 												</div>
 											);
@@ -826,14 +826,14 @@ export function WorkflowsPage({ overview, token, mutate }: { overview: Overview;
 								<DataTable rows={linked.jobs} empty={<EmptyState title={t('ui.static.no.jobs.e0f919e2', 'No jobs')} body={t('ui.static.jobs.linked.to.workflow.runs.appear.here.7c0a2243', 'Jobs linked to workflow runs appear here.')} />} columns={[
 									{ key: 'kind', label: t('app.workbench.evidence.colKind', 'Kind'), render: (row) => <span className="mono">{row.kind}</span> },
 									{ key: 'status', label: t('ui.static.status.bae7d5be', 'Status'), render: (row) => <Badge tone={toneForStatus(row.status)}>{row.status}</Badge> },
-									{ key: 'lease', label: t('ui.static.lease.b24ef8c7', 'Lease'), render: (row) => <span>{row.leaseOwner ? `${row.leaseOwner} until ${row.leaseExpiresAt}` : 'none'}</span> },
+									{ key: 'lease', label: t('ui.static.lease.b24ef8c7', 'Lease'), render: (row) => <span>{row.leaseOwner ? `${row.leaseOwner} until ${row.leaseExpiresAt}` : t('app.runtime.card.none', 'none')}</span> },
 									{
 										key: 'runtime',
 										label: t('ui.static.runtime.c4740e4c', 'Runtime'),
 										render: (row) => {
 											const payload = objectValue(row.payload);
 											const runtime = objectValue(payload.runtime);
-											return <span className="mono">{String(runtime.id ?? 'not selected')}</span>;
+											return <span className="mono">{String(runtime.id ?? t('app.workbench.workspace.missingPath', 'not selected'))}</span>;
 										},
 									},
 									{
@@ -844,8 +844,8 @@ export function WorkflowsPage({ overview, token, mutate }: { overview: Overview;
 											const blocked = !jobMutationReason.trim() || Boolean(jobMutationBusyId);
 											return (
 												<div className="inline" aria-busy={busy}>
-													<button className="button" type="button" aria-label={`Retry job ${row.kind}`} disabled={blocked} onClick={() => void runJobMutation('retry', row.id, jobMutationReason)}>{busy ? 'Retrying' : 'Retry'}</button>
-													<button className="button danger" type="button" aria-label={`Cancel job ${row.kind}`} disabled={blocked} onClick={() => void runJobMutation('cancel', row.id, jobMutationReason)}>{busy ? 'Cancelling' : 'Cancel'}</button>
+													<button className="button" type="button" aria-label={`${t('ui.static.retry.9f5cd8a2', 'Retry')} job ${row.kind}`} disabled={blocked} onClick={() => void runJobMutation('retry', row.id, jobMutationReason)}>{busy ? 'Retrying' : t('ui.static.retry.9f5cd8a2', 'Retry')}</button>
+													<button className="button danger" type="button" aria-label={`${t('ui.static.cancel.77dfd213', 'Cancel')} job ${row.kind}`} disabled={blocked} onClick={() => void runJobMutation('cancel', row.id, jobMutationReason)}>{busy ? 'Cancelling' : t('ui.static.cancel.77dfd213', 'Cancel')}</button>
 												</div>
 											);
 										},
@@ -853,7 +853,7 @@ export function WorkflowsPage({ overview, token, mutate }: { overview: Overview;
 								]} />
 								<DataTable rows={linked.jobRuns} empty={<EmptyState title={t('ui.static.no.job.runs.4e3be714', 'No job runs')} body={t('ui.static.worker.lease.attempts.appear.here.when.jobs.execute.35553b89', 'Worker lease attempts appear here when jobs execute.')} />} columns={[
 									{ key: 'run', label: t('ui.static.run.44c29edb', 'Run'), render: (row) => <span className="mono">{shortId(String(row.id ?? ''))}</span> },
-									{ key: 'provider', label: t('ui.static.provider.7ceee3f3', 'Provider'), render: (row) => <span className="mono">{String(row.providerId ?? 'not recorded')}</span> },
+									{ key: 'provider', label: t('ui.static.provider.7ceee3f3', 'Provider'), render: (row) => <span className="mono">{String(row.providerId ?? t('app.workbenchEvidence.notRecorded', 'not recorded'))}</span> },
 									{ key: 'status', label: t('ui.static.status.bae7d5be', 'Status'), render: (row) => <Badge tone={toneForStatus(String(row.status ?? ''))}>{String(row.status ?? '')}</Badge> },
 									{ key: 'summary', label: t('ui.static.summary.b5473fa1', 'Summary'), render: (row) => redactVisibleText(row.summary) },
 								]} />
@@ -874,22 +874,22 @@ export function WorkflowsPage({ overview, token, mutate }: { overview: Overview;
 						<>
 							<div className="stack">
 								<div className="inline">
-									<Badge>{String(previewArtifact.kind ?? 'artifact')}</Badge>
+									<Badge>{String(previewArtifact.kind ?? t('app.review.artifact', 'artifact'))}</Badge>
 									<Badge>{artifactMimeType(previewArtifact, previewPayload)}</Badge>
 									<Badge>{artifactSizeLabel(previewArtifact)}</Badge>
 								</div>
 								<h3 className="artifact-title">{artifactDisplayName(previewArtifact)}</h3>
-								<div className="mono">sha256 {String(previewPayload?.hash || previewArtifact.hash || 'not recorded')}</div>
+								<div className="mono">sha256 {String(previewPayload?.hash || previewArtifact.hash || t('app.workbenchEvidence.notRecorded', 'not recorded'))}</div>
 							</div>
 							{previewError ? <div className="form-error" role="alert">{previewError}</div> : null}
 							{downloadLoadingId ? <div className="sr-only" role="status">{t('ui.static.downloading.artifact.b640e8fe', 'Downloading artifact')}</div> : null}
 							{previewPayload?.text ? (
 								<pre className="artifact-preview">{redactVisibleText(previewPayload.text, '')}</pre>
 							) : (
-								<EmptyState title={previewLoadingId ? 'Loading artifact' : 'Binary or empty artifact'} body={t('ui.static.non.text.artifacts.remain.downloadable.but.are.not.rendered.42481492', 'Non-text artifacts remain downloadable, but are not rendered inline.')} />
+								<EmptyState title={previewLoadingId ? t('app.workbench.evidence.loading', 'Loading artifact') : t('app.review.binaryOrEmptyArtifact', 'Binary or empty artifact')} body={t('ui.static.non.text.artifacts.remain.downloadable.but.are.not.rendered.42481492', 'Non-text artifacts remain downloadable, but are not rendered inline.')} />
 							)}
 							<button className="button primary" type="button" disabled={downloadLoadingId === String(previewArtifact.id ?? '')} aria-label={`Download workflow preview artifact ${artifactDisplayName(previewArtifact)}`} onClick={() => void downloadArtifact(previewArtifact)}>
-								{downloadLoadingId === String(previewArtifact.id ?? '') ? 'Downloading artifact' : 'Download artifact'}
+								{downloadLoadingId === String(previewArtifact.id ?? '') ? t('ui.static.downloading.artifact.b640e8fe', 'Downloading artifact') : t('app.review.downloadArtifact', 'Download artifact')}
 							</button>
 						</>
 					) : null}

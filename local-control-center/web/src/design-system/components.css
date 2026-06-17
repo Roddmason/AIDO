@@ -162,13 +162,8 @@
 	gap: var(--space-3);
 }
 
-/* Shared card primitive. `.card` is the base; workspace/task/run/setting-card
-   compose it and add their own accent/background modifier below. */
-.card,
-.workspace-card,
-.task-card,
-.run-card,
-.setting-card {
+/* Shared card primitive used across the workbench, review and settings surfaces. */
+.card {
 	min-width: 0;
 	display: grid;
 	gap: var(--space-3);
@@ -185,32 +180,19 @@
 		transform var(--duration-normal) var(--ease-emphasized);
 }
 
-.card:hover,
-.workspace-card:hover,
-.task-card:hover,
-.run-card:hover,
-.setting-card:hover {
+.card:hover {
 	border-color: var(--color-border-default);
 	background: var(--color-surface-card-hover);
 	box-shadow: var(--shadow-sm);
 	transform: translateY(-1px);
 }
 
-.card[data-selected="true"],
-.workspace-card[aria-current="true"],
-.workspace-card[data-selected="true"],
-.task-card[data-selected="true"],
-.run-card[data-selected="true"],
-.setting-card[data-selected="true"] {
+.card[data-selected="true"] {
 	border-color: color-mix(in oklch, var(--color-accent) 58%, var(--color-border-default));
 	box-shadow: inset 3px 0 0 var(--color-accent), var(--shadow-sm);
 }
 
-.card-header,
-.workspace-card-header,
-.task-card-header,
-.run-card-header,
-.setting-card-header {
+.card-header {
 	min-width: 0;
 	display: flex;
 	align-items: flex-start;
@@ -218,11 +200,7 @@
 	gap: var(--space-3);
 }
 
-.card-title,
-.workspace-card-title,
-.task-card-title,
-.run-card-title,
-.setting-card-title {
+.card-title {
 	margin: 0;
 	color: var(--color-text-primary);
 	font-size: var(--font-size-lg);
@@ -231,11 +209,7 @@
 	overflow-wrap: anywhere;
 }
 
-.card-meta,
-.workspace-card-meta,
-.task-card-meta,
-.run-card-meta,
-.setting-card-meta {
+.card-meta {
 	display: flex;
 	flex-wrap: wrap;
 	gap: var(--space-2);
@@ -243,27 +217,11 @@
 	font-size: var(--font-size-sm);
 }
 
-.card-body,
-.workspace-card-body,
-.task-card-body,
-.run-card-body,
-.setting-card-body {
+.card-body {
 	margin: 0;
 	color: var(--color-text-secondary);
 	line-height: var(--line-normal);
 	overflow-wrap: anywhere;
-}
-
-.task-card {
-	box-shadow: inset 3px 0 0 var(--color-status-pending), var(--shadow-xs);
-}
-
-.run-card {
-	box-shadow: inset 3px 0 0 var(--color-status-info), var(--shadow-xs);
-}
-
-.setting-card {
-	background: var(--color-surface-panel);
 }
 
 /* Workspace dialog: mode choice (step 1) and detection cards (step 2). */

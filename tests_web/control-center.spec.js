@@ -1937,6 +1937,44 @@ test('Runtime & Model Gateway refreshes CLI healthcheck through backend endpoint
 	await expect.poll(() => detectCalled).toBe(true);
 });
 
+test('Runtime settings shows each provider card with the reason it cannot execute', async ({ page }) => {
+	const reason = 'Set AIDO_CODEX_COMMAND to enable the Codex CLI runtime.';
+	await page.route('/api/v1/runtime/providers', async (route) => {
+		await route.fulfill({
+			json: runtimeProvidersFixture([
+				{
+					id: 'codex_cli',
+					displayName: 'Codex CLI',
+					kind: 'cli',
+					configured: true,
+					available: false,
+					executable: false,
+					detected: false,
+					reason,
+					capabilities: ['issue_to_patch', 'code_edit'],
+					requiredConfiguration: ['AIDO_CODEX_COMMAND'],
+					version: null,
+					detectedCommand: null,
+				},
+			]),
+		});
+	});
+	await page.goto('/#settings-runtime');
+	await expectControlPlaneLoaded(page);
+	await expect(page.getByRole('heading', { name: 'Runtime & Models' })).toBeVisible();
+
+	// The provider renders as a card stating exactly why it cannot execute.
+	const card = page.locator('.card').filter({ hasText: 'Codex CLI' });
+	await expect(card).toBeVisible();
+	await expect(card.getByText(reason)).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Refresh health' })).toBeVisible();
+
+	// Details disclose the command state and the no-secrets guarantee.
+	await card.getByRole('button', { name: 'Configuration details' }).click();
+	await expect(card.getByText('Not detected on PATH.', { exact: true })).toBeVisible();
+	await expect(card.getByText('Secret values are never shown — only whether they are set and a short fingerprint.')).toBeVisible();
+});
+
 test('Workbench governed patch blocks issue_to_patch when no executable runtime exists', async ({ page }) => {
 	const blockReason = 'No executable issue_to_patch/code_edit runtime is configured.';
 	await page.route('/api/v1/runtime/providers', async (route) => {

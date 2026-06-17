@@ -117,6 +117,11 @@ export function useControlPlane() {
 
 	const mutate = useCallback(
 		async <T,>(operation: (token: string) => Promise<T>, options: { awaitRefresh?: boolean } = {}) => {
+			if (!state.token) {
+				const message = 'Control plane is still connecting; retry once the session token is ready.';
+				setState((current) => ({ ...current, error: message }));
+				throw new Error(message);
+			}
 			setState((current) => ({ ...current, busy: true, error: '' }));
 			try {
 				const result = await operation(state.token);

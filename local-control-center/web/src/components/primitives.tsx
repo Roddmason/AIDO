@@ -7,7 +7,7 @@ import { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import type { ReactNode, RefObject } from 'react';
 
-export function Badge({ children, tone }: { children: ReactNode; tone?: 'ok' | 'warn' | 'danger' | 'info' }) {
+export function Badge({ children, tone }: { children: ReactNode; tone?: 'ok' | 'warn' | 'danger' | 'info' | 'pending' }) {
 	return (
 		<span className="badge" data-tone={tone}>
 			{children}
@@ -15,7 +15,7 @@ export function Badge({ children, tone }: { children: ReactNode; tone?: 'ok' | '
 	);
 }
 
-export function StatusDot({ tone = 'info' }: { tone?: 'ok' | 'warn' | 'danger' | 'info' }) {
+export function StatusDot({ tone = 'info' }: { tone?: 'ok' | 'warn' | 'danger' | 'info' | 'pending' }) {
 	return <span className="status-dot" data-tone={tone} aria-hidden="true" />;
 }
 
@@ -74,7 +74,7 @@ export function DataTable<T>({
 				</thead>
 				<tbody>
 					{rows.map((row, index) => (
-						<tr key={index}>
+						<tr key={String((row as { id?: unknown }).id ?? index)}>
 							{columns.map((column) => (
 								<td key={column.key} data-label={column.label}>{column.render(row)}</td>
 							))}

@@ -90,7 +90,7 @@ const COPY: Record<Lang, {
 	openFullEvidence: string;
 }> = {
 	en: {
-		kicker: 'Operational review ledger',
+		kicker: 'Review inbox',
 		title: 'Review',
 		summary: 'One inbox for every human decision: pending approvals, QA failures, security blockers, evidence-ready runs, approvals for integration and recent decisions. Cards reflect server state — open one to approve or reject with full evidence.',
 		boardLabel: 'Review board',
@@ -142,7 +142,7 @@ const COPY: Record<Lang, {
 		openFullEvidence: 'Open full evidence',
 	},
 	es: {
-		kicker: 'Registro operacional de revisión',
+		kicker: 'Bandeja de revisión',
 		title: 'Revisión',
 		summary: 'Una sola bandeja para cada decisión humana: aprobaciones pendientes, fallas de QA, bloqueos de seguridad, ejecuciones con evidencia lista, aprobaciones para integración y decisiones recientes. Las cards reflejan el estado del servidor — abre una para aprobar o rechazar con evidencia completa.',
 		boardLabel: 'Tablero de revisión',

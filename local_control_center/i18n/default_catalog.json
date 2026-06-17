@@ -17,11 +17,11 @@
   "translations": {
     "app.workflows.queueReasonHelp": {
       "en": "Retry and Cancel are disabled until a reason is recorded.",
-      "es": "Reintentar y Cancelar quedan deshabilitados hasta registrar una razon."
+      "es": "Reintentar y Cancelar quedan deshabilitados hasta registrar una razón."
     },
     "app.review.noLinkedEvidenceRun": {
       "en": "This run did not record evidence package references.",
-      "es": "Esta ejecucion no registro referencias a paquetes de evidencia."
+      "es": "Esta ejecución no registró referencias a paquetes de evidencia."
     },
     "app.workbench.task.changePrompt": {
       "en": "What should AIDO change?",
@@ -57,7 +57,7 @@
     },
     "app.workbench.task.requireReview": {
       "en": "Require review before applying",
-      "es": "Requerir revision antes de aplicar"
+      "es": "Requerir revisión antes de aplicar"
     },
     "app.workbench.task.targetDisclosure": {
       "en": "Target path (optional)",
@@ -69,7 +69,7 @@
     },
     "app.workbench.task.advancedSummary": {
       "en": "Runtime, checks and cost limit",
-      "es": "Runtime, verificaciones y limite de costo"
+      "es": "Runtime, verificaciones y límite de costo"
     },
     "app.workbench.task.configureRuntime": {
       "en": "Configure runtime",
@@ -337,11 +337,11 @@
     },
     "app.nav.policy": {
       "en": "Policy & Security",
-      "es": "Politica y seguridad"
+      "es": "Política y seguridad"
     },
     "app.nav.memory": {
       "en": "Memory & Retrieval",
-      "es": "Memoria y busqueda"
+      "es": "Memoria y búsqueda"
     },
     "app.nav.evidence": {
       "en": "Evidence & QA",
@@ -357,7 +357,7 @@
     },
     "app.nav.audit": {
       "en": "Audit Log",
-      "es": "Bitacora de auditoria"
+      "es": "Bitácora de auditoría"
     },
     "app.nav.integrations": {
       "en": "Integrations",
@@ -365,7 +365,7 @@
     },
     "app.nav.settings": {
       "en": "Settings",
-      "es": "Configuracion"
+      "es": "Configuración"
     },
     "app.nav.projectSelection": {
       "en": "Project selection",
@@ -377,19 +377,19 @@
     },
     "app.nav.cliSettings": {
       "en": "CLI settings",
-      "es": "Configuracion CLI"
+      "es": "Configuración CLI"
     },
     "app.nav.apiSettings": {
       "en": "API settings",
-      "es": "Configuracion API"
+      "es": "Configuración API"
     },
     "app.nav.parameters": {
       "en": "Parameters",
-      "es": "Parametros"
+      "es": "Parámetros"
     },
     "app.nav.maintainers": {
-      "en": "Mantenedores",
-      "es": "Mantenedores tecnicos"
+      "en": "Maintainers",
+      "es": "Mantenedores"
     },
     "app.nav.defaults": {
       "en": "Defaults",
@@ -445,7 +445,7 @@
     },
     "app.global.running": {
       "en": "running",
-      "es": "en ejecucion"
+      "es": "en ejecución"
     },
     "app.global.recordedUsd": {
       "en": "recorded USD",
@@ -481,7 +481,7 @@
     },
     "app.global.policyEngineActive": {
       "en": "Policy engine active",
-      "es": "Motor de politicas activo"
+      "es": "Motor de políticas activo"
     },
     "app.global.sandboxGated": {
       "en": "Sandbox gated",
@@ -497,7 +497,7 @@
     },
     "ui.static.configuration.required.agent.profile.catalogs": {
       "en": "configuration_required: Provider, routing, role policy and runtime catalogs must load before saving an agent profile.",
-      "es": "configuration_required: Los catalogos de proveedor, ruteo, politica de rol y runtime deben cargar antes de guardar el perfil de agente."
+      "es": "configuration_required: Los catálogos de proveedor, ruteo, política de rol y runtime deben cargar antes de guardar el perfil de agente."
     },
     "i18n.maintainer.title": {
       "en": "Translation maintainer",
@@ -505,11 +505,11 @@
     },
     "i18n.maintainer.summary": {
       "en": "Edit copy, add languages, and persist the runtime catalog without rebuilding the dashboard.",
-      "es": "Edita textos, agrega idiomas y persiste el catalogo runtime sin recompilar el dashboard."
+      "es": "Edita textos, agrega idiomas y persiste el catálogo runtime sin recompilar el dashboard."
     },
     "i18n.maintainer.languageCode": {
       "en": "Language code",
-      "es": "Codigo de idioma"
+      "es": "Código de idioma"
     },
     "i18n.maintainer.languageName": {
       "en": "Language name",
@@ -525,7 +525,7 @@
     },
     "i18n.maintainer.saveCatalog": {
       "en": "Save translation catalog",
-      "es": "Guardar catalogo de traducciones"
+      "es": "Guardar catálogo de traducciones"
     },
     "i18n.maintainer.resetDraft": {
       "en": "Reset draft",
@@ -545,7 +545,7 @@
     },
     "i18n.maintainer.loadingBody": {
       "en": "Fetching the runtime translation catalog.",
-      "es": "Obteniendo el catalogo runtime de traducciones."
+      "es": "Obteniendo el catálogo runtime de traducciones."
     },
     "i18n.maintainer.filter": {
       "en": "Translation filter",
@@ -561,19 +561,19 @@
     },
     "i18n.maintainer.saved": {
       "en": "Translation catalog saved.",
-      "es": "Catalogo de traducciones guardado."
+      "es": "Catálogo de traducciones guardado."
     },
     "i18n.maintainer.loadFailed": {
       "en": "Translation catalog could not be loaded.",
-      "es": "No se pudo cargar el catalogo de traducciones."
+      "es": "No se pudo cargar el catálogo de traducciones."
     },
     "i18n.maintainer.saveFailed": {
       "en": "Translation catalog could not be saved.",
-      "es": "No se pudo guardar el catalogo de traducciones."
+      "es": "No se pudo guardar el catálogo de traducciones."
     },
     "i18n.maintainer.codeRequired": {
       "en": "Language code is required.",
-      "es": "El codigo de idioma es obligatorio."
+      "es": "El código de idioma es obligatorio."
     },
     "i18n.maintainer.nameRequired": {
       "en": "Language name is required.",
@@ -581,7 +581,7 @@
     },
     "i18n.maintainer.codeExists": {
       "en": "Language code already exists.",
-      "es": "El codigo de idioma ya existe."
+      "es": "El código de idioma ya existe."
     },
     "ui.static.a.project.is.required.before.creating.a.workflow.d95e6cea": {
       "en": "A project is required before creating a workflow.",
@@ -1741,7 +1741,7 @@
     },
     "ui.static.no.catalog.agents.49a260d2": {
       "en": "No catalog agents",
-      "es": "Agentes sin catalogo"
+      "es": "Agentes sin catálogo"
     },
     "ui.static.no.commands.c0f14586": {
       "en": "No commands",
@@ -1909,7 +1909,7 @@
     },
     "ui.static.ollama.catalog.2cc6423d": {
       "en": "Ollama catalog",
-      "es": "catalogo ollama"
+      "es": "catálogo ollama"
     },
     "ui.static.ollama.is.optional.b0e0ac69": {
       "en": "Ollama is optional",
@@ -2497,7 +2497,7 @@
     },
     "ui.static.workflow.catalog": {
       "en": "Workflow catalog",
-      "es": "Catalogo de workflows"
+      "es": "Catálogo de workflows"
     },
     "ui.static.workflow.runs": {
       "en": "Workflow runs",
@@ -2517,15 +2517,15 @@
     },
     "ui.static.select.or.start.workflow.run.before.reading.graph": {
       "en": "Select or start a workflow run before reading a graph.",
-      "es": "Selecciona o inicia una ejecucion de workflow antes de leer el grafo."
+      "es": "Selecciona o inicia una ejecución de workflow antes de leer el grafo."
     },
     "ui.static.inspect.workflow.with.run.to.see.step.plan": {
       "en": "Inspect a workflow with a run to see its step plan.",
-      "es": "Inspecciona un workflow con una ejecucion para ver su plan de pasos."
+      "es": "Inspecciona un workflow con una ejecución para ver su plan de pasos."
     },
     "ui.static.starting.workflow.creates.run.record": {
       "en": "Starting a workflow creates a run record.",
-      "es": "Iniciar un workflow crea un registro de ejecucion."
+      "es": "Iniciar un workflow crea un registro de ejecución."
     },
     "ui.static.runtime.c4740e4c": {
       "en": "Runtime",
@@ -3257,7 +3257,7 @@
     },
     "ui.static.configuration.8ce677fb": {
       "en": "Configuration",
-      "es": "Configuracion"
+      "es": "Configuración"
     },
     "ui.static.detected.command.c696971c": {
       "en": "Detected command",
@@ -3321,15 +3321,15 @@
     },
     "ui.static.action.request.review.832a6e57": {
       "en": "Action request review",
-      "es": "Revision de solicitud de accion"
+      "es": "Revisión de solicitud de acción"
     },
     "ui.static.action.request.scope.57c3a545": {
       "en": "Action request scope",
-      "es": "Alcance de solicitud de accion"
+      "es": "Alcance de solicitud de acción"
     },
     "ui.static.approval.artifact.preview.e734b329": {
       "en": "Approval artifact preview",
-      "es": "Vista previa de artefacto de aprobacion"
+      "es": "Vista previa de artefacto de aprobación"
     },
     "ui.static.approve.78a1f3c9": {
       "en": "Approve",
@@ -3337,15 +3337,15 @@
     },
     "ui.static.approve.or.reject.is.blocked.until.this.reason.is.recorded.f865c28b": {
       "en": "Approve or reject is blocked until this reason is recorded.",
-      "es": "Aprobar o rechazar queda bloqueado hasta registrar esta razon."
+      "es": "Aprobar o rechazar queda bloqueado hasta registrar esta razón."
     },
     "ui.static.a.patch.approval.requires.a.linked.diff.artifact.before.the.approve.patch.action.is.enabled.9f5a1b2c": {
       "en": "A patch approval requires a linked diff artifact before the approve patch action is enabled.",
-      "es": "Una aprobacion de patch requiere un artefacto de diff vinculado antes de habilitar aprobar patch."
+      "es": "Una aprobación de patch requiere un artefacto de diff vinculado antes de habilitar aprobar patch."
     },
     "ui.static.approve.a.reviewed.patch.before.branch.promotion.and.pr.creation.become.available.44f8d22c": {
       "en": "Approve a reviewed patch before branch promotion and PR creation become available.",
-      "es": "Aprueba un patch revisado antes de habilitar promocion de rama y creacion de PR."
+      "es": "Aprueba un patch revisado antes de habilitar promoción de rama y creación de PR."
     },
     "ui.static.evidence.branch.1b5ef53d": {
       "en": "Evidence / branch",
@@ -3373,7 +3373,7 @@
     },
     "ui.static.operation.812f0d99": {
       "en": "Operation",
-      "es": "Operacion"
+      "es": "Operación"
     },
     "ui.static.pr.base.branch.optional.a00b34a5": {
       "en": "PR base branch (optional)",
@@ -3389,11 +3389,11 @@
     },
     "ui.static.promotion.and.pr.creation.stay.disabled.until.a.reason.is.recorded.928ed8b9": {
       "en": "Promotion and PR creation stay disabled until a reason is recorded.",
-      "es": "Promocion y creacion de PR siguen deshabilitadas hasta registrar una razon."
+      "es": "Promoción y creación de PR siguen deshabilitadas hasta registrar una razón."
     },
     "ui.static.promotion.branch.optional.1a9de010": {
       "en": "Promotion branch (optional)",
-      "es": "Rama de promocion (opcional)"
+      "es": "Rama de promoción (opcional)"
     },
     "ui.static.the.diff.is.read.through.the.protected.evidence.artifact.endpoint.e9955146": {
       "en": "The diff is read through the protected evidence artifact endpoint.",
@@ -3405,7 +3405,7 @@
     },
     "ui.static.workflow.operation.reason.2a67177b": {
       "en": "Workflow operation reason",
-      "es": "Razon de operacion del workflow"
+      "es": "Razón de operación del workflow"
     },
     "ui.static.blockers.0b9f1d72": {
       "en": "Blockers",
@@ -3461,7 +3461,7 @@
     },
     "ui.static.no.linked.blocker.reason.has.been.recorded.e960291f": {
       "en": "No linked blocker reason has been recorded.",
-      "es": "No se registro razon de bloqueo vinculada."
+      "es": "No se registro razón de bloqueo vinculada."
     },
     "ui.static.no.security.findings.recorded.5199261c": {
       "en": "No security findings recorded",
@@ -3469,11 +3469,11 @@
     },
     "ui.static.patch.approval.requires.linked.non.blocking.security.findings.before.the.approve.patch.action.is.enabled.22bc9b5c": {
       "en": "Patch approval requires linked non-blocking security findings before the approve patch action is enabled.",
-      "es": "La aprobacion de patch requiere hallazgos de seguridad vinculados y no bloqueantes antes de habilitar aprobar patch."
+      "es": "La aprobación de patch requiere hallazgos de seguridad vinculados y no bloqueantes antes de habilitar aprobar patch."
     },
     "ui.static.security.and.policy.decisions.f06bb7ad": {
       "en": "Security and policy decisions",
-      "es": "Decisiones de seguridad y politica"
+      "es": "Decisiones de seguridad y política"
     },
     "ui.static.security.evidence.is.read.through.the.protected.evidence.artifact.endpoint.7dd786fd": {
       "en": "Security evidence is read through the protected evidence artifact endpoint.",
@@ -3525,7 +3525,7 @@
     },
     "ui.static.human.decision.reason.6c7396e3": {
       "en": "Human decision reason",
-      "es": "Razon de decision humana"
+      "es": "Razón de decisión humana"
     },
     "ui.static.lifecycle.e4db4b56": {
       "en": "Lifecycle",
@@ -3549,7 +3549,7 @@
     },
     "ui.static.policy.reason.bcb14f77": {
       "en": "Policy reason",
-      "es": "Razon de politica"
+      "es": "Razón de política"
     },
     "ui.static.queue.mutation.reason.19c25b16": {
       "en": "Queue change reason",
@@ -3569,7 +3569,7 @@
     },
     "ui.static.this.request.did.not.record.evidence.package.references.cfffb0d8": {
       "en": "This request did not record evidence package references.",
-      "es": "Esta solicitud no registro referencias a paquetes de evidencia."
+      "es": "Esta solicitud no registró referencias a paquetes de evidencia."
     },
     "ui.static.created.at.evidence.viewer.4f61b6bb": {
       "en": "Created at",
@@ -3581,7 +3581,7 @@
     },
     "ui.static.diff.refs.without.downloadable.patch.9e7a1d44": {
       "en": "Diff refs without a downloadable patch are not sufficient evidence of code changes.",
-      "es": "Las refs de diff sin un patch descargable no son evidencia suficiente de cambios de codigo."
+      "es": "Las refs de diff sin un patch descargable no son evidencia suficiente de cambios de código."
     },
     "ui.static.diff.viewer.evidence.viewer.80e5e450": {
       "en": "Diff viewer",
@@ -3729,7 +3729,7 @@
     },
     "app.workbench.summary": {
       "en": "Select a folder workspace, open a work session and coordinate the AI team from intake to evidence-backed delivery.",
-      "es": "Selecciona una carpeta workspace, abre una sesion de trabajo y coordina el equipo IA desde intake hasta entrega con evidencia."
+      "es": "Selecciona una carpeta workspace, abre una sesión de trabajo y coordina el equipo IA desde intake hasta entrega con evidencia."
     },
     "app.workbench.primaryRegion": {
       "en": "Chat and progress",
@@ -3797,11 +3797,11 @@
     },
     "app.workbench.chat.history": {
       "en": "Session chat history",
-      "es": "Historial de chat de la sesion"
+      "es": "Historial de chat de la sesión"
     },
     "app.workbench.chat.emptyTitle": {
       "en": "No chat in this session",
-      "es": "Sin chat en esta sesion"
+      "es": "Sin chat en esta sesión"
     },
     "app.workbench.chat.emptyBody": {
       "en": "Use the composer to start coordinated project work for this workspace.",
@@ -3817,7 +3817,7 @@
     },
     "app.workbench.chat.creating": {
       "en": "Creating work session",
-      "es": "Creando sesion de trabajo"
+      "es": "Creando sesión de trabajo"
     },
     "app.workbench.chat.submit": {
       "en": "Start intake",
@@ -3825,7 +3825,7 @@
     },
     "app.workbench.chat.quickPrompt": {
       "en": "Inspect this workspace, identify the real architecture and propose the smallest safe execution plan with QA evidence.",
-      "es": "Inspecciona este workspace, identifica la arquitectura real y propone el plan de ejecucion seguro mas pequeno con evidencia QA."
+      "es": "Inspecciona este workspace, identifica la arquitectura real y propone el plan de ejecución seguro más pequeño con evidencia QA."
     },
     "app.workbench.chat.quickAction": {
       "en": "Scope with team",
@@ -3849,11 +3849,11 @@
     },
     "app.workbench.sessions.new": {
       "en": "New work session",
-      "es": "Nueva sesion de trabajo"
+      "es": "Nueva sesión de trabajo"
     },
     "app.workbench.sessions.newHint": {
       "en": "Starts a chat, session and intake pipeline",
-      "es": "Inicia chat, sesion y pipeline de intake"
+      "es": "Inicia chat, sesión y pipeline de intake"
     },
     "app.workbench.sessions.chatCount": {
       "en": "chats",
@@ -3865,11 +3865,11 @@
     },
     "app.workbench.sessions.emptyBody": {
       "en": "Your first prompt will create a session for this workspace folder.",
-      "es": "Tu primer prompt creara una sesion para esta carpeta workspace."
+      "es": "Tu primer prompt creará una sesión para esta carpeta workspace."
     },
     "app.workbench.signals.title": {
       "en": "Operational signals",
-      "es": "Senales operacionales"
+      "es": "Señales operacionales"
     },
     "app.workbench.signals.runtimes": {
       "en": "Executable runtimes",
@@ -3893,7 +3893,7 @@
     },
     "app.workbench.actions.title": {
       "en": "Execution lanes",
-      "es": "Carriles de ejecucion"
+      "es": "Carriles de ejecución"
     },
     "app.workbench.actions.command": {
       "en": "Run governed command",
@@ -3953,11 +3953,11 @@
     },
     "app.workbench.team.role.tl": {
       "en": "Technical Lead",
-      "es": "Lider tecnico"
+      "es": "Líder técnico"
     },
     "app.workbench.team.role.tlBody": {
       "en": "Technical strategy, handoffs and quality gates across agents.",
-      "es": "Estrategia tecnica, handoffs y gates de calidad entre agentes."
+      "es": "Estrategia técnica, handoffs y gates de calidad entre agentes."
     },
     "app.workbench.team.role.architect": {
       "en": "Architecture",
@@ -3997,7 +3997,7 @@
     },
     "app.workbench.team.role.securityBody": {
       "en": "Policy, permissions, sandbox posture and sensitive-output review.",
-      "es": "Politicas, permisos, postura de sandbox y revision de salidas sensibles."
+      "es": "Políticas, permisos, postura de sandbox y revisión de salidas sensibles."
     },
     "app.workbench.team.lane.direction": {
       "en": "Direction",
@@ -4089,7 +4089,7 @@
     },
     "app.workbench.deliverables.emptyBody": {
       "en": "Artifacts, QA reports, patches and evidence manifests appear after real execution.",
-      "es": "Artefactos, reportes QA, patches y manifiestos de evidencia apareceran despues de una ejecucion real."
+      "es": "Artefactos, reportes QA, patches y manifiestos de evidencia aparecerán después de una ejecución real."
     },
     "app.workbench.deliverables.columnKind": {
       "en": "Kind",
@@ -4101,7 +4101,7 @@
     },
     "app.workbench.pipelines.title": {
       "en": "Session pipelines",
-      "es": "Pipelines de sesion"
+      "es": "Pipelines de sesión"
     },
     "app.workbench.pipelines.emptyTitle": {
       "en": "No intake pipelines",
@@ -4109,7 +4109,7 @@
     },
     "app.workbench.pipelines.emptyBody": {
       "en": "Chat intake creates the first pipeline record for the selected work session.",
-      "es": "El intake de chat crea el primer registro de pipeline para la sesion de trabajo seleccionada."
+      "es": "El intake de chat crea el primer registro de pipeline para la sesión de trabajo seleccionada."
     },
     "app.workbench.pipelines.columnTitle": {
       "en": "Pipeline",
@@ -4129,7 +4129,7 @@
     },
     "app.workbench.workspaces.emptyBody": {
       "en": "Governed execution creates isolated task workspaces.",
-      "es": "La ejecucion gobernada crea workspaces aislados por tarea."
+      "es": "La ejecución gobernada crea workspaces aislados por tarea."
     },
     "app.workbench.workspaces.columnTask": {
       "en": "Task",
@@ -4836,8 +4836,8 @@
       "es": "Abrir evidencia"
     },
     "app.review.copy.0": {
-      "en": "Operational review ledger",
-      "es": "Registro operacional de revisión"
+      "en": "Review inbox",
+      "es": "Bandeja de revisión"
     },
     "app.review.copy.2": {
       "en": "One inbox for every human decision: pending approvals, QA failures, security blockers, evidence-ready runs, approvals for integration and recent decisions. Cards reflect server state — open one to approve or reject with full evidence.",

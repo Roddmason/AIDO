@@ -367,7 +367,7 @@ export function ExplorerPanel({
 									<FileCheck2 aria-hidden="true" size={16} />
 									<span className="mono">{shortId(String(item.taskId ?? item.id))}</span>
 									<span className="nav-item-meta">
-										<StatusDot tone={toneForStatus(String(item.qaVerdict ?? ''))} /> {String(item.qaVerdict ?? 'unknown')}
+										<StatusDot tone={toneForStatus(String(item.qaVerdict ?? ''))} /> {String(item.qaVerdict ?? t('app.runtime.card.unknown', 'unknown'))}
 									</span>
 								</button>
 							))}

@@ -16,8 +16,8 @@ import { sortByTimeDesc } from '../workbenchSelectors';
 type DeliveryRow = { id: string; label: string; owner: string; status: string };
 type Signals = { workflows: number; evidence: number; approvals: number; workspaces: number };
 
-function formatTime(value: string | null | undefined) {
-	if (!value) return 'not recorded';
+function formatTime(value: string | null | undefined, emptyLabel: string) {
+	if (!value) return emptyLabel;
 	const parsed = Date.parse(value);
 	return Number.isNaN(parsed) ? value : new Date(parsed).toLocaleString();
 }
@@ -85,7 +85,7 @@ export function TimelinePanel({
 					columns={[
 						{ key: 'workflow', label: t('app.workbench.timeline.colWorkflow', 'Workflow'), render: (row) => workflowTitle(row.workflowId) },
 						{ key: 'status', label: t('app.workbench.timeline.colStatus', 'Status'), render: (row) => <Badge tone={toneForStatus(String(row.status))}>{row.status}</Badge> },
-						{ key: 'started', label: t('app.workbench.timeline.colStarted', 'Started'), render: (row) => <span className="mono">{formatTime(row.startedAt)}</span> },
+						{ key: 'started', label: t('app.workbench.timeline.colStarted', 'Started'), render: (row) => <span className="mono">{formatTime(row.startedAt, t('app.workbenchEvidence.notRecorded', 'not recorded'))}</span> },
 					]}
 				/>
 			</Surface>
@@ -108,7 +108,7 @@ export function TimelinePanel({
 					columns={[
 						{ key: 'type', label: t('app.workbench.timeline.colType', 'Type'), render: (row) => <span className="mono">{row.type}</span> },
 						{ key: 'severity', label: t('app.workbench.timeline.colSeverity', 'Severity'), render: (row) => <Badge tone={toneForStatus(String(row.severity))}>{row.severity}</Badge> },
-						{ key: 'created', label: t('app.workbench.timeline.colWhen', 'When'), render: (row) => <span className="mono">{formatTime(row.createdAt)}</span> },
+						{ key: 'created', label: t('app.workbench.timeline.colWhen', 'When'), render: (row) => <span className="mono">{formatTime(row.createdAt, t('app.workbenchEvidence.notRecorded', 'not recorded'))}</span> },
 					]}
 				/>
 			</Surface>

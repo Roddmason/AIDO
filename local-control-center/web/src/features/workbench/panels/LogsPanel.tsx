@@ -14,8 +14,8 @@ type LogRow = { id: string; source: string; type: string; severity: string; crea
 
 const MAX_ROWS = 200;
 
-function formatTime(value: string | null | undefined) {
-	if (!value) return 'not recorded';
+function formatTime(value: string | null | undefined, emptyLabel: string) {
+	if (!value) return emptyLabel;
 	const parsed = Date.parse(value);
 	return Number.isNaN(parsed) ? value : new Date(parsed).toLocaleString();
 }
@@ -48,7 +48,7 @@ export function LogsPanel({ events, workflowEvents }: { events: Overview['events
 					{ key: 'type', label: t('app.workbench.logs.colType', 'Type'), render: (row) => <span className="mono">{row.type}</span> },
 					{ key: 'severity', label: t('app.workbench.logs.colSeverity', 'Severity'), render: (row) => <Badge tone={toneForStatus(row.severity)}>{row.severity}</Badge> },
 					{ key: 'source', label: t('app.workbench.logs.colSource', 'Source'), render: (row) => <span className="mono">{row.source}</span> },
-					{ key: 'when', label: t('app.workbench.logs.colWhen', 'When'), render: (row) => <span className="mono">{formatTime(row.createdAt)}</span> },
+					{ key: 'when', label: t('app.workbench.logs.colWhen', 'When'), render: (row) => <span className="mono">{formatTime(row.createdAt, t('app.workbenchEvidence.notRecorded', 'not recorded'))}</span> },
 				]}
 			/>
 			{rows.length >= MAX_ROWS ? <div className="field-help">{t('app.workbench.logs.capped', 'Showing the latest 200 events.')}</div> : null}

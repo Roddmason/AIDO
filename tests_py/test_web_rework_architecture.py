@@ -181,12 +181,15 @@ def test_frontend_does_not_invent_cost_or_token_limits_from_null_values() -> Non
     assert "row.costUsd ?? 0" not in workflows_source
     assert "row.promptTokens ?? 0" not in workflows_source
     assert "row.completionTokens ?? 0" not in workflows_source
-    assert "tokenLabel(row.promptTokens)" in workflows_source
-    assert "costLabel(row.costUsd)" in workflows_source
+    # The null-safe label helpers now take a translated fallback arg (i18n), so match
+    # "helper(arg," rather than the exact closing paren; the anti-fabrication intent
+    # (use the helper, never `?? 0`) is still enforced by the negative checks above.
+    assert "tokenLabel(row.promptTokens," in workflows_source
+    assert "costLabel(row.costUsd," in workflows_source
     assert "maxTokensPerRun ?? 0" not in agents_source
     assert "maxCostPerRun ?? 0" not in agents_source
-    assert "numericLabel(row.maxTokensPerRun)" in agents_source
-    assert "moneyLabel(row.requiresApprovalOverUsd ?? row.maxCostPerRun)" in agents_source
+    assert "numericLabel(row.maxTokensPerRun," in agents_source
+    assert "moneyLabel(row.requiresApprovalOverUsd ?? row.maxCostPerRun," in agents_source
 
 
 def test_governance_surface_has_filtering_and_risk_update_controls() -> None:

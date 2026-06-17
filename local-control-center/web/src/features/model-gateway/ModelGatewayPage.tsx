@@ -587,8 +587,8 @@ export function ModelGatewayPage({
 					<Metric label={t('app.modelGateway.overview.degraded', 'degraded')} value={gateway.overview.degraded} />
 					<Metric label={t('app.modelGateway.overview.offline', 'offline')} value={gateway.overview.offline} />
 					<Metric label={t('ui.static.tokens.today.6e3f00fd', 'tokens today')} value={gateway.overview.totalTokensToday} />
-					<Metric label={t('ui.static.estimated.cost.today.bc1751b9', 'estimated cost today')} value={money(gateway.overview.estimatedCostToday)} />
-					<Metric label={t('ui.static.actual.cost.today.e0b8f6a3', 'actual cost today')} value={money(gateway.overview.actualCostToday)} />
+					<Metric label={t('ui.static.estimated.cost.today.bc1751b9', 'estimated cost today')} value={money(gateway.overview.estimatedCostToday, t('app.runtime.card.unknown', 'unknown'))} />
+					<Metric label={t('ui.static.actual.cost.today.e0b8f6a3', 'actual cost today')} value={money(gateway.overview.actualCostToday, t('app.runtime.card.unknown', 'unknown'))} />
 					<Metric label={t('ui.static.pending.model.approvals.5c592baf', 'pending model approvals')} value={gateway.overview.pendingModelApprovals} />
 					<Metric label={t('ui.static.providers.in.cooldown.e5f4bbe2', 'providers in cooldown')} value={gateway.overview.providersInCooldown} />
 					<Metric label={t('ui.static.missing.runtime.config.3ecf7c92', 'missing runtime config')} value={missingRuntimeConfigCount} />
@@ -791,7 +791,7 @@ export function ModelGatewayPage({
 			<Surface title={t('ui.static.model.policies.68e48433', 'Model policies')}>
 				<DataTable rows={visibleModelPolicies} empty={<EmptyState title={t('ui.static.no.model.policies.993f8301', 'No model policies')} body={t('ui.static.model.policies.define.allowed.providers.fallback.chains.and.6b28dbd0', 'Model policies define allowed providers, fallback chains and budgets.')} />} columns={[
 					{ key: 'id', label: t('ui.static.policy.bb9cf141', 'Policy'), render: (row) => <span className="mono">{text(row.id)}</span> },
-					{ key: 'budget', label: t('ui.static.budget.7aeba4cd', 'Budget'), render: (row) => money(policyBudgetUsd(row)) },
+					{ key: 'budget', label: t('ui.static.budget.7aeba4cd', 'Budget'), render: (row) => money(policyBudgetUsd(row), t('app.runtime.card.unknown', 'unknown')) },
 					{ key: 'remote', label: t('ui.static.remote.c93f6536', 'Remote'), render: (row) => row.allowRemote ? t('app.modelGateway.policy.remoteAllowed', 'allowed') : t('app.modelGateway.policy.remoteBlocked', 'blocked') },
 				]} />
 			</Surface>
@@ -856,7 +856,7 @@ export function ModelGatewayPage({
 					<Metric label={t('ui.static.cli.runtimes.d0947c09', 'CLI runtimes')} value={t('app.modelGateway.settings.disabledByDefault', 'disabled by default')} />
 					<Metric label={t('ui.static.executable.runtimes.f27d567f', 'executable runtimes')} value={executableRuntimeCount} />
 					<Metric label={t('ui.static.unavailable.runtimes.a6f44775', 'unavailable runtimes')} value={unavailableRuntimeCount} />
-					<Metric label={t('ui.static.legacy.model.usage.total.c0e7e1e5', 'legacy model usage total')} value={money(totalCost)} />
+					<Metric label={t('ui.static.legacy.model.usage.total.c0e7e1e5', 'legacy model usage total')} value={money(totalCost, t('app.runtime.card.unknown', 'unknown'))} />
 				</div>
 			</Surface>
 
@@ -865,11 +865,11 @@ export function ModelGatewayPage({
 					{ key: 'provider', label: t('ui.static.provider.7ceee3f3', 'Provider'), render: (row) => <span className="mono">{String(row.provider ?? '')}</span> },
 					{ key: 'model', label: t('ui.static.model.68c2cc7f', 'Model'), render: (row) => <span className="mono">{String(row.model ?? '')}</span> },
 					{ key: 'status', label: t('ui.static.status.bae7d5be', 'Status'), render: (row) => <Badge tone={toneForStatus(String(row.status ?? ''))}>{String(row.status ?? '')}</Badge> },
-					{ key: 'cost', label: t('ui.static.cost.64ae43e8', 'Cost'), render: (row) => money(row.costUsd) },
+					{ key: 'cost', label: t('ui.static.cost.64ae43e8', 'Cost'), render: (row) => money(row.costUsd, t('app.runtime.card.unknown', 'unknown')) },
 				]} />
 			</Surface>
 			<Surface title={t('ui.static.cost.ledger.7af91996', 'Cost history')}>
-				<div className="metric-value">{money(totalCost)}</div>
+				<div className="metric-value">{money(totalCost, t('app.runtime.card.unknown', 'unknown'))}</div>
 				<div className="metric-label">{t('app.modelGateway.cost.recordedLegacy', 'recorded legacy model usage')}</div>
 			</Surface>
 		</>

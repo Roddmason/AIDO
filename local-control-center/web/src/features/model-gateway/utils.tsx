@@ -4,6 +4,7 @@
  * @author Roddmason
  */
 import { Surface } from '../../components/primitives';
+import { useI18n } from '../../i18n/I18nProvider';
 
 export const EXECUTABLE_AGENT_ROLES = [
 	'analyst',
@@ -29,20 +30,21 @@ export function boolLabel(value: unknown) {
 	return value ? 'yes' : 'no';
 }
 
-export function money(value: unknown) {
+export function money(value: unknown, unknownLabel = 'unknown') {
 	if (value === null || value === undefined || value === '') {
-		return 'unknown';
+		return unknownLabel;
 	}
 	const number = Number(value);
-	return Number.isFinite(number) ? `$${number.toFixed(4)}` : 'unknown';
+	return Number.isFinite(number) ? `$${number.toFixed(4)}` : unknownLabel;
 }
 
-export function listLabel(value: unknown) {
-	return Array.isArray(value) ? value.map((item) => String(item)).join(', ') || 'none' : text(value, 'none');
+export function listLabel(value: unknown, noneLabel = 'none') {
+	return Array.isArray(value) ? value.map((item) => String(item)).join(', ') || noneLabel : text(value, noneLabel);
 }
 
 export function SecretSafeValue({ value }: { value: unknown }) {
-	const rendered = text(value, 'not configured');
+	const { t } = useI18n();
+	const rendered = text(value, t('app.modelGateway.runtime.notConfigured', 'not configured'));
 	const unsafe = /sk-[A-Za-z0-9_-]+|Bearer\s+/i.test(rendered);
 	return <span className="mono">{unsafe ? '[redacted]' : rendered}</span>;
 }

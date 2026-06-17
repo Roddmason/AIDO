@@ -20,7 +20,7 @@ export function ProviderLimitsPanel({ providerLimits }: { providerLimits: ModelG
 				{ key: 'tpm', label: 'TPM', render: (row) => text(row.tpm) },
 				{ key: 'dailyRequests', label: t('ui.static.daily.requests.aa9a0d5f', 'Daily requests'), render: (row) => text(row.dailyRequests) },
 				{ key: 'dailyTokens', label: t('ui.static.daily.tokens.4a4f692d', 'Daily tokens'), render: (row) => text(row.dailyTokens) },
-				{ key: 'monthlyBudget', label: t('ui.static.monthly.budget.f260ddaf', 'Monthly budget'), render: (row) => money(row.monthlyBudgetUsd) },
+				{ key: 'monthlyBudget', label: t('ui.static.monthly.budget.f260ddaf', 'Monthly budget'), render: (row) => money(row.monthlyBudgetUsd, t('app.runtime.card.unknown', 'unknown')) },
 				{ key: 'cooldown', label: t('ui.static.cooldown.98fd67d9', 'Cooldown'), render: (row) => text(row.cooldownUntil) },
 				{ key: 'last429', label: t('ui.static.last.429.465b5393', 'Last 429'), render: (row) => text(row.last429At) },
 				{ key: 'strategy', label: t('ui.static.unknown.limit.strategy.c9e71d1c', 'Unknown limit strategy'), render: (row) => text(row.unknownLimitStrategy) },

@@ -15,6 +15,10 @@
     }
   ],
   "translations": {
+    "app.modelGateway.runtime.unconfigured": {
+      "en": "unconfigured",
+      "es": "sin configurar"
+    },
     "app.i18nMaintainer.languageNamePlaceholder": {
       "en": "Portuguese",
       "es": "Portugués"

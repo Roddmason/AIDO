@@ -40,12 +40,12 @@ export function UsageLedgerPanel({
 				{ key: 'reasoning', label: t('ui.static.reasoning.tokens.6284e599', 'Reasoning tokens'), render: (row) => text(row.reasoningTokens, '0') },
 				{ key: 'tool', label: t('ui.static.tool.tokens.472fefe0', 'Tool tokens'), render: (row) => text(row.toolTokens, '0') },
 				{ key: 'total', label: t('ui.static.total.tokens.e6dad16e', 'Total tokens'), render: (row) => text(row.totalTokens, '0') },
-				{ key: 'est', label: t('ui.static.estimated.cost.516cbee2', 'Estimated cost'), render: (row) => money(row.estimatedCostUsd) },
-				{ key: 'actual', label: t('ui.static.actual.cost.edf3964d', 'Actual cost'), render: (row) => money(row.actualCostUsd) },
+				{ key: 'est', label: t('ui.static.estimated.cost.516cbee2', 'Estimated cost'), render: (row) => money(row.estimatedCostUsd, t('app.runtime.card.unknown', 'unknown')) },
+				{ key: 'actual', label: t('ui.static.actual.cost.edf3964d', 'Actual cost'), render: (row) => money(row.actualCostUsd, t('app.runtime.card.unknown', 'unknown')) },
 				{ key: 'latency', label: t('ui.static.latency.3e399725', 'Latency'), render: (row) => text(row.latencyMs) },
-				{ key: 'source', label: t('ui.static.usage.source.16f36c88', 'Usage source'), render: (row) => text(row.usageSource, 'unknown') },
-				{ key: 'tokenStatus', label: t('ui.static.token.status.9716f498', 'Token status'), render: (row) => text(row.tokenStatus, 'unknown') },
-				{ key: 'costStatus', label: t('ui.static.cost.status.0f8a4f0a', 'Cost status'), render: (row) => text(row.costStatus, 'unknown') },
+				{ key: 'source', label: t('ui.static.usage.source.16f36c88', 'Usage source'), render: (row) => text(row.usageSource, t('app.runtime.card.unknown', 'unknown')) },
+				{ key: 'tokenStatus', label: t('ui.static.token.status.9716f498', 'Token status'), render: (row) => text(row.tokenStatus, t('app.runtime.card.unknown', 'unknown')) },
+				{ key: 'costStatus', label: t('ui.static.cost.status.0f8a4f0a', 'Cost status'), render: (row) => text(row.costStatus, t('app.runtime.card.unknown', 'unknown')) },
 			]} />
 		</PanelShell>
 	);

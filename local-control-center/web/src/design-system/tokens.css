@@ -124,34 +124,6 @@
 	--z-drawer: 40;
 	--z-command: 50;
 	--z-toast: 60;
-
-	/* ---- Legacy aliases: kept so migrating components keep compiling.
-	   They resolve to canonical tokens above, so they inherit the new palette. ---- */
-	--surface-page: var(--color-surface-canvas);
-	--surface-rail: var(--color-surface-rail);
-	--surface-main: var(--color-surface-workbench);
-	--surface-panel: var(--color-surface-panel);
-	--surface-panel-strong: var(--color-surface-panel-raised);
-	--ink: var(--color-text-primary);
-	--ink-soft: var(--color-text-secondary);
-	--ink-muted: var(--color-text-muted);
-	--rail-ink: var(--color-text-primary);
-	--line: var(--color-border-default);
-	--line-strong: var(--color-border-strong);
-	--moss: var(--color-status-success);
-	--amber: var(--color-status-warning);
-	--oxblood: var(--color-status-danger);
-	--blueprint: var(--color-status-info);
-	--violet: var(--color-status-pending);
-	--electric: var(--color-accent-secondary);
-	--steel: var(--color-text-muted);
-	--focus: var(--color-focus);
-	--ok: var(--color-status-success);
-	--warn: var(--color-status-warning);
-	--danger: var(--color-status-danger);
-	--info: var(--color-status-info);
-	--shadow-panel: var(--shadow-md);
-	--shadow-drawer: var(--shadow-lg);
 }
 
 :root[data-theme="light"] {

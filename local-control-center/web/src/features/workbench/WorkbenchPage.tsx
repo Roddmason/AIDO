@@ -217,7 +217,7 @@ export function WorkbenchPage({
 	return (
 		<>
 			{header}
-			<div className="workbench-layout workbench-ide-layout">
+			<div className="workbench-layout">
 				<WorkbenchExplorer
 					projects={projects}
 					project={project}

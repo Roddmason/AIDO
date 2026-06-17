@@ -20,10 +20,10 @@ function nodesFromSteps(steps: WorkflowStep[]): Node[] {
 		position: { x: (index % 4) * 210, y: Math.floor(index / 4) * 120 },
 		data: { label: `${step.name}\n${step.status}` },
 		style: {
-			border: '1px solid var(--line-strong)',
+			border: '1px solid var(--color-border-strong)',
 			borderRadius: '8px',
-			background: 'var(--surface-panel-strong)',
-			color: 'var(--ink)',
+			background: 'var(--color-surface-panel-raised)',
+			color: 'var(--color-text-primary)',
 			fontFamily: 'var(--font-data)',
 			whiteSpace: 'pre-line',
 		},

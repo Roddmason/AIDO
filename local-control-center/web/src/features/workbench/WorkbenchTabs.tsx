@@ -48,7 +48,7 @@ export function WorkbenchTabs({
 
 	return (
 		<div className="workbench-tabs">
-			<div className="tabs panel-tabs" role="tablist" aria-label="Workbench views" aria-orientation="horizontal" onKeyDown={onKeyDown}>
+			<div className="tabs" role="tablist" aria-label="Workbench views" aria-orientation="horizontal" onKeyDown={onKeyDown}>
 				{tabs.map((tab) => {
 					const selected = tab.id === activeTab;
 					return (

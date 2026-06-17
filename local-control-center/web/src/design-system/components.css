@@ -352,8 +352,7 @@
 	gap: var(--space-2);
 }
 
-.tabs,
-.panel-tabs {
+.tabs {
 	display: flex;
 	flex-wrap: wrap;
 	align-items: center;
@@ -365,7 +364,6 @@
 }
 
 .tabs .button,
-.panel-tabs .button,
 .panel-tab {
 	min-height: var(--control-height-sm);
 	border-color: transparent;
@@ -374,7 +372,6 @@
 }
 
 .tabs .button[aria-selected="true"],
-.panel-tabs .button[aria-selected="true"],
 .panel-tab[aria-selected="true"] {
 	background: var(--color-surface-card);
 	color: var(--color-text-primary);
@@ -1744,7 +1741,6 @@ kbd.command-kbd {
 }
 
 .tabs .button:focus-visible,
-.panel-tabs .button:focus-visible,
 .session-item:focus-visible,
 .command-item:focus-visible {
 	outline: none;

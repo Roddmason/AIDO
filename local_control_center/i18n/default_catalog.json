@@ -15,6 +15,134 @@
     }
   ],
   "translations": {
+    "app.modelGateway.overview.healthy": {
+      "en": "healthy",
+      "es": "saludables"
+    },
+    "app.modelGateway.overview.degraded": {
+      "en": "degraded",
+      "es": "degradados"
+    },
+    "app.modelGateway.overview.offline": {
+      "en": "offline",
+      "es": "desconectados"
+    },
+    "app.modelGateway.runtime.detected": {
+      "en": "detected",
+      "es": "detectado"
+    },
+    "app.modelGateway.runtime.notDetected": {
+      "en": "not detected",
+      "es": "no detectado"
+    },
+    "app.modelGateway.runtime.configured": {
+      "en": "configured",
+      "es": "configurado"
+    },
+    "app.modelGateway.runtime.notConfigured": {
+      "en": "not configured",
+      "es": "no configurado"
+    },
+    "app.modelGateway.runtime.available": {
+      "en": "available",
+      "es": "disponible"
+    },
+    "app.modelGateway.runtime.notAvailable": {
+      "en": "not available",
+      "es": "no disponible"
+    },
+    "app.modelGateway.runtime.executable": {
+      "en": "executable",
+      "es": "ejecutable"
+    },
+    "app.modelGateway.runtime.notExecutable": {
+      "en": "not executable",
+      "es": "no ejecutable"
+    },
+    "app.modelGateway.runtime.approvalBadge": {
+      "en": "approval",
+      "es": "aprobación"
+    },
+    "app.modelGateway.runtime.noneMissing": {
+      "en": "none missing",
+      "es": "nada faltante"
+    },
+    "app.modelGateway.runtime.variableSet": {
+      "en": "set",
+      "es": "definido"
+    },
+    "app.modelGateway.runtime.notChecked": {
+      "en": "not checked",
+      "es": "sin verificar"
+    },
+    "app.modelGateway.runtime.refreshingHealthcheck": {
+      "en": "Refreshing healthcheck",
+      "es": "Actualizando verificación"
+    },
+    "app.modelGateway.runtime.refreshHealthcheck": {
+      "en": "Refresh healthcheck",
+      "es": "Actualizar verificación"
+    },
+    "app.modelGateway.runtime.refreshHealthcheckFor": {
+      "en": "Refresh healthcheck for",
+      "es": "Actualizar verificación de"
+    },
+    "app.modelGateway.policy.allowRemote": {
+      "en": "Allow remote providers",
+      "es": "Permitir proveedores remotos"
+    },
+    "app.modelGateway.policy.allowLocal": {
+      "en": "Allow local providers",
+      "es": "Permitir proveedores locales"
+    },
+    "app.modelGateway.policy.remoteAllowed": {
+      "en": "allowed",
+      "es": "permitido"
+    },
+    "app.modelGateway.policy.remoteBlocked": {
+      "en": "blocked",
+      "es": "bloqueado"
+    },
+    "app.modelGateway.error.policySaveFailed": {
+      "en": "Model policy save failed.",
+      "es": "Fallo al guardar la política de modelo."
+    },
+    "app.modelGateway.error.providerActionFailed": {
+      "en": "Provider action failed.",
+      "es": "Fallo la acción del proveedor."
+    },
+    "app.modelGateway.error.routePreviewFailed": {
+      "en": "Route preview failed.",
+      "es": "Fallo la vista previa de ruta."
+    },
+    "app.modelGateway.error.runtimeHealthRefreshFailed": {
+      "en": "Runtime healthcheck refresh failed.",
+      "es": "Fallo la actualización de verificación del runtime."
+    },
+    "app.modelGateway.error.stateLoadFailed": {
+      "en": "Model Gateway state failed to load.",
+      "es": "No se pudo cargar el estado de Model Gateway."
+    },
+    "app.modelGateway.error.benchmarkCostInvalid": {
+      "en": "Benchmark cost must be blank, zero or positive.",
+      "es": "El costo de referencia debe estar vacío, ser cero o positivo."
+    },
+    "app.modelGateway.error.benchmarkLatencyInvalid": {
+      "en": "Benchmark latency must be blank, zero or a positive integer.",
+      "es": "La latencia de referencia debe estar vacía, ser cero o un entero positivo."
+    },
+    "app.modelGateway.error.benchmarkSaveFailed": {
+      "en": "Benchmark outcome save failed.",
+      "es": "Fallo al guardar el resultado de referencia."
+    },
+    "app.modelGateway.settings.disabledByDefault": {
+      "en": "disabled by default",
+      "es": "deshabilitado por defecto"
+    },
+    "app.modelGateway.cost.recordedLegacy": {
+      "en": "recorded legacy model usage",
+      "es": "uso de modelos heredado registrado"
+    },
     "app.modelGateway.action.enable": {
       "en": "Enable",
       "es": "Activar"

@@ -166,7 +166,7 @@ export function PolicySecurityPage({ overview, mutate }: { overview: Overview; m
 				setPolicyRevisions((current) => [revision, ...current.filter((item) => item.id !== revision.id)]);
 			}
 		} catch (saveError) {
-			setError(saveError instanceof Error ? saveError.message : 'Sandbox profile update failed.');
+			setError(saveError instanceof Error ? saveError.message : t('app.pages.errSandboxProfileUpdate', 'Sandbox profile update failed.'));
 		} finally {
 			setBusy(false);
 		}
@@ -226,7 +226,7 @@ export function PolicySecurityPage({ overview, mutate }: { overview: Overview; m
 							label: t('app.workbench.tab.diff', 'Diff'),
 							render: (row) => (
 								<button className="button" type="button" aria-label={`View policy revision diff for ${String(row.subjectId ?? '')}`} onClick={() => setSelectedRevision(row)}>
-									View diff
+									{t('app.pages.viewDiff', 'View diff')}
 								</button>
 							),
 						},
@@ -240,7 +240,7 @@ export function PolicySecurityPage({ overview, mutate }: { overview: Overview; m
 						{ key: 'tool', label: t('ui.static.tool.9a830c71', 'Tool'), render: (row) => <span className="mono">{String(row.tool ?? '')} {String(row.runtimeId ?? '')}</span> },
 						{ key: 'command', label: t('app.workbench.evidence.colCommand', 'Command'), render: (row) => <span className="mono">{String(row.command ?? '')} {(row.commandArgv ?? []).join(' ')}</span> },
 						{ key: 'path', label: t('app.workspace.summary.path', 'Path'), render: (row) => <span className="mono">{String(row.workspaceId ?? '')} {String(row.path ?? '')}</span> },
-						{ key: 'lifecycle', label: t('ui.static.lifecycle.e4db4b56', 'Lifecycle'), render: (row) => <span>{String(row.grantedBy ?? '')} {String(row.grantedAt ?? '')} / expires {String(row.expiresAt ?? '')} / consumed {String(row.consumedAt ?? 'not consumed')}</span> },
+						{ key: 'lifecycle', label: t('ui.static.lifecycle.e4db4b56', 'Lifecycle'), render: (row) => <span>{String(row.grantedBy ?? '')} {String(row.grantedAt ?? '')} / expires {String(row.expiresAt ?? '')} / consumed {String(row.consumedAt ?? t('app.pages.grantNotConsumed', 'not consumed'))}</span> },
 						{ key: 'reason', label: t('ui.static.reason.f219cc06', 'Reason'), render: (row) => String(row.revokeReason ?? row.reason ?? '') },
 					]} />
 				</Surface>
@@ -310,7 +310,7 @@ export function MemoryPage({ overview, retrievalStatus }: { overview: Overview; 
 	const retrievalPosture = retrievalStatus
 		? retrievalStatus.available
 			? retrievalStatus.degraded
-				? 'index degraded'
+				? t('app.pages.memoryIndexDegraded', 'index degraded')
 				: t('app.modelGateway.runtime.available', 'available')
 			: retrievalStatus.status
 		: t('app.runtime.card.unknown', 'unknown');
@@ -325,7 +325,7 @@ export function MemoryPage({ overview, retrievalStatus }: { overview: Overview; 
 				</Surface>
 				<Surface title={t('ui.static.memory.items.d8a2b209', 'Memory items')}>
 					<div className="metric-value">{overview.memoryItems.length}</div>
-					<div className="metric-label">records in SQLite</div>
+					<div className="metric-label">{t('app.pages.memoryRecordsInSqlite', 'records in SQLite')}</div>
 				</Surface>
 			</div>
 		</>
@@ -336,9 +336,9 @@ function redactedJson(value: unknown, fallback = '[]') {
 	return redactVisibleText(value, fallback);
 }
 
-function evidenceLink(href: string, label: string, id: unknown) {
+function evidenceLink(href: string, label: string, id: unknown, notLinkedLabel: string) {
 	const value = String(id ?? '');
-	return value ? <a href={href}>{label} {value}</a> : <span className="muted">not linked</span>;
+	return value ? <a href={href}>{label} {value}</a> : <span className="muted">{notLinkedLabel}</span>;
 }
 
 export function EvidencePage({ overview, token }: { overview: Overview; token: string }) {
@@ -371,7 +371,7 @@ export function EvidencePage({ overview, token }: { overview: Overview; token: s
 		void getEvidenceDetail(selectedEvidenceId, controller.signal)
 			.then((payload) => setDetail(payload))
 			.catch((error) => {
-				if (!controller.signal.aborted) setDetailError(error instanceof Error ? error.message : 'Evidence detail failed.');
+				if (!controller.signal.aborted) setDetailError(error instanceof Error ? error.message : t('app.pages.errEvidenceDetail', 'Evidence detail failed.'));
 			})
 			.finally(() => {
 				if (!controller.signal.aborted) setDetailLoading(false);
@@ -398,7 +398,7 @@ export function EvidencePage({ overview, token }: { overview: Overview; token: s
 				if (active) setDiffPayload(payload);
 			})
 			.catch((error) => {
-				if (active) setDiffError(error instanceof Error ? error.message : 'Diff artifact preview failed.');
+				if (active) setDiffError(error instanceof Error ? error.message : t('app.pages.errDiffArtifactPreview', 'Diff artifact preview failed.'));
 			})
 			.finally(() => {
 				if (active) setDiffLoading(false);
@@ -421,7 +421,7 @@ export function EvidencePage({ overview, token }: { overview: Overview; token: s
 				if (active) setSecurityPayload(payload);
 			})
 			.catch((error) => {
-				if (active) setSecurityError(error instanceof Error ? error.message : 'Security findings preview failed.');
+				if (active) setSecurityError(error instanceof Error ? error.message : t('app.pages.errSecurityFindingsPreview', 'Security findings preview failed.'));
 			})
 			.finally(() => {
 				if (active) setSecurityLoading(false);
@@ -443,7 +443,7 @@ export function EvidencePage({ overview, token }: { overview: Overview; token: s
 			const payload = await fetchEvidenceArtifact(token, evidenceId, artifactId);
 			setPreviewPayload(payload);
 		} catch (error) {
-			setPreviewError(error instanceof Error ? error.message : 'Artifact preview failed.');
+			setPreviewError(error instanceof Error ? error.message : t('app.pages.errArtifactPreview', 'Artifact preview failed.'));
 		} finally {
 			setPreviewLoadingId('');
 		}
@@ -489,7 +489,7 @@ export function EvidencePage({ overview, token }: { overview: Overview; token: s
 								const evidenceId = String(row.id ?? '');
 								return (
 									<button className="button" type="button" aria-label={`View evidence package ${evidenceId}`} disabled={!evidenceId || detailLoading} onClick={() => setSelectedEvidenceId(evidenceId)}>
-										{selectedEvidenceId === evidenceId && detailLoading ? 'Loading' : 'View'}
+										{selectedEvidenceId === evidenceId && detailLoading ? t('app.pages.evidenceLoading', 'Loading') : t('app.pages.evidenceView', 'View')}
 									</button>
 								);
 							},
@@ -535,7 +535,7 @@ export function EvidencePage({ overview, token }: { overview: Overview; token: s
 				{detailError ? <div className="form-error" role="alert">{detailError}</div> : null}
 				{selectedEvidenceId && !selectedPackage ? (
 					<Surface title={t('ui.static.evidence.detail.viewer.30e34a50', 'Evidence detail')}>
-						<EmptyState title={detailLoading ? 'Loading evidence detail' : 'Evidence detail unavailable'} body={t('ui.static.detail.endpoint.must.return.evidence.1e754443', 'The detail endpoint must return package metadata, test records and artifacts before evidence can be audited.')} />
+						<EmptyState title={detailLoading ? t('app.pages.loadingEvidenceDetail', 'Loading evidence detail') : t('app.pages.evidenceDetailUnavailable', 'Evidence detail unavailable')} body={t('ui.static.detail.endpoint.must.return.evidence.1e754443', 'The detail endpoint must return package metadata, test records and artifacts before evidence can be audited.')} />
 					</Surface>
 				) : null}
 				{selectedPackage ? (
@@ -545,18 +545,18 @@ export function EvidencePage({ overview, token }: { overview: Overview; token: s
 								<div className="inline">
 									<Badge tone={toneForStatus(String(selectedPackage.qaVerdict ?? ''))}>QA {String(selectedPackage.qaVerdict ?? 'not_started')}</Badge>
 									<Badge>{String(selectedPackage.evidenceSource ?? 'operator_attested')}</Badge>
-									<Badge>{detailArtifacts.length} artifacts</Badge>
-									{changedFiles !== null ? <span className="mono">changed files {changedFiles}</span> : null}
+									<Badge>{detailArtifacts.length} {t('app.pages.artifactsCountLabel', 'artifacts')}</Badge>
+									{changedFiles !== null ? <span className="mono">{t('app.pages.changedFilesLabel', 'changed files')} {changedFiles}</span> : null}
 								</div>
 								<DataTable rows={[
 									{ label: t('ui.static.evidence.package.viewer.b83f1c3d', 'Evidence package'), value: <span className="mono">{String(selectedPackage.id ?? '')}</span> },
 									{ label: t('ui.static.created.at.evidence.viewer.4f61b6bb', 'Created at'), value: <span className="mono">{String(selectedPackage.createdAt ?? '')}</span> },
 									{ label: t('ui.static.project.f6f4da8d', 'Project'), value: <span className="mono">{String(selectedPackage.projectId ?? '')}</span> },
-									{ label: t('ui.static.workflow.run.evidence.viewer.1495cb66', 'Workflow run'), value: evidenceLink('#workflows', 'Workflow', selectedPackage.workflowRunId) },
-									{ label: t('ui.static.job.30c8cb83', 'Job'), value: evidenceLink('#workflows', 'Job', selectedPackage.jobId) },
-									{ label: t('ui.static.agent.run.b458871f', 'Agent run'), value: evidenceLink('#agents', 'Agent run', selectedPackage.agentRunId ?? selectedPackage.agentId) },
-									{ label: t('ui.static.workspace.4ca0a75c', 'Workspace'), value: <span className="mono">{String(selectedPackage.workspaceId ?? 'not linked')}</span> },
-									{ label: t('ui.static.runtime.c4740e4c', 'Runtime'), value: <span className="mono">{String(selectedPackage.runtimeId ?? 'not linked')}</span> },
+									{ label: t('ui.static.workflow.run.evidence.viewer.1495cb66', 'Workflow run'), value: evidenceLink('#workflows', t('app.pages.evidenceLinkWorkflow', 'Workflow'), selectedPackage.workflowRunId, t('app.pages.evidenceNotLinked', 'not linked')) },
+									{ label: t('ui.static.job.30c8cb83', 'Job'), value: evidenceLink('#workflows', t('app.pages.evidenceLinkJob', 'Job'), selectedPackage.jobId, t('app.pages.evidenceNotLinked', 'not linked')) },
+									{ label: t('ui.static.agent.run.b458871f', 'Agent run'), value: evidenceLink('#agents', t('app.pages.evidenceLinkAgentRun', 'Agent run'), selectedPackage.agentRunId ?? selectedPackage.agentId, t('app.pages.evidenceNotLinked', 'not linked')) },
+									{ label: t('ui.static.workspace.4ca0a75c', 'Workspace'), value: <span className="mono">{String(selectedPackage.workspaceId ?? t('app.pages.evidenceNotLinked', 'not linked'))}</span> },
+									{ label: t('ui.static.runtime.c4740e4c', 'Runtime'), value: <span className="mono">{String(selectedPackage.runtimeId ?? t('app.pages.evidenceNotLinked', 'not linked'))}</span> },
 									{ label: t('ui.static.test.plan.evidence.viewer.e2d86632', 'Test plan'), value: redactVisibleText(selectedPackage.testPlan, '') },
 								]} empty={<EmptyState title={t('ui.static.no.metadata.evidence.viewer.39ade8bd', 'No metadata')} body={t('ui.static.evidence.detail.metadata.not.returned.a8f37a91', 'Evidence detail metadata was not returned.')} />} columns={[
 									{ key: 'label', label: t('ui.static.metadata.251edc0e', 'Metadata'), render: (row) => row.label },
@@ -608,8 +608,8 @@ export function EvidencePage({ overview, token }: { overview: Overview; token: s
 						<Surface title={t('ui.static.diff.viewer.evidence.viewer.80e5e450', 'Diff viewer')}>
 							<div className="stack">
 								<div className="inline">
-									<Badge tone={patchArtifact && patchHasChanges ? 'ok' : 'warn'}>{patchArtifact && patchHasChanges ? t('app.workbench.diff.realChanges', 'real changes') : 'no real changes'}</Badge>
-									{changedFiles !== null ? <span className="mono">changed files {changedFiles}</span> : null}
+									<Badge tone={patchArtifact && patchHasChanges ? 'ok' : 'warn'}>{patchArtifact && patchHasChanges ? t('app.workbench.diff.realChanges', 'real changes') : t('app.pages.diffNoRealChanges', 'no real changes')}</Badge>
+									{changedFiles !== null ? <span className="mono">{t('app.pages.changedFilesLabel', 'changed files')} {changedFiles}</span> : null}
 									{patchArtifact ? <span className="mono">sha256 {String(patchArtifact.hash ?? t('app.workbenchEvidence.notRecorded', 'not recorded'))}</span> : null}
 								</div>
 								{diffError ? <div className="form-error" role="alert">{diffError}</div> : null}
@@ -623,7 +623,7 @@ export function EvidencePage({ overview, token }: { overview: Overview; token: s
 							<div className="stack">
 								{securityError ? <div className="form-error" role="alert">{securityError}</div> : null}
 								{securityLoading ? <EmptyState title={t('ui.static.loading.security.findings.0b677e6f', 'Loading security findings')} body={t('app.workbench.evidence.securityLoadingBody', 'Findings are read from the linked artifact.')} /> : null}
-								{!securityArtifact ? <EmptyState title={t('ui.static.no.security.findings.artifact.8e9970d1', 'No security findings artifact')} body="No security-findings.json artifact is linked to this evidence package." /> : null}
+								{!securityArtifact ? <EmptyState title={t('ui.static.no.security.findings.artifact.8e9970d1', 'No security findings artifact')} body={t('app.pages.noSecurityFindingsArtifactBody', 'No security-findings.json artifact is linked to this evidence package.')} /> : null}
 								{securityArtifact ? (
 									<div className="inline">
 										<Badge>{artifactDisplayName(securityArtifact)}</Badge>
@@ -636,8 +636,8 @@ export function EvidencePage({ overview, token }: { overview: Overview; token: s
 						<Surface title={t('ui.static.model.and.tool.calls.4ee53a3a', 'Model and tool calls')}>
 							<div className="stack">
 								<div className="inline">
-									<Badge>{modelCalls.length} model calls</Badge>
-									<Badge>{toolCalls.length} tool calls</Badge>
+									<Badge>{modelCalls.length} {t('app.pages.modelCallsCountLabel', 'model calls')}</Badge>
+									<Badge>{toolCalls.length} {t('app.pages.toolCallsCountLabel', 'tool calls')}</Badge>
 								</div>
 								<div>
 									<div className="metric-label">{t('ui.static.model.calls.88e40906', 'Model calls')}</div>
@@ -761,7 +761,7 @@ export function GovernancePage({ overview, selectedProject, mutate }: { overview
 			);
 			setRiskRows((current) => upsertNewestById(current, result.risk));
 		} catch (saveError) {
-			setError(saveError instanceof Error ? saveError.message : 'Risk creation failed.');
+			setError(saveError instanceof Error ? saveError.message : t('app.pages.errRiskCreation', 'Risk creation failed.'));
 		} finally {
 			setBusy(false);
 		}
@@ -777,7 +777,7 @@ export function GovernancePage({ overview, selectedProject, mutate }: { overview
 			const result = await mutate((token) => updateRisk(token, selectedRiskId, { status: riskUpdateStatus }), { awaitRefresh: false });
 			setRiskRows((current) => upsertNewestById(current, result.risk));
 		} catch (saveError) {
-			setError(saveError instanceof Error ? saveError.message : 'Risk update failed.');
+			setError(saveError instanceof Error ? saveError.message : t('app.pages.errRiskUpdate', 'Risk update failed.'));
 		} finally {
 			setBusy(false);
 		}
@@ -811,7 +811,7 @@ export function GovernancePage({ overview, selectedProject, mutate }: { overview
 			);
 			setDecisionRows((current) => upsertNewestById(current, result.architectureDecision));
 		} catch (saveError) {
-			setError(saveError instanceof Error ? saveError.message : 'Decision creation failed.');
+			setError(saveError instanceof Error ? saveError.message : t('app.pages.errDecisionCreation', 'Decision creation failed.'));
 		} finally {
 			setBusy(false);
 		}
@@ -840,7 +840,7 @@ export function GovernancePage({ overview, selectedProject, mutate }: { overview
 			);
 			setNextStepRows((current) => upsertNewestById(current, result.nextStep));
 		} catch (saveError) {
-			setError(saveError instanceof Error ? saveError.message : 'Next step creation failed.');
+			setError(saveError instanceof Error ? saveError.message : t('app.pages.errNextStepCreation', 'Next step creation failed.'));
 		} finally {
 			setBusy(false);
 		}
@@ -1049,7 +1049,7 @@ export function IntegrationsPage({ overview, mutate }: { overview: Overview; mut
 			);
 			setMcpServers((current) => upsertNewestById(current, result.mcpServer));
 		} catch (registerError) {
-			setError(registerError instanceof Error ? registerError.message : 'MCP registration failed.');
+			setError(registerError instanceof Error ? registerError.message : t('app.pages.errMcpRegistration', 'MCP registration failed.'));
 		} finally {
 			setBusy(false);
 		}
@@ -1076,7 +1076,7 @@ export function IntegrationsPage({ overview, mutate }: { overview: Overview; mut
 							</select>
 						</div>
 						{error ? <div className="form-error" role="alert">{error}</div> : null}
-						<button className="button primary" type="button" onClick={() => { void registerServer(); }} disabled={busy}>{busy ? 'Registering MCP server' : t('ui.static.register.mcp.server.b3f30e86', 'Register MCP server')}</button>
+						<button className="button primary" type="button" onClick={() => { void registerServer(); }} disabled={busy}>{busy ? t('app.pages.registeringMcpServer', 'Registering MCP server') : t('ui.static.register.mcp.server.b3f30e86', 'Register MCP server')}</button>
 					</div>
 				</Surface>
 				<Surface title={t('ui.static.registered.mcp.servers.d5439a1b', 'Registered MCP servers')}>

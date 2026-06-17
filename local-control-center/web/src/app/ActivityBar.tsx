@@ -24,8 +24,8 @@ export function ActivityBar({
 }) {
 	const { t } = useI18n();
 	const toggleLabel = explorerCollapsed
-		? (language === 'es' ? 'Mostrar explorador' : 'Show explorer')
-		: (language === 'es' ? 'Ocultar explorador' : 'Hide explorer');
+		? t('app.activityBar.showExplorer', 'Show explorer')
+		: t('app.activityBar.hideExplorer', 'Hide explorer');
 
 	return (
 		<nav className="activity-bar" role="navigation" aria-label={t('app.global.primaryNavigation', 'Primary navigation')}>

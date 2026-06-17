@@ -117,7 +117,7 @@ export function AgentsPage({
 			})
 			.catch((loadError) => {
 				if (!controller.signal.aborted) {
-					setRuntimeProviderError(loadError instanceof Error ? loadError.message : 'Runtime provider discovery failed.');
+					setRuntimeProviderError(loadError instanceof Error ? loadError.message : t('app.agents.errRuntimeDiscovery', 'Runtime provider discovery failed.'));
 				}
 			});
 		return () => {
@@ -140,7 +140,7 @@ export function AgentsPage({
 			.catch((loadError) => {
 				if (!mounted) return;
 				setGatewayCatalog({ providers: [], routingProfiles: [], rolePolicies: [] });
-				setGatewayCatalogError(loadError instanceof Error ? loadError.message : 'Model gateway catalog discovery failed.');
+				setGatewayCatalogError(loadError instanceof Error ? loadError.message : t('app.agents.errGatewayCatalogDiscovery', 'Model gateway catalog discovery failed.'));
 			});
 		return () => {
 			mounted = false;
@@ -197,7 +197,7 @@ export function AgentsPage({
 			);
 			setAgentProfiles((current) => upsertNewestById(current, result.agentProfile));
 		} catch (saveError) {
-			setError(saveError instanceof Error ? saveError.message : 'Agent profile save failed.');
+			setError(saveError instanceof Error ? saveError.message : t('app.agents.errProfileSave', 'Agent profile save failed.'));
 		} finally {
 			setProfileBusy(false);
 		}
@@ -332,7 +332,7 @@ export function AgentsPage({
 					) : null}
 					<DataTable
 						rows={runtimeRows}
-						empty={<EmptyState title={t('ui.static.no.runtime.providers.c1247c5c', 'No runtime providers')} body={runtimeProviderError || 'Runtime providers are not executable until provider discovery returns status.'} />}
+						empty={<EmptyState title={t('ui.static.no.runtime.providers.c1247c5c', 'No runtime providers')} body={runtimeProviderError || t('app.agents.runtimeProvidersDiscoveryPending', 'Runtime providers are not executable until provider discovery returns status.')} />}
 						columns={[
 						{ key: 'provider', label: t('ui.static.provider.7ceee3f3', 'Provider'), render: (row) => <span className="mono">{row.id}</span> },
 						{ key: 'kind', label: t('app.workbench.evidence.colKind', 'Kind'), render: (row) => <Badge>{row.kind}</Badge> },
@@ -363,7 +363,7 @@ export function AgentsPage({
 						{ key: 'role', label: t('ui.static.role.c3f104d1', 'Role'), render: (row) => <span className="mono">{row.role}</span> },
 						{ key: 'runtime', label: t('ui.static.runtime.c4740e4c', 'Runtime'), render: (row) => <Badge>{row.runtimeMode ?? row.runtimeType ?? 'unassigned'}</Badge> },
 						{ key: 'routing', label: t('ui.static.routing.7d15dd1b', 'Routing'), render: (row) => <span className="mono">{row.routingProfileId ?? 'default'}</span> },
-						{ key: 'providers', label: t('ui.static.providers.87b7c08b', 'Providers'), render: (row) => Array.isArray(row.allowedProviders) && row.allowedProviders.length ? row.allowedProviders.join(', ') : 'policy default' },
+						{ key: 'providers', label: t('ui.static.providers.87b7c08b', 'Providers'), render: (row) => Array.isArray(row.allowedProviders) && row.allowedProviders.length ? row.allowedProviders.join(', ') : t('app.agents.providersPolicyDefault', 'policy default') },
 						{ key: 'limits', label: t('ui.static.limits.61a0ae3b', 'Limits'), render: (row) => `${numericLabel(row.maxTokensPerRun, t('app.runtime.card.unknown', 'unknown'))} tokens / ${moneyLabel(row.requiresApprovalOverUsd ?? row.maxCostPerRun, t('app.runtime.card.unknown', 'unknown'))}` },
 						{ key: 'status', label: t('ui.static.status.bae7d5be', 'Status'), render: (row) => <Badge tone={toneForStatus(row.status)}>{row.status ?? 'active'}</Badge> },
 					]}

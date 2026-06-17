@@ -1120,6 +1120,38 @@ test('Home is the default landing and leads with the open-folder action', async 
 	await expect(page.locator('.content-frame table')).toHaveCount(0);
 });
 
+test('Home gallery is a single masonry wall of cards that opens the workbench', async ({ page }) => {
+	const overviewResponse = await page.request.get('/api/v1/overview');
+	const overview = await overviewResponse.json();
+	const base = overview.projects[0];
+	const projects = [
+		{ ...base, id: 'home-gallery-active', name: 'Gallery Active Project', path: `${base.path}-gallery`, status: 'active' },
+	];
+	await page.route('/api/v1/overview', async (route) => {
+		await route.fulfill({ json: { ...overview, projects } });
+	});
+	await page.route('/api/v1/events', (route) => route.abort());
+
+	await page.goto('/');
+	await expectControlPlaneLoaded(page);
+
+	// Single masonry wall, card-first, no tables and no retired "Recent evidence" jargon band.
+	await expect(page.getByRole('heading', { name: 'Pick up where you left off' })).toBeVisible();
+	await expect(page.locator('.content-frame table')).toHaveCount(0);
+	await expect(page.getByText('Recent evidence')).toHaveCount(0);
+	await expect(page.getByRole('button', { name: 'All projects' })).toBeVisible();
+
+	// The active project renders as a workspace card with a de-jargoned "in progress" chip.
+	const wall = page.locator('.masonry-grid');
+	await expect(wall.getByText('Gallery Active Project')).toBeVisible();
+	await expect(wall.getByText('in progress')).toBeVisible();
+	await expect(page.getByText('active jobs')).toHaveCount(0);
+
+	// Opening a workspace card takes the user straight to the workbench.
+	await page.getByRole('button', { name: 'Open in workbench: Gallery Active Project' }).click();
+	await expect(page.locator('.workbench-layout')).toBeVisible();
+});
+
 test('Review board requires contextual review before action decision', async ({ page }) => {
 	await createApprovalJob(page);
 	await page.goto('/#review-board');

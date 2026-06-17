@@ -204,7 +204,6 @@ export function App() {
 					onOpenProjects={() => navigateTo('projects-active')}
 					onOpenReview={() => navigateTo('review-board')}
 					onOpenRuns={() => navigateTo('workflows')}
-					onOpenEvidence={() => navigateTo('evidence')}
 					onOpenRuntimes={() => navigateTo('models')}
 				/>
 			);

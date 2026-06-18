@@ -4,11 +4,12 @@
  * @author Roddmason
  */
 import { useEffect, useState } from 'react';
-import { Check, FolderOpen, FolderPlus, Minus, Search } from 'lucide-react';
+import { FolderOpen, FolderPlus, Search } from 'lucide-react';
 
 import type { Overview } from '../../api/types';
-import { Badge, Modal } from '../../components/primitives';
+import { Modal } from '../../components/primitives';
 import { useI18n } from '../../i18n/I18nProvider';
+import { ProjectDiscoverySummary } from './ProjectDiscoverySummary';
 import { useProjectDiscovery } from './useProjectDiscovery';
 import type { WorkspaceMode } from './useProjectDiscovery';
 
@@ -176,31 +177,7 @@ export function NewWorkspaceDialog({
 
 				{step === 'review' ? (
 					<>
-						<div className="detection-grid" aria-label={t('app.workspace.detection.aria', 'Detected project markers')}>
-							{workspace.detectionMarkers.map((marker) => (
-								<div key={marker.file} className="card detection-card" data-detected={marker.detected ? 'true' : 'false'}>
-									<span className="detection-card-file">{marker.file}</span>
-									<span className="detection-card-state">
-										{marker.detected ? (
-											<Badge tone="ok"><Check size={13} aria-hidden="true" /> {t('app.workspace.detection.found', 'Detected')}</Badge>
-										) : (
-											<span className="muted"><Minus size={13} aria-hidden="true" /> {t('app.workspace.detection.missing', 'Not found')}</span>
-										)}
-									</span>
-								</div>
-							))}
-						</div>
-
-						<div className="field">
-							<span className="field-label">{t('app.workspace.detection.runtimes', 'Runtimes detected')}</span>
-							<div className="detection-runtimes">
-								{workspace.runtimeLabels.length ? (
-									workspace.runtimeLabels.map((label, index) => <Badge key={`${label}-${index}`} tone="info">{label}</Badge>)
-								) : (
-									<span className="muted">{t('app.workspace.detection.noRuntimes', 'No runtimes detected yet.')}</span>
-								)}
-							</div>
-						</div>
+						<ProjectDiscoverySummary markers={workspace.detectionMarkers} runtimeLabels={workspace.runtimeLabels} />
 
 						<div className="field">
 							<label htmlFor="workspace-project-name">{t('app.workspace.field.projectName', 'Project name')}</label>

@@ -2123,6 +2123,37 @@ test('Workbench governed patch enables issue_to_patch only with an executable ru
 	await expect(page.getByRole('button', { name: 'Request change' })).toBeEnabled();
 });
 
+test('Workbench governed patch keeps runtime, QA preset and cost inside Advanced', async ({ page }) => {
+	await page.route('/api/v1/runtime/providers', async (route) => {
+		await route.fulfill({
+			json: runtimeProvidersFixture([
+				{
+					id: 'codex_cli',
+					displayName: 'Codex CLI',
+					kind: 'cli',
+					configured: true,
+					available: true,
+					executable: true,
+					detected: true,
+					reason: 'Codex CLI healthcheck passed.',
+					capabilities: ['issue_to_patch', 'code_edit'],
+					requiredConfiguration: [],
+				},
+			]),
+		});
+	});
+	await page.goto('/#command');
+	await expect(page.locator('.workbench-layout')).toBeVisible();
+	await page.getByRole('button', { name: 'Governed patch' }).click();
+
+	// The technical knobs are tucked inside Advanced so the primary surface stays simple.
+	await page.getByRole('button', { name: 'Advanced' }).click();
+	await expect(page.getByLabel('Preferred runtime', { exact: true })).toBeVisible();
+	await expect(page.getByLabel('QA preset', { exact: true })).toBeVisible();
+	await expect(page.getByLabel('Maximum cost USD', { exact: true })).toBeVisible();
+	await expect(page.getByLabel('Target path', { exact: true })).toBeVisible();
+});
+
 test('Workbench governed patch surfaces runtime_unavailable status honestly', async ({ page }) => {
 	const runtimeUnavailableReason = 'Executable runtime failed its launch healthcheck.';
 	await page.route('/api/v1/runtime/providers', async (route) => {

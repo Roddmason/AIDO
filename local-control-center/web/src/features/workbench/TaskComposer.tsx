@@ -162,14 +162,15 @@ export function TaskComposer({
 	return (
 		<div className="form-grid">
 			{!hasExecutableRuntime ? (
-				<div className="form-error" role="status">
+				<div className="card" role="status">
 					<div className="inline">
 						<AlertTriangle aria-hidden="true" size={16} />
+						<strong className="card-title">{t('app.workbench.task.blockerTitle', 'No executable runtime')}</strong>
 						<Badge tone="danger">runtime_unavailable</Badge>
-						<strong>{t('app.workbench.task.blockerTitle', 'No executable runtime')}</strong>
 					</div>
-					<p>{runtimeBlockReason}</p>
-					<button className="button" type="button" onClick={onConfigureRuntime}>
+					<p className="card-body">{runtimeBlockReason}</p>
+					<p className="field-help">{t('app.workbench.task.blockerSolution', 'AIDO will not run changes until a runtime is executable. Configure one to unblock this workspace.')}</p>
+					<button className="button primary" type="button" onClick={onConfigureRuntime}>
 						<SlidersHorizontal aria-hidden="true" size={15} /> {t('app.workbench.task.configureRuntime', 'Configure runtime')}
 					</button>
 				</div>
@@ -188,9 +189,9 @@ export function TaskComposer({
 				/>
 			</div>
 
-			<div className="wizard-mode-toggle" role="group" aria-label={t('app.workbench.task.modeGroup', 'Change type')}>
+			<div className="task-mode-chips" role="group" aria-label={t('app.workbench.task.modeGroup', 'Change type')}>
 				{taskModes.map((item) => (
-					<button key={item.id} className="button" type="button" aria-pressed={mode === item.id} disabled={!project || busy} onClick={() => setMode(item.id)}>
+					<button key={item.id} className="button chip" type="button" aria-pressed={mode === item.id} disabled={!project || busy} onClick={() => setMode(item.id)}>
 						{t(item.labelKey, item.label)}
 					</button>
 				))}
@@ -211,21 +212,7 @@ export function TaskComposer({
 				<p className="field-help">{t('app.workbench.task.autoLine', 'AIDO auto-selects the best runtime; open Advanced to override runtime, checks or cost.')}</p>
 			</div>
 
-			<Disclosure title={t('app.workbench.task.targetDisclosure', 'Target path (optional)')}>
-				<div className="field">
-					<label htmlFor="task-target">{t('app.workbench.task.target', 'Target path')}</label>
-					<input
-						id="task-target"
-						className="input"
-						value={targetPath}
-						disabled={!project || busy}
-						placeholder={t('app.workbench.task.targetHint', 'Optional repository-relative path')}
-						onChange={(event) => setTargetPath(event.target.value)}
-					/>
-				</div>
-			</Disclosure>
-
-			<Disclosure title={t('app.workbench.task.advanced', 'Advanced')} summary={t('app.workbench.task.advancedSummary', 'Runtime, checks and cost limit')}>
+			<Disclosure title={t('app.workbench.task.advanced', 'Advanced')} summary={t('app.workbench.task.advancedSummary', 'Runtime, checks, cost and path')}>
 				<div className="field">
 					<label htmlFor="task-runtime">{t('app.workbench.task.runtime', 'Preferred runtime')}</label>
 					<select id="task-runtime" className="select" value={preferredRuntime} disabled={!project || !hasExecutableRuntime || busy} onChange={(event) => setPreferredRuntime(event.target.value)}>
@@ -256,13 +243,24 @@ export function TaskComposer({
 					<label htmlFor="task-cost">{t('app.workbench.task.cost', 'Maximum cost USD')}</label>
 					<input id="task-cost" className="input tnum" type="number" min="0" step="0.01" value={maxCostUsd} disabled={!project || busy} onChange={(event) => setMaxCostUsd(event.target.value)} />
 				</div>
+				<div className="field">
+					<label htmlFor="task-target">{t('app.workbench.task.target', 'Target path')}</label>
+					<input
+						id="task-target"
+						className="input"
+						value={targetPath}
+						disabled={!project || busy}
+						placeholder={t('app.workbench.task.targetHint', 'Optional repository-relative path')}
+						onChange={(event) => setTargetPath(event.target.value)}
+					/>
+				</div>
 			</Disclosure>
 
 			<div className="inline">
 				<button className="button primary" type="button" disabled={runDisabled} onClick={() => void runPatchWorkflow()}>
 					<Rocket aria-hidden="true" size={16} /> {busy ? t('app.workbench.task.submitting', 'Requesting change') : t('app.workbench.task.submit', 'Request change')}
 				</button>
-				{selectedRuntime ? <Badge tone="ok">{selectedRuntime.id}</Badge> : <Badge tone="danger">runtime_unavailable</Badge>}
+				{selectedRuntime ? <Badge tone="ok">{selectedRuntime.displayName}</Badge> : <Badge tone="danger">runtime_unavailable</Badge>}
 			</div>
 			{issueError ? <div className="form-error" role="alert">{issueError}</div> : null}
 			{result ? (

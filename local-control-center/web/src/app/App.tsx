@@ -167,7 +167,7 @@ export function App() {
 		setSelectedProjectId(fallbackProjectId);
 		persistSelectedProjectId(fallbackProjectId);
 	}, [activeProjects, overview, selectedProjectId]);
-	const pendingApprovalsCount = useMemo(
+	const pendingReviewCount = useMemo(
 		() => overview?.actionRequests.filter((item) => item.status === 'pending').length ?? 0,
 		[overview?.actionRequests],
 	);
@@ -178,7 +178,7 @@ export function App() {
 		refresh: state.refresh,
 		selectedProject,
 		runtimeProviders: state.runtimeProviders,
-		pendingApprovalsCount,
+		pendingReviewCount,
 		evidenceCount: overview?.evidencePackages.length ?? 0,
 		connected: state.connected,
 		close: closeCommandPalette,

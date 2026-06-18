@@ -66,7 +66,7 @@ export interface CommandActionDeps {
 	refresh: (silent?: boolean) => Promise<void> | void;
 	selectedProject: Project | null;
 	runtimeProviders: RuntimeProviders | null;
-	pendingApprovalsCount: number;
+	pendingReviewCount: number;
 	evidenceCount: number;
 	connected: boolean;
 	close: () => void;
@@ -83,7 +83,7 @@ export function useCommandActions(deps: CommandActionDeps): CommandAction[] {
 		refresh,
 		selectedProject,
 		runtimeProviders,
-		pendingApprovalsCount,
+		pendingReviewCount,
 		evidenceCount,
 		connected,
 		close,
@@ -154,8 +154,8 @@ export function useCommandActions(deps: CommandActionDeps): CommandAction[] {
 				keywords: ['gate', 'permission', 'request', 'approve'],
 				icon: ClipboardCheck,
 				shortcut: ['Ctrl', 'Alt', 'A'],
-				badge: pendingApprovalsCount > 0 ? String(pendingApprovalsCount) : undefined,
-				disabled: pendingApprovalsCount === 0,
+				badge: pendingReviewCount > 0 ? String(pendingReviewCount) : undefined,
+				disabled: pendingReviewCount === 0,
 				disabledReason: 'No pending approvals',
 				run: withClose(() => onOpenApprovals()),
 			},
@@ -185,5 +185,5 @@ export function useCommandActions(deps: CommandActionDeps): CommandAction[] {
 				}),
 			},
 		];
-	}, [navigateTo, openWorkspaceDialog, onOpenApprovals, refresh, selectedProject, runtimeProviders, pendingApprovalsCount, evidenceCount, connected, close]);
+	}, [navigateTo, openWorkspaceDialog, onOpenApprovals, refresh, selectedProject, runtimeProviders, pendingReviewCount, evidenceCount, connected, close]);
 }

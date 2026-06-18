@@ -23,8 +23,8 @@ function formatTime(value: string | null | undefined, emptyLabel: string) {
 }
 
 export function TimelinePanel({
-	issueResult,
-	issueBusy,
+	taskRunResult,
+	isSubmittingTask,
 	hasExecutableRuntime,
 	deliveryRows,
 	signals,
@@ -34,8 +34,8 @@ export function TimelinePanel({
 	pipelines,
 	onOpenArtifact,
 }: {
-	issueResult: IssueToPatchResponse | null;
-	issueBusy: boolean;
+	taskRunResult: IssueToPatchResponse | null;
+	isSubmittingTask: boolean;
 	hasExecutableRuntime: boolean;
 	deliveryRows: DeliveryRow[];
 	signals: Signals;
@@ -46,7 +46,7 @@ export function TimelinePanel({
 	onOpenArtifact?: (artifact: TimelineArtifactRef) => void;
 }) {
 	const { t } = useI18n();
-	const timeline = buildWorkflowTimeline(issueResult, issueBusy, hasExecutableRuntime);
+	const timeline = buildWorkflowTimeline(taskRunResult, isSubmittingTask, hasExecutableRuntime);
 	const runs = sortByTimeDesc(workflowRuns).slice(0, 6);
 	const events = sortByTimeDesc(workflowEvents).slice(0, 8);
 	const workflowTitle = (workflowId: string) => workflows.find((workflow) => workflow.id === workflowId)?.title ?? shortId(workflowId);

@@ -111,8 +111,8 @@ type UseWorkbenchDataParams = {
 	selectedProject: Project | null;
 	runtimeProviders: RuntimeProviders | null;
 	selectedSessionId: string;
-	issueResult: IssueToPatchResponse | null;
-	issueBusy: boolean;
+	taskRunResult: IssueToPatchResponse | null;
+	isSubmittingTask: boolean;
 	selectedRunId: string;
 	/** Keeps the session selection valid as projects/sessions change. */
 	onResetSession: (sessionId: string) => void;
@@ -128,8 +128,8 @@ export function useWorkbenchData({
 	selectedProject,
 	runtimeProviders,
 	selectedSessionId,
-	issueResult,
-	issueBusy,
+	taskRunResult,
+	isSubmittingTask,
 	selectedRunId,
 	onResetSession,
 }: UseWorkbenchDataParams) {
@@ -163,24 +163,24 @@ export function useWorkbenchData({
 	const executableRuntimes = useMemo(() => runtimeRows.filter(runtimeIsExecutableIssueRuntime), [runtimeRows]);
 	const hasExecutableRuntime = executableRuntimes.length > 0;
 	const unavailableIssueRuntime = runtimeRows.find((runtime) => runtimeSupportsIssueToPatch(runtime) && runtime.executable !== true);
-	const runtimeBlockReason = runtimeProviders
+	const runtimeBlockerReason = runtimeProviders
 		? unavailableIssueRuntime?.reason ?? t('app.workbench.task.runtimeNoExecutable', 'No executable issue_to_patch/code_edit runtime is configured.')
 		: t('app.workbench.task.runtimeDiscovery', 'Runtime provider discovery has not completed.');
 
 	const detectedBranch = branchFromOverview(project, overview);
 	const branch = detectedBranch === 'not detected' ? t('app.workbench.workspace.branchNotDetected', 'not detected') : detectedBranch;
 
-	const issueEvidenceId = String(objectRecord(issueResult?.evidencePackage)?.id ?? '');
+	const issueEvidenceId = String(objectRecord(taskRunResult?.evidencePackage)?.id ?? '');
 	const selectedRunEvidence = selectedRunId ? projectEvidence.find((evidence) => evidence.workflowRunId === selectedRunId) : null;
 	const resolvedEvidenceId = issueEvidenceId || selectedRunEvidence?.id || projectEvidence[0]?.id || '';
 	const activeEvidence = useMemo(() => projectEvidence.find((evidence) => evidence.id === resolvedEvidenceId) ?? null, [projectEvidence, resolvedEvidenceId]);
 	const reviewChangedFiles = evidenceDiffChangedFiles(activeEvidence);
 	const latestEvidence = projectEvidence[0] ?? null;
-	const latestRunStatus = String(issueResult?.status ?? projectWorkflowRuns[0]?.status ?? 'idle');
+	const latestRunStatus = String(taskRunResult?.status ?? projectWorkflowRuns[0]?.status ?? 'idle');
 
 	const blockers = useMemo(
-		() => (project ? deriveBlockers({ projectId: project.id, workflowRuns: overview.workflowRuns, testResults: overview.testResultRecords, risks: overview.riskRegister, hasExecutableRuntime, runtimeBlockReason }) : []),
-		[overview.workflowRuns, overview.testResultRecords, overview.riskRegister, project, hasExecutableRuntime, runtimeBlockReason],
+		() => (project ? deriveBlockers({ projectId: project.id, workflowRuns: overview.workflowRuns, testResults: overview.testResultRecords, risks: overview.riskRegister, hasExecutableRuntime, runtimeBlockerReason }) : []),
+		[overview.workflowRuns, overview.testResultRecords, overview.riskRegister, project, hasExecutableRuntime, runtimeBlockerReason],
 	);
 
 	useEffect(() => {
@@ -228,7 +228,7 @@ export function useWorkbenchData({
 		return { id: stage.id, label: t(stage.labelKey, stage.label), owner: stage.owner, status };
 	});
 
-	const runTimeline = buildWorkflowTimeline(issueResult, issueBusy, hasExecutableRuntime);
+	const runTimeline = buildWorkflowTimeline(taskRunResult, isSubmittingTask, hasExecutableRuntime);
 
 	return {
 		projects,

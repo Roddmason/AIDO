@@ -62,10 +62,10 @@ export function sortByTimeDesc<T extends { updatedAt?: string | null; createdAt?
  * Maps an issue_to_patch response (or its absence) to the staged run timeline.
  * Moved verbatim from the former CommandCenterPage so behavior is preserved.
  */
-export function buildIssueTimeline(result: IssueToPatchResponse | null, issueBusy: boolean, hasExecutableRuntime: boolean): IssueTimelineEntry[] {
+export function buildIssueTimeline(result: IssueToPatchResponse | null, isSubmittingTask: boolean, hasExecutableRuntime: boolean): IssueTimelineEntry[] {
 	if (!result) {
 		return [
-			{ id: 'created', status: issueBusy ? 'done' : 'pending', detail: issueBusy ? 'request submitted' : 'not started' },
+			{ id: 'created', status: isSubmittingTask ? 'done' : 'pending', detail: isSubmittingTask ? 'request submitted' : 'not started' },
 			{ id: 'workspace_allocated', status: 'pending', detail: 'waiting for workflow run' },
 			{ id: 'runtime_selected', status: hasExecutableRuntime ? 'pending' : 'blocked', detail: hasExecutableRuntime ? 'waiting for run' : 'runtime_unavailable' },
 			{ id: 'running', status: 'pending', detail: 'waiting for executable runtime' },
@@ -101,7 +101,7 @@ export function buildIssueTimeline(result: IssueToPatchResponse | null, issueBus
 		created: workflowRun?.id || objectRecord(result.workflow)?.id ? 'done' : isFailed ? 'failed' : 'pending',
 		workspace_allocated: workspace?.id ? 'done' : isFailed ? 'failed' : 'pending',
 		runtime_selected: isRuntimeUnavailable ? 'failed' : runtime?.id ? 'done' : isFailed ? 'failed' : 'pending',
-		running: isFailed ? 'failed' : isCompleted || runtimeResult ? 'done' : issueBusy ? 'active' : 'pending',
+		running: isFailed ? 'failed' : isCompleted || runtimeResult ? 'done' : isSubmittingTask ? 'active' : 'pending',
 		qa_running: qaResults.length ? (String(objectRecord(qaResults[0])?.status ?? objectRecord(qaResults[0])?.verdict ?? '') === 'failed' ? 'failed' : 'done') : 'pending',
 		evidence_ready: evidence?.id ? 'done' : isFailed ? 'failed' : 'pending',
 		awaiting_approval: awaitingApproval ? 'active' : isCompleted || isApprovedForIntegration ? 'done' : 'pending',
@@ -121,12 +121,12 @@ export function deriveBlockers(params: {
 	testResults: Overview['testResultRecords'];
 	risks: Overview['riskRegister'];
 	hasExecutableRuntime: boolean;
-	runtimeBlockReason: string;
+	runtimeBlockerReason: string;
 }): Blocker[] {
-	const { projectId, workflowRuns, testResults, risks, hasExecutableRuntime, runtimeBlockReason } = params;
+	const { projectId, workflowRuns, testResults, risks, hasExecutableRuntime, runtimeBlockerReason } = params;
 	const blockers: Blocker[] = [];
 	if (!hasExecutableRuntime) {
-		blockers.push({ id: 'runtime', label: 'runtime_unavailable', detail: runtimeBlockReason, tone: 'danger' });
+		blockers.push({ id: 'runtime', label: 'runtime_unavailable', detail: runtimeBlockerReason, tone: 'danger' });
 	}
 	for (const run of sortByTimeDesc(workflowRuns.filter((run) => run.projectId === projectId && failingRunStatuses.has(String(run.status))))) {
 		const tone = run.status === 'blocked' || run.status === 'cancelled' ? 'warn' : 'danger';

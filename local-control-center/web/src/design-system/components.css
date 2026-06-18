@@ -1218,12 +1218,6 @@ kbd.command-kbd {
 	line-height: var(--line-tight);
 }
 
-.home-band-count {
-	color: var(--color-text-muted);
-	font-size: var(--font-size-md);
-	font-weight: var(--weight-medium);
-}
-
 .home-band-link {
 	display: inline-flex;
 	align-items: center;

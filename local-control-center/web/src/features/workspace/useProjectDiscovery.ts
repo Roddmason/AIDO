@@ -47,6 +47,16 @@ function runtimeLabel(runtime: Record<string, unknown>): string {
 	return String(runtime.label ?? runtime.id ?? '');
 }
 
+/**
+ * Owns the new-workspace flow state and side effects, independent of any host UI
+ * so it can back the dialog from Home, Workbench, the Command Palette or Settings.
+ * Holds the source mode (open existing folder vs create workspace), the folder /
+ * base-path / name / template fields, and the discovery result. Drives the real
+ * control-plane APIs — `selectLocalDirectory` (native picker), `discoverProject`
+ * (manifest/runtime detection) and `createProject` — and derives detection
+ * markers, runtime labels and name-conflict checks. Exposes `validate`, `submit`
+ * (returns the created project id) and `reset` for the caller to orchestrate.
+ */
 export function useProjectDiscovery(overview: Overview, mutate: Mutate) {
 	const { t } = useI18n();
 	const [mode, setModeState] = useState<WorkspaceMode>('open_folder');

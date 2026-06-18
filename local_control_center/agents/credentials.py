@@ -542,11 +542,3 @@ class CredentialResolver:
         with opener.open(request, timeout=timeout) as response:
             response_payload = json.loads(response.read().decode("utf-8"))
         return response_payload if isinstance(response_payload, dict) else {}
-
-
-def resolve_credential(credential_ref: str | None) -> CredentialResolution:
-    return CredentialResolver().resolve(credential_ref)
-
-
-def validate_credential_ref(credential_ref: str | None) -> None:
-    CredentialResolver().validate_ref(credential_ref)

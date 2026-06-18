@@ -88,23 +88,6 @@ class ConcurrentWorker:
         return results
 
 
-def run_process_pool(*, db_path: str | Path, cwd: str | Path, worker_count: int = 2, lease_ms: int = 300000) -> list[dict]:
-    with concurrent.futures.ProcessPoolExecutor(max_workers=worker_count) as pool:
-        futures = [
-            pool.submit(_process_worker_once, str(db_path), f"process-worker-{index}", lease_ms)
-            for index in range(worker_count)
-        ]
-        return [result for result in (future.result() for future in futures) if result]
-
-
-def _process_worker_once(db_path: str, worker_id: str, lease_ms: int) -> dict | None:
-    worker = ConcurrentWorker(
-        db_path=Path(db_path),
-        lease_ms=lease_ms,
-    )
-    return worker.run_once(worker_id=worker_id)
-
-
 def execute_job(job: dict) -> dict:
     kind = job["kind"]
     if kind in {"prompt.optimize", "chat.route", "pipeline.intake", "pipeline.start", "pipeline.retry", "pipeline.stage.retry"}:

@@ -5,10 +5,6 @@
  */
 import { maskSecrets } from './redaction';
 
-export function countByStatus(items: Array<{ status?: string }>, status: string) {
-	return items.filter((item) => item.status === status).length;
-}
-
 export function shortId(id?: string | null) {
 	if (!id) return 'none';
 	return id.length > 18 ? `${id.slice(0, 12)}...` : id;

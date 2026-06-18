@@ -463,10 +463,6 @@
       "en": "AIDO works on a real local folder. Open one and it detects the project type and prepares the workspace for you.",
       "es": "AIDO trabaja sobre una carpeta local real. Abre una y detectará el tipo de proyecto y preparará el workspace por ti."
     },
-    "app.home.continueTitle": {
-      "en": "Continue",
-      "es": "Continuar"
-    },
     "app.home.allProjects": {
       "en": "All projects",
       "es": "Todos los proyectos"
@@ -482,10 +478,6 @@
     "app.home.selected": {
       "en": "Selected",
       "es": "Seleccionado"
-    },
-    "app.home.openJobs": {
-      "en": "active jobs",
-      "es": "trabajos activos"
     },
     "app.home.pending": {
       "en": "pending",
@@ -503,10 +495,6 @@
       "en": "Pick up where you left off",
       "es": "Retoma donde lo dejaste"
     },
-    "app.home.reviewsTitle": {
-      "en": "Pending reviews",
-      "es": "Revisiones pendientes"
-    },
     "app.home.allReviews": {
       "en": "All reviews",
       "es": "Todas las revisiones"
@@ -518,10 +506,6 @@
     "app.home.kindReview": {
       "en": "Review",
       "es": "Revisión"
-    },
-    "app.home.blockersTitle": {
-      "en": "Runtime blockers",
-      "es": "Bloqueos de runtime"
     },
     "app.home.configure": {
       "en": "Configure",
@@ -535,10 +519,6 @@
       "en": "Not configured",
       "es": "Sin configurar"
     },
-    "app.home.runsTitle": {
-      "en": "Recent runs",
-      "es": "Ejecuciones recientes"
-    },
     "app.home.allRuns": {
       "en": "All runs",
       "es": "Todas las ejecuciones"
@@ -550,22 +530,6 @@
     "app.home.kindRun": {
       "en": "Run",
       "es": "Ejecución"
-    },
-    "app.home.evidenceTitle": {
-      "en": "Recent evidence",
-      "es": "Evidencia reciente"
-    },
-    "app.home.allEvidence": {
-      "en": "All evidence",
-      "es": "Toda la evidencia"
-    },
-    "app.home.openEvidence": {
-      "en": "Open evidence",
-      "es": "Abrir evidencia"
-    },
-    "app.home.kindEvidence": {
-      "en": "Evidence",
-      "es": "Evidencia"
     },
     "app.settings.group.project.purpose": {
       "en": "Pick the active project that work runs against.",
@@ -1266,10 +1230,6 @@
     "app.workbench.task.requireReview": {
       "en": "Require review before applying",
       "es": "Requerir revisión antes de aplicar"
-    },
-    "app.workbench.task.targetDisclosure": {
-      "en": "Target path (optional)",
-      "es": "Ruta objetivo (opcional)"
     },
     "app.workbench.task.advanced": {
       "en": "Advanced",

@@ -1,5 +1,7 @@
 # Auditoría de limpieza agresiva — AIDO / Local Control Center
 
+> ⚠️ **Documento anclado en la base `d7d02ab`.** Para el estado real contra HEAD (`c1b117e`, 23 commits después) ver **[audit-reconciliation-HEAD.md](audit-reconciliation-HEAD.md)** — reconciliación por hallazgo: 8 `resolved` · 1 `changed` · 31 `still_open` · 1 `invalid`. Baseline reproducible en **[current-baseline.md](current-baseline.md)**.
+
 > **Estado:** auditoría únicamente. **No se ha borrado ni modificado código fuente.**
 > **Fecha:** 2026-06-16 · **Rama:** `dev` · **Commit base:** `d7d02ab`
 > **Alcance:** `local-control-center/web/src/**`, `local_control_center/**`, `tests_py/**`, `tests_web/**`, `docs/**`, `scripts/**`, `package.json`, `pyproject.toml`.

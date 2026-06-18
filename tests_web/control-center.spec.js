@@ -1176,6 +1176,18 @@ test('Review board requires contextual review before action decision', async ({ 
 	await expect(page.getByRole('dialog', { name: 'Approval drawer' })).toBeHidden();
 });
 
+test('Review board presents four decision columns instead of a technical table', async ({ page }) => {
+	await page.goto('/#review-board');
+	await expectControlPlaneLoaded(page);
+	const board = page.getByRole('region', { name: 'Review board' });
+	await expect(board).toBeVisible();
+	for (const column of ['Needs review', 'Blocked', 'Ready', 'Done']) {
+		await expect(board.getByText(column, { exact: true })).toBeVisible();
+	}
+	// Card-first board: the approval queue is not a technical table (drawers live outside the region).
+	await expect(board.locator('table')).toHaveCount(0);
+});
+
 test('Review board approve patch is evidence-first blocked while reject stays open', async ({ page }) => {
 	const project = await getActiveProject(page);
 	const complete = issueToPatchApprovalFixture(project.id, 'board-complete', { completeEvidence: true });

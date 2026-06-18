@@ -136,10 +136,10 @@ function toStage(entry: IssueTimelineEntry, index: number): WorkflowTimelineStag
  */
 export function buildWorkflowTimeline(
 	result: IssueToPatchResponse | null,
-	issueBusy: boolean,
+	isSubmittingTask: boolean,
 	hasExecutableRuntime: boolean,
 ): WorkflowTimelineStage[] {
-	return buildIssueTimeline(result, issueBusy, hasExecutableRuntime).map(toStage);
+	return buildIssueTimeline(result, isSubmittingTask, hasExecutableRuntime).map(toStage);
 }
 
 /**

@@ -81,8 +81,8 @@ export function WorkbenchPage({
 	const [created, setCreated] = useState<{ sessionId: string; chatId: string; pipelineId: string } | null>(null);
 	const [activeTab, setActiveTab] = useState<WorkbenchTabId>('task');
 	const [taskMode, setTaskMode] = useState<TaskMode>('conversation');
-	const [issueResult, setIssueResult] = useState<IssueToPatchResponse | null>(null);
-	const [issueBusy, setIssueBusy] = useState(false);
+	const [taskRunResult, setTaskRunResult] = useState<IssueToPatchResponse | null>(null);
+	const [isSubmittingTask, setIsSubmittingTask] = useState(false);
 	const [selectedRunId, setSelectedRunId] = useState('');
 	const [teamOpen, setTeamOpen] = useState(false);
 
@@ -120,8 +120,8 @@ export function WorkbenchPage({
 		selectedProject,
 		runtimeProviders,
 		selectedSessionId,
-		issueResult,
-		issueBusy,
+		taskRunResult,
+		isSubmittingTask,
 		selectedRunId,
 		onResetSession: setSelectedSessionId,
 	});
@@ -256,7 +256,7 @@ export function WorkbenchPage({
 					<WorkbenchTabs tabs={tabs} activeTab={activeTab} onChangeTab={setActiveTab}>
 						{activeTab === 'task' ? (
 							<div className="stack">
-								{issueResult ? (
+								{taskRunResult ? (
 									<div className="form-success" role="status">
 										<CheckCircle2 aria-hidden="true" size={16} />
 										<span>{t('app.workbench.review.ready', 'Run complete — review changes without leaving the workbench.')}</span>
@@ -337,15 +337,15 @@ export function WorkbenchPage({
 										</div>
 									</div>
 								) : (
-									<TaskComposer project={project} runtimeProviders={runtimeProviders} mutate={mutate} result={issueResult} busy={issueBusy} onResult={setIssueResult} onBusy={setIssueBusy} onConfigureRuntime={onOpenRuntimeSetup} />
+									<TaskComposer project={project} runtimeProviders={runtimeProviders} mutate={mutate} result={taskRunResult} busy={isSubmittingTask} onResult={setTaskRunResult} onBusy={setIsSubmittingTask} onConfigureRuntime={onOpenRuntimeSetup} />
 								)}
 							</div>
 						) : null}
 
 						{activeTab === 'timeline' ? (
 							<TimelinePanel
-								issueResult={issueResult}
-								issueBusy={issueBusy}
+								taskRunResult={taskRunResult}
+								isSubmittingTask={isSubmittingTask}
 								hasExecutableRuntime={hasExecutableRuntime}
 								deliveryRows={deliveryRows}
 								signals={{ workflows: projectWorkflows.length, evidence: projectEvidence.length, approvals: pendingApprovals.length, workspaces: projectWorkspaces.length }}

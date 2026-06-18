@@ -76,7 +76,7 @@ export function TaskComposer({
 	const selectedQaPreset = issueQaPresets.find((item) => item.id === qaPreset) ?? issueQaPresets[0];
 	const hasExecutableRuntime = executableRuntimes.length > 0;
 	const unavailableIssueRuntime = runtimeRows.find((runtime) => runtimeSupportsIssueToPatch(runtime) && runtime.executable !== true);
-	const runtimeBlockReason = runtimeProviders
+	const runtimeBlockerReason = runtimeProviders
 		? unavailableIssueRuntime?.reason ?? t('app.workbench.task.runtimeNoExecutable', 'No executable issue_to_patch/code_edit runtime is configured.')
 		: t('app.workbench.task.runtimeDiscovery', 'Runtime provider discovery has not completed.');
 
@@ -127,7 +127,7 @@ export function TaskComposer({
 			return;
 		}
 		if (!selectedRuntime) {
-			setIssueError(runtimeBlockReason);
+			setIssueError(runtimeBlockerReason);
 			return;
 		}
 		const parsedMaxCost = maxCostUsd.trim() ? Number(maxCostUsd) : undefined;
@@ -168,7 +168,7 @@ export function TaskComposer({
 						<strong className="card-title">{t('app.workbench.task.blockerTitle', 'No executable runtime')}</strong>
 						<Badge tone="danger">runtime_unavailable</Badge>
 					</div>
-					<p className="card-body">{runtimeBlockReason}</p>
+					<p className="card-body">{runtimeBlockerReason}</p>
 					<p className="field-help">{t('app.workbench.task.blockerSolution', 'AIDO will not run changes until a runtime is executable. Configure one to unblock this workspace.')}</p>
 					<button className="button primary" type="button" onClick={onConfigureRuntime}>
 						<SlidersHorizontal aria-hidden="true" size={15} /> {t('app.workbench.task.configureRuntime', 'Configure runtime')}

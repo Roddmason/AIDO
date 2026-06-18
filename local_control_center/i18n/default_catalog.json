@@ -1276,8 +1276,8 @@
       "es": "Avanzado"
     },
     "app.workbench.task.advancedSummary": {
-      "en": "Runtime, checks and cost limit",
-      "es": "Runtime, verificaciones y límite de costo"
+      "en": "Runtime, checks, cost and path",
+      "es": "Runtime, verificaciones, costo y ruta"
     },
     "app.workbench.task.configureRuntime": {
       "en": "Configure runtime",
@@ -1294,6 +1294,10 @@
     "app.workbench.task.blockerTitle": {
       "en": "No executable runtime",
       "es": "Sin runtime ejecutable"
+    },
+    "app.workbench.task.blockerSolution": {
+      "en": "AIDO will not run changes until a runtime is executable. Configure one to unblock this workspace.",
+      "es": "AIDO no ejecutará cambios hasta que un runtime sea ejecutable. Configura uno para desbloquear este workspace."
     },
     "app.workbench.task.autoLine": {
       "en": "AIDO auto-selects the best runtime; open Advanced to override runtime, checks or cost.",

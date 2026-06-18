@@ -162,16 +162,3 @@ def evidence_package_contract_errors(
                 errors.append(f"Evidence package artifacts[{index}] requires hash.")
 
     return errors
-
-
-def evidence_package_is_completion_grade(
-    evidence: dict[str, Any],
-    *,
-    require_runtime_links: bool = False,
-    require_workflow_run: bool | None = None,
-) -> bool:
-    return not evidence_package_contract_errors(
-        evidence,
-        require_runtime_links=require_runtime_links,
-        require_workflow_run=require_workflow_run,
-    )

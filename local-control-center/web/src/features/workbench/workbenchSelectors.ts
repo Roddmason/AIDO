@@ -114,14 +114,6 @@ export function buildIssueTimeline(result: IssueToPatchResponse | null, issueBus
 	];
 }
 
-/** Maps a timeline stage status to a Badge tone. */
-export function timelineTone(status: TimelineStatus): 'ok' | 'warn' | 'danger' | 'info' | undefined {
-	if (status === 'done') return 'ok';
-	if (status === 'active') return 'info';
-	if (status === 'failed' || status === 'blocked') return 'danger';
-	return undefined;
-}
-
 /** Derives the project blockers shown in the inspector from real overview data. */
 export function deriveBlockers(params: {
 	projectId: string;

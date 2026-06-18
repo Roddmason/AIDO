@@ -209,9 +209,6 @@ class QAAgentRunner:
         self.evidence = EvidenceRepository(connection)
         self.workspaces = WorkspacesRepository(connection, root=root)
 
-    def contract(self) -> dict[str, Any]:
-        return qa_agent_contract()
-
     def _ensure_profile(self) -> dict[str, Any]:
         return self.agents.upsert_agent_profile(
             {

@@ -8,7 +8,6 @@ import type { Overview, RuntimeProviders } from '../../api/types';
 export type HomeProject = Overview['projects'][number];
 export type HomeReview = Overview['actionRequests'][number];
 export type HomeRun = Overview['workflows'][number];
-export type HomeJob = Overview['jobs'][number];
 export type HomeProvider = NonNullable<RuntimeProviders>['providers'][number];
 
 const IN_PROGRESS_JOB_STATUSES = new Set(['running', 'queued']);

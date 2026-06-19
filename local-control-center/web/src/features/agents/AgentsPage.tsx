@@ -21,6 +21,7 @@ import type {
 } from '../../api/types';
 import { Badge, DataTable, EmptyState, PageHeader, Surface } from '../../components/primitives';
 import { useI18n } from '../../i18n/I18nProvider';
+import { type AsyncError, resolveAsyncError, toAsyncError } from '../../lib/asyncError';
 import { toneForStatus } from '../../lib/format';
 
 const runtimeModeOptions: AgentRuntimeMode[] = ['api', 'cli', 'ollama', 'hybrid', 'manual'];
@@ -112,8 +113,10 @@ export function AgentsPage({
 		runtimeProviders,
 	);
 	const [error, setError] = useState('');
-	const [runtimeProviderError, setRuntimeProviderError] = useState('');
-	const [gatewayCatalogError, setGatewayCatalogError] = useState('');
+	const [runtimeProviderError, setRuntimeProviderError] = useState<AsyncError | null>(null);
+	const [gatewayCatalogError, setGatewayCatalogError] = useState<AsyncError | null>(null);
+	const runtimeProviderErrorText = resolveAsyncError(runtimeProviderError, t);
+	const gatewayCatalogErrorText = resolveAsyncError(gatewayCatalogError, t);
 	const [profileBusy, setProfileBusy] = useState(false);
 	const modes =
 		runtimeProviderState?.runtimeModes.filter((mode): mode is AgentRuntimeMode =>
@@ -123,8 +126,8 @@ export function AgentsPage({
 	const runtimeRows = runtimeProviderState?.providers ?? [];
 	const developerAgent = runtimeProviderState?.developerAgent ?? null;
 	const catalogAvailable =
-		!gatewayCatalogError &&
-		!runtimeProviderError &&
+		!gatewayCatalogErrorText &&
+		!runtimeProviderErrorText &&
 		gatewayCatalog.providers.length > 0 &&
 		gatewayCatalog.routingProfiles.length > 0 &&
 		gatewayCatalog.rolePolicies.length > 0 &&
@@ -142,15 +145,17 @@ export function AgentsPage({
 		const controller = new AbortController();
 		getRuntimeProviders(controller.signal)
 			.then((providers) => {
-				setRuntimeProviderError('');
+				setRuntimeProviderError(null);
 				setRuntimeProviderState(providers);
 			})
 			.catch((loadError) => {
 				if (!controller.signal.aborted) {
 					setRuntimeProviderError(
-						loadError instanceof Error
-							? loadError.message
-							: t('app.agents.errRuntimeDiscovery', 'Runtime provider discovery failed.'),
+						toAsyncError(
+							loadError,
+							'app.agents.errRuntimeDiscovery',
+							'Runtime provider discovery failed.',
+						),
 					);
 				}
 			});
@@ -168,7 +173,7 @@ export function AgentsPage({
 		])
 			.then(([providers, profiles, policies]) => {
 				if (!mounted) return;
-				setGatewayCatalogError('');
+				setGatewayCatalogError(null);
 				setGatewayCatalog({
 					providers: Array.from(
 						new Set(
@@ -195,9 +200,11 @@ export function AgentsPage({
 				if (!mounted) return;
 				setGatewayCatalog({ providers: [], routingProfiles: [], rolePolicies: [] });
 				setGatewayCatalogError(
-					loadError instanceof Error
-						? loadError.message
-						: t('app.agents.errGatewayCatalogDiscovery', 'Model gateway catalog discovery failed.'),
+					toAsyncError(
+						loadError,
+						'app.agents.errGatewayCatalogDiscovery',
+						'Model gateway catalog discovery failed.',
+					),
 				);
 			});
 		return () => {
@@ -526,9 +533,9 @@ export function AgentsPage({
 							{t('ui.static.allow.api.33a34d74', 'Allow API')}
 						</label>
 					</div>
-					{gatewayCatalogError || runtimeProviderError ? (
+					{gatewayCatalogErrorText || runtimeProviderErrorText ? (
 						<div className="form-error" role="alert">
-							configuration_required: {gatewayCatalogError || runtimeProviderError}
+							configuration_required: {gatewayCatalogErrorText || runtimeProviderErrorText}
 						</div>
 					) : null}
 					{error ? (
@@ -577,7 +584,7 @@ export function AgentsPage({
 							<EmptyState
 								title={t('ui.static.no.runtime.providers.c1247c5c', 'No runtime providers')}
 								body={
-									runtimeProviderError ||
+									runtimeProviderErrorText ||
 									t(
 										'app.agents.runtimeProvidersDiscoveryPending',
 										'Runtime providers are not executable until provider discovery returns status.',

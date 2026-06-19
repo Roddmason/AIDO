@@ -56,12 +56,27 @@ corepack pnpm@10.24.0 licenses list
 
 Current status:
 
-- React, ReactDOM, Vite, TypeScript, Radix primitives, Playwright,
-  lucide-react, and `@xyflow/react` are compatible with the MIT project.
+- React, ReactDOM, Vite, TypeScript, Playwright, lucide-react, and
+  `@xyflow/react` are compatible with the MIT project.
+- `@radix-ui/react-dialog`, `@radix-ui/react-dropdown-menu` and
+  `@radix-ui/react-tooltip` were **removed**: zero imports in `web/src` (the
+  Dialog/Drawer/Tooltip UI is hand-rolled in `components/primitives.tsx`).
+- New justified dependencies — added at **exact** versions, all **MIT**, with
+  peer ranges compatible with React 18.3.1 and Vite 6:
+  - `motion@12.40.0` — shell/UI animations (planned consumer: replaces the
+    hand-rolled `motion/useControlMotion.ts`).
+  - `react-resizable-panels@4.11.2` — resizable IDE shell panels (planned
+    consumer: Explorer/Inspector split in `app/AppShell.tsx`).
+  - `@tanstack/react-virtual@3.14.3` — list/table virtualization (planned
+    consumer: long logs / usage-ledger tables).
+- TanStack supply-chain note: `@tanstack/react-virtual` is MIT, headless,
+  dependency-light and actively maintained by the TanStack org; approved for
+  use. This supersedes the prior "avoid TanStack" hold.
 - `gsap` and `@gsap/react` were removed from core dependencies after PNPM
-  reported the GSAP standard license rather than an OSI license. Semantic UI
-  motion now uses React/CSS primitives.
-- Avoid adding TanStack packages until a supply-chain review is documented.
+  reported the GSAP standard license rather than an OSI license; `motion`
+  (MIT) is the approved animation library going forward.
+- `@xyflow/react` is retained for now and will be removed after the DAG is
+  replaced.
 - Do not add CDN-hosted fonts, scripts, or styles.
 
 ## Required Audit Commands

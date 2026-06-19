@@ -1,7 +1,10 @@
-"""AIDO backend source module.
+"""Router HTTP del slice de workspaces: listar, asignar y archivar con evidencia y eventos.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Expone los endpoints ``/api/v1/workspaces`` apoyándose en ``WorkspacesRepository`` para la
+persistencia. El archivado, además de cerrar el workspace, captura manifiesto/diff/snapshot,
+promueve patches grandes a artefactos, crea el paquete de evidencia y emite los eventos de
+dominio (``workspace.created/archived``, ``qa.evidence.created``). La escritura exige el guard
+``require_write`` inyectado por la app.
 """
 
 from __future__ import annotations
@@ -29,6 +32,7 @@ from .repository import WorkspaceConflictError, WorkspaceIsolationError, Workspa
 
 
 def create_router(*, platform: Any, require_write: Callable[[Request], None]) -> APIRouter:
+    """Construye el ``APIRouter`` de workspaces enlazado a la conexión y guard de la plataforma."""
     router = APIRouter()
 
     def repository() -> WorkspacesRepository:

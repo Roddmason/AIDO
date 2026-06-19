@@ -1,7 +1,8 @@
-"""AIDO backend source module.
+"""Adaptador del runtime Claude Code CLI: traduce una request al argv de `claude`.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Resuelve el binario por env vars (AIDO_CLAUDE_COMMAND / CLAUDE_CODE_CLI_PATH), mapea perfiles
+de agente a modelo y arma el comando en modo no interactivo (--print) con edición aceptada y el
+workspace acotado vía --add-dir. La ejecución segura y el registro los hereda de CliRuntime.
 """
 
 from __future__ import annotations
@@ -22,6 +23,8 @@ CLAUDE_PROFILES = {
 
 
 class ClaudeCodeCliRuntime(CliRuntime):
+    """Runtime CLI para Claude Code, con perfiles que fijan modelo y esfuerzo por rol."""
+
     runtime_id = "claude_code_cli"
     display_name = "Claude Code CLI"
 
@@ -39,6 +42,11 @@ class ClaudeCodeCliRuntime(CliRuntime):
         )
 
     def build_command(self, request: RuntimeRequest) -> list[str]:
+        """Arma el argv de `claude --print` para el workspace validado; el prompt va al final.
+
+        El modelo explícito de la request gana sobre el del perfil; los extra_args se interponen
+        antes del prompt para no romper su posición posicional.
+        """
         workspace = self._validate_workspace(request)
         self._validate_safe_args(request)
         profile = CLAUDE_PROFILES.get(request.profile or "", {})

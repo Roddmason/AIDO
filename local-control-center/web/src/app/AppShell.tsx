@@ -1,7 +1,8 @@
 /**
- * @file AIDO frontend source module.
- * @copyright Copyright (c) AIDO.
- * @author Roddmason
+ * IDE shell layout that frames every page with the standard chrome.
+ *
+ * Lays out the activity rail, explorer, header, content slot, inspector and status
+ * bar, and owns the local collapse/open state of the explorer and inspector panels.
  */
 
 import type { ReactNode, Ref } from 'react';
@@ -17,6 +18,11 @@ import { WorkbenchHeader } from './WorkbenchHeader';
 
 type LanguageOption = { code: string; name: string; nativeName: string; enabled: boolean };
 
+/**
+ * Frames the active page with the IDE chrome and renders it through `children`.
+ * Explorer collapse and inspector visibility are local UI state; everything else
+ * (routing, data, selection) is supplied by the App container via props.
+ */
 export function AppShell({
 	area,
 	page,

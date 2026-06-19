@@ -1,7 +1,9 @@
-"""AIDO backend source module.
+"""Descubre el perfil de un proyecto leyendo sus manifiestos (package.json, pyproject, pom, etc.).
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Cada parser por ecosistema extrae nombre, fuentes y runtimes detectados sin ejecutar nada;
+``discover_project_path`` los combina, deduplica runtimes y sugiere nombre y plantilla.
+Es solo lectura y acota el tamaño de cada manifiesto a ``MAX_MANIFEST_BYTES`` para no leer
+archivos arbitrariamente grandes.
 """
 
 from __future__ import annotations
@@ -222,6 +224,12 @@ def _detect_terraform(root: Path) -> tuple[list[dict[str, Any]], list[dict[str, 
 
 
 def discover_project_path(path: str | Path) -> dict[str, Any]:
+    """Inspecciona una ruta y resume runtimes, manifiestos, nombre y plantilla sugeridos.
+
+    Corre cada parser de ecosistema sobre el directorio (o el padre, si ``path`` es un
+    archivo), añade Terraform y Git, y deduplica runtimes por id. No falla si la ruta no
+    existe: refleja ``exists``/``isDirectory`` y degrada el nombre a ``root.name``.
+    """
     root = Path(path).expanduser()
     exists = root.exists()
     manifest_root = root if root.is_dir() else root.parent

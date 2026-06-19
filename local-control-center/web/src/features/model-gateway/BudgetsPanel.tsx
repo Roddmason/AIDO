@@ -1,7 +1,6 @@
 /**
- * @file AIDO frontend source module.
- * @copyright Copyright (c) AIDO.
- * @author Roddmason
+ * Panel de solo lectura que lista las reglas de presupuesto del Model Gateway.
+ * Cada fila resume el alcance (tipo:id), los topes de costo/tokens, el periodo y la acción al excederse.
  */
 import type { ModelGatewayBudgetRule } from '../../api/types';
 import { DataTable, EmptyState } from '../../components/primitives';

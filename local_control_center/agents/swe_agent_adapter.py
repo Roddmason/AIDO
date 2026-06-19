@@ -1,7 +1,8 @@
-"""AIDO backend source module.
+"""Optional SWE-agent CLI adapter that runs issue-to-patch work behind the broker.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Mirrors the OpenHands adapter for the SWE-agent runtime: advertises detection status
+and, on execution, re-validates the tool call against the SWE-agent runtime contract
+before delegating to the restricted subprocess sandbox in an isolated workspace.
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ from .runtime_contracts import get_runtime_contract, validate_runtime_tool_call
 
 
 def swe_agent_status() -> dict[str, Any]:
+    """Report whether the SWE-agent CLI/package is detectable and its runtime contract."""
     cli_available = shutil.which("sweagent") is not None or shutil.which("swe-agent") is not None
     package_available = (
         importlib.util.find_spec("sweagent") is not None or importlib.util.find_spec("swe_agent") is not None
@@ -35,10 +37,17 @@ def swe_agent_status() -> dict[str, Any]:
 
 
 class SweAgentBrokerAdapter:
+    """Broker-facing adapter that validates and runs SWE-agent CLI tool calls."""
+
     def __init__(self) -> None:
         self.sandbox = RestrictedSubprocessSandbox()
 
     def execute(self, *, tool_call: dict[str, Any], policy_input: dict[str, Any]) -> dict[str, Any]:
+        """Run an approved SWE-agent tool call after contract, availability, and argv checks.
+
+        Blocks (without executing) when the runtime contract fails, the adapter is not
+        installed, argv is not a structured list, or the executable is not a SWE-agent CLI.
+        """
         validation = validate_runtime_tool_call("swe_agent", tool_call, policy_input)
         if not validation["valid"]:
             return {

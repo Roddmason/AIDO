@@ -1,7 +1,11 @@
-"""AIDO backend source module.
+"""Endpoints HTTP del slice de seguridad: politicas, grants y perfiles de sandbox.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Expone el router FastAPI que evalua acciones, lista gobernanza y revoca/edita grants y
+sandboxes. Invariantes de borde que garantiza antes de tocar el repositorio: toda mutacion
+exige autorizacion de escritura (``require_write``) y una razon no vacia, y valida/sanea el
+payload de edicion de sandbox; ante violacion lanza ``HTTPException`` (401/403 via require_write,
+422 por payload invalido, 404 si el recurso no existe). Tambien escala a riesgo de gobernanza
+toda decision deny/requires_approval/requires_human.
 """
 
 from __future__ import annotations
@@ -33,6 +37,7 @@ from .sandbox import DockerSandbox, RestrictedSubprocessSandbox
 
 
 def required_reason(body: dict[str, Any]) -> str:
+    """Extrae y exige una razon no vacia del cuerpo; lanza ``HTTPException`` 422 si falta."""
     reason = str(body.get("reason") or "").strip()
     if not reason:
         raise HTTPException(status_code=422, detail="Revocation reason is required.")
@@ -45,6 +50,7 @@ SAFE_DOCKER_NETWORKS = {"none"}
 
 
 async def read_json_body(request: Request) -> dict[str, Any]:
+    """Lee el cuerpo como objeto JSON; lanza ``HTTPException`` 422 si no lo es, 499 al desconectar."""
     try:
         body = await request.json()
     except ClientDisconnect as error:
@@ -57,6 +63,13 @@ async def read_json_body(request: Request) -> dict[str, Any]:
 
 
 def validate_sandbox_profile_patch(body: dict[str, Any]) -> dict[str, Any]:
+    """Valida y depura un patch de perfil de sandbox antes de aplicarlo.
+
+    Comprueba imagenes (regex de catalogo, sin espacios), restringe redes y default a
+    ``network=none`` (limite del MVP), valida formato de recursos y el rango de timeout, y limita
+    el campo status a active/disabled. Lanza ``HTTPException`` 422 ante cualquier valor invalido,
+    devolviendo el patch saneado (sin la clave ``reason``) si todo cumple.
+    """
     patch = {key: value for key, value in body.items() if key != "reason"}
     if "allowedImages" in patch:
         images = patch["allowedImages"]
@@ -103,6 +116,12 @@ def validate_sandbox_profile_patch(body: dict[str, Any]) -> dict[str, Any]:
 
 
 def create_router(*, platform: Any, require_write: Callable[[Request], None]) -> APIRouter:
+    """Construye el router de seguridad enlazado a la plataforma y al guard de escritura.
+
+    ``require_write`` es la barrera de autorizacion que cada mutacion invoca antes de tocar el
+    repositorio; ``platform`` provee la conexion y el cwd para repositorio, workspaces y bus de
+    eventos.
+    """
     router = APIRouter()
 
     def repository() -> SecurityPolicyRepository:

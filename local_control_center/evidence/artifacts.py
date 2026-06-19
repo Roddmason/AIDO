@@ -1,7 +1,9 @@
-"""AIDO backend source module.
+"""Almacén en disco de artefactos de evidencia y promoción de payloads grandes.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Escribe artefactos bajo `<root>/.tmp/evidence-artifacts/` con su hash SHA-256, y promueve a
+ese almacén los logs, diffs y screenshots que exceden los límites inline para no inflar la fila
+del paquete. Todo contenido textual pasa por `redact_secrets`. También limpia artefactos
+huérfanos comparándolos contra el conjunto de rutas aún referenciadas.
 """
 
 from __future__ import annotations
@@ -19,10 +21,12 @@ INLINE_LOG_LIMIT_BYTES = 12_000
 
 
 def evidence_artifact_root(root: Path) -> Path:
+    """Devuelve el directorio donde viven los artefactos para un root de trabajo dado."""
     return root / ".tmp" / "evidence-artifacts"
 
 
 def resolved_artifact_root(root: Path) -> Path:
+    """Versión canónica (resuelta) del root de artefactos, base para confinar rutas de descarga."""
     return evidence_artifact_root(root).resolve(strict=False)
 
 
@@ -33,6 +37,7 @@ def _artifact_file_entry(path: Path) -> dict[str, Any]:
 
 
 def write_text_artifact(*, root: Path, artifact_id: str, suffix: str, content: str) -> dict[str, Any]:
+    """Escribe contenido textual (UTF-8) como artefacto y devuelve su ruta, hash y tamaño."""
     artifact_dir = evidence_artifact_root(root)
     artifact_dir.mkdir(parents=True, exist_ok=True)
     path = artifact_dir / f"{artifact_id}{suffix}"
@@ -47,6 +52,7 @@ def write_text_artifact(*, root: Path, artifact_id: str, suffix: str, content: s
 
 
 def write_binary_artifact(*, root: Path, artifact_id: str, suffix: str, content: bytes) -> dict[str, Any]:
+    """Escribe bytes crudos como artefacto y devuelve su ruta, hash y tamaño."""
     artifact_dir = evidence_artifact_root(root)
     artifact_dir.mkdir(parents=True, exist_ok=True)
     path = artifact_dir / f"{artifact_id}{suffix}"
@@ -60,6 +66,7 @@ def write_binary_artifact(*, root: Path, artifact_id: str, suffix: str, content:
 
 
 def artifact_ref(artifact: dict[str, Any]) -> dict[str, Any]:
+    """Resume un artefacto en la referencia compacta (id/kind/hash/name/sizeBytes) que guarda el paquete."""
     metadata = artifact.get("metadata") if isinstance(artifact.get("metadata"), dict) else {}
     ref = {
         "id": artifact.get("id"),
@@ -73,6 +80,7 @@ def artifact_ref(artifact: dict[str, Any]) -> dict[str, Any]:
 
 
 def artifact_hashes(artifacts: list[dict[str, Any]]) -> dict[str, str]:
+    """Indexa los hashes de los artefactos tanto por nombre como por id, para verificación cruzada."""
     hashes: dict[str, str] = {}
     for artifact in artifacts:
         content_hash = artifact.get("hash")
@@ -89,6 +97,7 @@ def artifact_hashes(artifacts: list[dict[str, Any]]) -> dict[str, str]:
 
 
 def artifact_records_from_ids(repo: Any, artifact_ids: list[str]) -> list[dict[str, Any]]:
+    """Resuelve ids a registros de artefacto vía el repo, deduplicando y omitiendo los inexistentes."""
     artifacts: list[dict[str, Any]] = []
     for artifact_id in sorted({str(item) for item in artifact_ids if item}):
         try:
@@ -103,6 +112,14 @@ def promote_large_git_patches(
     root: Path,
     diff_refs: list[dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Mueve los patches git que superan el límite inline a artefactos `.patch` en disco.
+
+    Para cada diff_ref `git_diff` con `patchFull` grande, escribe el patch como artefacto y deja
+    en su lugar una referencia truncada (id/tamaño/hash). Los patches pequeños quedan inline.
+
+    Returns:
+        Las refs de diff promovidas y las specs de artefacto creadas, en ese orden.
+    """
     promoted_refs: list[dict[str, Any]] = []
     artifact_specs: list[dict[str, Any]] = []
     for diff_ref in diff_refs:
@@ -153,6 +170,14 @@ def cleanup_unreferenced_artifacts(
     referenced_paths: set[str],
     dry_run: bool = True,
 ) -> dict[str, Any]:
+    """Detecta (y en `dry_run=False` borra) los ficheros del root no presentes en `referenced_paths`.
+
+    Compara las rutas reales bajo el root de artefactos contra las aún referenciadas por algún
+    artefacto registrado. En modo dry-run solo informa; nunca toca ficheros fuera del root.
+
+    Returns:
+        Resumen con root, huérfanos detectados, borrados efectivos y cuántos referenciados se conservaron.
+    """
     artifact_root = resolved_artifact_root(root)
     if not artifact_root.exists():
         return {
@@ -198,6 +223,14 @@ def promote_large_logs(
     root: Path,
     logs: list[dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Redacta cada log y promueve a artefacto `.log` los que exceden el límite inline.
+
+    Los logs cortos quedan inline (ya redactados); los grandes se escriben en disco y se
+    reemplazan por una referencia truncada (id/tamaño/hash).
+
+    Returns:
+        Los logs resultantes y las specs de artefacto generadas, en ese orden.
+    """
     promoted_logs: list[dict[str, Any]] = []
     artifact_specs: list[dict[str, Any]] = []
     for log in logs:
@@ -243,6 +276,14 @@ def promote_execution_result_outputs(
     root: Path,
     execution_result: dict[str, Any],
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Redacta stdout/stderr de una ejecución y promueve a artefacto los streams demasiado grandes.
+
+    Mantiene los streams cortos inline; los largos se sacan del dict y se sustituyen por
+    referencias (`<stream>ArtifactId/SizeBytes/Hash/Truncated`).
+
+    Returns:
+        El resultado de ejecución ajustado y las specs de artefacto generadas, en ese orden.
+    """
     promoted_result = dict(execution_result)
     artifact_specs: list[dict[str, Any]] = []
     for stream in ("stdout", "stderr"):
@@ -288,6 +329,14 @@ def promote_screenshots(
     root: Path,
     screenshot_refs: list[dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Decodifica los screenshots base64 y los escribe como artefactos binarios.
+
+    Cada screenshot con `contentBase64` válido se persiste (png/bin según mimeType) y su ref se
+    sanea reemplazando el base64 por id/tamaño/hash; los base64 inválidos se descartan del ref.
+
+    Returns:
+        Las refs de screenshot saneadas y las specs de artefacto generadas, en ese orden.
+    """
     promoted_refs: list[dict[str, Any]] = []
     artifact_specs: list[dict[str, Any]] = []
     for screenshot in screenshot_refs:

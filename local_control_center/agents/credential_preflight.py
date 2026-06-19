@@ -1,7 +1,8 @@
-"""AIDO backend source module.
+"""Preflight de credenciales: valida refs antes de un workflow sin filtrar secretos.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Seguridad: cada ref se resuelve vía CredentialResolver y solo se reportan los campos públicos
+(ref/status/source/message); el valor resuelto nunca sale del preflight. El modo "fetch" exige
+status "configured"; el modo "status" admite además "unverified". Una lista vacía siempre es ok=False.
 """
 
 from __future__ import annotations
@@ -18,6 +19,7 @@ PASSING_STATUS_BY_MODE = {
 
 
 def refs_from_environment() -> list[str]:
+    """Lee las refs a validar desde AIDO_CREDENTIAL_PREFLIGHT_REFS (separadas por coma/punto y coma/salto)."""
     raw = os.environ.get("AIDO_CREDENTIAL_PREFLIGHT_REFS", "")
     refs: list[str] = []
     for chunk in raw.replace("\n", ",").replace(";", ",").split(","):

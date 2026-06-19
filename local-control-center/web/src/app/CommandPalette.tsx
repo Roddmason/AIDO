@@ -1,7 +1,8 @@
 /**
- * @file AIDO frontend source module.
- * @copyright Copyright (c) AIDO.
- * @author Roddmason
+ * IDE command palette: fuzzy-filtered, keyboard-driven quick-action launcher.
+ *
+ * Groups actions by intent (navigate/actions/runtime) and exposes them as an ARIA
+ * combobox+listbox. Open/close and Escape are owned by the App shortcut layer.
  */
 
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react';

@@ -1,7 +1,6 @@
 /**
- * @file AIDO frontend source module.
- * @copyright Copyright (c) AIDO.
- * @author Roddmason
+ * Tablist + panel chrome for the Workbench center column, with ARIA roles and roving-tabindex
+ * keyboard navigation (Arrow/Home/End). The caller owns the active tab and renders panel content.
  */
 
 import type { KeyboardEvent, ReactNode } from 'react';
@@ -11,8 +10,10 @@ import { Badge } from '../../components/primitives';
 import { useI18n } from '../../i18n/I18nProvider';
 
 export type WorkbenchTabId = 'task' | 'timeline' | 'diff' | 'evidence' | 'logs';
+/** Descriptor the page passes per tab; `count` renders an optional badge (e.g. pending items). */
 export type WorkbenchTabDef = { id: WorkbenchTabId; label: string; count?: number };
 
+/** Accessible tablist whose selected panel wraps `children`; selection is fully controlled. */
 export function WorkbenchTabs({
 	tabs,
 	activeTab,

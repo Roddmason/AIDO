@@ -1,7 +1,11 @@
-"""AIDO backend source module.
+"""Motor de politicas: decide allow/deny/requires_approval/requires_human por accion.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Combina el perfil de permisos del rol, la clasificacion de riesgo del comando y el confinamiento
+al workspace para emitir la decision y su razon auditada. Invariantes que garantiza: ninguna
+ruta fuera del workspace asignado se permite sin aprobacion; los deploys a prod, force-push y
+acciones criticas escalan a revision humana; cada operacion de agente exige su propio agentId,
+tool, perfil y contexto (workspace + agent run) o se deniega. Funcion pura: no ejecuta ni
+persiste, solo devuelve la decision; no lanza.
 """
 
 from __future__ import annotations
@@ -27,6 +31,12 @@ PROFILE_DEFAULTS: dict[str, str] = {
 
 
 def is_path_inside(path: str | None, root: str | None) -> bool:
+    """Confirma que ``path`` resuelve dentro de ``root`` tras normalizar ``..`` y symlinks.
+
+    Considera dentro cuando falta path o root (no hay restriccion declarada). Resuelve ambas
+    rutas para evitar escapes via traversal; ante rutas invalidas devuelve ``False`` (fuera),
+    fallando hacia el lado seguro en vez de lanzar.
+    """
     if not path or not root:
         return True
     try:
@@ -39,6 +49,12 @@ def is_path_inside(path: str | None, root: str | None) -> bool:
 
 
 def permission_profile_for(input_payload: dict[str, Any]) -> str:
+    """Resuelve el perfil de permisos efectivo: explicito del payload o derivado del rol.
+
+    Un ``permissionProfile`` explicito tiene prioridad; si no, mapea el rol a su perfil por
+    defecto. Invariante: un rol desconocido cae al perfil ``plan`` (el mas restrictivo, sin
+    shell), nunca a uno mas permisivo.
+    """
     explicit = input_payload.get("permissionProfile") or input_payload.get("permission_profile")
     if explicit:
         return str(explicit)
@@ -47,6 +63,12 @@ def permission_profile_for(input_payload: dict[str, Any]) -> str:
 
 
 def allowlisted_shell_categories(profile: str, categories: list[str]) -> list[str]:
+    """Devuelve las categorias shell permitidas para el perfil, segun su allowlist.
+
+    ``dev_safe`` permite test/build/lint/diagnostico/lectura; ``qa`` añade typecheck, quality y
+    security_scan. Invariante: cualquier otro perfil (p. ej. ``plan``, ``release``) obtiene lista
+    vacia, de modo que el motor no podra conceder ``allow`` por allowlist.
+    """
     allowed: list[str] = []
     if profile == "dev_safe":
         if "test" in categories:
@@ -80,6 +102,14 @@ def allowlisted_shell_categories(profile: str, categories: list[str]) -> list[st
 
 
 def evaluate_action(input_payload: dict[str, Any]) -> dict[str, Any]:
+    """Evalua una accion y devuelve ``{decision, riskLevel, reason, categories}``.
+
+    Aplica las puertas de seguridad en orden de severidad: confinamiento al workspace, deploy a
+    prod y git/shell destructivo (revision humana), luego las reglas por operacion de agente
+    (cada una exige agentId, tool, perfil y contexto correctos o deniega), y finalmente las reglas
+    por perfil para shell y adaptadores de runtime. Invariante: el perfil ``plan`` nunca ejecuta
+    shell ni adaptadores; lo no allowlisted cae a ``requires_approval``, no a ``allow``.
+    """
     command = str(input_payload.get("command") or "")
     git_operation = str(input_payload.get("gitOperation") or input_payload.get("git_operation") or "")
     deployment_target = str(

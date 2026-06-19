@@ -1,7 +1,8 @@
-"""AIDO backend source module.
+"""Renderiza un paquete de evidencia QA como informe Markdown exportable.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Aplana el paquete, sus resultados de test y artefactos en secciones legibles (plan, checklist,
+resultados, diffs, artefactos y notas de riesgo) para descarga humana. Solo formatea: no consulta
+el repositorio ni altera el estado.
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ def build_markdown_report(
     test_results: list[dict[str, Any]],
     artifacts: list[dict[str, Any]],
 ) -> str:
+    """Compone el informe Markdown del paquete con sus resultados de test y artefactos asociados."""
     lines = [
         f"# QA Evidence Package: {evidence['taskId']}",
         "",

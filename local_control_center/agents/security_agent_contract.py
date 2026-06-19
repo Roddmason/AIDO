@@ -1,7 +1,9 @@
-"""AIDO backend source module.
+"""Declares the SecurityAgent I/O contract and computes its runtime readiness.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Owns the SecurityAgent's stable identity, allowed tools, accepted verdicts, and the
+input/output JSON schema, plus the logic that decides whether an optional model runtime
+is eligible to assist. The deterministic controls are always executable; the model
+runtime only augments them and never overrides the deterministic verdict.
 """
 
 from __future__ import annotations
@@ -16,6 +18,7 @@ SECURITY_AGENT_VERDICTS = {"passed", "risk", "blocked"}
 
 
 def security_agent_contract() -> dict[str, Any]:
+    """Return the SecurityAgent contract: I/O schema, allowed tools, and required guarantees."""
     return {
         "id": SECURITY_AGENT_ID,
         "inputSchema": {
@@ -68,6 +71,11 @@ def security_agent_contract() -> dict[str, Any]:
 
 
 def is_security_model_runtime(runtime: dict[str, Any]) -> bool:
+    """Return whether a runtime status qualifies as an optional SecurityAgent model assistant.
+
+    Requires an eligible runtime id with an executable, and (for Ollama) at least one
+    available chat model.
+    """
     runtime_id = str(runtime.get("id") or "")
     if runtime_id not in SECURITY_AGENT_MODEL_RUNTIMES or not runtime.get("executable"):
         return False
@@ -80,6 +88,11 @@ def is_security_model_runtime(runtime: dict[str, Any]) -> bool:
 
 
 def security_agent_status(runtime_statuses: list[dict[str, Any]]) -> dict[str, Any]:
+    """Summarize SecurityAgent readiness and pick a preferred optional model runtime.
+
+    Deterministic controls report executable regardless of model availability; eligible
+    model runtimes are ranked by the configured runtime order to select a candidate.
+    """
     deterministic_controls_executable = bool(SECURITY_AGENT_ALLOWED_TOOLS)
     model_candidates = [
         runtime

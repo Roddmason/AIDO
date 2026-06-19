@@ -1,7 +1,10 @@
-"""AIDO backend source module.
+"""Contrato base y barrera de seguridad para ejecutar agentes de codificación vía CLI.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Define el ABC CliRuntime que detecta el binario, valida workspace/flags, somete cada
+ejecución a la policy y al sandbox de subprocesos, y persiste el resultado. Aquí viven
+los DTOs request/resultado y el parseo tolerante de uso de tokens desde stdout/stderr.
+Invariante: ninguna ejecución real ocurre sin gate (AIDO_ENABLE_CLI_RUNTIMES=true) y
+decisión 'allow' de la policy; los flags peligrosos se rechazan antes de construir el comando.
 """
 
 from __future__ import annotations
@@ -35,6 +38,8 @@ DANGEROUS_CLI_FLAGS = {
 
 
 class RuntimeDetection(BaseModel):
+    """Resultado de sondear si un runtime CLI está instalado, con su ruta y versión."""
+
     runtime: str
     status: str
     executable: str | None = None
@@ -43,12 +48,19 @@ class RuntimeDetection(BaseModel):
 
 
 class RuntimeHealth(BaseModel):
+    """Estado de salud derivado de la detección, listo para exponer en health checks."""
+
     runtime: str
     status: str
     message: str = ""
 
 
 class RuntimeRequest(BaseModel):
+    """Solicitud de ejecución de un runtime CLI: prompt, workspace y contexto de policy/workflow.
+
+    Acepta nombres camelCase (alias) además del snake_case interno para integrarse con el API web.
+    """
+
     model_config = ConfigDict(populate_by_name=True)
 
     runtime: str
@@ -67,6 +79,12 @@ class RuntimeRequest(BaseModel):
 
 
 class RuntimeResult(BaseModel):
+    """Desenlace de una ejecución: estado, comando lanzado, salidas, código y uso de tokens.
+
+    El estado distingue blocked (rechazado por validación/gate/policy) de completed/failed
+    (ejecutado por el sandbox) y created (sesión manual sin ejecución real).
+    """
+
     runtime: str
     status: str
     command: list[str] = Field(default_factory=list)
@@ -78,6 +96,12 @@ class RuntimeResult(BaseModel):
 
 
 class CliRuntime(ABC):
+    """Plantilla de adaptador para un agente CLI: detección, validación, ejecución y registro.
+
+    Las subclases solo aportan build_command (la línea de comando específica del CLI); la
+    clase base centraliza el flujo seguro común y la persistencia opcional de cada resultado.
+    """
+
     runtime_id: str
     display_name: str
 
@@ -126,6 +150,7 @@ class CliRuntime(ABC):
             raise ValueError("dangerous CLI flags are blocked by runtime policy")
 
     def detect(self) -> RuntimeDetection:
+        """Resuelve el binario en el PATH y reporta si está instalado junto con su versión."""
         executable = self._which()
         if not executable:
             return RuntimeDetection(
@@ -140,15 +165,28 @@ class CliRuntime(ABC):
         )
 
     def health_check(self) -> RuntimeHealth:
+        """Traduce la detección a un veredicto de salud (healthy si el binario está instalado)."""
         detection = self.detect()
         status = "healthy" if detection.status == "installed" else detection.status
         return RuntimeHealth(runtime=self.runtime_id, status=status, message=detection.message)
 
     @abstractmethod
     def build_command(self, request: RuntimeRequest) -> list[str]:
+        """Construye el argv del CLI tras validar workspace y flags.
+
+        Raises:
+            ValueError: si el workspace no es válido o la request trae flags peligrosos.
+        """
         raise NotImplementedError
 
     def run(self, request: RuntimeRequest) -> RuntimeResult:
+        """Ejecuta el CLI bajo el sandbox tras pasar validación, gate y policy; persiste el resultado.
+
+        Invariante: solo se invoca el sandbox si el feature flag AIDO_ENABLE_CLI_RUNTIMES=true
+        y la policy decide 'allow'; en cualquier otro caso devuelve un resultado 'blocked' con el
+        motivo. No propaga ValueError de build_command: lo captura y lo materializa como bloqueo.
+        Cada decisión (deny o ejecución) queda registrada vía _record_result.
+        """
         try:
             command = self.build_command(request)
         except ValueError as error:
@@ -272,6 +310,7 @@ class CliRuntime(ABC):
         )
 
     def parse_usage(self, result: RuntimeResult) -> UsageRecord | None:
+        """Extrae el conteo de tokens del JSON emitido por el CLI en stdout o stderr, si existe."""
         if result.usage is not None:
             return result.usage
         for payload in _json_payloads_from_text(result.stdout):

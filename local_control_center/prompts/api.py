@@ -1,7 +1,7 @@
-"""AIDO backend source module.
+"""Router HTTP del slice de prompts: expone listar y hacer upsert de plantillas.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Cablea los endpoints REST contra `PromptsRepository`, abriendo el repositorio sobre la conexión
+de la plataforma por petición y exigiendo permiso de escritura antes de mutar el catálogo.
 """
 
 from __future__ import annotations
@@ -16,6 +16,7 @@ from .repository import PromptsRepository
 
 
 def create_router(*, platform: Any, require_write: Callable[[Request], None]) -> APIRouter:
+    """Construye el router de prompts ligado a la plataforma y al guard de escritura dados."""
     router = APIRouter()
 
     def repository() -> PromptsRepository:

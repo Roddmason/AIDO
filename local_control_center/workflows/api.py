@@ -1,7 +1,10 @@
-"""AIDO backend source module.
+"""FastAPI router for workflows: lifecycle, issue-to-patch/PR runs and governed gate advances.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Exposes the workflow endpoints (list/create/start, pause/resume/cancel, detail) plus the
+issue-to-patch and issue-to-pr transitions (run, approve, promote, create PR) and the
+governed gate-advance endpoint that enforces pr_review/release_gate/retro before a step may
+proceed. Request bodies are validated here (raising HTTP 422) and persistence/orchestration is
+delegated to the repositories and runner state machines; all write routes pass ``require_write``.
 """
 
 from __future__ import annotations
@@ -89,6 +92,14 @@ def _manual_override(step: dict[str, Any]) -> dict[str, str]:
 
 
 def validate_workflow_create_body(body: WorkflowCreateRequest) -> dict[str, Any]:
+    """Validate and normalize a create request into repository kwargs.
+
+    Checks the kind against the allowed set, requires a title (falling back to ``idea``) of at
+    most 180 chars, and runs ``validate_workflow_metadata`` on the metadata.
+
+    Raises:
+        HTTPException: 422 on any invalid field.
+    """
     payload = body.model_dump(by_alias=True)
     kind = str(payload.get("kind") or "idea_to_pr").strip().lower()
     if kind not in ALLOWED_WORKFLOW_KINDS:
@@ -112,6 +123,14 @@ def validate_workflow_create_body(body: WorkflowCreateRequest) -> dict[str, Any]
 
 
 def validate_issue_to_patch_body(body: IssueToPatchRequest) -> dict[str, Any]:
+    """Validate an issue-to-patch request and return its aliased payload.
+
+    Requires a title (<=180 chars) and ``issueText``, and checks each ``qaCommands`` entry is a
+    non-empty structured argv list (no shell strings).
+
+    Raises:
+        HTTPException: 422 on any invalid field.
+    """
     payload = body.model_dump(by_alias=True)
     title = str(payload.get("title") or "").strip()
     issue_text = str(payload.get("issueText") or "").strip()
@@ -131,10 +150,16 @@ def validate_issue_to_patch_body(body: IssueToPatchRequest) -> dict[str, Any]:
 
 
 def validate_issue_to_pr_body(body: IssueToPrRequest) -> dict[str, Any]:
+    """Validate an issue-to-pr request, reusing the issue-to-patch field checks."""
     return validate_issue_to_patch_body(body)
 
 
 def create_router(*, platform: Any, require_write: Callable[[Request], None]) -> APIRouter:
+    """Build the workflows ``APIRouter`` bound to a platform connection and write guard.
+
+    ``platform`` supplies the shared SQLite connection and working dir for the repositories and
+    runners; ``require_write`` is invoked on every mutating route to enforce write authorization.
+    """
     router = APIRouter()
 
     def repository() -> WorkflowsRepository:

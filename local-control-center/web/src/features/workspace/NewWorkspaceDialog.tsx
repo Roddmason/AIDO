@@ -1,7 +1,9 @@
 /**
- * @file AIDO frontend source module.
- * @copyright Copyright (c) AIDO.
- * @author Roddmason
+ * Three-step wizard (source -> review -> open) for opening an existing folder or
+ * creating a new workspace, then turning it into a project.
+ * Pure presentation/step orchestration: all detection and the create call live in the
+ * `useProjectDiscovery` hook; this component only sequences the steps, gates Next on
+ * validation, and reports the created project id back to the caller.
  */
 
 import { FolderOpen, FolderPlus, Search } from 'lucide-react';
@@ -19,6 +21,10 @@ type DialogStep = 'source' | 'review' | 'open';
 
 const STEP_ORDER: DialogStep[] = ['source', 'review', 'open'];
 
+/**
+ * New-workspace wizard modal. Re-seeds its step and the hook's state each time it
+ * (re)opens, and calls `onCreated` with the new project id once the open step succeeds.
+ */
 export function NewWorkspaceDialog({
 	open,
 	overview,

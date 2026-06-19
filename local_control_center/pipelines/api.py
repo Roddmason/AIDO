@@ -1,7 +1,8 @@
-"""AIDO backend source module.
+"""Endpoints HTTP de pipelines: listar y crear, publicando el evento de creación.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Expone `GET/POST /api/v1/pipelines`. La creación exige permiso de escritura, delega la persistencia
+en `PipelinesRepository` y emite `pipeline.created` en el `EventBus` para que el resto del sistema
+reaccione. La dependencia `platform` aporta la conexión SQLite por petición.
 """
 
 from __future__ import annotations
@@ -18,6 +19,7 @@ from .repository import PipelinesRepository
 
 
 def create_router(*, platform: Any, require_write: Callable[[Request], None]) -> APIRouter:
+    """Construye el `APIRouter` de pipelines enlazado a la plataforma y al guard de escritura."""
     router = APIRouter()
 
     def repository() -> PipelinesRepository:

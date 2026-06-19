@@ -1,7 +1,9 @@
-"""AIDO backend source module.
+"""Implementa el contrato de proveedor sobre la API de chat estilo OpenAI (`/v1`).
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Habla el dialecto OpenAI (endpoints `/models` y `/chat/completions`, auth `Bearer`)
+con `urllib`, y sirve de base reutilizable para todos los proveedores compatibles
+(OpenAI, OpenRouter, NVIDIA NIM, LiteLLM). Toda llamada de red real queda detras del
+interruptor `real_provider_calls_enabled()` y redacta secretos antes de exponer payloads.
 """
 
 from __future__ import annotations
@@ -28,10 +30,13 @@ from .base import (
 
 
 def real_provider_calls_enabled() -> bool:
+    """Indica si las llamadas de red reales estan habilitadas; por defecto desactivadas (fail-closed)."""
     return os.environ.get("AIDO_ENABLE_REAL_PROVIDER_CALLS", "false").lower() == "true"
 
 
 class OpenAICompatibleProvider(ModelProvider):
+    """Proveedor base que habla la API estilo OpenAI; las variantes solo ajustan url/credencial."""
+
     def __init__(
         self,
         *,
@@ -59,6 +64,7 @@ class OpenAICompatibleProvider(ModelProvider):
         return self.credential_resolver.resolve(self.credential_ref).value or ""
 
     def health_check(self) -> ProviderHealth:
+        """Valida config y credencial sin gastar red; solo toca `/models` si las llamadas reales estan activas."""
         if not self.base_url:
             return ProviderHealth(
                 providerId=self.provider_id,
@@ -111,6 +117,7 @@ class OpenAICompatibleProvider(ModelProvider):
         )
 
     def list_models(self) -> list[ModelInfo]:
+        """Lee `/models`; devuelve [] si no hay URL o la peticion falla. Raises si las llamadas reales estan off."""
         if not real_provider_calls_enabled():
             raise RuntimeError("Real provider discovery is disabled by AIDO_ENABLE_REAL_PROVIDER_CALLS=false")
         if not self.base_url:
@@ -138,6 +145,7 @@ class OpenAICompatibleProvider(ModelProvider):
         ]
 
     def chat_completion(self, request: ModelRequest) -> ModelResponse:
+        """Postea a `/chat/completions` y normaliza la respuesta. Raises si faltan credencial/URL o las llamadas reales estan off."""
         if not real_provider_calls_enabled():
             raise RuntimeError("Real provider calls are disabled by AIDO_ENABLE_REAL_PROVIDER_CALLS=false")
         if not self.base_url or not self._credential():
@@ -169,12 +177,14 @@ class OpenAICompatibleProvider(ModelProvider):
         )
 
     def estimate_cost(self, request: ModelRequest, model: str) -> CostEstimate:
+        """Sin tabla de precios: deja el costo en None y registra el conteo aproximado de tokens en `source`."""
         token_estimate = sum(len(str(message.get("content", "")).split()) for message in request.messages) * 2
         return CostEstimate(
             estimatedCostUsd=None, source=f"unknown:{self.provider_id}:{model}:{token_estimate}"
         )
 
     def parse_usage(self, raw_response: Any) -> UsageRecord:
+        """Mapea el bloque `usage` de OpenAI (prompt/completion + detalles cacheo/reasoning) a UsageRecord."""
         usage = raw_response.get("usage", {}) if isinstance(raw_response, dict) else {}
         input_tokens = int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0)
         output_tokens = int(usage.get("completion_tokens") or usage.get("output_tokens") or 0)

@@ -1,7 +1,8 @@
-"""AIDO backend source module.
+"""Enruta peticiones al agregador OpenRouter usando su API compatible con OpenAI.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+OpenRouter expone modelos de multiples proveedores tras un unico endpoint estilo
+OpenAI, asi que esta clase solo aporta su URL base y deja el resto del comportamiento
+(HTTP, descubrimiento, uso, costo) en `OpenAICompatibleProvider`.
 """
 
 from __future__ import annotations
@@ -12,6 +13,8 @@ from .openai_compatible import OpenAICompatibleProvider
 
 
 class OpenRouterProvider(OpenAICompatibleProvider):
+    """Proveedor para el agregador OpenRouter; solo define su URL base sobre la base compatible."""
+
     def __init__(self, *, base_url: str | None = None, credential_ref: str | None = None):
         super().__init__(
             provider_id="openrouter",

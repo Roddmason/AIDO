@@ -1,7 +1,9 @@
-"""AIDO backend source module.
+"""Contratos de QA real: condiciones que un paquete debe cumplir para declararse 'passed'.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Concentra las reglas anti-falso-positivo del slice: un veredicto 'passed' solo es válido si
+viene de una fuente real, sin tests fallidos, y con resultados trazados a ejecuciones de
+comando reales (modo de ejecución, exitCode 0, toolCall enlazado, hashes de artefacto y una
+decisión de política 'allow'). Devuelve listas de errores; no muta ni persiste evidencia.
 """
 
 from __future__ import annotations
@@ -35,6 +37,12 @@ def _policy_decision_allows(decision: dict[str, Any]) -> bool:
 
 
 def real_qa_command_errors(evidence: dict[str, Any]) -> list[str]:
+    """Reúne todo lo que impide tratar la evidencia como un QA pasado por comando real.
+
+    Exige al menos un testResult con status=passed, exitCode 0 y modo de ejecución
+    sandboxizado, cada uno enlazado a un toolCall presente y a una decisión de política
+    'allow', más hashes de stdout/stderr/output. La lista vacía significa evidencia válida.
+    """
     errors: list[str] = []
     test_results = evidence.get("testResults") or []
     tool_calls = evidence.get("toolCalls") if isinstance(evidence.get("toolCalls"), list) else []
@@ -94,6 +102,7 @@ def real_qa_command_errors(evidence: dict[str, Any]) -> list[str]:
 
 
 def evidence_has_real_qa_pass(evidence: dict[str, Any]) -> bool:
+    """Indica si la evidencia es un 'passed' verdadero: fuente real y sin errores de contrato."""
     return (
         str(evidence.get("qaVerdict") or "").lower() == "passed"
         and str(evidence.get("evidenceSource") or "") in REAL_QA_EVIDENCE_SOURCES
@@ -102,6 +111,7 @@ def evidence_has_real_qa_pass(evidence: dict[str, Any]) -> bool:
 
 
 def failed_test_results(test_results: list[dict[str, Any]] | list[Any]) -> list[dict[str, Any]]:
+    """Filtra los resultados cuyo status cuenta como fallo (blocked/denied/error/failed/timeout)."""
     failed: list[dict[str, Any]] = []
     for result in test_results:
         if not isinstance(result, dict):
@@ -113,6 +123,7 @@ def failed_test_results(test_results: list[dict[str, Any]] | list[Any]) -> list[
 
 
 def qa_passed_without_failed_results(evidence: dict[str, Any]) -> bool:
+    """Alias semántico de `evidence_has_real_qa_pass` usado por callers centrados en el gate de aprobación."""
     return evidence_has_real_qa_pass(evidence)
 
 
@@ -122,6 +133,17 @@ def evidence_package_contract_errors(
     require_runtime_links: bool = False,
     require_workflow_run: bool | None = None,
 ) -> list[str]:
+    """Valida la forma del paquete: campos requeridos, tipos de colección y enlaces de runtime.
+
+    Args:
+        require_runtime_links: exige además los enlaces de ejecución (jobId, agentRunId,
+            workspaceId, runtimeId), runtimeHealth y hashes/artefactos no vacíos.
+        require_workflow_run: si es None, hereda el valor de `require_runtime_links`; cuando es
+            verdadero suma `workflowRunId` a los enlaces obligatorios.
+
+    Returns:
+        Lista de mensajes de error; vacía si el paquete satisface el contrato pedido.
+    """
     errors: list[str] = []
     if require_workflow_run is None:
         require_workflow_run = require_runtime_links

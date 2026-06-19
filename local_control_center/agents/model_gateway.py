@@ -1,7 +1,8 @@
-"""AIDO backend source module.
+"""Ejecuta llamadas de modelo fail-closed: planifica, valida política/presupuesto y registra uso.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Resuelve el proveedor desde la política, bloquea si excede presupuesto o falta configuración, y solo
+ejecuta proveedores remotos cuando AIDO_ENABLE_REAL_PROVIDER_CALLS=true (CLI/manual se bloquean: van por
+sesiones de runtime aprobadas). Toda metadata/error se redacta y el consumo se asienta en el usage_ledger.
 """
 
 from __future__ import annotations
@@ -26,6 +27,7 @@ LOCAL_PROVIDER_TYPES = {"local"}
 
 
 def real_provider_calls_enabled() -> bool:
+    """Indica si AIDO_ENABLE_REAL_PROVIDER_CALLS habilita llamadas reales a proveedores remotos."""
     return os.environ.get("AIDO_ENABLE_REAL_PROVIDER_CALLS", "false").lower() == "true"
 
 
@@ -63,6 +65,7 @@ def _public_error(error: BaseException) -> str:
 
 
 def provider_instance(provider_id: str, *, connection: sqlite3.Connection):
+    """Construye el adaptador de proveedor adecuado, resolviendo base_url y credential_ref de su config."""
     from .provider_accounts import ProviderAccountStore
     from .providers.anthropic_api import AnthropicAPIProvider
     from .providers.litellm_adapter import LiteLLMAdapter
@@ -119,10 +122,13 @@ def _provider_usage_reported(raw_usage: dict[str, Any]) -> bool:
 
 
 class ModelGateway:
+    """Punto único de planificación y ejecución de llamadas de modelo con registro de uso."""
+
     def __init__(self, connection: sqlite3.Connection):
         self.repository = AgentsRepository(connection)
 
     def redact_metadata(self, metadata: dict[str, Any] | None) -> dict[str, Any]:
+        """Redacta secretos de la metadata antes de persistirla o devolverla."""
         return redact_secrets(metadata or {})
 
     def plan_model_call(
@@ -142,6 +148,12 @@ class ModelGateway:
         budget_remaining_usd: float | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        """Arma el plan de una llamada: resuelve candidato desde la política y normaliza el request.
+
+        Returns:
+            Plan con status 'planned' si hay candidato permitido o 'blocked_policy' si ninguno lo es;
+            mensajes y metadata viajan ya redactados.
+        """
         policy: dict[str, Any] | None = None
         candidate: dict[str, Any] | None = None
         if model_policy_id:
@@ -190,6 +202,7 @@ class ModelGateway:
         cost_usd: float = 0.0,
         metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        """Graba un model_call con su consumo y emite la telemetría asociada."""
         model_call = self.repository.record_model_call(
             project_id=project_id,
             agent_run_id=agent_run_id,
@@ -214,6 +227,12 @@ class ModelGateway:
         estimated_cost_usd: float | None,
         budget_remaining_usd: float | None = None,
     ) -> dict[str, Any] | None:
+        """Devuelve un bloqueo de presupuesto si el costo estimado supera el saldo o el tope de la política.
+
+        Returns:
+            None si la ejecución cabe en presupuesto; en caso contrario un dict de estado 'blocked_budget'
+            con el motivo y los montos involucrados.
+        """
         estimated_cost = float(estimated_cost_usd or 0)
         if (
             budget_remaining_usd is not None
@@ -251,6 +270,14 @@ class ModelGateway:
         return None
 
     def execute_model_call(self, planned_call: dict[str, Any]) -> dict[str, Any]:
+        """Ejecuta un plan validando candidato/presupuesto/configuración y registrando siempre el model_call.
+
+        Falla cerrado: ante candidato no permitido, presupuesto excedido, configuración faltante o error del
+        proveedor devuelve un estado de bloqueo/'unavailable' (motivo redactado) sin propagar la excepción.
+
+        Returns:
+            Estado 'completed' con contenido y uso, o un estado de bloqueo/unavailable; siempre con modelCall.
+        """
         from .providers.base import ModelRequest
 
         plan = redact_secrets(planned_call)
@@ -387,6 +414,7 @@ class ModelGateway:
         }
 
     def provider_health(self, provider_id: str) -> dict[str, Any]:
+        """Comprueba la salud de un proveedor y lista sus modelos si está disponible (errores redactados)."""
         configuration = self._provider_configuration(provider_id, runtime_type=None, for_health=True)
         if configuration["status"] != "configured":
             return {
@@ -567,6 +595,12 @@ class ModelGateway:
         agent_run_id: str | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        """Prepara (sin ejecutar) una llamada: valida política y presupuesto y registra un model_call planned.
+
+        Returns:
+            Estado 'planned' con provider/model elegidos, o un estado de bloqueo (policy/budget); siempre
+            con el modelCall persistido para trazabilidad.
+        """
         sanitized_metadata = self.redact_metadata(metadata)
         plan = self.plan_model_call(
             project_id=project_id,
@@ -634,6 +668,7 @@ class ModelGateway:
 
 
 def ollama_status(*, base_url: str | None = None) -> dict[str, Any]:
+    """Sondea el endpoint local de Ollama y devuelve su disponibilidad y los modelos detectados."""
     resolved_base_url = (base_url or "http://127.0.0.1:11434").rstrip("/")
     try:
         request = Request(f"{resolved_base_url}/api/tags", method="GET")

@@ -1,7 +1,6 @@
 /**
- * @file AIDO frontend source module.
- * @copyright Copyright (c) AIDO.
- * @author Roddmason
+ * Workbench Timeline panel: the run-progress view. Combines signal counters, the
+ * detailed run timeline, the project delivery flow and recent runs/pipelines/events.
  */
 import type { IssueToPatchResponse } from '../../../api/client';
 import type { Overview } from '../../../api/types';

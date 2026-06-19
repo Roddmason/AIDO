@@ -1,7 +1,10 @@
 /**
- * @file AIDO frontend source module.
- * @copyright Copyright (c) AIDO.
- * @author Roddmason
+ * Hand-rolled HTTP client over the generated OpenAPI layer for the control plane.
+ *
+ * Each export is a typed call for one backend operation; mutations attach the
+ * write token via `X-Local-Control-Token`. Request/response aliases here keep call
+ * sites readable while staying anchored to the generated operation contracts, so a
+ * server schema change surfaces as a type error rather than a silent drift.
  */
 
 import type { ApiOperationId, OperationRequestBody, OperationResponse } from './generated/openapi';
@@ -10,8 +13,10 @@ import type { Overview, RetrievalStatus, RuntimeProviders } from './types';
 
 const WRITE_HEADER = 'X-Local-Control-Token';
 
+/** Request-body type of a generated operation, used to derive the `*Request` aliases below. */
 type MutationBody<TOperationId extends ApiOperationId> = OperationRequestBody<TOperationId>;
 
+/** Downloaded evidence artifact: the raw blob plus metadata and an optional inlined text preview. */
 export type ArtifactPayload = {
 	artifactId: string;
 	hash: string;
@@ -96,12 +101,17 @@ export type I18nLanguageRecord = {
 	nativeName: string;
 	enabled: boolean;
 };
+/** Runtime translation catalog: available languages plus per-key, per-language copy. */
 export type I18nCatalogResponse = {
 	defaultLanguage: string;
 	languages: I18nLanguageRecord[];
 	translations: Record<string, Record<string, string>>;
 };
 
+/**
+ * Parses a JSON response, raising the server-provided `detail`/`error` (or the
+ * status text) as an Error on a non-2xx status so callers handle one failure shape.
+ */
 async function parseResponse<T>(response: Response): Promise<T> {
 	const text = await response.text();
 	const payload = text ? JSON.parse(text) : {};
@@ -112,6 +122,11 @@ async function parseResponse<T>(response: Response): Promise<T> {
 	return payload as T;
 }
 
+/**
+ * Low-level JSON fetch for routes the generated client does not cover (e.g. the
+ * planned project-files endpoint). Sets JSON headers, attaches the write token when
+ * given, and normalizes errors through `parseResponse`.
+ */
 export async function apiRequest<T>(
 	path: string,
 	options: { method?: string; token?: string; body?: unknown; signal?: AbortSignal } = {},
@@ -315,6 +330,7 @@ export function listAgents(teamId?: string, signal?: AbortSignal) {
 	});
 }
 
+/** Extracts the download filename from a Content-Disposition header, preferring RFC 5987 UTF-8. */
 function filenameFromContentDisposition(header: string | null): string {
 	if (!header) return '';
 	const utf8Match = header.match(/filename\*=UTF-8''([^;]+)/i);
@@ -334,6 +350,11 @@ function downloadBlob(blob: Blob, filename: string) {
 	URL.revokeObjectURL(url);
 }
 
+/**
+ * Fetches an evidence artifact as a Blob plus its metadata (hash, content type,
+ * server filename). Inlines `text` only for text-like content types so callers can
+ * preview without re-reading the blob; binary payloads leave `text` empty.
+ */
 export async function fetchEvidenceArtifact(
 	token: string,
 	evidenceId: string,
@@ -371,6 +392,7 @@ export async function fetchEvidenceArtifact(
 	};
 }
 
+/** Fetches an evidence artifact and triggers a browser download, returning the same payload. */
 export async function downloadEvidenceArtifact(
 	token: string,
 	evidenceId: string,

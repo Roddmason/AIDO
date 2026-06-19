@@ -1,7 +1,7 @@
 /**
- * @file AIDO frontend source module.
- * @copyright Copyright (c) AIDO.
- * @author Roddmason
+ * Hook encapsulating the post-approval ship lifecycle (promote a patch run to a
+ * branch, then open a PR). Holds the reason and optional branch/PR fields, runs
+ * the kind-aware endpoint, surfaces the last operation, and refreshes on success.
  */
 import { useState } from 'react';
 
@@ -42,6 +42,11 @@ export type ShipOperations = {
 	reset: () => void;
 };
 
+/**
+ * Builds the ship-operation state for one run. `run` is the single entry point —
+ * it requires a non-empty reason, dispatches promote vs PR by `kind`, and records
+ * the result; `reset` clears the form when the drawer closes or reopens.
+ */
 export function useShipOperations(token: string, refresh: Refresh): ShipOperations {
 	const [reason, setReason] = useState('');
 	const [branchName, setBranchName] = useState('');

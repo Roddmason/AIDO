@@ -1,7 +1,13 @@
-"""AIDO backend source module.
+"""SQLite persistence for agent profiles, model policies, runs, tool/model calls, cost.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Owns CRUD for the agent-execution tables and the row<->dict mapping the API layer
+consumes. Sensitive payloads (inputs, outputs, metadata) are redacted before insertion.
+
+Transaction boundaries: each write method emits its statements on the caller's
+connection without an explicit `commit`, so the caller owns the transaction. Methods
+that touch two tables (e.g. `record_model_call` writing `model_calls` plus a
+`cost_usage` row, `create_agent_run` writing `agent_runs` plus telemetry) are atomic
+only within that caller-managed transaction.
 """
 
 from __future__ import annotations
@@ -19,6 +25,7 @@ PRODUCT_RUNTIME_MODES = {"api", "cli", "ollama", "hybrid", "manual"}
 
 
 def row_to_agent_profile(row: sqlite3.Row) -> dict[str, Any]:
+    """Map an `agent_profiles` row to its camelCase dict, tolerating older schema columns."""
     runtime_mode = row["runtime_type"]
     return {
         "id": row["id"],
@@ -57,6 +64,7 @@ def row_to_agent_profile(row: sqlite3.Row) -> dict[str, Any]:
 
 
 def row_to_model_policy(row: sqlite3.Row) -> dict[str, Any]:
+    """Map a `model_policies` row to its camelCase dict."""
     return {
         "id": row["id"],
         "name": row["name"],
@@ -74,6 +82,7 @@ def row_to_model_policy(row: sqlite3.Row) -> dict[str, Any]:
 
 
 def row_to_agent_run(row: sqlite3.Row) -> dict[str, Any]:
+    """Map an `agent_runs` row to its camelCase dict (input/output/metadata decoded)."""
     return {
         "id": row["id"],
         "projectId": row["project_id"],
@@ -90,6 +99,7 @@ def row_to_agent_run(row: sqlite3.Row) -> dict[str, Any]:
 
 
 def row_to_agent_tool_call(row: sqlite3.Row) -> dict[str, Any]:
+    """Map an `agent_tool_calls` row to its camelCase dict."""
     return {
         "id": row["id"],
         "agentRunId": row["agent_run_id"],
@@ -102,6 +112,7 @@ def row_to_agent_tool_call(row: sqlite3.Row) -> dict[str, Any]:
 
 
 def row_to_model_call(row: sqlite3.Row) -> dict[str, Any]:
+    """Map a `model_calls` row to its camelCase dict."""
     return {
         "id": row["id"],
         "projectId": row["project_id"],
@@ -119,6 +130,7 @@ def row_to_model_call(row: sqlite3.Row) -> dict[str, Any]:
 
 
 def row_to_cost_usage(row: sqlite3.Row) -> dict[str, Any]:
+    """Map a `cost_usage` row to its camelCase dict."""
     return {
         "id": row["id"],
         "projectId": row["project_id"],
@@ -130,6 +142,7 @@ def row_to_cost_usage(row: sqlite3.Row) -> dict[str, Any]:
 
 
 def row_to_model_provider(row: sqlite3.Row) -> dict[str, Any]:
+    """Map a `model_providers` row to its camelCase dict."""
     return {
         "id": row["id"],
         "provider": row["provider"],
@@ -143,10 +156,17 @@ def row_to_model_provider(row: sqlite3.Row) -> dict[str, Any]:
 
 
 class AgentsRepository:
+    """SQLite repository for agent profiles, policies, runs, and tool/model/cost records."""
+
     def __init__(self, connection: sqlite3.Connection):
         self.connection = connection
 
     def upsert_agent_profile(self, body: dict[str, Any]) -> dict[str, Any]:
+        """Insert or update an agent profile, validating its runtime mode against the catalog.
+
+        Raises:
+            ValueError: if the requested runtime mode is not a product runtime mode.
+        """
         profile_id = body["id"]
         runtime_type = str(body.get("runtimeMode") or body.get("runtimeType") or "hybrid")
         if runtime_type not in PRODUCT_RUNTIME_MODES:
@@ -217,6 +237,11 @@ class AgentsRepository:
         return self.get_agent_profile(profile_id)
 
     def get_agent_profile(self, profile_id: str) -> dict[str, Any]:
+        """Fetch one agent profile, rejecting profiles whose runtime mode left the catalog.
+
+        Raises:
+            KeyError: if the profile is missing or its runtime mode is no longer supported.
+        """
         row = self.connection.execute("SELECT * FROM agent_profiles WHERE id = ?", (profile_id,)).fetchone()
         if not row:
             raise KeyError(f"Agent profile not found: {profile_id}")
@@ -225,6 +250,7 @@ class AgentsRepository:
         return row_to_agent_profile(row)
 
     def list_agent_profiles(self) -> list[dict[str, Any]]:
+        """List profiles whose runtime mode is still in the product catalog, ordered by id."""
         runtime_modes = sorted(PRODUCT_RUNTIME_MODES)
         placeholders = ",".join("?" for _ in runtime_modes)
         rows = self.connection.execute(
@@ -234,6 +260,7 @@ class AgentsRepository:
         return [row_to_agent_profile(row) for row in rows]
 
     def upsert_model_policy(self, body: dict[str, Any]) -> dict[str, Any]:
+        """Insert or update a model policy keyed by id and return the stored row."""
         policy_id = body["id"]
         timestamp = utc_now()
         self.connection.execute(
@@ -272,20 +299,28 @@ class AgentsRepository:
         return self.get_model_policy(policy_id)
 
     def get_model_policy(self, policy_id: str) -> dict[str, Any]:
+        """Fetch one model policy.
+
+        Raises:
+            KeyError: if no policy has the given id.
+        """
         row = self.connection.execute("SELECT * FROM model_policies WHERE id = ?", (policy_id,)).fetchone()
         if not row:
             raise KeyError(f"Model policy not found: {policy_id}")
         return row_to_model_policy(row)
 
     def list_model_policies(self) -> list[dict[str, Any]]:
+        """List all model policies ordered by id."""
         rows = self.connection.execute("SELECT * FROM model_policies ORDER BY id ASC").fetchall()
         return [row_to_model_policy(row) for row in rows]
 
     def list_model_providers(self) -> list[dict[str, Any]]:
+        """List all model providers ordered by id."""
         rows = self.connection.execute("SELECT * FROM model_providers ORDER BY id ASC").fetchall()
         return [row_to_model_provider(row) for row in rows]
 
     def total_cost_usage(self, *, project_id: str, scope: str = "model_call") -> float:
+        """Sum recorded cost (USD) for a project within a cost-usage scope."""
         row = self.connection.execute(
             "SELECT COALESCE(SUM(amount_usd), 0) AS total FROM cost_usage WHERE project_id = ? AND scope = ?",
             (project_id, scope),
@@ -306,6 +341,11 @@ class AgentsRepository:
         cost_usd: float = 0.0,
         metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        """Record a model call and, when cost is non-zero, a paired `cost_usage` row.
+
+        Metadata is redacted before storage. Both inserts run on the caller's connection
+        without an explicit commit, so they are atomic only within the caller's transaction.
+        """
         timestamp = utc_now()
         call_id = f"model-call-{uuid.uuid4()}"
         clean_metadata = redact_secrets(metadata or {})
@@ -361,6 +401,11 @@ class AgentsRepository:
         workflow_step_id: str | None = None,
         status: str = "completed",
     ) -> dict[str, Any]:
+        """Create an agent-run record (inputs/outputs/metadata redacted) and emit telemetry.
+
+        The `agent_runs` insert and the telemetry write share the caller's transaction;
+        no explicit commit is issued here.
+        """
         profile = self.get_agent_profile(agent_profile_id)
         clean_input = redact_secrets(input_payload)
         clean_output = redact_secrets(output_payload)
@@ -397,6 +442,7 @@ class AgentsRepository:
     def update_agent_run_status(
         self, run_id: str, *, status: str, output_payload: dict[str, Any]
     ) -> dict[str, Any]:
+        """Update an agent run's status and (redacted) output, returning the refreshed run."""
         clean_output = redact_secrets(output_payload)
         self.connection.execute(
             """
@@ -417,6 +463,7 @@ class AgentsRepository:
         payload: dict[str, Any],
         timestamp: str | None = None,
     ) -> dict[str, Any]:
+        """Record a tool call against an agent run with its payload redacted before storage."""
         now = timestamp or utc_now()
         call_id = f"agent-tool-call-{uuid.uuid4()}"
         clean_payload = redact_secrets(payload)
@@ -440,16 +487,23 @@ class AgentsRepository:
         return row_to_agent_tool_call(row)
 
     def get_agent_run(self, run_id: str) -> dict[str, Any]:
+        """Fetch one agent run.
+
+        Raises:
+            KeyError: if no run has the given id.
+        """
         row = self.connection.execute("SELECT * FROM agent_runs WHERE id = ?", (run_id,)).fetchone()
         if not row:
             raise KeyError(f"Agent run not found: {run_id}")
         return row_to_agent_run(row)
 
     def list_agent_runs(self) -> list[dict[str, Any]]:
+        """List all agent runs, newest first."""
         rows = self.connection.execute("SELECT * FROM agent_runs ORDER BY created_at DESC").fetchall()
         return [row_to_agent_run(row) for row in rows]
 
     def list_agent_runs_for_workflow_runs(self, workflow_run_ids: list[str]) -> list[dict[str, Any]]:
+        """List agent runs belonging to the given workflow run ids, newest first."""
         if not workflow_run_ids:
             return []
         placeholders = ",".join("?" for _ in workflow_run_ids)
@@ -460,13 +514,16 @@ class AgentsRepository:
         return [row_to_agent_run(row) for row in rows]
 
     def list_agent_tool_calls(self) -> list[dict[str, Any]]:
+        """List all recorded tool calls, newest first."""
         rows = self.connection.execute("SELECT * FROM agent_tool_calls ORDER BY created_at DESC").fetchall()
         return [row_to_agent_tool_call(row) for row in rows]
 
     def list_model_calls(self) -> list[dict[str, Any]]:
+        """List all recorded model calls, newest first."""
         rows = self.connection.execute("SELECT * FROM model_calls ORDER BY created_at DESC").fetchall()
         return [row_to_model_call(row) for row in rows]
 
     def list_cost_usage(self) -> list[dict[str, Any]]:
+        """List all cost-usage entries, newest first."""
         rows = self.connection.execute("SELECT * FROM cost_usage ORDER BY created_at DESC").fetchall()
         return [row_to_cost_usage(row) for row in rows]

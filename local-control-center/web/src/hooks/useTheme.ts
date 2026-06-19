@@ -1,7 +1,8 @@
 /**
- * @file AIDO frontend source module.
- * @copyright Copyright (c) AIDO.
- * @author Roddmason
+ * Dark/light theme state, persisted to localStorage and applied to `<html>`.
+ *
+ * Centralizes theme reads/writes so the pre-paint bootstrap and the runtime toggle
+ * share one storage key and one DOM attribute, keeping `color-scheme` consistent.
  */
 import { useCallback, useEffect, useState } from 'react';
 
@@ -40,6 +41,7 @@ export function applyStoredTheme() {
 	applyTheme(readStoredTheme());
 }
 
+/** Exposes the current theme and a toggle that persists the new choice and updates `<html>`. */
 export function useTheme() {
 	const [theme, setThemeState] = useState<Theme>(readStoredTheme);
 

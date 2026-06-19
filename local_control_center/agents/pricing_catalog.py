@@ -1,7 +1,8 @@
-"""AIDO backend source module.
+"""Estimates per-call model cost from the catalog and flags pricing staleness.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Reads `model_catalog` pricing (per-million-token rates, free-tier and source) to turn
+token counts into a USD estimate, signalling when the price is unknown or stale. Pure
+read path: it never writes and never executes a model call.
 """
 
 from __future__ import annotations
@@ -14,6 +15,8 @@ STALE_AFTER_DAYS = 90
 
 
 class PricingCatalog:
+    """Read-only view over `model_catalog` pricing used to estimate model-call cost."""
+
     def __init__(self, connection: sqlite3.Connection):
         self.connection = connection
 
@@ -27,6 +30,11 @@ class PricingCatalog:
         output_tokens: int = 0,
         reasoning_tokens: int = 0,
     ) -> dict[str, Any]:
+        """Estimate the USD cost of a call and report price provenance and freshness.
+
+        Returns `priceKnown=False` when the model or its prices are absent; cached input
+        tokens are billed at the cached rate and excluded from the standard input rate.
+        """
         row = self.connection.execute(
             """
             SELECT input_price_per_mtok, cached_input_price_per_mtok, output_price_per_mtok,
@@ -92,6 +100,7 @@ class PricingCatalog:
         output_tokens: int = 0,
         reasoning_tokens: int = 0,
     ) -> tuple[float | None, str]:
+        """Estimate cost as a `(cost_usd_or_none, source)` tuple for callers that skip metadata."""
         estimate = self.estimate(
             provider_id=provider_id,
             model=model,

@@ -1,7 +1,9 @@
 /**
- * @file AIDO frontend source module.
- * @copyright Copyright (c) AIDO.
- * @author Roddmason
+ * React context that loads the runtime translation catalog and exposes the `t()` lookup.
+ *
+ * Fetches the catalog from the control plane, persists the chosen language in
+ * localStorage, and falls back to the default language (then the key itself) when a
+ * translation is missing, so the UI never renders an empty string.
  */
 
 import type { ReactNode } from 'react';
@@ -41,6 +43,7 @@ function persistLanguage(language: string) {
 	}
 }
 
+/** Provides the i18n context: loads the catalog on mount, polls language changes onto `<html lang>`. */
 export function I18nProvider({ children }: { children: ReactNode }) {
 	const [catalog, setCatalogState] = useState<I18nCatalogResponse | null>(null);
 	const [language, setLanguageState] = useState(readStoredLanguage);
@@ -109,6 +112,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
 	return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;
 }
 
+/** Reads the i18n context; throws when called outside `I18nProvider` so misuse fails loudly. */
 export function useI18n() {
 	const context = useContext(I18nContext);
 	if (!context) {

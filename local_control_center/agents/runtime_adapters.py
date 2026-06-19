@@ -1,7 +1,10 @@
-"""AIDO backend source module.
+"""Concrete runtime adapters that execute approved work and capture evidence.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Defines the execution-request/result contracts and the adapters that turn a broker-
+approved tool call into a real side effect: workspace-bound subprocesses, CLI version
+checks, Ollama/OpenAI-compatible chat calls, and guarded workspace file patches. Every
+adapter enforces structured argv, workspace containment, and bounded timeouts; output
+is redacted, persisted as artifacts, and packaged as evidence.
 """
 
 from __future__ import annotations
@@ -44,6 +47,8 @@ VERSION_ARGS = {"--version", "-V", "version"}
 
 
 class RuntimeExecutionRequest(BaseModel):
+    """Typed, workspace-scoped request handed to a runtime adapter for execution."""
+
     model_config = ConfigDict(populate_by_name=True)
 
     project_id: str = Field(alias="projectId")
@@ -62,6 +67,8 @@ class RuntimeExecutionRequest(BaseModel):
 
 
 class RuntimeExecutionResult(BaseModel):
+    """Typed outcome of a runtime execution: status, exit code, and evidence/artifact ids."""
+
     model_config = ConfigDict(populate_by_name=True)
 
     status: str
@@ -77,6 +84,8 @@ class RuntimeExecutionResult(BaseModel):
 
 
 class RuntimeAdapter(Protocol):
+    """Protocol for adapters that execute a typed `RuntimeExecutionRequest`."""
+
     adapter_id: str
 
     def execute(self, request: RuntimeExecutionRequest) -> RuntimeExecutionResult:
@@ -84,6 +93,8 @@ class RuntimeAdapter(Protocol):
 
 
 class RuntimeExecutionAdapter(Protocol):
+    """Protocol for broker-facing adapters that consume a raw tool call plus policy input."""
+
     def execute(self, *, tool_call: dict[str, Any], policy_input: dict[str, Any]) -> dict[str, Any]:
         """Execute a broker-approved runtime tool call."""
 
@@ -327,6 +338,8 @@ class _ArtifactRecorder:
 
 
 class RestrictedSubprocessAdapter:
+    """Runs allowlisted commands inside the workspace via the restricted sandbox, with evidence."""
+
     adapter_id = "restricted_subprocess"
 
     def __init__(
@@ -344,6 +357,11 @@ class RestrictedSubprocessAdapter:
         )
 
     def execute(self, request: RuntimeExecutionRequest) -> RuntimeExecutionResult:
+        """Validate argv/workspace/cwd, run the command, and capture stdout/stderr as evidence.
+
+        Blocks on unsafe argv, dangerous flags, unregistered/archived workspace, or a cwd
+        outside the workspace; otherwise returns completed/failed/timed_out with artifacts.
+        """
         started_at = utc_now()
         argv = _validate_structured_argv(request.argv)
         if isinstance(argv, str):
@@ -456,10 +474,17 @@ class RestrictedSubprocessAdapter:
 
 
 class CliVersionAdapter:
+    """Runs only a CLI runtime's `--version` check as a safe liveness probe."""
+
     def __init__(self, *, adapter_id: str):
         self.adapter_id = adapter_id
 
     def execute(self, request: RuntimeExecutionRequest) -> RuntimeExecutionResult:
+        """Run a strict `[executable, version-flag]` check for this adapter's own CLI.
+
+        Blocks any capability other than `version_check`, malformed argv, or a foreign
+        executable; returns completed when the version probe exits 0.
+        """
         started_at = utc_now()
         if self.adapter_id not in CLI_VERSION_ADAPTERS:
             return _result(
@@ -517,6 +542,8 @@ class CliVersionAdapter:
 
 
 class OllamaAdapter:
+    """Calls a local Ollama daemon's chat API and records the reply as evidence."""
+
     adapter_id = "ollama"
 
     def __init__(
@@ -546,6 +573,7 @@ class OllamaAdapter:
         return base_url.rstrip("/") or None
 
     def health_check(self) -> dict[str, Any]:
+        """Probe `/api/tags` to confirm the Ollama daemon is reachable and list its models."""
         base_url = self._configured_base_url()
         if not base_url:
             return {
@@ -573,6 +601,11 @@ class OllamaAdapter:
         }
 
     def execute(self, request: RuntimeExecutionRequest) -> RuntimeExecutionResult:
+        """Send `input.messages` to Ollama's chat API and store the redacted reply as evidence.
+
+        Returns configuration_required/unavailable when the daemon is unreachable, and
+        blocked when model or messages are missing.
+        """
         started_at = utc_now()
         base_url = self._configured_base_url()
         if not base_url:
@@ -642,6 +675,8 @@ class OllamaAdapter:
 
 
 class OpenAICompatibleAdapter:
+    """Calls an OpenAI-compatible chat-completions endpoint, gated by an explicit enable flag."""
+
     adapter_id = "openai_compatible"
 
     def __init__(
@@ -698,6 +733,7 @@ class OpenAICompatibleAdapter:
         return None
 
     def health_check(self) -> dict[str, Any]:
+        """Probe `/models` to confirm the endpoint and credentials respond, gap-checking config first."""
         configuration = self._configuration()
         gap = self._configuration_gap(configuration)
         if gap:
@@ -727,6 +763,11 @@ class OpenAICompatibleAdapter:
         }
 
     def execute(self, request: RuntimeExecutionRequest) -> RuntimeExecutionResult:
+        """POST `input.messages` to chat-completions and store the redacted reply as evidence.
+
+        Returns configuration_required/unavailable on a config gap or transport error, and
+        blocked when messages are missing.
+        """
         started_at = utc_now()
         configuration = self._configuration()
         gap = self._configuration_gap(configuration)
@@ -796,6 +837,8 @@ class OpenAICompatibleAdapter:
 
 
 class RuntimeAdapterRegistry:
+    """Maps adapter ids to typed `RuntimeAdapter` implementations and dispatches execution."""
+
     def __init__(
         self,
         adapters: dict[str, RuntimeAdapter] | None = None,
@@ -822,9 +865,11 @@ class RuntimeAdapterRegistry:
         }
 
     def register(self, adapter_id: str, adapter: RuntimeAdapter) -> None:
+        """Register or replace the adapter bound to an id."""
         self.adapters[adapter_id] = adapter
 
     def execute(self, adapter_id: str, request: RuntimeExecutionRequest) -> RuntimeExecutionResult:
+        """Dispatch a request to the named adapter, returning `unavailable` when unregistered."""
         started_at = utc_now()
         adapter = self.adapters.get(adapter_id)
         if adapter is None:
@@ -837,6 +882,8 @@ class RuntimeAdapterRegistry:
 
 
 class RuntimeAdapterBrokerAdapter:
+    """Bridges a raw broker tool call to a typed runtime adapter and flattens its result."""
+
     def __init__(
         self,
         *,
@@ -851,6 +898,7 @@ class RuntimeAdapterBrokerAdapter:
         )
 
     def execute(self, *, tool_call: dict[str, Any], policy_input: dict[str, Any]) -> dict[str, Any]:
+        """Validate the tool call into a typed request, run it, and return a broker-shaped result."""
         request = RuntimeExecutionRequest.model_validate(
             {
                 "projectId": policy_input["projectId"],
@@ -915,11 +963,18 @@ def _workspace_patch_path_error(workspace: Path, relative_path: str) -> str | No
 
 
 class WorkspacePatchBrokerAdapter:
+    """Applies DeveloperAgent file writes inside the workspace under strict path/size guards."""
+
     def __init__(self, *, connection: sqlite3.Connection, artifact_root: str | Path | None = None):
         self.connection = connection
         self.artifact_root = Path(artifact_root) if artifact_root is not None else None
 
     def execute(self, *, tool_call: dict[str, Any], policy_input: dict[str, Any]) -> dict[str, Any]:
+        """Validate and write `input.files` into the workspace, recording a redacted patch manifest.
+
+        Blocks absolute/traversal/symlink/secret paths and enforces the file-count and
+        total-byte limits; only relative, in-workspace targets are written.
+        """
         workspace_value = str(policy_input.get("workspacePath") or "").strip()
         if not workspace_value:
             return {"executed": False, "blocked": True, "reason": "Workspace patch requires workspacePath."}
@@ -1019,6 +1074,8 @@ class WorkspacePatchBrokerAdapter:
 
 
 class UnavailableRuntimeAdapter:
+    """Placeholder adapter that always reports a fixed unavailable reason in either call shape."""
+
     def __init__(self, adapter_id: str, reason: str):
         self.adapter_id = adapter_id
         self.reason = reason
@@ -1030,6 +1087,7 @@ class UnavailableRuntimeAdapter:
         tool_call: dict[str, Any] | None = None,
         policy_input: dict[str, Any] | None = None,
     ) -> RuntimeExecutionResult | dict[str, Any]:
+        """Return the configured unavailable reason, shaped for the typed or broker call path."""
         if request is not None:
             return _result(status="unavailable", started_at=utc_now(), reason=self.reason)
         return {

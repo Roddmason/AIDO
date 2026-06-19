@@ -1,7 +1,7 @@
 /**
- * @file AIDO frontend source module.
- * @copyright Copyright (c) AIDO.
- * @author Roddmason
+ * Derives the shell's aggregate status from raw control-plane data: runtime
+ * readiness, pending approvals, QA verdicts and summed cost. The single place
+ * that computes these figures so the StatusBar (and tests) share one definition.
  */
 import type { Overview, Project, RuntimeProviders } from '../api/types';
 

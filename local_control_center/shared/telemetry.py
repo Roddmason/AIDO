@@ -1,7 +1,10 @@
-"""AIDO backend source module.
+"""Telemetría operativa: registra eventos redactados y los exporta a OpenTelemetry.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Toda la observabilidad pasa por aquí: persiste eventos en el ``EventBus`` (siempre
+redactados) y, opcionalmente, los reenvía a un exportador OTLP/HTTP configurado por
+entorno. Provee helpers de correlación y de medición de latencia, y emisores tipados
+por dominio (HTTP, decisiones de política, tool/model/agent calls). Garantiza que un
+fallo del exportador externo nunca rompe el runtime local: se captura y se reporta en el estado.
 """
 
 from __future__ import annotations
@@ -18,6 +21,8 @@ from .redaction import redact_secrets
 
 
 class ExternalTelemetryExporter(Protocol):
+    """Contrato del exportador externo que recibe eventos ya redactados para reenviarlos."""
+
     def export_event(self, event: dict[str, Any]) -> None:
         """Export one already-redacted telemetry event."""
 
@@ -62,6 +67,12 @@ def _flatten_attributes(prefix: str, value: Any, attributes: dict[str, str | int
 
 
 class OtlpHttpTelemetryExporter:
+    """Exportador que envía eventos como spans y un contador vía OTLP/HTTP.
+
+    Exige el extra opcional ``otel``; si los paquetes no están instalados, la construcción
+    lanza ``RuntimeError`` para que el llamador degrade a "sin exportador externo".
+    """
+
     def __init__(
         self,
         *,
@@ -104,6 +115,7 @@ class OtlpHttpTelemetryExporter:
         )
 
     def export_event(self, event: dict[str, Any]) -> None:
+        """Exporta el evento como span OTLP con atributos aplanados e incrementa el contador por tipo."""
         attributes: dict[str, str | int | float | bool] = {
             "aido.event.id": str(event.get("id") or ""),
             "aido.event.type": str(event.get("type") or ""),
@@ -118,6 +130,11 @@ class OtlpHttpTelemetryExporter:
 
 
 def configure_external_telemetry_from_env(environ: Mapping[str, str] | None = None) -> dict[str, Any]:
+    """(Re)configura el exportador externo según ``AIDO_OTEL_*`` y devuelve el estado resultante.
+
+    Deja el exportador deshabilitado (sin lanzar) cuando el modo es ``none``/no soportado o
+    cuando faltan los paquetes OTLP, dejando la razón registrada en el estado.
+    """
     global _external_exporter, _external_status
     source = environ or os.environ
     mode = str(source.get("AIDO_OTEL_EXPORTER") or "none").strip().lower()
@@ -186,10 +203,12 @@ def configure_external_telemetry_from_env(environ: Mapping[str, str] | None = No
 
 
 def external_telemetry_status() -> dict[str, Any]:
+    """Devuelve una copia del estado actual del exportador externo."""
     return dict(_external_status)
 
 
 def set_external_exporter_for_tests(exporter: ExternalTelemetryExporter, *, mode: str = "test") -> None:
+    """Inyecta un exportador (uso en tests) y actualiza el estado para reflejarlo como activo."""
     global _external_exporter, _external_status
     _external_exporter = exporter
     exporter_available = _external_exporter is not None
@@ -204,14 +223,17 @@ def set_external_exporter_for_tests(exporter: ExternalTelemetryExporter, *, mode
 
 
 def clear_external_exporter_for_tests() -> None:
+    """Restablece el exportador al estado deshabilitado por defecto (uso en tests)."""
     configure_external_telemetry_from_env({})
 
 
 def new_correlation_id() -> str:
+    """Genera un id de correlación nuevo con prefijo ``corr-``."""
     return f"corr-{uuid.uuid4()}"
 
 
 def resolve_correlation_id(headers: Mapping[str, str] | None = None) -> str:
+    """Toma el id de correlación de las cabeceras entrantes (truncado) o genera uno nuevo."""
     if headers:
         for key in ("x-correlation-id", "x-request-id"):
             value = headers.get(key) or headers.get(key.title())
@@ -221,14 +243,17 @@ def resolve_correlation_id(headers: Mapping[str, str] | None = None) -> str:
 
 
 def monotonic_ms() -> float:
+    """Devuelve un reloj monótono en milisegundos, apto para medir duraciones."""
     return time.perf_counter() * 1000
 
 
 def elapsed_ms(start_ms: float) -> int:
+    """Devuelve los milisegundos transcurridos desde ``start_ms`` (nunca negativo)."""
     return max(0, int(monotonic_ms() - start_ms))
 
 
 def redact_telemetry(value: Any, *, key: str = "") -> Any:
+    """Redacta secretos de un payload de telemetría antes de persistirlo o exportarlo."""
     return redact_secrets(value, key=key)
 
 
@@ -241,6 +266,10 @@ def record_telemetry_event(
     job_id: str | None = None,
     correlation_id: str | None = None,
 ) -> dict[str, Any]:
+    """Redacta y persiste un evento, asegura un ``correlationId`` y lo reenvía al exportador externo.
+
+    El fallo del exportador externo se captura y se anota en el estado; nunca interrumpe la escritura local.
+    """
     clean_payload = redact_telemetry(
         {
             **payload,
@@ -270,6 +299,7 @@ def record_http_request(
     duration_ms: int,
     correlation_id: str,
 ) -> dict[str, Any]:
+    """Registra una petición HTTP servida (método, ruta, código y latencia) como evento de telemetría."""
     return record_telemetry_event(
         connection,
         event_type="telemetry.http.request",
@@ -284,6 +314,7 @@ def record_http_request(
 
 
 def record_policy_decision(connection: sqlite3.Connection, decision: dict[str, Any]) -> dict[str, Any]:
+    """Registra una decisión de política de permisos (tool, veredicto, riesgo) como evento."""
     return record_telemetry_event(
         connection,
         event_type="telemetry.policy.decision",
@@ -308,6 +339,7 @@ def record_tool_call(
     tool_call: dict[str, Any],
     decision: dict[str, Any],
 ) -> dict[str, Any]:
+    """Registra la ejecución de una tool por un agente, con la decisión de política que la autorizó."""
     return record_telemetry_event(
         connection,
         event_type="telemetry.tool.call",
@@ -325,6 +357,7 @@ def record_tool_call(
 
 
 def record_agent_run(connection: sqlite3.Connection, agent_run: dict[str, Any]) -> dict[str, Any]:
+    """Registra un cambio de estado de un agent run (tipo de evento derivado de su ``status``)."""
     metadata = agent_run.get("metadata") or {}
     return record_telemetry_event(
         connection,
@@ -344,6 +377,7 @@ def record_agent_run(connection: sqlite3.Connection, agent_run: dict[str, Any]) 
 
 
 def record_model_call(connection: sqlite3.Connection, model_call: dict[str, Any]) -> dict[str, Any]:
+    """Registra una llamada a modelo (proveedor, modelo, tokens y costo) como evento de telemetría."""
     return record_telemetry_event(
         connection,
         event_type="telemetry.model.call",

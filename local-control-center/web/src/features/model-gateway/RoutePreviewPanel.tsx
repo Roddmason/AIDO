@@ -1,7 +1,7 @@
 /**
- * @file AIDO frontend source module.
- * @copyright Copyright (c) AIDO.
- * @author Roddmason
+ * Simulador de ruteo del Model Gateway: arma los parámetros de una tarea hipotética y muestra qué ruta elegiría.
+ * Sub-dominio de previsualización (dry-run, sin ejecutar): renderiza la ruta seleccionada, los resultados de
+ * presupuesto/cuota y los candidatos con su desglose de score. El estado del formulario es controlado por el padre.
  */
 import type { ModelGatewayRoutePreviewResponse } from '../../api/client';
 import { Badge, DataTable, EmptyState, Surface } from '../../components/primitives';
@@ -24,6 +24,7 @@ type RoutePreviewForm = {
 	requiresJson: boolean;
 };
 
+/** Mapea la acción de política de costo desconocido (reject/require_approval/otro) al tono del badge. */
 function unknownCostTone(action: string): 'ok' | 'warn' | 'danger' {
 	if (action === 'reject') return 'danger';
 	if (action === 'require_approval') return 'warn';

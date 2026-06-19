@@ -1,7 +1,8 @@
 /**
- * @file AIDO frontend source module.
- * @copyright Copyright (c) AIDO.
- * @author Roddmason
+ * Single review-board card plus the pure status guard that decides its ship CTA.
+ * Renders project, run health, QA verdict, risk and diff/evidence refs, and picks
+ * one contextual primary action (Review / Promote / Create PR / View evidence)
+ * from the item's lifecycle state.
  */
 
 import { AlertTriangle, FileCheck2, GitBranch, ShieldAlert } from 'lucide-react';

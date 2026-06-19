@@ -1,7 +1,9 @@
 /**
- * @file AIDO frontend source module.
- * @copyright Copyright (c) AIDO.
- * @author Roddmason
+ * Root container of the control center IDE: hash-based routing plus all shell state.
+ *
+ * Resolves the active page from the URL hash, owns selection/dialog/drawer/palette
+ * flags, wires the control-plane data hook and global shortcuts, and dispatches each
+ * route to its feature page. Every chrome piece lives in its own component here.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { EmptyState } from '../components/primitives';

@@ -1,7 +1,9 @@
-"""AIDO backend source module.
+"""Ensambla el snapshot global read-only del estado consultando cada repositorio de slice.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Punto unico que el endpoint de overview usa para devolver, en una sola respuesta, las
+colecciones de todos los slices (proyectos, sesiones, pipelines, jobs, gobernanza, agentes,
+seguridad, etc.). Solo lee: instancia repositorios sobre la conexion recibida, garantiza el
+proyecto runtime y arma el diccionario alineado con ``OverviewResponse``.
 """
 
 from __future__ import annotations
@@ -28,6 +30,7 @@ from local_control_center.workspaces_projects.repository import WorkspacesReposi
 
 
 def ensure_runtime_project(connection: sqlite3.Connection, cwd: str | Path) -> dict[str, Any]:
+    """Devuelve el proyecto del cwd, creandolo si falta; no audita (variante para overview)."""
     projects = ProjectsRepository(connection)
     existing = projects.get_project_by_path(cwd)
     if existing:
@@ -43,6 +46,11 @@ def ensure_runtime_project(connection: sqlite3.Connection, cwd: str | Path) -> d
 
 
 def build_overview_from_connection(*, connection: sqlite3.Connection, cwd: str | Path) -> dict[str, Any]:
+    """Agrega y devuelve las colecciones de todos los slices como un unico snapshot read-only.
+
+    Garantiza primero el proyecto runtime y luego compone el diccionario cuyas claves camelCase
+    mapean a los campos de ``OverviewResponse``.
+    """
     ensure_runtime_project(connection, cwd)
 
     projects = ProjectsRepository(connection)

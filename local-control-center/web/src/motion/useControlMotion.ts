@@ -1,10 +1,12 @@
 /**
- * @file AIDO frontend source module.
- * @copyright Copyright (c) AIDO.
- * @author Roddmason
+ * Motion hooks that drive the dashboard's enter animations and honor reduced-motion.
+ *
+ * Both hooks read the OS `prefers-reduced-motion` setting and become no-ops when it
+ * is set, so the staggered page-enter effect never fights a user's accessibility choice.
  */
 import { useEffect, useRef } from 'react';
 
+/** Mirrors the OS reduced-motion preference onto `<html data-motion>` and `window.__aidoMotionReduced`. */
 export function useMotionPreference() {
 	useEffect(() => {
 		const media = window.matchMedia('(prefers-reduced-motion: reduce)');
@@ -18,6 +20,10 @@ export function useMotionPreference() {
 	}, []);
 }
 
+/**
+ * Returns a ref whose `[data-motion-item]` descendants fade/slide in on each `dependency`
+ * change (e.g. route key), then clears the inline styles so CSS regains control.
+ */
 export function usePageMotion(dependency: string) {
 	const scope = useRef<HTMLElement | null>(null);
 	useEffect(() => {

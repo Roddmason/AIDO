@@ -1,7 +1,8 @@
-"""AIDO backend source module.
+"""Contrato y readiness del DevOpsAgent: validación determinista de release vía shell.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Declara los esquemas I/O del agente DevOps (build/quality scripts, healthcheck Docker opcional) y
+su veredicto, que se funda solo en archivos, comandos y artefactos. A diferencia de los demás agentes,
+no requiere runtime de modelo: sus checks deterministas son ejecutables mientras haya tools brokered.
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ DEVOPS_AGENT_VERDICTS = {"passed", "risk", "failed", "blocked"}
 
 
 def devops_agent_contract() -> dict[str, Any]:
+    """Describe el contrato del DevOpsAgent: esquemas I/O, tools permitidas y fuente del veredicto."""
     return {
         "id": DEVOPS_AGENT_ID,
         "inputSchema": {
@@ -65,6 +67,7 @@ def devops_agent_contract() -> dict[str, Any]:
 
 
 def devops_agent_status() -> dict[str, Any]:
+    """Reporta el readiness del DevOpsAgent: ejecutable mientras tenga tools brokered (Docker es opcional)."""
     deterministic_checks_executable = bool(DEVOPS_AGENT_ALLOWED_TOOLS)
     return {
         "id": DEVOPS_AGENT_ID,

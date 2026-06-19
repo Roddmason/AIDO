@@ -1,7 +1,8 @@
-"""AIDO backend source module.
+"""Contrato Pydantic de la respuesta de overview: tipa el snapshot agregado de todos los slices.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Define el esquema de salida que ``build_overview_from_connection`` produce: una coleccion por
+slice mas la postura de seguridad y el estado de Open Design. Los alias camelCase fijan el
+contrato JSON que consume el frontend; cada campo reusa el record tipado de su slice de origen.
 """
 
 from __future__ import annotations
@@ -50,15 +51,21 @@ from local_control_center.workspaces_projects.models import WorkspaceRecord
 
 
 class OpenDesignStatus(BaseModel):
+    """Estado del subsistema Open Design tal como lo reporta el backend al overview."""
+
     status: str
 
 
 class SecurityPosture(BaseModel):
+    """Garantias de seguridad del runtime expuestas al cliente (loopback y token de escritura)."""
+
     loopback_only: bool = Field(alias="loopbackOnly")
     write_token_required: bool = Field(alias="writeTokenRequired")
 
 
 class OverviewResponse(BaseModel):
+    """Respuesta agregada del overview: una coleccion tipada por cada slice de la plataforma."""
+
     project_templates: list[ProjectTemplateRecord] = Field(alias="projectTemplates")
     projects: list[ProjectRecord]
     providers: list[ProviderRecord]

@@ -1,7 +1,8 @@
-"""AIDO backend source module.
+"""Selecciona proveedor/modelo/runtime por rol aplicando filtros duros, políticas y puntaje.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Por cada candidato descarta los que no pasan filtros duros (salud, capacidades, privacidad, bloqueos de
+rol), aplica presupuesto y cuota, y puntúa el resto combinando ajuste de rol/capacidad, costo, presión de
+cuota y benchmarks; elige el de mayor score. Registra la decisión salvo record=False. No ejecuta el modelo.
 """
 
 from __future__ import annotations
@@ -27,6 +28,8 @@ UNKNOWN_REMOTE_COST_REQUIRES_APPROVAL = "unknown_remote_cost_requires_approval"
 
 
 class RoutingRequest(BaseModel):
+    """Solicitud de ruteo: rol, modo, requisitos de capacidad, privacidad y selección manual opcional."""
+
     model_config = ConfigDict(populate_by_name=True)
 
     role: str = "developer"
@@ -54,6 +57,8 @@ class RoutingRequest(BaseModel):
 
 
 class ModelRouter:
+    """Orquesta la decisión de ruteo sobre las stores de proveedores, precios, cuota y benchmarks."""
+
     def __init__(self, connection: sqlite3.Connection):
         self.connection = connection
         self.providers = ProviderAccountStore(connection)
@@ -64,6 +69,16 @@ class ModelRouter:
         self.benchmarks = ModelBenchmarkStore(connection)
 
     def preview(self, request: RoutingRequest, *, record: bool = True) -> dict[str, Any]:
+        """Resuelve la decisión de ruteo: candidatos, rechazos, elegido y política de aprobación.
+
+        Args:
+            request: requisitos del ruteo (rol, modo, capacidades, privacidad, presupuesto).
+            record: si True persiste la decisión en routing_decisions; usar False para una vista previa.
+
+        Returns:
+            Resultado con el provider/model/runtime elegido (o None), el desglose de puntaje, los
+            candidatos/rechazados y el policyResult con presupuesto, cuota y si requiere aprobación.
+        """
         providers = {item["providerId"]: item for item in self.providers.list_provider_accounts()}
         models = self.providers.list_models()
         try:

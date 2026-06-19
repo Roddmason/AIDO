@@ -1,7 +1,6 @@
 /**
- * @file AIDO frontend source module.
- * @copyright Copyright (c) AIDO.
- * @author Roddmason
+ * Home gallery card for a recent run, surfacing its title and live status so the
+ * user can jump back into in-flight work. One of the four masonry card kinds.
  */
 import { ArrowRight, Workflow as WorkflowIcon } from 'lucide-react';
 

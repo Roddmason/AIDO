@@ -1,7 +1,8 @@
-"""AIDO backend source module.
+"""Contrato y readiness del DeveloperAgent: esquema I/O y selección de runtime de edición.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Declara los esquemas de entrada/salida del agente desarrollador y sus runtimes elegibles —CLIs de
+código (codex_cli/claude_code_cli) y modelos (openai_compatible/ollama)— con su orden de preferencia,
+y calcula si hay un runtime ejecutable con capacidad de edición de código.
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ DEVELOPER_AGENT_RUNTIME_ORDER = ["codex_cli", "claude_code_cli", "openai_compati
 
 
 def developer_agent_contract() -> dict[str, Any]:
+    """Describe el contrato del DeveloperAgent: esquemas I/O, tools permitidas y capacidades requeridas."""
     return {
         "id": DEVELOPER_AGENT_ID,
         "inputSchema": {
@@ -63,6 +65,7 @@ def _developer_runtime_reason(runtime: dict[str, Any]) -> str:
 
 
 def is_developer_runtime(runtime: dict[str, Any]) -> bool:
+    """Indica si un runtime sirve como DeveloperAgent: CLI con code_edit o modelo con chat disponible."""
     runtime_id = str(runtime.get("id") or "")
     if not runtime.get("executable"):
         return False
@@ -81,6 +84,11 @@ def developer_agent_readiness(
     *,
     preferred_runtime: str | None = None,
 ) -> dict[str, Any]:
+    """Selecciona el runtime del DeveloperAgent (preferido si es válido, si no el de mayor prioridad).
+
+    Returns:
+        Estado de readiness con executable/status/reason, el runtime elegido, los candidatos y el contrato.
+    """
     by_id = {str(runtime.get("id")): runtime for runtime in runtime_statuses}
     eligible = [runtime for runtime in runtime_statuses if is_developer_runtime(runtime)]
     ordered_eligible = sorted(

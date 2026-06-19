@@ -1,7 +1,8 @@
 /**
- * @file AIDO frontend source module.
- * @copyright Copyright (c) AIDO.
- * @author Roddmason
+ * Hook that owns the approve/reject decision for one action request: resolves its
+ * linked evidence/artifacts, lazily loads the patch and security payloads, derives
+ * the evidence gate, and submits the decision (chaining the workflow-approval call
+ * when the action approves a patch/PR run). All decision state lives here.
  */
 import { useEffect, useMemo, useState } from 'react';
 import type { ArtifactPayload } from '../../api/client';
@@ -47,6 +48,11 @@ export type ReviewDecision = {
 	decide: (kind: 'approve' | 'reject') => Promise<boolean>;
 };
 
+/**
+ * Wires the decision state for the currently selected action. Returns the loaded
+ * evidence/gate plus `approveBlocked`/`decisionBlocked` flags and a `decide`
+ * submitter; Approve stays blocked until the reason and the patch gate both pass.
+ */
 export function useReviewDecision(
 	action: ActionRequest | null,
 	overview: Overview,

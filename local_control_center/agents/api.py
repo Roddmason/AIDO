@@ -1,7 +1,8 @@
-"""AIDO backend source module.
+"""Router HTTP de agentes: ejecuta runs por rol, perfiles, runtimes y skills con validación de entrada.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Expone los endpoints de status/run de cada agente (developer/architect/qa/devops/security), el CRUD de
+perfiles, la creación de agent runs con brokering de tool calls, y los catálogos de runtimes y skills.
+Cada payload se valida estrictamente (ids compactos, argv estructurados, límites) antes de tocar dominio.
 """
 
 from __future__ import annotations
@@ -89,6 +90,12 @@ def _require_id(value: Any, *, label: str) -> str:
 
 
 def validate_agent_profile_body(body: dict[str, Any]) -> dict[str, Any]:
+    """Valida un perfil de agente contra los catálogos permitidos y los rangos numéricos.
+
+    Raises:
+        HTTPException: 422 si rol/runtime/perfil no están catalogados, los ids no son compactos o
+            los límites numéricos quedan fuera de rango.
+    """
     _require_id(body.get("id"), label="Agent profile id")
     role = str(body.get("role") or "implementer")
     runtime_mode = str(body.get("runtimeMode") or body.get("runtimeType") or "hybrid")
@@ -134,6 +141,12 @@ def validate_agent_profile_body(body: dict[str, Any]) -> dict[str, Any]:
 
 
 def validate_developer_agent_run_body(body: DeveloperAgentRunRequest) -> dict[str, Any]:
+    """Valida un run de DeveloperAgent (instrucción, runtime permitido, qaCommands, costo).
+
+    Raises:
+        HTTPException: 422 si falta la instrucción, excede el largo, el runtime no es permitido,
+            los qaCommands no son argv válidos o maxCostUsd es negativo.
+    """
     payload = body.model_dump(by_alias=True)
     instruction = str(payload.get("instruction") or "").strip()
     if not instruction:
@@ -160,6 +173,12 @@ def validate_developer_agent_run_body(body: DeveloperAgentRunRequest) -> dict[st
 
 
 def validate_qa_agent_run_body(body: QAAgentRunRequest) -> dict[str, Any]:
+    """Valida un run de QAAgent: taskId y comandos con argv estructurado y timeout acotado.
+
+    Raises:
+        HTTPException: 422 si falta taskId, un comando usa string en vez de argv o el timeout no
+            está entre 1 y 300 segundos.
+    """
     payload = body.model_dump(by_alias=True)
     task_id = str(payload.get("taskId") or "").strip()
     if not task_id:
@@ -193,6 +212,11 @@ def validate_qa_agent_run_body(body: QAAgentRunRequest) -> dict[str, Any]:
 
 
 def validate_devops_agent_run_body(body: DevOpsAgentRunRequest) -> dict[str, Any]:
+    """Valida un run de DevOpsAgent: taskId y scripts de build/quality como nombres compactos acotados.
+
+    Raises:
+        HTTPException: 422 si falta taskId, hay más de 20 scripts o alguno no es un nombre compacto.
+    """
     payload = body.model_dump(by_alias=True)
     task_id = str(payload.get("taskId") or "").strip()
     if not task_id:
@@ -214,6 +238,12 @@ def validate_devops_agent_run_body(body: DevOpsAgentRunRequest) -> dict[str, Any
 
 
 def validate_security_agent_run_body(body: SecurityAgentRunRequest) -> dict[str, Any]:
+    """Valida un run de SecurityAgent: taskId, escáneres candidatos, rutas y runtime permitido.
+
+    Raises:
+        HTTPException: 422 si falta taskId, se exceden los límites de candidatos/rutas, un comando
+            usa string en vez de argv o el runtime no es permitido.
+    """
     payload = body.model_dump(by_alias=True)
     task_id = str(payload.get("taskId") or "").strip()
     if not task_id:
@@ -252,6 +282,12 @@ def validate_security_agent_run_body(body: SecurityAgentRunRequest) -> dict[str,
 
 
 def validate_architect_agent_run_body(body: ArchitectAgentRunRequest) -> dict[str, Any]:
+    """Valida un run de ArchitectAgent: taskId, diff, contexto de workflow, runtime y listas de soporte.
+
+    Raises:
+        HTTPException: 422 si falta taskId/diffArtifactId, el workflowContext no es objeto, el runtime
+            no es permitido o las listas de docs/tests/riesgos/evidencia no cumplen forma o tamaño.
+    """
     payload = body.model_dump(by_alias=True)
     task_id = str(payload.get("taskId") or "").strip()
     if not task_id:
@@ -427,6 +463,7 @@ def _create_execution_evidence(
 
 
 def create_router(*, platform: Any, require_write: Callable[[Request], None]) -> APIRouter:
+    """Construye el APIRouter de agentes, cableado a la conexión/cwd del platform y al guard de escritura."""
     router = APIRouter()
 
     def repository() -> AgentsRepository:
@@ -440,10 +477,12 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
 
     @router.get("/api/v1/agents/devops/status", response_model=DevOpsAgentStatusResponse)
     async def devops_agent_status() -> dict[str, Any]:
+        """Devuelve el readiness del DevOpsAgent."""
         return {"devopsAgent": DevOpsAgentRunner(platform.connection, root=platform.cwd).status()}
 
     @router.post("/api/v1/agents/devops/runs", status_code=202, response_model=DevOpsAgentRunResponse)
     async def run_devops_agent(body: DevOpsAgentRunRequest, request: Request) -> dict[str, Any]:
+        """Ejecuta el DevOpsAgent sobre un workspace y emite el evento del veredicto."""
         require_write(request)
         payload = validate_devops_agent_run_body(body)
         try:
@@ -466,10 +505,12 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
 
     @router.get("/api/v1/agents/security/status", response_model=SecurityAgentStatusResponse)
     async def security_agent_status() -> dict[str, Any]:
+        """Devuelve el readiness del SecurityAgent."""
         return {"securityAgent": SecurityAgentRunner(platform.connection, root=platform.cwd).status()}
 
     @router.post("/api/v1/agents/security/runs", status_code=202, response_model=SecurityAgentRunResponse)
     async def run_security_agent(body: SecurityAgentRunRequest, request: Request) -> dict[str, Any]:
+        """Ejecuta el SecurityAgent sobre un workspace y emite el evento del veredicto."""
         require_write(request)
         payload = validate_security_agent_run_body(body)
         try:
@@ -492,6 +533,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
 
     @router.post("/api/v1/agents/qa/runs", status_code=202, response_model=QAAgentRunResponse)
     async def run_qa_agent(body: QAAgentRunRequest, request: Request) -> dict[str, Any]:
+        """Ejecuta el QAAgent sobre un workspace y emite el evento del veredicto."""
         require_write(request)
         payload = validate_qa_agent_run_body(body)
         try:
@@ -513,10 +555,12 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
 
     @router.get("/api/v1/agents/developer/status", response_model=DeveloperAgentStatusResponse)
     async def developer_agent_status() -> dict[str, Any]:
+        """Devuelve el readiness del DeveloperAgent."""
         return {"developerAgent": DeveloperAgentRunner(platform.connection, root=platform.cwd).status()}
 
     @router.post("/api/v1/agents/developer/runs", status_code=202, response_model=DeveloperAgentRunResponse)
     async def run_developer_agent(body: DeveloperAgentRunRequest, request: Request) -> dict[str, Any]:
+        """Ejecuta el DeveloperAgent sobre un workspace y emite el evento del estado resultante."""
         require_write(request)
         payload = validate_developer_agent_run_body(body)
         try:
@@ -539,10 +583,12 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
 
     @router.get("/api/v1/agents/architect/status", response_model=ArchitectAgentStatusResponse)
     async def architect_agent_status() -> dict[str, Any]:
+        """Devuelve el readiness del ArchitectAgent."""
         return {"architectAgent": ArchitectAgentRunner(platform.connection, root=platform.cwd).status()}
 
     @router.post("/api/v1/agents/architect/runs", status_code=202, response_model=ArchitectAgentRunResponse)
     async def run_architect_agent(body: ArchitectAgentRunRequest, request: Request) -> dict[str, Any]:
+        """Ejecuta el ArchitectAgent sobre un workspace y emite el evento del estado resultante."""
         require_write(request)
         payload = validate_architect_agent_run_body(body)
         try:
@@ -567,10 +613,12 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
 
     @router.get("/api/v1/agent-profiles", response_model=AgentProfilesListResponse)
     async def list_agent_profiles() -> dict[str, Any]:
+        """Lista todos los perfiles de agente."""
         return {"agentProfiles": repository().list_agent_profiles()}
 
     @router.post("/api/v1/agent-profiles", status_code=201, response_model=AgentProfileResponse)
     async def upsert_agent_profile(body: AgentProfileUpsertRequest, request: Request) -> dict[str, Any]:
+        """Crea o reemplaza un perfil de agente tras validarlo contra los catálogos."""
         require_write(request)
         payload = validate_agent_profile_body(body.model_dump(by_alias=True))
         profile = repository().upsert_agent_profile(payload)
@@ -581,10 +629,16 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
 
     @router.get("/api/v1/agent-runs", response_model=AgentRunsListResponse)
     async def list_agent_runs() -> dict[str, Any]:
+        """Lista todos los runs de agente registrados."""
         return {"agentRuns": repository().list_agent_runs()}
 
     @router.post("/api/v1/agent-runs", status_code=202, response_model=AgentRunResponse)
     async def create_agent_run(body: AgentRunCreateRequest, request: Request) -> AgentRunResponse:
+        """Crea un agent run genérico, brokerea sus tool calls y deriva estado/veredicto y evidencia.
+
+        Bloquea runtimes fuera del catálogo y revisiones técnicas sin evidencia; cuando hay tool calls,
+        las media el ToolBroker y el resultado se reduce a un estado/veredicto coherente con los permisos.
+        """
         require_write(request)
         payload = body.model_dump(by_alias=True)
         repo = repository()
@@ -744,18 +798,22 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
 
     @router.get("/api/v1/runtime/providers", response_model=RuntimeProvidersResponse)
     async def list_runtime_providers() -> dict[str, Any]:
+        """Devuelve el estado agregado de los runtime providers."""
         return RuntimeStatusService(platform.connection).runtime_provider_status()
 
     @router.get("/api/v1/runtime/provider-configuration", response_model=RuntimeProviderConfigurationResponse)
     async def list_runtime_provider_configuration() -> dict[str, Any]:
+        """Devuelve el estado de configuración (qué falta) de cada runtime provider."""
         return {"providers": list_runtime_provider_configurations()}
 
     @router.get("/api/v1/skills", response_model=SkillsListResponse)
     async def list_skills() -> dict[str, Any]:
+        """Lista las skills catalogadas."""
         return {"skills": skill_registry().list_skills()}
 
     @router.post("/api/v1/skills/sync", status_code=202, response_model=SkillsSyncResponse)
     async def sync_skills(body: SkillsSyncRequest, request: Request) -> SkillsSyncResponse:
+        """Sincroniza el catálogo de skills desde el path indicado y emite el evento de sincronización."""
         require_write(request)
         count = skill_registry().sync(body.skills_path)
         event_bus().record_event(event_type="skills.synced", payload={"synced": count})

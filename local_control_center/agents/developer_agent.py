@@ -1,7 +1,8 @@
-"""AIDO backend source module.
+"""Ejecuta el DeveloperAgent: aplica cambios en un workspace vía runtime y los valida con QA y diff.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Selecciona un runtime CLI o de modelo, ejecuta la instrucción dentro del workspace (a través del broker),
+captura el diff git resultante y corre el QAAgent; el run solo se da por completado si el QA lo permite.
+Todo queda asentado en un paquete de evidencia con artefactos y hashes; falla cerrado ante brechas.
 """
 
 from __future__ import annotations
@@ -276,6 +277,8 @@ def _parse_model_patch(content: str) -> dict[str, Any]:
 
 
 class DeveloperAgentRunner:
+    """Orquesta una tarea de desarrollo: ejecuta el runtime, captura el diff y valida con QA."""
+
     def __init__(self, connection: sqlite3.Connection, *, root: Path):
         self.connection = connection
         self.root = root
@@ -286,6 +289,7 @@ class DeveloperAgentRunner:
         self.security = SecurityPolicyRepository(connection)
 
     def status(self, *, preferred_runtime: str | None = None) -> dict[str, Any]:
+        """Devuelve el readiness del DeveloperAgent según los runtimes CLI/modelo disponibles."""
         statuses = RuntimeStatusService(self.connection).list_provider_statuses()
         return developer_agent_readiness(statuses, preferred_runtime=preferred_runtime)
 
@@ -435,6 +439,11 @@ class DeveloperAgentRunner:
         }
 
     def run(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Ejecuta la tarea end-to-end y devuelve estado, diff, resultados de QA y evidencia.
+
+        Valida el workspace, ejecuta el runtime seleccionado vía broker, captura el diff git, corre el
+        QAAgent y reduce todo a un estado terminal; solo completa si el veredicto de QA lo permite.
+        """
         workspace = self.workspaces.get_workspace(str(payload["workspaceId"]))
         if workspace["projectId"] != payload["projectId"]:
             raise ValueError("Workspace does not belong to the requested project.")

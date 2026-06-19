@@ -1,7 +1,8 @@
-"""AIDO backend source module.
+"""Arranque por linea de comandos del Local Control Center: dashboard FastAPI y/o worker.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Parsea flags (host/puerto, modos dashboard/worker, rutas de db y estaticos), inicializa
+el runtime del control plane y lanza uvicorn y el loop del worker segun la combinacion
+elegida. Tambien fija la politica de event loop en Windows para compatibilidad con asyncio.
 """
 
 from __future__ import annotations
@@ -22,6 +23,11 @@ from .worker import ConcurrentWorker
 
 
 def configure_windows_event_loop_policy(platform_name: str = os.name) -> bool:
+    """Activa el selector event loop en Windows; devuelve True si se aplico el cambio.
+
+    Evita el ProactorEventLoop por defecto en `nt`, que provoca fallos con sockets/subprocesos
+    bajo uvicorn. En otras plataformas o sin la politica disponible no hace nada y devuelve False.
+    """
     if platform_name != "nt":
         return False
     selector_policy = getattr(asyncio, "WindowsSelectorEventLoopPolicy", None)
@@ -32,6 +38,7 @@ def configure_windows_event_loop_policy(platform_name: str = os.name) -> bool:
 
 
 def parse_args() -> argparse.Namespace:
+    """Define y parsea los flags de la CLI (host/puerto, modos dashboard/worker, db, estaticos)."""
     parser = argparse.ArgumentParser(description="Local Control Center Python backend")
     parser.add_argument("--dashboard-host", default="127.0.0.1")
     parser.add_argument("--dashboard-port", type=int, default=4310)
@@ -48,6 +55,11 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    """Punto de entrada de la CLI: configura runtime y arranca worker y/o dashboard segun flags.
+
+    Con `--worker --no-dashboard` corre el loop del worker en primer plano; en otro caso opcionalmente
+    lanza el worker en un hilo daemon y sirve la app FastAPI con uvicorn.
+    """
     configure_windows_event_loop_policy()
     args = parse_args()
     cwd = Path(args.workspace)

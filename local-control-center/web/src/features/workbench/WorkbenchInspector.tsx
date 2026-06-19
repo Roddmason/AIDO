@@ -1,7 +1,6 @@
 /**
- * @file AIDO frontend source module.
- * @copyright Copyright (c) AIDO.
- * @author Roddmason
+ * Right rail of the Workbench: surfaces the at-a-glance governance state of the active workspace —
+ * runtime health, pending approvals, QA verdict and recorded blockers — with deep-link buttons.
  */
 import { ClipboardCheck, FileCheck2, SlidersHorizontal } from 'lucide-react';
 
@@ -12,6 +11,7 @@ import { toneForStatus } from '../../lib/format';
 import { RuntimeSetupInspectorCard } from '../runtime-setup/RuntimeSetupInspectorCard';
 import type { Blocker } from './workbenchSelectors';
 
+/** Read-only governance sidebar; the on* callbacks open the deeper Jobs/Evidence/Settings views. */
 export function WorkbenchInspector({
 	runtimeProviders,
 	runtimeProviderConfiguration,

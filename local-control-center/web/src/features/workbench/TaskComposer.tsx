@@ -1,7 +1,7 @@
 /**
- * @file AIDO frontend source module.
- * @copyright Copyright (c) AIDO.
- * @author Roddmason
+ * Governed-patch intake form: turns a plain-language change request into an issue_to_patch run,
+ * auto-selecting the runtime and QA preset so a non-expert can dispatch a safe, evidence-backed
+ * change. Blocks submission when no executable runtime exists and renders the run result inline.
  */
 import { AlertTriangle, Rocket, SlidersHorizontal } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
@@ -68,6 +68,10 @@ function autoQaPresetId(project: Project | null): string {
 	return 'python-tests';
 }
 
+/**
+ * Governed change request form; `busy`/`result` are lifted to the page so the run survives tab
+ * switches, and `onConfigureRuntime` escapes to runtime setup when nothing executable is available.
+ */
 export function TaskComposer({
 	project,
 	runtimeProviders,

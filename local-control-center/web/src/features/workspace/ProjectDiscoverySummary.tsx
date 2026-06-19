@@ -1,7 +1,7 @@
 /**
- * @file AIDO frontend source module.
- * @copyright Copyright (c) AIDO.
- * @author Roddmason
+ * Presentational review-step panel for the new-workspace wizard: renders what project
+ * discovery found (manifest markers present/absent and detected runtimes) for the chosen
+ * folder. Stateless — all data is supplied by the caller via props.
  */
 import { Check, Minus } from 'lucide-react';
 

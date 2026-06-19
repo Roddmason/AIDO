@@ -1,7 +1,11 @@
-"""AIDO backend source module.
+"""Deterministic security review of a workspace with optional external scanners.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Scans workspace files, dependency manifests, diff artifacts, candidate commands, paths,
+and recorded policy decisions for secrets, traversal, and dangerous flags, then runs
+gitleaks/semgrep through the broker when their CLIs are installed and locally configured.
+The verdict is deterministic: any critical finding blocks, otherwise risk/passed. Optional
+model analysis is advisory only and can never override the deterministic verdict; missing
+scanners are recorded as skipped_with_reason, never silently passed.
 """
 
 from __future__ import annotations
@@ -154,6 +158,8 @@ def _is_docker_command(argv: list[str]) -> bool:
 
 
 class SecurityAgentRunner:
+    """Runs deterministic security controls plus optional external scanners over a workspace."""
+
     def __init__(self, connection: sqlite3.Connection, *, root: Path):
         self.connection = connection
         self.root = root
@@ -164,6 +170,7 @@ class SecurityAgentRunner:
         self.workspaces = WorkspacesRepository(connection, root=root)
 
     def status(self) -> dict[str, Any]:
+        """Report SecurityAgent readiness from current runtime provider statuses."""
         return security_agent_status(RuntimeStatusService(self.connection).list_provider_statuses())
 
     def _ensure_profile(self) -> dict[str, Any]:
@@ -1027,6 +1034,12 @@ class SecurityAgentRunner:
         }
 
     def run(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Run the full security review and return the verdict, findings, and evidence package.
+
+        Executes all deterministic controls and external scanners, derives the verdict,
+        optionally adds advisory model analysis, then enforces the evidence contract:
+        a passed verdict with an incomplete package is downgraded to blocked.
+        """
         project_id = str(payload["projectId"])
         workspace = self._workspace(project_id=project_id, workspace_id=str(payload["workspaceId"]))
         diff_artifact = self._diff_artifact(project_id=project_id, artifact_id=payload.get("diffArtifactId"))

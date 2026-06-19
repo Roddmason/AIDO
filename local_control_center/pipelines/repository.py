@@ -1,7 +1,9 @@
-"""AIDO backend source module.
+"""Persistencia SQLite de los pipelines: alta, lectura por id y listado por proyecto.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Traduce filas de la tabla `pipelines` a/desde dicts con claves camelCase. La conexión recibida
+opera en autocommit (`isolation_level=None`): cada `execute` confirma de forma independiente y el
+repositorio no abre transacciones. `create_pipeline` hace un `INSERT` y luego un `SELECT` (vía
+`get_pipeline`) en dos statements separados, por lo que no es una operación atómica.
 """
 
 from __future__ import annotations
@@ -23,6 +25,7 @@ DEFAULT_STAGES = [
 
 
 def row_to_pipeline(row: sqlite3.Row) -> dict[str, Any]:
+    """Convierte una fila de `pipelines` al dict camelCase del contrato, deserializando JSON."""
     return {
         "id": row["id"],
         "projectId": row["project_id"],
@@ -38,6 +41,8 @@ def row_to_pipeline(row: sqlite3.Row) -> dict[str, Any]:
 
 
 class PipelinesRepository:
+    """Acceso a la tabla `pipelines` sobre la conexión SQLite del caller (en autocommit)."""
+
     def __init__(self, connection: sqlite3.Connection):
         self.connection = connection
 
@@ -50,6 +55,11 @@ class PipelinesRepository:
         chat_id: str | None = None,
         stages: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
+        """Inserta un pipeline `queued` (etapas por defecto si no se pasan) y lo relee ya persistido.
+
+        Genera id (`pipeline-<uuid>`) y timestamps. El `INSERT` se autocommitea por sí solo y la
+        relectura va en un `SELECT` aparte, así que la pareja escritura+lectura no es atómica.
+        """
         timestamp = utc_now()
         pipeline_id = f"pipeline-{uuid.uuid4()}"
         self.connection.execute(
@@ -73,12 +83,14 @@ class PipelinesRepository:
         return self.get_pipeline(pipeline_id)
 
     def get_pipeline(self, pipeline_id: str) -> dict[str, Any]:
+        """Devuelve el pipeline por id; lanza `KeyError` si no existe."""
         row = self.connection.execute("SELECT * FROM pipelines WHERE id = ?", (pipeline_id,)).fetchone()
         if not row:
             raise KeyError(f"Pipeline not found: {pipeline_id}")
         return row_to_pipeline(row)
 
     def list_pipelines(self, project_id: str | None = None) -> list[dict[str, Any]]:
+        """Lista pipelines del proyecto (o todos si no se filtra), del más reciente al más antiguo."""
         if project_id:
             rows = self.connection.execute(
                 "SELECT * FROM pipelines WHERE project_id = ? ORDER BY created_at DESC",

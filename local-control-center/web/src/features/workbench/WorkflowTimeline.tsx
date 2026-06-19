@@ -1,7 +1,7 @@
 /**
- * @file AIDO frontend source module.
- * @copyright Copyright (c) AIDO.
- * @author Roddmason
+ * Shared visualization of a run's stage progression, in two flavors: a compact 'rail' for the page
+ * header and a 'detailed' list with per-stage reasons and evidence links. The current stage is the
+ * first non-completed one (see currentStageIndex) and is marked with aria-current.
  */
 import { ArrowUpRight } from 'lucide-react';
 
@@ -17,6 +17,7 @@ type WorkflowTimelineProps = {
 	onOpenArtifact?: (artifact: TimelineArtifactRef) => void;
 };
 
+/** Renders run stages as a rail or detailed list; `onOpenArtifact` only fires in detailed mode. */
 export function WorkflowTimeline({
 	stages,
 	label,

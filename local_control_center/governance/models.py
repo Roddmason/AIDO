@@ -1,7 +1,9 @@
-"""AIDO backend source module.
+"""Esquemas Pydantic del API de gobernanza (ADRs, riesgos y next steps).
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Define los contratos de request, los registros persistidos y las envolturas de
+respuesta para los tres recursos. Los Literal fijan los enums permitidos y los
+validadores `before` normalizan a minúsculas para que el alias camelCase del API
+sea estable frente a entradas con mayúsculas mixtas.
 """
 
 from __future__ import annotations
@@ -18,6 +20,8 @@ NextStepStatus = Literal["planned", "in_progress", "blocked", "completed", "canc
 
 
 class ArchitectureDecisionCreateRequest(BaseModel):
+    """Payload entrante para registrar una decisión de arquitectura (ADR)."""
+
     project_id: str = Field(alias="projectId")
     title: str
     status: DecisionStatus = "proposed"
@@ -31,10 +35,13 @@ class ArchitectureDecisionCreateRequest(BaseModel):
     @field_validator("status", mode="before")
     @classmethod
     def normalize_status(cls, value: Any) -> Any:
+        """Baja a minúsculas el status para tolerar entradas con mayúsculas mixtas."""
         return value.lower() if isinstance(value, str) else value
 
 
 class ArchitectureDecisionRecord(BaseModel):
+    """ADR persistida, con id y marcas temporales, tal como la devuelve el API."""
+
     id: str
     project_id: str = Field(alias="projectId")
     title: str
@@ -50,20 +57,28 @@ class ArchitectureDecisionRecord(BaseModel):
 
 
 class ArchitectureDecisionResponse(BaseModel):
+    """Envoltura de respuesta para una sola ADR (create / detalle)."""
+
     architecture_decision: ArchitectureDecisionRecord = Field(alias="architectureDecision")
 
 
 class GovernanceResponse(BaseModel):
+    """Vista agregada de gobernanza: ADRs, riesgos y next steps en una sola carga."""
+
     architecture_decisions: list[ArchitectureDecisionRecord] = Field(alias="architectureDecisions")
     risks: list[RiskRecord]
     next_steps: list[NextStepRecord] = Field(alias="nextSteps")
 
 
 class ArchitectureDecisionsListResponse(BaseModel):
+    """Envoltura de respuesta para el listado de ADRs."""
+
     architecture_decisions: list[ArchitectureDecisionRecord] = Field(alias="architectureDecisions")
 
 
 class RiskCreateRequest(BaseModel):
+    """Payload entrante para dar de alta un riesgo en el registro."""
+
     project_id: str = Field(alias="projectId")
     title: str
     severity: RiskSeverity = "medium"
@@ -77,10 +92,13 @@ class RiskCreateRequest(BaseModel):
     @field_validator("severity", "status", mode="before")
     @classmethod
     def normalize_choices(cls, value: Any) -> Any:
+        """Baja a minúsculas severidad y status antes de validar el enum."""
         return value.lower() if isinstance(value, str) else value
 
 
 class RiskUpdateRequest(BaseModel):
+    """Payload de actualización parcial de un riesgo; campos no enviados quedan intactos."""
+
     severity: RiskSeverity | None = None
     status: RiskStatus | None = None
     mitigation: str | None = None
@@ -91,10 +109,13 @@ class RiskUpdateRequest(BaseModel):
     @field_validator("severity", "status", mode="before")
     @classmethod
     def normalize_choices(cls, value: Any) -> Any:
+        """Baja a minúsculas severidad y status enviados antes de validar el enum."""
         return value.lower() if isinstance(value, str) else value
 
 
 class RiskRecord(BaseModel):
+    """Riesgo persistido del registro, tal como lo devuelve el API."""
+
     id: str
     project_id: str = Field(alias="projectId")
     title: str
@@ -110,14 +131,20 @@ class RiskRecord(BaseModel):
 
 
 class RiskResponse(BaseModel):
+    """Envoltura de respuesta para un solo riesgo (create / update)."""
+
     risk: RiskRecord
 
 
 class RisksListResponse(BaseModel):
+    """Envoltura de respuesta para el listado de riesgos."""
+
     risks: list[RiskRecord]
 
 
 class NextStepCreateRequest(BaseModel):
+    """Payload entrante para crear un next step, opcionalmente ligado a un riesgo o ADR."""
+
     project_id: str = Field(alias="projectId")
     title: str
     status: NextStepStatus = "planned"
@@ -131,10 +158,13 @@ class NextStepCreateRequest(BaseModel):
     @field_validator("status", "priority", mode="before")
     @classmethod
     def normalize_choices(cls, value: Any) -> Any:
+        """Baja a minúsculas status y prioridad antes de validar el enum."""
         return value.lower() if isinstance(value, str) else value
 
 
 class NextStepUpdateRequest(BaseModel):
+    """Payload de actualización parcial de un next step; campos no enviados quedan intactos."""
+
     status: NextStepStatus | None = None
     priority: NextStepPriority | None = None
     owner: str | None = None
@@ -144,10 +174,13 @@ class NextStepUpdateRequest(BaseModel):
     @field_validator("status", "priority", mode="before")
     @classmethod
     def normalize_choices(cls, value: Any) -> Any:
+        """Baja a minúsculas status y prioridad enviados antes de validar el enum."""
         return value.lower() if isinstance(value, str) else value
 
 
 class NextStepRecord(BaseModel):
+    """Next step persistido, tal como lo devuelve el API."""
+
     id: str
     project_id: str = Field(alias="projectId")
     title: str
@@ -163,8 +196,12 @@ class NextStepRecord(BaseModel):
 
 
 class NextStepResponse(BaseModel):
+    """Envoltura de respuesta para un solo next step (create / update)."""
+
     next_step: NextStepRecord = Field(alias="nextStep")
 
 
 class NextStepsListResponse(BaseModel):
+    """Envoltura de respuesta para el listado de next steps."""
+
     next_steps: list[NextStepRecord] = Field(alias="nextSteps")

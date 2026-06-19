@@ -1,7 +1,7 @@
 /**
- * @file AIDO frontend source module.
- * @copyright Copyright (c) AIDO.
- * @author Roddmason
+ * Panel de benchmarks del Model Gateway: captura outcomes manuales y muestra los agregados por modelo.
+ * Distingue evidencia objetiva (corridas automatizadas / validación de release) de reportes manuales del
+ * operador y marca como no probatorias las muestras solo-manuales o con datos insuficientes.
  */
 import type {
 	ModelGatewayBenchmark,
@@ -78,6 +78,10 @@ function benchmarkValidity(row: ModelGatewayBenchmark, t: Translate) {
 	);
 }
 
+/**
+ * Formulario de alta de outcome manual más dos tablas: agregados por modelo y outcomes crudos.
+ * Todo el estado del formulario es controlado por el padre; este componente solo emite cambios y submit.
+ */
 export function BenchmarksPanel({
 	benchmarks,
 	benchmarkOutcomes,

@@ -1,7 +1,10 @@
-"""AIDO backend source module.
+"""Parsea comandos y los mapea a categorias de allowlist (test, build, lint, instalacion...).
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Convierte un comando crudo en ``ParsedCommand`` (ejecutable + args, sin shell) y lo clasifica
+contra allowlists explicitas de scripts pnpm/uv, gestores de paquetes y binarios de solo
+lectura. Invariante: solo los scripts/ejecutables enumerados aqui obtienen una categoria de
+bajo riesgo; cualquier cosa fuera de la lista queda sin categoria y el motor la denegara o
+elevara. No lanza: ante un comando mal formado devuelve ``None`` o categoria vacia.
 """
 
 from __future__ import annotations
@@ -58,11 +61,19 @@ RUNTIME_VERSION_EXECUTABLES = frozenset(
 
 @dataclass(frozen=True)
 class ParsedCommand:
+    """Comando ya tokenizado: ejecutable normalizado en minuscula y sus argumentos."""
+
     executable: str
     args: tuple[str, ...]
 
 
 def parse_command(command: str | None) -> ParsedCommand | None:
+    """Tokeniza un comando con ``shlex`` (modo no-POSIX) sin invocar shell.
+
+    Devuelve ``None`` si el comando esta vacio. Si el tokenizado falla por comillas mal
+    balanceadas no lanza: retorna un ``ParsedCommand`` con ejecutable vacio para que el
+    clasificador lo trate como desconocido.
+    """
     text = (command or "").strip()
     if not text:
         return None
@@ -95,6 +106,13 @@ def _is_pnpm(parsed: ParsedCommand) -> tuple[bool, tuple[str, ...]]:
 
 
 def pnpm_script_category(parsed: ParsedCommand) -> str | None:
+    """Clasifica un ``pnpm run <script>`` (o ``corepack pnpm run ...``) por su script.
+
+    Mapea scripts allowlisted a su categoria (test/build/lint/typecheck/quality/security_scan).
+    Invariante de seguridad: cualquier script con nombre de hook de ciclo de vida (install,
+    prepare, prefijos ``pre``/``post``, etc.) se marca ``package_script_hook`` porque puede
+    ejecutar codigo arbitrario; los scripts no reconocidos caen a ``package_script``.
+    """
     is_pnpm, args = _is_pnpm(parsed)
     if not is_pnpm or len(args) < 2 or args[0] != "run":
         return None
@@ -117,6 +135,12 @@ def pnpm_script_category(parsed: ParsedCommand) -> str | None:
 
 
 def package_manager_category(parsed: ParsedCommand) -> str | None:
+    """Detecta instalaciones/actualizaciones de dependencias (pnpm/npm/uv/pip/winget/choco).
+
+    Devuelve ``"install"`` cuando el primer verbo es de mutacion de dependencias
+    (install/add/remove/update/upgrade...), o ``None`` en otro caso. Estas acciones traen codigo
+    de terceros, por eso el motor las trata como riesgo medio.
+    """
     executable = parsed.executable
     args = parsed.args
     if (
@@ -139,6 +163,13 @@ def package_manager_category(parsed: ParsedCommand) -> str | None:
 
 
 def low_risk_shell_category(parsed: ParsedCommand) -> str | None:
+    """Reconoce comandos de bajo riesgo: tests, lint, chequeos de version y solo-lectura.
+
+    Solo concede categoria a invocaciones exactas y allowlisted (pnpm/uv scripts seguros,
+    pytest/vitest/playwright, ``--version``, ``git status``/``diff``, binarios de lectura).
+    Invariante: cualquier comando que no calce exactamente devuelve ``None`` y no se considera
+    de bajo riesgo; el motor lo elevara a aprobacion.
+    """
     pnpm_category = pnpm_script_category(parsed)
     if pnpm_category in {"test", "build", "lint", "typecheck", "quality", "security_scan"}:
         return pnpm_category

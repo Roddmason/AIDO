@@ -1,7 +1,10 @@
-"""AIDO backend source module.
+"""Esquema DDL idempotente de la plataforma, aplicado por fases incrementales.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Crea tablas/índices y siembra catálogos por defecto (proveedores, modelos, políticas
+de ruteo, presupuestos) de forma reentrante: usa ``CREATE TABLE IF NOT EXISTS``,
+``ALTER TABLE`` condicional e ``INSERT OR IGNORE``, registrando cada fase en
+``schema_migrations``. Cada ``init_phaseN_schema`` se ejecuta como su propia unidad DDL;
+re-ejecutar todo el conjunto sobre una base ya migrada no produce cambios.
 """
 
 from __future__ import annotations
@@ -13,6 +16,7 @@ from .time import utc_now
 
 
 def initialize_platform_schema(connection: sqlite3.Connection) -> None:
+    """Aplica todas las fases del esquema en orden y siembra los catálogos de la plataforma."""
     init_base_schema(connection)
     init_phase2_schema(connection)
     init_phase3_schema(connection)
@@ -32,6 +36,7 @@ def initialize_platform_schema(connection: sqlite3.Connection) -> None:
 
 
 def init_base_schema(connection: sqlite3.Connection) -> None:
+    """Fase 1: crea el núcleo (proyectos, agentes, jobs, eventos, auditoría, memoria, MCP)."""
     connection.executescript(
         """
         CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -303,6 +308,7 @@ def init_base_schema(connection: sqlite3.Connection) -> None:
 
 
 def init_phase2_schema(connection: sqlite3.Connection) -> None:
+    """Fase 2: añade workflows, permisos, evidencia y costos; siembra políticas de permiso base."""
     connection.executescript(
         """
         CREATE TABLE IF NOT EXISTS workflows (
@@ -504,6 +510,7 @@ def init_phase2_schema(connection: sqlite3.Connection) -> None:
 
 
 def init_phase3_schema(connection: sqlite3.Connection) -> None:
+    """Fase 3: añade workspaces, git/PR, skills, artefactos y QA; siembra proveedores de modelo."""
     connection.executescript(
         """
         CREATE TABLE IF NOT EXISTS workspaces (
@@ -740,6 +747,7 @@ def init_phase3_schema(connection: sqlite3.Connection) -> None:
 
 
 def init_phase4_schema(connection: sqlite3.Connection) -> None:
+    """Fase 4: vincula workspaces a workflow run/step y añade su índice por run."""
     workspace_columns = {
         row["name"] for row in connection.execute("PRAGMA table_info(workspaces)").fetchall()
     }
@@ -757,6 +765,7 @@ def init_phase4_schema(connection: sqlite3.Connection) -> None:
 
 
 def init_phase5_schema(connection: sqlite3.Connection) -> None:
+    """Fase 5: añade gobierno de proyecto (decisiones de arquitectura, riesgos, próximos pasos)."""
     connection.executescript(
         """
         CREATE TABLE IF NOT EXISTS architecture_decisions (
@@ -816,6 +825,7 @@ def init_phase5_schema(connection: sqlite3.Connection) -> None:
 
 
 def init_phase6_schema(connection: sqlite3.Connection) -> None:
+    """Fase 6: vincula jobs y agent runs a workflow run/step y añade sus índices por run."""
     job_columns = {row["name"] for row in connection.execute("PRAGMA table_info(jobs)").fetchall()}
     if "workflow_run_id" not in job_columns:
         connection.execute("ALTER TABLE jobs ADD COLUMN workflow_run_id TEXT")
@@ -841,6 +851,7 @@ def init_phase6_schema(connection: sqlite3.Connection) -> None:
 
 
 def init_phase7_schema(connection: sqlite3.Connection) -> None:
+    """Fase 7: asegura las tablas de integraciones y de servidores/llamadas MCP con sus índices."""
     connection.executescript(
         """
         CREATE TABLE IF NOT EXISTS integrations (
@@ -879,6 +890,7 @@ def init_phase7_schema(connection: sqlite3.Connection) -> None:
 
 
 def init_phase8_schema(connection: sqlite3.Connection) -> None:
+    """Fase 8: añade los grants de permiso emitidos contra action requests aprobados."""
     connection.executescript(
         """
         CREATE TABLE IF NOT EXISTS permission_grants (
@@ -916,6 +928,7 @@ def init_phase8_schema(connection: sqlite3.Connection) -> None:
 
 
 def init_phase9_schema(connection: sqlite3.Connection) -> None:
+    """Fase 9: añade los perfiles de sandbox y siembra el perfil Docker por defecto."""
     connection.executescript(
         """
         CREATE TABLE IF NOT EXISTS sandbox_profiles (
@@ -972,6 +985,7 @@ def init_phase9_schema(connection: sqlite3.Connection) -> None:
 
 
 def init_phase10_schema(connection: sqlite3.Connection) -> None:
+    """Fase 10: backfill de columnas de expiración/revocación en grants y perfiles de sandbox."""
     _add_column_if_missing(connection, "action_requests", "expires_at", "expires_at TEXT NOT NULL DEFAULT ''")
     _add_column_if_missing(
         connection, "permission_grants", "command_argv", "command_argv TEXT NOT NULL DEFAULT '[]'"
@@ -1008,6 +1022,7 @@ def init_phase10_schema(connection: sqlite3.Connection) -> None:
 
 
 def init_phase11_schema(connection: sqlite3.Connection) -> None:
+    """Fase 11: añade el historial versionado de revisiones de política (auditoría de cambios)."""
     connection.executescript(
         """
         CREATE TABLE IF NOT EXISTS policy_revisions (
@@ -1085,6 +1100,8 @@ def _remove_legacy_simulation_runtime_records(connection: sqlite3.Connection) ->
 
 
 def init_phase12_schema(connection: sqlite3.Connection) -> None:
+    """Fase 12: instala el subsistema de ruteo de modelos (cuentas, catálogo, políticas por rol,
+    ledger de uso, límites, decisiones) y siembra sus catálogos por defecto."""
     connection.executescript(
         """
         CREATE TABLE IF NOT EXISTS provider_accounts (
@@ -2262,6 +2279,7 @@ def init_phase12_schema(connection: sqlite3.Connection) -> None:
 
 
 def init_phase13_schema(connection: sqlite3.Connection) -> None:
+    """Fase 13: añade los resultados por intento de benchmark de modelos (éxito, QA, costo, latencia)."""
     connection.executescript(
         """
         CREATE TABLE IF NOT EXISTS model_benchmark_outcomes (
@@ -2305,6 +2323,7 @@ def init_phase13_schema(connection: sqlite3.Connection) -> None:
 
 
 def init_phase14_schema(connection: sqlite3.Connection) -> None:
+    """Fase 14: añade los snapshots de precios de modelos con su procedencia y fecha de vigencia."""
     connection.executescript(
         """
         CREATE TABLE IF NOT EXISTS pricing_snapshots (
@@ -2333,6 +2352,7 @@ def init_phase14_schema(connection: sqlite3.Connection) -> None:
 
 
 def init_phase15_schema(connection: sqlite3.Connection) -> None:
+    """Fase 15: añade ciclo de vida de memoria (expiración/borrado) y las tablas de i18n."""
     _add_column_if_missing(connection, "memory_items", "expires_at", "expires_at TEXT")
     _add_column_if_missing(connection, "memory_items", "deleted_at", "deleted_at TEXT")
     connection.executescript(
@@ -2371,6 +2391,7 @@ def init_phase15_schema(connection: sqlite3.Connection) -> None:
 
 
 def seed_platform_catalogs(connection: sqlite3.Connection) -> None:
+    """Siembra los catálogos de proveedores delegando en ``ProjectsRepository.seed_providers``."""
     from local_control_center.projects.repository import ProjectsRepository
 
     ProjectsRepository(connection).seed_providers()

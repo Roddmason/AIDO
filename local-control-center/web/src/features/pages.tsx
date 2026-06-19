@@ -1,7 +1,9 @@
 /**
- * @file AIDO frontend source module.
- * @copyright Copyright (c) AIDO.
- * @author Roddmason
+ * Console pages for the operational surfaces that don't warrant their own folder yet.
+ * Each export is a full route page (Workspaces, Policy & Security, Memory, Evidence & QA,
+ * Governance, Integrations, Audit) reading from the shared Overview snapshot and writing
+ * through the gated `mutate` handshake; the local helpers merge optimistic write results
+ * back into the snapshot so the UI stays consistent before the next refresh.
  */
 import { useEffect, useMemo, useState } from 'react';
 import type { ArtifactPayload, EvidenceDetailResponse } from '../api/client';
@@ -89,6 +91,11 @@ function mergeNewestById<T extends { id: string; updatedAt?: string; createdAt?:
 	return incoming.reduce((merged, record) => upsertNewestById(merged, record), current);
 }
 
+/**
+ * Read-only inventory of task-owned runtime workspaces (the isolated working trees
+ * agents run in). Surfaces ownership and isolation type so two agents are never seen
+ * sharing one mutable tree.
+ */
 export function WorkspacesPage({ overview }: { overview: Overview }) {
 	const { t } = useI18n();
 	return (
@@ -150,6 +157,12 @@ export function WorkspacesPage({ overview }: { overview: Overview }) {
 	);
 }
 
+/**
+ * Permission-engine console: edits the strict sandbox profile and audits the
+ * permission decisions, grants, revisions and tool-call executions that gate every
+ * sensitive action. Sandbox edits are validated client-side (image, timeout bounds)
+ * before the gated write and create an explicit policy revision.
+ */
 export function PolicySecurityPage({ overview, mutate }: { overview: Overview; mutate: Mutate }) {
 	const { t } = useI18n();
 	const [sandboxProfiles, setSandboxProfiles] = useState(overview.sandboxProfiles);
@@ -685,6 +698,11 @@ export function PolicySecurityPage({ overview, mutate }: { overview: Overview; m
 	);
 }
 
+/**
+ * Memory & Retrieval readout: shows the retrieval backend posture and stored item
+ * count. Reinforces the invariant that SQLite is canonical while vector indexes
+ * (FAISS/NumPy) are rebuildable, not source of truth.
+ */
 export function MemoryPage({
 	overview,
 	retrievalStatus,
@@ -744,6 +762,12 @@ function evidenceLink(href: string, label: string, id: unknown, notLinkedLabel: 
 	);
 }
 
+/**
+ * Evidence & QA auditor: lists evidence packages and, on selection, fetches package
+ * detail plus its patch and security-findings artifacts through token-protected
+ * endpoints. Enforces "proof before approval" — flags packages whose patch artifact
+ * proves no real diff — and redacts artifact text before rendering it inline.
+ */
 export function EvidencePage({ overview, token }: { overview: Overview; token: string }) {
 	const { t } = useI18n();
 	const [selectedEvidenceId, setSelectedEvidenceId] = useState('');
@@ -1567,6 +1591,12 @@ export function EvidencePage({ overview, token }: { overview: Overview; token: s
 	);
 }
 
+/**
+ * Governance console: captures risks, architecture decisions and next steps as
+ * first-class operational records (not chat notes), with create/update forms,
+ * client-side filters and a risk-status workflow. Writes require an explicit
+ * operational project; high/critical risks and accepted decisions enforce extra fields.
+ */
 export function GovernancePage({
 	overview,
 	selectedProject,
@@ -2177,6 +2207,12 @@ export function GovernancePage({
 	);
 }
 
+/**
+ * Integrations console: registers local stdio MCP servers and lists registered
+ * servers plus IDE connection events. Validates the server id and rejects shell
+ * operators in the command; registration only stores argv-style config — execution
+ * still passes through broker, policy and sandbox.
+ */
 export function IntegrationsPage({ overview, mutate }: { overview: Overview; mutate: Mutate }) {
 	const { t } = useI18n();
 	const [mcpServers, setMcpServers] = useState(overview.mcpServers);
@@ -2384,6 +2420,10 @@ export function IntegrationsPage({ overview, mutate }: { overview: Overview; mut
 	);
 }
 
+/**
+ * Append-only audit trail: lists every recorded mutation with its actor, target and
+ * action so changes are traceable to who made them and what they touched.
+ */
 export function AuditPage({ overview }: { overview: Overview }) {
 	const { t } = useI18n();
 	return (

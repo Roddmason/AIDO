@@ -1,7 +1,8 @@
 /**
- * @file AIDO frontend source module.
- * @copyright Copyright (c) AIDO.
- * @author Roddmason
+ * Workbench IDE shell: composes the explorer, task/timeline/diff/evidence/logs tabs and inspector
+ * into the single screen where a workspace task is intaked, run under governance and reviewed.
+ * Owns the page-level UI state (prompt, active tab, selected session/run, task mode) and wires
+ * intake (session + chat + pipeline) to the API; the derived data comes from useWorkbenchData.
  */
 import {
 	Bot,
@@ -70,6 +71,10 @@ function firstLine(value: string) {
 	return value.trim().split(/\r?\n/)[0]?.slice(0, 96) || 'Workbench intake';
 }
 
+/**
+ * Top-level Workbench screen. Renders an empty state until a workspace is selected, then lays out
+ * explorer, primary task/review column and inspector, and drives intake against the live API.
+ */
 export function WorkbenchPage({
 	overview,
 	selectedProject,

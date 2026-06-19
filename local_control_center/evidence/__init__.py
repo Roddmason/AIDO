@@ -1,5 +1,5 @@
-"""AIDO backend source module.
+"""Paquete de evidencia QA: empaqueta resultados de pruebas, artefactos y veredictos.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Reúne el router HTTP, el repositorio SQLite, los contratos Pydantic, los promotores de
+artefactos y las reglas de QA real que respaldan cada veredicto con evidencia ejecutable.
 """

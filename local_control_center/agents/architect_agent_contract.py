@@ -1,7 +1,8 @@
-"""AIDO backend source module.
+"""Contrato y readiness del ArchitectAgent: esquema I/O y selección de runtime de revisión.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Declara los esquemas de entrada/salida del agente arquitecto, los runtimes de modelo elegibles
+(openai_compatible/ollama) y su orden de preferencia, y calcula si hay un runtime ejecutable para
+emitir veredictos de arquitectura fundados en el diff y la evidencia.
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ ARCHITECT_AGENT_VERDICTS = {"approved", "approved_with_risks", "changes_required
 
 
 def architect_agent_contract() -> dict[str, Any]:
+    """Describe el contrato del ArchitectAgent: esquemas I/O, tools permitidas y fuente del veredicto."""
     return {
         "id": ARCHITECT_AGENT_ID,
         "inputSchema": {
@@ -72,6 +74,7 @@ def _architect_runtime_reason(runtime: dict[str, Any]) -> str:
 
 
 def is_architect_runtime(runtime: dict[str, Any]) -> bool:
+    """Indica si un runtime es ejecutable como ArchitectAgent (modelo elegible, capability chat, modelo cargado)."""
     runtime_id = str(runtime.get("id") or "")
     if runtime_id not in ARCHITECT_AGENT_MODEL_RUNTIMES or not runtime.get("executable"):
         return False
@@ -88,6 +91,11 @@ def architect_agent_readiness(
     *,
     preferred_runtime: str | None = None,
 ) -> dict[str, Any]:
+    """Selecciona el runtime del ArchitectAgent (preferido si es válido, si no el de mayor prioridad).
+
+    Returns:
+        Estado de readiness con executable/status/reason, el runtime elegido, los candidatos y el contrato.
+    """
     by_id = {str(runtime.get("id")): runtime for runtime in runtime_statuses}
     eligible = [runtime for runtime in runtime_statuses if is_architect_runtime(runtime)]
     ordered_eligible = sorted(

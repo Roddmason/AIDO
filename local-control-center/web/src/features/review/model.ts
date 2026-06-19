@@ -1,7 +1,8 @@
 /**
- * @file AIDO frontend source module.
- * @copyright Copyright (c) AIDO.
- * @author Roddmason
+ * Domain model and pure helpers for the review board: derives card-friendly
+ * `ReviewItem`s from the raw overview, classifies them into lanes, and owns the
+ * single source of truth for the patch evidence gate (refs, QA, security).
+ * No React here — every export is deterministic and unit-testable.
  */
 import type { ArtifactPayload } from '../../api/client';
 import type { ActionRequest, Artifact, Overview } from '../../api/types';
@@ -58,6 +59,7 @@ const RISK_RANK: Record<string, number> = { critical: 4, high: 3, medium: 2, low
 // JobsApprovalsPage that once duplicated these was retired).
 // ----------------------------------------------------------------------------
 
+/** Narrows an unknown to a plain object record; arrays and non-objects become `{}`. */
 export function asRecord(value: unknown): Record<string, unknown> {
 	return value && typeof value === 'object' && !Array.isArray(value)
 		? (value as Record<string, unknown>)
@@ -68,6 +70,11 @@ export function prettyJson(value: unknown): string {
 	return JSON.stringify(value ?? null, null, 2);
 }
 
+/**
+ * Every artifact/evidence id an action points at, gathered from its evidence
+ * refs, diff refs (string or `{artifactId,...}` shapes) and payload keys. The
+ * union an artifact must match to count as "linked" to this action.
+ */
 export function referenceIds(action: ActionRequest): Set<string> {
 	const ids = new Set<string>();
 	for (const ref of action.evidenceRefs ?? []) ids.add(String(ref));
@@ -90,6 +97,7 @@ export function referenceIds(action: ActionRequest): Set<string> {
 	return ids;
 }
 
+/** Artifacts in the overview whose id or evidence-package id this action references. */
 export function linkedArtifacts(action: ActionRequest, overview: Overview): Artifact[] {
 	const ids = referenceIds(action);
 	return overview.artifacts.filter((artifact) => {
@@ -99,6 +107,7 @@ export function linkedArtifacts(action: ActionRequest, overview: Overview): Arti
 	});
 }
 
+/** Evidence packages this action references by id, or that share its `jobId`. */
 export function linkedEvidence(
 	action: ActionRequest,
 	overview: Overview,
@@ -110,10 +119,16 @@ export function linkedEvidence(
 	);
 }
 
+/** Narrows an arbitrary value to a known patch-workflow kind, else `null`. */
 export function patchWorkflowKind(value: unknown): PatchWorkflowKind | null {
 	return value === 'issue_to_patch' || value === 'issue_to_pr' ? value : null;
 }
 
+/**
+ * Reads the patch-workflow approval an action represents — its kind plus the
+ * `workflowRunId` it approves — from the action type and payload. `null` when
+ * the action is not a recognized patch/PR approval, which binds it to a run.
+ */
 export function patchWorkflowApproval(action: ActionRequest): PatchWorkflowApproval | null {
 	const kind =
 		action.actionType === 'workflow.issue_to_patch.approve_patch'
@@ -129,12 +144,14 @@ export function patchWorkflowApproval(action: ActionRequest): PatchWorkflowAppro
 		: null;
 }
 
+/** True when approving this action must clear the full patch evidence gate. */
 export function requiresPatchEvidenceGate(action: ActionRequest): boolean {
 	return (
 		Boolean(patchWorkflowApproval(action)) || action.actionType === 'agent.developer.approve_patch'
 	);
 }
 
+/** Identifies the security-findings artifact by its display name or kind. */
 export function isSecurityFindingsArtifact(artifact: Artifact): boolean {
 	const name = artifactDisplayName(artifact).toLowerCase();
 	const kind = String(artifact.kind ?? '').toLowerCase();
@@ -145,6 +162,7 @@ export function findSecurityFindingsArtifact(artifacts: Artifact[]): Artifact | 
 	return artifacts.find(isSecurityFindingsArtifact) ?? null;
 }
 
+/** Whether an evidence package recorded at least one QA test result with `status: passed`. */
 export function evidenceHasPassingQa(evidence: Overview['evidencePackages'][number]): boolean {
 	return (evidence.testResults ?? []).some((result) => {
 		const record = asRecord(result);
@@ -153,6 +171,12 @@ export function evidenceHasPassingQa(evidence: Overview['evidencePackages'][numb
 	});
 }
 
+/**
+ * Parses a security-findings artifact and returns true only when it is valid
+ * JSON, not globally `blocked`, and every finding carries an allowing decision
+ * (no `deny`/`requires_human`/`requires_approval`). Fail-closed: malformed or
+ * missing payloads return false so the gate stays shut.
+ */
 export function securityFindingsAreNonBlocking(payload: ArtifactPayload | null): boolean {
 	if (!payload?.text) return false;
 	try {
@@ -169,6 +193,13 @@ export function securityFindingsAreNonBlocking(payload: ArtifactPayload | null):
 	}
 }
 
+/**
+ * The patch evidence gate: turns the loaded artifacts/payloads into a per-check
+ * pass/fail list (evidence package, diff refs, readable patch with real changes,
+ * passing QA, readable non-blocking security findings). `complete` is the AND of
+ * every check and gates Approve; `reasons` drives the operator-visible checklist.
+ * When no gate applies the action is trivially complete.
+ */
 export function evidenceCompleteness({
 	action,
 	artifacts,

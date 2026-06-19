@@ -1,7 +1,9 @@
-"""AIDO backend source module.
+"""Aprovisiona el runtime del proceso: conexion SQLite, esquema, token y proyecto runtime.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Concentra el bootstrap del proceso FastAPI: resuelve cwd y ruta de la base, abre la
+conexion SQLite perezosamente, inicializa el esquema de plataforma y emite el token de
+handshake loopback. Tambien garantiza que exista el proyecto que representa el cwd actual.
+Las lecturas/escrituras de dominio viven en los repositorios de cada slice, no aqui.
 """
 
 from __future__ import annotations
@@ -34,23 +36,32 @@ class ControlCenterRuntime:
 
     @property
     def connection(self) -> sqlite3.Connection:
+        """Conexion SQLite abierta de forma perezosa y cacheada para el resto del proceso."""
         if self._connection is None:
             self._connection = open_sqlite_connection(self.db_path)
         return self._connection
 
     def close(self) -> None:
+        """Cierra la conexion cacheada si existe; idempotente tras el primer cierre."""
         if self._connection is not None:
             self._connection.close()
             self._connection = None
 
     def init(self) -> None:
+        """Crea el directorio de la base y aplica el esquema de plataforma sobre la conexion."""
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         initialize_platform_schema(self.connection)
 
     def get_handshake(self) -> dict[str, Any]:
+        """Devuelve el token de escritura por sesion y la marca de acceso solo-loopback."""
         return {"token": self._token, "loopbackOnly": True}
 
     def ensure_runtime_project(self) -> dict[str, Any]:
+        """Devuelve el proyecto que representa el cwd, creandolo y auditandolo si no existia.
+
+        Invariante: registra el evento de auditoria ``project.create`` solo en la creacion
+        real (cuando el repositorio reporta ``_created``), no al reusar uno existente.
+        """
         projects = ProjectsRepository(self.connection)
         existing = projects.get_project_by_path(self.cwd)
         if existing:

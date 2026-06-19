@@ -1,7 +1,7 @@
 /**
- * @file AIDO frontend source module.
- * @copyright Copyright (c) AIDO.
- * @author Roddmason
+ * Hook backing the reviewer's artifact preview/download UI: token-protected reads
+ * of any linked artifact through the evidence endpoint, with generation guards so
+ * stale responses cannot clobber newer state. State container, not a renderer.
  */
 import { useRef, useState } from 'react';
 import type { ArtifactPayload } from '../../api/client';

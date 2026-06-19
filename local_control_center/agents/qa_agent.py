@@ -1,7 +1,10 @@
-"""AIDO backend source module.
+"""Runs QA commands through the broker and derives a verdict from exit codes and artifacts.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+The QAAgent executes discovered or supplied test/build/lint commands as structured-argv
+shell calls via the ToolBroker, never trusting model claims: a `passed` verdict requires
+every command to exit 0 inside the allocated workspace with captured stdout/stderr and
+output artifact hashes. It assembles a contract-checked evidence package; if the package
+is incomplete it downgrades the run to `blocked`.
 """
 
 from __future__ import annotations
@@ -38,6 +41,7 @@ QA_MAX_TIMEOUT_SECONDS = 300
 
 
 def qa_agent_contract() -> dict[str, Any]:
+    """Return the QAAgent contract: I/O schema, allowed tools, and evidence requirements."""
     return {
         "id": QA_AGENT_ID,
         "inputSchema": {
@@ -145,6 +149,11 @@ def _normalize_commands(commands: list[Any]) -> list[dict[str, Any]]:
 
 
 def discover_qa_commands(workspace_path: str | Path) -> list[dict[str, Any]]:
+    """Infer QA commands from a workspace's test dirs and package.json scripts.
+
+    Detects Python tests (tests_py/tests) and the first matching web test/build/typecheck/
+    lint script, returning structured-argv command specs the runner can execute.
+    """
     workspace = Path(workspace_path)
     commands: list[dict[str, Any]] = []
     tests_py = workspace / "tests_py"
@@ -184,6 +193,11 @@ def discover_qa_commands(workspace_path: str | Path) -> list[dict[str, Any]]:
 
 
 def qa_verdict_allows_completion(verdict: str, results: list[dict[str, Any]]) -> bool:
+    """Return whether a passed verdict is backed by verifiable evidence for every command.
+
+    Requires each result to be passed, exit 0, executed in a sandboxed mode, and carry a
+    tool-call id plus stdout/stderr/output artifact hashes.
+    """
     if verdict != "passed" or not results:
         return False
     for result in results:
@@ -206,6 +220,7 @@ def qa_verdict_allows_completion(verdict: str, results: list[dict[str, Any]]) ->
 
 
 def qa_verdict_from_results(results: list[dict[str, Any]]) -> tuple[str, str]:
+    """Reduce per-command results to an overall `(verdict, reason)` by worst outcome."""
     if not results:
         return "blocked", "No QA commands were available to execute."
     if any(result.get("status") == "failed" for result in results):
@@ -218,6 +233,8 @@ def qa_verdict_from_results(results: list[dict[str, Any]]) -> tuple[str, str]:
 
 
 class QAAgentRunner:
+    """Orchestrates QA command execution, verdict derivation, and evidence packaging."""
+
     def __init__(self, connection: sqlite3.Connection, *, root: Path):
         self.connection = connection
         self.root = root
@@ -368,6 +385,11 @@ class QAAgentRunner:
         parent_agent_run_id: str | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        """Run QA commands for a context and return the verdict, results, and artifact ids.
+
+        Normalizes (or discovers) commands, executes each through the broker, persists
+        per-command output artifacts, and records the agent run's terminal status.
+        """
         workspace = self._workspace(project_id=project_id, workspace_id=workspace_id)
         normalized = _normalize_commands(commands) if commands else discover_qa_commands(workspace["path"])
         profile = self._ensure_profile()
@@ -447,12 +469,18 @@ class QAAgentRunner:
         }
 
     def attach_artifacts_to_evidence(self, *, evidence_id: str, artifact_ids: list[str]) -> None:
+        """Attach each (deduplicated) artifact id to the given evidence package."""
         for artifact_id in sorted(set(artifact_ids)):
             self.evidence.attach_artifact_to_evidence(
                 artifact_id=artifact_id, evidence_package_id=evidence_id
             )
 
     def run(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Run the full QAAgent job: create a job, execute commands, and package evidence.
+
+        Builds a contract-checked evidence package; downgrades a passed verdict to blocked
+        when the package is incomplete, and finalizes the job and agent-run statuses.
+        """
         project_id = str(payload["projectId"])
         workspace_id = str(payload["workspaceId"])
         task_id = str(payload.get("taskId") or "qa_agent")

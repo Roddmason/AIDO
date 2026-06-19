@@ -1,7 +1,9 @@
-"""AIDO backend source module.
+"""GitHub pull-request creation: resolve remote config and POST a PR via the REST API.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Parses ``AIDO_GITHUB_REMOTE`` (owner/repo, HTTPS or SSH form) and the API token from the
+environment, then opens a pull request over urllib with structured, secret-redacted audit
+output. Failures never raise to the caller: every error path returns a ``status: failed``
+dict so the workflow can record the attempt instead of crashing.
 """
 
 from __future__ import annotations
@@ -24,6 +26,8 @@ GITHUB_USER_AGENT = "AIDO-Local-Control-Center"
 
 @dataclass(frozen=True)
 class GitHubPullRequestConfig:
+    """Resolved GitHub target and credentials for PR creation (owner, repo, token, API base)."""
+
     token: str
     remote: str
     owner: str
@@ -32,10 +36,17 @@ class GitHubPullRequestConfig:
 
     @property
     def repository(self) -> str:
+        """The ``owner/repo`` slug used for logging and the PR endpoint path."""
         return f"{self.owner}/{self.repo}"
 
 
 class GitHubPullRequestConfigError(ValueError):
+    """Raised when the GitHub remote/token configuration is missing or unparseable.
+
+    ``missing`` lists the environment variable names that were absent, so the caller can
+    surface a precise "not configured" reason instead of a generic error.
+    """
+
     def __init__(self, reason: str, *, missing: list[str] | None = None):
         self.reason = reason
         self.missing = missing or []
@@ -65,6 +76,14 @@ def _owner_repo_from_path(path: str) -> tuple[str, str]:
 
 
 def parse_github_remote(remote: str) -> tuple[str, str, str]:
+    """Resolve a remote string to ``(owner, repo, api_base_url)``.
+
+    Accepts ``owner/repo``, an HTTPS URL, or an SSH git remote; the API base defaults to
+    ``api.github.com`` for github.com and is derived from the host for GitHub Enterprise.
+
+    Raises:
+        GitHubPullRequestConfigError: if the remote is empty or not a recognizable repository.
+    """
     clean = remote.strip()
     if not clean:
         raise GitHubPullRequestConfigError("AIDO_GITHUB_REMOTE is required.", missing=["AIDO_GITHUB_REMOTE"])
@@ -103,6 +122,12 @@ def parse_github_remote(remote: str) -> tuple[str, str, str]:
 def github_pull_request_config_from_env(
     env: Mapping[str, str] | None = None,
 ) -> GitHubPullRequestConfig:
+    """Build a config from ``AIDO_GITHUB_TOKEN``/``AIDO_GITHUB_REMOTE`` (defaults to ``os.environ``).
+
+    Raises:
+        GitHubPullRequestConfigError: with the missing variable names if either is absent,
+            or if the remote cannot be parsed.
+    """
     values = env or os.environ
     token = str(values.get("AIDO_GITHUB_TOKEN") or "").strip()
     remote = str(values.get("AIDO_GITHUB_REMOTE") or "").strip()
@@ -159,6 +184,12 @@ def create_github_pull_request(
     body: str,
     timeout_seconds: float = 20.0,
 ) -> dict[str, Any]:
+    """POST a pull request to GitHub and return a structured result with redacted audit data.
+
+    Never raises for HTTP, network or timeout failures: those return a ``status: failed`` dict
+    (with ``httpStatus`` and the sanitized request/response) so the workflow records the attempt.
+    On success returns ``status: created`` with the new PR number, id and URLs.
+    """
     path = (
         "/repos/"
         + urllib.parse.quote(config.owner, safe="")

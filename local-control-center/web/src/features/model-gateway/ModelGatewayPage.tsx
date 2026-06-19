@@ -1,7 +1,8 @@
 /**
- * @file AIDO frontend source module.
- * @copyright Copyright (c) AIDO.
- * @author Roddmason
+ * Página IDE del Model Gateway: orquesta todos los sub-paneles de proveedores, ruteo, uso y benchmarks.
+ * Concentra la carga de estado del gateway (overview, catálogos, ledger, decisiones) y las acciones de
+ * mutación (toggle/health de proveedores, preview de ruta, alta de políticas y outcomes); cada panel
+ * recibe sus datos por props y notifica de vuelta vía callbacks.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
@@ -184,6 +185,11 @@ function sumRecordedCost(rows: Overview['costUsage']) {
 	return amounts.length ? amounts.reduce((sum, amount) => sum + amount, 0) : null;
 }
 
+/**
+ * Compone la consola completa del Model Gateway a partir del `overview` ya cargado por el host.
+ * Recarga su propio estado del gateway al montar y tras cada acción; usa `token` para las mutaciones
+ * autenticadas y `onRefreshRuntimeProviders` para resincronizar el estado de runtimes del host.
+ */
 export function ModelGatewayPage({
 	overview,
 	runtimeProviders,

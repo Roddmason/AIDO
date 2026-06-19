@@ -1,7 +1,8 @@
-"""AIDO backend source module.
+"""Persiste sesiones de runtime CLI con sus artefactos de evidencia y consumo redactados.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Por cada ejecución de un runtime CLI graba la fila en cli_sessions, escribe artefactos de stdout/stderr/log
+saneados con redact_secrets y registra el uso en el UsageLedger (real o estimado). Garantiza que ningún
+secreto del comando, entorno o salida quede en disco o en la base sin redactar.
 """
 
 from __future__ import annotations
@@ -21,6 +22,8 @@ from local_control_center.shared.time import utc_now
 
 
 class CliSessionStore:
+    """Almacena el resultado de una sesión CLI: fila en cli_sessions, artefactos y registro de uso."""
+
     def __init__(self, connection: sqlite3.Connection):
         self.connection = connection
 
@@ -43,6 +46,11 @@ class CliSessionStore:
         error: str | None = None,
         usage: Any = None,
     ) -> dict[str, Any]:
+        """Graba la sesión CLI completa (artefactos + uso, todo redactado) y devuelve la fila persistida.
+
+        Escribe la fila en cli_sessions, crea sus artefactos de stdout/stderr/log, registra el consumo
+        y enlaza el usage_ledger_id resultante en una única transacción de la conexión del caller.
+        """
         session_id = f"cli-session-{uuid.uuid4()}"
         now = utc_now()
         artifact_ids = self._write_artifacts(

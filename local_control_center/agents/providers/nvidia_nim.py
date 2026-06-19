@@ -1,7 +1,8 @@
-"""AIDO backend source module.
+"""Integra los endpoints NIM de NVIDIA, compatibles con OpenAI, con manejo propio de cuota.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Reutiliza el transporte estilo OpenAI pero endurece la lectura de uso (solo confia en
+`usage` si el proveedor realmente lo devuelve) y traduce los 429 en cuota: registra el
+rate limit en `QuotaManager` con un retry-after fijo cuando hay conexion a la base.
 """
 
 from __future__ import annotations
@@ -35,6 +36,8 @@ def _provider_returned_usage(raw_response: Any) -> bool:
 
 
 class NvidiaNimProvider(OpenAICompatibleProvider):
+    """Proveedor para los endpoints NIM de NVIDIA con registro de rate limit en la cuota."""
+
     def __init__(
         self,
         *,
@@ -55,12 +58,15 @@ class NvidiaNimProvider(OpenAICompatibleProvider):
         self.connection = connection
 
     def list_models(self) -> list[ModelInfo]:
+        """Descubre los modelos NIM via el catalogo estilo OpenAI de la clase base."""
         return super().list_models()
 
     def estimate_cost(self, request: ModelRequest, model: str) -> CostEstimate:
+        """No hay tarifa publicada para NIM: devuelve costo desconocido marcando proveedor y modelo."""
         return CostEstimate(estimatedCostUsd=None, source=f"unknown:nvidia_nim:{model}")
 
     def handle_error(self, *, status_code: int, message: str, model: str) -> ProviderHealth:
+        """Traduce un error HTTP a salud; en 429 registra el rate limit en la cuota si hay conexion."""
         health = "degraded" if status_code == 429 else "offline"
         if status_code == 429 and self.connection is not None:
             QuotaManager(self.connection).record_rate_limit(
@@ -74,6 +80,7 @@ class NvidiaNimProvider(OpenAICompatibleProvider):
         )
 
     def parse_usage(self, raw_response: Any):
+        """Solo confia en el `usage` reportado por NIM; si falta, marca el origen como desconocido."""
         if not _provider_returned_usage(raw_response):
             return UsageRecord(
                 rawUsage={"usage_source": "unknown", "reason": "provider_response_missing_usage"}

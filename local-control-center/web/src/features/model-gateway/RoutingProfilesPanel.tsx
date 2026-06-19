@@ -1,7 +1,7 @@
 /**
- * @file AIDO frontend source module.
- * @copyright Copyright (c) AIDO.
- * @author Roddmason
+ * Tabla de perfiles de ruteo del Model Gateway: los modos que definen el objetivo de selección (costo, valor, rendimiento).
+ * Sub-dominio de estrategia de ruteo: por perfil muestra modo, objetivo, reglas y si está habilitado.
+ * Solo lectura: los modos se siembran al arranque.
  */
 import type { ModelGatewayRoutingProfile } from '../../api/types';
 import { DataTable, EmptyState } from '../../components/primitives';

@@ -1,5 +1,5 @@
-"""AIDO backend source module.
+"""Slice de plantillas de prompts: persiste y versiona los prompts reutilizables por proyecto.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Agrupa el router HTTP, los esquemas de contrato y el repositorio SQLite que respaldan el
+catálogo de plantillas de prompts y su historial de versiones dentro del Local Control Center.
 """

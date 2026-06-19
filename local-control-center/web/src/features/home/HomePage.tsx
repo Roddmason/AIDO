@@ -1,7 +1,8 @@
 /**
- * @file AIDO frontend source module.
- * @copyright Copyright (c) AIDO.
- * @author Roddmason
+ * Landing page of the control center: a Pinterest-style masonry wall that turns
+ * the overview payload into a single scannable stream of actionable cards.
+ * Card-first by design (no tables, no jargon) and steers the user to open a
+ * folder or continue work; all ordering/count logic is delegated to homeModel.
  */
 import { FolderOpen, Plus } from 'lucide-react';
 

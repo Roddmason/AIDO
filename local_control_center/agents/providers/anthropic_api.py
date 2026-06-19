@@ -1,7 +1,10 @@
-"""AIDO backend source module.
+"""Integra la API Messages de Anthropic con su esquema nativo (no estilo OpenAI).
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Habla el protocolo propio de Anthropic: auth `x-api-key` + `anthropic-version`, endpoint
+`/messages`, mensajes `system` extraidos aparte y `max_tokens` obligatorio. Suma los
+tokens de cacheo (creacion + lectura) en `cached_input_tokens` y, como no hay tarifa
+publicada aqui, deja el costo como desconocido. Las llamadas reales quedan tras el
+interruptor compartido `real_provider_calls_enabled()` y los payloads se redactan.
 """
 
 from __future__ import annotations
@@ -40,6 +43,8 @@ def _int_value(value: Any) -> int:
 
 
 class AnthropicAPIProvider(ModelProvider):
+    """Proveedor para la API Messages de Anthropic con su esquema y auth propios."""
+
     provider_id = "anthropic_api"
 
     def __init__(self, *, base_url: str | None = None, credential_ref: str | None = None):
@@ -79,6 +84,7 @@ class AnthropicAPIProvider(ModelProvider):
         return payload if isinstance(payload, dict) else {}
 
     def health_check(self) -> ProviderHealth:
+        """Valida credencial y URL sin red; solo toca `/models` si las llamadas reales estan activas."""
         credential = self.credential_resolver.resolve(self.credential_ref, fetch=False)
         if credential.status == "invalid":
             return ProviderHealth(
@@ -125,6 +131,7 @@ class AnthropicAPIProvider(ModelProvider):
         )
 
     def list_models(self) -> list[ModelInfo]:
+        """Descubre modelos via `/models`. Raises si las llamadas reales estan deshabilitadas."""
         if not real_provider_calls_enabled():
             raise RuntimeError("Real provider discovery is disabled by AIDO_ENABLE_REAL_PROVIDER_CALLS=false")
         payload = self._get_json("/models")
@@ -141,6 +148,7 @@ class AnthropicAPIProvider(ModelProvider):
         ]
 
     def chat_completion(self, request: ModelRequest) -> ModelResponse:
+        """Postea a `/messages` con el payload nativo de Anthropic y normaliza la respuesta. Raises si falta config o las llamadas reales estan off."""
         if not real_provider_calls_enabled():
             raise RuntimeError("Real provider calls are disabled by AIDO_ENABLE_REAL_PROVIDER_CALLS=false")
         if not self.base_url or not self._credential():
@@ -212,9 +220,11 @@ class AnthropicAPIProvider(ModelProvider):
         return ""
 
     def estimate_cost(self, request: ModelRequest, model: str) -> CostEstimate:
+        """Sin tabla de precios local: devuelve costo desconocido marcando proveedor y modelo."""
         return CostEstimate(estimatedCostUsd=None, source=f"unknown:{self.provider_id}:{model}")
 
     def parse_usage(self, raw_response: Any) -> UsageRecord:
+        """Lee el `usage` de Anthropic; agrega los tokens de cacheo (creacion + lectura) en cached_input_tokens."""
         usage = raw_response.get("usage", {}) if isinstance(raw_response, dict) else {}
         token_fields = {
             "input_tokens",

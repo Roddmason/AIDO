@@ -1,7 +1,7 @@
-"""AIDO backend source module.
+"""Agrupa el slice de pipelines: API HTTP, modelos y persistencia de su ciclo por etapas.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Marca el paquete del recurso "pipeline" (la secuencia de etapas idea -> revisión técnica
+que envuelve a una sesión/chat). No reexporta símbolos; cada submódulo se importa por ruta.
 """
 
 __all__ = []

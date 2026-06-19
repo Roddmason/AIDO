@@ -1,7 +1,9 @@
-"""AIDO backend source module.
+"""Bitácora append-only de eventos operativos y de auditoría sobre SQLite.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Persiste y lee dos flujos: ``events`` (telemetría/actividad por job/proyecto) y
+``audit_events`` (acciones de actores sobre objetivos). Redacta secretos del payload
+antes de escribir y normaliza las filas a dicts en camelCase para la capa de API.
+Escribe una fila por llamada usando el autocommit de la conexión; no abre transacciones propias.
 """
 
 from __future__ import annotations
@@ -16,6 +18,7 @@ from .time import utc_now
 
 
 def row_to_event(row: sqlite3.Row) -> dict[str, Any]:
+    """Convierte una fila de ``events`` en el dict camelCase de API, derivando ``severity`` del payload."""
     payload = json_loads(row["payload"])
     return {
         "id": row["id"],
@@ -29,6 +32,7 @@ def row_to_event(row: sqlite3.Row) -> dict[str, Any]:
 
 
 def row_to_audit(row: sqlite3.Row) -> dict[str, Any]:
+    """Convierte una fila de ``audit_events`` en el dict camelCase de API."""
     return {
         "id": row["id"],
         "projectId": row["project_id"],
@@ -41,6 +45,8 @@ def row_to_audit(row: sqlite3.Row) -> dict[str, Any]:
 
 
 class EventBus:
+    """Acceso de lectura/escritura a los eventos operativos y de auditoría de un proyecto."""
+
     def __init__(self, connection: sqlite3.Connection):
         self.connection = connection
 
@@ -52,6 +58,7 @@ class EventBus:
         project_id: str | None = None,
         job_id: str | None = None,
     ) -> dict[str, Any]:
+        """Inserta un evento con payload redactado y devuelve la fila persistida ya normalizada."""
         event_id = f"event-{uuid.uuid4()}"
         clean_payload = redact_secrets(payload or {})
         self.connection.execute(
@@ -65,6 +72,7 @@ class EventBus:
         return row_to_event(row)
 
     def list_events(self, project_id: str | None = None) -> list[dict[str, Any]]:
+        """Lista eventos (todos o por proyecto) ordenados del más reciente al más antiguo."""
         if project_id:
             rows = self.connection.execute(
                 "SELECT * FROM events WHERE project_id = ? ORDER BY created_at DESC",
@@ -83,6 +91,7 @@ class EventBus:
         project_id: str | None = None,
         actor: str = "system",
     ) -> dict[str, Any]:
+        """Inserta un evento de auditoría con payload redactado y devuelve la fila normalizada."""
         audit_id = f"audit-{uuid.uuid4()}"
         clean_payload = redact_secrets(payload or {})
         self.connection.execute(
@@ -96,6 +105,7 @@ class EventBus:
         return row_to_audit(row)
 
     def list_audit_events(self, project_id: str | None = None) -> list[dict[str, Any]]:
+        """Lista eventos de auditoría (todos o por proyecto) del más reciente al más antiguo."""
         if project_id:
             rows = self.connection.execute(
                 "SELECT * FROM audit_events WHERE project_id = ? ORDER BY created_at DESC",

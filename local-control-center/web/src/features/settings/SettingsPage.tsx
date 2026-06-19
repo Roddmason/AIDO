@@ -1,7 +1,9 @@
 /**
- * @file AIDO frontend source module.
- * @copyright Copyright (c) AIDO.
- * @author Roddmason
+ * Settings hub: seven configuration groups in run-readiness order (project, runtime,
+ * agents, security, workspaces, integrations, advanced).
+ * Each group shows a readiness badge plus a compact body, and deep-links to the heavy
+ * operational consoles (Policy, Evidence, Audit, Model Gateway…) rather than duplicating
+ * them — keeping daily configuration separate from the operational surface.
  */
 
 import type { LucideProps } from 'lucide-react';
@@ -59,6 +61,10 @@ const GROUP_ICON: Record<SettingsGroupId, ComponentType<LucideProps>> = {
 	advanced: SlidersHorizontal,
 };
 
+/**
+ * Settings route page. `section` deep-links to one group card (scrolled into view on
+ * change); each group's readiness badge is derived from the live Overview snapshot.
+ */
 export function SettingsPage({
 	overview,
 	selectedProject,

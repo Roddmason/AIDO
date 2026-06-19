@@ -1,7 +1,8 @@
 /**
- * @file AIDO frontend source module.
- * @copyright Copyright (c) AIDO.
- * @author Roddmason
+ * State and side effects for the new-workspace flow, factored out of any host UI so the
+ * same logic can back the dialog from Home, Workbench, the Command Palette or Settings.
+ * Wraps the native directory picker, manifest/runtime discovery and project creation
+ * APIs, and derives detection markers, runtime labels and name-conflict checks.
  */
 import { useMemo, useState } from 'react';
 

@@ -1,7 +1,8 @@
-"""AIDO backend source module.
+"""Ejecuta el DevOpsAgent: valida release de forma determinista con comandos brokered y escaneo de config.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Corre los scripts de build/quality a través del broker/sandbox, inspecciona archivos de configuración
+(Dockerfile, compose, CI, manifiestos) en busca de hallazgos, y opcionalmente verifica el healthcheck de
+Docker. Su veredicto se funda solo en archivos, comandos y artefactos; deja todo en un paquete de evidencia.
 """
 
 from __future__ import annotations
@@ -192,6 +193,8 @@ def _missing_tool_reason(result: dict[str, Any]) -> str | None:
 
 
 class DevOpsAgentRunner:
+    """Orquesta la validación de release: corre comandos brokered, escanea config y arma la evidencia."""
+
     def __init__(self, connection: sqlite3.Connection, *, root: Path):
         self.connection = connection
         self.root = root
@@ -202,6 +205,7 @@ class DevOpsAgentRunner:
         self.workspaces = WorkspacesRepository(connection, root=root)
 
     def status(self) -> dict[str, Any]:
+        """Devuelve el readiness del DevOpsAgent (ejecutable mientras tenga tools brokered)."""
         return devops_agent_status()
 
     def _ensure_profile(self) -> dict[str, Any]:
@@ -1093,6 +1097,11 @@ class DevOpsAgentRunner:
         )
 
     def run(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Ejecuta la validación end-to-end y devuelve veredicto, comandos, hallazgos de config y evidencia.
+
+        Corre los scripts de build/quality vía broker, escanea los archivos de configuración del workspace
+        y, si se pide, valida el healthcheck de Docker; deriva el veredicto solo de esos artefactos.
+        """
         project_id = str(payload["projectId"])
         workspace = self._workspace(project_id=project_id, workspace_id=str(payload["workspaceId"]))
         task_id = str(payload.get("taskId") or "devops_agent")

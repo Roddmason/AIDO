@@ -1,7 +1,10 @@
-"""AIDO backend source module.
+"""Persistencia transaccional de workspaces: asignación aislada y archivado con allocations.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Coordina el aislamiento físico (git worktree o copia acotada de la fuente), escribe el
+manifiesto en disco y registra el estado en SQLite. Las escrituras se agrupan sobre el
+``connection`` del caller, que es quien hace commit: ``allocate_workspace`` inserta en
+``workspaces`` (+ ``git_branches`` si aplica) y ``workspace_allocations``; ``archive_workspace``
+actualiza ``workspaces``, libera ``workspace_allocations`` y archiva la rama git asociada.
 """
 
 from __future__ import annotations
@@ -36,6 +39,7 @@ COPY_MAX_BYTES = 100 * 1024 * 1024
 
 
 def row_to_workspace(row: sqlite3.Row) -> dict[str, Any]:
+    """Proyecta una fila de ``workspaces`` al dict camelCase del contrato, deserializando metadata."""
     return {
         "id": row["id"],
         "projectId": row["project_id"],
@@ -54,11 +58,11 @@ def row_to_workspace(row: sqlite3.Row) -> dict[str, Any]:
 
 
 class WorkspaceConflictError(RuntimeError):
-    pass
+    """La tarea ya tiene un workspace activo: no se puede asignar otro en paralelo."""
 
 
 class WorkspaceIsolationError(RuntimeError):
-    pass
+    """No se pudo aislar la fuente del proyecto (ruta inexistente, límites o worktree fallido)."""
 
 
 def _ignored_for_copy(relative: Path) -> bool:
@@ -101,6 +105,8 @@ def _copy_project_source(source_path: Path, workspace_path: Path) -> dict[str, A
 
 
 class WorkspacesRepository:
+    """Acceso a workspaces sobre SQLite; ``root`` ancla las rutas ``.tmp`` de trabajo y manifiestos."""
+
     def __init__(self, connection: sqlite3.Connection, *, root: Path):
         self.connection = connection
         self.root = root
@@ -119,6 +125,17 @@ class WorkspacesRepository:
         branch_name: str | None = None,
         devcontainer: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        """Asigna un workspace aislado a la tarea y registra su allocation activa.
+
+        Aísla por git worktree si el proyecto es repositorio git, o por copia acotada de la
+        fuente en caso contrario, escribe el manifiesto y, en la misma conexión, inserta el
+        workspace (más ``git_branches`` cuando hay worktree) y la allocation; el commit lo hace
+        el caller.
+
+        Raises:
+            WorkspaceConflictError: si la tarea ya tiene un workspace en estado activo.
+            WorkspaceIsolationError: si la fuente no existe, supera límites o el worktree falla.
+        """
         placeholders = ",".join("?" for _ in ACTIVE_WORKSPACE_STATUSES)
         existing = self.connection.execute(
             f"""
@@ -277,12 +294,18 @@ class WorkspacesRepository:
         return Path(row["path"])
 
     def get_workspace(self, workspace_id: str) -> dict[str, Any]:
+        """Devuelve el workspace por id.
+
+        Raises:
+            KeyError: si no existe ningún workspace con ese id.
+        """
         row = self.connection.execute("SELECT * FROM workspaces WHERE id = ?", (workspace_id,)).fetchone()
         if not row:
             raise KeyError(f"Workspace not found: {workspace_id}")
         return row_to_workspace(row)
 
     def list_workspaces(self, project_id: str | None = None) -> list[dict[str, Any]]:
+        """Lista workspaces (todos o filtrados por proyecto), ordenados por actualización reciente."""
         if project_id:
             rows = self.connection.execute(
                 "SELECT * FROM workspaces WHERE project_id = ? ORDER BY updated_at DESC",
@@ -293,6 +316,7 @@ class WorkspacesRepository:
         return [row_to_workspace(row) for row in rows]
 
     def list_workspaces_for_workflow(self, workflow_run_ids: list[str]) -> list[dict[str, Any]]:
+        """Lista workspaces asociados a las ejecuciones de workflow dadas (vacío si no hay ids)."""
         if not workflow_run_ids:
             return []
         placeholders = ",".join("?" for _ in workflow_run_ids)
@@ -303,6 +327,16 @@ class WorkspacesRepository:
         return [row_to_workspace(row) for row in rows]
 
     def archive_workspace(self, workspace_id: str, *, reason: str = "") -> dict[str, Any]:
+        """Archiva el workspace, persiste el motivo en metadata y libera su allocation.
+
+        Si está aislado por git worktree intenta removerlo y, solo si la limpieza tuvo éxito,
+        marca su rama como ``archived``. En la misma conexión actualiza ``workspaces`` (estado,
+        ``archived_at`` y metadata con ``archiveReason``/``gitWorktreeCleanup``) y pasa la
+        allocation activa a ``released``; el commit lo hace el caller.
+
+        Raises:
+            KeyError: si el workspace no existe.
+        """
         workspace = self.get_workspace(workspace_id)
         timestamp = utc_now()
         metadata = dict(workspace["metadata"] or {})

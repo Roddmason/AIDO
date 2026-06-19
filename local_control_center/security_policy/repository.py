@@ -1,7 +1,12 @@
-"""AIDO backend source module.
+"""Persistencia SQLite de seguridad: decisiones, grants, revisiones y perfiles de sandbox.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Encapsula el acceso a las tablas de gobernanza y la maquina de estados de los grants. Sobre
+transacciones: cada metodo emite sentencias contra el ``connection`` recibido pero NO hace
+commit; confia en que el caller (capa HTTP) cierra la transaccion. La sensibilidad la cubre
+``redact_secrets`` sobre comando/razon/payload antes de escribir, de modo que la BD nunca
+guarda secretos en claro. Invariante de los grants: el consumo es atomico via
+``UPDATE ... WHERE status='active'`` con chequeo de ``rowcount``, lo que impide doble consumo
+en condiciones de carrera; un grant inexistente hace que los getters lancen ``KeyError``.
 """
 
 from __future__ import annotations
@@ -20,6 +25,7 @@ GRANT_TTL_MS = 24 * 60 * 60 * 1000
 
 
 def row_to_policy(row: sqlite3.Row) -> dict[str, Any]:
+    """Proyecta una fila de ``permission_policies`` al dict camelCase de la API."""
     return {
         "id": row["id"],
         "name": row["name"],
@@ -31,6 +37,7 @@ def row_to_policy(row: sqlite3.Row) -> dict[str, Any]:
 
 
 def row_to_decision(row: sqlite3.Row) -> dict[str, Any]:
+    """Proyecta una fila de ``permission_decisions`` al dict camelCase de la API."""
     return {
         "id": row["id"],
         "projectId": row["project_id"],
@@ -49,6 +56,11 @@ def row_to_decision(row: sqlite3.Row) -> dict[str, Any]:
 
 
 def row_to_grant(row: sqlite3.Row) -> dict[str, Any]:
+    """Proyecta una fila de ``permission_grants`` al dict de la API, tolerando esquemas viejos.
+
+    Si faltan columnas nuevas (commandArgv/workspace/runtime/expiresAt) cae al ``payload`` JSON
+    para mantener compatibilidad con grants creados antes de la migracion.
+    """
     payload = json_loads(row["payload"])
     row_keys = set(row.keys())
     command_argv = (
@@ -84,6 +96,7 @@ def row_to_grant(row: sqlite3.Row) -> dict[str, Any]:
 
 
 def row_to_sandbox_profile(row: sqlite3.Row) -> dict[str, Any]:
+    """Proyecta una fila de ``sandbox_profiles`` al dict camelCase de la API."""
     return {
         "id": row["id"],
         "name": row["name"],
@@ -103,6 +116,7 @@ def row_to_sandbox_profile(row: sqlite3.Row) -> dict[str, Any]:
 
 
 def row_to_policy_revision(row: sqlite3.Row) -> dict[str, Any]:
+    """Proyecta una fila de ``policy_revisions`` al dict camelCase de la API."""
     return {
         "id": row["id"],
         "subjectType": row["subject_type"],
@@ -118,6 +132,11 @@ def row_to_policy_revision(row: sqlite3.Row) -> dict[str, Any]:
 
 
 def changed_fields(previous: dict[str, Any], updated: dict[str, Any]) -> list[str]:
+    """Lista las claves cuyo valor cambio entre dos versiones, ignorando metadatos de timestamp.
+
+    Sirve para registrar una revision solo cuando hubo un cambio real de configuracion, no por
+    diferencias de ``updatedAt`` u otros campos de ciclo de vida.
+    """
     ignored = {"createdAt", "updatedAt", "revokedAt", "revokedBy", "revokeReason"}
     keys = sorted((set(previous) | set(updated)) - ignored)
     return [key for key in keys if previous.get(key) != updated.get(key)]
@@ -155,10 +174,18 @@ def _merged_sandbox_body(current: dict[str, Any], body: dict[str, Any]) -> dict[
 
 
 class SecurityPolicyRepository:
+    """Acceso a las tablas de seguridad sobre una conexion SQLite cuyo commit gestiona el caller.
+
+    Agrupa lecturas y mutaciones de politicas, decisiones, grants y sandboxes. No abre ni cierra
+    transacciones: cada metodo ejecuta sus ``INSERT/UPDATE`` y delega el commit en quien posee la
+    conexion. Los getters lanzan ``KeyError`` cuando el recurso no existe.
+    """
+
     def __init__(self, connection: sqlite3.Connection):
         self.connection = connection
 
     def list_policies(self) -> list[dict[str, Any]]:
+        """Lista todas las politicas de permisos ordenadas por id."""
         rows = self.connection.execute("SELECT * FROM permission_policies ORDER BY id ASC").fetchall()
         return [row_to_policy(row) for row in rows]
 
@@ -172,6 +199,12 @@ class SecurityPolicyRepository:
         reason: str,
         actor: str = "operator",
     ) -> dict[str, Any] | None:
+        """Inserta una revision de auditoria con el numero de version siguiente para el sujeto.
+
+        Devuelve ``None`` (sin escribir) si no hubo cambios reales entre ``previous`` y ``updated``.
+        La version se calcula con ``MAX(version)+1`` para el par (subject_type, subject_id) y el
+        ``INSERT`` participa de la transaccion del caller.
+        """
         fields = changed_fields(previous, updated)
         if not fields:
             return None
@@ -208,6 +241,7 @@ class SecurityPolicyRepository:
         return self.get_policy_revision(revision_id)
 
     def get_policy_revision(self, revision_id: str) -> dict[str, Any]:
+        """Devuelve una revision por id; lanza ``KeyError`` si no existe."""
         row = self.connection.execute(
             "SELECT * FROM policy_revisions WHERE id = ?", (revision_id,)
         ).fetchone()
@@ -216,6 +250,7 @@ class SecurityPolicyRepository:
         return row_to_policy_revision(row)
 
     def list_policy_revisions(self, subject_id: str | None = None) -> list[dict[str, Any]]:
+        """Lista revisiones (de un sujeto si se indica) de la mas reciente a la mas antigua."""
         if subject_id:
             rows = self.connection.execute(
                 """
@@ -246,6 +281,11 @@ class SecurityPolicyRepository:
         reason: str,
         payload: dict[str, Any],
     ) -> dict[str, Any]:
+        """Guarda una decision de politica saneando comando, razon y payload.
+
+        Aplica ``redact_secrets`` a comando/razon/payload antes del ``INSERT``, garantizando que
+        la BD no almacene secretos. Tras escribir, relee la fila y emite telemetria de la decision.
+        """
         decision_id = f"permission-decision-{uuid.uuid4()}"
         clean_command = str(redact_secrets(command or "")) if command is not None else None
         clean_reason = str(redact_secrets(reason))
@@ -281,6 +321,7 @@ class SecurityPolicyRepository:
         return decision_record
 
     def list_decisions(self, project_id: str | None = None) -> list[dict[str, Any]]:
+        """Lista decisiones (de un proyecto si se indica) de la mas reciente a la mas antigua."""
         if project_id:
             rows = self.connection.execute(
                 "SELECT * FROM permission_decisions WHERE project_id = ? ORDER BY created_at DESC",
@@ -293,6 +334,11 @@ class SecurityPolicyRepository:
         return [row_to_decision(row) for row in rows]
 
     def upsert_sandbox_profile(self, body: dict[str, Any]) -> dict[str, Any]:
+        """Inserta o actualiza un perfil de sandbox por id (semilla/seed idempotente).
+
+        Usa ``ON CONFLICT(id) DO UPDATE`` con valores por defecto seguros (red ``none``, memoria
+        2g, timeout 120s) para campos ausentes.
+        """
         profile_id = body["id"]
         timestamp = utc_now()
         self.connection.execute(
@@ -329,16 +375,23 @@ class SecurityPolicyRepository:
         return self.get_sandbox_profile(profile_id)
 
     def get_sandbox_profile(self, profile_id: str = "default_docker") -> dict[str, Any]:
+        """Devuelve un perfil de sandbox por id; lanza ``KeyError`` si no existe."""
         row = self.connection.execute("SELECT * FROM sandbox_profiles WHERE id = ?", (profile_id,)).fetchone()
         if not row:
             raise KeyError(f"Sandbox profile not found: {profile_id}")
         return row_to_sandbox_profile(row)
 
     def list_sandbox_profiles(self) -> list[dict[str, Any]]:
+        """Lista todos los perfiles de sandbox ordenados por id."""
         rows = self.connection.execute("SELECT * FROM sandbox_profiles ORDER BY id ASC").fetchall()
         return [row_to_sandbox_profile(row) for row in rows]
 
     def update_sandbox_profile(self, profile_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        """Aplica un patch parcial a un perfil fusionandolo sobre el actual.
+
+        Solo sobreescribe los campos presentes en ``body``; el resto conserva el valor vigente.
+        Lanza ``KeyError`` si el perfil no existe.
+        """
         current = self.get_sandbox_profile(profile_id)
         next_body = _merged_sandbox_body(current, body)
         timestamp = utc_now()
@@ -378,6 +431,11 @@ class SecurityPolicyRepository:
         reason: str,
         actor: str = "operator",
     ) -> dict[str, Any]:
+        """Revoca un perfil de sandbox de forma idempotente, registrando actor y razon.
+
+        El ``UPDATE`` esta condicionado a ``status='active'``, asi revocar dos veces no cambia el
+        estado ni pisa los metadatos de la primera revocacion. Lanza ``KeyError`` si no existe.
+        """
         profile = self.get_sandbox_profile(profile_id)
         timestamp = utc_now()
         if profile["status"] == "active":
@@ -398,6 +456,12 @@ class SecurityPolicyRepository:
         reason: str,
         granted_by: str = "operator",
     ) -> dict[str, Any]:
+        """Crea un grant ``active`` con TTL a partir de una solicitud de accion aprobada.
+
+        Sanea comando/razon/payload con ``redact_secrets`` y fija el alcance exacto
+        (tool/command/argv/workspace/runtime/path) que la futura ejecucion debera igualar. Lanza
+        ``ValueError`` si la razon queda vacia; el ``expiresAt`` por defecto es ahora + 24h.
+        """
         payload = redact_secrets(action_request.get("payload") or {})
         grant_id = f"permission-grant-{uuid.uuid4()}"
         timestamp = utc_now()
@@ -456,12 +520,14 @@ class SecurityPolicyRepository:
         return self.get_grant(grant_id)
 
     def get_grant(self, grant_id: str) -> dict[str, Any]:
+        """Devuelve un grant por id; lanza ``KeyError`` si no existe."""
         row = self.connection.execute("SELECT * FROM permission_grants WHERE id = ?", (grant_id,)).fetchone()
         if not row:
             raise KeyError(f"Permission grant not found: {grant_id}")
         return row_to_grant(row)
 
     def list_grants(self, project_id: str | None = None) -> list[dict[str, Any]]:
+        """Lista grants (de un proyecto si se indica) del mas reciente al mas antiguo."""
         if project_id:
             rows = self.connection.execute(
                 "SELECT * FROM permission_grants WHERE project_id = ? ORDER BY granted_at DESC",
@@ -488,6 +554,14 @@ class SecurityPolicyRepository:
         path: str | None,
         agent_run_id: str,
     ) -> dict[str, Any]:
+        """Valida un grant contra el contexto de ejecucion y lo consume atomicamente si calza.
+
+        Invariante de seguridad: solo retorna ``valid=True`` si el grant esta ``active``, no expiro
+        y coincide exactamente en proyecto, job, agente, tool, comando, argv, workspace, runtime y
+        path; cualquier discrepancia lo rechaza sin consumirlo. El consumo usa
+        ``UPDATE ... WHERE status='active'`` y verifica ``rowcount==1``, de modo que dos consumos
+        concurrentes del mismo grant no pueden ambos ganar (proteccion contra doble uso).
+        """
         try:
             grant = self.get_grant(grant_id)
         except KeyError:
@@ -554,6 +628,11 @@ class SecurityPolicyRepository:
         reason: str,
         actor: str = "operator",
     ) -> dict[str, Any]:
+        """Revoca un grant de forma idempotente, registrando actor y razon.
+
+        El ``UPDATE`` se condiciona a ``status='active'``, asi revocar un grant ya consumido o ya
+        revocado no altera su estado. Lanza ``KeyError`` si el grant no existe.
+        """
         grant = self.get_grant(grant_id)
         timestamp = utc_now()
         if grant["status"] == "active":

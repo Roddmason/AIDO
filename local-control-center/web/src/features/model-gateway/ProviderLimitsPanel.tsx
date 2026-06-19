@@ -1,7 +1,7 @@
 /**
- * @file AIDO frontend source module.
- * @copyright Copyright (c) AIDO.
- * @author Roddmason
+ * Tabla de límites de proveedor del Model Gateway: RPM/TPM, cupos diarios, presupuesto mensual y cooldowns.
+ * Sub-dominio de rate-limiting/cuota por proveedor-modelo; registra el último 429 y la estrategia ante límites
+ * desconocidos. Solo lectura: las filas aparecen tras seeds o eventos de rate-limit.
  */
 import type { ModelGatewayProviderLimit } from '../../api/types';
 import { DataTable, EmptyState } from '../../components/primitives';

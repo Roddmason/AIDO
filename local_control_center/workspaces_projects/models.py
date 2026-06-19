@@ -1,7 +1,8 @@
-"""AIDO backend source module.
+"""Contratos Pydantic (request/response) del slice de workspaces, con alias camelCase.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Define la forma de los cuerpos de asignación/archivado y de los registros que el API
+devuelve al frontend. Los alias mapean snake_case interno a camelCase del JSON público;
+no contienen lógica de negocio salvo la normalización del tipo de aislamiento.
 """
 
 from __future__ import annotations
@@ -16,6 +17,8 @@ WorkspaceIsolationType = Literal["directory", "git_worktree"]
 
 
 class DevcontainerMetadata(BaseModel):
+    """Configuración declarativa de devcontainer adjunta al workspace (persistida, no ejecutada)."""
+
     enabled: bool = False
     template_id: str = Field(default="", alias="templateId")
     image: str = ""
@@ -23,6 +26,8 @@ class DevcontainerMetadata(BaseModel):
 
 
 class WorkspaceAllocateRequest(BaseModel):
+    """Petición para asignar un workspace aislado a una tarea de un proyecto."""
+
     project_id: str = Field(alias="projectId")
     task_id: str = Field(alias="taskId")
     agent_id: str = Field(alias="agentId")
@@ -36,14 +41,19 @@ class WorkspaceAllocateRequest(BaseModel):
     @field_validator("isolation_type", mode="before")
     @classmethod
     def normalize_isolation_type(cls, value: Any) -> Any:
+        """Acepta el tipo de aislamiento en cualquier capitalización normalizándolo a minúsculas."""
         return value.lower() if isinstance(value, str) else value
 
 
 class WorkspaceArchiveRequest(BaseModel):
+    """Petición de archivado; el motivo queda registrado en metadata y en la evidencia."""
+
     reason: str = ""
 
 
 class WorkspaceRecord(BaseModel):
+    """Estado persistido de un workspace tal como se proyecta al cliente."""
+
     id: str
     project_id: str = Field(alias="projectId")
     task_id: str = Field(alias="taskId")
@@ -60,13 +70,19 @@ class WorkspaceRecord(BaseModel):
 
 
 class WorkspaceResponse(BaseModel):
+    """Envoltura de un único workspace para los endpoints de creación y consulta."""
+
     workspace: WorkspaceRecord
 
 
 class WorkspacesListResponse(BaseModel):
+    """Colección de workspaces devuelta por el listado."""
+
     workspaces: list[WorkspaceRecord]
 
 
 class WorkspaceArchiveResponse(BaseModel):
+    """Resultado del archivado: el workspace ya cerrado más el paquete de evidencia generado."""
+
     workspace: WorkspaceRecord
     evidence_package: EvidencePackageRecord = Field(alias="evidencePackage")

@@ -1,7 +1,9 @@
-"""AIDO backend source module.
+"""Rutas HTTP de gobernanza: ADRs, riesgos y next steps sobre FastAPI.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Valida los enums de cada recurso, aplica las reglas de negocio (ADR aceptada exige
+contexto y decisión; riesgo high/critical exige mitigación) y delega la persistencia
+en `GovernanceRepository`. Cada escritura emite auditoría y/o evento de dominio vía
+`EventBus`. Las mutaciones quedan tras `require_write` (control de escritura del caller).
 """
 
 from __future__ import annotations
@@ -37,6 +39,11 @@ ALLOWED_NEXT_STEP_STATUSES = {"planned", "in_progress", "blocked", "completed", 
 
 
 def validate_choice(field: str, value: str | None, allowed: set[str]) -> str:
+    """Normaliza a minúsculas y exige que el valor pertenezca al enum.
+
+    Raises:
+        HTTPException: 422 si el valor (o vacío) no está en ``allowed``.
+    """
     normalized = (value or "").lower()
     if normalized not in allowed:
         raise HTTPException(status_code=422, detail=f"{field} must be one of: {', '.join(sorted(allowed))}.")
@@ -44,6 +51,7 @@ def validate_choice(field: str, value: str | None, allowed: set[str]) -> str:
 
 
 def create_router(*, platform: Any, require_write: Callable[[Request], None]) -> APIRouter:
+    """Construye el router de gobernanza ligado a la conexión y al guard de escritura."""
     router = APIRouter()
 
     def repository() -> GovernanceRepository:
@@ -54,6 +62,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
 
     @router.get("/api/v1/governance", response_model=GovernanceResponse)
     async def governance() -> dict[str, Any]:
+        """Devuelve la vista agregada de ADRs, riesgos y next steps."""
         repo = repository()
         return {
             "architectureDecisions": repo.list_architecture_decisions(),
@@ -63,6 +72,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
 
     @router.get("/api/v1/architecture-decisions", response_model=ArchitectureDecisionsListResponse)
     async def list_architecture_decisions() -> dict[str, Any]:
+        """Lista las decisiones de arquitectura registradas."""
         return {"architectureDecisions": repository().list_architecture_decisions()}
 
     @router.post(
@@ -71,6 +81,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     async def create_architecture_decision(
         body: ArchitectureDecisionCreateRequest, request: Request
     ) -> ArchitectureDecisionResponse:
+        """Crea una ADR; una aceptada exige contexto y decisión. Audita y emite evento."""
         require_write(request)
         payload = body.model_dump(by_alias=True, exclude_none=True)
         payload["status"] = validate_choice(
@@ -96,10 +107,12 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
 
     @router.get("/api/v1/risks", response_model=RisksListResponse)
     async def list_risks() -> dict[str, Any]:
+        """Lista los riesgos del registro (ordenados por severidad)."""
         return {"risks": repository().list_risks()}
 
     @router.post("/api/v1/risks", status_code=201, response_model=RiskResponse)
     async def create_risk(body: RiskCreateRequest, request: Request) -> RiskResponse:
+        """Crea un riesgo; los high/critical exigen mitigación. Audita y emite evento."""
         require_write(request)
         payload = body.model_dump(by_alias=True, exclude_none=True)
         payload["severity"] = validate_choice(
@@ -124,6 +137,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
 
     @router.patch("/api/v1/risks/{risk_id}", status_code=202, response_model=RiskResponse)
     async def update_risk(risk_id: str, body: RiskUpdateRequest, request: Request) -> RiskResponse:
+        """Actualiza parcialmente un riesgo (404 si no existe) y registra auditoría."""
         require_write(request)
         payload = body.model_dump(by_alias=True, exclude_none=True)
         if "severity" in payload:
@@ -146,10 +160,12 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
 
     @router.get("/api/v1/next-steps", response_model=NextStepsListResponse)
     async def list_next_steps() -> dict[str, Any]:
+        """Lista los next steps planificados."""
         return {"nextSteps": repository().list_next_steps()}
 
     @router.post("/api/v1/next-steps", status_code=201, response_model=NextStepResponse)
     async def create_next_step(body: NextStepCreateRequest, request: Request) -> NextStepResponse:
+        """Crea un next step con prioridad/status validados y registra auditoría."""
         require_write(request)
         payload = body.model_dump(by_alias=True, exclude_none=True)
         payload["priority"] = validate_choice(
@@ -171,6 +187,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     async def update_next_step(
         step_id: str, body: NextStepUpdateRequest, request: Request
     ) -> NextStepResponse:
+        """Actualiza parcialmente un next step (404 si no existe) y registra auditoría."""
         require_write(request)
         payload = body.model_dump(by_alias=True, exclude_none=True)
         if "priority" in payload:

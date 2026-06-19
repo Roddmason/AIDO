@@ -1,7 +1,10 @@
-"""AIDO backend source module.
+"""Persistencia SQLite de memory items y sus embeddings.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Traduce filas a dicts con claves camelCase del contrato y emite los
+INSERT/UPDATE del slice. La conexión recibida opera en autocommit
+(isolation_level=None): cada execute persiste de forma independiente, no hay
+transacción multi-statement aquí, y el caller es dueño de cualquier commit
+o BEGIN explícito si necesita atomicidad entre varias operaciones.
 """
 
 from __future__ import annotations
@@ -16,6 +19,7 @@ from local_control_center.shared.time import utc_now
 
 
 def row_to_memory(row: sqlite3.Row) -> dict[str, Any]:
+    """Proyecta una fila de memory_items al dict camelCase del contrato HTTP."""
     row_keys = set(row.keys())
     return {
         "id": row["id"],
@@ -39,6 +43,7 @@ def row_to_memory(row: sqlite3.Row) -> dict[str, Any]:
 
 
 def row_to_embedding(row: sqlite3.Row) -> dict[str, Any]:
+    """Proyecta una fila de embedding (join con su memory item) al dict camelCase."""
     return {
         "memoryItemId": row["memory_item_id"],
         "projectId": row["project_id"],
@@ -51,6 +56,12 @@ def row_to_embedding(row: sqlite3.Row) -> dict[str, Any]:
 
 
 class MemoryRepository:
+    """Acceso a memory_items y memory_embeddings sobre la conexión SQLite del caller.
+
+    Cada método escribe con execute en autocommit; no abre transacciones
+    propias. Las lecturas excluyen por defecto los items borrados o expirados.
+    """
+
     def __init__(self, connection: sqlite3.Connection):
         self.connection = connection
 
@@ -75,6 +86,10 @@ class MemoryRepository:
         created_by_run_id: str | None = None,
         expires_at: str | None = None,
     ) -> dict[str, Any]:
+        """Inserta un memory item con id e hash de contenido y devuelve la fila creada.
+
+        El INSERT se autocommitea por sí solo; no agrupa otras escrituras.
+        """
         timestamp = utc_now()
         memory_id = f"memory-{uuid.uuid4()}"
         self.connection.execute(
@@ -107,6 +122,11 @@ class MemoryRepository:
         return self.get_memory_item(memory_id, include_inactive=True)
 
     def get_memory_item(self, memory_id: str, *, include_inactive: bool = False) -> dict[str, Any]:
+        """Recupera un memory item por id, omitiendo borrados/expirados salvo include_inactive.
+
+        Raises:
+            KeyError: si no existe un item visible para ese id.
+        """
         if include_inactive:
             row = self._query_one("SELECT * FROM memory_items WHERE id = ?", (memory_id,))
         else:
@@ -129,6 +149,7 @@ class MemoryRepository:
         *,
         include_inactive: bool = False,
     ) -> list[dict[str, Any]]:
+        """Lista memory items por proyecto, activos primero por created_at ascendente."""
         clauses: list[str] = []
         params: list[Any] = []
         if project_id:
@@ -143,6 +164,11 @@ class MemoryRepository:
         return [row_to_memory(row) for row in rows]
 
     def delete_memory_item(self, memory_id: str, *, reason: str = "") -> dict[str, Any]:
+        """Borra lógicamente un item (fija deleted_at, conserva el primero) y guarda el motivo.
+
+        deleted_at usa COALESCE: un segundo borrado no pisa la marca original.
+        El UPDATE se autocommitea; no es atómico con el get previo.
+        """
         timestamp = utc_now()
         existing = self.get_memory_item(memory_id, include_inactive=True)
         metadata = {**existing["metadata"], "deleteReason": reason}
@@ -166,6 +192,7 @@ class MemoryRepository:
         model: str,
         embedding: list[float],
     ) -> None:
+        """Inserta o reemplaza el embedding de un memory item (upsert por memory_item_id)."""
         self.connection.execute(
             """
             INSERT INTO memory_embeddings
@@ -182,6 +209,11 @@ class MemoryRepository:
         )
 
     def list_indexable_embeddings(self, project_id: str) -> list[dict[str, Any]]:
+        """Devuelve embeddings indexables de items vivos cuyo proveedor es api/gateway real.
+
+        Filtra borrados y expirados, y exige un provider_account de tipo api o
+        gateway para no indexar embeddings de proveedores no confiables.
+        """
         rows = self._query(
             """
             SELECT e.*, m.project_id

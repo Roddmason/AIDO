@@ -38,6 +38,7 @@ import {
 } from '../components/primitives';
 import { useI18n } from '../i18n/I18nProvider';
 import { artifactDisplayName, artifactMimeType, artifactSizeLabel } from '../lib/artifacts';
+import { type AsyncError, resolveAsyncError, toAsyncError } from '../lib/asyncError';
 import {
 	evidenceDiffChangedFiles,
 	findPatchArtifact,
@@ -748,36 +749,37 @@ export function EvidencePage({ overview, token }: { overview: Overview; token: s
 	const [selectedEvidenceId, setSelectedEvidenceId] = useState('');
 	const [detail, setDetail] = useState<EvidenceDetailResponse | null>(null);
 	const [detailLoading, setDetailLoading] = useState(false);
-	const [detailError, setDetailError] = useState('');
+	const [detailError, setDetailError] = useState<AsyncError | null>(null);
 	const [diffPayload, setDiffPayload] = useState<ArtifactPayload | null>(null);
 	const [diffLoading, setDiffLoading] = useState(false);
-	const [diffError, setDiffError] = useState('');
+	const [diffError, setDiffError] = useState<AsyncError | null>(null);
 	const [securityPayload, setSecurityPayload] = useState<ArtifactPayload | null>(null);
 	const [securityLoading, setSecurityLoading] = useState(false);
-	const [securityError, setSecurityError] = useState('');
+	const [securityError, setSecurityError] = useState<AsyncError | null>(null);
 	const [previewArtifact, setPreviewArtifact] = useState<Artifact | null>(null);
 	const [previewPayload, setPreviewPayload] = useState<ArtifactPayload | null>(null);
 	const [previewLoadingId, setPreviewLoadingId] = useState('');
 	const [downloadLoadingId, setDownloadLoadingId] = useState('');
 	const [previewError, setPreviewError] = useState('');
+	const detailErrorText = resolveAsyncError(detailError, t);
+	const diffErrorText = resolveAsyncError(diffError, t);
+	const securityErrorText = resolveAsyncError(securityError, t);
 	useEffect(() => {
 		if (!selectedEvidenceId) {
 			setDetail(null);
-			setDetailError('');
+			setDetailError(null);
 			return;
 		}
 		const controller = new AbortController();
 		setDetail(null);
-		setDetailError('');
+		setDetailError(null);
 		setDetailLoading(true);
 		void getEvidenceDetail(selectedEvidenceId, controller.signal)
 			.then((payload) => setDetail(payload))
 			.catch((error) => {
 				if (!controller.signal.aborted)
 					setDetailError(
-						error instanceof Error
-							? error.message
-							: t('app.pages.errEvidenceDetail', 'Evidence detail failed.'),
+						toAsyncError(error, 'app.pages.errEvidenceDetail', 'Evidence detail failed.'),
 					);
 			})
 			.finally(() => {
@@ -791,7 +793,7 @@ export function EvidencePage({ overview, token }: { overview: Overview; token: s
 	const securityArtifact = useMemo(() => findSecurityArtifact(detailArtifacts), [detailArtifacts]);
 	useEffect(() => {
 		setDiffPayload(null);
-		setDiffError('');
+		setDiffError(null);
 		if (!selectedEvidenceId || !patchArtifact) {
 			setDiffLoading(false);
 			return;
@@ -807,9 +809,11 @@ export function EvidencePage({ overview, token }: { overview: Overview; token: s
 			.catch((error) => {
 				if (active)
 					setDiffError(
-						error instanceof Error
-							? error.message
-							: t('app.pages.errDiffArtifactPreview', 'Diff artifact preview failed.'),
+						toAsyncError(
+							error,
+							'app.pages.errDiffArtifactPreview',
+							'Diff artifact preview failed.',
+						),
 					);
 			})
 			.finally(() => {
@@ -821,7 +825,7 @@ export function EvidencePage({ overview, token }: { overview: Overview; token: s
 	}, [patchArtifact, selectedEvidenceId, token]);
 	useEffect(() => {
 		setSecurityPayload(null);
-		setSecurityError('');
+		setSecurityError(null);
 		if (!selectedEvidenceId || !securityArtifact) {
 			setSecurityLoading(false);
 			return;
@@ -837,9 +841,11 @@ export function EvidencePage({ overview, token }: { overview: Overview; token: s
 			.catch((error) => {
 				if (active)
 					setSecurityError(
-						error instanceof Error
-							? error.message
-							: t('app.pages.errSecurityFindingsPreview', 'Security findings preview failed.'),
+						toAsyncError(
+							error,
+							'app.pages.errSecurityFindingsPreview',
+							'Security findings preview failed.',
+						),
 					);
 			})
 			.finally(() => {
@@ -1092,9 +1098,9 @@ export function EvidencePage({ overview, token }: { overview: Overview; token: s
 				</Surface>
 			</div>
 			<div className="stack">
-				{detailError ? (
+				{detailErrorText ? (
 					<div className="form-error" role="alert">
-						{detailError}
+						{detailErrorText}
 					</div>
 				) : null}
 				{selectedEvidenceId && !selectedPackage ? (
@@ -1350,9 +1356,9 @@ export function EvidencePage({ overview, token }: { overview: Overview; token: s
 										</span>
 									) : null}
 								</div>
-								{diffError ? (
+								{diffErrorText ? (
 									<div className="form-error" role="alert">
-										{diffError}
+										{diffErrorText}
 									</div>
 								) : null}
 								{diffLoading ? (
@@ -1395,9 +1401,9 @@ export function EvidencePage({ overview, token }: { overview: Overview; token: s
 						</Surface>
 						<Surface title={t('ui.static.security.findings.viewer.6957b365', 'Security findings')}>
 							<div className="stack">
-								{securityError ? (
+								{securityErrorText ? (
 									<div className="form-error" role="alert">
-										{securityError}
+										{securityErrorText}
 									</div>
 								) : null}
 								{securityLoading ? (

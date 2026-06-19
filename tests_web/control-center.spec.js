@@ -1463,8 +1463,9 @@ test('reduced motion disables non-essential motion', async ({ browser }) => {
 	const context = await browser.newContext({ reducedMotion: 'reduce' });
 	const page = await context.newPage();
 	await page.goto('/');
+	// Reduced motion is honored declaratively: useMotionPreference mirrors the OS setting
+	// onto <html data-motion> and MotionConfig reducedMotion="user" strips transforms.
 	await expect(page.locator('html')).toHaveAttribute('data-motion', 'reduced');
-	await expect(page.evaluate(() => window.__aidoMotionReduced)).resolves.toBe(true);
 	await context.close();
 });
 

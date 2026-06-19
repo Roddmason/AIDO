@@ -1,5 +1,12 @@
-.motion-scope [data-motion-item] {
-	will-change: transform, opacity;
+/* will-change is no longer applied globally: Motion sets it per-element only while an
+   animation is in flight (see motion/* primitives + MotionConfig in main.tsx). */
+
+/* MotionPage wraps the active route in an animated <div>; replicate the .content-frame
+   grid here so per-section spacing survives the extra box (Motion needs a real box, so
+   display:contents is not an option). */
+.motion-page {
+	display: grid;
+	gap: var(--space-6);
 }
 
 .card,

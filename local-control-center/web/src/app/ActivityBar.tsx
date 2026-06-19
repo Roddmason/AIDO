@@ -2,10 +2,15 @@
  * Primary icon rail of the IDE shell: top-level area switcher and explorer toggle.
  */
 import { PanelLeft } from 'lucide-react';
+import { m } from 'motion/react';
 
 import { useI18n } from '../i18n/I18nProvider';
+import { INDICATOR_TRANSITION } from '../motion/variants';
 import type { AreaId, PageId } from './navigation';
 import { AREAS, pickLabel } from './navigation';
+
+/** Shared-layout id of the decorative pill that slides to the active area button. */
+const ACTIVE_INDICATOR_LAYOUT_ID = 'activitybar-active';
 
 /**
  * Narrow icon rail (primary navigation): one button per top-level area that
@@ -43,6 +48,7 @@ export function ActivityBar({
 				{AREAS.map((area) => {
 					const Icon = area.icon;
 					const label = pickLabel(area.label, language);
+					const isActive = activeArea === area.id;
 					return (
 						<button
 							key={area.id}
@@ -50,9 +56,27 @@ export function ActivityBar({
 							type="button"
 							aria-label={label}
 							title={label}
-							aria-current={activeArea === area.id ? 'page' : undefined}
+							aria-current={isActive ? 'page' : undefined}
 							onClick={() => onNavigate(area.leadPage)}
+							style={{ position: 'relative' }}
 						>
+							{isActive ? (
+								<m.span
+									layoutId={ACTIVE_INDICATOR_LAYOUT_ID}
+									aria-hidden="true"
+									transition={INDICATOR_TRANSITION}
+									style={{
+										position: 'absolute',
+										left: 0,
+										top: '50%',
+										width: 3,
+										height: '1.25rem',
+										marginTop: '-0.625rem',
+										borderRadius: 'var(--radius-pill)',
+										background: 'var(--color-accent)',
+									}}
+								/>
+							) : null}
 							<Icon aria-hidden="true" size={20} />
 						</button>
 					);

@@ -18,6 +18,7 @@ export function ReviewColumn({
 	items,
 	meta,
 	selectedActionId,
+	activeDetailKey,
 	onOpenReview,
 	onOpenDetail,
 }: {
@@ -25,6 +26,7 @@ export function ReviewColumn({
 	items: ReviewItem[];
 	meta: { title: string; emptyTitle: string; emptyBody: string };
 	selectedActionId: string;
+	activeDetailKey: string;
 	onOpenReview: (item: ReviewItem, trigger: HTMLElement | null) => void;
 	onOpenDetail: (item: ReviewItem, trigger: HTMLElement | null) => void;
 }) {
@@ -55,6 +57,7 @@ export function ReviewColumn({
 							key={item.key}
 							item={item}
 							selected={item.actionId === selectedActionId && Boolean(selectedActionId)}
+							activeDetail={item.key === activeDetailKey && Boolean(activeDetailKey)}
 							onOpenReview={onOpenReview}
 							onOpenDetail={onOpenDetail}
 						/>

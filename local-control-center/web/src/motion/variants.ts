@@ -9,7 +9,7 @@
 import type { Variants } from 'motion/react';
 
 // Curva "emphasized" equivalente a --ease-emphasized del design-system.
-const EASE_OUT: [number, number, number, number] = [0.22, 1, 0.36, 1];
+export const EASE_OUT: [number, number, number, number] = [0.22, 1, 0.36, 1];
 
 /** Entrada/salida de página al cambiar de ruta (dentro de AnimatePresence, keyed por ruta). */
 export const pageTransition: Variants = {
@@ -57,3 +57,29 @@ export const statusPulse: Variants = {
 		transition: { duration: 1.6, repeat: Number.POSITIVE_INFINITY, ease: 'easeInOut' },
 	},
 };
+
+/** Crossfade de contenido (p.ej. paneles de tabs dentro de AnimatePresence keyed por tab). */
+export const crossfade: Variants = {
+	initial: { opacity: 0 },
+	animate: { opacity: 1, transition: { duration: 0.16, ease: EASE_OUT } },
+	exit: { opacity: 0, transition: { duration: 0.12 } },
+};
+
+/** Shimmer de skeleton (solo opacity). El consumidor DEBE condicionar el loop con `useReducedMotion`. */
+export const skeletonShimmer: Variants = {
+	idle: { opacity: 0.6 },
+	loading: {
+		opacity: [0.45, 0.85, 0.45],
+		transition: { duration: 1.2, repeat: Number.POSITIVE_INFINITY, ease: 'easeInOut' },
+	},
+};
+
+// Gestos compartidos: elevación de hover discreta y tap feedback contenido (sin scale exagerado).
+// Úsalos como whileHover/whileTap; el transform cae a no-op bajo reduced-motion (MotionConfig).
+export const HOVER_LIFT = { y: -2 } as const;
+export const TAP_SCALE = { scale: 0.98 } as const;
+export const HOVER_TAP_TRANSITION = { type: 'spring', stiffness: 400, damping: 30 } as const;
+
+// Spring del indicador de selección compartido (pill con layoutId) usado por ActivityBar y
+// Explorer; un único resorte mantiene ambos deslizamientos coherentes (no-op bajo reduced-motion).
+export const INDICATOR_TRANSITION = { type: 'spring', stiffness: 520, damping: 40 } as const;

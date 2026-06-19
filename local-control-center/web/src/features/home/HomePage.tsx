@@ -8,6 +8,7 @@ import { FolderOpen, Plus } from 'lucide-react';
 
 import type { Overview, Project, RuntimeProviders } from '../../api/types';
 import { useI18n } from '../../i18n/I18nProvider';
+import { MotionList } from '../../motion/MotionList';
 import { buildHomeGallery } from './homeModel';
 import { ReviewCard } from './ReviewCard';
 import { RunCard } from './RunCard';
@@ -122,7 +123,7 @@ export function HomePage({
 							</button>
 						</div>
 					</header>
-					<div className="masonry-grid">
+					<MotionList className="masonry-grid">
 						{gallery.map((item) => {
 							switch (item.kind) {
 								case 'workspace':
@@ -155,7 +156,7 @@ export function HomePage({
 									return null;
 							}
 						})}
-					</div>
+					</MotionList>
 				</section>
 			)}
 		</div>

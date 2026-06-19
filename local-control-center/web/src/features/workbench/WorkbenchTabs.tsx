@@ -3,11 +3,30 @@
  * keyboard navigation (Arrow/Home/End). The caller owns the active tab and renders panel content.
  */
 
-import type { KeyboardEvent, ReactNode } from 'react';
+import { AnimatePresence, m } from 'motion/react';
+import type { CSSProperties, KeyboardEvent, ReactNode } from 'react';
 import { useRef } from 'react';
 
 import { Badge } from '../../components/primitives';
 import { useI18n } from '../../i18n/I18nProvider';
+import { crossfade } from '../../motion/variants';
+
+/**
+ * Subrayado deslizante compartido entre tabs: el `layoutId` hace que Motion lo anime
+ * de un tab al otro al cambiar la selección. El anclaje `relative` del botón vive inline
+ * para no tocar el CSS del design-system. Bajo reduced-motion el desplazamiento cae a no-op.
+ */
+const TAB_INDICATOR_STYLE: CSSProperties = {
+	position: 'absolute',
+	left: 'var(--space-2)',
+	right: 'var(--space-2)',
+	bottom: '2px',
+	height: '2px',
+	borderRadius: 'var(--radius-full)',
+	background: 'var(--color-text-primary)',
+};
+const TAB_INDICATOR_TRANSITION = { type: 'spring', stiffness: 480, damping: 38 } as const;
+const TAB_ANCHOR_STYLE: CSSProperties = { position: 'relative' };
 
 export type WorkbenchTabId = 'task' | 'timeline' | 'diff' | 'evidence' | 'logs';
 /** Descriptor the page passes per tab; `count` renders an optional badge (e.g. pending items). */
@@ -75,10 +94,19 @@ export function WorkbenchTabs({
 							aria-controls={`wb-panel-${tab.id}`}
 							tabIndex={selected ? 0 : -1}
 							onClick={() => onChangeTab(tab.id)}
+							style={TAB_ANCHOR_STYLE}
 						>
 							<span>{tab.label}</span>
 							{typeof tab.count === 'number' && tab.count > 0 ? (
 								<Badge tone={selected ? 'info' : undefined}>{tab.count}</Badge>
+							) : null}
+							{selected ? (
+								<m.span
+									layoutId="workbench-tab-indicator"
+									aria-hidden="true"
+									style={TAB_INDICATOR_STYLE}
+									transition={TAB_INDICATOR_TRANSITION}
+								/>
 							) : null}
 						</button>
 					);
@@ -91,7 +119,17 @@ export function WorkbenchTabs({
 				tabIndex={0}
 				className="workbench-tabpanel"
 			>
-				{children}
+				<AnimatePresence mode="popLayout">
+					<m.div
+						key={activeTab}
+						variants={crossfade}
+						initial="initial"
+						animate="animate"
+						exit="exit"
+					>
+						{children}
+					</m.div>
+				</AnimatePresence>
 			</section>
 		</div>
 	);

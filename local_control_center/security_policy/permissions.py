@@ -3,17 +3,19 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 import shlex
 from dataclasses import dataclass
 
-
 ALLOWED_PNPM_TEST_SCRIPTS = frozenset({"test", "test:py", "test:web", "test:e2e"})
 ALLOWED_PNPM_BUILD_SCRIPTS = frozenset({"build", "build:web", "build:control-center"})
 ALLOWED_PNPM_LINT_SCRIPTS = frozenset({"lint", "lint:py", "lint:web"})
 ALLOWED_PNPM_TYPECHECK_SCRIPTS = frozenset({"typecheck", "typecheck:web"})
-ALLOWED_PNPM_QUALITY_SCRIPTS = frozenset({"quality", "quality:productive-truth", "quality:architecture", "test:all"})
+ALLOWED_PNPM_QUALITY_SCRIPTS = frozenset(
+    {"quality", "quality:productive-truth", "quality:architecture", "test:all"}
+)
 ALLOWED_PNPM_SECURITY_SCRIPTS = frozenset({"security:secrets", "security:sast"})
 PACKAGE_SCRIPT_HOOKS = frozenset(
     {
@@ -70,7 +72,9 @@ def parse_command(command: str | None) -> ParsedCommand | None:
         return ParsedCommand(executable="", args=())
     if not words:
         return None
-    return ParsedCommand(executable=words[0].strip("\"'").lower(), args=tuple(word.strip("\"'") for word in words[1:]))
+    return ParsedCommand(
+        executable=words[0].strip("\"'").lower(), args=tuple(word.strip("\"'") for word in words[1:])
+    )
 
 
 def _is_corepack_pnpm(parsed: ParsedCommand) -> tuple[bool, tuple[str, ...]]:
@@ -115,16 +119,22 @@ def pnpm_script_category(parsed: ParsedCommand) -> str | None:
 def package_manager_category(parsed: ParsedCommand) -> str | None:
     executable = parsed.executable
     args = parsed.args
-    if executable in {"pnpm", "pnpm.cmd", "pnpm.exe", "npm", "npm.cmd", "npm.exe"}:
-        if args and args[0] in PACKAGE_MANAGER_INSTALL_VERBS:
-            return "install"
+    if (
+        executable in {"pnpm", "pnpm.cmd", "pnpm.exe", "npm", "npm.cmd", "npm.exe"}
+        and args
+        and args[0] in PACKAGE_MANAGER_INSTALL_VERBS
+    ):
+        return "install"
     if executable == "corepack":
         is_pnpm, pnpm_args = _is_corepack_pnpm(parsed)
         if is_pnpm and pnpm_args and pnpm_args[0] in PACKAGE_MANAGER_INSTALL_VERBS:
             return "install"
-    if executable in {"uv", "uv.exe", "pip", "pip.exe", "winget", "choco"} and args:
-        if args[0] in PACKAGE_MANAGER_INSTALL_VERBS:
-            return "install"
+    if (
+        executable in {"uv", "uv.exe", "pip", "pip.exe", "winget", "choco"}
+        and args
+        and args[0] in PACKAGE_MANAGER_INSTALL_VERBS
+    ):
+        return "install"
     return None
 
 
@@ -143,14 +153,25 @@ def low_risk_shell_category(parsed: ParsedCommand) -> str | None:
             return "lint"
     if parsed.executable in {"pytest", "pytest.exe", "vitest", "vitest.cmd", "vitest.exe"}:
         return "test"
-    if parsed.executable in {"playwright", "playwright.cmd", "playwright.exe"} and parsed.args[:1] == ("test",):
+    if parsed.executable in {"playwright", "playwright.cmd", "playwright.exe"} and parsed.args[:1] == (
+        "test",
+    ):
         return "test"
-    if parsed.executable in {"python", "python.exe", "python3", "py", "py.exe"} and len(parsed.args) >= 2:
-        if parsed.args[:2] == ("-m", "pytest"):
-            return "test"
-    if parsed.executable in {"python", "python.exe", "python3", "py", "py.exe"} and parsed.args == ("--version",):
+    if (
+        parsed.executable in {"python", "python.exe", "python3", "py", "py.exe"}
+        and len(parsed.args) >= 2
+        and parsed.args[:2] == ("-m", "pytest")
+    ):
+        return "test"
+    if parsed.executable in {"python", "python.exe", "python3", "py", "py.exe"} and parsed.args == (
+        "--version",
+    ):
         return "interpreter_version"
-    if parsed.executable in RUNTIME_VERSION_EXECUTABLES and parsed.args in {("--version",), ("-V",), ("version",)}:
+    if parsed.executable in RUNTIME_VERSION_EXECUTABLES and parsed.args in {
+        ("--version",),
+        ("-V",),
+        ("version",),
+    }:
         return "interpreter_version"
     if parsed.executable in READ_ONLY_EXECUTABLES:
         return "read_only"

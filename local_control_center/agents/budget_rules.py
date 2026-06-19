@@ -3,6 +3,7 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -66,9 +67,8 @@ class BudgetRuleEvaluator:
                 and estimated_cost_usd is not None
                 and float(estimated_cost_usd) > float(rule["max_cost_usd"])
             )
-            tokens_exceeded = (
-                rule["max_tokens"] is not None
-                and int(estimated_tokens or 0) > int(rule["max_tokens"])
+            tokens_exceeded = rule["max_tokens"] is not None and int(estimated_tokens or 0) > int(
+                rule["max_tokens"]
             )
             if not cost_exceeded and not tokens_exceeded:
                 continue

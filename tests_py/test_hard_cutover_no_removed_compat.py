@@ -8,7 +8,6 @@ from fastapi.testclient import TestClient
 from local_control_center.app import create_app
 from tests_py.control_plane_fixture import ControlPlaneFixture
 
-
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -105,7 +104,12 @@ def test_v1_sessions_chats_pipelines_replace_workspace_state(tmp_path: Path) -> 
     pipeline_response = client.post(
         "/api/v1/pipelines",
         headers=headers,
-        json={"projectId": project_id, "sessionId": session["id"], "chatId": chat["id"], "title": "Cutover pipeline"},
+        json={
+            "projectId": project_id,
+            "sessionId": session["id"],
+            "chatId": chat["id"],
+            "title": "Cutover pipeline",
+        },
     )
     assert pipeline_response.status_code == 201
 
@@ -164,7 +168,15 @@ def test_hybrid_runtime_catalog_exposes_ollama_and_cli_api_modes(tmp_path: Path)
     assert client.get("/api/v1/model-policies").status_code == 404
     providers = client.get("/api/v1/runtime/providers").json()["providers"]
     provider_ids = {provider["id"] for provider in providers}
-    assert {"ollama", "openai_compatible", "openrouter", "openai_api", "codex_cli", "claude_code_cli", "manual"} <= provider_ids
+    assert {
+        "ollama",
+        "openai_compatible",
+        "openrouter",
+        "openai_api",
+        "codex_cli",
+        "claude_code_cli",
+        "manual",
+    } <= provider_ids
     manual_provider = next(provider for provider in providers if provider["id"] == "manual")
     assert manual_provider["available"] is False
 

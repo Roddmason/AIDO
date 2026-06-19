@@ -3,6 +3,7 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -73,11 +74,11 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         return commands.list_providers(repository())
 
     @router.get("/api/v1/teams", response_model=TeamsListResponse)
-    async def teams(projectId: str | None = None) -> dict[str, Any]:  # noqa: N803 - API query uses camelCase.
+    async def teams(projectId: str | None = None) -> dict[str, Any]:
         return commands.list_teams(repository(), project_id=projectId)
 
     @router.get("/api/v1/agents", response_model=AgentsListResponse)
-    async def agents(teamId: str | None = None) -> dict[str, Any]:  # noqa: N803 - API query uses camelCase.
+    async def agents(teamId: str | None = None) -> dict[str, Any]:
         return commands.list_agents(repository(), team_id=teamId)
 
     return router

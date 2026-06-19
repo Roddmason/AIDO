@@ -20,7 +20,9 @@ def auth_headers(client: TestClient) -> dict[str, str]:
     return {"X-Local-Control-Token": token, "Origin": "http://127.0.0.1"}
 
 
-def create_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[ControlPlaneFixture, TestClient, dict[str, str]]:
+def create_client(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> tuple[ControlPlaneFixture, TestClient, dict[str, str]]:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
     monkeypatch.delenv("AIDO_ENABLE_REAL_PROVIDER_CALLS", raising=False)
     monkeypatch.delenv("AIDO_ENABLE_CLI_RUNTIMES", raising=False)
@@ -31,7 +33,9 @@ def create_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Cont
     return store, client, auth_headers(client)
 
 
-def create_git_project(store: ControlPlaneFixture, tmp_path: Path, name: str = "Developer Agent Project") -> dict[str, Any]:
+def create_git_project(
+    store: ControlPlaneFixture, tmp_path: Path, name: str = "Developer Agent Project"
+) -> dict[str, Any]:
     project_path = tmp_path / name.lower().replace(" ", "-")
     project_path.mkdir(parents=True, exist_ok=True)
     assert run_git(["init"], cwd=project_path).returncode == 0
@@ -53,7 +57,9 @@ def create_git_project(store: ControlPlaneFixture, tmp_path: Path, name: str = "
     return store.create_project(name=name, path=project_path, template_id="other")
 
 
-def controlled_developer_runtime_status(*, argv: list[str] | None = None, executable: bool = True) -> list[dict[str, Any]]:
+def controlled_developer_runtime_status(
+    *, argv: list[str] | None = None, executable: bool = True
+) -> list[dict[str, Any]]:
     return [
         {
             "id": "codex_cli",
@@ -63,7 +69,9 @@ def controlled_developer_runtime_status(*, argv: list[str] | None = None, execut
             "available": executable,
             "executable": executable,
             "requiresApproval": False,
-            "reason": "Controlled runtime command is available." if executable else "CLI runtime is not configured.",
+            "reason": "Controlled runtime command is available."
+            if executable
+            else "CLI runtime is not configured.",
             "version": "test",
             "detectedCommand": sys.executable if executable else None,
             "developerAgentArgv": argv
@@ -73,7 +81,7 @@ def controlled_developer_runtime_status(*, argv: list[str] | None = None, execut
                 (
                     "from pathlib import Path; "
                     "Path('developer-agent-output.txt').write_text('real developer agent change\\n', encoding='utf-8'); "
-                    "print('{\"summary\":\"changed by controlled runtime\"}')"
+                    'print(\'{"summary":"changed by controlled runtime"}\')'
                 ),
             ],
             "healthCheckedAt": None,
@@ -152,7 +160,12 @@ class ControlledOpenAICompatibleHandler(BaseHTTPRequestHandler):
         self.rfile.read(int(self.headers.get("Content-Length") or "0"))
         agent_payload = {
             "summary": "changed by controlled openai-compatible runtime",
-            "files": [{"path": "openai-agent-output.txt", "content": "real openai-compatible developer agent change\n"}],
+            "files": [
+                {
+                    "path": "openai-agent-output.txt",
+                    "content": "real openai-compatible developer agent change\n",
+                }
+            ],
             "tests": [],
             "risks": [],
         }
@@ -280,10 +293,18 @@ def test_developer_agent_real_cli_runtime_changes_only_workspace_and_creates_evi
     assert Path(workspace["path"], "developer-agent-output.txt").exists()
     assert not Path(project["path"], "developer-agent-output.txt").exists()
     overview = client.get("/api/v1/overview").json()
-    decisions = [decision for decision in overview["permissionDecisions"] if decision["agentId"] == "developer_agent"]
-    assert any((decision["payload"] or {}).get("operation") == "developer_agent_runtime" for decision in decisions)
-    qa_decisions = [decision for decision in overview["permissionDecisions"] if decision["agentId"] == "qa_agent"]
-    assert any((decision["payload"] or {}).get("operation") == "qa_agent_command" for decision in qa_decisions)
+    decisions = [
+        decision for decision in overview["permissionDecisions"] if decision["agentId"] == "developer_agent"
+    ]
+    assert any(
+        (decision["payload"] or {}).get("operation") == "developer_agent_runtime" for decision in decisions
+    )
+    qa_decisions = [
+        decision for decision in overview["permissionDecisions"] if decision["agentId"] == "qa_agent"
+    ]
+    assert any(
+        (decision["payload"] or {}).get("operation") == "qa_agent_command" for decision in qa_decisions
+    )
     assert "internal_mock" not in str(body)
 
 
@@ -390,8 +411,12 @@ def test_developer_agent_openai_compatible_runtime_applies_structured_patch_in_w
         monkeypatch.setenv("AIDO_OPENAI_COMPATIBLE_BASE_URL", base_url)
         monkeypatch.setenv("AIDO_OPENAI_COMPATIBLE_API_KEY", "unit-test-openai-compatible-key")
         monkeypatch.setenv("AIDO_OPENAI_COMPATIBLE_MODEL", "controlled-model")
-        store.connection.execute("UPDATE provider_accounts SET enabled = 1 WHERE provider_id = 'openai_compatible'")
-        health = client.post("/api/v1/model-gateway/providers/openai_compatible/health-check", headers=headers)
+        store.connection.execute(
+            "UPDATE provider_accounts SET enabled = 1 WHERE provider_id = 'openai_compatible'"
+        )
+        health = client.post(
+            "/api/v1/model-gateway/providers/openai_compatible/health-check", headers=headers
+        )
         assert health.status_code == 200
         assert health.json()["health"]["healthStatus"] == "healthy"
         project = create_git_project(store, tmp_path, name="Developer OpenAI Compatible Runtime")
@@ -435,9 +460,9 @@ def test_developer_agent_openai_compatible_runtime_applies_structured_patch_in_w
 
 def test_developer_agent_ui_and_openapi_expose_executable_status() -> None:
     root = Path(__file__).resolve().parents[1]
-    page = (root / "local-control-center" / "web" / "src" / "features" / "agents" / "AgentsPage.tsx").read_text(
-        encoding="utf-8"
-    )
+    page = (
+        root / "local-control-center" / "web" / "src" / "features" / "agents" / "AgentsPage.tsx"
+    ).read_text(encoding="utf-8")
     client = (root / "local-control-center" / "web" / "src" / "api" / "client.ts").read_text(encoding="utf-8")
     openapi = (root / "local-control-center" / "web" / "src" / "api" / "generated" / "openapi.ts").read_text(
         encoding="utf-8"

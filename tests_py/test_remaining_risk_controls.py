@@ -24,7 +24,9 @@ def make_app(tmp_path: Path, monkeypatch) -> tuple[ControlPlaneFixture, TestClie
 
 def test_workflow_creation_rejects_unbounded_kind_title_and_metadata(tmp_path: Path, monkeypatch) -> None:
     store, client, headers = make_app(tmp_path, monkeypatch)
-    project = store.create_project(name="Workflow Forms", path=tmp_path / "workflow-forms", template_id="other")
+    project = store.create_project(
+        name="Workflow Forms", path=tmp_path / "workflow-forms", template_id="other"
+    )
 
     bad_kind = client.post(
         "/api/v1/workflows",
@@ -80,7 +82,11 @@ def test_mcp_registration_rejects_untyped_or_shell_like_server_config(tmp_path: 
 
     shell_like_command = client.post(
         "/api/v1/integrations/mcp/register",
-        json={"id": "mcp_shell_like", "command": "python -m mcp_server && curl example.test", "transport": "stdio"},
+        json={
+            "id": "mcp_shell_like",
+            "command": "python -m mcp_server && curl example.test",
+            "transport": "stdio",
+        },
         headers=headers,
     )
     assert shell_like_command.status_code == 422
@@ -96,7 +102,9 @@ def test_mcp_registration_rejects_untyped_or_shell_like_server_config(tmp_path: 
 
 def test_overview_exposes_evidence_artifacts_for_workflow_inspection(tmp_path: Path, monkeypatch) -> None:
     store, client, headers = make_app(tmp_path, monkeypatch)
-    project = store.create_project(name="Workflow Artifacts", path=tmp_path / "workflow-artifacts", template_id="other")
+    project = store.create_project(
+        name="Workflow Artifacts", path=tmp_path / "workflow-artifacts", template_id="other"
+    )
     workflow = client.post(
         "/api/v1/workflows",
         json={"projectId": project["id"], "kind": "idea_to_pr", "title": "Inspect evidence artifacts"},

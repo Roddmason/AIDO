@@ -18,7 +18,9 @@ def make_evidence_client(tmp_path: Path, monkeypatch) -> tuple[TestClient, dict[
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
     store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
     store.init()
-    project = store.create_project(name="Evidence Source", path=tmp_path / "evidence-source", template_id="other")
+    project = store.create_project(
+        name="Evidence Source", path=tmp_path / "evidence-source", template_id="other"
+    )
     client = TestClient(create_app(runtime=store, static_dir=None))
     return client, auth_headers(client), project
 
@@ -156,7 +158,9 @@ def test_evidence_ingests_junit_xml_into_normalized_test_results(tmp_path: Path,
             "testPlan": "Run unit tests",
             "acceptanceChecklist": ["junit parsed"],
             "qaVerdict": "needs_human_review",
-            "testResultReports": [{"format": "junit", "command": "uv run pytest --junitxml=report.xml", "content": junit_xml}],
+            "testResultReports": [
+                {"format": "junit", "command": "uv run pytest --junitxml=report.xml", "content": junit_xml}
+            ],
         },
         headers=headers,
     )
@@ -215,7 +219,9 @@ def test_evidence_rejects_passed_verdict_with_failed_results(tmp_path: Path, mon
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
     store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
     store.init()
-    project = store.create_project(name="Failed Evidence", path=tmp_path / "failed-evidence", template_id="other")
+    project = store.create_project(
+        name="Failed Evidence", path=tmp_path / "failed-evidence", template_id="other"
+    )
     client = TestClient(create_app(runtime=store, static_dir=None))
     headers = auth_headers(client)
 
@@ -245,7 +251,9 @@ def test_evidence_persists_runtime_links_and_redacts_logs_risks_and_test_metadat
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
     store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
     store.init()
-    project = store.create_project(name="Evidence Redaction", path=tmp_path / "evidence-redaction", template_id="other")
+    project = store.create_project(
+        name="Evidence Redaction", path=tmp_path / "evidence-redaction", template_id="other"
+    )
     client = TestClient(create_app(runtime=store, static_dir=None))
     headers = auth_headers(client)
     sample_key = "sk-" + "evidencesecret123456"
@@ -312,7 +320,9 @@ def test_evidence_persists_runtime_links_and_redacts_logs_risks_and_test_metadat
 
     artifacts = detail.json()["artifacts"]
     log_artifact = next(item for item in artifacts if item["kind"] == "execution_log")
-    downloaded = client.get(f"/api/v1/evidence/{evidence['id']}/artifacts/{log_artifact['id']}", headers=headers)
+    downloaded = client.get(
+        f"/api/v1/evidence/{evidence['id']}/artifacts/{log_artifact['id']}", headers=headers
+    )
     assert downloaded.status_code == 200
     assert "evidencesecret" not in downloaded.text
     assert "evidencebearer" not in downloaded.text
@@ -326,7 +336,9 @@ def test_evidence_package_contract_includes_required_operational_fields(
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
     store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
     store.init()
-    project = store.create_project(name="Evidence Contract", path=tmp_path / "evidence-contract", template_id="other")
+    project = store.create_project(
+        name="Evidence Contract", path=tmp_path / "evidence-contract", template_id="other"
+    )
     client = TestClient(create_app(runtime=store, static_dir=None))
     headers = auth_headers(client)
     large_log = "large log line\n" * 1200

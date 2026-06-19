@@ -3,6 +3,7 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -151,7 +152,9 @@ class RoutingProfileStore:
         return [row_to_routing_profile(row) for row in rows]
 
     def get_routing_profile(self, profile_id: str) -> dict[str, Any]:
-        row = self.connection.execute("SELECT * FROM routing_profiles WHERE id = ? OR name = ?", (profile_id, profile_id)).fetchone()
+        row = self.connection.execute(
+            "SELECT * FROM routing_profiles WHERE id = ? OR name = ?", (profile_id, profile_id)
+        ).fetchone()
         if not row:
             raise KeyError(f"Routing profile not found: {profile_id}")
         return row_to_routing_profile(row)
@@ -193,7 +196,9 @@ class RoutingProfileStore:
         return [row_to_role_policy(row) for row in rows]
 
     def get_role_policy(self, role: str) -> dict[str, Any]:
-        row = self.connection.execute("SELECT * FROM role_model_policies WHERE role = ? OR id = ?", (role, role)).fetchone()
+        row = self.connection.execute(
+            "SELECT * FROM role_model_policies WHERE role = ? OR id = ?", (role, role)
+        ).fetchone()
         if not row:
             raise KeyError(f"Role policy not found: {role}")
         return row_to_role_policy(row)
@@ -231,7 +236,10 @@ class RoutingProfileStore:
             (
                 policy_id,
                 role,
-                body.get("routingProfileId") or body.get("routing_profile_id") or body.get("mode") or "balanced_best_value",
+                body.get("routingProfileId")
+                or body.get("routing_profile_id")
+                or body.get("mode")
+                or "balanced_best_value",
                 json_dumps(body.get("preferred") or []),
                 json_dumps(body.get("fallback") or []),
                 json_dumps(body.get("escalation") or []),
@@ -257,11 +265,15 @@ class RoutingProfileStore:
         return self.upsert_role_policy({**existing, **body, "id": existing["id"], "role": existing["role"]})
 
     def list_provider_limits(self) -> list[dict[str, Any]]:
-        rows = self.connection.execute("SELECT * FROM provider_limits ORDER BY provider_id ASC, model ASC").fetchall()
+        rows = self.connection.execute(
+            "SELECT * FROM provider_limits ORDER BY provider_id ASC, model ASC"
+        ).fetchall()
         return [row_to_provider_limit(row) for row in rows]
 
     def patch_provider_limit(self, limit_id: str, body: dict[str, Any]) -> dict[str, Any]:
-        existing_row = self.connection.execute("SELECT * FROM provider_limits WHERE id = ?", (limit_id,)).fetchone()
+        existing_row = self.connection.execute(
+            "SELECT * FROM provider_limits WHERE id = ?", (limit_id,)
+        ).fetchone()
         if not existing_row:
             raise KeyError(f"Provider limit not found: {limit_id}")
         existing = row_to_provider_limit(existing_row)
@@ -292,10 +304,14 @@ class RoutingProfileStore:
                 limit_id,
             ),
         )
-        return row_to_provider_limit(self.connection.execute("SELECT * FROM provider_limits WHERE id = ?", (limit_id,)).fetchone())
+        return row_to_provider_limit(
+            self.connection.execute("SELECT * FROM provider_limits WHERE id = ?", (limit_id,)).fetchone()
+        )
 
     def list_budget_rules(self) -> list[dict[str, Any]]:
-        rows = self.connection.execute("SELECT * FROM budget_rules ORDER BY scope_type ASC, scope_id ASC").fetchall()
+        rows = self.connection.execute(
+            "SELECT * FROM budget_rules ORDER BY scope_type ASC, scope_id ASC"
+        ).fetchall()
         return [row_to_budget_rule(row) for row in rows]
 
     def upsert_budget_rule(self, body: dict[str, Any]) -> dict[str, Any]:
@@ -373,7 +389,9 @@ class RoutingProfileStore:
                 utc_now(),
             ),
         )
-        row = self.connection.execute("SELECT * FROM routing_decisions WHERE id = ?", (decision_id,)).fetchone()
+        row = self.connection.execute(
+            "SELECT * FROM routing_decisions WHERE id = ?", (decision_id,)
+        ).fetchone()
         return row_to_routing_decision(row)
 
     def list_routing_decisions(self) -> list[dict[str, Any]]:

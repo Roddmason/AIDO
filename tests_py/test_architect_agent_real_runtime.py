@@ -20,7 +20,9 @@ def auth_headers(client: TestClient) -> dict[str, str]:
     return {"X-Local-Control-Token": token, "Origin": "http://127.0.0.1"}
 
 
-def create_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[ControlPlaneFixture, TestClient, dict[str, str]]:
+def create_client(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> tuple[ControlPlaneFixture, TestClient, dict[str, str]]:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
     monkeypatch.delenv("AIDO_ENABLE_REAL_PROVIDER_CALLS", raising=False)
     store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
@@ -60,7 +62,9 @@ def create_diff_artifact(store: ControlPlaneFixture, project_id: str) -> dict[st
         "-old\n"
         "+new brokered architecture path\n"
     )
-    artifact_file = write_text_artifact(root=store.cwd, artifact_id=artifact_id, suffix=".patch", content=patch)
+    artifact_file = write_text_artifact(
+        root=store.cwd, artifact_id=artifact_id, suffix=".patch", content=patch
+    )
     return store.evidence.create_artifact(
         artifact_id=artifact_id,
         project_id=project_id,
@@ -145,7 +149,9 @@ def start_controlled_provider(content: str) -> tuple[ThreadingHTTPServer, str]:
     return server, f"http://{host}:{port}"
 
 
-def architect_request(project: dict[str, Any], workspace: dict[str, Any], diff_artifact: dict[str, Any]) -> dict[str, Any]:
+def architect_request(
+    project: dict[str, Any], workspace: dict[str, Any], diff_artifact: dict[str, Any]
+) -> dict[str, Any]:
     return {
         "projectId": project["id"],
         "workspaceId": workspace["id"],
@@ -280,8 +286,12 @@ def test_architect_agent_valid_provider_output_persists_decision_and_risks(
     assert store.governance.list_architecture_decisions(project["id"])
     assert store.governance.list_risks(project["id"])
     overview = client.get("/api/v1/overview").json()
-    decisions = [decision for decision in overview["permissionDecisions"] if decision["agentId"] == "architect_agent"]
-    assert any((decision["payload"] or {}).get("operation") == "architect_agent_model_call" for decision in decisions)
+    decisions = [
+        decision for decision in overview["permissionDecisions"] if decision["agentId"] == "architect_agent"
+    ]
+    assert any(
+        (decision["payload"] or {}).get("operation") == "architect_agent_model_call" for decision in decisions
+    )
 
 
 def test_architect_agent_invalid_provider_output_fails_validation_without_persistence(

@@ -3,6 +3,7 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 from typing import Any, Literal
@@ -11,7 +12,6 @@ from pydantic import BaseModel, Field
 
 from local_control_center.security_policy.models import PermissionGrantRecord, RiskLevel
 from local_control_center.shared.schemas import AuditEventRecord, EventRecord
-
 
 SENSITIVE_JOB_KINDS = {
     "pipeline.start",

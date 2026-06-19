@@ -3,6 +3,7 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -18,14 +19,19 @@ from local_control_center.agents.qa_agent import QAAgentRunner, qa_verdict_allow
 from local_control_center.agents.repository import AgentsRepository
 from local_control_center.agents.runtime_registry import issue_to_patch_prompt
 from local_control_center.agents.runtime_status import RuntimeStatusService
-from local_control_center.evidence.artifacts import artifact_hashes, artifact_records_from_ids, artifact_ref, write_text_artifact
+from local_control_center.evidence.artifacts import (
+    artifact_hashes,
+    artifact_records_from_ids,
+    artifact_ref,
+    write_text_artifact,
+)
 from local_control_center.evidence.quality import evidence_package_contract_errors
 from local_control_center.evidence.repository import EvidenceRepository
 from local_control_center.jobs_approvals.repository import JobsRepository
 from local_control_center.security_policy.git_command_runner import git_available, run_git
 from local_control_center.security_policy.repository import SecurityPolicyRepository
-from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.event_bus import EventBus
+from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.serialization import json_dumps, json_loads
 from local_control_center.shared.time import utc_now
 from local_control_center.workflows.github_pull_requests import (
@@ -35,10 +41,8 @@ from local_control_center.workflows.github_pull_requests import (
 )
 from local_control_center.workflows.repository import ISSUE_TO_PATCH_STEPS, WorkflowsRepository
 from local_control_center.workspaces_projects.cleanup import capture_workspace_snapshot
-from local_control_center.workspaces_projects.git_worktrees import capture_git_diff
-from local_control_center.workspaces_projects.git_worktrees import slugify_branch_segment
+from local_control_center.workspaces_projects.git_worktrees import capture_git_diff, slugify_branch_segment
 from local_control_center.workspaces_projects.repository import WorkspacesRepository
-
 
 CLI_RUNTIME_IDS = {"codex_cli", "claude_code_cli", "openhands", "swe_agent"}
 RUNTIME_UNAVAILABLE_STATUS = "runtime_unavailable"
@@ -96,15 +100,16 @@ def _select_runtime(
                 "requiresApproval": True,
                 "reason": f"Runtime provider is not catalogued: {preferred_runtime}",
                 "capabilities": [],
-                "safety": {"workspaceBound": True, "shell": False, "structuredArgv": True, "network": "unknown"},
+                "safety": {
+                    "workspaceBound": True,
+                    "shell": False,
+                    "structuredArgv": True,
+                    "network": "unknown",
+                },
             },
         )
     return next(
-        (
-            status
-            for status in statuses
-            if is_developer_runtime(status)
-        ),
+        (status for status in statuses if is_developer_runtime(status)),
         {
             "id": "unresolved",
             "kind": "unknown",
@@ -149,7 +154,7 @@ def _evidence_git_diff_ref(diff: dict[str, Any]) -> dict[str, Any]:
 
 
 def _workspace_manifest_ref(workspace: dict[str, Any]) -> dict[str, Any] | None:
-    manifest = ((workspace.get("metadata") or {}).get("workspaceManifest") or {})
+    manifest = (workspace.get("metadata") or {}).get("workspaceManifest") or {}
     if not manifest:
         return None
     return {"kind": "workspace_manifest", "status": "captured", **manifest}
@@ -385,7 +390,7 @@ def _approved_evidence_base_commit(evidence: dict[str, Any], workspace: dict[str
         head_commit = str(diff_ref.get("headCommit") or "").strip()
         if head_commit:
             return head_commit
-    workspace_manifest = ((workspace.get("metadata") or {}).get("workspaceManifest") or {})
+    workspace_manifest = (workspace.get("metadata") or {}).get("workspaceManifest") or {}
     source_commit = str(workspace_manifest.get("sourceCommit") or "").strip()
     if source_commit:
         return source_commit
@@ -412,7 +417,9 @@ def _promotion_branch_name(*, requested: str | None, workflow: dict[str, Any], r
     return f"aido/promote/{title}/{suffix}"
 
 
-def _promotion_qa_commands(original_evidence: dict[str, Any], requested: list[list[str]] | None) -> list[list[str]]:
+def _promotion_qa_commands(
+    original_evidence: dict[str, Any], requested: list[list[str]] | None
+) -> list[list[str]]:
     if requested is not None:
         return requested
     commands: list[list[str]] = []
@@ -464,13 +471,17 @@ def _pr_qa_summary_lines(results: list[dict[str, Any]]) -> list[str]:
 
 def _security_findings_lines(security_findings: dict[str, Any]) -> list[str]:
     status = str(security_findings.get("status") or "unknown")
-    findings = security_findings.get("findings") if isinstance(security_findings.get("findings"), list) else []
+    findings = (
+        security_findings.get("findings") if isinstance(security_findings.get("findings"), list) else []
+    )
     lines = [f"- status: {status}", f"- findings: {len(findings)}"]
     for index, finding in enumerate(findings[:10], start=1):
         if not isinstance(finding, dict):
             continue
         decision = str(finding.get("decision") or finding.get("status") or "not_reported")
-        summary = str(finding.get("summary") or finding.get("description") or finding.get("rule") or "finding")
+        summary = str(
+            finding.get("summary") or finding.get("description") or finding.get("rule") or "finding"
+        )
         lines.append(f"- {index}. {decision}: {summary}")
     if len(findings) > 10:
         lines.append(f"- truncated: {len(findings) - 10} additional findings omitted from PR body")
@@ -501,7 +512,9 @@ def _pull_request_base_branch(*, requested: str | None, promotion_workspace: dic
     source_branch = str(git_worktree.get("sourceBranch") or "").strip()
     if source_branch:
         return source_branch
-    workspace_manifest = metadata.get("workspaceManifest") if isinstance(metadata.get("workspaceManifest"), dict) else {}
+    workspace_manifest = (
+        metadata.get("workspaceManifest") if isinstance(metadata.get("workspaceManifest"), dict) else {}
+    )
     manifest_branch = str(workspace_manifest.get("sourceBranch") or "").strip()
     if manifest_branch:
         return manifest_branch
@@ -692,7 +705,11 @@ def _status_from_developer_result(
 ) -> tuple[str, str, str]:
     developer_status = str(developer_result.get("status") or "").strip()
     developer_reason = str(developer_result.get("reason") or "").strip()
-    evidence = developer_result.get("evidencePackage") if isinstance(developer_result.get("evidencePackage"), dict) else {}
+    evidence = (
+        developer_result.get("evidencePackage")
+        if isinstance(developer_result.get("evidencePackage"), dict)
+        else {}
+    )
     qa_verdict = str(evidence.get("qaVerdict") or "blocked").strip() or "blocked"
 
     if developer_status == "completed" and not evidence:
@@ -705,16 +722,28 @@ def _status_from_developer_result(
             return "evidence_ready", "needs_human_review", "Patch evidence is ready and requires approval."
         return "completed", "passed", "Patch evidence and QA passed."
     if developer_status == RUNTIME_UNAVAILABLE_STATUS:
-        return RUNTIME_UNAVAILABLE_STATUS, "blocked", developer_reason or "No executable DeveloperAgent runtime was available."
+        return (
+            RUNTIME_UNAVAILABLE_STATUS,
+            "blocked",
+            developer_reason or "No executable DeveloperAgent runtime was available.",
+        )
     if developer_status == "qa_failed":
         return "qa_failed", "failed", developer_reason or "DeveloperAgent QA command failed or was blocked."
     if developer_status == "evidence_ready":
-        return "evidence_ready", qa_verdict, developer_reason or "DeveloperAgent evidence is not ready for completion."
+        return (
+            "evidence_ready",
+            qa_verdict,
+            developer_reason or "DeveloperAgent evidence is not ready for completion.",
+        )
     if developer_status == "failed":
         return "failed", "failed", developer_reason or "DeveloperAgent runtime execution failed."
     if require_approval and qa_verdict == "needs_human_review":
         return "evidence_ready", "needs_human_review", "Patch evidence is ready and requires approval."
-    return "failed", "failed", developer_reason or f"DeveloperAgent returned unsupported status: {developer_status or 'missing'}."
+    return (
+        "failed",
+        "failed",
+        developer_reason or f"DeveloperAgent returned unsupported status: {developer_status or 'missing'}.",
+    )
 
 
 class IssueToPatchRunner:
@@ -771,10 +800,16 @@ class IssueToPatchRunner:
             and (action.get("payload") or {}).get("evidencePackageId") == evidence_id
         ]
         if not approval_actions:
-            raise ValueError("issue_to_patch approval requires an approved action request for this evidence package.")
-        approved_action = next((action for action in approval_actions if action["status"] == "approved"), None)
+            raise ValueError(
+                "issue_to_patch approval requires an approved action request for this evidence package."
+            )
+        approved_action = next(
+            (action for action in approval_actions if action["status"] == "approved"), None
+        )
         if not approved_action:
-            raise ValueError("issue_to_patch approval requires an approved action request before workflow transition.")
+            raise ValueError(
+                "issue_to_patch approval requires an approved action request before workflow transition."
+            )
 
         latest_approvals = self.jobs.list_action_requests(job_id)
         evidence = self.evidence.update_evidence_links(evidence_id, approvals=latest_approvals)
@@ -830,7 +865,9 @@ class IssueToPatchRunner:
                 "evidence_refs": sorted({*agent_output.get("evidence_refs", []), evidence_id}),
             }
         )
-        agent_run = self.agents.update_agent_run_status(agent_run_id, status="approved", output_payload=agent_output)
+        agent_run = self.agents.update_agent_run_status(
+            agent_run_id, status="approved", output_payload=agent_output
+        )
 
         for step in self.workflows.list_workflow_steps(workflow_run_id=run_id):
             if step["name"] == "qa_validation":
@@ -906,10 +943,16 @@ class IssueToPatchRunner:
         workflow_run = self.workflows.get_workflow_run(run_id)
         workflow = self.workflows.get_workflow(workflow_run["workflowId"])
         if workflow["kind"] not in {"issue_to_patch", "issue_to_pr"}:
-            raise ValueError("Only issue_to_patch or issue_to_pr workflow runs can use promote_patch_to_branch.")
+            raise ValueError(
+                "Only issue_to_patch or issue_to_pr workflow runs can use promote_patch_to_branch."
+            )
         if workflow_run["status"] not in {APPROVED_FOR_INTEGRATION_STATUS, PROMOTION_FAILED_STATUS}:
             raise ValueError("promote_patch_to_branch requires an approved_for_integration workflow run.")
-        approval_action_type = ISSUE_TO_PR_APPROVAL_ACTION if workflow["kind"] == "issue_to_pr" else ISSUE_TO_PATCH_APPROVAL_ACTION
+        approval_action_type = (
+            ISSUE_TO_PR_APPROVAL_ACTION
+            if workflow["kind"] == "issue_to_pr"
+            else ISSUE_TO_PATCH_APPROVAL_ACTION
+        )
 
         run_metadata = workflow_run.get("metadata") or {}
         approved_evidence_id = str(
@@ -925,10 +968,16 @@ class IssueToPatchRunner:
             raise ValueError("Approved evidence package does not belong to this workflow run.")
 
         original_job_id = str(approved_evidence.get("jobId") or run_metadata.get("jobId") or "")
-        original_agent_run_id = str(approved_evidence.get("agentRunId") or run_metadata.get("agentRunId") or "")
-        original_workspace_id = str(approved_evidence.get("workspaceId") or run_metadata.get("workspaceId") or "")
+        original_agent_run_id = str(
+            approved_evidence.get("agentRunId") or run_metadata.get("agentRunId") or ""
+        )
+        original_workspace_id = str(
+            approved_evidence.get("workspaceId") or run_metadata.get("workspaceId") or ""
+        )
         if not original_job_id or not original_agent_run_id or not original_workspace_id:
-            raise ValueError("promote_patch_to_branch requires linked approved job, agent run, and workspace records.")
+            raise ValueError(
+                "promote_patch_to_branch requires linked approved job, agent run, and workspace records."
+            )
         original_workspace = self.workspaces.get_workspace(original_workspace_id)
 
         approval_actions = [
@@ -940,7 +989,9 @@ class IssueToPatchRunner:
             and (action.get("payload") or {}).get("evidencePackageId") == approved_evidence_id
         ]
         if not approval_actions:
-            raise ValueError("promote_patch_to_branch requires approved patch evidence before branch promotion.")
+            raise ValueError(
+                "promote_patch_to_branch requires approved patch evidence before branch promotion."
+            )
 
         approved_evidence = self.evidence.update_evidence_links(
             approved_evidence_id,
@@ -952,7 +1003,9 @@ class IssueToPatchRunner:
             require_workflow_run=True,
         )
         if contract_errors:
-            raise ValueError("Approved evidence package contract is incomplete: " + "; ".join(contract_errors))
+            raise ValueError(
+                "Approved evidence package contract is incomplete: " + "; ".join(contract_errors)
+            )
         approved_artifacts = self.evidence.list_artifacts(approved_evidence_id)
         patch_artifact = _validate_patch_artifact(approved_evidence, approved_artifacts)
         patch_content = _artifact_content_bytes(patch_artifact)
@@ -1294,7 +1347,9 @@ class IssueToPatchRunner:
             completed=completed,
             clear_completed=not completed,
         )
-        workflow = self.workflows.update_workflow_status(workflow["id"], status=final_status, reason=final_reason)
+        workflow = self.workflows.update_workflow_status(
+            workflow["id"], status=final_status, reason=final_reason
+        )
         if "local_tests" in steps:
             self.workflows.update_workflow_step(
                 steps["local_tests"]["id"],
@@ -1397,10 +1452,16 @@ class IssueToPatchRunner:
         workflow_run = self.workflows.get_workflow_run(run_id)
         workflow = self.workflows.get_workflow(workflow_run["workflowId"])
         if workflow["kind"] not in {"issue_to_patch", "issue_to_pr"}:
-            raise ValueError("Only issue_to_patch or issue_to_pr workflow runs can create pull requests from promoted branches.")
+            raise ValueError(
+                "Only issue_to_patch or issue_to_pr workflow runs can create pull requests from promoted branches."
+            )
         if workflow_run["status"] == PR_CREATED_STATUS:
             raise ValueError("Pull request was already created for this workflow run.")
-        approval_action_type = ISSUE_TO_PR_APPROVAL_ACTION if workflow["kind"] == "issue_to_pr" else ISSUE_TO_PATCH_APPROVAL_ACTION
+        approval_action_type = (
+            ISSUE_TO_PR_APPROVAL_ACTION
+            if workflow["kind"] == "issue_to_pr"
+            else ISSUE_TO_PATCH_APPROVAL_ACTION
+        )
 
         run_metadata = workflow_run.get("metadata") or {}
         promoted_branch_name = str(run_metadata.get("promotedBranchName") or "").strip()
@@ -1450,7 +1511,9 @@ class IssueToPatchRunner:
         ]
         if not approval_actions:
             raise ValueError("create_pull_request requires approved patch evidence before PR creation.")
-        approval_reason = _approval_reason_summary(approval_actions=approval_actions, run_metadata=run_metadata)
+        approval_reason = _approval_reason_summary(
+            approval_actions=approval_actions, run_metadata=run_metadata
+        )
         pr_title = str(title or "").strip() or _default_pull_request_title(workflow, promoted_branch_name)
         pr_body = _build_pull_request_body(
             approved_evidence=approved_evidence,
@@ -1566,12 +1629,20 @@ class IssueToPatchRunner:
                     "reason": final_reason,
                 }
 
-        request_payload = github_result.get("request") if isinstance(github_result.get("request"), dict) else None
+        request_payload = (
+            github_result.get("request") if isinstance(github_result.get("request"), dict) else None
+        )
         request_path = str((request_payload or {}).get("url") or "github_config")
         qa_results = [
             {
-                "command": "POST /repos/{owner}/{repo}/pulls" if request_payload else "github_pull_request_config",
-                "status": "passed" if final_status == PR_CREATED_STATUS else "blocked" if final_status == PR_UNAVAILABLE_STATUS else "failed",
+                "command": "POST /repos/{owner}/{repo}/pulls"
+                if request_payload
+                else "github_pull_request_config",
+                "status": "passed"
+                if final_status == PR_CREATED_STATUS
+                else "blocked"
+                if final_status == PR_UNAVAILABLE_STATUS
+                else "failed",
                 "durationMs": None,
                 "metadata": {
                     "url": request_path,
@@ -1729,7 +1800,11 @@ class IssueToPatchRunner:
 
         pr_agent_run = self.agents.update_agent_run_status(
             pr_agent_run["id"],
-            status="completed" if final_status == PR_CREATED_STATUS else "blocked" if final_status == PR_UNAVAILABLE_STATUS else "failed",
+            status="completed"
+            if final_status == PR_CREATED_STATUS
+            else "blocked"
+            if final_status == PR_UNAVAILABLE_STATUS
+            else "failed",
             output_payload={
                 "verdict": final_status,
                 "summary": final_reason,
@@ -1918,7 +1993,9 @@ class IssueToPatchRunner:
         preflight_block_reason = ""
         diff_blocker_state = RUNTIME_UNAVAILABLE_STATUS
         if runtime.get("executable") and not workspace_auditable:
-            preflight_block_reason = "issue_to_patch requires a Git worktree workspace before executing a productive runtime."
+            preflight_block_reason = (
+                "issue_to_patch requires a Git worktree workspace before executing a productive runtime."
+            )
             diff_blocker_state = "workspace_not_auditable"
 
         developer_result = DeveloperAgentRunner(self.connection, root=self.root).run(
@@ -1970,7 +2047,9 @@ class IssueToPatchRunner:
             if str(tool_call.get("agentRunId")) in related_agent_run_ids
         ] or list(evidence.get("toolCalls") or [])
         model_calls = [
-            model_call for model_call in self.agents.list_model_calls() if model_call.get("agentRunId") == agent_run["id"]
+            model_call
+            for model_call in self.agents.list_model_calls()
+            if model_call.get("agentRunId") == agent_run["id"]
         ] or list(evidence.get("modelCalls") or [])
         if final_status == "evidence_ready" and qa_verdict == "needs_human_review":
             self.jobs.create_action_request(
@@ -2059,7 +2138,9 @@ class IssueToPatchRunner:
                 }
             ],
         )
-        contract_errors = evidence_package_contract_errors(evidence, require_runtime_links=final_status == "completed")
+        contract_errors = evidence_package_contract_errors(
+            evidence, require_runtime_links=final_status == "completed"
+        )
         if final_status == "completed" and contract_errors:
             final_status, qa_verdict, final_reason = _status_from_developer_result(
                 developer_result,
@@ -2134,7 +2215,9 @@ class IssueToPatchRunner:
             },
             completed=final_status in TERMINAL_STATUSES,
         )
-        workflow = self.workflows.update_workflow_status(workflow["id"], status=final_status, reason=final_reason)
+        workflow = self.workflows.update_workflow_status(
+            workflow["id"], status=final_status, reason=final_reason
+        )
         job_status = (
             "completed"
             if final_status == "completed"

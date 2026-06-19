@@ -3,8 +3,10 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import re
@@ -15,7 +17,12 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from local_control_center.evidence.artifacts import artifact_hashes, artifact_records_from_ids, artifact_ref, write_text_artifact
+from local_control_center.evidence.artifacts import (
+    artifact_hashes,
+    artifact_records_from_ids,
+    artifact_ref,
+    write_text_artifact,
+)
 from local_control_center.evidence.quality import evidence_package_contract_errors
 from local_control_center.evidence.repository import EvidenceRepository
 from local_control_center.jobs_approvals.repository import JobsRepository
@@ -34,7 +41,6 @@ from .devops_agent_contract import (
 from .qa_agent import _display_command, _hash_text, _stream_hash
 from .repository import AgentsRepository
 from .tool_broker import ToolBroker
-
 
 IGNORED_PARTS = {
     ".git",
@@ -122,7 +128,9 @@ def _corepack_policy_command(script: str) -> str:
     return f"corepack pnpm@10.24.0 run {script}"
 
 
-def _status_from_findings_and_commands(findings: list[dict[str, Any]], commands: list[dict[str, Any]]) -> tuple[str, str]:
+def _status_from_findings_and_commands(
+    findings: list[dict[str, Any]], commands: list[dict[str, Any]]
+) -> tuple[str, str]:
     if any(finding["severity"] == "critical" for finding in findings):
         return "blocked", "Critical DevOps configuration finding blocks validation."
     if any(command.get("status") == "failed" and command.get("critical") for command in commands):
@@ -177,10 +185,7 @@ def _node_engine_satisfied(actual: str, requirement: str) -> bool | None:
 
 
 def _missing_tool_reason(result: dict[str, Any]) -> str | None:
-    text = " ".join(
-        str(result.get(key) or "")
-        for key in ("reason", "stdout", "stderr")
-    ).lower()
+    text = " ".join(str(result.get(key) or "") for key in ("reason", "stdout", "stderr")).lower()
     if any(pattern in text for pattern in MISSING_TOOL_PATTERNS):
         return "Required executable was unavailable for this validation command."
     return None
@@ -225,12 +230,30 @@ class DevOpsAgentRunner:
             raise ValueError("DevOpsAgent cannot validate an archived workspace.")
         return workspace
 
-    def _scan_powershell(self, *, rel: str, text: str, content_hash: str, findings: list[dict[str, Any]]) -> None:
+    def _scan_powershell(
+        self, *, rel: str, text: str, content_hash: str, findings: list[dict[str, Any]]
+    ) -> None:
         legacy_patterns = (
-            ("legacy_script", re.compile(r"\bnpm\s+(run\s+)?(build|test|start|install)\b", re.I), "PowerShell script uses legacy npm invocation."),
-            ("local_first", re.compile(r"\b(Invoke-WebRequest|curl|wget)\b", re.I), "PowerShell script performs network access and must be reviewed for local-first constraints."),
-            ("local_first", re.compile(r"\b0\.0\.0\.0\b"), "PowerShell script binds to 0.0.0.0 instead of loopback."),
-            ("privilege_escalation", re.compile(r"\bStart-Process\b.*\b-Verb\s+RunAs\b", re.I), "PowerShell script requests elevated execution."),
+            (
+                "legacy_script",
+                re.compile(r"\bnpm\s+(run\s+)?(build|test|start|install)\b", re.I),
+                "PowerShell script uses legacy npm invocation.",
+            ),
+            (
+                "local_first",
+                re.compile(r"\b(Invoke-WebRequest|curl|wget)\b", re.I),
+                "PowerShell script performs network access and must be reviewed for local-first constraints.",
+            ),
+            (
+                "local_first",
+                re.compile(r"\b0\.0\.0\.0\b"),
+                "PowerShell script binds to 0.0.0.0 instead of loopback.",
+            ),
+            (
+                "privilege_escalation",
+                re.compile(r"\bStart-Process\b.*\b-Verb\s+RunAs\b", re.I),
+                "PowerShell script requests elevated execution.",
+            ),
         )
         for check_id, pattern, message in legacy_patterns:
             if pattern.search(text):
@@ -244,11 +267,25 @@ class DevOpsAgentRunner:
                     )
                 )
 
-    def _scan_docker_file(self, *, rel: str, text: str, content_hash: str, findings: list[dict[str, Any]]) -> None:
+    def _scan_docker_file(
+        self, *, rel: str, text: str, content_hash: str, findings: list[dict[str, Any]]
+    ) -> None:
         checks = (
-            ("dockerfile_policy", re.compile(r"(?im)^\s*ADD\s+https?://"), "Dockerfile uses remote ADD; prefer explicit verified fetch steps."),
-            ("dockerfile_policy", re.compile(r"(?im)\bcurl\b.*\|\s*(sh|bash)"), "Dockerfile pipes network content into a shell."),
-            ("local_first", re.compile(r"\b--network=host\b|\bnetwork_mode:\s*host\b", re.I), "Docker configuration requests host networking."),
+            (
+                "dockerfile_policy",
+                re.compile(r"(?im)^\s*ADD\s+https?://"),
+                "Dockerfile uses remote ADD; prefer explicit verified fetch steps.",
+            ),
+            (
+                "dockerfile_policy",
+                re.compile(r"(?im)\bcurl\b.*\|\s*(sh|bash)"),
+                "Dockerfile pipes network content into a shell.",
+            ),
+            (
+                "local_first",
+                re.compile(r"\b--network=host\b|\bnetwork_mode:\s*host\b", re.I),
+                "Docker configuration requests host networking.",
+            ),
         )
         for check_id, pattern, message in checks:
             if pattern.search(text):
@@ -348,7 +385,12 @@ class DevOpsAgentRunner:
                         evidence={"contentHash": content_hash},
                     )
                 )
-        return {"path": str(path), "scripts": scripts, "packageManager": package_manager, "nodeEngine": node_engine}
+        return {
+            "path": str(path),
+            "scripts": scripts,
+            "packageManager": package_manager,
+            "nodeEngine": node_engine,
+        }
 
     def _scan_pyproject(
         self,
@@ -421,10 +463,8 @@ class DevOpsAgentRunner:
                 )
                 continue
             text = ""
-            try:
+            with contextlib.suppress(UnicodeDecodeError):
                 text = content.decode("utf-8")
-            except UnicodeDecodeError:
-                pass
             if name == "package.json":
                 package_info = self._scan_package_json(
                     path=path,
@@ -435,14 +475,18 @@ class DevOpsAgentRunner:
                     versions=versions,
                 )
             elif name == "pyproject.toml":
-                self._scan_pyproject(rel=rel, content=content, content_hash=content_hash, findings=findings, versions=versions)
+                self._scan_pyproject(
+                    rel=rel, content=content, content_hash=content_hash, findings=findings, versions=versions
+                )
             elif path.suffix.lower() == ".ps1" and text:
                 self._scan_powershell(rel=rel, text=text, content_hash=content_hash, findings=findings)
             elif name in {"Dockerfile", "docker-compose.yml", "docker-compose.yaml"} and text:
                 self._scan_docker_file(rel=rel, text=text, content_hash=content_hash, findings=findings)
         return files_scanned, package_info
 
-    def _requested_build_scripts(self, payload: dict[str, Any], package_info: dict[str, Any] | None) -> list[str]:
+    def _requested_build_scripts(
+        self, payload: dict[str, Any], package_info: dict[str, Any] | None
+    ) -> list[str]:
         requested = payload.get("buildScripts")
         if requested:
             return [str(script) for script in requested if isinstance(script, str) and script.strip()]
@@ -458,7 +502,9 @@ class DevOpsAgentRunner:
     def _output_artifact(self, *, project_id: str, result: dict[str, Any]) -> dict[str, Any]:
         artifact_id = f"artifact-{uuid.uuid4()}"
         content = json_dumps(_command_result_artifact_payload(result))
-        artifact = write_text_artifact(root=self.root, artifact_id=artifact_id, suffix=".devops-command.json", content=content)
+        artifact = write_text_artifact(
+            root=self.root, artifact_id=artifact_id, suffix=".devops-command.json", content=content
+        )
         return self.evidence.create_artifact(
             artifact_id=artifact_id,
             project_id=project_id,
@@ -493,8 +539,12 @@ class DevOpsAgentRunner:
         timed_out = bool(execution_result.get("timedOut", False))
         raw_result = {
             "reason": execution_result.get("reason") or payload.get("decisionReason"),
-            "stdout": execution_result.get("stdout") if isinstance(execution_result.get("stdout"), str) else "",
-            "stderr": execution_result.get("stderr") if isinstance(execution_result.get("stderr"), str) else "",
+            "stdout": execution_result.get("stdout")
+            if isinstance(execution_result.get("stdout"), str)
+            else "",
+            "stderr": execution_result.get("stderr")
+            if isinstance(execution_result.get("stderr"), str)
+            else "",
         }
         missing_tool_reason = _missing_tool_reason(raw_result)
         if tool_call.get("status") == "completed" and return_code == 0 and not timed_out:
@@ -520,12 +570,17 @@ class DevOpsAgentRunner:
             "exitCode": return_code,
             "returnCode": return_code,
             "timedOut": timed_out,
-            "blocked": bool(execution_result.get("blocked", False)) or tool_call.get("status") in {"denied", "approval_required"},
+            "blocked": bool(execution_result.get("blocked", False))
+            or tool_call.get("status") in {"denied", "approval_required"},
             "reason": reason,
             "durationMs": execution_result.get("durationMs"),
             "toolCallId": tool_call.get("id"),
-            "stdout": execution_result.get("stdout") if isinstance(execution_result.get("stdout"), str) else "",
-            "stderr": execution_result.get("stderr") if isinstance(execution_result.get("stderr"), str) else "",
+            "stdout": execution_result.get("stdout")
+            if isinstance(execution_result.get("stdout"), str)
+            else "",
+            "stderr": execution_result.get("stderr")
+            if isinstance(execution_result.get("stderr"), str)
+            else "",
             "stdoutArtifactId": execution_result.get("stdoutArtifactId"),
             "stderrArtifactId": execution_result.get("stderrArtifactId"),
             "artifactHashes": {
@@ -653,7 +708,9 @@ class DevOpsAgentRunner:
             result_metadata=result_metadata,
         )
 
-    def _package_manager_prerequisite_reason(self, tool_results: list[dict[str, Any]], *, include_uv: bool) -> str | None:
+    def _package_manager_prerequisite_reason(
+        self, tool_results: list[dict[str, Any]], *, include_uv: bool
+    ) -> str | None:
         required = {"node", "corepack", "pnpm"}
         if include_uv:
             required.add("uv")
@@ -756,7 +813,9 @@ class DevOpsAgentRunner:
                     )
                 )
         elif tool == "pnpm":
-            package_manager = str((package_info or {}).get("packageManager") or versions.get("packageManager") or "")
+            package_manager = str(
+                (package_info or {}).get("packageManager") or versions.get("packageManager") or ""
+            )
             versions[tool]["required"] = str((result.get("metadata") or {}).get("required") or "")
             versions[tool]["packageManager"] = package_manager
 
@@ -797,7 +856,9 @@ class DevOpsAgentRunner:
             )
             results.append(result)
             artifact_ids.extend(command_artifacts)
-            self._record_version_result(versions=versions, findings=findings, result=result, package_info=package_info)
+            self._record_version_result(
+                versions=versions, findings=findings, result=result, package_info=package_info
+            )
         return results, artifact_ids
 
     def _execute_build_commands(
@@ -946,19 +1007,28 @@ class DevOpsAgentRunner:
         if not requested:
             return {**docker, "healthcheck": health}, [], []
         if not docker.get("available"):
-            health = {"status": "skipped_with_reason", "reason": "Docker executable is not available; Docker is optional."}
+            health = {
+                "status": "skipped_with_reason",
+                "reason": "Docker executable is not available; Docker is optional.",
+            }
             return {**docker, "healthcheck": health}, [], []
         try:
             sandbox_profile = self.security.get_sandbox_profile("default_docker")
         except KeyError:
             sandbox_profile = None
         if not sandbox_profile or sandbox_profile["status"] != "active":
-            health = {"status": "skipped_with_reason", "reason": "Default Docker sandbox profile is not active."}
+            health = {
+                "status": "skipped_with_reason",
+                "reason": "Default Docker sandbox profile is not active.",
+            }
             return {**docker, "healthcheck": health}, [], []
         allowed_images = sandbox_profile.get("allowedImages") or []
         image = next((item for item in allowed_images if item == "python:3.13-slim"), None)
         if not image:
-            health = {"status": "skipped_with_reason", "reason": "Default Docker profile does not allow the healthcheck image."}
+            health = {
+                "status": "skipped_with_reason",
+                "reason": "Default Docker profile does not allow the healthcheck image.",
+            }
             return {**docker, "healthcheck": health}, [], []
         broker = ToolBroker(self.connection, artifact_root=self.root)
         tool_result = broker.evaluate_tool_call(
@@ -1003,7 +1073,9 @@ class DevOpsAgentRunner:
     def _write_config_artifact(self, *, project_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         artifact_id = f"artifact-{uuid.uuid4()}"
         content = json_dumps(redact_secrets(payload))
-        artifact_file = write_text_artifact(root=self.root, artifact_id=artifact_id, suffix=".devops.json", content=content)
+        artifact_file = write_text_artifact(
+            root=self.root, artifact_id=artifact_id, suffix=".devops.json", content=content
+        )
         return self.evidence.create_artifact(
             artifact_id=artifact_id,
             project_id=project_id,
@@ -1167,7 +1239,11 @@ class DevOpsAgentRunner:
             logs=[redact_secrets({"source": DEVOPS_AGENT_ID, "reason": reason})],
             risk_notes=[
                 {
-                    "severity": "low" if status == "passed" else "high" if status in {"failed", "blocked"} else "medium",
+                    "severity": "low"
+                    if status == "passed"
+                    else "high"
+                    if status in {"failed", "blocked"}
+                    else "medium",
                     "description": reason,
                     "mitigation": "Fix DevOpsAgent config findings or missing/failing build validation commands.",
                 }
@@ -1184,12 +1260,16 @@ class DevOpsAgentRunner:
                 "id": f"{DEVOPS_AGENT_ID}.deterministic_checks",
                 "status": status,
                 "available": status == "passed",
-                "executable": not any(command.get("blocked") and command.get("status") == "failed" for command in commands),
+                "executable": not any(
+                    command.get("blocked") and command.get("status") == "failed" for command in commands
+                ),
                 "commands": len(commands),
                 "filesScanned": len(files_scanned),
                 "dockerAvailable": bool(docker.get("available")),
                 "dockerHealthcheck": docker.get("healthcheck"),
-                "toolchain": {key: value for key, value in versions.items() if key in {"node", "uv", "corepack", "pnpm"}},
+                "toolchain": {
+                    key: value for key, value in versions.items() if key in {"node", "uv", "corepack", "pnpm"}
+                },
             },
             model_calls=[],
             tool_calls=tool_calls,
@@ -1201,7 +1281,9 @@ class DevOpsAgentRunner:
             qa_verdict=qa_verdict,
         )
         for artifact_id in sorted(set(artifact_ids)):
-            self.evidence.attach_artifact_to_evidence(artifact_id=artifact_id, evidence_package_id=evidence["id"])
+            self.evidence.attach_artifact_to_evidence(
+                artifact_id=artifact_id, evidence_package_id=evidence["id"]
+            )
         contract_errors = evidence_package_contract_errors(
             evidence,
             require_runtime_links=status == "passed",
@@ -1228,12 +1310,21 @@ class DevOpsAgentRunner:
         agent_run = self.agents.update_agent_run_status(
             agent_run["id"],
             status="completed" if status == "passed" else "failed",
-            output_payload={**report_payload, "configArtifactId": config_artifact["id"], "evidence_refs": [evidence["id"], config_artifact["id"]]},
+            output_payload={
+                **report_payload,
+                "configArtifactId": config_artifact["id"],
+                "evidence_refs": [evidence["id"], config_artifact["id"]],
+            },
         )
         job = self.jobs.update_job_status(
             job["id"],
             status="completed" if status == "passed" else "failed",
-            metadata={"status": status, "reason": reason, "evidencePackageId": evidence["id"], "configArtifactId": config_artifact["id"]},
+            metadata={
+                "status": status,
+                "reason": reason,
+                "evidencePackageId": evidence["id"],
+                "configArtifactId": config_artifact["id"],
+            },
         )
         return {
             "status": status,

@@ -3,13 +3,14 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
 
-from local_control_center.shared.telemetry import redact_telemetry
 from local_control_center.shared.event_bus import EventBus
+from local_control_center.shared.telemetry import redact_telemetry
 
 from .discovery import discover_project_path
 from .repository import ProjectsRepository
@@ -51,7 +52,9 @@ def _resolve_project_path(body: dict[str, Any], cwd: Path) -> tuple[Path, dict[s
         return workspace_root / safe_directory_name, metadata
 
     project_path = Path(str(body.get("path") or cwd)).expanduser()
-    metadata.setdefault("creationMode", "attach_existing" if not body.get("createDirectory", True) else "explicit_path")
+    metadata.setdefault(
+        "creationMode", "attach_existing" if not body.get("createDirectory", True) else "explicit_path"
+    )
     if workspace_base_path:
         metadata["workspaceBasePath"] = str(Path(str(workspace_base_path)).expanduser())
     if directory_name:

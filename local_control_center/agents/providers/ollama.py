@@ -3,6 +3,7 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 import json
@@ -10,10 +11,18 @@ import os
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 
-from local_control_center.shared.redaction import redact_secrets
 from local_control_center.agents.runtime_provider_config import runtime_provider_configuration
+from local_control_center.shared.redaction import redact_secrets
 
-from .base import CostEstimate, ModelInfo, ModelProvider, ModelRequest, ModelResponse, ProviderHealth, UsageRecord
+from .base import (
+    CostEstimate,
+    ModelInfo,
+    ModelProvider,
+    ModelRequest,
+    ModelResponse,
+    ProviderHealth,
+    UsageRecord,
+)
 
 
 def _public_error(error: BaseException) -> str:
@@ -39,8 +48,18 @@ class OllamaProvider(ModelProvider):
             with urlopen(request, timeout=2):
                 pass
         except (OSError, TimeoutError, URLError) as error:
-            return ProviderHealth(providerId=self.provider_id, status="not_available", healthStatus="offline", message=_public_error(error))
-        return ProviderHealth(providerId=self.provider_id, status="available", healthStatus="healthy", message="Ollama responded")
+            return ProviderHealth(
+                providerId=self.provider_id,
+                status="not_available",
+                healthStatus="offline",
+                message=_public_error(error),
+            )
+        return ProviderHealth(
+            providerId=self.provider_id,
+            status="available",
+            healthStatus="healthy",
+            message="Ollama responded",
+        )
 
     def list_models(self) -> list[ModelInfo]:
         try:
@@ -50,7 +69,12 @@ class OllamaProvider(ModelProvider):
         except (OSError, TimeoutError, URLError, json.JSONDecodeError):
             return []
         return [
-            ModelInfo(providerId=self.provider_id, model=str(item.get("name")), displayName=str(item.get("name")), source="provider")
+            ModelInfo(
+                providerId=self.provider_id,
+                model=str(item.get("name")),
+                displayName=str(item.get("name")),
+                source="provider",
+            )
             for item in payload.get("models", [])
             if item.get("name")
         ]
@@ -90,7 +114,9 @@ class OllamaProvider(ModelProvider):
             if isinstance(raw, dict)
             else {"usage_source": "provider"},
         )
-        return ModelResponse(providerId=self.provider_id, model=request.model, content=content, usage=usage, rawResponse=raw)
+        return ModelResponse(
+            providerId=self.provider_id, model=request.model, content=content, usage=usage, rawResponse=raw
+        )
 
     def estimate_cost(self, request: ModelRequest, model: str) -> CostEstimate:
         return CostEstimate(estimatedCostUsd=0.0, source="local")

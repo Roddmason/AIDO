@@ -3,6 +3,7 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 from typing import Any, Literal
@@ -10,7 +11,6 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, field_validator
 
 from local_control_center.evidence.models import EvidencePackageRecord
-
 
 WorkspaceIsolationType = Literal["directory", "git_worktree"]
 

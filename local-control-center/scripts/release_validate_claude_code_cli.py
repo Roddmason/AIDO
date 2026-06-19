@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 # ruff: noqa: E402
-
 import argparse
 import json
 import os
@@ -10,7 +9,7 @@ import subprocess
 import sys
 import traceback
 from collections.abc import Mapping
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -24,7 +23,6 @@ from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.serialization import json_dumps
 from local_control_center.shared.time import utc_now
 from local_control_center.workflows.issue_to_patch_runner import IssueToPatchRunner
-
 
 REPORT_SCHEMA = "aido.claude-code-cli-release-validation.v1"
 VALIDATION_MARKER = "claude code release validation passed"
@@ -61,8 +59,12 @@ def release_result_contract_errors(result: Mapping[str, Any]) -> list[str]:
     evidence = result.get("evidencePackage") if isinstance(result.get("evidencePackage"), Mapping) else {}
     qa_results = result.get("qaResults") if isinstance(result.get("qaResults"), list) else []
     tool_calls = evidence.get("toolCalls") if isinstance(evidence.get("toolCalls"), list) else []
-    policy_decisions = evidence.get("policyDecisions") if isinstance(evidence.get("policyDecisions"), list) else []
-    tool_call_ids = {str(item.get("id")) for item in tool_calls if isinstance(item, Mapping) and item.get("id")}
+    policy_decisions = (
+        evidence.get("policyDecisions") if isinstance(evidence.get("policyDecisions"), list) else []
+    )
+    tool_call_ids = {
+        str(item.get("id")) for item in tool_calls if isinstance(item, Mapping) and item.get("id")
+    }
     allowed_policy_ids = {
         str(item.get("id"))
         for item in policy_decisions
@@ -80,7 +82,9 @@ def release_result_contract_errors(result: Mapping[str, Any]) -> list[str]:
     if workspace.get("isolationType") != "git_worktree":
         errors.append("Validation workspace must be a git_worktree.")
 
-    changed_files = diff_summary.get("changedFiles") if isinstance(diff_summary.get("changedFiles"), list) else []
+    changed_files = (
+        diff_summary.get("changedFiles") if isinstance(diff_summary.get("changedFiles"), list) else []
+    )
     patch_size = int(diff_summary.get("patchSizeBytes") or 0)
     if not changed_files or patch_size <= 0 or not diff_summary.get("patchArtifactId"):
         errors.append("Claude Code issue_to_patch must produce a non-empty patch artifact.")
@@ -99,11 +103,19 @@ def release_result_contract_errors(result: Mapping[str, Any]) -> list[str]:
             errors.append(f"QA result {index} is missing toolCallId.")
         elif tool_call_ids and tool_call_id not in tool_call_ids:
             errors.append(f"QA result {index} toolCallId is not linked in the evidence package.")
-        hashes = qa_result.get("artifactHashes") if isinstance(qa_result.get("artifactHashes"), Mapping) else {}
-        if not hashes.get("stdoutHash") or not hashes.get("stderrHash") or not hashes.get("outputArtifactHash"):
+        hashes = (
+            qa_result.get("artifactHashes") if isinstance(qa_result.get("artifactHashes"), Mapping) else {}
+        )
+        if (
+            not hashes.get("stdoutHash")
+            or not hashes.get("stderrHash")
+            or not hashes.get("outputArtifactHash")
+        ):
             errors.append(f"QA result {index} is missing stdout/stderr/output artifact hashes.")
         metadata = qa_result.get("metadata") if isinstance(qa_result.get("metadata"), Mapping) else {}
-        policy_decision_id = str(metadata.get("permissionDecisionId") or metadata.get("policyDecisionId") or "")
+        policy_decision_id = str(
+            metadata.get("permissionDecisionId") or metadata.get("policyDecisionId") or ""
+        )
         if not policy_decision_id:
             errors.append(f"QA result {index} is missing policy decision reference.")
         elif allowed_policy_ids and policy_decision_id not in allowed_policy_ids:
@@ -121,7 +133,9 @@ def release_result_contract_errors(result: Mapping[str, Any]) -> list[str]:
         errors.append("Evidence package must be linked to claude_code_cli.")
     if missing_artifacts:
         errors.append("Evidence package is missing required artifacts: " + ", ".join(missing_artifacts) + ".")
-    if not artifacts or any(not artifact.get("hash") for artifact in artifacts if isinstance(artifact, Mapping)):
+    if not artifacts or any(
+        not artifact.get("hash") for artifact in artifacts if isinstance(artifact, Mapping)
+    ):
         errors.append("Evidence package artifacts must include SHA-256 hashes.")
     if not evidence.get("hashes"):
         errors.append("Evidence package must include artifact hashes.")
@@ -133,7 +147,7 @@ def release_result_contract_errors(result: Mapping[str, Any]) -> list[str]:
 
 
 def _utc_slug() -> str:
-    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    return datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
 
 
 def _default_work_root() -> Path:
@@ -166,7 +180,9 @@ def _run_checked(argv: list[str], *, cwd: Path) -> str:
 
 def _create_validation_git_repo(work_root: Path) -> Path:
     if not shutil.which("git"):
-        raise ReleaseValidationError("git CLI is required to create the real temporary validation repository.")
+        raise ReleaseValidationError(
+            "git CLI is required to create the real temporary validation repository."
+        )
     repo_path = work_root / "source-repo"
     repo_path.mkdir(parents=True, exist_ok=False)
     _run_checked(["git", "init"], cwd=repo_path)
@@ -232,7 +248,9 @@ def _build_payload(*, project_id: str, title: str, issue_text: str) -> dict[str,
 
 def run_release_validation(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
     work_root = Path(args.work_root).resolve(strict=False) if args.work_root else _default_work_root()
-    report_path = Path(args.report_path).resolve(strict=False) if args.report_path else work_root / "report.json"
+    report_path = (
+        Path(args.report_path).resolve(strict=False) if args.report_path else work_root / "report.json"
+    )
     started_at = utc_now()
     env_errors = required_environment_errors(os.environ)
     if env_errors:
@@ -316,9 +334,17 @@ def run_release_validation(args: argparse.Namespace) -> tuple[int, dict[str, Any
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
     normalized_argv = argv[1:] if argv[:1] == ["--"] else argv
-    parser = argparse.ArgumentParser(description="Run real Claude Code CLI release validation through issue_to_patch.")
-    parser.add_argument("--work-root", default="", help="Directory for the temporary DB, source repo, worktree, and artifacts.")
-    parser.add_argument("--report-path", default="", help="JSON report path. Defaults to <work-root>/report.json.")
+    parser = argparse.ArgumentParser(
+        description="Run real Claude Code CLI release validation through issue_to_patch."
+    )
+    parser.add_argument(
+        "--work-root",
+        default="",
+        help="Directory for the temporary DB, source repo, worktree, and artifacts.",
+    )
+    parser.add_argument(
+        "--report-path", default="", help="JSON report path. Defaults to <work-root>/report.json."
+    )
     parser.add_argument("--title", default=DEFAULT_TITLE)
     parser.add_argument("--issue-text", default=DEFAULT_ISSUE_TEXT)
     return parser.parse_args(normalized_argv)

@@ -3,7 +3,6 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 PRODUCT_ROOTS = [
     ROOT / "local_control_center",
@@ -17,11 +16,23 @@ EXCLUDED_PARTS = {
 
 PROHIBITED_PRODUCT_PATTERNS = [
     ("internal mock runtime exposed in product code", re.compile(r"\binternal_mock\b")),
-    ("model gateway mock response contract exposed in product code", re.compile(r"\bRouteExecuteMockResponse\b")),
+    (
+        "model gateway mock response contract exposed in product code",
+        re.compile(r"\bRouteExecuteMockResponse\b"),
+    ),
     ("product provider or runtime exposes mock constructor flag", re.compile(r"\bmock\s*:\s*bool\b")),
-    ("product provider or runtime accepts mock execution request flag", re.compile(r"\bmock\s*:\s*bool\b|\brequest\.mock\b")),
-    ("product provider or runtime emits mock source metadata", re.compile(r'\bsource\s*=\s*"mock"|["\']source["\']\s*:\s*["\']mock["\']')),
-    ("product provider or runtime returns mock completion", re.compile(r"\bmock response\b|\bmock runtime completed\b|\bmock local response\b")),
+    (
+        "product provider or runtime accepts mock execution request flag",
+        re.compile(r"\bmock\s*:\s*bool\b|\brequest\.mock\b"),
+    ),
+    (
+        "product provider or runtime emits mock source metadata",
+        re.compile(r'\bsource\s*=\s*"mock"|["\']source["\']\s*:\s*["\']mock["\']'),
+    ),
+    (
+        "product provider or runtime returns mock completion",
+        re.compile(r"\bmock response\b|\bmock runtime completed\b|\bmock local response\b"),
+    ),
 ]
 
 

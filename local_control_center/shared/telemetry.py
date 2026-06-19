@@ -3,13 +3,14 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
+import os
 import sqlite3
 import time
 import uuid
 from collections.abc import Mapping
-import os
 from typing import Any, Protocol
 
 from .event_bus import EventBus

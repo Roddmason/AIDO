@@ -3,6 +3,7 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 import json
@@ -26,17 +27,13 @@ CONFIGURATION_REQUIRED_REASON = (
     "No persisted real memory embeddings are available for this project. Configure a real embedding "
     "provider and write embeddings before enabling retrieval."
 )
-QUERY_PROVIDER_REQUIRED_REASON = (
-    "No real query embedding provider is configured for memory retrieval search."
-)
+QUERY_PROVIDER_REQUIRED_REASON = "No real query embedding provider is configured for memory retrieval search."
 
 
 class EmbeddingProvider(Protocol):
-    def status(self) -> dict[str, Any]:
-        ...
+    def status(self) -> dict[str, Any]: ...
 
-    def embed_text(self, text: str) -> list[float]:
-        ...
+    def embed_text(self, text: str) -> list[float]: ...
 
 
 class UnavailableEmbeddingProvider:
@@ -132,7 +129,9 @@ class RetrievalIndex:
         dimensions: int | None = None
         for row in rows:
             embedding = row["embedding"]
-            if not isinstance(embedding, list) or not all(isinstance(value, int | float) for value in embedding):
+            if not isinstance(embedding, list) or not all(
+                isinstance(value, int | float) for value in embedding
+            ):
                 return self._summary(
                     project_id=project_id,
                     status="blocked",
@@ -188,7 +187,9 @@ class RetrievalIndex:
         vectors = np.load(vectors_path)
         return manifest, vectors
 
-    def search_embedding(self, *, project_id: str, embedding: list[float], limit: int = 5) -> list[dict[str, Any]]:
+    def search_embedding(
+        self, *, project_id: str, embedding: list[float], limit: int = 5
+    ) -> list[dict[str, Any]]:
         manifest, vectors = self._load(project_id=project_id)
         if vectors is None or len(vectors) == 0:
             return []

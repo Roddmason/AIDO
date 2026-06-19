@@ -3,6 +3,7 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -16,7 +17,6 @@ from .pricing_catalog import PricingCatalog
 from .provider_accounts import ProviderAccountStore
 from .quota_manager import QuotaManager
 from .routing_profiles import RoutingProfileStore
-
 
 REMOTE_PROVIDER_TYPES = {"api", "gateway"}
 LOCAL_PROVIDER_TYPES = {"local"}
@@ -105,11 +105,20 @@ class ModelRouter:
         for model in models:
             provider = providers.get(model["providerId"])
             if not provider:
-                rejected.append({"provider": model["providerId"], "model": model["model"], "reason": "missing_provider"})
+                rejected.append(
+                    {"provider": model["providerId"], "model": model["model"], "reason": "missing_provider"}
+                )
                 continue
             reason = self._hard_reject_reason(request, role_policy, provider, model)
             if reason:
-                rejected.append({"provider": provider["providerId"], "model": model["model"], "runtime": self._runtime_type(provider), "reason": reason})
+                rejected.append(
+                    {
+                        "provider": provider["providerId"],
+                        "model": model["model"],
+                        "runtime": self._runtime_type(provider),
+                        "reason": reason,
+                    }
+                )
                 continue
             estimate = self._estimate(request, provider, model)
             unknown_cost_policy = self._unknown_cost_policy(role_policy, provider, estimate)
@@ -134,12 +143,30 @@ class ModelRouter:
             )
             last_budget_result = budget.as_dict()
             if not budget.allowed:
-                rejected.append({"provider": provider["providerId"], "model": model["model"], "runtime": self._runtime_type(provider), "reason": budget.reason})
+                rejected.append(
+                    {
+                        "provider": provider["providerId"],
+                        "model": model["model"],
+                        "runtime": self._runtime_type(provider),
+                        "reason": budget.reason,
+                    }
+                )
                 continue
-            quota = self.quota.check(provider_id=provider["providerId"], model=model["model"], request_tokens=request.context_tokens_estimate)
+            quota = self.quota.check(
+                provider_id=provider["providerId"],
+                model=model["model"],
+                request_tokens=request.context_tokens_estimate,
+            )
             last_quota_result = quota.as_dict()
             if not quota.allowed:
-                rejected.append({"provider": provider["providerId"], "model": model["model"], "runtime": self._runtime_type(provider), "reason": quota.reason})
+                rejected.append(
+                    {
+                        "provider": provider["providerId"],
+                        "model": model["model"],
+                        "runtime": self._runtime_type(provider),
+                        "reason": quota.reason,
+                    }
+                )
                 continue
             score_breakdown = self._score(
                 request,
@@ -198,7 +225,11 @@ class ModelRouter:
             and float(approval_threshold) > 0
             and float(estimated_cost) > float(approval_threshold)
         )
-        if selected and selected.get("effort") in {"xhigh", "max"} and role_policy.get("requiresApprovalForReasoningMax"):
+        if (
+            selected
+            and selected.get("effort") in {"xhigh", "max"}
+            and role_policy.get("requiresApprovalForReasoningMax")
+        ):
             requires_approval = True
         if selected_budget_result and selected_budget_result.get("requiresApproval"):
             requires_approval = True
@@ -281,9 +312,15 @@ class ModelRouter:
             return "provider_healthcheck_required"
         if provider["healthStatus"] != "healthy":
             return "provider_unhealthy"
-        if request.context_tokens_estimate and model["contextWindow"] and request.context_tokens_estimate > model["contextWindow"]:
+        if (
+            request.context_tokens_estimate
+            and model["contextWindow"]
+            and request.context_tokens_estimate > model["contextWindow"]
+        ):
             return "context_window_too_small"
-        if role_policy.get("maxTokensPerRun") and request.context_tokens_estimate > int(role_policy["maxTokensPerRun"]):
+        if role_policy.get("maxTokensPerRun") and request.context_tokens_estimate > int(
+            role_policy["maxTokensPerRun"]
+        ):
             return "role_token_limit_exceeded"
         if request.requires_vision and not model["supportsVision"]:
             return "vision_not_supported"
@@ -303,10 +340,15 @@ class ModelRouter:
             return "role_blocks_cli"
         if runtime_type == "api" and not role_policy.get("allowApi", True):
             return "role_blocks_api"
-        if request.mode == "local_private" or request.privacy_level == "local_private":
-            if provider_type in REMOTE_PROVIDER_TYPES:
-                return "privacy_blocks_remote"
-        if request.mode == "manual_by_profile" and request.manual_provider and provider["providerId"] != request.manual_provider:
+        if (
+            request.mode == "local_private" or request.privacy_level == "local_private"
+        ) and provider_type in REMOTE_PROVIDER_TYPES:
+            return "privacy_blocks_remote"
+        if (
+            request.mode == "manual_by_profile"
+            and request.manual_provider
+            and provider["providerId"] != request.manual_provider
+        ):
             return "manual_provider_mismatch"
         return None
 
@@ -338,7 +380,9 @@ class ModelRouter:
             return "gateway"
         return "api"
 
-    def _estimate(self, request: RoutingRequest, provider: dict[str, Any], model: dict[str, Any]) -> dict[str, Any]:
+    def _estimate(
+        self, request: RoutingRequest, provider: dict[str, Any], model: dict[str, Any]
+    ) -> dict[str, Any]:
         input_tokens = request.context_tokens_estimate
         output_tokens = min(max(int(input_tokens * 0.1), 512), model["maxOutputTokens"] or 4096)
         reasoning_tokens = int(output_tokens * 0.5) if request.requires_reasoning else 0
@@ -413,14 +457,22 @@ class ModelRouter:
         )
         role_fit_score = max(0.0, 1.0 - (rank * 0.12)) if rank != 999 else 0.45
         reliability_score = 1.0 if provider["healthStatus"] == "healthy" else 0.65
-        context_fit_score = 1.0 if not model["contextWindow"] else min(1.0, model["contextWindow"] / max(request.context_tokens_estimate, 1))
-        tool_fit_score = 1.0 if not request.requires_tools or runtime == "cli" or model["supportsTools"] else 0.2
+        context_fit_score = (
+            1.0
+            if not model["contextWindow"]
+            else min(1.0, model["contextWindow"] / max(request.context_tokens_estimate, 1))
+        )
+        tool_fit_score = (
+            1.0 if not request.requires_tools or runtime == "cli" or model["supportsTools"] else 0.2
+        )
         if estimate.get("freeTier"):
             cost_penalty = 0.0
         elif estimated_cost is None:
             cost_penalty = 1.0
         else:
-            cost_penalty = min(estimated_cost / max(float(role_policy.get("maxCostPerTaskUsd") or 1), 0.01), 3.0)
+            cost_penalty = min(
+                estimated_cost / max(float(role_policy.get("maxCostPerTaskUsd") or 1), 0.01), 3.0
+            )
         latency_penalty = 0.1 if runtime == "cli" else 0.0
         privacy_penalty = 0.0
         if request.privacy_level == "sensitive" and provider["providerType"] in REMOTE_PROVIDER_TYPES:
@@ -523,7 +575,11 @@ class ModelRouter:
         preferences: list[dict[str, Any]],
     ) -> str | None:
         for item in preferences:
-            if item.get("provider") == provider["providerId"] and item.get("model") in {model["model"], "auto", "auto_best_available"}:
+            if item.get("provider") == provider["providerId"] and item.get("model") in {
+                model["model"],
+                "auto",
+                "auto_best_available",
+            }:
                 return item.get("effort")
         efforts = model.get("effortLevels") or []
         if request.mode == "max_performance" and "xhigh" in efforts:

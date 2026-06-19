@@ -1,5 +1,13 @@
 # Línea base reproducible — AIDO / Local Control Center
 
+> ⚠️ **Snapshot histórico de `c1b117e`.** Después de este baseline, dos commits de toolchain
+> **sí reformatearon código productivo** (solo formato, comportamiento preservado y validado):
+> Biome (`0875f8b`, frontend `web/src`) y Ruff (Python). Por tanto, en este documento: la línea
+> "No se modificó código productivo" aplica **solo al commit del baseline**; la tabla de
+> devDependencies **no** incluye `@biomejs/biome`; y el conteo de scripts/archivos quedó atrás
+> (HEAD añadió los scripts `lint/format/check:web` y `format:py*`). Las cifras point-in-time se
+> conservan como evidencia histórica; no se reescriben.
+
 > **Propósito:** baseline verificable **antes** de borrar o refactorizar. Captura toolchain, resultado real de cada gate (exit code leído del runner) e inventario del repo en HEAD.
 > **Rama:** `dev` · **HEAD:** `c1b117e18747791e8e921978cd6c1bf7ca0ab1a5` · **Árbol:** limpio (`git status` → *nothing to commit*).
 > **Fecha:** 2026-06-18 · **Sistema:** Windows 11 Pro 10.0.26200.

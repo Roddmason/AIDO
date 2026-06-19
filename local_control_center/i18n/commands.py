@@ -3,6 +3,7 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 import json
@@ -11,7 +12,6 @@ from typing import Any
 
 from .models import I18nCatalog
 from .repository import I18nRepository
-
 
 DEFAULT_CATALOG_PATH = Path(__file__).with_name("default_catalog.json")
 

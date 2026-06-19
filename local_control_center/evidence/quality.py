@@ -3,10 +3,10 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 from typing import Any
-
 
 FAILED_TEST_STATUSES = {"blocked", "denied", "error", "failed", "timeout", "timed_out"}
 REAL_QA_EVIDENCE_SOURCES = {"qa_passed_by_command", "verified_completion"}
@@ -74,12 +74,18 @@ def real_qa_command_errors(evidence: dict[str, Any]) -> list[str]:
             errors.append(f"testResults[{index}] requires toolCallId.")
         elif tool_call_id not in tool_call_ids:
             errors.append(f"testResults[{index}] toolCallId is not linked in toolCalls.")
-        artifact_hashes = result.get("artifactHashes") if isinstance(result.get("artifactHashes"), dict) else {}
-        for required_hash in ("stdoutHash", "stderrHash", "outputArtifactHash"):
-            if not artifact_hashes.get(required_hash):
-                errors.append(f"testResults[{index}] requires artifactHashes.{required_hash}.")
+        artifact_hashes = (
+            result.get("artifactHashes") if isinstance(result.get("artifactHashes"), dict) else {}
+        )
+        errors.extend(
+            f"testResults[{index}] requires artifactHashes.{required_hash}."
+            for required_hash in ("stdoutHash", "stderrHash", "outputArtifactHash")
+            if not artifact_hashes.get(required_hash)
+        )
         metadata = result.get("metadata") if isinstance(result.get("metadata"), dict) else {}
-        policy_decision_id = str(metadata.get("permissionDecisionId") or metadata.get("policyDecisionId") or "")
+        policy_decision_id = str(
+            metadata.get("permissionDecisionId") or metadata.get("policyDecisionId") or ""
+        )
         if not policy_decision_id:
             errors.append(f"testResults[{index}] requires a policy decision reference.")
         elif allowed_policy_ids and policy_decision_id not in allowed_policy_ids:
@@ -127,18 +133,20 @@ def evidence_package_contract_errors(
         runtime_link_keys = ["jobId", "agentRunId", "workspaceId", "runtimeId"]
         if require_workflow_run:
             runtime_link_keys.insert(0, "workflowRunId")
-        for key in runtime_link_keys:
-            if not evidence.get(key):
-                errors.append(f"Evidence package contract requires {key}.")
+        errors.extend(
+            f"Evidence package contract requires {key}." for key in runtime_link_keys if not evidence.get(key)
+        )
         if not isinstance(evidence.get("runtimeHealth"), dict) or not evidence.get("runtimeHealth"):
             errors.append("Evidence package contract requires runtimeHealth.")
 
     if str(evidence.get("qaVerdict") or "").lower() == "passed" and not (evidence.get("testResults") or []):
         errors.append("Evidence package cannot pass without testResults.")
 
-    for key in ("modelCalls", "toolCalls", "policyDecisions", "approvals", "artifacts"):
-        if key in evidence and not isinstance(evidence.get(key), list):
-            errors.append(f"Evidence package {key} must be a list.")
+    errors.extend(
+        f"Evidence package {key} must be a list."
+        for key in ("modelCalls", "toolCalls", "policyDecisions", "approvals", "artifacts")
+        if key in evidence and not isinstance(evidence.get(key), list)
+    )
 
     hashes = evidence.get("hashes")
     if "hashes" in evidence and not isinstance(hashes, dict):

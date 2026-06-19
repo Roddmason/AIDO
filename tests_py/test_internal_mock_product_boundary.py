@@ -125,4 +125,4 @@ def test_product_seeds_do_not_create_internal_mock_runtime_records(tmp_path: Pat
         ).fetchone()[0],
     }
 
-    assert checks == {key: 0 for key in checks}
+    assert checks == dict.fromkeys(checks, 0)

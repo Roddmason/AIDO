@@ -3,15 +3,15 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 import sqlite3
 import uuid
 from typing import Any
 
-from local_control_center.shared.time import utc_now
-
 from local_control_center.shared.serialization import json_dumps, json_loads
+from local_control_center.shared.time import utc_now
 
 
 def row_to_prompt(row: sqlite3.Row) -> dict[str, Any]:
@@ -69,7 +69,18 @@ class PromptsRepository:
                     (id, project_id, name, mode, body, optimizer, applies_to, version, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (next_id, project_id, name, mode, body, optimizer, serialized_applies_to, version, timestamp, timestamp),
+                (
+                    next_id,
+                    project_id,
+                    name,
+                    mode,
+                    body,
+                    optimizer,
+                    serialized_applies_to,
+                    version,
+                    timestamp,
+                    timestamp,
+                ),
             )
         self.connection.execute(
             """
@@ -77,7 +88,16 @@ class PromptsRepository:
                 (id, prompt_id, version, body, mode, optimizer, applies_to, created_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (f"prompt-version-{uuid.uuid4()}", next_id, version, body, mode, optimizer, serialized_applies_to, timestamp),
+            (
+                f"prompt-version-{uuid.uuid4()}",
+                next_id,
+                version,
+                body,
+                mode,
+                optimizer,
+                serialized_applies_to,
+                timestamp,
+            ),
         )
         return self.get_prompt_template(next_id)
 
@@ -94,7 +114,7 @@ class PromptsRepository:
                 (project_id,),
             ).fetchall()
         else:
-            rows = self.connection.execute("SELECT * FROM prompt_templates ORDER BY updated_at DESC").fetchall()
+            rows = self.connection.execute(
+                "SELECT * FROM prompt_templates ORDER BY updated_at DESC"
+            ).fetchall()
         return [row_to_prompt(row) for row in rows]
-
-

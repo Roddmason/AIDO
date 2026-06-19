@@ -3,6 +3,7 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 import importlib.util
@@ -16,7 +17,9 @@ from .runtime_contracts import get_runtime_contract, validate_runtime_tool_call
 
 def swe_agent_status() -> dict[str, Any]:
     cli_available = shutil.which("sweagent") is not None or shutil.which("swe-agent") is not None
-    package_available = importlib.util.find_spec("sweagent") is not None or importlib.util.find_spec("swe_agent") is not None
+    package_available = (
+        importlib.util.find_spec("sweagent") is not None or importlib.util.find_spec("swe_agent") is not None
+    )
     available = package_available or cli_available
     return {
         "id": "swe_agent",

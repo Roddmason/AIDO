@@ -3,6 +3,7 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -12,7 +13,6 @@ from typing import Any
 
 from local_control_center.shared.serialization import json_dumps, json_loads
 from local_control_center.shared.time import utc_now
-
 
 PROJECT_TEMPLATES = [
     {"id": "react-vite", "name": "React + Vite", "kind": "frontend"},

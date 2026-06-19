@@ -8,7 +8,6 @@ from local_control_center.agents.swe_agent_adapter import SweAgentBrokerAdapter
 from local_control_center.security_policy.command_classifier import classify_command
 from local_control_center.security_policy.sandbox import ALLOWED_EXECUTABLES
 
-
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -59,7 +58,14 @@ def test_optional_otel_collector_smoke_script_does_not_require_docker_by_default
 
 
 def test_optional_runtime_cli_executables_are_sandbox_allowlisted_for_approved_runs() -> None:
-    assert {"openhands", "openhands.exe", "sweagent", "sweagent.exe", "swe-agent", "swe-agent.exe"} <= ALLOWED_EXECUTABLES
+    assert {
+        "openhands",
+        "openhands.exe",
+        "sweagent",
+        "sweagent.exe",
+        "swe-agent",
+        "swe-agent.exe",
+    } <= ALLOWED_EXECUTABLES
 
 
 def test_optional_runtime_version_commands_are_low_risk_for_smoke_profiles() -> None:
@@ -85,7 +91,11 @@ def test_optional_issue_to_patch_contracts_are_explicit_and_validated(tmp_path: 
 
     dangerous_flag = validate_runtime_tool_call(
         "swe_agent",
-        {"operation": "issue_to_patch", "argv": ["swe-agent", "--no-sandbox"], "issueText": "fix failing tests"},
+        {
+            "operation": "issue_to_patch",
+            "argv": ["swe-agent", "--no-sandbox"],
+            "issueText": "fix failing tests",
+        },
         {"workspacePath": str(tmp_path)},
     )
     assert dangerous_flag["valid"] is False
@@ -115,7 +125,9 @@ def test_runtime_contract_blocks_network_host_two_token_variant(tmp_path: Path) 
     assert "--network host" in result["reason"]
 
 
-def test_optional_adapters_block_invalid_issue_to_patch_contracts_before_install_detection(tmp_path: Path) -> None:
+def test_optional_adapters_block_invalid_issue_to_patch_contracts_before_install_detection(
+    tmp_path: Path,
+) -> None:
     openhands = OpenHandsBrokerAdapter().execute(
         tool_call={"operation": "issue_to_patch", "argv": ["openhands", "run"]},
         policy_input={"workspacePath": str(tmp_path)},
@@ -124,7 +136,11 @@ def test_optional_adapters_block_invalid_issue_to_patch_contracts_before_install
     assert "issueText" in openhands["reason"]
 
     swe_agent = SweAgentBrokerAdapter().execute(
-        tool_call={"operation": "issue_to_patch", "argv": ["swe-agent", "--no-sandbox"], "issueText": "fix failing tests"},
+        tool_call={
+            "operation": "issue_to_patch",
+            "argv": ["swe-agent", "--no-sandbox"],
+            "issueText": "fix failing tests",
+        },
         policy_input={"workspacePath": str(tmp_path)},
     )
     assert swe_agent["blocked"] is True

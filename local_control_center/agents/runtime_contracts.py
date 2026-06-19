@@ -3,12 +3,12 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
-
 
 FORBIDDEN_RUNTIME_ARGS = {
     "--allow-host-write",
@@ -83,11 +83,19 @@ def validate_runtime_tool_call(
     contract = get_runtime_contract(adapter_id)
     operation = _operation_for(tool_call)
     if operation not in contract["supportedOperations"]:
-        return {"valid": False, "operation": operation, "reason": f"Unsupported runtime operation: {operation}"}
+        return {
+            "valid": False,
+            "operation": operation,
+            "reason": f"Unsupported runtime operation: {operation}",
+        }
 
     argv = tool_call.get("argv")
     if not isinstance(argv, list) or not argv or not all(isinstance(item, str) and item for item in argv):
-        return {"valid": False, "operation": operation, "reason": "Runtime execution requires structured argv strings."}
+        return {
+            "valid": False,
+            "operation": operation,
+            "reason": "Runtime execution requires structured argv strings.",
+        }
 
     executable = argv[0].lower()
     if not all(token in executable for token in contract["executableContains"]):

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -72,12 +71,20 @@ def test_generated_openapi_client_is_checked_in_and_v1_only() -> None:
     assert '"handshake_api_v1_security_handshake_get": HandshakeResponse' in content
     assert '"retrieval_status_api_v1_retrieval_status_get": RetrievalStatusResponse' in content
     assert '"create_workflow_api_v1_workflows_post": WorkflowCreateRequest' in content
-    assert '"start_workflow_api_v1_workflows__workflow_id__start_post": WorkflowStatusChangeRequest' in content
+    assert (
+        '"start_workflow_api_v1_workflows__workflow_id__start_post": WorkflowStatusChangeRequest' in content
+    )
     assert '"upsert_agent_profile_api_v1_agent_profiles_post": AgentProfileUpsertRequest' in content
     assert '"create_job_api_v1_jobs_post": JobCreateRequest' in content
-    assert '"approve_action_api_v1_jobs__job_id__actions__action_id__approve_post": ApprovalReasonRequest' in content
+    assert (
+        '"approve_action_api_v1_jobs__job_id__actions__action_id__approve_post": ApprovalReasonRequest'
+        in content
+    )
     assert '"cancel_job_api_v1_jobs__job_id__cancel_post": OptionalReasonRequest' in content
-    assert '"create_architecture_decision_api_v1_architecture_decisions_post": ArchitectureDecisionCreateRequest' in content
+    assert (
+        '"create_architecture_decision_api_v1_architecture_decisions_post": ArchitectureDecisionCreateRequest'
+        in content
+    )
     assert '"create_risk_api_v1_risks_post": RiskCreateRequest' in content
     assert '"update_risk_api_v1_risks__risk_id__patch": RiskUpdateRequest' in content
     assert '"create_next_step_api_v1_next_steps_post": NextStepCreateRequest' in content
@@ -85,13 +92,25 @@ def test_generated_openapi_client_is_checked_in_and_v1_only() -> None:
     assert '"allocate_workspace_api_v1_workspaces_post": WorkspaceAllocateRequest' in content
     assert "export type DevcontainerMetadata" in content
     assert '"devcontainer"?: DevcontainerMetadata | null' in content
-    assert '"archive_workspace_api_v1_workspaces__workspace_id__archive_post": WorkspaceArchiveRequest' in content
+    assert (
+        '"archive_workspace_api_v1_workspaces__workspace_id__archive_post": WorkspaceArchiveRequest'
+        in content
+    )
     assert '"register_mcp_server_api_v1_integrations_mcp_register_post": McpServerRegisterRequest' in content
     assert '"upsert_ide_connection_api_v1_ide_connections_post": IdeConnectionUpsertRequest' in content
     assert '"evaluate_policy_api_v1_policies_evaluate_post": PolicyEvaluateRequest' in content
-    assert '"update_sandbox_profile_api_v1_sandbox_profiles__profile_id__patch": SandboxProfilePatchRequest' in content
-    assert '"revoke_permission_grant_api_v1_permissions_grants__grant_id__revoke_post": RequiredReasonRequest' in content
-    assert '"revoke_sandbox_profile_api_v1_sandbox_profiles__profile_id__revoke_post": RequiredReasonRequest' in content
+    assert (
+        '"update_sandbox_profile_api_v1_sandbox_profiles__profile_id__patch": SandboxProfilePatchRequest'
+        in content
+    )
+    assert (
+        '"revoke_permission_grant_api_v1_permissions_grants__grant_id__revoke_post": RequiredReasonRequest'
+        in content
+    )
+    assert (
+        '"revoke_sandbox_profile_api_v1_sandbox_profiles__profile_id__revoke_post": RequiredReasonRequest'
+        in content
+    )
     assert '"create_project_api_v1_projects_post": ProjectCreateRequest' in content
     assert '"create_session_api_v1_sessions_post": SessionCreateRequest' in content
     assert '"create_chat_api_v1_chats_post": ChatCreateRequest' in content
@@ -115,9 +134,14 @@ def test_generated_openapi_client_is_checked_in_and_v1_only() -> None:
     assert "/api/v1/model-providers" not in content
     assert "/api/v1/model-policies" not in content
     assert '"list_benchmarks_api_v1_model_gateway_benchmarks_get": ModelBenchmarksListResponse' in content
-    assert '"create_benchmark_outcome_api_v1_model_gateway_benchmark_outcomes_post": ModelBenchmarkOutcomeCreateRequest' in content
+    assert (
+        '"create_benchmark_outcome_api_v1_model_gateway_benchmark_outcomes_post": ModelBenchmarkOutcomeCreateRequest'
+        in content
+    )
     outcome_create_line = next(
-        line for line in content.splitlines() if line.startswith("export type ModelBenchmarkOutcomeCreateRequest = ")
+        line
+        for line in content.splitlines()
+        if line.startswith("export type ModelBenchmarkOutcomeCreateRequest = ")
     )
     outcome_record_line = next(
         line for line in content.splitlines() if line.startswith("export type ModelBenchmarkOutcomeRecord = ")
@@ -125,7 +149,9 @@ def test_generated_openapi_client_is_checked_in_and_v1_only() -> None:
     benchmark_record_line = next(
         line for line in content.splitlines() if line.startswith("export type ModelBenchmarkRecord = ")
     )
-    assert '"provenance"?: "operator_reported" | "automated_run" | "release_validation"' in outcome_create_line
+    assert (
+        '"provenance"?: "operator_reported" | "automated_run" | "release_validation"' in outcome_create_line
+    )
     assert '"provenance": "operator_reported" | "automated_run" | "release_validation"' in outcome_record_line
     assert '"objectiveTasksAttempted": number' in benchmark_record_line
     assert '"operatorReportedTasks": number' in benchmark_record_line
@@ -134,10 +160,18 @@ def test_generated_openapi_client_is_checked_in_and_v1_only() -> None:
     assert '"create_evidence_api_v1_evidence_post": EvidenceCreateRequest' in content
     assert '"ingest_artifact_api_v1_evidence__evidence_id__artifacts_post": ArtifactIngestRequest' in content
     assert '"cleanup_artifacts_api_v1_evidence_artifacts_cleanup_post": ArtifactCleanupRequest' in content
-    assert '"plan_artifact_retention_api_v1_evidence_artifacts_retention_post": ArtifactRetentionPlanRequest' in content
-    assert '"apply_artifact_retention_action_api_v1_evidence_artifacts_retention_actions_post": ArtifactRetentionActionRequest' in content
+    assert (
+        '"plan_artifact_retention_api_v1_evidence_artifacts_retention_post": ArtifactRetentionPlanRequest'
+        in content
+    )
+    assert (
+        '"apply_artifact_retention_action_api_v1_evidence_artifacts_retention_actions_post": ArtifactRetentionActionRequest'
+        in content
+    )
     assert '"overview_api_v1_overview_get": OverviewResponse' in content
-    overview_line = next(line for line in content.splitlines() if line.startswith("export type OverviewResponse = "))
+    overview_line = next(
+        line for line in content.splitlines() if line.startswith("export type OverviewResponse = ")
+    )
     assert '"projects": Array<ProjectRecord>' in overview_line
     assert '"jobs": Array<JobRecord>' in overview_line
     assert '"actionRequests": Array<ActionRequestRecord>' in overview_line
@@ -195,7 +229,9 @@ def test_generated_openapi_client_is_checked_in_and_v1_only() -> None:
     assert 'ProjectsListResponse = { "projects": Array<ProjectRecord>' in content
     assert 'WorkspacesListResponse = { "workspaces": Array<WorkspaceRecord>' in content
     assert "export type EvidencePackageRecord" in content
-    evidence_line = next(line for line in content.splitlines() if line.startswith("export type EvidencePackageRecord = "))
+    evidence_line = next(
+        line for line in content.splitlines() if line.startswith("export type EvidencePackageRecord = ")
+    )
     for required_field in (
         '"workflowRunId": null | string',
         '"jobId": null | string',
@@ -219,9 +255,18 @@ def test_generated_openapi_client_is_checked_in_and_v1_only() -> None:
     assert "export type ArtifactFileRecord" in content
     assert "export type ExpiredArtifactRecord" in content
     assert "export type ArtifactRetentionResultRecord" in content
-    assert 'ArtifactCleanupResponse = { "artifactRoot": string; "deletedFiles": Array<ArtifactFileRecord>' in content
-    assert 'ArtifactRetentionPlanResponse = { "dryRun": boolean; "expiredArtifacts": Array<ExpiredArtifactRecord>' in content
-    assert 'ArtifactRetentionActionResponse = { "action": string; "artifacts": Array<ArtifactRetentionResultRecord> }' in content
+    assert (
+        'ArtifactCleanupResponse = { "artifactRoot": string; "deletedFiles": Array<ArtifactFileRecord>'
+        in content
+    )
+    assert (
+        'ArtifactRetentionPlanResponse = { "dryRun": boolean; "expiredArtifacts": Array<ExpiredArtifactRecord>'
+        in content
+    )
+    assert (
+        'ArtifactRetentionActionResponse = { "action": string; "artifacts": Array<ArtifactRetentionResultRecord> }'
+        in content
+    )
     assert '"list_workflows_api_v1_workflows_get": WorkflowsListResponse' in content
     assert '"get_workflow_api_v1_workflows__workflow_id__get": WorkflowDetailResponse' in content
     assert '"list_agent_profiles_api_v1_agent_profiles_get": AgentProfilesListResponse' in content
@@ -230,14 +275,20 @@ def test_generated_openapi_client_is_checked_in_and_v1_only() -> None:
     assert 'PromptTemplatesListResponse = { "promptTemplates": Array<PromptTemplateRecord> }' in content
     assert "export type McpServerRecord" in content
     assert 'McpServerResponse = { "mcpServer": McpServerRecord }' in content
-    assert 'IntegrationsListResponse = { "integrations": Array<IntegrationRecord>; "mcpServers": Array<McpServerRecord>' in content
+    assert (
+        'IntegrationsListResponse = { "integrations": Array<IntegrationRecord>; "mcpServers": Array<McpServerRecord>'
+        in content
+    )
     assert "export type IdeConnectionRecord" in content
     assert 'IdeConnectionsListResponse = { "ideConnections": Array<IdeConnectionRecord> }' in content
     assert "export type RetrievalSearchResultRecord" in content
     assert "export type RetrievalIndexSummary" in content
     assert 'RetrievalReindexRequest = { "projectId": string }' in content
     assert '"projectId": string; "reason": string; "status": string' in content
-    assert 'RetrievalSearchResponse = { "reason": string; "results": Array<RetrievalSearchResultRecord>; "status": string }' in content
+    assert (
+        'RetrievalSearchResponse = { "reason": string; "results": Array<RetrievalSearchResultRecord>; "status": string }'
+        in content
+    )
     assert 'RetrievalReindexResponse = { "index": RetrievalIndexSummary }' in content
     assert "export type SkillRecord" in content
     assert 'SkillsListResponse = { "skills": Array<SkillRecord> }' in content
@@ -269,21 +320,31 @@ def test_generated_openapi_client_is_checked_in_and_v1_only() -> None:
     ) in content
     assert "export type IssueToPatchRequest" in content
     assert "export type IssueToPatchResponse" in content
-    assert '"developer_agent_status_api_v1_agents_developer_status_get": DeveloperAgentStatusResponse' in content
+    assert (
+        '"developer_agent_status_api_v1_agents_developer_status_get": DeveloperAgentStatusResponse' in content
+    )
     assert '"run_developer_agent_api_v1_agents_developer_runs_post": DeveloperAgentRunRequest' in content
     assert '"devops_agent_status_api_v1_agents_devops_status_get": DevOpsAgentStatusResponse' in content
     assert '"run_devops_agent_api_v1_agents_devops_runs_post": DevOpsAgentRunRequest' in content
     assert '"run_qa_agent_api_v1_agents_qa_runs_post": QAAgentRunRequest' in content
     assert '"security_agent_status_api_v1_agents_security_status_get": SecurityAgentStatusResponse' in content
     assert '"run_security_agent_api_v1_agents_security_runs_post": SecurityAgentRunRequest' in content
-    assert '"architect_agent_status_api_v1_agents_architect_status_get": ArchitectAgentStatusResponse' in content
+    assert (
+        '"architect_agent_status_api_v1_agents_architect_status_get": ArchitectAgentStatusResponse' in content
+    )
     assert '"run_architect_agent_api_v1_agents_architect_runs_post": ArchitectAgentRunRequest' in content
     assert "export type DockerSandboxStatus" in content
     assert "export type RestrictedSubprocessStatus" in content
-    assert 'SandboxStatusResponse = { "docker": DockerSandboxStatus; "restrictedSubprocess": RestrictedSubprocessStatus }' in content
+    assert (
+        'SandboxStatusResponse = { "docker": DockerSandboxStatus; "restrictedSubprocess": RestrictedSubprocessStatus }'
+        in content
+    )
     assert "export type ExternalTelemetryStatus" in content
     assert 'TelemetryStatusResponse = { "externalExporter": ExternalTelemetryStatus }' in content
-    assert 'WorkspaceArchiveResponse = { "evidencePackage": EvidencePackageRecord; "workspace": WorkspaceRecord }' in content
+    assert (
+        'WorkspaceArchiveResponse = { "evidencePackage": EvidencePackageRecord; "workspace": WorkspaceRecord }'
+        in content
+    )
     assert '"skills": Array<SkillRecord>' in overview_line
     assert '"security": SecurityPosture' in overview_line
     assert '"openDesign": OpenDesignStatus' in overview_line
@@ -292,7 +353,9 @@ def test_generated_openapi_client_is_checked_in_and_v1_only() -> None:
     assert "export function buildApiPath" in content
     assert "export async function requestGeneratedOperation" in content
 
-    api_client = (ROOT / "local-control-center" / "web" / "src" / "api" / "client.ts").read_text(encoding="utf-8")
+    api_client = (ROOT / "local-control-center" / "web" / "src" / "api" / "client.ts").read_text(
+        encoding="utf-8"
+    )
     assert "requestGeneratedOperation" in api_client
     assert "overview_api_v1_overview_get" in api_client
     assert "getDevOpsAgentStatus" in api_client
@@ -326,7 +389,10 @@ def test_generated_core_runtime_workflow_evidence_contracts_are_strict() -> None
     assert '"permissionGrants": Array<ApprovalGrantRecord>' in content
 
     agent_run = _generated_type_line(content, "AgentRunRecord")
-    assert '"status": "queued" | "running" | "completed" | "approved" | "failed" | "blocked" | "runtime_unavailable"' in agent_run
+    assert (
+        '"status": "queued" | "running" | "completed" | "approved" | "failed" | "blocked" | "runtime_unavailable"'
+        in agent_run
+    )
     assert '"status": string' not in agent_run
     tool_call = _generated_type_line(content, "AgentToolCallRecord")
     assert (
@@ -345,29 +411,50 @@ def test_generated_core_runtime_workflow_evidence_contracts_are_strict() -> None
     )
     assert evidence_source_enum in evidence_package
     assert '"evidenceSource": string' not in evidence_package
-    assert '"qaVerdict": "not_started" | "passed" | "failed" | "blocked" | "needs_human_review"' in evidence_package
+    assert (
+        '"qaVerdict": "not_started" | "passed" | "failed" | "blocked" | "needs_human_review"'
+        in evidence_package
+    )
     assert '"qaVerdict": string' not in evidence_package
     evidence_create = _generated_type_line(content, "EvidenceCreateRequest")
     assert evidence_source_enum.replace('"evidenceSource"', '"evidenceSource"?') in evidence_create
     assert '"evidenceSource"?: string' not in evidence_create
-    assert '"qaVerdict"?: "not_started" | "passed" | "failed" | "blocked" | "needs_human_review"' in evidence_create
+    assert (
+        '"qaVerdict"?: "not_started" | "passed" | "failed" | "blocked" | "needs_human_review"'
+        in evidence_create
+    )
     assert '"qaVerdict"?: string' not in evidence_create
 
     artifact = _generated_type_line(content, "ArtifactRecord")
-    assert '"kind": "execution_log" | "screenshot" | "test_report" | "qa_report" | "generic_artifact"' in artifact
+    assert (
+        '"kind": "execution_log" | "screenshot" | "test_report" | "qa_report" | "generic_artifact"'
+        in artifact
+    )
     assert '"kind": string' not in artifact
 
     job = _generated_type_line(content, "JobRecord")
-    assert '"status": "queued" | "running" | "approval_required" | "completed" | "approved" | "failed" | "cancelled"' in job
+    assert (
+        '"status": "queued" | "running" | "approval_required" | "completed" | "approved" | "failed" | "cancelled"'
+        in job
+    )
 
     workflow = _generated_type_line(content, "WorkflowRecord")
     assert '"kind": "idea_to_pr" | "project_discovery" | "issue_to_patch" | "issue_to_pr"' in workflow
-    assert '"status": "queued" | "running" | "paused" | "completed" | "failed" | "cancelled" | "blocked" | "runtime_unavailable" | "qa_failed" | "evidence_ready" | "approved_for_integration" | "promotion_failed" | "promoted_to_branch" | "pr_created"' in workflow
+    assert (
+        '"status": "queued" | "running" | "paused" | "completed" | "failed" | "cancelled" | "blocked" | "runtime_unavailable" | "qa_failed" | "evidence_ready" | "approved_for_integration" | "promotion_failed" | "promoted_to_branch" | "pr_created"'
+        in workflow
+    )
     workflow_run = _generated_type_line(content, "WorkflowRunRecord")
-    assert '"status": "running" | "completed" | "failed" | "cancelled" | "blocked" | "runtime_unavailable" | "qa_failed" | "evidence_ready" | "approved_for_integration" | "promotion_failed" | "promoted_to_branch" | "pr_created"' in workflow_run
+    assert (
+        '"status": "running" | "completed" | "failed" | "cancelled" | "blocked" | "runtime_unavailable" | "qa_failed" | "evidence_ready" | "approved_for_integration" | "promotion_failed" | "promoted_to_branch" | "pr_created"'
+        in workflow_run
+    )
     workflow_step = _generated_type_line(content, "WorkflowStepRecord")
     assert '"riskLevel"?: "low" | "medium" | "high" | "critical" | null' in workflow_step
-    assert '"status": "pending" | "ready" | "running" | "completed" | "failed" | "blocked" | "skipped"' in workflow_step
+    assert (
+        '"status": "pending" | "ready" | "running" | "completed" | "failed" | "blocked" | "skipped"'
+        in workflow_step
+    )
     overview = _generated_type_line(content, "OverviewResponse")
     assert '"workflowEvents": Array<WorkflowEventRecord>' in overview
     workflow_event = _generated_type_line(content, "WorkflowEventRecord")
@@ -377,7 +464,9 @@ def test_generated_core_runtime_workflow_evidence_contracts_are_strict() -> None
     workflow_detail = _generated_type_line(content, "WorkflowDetailResponse")
     assert '"workflowRunDetails"?: Array<WorkflowRunDetail>' in workflow_detail
 
-    api_client = (ROOT / "local-control-center" / "web" / "src" / "api" / "client.ts").read_text(encoding="utf-8")
+    api_client = (ROOT / "local-control-center" / "web" / "src" / "api" / "client.ts").read_text(
+        encoding="utf-8"
+    )
     assert "approveIssueToPatch" in api_client
     assert "promotePatchToBranch" in api_client
     assert "createPullRequestFromPromotedBranch" in api_client
@@ -390,12 +479,20 @@ def test_generated_core_runtime_workflow_evidence_contracts_are_strict() -> None
     assert "run_issue_to_pr_api_v1_workflows_issue_to_pr_post" in content
     assert "approve_issue_to_pr_api_v1_workflows_issue_to_pr__run_id__approve_post" in content
     assert "promote_issue_to_pr_branch_api_v1_workflows_issue_to_pr__run_id__promote_post" in content
-    assert "create_pull_request_from_issue_to_pr_api_v1_workflows_issue_to_pr__run_id__pull_request_post" in content
+    assert (
+        "create_pull_request_from_issue_to_pr_api_v1_workflows_issue_to_pr__run_id__pull_request_post"
+        in content
+    )
     assert "promote_patch_to_branch_api_v1_workflows_issue_to_patch__run_id__promote_post" in content
-    assert "create_pull_request_from_promoted_branch_api_v1_workflows_issue_to_patch__run_id__pull_request_post" in content
+    assert (
+        "create_pull_request_from_promoted_branch_api_v1_workflows_issue_to_patch__run_id__pull_request_post"
+        in content
+    )
     assert "{ providers: Dictionary[] }" not in api_client
     assert "{ overview: Dictionary }" not in api_client
-    assert "apiRequest<{ providers: Dictionary[] }>('/api/v1/runtime/provider-configuration'" not in api_client
+    assert (
+        "apiRequest<{ providers: Dictionary[] }>('/api/v1/runtime/provider-configuration'" not in api_client
+    )
 
 
 def test_openapi_generation_script_documents_no_network_dependency() -> None:

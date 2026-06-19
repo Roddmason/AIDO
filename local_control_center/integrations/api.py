@@ -3,10 +3,11 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
-from collections.abc import Callable
 import re
+from collections.abc import Callable
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
@@ -27,7 +28,6 @@ from .models import (
 )
 from .repository import IntegrationsRepository
 
-
 MCP_SERVER_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{2,63}$")
 MCP_SHELL_META = ("&&", "||", ";", "|", ">", "<", "`", "\n", "\r")
 ALLOWED_MCP_TRANSPORTS = {"stdio"}
@@ -46,7 +46,9 @@ def validate_mcp_registration(body: dict[str, Any]) -> dict[str, Any]:
     if len(command) > 512:
         raise HTTPException(status_code=422, detail="command must be 512 characters or fewer.")
     if any(token in command for token in MCP_SHELL_META):
-        raise HTTPException(status_code=422, detail="command must be a single argv-style command without shell operators.")
+        raise HTTPException(
+            status_code=422, detail="command must be a single argv-style command without shell operators."
+        )
     transport = str(body.get("transport") or "stdio").strip().lower()
     if transport not in ALLOWED_MCP_TRANSPORTS:
         raise HTTPException(status_code=422, detail="transport must be stdio in the MVP runtime.")
@@ -103,7 +105,9 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         return McpServerResponse(mcpServer=server)
 
     @router.post("/api/v1/ide-connections", status_code=201, response_model=IdeConnectionResponse)
-    async def upsert_ide_connection(body: IdeConnectionUpsertRequest, request: Request) -> IdeConnectionResponse:
+    async def upsert_ide_connection(
+        body: IdeConnectionUpsertRequest, request: Request
+    ) -> IdeConnectionResponse:
         require_write(request)
         project = projects().get_project(body.project_id)
         connection = repository().upsert_ide_connection(

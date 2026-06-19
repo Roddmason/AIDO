@@ -76,7 +76,10 @@ def test_evidence_report_export_requires_token_and_returns_markdown_without_loca
     assert "107 passed" in report
     assert "artifact-report-log" in report
     assert str(tmp_path) not in report
-    assert any(event["action"] == "evidence.report.export" for event in store.events.list_audit_events(project_id=project["id"]))
+    assert any(
+        event["action"] == "evidence.report.export"
+        for event in store.events.list_audit_events(project_id=project["id"])
+    )
 
 
 def test_evidence_report_export_returns_404_for_missing_package(tmp_path: Path, monkeypatch) -> None:

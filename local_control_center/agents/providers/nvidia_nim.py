@@ -3,6 +3,7 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -13,7 +14,6 @@ from local_control_center.agents.runtime_provider_config import runtime_provider
 
 from .base import CostEstimate, ModelInfo, ModelRequest, ProviderHealth, UsageRecord
 from .openai_compatible import OpenAICompatibleProvider
-
 
 USAGE_TOKEN_KEYS = {
     "prompt_tokens",
@@ -45,7 +45,9 @@ class NvidiaNimProvider(OpenAICompatibleProvider):
         runtime_configuration = runtime_provider_configuration("nvidia_nim")
         super().__init__(
             provider_id="nvidia_nim",
-            base_url=base_url or (runtime_configuration.value("baseUrl") if runtime_configuration else None) or "https://integrate.api.nvidia.com/v1",
+            base_url=base_url
+            or (runtime_configuration.value("baseUrl") if runtime_configuration else None)
+            or "https://integrate.api.nvidia.com/v1",
             credential_ref=credential_ref
             or (runtime_configuration.configured_env_ref("apiKey") if runtime_configuration else None)
             or "NVIDIA_NIM_API_KEY",
@@ -61,12 +63,21 @@ class NvidiaNimProvider(OpenAICompatibleProvider):
     def handle_error(self, *, status_code: int, message: str, model: str) -> ProviderHealth:
         health = "degraded" if status_code == 429 else "offline"
         if status_code == 429 and self.connection is not None:
-            QuotaManager(self.connection).record_rate_limit(provider_id=self.provider_id, model=model, retry_after_seconds=300)
-        return ProviderHealth(providerId=self.provider_id, status="rate_limited" if status_code == 429 else "error", healthStatus=health, message=message)
+            QuotaManager(self.connection).record_rate_limit(
+                provider_id=self.provider_id, model=model, retry_after_seconds=300
+            )
+        return ProviderHealth(
+            providerId=self.provider_id,
+            status="rate_limited" if status_code == 429 else "error",
+            healthStatus=health,
+            message=message,
+        )
 
     def parse_usage(self, raw_response: Any):
         if not _provider_returned_usage(raw_response):
-            return UsageRecord(rawUsage={"usage_source": "unknown", "reason": "provider_response_missing_usage"})
+            return UsageRecord(
+                rawUsage={"usage_source": "unknown", "reason": "provider_response_missing_usage"}
+            )
         usage = super().parse_usage(raw_response)
         usage.raw_usage = {"usage_source": "provider", **usage.raw_usage}
         return usage

@@ -3,13 +3,13 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
 
 from .command_classifier import classify_command
-
 
 PROFILE_DEFAULTS: dict[str, str] = {
     "product_owner": "plan",
@@ -82,7 +82,9 @@ def allowlisted_shell_categories(profile: str, categories: list[str]) -> list[st
 def evaluate_action(input_payload: dict[str, Any]) -> dict[str, Any]:
     command = str(input_payload.get("command") or "")
     git_operation = str(input_payload.get("gitOperation") or input_payload.get("git_operation") or "")
-    deployment_target = str(input_payload.get("deploymentTarget") or input_payload.get("deployment_target") or "")
+    deployment_target = str(
+        input_payload.get("deploymentTarget") or input_payload.get("deployment_target") or ""
+    )
     tool = str(input_payload.get("tool") or "")
     operation = str(input_payload.get("operation") or "")
     permission_profile = permission_profile_for(input_payload)
@@ -137,7 +139,11 @@ def evaluate_action(input_payload: dict[str, Any]) -> dict[str, Any]:
                 "reason": "QAAgent command execution requires the qa permission profile.",
                 "categories": categories,
             }
-        if not input_payload.get("workspaceId") or not input_payload.get("workspacePath") or not input_payload.get("agentRunId"):
+        if (
+            not input_payload.get("workspaceId")
+            or not input_payload.get("workspacePath")
+            or not input_payload.get("agentRunId")
+        ):
             categories.append("qa_agent_command_context_required")
             return {
                 "decision": "deny",
@@ -157,7 +163,7 @@ def evaluate_action(input_payload: dict[str, Any]) -> dict[str, Any]:
             "decision": "requires_approval",
             "riskLevel": "medium",
             "reason": "QAAgent command is not in the low-risk QA allowlist.",
-            "categories": categories + ["qa_agent_command_gated"],
+            "categories": [*categories, "qa_agent_command_gated"],
         }
 
     if operation == "devops_agent_command":
@@ -185,7 +191,11 @@ def evaluate_action(input_payload: dict[str, Any]) -> dict[str, Any]:
                 "reason": "DevOpsAgent command execution requires the qa permission profile.",
                 "categories": categories,
             }
-        if not input_payload.get("workspaceId") or not input_payload.get("workspacePath") or not input_payload.get("agentRunId"):
+        if (
+            not input_payload.get("workspaceId")
+            or not input_payload.get("workspacePath")
+            or not input_payload.get("agentRunId")
+        ):
             categories.append("devops_agent_command_context_required")
             return {
                 "decision": "deny",
@@ -205,7 +215,7 @@ def evaluate_action(input_payload: dict[str, Any]) -> dict[str, Any]:
             "decision": "requires_approval",
             "riskLevel": "medium",
             "reason": "DevOpsAgent command is not in the low-risk local validation allowlist.",
-            "categories": categories + ["devops_agent_command_gated"],
+            "categories": [*categories, "devops_agent_command_gated"],
         }
 
     if operation == "security_agent_scanner":
@@ -233,7 +243,11 @@ def evaluate_action(input_payload: dict[str, Any]) -> dict[str, Any]:
                 "reason": "SecurityAgent scanner execution requires the qa permission profile.",
                 "categories": categories,
             }
-        if not input_payload.get("workspaceId") or not input_payload.get("workspacePath") or not input_payload.get("agentRunId"):
+        if (
+            not input_payload.get("workspaceId")
+            or not input_payload.get("workspacePath")
+            or not input_payload.get("agentRunId")
+        ):
             categories.append("security_agent_scanner_context_required")
             return {
                 "decision": "deny",
@@ -276,7 +290,7 @@ def evaluate_action(input_payload: dict[str, Any]) -> dict[str, Any]:
             "decision": "allow",
             "riskLevel": "low",
             "reason": f"SecurityAgent {scanner} scanner execution is allowlisted for local security evidence.",
-            "categories": categories + ["security_agent_scanner", scanner],
+            "categories": [*categories, "security_agent_scanner", scanner],
         }
 
     if operation in {
@@ -309,7 +323,10 @@ def evaluate_action(input_payload: dict[str, Any]) -> dict[str, Any]:
                 "reason": "DeveloperAgent execution requires an allocated workspace.",
                 "categories": categories,
             }
-        if not input_payload.get("runtimeId") and operation not in {"developer_agent_patch_apply", "developer_agent_qa"}:
+        if not input_payload.get("runtimeId") and operation not in {
+            "developer_agent_patch_apply",
+            "developer_agent_qa",
+        }:
             categories.append("developer_agent_runtime_required")
             return {
                 "decision": "deny",
@@ -346,7 +363,7 @@ def evaluate_action(input_payload: dict[str, Any]) -> dict[str, Any]:
                 "decision": "allow",
                 "riskLevel": "medium",
                 "reason": "DeveloperAgent CLI runtime execution is allowed inside the allocated workspace.",
-                "categories": categories + ["developer_agent_runtime"],
+                "categories": [*categories, "developer_agent_runtime"],
             }
         if operation == "developer_agent_model_call":
             if tool not in {"ollama", "openai_compatible"} or input_payload.get("runtimeId") != tool:
@@ -361,7 +378,7 @@ def evaluate_action(input_payload: dict[str, Any]) -> dict[str, Any]:
                 "decision": "allow",
                 "riskLevel": "medium",
                 "reason": "DeveloperAgent model execution is allowed for a configured runtime adapter.",
-                "categories": categories + ["developer_agent_model_call"],
+                "categories": [*categories, "developer_agent_model_call"],
             }
         if operation == "developer_agent_patch_apply":
             if tool != "workspace_patch":
@@ -384,7 +401,7 @@ def evaluate_action(input_payload: dict[str, Any]) -> dict[str, Any]:
                 "decision": "allow",
                 "riskLevel": "medium",
                 "reason": "DeveloperAgent patch application is allowed inside the allocated workspace.",
-                "categories": categories + ["developer_agent_patch_apply"],
+                "categories": [*categories, "developer_agent_patch_apply"],
             }
         if operation == "developer_agent_qa":
             if tool != "shell":
@@ -407,7 +424,7 @@ def evaluate_action(input_payload: dict[str, Any]) -> dict[str, Any]:
                 "decision": "requires_approval",
                 "riskLevel": "medium",
                 "reason": "DeveloperAgent QA command is not in the low-risk allowlist.",
-                "categories": categories + ["developer_agent_qa_gated"],
+                "categories": [*categories, "developer_agent_qa_gated"],
             }
 
     if operation == "architect_agent_model_call":
@@ -435,7 +452,11 @@ def evaluate_action(input_payload: dict[str, Any]) -> dict[str, Any]:
                 "reason": "ArchitectAgent model execution is limited to configured OpenAI-compatible or Ollama adapters.",
                 "categories": categories,
             }
-        if not input_payload.get("workspaceId") or not input_payload.get("workspacePath") or not input_payload.get("agentRunId"):
+        if (
+            not input_payload.get("workspaceId")
+            or not input_payload.get("workspacePath")
+            or not input_payload.get("agentRunId")
+        ):
             categories.append("architect_agent_context_required")
             return {
                 "decision": "deny",
@@ -455,7 +476,7 @@ def evaluate_action(input_payload: dict[str, Any]) -> dict[str, Any]:
             "decision": "allow",
             "riskLevel": "medium",
             "reason": "ArchitectAgent model execution is allowed for a configured runtime adapter.",
-            "categories": categories + ["architect_agent_model_call"],
+            "categories": [*categories, "architect_agent_model_call"],
         }
 
     if operation == "security_agent_model_call":
@@ -483,7 +504,11 @@ def evaluate_action(input_payload: dict[str, Any]) -> dict[str, Any]:
                 "reason": "SecurityAgent model analysis is limited to configured OpenAI-compatible or Ollama adapters.",
                 "categories": categories,
             }
-        if not input_payload.get("workspaceId") or not input_payload.get("workspacePath") or not input_payload.get("agentRunId"):
+        if (
+            not input_payload.get("workspaceId")
+            or not input_payload.get("workspacePath")
+            or not input_payload.get("agentRunId")
+        ):
             categories.append("security_agent_context_required")
             return {
                 "decision": "deny",
@@ -503,7 +528,7 @@ def evaluate_action(input_payload: dict[str, Any]) -> dict[str, Any]:
             "decision": "allow",
             "riskLevel": "medium",
             "reason": "SecurityAgent optional model analysis is allowed for a configured runtime adapter.",
-            "categories": categories + ["security_agent_model_call"],
+            "categories": [*categories, "security_agent_model_call"],
         }
     if tool == "shell" and command:
         if operation == "issue_to_patch_runtime":
@@ -551,7 +576,7 @@ def evaluate_action(input_payload: dict[str, Any]) -> dict[str, Any]:
                 "decision": "allow",
                 "riskLevel": "medium",
                 "reason": "Configured issue_to_patch runtime execution is allowed inside the allocated workspace.",
-                "categories": categories + ["issue_to_patch_runtime"],
+                "categories": [*categories, "issue_to_patch_runtime"],
             }
         if permission_profile == "plan":
             categories.append("profile_shell_denied")
@@ -586,7 +611,10 @@ def evaluate_action(input_payload: dict[str, Any]) -> dict[str, Any]:
             "categories": categories,
         }
 
-    if tool in {"mcp", "openhands", "swe_agent", "ollama", "openai_compatible", "workspace_patch"} and command:
+    if (
+        tool in {"mcp", "openhands", "swe_agent", "ollama", "openai_compatible", "workspace_patch"}
+        and command
+    ):
         if permission_profile == "plan":
             categories.append("profile_runtime_adapter_denied")
             return {
@@ -609,12 +637,17 @@ def evaluate_action(input_payload: dict[str, Any]) -> dict[str, Any]:
                 "reason": "Runtime adapter command is not in the low-risk allowlist and requires approval.",
                 "categories": categories,
             }
-    if tool == "mcp" and operation and not command and operation not in {"tools/list", "resources/list", "prompts/list"}:
+    if (
+        tool == "mcp"
+        and operation
+        and not command
+        and operation not in {"tools/list", "resources/list", "prompts/list"}
+    ):
         return {
             "decision": "requires_approval",
             "riskLevel": "medium",
             "reason": "MCP tool execution beyond read-only discovery requires approval.",
-            "categories": categories + ["mcp_operation_gated"],
+            "categories": [*categories, "mcp_operation_gated"],
         }
 
     if classification["riskLevel"] == "low":

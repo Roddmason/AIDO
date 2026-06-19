@@ -3,6 +3,7 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -10,7 +11,6 @@ import uuid
 from typing import Any
 
 from local_control_center.shared.serialization import json_dumps, json_loads
-
 from local_control_center.shared.time import utc_now
 
 
@@ -97,7 +97,9 @@ class GovernanceRepository:
         return self.get_architecture_decision(decision_id)
 
     def get_architecture_decision(self, decision_id: str) -> dict[str, Any]:
-        row = self.connection.execute("SELECT * FROM architecture_decisions WHERE id = ?", (decision_id,)).fetchone()
+        row = self.connection.execute(
+            "SELECT * FROM architecture_decisions WHERE id = ?", (decision_id,)
+        ).fetchone()
         if not row:
             raise KeyError(f"Architecture decision not found: {decision_id}")
         return row_to_architecture_decision(row)
@@ -109,7 +111,9 @@ class GovernanceRepository:
                 (project_id,),
             ).fetchall()
         else:
-            rows = self.connection.execute("SELECT * FROM architecture_decisions ORDER BY updated_at DESC").fetchall()
+            rows = self.connection.execute(
+                "SELECT * FROM architecture_decisions ORDER BY updated_at DESC"
+            ).fetchall()
         return [row_to_architecture_decision(row) for row in rows]
 
     def create_risk(self, body: dict[str, Any]) -> dict[str, Any]:
@@ -152,7 +156,9 @@ class GovernanceRepository:
                 (project_id,),
             ).fetchall()
         else:
-            rows = self.connection.execute("SELECT * FROM risk_register ORDER BY severity DESC, updated_at DESC").fetchall()
+            rows = self.connection.execute(
+                "SELECT * FROM risk_register ORDER BY severity DESC, updated_at DESC"
+            ).fetchall()
         return [row_to_risk(row) for row in rows]
 
     def update_risk(self, risk_id: str, body: dict[str, Any]) -> dict[str, Any]:
@@ -241,5 +247,3 @@ class GovernanceRepository:
             ),
         )
         return self.get_next_step(step_id)
-
-

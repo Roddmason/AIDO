@@ -3,6 +3,7 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -12,7 +13,6 @@ from typing import Any
 
 from local_control_center.shared.serialization import json_dumps, json_loads
 from local_control_center.shared.time import utc_now
-
 
 REQUIRED_SKILL_KEYS = {
     "name",
@@ -124,4 +124,3 @@ class SkillRegistry:
     def list_skills(self) -> list[dict[str, Any]]:
         rows = self.connection.execute("SELECT * FROM skills ORDER BY name ASC").fetchall()
         return [row_to_skill(row) for row in rows]
-

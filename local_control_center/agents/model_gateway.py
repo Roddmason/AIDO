@@ -3,6 +3,7 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 import json
@@ -17,7 +18,6 @@ from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.telemetry import record_model_call
 
 from .repository import AgentsRepository
-
 
 LOCAL_MODEL_PROVIDERS = {"ollama", "local_ollama"}
 REMOTE_MODEL_PROVIDERS = {"openai", "openai_compatible", "openai_agents", "openrouter"}
@@ -78,12 +78,20 @@ def provider_instance(provider_id: str, *, connection: sqlite3.Connection):
     except KeyError:
         account = {}
     runtime_configuration = runtime_provider_configuration(provider_id)
-    base_url = (runtime_configuration.value("baseUrl") if runtime_configuration else None) or account.get("baseUrl") or None
+    base_url = (
+        (runtime_configuration.value("baseUrl") if runtime_configuration else None)
+        or account.get("baseUrl")
+        or None
+    )
     credential_ref = (
-        runtime_configuration.configured_env_ref("apiKey") if runtime_configuration else None
-    ) or account.get("credentialRef") or None
+        (runtime_configuration.configured_env_ref("apiKey") if runtime_configuration else None)
+        or account.get("credentialRef")
+        or None
+    )
     if provider_id == "nvidia_nim":
-        return NvidiaNimProvider(connection=connection, base_url=base_url or "", credential_ref=credential_ref or "")
+        return NvidiaNimProvider(
+            connection=connection, base_url=base_url or "", credential_ref=credential_ref or ""
+        )
     if provider_id in {"ollama", "local_ollama"}:
         return OllamaProvider(base_url=base_url)
     if provider_id in {"openai", "openai_api"}:
@@ -207,7 +215,11 @@ class ModelGateway:
         budget_remaining_usd: float | None = None,
     ) -> dict[str, Any] | None:
         estimated_cost = float(estimated_cost_usd or 0)
-        if budget_remaining_usd is not None and estimated_cost_usd is not None and estimated_cost > float(budget_remaining_usd):
+        if (
+            budget_remaining_usd is not None
+            and estimated_cost_usd is not None
+            and estimated_cost > float(budget_remaining_usd)
+        ):
             return {
                 "status": "blocked_budget",
                 "provider": candidate["provider"],
@@ -254,9 +266,16 @@ class ModelGateway:
                 provider="unresolved",
                 model="unresolved",
                 status="blocked_policy",
-                metadata={"reason": "No provider candidate is allowed by this model policy.", "plannedCall": plan},
+                metadata={
+                    "reason": "No provider candidate is allowed by this model policy.",
+                    "plannedCall": plan,
+                },
             )
-            return {"status": "blocked_policy", "reason": "no_allowed_provider_candidate", "modelCall": model_call}
+            return {
+                "status": "blocked_policy",
+                "reason": "no_allowed_provider_candidate",
+                "modelCall": model_call,
+            }
 
         budget_block = self.block_if_budget_exceeded(
             project_id=project_id,
@@ -292,7 +311,13 @@ class ModelGateway:
                 status=status,
                 metadata={"reason": configuration["reason"], "plannedCall": plan},
             )
-            return {"status": status, "provider": provider_id, "model": model, "reason": configuration["reason"], "modelCall": model_call}
+            return {
+                "status": status,
+                "provider": provider_id,
+                "model": model,
+                "reason": configuration["reason"],
+                "modelCall": model_call,
+            }
 
         request_payload = planned_call.get("request") or {}
         messages = request_payload.get("messages") or []
@@ -378,7 +403,9 @@ class ModelGateway:
             if health.get("status") == "not_available":
                 health["status"] = "unavailable"
             health = redact_secrets(health)
-            models = [item.model for item in provider.list_models()] if health.get("status") == "available" else []
+            models = (
+                [item.model for item in provider.list_models()] if health.get("status") == "available" else []
+            )
             return {**health, "models": models}
         except Exception as error:
             return {
@@ -404,7 +431,10 @@ class ModelGateway:
         try:
             account = ProviderAccountStore(self.repository.connection).get_provider_account(provider_id)
         except KeyError:
-            return {"status": "configuration_required", "reason": f"Provider account not found: {provider_id}"}
+            return {
+                "status": "configuration_required",
+                "reason": f"Provider account not found: {provider_id}",
+            }
         if not account.get("enabled"):
             return {"status": "configuration_required", "reason": "Provider account is disabled."}
         resolved_runtime = runtime_type or _runtime_type(account)
@@ -427,24 +457,35 @@ class ModelGateway:
                 or ""
             )
             if not credential_ref:
-                return {"status": "configuration_required", "reason": "Credential ref is required for remote provider execution."}
+                return {
+                    "status": "configuration_required",
+                    "reason": "Credential ref is required for remote provider execution.",
+                }
             credential = CredentialResolver().resolve(credential_ref, fetch=not for_health)
-            if for_health and credential.status == "configured":
-                pass
-            elif for_health and credential.status == "unverified":
+            if (for_health and credential.status == "configured") or (
+                for_health and credential.status == "unverified"
+            ):
                 pass
             elif not credential.configured:
                 return {
                     "status": "configuration_required",
-                    "reason": redact_secrets(f"Credential ref {credential_ref} is {credential.status}. {credential.message}".strip()),
+                    "reason": redact_secrets(
+                        f"Credential ref {credential_ref} is {credential.status}. {credential.message}".strip()
+                    ),
                 }
             provider = provider_instance(provider_id, connection=self.repository.connection)
             if not getattr(provider, "base_url", ""):
                 return {"status": "configuration_required", "reason": "Provider base URL is not configured."}
             if not real_provider_calls_enabled():
-                return {"status": "blocked", "reason": "Real provider calls are disabled by AIDO_ENABLE_REAL_PROVIDER_CALLS=false."}
+                return {
+                    "status": "blocked",
+                    "reason": "Real provider calls are disabled by AIDO_ENABLE_REAL_PROVIDER_CALLS=false.",
+                }
         if provider_type in LOCAL_PROVIDER_TYPES and provider_id not in {"ollama", "local_ollama"}:
-            return {"status": "configuration_required", "reason": f"Unsupported local model provider: {provider_id}"}
+            return {
+                "status": "configuration_required",
+                "reason": f"Unsupported local model provider: {provider_id}",
+            }
         return {"status": "configured", "reason": "", "runtimeType": resolved_runtime}
 
     def _record_successful_provider_usage(
@@ -544,7 +585,10 @@ class ModelGateway:
                 provider="unresolved",
                 model="unresolved",
                 status="blocked_policy",
-                metadata={"reason": "No provider candidate is allowed by this model policy.", **sanitized_metadata},
+                metadata={
+                    "reason": "No provider candidate is allowed by this model policy.",
+                    **sanitized_metadata,
+                },
             )
             return {"status": "blocked_policy", "modelCall": model_call}
 

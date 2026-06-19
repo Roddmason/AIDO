@@ -3,6 +3,7 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 import shutil
@@ -16,7 +17,9 @@ def git_available() -> bool:
 
 def run_git(args: list[str], *, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
     if not git_available():
-        return subprocess.CompletedProcess(args=["git", *args], returncode=127, stdout="", stderr="git CLI is not available")
+        return subprocess.CompletedProcess(
+            args=["git", *args], returncode=127, stdout="", stderr="git CLI is not available"
+        )
     return subprocess.run(
         ["git", *args],
         cwd=str(cwd) if cwd else None,

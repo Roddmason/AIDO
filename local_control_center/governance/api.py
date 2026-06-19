@@ -3,6 +3,7 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -26,7 +27,6 @@ from .models import (
     RiskUpdateRequest,
 )
 from .repository import GovernanceRepository
-
 
 HIGH_RISK_SEVERITIES = {"high", "critical"}
 ALLOWED_DECISION_STATUSES = {"proposed", "accepted", "rejected", "superseded", "deprecated"}
@@ -65,15 +65,21 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     async def list_architecture_decisions() -> dict[str, Any]:
         return {"architectureDecisions": repository().list_architecture_decisions()}
 
-    @router.post("/api/v1/architecture-decisions", status_code=201, response_model=ArchitectureDecisionResponse)
+    @router.post(
+        "/api/v1/architecture-decisions", status_code=201, response_model=ArchitectureDecisionResponse
+    )
     async def create_architecture_decision(
         body: ArchitectureDecisionCreateRequest, request: Request
     ) -> ArchitectureDecisionResponse:
         require_write(request)
         payload = body.model_dump(by_alias=True, exclude_none=True)
-        payload["status"] = validate_choice("status", payload.get("status", "proposed"), ALLOWED_DECISION_STATUSES)
+        payload["status"] = validate_choice(
+            "status", payload.get("status", "proposed"), ALLOWED_DECISION_STATUSES
+        )
         if payload.get("status") == "accepted" and not (payload.get("context") and payload.get("decision")):
-            raise HTTPException(status_code=422, detail="Accepted decisions require context and decision text.")
+            raise HTTPException(
+                status_code=422, detail="Accepted decisions require context and decision text."
+            )
         decision = repository().create_architecture_decision(payload)
         event_bus().record_audit(
             project_id=decision["projectId"],
@@ -96,7 +102,9 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     async def create_risk(body: RiskCreateRequest, request: Request) -> RiskResponse:
         require_write(request)
         payload = body.model_dump(by_alias=True, exclude_none=True)
-        payload["severity"] = validate_choice("severity", payload.get("severity", "medium"), ALLOWED_RISK_SEVERITIES)
+        payload["severity"] = validate_choice(
+            "severity", payload.get("severity", "medium"), ALLOWED_RISK_SEVERITIES
+        )
         payload["status"] = validate_choice("status", payload.get("status", "open"), ALLOWED_RISK_STATUSES)
         if payload["severity"] in HIGH_RISK_SEVERITIES and not payload.get("mitigation"):
             raise HTTPException(status_code=422, detail="High and critical risks require a mitigation.")
@@ -119,7 +127,9 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         require_write(request)
         payload = body.model_dump(by_alias=True, exclude_none=True)
         if "severity" in payload:
-            payload["severity"] = validate_choice("severity", payload.get("severity"), ALLOWED_RISK_SEVERITIES)
+            payload["severity"] = validate_choice(
+                "severity", payload.get("severity"), ALLOWED_RISK_SEVERITIES
+            )
         if "status" in payload:
             payload["status"] = validate_choice("status", payload.get("status"), ALLOWED_RISK_STATUSES)
         try:
@@ -142,8 +152,12 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     async def create_next_step(body: NextStepCreateRequest, request: Request) -> NextStepResponse:
         require_write(request)
         payload = body.model_dump(by_alias=True, exclude_none=True)
-        payload["priority"] = validate_choice("priority", payload.get("priority", "medium"), ALLOWED_NEXT_STEP_PRIORITIES)
-        payload["status"] = validate_choice("status", payload.get("status", "planned"), ALLOWED_NEXT_STEP_STATUSES)
+        payload["priority"] = validate_choice(
+            "priority", payload.get("priority", "medium"), ALLOWED_NEXT_STEP_PRIORITIES
+        )
+        payload["status"] = validate_choice(
+            "status", payload.get("status", "planned"), ALLOWED_NEXT_STEP_STATUSES
+        )
         next_step = repository().create_next_step(payload)
         event_bus().record_audit(
             project_id=next_step["projectId"],
@@ -154,11 +168,15 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         return NextStepResponse(nextStep=next_step)
 
     @router.patch("/api/v1/next-steps/{step_id}", status_code=202, response_model=NextStepResponse)
-    async def update_next_step(step_id: str, body: NextStepUpdateRequest, request: Request) -> NextStepResponse:
+    async def update_next_step(
+        step_id: str, body: NextStepUpdateRequest, request: Request
+    ) -> NextStepResponse:
         require_write(request)
         payload = body.model_dump(by_alias=True, exclude_none=True)
         if "priority" in payload:
-            payload["priority"] = validate_choice("priority", payload.get("priority"), ALLOWED_NEXT_STEP_PRIORITIES)
+            payload["priority"] = validate_choice(
+                "priority", payload.get("priority"), ALLOWED_NEXT_STEP_PRIORITIES
+            )
         if "status" in payload:
             payload["status"] = validate_choice("status", payload.get("status"), ALLOWED_NEXT_STEP_STATUSES)
         try:

@@ -3,10 +3,11 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
-import sqlite3
 import shlex
+import sqlite3
 from pathlib import Path
 from typing import Any
 
@@ -47,7 +48,9 @@ def _structured_argv(tool_call: dict[str, Any], command: str, *, executable: boo
         return [command]
 
 
-def _executable_argv_boundary(tool_call: dict[str, Any], *, tool_name: str, command: str) -> dict[str, Any] | None:
+def _executable_argv_boundary(
+    tool_call: dict[str, Any], *, tool_name: str, command: str
+) -> dict[str, Any] | None:
     if tool_call.get("execute") is not True:
         return None
     if _valid_argv(tool_call.get("argv")):
@@ -86,7 +89,9 @@ def default_runtime_adapters(
         "mcp": McpBrokerAdapter(connection),
         "openhands": OpenHandsBrokerAdapter(),
         "swe_agent": SweAgentBrokerAdapter(),
-        "ollama": RuntimeAdapterBrokerAdapter(adapter_id="ollama", connection=connection, artifact_root=artifact_root),
+        "ollama": RuntimeAdapterBrokerAdapter(
+            adapter_id="ollama", connection=connection, artifact_root=artifact_root
+        ),
         "openai_compatible": RuntimeAdapterBrokerAdapter(
             adapter_id="openai_compatible",
             connection=connection,
@@ -117,7 +122,9 @@ class ToolBroker:
             else default_runtime_adapters(connection, artifact_root=self.artifact_root)
         )
 
-    def _execution_workspace_boundary(self, tool_call: dict[str, Any]) -> tuple[dict[str, Any] | None, str | None]:
+    def _execution_workspace_boundary(
+        self, tool_call: dict[str, Any]
+    ) -> tuple[dict[str, Any] | None, str | None]:
         if tool_call.get("execute") is not True:
             return None, None
         workspace_id = str(tool_call.get("workspaceId") or "").strip()
@@ -321,8 +328,12 @@ class ToolBroker:
                             "dockerImage": tool_call.get("dockerImage"),
                             "execute": tool_call.get("execute") is True,
                         },
-                        "evidenceRefs": tool_call.get("evidenceRefs") if isinstance(tool_call.get("evidenceRefs"), list) else [],
-                        "diffRefs": tool_call.get("diffRefs") if isinstance(tool_call.get("diffRefs"), list) else [],
+                        "evidenceRefs": tool_call.get("evidenceRefs")
+                        if isinstance(tool_call.get("evidenceRefs"), list)
+                        else [],
+                        "diffRefs": tool_call.get("diffRefs")
+                        if isinstance(tool_call.get("diffRefs"), list)
+                        else [],
                         "permissionDecisionId": decision["id"],
                         "categories": result.get("categories", []),
                     },
@@ -343,7 +354,9 @@ class ToolBroker:
                     sandbox_profile = self.policies.get_sandbox_profile(profile_id)
                 except KeyError:
                     sandbox_profile = None
-                network = str(tool_call.get("network") or (sandbox_profile or {}).get("defaultNetwork") or "none")
+                network = str(
+                    tool_call.get("network") or (sandbox_profile or {}).get("defaultNetwork") or "none"
+                )
                 allowed_images = (sandbox_profile or {}).get("allowedImages") or []
                 allowed_networks = (sandbox_profile or {}).get("allowedNetworks") or ["none"]
                 if not sandbox_profile or sandbox_profile["status"] != "active":
@@ -416,7 +429,13 @@ class ToolBroker:
                     policy_input=policy_input,
                 )
                 adapter_status = str(execution_result.get("status") or "")
-                if adapter_status in {"completed", "failed", "blocked", "configuration_required", "unavailable"}:
+                if adapter_status in {
+                    "completed",
+                    "failed",
+                    "blocked",
+                    "configuration_required",
+                    "unavailable",
+                }:
                     status = adapter_status
                 elif execution_result.get("blocked"):
                     status = "failed"
@@ -433,7 +452,8 @@ class ToolBroker:
             "actionRequestId": action_request["id"] if action_request else None,
             "permissionGrantId": approval_grant_id or None,
             "grantValidation": grant_validation,
-            "sandboxProfileId": tool_call.get("sandboxProfileId") or ("default_docker" if execution == "docker" else None),
+            "sandboxProfileId": tool_call.get("sandboxProfileId")
+            or ("default_docker" if execution == "docker" else None),
             "decision": decision["decision"],
             "decisionReason": decision["reason"],
             "riskLevel": decision["riskLevel"],

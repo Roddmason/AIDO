@@ -3,12 +3,12 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-
 
 RiskLevel = Literal["low", "medium", "high", "critical"]
 PermissionDecision = Literal["allow", "deny", "requires_approval", "requires_human"]
@@ -41,7 +41,7 @@ class PolicyEvaluateRequest(BaseModel):
 
 
 class PolicyEvaluationResponse(BaseModel):
-    decision: "PermissionDecisionRecord"
+    decision: PermissionDecisionRecord
 
 
 class PolicyRecord(BaseModel):

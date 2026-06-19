@@ -3,12 +3,12 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
-
 
 AgentRole = Literal[
     "analyst",
@@ -487,7 +487,9 @@ class SecurityAgentRunRequest(BaseModel):
     workspace_id: str = Field(alias="workspaceId")
     task_id: str = Field(default="security_agent", alias="taskId")
     diff_artifact_id: str | None = Field(default=None, alias="diffArtifactId")
-    command_candidates: list[SecurityAgentCommandCandidateRequest] = Field(default_factory=list, alias="commandCandidates")
+    command_candidates: list[SecurityAgentCommandCandidateRequest] = Field(
+        default_factory=list, alias="commandCandidates"
+    )
     paths_to_check: list[str] = Field(default_factory=list, alias="pathsToCheck")
     run_model_analysis: bool = Field(default=False, alias="runModelAnalysis")
     preferred_runtime: str | None = Field(default=None, alias="preferredRuntime")

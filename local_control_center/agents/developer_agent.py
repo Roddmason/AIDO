@@ -3,6 +3,7 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -13,7 +14,12 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from local_control_center.evidence.artifacts import artifact_hashes, artifact_records_from_ids, artifact_ref, write_text_artifact
+from local_control_center.evidence.artifacts import (
+    artifact_hashes,
+    artifact_records_from_ids,
+    artifact_ref,
+    write_text_artifact,
+)
 from local_control_center.evidence.quality import evidence_package_contract_errors
 from local_control_center.evidence.repository import EvidenceRepository
 from local_control_center.jobs_approvals.repository import JobsRepository
@@ -33,10 +39,13 @@ from .developer_agent_contract import (
 )
 from .qa_agent import QAAgentRunner, qa_verdict_allows_completion
 from .repository import AgentsRepository
-from .runtime_registry import RuntimeCommandUnavailableError, build_developer_agent_argv, developer_agent_prompt
+from .runtime_registry import (
+    RuntimeCommandUnavailableError,
+    build_developer_agent_argv,
+    developer_agent_prompt,
+)
 from .runtime_status import RuntimeStatusService
 from .tool_broker import ToolBroker
-
 
 RUNTIME_UNAVAILABLE_STATUS = "runtime_unavailable"
 TERMINAL_STATUSES = {"completed", RUNTIME_UNAVAILABLE_STATUS, "qa_failed", "evidence_ready", "failed"}
@@ -73,7 +82,7 @@ def _diff_summary(diff: dict[str, Any]) -> dict[str, Any]:
 
 
 def _workspace_manifest_ref(workspace: dict[str, Any]) -> dict[str, Any] | None:
-    manifest = ((workspace.get("metadata") or {}).get("workspaceManifest") or {})
+    manifest = (workspace.get("metadata") or {}).get("workspaceManifest") or {}
     if not manifest:
         return None
     return {"kind": "workspace_manifest", "status": "captured", **manifest}
@@ -148,7 +157,11 @@ def _complete_run_status(
     if any(result.get("status") != "passed" for result in qa_results):
         return "evidence_ready", "blocked", "QA command was skipped or did not produce a passing verdict."
     if not qa_verdict_allows_completion("passed", qa_results):
-        return "evidence_ready", "blocked", "QA verdict requires real command execution evidence before completion."
+        return (
+            "evidence_ready",
+            "blocked",
+            "QA verdict requires real command execution evidence before completion.",
+        )
     if not diff.get("nameOnly"):
         return "evidence_ready", "blocked", "DeveloperAgent produced no file changes."
     if not evidence_created:
@@ -156,7 +169,11 @@ def _complete_run_status(
     if not str(diff.get("patchFull") or diff.get("patch") or "").strip():
         return "evidence_ready", "blocked", "Patch artifact requires a non-empty diff."
     if require_approval:
-        return "evidence_ready", "needs_human_review", "DeveloperAgent evidence is ready and requires approval."
+        return (
+            "evidence_ready",
+            "needs_human_review",
+            "DeveloperAgent evidence is ready and requires approval.",
+        )
     return "completed", "passed", "DeveloperAgent runtime, diff, QA, and evidence passed."
 
 
@@ -249,7 +266,11 @@ def _parse_model_patch(content: str) -> dict[str, Any]:
     if not isinstance(files, list) or not files:
         raise ValueError("DeveloperAgent model output must include a non-empty files list.")
     for index, item in enumerate(files):
-        if not isinstance(item, dict) or not isinstance(item.get("path"), str) or not isinstance(item.get("content"), str):
+        if (
+            not isinstance(item, dict)
+            or not isinstance(item.get("path"), str)
+            or not isinstance(item.get("content"), str)
+        ):
             raise ValueError(f"DeveloperAgent files[{index}] must include path and content strings.")
     return payload
 
@@ -636,7 +657,9 @@ class DeveloperAgentRunner:
         diff_summary["manifestArtifactId"] = manifest_artifact["id"]
         artifact_records.append(manifest_artifact)
         artifact_refs = [artifact_ref(artifact) for artifact in artifact_records]
-        model_call = runtime_result.get("modelCall") if isinstance(runtime_result.get("modelCall"), dict) else None
+        model_call = (
+            runtime_result.get("modelCall") if isinstance(runtime_result.get("modelCall"), dict) else None
+        )
         approvals = self.jobs.list_action_requests(job["id"])
         evidence = self.evidence.update_evidence_links(
             evidence["id"],
@@ -665,7 +688,9 @@ class DeveloperAgentRunner:
         if final_status == "completed" and contract_errors:
             final_status = "evidence_ready"
             qa_verdict = "blocked"
-            final_reason = "Evidence package contract is incomplete or unverifiable: " + " ".join(contract_errors)
+            final_reason = "Evidence package contract is incomplete or unverifiable: " + " ".join(
+                contract_errors
+            )
             evidence = self.evidence.update_evidence_links(
                 evidence["id"],
                 qa_verdict=qa_verdict,

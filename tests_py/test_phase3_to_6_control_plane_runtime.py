@@ -1,25 +1,25 @@
 from __future__ import annotations
 
-import sys
 import base64
 import hashlib
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
 
-from local_control_center.agents.model_gateway import ModelGateway
 from local_control_center.agents.api import _create_execution_evidence
+from local_control_center.agents.model_gateway import ModelGateway
 from local_control_center.agents.repository import AgentsRepository
 from local_control_center.agents.tool_broker import ToolBroker
 from local_control_center.app import create_app
 from local_control_center.evidence.repository import EvidenceRepository
 from local_control_center.jobs_approvals.repository import JobsRepository
 from local_control_center.projects.repository import ProjectsRepository
+from local_control_center.security_policy.command_classifier import classify_command
 from local_control_center.security_policy.git_command_runner import git_available, run_git
 from local_control_center.security_policy.policy_engine import evaluate_action
-from local_control_center.security_policy.command_classifier import classify_command
 from local_control_center.security_policy.repository import SecurityPolicyRepository
 from local_control_center.security_policy.sandbox import DockerSandbox
 from local_control_center.shared.db import open_sqlite_connection
@@ -34,7 +34,9 @@ def auth_headers(client: TestClient) -> dict[str, str]:
     return {"X-Local-Control-Token": token, "Origin": "http://127.0.0.1"}
 
 
-def allocate_test_workspace(connection, root: Path, project: dict[str, object], *, task_id: str) -> dict[str, object]:
+def allocate_test_workspace(
+    connection, root: Path, project: dict[str, object], *, task_id: str
+) -> dict[str, object]:
     return WorkspacesRepository(connection, root=root).allocate_workspace(
         project_id=str(project["id"]),
         task_id=task_id,
@@ -64,7 +66,9 @@ def create_sensitive_shell_approval(
         agent_id="implementer",
     )
     workspace_path = str(workspace["path"])
-    job = store.jobs.create_job(project_id=project["id"], kind="chat.route", payload={"prompt": "install package"})["job"]
+    job = store.jobs.create_job(
+        project_id=project["id"], kind="chat.route", payload={"prompt": "install package"}
+    )["job"]
     app = create_app(runtime=store, static_dir=None)
     client = TestClient(app)
     headers = auth_headers(client)
@@ -101,7 +105,8 @@ def create_sensitive_shell_approval(
                         "dockerImage": "node:22-alpine",
                         "execute": True,
                         "evidenceRefs": evidence_refs or ["evidence-approval-context"],
-                        "diffRefs": diff_refs or [{"kind": "git_patch", "artifactId": "artifact-diff-context"}],
+                        "diffRefs": diff_refs
+                        or [{"kind": "git_patch", "artifactId": "artifact-diff-context"}],
                     }
                 ]
             },
@@ -182,8 +187,12 @@ def test_phase3_schema_upgrades_legacy_workspace_tables_before_indexes(tmp_path:
         )
 
         initialize_platform_schema(connection)
-        workspace_columns = {row["name"] for row in connection.execute("PRAGMA table_info(workspaces)").fetchall()}
-        allocation_columns = {row["name"] for row in connection.execute("PRAGMA table_info(workspace_allocations)").fetchall()}
+        workspace_columns = {
+            row["name"] for row in connection.execute("PRAGMA table_info(workspaces)").fetchall()
+        }
+        allocation_columns = {
+            row["name"] for row in connection.execute("PRAGMA table_info(workspace_allocations)").fetchall()
+        }
         indexes = {row["name"] for row in connection.execute("PRAGMA index_list(workspaces)").fetchall()}
 
     assert "task_id" in workspace_columns
@@ -337,13 +346,17 @@ def test_permission_profiles_apply_argument_level_shell_allowlists(tmp_path: Pat
     assert "package_script_hook" in package_script_hook_blocked["categories"]
 
 
-def test_cli_agent_tool_calls_go_through_policy_and_create_action_requests(tmp_path: Path, monkeypatch) -> None:
+def test_cli_agent_tool_calls_go_through_policy_and_create_action_requests(
+    tmp_path: Path, monkeypatch
+) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
     store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
     store.init()
     project_path = tmp_path / "runtime-project"
     project = store.create_project(name="Runtime", path=project_path, template_id="other")
-    job = store.jobs.create_job(project_id=project["id"], kind="chat.route", payload={"prompt": "run install"})["job"]
+    job = store.jobs.create_job(
+        project_id=project["id"], kind="chat.route", payload={"prompt": "run install"}
+    )["job"]
     app = create_app(runtime=store, static_dir=None)
     client = TestClient(app)
     headers = auth_headers(client)
@@ -392,7 +405,10 @@ def test_cli_agent_tool_calls_go_through_policy_and_create_action_requests(tmp_p
     assert tool_call["status"] == "approval_required"
     assert tool_call["payload"]["permissionDecisionId"].startswith("permission-decision-")
     assert tool_call["payload"]["actionRequestId"].startswith("action-")
-    assert any(action["jobId"] == job["id"] and action["actionType"] == "tool.call" for action in overview["actionRequests"])
+    assert any(
+        action["jobId"] == job["id"] and action["actionType"] == "tool.call"
+        for action in overview["actionRequests"]
+    )
 
 
 def test_allowed_cli_agent_tool_call_without_execution_does_not_complete(tmp_path: Path, monkeypatch) -> None:
@@ -535,7 +551,9 @@ def test_allowed_cli_tool_call_can_execute_in_docker_and_records_evidence(
             "command": ["docker", "run", "--rm", "python:3.13-slim", "python", "--version"],
         }
 
-    monkeypatch.setattr("local_control_center.security_policy.sandbox.DockerSandbox.execute", fake_docker_execute)
+    monkeypatch.setattr(
+        "local_control_center.security_policy.sandbox.DockerSandbox.execute", fake_docker_execute
+    )
     store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
     store.init()
     project_path = tmp_path / "docker-runtime"
@@ -627,7 +645,9 @@ def test_large_tool_execution_output_is_promoted_to_evidence_artifacts(
             "command": ["docker", "run", "--rm", "python:3.13-slim", "python", "--version"],
         }
 
-    monkeypatch.setattr("local_control_center.security_policy.sandbox.DockerSandbox.execute", fake_docker_execute)
+    monkeypatch.setattr(
+        "local_control_center.security_policy.sandbox.DockerSandbox.execute", fake_docker_execute
+    )
     with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
         initialize_platform_schema(connection)
         project_path = tmp_path / "large-tool-output"
@@ -662,14 +682,14 @@ def test_large_tool_execution_output_is_promoted_to_evidence_artifacts(
             agent_run_id=run["id"],
             agent_profile=profile,
             tool_calls=[
-                    {
-                        "tool": "shell",
-                        "command": "python --version",
-                        "argv": ["python", "--version"],
-                        "workspaceId": workspace["id"],
-                        "path": workspace_path,
-                        "workspacePath": workspace_path,
-                        "execute": True,
+                {
+                    "tool": "shell",
+                    "command": "python --version",
+                    "argv": ["python", "--version"],
+                    "workspaceId": workspace["id"],
+                    "path": workspace_path,
+                    "workspacePath": workspace_path,
+                    "execute": True,
                     "sandbox": "docker",
                     "dockerImage": "python:3.13-slim",
                 }
@@ -725,7 +745,9 @@ def test_approved_sensitive_tool_call_requires_and_consumes_permission_grant(
             "command": ["docker", "run", "--rm", "node:22-alpine", "pnpm", "add", "left-pad"],
         }
 
-    monkeypatch.setattr("local_control_center.security_policy.sandbox.DockerSandbox.execute", fake_docker_execute)
+    monkeypatch.setattr(
+        "local_control_center.security_policy.sandbox.DockerSandbox.execute", fake_docker_execute
+    )
     store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
     store.init()
     project_path = tmp_path / "approved-install"
@@ -736,7 +758,9 @@ def test_approved_sensitive_tool_call_requires_and_consumes_permission_grant(
         agent_id="implementer",
     )
     workspace_path = str(workspace["path"])
-    job = store.jobs.create_job(project_id=project["id"], kind="chat.route", payload={"prompt": "install package"})["job"]
+    job = store.jobs.create_job(
+        project_id=project["id"], kind="chat.route", payload={"prompt": "install package"}
+    )["job"]
     app = create_app(runtime=store, static_dir=None)
     client = TestClient(app)
     headers = auth_headers(client)
@@ -840,16 +864,16 @@ def test_approved_sensitive_tool_call_requires_and_consumes_permission_grant(
             "taskId": "reuse-install",
             "input": {
                 "toolCalls": [
-                        {
-                            "tool": "shell",
-                            "command": "pnpm add left-pad",
-                            "argv": ["pnpm", "add", "left-pad"],
-                            "workspaceId": workspace["id"],
-                            "path": workspace_path,
-                            "workspacePath": workspace_path,
-                            "execute": True,
-                            "sandbox": "docker",
-                            "dockerImage": "node:22-alpine",
+                    {
+                        "tool": "shell",
+                        "command": "pnpm add left-pad",
+                        "argv": ["pnpm", "add", "left-pad"],
+                        "workspaceId": workspace["id"],
+                        "path": workspace_path,
+                        "workspacePath": workspace_path,
+                        "execute": True,
+                        "sandbox": "docker",
+                        "dockerImage": "node:22-alpine",
                         "approvalGrantId": grant["id"],
                     }
                 ]
@@ -861,7 +885,9 @@ def test_approved_sensitive_tool_call_requires_and_consumes_permission_grant(
     reused_run = reused.json()["agentRun"]
     assert reused_run["status"] == "failed"
     reused_overview = client.get("/api/v1/overview").json()
-    reused_call = next(call for call in reused_overview["agentToolCalls"] if call["agentRunId"] == reused_run["id"])
+    reused_call = next(
+        call for call in reused_overview["agentToolCalls"] if call["agentRunId"] == reused_run["id"]
+    )
     assert reused_call["status"] == "denied"
     assert "already consumed" in reused_call["payload"]["grantValidation"]["reason"]
 
@@ -884,7 +910,9 @@ def test_action_request_exposes_contextual_scope_and_expiration(tmp_path: Path, 
     assert action["workspacePath"] == context.workspace_path
     assert action["runtimeId"] == "docker"
     assert action["evidenceRefs"] == ["evidence-context-1"]
-    assert action["diffRefs"] == [{"kind": "git_patch", "artifactId": "artifact-diff-1", "hash": "hash-diff-1"}]
+    assert action["diffRefs"] == [
+        {"kind": "git_patch", "artifactId": "artifact-diff-1", "hash": "hash-diff-1"}
+    ]
     assert action["reason"].strip()
     assert action["expiresAt"]
 
@@ -894,9 +922,18 @@ def test_permission_grant_is_scoped_to_command_argv(tmp_path: Path, monkeypatch)
 
     def fake_docker_execute(self, **kwargs):
         docker_calls.append(kwargs)
-        return {"executed": True, "blocked": False, "returnCode": 0, "durationMs": 1, "stdout": "", "stderr": ""}
+        return {
+            "executed": True,
+            "blocked": False,
+            "returnCode": 0,
+            "durationMs": 1,
+            "stdout": "",
+            "stderr": "",
+        }
 
-    monkeypatch.setattr("local_control_center.security_policy.sandbox.DockerSandbox.execute", fake_docker_execute)
+    monkeypatch.setattr(
+        "local_control_center.security_policy.sandbox.DockerSandbox.execute", fake_docker_execute
+    )
     context = create_sensitive_shell_approval(tmp_path, monkeypatch, profile_id="cli_grant_argv")
     approved = context.client.post(
         f"/api/v1/jobs/{context.job['id']}/actions/{context.action['id']}/approve",
@@ -938,7 +975,9 @@ def test_permission_grant_is_scoped_to_command_argv(tmp_path: Path, monkeypatch)
     mismatched_run = mismatched.json()["agentRun"]
     assert mismatched_run["status"] == "failed"
     overview = context.client.get("/api/v1/overview").json()
-    mismatched_call = next(call for call in overview["agentToolCalls"] if call["agentRunId"] == mismatched_run["id"])
+    mismatched_call = next(
+        call for call in overview["agentToolCalls"] if call["agentRunId"] == mismatched_run["id"]
+    )
     assert mismatched_call["status"] == "denied"
     assert "argv mismatch" in mismatched_call["payload"]["grantValidation"]["reason"]
     assert not docker_calls
@@ -951,9 +990,18 @@ def test_permission_grant_is_scoped_to_exact_command(tmp_path: Path, monkeypatch
 
     def fake_docker_execute(self, **kwargs):
         docker_calls.append(kwargs)
-        return {"executed": True, "blocked": False, "returnCode": 0, "durationMs": 1, "stdout": "", "stderr": ""}
+        return {
+            "executed": True,
+            "blocked": False,
+            "returnCode": 0,
+            "durationMs": 1,
+            "stdout": "",
+            "stderr": "",
+        }
 
-    monkeypatch.setattr("local_control_center.security_policy.sandbox.DockerSandbox.execute", fake_docker_execute)
+    monkeypatch.setattr(
+        "local_control_center.security_policy.sandbox.DockerSandbox.execute", fake_docker_execute
+    )
     context = create_sensitive_shell_approval(tmp_path, monkeypatch, profile_id="cli_grant_command")
     approved = context.client.post(
         f"/api/v1/jobs/{context.job['id']}/actions/{context.action['id']}/approve",
@@ -994,7 +1042,9 @@ def test_permission_grant_is_scoped_to_exact_command(tmp_path: Path, monkeypatch
     mismatched_run = mismatched.json()["agentRun"]
     assert mismatched_run["status"] == "failed"
     overview = context.client.get("/api/v1/overview").json()
-    mismatched_call = next(call for call in overview["agentToolCalls"] if call["agentRunId"] == mismatched_run["id"])
+    mismatched_call = next(
+        call for call in overview["agentToolCalls"] if call["agentRunId"] == mismatched_run["id"]
+    )
     assert mismatched_call["status"] == "denied"
     assert "command mismatch" in mismatched_call["payload"]["grantValidation"]["reason"]
     assert not docker_calls
@@ -1007,9 +1057,18 @@ def test_permission_grant_expiration_blocks_execution(tmp_path: Path, monkeypatc
 
     def fake_docker_execute(self, **kwargs):
         docker_calls.append(kwargs)
-        return {"executed": True, "blocked": False, "returnCode": 0, "durationMs": 1, "stdout": "", "stderr": ""}
+        return {
+            "executed": True,
+            "blocked": False,
+            "returnCode": 0,
+            "durationMs": 1,
+            "stdout": "",
+            "stderr": "",
+        }
 
-    monkeypatch.setattr("local_control_center.security_policy.sandbox.DockerSandbox.execute", fake_docker_execute)
+    monkeypatch.setattr(
+        "local_control_center.security_policy.sandbox.DockerSandbox.execute", fake_docker_execute
+    )
     context = create_sensitive_shell_approval(tmp_path, monkeypatch, profile_id="cli_grant_expired")
     approved = context.client.post(
         f"/api/v1/jobs/{context.job['id']}/actions/{context.action['id']}/approve",
@@ -1055,7 +1114,9 @@ def test_permission_grant_expiration_blocks_execution(tmp_path: Path, monkeypatc
     expired_run = expired.json()["agentRun"]
     assert expired_run["status"] == "failed"
     overview = context.client.get("/api/v1/overview").json()
-    expired_call = next(call for call in overview["agentToolCalls"] if call["agentRunId"] == expired_run["id"])
+    expired_call = next(
+        call for call in overview["agentToolCalls"] if call["agentRunId"] == expired_run["id"]
+    )
     assert expired_call["status"] == "denied"
     assert "expired" in expired_call["payload"]["grantValidation"]["reason"]
     assert not docker_calls
@@ -1099,7 +1160,9 @@ def test_action_approval_requires_non_empty_reason(tmp_path: Path, monkeypatch) 
     store.init()
     project_path = tmp_path / "approval-reason"
     project = store.create_project(name="Approval Reason", path=project_path, template_id="other")
-    job = store.jobs.create_job(project_id=project["id"], kind="chat.route", payload={"prompt": "install"})["job"]
+    job = store.jobs.create_job(project_id=project["id"], kind="chat.route", payload={"prompt": "install"})[
+        "job"
+    ]
     app = create_app(runtime=store, static_dir=None)
     client = TestClient(app)
     headers = auth_headers(client)
@@ -1166,7 +1229,9 @@ def test_docker_execution_uses_configured_sandbox_policy_not_tool_broker_constan
             "command": ["docker", "run", "--rm", "aido/custom:local", "pnpm", "add", "left-pad"],
         }
 
-    monkeypatch.setattr("local_control_center.security_policy.sandbox.DockerSandbox.execute", fake_docker_execute)
+    monkeypatch.setattr(
+        "local_control_center.security_policy.sandbox.DockerSandbox.execute", fake_docker_execute
+    )
     with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
         initialize_platform_schema(connection)
         policies = SecurityPolicyRepository(connection)
@@ -1288,9 +1353,18 @@ def test_permission_grant_revocation_is_audited_and_blocks_later_execution(
 
     def fake_docker_execute(self, **kwargs):
         docker_calls.append(kwargs)
-        return {"executed": True, "blocked": False, "returnCode": 0, "durationMs": 1, "stdout": "", "stderr": ""}
+        return {
+            "executed": True,
+            "blocked": False,
+            "returnCode": 0,
+            "durationMs": 1,
+            "stdout": "",
+            "stderr": "",
+        }
 
-    monkeypatch.setattr("local_control_center.security_policy.sandbox.DockerSandbox.execute", fake_docker_execute)
+    monkeypatch.setattr(
+        "local_control_center.security_policy.sandbox.DockerSandbox.execute", fake_docker_execute
+    )
     store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
     store.init()
     project_path = tmp_path / "grant-revoke"
@@ -1301,7 +1375,9 @@ def test_permission_grant_revocation_is_audited_and_blocks_later_execution(
         agent_id="implementer",
     )
     workspace_path = str(workspace["path"])
-    job = store.jobs.create_job(project_id=project["id"], kind="chat.route", payload={"prompt": "install"})["job"]
+    job = store.jobs.create_job(project_id=project["id"], kind="chat.route", payload={"prompt": "install"})[
+        "job"
+    ]
     agents = AgentsRepository(store.connection)
     profile = agents.upsert_agent_profile(
         {
@@ -1338,11 +1414,15 @@ def test_permission_grant_revocation_is_audited_and_blocks_later_execution(
         ],
     )
     action = store.jobs.list_action_requests(job_id=job["id"])[0]
-    grant = store.jobs.approve_action(job["id"], action["id"], reason="Allow once for audit.")["permissionGrant"]
+    grant = store.jobs.approve_action(job["id"], action["id"], reason="Allow once for audit.")[
+        "permissionGrant"
+    ]
     client = TestClient(create_app(runtime=store, static_dir=None))
     headers = auth_headers(client)
 
-    blank = client.post(f"/api/v1/permissions/grants/{grant['id']}/revoke", json={"reason": " "}, headers=headers)
+    blank = client.post(
+        f"/api/v1/permissions/grants/{grant['id']}/revoke", json={"reason": " "}, headers=headers
+    )
     assert blank.status_code == 422
 
     revoked = client.post(
@@ -1387,8 +1467,14 @@ def test_permission_grant_revocation_is_audited_and_blocks_later_execution(
     assert result[0]["toolCall"]["status"] == "denied"
     assert "revoked" in result[0]["toolCall"]["payload"]["grantValidation"]["reason"]
     assert docker_calls == []
-    assert any(event["type"] == "permission.grant.revoked" for event in store.events.list_events(project_id=project["id"]))
-    assert any(event["action"] == "permission.grant.revoke" for event in store.events.list_audit_events(project_id=project["id"]))
+    assert any(
+        event["type"] == "permission.grant.revoked"
+        for event in store.events.list_events(project_id=project["id"])
+    )
+    assert any(
+        event["action"] == "permission.grant.revoke"
+        for event in store.events.list_audit_events(project_id=project["id"])
+    )
 
 
 def test_sandbox_profile_revocation_is_audited_and_blocks_docker_execution(
@@ -1400,15 +1486,26 @@ def test_sandbox_profile_revocation_is_audited_and_blocks_docker_execution(
 
     def fake_docker_execute(self, **kwargs):
         docker_calls.append(kwargs)
-        return {"executed": True, "blocked": False, "returnCode": 0, "durationMs": 1, "stdout": "", "stderr": ""}
+        return {
+            "executed": True,
+            "blocked": False,
+            "returnCode": 0,
+            "durationMs": 1,
+            "stdout": "",
+            "stderr": "",
+        }
 
-    monkeypatch.setattr("local_control_center.security_policy.sandbox.DockerSandbox.execute", fake_docker_execute)
+    monkeypatch.setattr(
+        "local_control_center.security_policy.sandbox.DockerSandbox.execute", fake_docker_execute
+    )
     store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
     store.init()
     client = TestClient(create_app(runtime=store, static_dir=None))
     headers = auth_headers(client)
 
-    denied = client.post("/api/v1/sandbox/profiles/default_docker/revoke", json={"reason": " "}, headers=headers)
+    denied = client.post(
+        "/api/v1/sandbox/profiles/default_docker/revoke", json={"reason": " "}, headers=headers
+    )
     assert denied.status_code == 422
 
     revoked = client.post(
@@ -1545,11 +1642,15 @@ def test_cli_tool_call_execute_true_with_command_string_and_no_argv_is_denied_be
     )
 
 
-def test_action_request_does_not_derive_argv_from_command_string_for_executable_actions(tmp_path: Path) -> None:
+def test_action_request_does_not_derive_argv_from_command_string_for_executable_actions(
+    tmp_path: Path,
+) -> None:
     with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
         initialize_platform_schema(connection)
         jobs = JobsRepository(connection)
-        job = jobs.create_job(project_id="project-action", kind="chat.route", payload={"prompt": "install"})["job"]
+        job = jobs.create_job(project_id="project-action", kind="chat.route", payload={"prompt": "install"})[
+            "job"
+        ]
 
         action = jobs.create_action_request(
             job_id=job["id"],
@@ -1569,7 +1670,9 @@ def test_action_request_keeps_explicit_argv_for_executable_actions(tmp_path: Pat
     with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
         initialize_platform_schema(connection)
         jobs = JobsRepository(connection)
-        job = jobs.create_job(project_id="project-action", kind="chat.route", payload={"prompt": "install"})["job"]
+        job = jobs.create_job(project_id="project-action", kind="chat.route", payload={"prompt": "install"})[
+            "job"
+        ]
 
         action = jobs.create_action_request(
             job_id=job["id"],
@@ -1586,7 +1689,9 @@ def test_action_request_keeps_explicit_argv_for_executable_actions(tmp_path: Pat
         assert action["commandArgv"] == ["pnpm", "add", "left-pad"]
 
 
-def test_docker_sandbox_is_optional_and_builds_locked_down_container_args(tmp_path: Path, monkeypatch) -> None:
+def test_docker_sandbox_is_optional_and_builds_locked_down_container_args(
+    tmp_path: Path, monkeypatch
+) -> None:
     monkeypatch.setattr("local_control_center.security_policy.sandbox.shutil.which", lambda _name: None)
     sandbox = DockerSandbox(docker_executable=None)
     status = sandbox.status()
@@ -1689,7 +1794,9 @@ def test_workspace_allocation_enforces_single_owner_and_archive(tmp_path: Path, 
     )
     assert duplicate.status_code == 409
 
-    archived = client.post(f"/api/v1/workspaces/{workspace['id']}/archive", json={"reason": "done"}, headers=headers)
+    archived = client.post(
+        f"/api/v1/workspaces/{workspace['id']}/archive", json={"reason": "done"}, headers=headers
+    )
     assert archived.status_code == 202
     assert archived.json()["workspace"]["status"] == "archived"
 
@@ -1698,7 +1805,9 @@ def test_workspace_archive_creates_evidence_snapshot(tmp_path: Path, monkeypatch
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
     store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
     store.init()
-    project = store.create_project(name="Workspace Evidence", path=tmp_path / "project-evidence", template_id="other")
+    project = store.create_project(
+        name="Workspace Evidence", path=tmp_path / "project-evidence", template_id="other"
+    )
     app = create_app(runtime=store, static_dir=None)
     client = TestClient(app)
     headers = auth_headers(client)
@@ -1836,7 +1945,9 @@ def test_git_worktree_archive_promotes_large_patch_to_artifact(tmp_path: Path, m
     )
     workspace = created.json()["workspace"]
     workspace_path = Path(workspace["path"])
-    (workspace_path / "big.txt").write_text("\n".join(f"line {index}" for index in range(2000)), encoding="utf-8")
+    (workspace_path / "big.txt").write_text(
+        "\n".join(f"line {index}" for index in range(2000)), encoding="utf-8"
+    )
 
     archived = client.post(
         f"/api/v1/workspaces/{workspace['id']}/archive",
@@ -1991,7 +2102,9 @@ def test_technical_review_agent_runs_require_evidence_package_refs(tmp_path: Pat
     assert "no executable adapter" in reviewed_run["output"]["summary"]
 
 
-def test_workspace_allocation_accepts_devcontainer_metadata_without_docker_requirement(tmp_path: Path, monkeypatch) -> None:
+def test_workspace_allocation_accepts_devcontainer_metadata_without_docker_requirement(
+    tmp_path: Path, monkeypatch
+) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
     store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
     store.init()
@@ -2034,7 +2147,9 @@ def test_workspace_allocation_accepts_devcontainer_metadata_without_docker_requi
 def test_model_gateway_plans_allowed_model_call_without_recording_cost_usage(tmp_path: Path) -> None:
     with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
         initialize_platform_schema(connection)
-        project = ProjectsRepository(connection).create_project(name="Gateway", path=tmp_path / "gateway", template_id="other")
+        project = ProjectsRepository(connection).create_project(
+            name="Gateway", path=tmp_path / "gateway", template_id="other"
+        )
         agents = AgentsRepository(connection)
         agents.upsert_model_policy(
             {
@@ -2132,7 +2247,9 @@ def test_skills_sync_reads_versionable_local_skills(tmp_path: Path, monkeypatch)
     client = TestClient(app)
     headers = auth_headers(client)
 
-    synced = client.post("/api/v1/skills/sync", json={"skillsPath": str(tmp_path / "skills")}, headers=headers)
+    synced = client.post(
+        "/api/v1/skills/sync", json={"skillsPath": str(tmp_path / "skills")}, headers=headers
+    )
     assert synced.status_code == 202
     assert synced.json()["synced"] == 1
 
@@ -2178,11 +2295,15 @@ def test_qa_cannot_pass_without_real_command_evidence(tmp_path: Path, monkeypatc
     assert accepted.json()["evidencePackage"]["qaVerdict"] == "passed"
 
 
-def test_create_evidence_promotes_large_logs_and_screenshots_to_artifacts(tmp_path: Path, monkeypatch) -> None:
+def test_create_evidence_promotes_large_logs_and_screenshots_to_artifacts(
+    tmp_path: Path, monkeypatch
+) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
     store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
     store.init()
-    project = store.create_project(name="Artifact Evidence", path=tmp_path / "artifact-evidence", template_id="other")
+    project = store.create_project(
+        name="Artifact Evidence", path=tmp_path / "artifact-evidence", template_id="other"
+    )
     app = create_app(runtime=store, static_dir=None)
     client = TestClient(app)
     headers = auth_headers(client)
@@ -2229,7 +2350,9 @@ def test_artifact_download_requires_token_and_returns_owned_artifact(tmp_path: P
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
     store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
     store.init()
-    project = store.create_project(name="Artifact Download", path=tmp_path / "artifact-download", template_id="other")
+    project = store.create_project(
+        name="Artifact Download", path=tmp_path / "artifact-download", template_id="other"
+    )
     app = create_app(runtime=store, static_dir=None)
     client = TestClient(app)
     headers = auth_headers(client)
@@ -2264,7 +2387,9 @@ def test_artifact_download_rejects_paths_outside_artifact_root(tmp_path: Path, m
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
     store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
     store.init()
-    project = store.create_project(name="Artifact Traversal", path=tmp_path / "artifact-traversal", template_id="other")
+    project = store.create_project(
+        name="Artifact Traversal", path=tmp_path / "artifact-traversal", template_id="other"
+    )
     evidence = EvidenceRepository(store.connection).create_evidence_package(
         project_id=project["id"],
         workflow_run_id=None,
@@ -2319,7 +2444,9 @@ def test_artifact_cleanup_deletes_orphans_but_keeps_referenced_artifacts(tmp_pat
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
     store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
     store.init()
-    project = store.create_project(name="Artifact Cleanup", path=tmp_path / "artifact-cleanup", template_id="other")
+    project = store.create_project(
+        name="Artifact Cleanup", path=tmp_path / "artifact-cleanup", template_id="other"
+    )
     app = create_app(runtime=store, static_dir=None)
     client = TestClient(app)
     headers = auth_headers(client)

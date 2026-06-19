@@ -3,21 +3,20 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
-import sqlite3
 import shutil
+import sqlite3
 import uuid
 from pathlib import Path
 from typing import Any
 
 from local_control_center.shared.serialization import json_dumps, json_loads
-
 from local_control_center.shared.time import utc_now
 
 from .cleanup import capture_workspace_snapshot
 from .git_worktrees import create_git_worktree, is_git_repository, remove_git_worktree
-
 
 ACTIVE_WORKSPACE_STATUSES = {"allocated", "preparing", "ready", "locked", "running", "dirty"}
 COPY_IGNORED_PARTS = {
@@ -214,7 +213,15 @@ class WorkspacesRepository:
                 (id, workspace_id, project_id, task_id, agent_id, status, reason, created_at, released_at)
             VALUES (?, ?, ?, ?, ?, 'active', ?, ?, NULL)
             """,
-            (f"workspace-allocation-{uuid.uuid4()}", workspace_id, project_id, task_id, agent_id, reason, timestamp),
+            (
+                f"workspace-allocation-{uuid.uuid4()}",
+                workspace_id,
+                project_id,
+                task_id,
+                agent_id,
+                reason,
+                timestamp,
+            ),
         )
         return self.get_workspace(workspace_id)
 
@@ -299,6 +306,8 @@ class WorkspacesRepository:
         workspace = self.get_workspace(workspace_id)
         timestamp = utc_now()
         metadata = dict(workspace["metadata"] or {})
+        if reason:
+            metadata["archiveReason"] = reason
         if workspace["isolationType"] == "git_worktree":
             cleanup = remove_git_worktree(
                 repo_path=self._project_path(workspace["projectId"]),
@@ -331,5 +340,3 @@ class WorkspacesRepository:
             (timestamp, workspace_id),
         )
         return self.get_workspace(workspace_id)
-
-

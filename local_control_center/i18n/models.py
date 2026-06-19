@@ -3,12 +3,12 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 import re
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-
 
 LANGUAGE_CODE_RE = re.compile(r"^[a-z]{2}(?:-[a-z0-9]{2,8})?$")
 
@@ -63,17 +63,18 @@ class I18nCatalog(BaseModel):
         return value
 
     @model_validator(mode="after")
-    def validate_catalog_completeness(self) -> "I18nCatalog":
+    def validate_catalog_completeness(self) -> I18nCatalog:
         language_codes = [language.code for language in self.languages if language.enabled]
         if self.default_language not in {language.code for language in self.languages}:
             raise ValueError("Default language must exist in languages.")
         if len({language.code for language in self.languages}) != len(self.languages):
             raise ValueError("Language codes must be unique.")
-        missing: list[str] = []
-        for key, values in self.translations.items():
-            for code in language_codes:
-                if not str(values.get(code, "")).strip():
-                    missing.append(f"{key}.{code}")
+        missing: list[str] = [
+            f"{key}.{code}"
+            for key, values in self.translations.items()
+            for code in language_codes
+            if not str(values.get(code, "")).strip()
+        ]
         if missing:
             raise ValueError(f"Missing translation values: {', '.join(missing[:20])}")
         return self

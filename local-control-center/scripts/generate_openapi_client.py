@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import sys
 import tempfile
+from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -130,7 +130,9 @@ def render_client(openapi: dict[str, Any]) -> str:
     component_type_lines = _component_type_lines(openapi)
     endpoint_lines = ",\n".join(f"\t{_literal(endpoint)}" for endpoint in endpoints)
     operation_lines = ",\n".join(
-        f"\t{_literal(endpoint['operationId'])}: {_literal(endpoint)}" for endpoint in endpoints if endpoint["operationId"]
+        f"\t{_literal(endpoint['operationId'])}: {_literal(endpoint)}"
+        for endpoint in endpoints
+        if endpoint["operationId"]
     )
     request_body_lines = ",\n".join(
         f"\t{_literal(operation_id)}: {body}" for operation_id, body in sorted(request_bodies.items())

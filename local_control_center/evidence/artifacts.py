@@ -3,16 +3,16 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
-import hashlib
 import base64
+import hashlib
 import uuid
 from pathlib import Path
 from typing import Any
 
 from local_control_center.shared.redaction import redact_secrets
-
 
 INLINE_PATCH_LIMIT_BYTES = 12_000
 INLINE_LOG_LIMIT_BYTES = 12_000
@@ -90,7 +90,7 @@ def artifact_hashes(artifacts: list[dict[str, Any]]) -> dict[str, str]:
 
 def artifact_records_from_ids(repo: Any, artifact_ids: list[str]) -> list[dict[str, Any]]:
     artifacts: list[dict[str, Any]] = []
-    for artifact_id in sorted(set(str(item) for item in artifact_ids if item)):
+    for artifact_id in sorted({str(item) for item in artifact_ids if item}):
         try:
             artifacts.append(repo.get_artifact_by_id(artifact_id))
         except KeyError:
@@ -113,7 +113,9 @@ def promote_large_git_patches(
         patch_size = len(patch_full.encode("utf-8"))
         if patch_full and patch_size > INLINE_PATCH_LIMIT_BYTES:
             artifact_id = f"artifact-{uuid.uuid4()}"
-            artifact = write_text_artifact(root=root, artifact_id=artifact_id, suffix=".patch", content=patch_full)
+            artifact = write_text_artifact(
+                root=root, artifact_id=artifact_id, suffix=".patch", content=patch_full
+            )
             sanitized = {key: value for key, value in diff_ref.items() if key != "patch"}
             sanitized.update(
                 {
@@ -253,7 +255,9 @@ def promote_execution_result_outputs(
         if size <= INLINE_LOG_LIMIT_BYTES:
             continue
         artifact_id = f"artifact-{uuid.uuid4()}"
-        artifact = write_text_artifact(root=root, artifact_id=artifact_id, suffix=f".{stream}.log", content=content)
+        artifact = write_text_artifact(
+            root=root, artifact_id=artifact_id, suffix=f".{stream}.log", content=content
+        )
         promoted_result.pop(stream, None)
         promoted_result.update(
             {

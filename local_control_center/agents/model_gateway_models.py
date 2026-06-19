@@ -3,6 +3,7 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 from typing import Any, Literal
@@ -10,7 +11,6 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from .providers.base import ProviderHealth
-
 
 BenchmarkProvenance = Literal["operator_reported", "automated_run", "release_validation"]
 

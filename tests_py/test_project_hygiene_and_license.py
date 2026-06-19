@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -180,7 +179,7 @@ def test_quality_local_runs_direct_commands_for_long_gates() -> None:
     assert 'Command @($PythonCommand, "-m", "pytest", "tests_py", "-q")' in quality_local
     assert 'Command @("uv", "run", "--extra", "dev", "ruff", "check", ".")' in quality_local
     assert 'Command @("uv", "run", "--extra", "dev", "semgrep", "scan"' in quality_local
-    assert '& corepack pnpm@10.24.0 run $Script' not in quality_local
+    assert "& corepack pnpm@10.24.0 run $Script" not in quality_local
 
 
 def test_native_process_start_command_is_cross_platform() -> None:

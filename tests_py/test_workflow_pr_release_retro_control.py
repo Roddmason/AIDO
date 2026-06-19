@@ -29,7 +29,9 @@ def create_and_start_release_workflow(
     headers: dict[str, str],
     tmp_path: Path,
 ) -> tuple[dict, dict]:
-    project = store.create_project(name="Gate Advancement", path=tmp_path / "gate-advancement", template_id="other")
+    project = store.create_project(
+        name="Gate Advancement", path=tmp_path / "gate-advancement", template_id="other"
+    )
     created = client.post(
         "/api/v1/workflows",
         json={
@@ -61,7 +63,9 @@ def create_and_start_release_workflow(
     return project, started.json()
 
 
-def test_workflow_declared_pr_release_retro_gates_create_auditable_controls(tmp_path: Path, monkeypatch) -> None:
+def test_workflow_declared_pr_release_retro_gates_create_auditable_controls(
+    tmp_path: Path, monkeypatch
+) -> None:
     store, client, headers = make_app(tmp_path, monkeypatch)
     project = store.create_project(name="Release Flow", path=tmp_path / "release-flow", template_id="other")
 
@@ -132,7 +136,11 @@ def test_workflow_declared_pr_release_retro_gates_create_auditable_controls(tmp_
         "workflow.gate.release_gate.approval_required",
         "workflow.gate.retro.governance_created",
     } <= event_types
-    release_event_payloads = [json_loads(row["payload"]) for row in workflow_events if row["type"] == "workflow.gate.release_gate.approval_required"]
+    release_event_payloads = [
+        json_loads(row["payload"])
+        for row in workflow_events
+        if row["type"] == "workflow.gate.release_gate.approval_required"
+    ]
     assert release_event_payloads[0]["environment"] == "production"
     assert release_event_payloads[0]["jobId"] == release_jobs[0]["id"]
 
@@ -144,14 +152,18 @@ def test_workflow_declared_pr_release_retro_gates_create_auditable_controls(tmp_
     } <= audit_actions
 
     governance = client.get("/api/v1/governance").json()
-    assert any(item["metadata"].get("sourceType") == "workflow_retro" for item in governance["architectureDecisions"])
+    assert any(
+        item["metadata"].get("sourceType") == "workflow_retro" for item in governance["architectureDecisions"]
+    )
     assert any(item["metadata"].get("sourceType") == "workflow_retro" for item in governance["risks"])
     assert any(item["metadata"].get("sourceType") == "workflow_retro" for item in governance["nextSteps"])
 
 
 def test_workflow_creation_blocks_force_push_and_direct_main_edit(tmp_path: Path, monkeypatch) -> None:
     store, client, headers = make_app(tmp_path, monkeypatch)
-    project = store.create_project(name="Unsafe Release Flow", path=tmp_path / "unsafe-release-flow", template_id="other")
+    project = store.create_project(
+        name="Unsafe Release Flow", path=tmp_path / "unsafe-release-flow", template_id="other"
+    )
 
     force_push = client.post(
         "/api/v1/workflows",
@@ -278,7 +290,11 @@ def test_release_gate_waits_for_human_approval_before_advance(tmp_path: Path, mo
     project, started = create_and_start_release_workflow(store, client, headers, tmp_path)
     workflow = started["workflow"]
     release_step = next(step for step in started["workflowSteps"] if step["name"] == "release_gate")
-    release_job = next(job for job in store.jobs.list_jobs_for_workflow_runs([started["workflowRun"]["id"]]) if job["kind"] == "release.production")
+    release_job = next(
+        job
+        for job in store.jobs.list_jobs_for_workflow_runs([started["workflowRun"]["id"]])
+        if job["kind"] == "release.production"
+    )
     action = store.jobs.list_action_requests(release_job["id"])[0]
 
     blocked = client.post(

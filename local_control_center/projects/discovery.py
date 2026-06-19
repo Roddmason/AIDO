@@ -3,6 +3,7 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 import json
@@ -11,7 +12,6 @@ import tomllib
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
-
 
 MAX_MANIFEST_BYTES = 512 * 1024
 
@@ -37,7 +37,9 @@ def _source(manifest: str, *, name: str | None = None, kind: str | None = None) 
     return payload
 
 
-def _runtime(runtime_id: str, *, kind: str, label: str, manifest: str, path: str = ".", confidence: float = 0.85) -> dict[str, Any]:
+def _runtime(
+    runtime_id: str, *, kind: str, label: str, manifest: str, path: str = ".", confidence: float = 0.85
+) -> dict[str, Any]:
     return {
         "id": runtime_id,
         "kind": kind,
@@ -61,12 +63,17 @@ def _parse_package_json(root: Path) -> tuple[str | None, list[dict[str, Any]], l
         **(data.get("dependencies") if isinstance(data.get("dependencies"), dict) else {}),
         **(data.get("devDependencies") if isinstance(data.get("devDependencies"), dict) else {}),
     }
-    is_frontend = any(package in dependencies for package in ("react", "vite", "@vitejs/plugin-react", "next"))
+    is_frontend = any(
+        package in dependencies for package in ("react", "vite", "@vitejs/plugin-react", "next")
+    )
     runtime_kind = "frontend" if is_frontend else "tooling"
     template_id = "react-vite" if is_frontend else "node-cli"
-    return name, [_source("package.json", name=name, kind=runtime_kind)], [
-        _runtime("node", kind=runtime_kind, label="Node.js", manifest="package.json")
-    ], template_id
+    return (
+        name,
+        [_source("package.json", name=name, kind=runtime_kind)],
+        [_runtime("node", kind=runtime_kind, label="Node.js", manifest="package.json")],
+        template_id,
+    )
 
 
 def _parse_pyproject(root: Path) -> tuple[str | None, list[dict[str, Any]], list[dict[str, Any]]]:
@@ -79,9 +86,11 @@ def _parse_pyproject(root: Path) -> tuple[str | None, list[dict[str, Any]], list
         data = {}
     project = data.get("project") if isinstance(data.get("project"), dict) else {}
     name = str(project.get("name") or "").strip() or None
-    return name, [_source("pyproject.toml", name=name, kind="backend")], [
-        _runtime("python", kind="backend", label="Python", manifest="pyproject.toml")
-    ]
+    return (
+        name,
+        [_source("pyproject.toml", name=name, kind="backend")],
+        [_runtime("python", kind="backend", label="Python", manifest="pyproject.toml")],
+    )
 
 
 def _parse_build_json(root: Path) -> tuple[str | None, list[dict[str, Any]]]:
@@ -114,9 +123,11 @@ def _parse_pom(root: Path) -> tuple[str | None, list[dict[str, Any]], list[dict[
     except ET.ParseError:
         pass
     resolved_name = name or artifact_id
-    return resolved_name, [_source("pom.xml", name=resolved_name, kind="backend")], [
-        _runtime("java-maven", kind="backend", label="Java / Maven", manifest="pom.xml")
-    ]
+    return (
+        resolved_name,
+        [_source("pom.xml", name=resolved_name, kind="backend")],
+        [_runtime("java-maven", kind="backend", label="Java / Maven", manifest="pom.xml")],
+    )
 
 
 def _parse_gradle(root: Path) -> tuple[str | None, list[dict[str, Any]], list[dict[str, Any]]]:
@@ -127,9 +138,11 @@ def _parse_gradle(root: Path) -> tuple[str | None, list[dict[str, Any]], list[di
         text = _read_text(manifest)
         match = re.search(r"rootProject\.name\s*=\s*['\"]([^'\"]+)['\"]", text)
         name = match.group(1).strip() if match else None
-        return name, [_source(filename, name=name, kind="backend")], [
-            _runtime("java-gradle", kind="backend", label="Java / Gradle", manifest=filename)
-        ]
+        return (
+            name,
+            [_source(filename, name=name, kind="backend")],
+            [_runtime("java-gradle", kind="backend", label="Java / Gradle", manifest=filename)],
+        )
     return None, [], []
 
 
@@ -143,18 +156,22 @@ def _parse_cargo(root: Path) -> tuple[str | None, list[dict[str, Any]], list[dic
         data = {}
     package = data.get("package") if isinstance(data.get("package"), dict) else {}
     name = str(package.get("name") or "").strip() or None
-    return name, [_source("Cargo.toml", name=name, kind="backend")], [
-        _runtime("rust", kind="backend", label="Rust", manifest="Cargo.toml")
-    ]
+    return (
+        name,
+        [_source("Cargo.toml", name=name, kind="backend")],
+        [_runtime("rust", kind="backend", label="Rust", manifest="Cargo.toml")],
+    )
 
 
 def _parse_requirements(root: Path) -> tuple[str | None, list[dict[str, Any]], list[dict[str, Any]]]:
     manifest = root / "requirements.txt"
     if not manifest.exists():
         return None, [], []
-    return None, [_source("requirements.txt", kind="backend")], [
-        _runtime("python", kind="backend", label="Python", manifest="requirements.txt")
-    ]
+    return (
+        None,
+        [_source("requirements.txt", kind="backend")],
+        [_runtime("python", kind="backend", label="Python", manifest="requirements.txt")],
+    )
 
 
 def _parse_go_mod(root: Path) -> tuple[str | None, list[dict[str, Any]], list[dict[str, Any]]]:
@@ -164,9 +181,11 @@ def _parse_go_mod(root: Path) -> tuple[str | None, list[dict[str, Any]], list[di
     match = re.search(r"^module\s+(\S+)", _read_text(manifest), re.MULTILINE)
     module_path = match.group(1).strip() if match else ""
     name = module_path.rsplit("/", 1)[-1] or None
-    return name, [_source("go.mod", name=name, kind="backend")], [
-        _runtime("go", kind="backend", label="Go", manifest="go.mod")
-    ]
+    return (
+        name,
+        [_source("go.mod", name=name, kind="backend")],
+        [_runtime("go", kind="backend", label="Go", manifest="go.mod")],
+    )
 
 
 def _detect_git(root: Path) -> list[dict[str, Any]]:
@@ -196,7 +215,9 @@ def _detect_terraform(root: Path) -> tuple[list[dict[str, Any]], list[dict[str, 
         sources.append(_source(relative, kind="infra"))
         if not any(runtime["id"] == "terraform" for runtime in runtimes):
             runtime_path = "." if manifest.parent == root else manifest.parent.relative_to(root).as_posix()
-            runtimes.append(_runtime("terraform", kind="infra", label="Terraform", manifest=relative, path=runtime_path))
+            runtimes.append(
+                _runtime("terraform", kind="infra", label="Terraform", manifest=relative, path=runtime_path)
+            )
     return sources, runtimes
 
 
@@ -210,7 +231,16 @@ def discover_project_path(path: str | Path) -> dict[str, Any]:
     template_id = "other"
 
     if exists and manifest_root.is_dir():
-        for parser in (_parse_package_json, _parse_pyproject, _parse_build_json, _parse_pom, _parse_gradle, _parse_cargo, _parse_requirements, _parse_go_mod):
+        for parser in (
+            _parse_package_json,
+            _parse_pyproject,
+            _parse_build_json,
+            _parse_pom,
+            _parse_gradle,
+            _parse_cargo,
+            _parse_requirements,
+            _parse_go_mod,
+        ):
             parsed = parser(manifest_root)
             if len(parsed) == 4:
                 name, sources, runtimes, parsed_template = parsed
@@ -243,4 +273,3 @@ def discover_project_path(path: str | Path) -> dict[str, Any]:
         "manifestSources": manifest_sources,
         "detectedRuntimes": detected_runtimes,
     }
-

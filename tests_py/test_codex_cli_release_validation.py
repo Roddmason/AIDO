@@ -8,7 +8,6 @@ import sys
 from pathlib import Path
 from types import ModuleType
 
-
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "local-control-center" / "scripts" / "release_validate_codex_cli.py"
 
@@ -42,9 +41,12 @@ def test_codex_release_validation_requires_explicit_env_without_detecting_codex(
     )
     assert disabled == ["AIDO_ENABLE_CLI_RUNTIMES=true is required for Codex CLI release validation."]
 
-    assert module.required_environment_errors(
-        {"AIDO_CODEX_COMMAND": "codex", "AIDO_ENABLE_CLI_RUNTIMES": "true"}
-    ) == []
+    assert (
+        module.required_environment_errors(
+            {"AIDO_CODEX_COMMAND": "codex", "AIDO_ENABLE_CLI_RUNTIMES": "true"}
+        )
+        == []
+    )
 
 
 def test_codex_release_validation_parse_args_accepts_pnpm_separator() -> None:

@@ -3,13 +3,13 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 import os
 import sqlite3
 
 from .base import CliRuntime, RuntimeRequest
-
 
 CODEX_PROFILES = {
     "codex_gpt55_developer": {"model": "gpt-5.5", "effort": "high"},
@@ -30,7 +30,9 @@ class CodexCliRuntime(CliRuntime):
         connection: sqlite3.Connection | None = None,
     ):
         super().__init__(
-            executable=executable or os.environ.get("AIDO_CODEX_COMMAND") or os.environ.get("CODEX_CLI_PATH", "codex"),
+            executable=executable
+            or os.environ.get("AIDO_CODEX_COMMAND")
+            or os.environ.get("CODEX_CLI_PATH", "codex"),
             connection=connection,
         )
 
@@ -40,7 +42,16 @@ class CodexCliRuntime(CliRuntime):
         profile = CODEX_PROFILES.get(request.profile or "", {})
         model = request.model or profile.get("model")
         effort = request.effort or profile.get("effort")
-        command = [self.executable, "exec", "--sandbox", "workspace-write", "--ask-for-approval", "on-request", "--cd", str(workspace)]
+        command = [
+            self.executable,
+            "exec",
+            "--sandbox",
+            "workspace-write",
+            "--ask-for-approval",
+            "on-request",
+            "--cd",
+            str(workspace),
+        ]
         if model:
             command.extend(["--model", str(model)])
         if effort:

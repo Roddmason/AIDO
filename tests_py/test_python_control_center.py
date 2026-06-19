@@ -7,8 +7,8 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from local_control_center.app import create_app
 from local_control_center.agents_runtime import GatedAgentsPlanner
+from local_control_center.app import create_app
 from local_control_center.control_plane.runtime import ControlCenterRuntime
 from local_control_center.jobs_approvals.repository import JobsRepository
 from local_control_center.memory_retrieval.index import RetrievalIndex
@@ -64,7 +64,9 @@ def test_jobs_have_atomic_leases_recovery_and_granular_action_approvals(tmp_path
                 local_connection.close()
 
         with ThreadPoolExecutor(max_workers=8) as pool:
-            claimed_ids = [job_id for job_id in pool.map(lambda i: claim_once(f"worker-{i}"), range(8)) if job_id]
+            claimed_ids = [
+                job_id for job_id in pool.map(lambda i: claim_once(f"worker-{i}"), range(8)) if job_id
+            ]
 
         assert len(claimed_ids) == len(set(claimed_ids))
         assert set(claimed_ids).issubset({job["id"] for job in queued} | {sensitive["id"]})
@@ -218,7 +220,9 @@ def test_overview_routes_do_not_use_store_read_model_facade(tmp_path: Path, monk
     client = TestClient(app)
 
     def fail_if_facade_is_used():
-        raise AssertionError("overview must be composed by control_plane repositories, not ControlPlaneFixture.get_overview")
+        raise AssertionError(
+            "overview must be composed by control_plane repositories, not ControlPlaneFixture.get_overview"
+        )
 
     store.get_overview = fail_if_facade_is_used  # type: ignore[method-assign]
 
@@ -267,7 +271,9 @@ def test_api_requests_serialize_shared_store_access(tmp_path: Path, monkeypatch)
     assert statuses == [200] * len(paths)
 
 
-def test_fastapi_can_bootstrap_with_control_center_runtime_without_store_facade(tmp_path: Path, monkeypatch) -> None:
+def test_fastapi_can_bootstrap_with_control_center_runtime_without_store_facade(
+    tmp_path: Path, monkeypatch
+) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
     runtime = ControlCenterRuntime(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
     app = create_app(runtime=runtime, static_dir=None)
@@ -315,7 +321,11 @@ def test_fastapi_covers_platform_v1_catalog_routes(tmp_path: Path, monkeypatch) 
 
     ide = client.post(
         "/api/v1/ide-connections",
-        json={"projectId": created.json()["project"]["id"], "editor": "vscode", "workspaceRoot": str(tmp_path)},
+        json={
+            "projectId": created.json()["project"]["id"],
+            "editor": "vscode",
+            "workspaceRoot": str(tmp_path),
+        },
         headers={"X-Local-Control-Token": token, "Origin": "http://127.0.0.1"},
     )
     assert ide.status_code == 201
@@ -352,7 +362,10 @@ def test_fastapi_covers_platform_v1_catalog_routes(tmp_path: Path, monkeypatch) 
 
     listed_prompts = client.get("/api/v1/prompts")
     assert listed_prompts.status_code == 200
-    assert any(item["id"] == prompt.json()["promptTemplate"]["id"] for item in listed_prompts.json()["promptTemplates"])
+    assert any(
+        item["id"] == prompt.json()["promptTemplate"]["id"]
+        for item in listed_prompts.json()["promptTemplates"]
+    )
 
 
 def test_fastapi_covers_v1_sessions_chats_and_pipelines(tmp_path: Path, monkeypatch) -> None:
@@ -368,7 +381,9 @@ def test_fastapi_covers_v1_sessions_chats_and_pipelines(tmp_path: Path, monkeypa
     removed_state_path = "/api/" + "state"
     assert client.get(removed_state_path).status_code == 404
 
-    session_response = client.post("/api/v1/sessions", json={"projectId": project["id"], "name": "Python Session"}, headers=headers)
+    session_response = client.post(
+        "/api/v1/sessions", json={"projectId": project["id"], "name": "Python Session"}, headers=headers
+    )
     assert session_response.status_code == 201
     session = session_response.json()["session"]
     assert session["name"] == "Python Session"
@@ -383,7 +398,12 @@ def test_fastapi_covers_v1_sessions_chats_and_pipelines(tmp_path: Path, monkeypa
 
     pipeline = client.post(
         "/api/v1/pipelines",
-        json={"projectId": project["id"], "sessionId": session["id"], "chatId": chat_id, "title": "Python route"},
+        json={
+            "projectId": project["id"],
+            "sessionId": session["id"],
+            "chatId": chat_id,
+            "title": "Python route",
+        },
         headers=headers,
     )
     assert pipeline.status_code == 201
@@ -589,7 +609,11 @@ def test_retrieval_index_uses_persisted_real_embeddings_per_project_and_is_rebui
         visible_items = memory.list_memory_items(project_id=project["id"])
         assert [visible["id"] for visible in visible_items] == [item["id"]]
         all_items = memory.list_memory_items(project_id=project["id"], include_inactive=True)
-        assert {inactive["id"] for inactive in all_items} == {item["id"], expired_item["id"], deleted_item["id"]}
+        assert {inactive["id"] for inactive in all_items} == {
+            item["id"],
+            expired_item["id"],
+            deleted_item["id"],
+        }
 
 
 def test_retrieval_reindex_without_persisted_real_embeddings_is_configuration_required(
@@ -678,9 +702,13 @@ def test_agents_planner_is_gated_when_sdk_or_key_is_missing(tmp_path: Path, monk
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
         initialize_platform_schema(connection)
-        project = ProjectsRepository(connection).create_project(name="Agents", path=tmp_path / "agents", template_id="other")
+        project = ProjectsRepository(connection).create_project(
+            name="Agents", path=tmp_path / "agents", template_id="other"
+        )
         jobs = JobsRepository(connection)
-        job = jobs.create_job(project_id=project["id"], kind="prompt.optimize", payload={"prompt": "plan"})["job"]
+        job = jobs.create_job(project_id=project["id"], kind="prompt.optimize", payload={"prompt": "plan"})[
+            "job"
+        ]
 
         planner = GatedAgentsPlanner(jobs=jobs)
         result = planner.propose_action(project_id=project["id"], job_id=job["id"], prompt="plan")
@@ -699,7 +727,9 @@ def test_agents_planner_records_proposals_through_jobs_repository(tmp_path: Path
             template_id="other",
         )
         jobs = JobsRepository(connection)
-        job = jobs.create_job(project_id=project["id"], kind="prompt.optimize", payload={"prompt": "plan"})["job"]
+        job = jobs.create_job(project_id=project["id"], kind="prompt.optimize", payload={"prompt": "plan"})[
+            "job"
+        ]
 
         planner = GatedAgentsPlanner(jobs=jobs)
         monkeypatch.setattr(planner, "available", lambda: True)

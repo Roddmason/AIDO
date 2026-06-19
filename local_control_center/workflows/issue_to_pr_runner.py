@@ -3,8 +3,10 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
+import itertools
 import sqlite3
 import uuid
 from pathlib import Path
@@ -30,9 +32,9 @@ from local_control_center.shared.serialization import json_loads
 from local_control_center.shared.time import utc_now
 from local_control_center.workflows.issue_to_patch_runner import (
     APPROVED_FOR_INTEGRATION_STATUS,
-    IssueToPatchRunner,
-    PROMOTED_TO_BRANCH_STATUS,
     PR_CREATED_STATUS,
+    PROMOTED_TO_BRANCH_STATUS,
+    IssueToPatchRunner,
     _artifact_content_bytes,
     _diff_summary,
     _final_diff_refs,
@@ -46,7 +48,6 @@ from local_control_center.workflows.repository import ISSUE_TO_PR_STEPS, Workflo
 from local_control_center.workspaces_projects.git_worktrees import capture_git_diff
 from local_control_center.workspaces_projects.repository import WorkspacesRepository
 
-
 ISSUE_TO_PR_APPROVAL_ACTION = "workflow.issue_to_pr.approve_issue_to_pr"
 ISSUE_TO_PR_AGENT_LABELS = {
     DEVELOPER_AGENT_ID: "DeveloperAgent",
@@ -57,7 +58,7 @@ ISSUE_TO_PR_AGENT_LABELS = {
 }
 ISSUE_TO_PR_DAG = {
     "nodes": ISSUE_TO_PR_STEPS,
-    "edges": [[left, right] for left, right in zip(ISSUE_TO_PR_STEPS, ISSUE_TO_PR_STEPS[1:], strict=False)],
+    "edges": [[left, right] for left, right in itertools.pairwise(ISSUE_TO_PR_STEPS)],
 }
 GATE_TO_STEP = {
     "DeveloperAgent": "developer_agent",
@@ -68,7 +69,9 @@ GATE_TO_STEP = {
 }
 
 
-def _developer_instruction_for_issue(*, title: str, issue_text: str, target_path: str | None, attempt: int) -> str:
+def _developer_instruction_for_issue(
+    *, title: str, issue_text: str, target_path: str | None, attempt: int
+) -> str:
     instruction = (
         "Execute the issue_to_pr DeveloperAgent implementation work in the current workspace only. "
         "Do not commit, push, install dependencies, or modify files outside the workspace.\n\n"
@@ -85,7 +88,9 @@ def _status_passed(result: dict[str, Any], expected: str) -> bool:
     return str(result.get("status") or "").strip().lower() == expected
 
 
-def _gate_result(name: str, result: dict[str, Any], *, passed: bool, evidence_id: str | None) -> dict[str, Any]:
+def _gate_result(
+    name: str, result: dict[str, Any], *, passed: bool, evidence_id: str | None
+) -> dict[str, Any]:
     return {
         "name": name,
         "status": "passed" if passed else "blocked",
@@ -269,7 +274,9 @@ class IssueToPrRunner:
         agent_results: dict[str, dict[str, Any]],
         max_rework_attempts: int,
     ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
-        all_gates_passed = all(gate["status"] == "passed" and gate.get("evidencePackageId") for gate in gate_results)
+        all_gates_passed = all(
+            gate["status"] == "passed" and gate.get("evidencePackageId") for gate in gate_results
+        )
         blocked_gate = next((gate["name"] for gate in gate_results if gate["status"] != "passed"), None)
         diff = capture_git_diff(Path(workspace["path"]))
         completion = {
@@ -351,7 +358,9 @@ class IssueToPrRunner:
                 "status": completion["status"],
                 "available": all_gates_passed,
                 "executable": all_gates_passed,
-                "reason": "All issue_to_pr gates passed." if all_gates_passed else f"Blocked gate: {completion['blockedGate']}.",
+                "reason": "All issue_to_pr gates passed."
+                if all_gates_passed
+                else f"Blocked gate: {completion['blockedGate']}.",
             },
             approvals=[],
             evidence_source="verified_completion" if all_gates_passed else "evidence_collected",
@@ -359,7 +368,9 @@ class IssueToPrRunner:
             risk_notes=[
                 {
                     "severity": "low" if all_gates_passed else "high",
-                    "description": "All issue_to_pr gates passed." if all_gates_passed else f"Gate blocked: {completion['blockedGate']}.",
+                    "description": "All issue_to_pr gates passed."
+                    if all_gates_passed
+                    else f"Gate blocked: {completion['blockedGate']}.",
                     "mitigation": "Fix the blocked gate and rerun issue_to_pr before approval.",
                 }
             ],
@@ -438,14 +449,20 @@ class IssueToPrRunner:
             require_workflow_run=True,
         )
         if all_gates_passed and contract_errors:
-            completion = {**completion, "allGatesPassed": False, "blockedGate": "evidence_aggregation", "status": "blocked"}
+            completion = {
+                **completion,
+                "allGatesPassed": False,
+                "blockedGate": "evidence_aggregation",
+                "status": "blocked",
+            }
             evidence = self.evidence.update_evidence_links(
                 evidence["id"],
                 qa_verdict="blocked",
                 risk_notes=[
                     {
                         "severity": "high",
-                        "description": "Aggregated evidence package contract is incomplete: " + "; ".join(contract_errors),
+                        "description": "Aggregated evidence package contract is incomplete: "
+                        + "; ".join(contract_errors),
                         "mitigation": "Regenerate issue_to_pr aggregate evidence with linked artifacts and hashes.",
                     }
                 ],
@@ -456,7 +473,9 @@ class IssueToPrRunner:
             status="completed" if final_status == "evidence_ready" else "failed",
             output_payload={
                 "status": final_status,
-                "summary": "issue_to_pr aggregate evidence ready." if final_status == "evidence_ready" else "issue_to_pr gates blocked.",
+                "summary": "issue_to_pr aggregate evidence ready."
+                if final_status == "evidence_ready"
+                else "issue_to_pr gates blocked.",
                 "completion": completion,
                 "evidence_refs": [evidence["id"], *[artifact["id"] for artifact in aggregate_artifacts]],
             },
@@ -477,7 +496,7 @@ class IssueToPrRunner:
         job: dict[str, Any],
         gate_results: list[dict[str, Any]],
     ) -> dict[str, Any]:
-        action = self.jobs.create_action_request(
+        return self.jobs.create_action_request(
             job_id=job["id"],
             project_id=workflow["projectId"],
             action_type=ISSUE_TO_PR_APPROVAL_ACTION,
@@ -491,7 +510,6 @@ class IssueToPrRunner:
             },
             reason="issue_to_pr requires human approval after all agent gates pass and before branch promotion.",
         )
-        return action
 
     def _response(
         self,
@@ -556,7 +574,13 @@ class IssueToPrRunner:
         max_rework_attempts = int(payload.get("maxReworkAttempts", 1))
         metadata = {
             "steps": [
-                {"name": step_name, "taskType": step_name, "metadata": {"dependsOn": [edge[0] for edge in ISSUE_TO_PR_DAG["edges"] if edge[1] == step_name]}}
+                {
+                    "name": step_name,
+                    "taskType": step_name,
+                    "metadata": {
+                        "dependsOn": [edge[0] for edge in ISSUE_TO_PR_DAG["edges"] if edge[1] == step_name]
+                    },
+                }
                 for step_name in ISSUE_TO_PR_STEPS
             ],
             "dag": ISSUE_TO_PR_DAG,
@@ -634,13 +658,19 @@ class IssueToPrRunner:
                 }
             )
             agent_results["QAAgent"] = qa
-            if not _status_passed(qa, "passed") or not qa_verdict_allows_completion("passed", qa.get("results") or []):
+            if not _status_passed(qa, "passed") or not qa_verdict_allows_completion(
+                "passed", qa.get("results") or []
+            ):
                 if attempt <= max_rework_attempts:
                     self._record_event(
                         workflow=workflow,
                         run_id=run_id,
                         event_type="workflow.issue_to_pr.rework_required",
-                        payload={"attempt": attempt, "blockedGate": "qa_validation", "reason": qa.get("reason")},
+                        payload={
+                            "attempt": attempt,
+                            "blockedGate": "qa_validation",
+                            "reason": qa.get("reason"),
+                        },
                         step_id=steps["qa_validation"]["id"],
                         severity="warning",
                     )
@@ -723,26 +753,34 @@ class IssueToPrRunner:
                 "DeveloperAgent",
                 agent_results.get("DeveloperAgent") or {},
                 passed=_status_passed(agent_results.get("DeveloperAgent") or {}, "completed"),
-                evidence_id=((agent_results.get("DeveloperAgent") or {}).get("evidencePackage") or {}).get("id"),
+                evidence_id=((agent_results.get("DeveloperAgent") or {}).get("evidencePackage") or {}).get(
+                    "id"
+                ),
             ),
             _gate_result(
                 "QAAgent",
                 agent_results.get("QAAgent") or {},
                 passed=_status_passed(agent_results.get("QAAgent") or {}, "passed")
-                and qa_verdict_allows_completion("passed", (agent_results.get("QAAgent") or {}).get("results") or []),
+                and qa_verdict_allows_completion(
+                    "passed", (agent_results.get("QAAgent") or {}).get("results") or []
+                ),
                 evidence_id=((agent_results.get("QAAgent") or {}).get("evidencePackage") or {}).get("id"),
             ),
             _gate_result(
                 "SecurityAgent",
                 agent_results.get("SecurityAgent") or {},
                 passed=_status_passed(agent_results.get("SecurityAgent") or {}, "passed"),
-                evidence_id=((agent_results.get("SecurityAgent") or {}).get("evidencePackage") or {}).get("id"),
+                evidence_id=((agent_results.get("SecurityAgent") or {}).get("evidencePackage") or {}).get(
+                    "id"
+                ),
             ),
             _gate_result(
                 "ArchitectAgent",
                 agent_results.get("ArchitectAgent") or {},
                 passed=_status_passed(agent_results.get("ArchitectAgent") or {}, "completed"),
-                evidence_id=((agent_results.get("ArchitectAgent") or {}).get("evidencePackage") or {}).get("id"),
+                evidence_id=((agent_results.get("ArchitectAgent") or {}).get("evidencePackage") or {}).get(
+                    "id"
+                ),
             ),
             _gate_result(
                 "DevOpsAgent",
@@ -761,7 +799,9 @@ class IssueToPrRunner:
             max_rework_attempts=max_rework_attempts,
         )
         completion = {
-            "allGatesPassed": all(gate["status"] == "passed" and gate.get("evidencePackageId") for gate in gate_results),
+            "allGatesPassed": all(
+                gate["status"] == "passed" and gate.get("evidencePackageId") for gate in gate_results
+            ),
             "blockedGate": next(
                 (GATE_TO_STEP[gate["name"]] for gate in gate_results if gate["status"] != "passed"),
                 None,
@@ -783,11 +823,17 @@ class IssueToPrRunner:
                 job=job,
                 gate_results=gate_results,
             )
-            evidence = self.evidence.update_evidence_links(evidence["id"], approvals=self.jobs.list_action_requests(job["id"]))
+            evidence = self.evidence.update_evidence_links(
+                evidence["id"], approvals=self.jobs.list_action_requests(job["id"])
+            )
             job = self.jobs.update_job_status(
                 job["id"],
                 status="approval_required",
-                metadata={"status": final_status, "evidencePackageId": evidence["id"], "actionRequestId": action["id"]},
+                metadata={
+                    "status": final_status,
+                    "evidencePackageId": evidence["id"],
+                    "actionRequestId": action["id"],
+                },
             )
         workflow_run = self.workflows.update_workflow_run_status(
             run_id,
@@ -800,7 +846,11 @@ class IssueToPrRunner:
                 "jobId": job["id"],
                 "agentRunId": agent_run["id"],
                 "workspaceId": workspace["id"],
-                "rework": {"maxAttempts": max_rework_attempts, "attempts": attempts, "attemptsUsed": len(attempts)},
+                "rework": {
+                    "maxAttempts": max_rework_attempts,
+                    "attempts": attempts,
+                    "attemptsUsed": len(attempts),
+                },
                 "completion": completion,
                 "approvalActionRequestId": (action or {}).get("id"),
             },
@@ -818,7 +868,11 @@ class IssueToPrRunner:
             workflow=workflow,
             run_id=run_id,
             event_type="workflow.issue_to_pr.evidence_aggregated",
-            payload={"status": final_status, "evidencePackageId": evidence["id"], "gateResults": gate_results},
+            payload={
+                "status": final_status,
+                "evidencePackageId": evidence["id"],
+                "gateResults": gate_results,
+            },
             step_id=steps["evidence_aggregation"]["id"],
             severity="info" if final_status == "evidence_ready" else "warning",
         )
@@ -827,7 +881,11 @@ class IssueToPrRunner:
                 workflow=workflow,
                 run_id=run_id,
                 event_type="workflow.issue_to_pr.gate.blocked",
-                payload={"status": final_status, "blockedGate": completion["blockedGate"], "gateResults": gate_results},
+                payload={
+                    "status": final_status,
+                    "blockedGate": completion["blockedGate"],
+                    "gateResults": gate_results,
+                },
                 severity="warning",
             )
         return self._response(
@@ -842,7 +900,9 @@ class IssueToPrRunner:
             gate_results=gate_results,
             rework={"maxAttempts": max_rework_attempts, "attempts": attempts, "attemptsUsed": len(attempts)},
             completion=completion,
-            runtime_result={"agentResults": {name: result.get("status") for name, result in agent_results.items()}},
+            runtime_result={
+                "agentResults": {name: result.get("status") for name, result in agent_results.items()}
+            },
         )
 
     def approve_issue_to_pr(self, run_id: str, *, reason: str, actor: str = "operator") -> dict[str, Any]:
@@ -874,9 +934,15 @@ class IssueToPrRunner:
             and (action.get("payload") or {}).get("evidencePackageId") == evidence_id
         ]
         if not approval_actions:
-            raise ValueError("issue_to_pr approval requires an approved action request for this evidence package.")
-        evidence = self.evidence.update_evidence_links(evidence_id, approvals=self.jobs.list_action_requests(job_id))
-        contract_errors = evidence_package_contract_errors(evidence, require_runtime_links=True, require_workflow_run=True)
+            raise ValueError(
+                "issue_to_pr approval requires an approved action request for this evidence package."
+            )
+        evidence = self.evidence.update_evidence_links(
+            evidence_id, approvals=self.jobs.list_action_requests(job_id)
+        )
+        contract_errors = evidence_package_contract_errors(
+            evidence, require_runtime_links=True, require_workflow_run=True
+        )
         if contract_errors:
             raise ValueError("Evidence package contract is incomplete: " + "; ".join(contract_errors))
         artifacts = self.evidence.list_artifacts(evidence_id)
@@ -901,7 +967,9 @@ class IssueToPrRunner:
             completed=False,
             clear_completed=True,
         )
-        workflow = self.workflows.update_workflow_status(workflow["id"], status=APPROVED_FOR_INTEGRATION_STATUS, reason=clean_reason)
+        workflow = self.workflows.update_workflow_status(
+            workflow["id"], status=APPROVED_FOR_INTEGRATION_STATUS, reason=clean_reason
+        )
         job = self.jobs.update_job_status(job_id, status="approved", metadata=transition_payload)
         agent_run = self.agents.update_agent_run_status(
             agent_run_id,
@@ -918,8 +986,15 @@ class IssueToPrRunner:
             self.workflows.update_workflow_step(
                 steps["approval"]["id"],
                 status="completed",
-                output={"approvedForIntegration": True, "reason": clean_reason, "evidencePackageId": evidence_id},
-                metadata={**(steps["approval"].get("metadata") or {}), "gateState": APPROVED_FOR_INTEGRATION_STATUS},
+                output={
+                    "approvedForIntegration": True,
+                    "reason": clean_reason,
+                    "evidencePackageId": evidence_id,
+                },
+                metadata={
+                    **(steps["approval"].get("metadata") or {}),
+                    "gateState": APPROVED_FOR_INTEGRATION_STATUS,
+                },
             )
         self._record_event(
             workflow=workflow,
@@ -939,7 +1014,11 @@ class IssueToPrRunner:
             evidence=self.evidence.get_evidence_package(evidence_id),
             gate_results=run_metadata.get("gateResults") or [],
             rework=run_metadata.get("rework") or {},
-            completion={"allGatesPassed": True, "blockedGate": None, "requiredGates": [gate["name"] for gate in run_metadata.get("gateResults") or []]},
+            completion={
+                "allGatesPassed": True,
+                "blockedGate": None,
+                "requiredGates": [gate["name"] for gate in run_metadata.get("gateResults") or []],
+            },
         )
 
     def promote_branch(

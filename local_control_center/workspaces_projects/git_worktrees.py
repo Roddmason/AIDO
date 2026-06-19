@@ -3,6 +3,7 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 import re
@@ -82,7 +83,9 @@ def create_git_worktree(
         return {"status": "degraded_not_git_repo"}
     source_commit = git_head_commit(repo_path, base_branch)
     source_branch = git_current_branch(repo_path)
-    resolved_branch_name = branch_name or f"aido/{slugify_branch_segment(task_id)}/{workspace_id.removeprefix('workspace-')[:8]}"
+    resolved_branch_name = (
+        branch_name or f"aido/{slugify_branch_segment(task_id)}/{workspace_id.removeprefix('workspace-')[:8]}"
+    )
     branch_error = git_branch_name_error(repo_path, resolved_branch_name)
     if branch_error:
         return {
@@ -91,7 +94,9 @@ def create_git_worktree(
             "stderr": branch_error,
         }
     worktree_path.parent.mkdir(parents=True, exist_ok=True)
-    result = run_git(["-C", str(repo_path), "worktree", "add", "-b", resolved_branch_name, str(worktree_path), base_branch])
+    result = run_git(
+        ["-C", str(repo_path), "worktree", "add", "-b", resolved_branch_name, str(worktree_path), base_branch]
+    )
     if result.returncode != 0:
         return {
             "status": "degraded_worktree_failed",

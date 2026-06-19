@@ -3,10 +3,10 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 from typing import Any
-
 
 DEVELOPER_AGENT_ID = "developer_agent"
 DEVELOPER_AGENT_ALLOWED_TOOLS = ["shell", "openai_compatible", "ollama", "workspace_patch"]
@@ -85,9 +85,11 @@ def developer_agent_readiness(
     eligible = [runtime for runtime in runtime_statuses if is_developer_runtime(runtime)]
     ordered_eligible = sorted(
         eligible,
-        key=lambda item: DEVELOPER_AGENT_RUNTIME_ORDER.index(str(item["id"]))
-        if str(item["id"]) in DEVELOPER_AGENT_RUNTIME_ORDER
-        else len(DEVELOPER_AGENT_RUNTIME_ORDER),
+        key=lambda item: (
+            DEVELOPER_AGENT_RUNTIME_ORDER.index(str(item["id"]))
+            if str(item["id"]) in DEVELOPER_AGENT_RUNTIME_ORDER
+            else len(DEVELOPER_AGENT_RUNTIME_ORDER)
+        ),
     )
     selected = None
     if preferred_runtime:
@@ -106,7 +108,9 @@ def developer_agent_readiness(
             return {
                 "id": DEVELOPER_AGENT_ID,
                 "executable": False,
-                "status": "configuration_required" if not selected.get("configured") else "runtime_unavailable",
+                "status": "configuration_required"
+                if not selected.get("configured")
+                else "runtime_unavailable",
                 "reason": _developer_runtime_reason(selected),
                 "selectedRuntimeId": str(selected.get("id") or preferred_runtime),
                 "candidateRuntimeIds": [str(runtime["id"]) for runtime in ordered_eligible],

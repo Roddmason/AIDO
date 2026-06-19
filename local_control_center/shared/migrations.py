@@ -3,6 +3,7 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -643,25 +644,41 @@ def init_phase3_schema(connection: sqlite3.Connection) -> None:
     _add_column_if_missing(connection, "workspaces", "task_id", "task_id TEXT NOT NULL DEFAULT ''")
     _add_column_if_missing(connection, "workspaces", "status", "status TEXT NOT NULL DEFAULT 'active'")
     _add_column_if_missing(connection, "workspace_allocations", "task_id", "task_id TEXT NOT NULL DEFAULT ''")
-    _add_column_if_missing(connection, "workspace_allocations", "status", "status TEXT NOT NULL DEFAULT 'allocated'")
+    _add_column_if_missing(
+        connection, "workspace_allocations", "status", "status TEXT NOT NULL DEFAULT 'allocated'"
+    )
     _add_column_if_missing(connection, "evidence_packages", "workflow_step_id", "workflow_step_id TEXT")
     _add_column_if_missing(connection, "evidence_packages", "agent_run_id", "agent_run_id TEXT")
     _add_column_if_missing(connection, "evidence_packages", "job_id", "job_id TEXT")
     _add_column_if_missing(connection, "evidence_packages", "workspace_id", "workspace_id TEXT")
     _add_column_if_missing(connection, "evidence_packages", "runtime_id", "runtime_id TEXT")
-    _add_column_if_missing(connection, "evidence_packages", "artifact_ids", "artifact_ids TEXT NOT NULL DEFAULT '[]'")
-    _add_column_if_missing(connection, "evidence_packages", "diff_summary", "diff_summary TEXT NOT NULL DEFAULT '{}'")
-    _add_column_if_missing(connection, "evidence_packages", "runtime_health", "runtime_health TEXT NOT NULL DEFAULT '{}'")
-    _add_column_if_missing(connection, "evidence_packages", "model_calls", "model_calls TEXT NOT NULL DEFAULT '[]'")
-    _add_column_if_missing(connection, "evidence_packages", "tool_calls", "tool_calls TEXT NOT NULL DEFAULT '[]'")
+    _add_column_if_missing(
+        connection, "evidence_packages", "artifact_ids", "artifact_ids TEXT NOT NULL DEFAULT '[]'"
+    )
+    _add_column_if_missing(
+        connection, "evidence_packages", "diff_summary", "diff_summary TEXT NOT NULL DEFAULT '{}'"
+    )
+    _add_column_if_missing(
+        connection, "evidence_packages", "runtime_health", "runtime_health TEXT NOT NULL DEFAULT '{}'"
+    )
+    _add_column_if_missing(
+        connection, "evidence_packages", "model_calls", "model_calls TEXT NOT NULL DEFAULT '[]'"
+    )
+    _add_column_if_missing(
+        connection, "evidence_packages", "tool_calls", "tool_calls TEXT NOT NULL DEFAULT '[]'"
+    )
     _add_column_if_missing(
         connection,
         "evidence_packages",
         "policy_decisions",
         "policy_decisions TEXT NOT NULL DEFAULT '[]'",
     )
-    _add_column_if_missing(connection, "evidence_packages", "approvals", "approvals TEXT NOT NULL DEFAULT '[]'")
-    _add_column_if_missing(connection, "evidence_packages", "artifact_refs", "artifact_refs TEXT NOT NULL DEFAULT '[]'")
+    _add_column_if_missing(
+        connection, "evidence_packages", "approvals", "approvals TEXT NOT NULL DEFAULT '[]'"
+    )
+    _add_column_if_missing(
+        connection, "evidence_packages", "artifact_refs", "artifact_refs TEXT NOT NULL DEFAULT '[]'"
+    )
     _add_column_if_missing(connection, "evidence_packages", "hashes", "hashes TEXT NOT NULL DEFAULT '{}'")
     _add_column_if_missing(
         connection,
@@ -724,8 +741,7 @@ def init_phase3_schema(connection: sqlite3.Connection) -> None:
 
 def init_phase4_schema(connection: sqlite3.Connection) -> None:
     workspace_columns = {
-        row["name"]
-        for row in connection.execute("PRAGMA table_info(workspaces)").fetchall()
+        row["name"] for row in connection.execute("PRAGMA table_info(workspaces)").fetchall()
     }
     if "workflow_run_id" not in workspace_columns:
         connection.execute("ALTER TABLE workspaces ADD COLUMN workflow_run_id TEXT")
@@ -806,14 +822,18 @@ def init_phase6_schema(connection: sqlite3.Connection) -> None:
     if "workflow_step_id" not in job_columns:
         connection.execute("ALTER TABLE jobs ADD COLUMN workflow_step_id TEXT")
 
-    agent_run_columns = {row["name"] for row in connection.execute("PRAGMA table_info(agent_runs)").fetchall()}
+    agent_run_columns = {
+        row["name"] for row in connection.execute("PRAGMA table_info(agent_runs)").fetchall()
+    }
     if "workflow_run_id" not in agent_run_columns:
         connection.execute("ALTER TABLE agent_runs ADD COLUMN workflow_run_id TEXT")
     if "workflow_step_id" not in agent_run_columns:
         connection.execute("ALTER TABLE agent_runs ADD COLUMN workflow_step_id TEXT")
 
     connection.execute("CREATE INDEX IF NOT EXISTS idx_jobs_workflow_run ON jobs(workflow_run_id)")
-    connection.execute("CREATE INDEX IF NOT EXISTS idx_agent_runs_workflow_run ON agent_runs(workflow_run_id)")
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_agent_runs_workflow_run ON agent_runs(workflow_run_id)"
+    )
     connection.execute(
         "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
         (6, utc_now()),
@@ -926,7 +946,15 @@ def init_phase9_schema(connection: sqlite3.Connection) -> None:
         (
             "default_docker",
             "Default Docker Sandbox",
-            json_dumps(["python:3.13-slim", "python:3.12-slim", "node:22-alpine", "debian:bookworm-slim", "ubuntu:24.04"]),
+            json_dumps(
+                [
+                    "python:3.13-slim",
+                    "python:3.12-slim",
+                    "node:22-alpine",
+                    "debian:bookworm-slim",
+                    "ubuntu:24.04",
+                ]
+            ),
             json_dumps(["none"]),
             "none",
             "2g",
@@ -945,11 +973,17 @@ def init_phase9_schema(connection: sqlite3.Connection) -> None:
 
 def init_phase10_schema(connection: sqlite3.Connection) -> None:
     _add_column_if_missing(connection, "action_requests", "expires_at", "expires_at TEXT NOT NULL DEFAULT ''")
-    _add_column_if_missing(connection, "permission_grants", "command_argv", "command_argv TEXT NOT NULL DEFAULT '[]'")
+    _add_column_if_missing(
+        connection, "permission_grants", "command_argv", "command_argv TEXT NOT NULL DEFAULT '[]'"
+    )
     _add_column_if_missing(connection, "permission_grants", "workspace_id", "workspace_id TEXT")
     _add_column_if_missing(connection, "permission_grants", "runtime_id", "runtime_id TEXT")
-    _add_column_if_missing(connection, "permission_grants", "expires_at", "expires_at TEXT NOT NULL DEFAULT ''")
-    grant_columns = {row["name"] for row in connection.execute("PRAGMA table_info(permission_grants)").fetchall()}
+    _add_column_if_missing(
+        connection, "permission_grants", "expires_at", "expires_at TEXT NOT NULL DEFAULT ''"
+    )
+    grant_columns = {
+        row["name"] for row in connection.execute("PRAGMA table_info(permission_grants)").fetchall()
+    }
     if "revoked_at" not in grant_columns:
         connection.execute("ALTER TABLE permission_grants ADD COLUMN revoked_at TEXT")
     if "revoked_by" not in grant_columns:
@@ -957,7 +991,9 @@ def init_phase10_schema(connection: sqlite3.Connection) -> None:
     if "revoke_reason" not in grant_columns:
         connection.execute("ALTER TABLE permission_grants ADD COLUMN revoke_reason TEXT")
 
-    sandbox_columns = {row["name"] for row in connection.execute("PRAGMA table_info(sandbox_profiles)").fetchall()}
+    sandbox_columns = {
+        row["name"] for row in connection.execute("PRAGMA table_info(sandbox_profiles)").fetchall()
+    }
     if "revoked_at" not in sandbox_columns:
         connection.execute("ALTER TABLE sandbox_profiles ADD COLUMN revoked_at TEXT")
     if "revoked_by" not in sandbox_columns:
@@ -1273,13 +1309,23 @@ def init_phase12_schema(connection: sqlite3.Connection) -> None:
     )
     _add_column_if_missing(connection, "agent_profiles", "routing_profile_id", "routing_profile_id TEXT")
     _add_column_if_missing(connection, "agent_profiles", "role_model_policy_id", "role_model_policy_id TEXT")
-    _add_column_if_missing(connection, "agent_profiles", "allowed_providers", "allowed_providers TEXT NOT NULL DEFAULT '[]'")
-    _add_column_if_missing(connection, "agent_profiles", "allowed_runtimes", "allowed_runtimes TEXT NOT NULL DEFAULT '[]'")
-    _add_column_if_missing(connection, "agent_profiles", "max_tokens_per_run", "max_tokens_per_run INTEGER NOT NULL DEFAULT 0")
-    _add_column_if_missing(connection, "agent_profiles", "allow_remote", "allow_remote INTEGER NOT NULL DEFAULT 1")
+    _add_column_if_missing(
+        connection, "agent_profiles", "allowed_providers", "allowed_providers TEXT NOT NULL DEFAULT '[]'"
+    )
+    _add_column_if_missing(
+        connection, "agent_profiles", "allowed_runtimes", "allowed_runtimes TEXT NOT NULL DEFAULT '[]'"
+    )
+    _add_column_if_missing(
+        connection, "agent_profiles", "max_tokens_per_run", "max_tokens_per_run INTEGER NOT NULL DEFAULT 0"
+    )
+    _add_column_if_missing(
+        connection, "agent_profiles", "allow_remote", "allow_remote INTEGER NOT NULL DEFAULT 1"
+    )
     _add_column_if_missing(connection, "agent_profiles", "allow_cli", "allow_cli INTEGER NOT NULL DEFAULT 1")
     _add_column_if_missing(connection, "agent_profiles", "allow_api", "allow_api INTEGER NOT NULL DEFAULT 1")
-    _add_column_if_missing(connection, "agent_profiles", "requires_approval_over_usd", "requires_approval_over_usd REAL")
+    _add_column_if_missing(
+        connection, "agent_profiles", "requires_approval_over_usd", "requires_approval_over_usd REAL"
+    )
     _add_column_if_missing(
         connection,
         "role_model_policies",
@@ -1313,19 +1359,109 @@ def init_phase12_schema(connection: sqlite3.Connection) -> None:
     _add_column_if_missing(connection, "workflow_steps", "task_type", "task_type TEXT")
     _add_column_if_missing(connection, "workflow_steps", "risk_level", "risk_level TEXT")
     _add_column_if_missing(connection, "workflow_steps", "model_mode", "model_mode TEXT")
-    _add_column_if_missing(connection, "workflow_steps", "manual_model_override", "manual_model_override TEXT")
+    _add_column_if_missing(
+        connection, "workflow_steps", "manual_model_override", "manual_model_override TEXT"
+    )
 
     timestamp = utc_now()
     provider_accounts = [
-        ("nvidia_nim", "nvidia_nim", "NVIDIA NIM / Build", "api", "openai_compatible", "https://integrate.api.nvidia.com/v1", "NVIDIA_NIM_API_KEY", 0, "trial_rate_limited", "unknown"),
-        ("ollama", "ollama", "Ollama Local", "local", "custom", "http://localhost:11434", "", 0, "none", "unknown"),
-        ("openai_api", "openai_api", "OpenAI API", "api", "responses", "https://api.openai.com/v1", "OPENAI_API_KEY", 0, "provider_reported", "unknown"),
-        ("anthropic_api", "anthropic_api", "Anthropic API", "api", "anthropic", "", "AIDO_ANTHROPIC_API_KEY", 0, "provider_reported", "unknown"),
-        ("openai_compatible", "openai_compatible", "OpenAI-compatible API", "api", "openai_compatible", "", "OPENAI_API_KEY", 0, "manual", "unknown"),
-        ("openrouter", "openrouter", "OpenRouter", "gateway", "openai_compatible", "https://openrouter.ai/api/v1", "OPENROUTER_API_KEY", 0, "provider_reported", "unknown"),
-        ("litellm", "litellm", "LiteLLM Proxy", "gateway", "openai_compatible", "", "LITELLM_API_KEY", 0, "manual", "unknown"),
+        (
+            "nvidia_nim",
+            "nvidia_nim",
+            "NVIDIA NIM / Build",
+            "api",
+            "openai_compatible",
+            "https://integrate.api.nvidia.com/v1",
+            "NVIDIA_NIM_API_KEY",
+            0,
+            "trial_rate_limited",
+            "unknown",
+        ),
+        (
+            "ollama",
+            "ollama",
+            "Ollama Local",
+            "local",
+            "custom",
+            "http://localhost:11434",
+            "",
+            0,
+            "none",
+            "unknown",
+        ),
+        (
+            "openai_api",
+            "openai_api",
+            "OpenAI API",
+            "api",
+            "responses",
+            "https://api.openai.com/v1",
+            "OPENAI_API_KEY",
+            0,
+            "provider_reported",
+            "unknown",
+        ),
+        (
+            "anthropic_api",
+            "anthropic_api",
+            "Anthropic API",
+            "api",
+            "anthropic",
+            "",
+            "AIDO_ANTHROPIC_API_KEY",
+            0,
+            "provider_reported",
+            "unknown",
+        ),
+        (
+            "openai_compatible",
+            "openai_compatible",
+            "OpenAI-compatible API",
+            "api",
+            "openai_compatible",
+            "",
+            "OPENAI_API_KEY",
+            0,
+            "manual",
+            "unknown",
+        ),
+        (
+            "openrouter",
+            "openrouter",
+            "OpenRouter",
+            "gateway",
+            "openai_compatible",
+            "https://openrouter.ai/api/v1",
+            "OPENROUTER_API_KEY",
+            0,
+            "provider_reported",
+            "unknown",
+        ),
+        (
+            "litellm",
+            "litellm",
+            "LiteLLM Proxy",
+            "gateway",
+            "openai_compatible",
+            "",
+            "LITELLM_API_KEY",
+            0,
+            "manual",
+            "unknown",
+        ),
         ("codex_cli", "codex_cli", "Codex CLI", "cli", "cli", "", "", 0, "manual", "unknown"),
-        ("claude_code_cli", "claude_code_cli", "Claude Code CLI", "cli", "cli", "", "", 0, "manual", "unknown"),
+        (
+            "claude_code_cli",
+            "claude_code_cli",
+            "Claude Code CLI",
+            "cli",
+            "cli",
+            "",
+            "",
+            0,
+            "manual",
+            "unknown",
+        ),
         ("openhands", "openhands", "OpenHands", "cli", "cli", "", "", 0, "manual", "unknown"),
         ("swe_agent", "swe_agent", "SWE-agent", "cli", "cli", "", "", 0, "manual", "unknown"),
         ("manual", "manual", "Manual Operator", "manual", "cli", "", "", 1, "none", "healthy"),
@@ -1342,17 +1478,281 @@ def init_phase12_schema(connection: sqlite3.Connection) -> None:
         )
 
     model_catalog = [
-        ("nvidia_nim:auto_best_available", "nvidia_nim", "auto_best_available", "NVIDIA NIM auto best available", "nim", 128000, 4096, 0, 1, 1, 0, 0, 0, 0, 0, ["low", "medium"], None, None, None, None, 0, "unknown_price; provider pricing not configured", 1),
-        ("ollama:local_default", "ollama", "local_default", "Ollama local default", "local", 32000, 4096, 0, 1, 1, 0, 0, 0, 0, 0, ["low", "medium"], 0.0, 0.0, 0.0, 0.0, 1, "local runtime cost only", 1),
-        ("openai_compatible:configured_model", "openai_compatible", "configured_model", "Configured OpenAI-compatible model", "configured", 128000, 4096, 1, 1, 1, 0, 0, 0, 1, 1, ["low", "medium", "high"], 0.25, 0.05, 1.0, 1.0, 0, "manual seed, staleness unknown", 0),
-        ("openrouter:configured_model", "openrouter", "configured_model", "Configured OpenRouter model", "configured", 128000, 4096, 1, 1, 1, 0, 0, 0, 1, 1, ["low", "medium", "high"], 0.25, 0.05, 1.0, 1.0, 0, "manual seed, staleness unknown", 0),
-        ("litellm:configured_model", "litellm", "configured_model", "Configured LiteLLM model", "configured", 128000, 4096, 1, 1, 1, 0, 0, 0, 1, 1, ["low", "medium", "high"], None, None, None, None, 0, "manual seed, price unknown", 0),
-        ("codex_cli:gpt-5.5", "codex_cli", "gpt-5.5", "Codex CLI GPT-5.5", "gpt", 400000, 8192, 1, 1, 1, 1, 0, 0, 1, 1, ["medium", "high", "xhigh"], 1.0, 0.25, 5.0, 5.0, 0, "manual_seed; staleness unknown", 1),
-        ("claude_code_cli:sonnet", "claude_code_cli", "sonnet", "Claude Code Sonnet", "claude", 200000, 8192, 1, 1, 1, 1, 0, 0, 1, 1, ["medium", "high"], 1.0, 0.25, 5.0, 5.0, 0, "manual_seed; staleness unknown", 1),
-        ("claude_code_cli:opus", "claude_code_cli", "opus", "Claude Code Opus", "claude", 200000, 8192, 1, 1, 1, 1, 0, 0, 1, 1, ["high", "xhigh", "max"], 3.0, 0.5, 15.0, 15.0, 0, "manual_seed; staleness unknown", 1),
-        ("openhands:auto", "openhands", "auto", "OpenHands auto", "runtime", 200000, 8192, 1, 1, 1, 0, 0, 0, 1, 1, ["medium", "high"], None, None, None, None, 0, "manual_seed; runtime cost unknown", 1),
-        ("swe_agent:auto", "swe_agent", "auto", "SWE-agent auto", "runtime", 200000, 8192, 1, 1, 1, 0, 0, 0, 1, 1, ["medium", "high"], None, None, None, None, 0, "manual_seed; runtime cost unknown", 1),
-        ("manual:manual_selection", "manual", "manual_selection", "Manual selection", "manual", 0, 0, 1, 1, 0, 1, 0, 0, 1, 1, ["manual"], 0.0, 0.0, 0.0, 0.0, 1, "manual operator", 1),
+        (
+            "nvidia_nim:auto_best_available",
+            "nvidia_nim",
+            "auto_best_available",
+            "NVIDIA NIM auto best available",
+            "nim",
+            128000,
+            4096,
+            0,
+            1,
+            1,
+            0,
+            0,
+            0,
+            0,
+            0,
+            ["low", "medium"],
+            None,
+            None,
+            None,
+            None,
+            0,
+            "unknown_price; provider pricing not configured",
+            1,
+        ),
+        (
+            "ollama:local_default",
+            "ollama",
+            "local_default",
+            "Ollama local default",
+            "local",
+            32000,
+            4096,
+            0,
+            1,
+            1,
+            0,
+            0,
+            0,
+            0,
+            0,
+            ["low", "medium"],
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1,
+            "local runtime cost only",
+            1,
+        ),
+        (
+            "openai_compatible:configured_model",
+            "openai_compatible",
+            "configured_model",
+            "Configured OpenAI-compatible model",
+            "configured",
+            128000,
+            4096,
+            1,
+            1,
+            1,
+            0,
+            0,
+            0,
+            1,
+            1,
+            ["low", "medium", "high"],
+            0.25,
+            0.05,
+            1.0,
+            1.0,
+            0,
+            "manual seed, staleness unknown",
+            0,
+        ),
+        (
+            "openrouter:configured_model",
+            "openrouter",
+            "configured_model",
+            "Configured OpenRouter model",
+            "configured",
+            128000,
+            4096,
+            1,
+            1,
+            1,
+            0,
+            0,
+            0,
+            1,
+            1,
+            ["low", "medium", "high"],
+            0.25,
+            0.05,
+            1.0,
+            1.0,
+            0,
+            "manual seed, staleness unknown",
+            0,
+        ),
+        (
+            "litellm:configured_model",
+            "litellm",
+            "configured_model",
+            "Configured LiteLLM model",
+            "configured",
+            128000,
+            4096,
+            1,
+            1,
+            1,
+            0,
+            0,
+            0,
+            1,
+            1,
+            ["low", "medium", "high"],
+            None,
+            None,
+            None,
+            None,
+            0,
+            "manual seed, price unknown",
+            0,
+        ),
+        (
+            "codex_cli:gpt-5.5",
+            "codex_cli",
+            "gpt-5.5",
+            "Codex CLI GPT-5.5",
+            "gpt",
+            400000,
+            8192,
+            1,
+            1,
+            1,
+            1,
+            0,
+            0,
+            1,
+            1,
+            ["medium", "high", "xhigh"],
+            1.0,
+            0.25,
+            5.0,
+            5.0,
+            0,
+            "manual_seed; staleness unknown",
+            1,
+        ),
+        (
+            "claude_code_cli:sonnet",
+            "claude_code_cli",
+            "sonnet",
+            "Claude Code Sonnet",
+            "claude",
+            200000,
+            8192,
+            1,
+            1,
+            1,
+            1,
+            0,
+            0,
+            1,
+            1,
+            ["medium", "high"],
+            1.0,
+            0.25,
+            5.0,
+            5.0,
+            0,
+            "manual_seed; staleness unknown",
+            1,
+        ),
+        (
+            "claude_code_cli:opus",
+            "claude_code_cli",
+            "opus",
+            "Claude Code Opus",
+            "claude",
+            200000,
+            8192,
+            1,
+            1,
+            1,
+            1,
+            0,
+            0,
+            1,
+            1,
+            ["high", "xhigh", "max"],
+            3.0,
+            0.5,
+            15.0,
+            15.0,
+            0,
+            "manual_seed; staleness unknown",
+            1,
+        ),
+        (
+            "openhands:auto",
+            "openhands",
+            "auto",
+            "OpenHands auto",
+            "runtime",
+            200000,
+            8192,
+            1,
+            1,
+            1,
+            0,
+            0,
+            0,
+            1,
+            1,
+            ["medium", "high"],
+            None,
+            None,
+            None,
+            None,
+            0,
+            "manual_seed; runtime cost unknown",
+            1,
+        ),
+        (
+            "swe_agent:auto",
+            "swe_agent",
+            "auto",
+            "SWE-agent auto",
+            "runtime",
+            200000,
+            8192,
+            1,
+            1,
+            1,
+            0,
+            0,
+            0,
+            1,
+            1,
+            ["medium", "high"],
+            None,
+            None,
+            None,
+            None,
+            0,
+            "manual_seed; runtime cost unknown",
+            1,
+        ),
+        (
+            "manual:manual_selection",
+            "manual",
+            "manual_selection",
+            "Manual selection",
+            "manual",
+            0,
+            0,
+            1,
+            1,
+            0,
+            1,
+            0,
+            0,
+            1,
+            1,
+            ["manual"],
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1,
+            "manual operator",
+            1,
+        ),
     ]
     for row in model_catalog:
         connection.execute(
@@ -1395,12 +1795,48 @@ def init_phase12_schema(connection: sqlite3.Connection) -> None:
         )
 
     routing_profiles = [
-        ("free_first", "free_first", "free_first", "minimize paid usage", {"paidEscalationRequiresApproval": True, "providerOrder": ["nvidia_nim", "ollama", "openrouter"]}),
-        ("cost_controlled", "cost_controlled", "cost_controlled", "acceptable quality under low cost", {"maxThinkingEffort": "medium", "allowPremiumModels": False}),
-        ("balanced_best_value", "balanced_best_value", "balanced_best_value", "best performance/cost", {"default": True, "maxThinkingEffort": "high"}),
-        ("max_performance", "max_performance", "max_performance", "maximum quality within explicit budget", {"allowThinkingMax": True, "requiresApprovalOverUsd": 3.0}),
-        ("manual_by_profile", "manual_by_profile", "manual_by_profile", "user selected provider/model/runtime", {"automaticFallback": False}),
-        ("local_private", "local_private", "local_private", "no remote data", {"allowRemoteProviders": False}),
+        (
+            "free_first",
+            "free_first",
+            "free_first",
+            "minimize paid usage",
+            {"paidEscalationRequiresApproval": True, "providerOrder": ["nvidia_nim", "ollama", "openrouter"]},
+        ),
+        (
+            "cost_controlled",
+            "cost_controlled",
+            "cost_controlled",
+            "acceptable quality under low cost",
+            {"maxThinkingEffort": "medium", "allowPremiumModels": False},
+        ),
+        (
+            "balanced_best_value",
+            "balanced_best_value",
+            "balanced_best_value",
+            "best performance/cost",
+            {"default": True, "maxThinkingEffort": "high"},
+        ),
+        (
+            "max_performance",
+            "max_performance",
+            "max_performance",
+            "maximum quality within explicit budget",
+            {"allowThinkingMax": True, "requiresApprovalOverUsd": 3.0},
+        ),
+        (
+            "manual_by_profile",
+            "manual_by_profile",
+            "manual_by_profile",
+            "user selected provider/model/runtime",
+            {"automaticFallback": False},
+        ),
+        (
+            "local_private",
+            "local_private",
+            "local_private",
+            "no remote data",
+            {"allowRemoteProviders": False},
+        ),
     ]
     for row in routing_profiles:
         connection.execute(
@@ -1412,18 +1848,280 @@ def init_phase12_schema(connection: sqlite3.Connection) -> None:
         )
 
     role_policies = [
-        ("analyst", "analyst", "free_first", [{"provider": "nvidia_nim", "model": "auto_best_available"}, {"provider": "ollama", "model": "local_default"}], [{"provider": "openai_compatible", "model": "configured_model", "requiresApproval": True}], [{"provider": "codex_cli", "model": "gpt-5.5", "effort": "high", "requiresApproval": True}], [], 0.10, 64000, 0.10, 0, 1, 1, 1, 1),
-        ("product_owner", "product_owner", "balanced_best_value", [{"provider": "nvidia_nim", "model": "auto_best_available"}, {"provider": "openai_compatible", "model": "configured_model"}], [], [], [], 0.75, 128000, 0.75, 0, 1, 1, 0, 1),
-        ("technical_lead", "technical_lead", "balanced_best_value", [{"provider": "codex_cli", "model": "gpt-5.5", "effort": "xhigh"}, {"provider": "claude_code_cli", "model": "opus", "effort": "xhigh"}, {"provider": "claude_code_cli", "model": "sonnet", "effort": "high"}], [], [{"provider": "codex_cli", "model": "gpt-5.5", "effort": "xhigh", "requiresApproval": True}], [], 3.00, 240000, 3.00, 1, 1, 1, 1, 1),
-        ("technical_lead_shadow", "technical_lead_shadow", "balanced_best_value", [{"provider": "claude_code_cli", "model": "sonnet", "effort": "high"}, {"provider": "codex_cli", "model": "gpt-5.5", "effort": "high"}], [], [{"provider": "claude_code_cli", "model": "opus", "effort": "xhigh", "requiresApproval": True}], [], 1.50, 200000, 1.50, 1, 1, 1, 1, 1),
-        ("developer", "developer", "balanced_best_value", [{"provider": "codex_cli", "model": "gpt-5.5", "effort": "high"}, {"provider": "claude_code_cli", "model": "sonnet", "effort": "medium"}, {"provider": "openhands", "model": "auto"}], [{"provider": "swe_agent", "model": "auto"}], [{"provider": "codex_cli", "model": "gpt-5.5", "effort": "xhigh", "condition": "repeated_failure"}], [], 2.00, 200000, 2.00, 0, 1, 1, 1, 1),
-        ("backend_engineer", "backend_engineer", "balanced_best_value", [{"provider": "codex_cli", "model": "gpt-5.5", "effort": "high"}, {"provider": "claude_code_cli", "model": "sonnet", "effort": "medium"}, {"provider": "openhands", "model": "auto"}], [{"provider": "swe_agent", "model": "auto"}], [{"provider": "codex_cli", "model": "gpt-5.5", "effort": "xhigh", "condition": "repeated_failure"}], [], 2.00, 200000, 2.00, 0, 1, 1, 1, 1),
-        ("frontend_engineer", "frontend_engineer", "balanced_best_value", [{"provider": "codex_cli", "model": "gpt-5.5", "effort": "high"}, {"provider": "claude_code_cli", "model": "sonnet", "effort": "medium"}, {"provider": "openhands", "model": "auto"}], [{"provider": "swe_agent", "model": "auto"}], [{"provider": "codex_cli", "model": "gpt-5.5", "effort": "xhigh", "condition": "repeated_failure"}], [], 2.00, 200000, 2.00, 0, 1, 1, 1, 1),
-        ("implementer", "implementer", "balanced_best_value", [{"provider": "codex_cli", "model": "gpt-5.5", "effort": "high"}, {"provider": "claude_code_cli", "model": "sonnet", "effort": "medium"}], [{"provider": "openhands", "model": "auto"}], [{"provider": "codex_cli", "model": "gpt-5.5", "effort": "xhigh", "condition": "repeated_failure"}], [], 1.50, 160000, 1.50, 0, 1, 1, 1, 1),
-        ("qa", "qa", "cost_controlled", [{"provider": "nvidia_nim", "model": "auto_best_available"}, {"provider": "ollama", "model": "local_default"}, {"provider": "claude_code_cli", "model": "sonnet"}], [], [], [], 0.50, 128000, 0.50, 0, 1, 1, 1, 1),
-        ("qa_reviewer", "qa_reviewer", "cost_controlled", [{"provider": "nvidia_nim", "model": "auto_best_available"}, {"provider": "ollama", "model": "local_default"}, {"provider": "claude_code_cli", "model": "sonnet"}], [], [{"provider": "codex_cli", "model": "gpt-5.5", "effort": "high", "condition": "high_risk"}], [], 0.75, 128000, 0.75, 0, 1, 1, 1, 1),
-        ("security_reviewer", "security_reviewer", "balanced_best_value", [{"provider": "codex_cli", "model": "gpt-5.5", "effort": "high"}, {"provider": "claude_code_cli", "model": "sonnet", "effort": "high"}], [], [{"provider": "codex_cli", "model": "gpt-5.5", "effort": "xhigh", "condition": "high_risk"}], [], 2.50, 200000, 2.50, 1, 1, 1, 1, 1),
-        ("release_manager", "release_manager", "cost_controlled", [{"provider": "claude_code_cli", "model": "sonnet"}, {"provider": "openai_compatible", "model": "configured_model"}], [{"provider": "manual", "model": "manual_selection"}], [], [], 1.00, 128000, 1.00, 0, 1, 1, 1, 1),
+        (
+            "analyst",
+            "analyst",
+            "free_first",
+            [
+                {"provider": "nvidia_nim", "model": "auto_best_available"},
+                {"provider": "ollama", "model": "local_default"},
+            ],
+            [{"provider": "openai_compatible", "model": "configured_model", "requiresApproval": True}],
+            [{"provider": "codex_cli", "model": "gpt-5.5", "effort": "high", "requiresApproval": True}],
+            [],
+            0.10,
+            64000,
+            0.10,
+            0,
+            1,
+            1,
+            1,
+            1,
+        ),
+        (
+            "product_owner",
+            "product_owner",
+            "balanced_best_value",
+            [
+                {"provider": "nvidia_nim", "model": "auto_best_available"},
+                {"provider": "openai_compatible", "model": "configured_model"},
+            ],
+            [],
+            [],
+            [],
+            0.75,
+            128000,
+            0.75,
+            0,
+            1,
+            1,
+            0,
+            1,
+        ),
+        (
+            "technical_lead",
+            "technical_lead",
+            "balanced_best_value",
+            [
+                {"provider": "codex_cli", "model": "gpt-5.5", "effort": "xhigh"},
+                {"provider": "claude_code_cli", "model": "opus", "effort": "xhigh"},
+                {"provider": "claude_code_cli", "model": "sonnet", "effort": "high"},
+            ],
+            [],
+            [{"provider": "codex_cli", "model": "gpt-5.5", "effort": "xhigh", "requiresApproval": True}],
+            [],
+            3.00,
+            240000,
+            3.00,
+            1,
+            1,
+            1,
+            1,
+            1,
+        ),
+        (
+            "technical_lead_shadow",
+            "technical_lead_shadow",
+            "balanced_best_value",
+            [
+                {"provider": "claude_code_cli", "model": "sonnet", "effort": "high"},
+                {"provider": "codex_cli", "model": "gpt-5.5", "effort": "high"},
+            ],
+            [],
+            [{"provider": "claude_code_cli", "model": "opus", "effort": "xhigh", "requiresApproval": True}],
+            [],
+            1.50,
+            200000,
+            1.50,
+            1,
+            1,
+            1,
+            1,
+            1,
+        ),
+        (
+            "developer",
+            "developer",
+            "balanced_best_value",
+            [
+                {"provider": "codex_cli", "model": "gpt-5.5", "effort": "high"},
+                {"provider": "claude_code_cli", "model": "sonnet", "effort": "medium"},
+                {"provider": "openhands", "model": "auto"},
+            ],
+            [{"provider": "swe_agent", "model": "auto"}],
+            [
+                {
+                    "provider": "codex_cli",
+                    "model": "gpt-5.5",
+                    "effort": "xhigh",
+                    "condition": "repeated_failure",
+                }
+            ],
+            [],
+            2.00,
+            200000,
+            2.00,
+            0,
+            1,
+            1,
+            1,
+            1,
+        ),
+        (
+            "backend_engineer",
+            "backend_engineer",
+            "balanced_best_value",
+            [
+                {"provider": "codex_cli", "model": "gpt-5.5", "effort": "high"},
+                {"provider": "claude_code_cli", "model": "sonnet", "effort": "medium"},
+                {"provider": "openhands", "model": "auto"},
+            ],
+            [{"provider": "swe_agent", "model": "auto"}],
+            [
+                {
+                    "provider": "codex_cli",
+                    "model": "gpt-5.5",
+                    "effort": "xhigh",
+                    "condition": "repeated_failure",
+                }
+            ],
+            [],
+            2.00,
+            200000,
+            2.00,
+            0,
+            1,
+            1,
+            1,
+            1,
+        ),
+        (
+            "frontend_engineer",
+            "frontend_engineer",
+            "balanced_best_value",
+            [
+                {"provider": "codex_cli", "model": "gpt-5.5", "effort": "high"},
+                {"provider": "claude_code_cli", "model": "sonnet", "effort": "medium"},
+                {"provider": "openhands", "model": "auto"},
+            ],
+            [{"provider": "swe_agent", "model": "auto"}],
+            [
+                {
+                    "provider": "codex_cli",
+                    "model": "gpt-5.5",
+                    "effort": "xhigh",
+                    "condition": "repeated_failure",
+                }
+            ],
+            [],
+            2.00,
+            200000,
+            2.00,
+            0,
+            1,
+            1,
+            1,
+            1,
+        ),
+        (
+            "implementer",
+            "implementer",
+            "balanced_best_value",
+            [
+                {"provider": "codex_cli", "model": "gpt-5.5", "effort": "high"},
+                {"provider": "claude_code_cli", "model": "sonnet", "effort": "medium"},
+            ],
+            [{"provider": "openhands", "model": "auto"}],
+            [
+                {
+                    "provider": "codex_cli",
+                    "model": "gpt-5.5",
+                    "effort": "xhigh",
+                    "condition": "repeated_failure",
+                }
+            ],
+            [],
+            1.50,
+            160000,
+            1.50,
+            0,
+            1,
+            1,
+            1,
+            1,
+        ),
+        (
+            "qa",
+            "qa",
+            "cost_controlled",
+            [
+                {"provider": "nvidia_nim", "model": "auto_best_available"},
+                {"provider": "ollama", "model": "local_default"},
+                {"provider": "claude_code_cli", "model": "sonnet"},
+            ],
+            [],
+            [],
+            [],
+            0.50,
+            128000,
+            0.50,
+            0,
+            1,
+            1,
+            1,
+            1,
+        ),
+        (
+            "qa_reviewer",
+            "qa_reviewer",
+            "cost_controlled",
+            [
+                {"provider": "nvidia_nim", "model": "auto_best_available"},
+                {"provider": "ollama", "model": "local_default"},
+                {"provider": "claude_code_cli", "model": "sonnet"},
+            ],
+            [],
+            [{"provider": "codex_cli", "model": "gpt-5.5", "effort": "high", "condition": "high_risk"}],
+            [],
+            0.75,
+            128000,
+            0.75,
+            0,
+            1,
+            1,
+            1,
+            1,
+        ),
+        (
+            "security_reviewer",
+            "security_reviewer",
+            "balanced_best_value",
+            [
+                {"provider": "codex_cli", "model": "gpt-5.5", "effort": "high"},
+                {"provider": "claude_code_cli", "model": "sonnet", "effort": "high"},
+            ],
+            [],
+            [{"provider": "codex_cli", "model": "gpt-5.5", "effort": "xhigh", "condition": "high_risk"}],
+            [],
+            2.50,
+            200000,
+            2.50,
+            1,
+            1,
+            1,
+            1,
+            1,
+        ),
+        (
+            "release_manager",
+            "release_manager",
+            "cost_controlled",
+            [
+                {"provider": "claude_code_cli", "model": "sonnet"},
+                {"provider": "openai_compatible", "model": "configured_model"},
+            ],
+            [{"provider": "manual", "model": "manual_selection"}],
+            [],
+            [],
+            1.00,
+            128000,
+            1.00,
+            0,
+            1,
+            1,
+            1,
+            1,
+        ),
     ]
     for row in role_policies:
         connection.execute(
@@ -1458,7 +2156,19 @@ def init_phase12_schema(connection: sqlite3.Connection) -> None:
 
     provider_limits = [
         ("nvidia_nim:*", "nvidia_nim", "*", None, None, None, None, None, None, None, "conservative"),
-        ("openai_compatible:*", "openai_compatible", "*", None, None, None, None, None, None, None, "conservative"),
+        (
+            "openai_compatible:*",
+            "openai_compatible",
+            "*",
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            "conservative",
+        ),
     ]
     for row in provider_limits:
         connection.execute(
@@ -1520,7 +2230,14 @@ def init_phase12_schema(connection: sqlite3.Connection) -> None:
     )
 
     for provider_id, provider, label, status, allow_remote, metadata in [
-        ("nvidia_nim", "nvidia_nim", "NVIDIA NIM / Build", "optional", 1, {"runtime": "api", "quotaMode": "trial_rate_limited"}),
+        (
+            "nvidia_nim",
+            "nvidia_nim",
+            "NVIDIA NIM / Build",
+            "optional",
+            1,
+            {"runtime": "api", "quotaMode": "trial_rate_limited"},
+        ),
         ("codex_cli", "codex_cli", "Codex CLI", "optional", 0, {"runtime": "cli"}),
         ("claude_code_cli", "claude_code_cli", "Claude Code CLI", "optional", 0, {"runtime": "cli"}),
         ("openhands", "openhands", "OpenHands", "optional", 0, {"runtime": "cli"}),

@@ -3,6 +3,7 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 import concurrent.futures
@@ -90,7 +91,14 @@ class ConcurrentWorker:
 
 def execute_job(job: dict) -> dict:
     kind = job["kind"]
-    if kind in {"prompt.optimize", "chat.route", "pipeline.intake", "pipeline.start", "pipeline.retry", "pipeline.stage.retry"}:
+    if kind in {
+        "prompt.optimize",
+        "chat.route",
+        "pipeline.intake",
+        "pipeline.start",
+        "pipeline.retry",
+        "pipeline.stage.retry",
+    }:
         raise JobExecutionUnavailable(
             status="configuration_required",
             summary=f"No real job executor is configured for {kind}.",

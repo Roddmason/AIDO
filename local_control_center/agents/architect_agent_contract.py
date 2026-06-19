@@ -3,10 +3,10 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 from typing import Any
-
 
 ARCHITECT_AGENT_ID = "architect_agent"
 ARCHITECT_AGENT_ALLOWED_TOOLS = ["openai_compatible", "ollama"]
@@ -92,9 +92,11 @@ def architect_agent_readiness(
     eligible = [runtime for runtime in runtime_statuses if is_architect_runtime(runtime)]
     ordered_eligible = sorted(
         eligible,
-        key=lambda item: ARCHITECT_AGENT_RUNTIME_ORDER.index(str(item["id"]))
-        if str(item["id"]) in ARCHITECT_AGENT_RUNTIME_ORDER
-        else len(ARCHITECT_AGENT_RUNTIME_ORDER),
+        key=lambda item: (
+            ARCHITECT_AGENT_RUNTIME_ORDER.index(str(item["id"]))
+            if str(item["id"]) in ARCHITECT_AGENT_RUNTIME_ORDER
+            else len(ARCHITECT_AGENT_RUNTIME_ORDER)
+        ),
     )
     selected = None
     if preferred_runtime:
@@ -113,7 +115,9 @@ def architect_agent_readiness(
             return {
                 "id": ARCHITECT_AGENT_ID,
                 "executable": False,
-                "status": "configuration_required" if not selected.get("configured") else "runtime_unavailable",
+                "status": "configuration_required"
+                if not selected.get("configured")
+                else "runtime_unavailable",
                 "reason": _architect_runtime_reason(selected),
                 "selectedRuntimeId": str(selected.get("id") or preferred_runtime),
                 "candidateRuntimeIds": [str(runtime["id"]) for runtime in ordered_eligible],

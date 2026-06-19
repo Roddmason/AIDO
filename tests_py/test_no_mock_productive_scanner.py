@@ -4,7 +4,6 @@ import importlib.util
 import json
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 SCANNER_PATH = ROOT / "scripts" / "productive-truth-scan.py"
 

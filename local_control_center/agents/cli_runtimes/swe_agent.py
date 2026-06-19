@@ -3,6 +3,7 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 import os
@@ -22,7 +23,9 @@ class SweAgentRuntime(CliRuntime):
         connection: sqlite3.Connection | None = None,
     ):
         super().__init__(
-            executable=executable or os.environ.get("AIDO_SWE_AGENT_COMMAND") or os.environ.get("SWE_AGENT_CLI_PATH", "sweagent"),
+            executable=executable
+            or os.environ.get("AIDO_SWE_AGENT_COMMAND")
+            or os.environ.get("SWE_AGENT_CLI_PATH", "sweagent"),
             connection=connection,
         )
 

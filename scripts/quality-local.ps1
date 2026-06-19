@@ -72,6 +72,8 @@ Invoke-QualityScript -Name "Web tests" -Script "test:web" -Command @("node", "sc
 Invoke-QualityScript -Name "Frontend build" -Script "build:control-center" -Command @("corepack", "pnpm@10.24.0", "exec", "vite", "build", "--config", "local-control-center/web/vite.config.ts")
 Invoke-QualityScript -Name "Web typecheck" -Script "typecheck:web" -Command @("corepack", "pnpm@10.24.0", "exec", "tsc", "--noEmit", "-p", "local-control-center/web/tsconfig.json") -Optional
 Invoke-QualityScript -Name "Lint" -Script "lint" -Command @("uv", "run", "--extra", "dev", "ruff", "check", ".") -Optional
+Invoke-QualityScript -Name "Python format check" -Script "format:py:check" -Command @("uv", "run", "--extra", "dev", "ruff", "format", "--check", ".") -Optional
+Invoke-QualityScript -Name "Web lint and format (Biome)" -Script "check:web" -Command @("corepack", "pnpm@10.24.0", "exec", "biome", "check", "local-control-center/web") -Optional
 Invoke-QualityScript -Name "Architecture guardrails" -Script "quality:architecture" -Command @($PythonCommand, "-m", "pytest", "tests_py/test_real_readiness_architecture.py", "tests_py/test_internal_mock_product_boundary.py", "tests_py/test_execution_boundary_architecture.py", "tests_py/test_vertical_slices_architecture.py", "tests_py/test_web_rework_architecture.py", "-q")
 Invoke-QualityScript -Name "Secret scan" -Script "security:secrets" -Command @("gitleaks", "detect", "--no-git", "--source", ".", "--config", ".gitleaks.toml", "--redact")
 Invoke-QualityScript -Name "SAST" -Script "security:sast" -Command @("uv", "run", "--extra", "dev", "semgrep", "scan", "--config", ".semgrep.yml", "--no-git-ignore", "local_control_center", "tests_py", "local-control-center/web/src", "tests_web")

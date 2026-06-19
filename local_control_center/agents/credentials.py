@@ -3,17 +3,17 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
+import json
 import os
 import re
-import json
 import urllib.error
 import urllib.request
 from collections.abc import Callable
 from dataclasses import dataclass
 from urllib.parse import quote, urlparse
-
 
 ENV_REF_PATTERN = re.compile(r"^[A-Z_][A-Z0-9_]*$")
 LEGACY_ENV_REF_PATTERN = re.compile(r"^[A-Z][A-Z0-9_]+_(API_KEY|TOKEN|SECRET|CREDENTIAL|PASSWORD)$")

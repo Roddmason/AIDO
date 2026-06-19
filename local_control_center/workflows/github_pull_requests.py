@@ -3,6 +3,7 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 import json
@@ -11,11 +12,11 @@ import re
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Mapping
+from typing import Any
 
 from local_control_center.shared.redaction import redact_secrets
-
 
 GITHUB_API_VERSION = "2026-03-10"
 GITHUB_USER_AGENT = "AIDO-Local-Control-Center"
@@ -70,7 +71,11 @@ def parse_github_remote(remote: str) -> tuple[str, str, str]:
 
     owner_repo_match = re.fullmatch(r"([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?", clean)
     if owner_repo_match:
-        return owner_repo_match.group(1), _strip_git_suffix(owner_repo_match.group(2)), "https://api.github.com"
+        return (
+            owner_repo_match.group(1),
+            _strip_git_suffix(owner_repo_match.group(2)),
+            "https://api.github.com",
+        )
 
     ssh_match = re.fullmatch(r"(?:[^@]+@)?([^:]+):/?(.+)", clean)
     if ssh_match and "://" not in clean:
@@ -101,7 +106,9 @@ def github_pull_request_config_from_env(
     values = env or os.environ
     token = str(values.get("AIDO_GITHUB_TOKEN") or "").strip()
     remote = str(values.get("AIDO_GITHUB_REMOTE") or "").strip()
-    missing = [name for name, value in (("AIDO_GITHUB_TOKEN", token), ("AIDO_GITHUB_REMOTE", remote)) if not value]
+    missing = [
+        name for name, value in (("AIDO_GITHUB_TOKEN", token), ("AIDO_GITHUB_REMOTE", remote)) if not value
+    ]
     if missing:
         raise GitHubPullRequestConfigError(
             "GitHub PR creation is not configured; missing " + ", ".join(missing) + ".",

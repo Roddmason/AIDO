@@ -3,6 +3,7 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -14,7 +15,12 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from local_control_center.evidence.artifacts import artifact_hashes, artifact_records_from_ids, artifact_ref, write_text_artifact
+from local_control_center.evidence.artifacts import (
+    artifact_hashes,
+    artifact_records_from_ids,
+    artifact_ref,
+    write_text_artifact,
+)
 from local_control_center.evidence.quality import evidence_package_contract_errors
 from local_control_center.evidence.repository import EvidenceRepository
 from local_control_center.jobs_approvals.repository import JobsRepository
@@ -34,10 +40,12 @@ from .security_agent_contract import (
 )
 from .tool_broker import ToolBroker
 
-
 SECRET_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("openai_key", re.compile(r"\bsk-[A-Za-z0-9_-]{12,}\b")),
-    ("generic_assignment", re.compile(r"(?i)\b(api[_-]?key|token|secret|password)\s*[:=]\s*['\"]?[A-Za-z0-9_./+=-]{16,}")),
+    (
+        "generic_assignment",
+        re.compile(r"(?i)\b(api[_-]?key|token|secret|password)\s*[:=]\s*['\"]?[A-Za-z0-9_./+=-]{16,}"),
+    ),
 )
 IGNORED_PARTS = {
     ".git",
@@ -213,7 +221,9 @@ class SecurityAgentRunner:
                         )
                     )
 
-    def _scan_workspace_files(self, workspace_path: str, findings: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    def _scan_workspace_files(
+        self, workspace_path: str, findings: list[dict[str, Any]]
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         workspace = Path(workspace_path).resolve(strict=False)
         files_scanned: list[dict[str, Any]] = []
         dependency_files: list[dict[str, Any]] = []
@@ -249,7 +259,12 @@ class SecurityAgentRunner:
             files_scanned.append({"path": rel, "hash": content_hash, "sizeBytes": len(content)})
             scanned += 1
             if path.name in DEPENDENCY_FILENAMES:
-                dependency_entry = {"path": rel, "hash": content_hash, "sizeBytes": len(content), "kind": path.name}
+                dependency_entry = {
+                    "path": rel,
+                    "hash": content_hash,
+                    "sizeBytes": len(content),
+                    "kind": path.name,
+                }
                 dependency_files.append(dependency_entry)
                 if path.name == "package.json":
                     try:
@@ -282,7 +297,9 @@ class SecurityAgentRunner:
             self._scan_text_for_secrets(text=text, path=rel, content_hash=content_hash, findings=findings)
         return files_scanned, dependency_files
 
-    def _scan_diff_artifact(self, artifact: dict[str, Any] | None, findings: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def _scan_diff_artifact(
+        self, artifact: dict[str, Any] | None, findings: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
         if artifact is None:
             return []
         content = Path(artifact["path"]).read_bytes()
@@ -307,7 +324,9 @@ class SecurityAgentRunner:
                 )
         return [artifact_entry]
 
-    def _scan_paths(self, *, workspace_path: str, paths_to_check: list[Any], findings: list[dict[str, Any]]) -> None:
+    def _scan_paths(
+        self, *, workspace_path: str, paths_to_check: list[Any], findings: list[dict[str, Any]]
+    ) -> None:
         workspace = Path(workspace_path).resolve(strict=False)
         for index, raw_path in enumerate(paths_to_check):
             if not isinstance(raw_path, str) or not raw_path.strip():
@@ -320,7 +339,11 @@ class SecurityAgentRunner:
                 )
                 continue
             candidate = Path(raw_path)
-            resolved = candidate.resolve(strict=False) if candidate.is_absolute() else (workspace / candidate).resolve(strict=False)
+            resolved = (
+                candidate.resolve(strict=False)
+                if candidate.is_absolute()
+                else (workspace / candidate).resolve(strict=False)
+            )
             if not _inside(resolved, workspace):
                 findings.append(
                     _finding(
@@ -348,7 +371,11 @@ class SecurityAgentRunner:
                     )
                 )
                 continue
-            if not isinstance(argv, list) or not argv or not all(isinstance(item, str) and item for item in argv):
+            if (
+                not isinstance(argv, list)
+                or not argv
+                or not all(isinstance(item, str) and item for item in argv)
+            ):
                 findings.append(
                     _finding(
                         check_id="dangerous_command",
@@ -376,7 +403,9 @@ class SecurityAgentRunner:
                     )
                 )
 
-    def _scan_policy_decisions(self, *, project_id: str, workspace_id: str, findings: list[dict[str, Any]]) -> None:
+    def _scan_policy_decisions(
+        self, *, project_id: str, workspace_id: str, findings: list[dict[str, Any]]
+    ) -> None:
         for decision in self.security.list_decisions(project_id=project_id):
             if decision.get("workspaceId") not in {None, workspace_id}:
                 continue
@@ -412,7 +441,9 @@ class SecurityAgentRunner:
     ) -> dict[str, Any]:
         artifact_id = f"artifact-{uuid.uuid4()}"
         content = json_dumps(redact_secrets(payload))
-        artifact_file = write_text_artifact(root=self.root, artifact_id=artifact_id, suffix=".security.json", content=content)
+        artifact_file = write_text_artifact(
+            root=self.root, artifact_id=artifact_id, suffix=".security.json", content=content
+        )
         return self.evidence.create_artifact(
             artifact_id=artifact_id,
             project_id=project_id,
@@ -468,7 +499,9 @@ class SecurityAgentRunner:
     ) -> dict[str, Any]:
         artifact_id = f"artifact-{uuid.uuid4()}"
         content = json_dumps(redact_secrets(payload))
-        artifact_file = write_text_artifact(root=self.root, artifact_id=artifact_id, suffix=f".{scanner_name}.security.json", content=content)
+        artifact_file = write_text_artifact(
+            root=self.root, artifact_id=artifact_id, suffix=f".{scanner_name}.security.json", content=content
+        )
         return self.evidence.create_artifact(
             artifact_id=artifact_id,
             project_id=project_id,
@@ -486,7 +519,9 @@ class SecurityAgentRunner:
             },
         )
 
-    def _skipped_scanner_result(self, *, name: str, reason: str, executable: str | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
+    def _skipped_scanner_result(
+        self, *, name: str, reason: str, executable: str | None = None
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
         scanner = {
             "name": name,
             "status": "skipped_with_reason",
@@ -575,7 +610,8 @@ class SecurityAgentRunner:
             execution_result = {
                 "executed": False,
                 "blocked": True,
-                "reason": payload.get("decisionReason") or "Scanner execution did not produce a broker execution result.",
+                "reason": payload.get("decisionReason")
+                or "Scanner execution did not produce a broker execution result.",
                 "returnCode": None,
             }
         return {
@@ -643,7 +679,9 @@ class SecurityAgentRunner:
             "stderr": result.get("stderr", ""),
             "report": parsed_report,
         }
-        report_artifact = self._write_scanner_report_artifact(project_id=project_id, scanner_name=scanner_name, payload=report_payload)
+        report_artifact = self._write_scanner_report_artifact(
+            project_id=project_id, scanner_name=scanner_name, payload=report_payload
+        )
         report_hash = str(report_artifact["hash"])
         entries = parsed_report if isinstance(parsed_report, list) else []
         findings: list[dict[str, Any]] = []
@@ -683,7 +721,9 @@ class SecurityAgentRunner:
             reason = "Gitleaks completed with no secret findings."
         else:
             status = "failed"
-            reason = f"Gitleaks exited with code {result.get('returnCode')} without parseable secret findings."
+            reason = (
+                f"Gitleaks exited with code {result.get('returnCode')} without parseable secret findings."
+            )
 
         scanner_executable = bool(result.get("executed")) and not bool(result.get("blocked"))
         scanner = {
@@ -731,7 +771,9 @@ class SecurityAgentRunner:
             )
             if value is not None
         ).lower()
-        return any(token in haystack for token in ("secret", "credential", "api-key", "apikey", "token", "password"))
+        return any(
+            token in haystack for token in ("secret", "credential", "api-key", "apikey", "token", "password")
+        )
 
     def _run_semgrep_scanner(
         self,
@@ -797,7 +839,9 @@ class SecurityAgentRunner:
             "stderr": result.get("stderr", ""),
             "report": parsed_report,
         }
-        report_artifact = self._write_scanner_report_artifact(project_id=project_id, scanner_name=scanner_name, payload=report_payload)
+        report_artifact = self._write_scanner_report_artifact(
+            project_id=project_id, scanner_name=scanner_name, payload=report_payload
+        )
         report_hash = str(report_artifact["hash"])
         results = parsed_report.get("results") if isinstance(parsed_report, dict) else []
         findings: list[dict[str, Any]] = []
@@ -813,7 +857,10 @@ class SecurityAgentRunner:
                     check_id="semgrep_secret" if severity == "critical" else "semgrep_finding",
                     severity=severity,
                     message=f"Semgrep detected {rule_id}: {extra.get('message') or rule_id}.",
-                    location=_redacted_location(str(item.get("path") or ""), start.get("line") if isinstance(start.get("line"), int) else None),
+                    location=_redacted_location(
+                        str(item.get("path") or ""),
+                        start.get("line") if isinstance(start.get("line"), int) else None,
+                    ),
                     evidence={
                         "scanner": scanner_name,
                         "ruleId": rule_id,
@@ -901,7 +948,9 @@ class SecurityAgentRunner:
 
     def _model_runtime(self, preferred_runtime: str | None) -> dict[str, Any] | None:
         statuses = RuntimeStatusService(self.connection).list_provider_statuses()
-        eligible = [runtime for runtime in statuses if str(runtime.get("id") or "") in SECURITY_AGENT_MODEL_RUNTIMES]
+        eligible = [
+            runtime for runtime in statuses if str(runtime.get("id") or "") in SECURITY_AGENT_MODEL_RUNTIMES
+        ]
         if preferred_runtime:
             return next((runtime for runtime in eligible if runtime.get("id") == preferred_runtime), None)
         status = security_agent_status(statuses)
@@ -973,7 +1022,8 @@ class SecurityAgentRunner:
             "runtimeId": runtime_id,
             "toolCallId": tool_call["id"],
             "outputArtifactId": execution_result.get("outputArtifactId"),
-            "reason": execution_result.get("reason") or (tool_call.get("payload") or {}).get("decisionReason"),
+            "reason": execution_result.get("reason")
+            or (tool_call.get("payload") or {}).get("decisionReason"),
         }
 
     def run(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -990,7 +1040,11 @@ class SecurityAgentRunner:
             status="running",
             workflow_run_id=workflow_run_id,
             workflow_step_id=workflow_step_id,
-            payload={"taskId": task_id, "workspaceId": workspace["id"], "diffArtifactId": payload.get("diffArtifactId")},
+            payload={
+                "taskId": task_id,
+                "workspaceId": workspace["id"],
+                "diffArtifactId": payload.get("diffArtifactId"),
+            },
         )
         job = job_result["job"]
         agent_run = self.agents.create_agent_run(
@@ -1008,17 +1062,23 @@ class SecurityAgentRunner:
         findings: list[dict[str, Any]] = []
         files_scanned, dependency_files = self._scan_workspace_files(workspace["path"], findings)
         diff_artifacts = self._scan_diff_artifact(diff_artifact, findings)
-        self._scan_paths(workspace_path=workspace["path"], paths_to_check=payload.get("pathsToCheck") or [], findings=findings)
+        self._scan_paths(
+            workspace_path=workspace["path"],
+            paths_to_check=payload.get("pathsToCheck") or [],
+            findings=findings,
+        )
         self._scan_commands(payload.get("commandCandidates") or [], findings)
         self._scan_policy_decisions(project_id=project_id, workspace_id=workspace["id"], findings=findings)
         scanner_broker = ToolBroker(self.connection, artifact_root=self.root)
-        external_scanners, scanner_findings, scanner_artifact_ids, scanner_test_results = self._run_external_scanners(
-            broker=scanner_broker,
-            project_id=project_id,
-            workspace=workspace,
-            agent_run=agent_run,
-            job=job,
-            profile=profile,
+        external_scanners, scanner_findings, scanner_artifact_ids, scanner_test_results = (
+            self._run_external_scanners(
+                broker=scanner_broker,
+                project_id=project_id,
+                workspace=workspace,
+                agent_run=agent_run,
+                job=job,
+                profile=profile,
+            )
         )
         findings.extend(scanner_findings)
         verdict, reason = self._verdict(findings)
@@ -1044,7 +1104,11 @@ class SecurityAgentRunner:
         if model_analysis:
             findings_payload["modelAnalysis"] = model_analysis
         findings_artifact = self._write_findings_artifact(project_id=project_id, payload=findings_payload)
-        artifact_ids = [findings_artifact["id"], *scanner_artifact_ids, *[item["artifactId"] for item in diff_artifacts]]
+        artifact_ids = [
+            findings_artifact["id"],
+            *scanner_artifact_ids,
+            *[item["artifactId"] for item in diff_artifacts],
+        ]
         if model_analysis and isinstance(model_analysis.get("outputArtifactId"), str):
             artifact_ids.append(str(model_analysis["outputArtifactId"]))
         qa_verdict = {
@@ -1092,7 +1156,15 @@ class SecurityAgentRunner:
                     "filesScanned": len(files_scanned),
                     "dependencyFiles": len(dependency_files),
                     "outputRef": findings_artifact["id"],
-                    "metadata": {"checks": ["secret_scan", "dangerous_command", "dependency_file_scan", "policy_violation", "path_traversal"]},
+                    "metadata": {
+                        "checks": [
+                            "secret_scan",
+                            "dangerous_command",
+                            "dependency_file_scan",
+                            "policy_violation",
+                            "path_traversal",
+                        ]
+                    },
                 },
                 *scanner_test_results,
             ],
@@ -1108,7 +1180,11 @@ class SecurityAgentRunner:
             ],
             risk_notes=[
                 {
-                    "severity": "low" if verdict == "passed" else "critical" if verdict == "blocked" else "high",
+                    "severity": "low"
+                    if verdict == "passed"
+                    else "critical"
+                    if verdict == "blocked"
+                    else "high",
                     "description": reason,
                     "mitigation": "Review SecurityAgent findings and remove blocked secrets, traversal, dangerous flags, or policy violations.",
                 }
@@ -1123,7 +1199,9 @@ class SecurityAgentRunner:
                 "filesScanned": len(files_scanned),
                 "dependencyFiles": len(dependency_files),
                 "externalScanners": external_scanners,
-                "modelAnalysisStatus": (model_analysis or {}).get("status") if model_analysis else "not_requested",
+                "modelAnalysisStatus": (model_analysis or {}).get("status")
+                if model_analysis
+                else "not_requested",
             },
             model_calls=[],
             tool_calls=tool_calls,
@@ -1135,7 +1213,9 @@ class SecurityAgentRunner:
             qa_verdict=qa_verdict,
         )
         for artifact_id in artifact_ids:
-            self.evidence.attach_artifact_to_evidence(artifact_id=artifact_id, evidence_package_id=evidence["id"])
+            self.evidence.attach_artifact_to_evidence(
+                artifact_id=artifact_id, evidence_package_id=evidence["id"]
+            )
         contract_errors = evidence_package_contract_errors(
             evidence,
             require_runtime_links=verdict == "passed",
@@ -1171,7 +1251,12 @@ class SecurityAgentRunner:
         job = self.jobs.update_job_status(
             job["id"],
             status="completed" if verdict == "passed" else "failed",
-            metadata={"status": verdict, "reason": reason, "evidencePackageId": evidence["id"], "findingsArtifactId": findings_artifact["id"]},
+            metadata={
+                "status": verdict,
+                "reason": reason,
+                "evidencePackageId": evidence["id"],
+                "findingsArtifactId": findings_artifact["id"],
+            },
         )
         return {
             "status": verdict,

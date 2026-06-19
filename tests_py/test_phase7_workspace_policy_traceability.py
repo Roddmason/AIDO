@@ -139,7 +139,9 @@ def test_git_worktree_request_creates_branch_and_records_metadata(tmp_path: Path
 
 
 @pytest.mark.skipif(shutil.which("git") is None, reason="git CLI is not available")
-def test_archiving_git_worktree_removes_workspace_and_archives_branch_metadata(tmp_path: Path, monkeypatch) -> None:
+def test_archiving_git_worktree_removes_workspace_and_archives_branch_metadata(
+    tmp_path: Path, monkeypatch
+) -> None:
     store, client, headers = make_app(tmp_path, monkeypatch)
     repo = tmp_path / "cleanup-repo"
     repo.mkdir()
@@ -194,7 +196,9 @@ def test_workflow_workspace_evidence_traceability_is_exposed(tmp_path: Path, mon
         json={"projectId": project["id"], "title": "Trace story"},
         headers=headers,
     ).json()["workflow"]
-    run = client.post(f"/api/v1/workflows/{workflow['id']}/start", json={"reason": "trace"}, headers=headers).json()
+    run = client.post(
+        f"/api/v1/workflows/{workflow['id']}/start", json={"reason": "trace"}, headers=headers
+    ).json()
     workflow_run = run["workflowRun"]
     workspace_step = next(step for step in run["workflowSteps"] if step["name"] == "workspace_create")
 
@@ -241,7 +245,9 @@ def test_workflow_detail_exposes_linked_jobs_and_agent_runs(tmp_path: Path, monk
         json={"projectId": project["id"], "title": "Link story"},
         headers=headers,
     ).json()["workflow"]
-    started = client.post(f"/api/v1/workflows/{workflow['id']}/start", json={"reason": "link"}, headers=headers).json()
+    started = client.post(
+        f"/api/v1/workflows/{workflow['id']}/start", json={"reason": "link"}, headers=headers
+    ).json()
     workflow_run = started["workflowRun"]
     implementation_step = next(step for step in started["workflowSteps"] if step["name"] == "implementation")
 

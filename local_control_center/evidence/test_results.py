@@ -3,15 +3,17 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 import re
 import xml.etree.ElementTree as ET
 from typing import Any
 
-
 MAX_TEST_REPORT_BYTES = 2_000_000
-PYTEST_COUNT_RE = re.compile(r"(?P<count>\d+)\s+(?P<status>passed|failed|error|errors|skipped|xfailed|xpassed)")
+PYTEST_COUNT_RE = re.compile(
+    r"(?P<count>\d+)\s+(?P<status>passed|failed|error|errors|skipped|xfailed|xpassed)"
+)
 PYTEST_DURATION_RE = re.compile(r"in\s+(?P<seconds>\d+(?:\.\d+)?)s")
 
 

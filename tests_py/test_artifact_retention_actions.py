@@ -16,7 +16,9 @@ def auth_headers(client: TestClient) -> dict[str, str]:
 
 
 def make_expired_artifact(tmp_path: Path, store: ControlPlaneFixture) -> tuple[dict, dict]:
-    project = store.create_project(name="Retention Action", path=tmp_path / "retention-action", template_id="other")
+    project = store.create_project(
+        name="Retention Action", path=tmp_path / "retention-action", template_id="other"
+    )
     repo = EvidenceRepository(store.connection)
     evidence = repo.create_evidence_package(
         project_id=project["id"],
@@ -46,7 +48,9 @@ def make_expired_artifact(tmp_path: Path, store: ControlPlaneFixture) -> tuple[d
     return evidence, artifact
 
 
-def test_retention_delete_removes_expired_physical_file_but_keeps_audit_record(tmp_path: Path, monkeypatch) -> None:
+def test_retention_delete_removes_expired_physical_file_but_keeps_audit_record(
+    tmp_path: Path, monkeypatch
+) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
     store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
     store.init()
@@ -76,7 +80,9 @@ def test_retention_delete_removes_expired_physical_file_but_keeps_audit_record(t
     assert refreshed["evidencePackageId"]
     assert refreshed["metadata"]["retentionAction"]["action"] == "delete"
     assert any(event["type"] == "evidence.artifact.retention_delete" for event in store.events.list_events())
-    assert any(event["action"] == "evidence.artifact.retention.delete" for event in store.events.list_audit_events())
+    assert any(
+        event["action"] == "evidence.artifact.retention.delete" for event in store.events.list_audit_events()
+    )
 
 
 def test_retention_export_records_manifest_without_deleting_file(tmp_path: Path, monkeypatch) -> None:

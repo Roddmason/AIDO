@@ -11,7 +11,7 @@ import { useI18n } from '../../i18n/I18nProvider';
 
 export type WorkbenchTabId = 'task' | 'timeline' | 'diff' | 'evidence' | 'logs';
 /** Descriptor the page passes per tab; `count` renders an optional badge (e.g. pending items). */
-export type WorkbenchTabDef = { id: WorkbenchTabId; label: string; count?: number };
+type WorkbenchTabDef = { id: WorkbenchTabId; label: string; count?: number };
 
 /** Accessible tablist whose selected panel wraps `children`; selection is fully controlled. */
 export function WorkbenchTabs({

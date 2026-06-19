@@ -50,7 +50,7 @@ export interface ReviewItem {
 }
 
 /** Maximum decided actions surfaced in the Done column (informational feed). */
-export const DONE_LIMIT = 25;
+const DONE_LIMIT = 25;
 
 const RISK_RANK: Record<string, number> = { critical: 4, high: 3, medium: 2, low: 1 };
 
@@ -75,7 +75,7 @@ export function prettyJson(value: unknown): string {
  * refs, diff refs (string or `{artifactId,...}` shapes) and payload keys. The
  * union an artifact must match to count as "linked" to this action.
  */
-export function referenceIds(action: ActionRequest): Set<string> {
+function referenceIds(action: ActionRequest): Set<string> {
 	const ids = new Set<string>();
 	for (const ref of action.evidenceRefs ?? []) ids.add(String(ref));
 	for (const ref of action.diffRefs ?? []) {
@@ -152,7 +152,7 @@ export function requiresPatchEvidenceGate(action: ActionRequest): boolean {
 }
 
 /** Identifies the security-findings artifact by its display name or kind. */
-export function isSecurityFindingsArtifact(artifact: Artifact): boolean {
+function isSecurityFindingsArtifact(artifact: Artifact): boolean {
 	const name = artifactDisplayName(artifact).toLowerCase();
 	const kind = String(artifact.kind ?? '').toLowerCase();
 	return name === 'security-findings.json' || kind.includes('security_findings');
@@ -163,7 +163,7 @@ export function findSecurityFindingsArtifact(artifacts: Artifact[]): Artifact | 
 }
 
 /** Whether an evidence package recorded at least one QA test result with `status: passed`. */
-export function evidenceHasPassingQa(evidence: Overview['evidencePackages'][number]): boolean {
+function evidenceHasPassingQa(evidence: Overview['evidencePackages'][number]): boolean {
 	return (evidence.testResults ?? []).some((result) => {
 		const record = asRecord(result);
 		const status = String(record.status ?? '').toLowerCase();

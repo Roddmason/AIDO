@@ -442,13 +442,6 @@ export function retryJob(token: string, jobId: string, reason: string) {
 	});
 }
 
-export function createWorkflow(token: string, projectId: string, title: string) {
-	return requestGeneratedOperation('create_workflow_api_v1_workflows_post', {
-		token,
-		body: { projectId, title, kind: 'idea_to_pr' },
-	});
-}
-
 export function createWorkflowWithBody(
 	token: string,
 	body: MutationBody<'create_workflow_api_v1_workflows_post'>,

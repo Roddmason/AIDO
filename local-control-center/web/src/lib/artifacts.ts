@@ -7,7 +7,9 @@ import type { ArtifactPayload } from '../api/client';
 import type { Artifact, Dictionary } from '../api/types';
 
 export function artifactMetadata(artifact: Artifact): Dictionary {
-	return (artifact.metadata && typeof artifact.metadata === 'object' ? artifact.metadata : {}) as Dictionary;
+	return (
+		artifact.metadata && typeof artifact.metadata === 'object' ? artifact.metadata : {}
+	) as Dictionary;
 }
 
 export function artifactDisplayName(artifact: Artifact): string {

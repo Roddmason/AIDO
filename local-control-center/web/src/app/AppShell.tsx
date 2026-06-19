@@ -3,16 +3,17 @@
  * @copyright Copyright (c) AIDO.
  * @author Roddmason
  */
-import { useState } from 'react';
+
 import type { ReactNode, Ref } from 'react';
+import { useState } from 'react';
 
 import type { Overview, Project, RuntimeProviders } from '../api/types';
 import { ActivityBar } from './ActivityBar';
 import { ExplorerPanel } from './ExplorerPanel';
 import { InspectorPanel } from './InspectorPanel';
+import type { AreaId, PageId } from './navigation';
 import { StatusBar } from './StatusBar';
 import { WorkbenchHeader } from './WorkbenchHeader';
-import type { AreaId, PageId } from './navigation';
 
 type LanguageOption = { code: string; name: string; nativeName: string; enabled: boolean };
 
@@ -65,7 +66,11 @@ export function AppShell({
 	const [inspectorOpen, setInspectorOpen] = useState(false);
 
 	return (
-		<div className="app-shell-ide" data-explorer={explorerCollapsed ? 'false' : 'true'} data-inspector={inspectorOpen ? 'true' : 'false'}>
+		<div
+			className="app-shell-ide"
+			data-explorer={explorerCollapsed ? 'false' : 'true'}
+			data-inspector={inspectorOpen ? 'true' : 'false'}
+		>
 			<span className="console-grid" aria-hidden="true" />
 
 			<ActivityBar

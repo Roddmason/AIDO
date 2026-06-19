@@ -3,14 +3,20 @@
  * @copyright Copyright (c) AIDO.
  * @author Roddmason
  */
-import { useMemo, useState } from 'react';
+
 import { ArrowRight, RefreshCw } from 'lucide-react';
+import { useMemo, useState } from 'react';
 
 import { healthCheckModelGatewayProvider } from '../../api/client';
 import type { RuntimeProviderConfiguration, RuntimeProviders } from '../../api/types';
 import { StatusDot } from '../../components/primitives';
 import { useI18n } from '../../i18n/I18nProvider';
-import { STATE_META, apiProviderIdsNeedingProbe, deriveRuntimeState, mergeProviders } from './runtimeSetup';
+import {
+	apiProviderIdsNeedingProbe,
+	deriveRuntimeState,
+	mergeProviders,
+	STATE_META,
+} from './runtimeSetup';
 
 type RuntimeSetupInspectorCardProps = {
 	runtimeProviders: RuntimeProviders | null;
@@ -34,7 +40,9 @@ export function RuntimeSetupInspectorCard({
 		() => mergeProviders(runtimeProviders?.providers, runtimeProviderConfiguration),
 		[runtimeProviders, runtimeProviderConfiguration],
 	);
-	const executableCount = providers.filter((provider) => deriveRuntimeState(provider) === 'executable').length;
+	const executableCount = providers.filter(
+		(provider) => deriveRuntimeState(provider) === 'executable',
+	).length;
 	const headline = !runtimeProviders
 		? t('app.runtime.inspector.pending', 'Runtime discovery pending')
 		: executableCount > 0
@@ -63,9 +71,14 @@ export function RuntimeSetupInspectorCard({
 			</div>
 			<div className="inline">
 				<strong className="tnum">{executableCount}</strong>
-				<span className="muted">/ {providers.length} {t('app.runtime.executable', 'executable')}</span>
+				<span className="muted">
+					/ {providers.length} {t('app.runtime.executable', 'executable')}
+				</span>
 			</div>
-			<ul className="stack compact" aria-label={t('app.runtime.inspector.list', 'Runtime providers')}>
+			<ul
+				className="stack compact"
+				aria-label={t('app.runtime.inspector.list', 'Runtime providers')}
+			>
 				{providers.map((provider) => {
 					const state = deriveRuntimeState(provider);
 					const meta = STATE_META[state];
@@ -78,7 +91,13 @@ export function RuntimeSetupInspectorCard({
 					);
 				})}
 			</ul>
-			<button className="button" type="button" disabled={refreshing} aria-busy={refreshing} onClick={() => void refreshHealth()}>
+			<button
+				className="button"
+				type="button"
+				disabled={refreshing}
+				aria-busy={refreshing}
+				onClick={() => void refreshHealth()}
+			>
 				<RefreshCw aria-hidden="true" size={15} />
 				{t('app.runtime.refresh', 'Refresh health')}
 			</button>

@@ -3,8 +3,9 @@
  * @copyright Copyright (c) AIDO.
  * @author Roddmason
  */
-import { pageIds } from './navigation';
+
 import type { PageId } from './navigation';
+import { pageIds } from './navigation';
 
 /** The canonical destination the shell is currently showing. Backed by the
  *  URL hash; equals a {@link PageId} so the page router and navigation registry

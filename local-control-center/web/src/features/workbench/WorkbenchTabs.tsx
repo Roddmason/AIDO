@@ -3,8 +3,9 @@
  * @copyright Copyright (c) AIDO.
  * @author Roddmason
  */
-import { useRef } from 'react';
+
 import type { KeyboardEvent, ReactNode } from 'react';
+import { useRef } from 'react';
 
 import { Badge } from '../../components/primitives';
 import { useI18n } from '../../i18n/I18nProvider';
@@ -50,7 +51,13 @@ export function WorkbenchTabs({
 
 	return (
 		<div className="workbench-tabs">
-			<div className="tabs" role="tablist" aria-label={t('app.workbench.tabs.aria', 'Workbench views')} aria-orientation="horizontal" onKeyDown={onKeyDown}>
+			<div
+				className="tabs"
+				role="tablist"
+				aria-label={t('app.workbench.tabs.aria', 'Workbench views')}
+				aria-orientation="horizontal"
+				onKeyDown={onKeyDown}
+			>
 				{tabs.map((tab) => {
 					const selected = tab.id === activeTab;
 					return (
@@ -69,12 +76,20 @@ export function WorkbenchTabs({
 							onClick={() => onChangeTab(tab.id)}
 						>
 							<span>{tab.label}</span>
-							{typeof tab.count === 'number' && tab.count > 0 ? <Badge tone={selected ? 'info' : undefined}>{tab.count}</Badge> : null}
+							{typeof tab.count === 'number' && tab.count > 0 ? (
+								<Badge tone={selected ? 'info' : undefined}>{tab.count}</Badge>
+							) : null}
 						</button>
 					);
 				})}
 			</div>
-			<section role="tabpanel" id={`wb-panel-${activeTab}`} aria-labelledby={`wb-tab-${activeTab}`} tabIndex={0} className="workbench-tabpanel">
+			<section
+				role="tabpanel"
+				id={`wb-panel-${activeTab}`}
+				aria-labelledby={`wb-tab-${activeTab}`}
+				tabIndex={0}
+				className="workbench-tabpanel"
+			>
 				{children}
 			</section>
 		</div>

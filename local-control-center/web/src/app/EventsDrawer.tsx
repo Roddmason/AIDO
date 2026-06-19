@@ -31,9 +31,15 @@ export function EventsDrawer({
 			const payload = JSON.stringify(event.payload ?? {}).toLowerCase();
 			return (
 				event.type.toLowerCase().includes(query) ||
-				String(event.severity ?? '').toLowerCase().includes(query) ||
-				String(event.projectId ?? '').toLowerCase().includes(query) ||
-				String(event.jobId ?? '').toLowerCase().includes(query) ||
+				String(event.severity ?? '')
+					.toLowerCase()
+					.includes(query) ||
+				String(event.projectId ?? '')
+					.toLowerCase()
+					.includes(query) ||
+				String(event.jobId ?? '')
+					.toLowerCase()
+					.includes(query) ||
 				payload.includes(query)
 			);
 		});
@@ -55,11 +61,26 @@ export function EventsDrawer({
 			</div>
 			<DataTable
 				rows={filteredEvents.slice(0, 16)}
-				empty={<EmptyState title="No events" body="Workflow, job, policy, and evidence events appear here." />}
+				empty={
+					<EmptyState
+						title="No events"
+						body="Workflow, job, policy, and evidence events appear here."
+					/>
+				}
 				columns={[
 					{ key: 'type', label: 'Type', render: (row) => <span className="mono">{row.type}</span> },
-					{ key: 'severity', label: 'Severity', render: (row) => <Badge tone={toneForStatus(row.severity)}>{row.severity ?? 'info'}</Badge> },
-					{ key: 'id', label: 'Event', render: (row) => <span className="mono">{shortId(row.id)}</span> },
+					{
+						key: 'severity',
+						label: 'Severity',
+						render: (row) => (
+							<Badge tone={toneForStatus(row.severity)}>{row.severity ?? 'info'}</Badge>
+						),
+					},
+					{
+						key: 'id',
+						label: 'Event',
+						render: (row) => <span className="mono">{shortId(row.id)}</span>,
+					},
 				]}
 			/>
 		</Drawer>

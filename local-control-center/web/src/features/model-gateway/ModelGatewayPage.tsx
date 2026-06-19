@@ -9,9 +9,9 @@ import {
 	createModelGatewayRolePolicy,
 	detectModelGatewayCliRuntime,
 	discoverModelGatewayProviderModels,
-	getModelGatewayBudgetRules,
-	getModelGatewayBenchmarks,
 	getModelGatewayBenchmarkOutcomes,
+	getModelGatewayBenchmarks,
+	getModelGatewayBudgetRules,
 	getModelGatewayCliRuntimes,
 	getModelGatewayCliSessions,
 	getModelGatewayModels,
@@ -23,13 +23,13 @@ import {
 	getModelGatewayRoutingProfiles,
 	getModelGatewayUsageLedger,
 	getModelGatewayUsageSummary,
-	getRuntimeProviders,
 	getRuntimeProviderConfiguration,
+	getRuntimeProviders,
 	healthCheckModelGatewayProvider,
+	type ModelGatewayRoutePreviewResponse,
 	patchModelGatewayProvider,
 	previewModelRoute,
 	recordModelGatewayBenchmarkOutcome,
-	type ModelGatewayRoutePreviewResponse,
 } from '../../api/client';
 import type {
 	ModelGatewayBenchmark,
@@ -117,12 +117,22 @@ const emptyGatewayState: ModelGatewayState = {
 	runtimeProviderConfiguration: [],
 };
 
-function upsertNewestById<T extends { id: string; updatedAt?: string; createdAt?: string }>(records: T[], incoming: T) {
+function upsertNewestById<T extends { id: string; updatedAt?: string; createdAt?: string }>(
+	records: T[],
+	incoming: T,
+) {
 	const existing = records.find((record) => record.id === incoming.id);
 	const incomingTime = Date.parse(String(incoming.updatedAt ?? incoming.createdAt ?? ''));
 	const existingTime = Date.parse(String(existing?.updatedAt ?? existing?.createdAt ?? ''));
-	if (existing && !Number.isNaN(existingTime) && (Number.isNaN(incomingTime) || existingTime > incomingTime)) return records;
-	return existing ? records.map((record) => (record.id === incoming.id ? incoming : record)) : [incoming, ...records];
+	if (
+		existing &&
+		!Number.isNaN(existingTime) &&
+		(Number.isNaN(incomingTime) || existingTime > incomingTime)
+	)
+		return records;
+	return existing
+		? records.map((record) => (record.id === incoming.id ? incoming : record))
+		: [incoming, ...records];
 }
 
 function benchmarkFromOutcome(outcome: ModelGatewayBenchmarkOutcome): ModelGatewayBenchmark {
@@ -146,8 +156,10 @@ function benchmarkFromOutcome(outcome: ModelGatewayBenchmarkOutcome): ModelGatew
 		successRate: objectiveTasksAttempted ? (outcome.success ? 1 : 0) : null,
 		qaPassRate: objectiveTasksAttempted ? (outcome.qaPass ? 1 : 0) : null,
 		reworkRate: objectiveTasksAttempted ? (outcome.rework ? 1 : 0) : null,
-		avgCost: objectiveTasksAttempted ? outcome.actualCostUsd ?? outcome.estimatedCostUsd ?? null : null,
-		avgLatencyMs: objectiveTasksAttempted ? outcome.latencyMs ?? null : null,
+		avgCost: objectiveTasksAttempted
+			? (outcome.actualCostUsd ?? outcome.estimatedCostUsd ?? null)
+			: null,
+		avgLatencyMs: objectiveTasksAttempted ? (outcome.latencyMs ?? null) : null,
 		lastUsedAt: createdAt,
 		insufficientData: objectiveTasksAttempted < 3,
 		provenanceCounts: {
@@ -166,7 +178,9 @@ function policyBudgetUsd(row: Overview['modelPolicies'][number] | ModelGatewayRo
 }
 
 function sumRecordedCost(rows: Overview['costUsage']) {
-	const amounts = rows.map((row) => Number(row.amountUsd)).filter((amount) => Number.isFinite(amount));
+	const amounts = rows
+		.map((row) => Number(row.amountUsd))
+		.filter((amount) => Number.isFinite(amount));
 	return amounts.length ? amounts.reduce((sum, amount) => sum + amount, 0) : null;
 }
 
@@ -230,7 +244,9 @@ export function ModelGatewayPage({
 	const [benchmarkCost, setBenchmarkCost] = useState('');
 	const [benchmarkLatency, setBenchmarkLatency] = useState('');
 	const [benchmarkError, setBenchmarkError] = useState('');
-	const [runtimeProviderState, setRuntimeProviderState] = useState<RuntimeProviders | null>(runtimeProviders);
+	const [runtimeProviderState, setRuntimeProviderState] = useState<RuntimeProviders | null>(
+		runtimeProviders,
+	);
 
 	useEffect(() => {
 		setRuntimeProviderState(runtimeProviders);
@@ -304,7 +320,14 @@ export function ModelGatewayPage({
 				.then((runtimeProviderStatus) => setRuntimeProviderState(runtimeProviderStatus))
 				.catch(() => undefined);
 		} catch (loadError) {
-			setError(loadError instanceof Error ? loadError.message : tRef.current('app.modelGateway.error.stateLoadFailed', 'Model Gateway state failed to load.'));
+			setError(
+				loadError instanceof Error
+					? loadError.message
+					: tRef.current(
+							'app.modelGateway.error.stateLoadFailed',
+							'Model Gateway state failed to load.',
+						),
+			);
 		} finally {
 			setLoading(false);
 		}
@@ -318,7 +341,14 @@ export function ModelGatewayPage({
 		const query = usageFilter.trim().toLowerCase();
 		if (!query) return gateway.usageLedger;
 		return gateway.usageLedger.filter((row) =>
-			[text(row.providerId), text(row.model), text(row.role), text(row.runtimeType), text(row.workflowRunId), text(row.agentId)]
+			[
+				text(row.providerId),
+				text(row.model),
+				text(row.role),
+				text(row.runtimeType),
+				text(row.workflowRunId),
+				text(row.agentId),
+			]
 				.join(' ')
 				.toLowerCase()
 				.includes(query),
@@ -329,7 +359,14 @@ export function ModelGatewayPage({
 		const query = decisionFilter.trim().toLowerCase();
 		if (!query) return gateway.routingDecisions;
 		return gateway.routingDecisions.filter((row) =>
-			[text(row.role), text(row.taskType), text(row.mode), text(row.selectedProvider), text(row.selectedModel), text(row.decisionReason)]
+			[
+				text(row.role),
+				text(row.taskType),
+				text(row.mode),
+				text(row.selectedProvider),
+				text(row.selectedModel),
+				text(row.decisionReason),
+			]
 				.join(' ')
 				.toLowerCase()
 				.includes(query),
@@ -349,13 +386,20 @@ export function ModelGatewayPage({
 				),
 			);
 		return [
-			{ provider: 'ollama', models: Array.from(new Set([...(runtimeProviderState?.ollama.models ?? []), ...modelsFor('ollama')])), remote: false },
+			{
+				provider: 'ollama',
+				models: Array.from(
+					new Set([...(runtimeProviderState?.ollama.models ?? []), ...modelsFor('ollama')]),
+				),
+				remote: false,
+			},
 			{ provider: 'openai_compatible', models: modelsFor('openai_compatible'), remote: true },
 			{ provider: 'openrouter', models: modelsFor('openrouter'), remote: true },
 			{ provider: 'openai_agents', models: modelsFor('openai_agents'), remote: true },
 		];
 	}, [gateway.models, policyCatalogLoaded, policyCatalogModels, runtimeProviderState]);
-	const modelOptions = providerCatalog.find((item) => item.provider === policyProvider)?.models ?? [];
+	const modelOptions =
+		providerCatalog.find((item) => item.provider === policyProvider)?.models ?? [];
 	useEffect(() => {
 		const currentCatalog = providerCatalog.find((item) => item.provider === policyProvider);
 		if (!currentCatalog || currentCatalog.models.length === 0) {
@@ -372,7 +416,10 @@ export function ModelGatewayPage({
 	const policyProviderOptions = providerCatalog.filter((item) => item.models.length > 0);
 	const policyCatalogReady = policyCatalogLoaded || !loading;
 	const benchmarkModelOptions = useMemo(() => {
-		const models = gateway.models.filter((item) => item.providerId === benchmarkProvider).map((item) => text(item.model, '')).filter(Boolean);
+		const models = gateway.models
+			.filter((item) => item.providerId === benchmarkProvider)
+			.map((item) => text(item.model, ''))
+			.filter(Boolean);
 		return models.length ? models : [benchmarkModel || 'configured_model'];
 	}, [benchmarkModel, benchmarkProvider, gateway.models]);
 	const visibleModelPolicies = useMemo(() => {
@@ -397,7 +444,9 @@ export function ModelGatewayPage({
 		}
 		return map;
 	}, [runtimeConfigurationRows]);
-	const missingRuntimeConfigCount = runtimeConfigurationRows.filter((row) => row.configured !== true).length;
+	const missingRuntimeConfigCount = runtimeConfigurationRows.filter(
+		(row) => row.configured !== true,
+	).length;
 
 	const runtimeStateBadge = (enabled: boolean, positive: string, negative: string) => (
 		<Badge tone={enabled ? 'ok' : 'warn'}>{enabled ? positive : negative}</Badge>
@@ -414,17 +463,29 @@ export function ModelGatewayPage({
 			} else if (kind === 'api' || kind === 'gateway' || kind === 'local') {
 				await healthCheckModelGatewayProvider(token, runtimeId);
 			} else {
-				throw new Error(`Runtime provider ${runtimeId} does not expose an automated healthcheck endpoint.`);
+				throw new Error(
+					`Runtime provider ${runtimeId} does not expose an automated healthcheck endpoint.`,
+				);
 			}
 			await Promise.all([reload(), onRefreshRuntimeProviders()]);
 		} catch (actionError) {
-			setError(actionError instanceof Error ? actionError.message : t('app.modelGateway.error.runtimeHealthRefreshFailed', 'Runtime healthcheck refresh failed.'));
+			setError(
+				actionError instanceof Error
+					? actionError.message
+					: t(
+							'app.modelGateway.error.runtimeHealthRefreshFailed',
+							'Runtime healthcheck refresh failed.',
+						),
+			);
 		} finally {
 			setBusyAction('');
 		}
 	};
 
-	const runProviderAction = async (providerId: string, action: 'toggle' | 'health' | 'discover') => {
+	const runProviderAction = async (
+		providerId: string,
+		action: 'toggle' | 'health' | 'discover',
+	) => {
 		setBusyAction(`${providerId}:${action}`);
 		setError('');
 		try {
@@ -436,7 +497,11 @@ export function ModelGatewayPage({
 			if (action === 'discover') await discoverModelGatewayProviderModels(token, providerId);
 			await reload();
 		} catch (actionError) {
-			setError(actionError instanceof Error ? actionError.message : t('app.modelGateway.error.providerActionFailed', 'Provider action failed.'));
+			setError(
+				actionError instanceof Error
+					? actionError.message
+					: t('app.modelGateway.error.providerActionFailed', 'Provider action failed.'),
+			);
 		} finally {
 			setBusyAction('');
 		}
@@ -463,7 +528,11 @@ export function ModelGatewayPage({
 			setPreview(result);
 			await reload();
 		} catch (previewError) {
-			setError(previewError instanceof Error ? previewError.message : t('app.modelGateway.error.routePreviewFailed', 'Route preview failed.'));
+			setError(
+				previewError instanceof Error
+					? previewError.message
+					: t('app.modelGateway.error.routePreviewFailed', 'Route preview failed.'),
+			);
 		} finally {
 			setBusyAction('');
 		}
@@ -471,7 +540,12 @@ export function ModelGatewayPage({
 
 	const savePolicy = async () => {
 		if (!/^[a-z0-9_-]{3,64}$/.test(policyId)) {
-			setPolicyError(t('ui.static.policy.id.must.use.lowercase.letters.numbers.dashes.or.under.6c250447', 'Policy id must use lowercase letters, numbers, dashes or underscores.'));
+			setPolicyError(
+				t(
+					'ui.static.policy.id.must.use.lowercase.letters.numbers.dashes.or.under.6c250447',
+					'Policy id must use lowercase letters, numbers, dashes or underscores.',
+				),
+			);
 			return;
 		}
 		if (!policyName.trim()) {
@@ -479,17 +553,32 @@ export function ModelGatewayPage({
 			return;
 		}
 		if (!modelOptions.includes(policyModel)) {
-			setPolicyError(t('ui.static.select.a.model.from.the.catalog.for.the.selected.provider.c2055bb7', 'Select a model from the catalog for the selected provider.'));
+			setPolicyError(
+				t(
+					'ui.static.select.a.model.from.the.catalog.for.the.selected.provider.c2055bb7',
+					'Select a model from the catalog for the selected provider.',
+				),
+			);
 			return;
 		}
 		const maxCost = Number(policyMaxCostUsd);
 		const tokenLimit = Number(policyMaxTokens);
 		if (!Number.isFinite(maxCost) || maxCost < 0) {
-			setPolicyError(t('ui.static.maximum.cost.must.be.zero.or.a.positive.number.7e5a838f', 'Maximum cost must be zero or a positive number.'));
+			setPolicyError(
+				t(
+					'ui.static.maximum.cost.must.be.zero.or.a.positive.number.7e5a838f',
+					'Maximum cost must be zero or a positive number.',
+				),
+			);
 			return;
 		}
 		if (!Number.isInteger(tokenLimit) || tokenLimit < 512 || tokenLimit > 200000) {
-			setPolicyError(t('ui.static.maximum.tokens.must.be.an.integer.between.512.and.200000.c965c1ae', 'Maximum tokens must be an integer between 512 and 200000.'));
+			setPolicyError(
+				t(
+					'ui.static.maximum.tokens.must.be.an.integer.between.512.and.200000.c965c1ae',
+					'Maximum tokens must be an integer between 512 and 200000.',
+				),
+			);
 			return;
 		}
 		setPolicyError('');
@@ -510,7 +599,11 @@ export function ModelGatewayPage({
 			});
 			setCreatedPolicies((current) => [result.rolePolicy, ...current]);
 		} catch (saveError) {
-			setPolicyError(saveError instanceof Error ? saveError.message : t('app.modelGateway.error.policySaveFailed', 'Model policy save failed.'));
+			setPolicyError(
+				saveError instanceof Error
+					? saveError.message
+					: t('app.modelGateway.error.policySaveFailed', 'Model policy save failed.'),
+			);
 		} finally {
 			setBusyAction('');
 		}
@@ -522,11 +615,21 @@ export function ModelGatewayPage({
 		const estimatedCost = costInput ? Number(costInput) : undefined;
 		const latencyMs = latencyInput ? Number(latencyInput) : undefined;
 		if (estimatedCost !== undefined && (!Number.isFinite(estimatedCost) || estimatedCost < 0)) {
-			setBenchmarkError(t('app.modelGateway.error.benchmarkCostInvalid', 'Benchmark cost must be blank, zero or positive.'));
+			setBenchmarkError(
+				t(
+					'app.modelGateway.error.benchmarkCostInvalid',
+					'Benchmark cost must be blank, zero or positive.',
+				),
+			);
 			return;
 		}
 		if (latencyMs !== undefined && (!Number.isInteger(latencyMs) || latencyMs < 0)) {
-			setBenchmarkError(t('app.modelGateway.error.benchmarkLatencyInvalid', 'Benchmark latency must be blank, zero or a positive integer.'));
+			setBenchmarkError(
+				t(
+					'app.modelGateway.error.benchmarkLatencyInvalid',
+					'Benchmark latency must be blank, zero or a positive integer.',
+				),
+			);
 			return;
 		}
 		setBenchmarkError('');
@@ -561,7 +664,11 @@ export function ModelGatewayPage({
 				benchmarkOutcomes: outcomes.outcomes,
 			}));
 		} catch (saveError) {
-			setBenchmarkError(saveError instanceof Error ? saveError.message : t('app.modelGateway.error.benchmarkSaveFailed', 'Benchmark outcome save failed.'));
+			setBenchmarkError(
+				saveError instanceof Error
+					? saveError.message
+					: t('app.modelGateway.error.benchmarkSaveFailed', 'Benchmark outcome save failed.'),
+			);
 		} finally {
 			setBusyAction('');
 		}
@@ -570,119 +677,325 @@ export function ModelGatewayPage({
 	return (
 		<>
 			<PageHeader
-				kicker={t('ui.static.unified.model.runtime.gateway.95fbf5a6', 'Unified Model & Runtime Gateway')}
+				kicker={t(
+					'ui.static.unified.model.runtime.gateway.95fbf5a6',
+					'Unified Model & Runtime Gateway',
+				)}
 				title={t('app.nav.models', 'Model Gateway')}
-				summary={t('ui.static.control.api.model.providers.cli.coding.runtimes.routing.poli.a0fb27d4', 'Control API model providers, CLI coding runtimes, routing policies, token usage, cost, quota and audit decisions from one local-first console.')}
+				summary={t(
+					'ui.static.control.api.model.providers.cli.coding.runtimes.routing.poli.a0fb27d4',
+					'Control API model providers, CLI coding runtimes, routing policies, token usage, cost, quota and audit decisions from one local-first console.',
+				)}
 			/>
-			{error ? <div className="form-error" role="alert">{error}</div> : null}
-			{loading ? <EmptyState title={t('ui.static.loading.model.gateway.132cdca6', 'Loading Model Gateway')} body={t('ui.static.reading.provider.accounts.routing.policies.and.usage.ledger.e6389e35', 'Reading provider accounts, routing policies and usage history.')} /> : null}
+			{error ? (
+				<div className="form-error" role="alert">
+					{error}
+				</div>
+			) : null}
+			{loading ? (
+				<EmptyState
+					title={t('ui.static.loading.model.gateway.132cdca6', 'Loading Model Gateway')}
+					body={t(
+						'ui.static.reading.provider.accounts.routing.policies.and.usage.ledger.e6389e35',
+						'Reading provider accounts, routing policies and usage history.',
+					)}
+				/>
+			) : null}
 
 			<Surface title={t('ui.static.overview.0efc2e6b', 'Overview')}>
 				<div className="grid metrics">
-					<Metric label={t('ui.static.providers.enabled.4cd5c6c6', 'providers enabled')} value={gateway.overview.providersEnabled} />
-					<Metric label={t('ui.static.api.providers.eacba2cf', 'API providers')} value={gateway.overview.apiProviders} />
-					<Metric label={t('ui.static.cli.runtimes.d0947c09', 'CLI runtimes')} value={gateway.overview.cliRuntimes} />
-					<Metric label={t('ui.static.local.providers.64dfa5d6', 'local providers')} value={gateway.overview.localProviders} />
-					<Metric label={t('app.modelGateway.overview.healthy', 'healthy')} value={gateway.overview.healthy} />
-					<Metric label={t('app.modelGateway.overview.degraded', 'degraded')} value={gateway.overview.degraded} />
-					<Metric label={t('app.modelGateway.overview.offline', 'offline')} value={gateway.overview.offline} />
-					<Metric label={t('ui.static.tokens.today.6e3f00fd', 'tokens today')} value={gateway.overview.totalTokensToday} />
-					<Metric label={t('ui.static.estimated.cost.today.bc1751b9', 'estimated cost today')} value={money(gateway.overview.estimatedCostToday, t('app.runtime.card.unknown', 'unknown'))} />
-					<Metric label={t('ui.static.actual.cost.today.e0b8f6a3', 'actual cost today')} value={money(gateway.overview.actualCostToday, t('app.runtime.card.unknown', 'unknown'))} />
-					<Metric label={t('ui.static.pending.model.approvals.5c592baf', 'pending model approvals')} value={gateway.overview.pendingModelApprovals} />
-					<Metric label={t('ui.static.providers.in.cooldown.e5f4bbe2', 'providers in cooldown')} value={gateway.overview.providersInCooldown} />
-					<Metric label={t('ui.static.missing.runtime.config.3ecf7c92', 'missing runtime config')} value={missingRuntimeConfigCount} />
-					<Metric label={t('ui.static.active.cli.sessions.2afa399c', 'active CLI sessions')} value={gateway.overview.activeCliSessions} />
+					<Metric
+						label={t('ui.static.providers.enabled.4cd5c6c6', 'providers enabled')}
+						value={gateway.overview.providersEnabled}
+					/>
+					<Metric
+						label={t('ui.static.api.providers.eacba2cf', 'API providers')}
+						value={gateway.overview.apiProviders}
+					/>
+					<Metric
+						label={t('ui.static.cli.runtimes.d0947c09', 'CLI runtimes')}
+						value={gateway.overview.cliRuntimes}
+					/>
+					<Metric
+						label={t('ui.static.local.providers.64dfa5d6', 'local providers')}
+						value={gateway.overview.localProviders}
+					/>
+					<Metric
+						label={t('app.modelGateway.overview.healthy', 'healthy')}
+						value={gateway.overview.healthy}
+					/>
+					<Metric
+						label={t('app.modelGateway.overview.degraded', 'degraded')}
+						value={gateway.overview.degraded}
+					/>
+					<Metric
+						label={t('app.modelGateway.overview.offline', 'offline')}
+						value={gateway.overview.offline}
+					/>
+					<Metric
+						label={t('ui.static.tokens.today.6e3f00fd', 'tokens today')}
+						value={gateway.overview.totalTokensToday}
+					/>
+					<Metric
+						label={t('ui.static.estimated.cost.today.bc1751b9', 'estimated cost today')}
+						value={money(
+							gateway.overview.estimatedCostToday,
+							t('app.runtime.card.unknown', 'unknown'),
+						)}
+					/>
+					<Metric
+						label={t('ui.static.actual.cost.today.e0b8f6a3', 'actual cost today')}
+						value={money(
+							gateway.overview.actualCostToday,
+							t('app.runtime.card.unknown', 'unknown'),
+						)}
+					/>
+					<Metric
+						label={t('ui.static.pending.model.approvals.5c592baf', 'pending model approvals')}
+						value={gateway.overview.pendingModelApprovals}
+					/>
+					<Metric
+						label={t('ui.static.providers.in.cooldown.e5f4bbe2', 'providers in cooldown')}
+						value={gateway.overview.providersInCooldown}
+					/>
+					<Metric
+						label={t('ui.static.missing.runtime.config.3ecf7c92', 'missing runtime config')}
+						value={missingRuntimeConfigCount}
+					/>
+					<Metric
+						label={t('ui.static.active.cli.sessions.2afa399c', 'active CLI sessions')}
+						value={gateway.overview.activeCliSessions}
+					/>
 				</div>
 			</Surface>
 
 			<Surface title={t('ui.static.runtime.and.model.gateway.45cf9fb6', 'Runtime & Model Gateway')}>
-				<h3 className="section-subtitle">{t('ui.static.runtime.providers.0acdc40d', 'Runtime Providers')}</h3>
-				<DataTable rows={runtimeRows} empty={<EmptyState title={t('ui.static.no.runtime.provider.status.70888a8d', 'No runtime provider status')} body={t('ui.static.runtime.discovery.has.not.returned.provider.status.records.baf9776d', 'Runtime discovery has not returned provider status records.')} />} columns={[
-					{ key: 'id', label: t('ui.static.id.87ea5dfc', 'Id'), render: (row) => <span className="mono">{row.id}</span> },
-					{ key: 'kind', label: t('ui.static.kind.e00ac23f', 'Kind'), render: (row) => <Badge>{row.kind}</Badge> },
-					{ key: 'detected', label: t('app.workspace.detection.found', 'Detected'), render: (row) => runtimeStateBadge(Boolean(row.detected), t('app.modelGateway.runtime.detected', 'detected'), t('app.modelGateway.runtime.notDetected', 'not detected')) },
-					{ key: 'configured', label: t('ui.static.configured.7bde0f0a', 'Configured'), render: (row) => runtimeStateBadge(Boolean(row.configured), t('app.modelGateway.runtime.configured', 'configured'), t('app.modelGateway.runtime.notConfigured', 'not configured')) },
-					{ key: 'available', label: t('ui.static.available.78945de8', 'Available'), render: (row) => runtimeStateBadge(Boolean(row.available), t('app.modelGateway.runtime.available', 'available'), t('app.modelGateway.runtime.notAvailable', 'not available')) },
-					{ key: 'executable', label: t('ui.static.executable.6f703eda', 'Executable'), render: (row) => runtimeStateBadge(Boolean(row.executable), t('app.modelGateway.runtime.executable', 'executable'), t('app.modelGateway.runtime.notExecutable', 'not executable')) },
-					{
-						key: 'healthStatus',
-						label: t('ui.static.health.status.a4a97cf0', 'Health status'),
-						render: (row) => (
-							<Badge tone={row.healthStatus === 'healthy' ? 'ok' : 'warn'}>{redactVisibleSecret(row.healthStatus, t('app.runtime.card.unknown', 'unknown'))}</Badge>
-						),
-					},
-					{
-						key: 'capabilities',
-						label: t('ui.static.capabilities.ca09c54b', 'Capabilities'),
-						render: (row) => (
-							<div className="inline">
-								{row.requiresApproval ? <Badge tone="warn">{t('app.modelGateway.runtime.approvalBadge', 'approval')}</Badge> : null}
-								{row.capabilities?.length ? row.capabilities.map((capability) => <Badge key={capability}>{capability}</Badge>) : <Badge tone="warn">{t('app.workspace.detection.none', 'none')}</Badge>}
-							</div>
-						),
-					},
-					{
-						key: 'configuration',
-						label: t('ui.static.configuration.8ce677fb', 'Configuration'),
-						render: (row) => {
-							const configuration = runtimeConfigurationById.get(String(row.id ?? ''));
-							const configured = configuration?.configured === true || row.configured;
-							const missingFromConfiguration = Array.isArray(configuration?.missing) ? configuration.missing : [];
-							const missingSource = missingFromConfiguration.length || configured ? missingFromConfiguration : row.requiredConfiguration ?? [];
-							const missing = missingSource.map((item) => redactVisibleSecret(item)).filter(Boolean);
-							const variables = Array.isArray(configuration?.variables) ? configuration.variables : [];
-							return (
-								<div className="stack">
-									<Badge tone={configured ? 'ok' : 'warn'}>{text(configuration?.status, configured ? t('app.modelGateway.runtime.configured', 'configured') : 'missing_config')}</Badge>
-									<div className="inline">
-										{missing.length ? missing.map((item) => <Badge key={item} tone="warn">{item}</Badge>) : <Badge tone="ok">{t('app.modelGateway.runtime.noneMissing', 'none missing')}</Badge>}
+				<h3 className="section-subtitle">
+					{t('ui.static.runtime.providers.0acdc40d', 'Runtime Providers')}
+				</h3>
+				<DataTable
+					rows={runtimeRows}
+					empty={
+						<EmptyState
+							title={t(
+								'ui.static.no.runtime.provider.status.70888a8d',
+								'No runtime provider status',
+							)}
+							body={t(
+								'ui.static.runtime.discovery.has.not.returned.provider.status.records.baf9776d',
+								'Runtime discovery has not returned provider status records.',
+							)}
+						/>
+					}
+					columns={[
+						{
+							key: 'id',
+							label: t('ui.static.id.87ea5dfc', 'Id'),
+							render: (row) => <span className="mono">{row.id}</span>,
+						},
+						{
+							key: 'kind',
+							label: t('ui.static.kind.e00ac23f', 'Kind'),
+							render: (row) => <Badge>{row.kind}</Badge>,
+						},
+						{
+							key: 'detected',
+							label: t('app.workspace.detection.found', 'Detected'),
+							render: (row) =>
+								runtimeStateBadge(
+									Boolean(row.detected),
+									t('app.modelGateway.runtime.detected', 'detected'),
+									t('app.modelGateway.runtime.notDetected', 'not detected'),
+								),
+						},
+						{
+							key: 'configured',
+							label: t('ui.static.configured.7bde0f0a', 'Configured'),
+							render: (row) =>
+								runtimeStateBadge(
+									Boolean(row.configured),
+									t('app.modelGateway.runtime.configured', 'configured'),
+									t('app.modelGateway.runtime.notConfigured', 'not configured'),
+								),
+						},
+						{
+							key: 'available',
+							label: t('ui.static.available.78945de8', 'Available'),
+							render: (row) =>
+								runtimeStateBadge(
+									Boolean(row.available),
+									t('app.modelGateway.runtime.available', 'available'),
+									t('app.modelGateway.runtime.notAvailable', 'not available'),
+								),
+						},
+						{
+							key: 'executable',
+							label: t('ui.static.executable.6f703eda', 'Executable'),
+							render: (row) =>
+								runtimeStateBadge(
+									Boolean(row.executable),
+									t('app.modelGateway.runtime.executable', 'executable'),
+									t('app.modelGateway.runtime.notExecutable', 'not executable'),
+								),
+						},
+						{
+							key: 'healthStatus',
+							label: t('ui.static.health.status.a4a97cf0', 'Health status'),
+							render: (row) => (
+								<Badge tone={row.healthStatus === 'healthy' ? 'ok' : 'warn'}>
+									{redactVisibleSecret(row.healthStatus, t('app.runtime.card.unknown', 'unknown'))}
+								</Badge>
+							),
+						},
+						{
+							key: 'capabilities',
+							label: t('ui.static.capabilities.ca09c54b', 'Capabilities'),
+							render: (row) => (
+								<div className="inline">
+									{row.requiresApproval ? (
+										<Badge tone="warn">
+											{t('app.modelGateway.runtime.approvalBadge', 'approval')}
+										</Badge>
+									) : null}
+									{row.capabilities?.length ? (
+										row.capabilities.map((capability) => (
+											<Badge key={capability}>{capability}</Badge>
+										))
+									) : (
+										<Badge tone="warn">{t('app.workspace.detection.none', 'none')}</Badge>
+									)}
+								</div>
+							),
+						},
+						{
+							key: 'configuration',
+							label: t('ui.static.configuration.8ce677fb', 'Configuration'),
+							render: (row) => {
+								const configuration = runtimeConfigurationById.get(String(row.id ?? ''));
+								const configured = configuration?.configured === true || row.configured;
+								const missingFromConfiguration = Array.isArray(configuration?.missing)
+									? configuration.missing
+									: [];
+								const missingSource =
+									missingFromConfiguration.length || configured
+										? missingFromConfiguration
+										: (row.requiredConfiguration ?? []);
+								const missing = missingSource
+									.map((item) => redactVisibleSecret(item))
+									.filter(Boolean);
+								const variables = Array.isArray(configuration?.variables)
+									? configuration.variables
+									: [];
+								return (
+									<div className="stack">
+										<Badge tone={configured ? 'ok' : 'warn'}>
+											{text(
+												configuration?.status,
+												configured
+													? t('app.modelGateway.runtime.configured', 'configured')
+													: 'missing_config',
+											)}
+										</Badge>
+										<div className="inline">
+											{missing.length ? (
+												missing.map((item) => (
+													<Badge key={item} tone="warn">
+														{item}
+													</Badge>
+												))
+											) : (
+												<Badge tone="ok">
+													{t('app.modelGateway.runtime.noneMissing', 'none missing')}
+												</Badge>
+											)}
+										</div>
+										{variables.map((variable) => {
+											const name = redactVisibleSecret(variable.name);
+											const fingerprint = redactVisibleSecret(variable.fingerprint, '');
+											return (
+												<div className="inline" key={name}>
+													<Badge tone={variable.configured ? 'ok' : 'warn'}>
+														{variable.configured
+															? t('app.modelGateway.runtime.variableSet', 'set')
+															: t('app.runtime.card.missing', 'missing')}
+													</Badge>
+													<span className="mono">{name}</span>
+													{fingerprint ? <span className="mono">{fingerprint}</span> : null}
+												</div>
+											);
+										})}
 									</div>
-									{variables.map((variable) => {
-										const name = redactVisibleSecret(variable.name);
-										const fingerprint = redactVisibleSecret(variable.fingerprint, '');
-										return (
-											<div className="inline" key={name}>
-												<Badge tone={variable.configured ? 'ok' : 'warn'}>{variable.configured ? t('app.modelGateway.runtime.variableSet', 'set') : t('app.runtime.card.missing', 'missing')}</Badge>
-												<span className="mono">{name}</span>
-												{fingerprint ? <span className="mono">{fingerprint}</span> : null}
-											</div>
-										);
-									})}
-								</div>
-							);
+								);
+							},
 						},
-					},
-					{ key: 'reason', label: t('ui.static.reason.f219cc06', 'Reason'), render: (row) => redactVisibleSecret(row.reason) },
-					{ key: 'lastError', label: t('ui.static.last.error.5e4df866', 'Last error'), render: (row) => redactVisibleSecret(row.lastError, t('app.workspace.detection.none', 'none')) },
-					{ key: 'version', label: t('ui.static.version.2da600bf', 'Version'), render: (row) => <span className="mono">{redactVisibleSecret(row.version)}</span> },
-					{ key: 'command', label: t('ui.static.detected.command.c696971c', 'Detected command'), render: (row) => <span className="mono">{redactVisibleSecret(row.detectedCommand)}</span> },
-					{
-						key: 'health',
-						label: t('ui.static.healthcheck.b89e0ef6', 'Healthcheck'),
-						render: (row) => {
-							const runtimeId = String(row.id ?? '');
-							const kind = String(row.kind ?? '');
-							const canRefresh = kind === 'cli' || kind === 'api' || kind === 'gateway' || kind === 'local';
-							const busy = busyAction === `${runtimeId}:runtime-health`;
-							return (
-								<div className="stack">
-									<span className="mono">{redactVisibleSecret(row.healthCheckedAt, t('app.modelGateway.runtime.notChecked', 'not checked'))}</span>
-									<button
-										className="button"
-										type="button"
-										disabled={!canRefresh || busy}
-										aria-label={`${t('app.modelGateway.runtime.refreshHealthcheckFor', 'Refresh healthcheck for')} ${runtimeId}`}
-										onClick={() => void refreshRuntimeHealth(row)}
-									>
-										{busy ? t('app.modelGateway.runtime.refreshingHealthcheck', 'Refreshing healthcheck') : t('app.modelGateway.runtime.refreshHealthcheck', 'Refresh healthcheck')}
-									</button>
-									{canRefresh ? null : <span className="muted">{t('ui.static.no.automated.healthcheck.endpoint.f9c95375', 'No automated healthcheck endpoint.')}</span>}
-								</div>
-							);
+						{
+							key: 'reason',
+							label: t('ui.static.reason.f219cc06', 'Reason'),
+							render: (row) => redactVisibleSecret(row.reason),
 						},
-					},
-				]} />
+						{
+							key: 'lastError',
+							label: t('ui.static.last.error.5e4df866', 'Last error'),
+							render: (row) =>
+								redactVisibleSecret(row.lastError, t('app.workspace.detection.none', 'none')),
+						},
+						{
+							key: 'version',
+							label: t('ui.static.version.2da600bf', 'Version'),
+							render: (row) => <span className="mono">{redactVisibleSecret(row.version)}</span>,
+						},
+						{
+							key: 'command',
+							label: t('ui.static.detected.command.c696971c', 'Detected command'),
+							render: (row) => (
+								<span className="mono">{redactVisibleSecret(row.detectedCommand)}</span>
+							),
+						},
+						{
+							key: 'health',
+							label: t('ui.static.healthcheck.b89e0ef6', 'Healthcheck'),
+							render: (row) => {
+								const runtimeId = String(row.id ?? '');
+								const kind = String(row.kind ?? '');
+								const canRefresh =
+									kind === 'cli' || kind === 'api' || kind === 'gateway' || kind === 'local';
+								const busy = busyAction === `${runtimeId}:runtime-health`;
+								return (
+									<div className="stack">
+										<span className="mono">
+											{redactVisibleSecret(
+												row.healthCheckedAt,
+												t('app.modelGateway.runtime.notChecked', 'not checked'),
+											)}
+										</span>
+										<button
+											className="button"
+											type="button"
+											disabled={!canRefresh || busy}
+											aria-label={`${t('app.modelGateway.runtime.refreshHealthcheckFor', 'Refresh healthcheck for')} ${runtimeId}`}
+											onClick={() => void refreshRuntimeHealth(row)}
+										>
+											{busy
+												? t(
+														'app.modelGateway.runtime.refreshingHealthcheck',
+														'Refreshing healthcheck',
+													)
+												: t('app.modelGateway.runtime.refreshHealthcheck', 'Refresh healthcheck')}
+										</button>
+										{canRefresh ? null : (
+											<span className="muted">
+												{t(
+													'ui.static.no.automated.healthcheck.endpoint.f9c95375',
+													'No automated healthcheck endpoint.',
+												)}
+											</span>
+										)}
+									</div>
+								);
+							},
+						},
+					]}
+				/>
 			</Surface>
 
 			<RoutePreviewPanel
@@ -727,73 +1040,185 @@ export function ModelGatewayPage({
 
 			<Surface title={t('ui.static.strict.model.policy.form.b2d420cc', 'Strict model policy form')}>
 				{!policyCatalogReady ? (
-					<EmptyState title={t('ui.static.loading.model.catalog.2a1f6d83', 'Loading model catalog')} body={t('ui.static.model.policies.can.be.edited.after.backend.catalog.loaded.6450fcb1', 'Model policies can be edited after the backend catalog is loaded.')} />
+					<EmptyState
+						title={t('ui.static.loading.model.catalog.2a1f6d83', 'Loading model catalog')}
+						body={t(
+							'ui.static.model.policies.can.be.edited.after.backend.catalog.loaded.6450fcb1',
+							'Model policies can be edited after the backend catalog is loaded.',
+						)}
+					/>
 				) : policyProviderOptions.length === 0 ? (
-					<EmptyState title={t('ui.static.model.catalog.unavailable.c0e4b5a7', 'Model catalog unavailable')} body={t('ui.static.no.enabled.model.catalog.entries.available.for.policy.creation.1afeb0fb', 'No enabled model catalog entries are available for policy creation.')} />
+					<EmptyState
+						title={t('ui.static.model.catalog.unavailable.c0e4b5a7', 'Model catalog unavailable')}
+						body={t(
+							'ui.static.no.enabled.model.catalog.entries.available.for.policy.creation.1afeb0fb',
+							'No enabled model catalog entries are available for policy creation.',
+						)}
+					/>
 				) : (
-				<div className="form-grid">
-					<div className="field">
-						<label htmlFor="model-policy-id">{t('ui.static.policy.id.4d35e204', 'Policy id')}</label>
-						<input id="model-policy-id" className="input" value={policyId} pattern="[a-z0-9_-]{3,64}" onChange={(event) => setPolicyId(event.target.value)} />
-					</div>
-					<div className="field">
-						<label htmlFor="model-policy-name">{t('ui.static.policy.name.101bf6ea', 'Policy name')}</label>
-						<input id="model-policy-name" className="input" value={policyName} onChange={(event) => setPolicyName(event.target.value)} />
-					</div>
-					<div className="field">
-						<label htmlFor="preferred-provider">{t('ui.static.preferred.provider.a21572df', 'Preferred provider')}</label>
-						<select
-							id="preferred-provider"
-							className="select"
-							value={policyProvider}
-							onChange={(event) => {
-								const nextProvider = event.target.value;
-								const nextCatalog = providerCatalog.find((item) => item.provider === nextProvider);
-								setPolicyProvider(nextProvider);
-								setPolicyModel(nextCatalog?.models[0] ?? '');
-								setPolicyAllowRemote(Boolean(nextCatalog?.remote));
-								setPolicyAllowLocal(!nextCatalog?.remote);
-							}}
+					<div className="form-grid">
+						<div className="field">
+							<label htmlFor="model-policy-id">
+								{t('ui.static.policy.id.4d35e204', 'Policy id')}
+							</label>
+							<input
+								id="model-policy-id"
+								className="input"
+								value={policyId}
+								pattern="[a-z0-9_-]{3,64}"
+								onChange={(event) => setPolicyId(event.target.value)}
+							/>
+						</div>
+						<div className="field">
+							<label htmlFor="model-policy-name">
+								{t('ui.static.policy.name.101bf6ea', 'Policy name')}
+							</label>
+							<input
+								id="model-policy-name"
+								className="input"
+								value={policyName}
+								onChange={(event) => setPolicyName(event.target.value)}
+							/>
+						</div>
+						<div className="field">
+							<label htmlFor="preferred-provider">
+								{t('ui.static.preferred.provider.a21572df', 'Preferred provider')}
+							</label>
+							<select
+								id="preferred-provider"
+								className="select"
+								value={policyProvider}
+								onChange={(event) => {
+									const nextProvider = event.target.value;
+									const nextCatalog = providerCatalog.find(
+										(item) => item.provider === nextProvider,
+									);
+									setPolicyProvider(nextProvider);
+									setPolicyModel(nextCatalog?.models[0] ?? '');
+									setPolicyAllowRemote(Boolean(nextCatalog?.remote));
+									setPolicyAllowLocal(!nextCatalog?.remote);
+								}}
+							>
+								{policyProviderOptions.map((item) => (
+									<option key={item.provider} value={item.provider}>
+										{item.provider}
+									</option>
+								))}
+							</select>
+						</div>
+						<div className="field">
+							<label htmlFor="model-catalog">{t('ui.static.model.68c2cc7f', 'Model')}</label>
+							<select
+								id="model-catalog"
+								className="select"
+								value={policyModel}
+								onChange={(event) => setPolicyModel(event.target.value)}
+							>
+								{modelOptions.map((item) => (
+									<option key={item} value={item}>
+										{item}
+									</option>
+								))}
+							</select>
+						</div>
+						<div className="field">
+							<label htmlFor="max-cost-usd">
+								{t('ui.static.maximum.cost.usd.03a1d8c3', 'Maximum cost USD')}
+							</label>
+							<input
+								id="max-cost-usd"
+								className="input"
+								type="number"
+								min="0"
+								step="0.01"
+								value={policyMaxCostUsd}
+								onChange={(event) => setPolicyMaxCostUsd(event.target.value)}
+							/>
+						</div>
+						<div className="field">
+							<label htmlFor="max-tokens">
+								{t('ui.static.maximum.tokens.c7be12de', 'Maximum tokens')}
+							</label>
+							<input
+								id="max-tokens"
+								className="input"
+								type="number"
+								min="512"
+								max="200000"
+								step="1"
+								value={policyMaxTokens}
+								onChange={(event) => setPolicyMaxTokens(event.target.value)}
+							/>
+						</div>
+						<label className="checkbox-row" htmlFor="allow-remote">
+							<input
+								id="allow-remote"
+								type="checkbox"
+								checked={policyAllowRemote}
+								onChange={(event) => setPolicyAllowRemote(event.target.checked)}
+							/>
+							{t('app.modelGateway.policy.allowRemote', 'Allow remote providers')}
+						</label>
+						<label className="checkbox-row" htmlFor="allow-local">
+							<input
+								id="allow-local"
+								type="checkbox"
+								checked={policyAllowLocal}
+								onChange={(event) => setPolicyAllowLocal(event.target.checked)}
+							/>
+							{t('app.modelGateway.policy.allowLocal', 'Allow local providers')}
+						</label>
+						{policyError ? (
+							<div className="form-error" role="alert">
+								{policyError}
+							</div>
+						) : null}
+						<button
+							className="button primary"
+							type="button"
+							disabled={busyAction === 'save-model-policy'}
+							onClick={() => void savePolicy()}
 						>
-							{policyProviderOptions.map((item) => (
-								<option key={item.provider} value={item.provider}>{item.provider}</option>
-							))}
-						</select>
+							{t('ui.static.save.model.policy.144bf8c2', 'Save model policy')}
+						</button>
 					</div>
-					<div className="field">
-						<label htmlFor="model-catalog">{t('ui.static.model.68c2cc7f', 'Model')}</label>
-						<select id="model-catalog" className="select" value={policyModel} onChange={(event) => setPolicyModel(event.target.value)}>
-							{modelOptions.map((item) => <option key={item} value={item}>{item}</option>)}
-						</select>
-					</div>
-					<div className="field">
-						<label htmlFor="max-cost-usd">{t('ui.static.maximum.cost.usd.03a1d8c3', 'Maximum cost USD')}</label>
-						<input id="max-cost-usd" className="input" type="number" min="0" step="0.01" value={policyMaxCostUsd} onChange={(event) => setPolicyMaxCostUsd(event.target.value)} />
-					</div>
-					<div className="field">
-						<label htmlFor="max-tokens">{t('ui.static.maximum.tokens.c7be12de', 'Maximum tokens')}</label>
-						<input id="max-tokens" className="input" type="number" min="512" max="200000" step="1" value={policyMaxTokens} onChange={(event) => setPolicyMaxTokens(event.target.value)} />
-					</div>
-					<label className="checkbox-row" htmlFor="allow-remote">
-						<input id="allow-remote" type="checkbox" checked={policyAllowRemote} onChange={(event) => setPolicyAllowRemote(event.target.checked)} />
-						{t('app.modelGateway.policy.allowRemote', 'Allow remote providers')}
-					</label>
-					<label className="checkbox-row" htmlFor="allow-local">
-						<input id="allow-local" type="checkbox" checked={policyAllowLocal} onChange={(event) => setPolicyAllowLocal(event.target.checked)} />
-						{t('app.modelGateway.policy.allowLocal', 'Allow local providers')}
-					</label>
-					{policyError ? <div className="form-error" role="alert">{policyError}</div> : null}
-					<button className="button primary" type="button" disabled={busyAction === 'save-model-policy'} onClick={() => void savePolicy()}>{t('ui.static.save.model.policy.144bf8c2', 'Save model policy')}</button>
-				</div>
 				)}
 			</Surface>
 
 			<Surface title={t('ui.static.model.policies.68e48433', 'Model policies')}>
-				<DataTable rows={visibleModelPolicies} empty={<EmptyState title={t('ui.static.no.model.policies.993f8301', 'No model policies')} body={t('ui.static.model.policies.define.allowed.providers.fallback.chains.and.6b28dbd0', 'Model policies define allowed providers, fallback chains and budgets.')} />} columns={[
-					{ key: 'id', label: t('ui.static.policy.bb9cf141', 'Policy'), render: (row) => <span className="mono">{text(row.id)}</span> },
-					{ key: 'budget', label: t('ui.static.budget.7aeba4cd', 'Budget'), render: (row) => money(policyBudgetUsd(row), t('app.runtime.card.unknown', 'unknown')) },
-					{ key: 'remote', label: t('ui.static.remote.c93f6536', 'Remote'), render: (row) => row.allowRemote ? t('app.modelGateway.policy.remoteAllowed', 'allowed') : t('app.modelGateway.policy.remoteBlocked', 'blocked') },
-				]} />
+				<DataTable
+					rows={visibleModelPolicies}
+					empty={
+						<EmptyState
+							title={t('ui.static.no.model.policies.993f8301', 'No model policies')}
+							body={t(
+								'ui.static.model.policies.define.allowed.providers.fallback.chains.and.6b28dbd0',
+								'Model policies define allowed providers, fallback chains and budgets.',
+							)}
+						/>
+					}
+					columns={[
+						{
+							key: 'id',
+							label: t('ui.static.policy.bb9cf141', 'Policy'),
+							render: (row) => <span className="mono">{text(row.id)}</span>,
+						},
+						{
+							key: 'budget',
+							label: t('ui.static.budget.7aeba4cd', 'Budget'),
+							render: (row) =>
+								money(policyBudgetUsd(row), t('app.runtime.card.unknown', 'unknown')),
+						},
+						{
+							key: 'remote',
+							label: t('ui.static.remote.c93f6536', 'Remote'),
+							render: (row) =>
+								row.allowRemote
+									? t('app.modelGateway.policy.remoteAllowed', 'allowed')
+									: t('app.modelGateway.policy.remoteBlocked', 'blocked'),
+						},
+					]}
+				/>
 			</Surface>
 
 			<ModelCatalogPanel models={gateway.models} />
@@ -808,7 +1233,11 @@ export function ModelGatewayPage({
 
 			<ProviderLimitsPanel providerLimits={gateway.providerLimits} />
 
-			<RoutingDecisionsPanel rows={filteredDecisions} filter={decisionFilter} onFilterChange={setDecisionFilter} />
+			<RoutingDecisionsPanel
+				rows={filteredDecisions}
+				filter={decisionFilter}
+				onFilterChange={setDecisionFilter}
+			/>
 
 			<CliSessionsPanel cliRuntimes={gateway.cliRuntimes} cliSessions={gateway.cliSessions} />
 
@@ -851,26 +1280,80 @@ export function ModelGatewayPage({
 
 			<Surface title={t('app.nav.settings', 'Settings')}>
 				<div className="grid three">
-					<Metric label={t('ui.static.default.routing.mode.b752ab89', 'default routing mode')} value="balanced_best_value" />
-					<Metric label={t('ui.static.real.provider.calls.20f8f3a3', 'real provider calls')} value={t('app.modelGateway.settings.disabledByDefault', 'disabled by default')} />
-					<Metric label={t('ui.static.cli.runtimes.d0947c09', 'CLI runtimes')} value={t('app.modelGateway.settings.disabledByDefault', 'disabled by default')} />
-					<Metric label={t('ui.static.executable.runtimes.f27d567f', 'executable runtimes')} value={executableRuntimeCount} />
-					<Metric label={t('ui.static.unavailable.runtimes.a6f44775', 'unavailable runtimes')} value={unavailableRuntimeCount} />
-					<Metric label={t('ui.static.legacy.model.usage.total.c0e7e1e5', 'legacy model usage total')} value={money(totalCost, t('app.runtime.card.unknown', 'unknown'))} />
+					<Metric
+						label={t('ui.static.default.routing.mode.b752ab89', 'default routing mode')}
+						value="balanced_best_value"
+					/>
+					<Metric
+						label={t('ui.static.real.provider.calls.20f8f3a3', 'real provider calls')}
+						value={t('app.modelGateway.settings.disabledByDefault', 'disabled by default')}
+					/>
+					<Metric
+						label={t('ui.static.cli.runtimes.d0947c09', 'CLI runtimes')}
+						value={t('app.modelGateway.settings.disabledByDefault', 'disabled by default')}
+					/>
+					<Metric
+						label={t('ui.static.executable.runtimes.f27d567f', 'executable runtimes')}
+						value={executableRuntimeCount}
+					/>
+					<Metric
+						label={t('ui.static.unavailable.runtimes.a6f44775', 'unavailable runtimes')}
+						value={unavailableRuntimeCount}
+					/>
+					<Metric
+						label={t('ui.static.legacy.model.usage.total.c0e7e1e5', 'legacy model usage total')}
+						value={money(totalCost, t('app.runtime.card.unknown', 'unknown'))}
+					/>
 				</div>
 			</Surface>
 
 			<Surface title={t('ui.static.model.calls.88e40906', 'Model calls')}>
-				<DataTable rows={overview.modelCalls} empty={<EmptyState title={t('ui.static.no.model.calls.3e3394fe', 'No model calls')} body={t('ui.static.agent.runs.and.model.gateway.preparations.are.recorded.here.26abd766', 'Agent runs and model gateway preparations are recorded here.')} />} columns={[
-					{ key: 'provider', label: t('ui.static.provider.7ceee3f3', 'Provider'), render: (row) => <span className="mono">{String(row.provider ?? '')}</span> },
-					{ key: 'model', label: t('ui.static.model.68c2cc7f', 'Model'), render: (row) => <span className="mono">{String(row.model ?? '')}</span> },
-					{ key: 'status', label: t('ui.static.status.bae7d5be', 'Status'), render: (row) => <Badge tone={toneForStatus(String(row.status ?? ''))}>{String(row.status ?? '')}</Badge> },
-					{ key: 'cost', label: t('ui.static.cost.64ae43e8', 'Cost'), render: (row) => money(row.costUsd, t('app.runtime.card.unknown', 'unknown')) },
-				]} />
+				<DataTable
+					rows={overview.modelCalls}
+					empty={
+						<EmptyState
+							title={t('ui.static.no.model.calls.3e3394fe', 'No model calls')}
+							body={t(
+								'ui.static.agent.runs.and.model.gateway.preparations.are.recorded.here.26abd766',
+								'Agent runs and model gateway preparations are recorded here.',
+							)}
+						/>
+					}
+					columns={[
+						{
+							key: 'provider',
+							label: t('ui.static.provider.7ceee3f3', 'Provider'),
+							render: (row) => <span className="mono">{String(row.provider ?? '')}</span>,
+						},
+						{
+							key: 'model',
+							label: t('ui.static.model.68c2cc7f', 'Model'),
+							render: (row) => <span className="mono">{String(row.model ?? '')}</span>,
+						},
+						{
+							key: 'status',
+							label: t('ui.static.status.bae7d5be', 'Status'),
+							render: (row) => (
+								<Badge tone={toneForStatus(String(row.status ?? ''))}>
+									{String(row.status ?? '')}
+								</Badge>
+							),
+						},
+						{
+							key: 'cost',
+							label: t('ui.static.cost.64ae43e8', 'Cost'),
+							render: (row) => money(row.costUsd, t('app.runtime.card.unknown', 'unknown')),
+						},
+					]}
+				/>
 			</Surface>
 			<Surface title={t('ui.static.cost.ledger.7af91996', 'Cost history')}>
-				<div className="metric-value">{money(totalCost, t('app.runtime.card.unknown', 'unknown'))}</div>
-				<div className="metric-label">{t('app.modelGateway.cost.recordedLegacy', 'recorded legacy model usage')}</div>
+				<div className="metric-value">
+					{money(totalCost, t('app.runtime.card.unknown', 'unknown'))}
+				</div>
+				<div className="metric-label">
+					{t('app.modelGateway.cost.recordedLegacy', 'recorded legacy model usage')}
+				</div>
 			</Surface>
 		</>
 	);

@@ -1,0 +1,97 @@
+{
+	"$schema": "https://biomejs.dev/schemas/2.5.0/schema.json",
+	"vcs": {
+		"enabled": true,
+		"clientKind": "git",
+		"useIgnoreFile": true
+	},
+	"files": {
+		"includes": [
+			"local-control-center/web/**/*.ts",
+			"local-control-center/web/**/*.tsx",
+			"local-control-center/web/**/*.css",
+			"local-control-center/web/**/*.json",
+			"!**/api/generated/openapi.ts",
+			"!**/dist/**",
+			"!**/node_modules/**",
+			"!**/.tmp/**",
+			"!**/*.sqlite",
+			"!**/*.sqlite3",
+			"!**/*.db",
+			"!**/playwright-artifacts*/**",
+			"!**/test-results/**"
+		]
+	},
+	"formatter": {
+		"enabled": true,
+		"formatWithErrors": false,
+		"indentStyle": "tab",
+		"lineEnding": "lf",
+		"lineWidth": 100,
+		"attributePosition": "auto"
+	},
+	"assist": {
+		"enabled": true,
+		"actions": {
+			"source": {
+				"organizeImports": "on"
+			}
+		}
+	},
+	"linter": {
+		"enabled": true,
+		"rules": {
+			"recommended": true,
+			"complexity": {
+				"recommended": true,
+				"noImportantStyles": "warn"
+			},
+			"correctness": {
+				"noUnusedImports": "error",
+				"noUnusedVariables": "warn",
+				"noUnusedFunctionParameters": "warn",
+				"useExhaustiveDependencies": "warn",
+				"useHookAtTopLevel": "error"
+			},
+			"suspicious": {
+				"recommended": true,
+				"noExplicitAny": "error",
+				"noDuplicateProperties": "warn",
+				"noConfusingVoidType": "warn",
+				"noArrayIndexKey": "warn"
+			},
+			"a11y": {
+				"recommended": true,
+				"useSemanticElements": "warn",
+				"useFocusableInteractive": "warn",
+				"useAriaPropsSupportedByRole": "warn",
+				"noNoninteractiveTabindex": "warn",
+				"noRedundantRoles": "warn",
+				"useButtonType": "warn"
+			}
+		}
+	},
+	"javascript": {
+		"formatter": {
+			"quoteStyle": "single",
+			"jsxQuoteStyle": "double",
+			"trailingCommas": "all",
+			"semicolons": "always",
+			"arrowParentheses": "always"
+		}
+	},
+	"json": {
+		"formatter": {
+			"enabled": true,
+			"trailingCommas": "none"
+		}
+	},
+	"css": {
+		"formatter": {
+			"enabled": true
+		},
+		"linter": {
+			"enabled": true
+		}
+	}
+}

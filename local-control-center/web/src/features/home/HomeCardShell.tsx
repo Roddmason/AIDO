@@ -40,7 +40,15 @@ export function HomeCard({
 }
 
 /** Card header row: a kind glyph + label on the left, a status badge on the right. */
-export function CardHead({ icon, label, badge }: { icon: ReactNode; label: string; badge: ReactNode }) {
+export function CardHead({
+	icon,
+	label,
+	badge,
+}: {
+	icon: ReactNode;
+	label: string;
+	badge: ReactNode;
+}) {
 	return (
 		<span className="home-card-head">
 			<span className="home-card-kind">

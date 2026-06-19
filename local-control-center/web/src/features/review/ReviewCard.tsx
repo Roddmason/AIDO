@@ -3,15 +3,16 @@
  * @copyright Copyright (c) AIDO.
  * @author Roddmason
  */
-import { useRef } from 'react';
-import type { KeyboardEvent } from 'react';
+
 import { AlertTriangle, FileCheck2, GitBranch, ShieldAlert } from 'lucide-react';
+import type { KeyboardEvent } from 'react';
+import { useRef } from 'react';
 
 import { Badge, StatusDot } from '../../components/primitives';
-import { shortId, toneForStatus } from '../../lib/format';
 import { useI18n } from '../../i18n/I18nProvider';
-import { patchWorkflowKind, riskTone } from './model';
+import { shortId, toneForStatus } from '../../lib/format';
 import type { PatchWorkflowKind, ReviewItem } from './model';
+import { patchWorkflowKind, riskTone } from './model';
 import type { ShipOperation } from './useShipOperations';
 
 /**
@@ -19,7 +20,9 @@ import type { ShipOperation } from './useShipOperations';
  * next ship step. Promote when approved (or a prior promotion failed); create a
  * PR once promoted to a branch. Status guards mirror the Jobs queue contract.
  */
-export function shipOperationFor(item: ReviewItem): { operation: ShipOperation; kind: PatchWorkflowKind } | null {
+export function shipOperationFor(
+	item: ReviewItem,
+): { operation: ShipOperation; kind: PatchWorkflowKind } | null {
 	if (!item.runId) return null;
 	const kind = patchWorkflowKind(item.workflowKind);
 	if (!kind) return null;
@@ -66,9 +69,11 @@ export function ReviewCard({
 
 	const riskBadge = item.riskLevel ? (
 		<Badge tone={riskTone(item.riskLevel)}>
-			{(item.riskLevel === 'critical' || item.riskLevel === 'high')
-				? <ShieldAlert size={14} aria-hidden="true" />
-				: <AlertTriangle size={14} aria-hidden="true" />}
+			{item.riskLevel === 'critical' || item.riskLevel === 'high' ? (
+				<ShieldAlert size={14} aria-hidden="true" />
+			) : (
+				<AlertTriangle size={14} aria-hidden="true" />
+			)}
 			{item.riskLevel}
 		</Badge>
 	) : null;
@@ -83,23 +88,41 @@ export function ReviewCard({
 			onKeyDown={handleCardKeyDown}
 		>
 			<div className="card-header">
-				<h3 id={titleId} className="card-title">{item.projectName}</h3>
+				<h3 id={titleId} className="card-title">
+					{item.projectName}
+				</h3>
 				{riskBadge}
 			</div>
 			<div className="card-meta">
 				<StatusDot tone={toneForStatus(item.runStatus ?? undefined)} />
 				<span className="mono">{shortId(item.runId ?? item.actionId)}</span>
-				{item.qaVerdict ? <Badge tone={toneForStatus(item.qaVerdict)}>QA {item.qaVerdict}</Badge> : null}
-				{item.runStatus ? <Badge tone={toneForStatus(item.runStatus)}>{item.runStatus}</Badge> : null}
+				{item.qaVerdict ? (
+					<Badge tone={toneForStatus(item.qaVerdict)}>QA {item.qaVerdict}</Badge>
+				) : null}
+				{item.runStatus ? (
+					<Badge tone={toneForStatus(item.runStatus)}>{item.runStatus}</Badge>
+				) : null}
 			</div>
 			<p className="card-body review-card-body">{item.runLabel}</p>
 			<div className="inline review-card-actions">
 				<span className="review-card-refs">
-					{item.hasDiff ? <span className="inline review-ref"><GitBranch size={14} aria-hidden="true" />diff</span> : null}
-					{item.hasEvidence ? <span className="inline review-ref"><FileCheck2 size={14} aria-hidden="true" />{t('app.review.copy.19', 'evidence')}</span> : null}
-					{item.source === 'decided_action' && item.decidedBy
-						? <span className="review-decided mono">{t('app.review.copy.21', 'by')} {item.decidedBy}</span>
-						: null}
+					{item.hasDiff ? (
+						<span className="inline review-ref">
+							<GitBranch size={14} aria-hidden="true" />
+							diff
+						</span>
+					) : null}
+					{item.hasEvidence ? (
+						<span className="inline review-ref">
+							<FileCheck2 size={14} aria-hidden="true" />
+							{t('app.review.copy.19', 'evidence')}
+						</span>
+					) : null}
+					{item.source === 'decided_action' && item.decidedBy ? (
+						<span className="review-decided mono">
+							{t('app.review.copy.21', 'by')} {item.decidedBy}
+						</span>
+					) : null}
 				</span>
 				{item.canDecide ? (
 					<button
@@ -119,9 +142,11 @@ export function ReviewCard({
 						aria-label={`${shipOp.operation === 'promote' ? t('app.review.promote', 'Promote branch') : t('app.review.createPr', 'Create PR')}: ${item.runLabel} · ${item.projectName}`}
 						onClick={() => onOpenDetail(item, shipTriggerRef.current)}
 					>
-						{shipOp.operation === 'promote' ? t('app.review.promote', 'Promote branch') : t('app.review.createPr', 'Create PR')}
+						{shipOp.operation === 'promote'
+							? t('app.review.promote', 'Promote branch')
+							: t('app.review.createPr', 'Create PR')}
 					</button>
-				) : (item.hasEvidence ? (
+				) : item.hasEvidence ? (
 					<button
 						ref={shipTriggerRef}
 						className="button review-evidence-link"
@@ -131,7 +156,7 @@ export function ReviewCard({
 					>
 						{t('app.workbench.timeline.viewEvidence', 'View evidence')}
 					</button>
-				) : null)}
+				) : null}
 			</div>
 		</article>
 	);

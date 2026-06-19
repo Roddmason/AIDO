@@ -4,9 +4,14 @@
  * @author Roddmason
  */
 import { useEffect, useMemo, useState } from 'react';
-
-import { approveAction, approveIssueToPatch, approveIssueToPr, denyAction, fetchEvidenceArtifact } from '../../api/client';
 import type { ArtifactPayload } from '../../api/client';
+import {
+	approveAction,
+	approveIssueToPatch,
+	approveIssueToPr,
+	denyAction,
+	fetchEvidenceArtifact,
+} from '../../api/client';
 import type { ActionRequest, Artifact, Overview } from '../../api/types';
 import { findPatchArtifact } from '../../lib/diff';
 import {
@@ -57,24 +62,44 @@ export function useReviewDecision(
 	const [securityLoadingId, setSecurityLoadingId] = useState('');
 	const [securityError, setSecurityError] = useState('');
 
-	const artifacts = useMemo(() => action ? linkedArtifacts(action, overview) : [], [overview, action]);
-	const evidence = useMemo(() => action ? linkedEvidence(action, overview) : [], [overview, action]);
+	const artifacts = useMemo(
+		() => (action ? linkedArtifacts(action, overview) : []),
+		[overview, action],
+	);
+	const evidence = useMemo(
+		() => (action ? linkedEvidence(action, overview) : []),
+		[overview, action],
+	);
 	const patchArtifact = useMemo(() => findPatchArtifact(artifacts), [artifacts]);
 	const securityArtifact = useMemo(() => findSecurityFindingsArtifact(artifacts), [artifacts]);
 
-	const patchGate = useMemo(() => action
-		? evidenceCompleteness({
+	const patchGate = useMemo(
+		() =>
+			action
+				? evidenceCompleteness({
+						action,
+						artifacts,
+						diffError: patchError,
+						diffLoading: Boolean(patchLoadingId),
+						diffPayload: patchPayload,
+						evidence,
+						securityError,
+						securityLoading: Boolean(securityLoadingId),
+						securityPayload,
+					})
+				: null,
+		[
 			action,
 			artifacts,
-			diffError: patchError,
-			diffLoading: Boolean(patchLoadingId),
-			diffPayload: patchPayload,
 			evidence,
+			patchError,
+			patchLoadingId,
+			patchPayload,
 			securityError,
-			securityLoading: Boolean(securityLoadingId),
+			securityLoadingId,
 			securityPayload,
-		})
-		: null, [action, artifacts, evidence, patchError, patchLoadingId, patchPayload, securityError, securityLoadingId, securityPayload]);
+		],
+	);
 
 	// Reset the reason whenever the reviewed action changes.
 	useEffect(() => {
@@ -103,7 +128,8 @@ export function useReviewDecision(
 				if (!cancelled) setPatchPayload(payload);
 			})
 			.catch((error) => {
-				if (!cancelled) setPatchError(error instanceof Error ? error.message : 'Patch artifact preview failed.');
+				if (!cancelled)
+					setPatchError(error instanceof Error ? error.message : 'Patch artifact preview failed.');
 			})
 			.finally(() => {
 				if (!cancelled) setPatchLoadingId('');
@@ -134,7 +160,10 @@ export function useReviewDecision(
 				if (!cancelled) setSecurityPayload(payload);
 			})
 			.catch((error) => {
-				if (!cancelled) setSecurityError(error instanceof Error ? error.message : 'Security findings preview failed.');
+				if (!cancelled)
+					setSecurityError(
+						error instanceof Error ? error.message : 'Security findings preview failed.',
+					);
 			})
 			.finally(() => {
 				if (!cancelled) setSecurityLoadingId('');
@@ -155,7 +184,9 @@ export function useReviewDecision(
 			return false;
 		}
 		if (kind === 'approve' && patchGate?.required && !patchGate.complete) {
-			setDecisionError('Complete linked evidence, a readable non-empty patch artifact, passing QA evidence, and non-blocking security findings are required before approve patch.');
+			setDecisionError(
+				'Complete linked evidence, a readable non-empty patch artifact, passing QA evidence, and non-blocking security findings are required before approve patch.',
+			);
 			return false;
 		}
 		setDecisionError('');

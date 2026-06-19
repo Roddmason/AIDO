@@ -11,8 +11,8 @@ import {
 	promoteIssueToPrBranch,
 	promotePatchToBranch,
 } from '../../api/client';
-import { asRecord } from './model';
 import type { PatchWorkflowKind } from './model';
+import { asRecord } from './model';
 
 type Refresh = (silent?: boolean) => Promise<void>;
 export type ShipOperation = 'promote' | 'pull-request';
@@ -49,7 +49,11 @@ export function useShipOperations(token: string, refresh: Refresh): ShipOperatio
 	const [pullRequestBaseBranch, setPullRequestBaseBranch] = useState('');
 	const [error, setError] = useState('');
 	const [busyId, setBusyId] = useState('');
-	const [lastOperation, setLastOperation] = useState<{ status: string; reason: string; runId: string } | null>(null);
+	const [lastOperation, setLastOperation] = useState<{
+		status: string;
+		reason: string;
+		runId: string;
+	} | null>(null);
 
 	const trimmedReason = reason.trim();
 
@@ -77,9 +81,10 @@ export function useShipOperations(token: string, refresh: Refresh): ShipOperatio
 					reason: trimmedReason,
 					...(branch ? { branchName: branch } : {}),
 				};
-				const result = kind === 'issue_to_pr'
-					? await promoteIssueToPrBranch(token, runId, body)
-					: await promotePatchToBranch(token, runId, body);
+				const result =
+					kind === 'issue_to_pr'
+						? await promoteIssueToPrBranch(token, runId, body)
+						: await promotePatchToBranch(token, runId, body);
 				recordOperation(result, 'promoted_to_branch');
 			} else {
 				const title = pullRequestTitle.trim();
@@ -89,9 +94,10 @@ export function useShipOperations(token: string, refresh: Refresh): ShipOperatio
 					...(title ? { title } : {}),
 					...(baseBranch ? { baseBranch } : {}),
 				};
-				const result = kind === 'issue_to_pr'
-					? await createPullRequestFromIssueToPr(token, runId, body)
-					: await createPullRequestFromPromotedBranch(token, runId, body);
+				const result =
+					kind === 'issue_to_pr'
+						? await createPullRequestFromIssueToPr(token, runId, body)
+						: await createPullRequestFromPromotedBranch(token, runId, body);
 				recordOperation(result, 'pull_request_requested');
 			}
 			void refresh(true).catch(() => undefined);

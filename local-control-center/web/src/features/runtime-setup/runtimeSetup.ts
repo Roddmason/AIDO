@@ -3,9 +3,22 @@
  * @copyright Copyright (c) AIDO.
  * @author Roddmason
  */
-import type { ComponentType } from 'react';
+
 import type { LucideProps } from 'lucide-react';
-import { AlertTriangle, Bot, Boxes, CheckCircle2, CircleDashed, Clock, Cpu, Network, PlugZap, SquareTerminal, XCircle } from 'lucide-react';
+import {
+	AlertTriangle,
+	Bot,
+	Boxes,
+	CheckCircle2,
+	CircleDashed,
+	Clock,
+	Cpu,
+	Network,
+	PlugZap,
+	SquareTerminal,
+	XCircle,
+} from 'lucide-react';
+import type { ComponentType } from 'react';
 
 import type { RuntimeProvider, RuntimeProviderConfiguration } from '../../api/types';
 
@@ -26,7 +39,12 @@ export const RUNTIME_SETUP_PROVIDER_IDS = [
 
 export type RuntimeSetupProviderId = (typeof RUNTIME_SETUP_PROVIDER_IDS)[number];
 
-export type RuntimeSetupState = 'not_configured' | 'configured' | 'available' | 'executable' | 'blocked';
+export type RuntimeSetupState =
+	| 'not_configured'
+	| 'configured'
+	| 'available'
+	| 'executable'
+	| 'blocked';
 
 /** A provider as shown in the UI: the live status record (may be absent when the
  *  backend has no account for it) left-joined with its configuration record. */
@@ -41,7 +59,10 @@ export type MergedProvider = {
 const API_KINDS = new Set(['api', 'gateway']);
 const FAILED_HEALTH = new Set(['failed', 'error', 'offline', 'unreachable', 'down']);
 
-function findById<T extends { id: string }>(items: readonly T[] | null | undefined, id: string): T | null {
+function findById<T extends { id: string }>(
+	items: readonly T[] | null | undefined,
+	id: string,
+): T | null {
 	return items?.find((item) => item.id === id) ?? null;
 }
 
@@ -84,14 +105,21 @@ export function deriveRuntimeState(provider: MergedProvider): RuntimeSetupState 
 	if (status.available) return 'available';
 	// Configured but not reachable: a missing CLI binary / unreachable daemon is a
 	// hard block even when the backend reports no explicit error string.
-	if ((provider.kind === 'cli' || provider.kind === 'local') && status.detected === false) return 'blocked';
-	if ((status.healthStatus && FAILED_HEALTH.has(status.healthStatus)) || (status.lastError && status.lastError.trim())) {
+	if ((provider.kind === 'cli' || provider.kind === 'local') && status.detected === false)
+		return 'blocked';
+	if (
+		(status.healthStatus && FAILED_HEALTH.has(status.healthStatus)) ||
+		(status.lastError && status.lastError.trim())
+	) {
 		return 'blocked';
 	}
 	return 'configured';
 }
 
-export const STATE_META: Record<RuntimeSetupState, { tone: 'ok' | 'warn' | 'danger' | 'info'; Icon: IconComponent; labelKey: string }> = {
+export const STATE_META: Record<
+	RuntimeSetupState,
+	{ tone: 'ok' | 'warn' | 'danger' | 'info'; Icon: IconComponent; labelKey: string }
+> = {
 	not_configured: { tone: 'info', Icon: CircleDashed, labelKey: 'app.runtime.state.notConfigured' },
 	configured: { tone: 'info', Icon: Clock, labelKey: 'app.runtime.state.configured' },
 	available: { tone: 'warn', Icon: AlertTriangle, labelKey: 'app.runtime.state.available' },
@@ -121,5 +149,7 @@ export const INSTRUCTIONS_KEY: Record<RuntimeSetupProviderId, string> = {
 /** Ids of API/gateway providers whose health is stored (not live on GET) and so
  *  must be actively re-probed when the user asks to refresh health. */
 export function apiProviderIdsNeedingProbe(providers: readonly MergedProvider[]): string[] {
-	return providers.filter((provider) => API_KINDS.has(provider.kind)).map((provider) => provider.id);
+	return providers
+		.filter((provider) => API_KINDS.has(provider.kind))
+		.map((provider) => provider.id);
 }

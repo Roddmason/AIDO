@@ -9,7 +9,12 @@ import { createProject, discoverProject, selectLocalDirectory } from '../../api/
 import type { JsonValue } from '../../api/generated/openapi';
 import type { Overview } from '../../api/types';
 import { useI18n } from '../../i18n/I18nProvider';
-import { joinLocalPath, lastPathSegment, prettyNameFromDirectory, slugFromName } from '../../lib/paths';
+import {
+	joinLocalPath,
+	lastPathSegment,
+	prettyNameFromDirectory,
+	slugFromName,
+} from '../../lib/paths';
 
 type Mutate = <T>(operation: (token: string) => Promise<T>) => Promise<T>;
 
@@ -31,7 +36,14 @@ export type DetectionMarker = {
 };
 
 /** Markers shown as detection cards, in display order. Filenames must match discovery output. */
-export const DETECTION_MARKER_FILES = ['.git', 'package.json', 'pyproject.toml', 'requirements.txt', 'go.mod', 'Cargo.toml'] as const;
+export const DETECTION_MARKER_FILES = [
+	'.git',
+	'package.json',
+	'pyproject.toml',
+	'requirements.txt',
+	'go.mod',
+	'Cargo.toml',
+] as const;
 
 /** Legacy metadata values kept stable so the backend and existing records do not drift. */
 const METADATA_CREATION_MODE: Record<WorkspaceMode, string> = {
@@ -73,10 +85,16 @@ export function useProjectDiscovery(overview: Overview, mutate: Mutate) {
 	const [discoveryBusy, setDiscoveryBusy] = useState(false);
 	const [pickerBusy, setPickerBusy] = useState(false);
 
-	const finalPath = mode === 'create_workspace' ? joinLocalPath(workspaceBasePath, workspaceName) : workspaceFolder.trim();
+	const finalPath =
+		mode === 'create_workspace'
+			? joinLocalPath(workspaceBasePath, workspaceName)
+			: workspaceFolder.trim();
 	const detectedRuntimes = discovery?.detectedRuntimes ?? [];
 	const manifestSources = discovery?.manifestSources ?? [];
-	const runtimeLabels = useMemo(() => detectedRuntimes.map(runtimeLabel).filter(Boolean), [detectedRuntimes]);
+	const runtimeLabels = useMemo(
+		() => detectedRuntimes.map(runtimeLabel).filter(Boolean),
+		[detectedRuntimes],
+	);
 	const detectionMarkers = useMemo<DetectionMarker[]>(() => {
 		const present = new Set(manifestSources.map(manifestName));
 		return DETECTION_MARKER_FILES.map((file) => ({ file, detected: present.has(file) }));
@@ -87,10 +105,18 @@ export function useProjectDiscovery(overview: Overview, mutate: Mutate) {
 		const normalized = workspaceName.trim().toLowerCase();
 		if (!normalized) return false;
 		const projectConflict = overview.projects.some((project) => {
-			return project.name.trim().toLowerCase() === normalized || lastPathSegment(project.path).toLowerCase() === normalized;
+			return (
+				project.name.trim().toLowerCase() === normalized ||
+				lastPathSegment(project.path).toLowerCase() === normalized
+			);
 		});
 		const workspaceConflict = overview.runtimeWorkspaces.some((workspace) => {
-			return lastPathSegment(workspace.path).toLowerCase() === normalized || String(workspace.taskId ?? '').trim().toLowerCase() === normalized;
+			return (
+				lastPathSegment(workspace.path).toLowerCase() === normalized ||
+				String(workspace.taskId ?? '')
+					.trim()
+					.toLowerCase() === normalized
+			);
 		});
 		return projectConflict || workspaceConflict;
 	}, [mode, overview.projects, overview.runtimeWorkspaces, workspaceName]);
@@ -100,7 +126,10 @@ export function useProjectDiscovery(overview: Overview, mutate: Mutate) {
 		if (next.suggestedName && !nameTouched) {
 			setNameState(next.suggestedName);
 		}
-		if (next.templateId && overview.projectTemplates.some((template) => template.id === next.templateId)) {
+		if (
+			next.templateId &&
+			overview.projectTemplates.some((template) => template.id === next.templateId)
+		) {
 			setTemplateId(next.templateId);
 		}
 	};
@@ -129,7 +158,14 @@ export function useProjectDiscovery(overview: Overview, mutate: Mutate) {
 
 	const runDiscovery = async (targetPath = finalPath) => {
 		if (!targetPath.trim()) {
-			setError(mode === 'create_workspace' ? t('app.workspace.error.basePathAndName', 'Workspace base path and workspace name are required.') : t('app.workspace.error.folderRequired', 'Workspace folder is required.'));
+			setError(
+				mode === 'create_workspace'
+					? t(
+							'app.workspace.error.basePathAndName',
+							'Workspace base path and workspace name are required.',
+						)
+					: t('app.workspace.error.folderRequired', 'Workspace folder is required.'),
+			);
 			return;
 		}
 		setDiscoveryBusy(true);
@@ -138,7 +174,11 @@ export function useProjectDiscovery(overview: Overview, mutate: Mutate) {
 			const result = await mutate((token) => discoverProject(token, { path: targetPath.trim() }));
 			applyDiscovery(result.discovery as ProjectDiscovery);
 		} catch (caught) {
-			setError(caught instanceof Error ? caught.message : t('app.workspace.error.detect', 'Project discovery failed.'));
+			setError(
+				caught instanceof Error
+					? caught.message
+					: t('app.workspace.error.detect', 'Project discovery failed.'),
+			);
 		} finally {
 			setDiscoveryBusy(false);
 		}
@@ -148,8 +188,16 @@ export function useProjectDiscovery(overview: Overview, mutate: Mutate) {
 		setPickerBusy(true);
 		setError('');
 		try {
-			const initialPath = target === 'workspaceBasePath' ? workspaceBasePath || workspaceFolder || undefined : workspaceFolder || workspaceBasePath || undefined;
-			const result = await mutate((token) => selectLocalDirectory(token, { title: t('app.workspace.picker.title', 'Open project folder'), initialPath }));
+			const initialPath =
+				target === 'workspaceBasePath'
+					? workspaceBasePath || workspaceFolder || undefined
+					: workspaceFolder || workspaceBasePath || undefined;
+			const result = await mutate((token) =>
+				selectLocalDirectory(token, {
+					title: t('app.workspace.picker.title', 'Open project folder'),
+					initialPath,
+				}),
+			);
 			if (result.status === 'selected' && result.selectedPath) {
 				if (target === 'workspaceBasePath') {
 					setWorkspaceBasePath(result.selectedPath);
@@ -160,10 +208,20 @@ export function useProjectDiscovery(overview: Overview, mutate: Mutate) {
 				return;
 			}
 			if (result.status === 'unavailable') {
-				setError(result.reason ?? t('app.workspace.error.pickerUnavailable', 'Native directory picker is unavailable. Enter the path manually.'));
+				setError(
+					result.reason ??
+						t(
+							'app.workspace.error.pickerUnavailable',
+							'Native directory picker is unavailable. Enter the path manually.',
+						),
+				);
 			}
 		} catch (caught) {
-			setError(caught instanceof Error ? caught.message : t('app.workspace.error.picker', 'Directory picker failed.'));
+			setError(
+				caught instanceof Error
+					? caught.message
+					: t('app.workspace.error.picker', 'Directory picker failed.'),
+			);
 		} finally {
 			setPickerBusy(false);
 		}
@@ -171,9 +229,12 @@ export function useProjectDiscovery(overview: Overview, mutate: Mutate) {
 
 	const validate = () => {
 		if (mode === 'create_workspace') {
-			if (!workspaceBasePath.trim()) return t('app.workspace.error.basePathRequired', 'Workspace base path is required.');
-			if (!workspaceName.trim()) return t('app.workspace.error.nameMissing', 'Workspace name is required.');
-			if (workspaceNameConflict) return t('app.workspace.error.nameExists', 'Workspace name already exists.');
+			if (!workspaceBasePath.trim())
+				return t('app.workspace.error.basePathRequired', 'Workspace base path is required.');
+			if (!workspaceName.trim())
+				return t('app.workspace.error.nameMissing', 'Workspace name is required.');
+			if (workspaceNameConflict)
+				return t('app.workspace.error.nameExists', 'Workspace name already exists.');
 		} else if (!workspaceFolder.trim()) {
 			return t('app.workspace.error.folderRequired', 'Workspace folder is required.');
 		}
@@ -216,7 +277,11 @@ export function useProjectDiscovery(overview: Overview, mutate: Mutate) {
 			);
 			return { id: result.project.id };
 		} catch (caught) {
-			setError(caught instanceof Error ? caught.message : t('app.workspace.error.create', 'Project creation failed.'));
+			setError(
+				caught instanceof Error
+					? caught.message
+					: t('app.workspace.error.create', 'Project creation failed.'),
+			);
 			return null;
 		} finally {
 			setBusy(false);

@@ -4,26 +4,12 @@
  * @author Roddmason
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-
-import { useControlPlane } from '../hooks/useControlPlane';
-import { useMotionPreference, usePageMotion } from '../motion/useControlMotion';
 import { EmptyState } from '../components/primitives';
-import { CommandPalette } from './CommandPalette';
-import { useCommandActions } from './commandActions';
-import type { CommandAction } from './commandActions';
-import { ActiveProjectsPage } from '../features/active-projects/ActiveProjectsPage';
 import type { Language, ProjectStatusView } from '../features/active-projects/ActiveProjectsPage';
-import { WorkbenchPage } from '../features/workbench/WorkbenchPage';
-import { HomePage } from '../features/home/HomePage';
-import { NewWorkspaceDialog } from '../features/workspace/NewWorkspaceDialog';
-import type { WorkspaceMode } from '../features/workspace/useProjectDiscovery';
-import { useI18n } from '../i18n/I18nProvider';
-import { ReviewPage } from '../features/review/ReviewPage';
-import { WorkflowsPage } from '../features/workflows/WorkflowsPage';
+import { ActiveProjectsPage } from '../features/active-projects/ActiveProjectsPage';
 import { AgentsPage } from '../features/agents/AgentsPage';
+import { HomePage } from '../features/home/HomePage';
 import { ModelGatewayPage } from '../features/model-gateway/ModelGatewayPage';
-import { SettingsPage } from '../features/settings/SettingsPage';
-import type { SettingsGroupId } from '../features/settings/SettingsPage';
 import {
 	AuditPage,
 	EvidencePage,
@@ -33,12 +19,25 @@ import {
 	PolicySecurityPage,
 	WorkspacesPage,
 } from '../features/pages';
-import { AppShell } from './AppShell';
+import { ReviewPage } from '../features/review/ReviewPage';
+import type { SettingsGroupId } from '../features/settings/SettingsPage';
+import { SettingsPage } from '../features/settings/SettingsPage';
+import { WorkbenchPage } from '../features/workbench/WorkbenchPage';
+import { WorkflowsPage } from '../features/workflows/WorkflowsPage';
+import { NewWorkspaceDialog } from '../features/workspace/NewWorkspaceDialog';
+import type { WorkspaceMode } from '../features/workspace/useProjectDiscovery';
+import { useControlPlane } from '../hooks/useControlPlane';
+import { useI18n } from '../i18n/I18nProvider';
+import { useMotionPreference, usePageMotion } from '../motion/useControlMotion';
 import { ApprovalsDrawer } from './ApprovalsDrawer';
+import { AppShell } from './AppShell';
+import { CommandPalette } from './CommandPalette';
+import type { CommandAction } from './commandActions';
+import { useCommandActions } from './commandActions';
 import { EventsDrawer } from './EventsDrawer';
 import { areaForPage, titleForPage } from './navigation';
-import { resolveHashRoute } from './routing';
 import type { AppRoute } from './routing';
+import { resolveHashRoute } from './routing';
 import { useShellShortcuts } from './useShellShortcuts';
 
 const SELECTED_PROJECT_STORAGE_KEY = 'aido:selectedProjectId';
@@ -124,9 +123,12 @@ export function App() {
 		setCommandPaletteOpen(false);
 	}, []);
 
-	const changeLanguage = useCallback((nextLanguage: string) => {
-		setLanguage(nextLanguage);
-	}, [setLanguage]);
+	const changeLanguage = useCallback(
+		(nextLanguage: string) => {
+			setLanguage(nextLanguage);
+		},
+		[setLanguage],
+	);
 
 	useEffect(() => {
 		document.documentElement.lang = language;
@@ -151,8 +153,12 @@ export function App() {
 	});
 
 	const overview = state.overview;
-	const activeProjects = useMemo(() => overview?.projects.filter((project) => project.status === 'active') ?? [], [overview?.projects]);
-	const selectedProject = activeProjects.find((project) => project.id === selectedProjectId) ?? activeProjects[0] ?? null;
+	const activeProjects = useMemo(
+		() => overview?.projects.filter((project) => project.status === 'active') ?? [],
+		[overview?.projects],
+	);
+	const selectedProject =
+		activeProjects.find((project) => project.id === selectedProjectId) ?? activeProjects[0] ?? null;
 	const setOperationalProject = useCallback((projectId: string) => {
 		setSelectedProjectId(projectId);
 		persistSelectedProjectId(projectId);
@@ -245,9 +251,22 @@ export function App() {
 			case 'workflows':
 				return <WorkflowsPage overview={overview} token={state.token} mutate={state.mutate} />;
 			case 'review-board':
-				return <ReviewPage overview={overview} token={state.token} mutate={state.mutate} refresh={state.refresh} />;
+				return (
+					<ReviewPage
+						overview={overview}
+						token={state.token}
+						mutate={state.mutate}
+						refresh={state.refresh}
+					/>
+				);
 			case 'agents':
-				return <AgentsPage overview={overview} runtimeProviders={state.runtimeProviders} mutate={state.mutate} />;
+				return (
+					<AgentsPage
+						overview={overview}
+						runtimeProviders={state.runtimeProviders}
+						mutate={state.mutate}
+					/>
+				);
 			case 'workspaces':
 				return <WorkspacesPage overview={overview} />;
 			case 'policy':
@@ -257,9 +276,22 @@ export function App() {
 			case 'evidence':
 				return <EvidencePage overview={overview} token={state.token} />;
 			case 'models':
-				return <ModelGatewayPage overview={overview} runtimeProviders={state.runtimeProviders} token={state.token} onRefreshRuntimeProviders={() => state.refresh(true)} />;
+				return (
+					<ModelGatewayPage
+						overview={overview}
+						runtimeProviders={state.runtimeProviders}
+						token={state.token}
+						onRefreshRuntimeProviders={() => state.refresh(true)}
+					/>
+				);
 			case 'governance':
-				return <GovernancePage overview={overview} selectedProject={selectedProject} mutate={state.mutate} />;
+				return (
+					<GovernancePage
+						overview={overview}
+						selectedProject={selectedProject}
+						mutate={state.mutate}
+					/>
+				);
 			case 'audit':
 				return <AuditPage overview={overview} />;
 			case 'integrations':
@@ -287,7 +319,16 @@ export function App() {
 					/>
 				);
 			default:
-				return <ActiveProjectsPage overview={overview} selectedProject={selectedProject} language={bilingualLanguage} onSelectProject={setOperationalProject} onOpenSettings={() => navigateTo('settings-project')} onCreateProject={() => openWorkspaceDialog('open_folder')} />;
+				return (
+					<ActiveProjectsPage
+						overview={overview}
+						selectedProject={selectedProject}
+						language={bilingualLanguage}
+						onSelectProject={setOperationalProject}
+						onOpenSettings={() => navigateTo('settings-project')}
+						onCreateProject={() => openWorkspaceDialog('open_folder')}
+					/>
+				);
 		}
 	};
 
@@ -358,7 +399,11 @@ export function App() {
 				onClose={() => setEventDrawerOpen(false)}
 				events={overview.events}
 			/>
-			<CommandPalette open={commandPaletteOpen} onClose={closeCommandPalette} actions={commandActions} />
+			<CommandPalette
+				open={commandPaletteOpen}
+				onClose={closeCommandPalette}
+				actions={commandActions}
+			/>
 		</>
 	);
 }

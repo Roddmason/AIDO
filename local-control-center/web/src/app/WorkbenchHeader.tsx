@@ -59,7 +59,11 @@ export function WorkbenchHeader({
 					<h2 className="topbar-title">{title}</h2>
 				</div>
 				<div className="topbar-actions">
-					<div className="language-switch" role="group" aria-label={t('app.global.languageControl', 'Language control')}>
+					<div
+						className="language-switch"
+						role="group"
+						aria-label={t('app.global.languageControl', 'Language control')}
+					>
 						{languageOptions.map((item) => (
 							<button
 								key={item.code}
@@ -79,7 +83,11 @@ export function WorkbenchHeader({
 						aria-label={t('app.global.toggleTheme', 'Toggle light and dark theme')}
 						onClick={toggleTheme}
 					>
-						{theme === 'light' ? <Moon aria-hidden="true" size={18} /> : <Sun aria-hidden="true" size={18} />}
+						{theme === 'light' ? (
+							<Moon aria-hidden="true" size={18} />
+						) : (
+							<Sun aria-hidden="true" size={18} />
+						)}
 					</button>
 					<button className="button" type="button" onClick={onOpenCommandPalette}>
 						{t('app.global.openCommandPalette', 'Open command palette')}
@@ -100,7 +108,12 @@ export function WorkbenchHeader({
 						<PanelRight aria-hidden="true" size={16} />
 						{t('app.global.inspector', 'Inspector')}
 					</button>
-					<button className="icon-button" type="button" aria-label={t('app.global.refreshState', 'Refresh state')} onClick={onRefresh}>
+					<button
+						className="icon-button"
+						type="button"
+						aria-label={t('app.global.refreshState', 'Refresh state')}
+						onClick={onRefresh}
+					>
 						<RefreshCw aria-hidden="true" size={18} />
 					</button>
 				</div>

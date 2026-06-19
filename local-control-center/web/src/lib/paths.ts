@@ -25,7 +25,11 @@ export function slugFromName(value: string): string {
 
 /** Return the final path segment, tolerating both Windows and POSIX separators. */
 export function lastPathSegment(value: string): string {
-	const segments = value.trim().replace(/[\\/]+$/g, '').split(/[\\/]/).filter(Boolean);
+	const segments = value
+		.trim()
+		.replace(/[\\/]+$/g, '')
+		.split(/[\\/]/)
+		.filter(Boolean);
 	return segments.length ? segments[segments.length - 1] : '';
 }
 

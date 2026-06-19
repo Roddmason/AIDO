@@ -3,19 +3,38 @@
  * @copyright Copyright (c) AIDO.
  * @author Roddmason
  */
-import { Cpu, FileCode2, FilePlus2, FlaskConical, FolderGit2, GitPullRequest, ScrollText } from 'lucide-react';
-import { CheckCircle2, CircleDashed, XCircle } from 'lucide-react';
+
 import type { LucideIcon } from 'lucide-react';
+import {
+	CheckCircle2,
+	CircleDashed,
+	Cpu,
+	FileCode2,
+	FilePlus2,
+	FlaskConical,
+	FolderGit2,
+	GitPullRequest,
+	ScrollText,
+	XCircle,
+} from 'lucide-react';
 
 import type { IssueToPatchResponse } from '../../api/client';
-import { buildIssueTimeline } from './workbenchSelectors';
 import type { IssueTimelineEntry, TimelineStatus } from './workbenchSelectors';
+import { buildIssueTimeline } from './workbenchSelectors';
 
 /** A workbench-internal artifact a stage can link to (opened inside the workbench). */
 export type TimelineArtifactRef = { kind: 'evidence'; id: string };
 
 /** The seven leading run phases, in order. The eighth stage is the terminal verdict. */
-export type TimelinePhase = 'created' | 'workspace' | 'runtime' | 'editing' | 'qa' | 'evidence' | 'review' | 'terminal';
+export type TimelinePhase =
+	| 'created'
+	| 'workspace'
+	| 'runtime'
+	| 'editing'
+	| 'qa'
+	| 'evidence'
+	| 'review'
+	| 'terminal';
 
 export type WorkflowTimelineStage = {
 	/** Canonical stage id from buildIssueTimeline, kept visible as provenance. */
@@ -33,17 +52,52 @@ export type WorkflowTimelineStage = {
 	artifact?: TimelineArtifactRef;
 };
 
-type PhaseDescriptor = { phase: Exclude<TimelinePhase, 'terminal'>; labelKey: string; label: string; icon: LucideIcon };
+type PhaseDescriptor = {
+	phase: Exclude<TimelinePhase, 'terminal'>;
+	labelKey: string;
+	label: string;
+	icon: LucideIcon;
+};
 
 /** Fixed descriptors for the seven leading phases, indexed by issueTimelineOrder. */
 const LEADING_PHASES: PhaseDescriptor[] = [
-	{ phase: 'created', labelKey: 'app.workbench.timeline.state.created', label: 'Created', icon: FilePlus2 },
-	{ phase: 'workspace', labelKey: 'app.workbench.timeline.state.workspace', label: 'Workspace', icon: FolderGit2 },
-	{ phase: 'runtime', labelKey: 'app.workbench.timeline.state.runtime', label: 'Runtime', icon: Cpu },
-	{ phase: 'editing', labelKey: 'app.workbench.timeline.state.editing', label: 'Editing', icon: FileCode2 },
+	{
+		phase: 'created',
+		labelKey: 'app.workbench.timeline.state.created',
+		label: 'Created',
+		icon: FilePlus2,
+	},
+	{
+		phase: 'workspace',
+		labelKey: 'app.workbench.timeline.state.workspace',
+		label: 'Workspace',
+		icon: FolderGit2,
+	},
+	{
+		phase: 'runtime',
+		labelKey: 'app.workbench.timeline.state.runtime',
+		label: 'Runtime',
+		icon: Cpu,
+	},
+	{
+		phase: 'editing',
+		labelKey: 'app.workbench.timeline.state.editing',
+		label: 'Editing',
+		icon: FileCode2,
+	},
 	{ phase: 'qa', labelKey: 'app.workbench.timeline.state.qa', label: 'QA', icon: FlaskConical },
-	{ phase: 'evidence', labelKey: 'app.workbench.timeline.state.evidence', label: 'Evidence', icon: ScrollText },
-	{ phase: 'review', labelKey: 'app.workbench.timeline.state.review', label: 'Review', icon: GitPullRequest },
+	{
+		phase: 'evidence',
+		labelKey: 'app.workbench.timeline.state.evidence',
+		label: 'Evidence',
+		icon: ScrollText,
+	},
+	{
+		phase: 'review',
+		labelKey: 'app.workbench.timeline.state.review',
+		label: 'Review',
+		icon: GitPullRequest,
+	},
 ];
 
 type Reason = { key: string; text: string };
@@ -60,8 +114,16 @@ const FALLBACK_REASON: Record<TimelineStatus, string> = {
  * happened and what is still missing — not the raw machine status.
  */
 const REASONS: Record<TimelinePhase, Partial<Record<TimelineStatus, string>>> = {
-	created: { done: 'Workflow run created', failed: 'Run could not be created', pending: 'Not started yet' },
-	workspace: { done: 'Workspace allocated', failed: 'Workspace was not allocated', pending: 'Waiting for the workflow run' },
+	created: {
+		done: 'Workflow run created',
+		failed: 'Run could not be created',
+		pending: 'Not started yet',
+	},
+	workspace: {
+		done: 'Workspace allocated',
+		failed: 'Workspace was not allocated',
+		pending: 'Waiting for the workflow run',
+	},
 	runtime: {
 		done: 'Executable runtime selected',
 		blocked: 'No executable runtime is configured',
@@ -75,14 +137,23 @@ const REASONS: Record<TimelinePhase, Partial<Record<TimelineStatus, string>>> = 
 		pending: 'Waiting for an executable runtime',
 	},
 	qa: { done: 'QA checks passed', failed: 'QA checks failed', pending: 'QA has not run yet' },
-	evidence: { done: 'Evidence package ready', failed: 'Evidence package is missing', pending: 'Waiting for the artifact package' },
+	evidence: {
+		done: 'Evidence package ready',
+		failed: 'Evidence package is missing',
+		pending: 'Waiting for the artifact package',
+	},
 	review: {
 		active: 'Awaiting human approval',
 		done: 'Approved for integration',
 		blocked: 'Review is blocked',
 		pending: 'Waiting for evidence',
 	},
-	terminal: { done: 'Delivery completed', failed: 'Delivery failed', blocked: 'Delivery blocked', pending: 'No terminal verdict yet' },
+	terminal: {
+		done: 'Delivery completed',
+		failed: 'Delivery failed',
+		blocked: 'Delivery blocked',
+		pending: 'No terminal verdict yet',
+	},
 };
 
 function reasonFor(phase: TimelinePhase, status: TimelineStatus): Reason {
@@ -91,10 +162,20 @@ function reasonFor(phase: TimelinePhase, status: TimelineStatus): Reason {
 }
 
 /** Picks the terminal phase label and icon from the resolved status. */
-function terminalPresentation(status: TimelineStatus): { labelKey: string; label: string; icon: LucideIcon } {
-	if (status === 'done') return { labelKey: 'app.workbench.timeline.state.done', label: 'Done', icon: CheckCircle2 };
-	if (status === 'failed' || status === 'blocked') return { labelKey: 'app.workbench.timeline.state.failed', label: 'Failed', icon: XCircle };
-	return { labelKey: 'app.workbench.timeline.state.terminal', label: 'Done / Failed', icon: CircleDashed };
+function terminalPresentation(status: TimelineStatus): {
+	labelKey: string;
+	label: string;
+	icon: LucideIcon;
+} {
+	if (status === 'done')
+		return { labelKey: 'app.workbench.timeline.state.done', label: 'Done', icon: CheckCircle2 };
+	if (status === 'failed' || status === 'blocked')
+		return { labelKey: 'app.workbench.timeline.state.failed', label: 'Failed', icon: XCircle };
+	return {
+		labelKey: 'app.workbench.timeline.state.terminal',
+		label: 'Done / Failed',
+		icon: CircleDashed,
+	};
 }
 
 function toStage(entry: IssueTimelineEntry, index: number): WorkflowTimelineStage {
@@ -102,7 +183,9 @@ function toStage(entry: IssueTimelineEntry, index: number): WorkflowTimelineStag
 	if (descriptor) {
 		const reason = reasonFor(descriptor.phase, entry.status);
 		const artifact: TimelineArtifactRef | undefined =
-			descriptor.phase === 'evidence' && entry.status === 'done' && entry.detail ? { kind: 'evidence', id: entry.detail } : undefined;
+			descriptor.phase === 'evidence' && entry.status === 'done' && entry.detail
+				? { kind: 'evidence', id: entry.detail }
+				: undefined;
 		return {
 			id: entry.id,
 			phase: descriptor.phase,
@@ -148,7 +231,9 @@ export function buildWorkflowTimeline(
  * focuses "Created", not the terminal verdict). Returns -1 only for an empty list.
  */
 export function currentStageIndex(stages: WorkflowTimelineStage[]): number {
-	const inFlight = stages.findIndex((stage) => stage.status === 'active' || stage.status === 'failed' || stage.status === 'blocked');
+	const inFlight = stages.findIndex(
+		(stage) => stage.status === 'active' || stage.status === 'failed' || stage.status === 'blocked',
+	);
 	if (inFlight !== -1) return inFlight;
 	let lastDone = -1;
 	stages.forEach((stage, index) => {

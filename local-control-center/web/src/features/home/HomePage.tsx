@@ -103,7 +103,9 @@ export function HomePage({
 			) : (
 				<section className="home-band" data-motion-item>
 					<header className="home-band-head">
-						<h2 className="home-band-title">{t('app.home.galleryTitle', 'Pick up where you left off')}</h2>
+						<h2 className="home-band-title">
+							{t('app.home.galleryTitle', 'Pick up where you left off')}
+						</h2>
 						<div className="home-quick-links">
 							<button type="button" className="home-band-link" onClick={onOpenProjects}>
 								{t('app.home.allProjects', 'All projects')}
@@ -137,7 +139,13 @@ export function HomePage({
 										/>
 									);
 								case 'blocker':
-									return <RuntimeBlockerCard key={item.key} provider={item.provider} onOpen={onOpenRuntimes} />;
+									return (
+										<RuntimeBlockerCard
+											key={item.key}
+											provider={item.provider}
+											onOpen={onOpenRuntimes}
+										/>
+									);
 								case 'review':
 									return <ReviewCard key={item.key} request={item.request} onOpen={onOpenReview} />;
 								case 'run':

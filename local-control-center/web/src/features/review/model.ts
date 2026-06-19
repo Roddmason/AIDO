@@ -5,8 +5,8 @@
  */
 import type { ArtifactPayload } from '../../api/client';
 import type { ActionRequest, Artifact, Overview } from '../../api/types';
-import { findPatchArtifact, hasRealPatchChanges } from '../../lib/diff';
 import { artifactDisplayName } from '../../lib/artifacts';
+import { findPatchArtifact, hasRealPatchChanges } from '../../lib/diff';
 import { shortId } from '../../lib/format';
 
 export type PatchWorkflowKind = 'issue_to_patch' | 'issue_to_pr';
@@ -59,7 +59,9 @@ const RISK_RANK: Record<string, number> = { critical: 4, high: 3, medium: 2, low
 // ----------------------------------------------------------------------------
 
 export function asRecord(value: unknown): Record<string, unknown> {
-	return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+	return value && typeof value === 'object' && !Array.isArray(value)
+		? (value as Record<string, unknown>)
+		: {};
 }
 
 export function prettyJson(value: unknown): string {
@@ -97,9 +99,15 @@ export function linkedArtifacts(action: ActionRequest, overview: Overview): Arti
 	});
 }
 
-export function linkedEvidence(action: ActionRequest, overview: Overview): Overview['evidencePackages'] {
+export function linkedEvidence(
+	action: ActionRequest,
+	overview: Overview,
+): Overview['evidencePackages'] {
 	const ids = referenceIds(action);
-	return overview.evidencePackages.filter((evidence) => ids.has(String(evidence.id ?? '')) || String(evidence.jobId ?? '') === action.jobId);
+	return overview.evidencePackages.filter(
+		(evidence) =>
+			ids.has(String(evidence.id ?? '')) || String(evidence.jobId ?? '') === action.jobId,
+	);
 }
 
 export function patchWorkflowKind(value: unknown): PatchWorkflowKind | null {
@@ -107,19 +115,24 @@ export function patchWorkflowKind(value: unknown): PatchWorkflowKind | null {
 }
 
 export function patchWorkflowApproval(action: ActionRequest): PatchWorkflowApproval | null {
-	const kind = action.actionType === 'workflow.issue_to_patch.approve_patch'
-		? 'issue_to_patch'
-		: action.actionType === 'workflow.issue_to_pr.approve_issue_to_pr'
-			? 'issue_to_pr'
-			: null;
+	const kind =
+		action.actionType === 'workflow.issue_to_patch.approve_patch'
+			? 'issue_to_patch'
+			: action.actionType === 'workflow.issue_to_pr.approve_issue_to_pr'
+				? 'issue_to_pr'
+				: null;
 	if (!kind) return null;
 	const payload = asRecord(action.payload);
 	const workflowRunId = payload.workflowRunId;
-	return typeof workflowRunId === 'string' && workflowRunId.trim() ? { kind, runId: workflowRunId } : null;
+	return typeof workflowRunId === 'string' && workflowRunId.trim()
+		? { kind, runId: workflowRunId }
+		: null;
 }
 
 export function requiresPatchEvidenceGate(action: ActionRequest): boolean {
-	return Boolean(patchWorkflowApproval(action)) || action.actionType === 'agent.developer.approve_patch';
+	return (
+		Boolean(patchWorkflowApproval(action)) || action.actionType === 'agent.developer.approve_patch'
+	);
 }
 
 export function isSecurityFindingsArtifact(artifact: Artifact): boolean {
@@ -178,11 +191,18 @@ export function evidenceCompleteness({
 	securityPayload: ArtifactPayload | null;
 }) {
 	const required = requiresPatchEvidenceGate(action);
-	if (!required) return { required, complete: true, reasons: ['No patch evidence gate is required for this action request.'] };
+	if (!required)
+		return {
+			required,
+			complete: true,
+			reasons: ['No patch evidence gate is required for this action request.'],
+		};
 	const patchArtifact = findPatchArtifact(artifacts);
 	const securityArtifact = findSecurityFindingsArtifact(artifacts);
 	const hasEvidencePackage = evidence.length > 0;
-	const hasDiffRefs = evidence.some((item) => Array.isArray(item.diffRefs) && item.diffRefs.length > 0) || Boolean(action.diffRefs?.length);
+	const hasDiffRefs =
+		evidence.some((item) => Array.isArray(item.diffRefs) && item.diffRefs.length > 0) ||
+		Boolean(action.diffRefs?.length);
 	const hasPassingQa = evidence.some(evidenceHasPassingQa);
 	const hasPatchArtifact = Boolean(patchArtifact);
 	const hasPatchHash = Boolean(patchArtifact?.hash || diffPayload?.hash);
@@ -229,9 +249,13 @@ function parseTime(value: unknown): number {
 	return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function mostRecentEvidence(evidence: Overview['evidencePackages']): Overview['evidencePackages'][number] | null {
+function mostRecentEvidence(
+	evidence: Overview['evidencePackages'],
+): Overview['evidencePackages'][number] | null {
 	if (!evidence.length) return null;
-	return [...evidence].sort((left, right) => parseTime(right.createdAt) - parseTime(left.createdAt))[0];
+	return [...evidence].sort(
+		(left, right) => parseTime(right.createdAt) - parseTime(left.createdAt),
+	)[0];
 }
 
 function evidenceHasDiffRefs(evidence: Overview['evidencePackages']): boolean {
@@ -261,18 +285,24 @@ export function buildReviewItems(overview: Overview): ReviewItem[] {
 		const kind = patchWorkflowKind(workflow?.kind);
 		if (!workflow || !kind) continue;
 
-		const evidence = overview.evidencePackages.filter((item) => String(item.workflowRunId ?? '') === run.id);
+		const evidence = overview.evidencePackages.filter(
+			(item) => String(item.workflowRunId ?? '') === run.id,
+		);
 		const evidenceIds = new Set(evidence.map((item) => String(item.id ?? '')));
-		const artifacts = overview.artifacts.filter((artifact) => evidenceIds.has(String(artifact.evidencePackageId ?? '')));
+		const artifacts = overview.artifacts.filter((artifact) =>
+			evidenceIds.has(String(artifact.evidencePackageId ?? '')),
+		);
 		const bestEvidence = mostRecentEvidence(evidence);
 
-		const runActions = overview.actionRequests.filter((action) => patchWorkflowApproval(action)?.runId === run.id);
+		const runActions = overview.actionRequests.filter(
+			(action) => patchWorkflowApproval(action)?.runId === run.id,
+		);
 		for (const action of runActions) claimed.add(action.id);
 		const pending = runActions.find((action) => action.status === 'pending') ?? null;
 
 		const projectId = pending?.projectId || run.projectId;
-		const runLabel = (workflow.title && workflow.title.trim())
-			|| `${workflow.kind} · ${shortId(run.id)}`;
+		const runLabel =
+			(workflow.title && workflow.title.trim()) || `${workflow.kind} · ${shortId(run.id)}`;
 
 		items.push({
 			key: `run:${run.id}`,
@@ -296,7 +326,11 @@ export function buildReviewItems(overview: Overview): ReviewItem[] {
 			decidedBy: null,
 			decidedAt: null,
 			decisionReason: null,
-			sortTime: Math.max(parseTime(run.completedAt), parseTime(run.startedAt), parseTime(pending?.requestedAt)),
+			sortTime: Math.max(
+				parseTime(run.completedAt),
+				parseTime(run.startedAt),
+				parseTime(pending?.requestedAt),
+			),
 		});
 	}
 
@@ -336,7 +370,11 @@ export function buildReviewItems(overview: Overview): ReviewItem[] {
 	// Pass 3 — recent decisions (bounded).
 	const decided = overview.actionRequests
 		.filter((action) => action.status !== 'pending' && !claimed.has(action.id))
-		.sort((left, right) => parseTime(right.decidedAt ?? right.requestedAt) - parseTime(left.decidedAt ?? left.requestedAt))
+		.sort(
+			(left, right) =>
+				parseTime(right.decidedAt ?? right.requestedAt) -
+				parseTime(left.decidedAt ?? left.requestedAt),
+		)
 		.slice(0, DONE_LIMIT);
 	for (const action of decided) {
 		items.push({
@@ -375,7 +413,12 @@ export function buildReviewItems(overview: Overview): ReviewItem[] {
  * silently parked in Blocked. This is a lifecycle map, not `toneForStatus`.
  */
 export function classifyReviewItem(item: ReviewItem): ReviewColumn {
-	if (item.decisionStatus === 'approved' || item.decisionStatus === 'denied' || item.decisionStatus === 'expired') return 'done';
+	if (
+		item.decisionStatus === 'approved' ||
+		item.decisionStatus === 'denied' ||
+		item.decisionStatus === 'expired'
+	)
+		return 'done';
 	if (item.runStatus === 'completed' || item.runStatus === 'pr_created') return 'done';
 	if (item.canDecide) return 'needs_review';
 	switch (item.runStatus) {

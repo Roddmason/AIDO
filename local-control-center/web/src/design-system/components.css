@@ -189,7 +189,9 @@
 
 .card[data-selected="true"] {
 	border-color: color-mix(in oklch, var(--color-accent) 58%, var(--color-border-default));
-	box-shadow: inset 3px 0 0 var(--color-accent), var(--shadow-sm);
+	box-shadow:
+		inset 3px 0 0 var(--color-accent),
+		var(--shadow-sm);
 }
 
 .card-header {
@@ -423,18 +425,18 @@ kbd.command-kbd {
 	color: var(--color-text-muted);
 }
 
-.command-item[data-active='true'] {
+.command-item[data-active="true"] {
 	border-color: var(--color-border-strong);
 	background: var(--color-surface-card-hover);
 	box-shadow: var(--shadow-focus);
 }
 
-.command-item[aria-disabled='true'] {
+.command-item[aria-disabled="true"] {
 	opacity: 0.5;
 	cursor: not-allowed;
 }
 
-.command-item[aria-disabled='true']:hover {
+.command-item[aria-disabled="true"]:hover {
 	border-color: var(--color-border-subtle);
 	background: var(--color-surface-card);
 }
@@ -598,11 +600,19 @@ kbd.command-kbd {
 }
 
 .diff-before {
-	border-color: color-mix(in oklch, var(--color-status-danger) 34%, var(--color-border-default)) !important;
+	border-color: color-mix(
+		in oklch,
+		var(--color-status-danger) 34%,
+		var(--color-border-default)
+	) !important;
 }
 
 .diff-after {
-	border-color: color-mix(in oklch, var(--color-status-success) 34%, var(--color-border-default)) !important;
+	border-color: color-mix(
+		in oklch,
+		var(--color-status-success) 34%,
+		var(--color-border-default)
+	) !important;
 }
 
 .form-grid {
@@ -679,7 +689,8 @@ kbd.command-kbd {
 	align-items: center;
 	gap: var(--space-2);
 	padding: var(--space-2) var(--space-3);
-	border: 1px solid color-mix(in oklch, var(--color-status-success) 44%, var(--color-border-default));
+	border: 1px solid
+		color-mix(in oklch, var(--color-status-success) 44%, var(--color-border-default));
 	border-radius: var(--radius-md);
 	color: color-mix(in oklch, var(--color-status-success) 78%, var(--color-text-primary));
 	background: color-mix(in oklch, var(--color-status-success) 9%, var(--color-surface-card));
@@ -1286,7 +1297,9 @@ kbd.command-kbd {
 
 .home-card[data-selected="true"] {
 	border-color: color-mix(in oklch, var(--color-accent) 58%, var(--color-border-default));
-	box-shadow: inset 3px 0 0 var(--color-accent), var(--shadow-sm);
+	box-shadow:
+		inset 3px 0 0 var(--color-accent),
+		var(--shadow-sm);
 }
 
 .home-card-head {

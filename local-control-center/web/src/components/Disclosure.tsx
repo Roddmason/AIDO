@@ -4,8 +4,8 @@
  * @author Roddmason
  */
 import { ChevronDown } from 'lucide-react';
-import { useId, useState } from 'react';
 import type { ReactNode } from 'react';
+import { useId, useState } from 'react';
 
 /**
  * Accessible disclosure for a single collapsible section. Keeps dense tables and
@@ -48,7 +48,13 @@ export function Disclosure({
 					{summary ? <span className="disclosure-summary">{summary}</span> : null}
 				</button>
 			</h3>
-			<div id={regionId} role="region" aria-labelledby={triggerId} className="disclosure-region" hidden={!open}>
+			<div
+				id={regionId}
+				role="region"
+				aria-labelledby={triggerId}
+				className="disclosure-region"
+				hidden={!open}
+			>
 				<div className="disclosure-inner">{children}</div>
 			</div>
 		</div>

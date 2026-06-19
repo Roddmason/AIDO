@@ -23,6 +23,10 @@
     "typecheck:web": "tsc --noEmit -p local-control-center/web/tsconfig.json",
     "lint": "corepack pnpm@10.24.0 run lint:py",
     "lint:py": "uv run --extra dev ruff check .",
+    "lint:web": "biome lint local-control-center/web",
+    "format:web": "biome format --write local-control-center/web",
+    "format:web:check": "biome format local-control-center/web",
+    "check:web": "biome check local-control-center/web",
     "security:licenses:py": "uv run --extra dev python -X utf8 -m piplicenses --format=markdown",
     "security:licenses:js": "corepack pnpm@10.24.0 licenses list",
     "security:secrets": "gitleaks detect --no-git --source . --config .gitleaks.toml --redact",
@@ -60,6 +64,7 @@
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.5.0",
     "@playwright/test": "^1.60.0",
     "@types/node": "^25.5.0",
     "@types/react": "^18.3.24",

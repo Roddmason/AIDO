@@ -5,8 +5,20 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 
-import { createAgentProfile, getModelGatewayProviders, getModelGatewayRolePolicies, getModelGatewayRoutingProfiles, getRuntimeProviders } from '../../api/client';
-import type { AgentRole, AgentRuntimeMode, Overview, PermissionProfile, RuntimeProviders } from '../../api/types';
+import {
+	createAgentProfile,
+	getModelGatewayProviders,
+	getModelGatewayRolePolicies,
+	getModelGatewayRoutingProfiles,
+	getRuntimeProviders,
+} from '../../api/client';
+import type {
+	AgentRole,
+	AgentRuntimeMode,
+	Overview,
+	PermissionProfile,
+	RuntimeProviders,
+} from '../../api/types';
 import { Badge, DataTable, EmptyState, PageHeader, Surface } from '../../components/primitives';
 import { useI18n } from '../../i18n/I18nProvider';
 import { toneForStatus } from '../../lib/format';
@@ -32,13 +44,21 @@ function recordTimestamp(record: { updatedAt?: string; createdAt?: string }) {
 	return Number.isNaN(parsed) ? 0 : parsed;
 }
 
-function upsertNewestById<T extends { id: string; updatedAt?: string; createdAt?: string }>(records: T[], incoming: T) {
+function upsertNewestById<T extends { id: string; updatedAt?: string; createdAt?: string }>(
+	records: T[],
+	incoming: T,
+) {
 	const existing = records.find((record) => record.id === incoming.id);
 	if (existing && recordTimestamp(existing) > recordTimestamp(incoming)) return records;
-	return existing ? records.map((record) => (record.id === incoming.id ? incoming : record)) : [incoming, ...records];
+	return existing
+		? records.map((record) => (record.id === incoming.id ? incoming : record))
+		: [incoming, ...records];
 }
 
-function mergeNewestById<T extends { id: string; updatedAt?: string; createdAt?: string }>(current: T[], incoming: T[]) {
+function mergeNewestById<T extends { id: string; updatedAt?: string; createdAt?: string }>(
+	current: T[],
+	incoming: T[],
+) {
 	return incoming.reduce((merged, record) => upsertNewestById(merged, record), current);
 }
 
@@ -61,7 +81,10 @@ export function AgentsPage({
 }: {
 	overview: Overview;
 	runtimeProviders: RuntimeProviders | null;
-	mutate: <T>(operation: (token: string) => Promise<T>, options?: { awaitRefresh?: boolean }) => Promise<T>;
+	mutate: <T>(
+		operation: (token: string) => Promise<T>,
+		options?: { awaitRefresh?: boolean },
+	) => Promise<T>;
 }) {
 	const { t } = useI18n();
 	const [agentProfiles, setAgentProfiles] = useState(overview.agentProfiles);
@@ -80,15 +103,22 @@ export function AgentsPage({
 	const [allowRemote, setAllowRemote] = useState(true);
 	const [allowCli, setAllowCli] = useState(true);
 	const [allowApi, setAllowApi] = useState(true);
-	const [gatewayCatalog, setGatewayCatalog] = useState<{ providers: string[]; routingProfiles: string[]; rolePolicies: string[] }>({ providers: [], routingProfiles: [], rolePolicies: [] });
-	const [runtimeProviderState, setRuntimeProviderState] = useState<RuntimeProviders | null>(runtimeProviders);
+	const [gatewayCatalog, setGatewayCatalog] = useState<{
+		providers: string[];
+		routingProfiles: string[];
+		rolePolicies: string[];
+	}>({ providers: [], routingProfiles: [], rolePolicies: [] });
+	const [runtimeProviderState, setRuntimeProviderState] = useState<RuntimeProviders | null>(
+		runtimeProviders,
+	);
 	const [error, setError] = useState('');
 	const [runtimeProviderError, setRuntimeProviderError] = useState('');
 	const [gatewayCatalogError, setGatewayCatalogError] = useState('');
 	const [profileBusy, setProfileBusy] = useState(false);
 	const modes =
-		runtimeProviderState?.runtimeModes.filter((mode): mode is AgentRuntimeMode => runtimeModeOptions.includes(mode as AgentRuntimeMode)) ??
-		[];
+		runtimeProviderState?.runtimeModes.filter((mode): mode is AgentRuntimeMode =>
+			runtimeModeOptions.includes(mode as AgentRuntimeMode),
+		) ?? [];
 	const runtimeOptions = useMemo(() => Array.from(new Set(modes)), [modes]);
 	const runtimeRows = runtimeProviderState?.providers ?? [];
 	const developerAgent = runtimeProviderState?.developerAgent ?? null;
@@ -117,7 +147,11 @@ export function AgentsPage({
 			})
 			.catch((loadError) => {
 				if (!controller.signal.aborted) {
-					setRuntimeProviderError(loadError instanceof Error ? loadError.message : t('app.agents.errRuntimeDiscovery', 'Runtime provider discovery failed.'));
+					setRuntimeProviderError(
+						loadError instanceof Error
+							? loadError.message
+							: t('app.agents.errRuntimeDiscovery', 'Runtime provider discovery failed.'),
+					);
 				}
 			});
 		return () => {
@@ -127,20 +161,44 @@ export function AgentsPage({
 
 	useEffect(() => {
 		let mounted = true;
-		Promise.all([getModelGatewayProviders(), getModelGatewayRoutingProfiles(), getModelGatewayRolePolicies()])
+		Promise.all([
+			getModelGatewayProviders(),
+			getModelGatewayRoutingProfiles(),
+			getModelGatewayRolePolicies(),
+		])
 			.then(([providers, profiles, policies]) => {
 				if (!mounted) return;
 				setGatewayCatalogError('');
 				setGatewayCatalog({
-					providers: Array.from(new Set(providers.providers.map((item) => String(item.providerId ?? '')).filter(Boolean))),
-					routingProfiles: Array.from(new Set(profiles.routingProfiles.map((item) => String(item.id ?? item.name ?? '')).filter(Boolean))),
-					rolePolicies: Array.from(new Set(policies.rolePolicies.map((item) => String(item.id ?? item.role ?? '')).filter(Boolean))),
+					providers: Array.from(
+						new Set(
+							providers.providers.map((item) => String(item.providerId ?? '')).filter(Boolean),
+						),
+					),
+					routingProfiles: Array.from(
+						new Set(
+							profiles.routingProfiles
+								.map((item) => String(item.id ?? item.name ?? ''))
+								.filter(Boolean),
+						),
+					),
+					rolePolicies: Array.from(
+						new Set(
+							policies.rolePolicies
+								.map((item) => String(item.id ?? item.role ?? ''))
+								.filter(Boolean),
+						),
+					),
 				});
 			})
 			.catch((loadError) => {
 				if (!mounted) return;
 				setGatewayCatalog({ providers: [], routingProfiles: [], rolePolicies: [] });
-				setGatewayCatalogError(loadError instanceof Error ? loadError.message : t('app.agents.errGatewayCatalogDiscovery', 'Model gateway catalog discovery failed.'));
+				setGatewayCatalogError(
+					loadError instanceof Error
+						? loadError.message
+						: t('app.agents.errGatewayCatalogDiscovery', 'Model gateway catalog discovery failed.'),
+				);
 			});
 		return () => {
 			mounted = false;
@@ -149,7 +207,12 @@ export function AgentsPage({
 
 	const createProfile = async () => {
 		if (!/^[a-z0-9_-]{3,64}$/.test(profileId)) {
-			setError(t('ui.static.use.lowercase.letters.numbers.dashes.or.underscores.da56bfbd', 'Use lowercase letters, numbers, dashes or underscores.'));
+			setError(
+				t(
+					'ui.static.use.lowercase.letters.numbers.dashes.or.underscores.da56bfbd',
+					'Use lowercase letters, numbers, dashes or underscores.',
+				),
+			);
 			return;
 		}
 		if (!name.trim()) {
@@ -157,47 +220,72 @@ export function AgentsPage({
 			return;
 		}
 		if (!catalogAvailable) {
-			setError(t('ui.static.configuration.required.agent.profile.catalogs', 'configuration_required: Provider, routing, role policy and runtime catalogs must load before saving an agent profile.'));
+			setError(
+				t(
+					'ui.static.configuration.required.agent.profile.catalogs',
+					'configuration_required: Provider, routing, role policy and runtime catalogs must load before saving an agent profile.',
+				),
+			);
 			return;
 		}
 		const tokenLimit = Number(maxTokensPerRun);
-		const approvalThreshold = requiresApprovalOverUsd.trim() ? Number(requiresApprovalOverUsd) : null;
+		const approvalThreshold = requiresApprovalOverUsd.trim()
+			? Number(requiresApprovalOverUsd)
+			: null;
 		if (!Number.isInteger(tokenLimit) || tokenLimit < 0 || tokenLimit > 200000) {
-			setError(t('ui.static.max.tokens.per.run.must.be.an.integer.between.0.and.200000.9abcec39', 'Max tokens per run must be an integer between 0 and 200000.'));
+			setError(
+				t(
+					'ui.static.max.tokens.per.run.must.be.an.integer.between.0.and.200000.9abcec39',
+					'Max tokens per run must be an integer between 0 and 200000.',
+				),
+			);
 			return;
 		}
-		if (approvalThreshold !== null && (!Number.isFinite(approvalThreshold) || approvalThreshold < 0)) {
-			setError(t('ui.static.approval.threshold.must.be.zero.or.positive.2036fa64', 'Approval threshold must be zero or positive.'));
+		if (
+			approvalThreshold !== null &&
+			(!Number.isFinite(approvalThreshold) || approvalThreshold < 0)
+		) {
+			setError(
+				t(
+					'ui.static.approval.threshold.must.be.zero.or.positive.2036fa64',
+					'Approval threshold must be zero or positive.',
+				),
+			);
 			return;
 		}
 		setError('');
 		setProfileBusy(true);
 		try {
-			const result = await mutate((token) =>
-				createAgentProfile(token, {
-					id: profileId,
-					name: name.trim(),
-					role,
-					runtimeMode,
-					modelPolicyId: 'implementation_default',
-					routingProfileId,
-					roleModelPolicyId,
-					allowedProviders: allowedProvider ? [allowedProvider] : [],
-					allowedRuntimes: allowedRuntime ? [allowedRuntime] : [],
-					permissionProfile,
-					allowedTools: [allowedTool],
-					maxTokensPerRun: tokenLimit,
-					maxRuntimeSeconds: runtimeMode === 'manual' ? 300 : 900,
-					allowRemote,
-					allowCli,
-					allowApi,
-					requiresApprovalOverUsd: approvalThreshold,
-				}),
+			const result = await mutate(
+				(token) =>
+					createAgentProfile(token, {
+						id: profileId,
+						name: name.trim(),
+						role,
+						runtimeMode,
+						modelPolicyId: 'implementation_default',
+						routingProfileId,
+						roleModelPolicyId,
+						allowedProviders: allowedProvider ? [allowedProvider] : [],
+						allowedRuntimes: allowedRuntime ? [allowedRuntime] : [],
+						permissionProfile,
+						allowedTools: [allowedTool],
+						maxTokensPerRun: tokenLimit,
+						maxRuntimeSeconds: runtimeMode === 'manual' ? 300 : 900,
+						allowRemote,
+						allowCli,
+						allowApi,
+						requiresApprovalOverUsd: approvalThreshold,
+					}),
 				{ awaitRefresh: false },
 			);
 			setAgentProfiles((current) => upsertNewestById(current, result.agentProfile));
 		} catch (saveError) {
-			setError(saveError instanceof Error ? saveError.message : t('app.agents.errProfileSave', 'Agent profile save failed.'));
+			setError(
+				saveError instanceof Error
+					? saveError.message
+					: t('app.agents.errProfileSave', 'Agent profile save failed.'),
+			);
 		} finally {
 			setProfileBusy(false);
 		}
@@ -208,7 +296,10 @@ export function AgentsPage({
 			<PageHeader
 				kicker={t('ui.static.contracts.not.characters.607de7e9', 'Contracts, not characters')}
 				title={t('app.nav.agents', 'Agents')}
-				summary={t('ui.static.profiles.define.runtime.mode.permission.profile.model.policy.bdde429c', 'Profiles define runtime mode, permission profile, model policy and output contract. CLI/API/Ollama are choices behind the same governance layer.')}
+				summary={t(
+					'ui.static.profiles.define.runtime.mode.permission.profile.model.policy.bdde429c',
+					'Profiles define runtime mode, permission profile, model policy and output contract. CLI/API/Ollama are choices behind the same governance layer.',
+				)}
 			/>
 			<div className="grid two">
 				<Surface title={t('ui.static.create.strict.profile.9798d5ff', 'Create strict profile')}>
@@ -221,10 +312,17 @@ export function AgentsPage({
 							pattern="[a-z0-9_-]{3,64}"
 							onChange={(event) => setProfileId(event.target.value)}
 						/>
-						<span className="field-help">{t('ui.static.stable.id.used.by.workflows.and.audit.records.98754f7e', 'Stable id used by workflows and audit records.')}</span>
+						<span className="field-help">
+							{t(
+								'ui.static.stable.id.used.by.workflows.and.audit.records.98754f7e',
+								'Stable id used by workflows and audit records.',
+							)}
+						</span>
 					</div>
 					<div className="field">
-						<label htmlFor="profile-name">{t('ui.static.display.name.c7874aaa', 'Display name')}</label>
+						<label htmlFor="profile-name">
+							{t('ui.static.display.name.c7874aaa', 'Display name')}
+						</label>
 						<input
 							id="profile-name"
 							className="input"
@@ -234,32 +332,77 @@ export function AgentsPage({
 					</div>
 					<div className="field">
 						<label htmlFor="agent-role">{t('ui.static.role.c3f104d1', 'Role')}</label>
-						<select id="agent-role" className="select" value={role} onChange={(event) => setRole(event.target.value as AgentRole)}>
-							{agentRoles.map((agentRole) => <option key={agentRole} value={agentRole}>{agentRole}</option>)}
-						</select>
-					</div>
-					<div className="field">
-						<label htmlFor="routing-profile">{t('ui.static.routing.profile.d7fd5dd6', 'Routing profile')}</label>
-						<select id="routing-profile" className="select" value={routingProfileId} disabled={!catalogAvailable} onChange={(event) => setRoutingProfileId(event.target.value)}>
-							{gatewayCatalog.routingProfiles.map((profile) => <option key={profile} value={profile}>{profile}</option>)}
-						</select>
-					</div>
-					<div className="field">
-						<label htmlFor="role-model-policy">{t('ui.static.role.model.policy.b581d6ef', 'Role model policy')}</label>
-						<select id="role-model-policy" className="select" value={roleModelPolicyId} disabled={!catalogAvailable} onChange={(event) => setRoleModelPolicyId(event.target.value)}>
-							{gatewayCatalog.rolePolicies.map((policy) => <option key={policy} value={policy}>{policy}</option>)}
-						</select>
-					</div>
-					<div className="field">
-						<label htmlFor="runtime-mode">{t('ui.static.runtime.mode.b05d4374', 'Runtime mode')}</label>
-						<select id="runtime-mode" className="select" value={runtimeMode} disabled={!catalogAvailable} onChange={(event) => setRuntimeMode(event.target.value as AgentRuntimeMode)}>
-							{modes.map((mode) => (
-								<option key={mode} value={mode}>{mode}</option>
+						<select
+							id="agent-role"
+							className="select"
+							value={role}
+							onChange={(event) => setRole(event.target.value as AgentRole)}
+						>
+							{agentRoles.map((agentRole) => (
+								<option key={agentRole} value={agentRole}>
+									{agentRole}
+								</option>
 							))}
 						</select>
 					</div>
 					<div className="field">
-						<label htmlFor="permission-profile">{t('ui.static.permission.profile.f3526260', 'Permission profile')}</label>
+						<label htmlFor="routing-profile">
+							{t('ui.static.routing.profile.d7fd5dd6', 'Routing profile')}
+						</label>
+						<select
+							id="routing-profile"
+							className="select"
+							value={routingProfileId}
+							disabled={!catalogAvailable}
+							onChange={(event) => setRoutingProfileId(event.target.value)}
+						>
+							{gatewayCatalog.routingProfiles.map((profile) => (
+								<option key={profile} value={profile}>
+									{profile}
+								</option>
+							))}
+						</select>
+					</div>
+					<div className="field">
+						<label htmlFor="role-model-policy">
+							{t('ui.static.role.model.policy.b581d6ef', 'Role model policy')}
+						</label>
+						<select
+							id="role-model-policy"
+							className="select"
+							value={roleModelPolicyId}
+							disabled={!catalogAvailable}
+							onChange={(event) => setRoleModelPolicyId(event.target.value)}
+						>
+							{gatewayCatalog.rolePolicies.map((policy) => (
+								<option key={policy} value={policy}>
+									{policy}
+								</option>
+							))}
+						</select>
+					</div>
+					<div className="field">
+						<label htmlFor="runtime-mode">
+							{t('ui.static.runtime.mode.b05d4374', 'Runtime mode')}
+						</label>
+						<select
+							id="runtime-mode"
+							className="select"
+							value={runtimeMode}
+							disabled={!catalogAvailable}
+							onChange={(event) => setRuntimeMode(event.target.value as AgentRuntimeMode)}
+						>
+							{modes.map((mode) => (
+								<option key={mode} value={mode}>
+									{mode}
+								</option>
+							))}
+						</select>
+					</div>
+					<div className="field">
+						<label htmlFor="permission-profile">
+							{t('ui.static.permission.profile.f3526260', 'Permission profile')}
+						</label>
 						<select
 							id="permission-profile"
 							className="select"
@@ -273,8 +416,15 @@ export function AgentsPage({
 						</select>
 					</div>
 					<div className="field">
-						<label htmlFor="allowed-tool">{t('ui.static.allowed.tool.bf01285b', 'Allowed tool')}</label>
-						<select id="allowed-tool" className="select" value={allowedTool} onChange={(event) => setAllowedTool(event.target.value)}>
+						<label htmlFor="allowed-tool">
+							{t('ui.static.allowed.tool.bf01285b', 'Allowed tool')}
+						</label>
+						<select
+							id="allowed-tool"
+							className="select"
+							value={allowedTool}
+							onChange={(event) => setAllowedTool(event.target.value)}
+						>
 							<option value="shell">shell</option>
 							<option value="mcp">mcp</option>
 							<option value="openhands">openhands</option>
@@ -284,33 +434,117 @@ export function AgentsPage({
 						</select>
 					</div>
 					<div className="field">
-						<label htmlFor="allowed-provider">{t('ui.static.allowed.provider.62f3ef08', 'Allowed provider')}</label>
-						<select id="allowed-provider" className="select" value={allowedProvider} disabled={!catalogAvailable} onChange={(event) => setAllowedProvider(event.target.value)}>
-							{gatewayCatalog.providers.map((provider) => <option key={provider} value={provider}>{provider}</option>)}
+						<label htmlFor="allowed-provider">
+							{t('ui.static.allowed.provider.62f3ef08', 'Allowed provider')}
+						</label>
+						<select
+							id="allowed-provider"
+							className="select"
+							value={allowedProvider}
+							disabled={!catalogAvailable}
+							onChange={(event) => setAllowedProvider(event.target.value)}
+						>
+							{gatewayCatalog.providers.map((provider) => (
+								<option key={provider} value={provider}>
+									{provider}
+								</option>
+							))}
 						</select>
 					</div>
 					<div className="field">
-						<label htmlFor="allowed-runtime">{t('ui.static.allowed.runtime.1d6c55bd', 'Allowed runtime')}</label>
-						<select id="allowed-runtime" className="select" value={allowedRuntime} disabled={!catalogAvailable} onChange={(event) => setAllowedRuntime(event.target.value)}>
-							{runtimeOptions.map((runtime) => <option key={runtime} value={runtime}>{runtime}</option>)}
+						<label htmlFor="allowed-runtime">
+							{t('ui.static.allowed.runtime.1d6c55bd', 'Allowed runtime')}
+						</label>
+						<select
+							id="allowed-runtime"
+							className="select"
+							value={allowedRuntime}
+							disabled={!catalogAvailable}
+							onChange={(event) => setAllowedRuntime(event.target.value)}
+						>
+							{runtimeOptions.map((runtime) => (
+								<option key={runtime} value={runtime}>
+									{runtime}
+								</option>
+							))}
 						</select>
 					</div>
 					<div className="field">
-						<label htmlFor="agent-max-tokens">{t('ui.static.max.tokens.per.run.0c48d61a', 'Max tokens per run')}</label>
-						<input id="agent-max-tokens" className="input" type="number" min="0" max="200000" value={maxTokensPerRun} onChange={(event) => setMaxTokensPerRun(event.target.value)} />
+						<label htmlFor="agent-max-tokens">
+							{t('ui.static.max.tokens.per.run.0c48d61a', 'Max tokens per run')}
+						</label>
+						<input
+							id="agent-max-tokens"
+							className="input"
+							type="number"
+							min="0"
+							max="200000"
+							value={maxTokensPerRun}
+							onChange={(event) => setMaxTokensPerRun(event.target.value)}
+						/>
 					</div>
 					<div className="field">
-						<label htmlFor="agent-approval-threshold">{t('ui.static.approval.threshold.usd.8086e7e3', 'Approval threshold USD')}</label>
-						<input id="agent-approval-threshold" className="input" type="number" min="0" step="0.01" value={requiresApprovalOverUsd} onChange={(event) => setRequiresApprovalOverUsd(event.target.value)} />
+						<label htmlFor="agent-approval-threshold">
+							{t('ui.static.approval.threshold.usd.8086e7e3', 'Approval threshold USD')}
+						</label>
+						<input
+							id="agent-approval-threshold"
+							className="input"
+							type="number"
+							min="0"
+							step="0.01"
+							value={requiresApprovalOverUsd}
+							onChange={(event) => setRequiresApprovalOverUsd(event.target.value)}
+						/>
 					</div>
 					<div className="inline">
-						<label className="checkbox-row" htmlFor="agent-allow-remote"><input id="agent-allow-remote" type="checkbox" checked={allowRemote} onChange={(event) => setAllowRemote(event.target.checked)} />{t('ui.static.allow.remote.042d39a7', 'Allow remote')}</label>
-						<label className="checkbox-row" htmlFor="agent-allow-cli"><input id="agent-allow-cli" type="checkbox" checked={allowCli} onChange={(event) => setAllowCli(event.target.checked)} />{t('ui.static.allow.cli.bfd5afe8', 'Allow CLI')}</label>
-						<label className="checkbox-row" htmlFor="agent-allow-api"><input id="agent-allow-api" type="checkbox" checked={allowApi} onChange={(event) => setAllowApi(event.target.checked)} />{t('ui.static.allow.api.33a34d74', 'Allow API')}</label>
+						<label className="checkbox-row" htmlFor="agent-allow-remote">
+							<input
+								id="agent-allow-remote"
+								type="checkbox"
+								checked={allowRemote}
+								onChange={(event) => setAllowRemote(event.target.checked)}
+							/>
+							{t('ui.static.allow.remote.042d39a7', 'Allow remote')}
+						</label>
+						<label className="checkbox-row" htmlFor="agent-allow-cli">
+							<input
+								id="agent-allow-cli"
+								type="checkbox"
+								checked={allowCli}
+								onChange={(event) => setAllowCli(event.target.checked)}
+							/>
+							{t('ui.static.allow.cli.bfd5afe8', 'Allow CLI')}
+						</label>
+						<label className="checkbox-row" htmlFor="agent-allow-api">
+							<input
+								id="agent-allow-api"
+								type="checkbox"
+								checked={allowApi}
+								onChange={(event) => setAllowApi(event.target.checked)}
+							/>
+							{t('ui.static.allow.api.33a34d74', 'Allow API')}
+						</label>
 					</div>
-					{gatewayCatalogError || runtimeProviderError ? <div className="form-error" role="alert">configuration_required: {gatewayCatalogError || runtimeProviderError}</div> : null}
-					{error ? <div className="form-error" role="alert">{error}</div> : null}
-					<button className="button primary" disabled={profileBusy || !catalogAvailable} onClick={() => { void createProfile(); }}>{t('ui.static.save.agent.profile.27d8ba89', 'Save agent profile')}</button>
+					{gatewayCatalogError || runtimeProviderError ? (
+						<div className="form-error" role="alert">
+							configuration_required: {gatewayCatalogError || runtimeProviderError}
+						</div>
+					) : null}
+					{error ? (
+						<div className="form-error" role="alert">
+							{error}
+						</div>
+					) : null}
+					<button
+						className="button primary"
+						disabled={profileBusy || !catalogAvailable}
+						onClick={() => {
+							void createProfile();
+						}}
+					>
+						{t('ui.static.save.agent.profile.27d8ba89', 'Save agent profile')}
+					</button>
 				</Surface>
 				<Surface title={t('ui.static.runtime.detection.0348713b', 'Runtime detection')}>
 					{developerAgent ? (
@@ -319,53 +553,150 @@ export function AgentsPage({
 								<div className="eyebrow">{t('ui.static.developeragent', 'DeveloperAgent')}</div>
 								<div className="inline">
 									<Badge tone={developerAgent.executable ? 'ok' : 'warn'}>
-										{developerAgent.executable ? t('app.modelGateway.runtime.executable', 'executable') : t('app.modelGateway.runtime.notExecutable', 'not executable')}
+										{developerAgent.executable
+											? t('app.modelGateway.runtime.executable', 'executable')
+											: t('app.modelGateway.runtime.notExecutable', 'not executable')}
 									</Badge>
-									<Badge>{developerAgent.selectedRuntimeId ?? t('app.modelGateway.routePreview.noRuntime', 'no runtime')}</Badge>
+									<Badge>
+										{developerAgent.selectedRuntimeId ??
+											t('app.modelGateway.routePreview.noRuntime', 'no runtime')}
+									</Badge>
 								</div>
 							</div>
 							<div className="stack compact">
-								<span className="mono">{developerAgent.contract.requiredRuntimeCapabilities.join(', ')}</span>
+								<span className="mono">
+									{developerAgent.contract.requiredRuntimeCapabilities.join(', ')}
+								</span>
 								<span>{developerAgent.reason}</span>
 							</div>
 						</div>
 					) : null}
 					<DataTable
 						rows={runtimeRows}
-						empty={<EmptyState title={t('ui.static.no.runtime.providers.c1247c5c', 'No runtime providers')} body={runtimeProviderError || t('app.agents.runtimeProvidersDiscoveryPending', 'Runtime providers are not executable until provider discovery returns status.')} />}
+						empty={
+							<EmptyState
+								title={t('ui.static.no.runtime.providers.c1247c5c', 'No runtime providers')}
+								body={
+									runtimeProviderError ||
+									t(
+										'app.agents.runtimeProvidersDiscoveryPending',
+										'Runtime providers are not executable until provider discovery returns status.',
+									)
+								}
+							/>
+						}
 						columns={[
-						{ key: 'provider', label: t('ui.static.provider.7ceee3f3', 'Provider'), render: (row) => <span className="mono">{row.id}</span> },
-						{ key: 'kind', label: t('app.workbench.evidence.colKind', 'Kind'), render: (row) => <Badge>{row.kind}</Badge> },
-						{
-							key: 'state',
-							label: t('ui.static.state.46a2a41c', 'State'),
-							render: (row) => (
-								<div className="inline">
-									<Badge tone={row.detected ? 'ok' : 'warn'}>{row.detected ? t('app.modelGateway.runtime.detected', 'detected') : t('app.modelGateway.runtime.notDetected', 'not detected')}</Badge>
-									<Badge tone={row.configured ? 'ok' : 'warn'}>{row.configured ? t('app.modelGateway.runtime.configured', 'configured') : t('app.modelGateway.runtime.unconfigured', 'unconfigured')}</Badge>
-									<Badge tone={row.available ? 'ok' : 'warn'}>{row.available ? t('app.modelGateway.runtime.available', 'available') : t('app.statusBar.unavailable', 'unavailable')}</Badge>
-									<Badge tone={row.executable ? 'ok' : 'warn'}>{row.executable ? t('app.modelGateway.runtime.executable', 'executable') : t('app.modelGateway.runtime.notExecutable', 'not executable')}</Badge>
-								</div>
-							),
-						},
-						{ key: 'capabilities', label: t('ui.static.capabilities.ca09c54b', 'Capabilities'), render: (row) => (row.capabilities?.length ? row.capabilities.join(', ') : t('app.runtime.card.none', 'none')) },
-						{ key: 'requiredConfiguration', label: t('ui.static.required.config.4e5f80c9', 'Required config'), render: (row) => (row.requiredConfiguration?.length ? row.requiredConfiguration.join(', ') : 'n/a') },
-						{ key: 'reason', label: t('ui.static.reason.f219cc06', 'Reason'), render: (row) => String(row.reason ?? '') },
-					]} />
+							{
+								key: 'provider',
+								label: t('ui.static.provider.7ceee3f3', 'Provider'),
+								render: (row) => <span className="mono">{row.id}</span>,
+							},
+							{
+								key: 'kind',
+								label: t('app.workbench.evidence.colKind', 'Kind'),
+								render: (row) => <Badge>{row.kind}</Badge>,
+							},
+							{
+								key: 'state',
+								label: t('ui.static.state.46a2a41c', 'State'),
+								render: (row) => (
+									<div className="inline">
+										<Badge tone={row.detected ? 'ok' : 'warn'}>
+											{row.detected
+												? t('app.modelGateway.runtime.detected', 'detected')
+												: t('app.modelGateway.runtime.notDetected', 'not detected')}
+										</Badge>
+										<Badge tone={row.configured ? 'ok' : 'warn'}>
+											{row.configured
+												? t('app.modelGateway.runtime.configured', 'configured')
+												: t('app.modelGateway.runtime.unconfigured', 'unconfigured')}
+										</Badge>
+										<Badge tone={row.available ? 'ok' : 'warn'}>
+											{row.available
+												? t('app.modelGateway.runtime.available', 'available')
+												: t('app.statusBar.unavailable', 'unavailable')}
+										</Badge>
+										<Badge tone={row.executable ? 'ok' : 'warn'}>
+											{row.executable
+												? t('app.modelGateway.runtime.executable', 'executable')
+												: t('app.modelGateway.runtime.notExecutable', 'not executable')}
+										</Badge>
+									</div>
+								),
+							},
+							{
+								key: 'capabilities',
+								label: t('ui.static.capabilities.ca09c54b', 'Capabilities'),
+								render: (row) =>
+									row.capabilities?.length
+										? row.capabilities.join(', ')
+										: t('app.runtime.card.none', 'none'),
+							},
+							{
+								key: 'requiredConfiguration',
+								label: t('ui.static.required.config.4e5f80c9', 'Required config'),
+								render: (row) =>
+									row.requiredConfiguration?.length ? row.requiredConfiguration.join(', ') : 'n/a',
+							},
+							{
+								key: 'reason',
+								label: t('ui.static.reason.f219cc06', 'Reason'),
+								render: (row) => String(row.reason ?? ''),
+							},
+						]}
+					/>
 				</Surface>
 			</div>
 			<Surface title={t('ui.static.agent.profiles.307157c5', 'Agent profiles')}>
 				<DataTable
 					rows={agentProfiles}
-					empty={<EmptyState title={t('ui.static.no.agent.profiles.056f31a8', 'No agent profiles')} body={t('ui.static.create.a.strict.profile.before.running.real.implementation.w.6b48ff2f', 'Create a strict profile before running real implementation work.')} />}
+					empty={
+						<EmptyState
+							title={t('ui.static.no.agent.profiles.056f31a8', 'No agent profiles')}
+							body={t(
+								'ui.static.create.a.strict.profile.before.running.real.implementation.w.6b48ff2f',
+								'Create a strict profile before running real implementation work.',
+							)}
+						/>
+					}
 					columns={[
 						{ key: 'name', label: t('ui.static.name.709a2322', 'Name'), render: (row) => row.name },
-						{ key: 'role', label: t('ui.static.role.c3f104d1', 'Role'), render: (row) => <span className="mono">{row.role}</span> },
-						{ key: 'runtime', label: t('ui.static.runtime.c4740e4c', 'Runtime'), render: (row) => <Badge>{row.runtimeMode ?? row.runtimeType ?? 'unassigned'}</Badge> },
-						{ key: 'routing', label: t('ui.static.routing.7d15dd1b', 'Routing'), render: (row) => <span className="mono">{row.routingProfileId ?? 'default'}</span> },
-						{ key: 'providers', label: t('ui.static.providers.87b7c08b', 'Providers'), render: (row) => Array.isArray(row.allowedProviders) && row.allowedProviders.length ? row.allowedProviders.join(', ') : t('app.agents.providersPolicyDefault', 'policy default') },
-						{ key: 'limits', label: t('ui.static.limits.61a0ae3b', 'Limits'), render: (row) => `${numericLabel(row.maxTokensPerRun, t('app.runtime.card.unknown', 'unknown'))} tokens / ${moneyLabel(row.requiresApprovalOverUsd ?? row.maxCostPerRun, t('app.runtime.card.unknown', 'unknown'))}` },
-						{ key: 'status', label: t('ui.static.status.bae7d5be', 'Status'), render: (row) => <Badge tone={toneForStatus(row.status)}>{row.status ?? 'active'}</Badge> },
+						{
+							key: 'role',
+							label: t('ui.static.role.c3f104d1', 'Role'),
+							render: (row) => <span className="mono">{row.role}</span>,
+						},
+						{
+							key: 'runtime',
+							label: t('ui.static.runtime.c4740e4c', 'Runtime'),
+							render: (row) => <Badge>{row.runtimeMode ?? row.runtimeType ?? 'unassigned'}</Badge>,
+						},
+						{
+							key: 'routing',
+							label: t('ui.static.routing.7d15dd1b', 'Routing'),
+							render: (row) => <span className="mono">{row.routingProfileId ?? 'default'}</span>,
+						},
+						{
+							key: 'providers',
+							label: t('ui.static.providers.87b7c08b', 'Providers'),
+							render: (row) =>
+								Array.isArray(row.allowedProviders) && row.allowedProviders.length
+									? row.allowedProviders.join(', ')
+									: t('app.agents.providersPolicyDefault', 'policy default'),
+						},
+						{
+							key: 'limits',
+							label: t('ui.static.limits.61a0ae3b', 'Limits'),
+							render: (row) =>
+								`${numericLabel(row.maxTokensPerRun, t('app.runtime.card.unknown', 'unknown'))} tokens / ${moneyLabel(row.requiresApprovalOverUsd ?? row.maxCostPerRun, t('app.runtime.card.unknown', 'unknown'))}`,
+						},
+						{
+							key: 'status',
+							label: t('ui.static.status.bae7d5be', 'Status'),
+							render: (row) => (
+								<Badge tone={toneForStatus(row.status)}>{row.status ?? 'active'}</Badge>
+							),
+						},
 					]}
 				/>
 			</Surface>

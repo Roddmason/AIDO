@@ -3,13 +3,20 @@
  * @copyright Copyright (c) AIDO.
  * @author Roddmason
  */
+
+import type { ReactNode, RefObject } from 'react';
 import { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import type { ReactNode, RefObject } from 'react';
 
 import { useI18n } from '../i18n/I18nProvider';
 
-export function Badge({ children, tone }: { children: ReactNode; tone?: 'ok' | 'warn' | 'danger' | 'info' | 'pending' }) {
+export function Badge({
+	children,
+	tone,
+}: {
+	children: ReactNode;
+	tone?: 'ok' | 'warn' | 'danger' | 'info' | 'pending';
+}) {
 	return (
 		<span className="badge" data-tone={tone}>
 			{children}
@@ -17,11 +24,23 @@ export function Badge({ children, tone }: { children: ReactNode; tone?: 'ok' | '
 	);
 }
 
-export function StatusDot({ tone = 'info' }: { tone?: 'ok' | 'warn' | 'danger' | 'info' | 'pending' }) {
+export function StatusDot({
+	tone = 'info',
+}: {
+	tone?: 'ok' | 'warn' | 'danger' | 'info' | 'pending';
+}) {
 	return <span className="status-dot" data-tone={tone} aria-hidden="true" />;
 }
 
-export function Surface({ title, children, flat = false }: { title?: string; children: ReactNode; flat?: boolean }) {
+export function Surface({
+	title,
+	children,
+	flat = false,
+}: {
+	title?: string;
+	children: ReactNode;
+	flat?: boolean;
+}) {
 	return (
 		<section className={`surface${flat ? ' flat' : ''}`} data-motion-item>
 			{title ? <h2 className="surface-title">{title}</h2> : null}
@@ -39,7 +58,15 @@ export function EmptyState({ title, body }: { title: string; body: string }) {
 	);
 }
 
-export function PageHeader({ kicker, title, summary }: { kicker: string; title: string; summary: string }) {
+export function PageHeader({
+	kicker,
+	title,
+	summary,
+}: {
+	kicker: string;
+	title: string;
+	summary: string;
+}) {
 	return (
 		<header className="page-header" data-motion-item>
 			<div className="page-kicker">{kicker}</div>
@@ -78,7 +105,9 @@ export function DataTable<T>({
 					{rows.map((row, index) => (
 						<tr key={String((row as { id?: unknown }).id ?? index)}>
 							{columns.map((column) => (
-								<td key={column.key} data-label={column.label}>{column.render(row)}</td>
+								<td key={column.key} data-label={column.label}>
+									{column.render(row)}
+								</td>
 							))}
 						</tr>
 					))}
@@ -102,7 +131,8 @@ function useDialogFocus(open: boolean, panelRef: RefObject<HTMLElement | null>) 
 		if (!open) return undefined;
 		const panel = panelRef.current;
 		const previouslyFocused = document.activeElement as HTMLElement | null;
-		const focusable = () => Array.from(panel?.querySelectorAll<HTMLElement>(DIALOG_FOCUSABLE) ?? []);
+		const focusable = () =>
+			Array.from(panel?.querySelectorAll<HTMLElement>(DIALOG_FOCUSABLE) ?? []);
 		(focusable()[0] ?? panel)?.focus();
 		const onKeyDown = (event: KeyboardEvent) => {
 			if (event.key !== 'Tab') return;
@@ -156,11 +186,28 @@ export function Drawer({
 	if (!open) return null;
 	return createPortal(
 		<div className="drawer-layer" role="presentation">
-			<button className="drawer-scrim" type="button" aria-label={`${t('app.global.close', 'Close')} ${label}`} onClick={onClose} />
-			<div ref={panelRef} tabIndex={-1} className="drawer-panel" role="dialog" aria-modal="true" aria-label={label}>
+			<button
+				className="drawer-scrim"
+				type="button"
+				aria-label={`${t('app.global.close', 'Close')} ${label}`}
+				onClick={onClose}
+			/>
+			<div
+				ref={panelRef}
+				tabIndex={-1}
+				className="drawer-panel"
+				role="dialog"
+				aria-modal="true"
+				aria-label={label}
+			>
 				<div className="drawer-header">
 					<h2>{label}</h2>
-					<button className="icon-button" type="button" aria-label={`${t('app.global.close', 'Close')} ${label}`} onClick={onClose}>
+					<button
+						className="icon-button"
+						type="button"
+						aria-label={`${t('app.global.close', 'Close')} ${label}`}
+						onClick={onClose}
+					>
 						×
 					</button>
 				</div>
@@ -196,11 +243,28 @@ export function Modal({
 	if (!open) return null;
 	return createPortal(
 		<div className="modal-layer" role="presentation">
-			<button className="drawer-scrim" type="button" aria-label={`${t('app.global.close', 'Close')} ${label}`} onClick={onClose} />
-			<div ref={panelRef} tabIndex={-1} className="modal-panel" role="dialog" aria-modal="true" aria-label={label}>
+			<button
+				className="drawer-scrim"
+				type="button"
+				aria-label={`${t('app.global.close', 'Close')} ${label}`}
+				onClick={onClose}
+			/>
+			<div
+				ref={panelRef}
+				tabIndex={-1}
+				className="modal-panel"
+				role="dialog"
+				aria-modal="true"
+				aria-label={label}
+			>
 				<div className="drawer-header">
 					<h2>{label}</h2>
-					<button className="icon-button" type="button" aria-label={`${t('app.global.close', 'Close')} ${label}`} onClick={onClose}>
+					<button
+						className="icon-button"
+						type="button"
+						aria-label={`${t('app.global.close', 'Close')} ${label}`}
+						onClick={onClose}
+					>
 						×
 					</button>
 				</div>

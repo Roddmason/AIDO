@@ -18,7 +18,9 @@ def auth_headers(client: TestClient) -> dict[str, str]:
     return {"X-Local-Control-Token": token, "Origin": "http://127.0.0.1"}
 
 
-def create_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[ControlPlaneFixture, TestClient, dict[str, str]]:
+def create_client(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> tuple[ControlPlaneFixture, TestClient, dict[str, str]]:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
     store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
     store.init()
@@ -75,7 +77,7 @@ def configure_external_scanners(
     write_scanner_cli(scanner_bin, "gitleaks", gitleaks_script)
     write_scanner_cli(scanner_bin, "semgrep", semgrep_script)
     monkeypatch.setenv("PATH", f"{scanner_bin}{os.pathsep}{os.environ.get('PATH', '')}")
-    (tmp_path / ".gitleaks.toml").write_text("[allowlist]\ndescription = \"test config\"\n", encoding="utf-8")
+    (tmp_path / ".gitleaks.toml").write_text('[allowlist]\ndescription = "test config"\n', encoding="utf-8")
     (tmp_path / ".semgrep.yml").write_text(
         "rules:\n"
         "  - id: test-noop\n"
@@ -187,7 +189,10 @@ def test_security_agent_dangerous_docker_flags_block(
             project,
             workspace,
             commandCandidates=[
-                {"label": "unsafe docker", "argv": ["docker", "run", "--privileged", "--network", "host", "alpine"]}
+                {
+                    "label": "unsafe docker",
+                    "argv": ["docker", "run", "--privileged", "--network", "host", "alpine"],
+                }
             ],
         ),
     )
@@ -198,7 +203,9 @@ def test_security_agent_dangerous_docker_flags_block(
     assert body["verdict"] == "blocked"
     findings = [finding for finding in body["findings"] if finding["checkId"] == "dangerous_command"]
     assert findings
-    assert any("--privileged" in finding["message"] or "--network host" in finding["message"] for finding in findings)
+    assert any(
+        "--privileged" in finding["message"] or "--network host" in finding["message"] for finding in findings
+    )
     assert body["evidencePackage"]["qaVerdict"] == "security_blocked"
 
 
@@ -272,10 +279,22 @@ def test_security_agent_runs_external_scanners_and_attaches_report_hashes(
     assert scanners["semgrep"]["reportHash"]
     artifact_names = {artifact["name"] for artifact in body["evidencePackage"]["artifacts"]}
     assert {"gitleaks-report.json", "semgrep-report.json"} <= artifact_names
-    assert body["evidencePackage"]["hashes"][scanners["gitleaks"]["reportArtifactId"]] == scanners["gitleaks"]["reportHash"]
-    assert body["evidencePackage"]["hashes"][scanners["semgrep"]["reportArtifactId"]] == scanners["semgrep"]["reportHash"]
-    assert evidence_test_result(body, "security_agent.gitleaks")["outputRef"] == scanners["gitleaks"]["reportArtifactId"]
-    assert evidence_test_result(body, "security_agent.semgrep")["outputRef"] == scanners["semgrep"]["reportArtifactId"]
+    assert (
+        body["evidencePackage"]["hashes"][scanners["gitleaks"]["reportArtifactId"]]
+        == scanners["gitleaks"]["reportHash"]
+    )
+    assert (
+        body["evidencePackage"]["hashes"][scanners["semgrep"]["reportArtifactId"]]
+        == scanners["semgrep"]["reportHash"]
+    )
+    assert (
+        evidence_test_result(body, "security_agent.gitleaks")["outputRef"]
+        == scanners["gitleaks"]["reportArtifactId"]
+    )
+    assert (
+        evidence_test_result(body, "security_agent.semgrep")["outputRef"]
+        == scanners["semgrep"]["reportArtifactId"]
+    )
 
 
 def test_security_agent_gitleaks_secret_blocks_with_report_evidence(
@@ -317,9 +336,15 @@ def test_security_agent_gitleaks_secret_blocks_with_report_evidence(
     assert body["status"] == "blocked"
     assert body["verdict"] == "blocked"
     assert body["evidencePackage"]["qaVerdict"] == "security_blocked"
-    assert any(finding["checkId"] == "gitleaks_secret" and finding["severity"] == "critical" for finding in body["findings"])
+    assert any(
+        finding["checkId"] == "gitleaks_secret" and finding["severity"] == "critical"
+        for finding in body["findings"]
+    )
     assert leaked_secret not in json.dumps(body)
     scanners = {scanner["name"]: scanner for scanner in body["externalScanners"]}
     assert scanners["gitleaks"]["status"] == "blocked"
     assert scanners["gitleaks"]["reportArtifactId"].startswith("artifact-")
-    assert body["evidencePackage"]["hashes"][scanners["gitleaks"]["reportArtifactId"]] == scanners["gitleaks"]["reportHash"]
+    assert (
+        body["evidencePackage"]["hashes"][scanners["gitleaks"]["reportArtifactId"]]
+        == scanners["gitleaks"]["reportHash"]
+    )

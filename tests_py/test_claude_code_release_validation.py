@@ -17,7 +17,6 @@ from local_control_center.shared.db import open_sqlite_connection
 from local_control_center.shared.migrations import initialize_platform_schema
 from local_control_center.workflows.issue_to_patch_runner import _execution_result_from_tool_call
 
-
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "local-control-center" / "scripts" / "release_validate_claude_code_cli.py"
 
@@ -51,9 +50,12 @@ def test_claude_release_validation_requires_explicit_env_without_detecting_claud
     )
     assert disabled == ["AIDO_ENABLE_CLI_RUNTIMES=true is required for Claude Code CLI release validation."]
 
-    assert module.required_environment_errors(
-        {"AIDO_CLAUDE_COMMAND": "claude", "AIDO_ENABLE_CLI_RUNTIMES": "true"}
-    ) == []
+    assert (
+        module.required_environment_errors(
+            {"AIDO_CLAUDE_COMMAND": "claude", "AIDO_ENABLE_CLI_RUNTIMES": "true"}
+        )
+        == []
+    )
 
 
 def test_claude_release_validation_parse_args_accepts_pnpm_separator() -> None:
@@ -199,8 +201,7 @@ def test_claude_code_is_not_executable_when_configured_command_does_not_match_ru
             """
         )
         status = {
-            provider["id"]: provider
-            for provider in RuntimeStatusService(connection).list_provider_statuses()
+            provider["id"]: provider for provider in RuntimeStatusService(connection).list_provider_statuses()
         }["claude_code_cli"]
 
     assert status["detected"] is True

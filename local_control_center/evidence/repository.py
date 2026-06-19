@@ -3,6 +3,7 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -11,7 +12,6 @@ from typing import Any
 
 from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.serialization import json_dumps, json_loads
-
 from local_control_center.shared.time import utc_now
 
 
@@ -21,16 +21,8 @@ def _redact_diff_refs(diff_refs: list[Any]) -> list[Any]:
         if not isinstance(diff_ref, dict):
             redacted.append(redact_secrets(diff_ref))
             continue
-        patch_fields = {
-            key: value
-            for key, value in diff_ref.items()
-            if key in {"patch", "patchFull"}
-        }
-        metadata_fields = {
-            key: value
-            for key, value in diff_ref.items()
-            if key not in patch_fields
-        }
+        patch_fields = {key: value for key, value in diff_ref.items() if key in {"patch", "patchFull"}}
+        metadata_fields = {key: value for key, value in diff_ref.items() if key not in patch_fields}
         redacted.append({**redact_secrets(metadata_fields), **patch_fields})
     return redacted
 
@@ -59,7 +51,9 @@ def row_to_evidence_package(row: sqlite3.Row) -> dict[str, Any]:
         "runtimeHealth": json_loads(row["runtime_health"], {}) if "runtime_health" in row.keys() else {},
         "modelCalls": json_loads(row["model_calls"], []) if "model_calls" in row.keys() else [],
         "toolCalls": json_loads(row["tool_calls"], []) if "tool_calls" in row.keys() else [],
-        "policyDecisions": json_loads(row["policy_decisions"], []) if "policy_decisions" in row.keys() else [],
+        "policyDecisions": json_loads(row["policy_decisions"], [])
+        if "policy_decisions" in row.keys()
+        else [],
         "approvals": json_loads(row["approvals"], []) if "approvals" in row.keys() else [],
         "artifacts": json_loads(row["artifact_refs"], []) if "artifact_refs" in row.keys() else [],
         "hashes": json_loads(row["hashes"], {}) if "hashes" in row.keys() else {},
@@ -146,7 +140,9 @@ class EvidenceRepository:
         clean_policy_decisions = redact_secrets(policy_decisions or [])
         clean_approvals = redact_secrets(approvals or [])
         clean_artifacts = redact_secrets(artifacts or [])
-        clean_hashes = {str(key): str(value) for key, value in (hashes or {}).items() if isinstance(value, str)}
+        clean_hashes = {
+            str(key): str(value) for key, value in (hashes or {}).items() if isinstance(value, str)
+        }
         clean_evidence_source = str(evidence_source or "operator_attested")
         self.connection.execute(
             """
@@ -228,7 +224,9 @@ class EvidenceRepository:
         return self.get_evidence_package(evidence_id)
 
     def get_evidence_package(self, evidence_id: str) -> dict[str, Any]:
-        row = self.connection.execute("SELECT * FROM evidence_packages WHERE id = ?", (evidence_id,)).fetchone()
+        row = self.connection.execute(
+            "SELECT * FROM evidence_packages WHERE id = ?", (evidence_id,)
+        ).fetchone()
         if not row:
             raise KeyError(f"Evidence package not found: {evidence_id}")
         return row_to_evidence_package(row)
@@ -254,7 +252,9 @@ class EvidenceRepository:
         next_agent_run_id = agent_run_id if agent_run_id is not None else current.get("agentRunId")
         next_artifact_ids = artifact_ids if artifact_ids is not None else current.get("artifactIds", [])
         next_diff_summary = diff_summary if diff_summary is not None else current.get("diffSummary", {})
-        next_runtime_health = runtime_health if runtime_health is not None else current.get("runtimeHealth", {})
+        next_runtime_health = (
+            runtime_health if runtime_health is not None else current.get("runtimeHealth", {})
+        )
         next_model_calls = model_calls if model_calls is not None else current.get("modelCalls", [])
         next_tool_calls = tool_calls if tool_calls is not None else current.get("toolCalls", [])
         next_policy_decisions = (
@@ -283,7 +283,13 @@ class EvidenceRepository:
                 json_dumps(redact_secrets(next_policy_decisions or [])),
                 json_dumps(redact_secrets(next_approvals or [])),
                 json_dumps(redact_secrets(next_artifacts or [])),
-                json_dumps({str(key): str(value) for key, value in (next_hashes or {}).items() if isinstance(value, str)}),
+                json_dumps(
+                    {
+                        str(key): str(value)
+                        for key, value in (next_hashes or {}).items()
+                        if isinstance(value, str)
+                    }
+                ),
                 next_qa_verdict,
                 json_dumps(redact_secrets(next_risk_notes or [])),
                 evidence_id,
@@ -397,7 +403,9 @@ class EvidenceRepository:
                 (project_id,),
             ).fetchall()
         else:
-            rows = self.connection.execute("SELECT * FROM evidence_packages ORDER BY created_at DESC").fetchall()
+            rows = self.connection.execute(
+                "SELECT * FROM evidence_packages ORDER BY created_at DESC"
+            ).fetchall()
         return [row_to_evidence_package(row) for row in rows]
 
     def list_evidence_for_workflow_runs(self, workflow_run_ids: list[str]) -> list[dict[str, Any]]:
@@ -413,5 +421,3 @@ class EvidenceRepository:
             tuple(workflow_run_ids),
         ).fetchall()
         return [row_to_evidence_package(row) for row in rows]
-
-

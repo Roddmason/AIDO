@@ -3,6 +3,7 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 import json
@@ -11,14 +12,14 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from .model_gateway import ollama_status
-from .provider_accounts import ProviderAccountStore
-from .developer_agent_contract import developer_agent_readiness
-from .runtime_provider_config import RuntimeProviderConfiguration, runtime_provider_configuration
-from .runtime_registry import RuntimeRegistry
 from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.time import utc_now
 
+from .developer_agent_contract import developer_agent_readiness
+from .model_gateway import ollama_status
+from .provider_accounts import ProviderAccountStore
+from .runtime_provider_config import RuntimeProviderConfiguration, runtime_provider_configuration
+from .runtime_registry import RuntimeRegistry
 
 RUNTIME_MODES = ["api", "cli", "ollama", "hybrid", "manual"]
 CLI_RUNTIME_IDS = {"codex_cli", "claude_code_cli", "openhands", "swe_agent"}
@@ -138,7 +139,8 @@ def _api_account_configuration(connection: sqlite3.Connection, account: dict[str
     base_url = str(account.get("baseUrl") or "").strip()
     return {
         "requiredConfiguration": required_configuration,
-        "hasModel": "model" not in required_configuration or _has_enabled_model(connection, str(account["providerId"])),
+        "hasModel": "model" not in required_configuration
+        or _has_enabled_model(connection, str(account["providerId"])),
         "hasBaseUrl": "baseUrl" not in required_configuration or bool(base_url),
         "hasCredential": "apiKey" not in required_configuration or credential_status == "configured",
         "credentialStatus": credential_status,
@@ -149,7 +151,9 @@ def _runtime_configuration_present(configuration: RuntimeProviderConfiguration |
     return bool(configuration and configuration.value(key))
 
 
-def _configured_argv(configuration: RuntimeProviderConfiguration | None, key: str) -> tuple[list[str] | None, str | None]:
+def _configured_argv(
+    configuration: RuntimeProviderConfiguration | None, key: str
+) -> tuple[list[str] | None, str | None]:
     raw = configuration.value(key) if configuration else None
     if not raw:
         return None, None
@@ -157,7 +161,11 @@ def _configured_argv(configuration: RuntimeProviderConfiguration | None, key: st
         parsed = json.loads(raw)
     except json.JSONDecodeError:
         return None, f"{key} must be valid JSON."
-    if not isinstance(parsed, list) or not parsed or not all(isinstance(item, str) and item for item in parsed):
+    if (
+        not isinstance(parsed, list)
+        or not parsed
+        or not all(isinstance(item, str) and item for item in parsed)
+    ):
         return None, f"{key} must be a non-empty JSON array of strings."
     return list(parsed), None
 
@@ -186,12 +194,18 @@ def _api_provider_status(
     last_error = str(redact_secrets(str(account.get("lastError") or "").strip()))
     account_configuration = _api_account_configuration(connection, account)
     required_configuration = account_configuration["requiredConfiguration"]
-    has_model = bool(account_configuration["hasModel"] or _runtime_configuration_present(configuration, "model"))
-    has_base_url = bool(account_configuration["hasBaseUrl"] or _runtime_configuration_present(configuration, "baseUrl"))
+    has_model = bool(
+        account_configuration["hasModel"] or _runtime_configuration_present(configuration, "model")
+    )
+    has_base_url = bool(
+        account_configuration["hasBaseUrl"] or _runtime_configuration_present(configuration, "baseUrl")
+    )
     has_credential = bool(
         account_configuration["hasCredential"] or _runtime_configuration_present(configuration, "apiKey")
     )
-    configured = bool((configuration and configuration.configured) or (has_base_url and has_credential and has_model))
+    configured = bool(
+        (configuration and configuration.configured) or (has_base_url and has_credential and has_model)
+    )
     remote_calls_enabled = _env_flag("AIDO_ENABLE_REAL_PROVIDER_CALLS")
     healthy = health_status == "healthy" and bool(health_checked_at)
     available = configured and healthy
@@ -210,7 +224,9 @@ def _api_provider_status(
     elif not enabled:
         reason = "Provider is available but the provider account is disabled for execution."
     elif not remote_calls_enabled:
-        reason = "Provider is available but remote execution is disabled by AIDO_ENABLE_REAL_PROVIDER_CALLS=false."
+        reason = (
+            "Provider is available but remote execution is disabled by AIDO_ENABLE_REAL_PROVIDER_CALLS=false."
+        )
     else:
         reason = "Provider is configured, health checked, and executable."
     return _status_payload(
@@ -247,7 +263,9 @@ def _cli_provider_status(
     version = detection.get("version") if detected else None
     configured = bool(configuration.configured if configuration is not None else detected)
     available = configured and detected and bool(version)
-    command_matches_provider = _cli_command_matches_provider(str(account["providerId"]), detection) if can_code_edit else True
+    command_matches_provider = (
+        _cli_command_matches_provider(str(account["providerId"]), detection) if can_code_edit else True
+    )
     executable = (
         available
         and enabled
@@ -257,7 +275,9 @@ def _cli_provider_status(
         and issue_to_patch_argv_error is None
     )
     if not configured and configuration is not None:
-        reason = f"{configuration.reason}; CLI runtime was not detected because command configuration is missing."
+        reason = (
+            f"{configuration.reason}; CLI runtime was not detected because command configuration is missing."
+        )
     elif not detected:
         reason = str(detection.get("message") or "CLI runtime was not detected.")
     elif not version:
@@ -314,7 +334,12 @@ def _ollama_provider_status(
     status = (
         ollama_status(base_url=base_url)
         if base_url
-        else {"provider": "ollama", "available": False, "models": [], "reason": "Ollama base URL is not configured."}
+        else {
+            "provider": "ollama",
+            "available": False,
+            "models": [],
+            "reason": "Ollama base URL is not configured.",
+        }
     )
     daemon_available = bool(status.get("available"))
     enabled = bool(account.get("enabled"))
@@ -384,7 +409,8 @@ class RuntimeStatusService:
         capabilities = _capabilities(self.connection)
         configurations = {
             provider_id: runtime_provider_configuration(provider_id)
-            for provider_id in CLI_RUNTIME_IDS | {"openai_compatible", "openrouter", "nvidia_nim", "anthropic_api", "ollama"}
+            for provider_id in CLI_RUNTIME_IDS
+            | {"openai_compatible", "openrouter", "nvidia_nim", "anthropic_api", "ollama"}
         }
         detections: dict[str, dict[str, Any]] = {}
         for runtime_id in sorted(CLI_RUNTIME_IDS):
@@ -407,7 +433,9 @@ class RuntimeStatusService:
             provider_capabilities = capabilities.get(provider_id, [])
             provider_type = str(account.get("providerType") or "")
             if provider_id == "ollama":
-                statuses.append(_ollama_provider_status(account, provider_capabilities, configurations.get(provider_id)))
+                statuses.append(
+                    _ollama_provider_status(account, provider_capabilities, configurations.get(provider_id))
+                )
             elif provider_id == "manual":
                 statuses.append(_manual_provider_status(account, provider_capabilities))
             elif provider_id in CLI_RUNTIME_IDS:
@@ -468,9 +496,15 @@ class RuntimeStatusService:
                 "provider": "cli",
                 "available": any(provider["available"] for provider in cli_providers),
                 "adapters": {
-                    "cli_codex": bool(next((item for item in cli_providers if item["id"] == "codex_cli"), {}).get("available")),
+                    "cli_codex": bool(
+                        next((item for item in cli_providers if item["id"] == "codex_cli"), {}).get(
+                            "available"
+                        )
+                    ),
                     "cli_claude": bool(
-                        next((item for item in cli_providers if item["id"] == "claude_code_cli"), {}).get("available")
+                        next((item for item in cli_providers if item["id"] == "claude_code_cli"), {}).get(
+                            "available"
+                        )
                     ),
                 },
             },

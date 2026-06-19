@@ -11,7 +11,6 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from local_control_center.app import create_app
 from local_control_center.agents.cli_runtimes.base import RuntimeRequest, RuntimeResult
 from local_control_center.agents.cli_runtimes.claude_code_cli import ClaudeCodeCliRuntime
 from local_control_center.agents.cli_runtimes.codex_cli import CodexCliRuntime
@@ -20,17 +19,18 @@ from local_control_center.agents.cli_runtimes.swe_agent import SweAgentRuntime
 from local_control_center.agents.cli_sessions import CliSessionStore
 from local_control_center.agents.credential_preflight import run_credential_preflight
 from local_control_center.agents.credentials import CredentialResolver
-from local_control_center.agents.model_gateway import ModelGateway
 from local_control_center.agents.model_benchmarks import ModelBenchmarkStore
+from local_control_center.agents.model_gateway import ModelGateway
+from local_control_center.agents.pricing_catalog import PricingCatalog
 from local_control_center.agents.provider_accounts import ProviderAccountStore
-from local_control_center.agents.providers.base import ModelInfo, ModelRequest, ProviderHealth
 from local_control_center.agents.providers.anthropic_api import AnthropicAPIProvider
+from local_control_center.agents.providers.base import ModelInfo, ModelRequest, ProviderHealth
 from local_control_center.agents.providers.nvidia_nim import NvidiaNimProvider
 from local_control_center.agents.providers.openai_compatible import OpenAICompatibleProvider
-from local_control_center.agents.pricing_catalog import PricingCatalog
 from local_control_center.agents.quota_manager import QuotaManager
 from local_control_center.agents.repository import AgentsRepository
 from local_control_center.agents.usage_ledger import UsageLedger
+from local_control_center.app import create_app
 from local_control_center.shared.db import open_sqlite_connection
 from local_control_center.shared.migrations import initialize_platform_schema
 from local_control_center.shared.redaction import redact_secrets
@@ -102,7 +102,7 @@ class JsonGatewayHandler(BaseHTTPRequestHandler):
     def log_message(self, format: str, *args: object) -> None:
         return
 
-    def do_GET(self) -> None:  # noqa: N802
+    def do_GET(self) -> None:
         type(self).seen_requests.append(
             {
                 "method": "GET",
@@ -121,7 +121,7 @@ class JsonGatewayHandler(BaseHTTPRequestHandler):
             return
         self.send_error(404)
 
-    def do_POST(self) -> None:  # noqa: N802
+    def do_POST(self) -> None:
         length = int(self.headers.get("Content-Length") or "0")
         raw_body = self.rfile.read(length).decode("utf-8")
         body = json.loads(raw_body) if raw_body else {}
@@ -1080,7 +1080,9 @@ def test_model_gateway_anthropic_executes_real_http_and_records_actual_usage(
 
 
 def test_anthropic_provider_without_usage_marks_tokens_unknown() -> None:
-    provider = AnthropicAPIProvider(base_url="https://api.anthropic.com/v1", credential_ref="env:ANTHROPIC_TEST_KEY")
+    provider = AnthropicAPIProvider(
+        base_url="https://api.anthropic.com/v1", credential_ref="env:ANTHROPIC_TEST_KEY"
+    )
 
     usage = provider.parse_usage({"content": [{"type": "text", "text": "text without usage"}]})
 
@@ -1279,7 +1281,9 @@ def test_route_preview_free_first_chooses_nvidia_when_enabled_healthy_and_in_quo
     selected = response.json()["selected"]
     assert selected["provider"] == "nvidia_nim"
     assert selected["runtime"] == "api"
-    nvidia_candidate = next(item for item in response.json()["candidates"] if item["provider"] == "nvidia_nim")
+    nvidia_candidate = next(
+        item for item in response.json()["candidates"] if item["provider"] == "nvidia_nim"
+    )
     assert nvidia_candidate["priceKnown"] is False
     assert nvidia_candidate["scoreBreakdown"]["costPenalty"] == 1.0
     assert response.json()["decisionReason"]
@@ -1332,8 +1336,7 @@ def test_route_preview_rejects_remote_unknown_cost_when_role_policy_disallows_it
     assert payload["selected"]["provider"] == "ollama"
     assert payload["policyResult"]["requiresApproval"] is False
     assert any(
-        item["provider"] == "nvidia_nim"
-        and item["reason"] == "unknown_remote_cost_not_allowed"
+        item["provider"] == "nvidia_nim" and item["reason"] == "unknown_remote_cost_not_allowed"
         for item in payload["rejected"]
     )
 
@@ -1769,7 +1772,9 @@ def test_discover_models_rejects_real_api_provider_without_configured_credential
         credentialRef="env:AIDO_MISSING_PROVIDER_KEY",
     )
 
-    response = client.post("/api/v1/model-gateway/providers/openai_compatible/discover-models", headers=headers)
+    response = client.post(
+        "/api/v1/model-gateway/providers/openai_compatible/discover-models", headers=headers
+    )
 
     assert response.status_code == 400
     assert "Credential ref env:AIDO_MISSING_PROVIDER_KEY is missing" in response.json()["detail"]
@@ -1808,10 +1813,14 @@ def test_discover_models_real_mode_stores_provider_sourced_models_without_real_n
         credentialRef="env:AIDO_TEST_PROVIDER_KEY",
     )
 
-    response = client.post("/api/v1/model-gateway/providers/openai_compatible/discover-models", headers=headers)
+    response = client.post(
+        "/api/v1/model-gateway/providers/openai_compatible/discover-models", headers=headers
+    )
 
     assert response.status_code == 200
-    discovered = next(item for item in response.json()["models"] if item["model"] == "provider-discovered-model")
+    discovered = next(
+        item for item in response.json()["models"] if item["model"] == "provider-discovered-model"
+    )
     assert discovered["source"] == "provider"
     assert discovered["supportsTools"] is True
     with client:
@@ -2165,9 +2174,7 @@ def test_usage_ledger_records_estimated_and_actual_usage(tmp_path: Path) -> None
     assert actual["usageSource"] == "actual"
 
 
-def test_route_execute_mock_endpoint_is_not_exposed(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_route_execute_mock_endpoint_is_not_exposed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     client = create_client(tmp_path, monkeypatch)
     headers = auth_headers(client)
 
@@ -2462,7 +2469,9 @@ def test_nvidia_provider_parses_usage_and_handles_429(tmp_path: Path) -> None:
                 }
             }
         )
-        missing_usage = provider.parse_usage({"choices": [{"message": {"content": "text without provider usage"}}]})
+        missing_usage = provider.parse_usage(
+            {"choices": [{"message": {"content": "text without provider usage"}}]}
+        )
 
         assert estimate.estimated_cost_usd is None
         assert estimate.source == "unknown:nvidia_nim:auto_best_available"
@@ -2705,7 +2714,9 @@ def test_cli_runtime_records_policy_denied_without_sandbox_execution(
     def fail_execute(*args: object, **kwargs: object) -> None:
         raise AssertionError("sandbox should not execute when policy denies")
 
-    monkeypatch.setattr("local_control_center.security_policy.sandbox.RestrictedSubprocessSandbox.execute", fail_execute)
+    monkeypatch.setattr(
+        "local_control_center.security_policy.sandbox.RestrictedSubprocessSandbox.execute", fail_execute
+    )
     with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
         initialize_platform_schema(connection)
         register_workspace(connection, "workspace-cli-test", tmp_path)

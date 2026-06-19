@@ -122,7 +122,9 @@ def test_governance_api_persists_decisions_risks_and_next_steps(tmp_path: Path, 
 
 def test_risk_and_next_step_status_updates_are_audited(tmp_path: Path, monkeypatch) -> None:
     store, client, headers = make_app(tmp_path, monkeypatch)
-    project = store.create_project(name="Governance Updates", path=tmp_path / "governance-updates", template_id="other")
+    project = store.create_project(
+        name="Governance Updates", path=tmp_path / "governance-updates", template_id="other"
+    )
     risk = client.post(
         "/api/v1/risks",
         json={
@@ -168,9 +170,13 @@ def test_risk_and_next_step_status_updates_are_audited(tmp_path: Path, monkeypat
     assert "next_step.update" in audit_actions
 
 
-def test_governance_enums_reject_invalid_statuses_severities_and_priorities(tmp_path: Path, monkeypatch) -> None:
+def test_governance_enums_reject_invalid_statuses_severities_and_priorities(
+    tmp_path: Path, monkeypatch
+) -> None:
     store, client, headers = make_app(tmp_path, monkeypatch)
-    project = store.create_project(name="Governance Enums", path=tmp_path / "governance-enums", template_id="other")
+    project = store.create_project(
+        name="Governance Enums", path=tmp_path / "governance-enums", template_id="other"
+    )
 
     invalid_risk = client.post(
         "/api/v1/risks",
@@ -209,7 +215,9 @@ def test_governance_enums_reject_invalid_statuses_severities_and_priorities(tmp_
 
 def test_policy_qa_and_workflow_failures_create_governance_risks(tmp_path: Path, monkeypatch) -> None:
     store, client, headers = make_app(tmp_path, monkeypatch)
-    project = store.create_project(name="Governance Signals", path=tmp_path / "governance-signals", template_id="other")
+    project = store.create_project(
+        name="Governance Signals", path=tmp_path / "governance-signals", template_id="other"
+    )
 
     policy = client.post(
         "/api/v1/policies/evaluate",

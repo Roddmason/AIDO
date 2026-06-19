@@ -3,12 +3,12 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
-
 
 DANGEROUS_TOKENS = {
     "rm",
@@ -45,8 +45,12 @@ class WindowsSandbox:
         if self.docker_available():
             return SandboxDecision(True, "docker", "Docker Desktop is available for isolated execution.")
         if lowered & DANGEROUS_TOKENS:
-            return SandboxDecision(False, "restricted-subprocess", "Command requires Docker or explicit approval.")
-        return SandboxDecision(True, "restricted-subprocess", "Only low-risk subprocess execution is available.")
+            return SandboxDecision(
+                False, "restricted-subprocess", "Command requires Docker or explicit approval."
+            )
+        return SandboxDecision(
+            True, "restricted-subprocess", "Only low-risk subprocess execution is available."
+        )
 
     def run_low_risk(self, command: list[str], *, timeout: int = 30) -> None:
         decision = self.assess(command)

@@ -3,6 +3,7 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -15,7 +16,6 @@ from .cli_runtimes.codex_cli import CodexCliRuntime
 from .cli_runtimes.manual import ManualRuntime
 from .cli_runtimes.openhands import OpenHandsRuntime
 from .cli_runtimes.swe_agent import SweAgentRuntime
-
 
 CLI_EXECUTABLE_TOKENS = {
     "codex_cli": ("codex",),
@@ -38,7 +38,11 @@ def issue_to_patch_prompt(*, title: str, issue_text: str) -> str:
 
 
 def developer_agent_prompt(*, instruction: str, qa_commands: list[list[str]]) -> str:
-    qa_text = "\n".join(" ".join(command) for command in qa_commands) if qa_commands else "No QA commands were provided."
+    qa_text = (
+        "\n".join(" ".join(command) for command in qa_commands)
+        if qa_commands
+        else "No QA commands were provided."
+    )
     return (
         "You are DeveloperAgent executing real implementation work in the current workspace only.\n"
         "Rules:\n"
@@ -87,7 +91,9 @@ def _explicit_issue_to_patch_argv(
     if argv is None:
         return None
     if not isinstance(argv, list) or not argv or not all(isinstance(item, str) and item for item in argv):
-        raise RuntimeCommandUnavailableError("Runtime issueToPatchArgv must be a non-empty structured argv list.")
+        raise RuntimeCommandUnavailableError(
+            "Runtime issueToPatchArgv must be a non-empty structured argv list."
+        )
     if runtime_id in {"openhands", "swe_agent"}:
         executable_name = Path(argv[0]).name.lower()
         required_tokens = CLI_EXECUTABLE_TOKENS.get(runtime_id, ())
@@ -109,7 +115,9 @@ def _explicit_developer_agent_argv(runtime: dict[str, Any]) -> list[str] | None:
     if argv is None:
         return None
     if not isinstance(argv, list) or not argv or not all(isinstance(item, str) and item for item in argv):
-        raise RuntimeCommandUnavailableError("Runtime developerAgentArgv must be a non-empty structured argv list.")
+        raise RuntimeCommandUnavailableError(
+            "Runtime developerAgentArgv must be a non-empty structured argv list."
+        )
     return list(argv)
 
 
@@ -145,7 +153,9 @@ def build_issue_to_patch_argv(
     executable_name = Path(executable).name.lower()
     required_tokens = CLI_EXECUTABLE_TOKENS.get(runtime_id, ())
     if required_tokens and not all(token in executable_name for token in required_tokens):
-        raise RuntimeCommandUnavailableError("Runtime detected executable does not match the declared runtime command.")
+        raise RuntimeCommandUnavailableError(
+            "Runtime detected executable does not match the declared runtime command."
+        )
     cli_runtime = runtime_for(runtime_id, connection=connection, executable=executable)
     request = RuntimeRequest.model_validate(
         {
@@ -186,14 +196,18 @@ def build_developer_agent_argv(
         return explicit
     runtime_id = str(runtime.get("id") or "")
     if runtime_id not in {"codex_cli", "claude_code_cli"}:
-        raise RuntimeCommandUnavailableError("Runtime provider does not expose a DeveloperAgent CLI executor.")
+        raise RuntimeCommandUnavailableError(
+            "Runtime provider does not expose a DeveloperAgent CLI executor."
+        )
     executable = str(runtime.get("detectedCommand") or "").strip()
     if not executable:
         raise RuntimeCommandUnavailableError("Runtime status did not provide a detected executable command.")
     executable_name = Path(executable).name.lower()
     required_tokens = CLI_EXECUTABLE_TOKENS.get(runtime_id, ())
     if required_tokens and not all(token in executable_name for token in required_tokens):
-        raise RuntimeCommandUnavailableError("Runtime detected executable does not match the declared runtime command.")
+        raise RuntimeCommandUnavailableError(
+            "Runtime detected executable does not match the declared runtime command."
+        )
     cli_runtime = runtime_for(runtime_id, connection=connection, executable=executable)
     request = RuntimeRequest.model_validate(
         {

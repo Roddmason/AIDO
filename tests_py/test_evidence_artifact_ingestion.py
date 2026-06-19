@@ -18,7 +18,9 @@ def auth_headers(client: TestClient) -> dict[str, str]:
 
 
 def make_evidence(tmp_path: Path, store: ControlPlaneFixture) -> dict:
-    project = store.create_project(name="Artifact Ingest", path=tmp_path / "artifact-ingest", template_id="other")
+    project = store.create_project(
+        name="Artifact Ingest", path=tmp_path / "artifact-ingest", template_id="other"
+    )
     return EvidenceRepository(store.connection).create_evidence_package(
         project_id=project["id"],
         workflow_run_id=None,
@@ -133,7 +135,9 @@ def test_download_artifact_rejects_hash_mismatch(tmp_path: Path, monkeypatch) ->
     Path(artifact["path"]).write_text("tampered evidence", encoding="utf-8")
     client = TestClient(create_app(runtime=store, static_dir=None))
 
-    response = client.get(f"/api/v1/evidence/{evidence['id']}/artifacts/{artifact['id']}", headers=auth_headers(client))
+    response = client.get(
+        f"/api/v1/evidence/{evidence['id']}/artifacts/{artifact['id']}", headers=auth_headers(client)
+    )
 
     assert response.status_code == 409
     assert "hash" in response.text.lower()
@@ -157,7 +161,9 @@ def test_download_artifact_blocks_path_traversal(tmp_path: Path, monkeypatch) ->
     )
     client = TestClient(create_app(runtime=store, static_dir=None))
 
-    response = client.get(f"/api/v1/evidence/{evidence['id']}/artifacts/{artifact['id']}", headers=auth_headers(client))
+    response = client.get(
+        f"/api/v1/evidence/{evidence['id']}/artifacts/{artifact['id']}", headers=auth_headers(client)
+    )
 
     assert response.status_code == 403
     assert "outside" in response.text.lower()

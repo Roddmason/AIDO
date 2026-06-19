@@ -17,7 +17,9 @@ def auth_headers(client: TestClient) -> dict[str, str]:
     return {"X-Local-Control-Token": token, "Origin": "http://127.0.0.1"}
 
 
-def create_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[ControlPlaneFixture, TestClient, dict[str, str]]:
+def create_client(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> tuple[ControlPlaneFixture, TestClient, dict[str, str]]:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
     store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
     store.init()
@@ -116,7 +118,7 @@ def test_devops_agent_accepts_configurable_quality_subset(
     _write_release_package(
         workspace["path"],
         scripts={
-            "quality": "node -e \"process.exit(1)\"",
+            "quality": 'node -e "process.exit(1)"',
             "test:py": "node --version",
         },
     )
@@ -152,11 +154,7 @@ def test_devops_agent_missing_release_tools_are_skipped_with_reason_not_failed(
 
     assert response.status_code == 202
     body = response.json()
-    tool_results = [
-        result
-        for result in body["commands"]
-        if str(result["label"]).startswith("Tool version:")
-    ]
+    tool_results = [result for result in body["commands"] if str(result["label"]).startswith("Tool version:")]
     assert tool_results
     assert {result["status"] for result in tool_results} == {"skipped_with_reason"}
     assert body["status"] == "risk"

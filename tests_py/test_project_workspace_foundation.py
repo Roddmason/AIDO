@@ -41,7 +41,13 @@ def test_project_discovery_prefers_package_name_and_detects_node_python(tmp_path
     project_path = tmp_path / "fullstack"
     project_path.mkdir()
     (project_path / "package.json").write_text(
-        json.dumps({"name": "@aido/portal-web", "dependencies": {"react": "^18.0.0"}, "devDependencies": {"vite": "^6.0.0"}}),
+        json.dumps(
+            {
+                "name": "@aido/portal-web",
+                "dependencies": {"react": "^18.0.0"},
+                "devDependencies": {"vite": "^6.0.0"},
+            }
+        ),
         encoding="utf-8",
     )
     (project_path / "pyproject.toml").write_text('[project]\nname = "aido-api"\n', encoding="utf-8")
@@ -121,7 +127,9 @@ def test_local_directory_picker_endpoint_is_token_protected_and_mockable(tmp_pat
     runtime.close()
 
 
-def test_project_creation_under_workspace_base_stores_operational_metadata(tmp_path: Path, monkeypatch) -> None:
+def test_project_creation_under_workspace_base_stores_operational_metadata(
+    tmp_path: Path, monkeypatch
+) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
     runtime = ControlCenterRuntime(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
     app = create_app(runtime=runtime, static_dir=None)

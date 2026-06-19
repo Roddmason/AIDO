@@ -9,7 +9,6 @@ import pytest
 from local_control_center.agents.runtime_status import RuntimeStatusService
 from tests_py.test_aido_real_runtime_slice import create_client, create_git_project
 
-
 ISSUE_TO_PR_STEP_NAMES = [
     "developer_agent",
     "qa_validation",

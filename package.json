@@ -23,6 +23,8 @@
     "typecheck:web": "tsc --noEmit -p local-control-center/web/tsconfig.json",
     "lint": "corepack pnpm@10.24.0 run lint:py",
     "lint:py": "uv run --extra dev ruff check .",
+    "format:py": "uv run --extra dev ruff format .",
+    "format:py:check": "uv run --extra dev ruff format --check .",
     "lint:web": "biome lint local-control-center/web",
     "format:web": "biome format --write local-control-center/web",
     "format:web:check": "biome format local-control-center/web",

@@ -3,6 +3,7 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -61,13 +62,23 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     async def approvals() -> dict[str, Any]:
         return commands.list_approvals(jobs())
 
-    @router.post("/api/v1/jobs/{job_id}/actions/{action_id}/approve", status_code=202, response_model=JobMutationResponse)
-    async def approve_action(job_id: str, action_id: str, body: ApprovalReasonRequest, request: Request) -> dict[str, Any]:
+    @router.post(
+        "/api/v1/jobs/{job_id}/actions/{action_id}/approve",
+        status_code=202,
+        response_model=JobMutationResponse,
+    )
+    async def approve_action(
+        job_id: str, action_id: str, body: ApprovalReasonRequest, request: Request
+    ) -> dict[str, Any]:
         require_write(request)
         return commands.approve_action(jobs(), job_id, action_id, body.model_dump())
 
-    @router.post("/api/v1/jobs/{job_id}/actions/{action_id}/deny", status_code=202, response_model=JobMutationResponse)
-    async def deny_action(job_id: str, action_id: str, body: ApprovalReasonRequest, request: Request) -> dict[str, Any]:
+    @router.post(
+        "/api/v1/jobs/{job_id}/actions/{action_id}/deny", status_code=202, response_model=JobMutationResponse
+    )
+    async def deny_action(
+        job_id: str, action_id: str, body: ApprovalReasonRequest, request: Request
+    ) -> dict[str, Any]:
         require_write(request)
         return commands.deny_action(jobs(), job_id, action_id, body.model_dump())
 

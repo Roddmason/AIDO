@@ -17,7 +17,6 @@ from local_control_center.shared.db import open_sqlite_connection
 from local_control_center.shared.migrations import initialize_platform_schema
 from local_control_center.shared.time import utc_now
 
-
 ROOT = Path(__file__).resolve().parents[1]
 PRODUCT_ADAPTER_FILES = [
     ROOT / "local_control_center" / "agents" / "runtime_adapters.py",
@@ -132,9 +131,7 @@ def test_restricted_subprocess_promotes_large_stdout_and_stderr_to_artifacts(tmp
     workspace.mkdir()
     script = workspace / "large_output.py"
     script.write_text(
-        "import sys\n"
-        "sys.stdout.write('stdout-line-' * 1400)\n"
-        "sys.stderr.write('stderr-line-' * 1400)\n",
+        "import sys\nsys.stdout.write('stdout-line-' * 1400)\nsys.stderr.write('stderr-line-' * 1400)\n",
         encoding="utf-8",
     )
     with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
@@ -224,7 +221,9 @@ def test_provider_adapters_require_real_configuration(tmp_path: Path, monkeypatc
         monkeypatch.delenv(name, raising=False)
 
     ollama = OllamaAdapter().execute(runtime_request(tmp_path, capability="chat", argv=[]))
-    openai_compatible = OpenAICompatibleAdapter().execute(runtime_request(tmp_path, capability="chat", argv=[]))
+    openai_compatible = OpenAICompatibleAdapter().execute(
+        runtime_request(tmp_path, capability="chat", argv=[])
+    )
 
     assert ollama.status == "configuration_required"
     assert openai_compatible.status == "configuration_required"

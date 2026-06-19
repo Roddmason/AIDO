@@ -3,6 +3,7 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 import json
@@ -28,7 +29,6 @@ from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.time import utc_now
 
 from .runtime_provider_config import runtime_provider_configuration
-
 
 RUNTIME_ADAPTER_TOOLS = {"mcp", "openhands", "swe_agent", "ollama", "openai_compatible", "workspace_patch"}
 CLI_VERSION_ADAPTERS = {
@@ -223,7 +223,9 @@ class _ArtifactRecorder:
         clean_content, redacted = _redact_text(content)
         if len(clean_content.encode("utf-8")) <= self.inline_limit_bytes:
             return None, redacted
-        return self.record_output(request=request, name=f"{stream}.log", stream=stream, content=clean_content), redacted
+        return self.record_output(
+            request=request, name=f"{stream}.log", stream=stream, content=clean_content
+        ), redacted
 
     def record_stream_artifact(
         self,
@@ -289,7 +291,9 @@ class _ArtifactRecorder:
         if self.connection is None:
             return None
         command = " ".join(request.argv) if isinstance(request.argv, list) else "<invalid argv>"
-        qa_verdict = "evidence_collected" if status == "completed" else "failed" if status == "failed" else "blocked"
+        qa_verdict = (
+            "evidence_collected" if status == "completed" else "failed" if status == "failed" else "blocked"
+        )
         evidence_repo = EvidenceRepository(self.connection)
         evidence = evidence_repo.create_evidence_package(
             project_id=request.project_id,
@@ -398,7 +402,9 @@ class RestrictedSubprocessAdapter:
             return _result(
                 status="blocked",
                 started_at=started_at,
-                reason=str(redact_secrets(completed.get("reason") or "Restricted subprocess execution was blocked.")),
+                reason=str(
+                    redact_secrets(completed.get("reason") or "Restricted subprocess execution was blocked.")
+                ),
                 redacted=True,
             )
 
@@ -523,7 +529,9 @@ class OllamaAdapter:
     ):
         self.base_url = base_url
         self.environ = environ
-        self.recorder = _ArtifactRecorder(connection=connection, artifact_root=artifact_root, adapter_id=self.adapter_id)
+        self.recorder = _ArtifactRecorder(
+            connection=connection, artifact_root=artifact_root, adapter_id=self.adapter_id
+        )
 
     def _configured_base_url(self) -> str | None:
         source = self.environ or os.environ
@@ -540,7 +548,11 @@ class OllamaAdapter:
     def health_check(self) -> dict[str, Any]:
         base_url = self._configured_base_url()
         if not base_url:
-            return {"status": "configuration_required", "available": False, "reason": "Ollama base URL is not configured."}
+            return {
+                "status": "configuration_required",
+                "available": False,
+                "reason": "Ollama base URL is not configured.",
+            }
         try:
             request = Request(f"{base_url}/api/tags", method="GET")
             with urlopen(request, timeout=5) as response:
@@ -553,7 +565,12 @@ class OllamaAdapter:
             }
         models = payload.get("models", []) if isinstance(payload, dict) else []
         status = "available"
-        return {"status": status, "available": status == "available", "reason": "Ollama daemon responded.", "models": models}
+        return {
+            "status": status,
+            "available": status == "available",
+            "reason": "Ollama daemon responded.",
+            "models": models,
+        }
 
     def execute(self, request: RuntimeExecutionRequest) -> RuntimeExecutionResult:
         started_at = utc_now()
@@ -570,9 +587,13 @@ class OllamaAdapter:
         model = str(request.input.get("model") or "").strip()
         messages = request.input.get("messages")
         if not model:
-            return _result(status="configuration_required", started_at=started_at, reason="Ollama model is required.")
+            return _result(
+                status="configuration_required", started_at=started_at, reason="Ollama model is required."
+            )
         if not isinstance(messages, list) or not messages:
-            return _result(status="blocked", started_at=started_at, reason="Ollama execution requires input.messages.")
+            return _result(
+                status="blocked", started_at=started_at, reason="Ollama execution requires input.messages."
+            )
         payload = json.dumps(
             {
                 "model": model,
@@ -600,7 +621,9 @@ class OllamaAdapter:
         message = raw.get("message") if isinstance(raw, dict) else {}
         content = str((message or {}).get("content") or "")
         clean_content, redacted = _redact_text(content)
-        output_id = self.recorder.record_output(request=request, name="ollama-output.txt", content=clean_content)
+        output_id = self.recorder.record_output(
+            request=request, name="ollama-output.txt", content=clean_content
+        )
         evidence_id = self.recorder.create_evidence(
             request=request,
             status="completed",
@@ -635,7 +658,9 @@ class OpenAICompatibleAdapter:
         self.api_key = api_key
         self.model = model
         self.environ = environ
-        self.recorder = _ArtifactRecorder(connection=connection, artifact_root=artifact_root, adapter_id=self.adapter_id)
+        self.recorder = _ArtifactRecorder(
+            connection=connection, artifact_root=artifact_root, adapter_id=self.adapter_id
+        )
 
     def _configuration(self) -> dict[str, str | None]:
         source = self.environ or os.environ
@@ -648,7 +673,8 @@ class OpenAICompatibleAdapter:
                 or ""
             ).rstrip("/")
             or None,
-            "apiKey": self.api_key or (runtime_configuration.value("apiKey") if runtime_configuration else None),
+            "apiKey": self.api_key
+            or (runtime_configuration.value("apiKey") if runtime_configuration else None),
             "model": self.model or (runtime_configuration.value("model") if runtime_configuration else None),
             "enabled": source.get("AIDO_ENABLE_REAL_PROVIDER_CALLS", "false").strip().lower(),
         }
@@ -666,7 +692,9 @@ class OpenAICompatibleAdapter:
         if missing:
             return "OpenAI-compatible provider is missing required configuration: " + ", ".join(missing) + "."
         if configuration["enabled"] != "true":
-            return "OpenAI-compatible provider execution is disabled by AIDO_ENABLE_REAL_PROVIDER_CALLS=false."
+            return (
+                "OpenAI-compatible provider execution is disabled by AIDO_ENABLE_REAL_PROVIDER_CALLS=false."
+            )
         return None
 
     def health_check(self) -> dict[str, Any]:
@@ -687,10 +715,16 @@ class OpenAICompatibleAdapter:
             return {
                 "status": "unavailable",
                 "available": False,
-                "reason": str(redact_secrets(f"OpenAI-compatible health check failed: {error.__class__.__name__}")),
+                "reason": str(
+                    redact_secrets(f"OpenAI-compatible health check failed: {error.__class__.__name__}")
+                ),
             }
         status = "available"
-        return {"status": status, "available": status == "available", "reason": "OpenAI-compatible /models responded."}
+        return {
+            "status": status,
+            "available": status == "available",
+            "reason": "OpenAI-compatible /models responded.",
+        }
 
     def execute(self, request: RuntimeExecutionRequest) -> RuntimeExecutionResult:
         started_at = utc_now()
@@ -771,7 +805,9 @@ class RuntimeAdapterRegistry:
         environ: dict[str, str] | None = None,
     ):
         self.adapters: dict[str, RuntimeAdapter] = adapters or {
-            "restricted_subprocess": RestrictedSubprocessAdapter(connection=connection, artifact_root=artifact_root),
+            "restricted_subprocess": RestrictedSubprocessAdapter(
+                connection=connection, artifact_root=artifact_root
+            ),
             "codex": CliVersionAdapter(adapter_id="codex"),
             "codex_cli": CliVersionAdapter(adapter_id="codex_cli"),
             "claude": CliVersionAdapter(adapter_id="claude"),
@@ -780,7 +816,9 @@ class RuntimeAdapterRegistry:
             "swe-agent": CliVersionAdapter(adapter_id="swe-agent"),
             "swe_agent": CliVersionAdapter(adapter_id="swe_agent"),
             "ollama": OllamaAdapter(connection=connection, artifact_root=artifact_root, environ=environ),
-            "openai_compatible": OpenAICompatibleAdapter(connection=connection, artifact_root=artifact_root, environ=environ),
+            "openai_compatible": OpenAICompatibleAdapter(
+                connection=connection, artifact_root=artifact_root, environ=environ
+            ),
         }
 
     def register(self, adapter_id: str, adapter: RuntimeAdapter) -> None:
@@ -808,7 +846,9 @@ class RuntimeAdapterBrokerAdapter:
         environ: dict[str, str] | None = None,
     ):
         self.adapter_id = adapter_id
-        self.registry = RuntimeAdapterRegistry(connection=connection, artifact_root=artifact_root, environ=environ)
+        self.registry = RuntimeAdapterRegistry(
+            connection=connection, artifact_root=artifact_root, environ=environ
+        )
 
     def execute(self, *, tool_call: dict[str, Any], policy_input: dict[str, Any]) -> dict[str, Any]:
         request = RuntimeExecutionRequest.model_validate(
@@ -820,7 +860,9 @@ class RuntimeAdapterBrokerAdapter:
                 "agentRunId": tool_call.get("agentRunId"),
                 "workspaceId": policy_input.get("workspaceId"),
                 "workspacePath": policy_input.get("workspacePath"),
-                "capability": tool_call.get("capability") or tool_call.get("operation") or "runtime_execution",
+                "capability": tool_call.get("capability")
+                or tool_call.get("operation")
+                or "runtime_execution",
                 "argv": tool_call.get("argv") or [],
                 "input": tool_call.get("input") or {},
                 "timeoutSeconds": tool_call.get("timeoutSeconds") or 30,
@@ -885,7 +927,11 @@ class WorkspacePatchBrokerAdapter:
         patch_input = tool_call.get("input") or {}
         files = patch_input.get("files")
         if not isinstance(files, list) or not files:
-            return {"executed": False, "blocked": True, "reason": "Workspace patch requires a non-empty files list."}
+            return {
+                "executed": False,
+                "blocked": True,
+                "reason": "Workspace patch requires a non-empty files list.",
+            }
         if len(files) > PATCH_FILE_LIMIT:
             return {
                 "executed": False,
@@ -901,7 +947,11 @@ class WorkspacePatchBrokerAdapter:
             path = str(item.get("path") or "")
             content = item.get("content")
             if not isinstance(content, str):
-                return {"executed": False, "blocked": True, "reason": f"files[{index}].content must be a string."}
+                return {
+                    "executed": False,
+                    "blocked": True,
+                    "reason": f"files[{index}].content must be a string.",
+                }
             path_error = _workspace_patch_path_error(workspace, path)
             if path_error:
                 return {"executed": False, "blocked": True, "reason": path_error}

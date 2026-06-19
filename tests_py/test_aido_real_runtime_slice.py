@@ -11,12 +11,12 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from local_control_center.app import create_app
-from local_control_center.agents.providers.base import ProviderHealth
 from local_control_center.agents.providers.anthropic_api import AnthropicAPIProvider
+from local_control_center.agents.providers.base import ProviderHealth
 from local_control_center.agents.providers.openai_compatible import OpenAICompatibleProvider
-from local_control_center.security_policy.sandbox import RestrictedSubprocessSandbox
+from local_control_center.app import create_app
 from local_control_center.security_policy.git_command_runner import git_available, run_git
+from local_control_center.security_policy.sandbox import RestrictedSubprocessSandbox
 from local_control_center.workflows.issue_to_patch_runner import _status_from_developer_result
 from tests_py.control_plane_fixture import ControlPlaneFixture
 
@@ -26,7 +26,9 @@ def auth_headers(client: TestClient) -> dict[str, str]:
     return {"X-Local-Control-Token": token, "Origin": "http://127.0.0.1"}
 
 
-def create_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[ControlPlaneFixture, TestClient, dict[str, str]]:
+def create_client(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> tuple[ControlPlaneFixture, TestClient, dict[str, str]]:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
     monkeypatch.delenv("AIDO_ENABLE_REAL_PROVIDER_CALLS", raising=False)
     monkeypatch.delenv("AIDO_ENABLE_CLI_RUNTIMES", raising=False)
@@ -119,7 +121,9 @@ def enable_remote_provider_accounts(store: ControlPlaneFixture) -> None:
     )
 
 
-def create_git_project(store: ControlPlaneFixture, tmp_path: Path, name: str = "Patch Git Project") -> dict[str, Any]:
+def create_git_project(
+    store: ControlPlaneFixture, tmp_path: Path, name: str = "Patch Git Project"
+) -> dict[str, Any]:
     project_path = tmp_path / name.lower().replace(" ", "-")
     project_path.mkdir(parents=True, exist_ok=True)
     assert run_git(["init"], cwd=project_path).returncode == 0
@@ -349,7 +353,11 @@ def test_workflow_detail_contract_exposes_full_audit_records(
     job_result = store.jobs.create_job(
         project_id=project["id"],
         kind="workflow.issue_to_patch",
-        payload={"workflowRunId": workflow_run["id"], "workflowStepId": implementation_step["id"], "command": "issue_to_patch"},
+        payload={
+            "workflowRunId": workflow_run["id"],
+            "workflowStepId": implementation_step["id"],
+            "command": "issue_to_patch",
+        },
         workflow_run_id=workflow_run["id"],
         workflow_step_id=implementation_step["id"],
     )
@@ -363,7 +371,11 @@ def test_workflow_detail_contract_exposes_full_audit_records(
         action_type="workflow.issue_to_patch.approve_patch",
         risk_level="medium",
         command="workflow issue-to-patch approve",
-        payload={"workflowRunId": workflow_run["id"], "workspaceId": workspace["id"], "runtimeId": "codex_cli"},
+        payload={
+            "workflowRunId": workflow_run["id"],
+            "workspaceId": workspace["id"],
+            "runtimeId": "codex_cli",
+        },
         reason="Human review is required before integration.",
     )
     profile = store.agents.upsert_agent_profile(
@@ -531,7 +543,14 @@ def test_runtime_provider_configuration_endpoint_detects_aido_env_without_exposi
     assert api_key["secret"] is True
     assert api_key["fingerprint"].startswith("sha256:")
     assert len(api_key["fingerprint"]) < 80
-    for provider_id in ("openrouter", "nvidia_nim", "anthropic_api", "ollama", "codex_cli", "claude_code_cli"):
+    for provider_id in (
+        "openrouter",
+        "nvidia_nim",
+        "anthropic_api",
+        "ollama",
+        "codex_cli",
+        "claude_code_cli",
+    ):
         assert providers[provider_id]["configured"] is True
         assert providers[provider_id]["missing"] == []
 
@@ -583,7 +602,12 @@ def test_runtime_provider_status_uses_aido_env_config_without_revealing_secret_v
     monkeypatch.setattr("shutil.which", lambda _command: None)
     monkeypatch.setattr(
         "local_control_center.agents.runtime_status.ollama_status",
-        lambda **_kwargs: {"provider": "ollama", "available": False, "models": [], "reason": "Ollama test daemon is down."},
+        lambda **_kwargs: {
+            "provider": "ollama",
+            "available": False,
+            "models": [],
+            "reason": "Ollama test daemon is down.",
+        },
     )
     _store, client, _headers = create_client(tmp_path, monkeypatch)
 
@@ -611,7 +635,12 @@ def test_anthropic_status_requires_aido_model_and_real_health_before_execution(
     monkeypatch.setattr("shutil.which", lambda _command: None)
     monkeypatch.setattr(
         "local_control_center.agents.runtime_status.ollama_status",
-        lambda **_kwargs: {"provider": "ollama", "available": False, "models": [], "reason": "Ollama test daemon is down."},
+        lambda **_kwargs: {
+            "provider": "ollama",
+            "available": False,
+            "models": [],
+            "reason": "Ollama test daemon is down.",
+        },
     )
     _store, client, _headers = create_client(tmp_path, monkeypatch)
 
@@ -638,7 +667,12 @@ def test_runtime_provider_status_does_not_report_api_available_without_credentia
     monkeypatch.setattr("shutil.which", lambda _command: None)
     monkeypatch.setattr(
         "local_control_center.agents.runtime_status.ollama_status",
-        lambda **_kwargs: {"provider": "ollama", "available": False, "models": [], "reason": "Ollama test daemon is down."},
+        lambda **_kwargs: {
+            "provider": "ollama",
+            "available": False,
+            "models": [],
+            "reason": "Ollama test daemon is down.",
+        },
     )
     _store, client, _headers = create_client(tmp_path, monkeypatch)
 
@@ -669,7 +703,12 @@ def test_remote_provider_status_fails_closed_without_configuration(
     monkeypatch.setattr("shutil.which", lambda _command: None)
     monkeypatch.setattr(
         "local_control_center.agents.runtime_status.ollama_status",
-        lambda **_kwargs: {"provider": "ollama", "available": False, "models": [], "reason": "Ollama test daemon is down."},
+        lambda **_kwargs: {
+            "provider": "ollama",
+            "available": False,
+            "models": [],
+            "reason": "Ollama test daemon is down.",
+        },
     )
     _store, client, _headers = create_client(tmp_path, monkeypatch)
 
@@ -700,7 +739,12 @@ def test_remote_provider_status_does_not_call_remote_health_by_default(
     monkeypatch.setattr("shutil.which", lambda _command: None)
     monkeypatch.setattr(
         "local_control_center.agents.runtime_status.ollama_status",
-        lambda **_kwargs: {"provider": "ollama", "available": False, "models": [], "reason": "Ollama test daemon is down."},
+        lambda **_kwargs: {
+            "provider": "ollama",
+            "available": False,
+            "models": [],
+            "reason": "Ollama test daemon is down.",
+        },
     )
     monkeypatch.setattr(OpenAICompatibleProvider, "health_check", fail_if_health_checked)
     monkeypatch.setattr(AnthropicAPIProvider, "health_check", fail_if_health_checked)
@@ -740,7 +784,12 @@ def test_remote_provider_failed_healthcheck_persists_sanitized_reason(
     monkeypatch.setattr("shutil.which", lambda _command: None)
     monkeypatch.setattr(
         "local_control_center.agents.runtime_status.ollama_status",
-        lambda **_kwargs: {"provider": "ollama", "available": False, "models": [], "reason": "Ollama test daemon is down."},
+        lambda **_kwargs: {
+            "provider": "ollama",
+            "available": False,
+            "models": [],
+            "reason": "Ollama test daemon is down.",
+        },
     )
     monkeypatch.setattr(OpenAICompatibleProvider, "health_check", failed_provider)
     monkeypatch.setattr(AnthropicAPIProvider, "health_check", failed_provider)
@@ -749,7 +798,9 @@ def test_remote_provider_failed_healthcheck_persists_sanitized_reason(
     monkeypatch.setenv("AIDO_ENABLE_REAL_PROVIDER_CALLS", "true")
 
     for provider_id in REMOTE_PROVIDER_IDS:
-        health_response = client.post(f"/api/v1/model-gateway/providers/{provider_id}/health-check", headers=headers)
+        health_response = client.post(
+            f"/api/v1/model-gateway/providers/{provider_id}/health-check", headers=headers
+        )
         assert health_response.status_code == 200
         serialized_health = str(health_response.json())
         assert "sk-healthfailed" not in serialized_health
@@ -790,7 +841,12 @@ def test_remote_provider_healthy_requires_enabled_account_and_real_call_flag_for
     monkeypatch.setattr("shutil.which", lambda _command: None)
     monkeypatch.setattr(
         "local_control_center.agents.runtime_status.ollama_status",
-        lambda **_kwargs: {"provider": "ollama", "available": False, "models": [], "reason": "Ollama test daemon is down."},
+        lambda **_kwargs: {
+            "provider": "ollama",
+            "available": False,
+            "models": [],
+            "reason": "Ollama test daemon is down.",
+        },
     )
     monkeypatch.setattr(OpenAICompatibleProvider, "health_check", healthy_provider)
     monkeypatch.setattr(OpenAICompatibleProvider, "list_models", lambda _self: [])
@@ -801,7 +857,9 @@ def test_remote_provider_healthy_requires_enabled_account_and_real_call_flag_for
     monkeypatch.setenv("AIDO_ENABLE_REAL_PROVIDER_CALLS", "true")
 
     for provider_id in REMOTE_PROVIDER_IDS:
-        health_response = client.post(f"/api/v1/model-gateway/providers/{provider_id}/health-check", headers=headers)
+        health_response = client.post(
+            f"/api/v1/model-gateway/providers/{provider_id}/health-check", headers=headers
+        )
         assert health_response.status_code == 200
 
     monkeypatch.setenv("AIDO_ENABLE_REAL_PROVIDER_CALLS", "false")
@@ -826,7 +884,9 @@ def test_remote_provider_healthy_requires_enabled_account_and_real_call_flag_for
         assert provider["healthStatus"] == "healthy"
         assert provider["lastError"] == ""
 
-    store.connection.execute("UPDATE provider_accounts SET enabled = 0 WHERE provider_id = ?", ("openrouter",))
+    store.connection.execute(
+        "UPDATE provider_accounts SET enabled = 0 WHERE provider_id = ?", ("openrouter",)
+    )
     disabled_account = client.get("/api/v1/runtime/providers").json()
     openrouter = {provider["id"]: provider for provider in disabled_account["providers"]}["openrouter"]
     assert openrouter["configured"] is True
@@ -843,7 +903,12 @@ def test_runtime_provider_status_reports_missing_cli_as_not_detected(
     monkeypatch.setattr("shutil.which", lambda _command: None)
     monkeypatch.setattr(
         "local_control_center.agents.runtime_status.ollama_status",
-        lambda **_kwargs: {"provider": "ollama", "available": False, "models": [], "reason": "Ollama test daemon is down."},
+        lambda **_kwargs: {
+            "provider": "ollama",
+            "available": False,
+            "models": [],
+            "reason": "Ollama test daemon is down.",
+        },
     )
     _store, client, _headers = create_client(tmp_path, monkeypatch)
 
@@ -868,7 +933,12 @@ def test_runtime_provider_status_reports_ollama_down_with_real_health_reason(
     monkeypatch.setattr("shutil.which", lambda _command: None)
     monkeypatch.setattr(
         "local_control_center.agents.runtime_status.ollama_status",
-        lambda **_kwargs: {"provider": "ollama", "available": False, "models": [], "reason": "Connection refused"},
+        lambda **_kwargs: {
+            "provider": "ollama",
+            "available": False,
+            "models": [],
+            "reason": "Connection refused",
+        },
     )
     _store, client, _headers = create_client(tmp_path, monkeypatch)
 
@@ -903,7 +973,12 @@ def test_openai_compatible_status_requires_config_model_and_explicit_healthcheck
     monkeypatch.setattr("shutil.which", lambda _command: None)
     monkeypatch.setattr(
         "local_control_center.agents.runtime_status.ollama_status",
-        lambda **_kwargs: {"provider": "ollama", "available": False, "models": [], "reason": "Ollama test daemon is down."},
+        lambda **_kwargs: {
+            "provider": "ollama",
+            "available": False,
+            "models": [],
+            "reason": "Ollama test daemon is down.",
+        },
     )
     monkeypatch.setattr(OpenAICompatibleProvider, "health_check", healthy_provider)
     store, client, headers = create_client(tmp_path, monkeypatch)
@@ -925,14 +1000,18 @@ def test_openai_compatible_status_requires_config_model_and_explicit_healthcheck
     )
 
     before_health = client.get("/api/v1/runtime/providers").json()
-    before_provider = {provider["id"]: provider for provider in before_health["providers"]}["openai_compatible"]
+    before_provider = {provider["id"]: provider for provider in before_health["providers"]}[
+        "openai_compatible"
+    ]
     assert before_provider["configured"] is True
     assert before_provider["available"] is False
     assert before_provider["executable"] is False
     assert before_provider["requiredConfiguration"] == ["baseUrl", "apiKey", "model"]
     assert "health check" in before_provider["reason"].lower()
 
-    health_response = client.post("/api/v1/model-gateway/providers/openai_compatible/health-check", headers=headers)
+    health_response = client.post(
+        "/api/v1/model-gateway/providers/openai_compatible/health-check", headers=headers
+    )
 
     assert health_response.status_code == 200
     after_health = client.get("/api/v1/runtime/providers").json()
@@ -1183,12 +1262,15 @@ def test_issue_to_patch_real_runtime_creates_diff_patch_artifact_and_requires_re
     assert "success" not in str(body).lower()
     overview = client.get("/api/v1/overview").json()
     patch_artifact = next(
-        artifact for artifact in overview["artifacts"] if artifact["id"] == body["diffSummary"]["patchArtifactId"]
+        artifact
+        for artifact in overview["artifacts"]
+        if artifact["id"] == body["diffSummary"]["patchArtifactId"]
     )
     assert patch_artifact["kind"] == "git_patch"
     assert patch_artifact["hash"]
     assert any(
-        action["jobId"] == body["job"]["id"] and action["payload"]["evidencePackageId"] == body["evidencePackage"]["id"]
+        action["jobId"] == body["job"]["id"]
+        and action["payload"]["evidencePackageId"] == body["evidencePackage"]["id"]
         for action in client.get("/api/v1/approvals").json()["actionRequests"]
     )
 
@@ -1400,7 +1482,12 @@ def test_promote_patch_to_branch_requires_approved_evidence(
 
     assert promoted.status_code == 409
     assert "approved_for_integration" in promoted.json()["detail"]
-    assert run_git(["-C", project["path"], "rev-parse", "--verify", "refs/heads/aido/promote/not-approved"]).returncode != 0
+    assert (
+        run_git(
+            ["-C", project["path"], "rev-parse", "--verify", "refs/heads/aido/promote/not-approved"]
+        ).returncode
+        != 0
+    )
 
 
 @pytest.mark.skipif(not git_available(), reason="git CLI is not available")
@@ -1442,7 +1529,12 @@ def test_promote_patch_to_branch_rejects_tampered_patch_artifact_sha256(
 
     assert promoted.status_code == 409
     assert "hash mismatch" in promoted.json()["detail"]
-    assert run_git(["-C", project["path"], "rev-parse", "--verify", "refs/heads/aido/promote/tampered"]).returncode != 0
+    assert (
+        run_git(
+            ["-C", project["path"], "rev-parse", "--verify", "refs/heads/aido/promote/tampered"]
+        ).returncode
+        != 0
+    )
 
 
 @pytest.mark.skipif(not git_available(), reason="git CLI is not available")
@@ -1494,7 +1586,9 @@ def test_promote_patch_to_branch_creates_safe_branch_applies_verified_patch_and_
     assert (promotion_workspace / "patched.txt").read_text(encoding="utf-8") == "real runtime patch\n"
     assert run_git(["-C", str(promotion_workspace), "branch", "--show-current"]).stdout.strip() == branch_name
     assert run_git(["-C", str(promotion_workspace), "rev-parse", "HEAD"]).stdout.strip() == base_commit
-    assert "patched.txt" in run_git(["-C", str(promotion_workspace), "diff", "--name-only"]).stdout.splitlines()
+    assert (
+        "patched.txt" in run_git(["-C", str(promotion_workspace), "diff", "--name-only"]).stdout.splitlines()
+    )
     artifact_names = {artifact.get("name") for artifact in body["evidencePackage"]["artifacts"]}
     assert {"promotion-git-commands.json", "promotion-evidence.json", "git-status.json"} <= artifact_names
     overview = client.get("/api/v1/overview").json()
@@ -1700,7 +1794,11 @@ def test_create_pull_request_posts_audited_pr_body_from_promoted_branch(
     assert approved["diffSummary"]["securityFindingsArtifactId"] in pr_body
     assert "unit-test-github-token" not in json.dumps(body)
     artifact_names = {artifact.get("name") for artifact in body["evidencePackage"]["artifacts"]}
-    assert {"pull-request-request.json", "pull-request-response.json", "pull-request-evidence.json"} <= artifact_names
+    assert {
+        "pull-request-request.json",
+        "pull-request-response.json",
+        "pull-request-evidence.json",
+    } <= artifact_names
 
 
 @pytest.mark.skipif(not git_available(), reason="git CLI is not available")
@@ -1804,8 +1902,12 @@ def test_issue_to_patch_real_runtime_completes_only_with_qa_evidence_and_no_revi
     assert "qa-results.json" not in artifact_names
     assert all(artifact.get("hash") for artifact in package["artifacts"])
     overview = client.get("/api/v1/overview").json()
-    qa_decisions = [decision for decision in overview["permissionDecisions"] if decision["agentId"] == "qa_agent"]
-    assert any((decision["payload"] or {}).get("operation") == "qa_agent_command" for decision in qa_decisions)
+    qa_decisions = [
+        decision for decision in overview["permissionDecisions"] if decision["agentId"] == "qa_agent"
+    ]
+    assert any(
+        (decision["payload"] or {}).get("operation") == "qa_agent_command" for decision in qa_decisions
+    )
 
 
 @pytest.mark.skipif(not git_available(), reason="git CLI is not available")

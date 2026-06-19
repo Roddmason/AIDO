@@ -3,20 +3,31 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 import re
 from typing import Any
 
-from .permissions import low_risk_shell_category, package_manager_category, parse_command, pnpm_script_category
-
+from .permissions import (
+    low_risk_shell_category,
+    package_manager_category,
+    parse_command,
+    pnpm_script_category,
+)
 
 CRITICAL_RULES: list[tuple[str, re.Pattern[str]]] = [
-    ("destructive_delete", re.compile(r"\b(rm\s+-rf|Remove-Item\b.*(?<!\S)-Recurse\b.*(?<!\S)-Force\b)", re.I)),
+    (
+        "destructive_delete",
+        re.compile(r"\b(rm\s+-rf|Remove-Item\b.*(?<!\S)-Recurse\b.*(?<!\S)-Force\b)", re.I),
+    ),
     ("force_push", re.compile(r"\bgit\s+push\b.*\b--force\b", re.I)),
     ("prod_deploy", re.compile(r"\b(deploy|release)\b.*\b(prod|production)\b", re.I)),
     ("privilege_escalation", re.compile(r"\b(sudo|Start-Process\b.*\b-Verb\s+RunAs|runas)\b", re.I)),
-    ("secrets_write", re.compile(r"\b(\.env|secret|credential|token)\b.*\b(write|set|update|remove|delete)\b", re.I)),
+    (
+        "secrets_write",
+        re.compile(r"\b(\.env|secret|credential|token)\b.*\b(write|set|update|remove|delete)\b", re.I),
+    ),
 ]
 
 MEDIUM_RULES: list[tuple[str, re.Pattern[str]]] = [
@@ -52,4 +63,7 @@ def classify_command(command: str | None) -> dict[str, Any]:
         low_category = low_risk_shell_category(parsed)
         if low_category:
             return {"riskLevel": "low", "categories": [low_category]}
-    return {"riskLevel": "medium" if text.strip() else "low", "categories": ["unknown"] if text.strip() else ["none"]}
+    return {
+        "riskLevel": "medium" if text.strip() else "low",
+        "categories": ["unknown"] if text.strip() else ["none"],
+    }

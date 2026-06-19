@@ -3,10 +3,10 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 from typing import Any
-
 
 DEVOPS_AGENT_ID = "devops_agent"
 DEVOPS_AGENT_ALLOWED_TOOLS = ["shell"]
@@ -31,7 +31,14 @@ def devops_agent_contract() -> dict[str, Any]:
         },
         "outputSchema": {
             "type": "object",
-            "required": ["status", "verdict", "commands", "configFindings", "configArtifact", "evidencePackage"],
+            "required": [
+                "status",
+                "verdict",
+                "commands",
+                "configFindings",
+                "configArtifact",
+                "evidencePackage",
+            ],
             "properties": {
                 "status": {"type": "string", "enum": sorted(DEVOPS_AGENT_VERDICTS)},
                 "verdict": {"type": "string", "enum": sorted(DEVOPS_AGENT_VERDICTS)},

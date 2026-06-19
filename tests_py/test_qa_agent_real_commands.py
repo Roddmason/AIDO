@@ -17,7 +17,9 @@ def auth_headers(client: TestClient) -> dict[str, str]:
     return {"X-Local-Control-Token": token, "Origin": "http://127.0.0.1"}
 
 
-def create_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[ControlPlaneFixture, TestClient, dict[str, str]]:
+def create_client(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> tuple[ControlPlaneFixture, TestClient, dict[str, str]]:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
     store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
     store.init()
@@ -26,7 +28,9 @@ def create_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Cont
     return store, client, auth_headers(client)
 
 
-def create_git_project(store: ControlPlaneFixture, tmp_path: Path, name: str = "QA Agent Project") -> dict[str, Any]:
+def create_git_project(
+    store: ControlPlaneFixture, tmp_path: Path, name: str = "QA Agent Project"
+) -> dict[str, Any]:
     project_path = tmp_path / name.lower().replace(" ", "-")
     project_path.mkdir(parents=True, exist_ok=True)
     assert run_git(["init"], cwd=project_path).returncode == 0
@@ -70,7 +74,9 @@ def test_qa_agent_command_ok_records_passed_verdict_and_artifact_hashes(
             "projectId": project["id"],
             "workspaceId": workspace["id"],
             "taskId": "qa-agent-pass",
-            "commands": [{"label": "python version", "argv": [sys.executable, "--version"], "critical": True}],
+            "commands": [
+                {"label": "python version", "argv": [sys.executable, "--version"], "critical": True}
+            ],
         },
     )
 
@@ -144,7 +150,10 @@ def test_qa_agent_command_failure_records_failed_verdict(
             "workspaceId": workspace["id"],
             "taskId": "qa-agent-fail",
             "commands": [
-                {"label": "failing pytest", "argv": [sys.executable, "-m", "pytest", "missing_qa_agent_test.py"]}
+                {
+                    "label": "failing pytest",
+                    "argv": [sys.executable, "-m", "pytest", "missing_qa_agent_test.py"],
+                }
             ],
         },
     )

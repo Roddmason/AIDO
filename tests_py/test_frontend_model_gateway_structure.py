@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 FEATURE_DIR = ROOT / "local-control-center" / "web" / "src" / "features" / "model-gateway"
 
@@ -87,8 +86,12 @@ def test_model_gateway_cost_surfaces_preserve_unknown_instead_of_zero() -> None:
     utils_source = (FEATURE_DIR / "utils.tsx").read_text(encoding="utf-8")
     page_source = (FEATURE_DIR / "ModelGatewayPage.tsx").read_text(encoding="utf-8")
     provider_accounts_source = (FEATURE_DIR / "ProviderAccountsPanel.tsx").read_text(encoding="utf-8")
-    app_source = (ROOT / "local-control-center" / "web" / "src" / "app" / "App.tsx").read_text(encoding="utf-8")
-    catalog_source = (ROOT / "local_control_center" / "i18n" / "default_catalog.json").read_text(encoding="utf-8")
+    app_source = (ROOT / "local-control-center" / "web" / "src" / "app" / "App.tsx").read_text(
+        encoding="utf-8"
+    )
+    catalog_source = (ROOT / "local_control_center" / "i18n" / "default_catalog.json").read_text(
+        encoding="utf-8"
+    )
 
     assert "Number(value ?? 0)" not in utils_source
     assert "Number(value ?? 0)" not in page_source

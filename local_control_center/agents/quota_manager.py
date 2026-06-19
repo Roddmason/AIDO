@@ -3,11 +3,12 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 import sqlite3
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from local_control_center.shared.serialization import json_loads
@@ -53,7 +54,7 @@ class QuotaManager:
         if not row:
             return QuotaResult(allowed=True, reason="no_limit")
         cooldown = _parse_utc(row["cooldown_until"])
-        if cooldown and cooldown > datetime.now(timezone.utc):
+        if cooldown and cooldown > datetime.now(UTC):
             return QuotaResult(
                 allowed=False,
                 reason="provider_in_cooldown",
@@ -62,7 +63,9 @@ class QuotaManager:
                 quota_pressure=1.0,
             )
         if row["tpm"] is not None and request_tokens > int(row["tpm"]):
-            return QuotaResult(allowed=False, reason="request_exceeds_tpm", limit_id=row["id"], quota_pressure=1.0)
+            return QuotaResult(
+                allowed=False, reason="request_exceeds_tpm", limit_id=row["id"], quota_pressure=1.0
+            )
         window = json_loads(row["current_window_json"], {})
         for limit_column, used_key, reason in (
             ("daily_requests", "dailyRequestsUsed", "daily_request_limit_exceeded"),
@@ -86,7 +89,7 @@ class QuotaManager:
 
     def record_rate_limit(self, *, provider_id: str, model: str, retry_after_seconds: int = 300) -> None:
         now = utc_now()
-        cooldown = (datetime.now(timezone.utc) + timedelta(seconds=retry_after_seconds)).isoformat()
+        cooldown = (datetime.now(UTC) + timedelta(seconds=retry_after_seconds)).isoformat()
         limit_id = f"{provider_id}:{model or '*'}"
         self.connection.execute(
             """

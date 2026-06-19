@@ -7,7 +7,6 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-
 ROOT = Path(__file__).resolve().parents[1]
 CATALOG = ROOT / "local_control_center" / "i18n" / "default_catalog.json"
 WEB_SRC = ROOT / "local-control-center" / "web" / "src"
@@ -48,9 +47,7 @@ def _is_static_ui_copy(value: str) -> bool:
         return False
     if normalized in {"React", "TypeScript", "PowerShell", "SQLite", "FastAPI", "Ollama"}:
         return False
-    if SPANISH_COPY_RE.search(normalized):
-        return False
-    return True
+    return not SPANISH_COPY_RE.search(normalized)
 
 
 def extract_static_ui_copy() -> set[str]:
@@ -93,9 +90,7 @@ def test_default_i18n_catalog_is_bilingual_and_complete() -> None:
 def test_static_frontend_copy_is_registered_in_default_i18n_catalog() -> None:
     payload = json.loads(CATALOG.read_text(encoding="utf-8"))
     catalog_values = {
-        str(value).strip()
-        for values in payload["translations"].values()
-        for value in values.values()
+        str(value).strip() for values in payload["translations"].values() for value in values.values()
     }
     static_ui_copy = extract_static_ui_copy()
     missing = sorted(static_ui_copy - catalog_values)
@@ -135,8 +130,7 @@ def test_i18n_catalog_can_be_edited_without_redeploy(tmp_path: Path) -> None:
     assert denied.status_code == 403
 
     translations_with_french = {
-        key: {**values, "fr": values["en"]}
-        for key, values in catalog["translations"].items()
+        key: {**values, "fr": values["en"]} for key, values in catalog["translations"].items()
     }
     translations_with_french["app.brand.kicker"]["es"] = "Windows local · v1"
     translations_with_french["app.brand.kicker"]["fr"] = "Windows local · v1"

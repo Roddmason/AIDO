@@ -18,7 +18,7 @@ otel = [
 	"opentelemetry-exporter-otlp-proto-http>=1.30.0",
 ]
 dev = [
-	"ruff>=0.14.9",
+	"ruff>=0.15,<0.16",
 	"pre-commit>=4.5.0",
 	"pip-licenses>=5.5.0",
 	"semgrep>=1.145.0",
@@ -34,10 +34,64 @@ line-length = 110
 target-version = "py311"
 extend-exclude = [
 	"node_modules",
-	"src",
 	"local-control-center/dist",
 ]
 
+[tool.ruff.format]
+docstring-code-format = true
+line-ending = "lf"
+
 [tool.ruff.lint]
-select = ["E", "F", "B"]
-ignore = ["E501"]
+select = [
+	"E",
+	"F",
+	"B",
+	"I",
+	"UP",
+	"SIM",
+	"C4",
+	"PERF",
+	"RUF",
+	"ARG",
+	"RET",
+	"D",
+]
+ignore = [
+	"E501",
+	# Docstrings: se exige docstring de modulo (D100, satisfecho por el banner) y la
+	# calidad de formato (D2xx/D4xx). NO se exige docstring de presencia en cada
+	# clase/metodo/funcion publica (D101/D102/D103): hacerlo obligaria a ~931
+	# docstrings de relleno (ruido). Ratchet concreto pendiente: documentar las 29
+	# funciones de endpoint en local_control_center/**/api.py (todas D103, superficie
+	# HTTP publica, bajo coste / alto valor); el resto (simbolos internos) se deja.
+	"D101",
+	"D102",
+	"D103",
+	"D105",
+	"D106",
+	"D107",
+	# ARG002 (unused-method-argument): la mayoria son args exigidos por contrato
+	# (overrides de urllib, protocolos de provider/runtime); el resto son args de firmas
+	# publicas estables aceptados-pero-no-usados cuyos callers los pasan por keyword
+	# (p.ej. prepare_model_call), no fallos de deteccion. Renombrar a _x romperia esos
+	# callers. Se conserva el resto de ARG (ARG001/003/004/005) para codigo muerto real.
+	"ARG002",
+	# SIM118/SIM401: el repo usa sqlite3.Row, que soporta row[key] y row.keys() pero
+	# NO `key in row` (itera valores) ni row.get(). Estas simplificaciones rompen los
+	# row_to_* (AttributeError: 'sqlite3.Row' object has no attribute 'get'). Unsafe aqui.
+	"SIM118",
+	"SIM401",
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "pep257"
+
+[tool.ruff.lint.per-file-ignores]
+# Tests: sin docstrings de contrato, args de fixtures sin usar, sin presupuesto perf
+# ni disciplina de ClassVar.
+"tests_py/**" = ["ARG", "D", "PERF", "RUF012"]
+# Migraciones: SQL embebido, sin docstrings de API.
+"local_control_center/shared/migrations.py" = ["D"]
+# Scripts/utilidades: sin docstrings de API publica.
+"scripts/**" = ["D"]
+"local-control-center/scripts/**" = ["D"]

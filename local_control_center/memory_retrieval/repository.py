@@ -3,15 +3,16 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 import sqlite3
 import uuid
-from typing import Any, Iterable
-
-from local_control_center.shared.time import utc_now
+from collections.abc import Iterable
+from typing import Any
 
 from local_control_center.shared.serialization import json_dumps, json_loads, stable_hash
+from local_control_center.shared.time import utc_now
 
 
 def row_to_memory(row: sqlite3.Row) -> dict[str, Any]:
@@ -196,5 +197,3 @@ class MemoryRepository:
             (project_id, utc_now()),
         )
         return [row_to_embedding(row) for row in rows]
-
-

@@ -3,6 +3,7 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 import json
@@ -15,7 +16,15 @@ from local_control_center.agents.credentials import CredentialResolver
 from local_control_center.agents.runtime_provider_config import runtime_provider_configuration
 from local_control_center.shared.redaction import redact_secrets
 
-from .base import CostEstimate, ModelInfo, ModelProvider, ModelRequest, ModelResponse, ProviderHealth, UsageRecord
+from .base import (
+    CostEstimate,
+    ModelInfo,
+    ModelProvider,
+    ModelRequest,
+    ModelResponse,
+    ProviderHealth,
+    UsageRecord,
+)
 
 
 def real_provider_calls_enabled() -> bool:
@@ -51,14 +60,34 @@ class OpenAICompatibleProvider(ModelProvider):
 
     def health_check(self) -> ProviderHealth:
         if not self.base_url:
-            return ProviderHealth(providerId=self.provider_id, status="misconfigured", healthStatus="misconfigured", message="Base URL is not configured")
+            return ProviderHealth(
+                providerId=self.provider_id,
+                status="misconfigured",
+                healthStatus="misconfigured",
+                message="Base URL is not configured",
+            )
         credential = self.credential_resolver.resolve(self.credential_ref, fetch=False)
         if credential.status == "invalid":
-            return ProviderHealth(providerId=self.provider_id, status="misconfigured", healthStatus="misconfigured", message=credential.message)
+            return ProviderHealth(
+                providerId=self.provider_id,
+                status="misconfigured",
+                healthStatus="misconfigured",
+                message=credential.message,
+            )
         if credential.status in {"missing", "unsupported", "unknown"}:
-            return ProviderHealth(providerId=self.provider_id, status="misconfigured", healthStatus="misconfigured", message=f"Credential ref {self.credential_ref} is {credential.status}")
+            return ProviderHealth(
+                providerId=self.provider_id,
+                status="misconfigured",
+                healthStatus="misconfigured",
+                message=f"Credential ref {self.credential_ref} is {credential.status}",
+            )
         if not real_provider_calls_enabled():
-            return ProviderHealth(providerId=self.provider_id, status="disabled", healthStatus="unknown", message="Real provider calls are disabled")
+            return ProviderHealth(
+                providerId=self.provider_id,
+                status="disabled",
+                healthStatus="unknown",
+                message="Real provider calls are disabled",
+            )
         request = urllib.request.Request(
             f"{self.base_url}/models",
             headers={"Authorization": f"Bearer {self._credential()}", "Accept": "application/json"},
@@ -74,7 +103,12 @@ class OpenAICompatibleProvider(ModelProvider):
                 healthStatus="offline",
                 message=f"Provider /models health check failed: {error.__class__.__name__}",
             )
-        return ProviderHealth(providerId=self.provider_id, status="available", healthStatus="healthy", message="Provider /models responded")
+        return ProviderHealth(
+            providerId=self.provider_id,
+            status="available",
+            healthStatus="healthy",
+            message="Provider /models responded",
+        )
 
     def list_models(self) -> list[ModelInfo]:
         if not real_provider_calls_enabled():
@@ -136,16 +170,28 @@ class OpenAICompatibleProvider(ModelProvider):
 
     def estimate_cost(self, request: ModelRequest, model: str) -> CostEstimate:
         token_estimate = sum(len(str(message.get("content", "")).split()) for message in request.messages) * 2
-        return CostEstimate(estimatedCostUsd=None, source=f"unknown:{self.provider_id}:{model}:{token_estimate}")
+        return CostEstimate(
+            estimatedCostUsd=None, source=f"unknown:{self.provider_id}:{model}:{token_estimate}"
+        )
 
     def parse_usage(self, raw_response: Any) -> UsageRecord:
         usage = raw_response.get("usage", {}) if isinstance(raw_response, dict) else {}
         input_tokens = int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0)
         output_tokens = int(usage.get("completion_tokens") or usage.get("output_tokens") or 0)
-        reasoning_tokens = int((usage.get("completion_tokens_details") or {}).get("reasoning_tokens") or usage.get("reasoning_tokens") or 0)
-        cached_input_tokens = int((usage.get("prompt_tokens_details") or {}).get("cached_tokens") or usage.get("cached_input_tokens") or 0)
+        reasoning_tokens = int(
+            (usage.get("completion_tokens_details") or {}).get("reasoning_tokens")
+            or usage.get("reasoning_tokens")
+            or 0
+        )
+        cached_input_tokens = int(
+            (usage.get("prompt_tokens_details") or {}).get("cached_tokens")
+            or usage.get("cached_input_tokens")
+            or 0
+        )
         tool_tokens = int(usage.get("tool_tokens") or 0)
-        total = int(usage.get("total_tokens") or input_tokens + output_tokens + reasoning_tokens + tool_tokens)
+        total = int(
+            usage.get("total_tokens") or input_tokens + output_tokens + reasoning_tokens + tool_tokens
+        )
         return UsageRecord(
             inputTokens=input_tokens,
             cachedInputTokens=cached_input_tokens,

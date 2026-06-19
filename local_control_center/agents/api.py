@@ -3,10 +3,11 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
-from collections.abc import Callable
 import re
+from collections.abc import Callable
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
@@ -14,22 +15,23 @@ from fastapi import APIRouter, HTTPException, Request
 from local_control_center.evidence.repository import EvidenceRepository
 from local_control_center.shared.event_bus import EventBus
 
+from .architect_agent import ArchitectAgentRunner
 from .contracts import (
-    AgentProfilesListResponse,
     AgentProfileResponse,
+    AgentProfilesListResponse,
     AgentProfileUpsertRequest,
     AgentRunCreateRequest,
-    AgentRunsListResponse,
     AgentRunResponse,
+    AgentRunsListResponse,
     ArchitectAgentRunRequest,
     ArchitectAgentRunResponse,
     ArchitectAgentStatusResponse,
-    DevOpsAgentRunRequest,
-    DevOpsAgentRunResponse,
-    DevOpsAgentStatusResponse,
     DeveloperAgentRunRequest,
     DeveloperAgentRunResponse,
     DeveloperAgentStatusResponse,
+    DevOpsAgentRunRequest,
+    DevOpsAgentRunResponse,
+    DevOpsAgentStatusResponse,
     QAAgentRunRequest,
     QAAgentRunResponse,
     RuntimeProviderConfigurationResponse,
@@ -41,9 +43,8 @@ from .contracts import (
     SkillsSyncRequest,
     SkillsSyncResponse,
 )
-from .architect_agent import ArchitectAgentRunner
-from .devops_agent import DevOpsAgentRunner
 from .developer_agent import DeveloperAgentRunner
+from .devops_agent import DevOpsAgentRunner
 from .qa_agent import QAAgentRunner
 from .repository import AgentsRepository
 from .runtime_provider_config import list_runtime_provider_configurations
@@ -51,7 +52,6 @@ from .runtime_status import RUNTIME_MODES, RuntimeStatusService
 from .security_agent import SecurityAgentRunner
 from .skills import SkillRegistry
 from .tool_broker import ToolBroker
-
 
 EXECUTION_MODES_WITH_EVIDENCE = {"restricted_subprocess", "docker", "runtime_adapter:mcp"}
 ID_RE = re.compile(r"^[a-z0-9_-]{3,64}$")
@@ -102,11 +102,17 @@ def validate_agent_profile_body(body: dict[str, Any]) -> dict[str, Any]:
         raise HTTPException(status_code=422, detail="Runtime mode is not in the allowed catalog.")
     if permission_profile not in VALID_PERMISSION_PROFILES:
         raise HTTPException(status_code=422, detail="Permission profile is not in the allowed catalog.")
-    if not isinstance(allowed_tools, list) or not all(isinstance(item, str) and TOOL_ID_RE.match(item) for item in allowed_tools):
+    if not isinstance(allowed_tools, list) or not all(
+        isinstance(item, str) and TOOL_ID_RE.match(item) for item in allowed_tools
+    ):
         raise HTTPException(status_code=422, detail="Allowed tools must be catalog ids, not free-form JSON.")
-    if not isinstance(allowed_providers, list) or not all(isinstance(item, str) and CATALOG_ID_RE.match(item) for item in allowed_providers):
+    if not isinstance(allowed_providers, list) or not all(
+        isinstance(item, str) and CATALOG_ID_RE.match(item) for item in allowed_providers
+    ):
         raise HTTPException(status_code=422, detail="Allowed providers must be compact catalog ids.")
-    if not isinstance(allowed_runtimes, list) or not all(isinstance(item, str) and CATALOG_ID_RE.match(item) for item in allowed_runtimes):
+    if not isinstance(allowed_runtimes, list) or not all(
+        isinstance(item, str) and CATALOG_ID_RE.match(item) for item in allowed_runtimes
+    ):
         raise HTTPException(status_code=422, detail="Allowed runtimes must be compact catalog ids.")
     for field in ("routingProfileId", "roleModelPolicyId"):
         if body.get(field) and not CATALOG_ID_RE.match(str(body[field])):
@@ -133,14 +139,20 @@ def validate_developer_agent_run_body(body: DeveloperAgentRunRequest) -> dict[st
     if not instruction:
         raise HTTPException(status_code=422, detail="DeveloperAgent instruction is required.")
     if len(instruction) > 20000:
-        raise HTTPException(status_code=422, detail="DeveloperAgent instruction must be 20000 characters or fewer.")
+        raise HTTPException(
+            status_code=422, detail="DeveloperAgent instruction must be 20000 characters or fewer."
+        )
     preferred_runtime = payload.get("preferredRuntime")
     if preferred_runtime and preferred_runtime not in DEVELOPER_AGENT_RUNTIMES:
-        raise HTTPException(status_code=422, detail=f"DeveloperAgent runtime is not allowed: {preferred_runtime}")
+        raise HTTPException(
+            status_code=422, detail=f"DeveloperAgent runtime is not allowed: {preferred_runtime}"
+        )
     qa_commands = payload.get("qaCommands") or []
     for index, argv in enumerate(qa_commands):
         if not isinstance(argv, list) or not argv or not all(isinstance(item, str) and item for item in argv):
-            raise HTTPException(status_code=422, detail=f"qaCommands[{index}] must be a non-empty structured argv list.")
+            raise HTTPException(
+                status_code=422, detail=f"qaCommands[{index}] must be a non-empty structured argv list."
+            )
     max_cost = payload.get("maxCostUsd")
     if max_cost is not None and float(max_cost) < 0:
         raise HTTPException(status_code=422, detail="maxCostUsd must be zero or positive.")
@@ -155,20 +167,28 @@ def validate_qa_agent_run_body(body: QAAgentRunRequest) -> dict[str, Any]:
     commands = payload.get("commands") or []
     for index, command in enumerate(commands):
         if not isinstance(command, dict):
-            raise HTTPException(status_code=422, detail=f"commands[{index}] must be an object with structured argv.")
+            raise HTTPException(
+                status_code=422, detail=f"commands[{index}] must be an object with structured argv."
+            )
         if isinstance(command.get("command"), str):
             raise HTTPException(status_code=422, detail=f"commands[{index}] must not use a command string.")
         argv = command.get("argv")
         if not isinstance(argv, list) or not argv or not all(isinstance(item, str) and item for item in argv):
-            raise HTTPException(status_code=422, detail=f"commands[{index}].argv must be a non-empty structured argv list.")
+            raise HTTPException(
+                status_code=422, detail=f"commands[{index}].argv must be a non-empty structured argv list."
+            )
         timeout = command.get("timeoutSeconds")
         if timeout is not None:
             try:
                 timeout_int = int(timeout)
             except (TypeError, ValueError) as error:
-                raise HTTPException(status_code=422, detail=f"commands[{index}].timeoutSeconds must be an integer.") from error
+                raise HTTPException(
+                    status_code=422, detail=f"commands[{index}].timeoutSeconds must be an integer."
+                ) from error
             if timeout_int < 1 or timeout_int > 300:
-                raise HTTPException(status_code=422, detail=f"commands[{index}].timeoutSeconds must be between 1 and 300.")
+                raise HTTPException(
+                    status_code=422, detail=f"commands[{index}].timeoutSeconds must be between 1 and 300."
+                )
     return payload
 
 
@@ -187,7 +207,9 @@ def validate_devops_agent_run_body(body: DevOpsAgentRunRequest) -> dict[str, Any
         if len(quality_scripts) > 20:
             raise HTTPException(status_code=422, detail="DevOpsAgent accepts at most 20 quality scripts.")
         if not all(isinstance(script, str) and CATALOG_ID_RE.match(script) for script in quality_scripts):
-            raise HTTPException(status_code=422, detail="DevOpsAgent qualityScripts must be compact script names.")
+            raise HTTPException(
+                status_code=422, detail="DevOpsAgent qualityScripts must be compact script names."
+            )
     return payload
 
 
@@ -201,20 +223,31 @@ def validate_security_agent_run_body(body: SecurityAgentRunRequest) -> dict[str,
         raise HTTPException(status_code=422, detail="SecurityAgent accepts at most 50 command candidates.")
     for index, command in enumerate(command_candidates):
         if not isinstance(command, dict):
-            raise HTTPException(status_code=422, detail=f"commandCandidates[{index}] must be an object with structured argv.")
+            raise HTTPException(
+                status_code=422, detail=f"commandCandidates[{index}] must be an object with structured argv."
+            )
         if isinstance(command.get("command"), str):
-            raise HTTPException(status_code=422, detail=f"commandCandidates[{index}] must not use a command string.")
+            raise HTTPException(
+                status_code=422, detail=f"commandCandidates[{index}] must not use a command string."
+            )
         argv = command.get("argv")
         if not isinstance(argv, list) or not argv or not all(isinstance(item, str) and item for item in argv):
-            raise HTTPException(status_code=422, detail=f"commandCandidates[{index}].argv must be a non-empty structured argv list.")
+            raise HTTPException(
+                status_code=422,
+                detail=f"commandCandidates[{index}].argv must be a non-empty structured argv list.",
+            )
     paths_to_check = payload.get("pathsToCheck") or []
     if len(paths_to_check) > 100:
         raise HTTPException(status_code=422, detail="SecurityAgent accepts at most 100 path candidates.")
     if not all(isinstance(item, str) and item.strip() for item in paths_to_check):
-        raise HTTPException(status_code=422, detail="SecurityAgent pathsToCheck must be non-empty path strings.")
+        raise HTTPException(
+            status_code=422, detail="SecurityAgent pathsToCheck must be non-empty path strings."
+        )
     preferred_runtime = payload.get("preferredRuntime")
     if preferred_runtime and preferred_runtime not in SECURITY_AGENT_RUNTIMES:
-        raise HTTPException(status_code=422, detail=f"SecurityAgent runtime is not allowed: {preferred_runtime}")
+        raise HTTPException(
+            status_code=422, detail=f"SecurityAgent runtime is not allowed: {preferred_runtime}"
+        )
     return payload
 
 
@@ -230,13 +263,24 @@ def validate_architect_agent_run_body(body: ArchitectAgentRunRequest) -> dict[st
         raise HTTPException(status_code=422, detail="ArchitectAgent workflowContext must be an object.")
     preferred_runtime = payload.get("preferredRuntime")
     if preferred_runtime and preferred_runtime not in ARCHITECT_AGENT_RUNTIMES:
-        raise HTTPException(status_code=422, detail=f"ArchitectAgent runtime is not allowed: {preferred_runtime}")
+        raise HTTPException(
+            status_code=422, detail=f"ArchitectAgent runtime is not allowed: {preferred_runtime}"
+        )
     for field in ("relevantDocs", "testResults", "riskRegister"):
         value = payload.get(field) or []
-        if not isinstance(value, list) or len(value) > 50 or not all(isinstance(item, dict) for item in value):
-            raise HTTPException(status_code=422, detail=f"ArchitectAgent {field} must be a list of objects with at most 50 items.")
+        if (
+            not isinstance(value, list)
+            or len(value) > 50
+            or not all(isinstance(item, dict) for item in value)
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail=f"ArchitectAgent {field} must be a list of objects with at most 50 items.",
+            )
     evidence_refs = payload.get("evidenceRefs") or []
-    if not isinstance(evidence_refs, list) or not all(isinstance(item, str) and item for item in evidence_refs):
+    if not isinstance(evidence_refs, list) or not all(
+        isinstance(item, str) and item for item in evidence_refs
+    ):
         raise HTTPException(status_code=422, detail="ArchitectAgent evidenceRefs must be a string list.")
     return payload
 
@@ -248,12 +292,16 @@ def _execution_test_result(tool_call: dict[str, Any]) -> dict[str, Any]:
     runtime_status = str(execution_result.get("status") or "")
     evidence_status = (
         "skipped_with_reason"
-        if tool_status in {"configuration_required", "unavailable"} or runtime_status in {"configuration_required", "unavailable"}
+        if tool_status in {"configuration_required", "unavailable"}
+        or runtime_status in {"configuration_required", "unavailable"}
         else tool_status
     )
     output_refs = [
         artifact_id
-        for artifact_id in (execution_result.get("stdoutArtifactId"), execution_result.get("stderrArtifactId"))
+        for artifact_id in (
+            execution_result.get("stdoutArtifactId"),
+            execution_result.get("stderrArtifactId"),
+        )
         if artifact_id
     ]
     return {
@@ -526,7 +574,9 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         require_write(request)
         payload = validate_agent_profile_body(body.model_dump(by_alias=True))
         profile = repository().upsert_agent_profile(payload)
-        event_bus().record_event(event_type="agent.profile.upserted", payload={"agentProfileId": profile["id"]})
+        event_bus().record_event(
+            event_type="agent.profile.upserted", payload={"agentProfileId": profile["id"]}
+        )
         return {"agentProfile": profile}
 
     @router.get("/api/v1/agent-runs", response_model=AgentRunsListResponse)
@@ -570,9 +620,9 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
                 "next_actions": [],
             }
             status = "running"
-        elif _is_technical_review_run(profile=profile, task_id=task_id, input_payload=input_payload) and not _input_evidence_refs(
-            input_payload
-        ):
+        elif _is_technical_review_run(
+            profile=profile, task_id=task_id, input_payload=input_payload
+        ) and not _input_evidence_refs(input_payload):
             output = _blocked_technical_review_output(profile=profile, task_id=task_id)
             status = "failed"
         else:
@@ -632,7 +682,9 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
                 status = "failed"
                 verdict = "blocked"
                 summary = "At least one tool call was denied by policy or failed sandbox execution."
-            elif any(tool_status in {"configuration_required", "unavailable"} for tool_status in tool_statuses):
+            elif any(
+                tool_status in {"configuration_required", "unavailable"} for tool_status in tool_statuses
+            ):
                 status = "runtime_unavailable"
                 verdict = "blocked"
                 summary = "At least one runtime adapter is unavailable or missing required configuration."

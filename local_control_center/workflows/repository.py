@@ -3,6 +3,7 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -13,9 +14,7 @@ from local_control_center.governance.repository import GovernanceRepository
 from local_control_center.jobs_approvals.repository import JobsRepository
 from local_control_center.shared.event_bus import EventBus
 from local_control_center.shared.serialization import json_dumps, json_loads
-
 from local_control_center.shared.time import utc_now
-
 
 DEFAULT_WORKFLOW_STEPS = [
     "idea_intake",
@@ -33,7 +32,13 @@ DEFAULT_WORKFLOW_STEPS = [
 ]
 
 RELEASE_CONTROL_STEPS = {"pr_review", "release_gate", "retro"}
-ISSUE_TO_PATCH_STEPS = ["workspace_create", "implementation", "local_tests", "qa_validation", "technical_review"]
+ISSUE_TO_PATCH_STEPS = [
+    "workspace_create",
+    "implementation",
+    "local_tests",
+    "qa_validation",
+    "technical_review",
+]
 ISSUE_TO_PR_STEPS = [
     "developer_agent",
     "qa_validation",
@@ -75,7 +80,9 @@ def _assert_release_safety(spec: dict[str, Any], *, location: str) -> None:
     if "push --force" in command or "push -f" in command or "--force-with-lease" in command:
         raise ValueError(f"{location}: force push is not allowed in governed workflows.")
 
-    branch = str(spec.get("branch") or spec.get("targetBranch") or spec.get("baseBranch") or "").strip().lower()
+    branch = (
+        str(spec.get("branch") or spec.get("targetBranch") or spec.get("baseBranch") or "").strip().lower()
+    )
     operation = str(spec.get("operation") or spec.get("action") or "").strip().lower()
     direct_main = _is_truthy(spec.get("directMainEdit")) or _is_truthy(spec.get("direct_main_edit"))
     if branch in {"main", "master"} and (direct_main or operation in BLOCKED_MAIN_OPERATIONS):
@@ -102,7 +109,11 @@ def validate_workflow_metadata(metadata: dict[str, Any]) -> None:
         if isinstance(raw_step, dict):
             _assert_release_safety(raw_step, location=f"metadata.steps[{index}]")
             for field in ("input", "output", "metadata"):
-                if field in raw_step and raw_step[field] is not None and not isinstance(raw_step[field], dict):
+                if (
+                    field in raw_step
+                    and raw_step[field] is not None
+                    and not isinstance(raw_step[field], dict)
+                ):
                     raise ValueError(f"metadata.steps[{index}].{field} must be an object.")
 
 
@@ -158,7 +169,9 @@ def row_to_workflow_step(row: sqlite3.Row) -> dict[str, Any]:
         "taskType": row["task_type"] if "task_type" in row.keys() else None,
         "riskLevel": row["risk_level"] if "risk_level" in row.keys() else None,
         "modelMode": row["model_mode"] if "model_mode" in row.keys() else None,
-        "manualModelOverride": row["manual_model_override"] if "manual_model_override" in row.keys() else None,
+        "manualModelOverride": row["manual_model_override"]
+        if "manual_model_override" in row.keys()
+        else None,
         "input": json_loads(row["input"]),
         "output": json_loads(row["output"]),
         "metadata": json_loads(row["metadata"]),
@@ -187,7 +200,9 @@ class WorkflowsRepository:
     def __init__(self, connection: sqlite3.Connection):
         self.connection = connection
 
-    def create_workflow(self, *, project_id: str, kind: str, title: str, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
+    def create_workflow(
+        self, *, project_id: str, kind: str, title: str, metadata: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         workflow_id = f"workflow-{uuid.uuid4()}"
         timestamp = utc_now()
         self.connection.execute(
@@ -246,7 +261,10 @@ class WorkflowsRepository:
                     "requiredEvidence": "qa_passed",
                     "gateState": "blocked_pending_qa_evidence",
                 }
-            if step_name == "release_gate" and str(step_spec.get("environment") or "").strip().lower() == "production":
+            if (
+                step_name == "release_gate"
+                and str(step_spec.get("environment") or "").strip().lower() == "production"
+            ):
                 step_metadata = {
                     **step_metadata,
                     "environment": "production",
@@ -511,7 +529,14 @@ class WorkflowsRepository:
                 metadata = ?
             WHERE id = ?
             """,
-            (status, 1 if completed else 0, utc_now(), 1 if clear_completed else 0, json_dumps(next_metadata), run_id),
+            (
+                status,
+                1 if completed else 0,
+                utc_now(),
+                1 if clear_completed else 0,
+                json_dumps(next_metadata),
+                run_id,
+            ),
         )
         self.record_workflow_event(
             workflow_id=current["workflowId"],
@@ -555,7 +580,9 @@ class WorkflowsRepository:
                 (workflow_run_id,),
             ).fetchall()
         else:
-            rows = self.connection.execute("SELECT * FROM workflow_events ORDER BY created_at DESC").fetchall()
+            rows = self.connection.execute(
+                "SELECT * FROM workflow_events ORDER BY created_at DESC"
+            ).fetchall()
         return [row_to_workflow_event(row) for row in rows]
 
     def get_workflow_step(self, step_id: str) -> dict[str, Any]:
@@ -611,9 +638,17 @@ class WorkflowsRepository:
                  created_at, correlation_id, causation_id)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)
             """,
-            (event_id, workflow_id, workflow_run_id, step_id, project_id, event_type, json_dumps(payload or {}), severity, utc_now()),
+            (
+                event_id,
+                workflow_id,
+                workflow_run_id,
+                step_id,
+                project_id,
+                event_type,
+                json_dumps(payload or {}),
+                severity,
+                utc_now(),
+            ),
         )
         row = self.connection.execute("SELECT * FROM workflow_events WHERE id = ?", (event_id,)).fetchone()
         return row_to_workflow_event(row)
-
-

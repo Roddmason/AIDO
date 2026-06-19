@@ -3,6 +3,7 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 import json
@@ -19,18 +20,18 @@ from .agents.api import create_router as create_agents_router
 from .agents.model_gateway_api import create_router as create_model_gateway_router
 from .control_plane.models import OverviewResponse
 from .control_plane.overview import build_overview_from_connection
+from .control_plane.runtime import ControlCenterRuntime
 from .evidence.api import create_router as create_evidence_router
 from .governance.api import create_router as create_governance_router
-from .integrations.api import create_router as create_integrations_router
 from .i18n.api import create_router as create_i18n_router
+from .integrations.api import create_router as create_integrations_router
 from .jobs_approvals.api import create_router as create_jobs_approvals_router
 from .memory_retrieval.api import create_router as create_memory_retrieval_router
 from .pipelines.api import create_router as create_pipelines_router
-from .prompts.api import create_router as create_prompts_router
 from .projects.api import create_router as create_projects_router
+from .prompts.api import create_router as create_prompts_router
 from .security_policy.api import create_router as create_security_policy_router
 from .sessions_chats.api import create_router as create_sessions_chats_router
-from .control_plane.runtime import ControlCenterRuntime
 from .shared.db import open_sqlite_connection
 from .shared.migrations import initialize_platform_schema
 from .shared.schemas import HandshakeResponse, HealthResponse, TelemetryStatusResponse
@@ -42,8 +43,8 @@ from .shared.telemetry import (
     record_http_request,
     resolve_correlation_id,
 )
-from .workspaces_projects.api import create_router as create_workspaces_router
 from .workflows.api import create_router as create_workflows_router
+from .workspaces_projects.api import create_router as create_workspaces_router
 
 
 def create_app(

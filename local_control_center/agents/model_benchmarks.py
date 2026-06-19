@@ -3,17 +3,17 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 import sqlite3
 import uuid
 from typing import Any
 
+from local_control_center.evidence.quality import evidence_has_real_qa_pass, failed_test_results
 from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.serialization import json_dumps, json_loads
 from local_control_center.shared.time import utc_now
-from local_control_center.evidence.quality import evidence_has_real_qa_pass, failed_test_results
-
 
 DEFAULT_BENCHMARK_PROVENANCE = "operator_reported"
 OBJECTIVE_BENCHMARK_PROVENANCES = {"automated_run", "release_validation"}
@@ -32,7 +32,9 @@ def _row_to_benchmark(row: sqlite3.Row) -> dict[str, Any]:
         "objective_tasks_attempted",
         metadata.get("objectiveTasksAttempted", tasks_attempted),
     )
-    operator_reported_tasks = _int_row_value(row, "operator_reported_tasks", metadata.get("operatorReportedTasks", 0))
+    operator_reported_tasks = _int_row_value(
+        row, "operator_reported_tasks", metadata.get("operatorReportedTasks", 0)
+    )
     automated_run_tasks = _int_row_value(row, "automated_run_tasks", metadata.get("automatedRunTasks", 0))
     release_validation_tasks = _int_row_value(
         row,
@@ -257,7 +259,9 @@ class ModelBenchmarkStore:
                 now,
             ),
         )
-        row = self.connection.execute("SELECT * FROM model_benchmark_outcomes WHERE id = ?", (outcome_id,)).fetchone()
+        row = self.connection.execute(
+            "SELECT * FROM model_benchmark_outcomes WHERE id = ?", (outcome_id,)
+        ).fetchone()
         return _row_to_outcome(row)
 
     def record_evidence_outcome(
@@ -303,8 +307,12 @@ class ModelBenchmarkStore:
                 "success": success,
                 "qaPass": qa_pass,
                 "rework": rework if payload.get("rework") is None else payload.get("rework"),
-                "estimatedCostUsd": _value_or_default(payload.get("estimatedCostUsd"), (usage or {}).get("estimatedCostUsd")),
-                "actualCostUsd": _value_or_default(payload.get("actualCostUsd"), (usage or {}).get("actualCostUsd")),
+                "estimatedCostUsd": _value_or_default(
+                    payload.get("estimatedCostUsd"), (usage or {}).get("estimatedCostUsd")
+                ),
+                "actualCostUsd": _value_or_default(
+                    payload.get("actualCostUsd"), (usage or {}).get("actualCostUsd")
+                ),
                 "latencyMs": _value_or_default(payload.get("latencyMs"), (usage or {}).get("latencyMs")),
                 "provenance": _evidence_benchmark_provenance(evidence=evidence, payload=payload),
                 "metadata": {
@@ -316,13 +324,17 @@ class ModelBenchmarkStore:
         )
 
     def list_outcomes(self) -> list[dict[str, Any]]:
-        rows = self.connection.execute("SELECT * FROM model_benchmark_outcomes ORDER BY created_at DESC").fetchall()
+        rows = self.connection.execute(
+            "SELECT * FROM model_benchmark_outcomes ORDER BY created_at DESC"
+        ).fetchall()
         return [_row_to_outcome(row) for row in rows]
 
     def _usage_for_outcome(self, usage_ledger_id: Any) -> dict[str, Any] | None:
         if not usage_ledger_id:
             return None
-        row = self.connection.execute("SELECT * FROM usage_ledger WHERE id = ?", (str(usage_ledger_id),)).fetchone()
+        row = self.connection.execute(
+            "SELECT * FROM usage_ledger WHERE id = ?", (str(usage_ledger_id),)
+        ).fetchone()
         if not row:
             return None
         return {
@@ -377,7 +389,9 @@ def normalize_benchmark_provenance(value: Any, *, metadata: Any | None = None) -
         return DEFAULT_BENCHMARK_PROVENANCE
     provenance = str(value).strip()
     if provenance not in BENCHMARK_PROVENANCES:
-        raise ValueError("Benchmark provenance must be operator_reported, automated_run or release_validation.")
+        raise ValueError(
+            "Benchmark provenance must be operator_reported, automated_run or release_validation."
+        )
     return provenance
 
 

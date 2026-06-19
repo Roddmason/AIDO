@@ -6,7 +6,6 @@ import shutil
 import subprocess
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "release-certify.ps1"
 
@@ -37,8 +36,8 @@ def test_release_certification_runs_quality_and_writes_reports() -> None:
     assert "logs" in content
     assert "reports" in content
     assert "Write-ReleaseReport" in content
-    assert "status = \"passed\"" in content
-    assert "status = \"failed\"" in content
+    assert 'status = "passed"' in content
+    assert 'status = "failed"' in content
 
 
 def test_release_certification_runs_release_smokes_only_when_configured() -> None:
@@ -237,7 +236,9 @@ def test_release_certification_fails_configured_smoke_that_does_not_write_report
     payload = json.loads(
         (output_root / "reports" / "release-certification-report.json").read_text(encoding="utf-8-sig")
     )
-    codex = next(smoke for smoke in payload["releaseSmokes"] if smoke["packageScript"] == "smoke:codex:release")
+    codex = next(
+        smoke for smoke in payload["releaseSmokes"] if smoke["packageScript"] == "smoke:codex:release"
+    )
     codex_report_path = Path(codex["reportPath"])
     assert payload["status"] == "failed"
     assert payload["reason"] == "release_smoke_failed"
@@ -245,7 +246,10 @@ def test_release_certification_fails_configured_smoke_that_does_not_write_report
     assert codex["execution"] == "executed"
     assert codex["reason"] == "release_smoke_report_missing"
     assert codex_report_path.exists()
-    assert json.loads(codex_report_path.read_text(encoding="utf-8-sig"))["reason"] == "release_smoke_report_missing"
+    assert (
+        json.loads(codex_report_path.read_text(encoding="utf-8-sig"))["reason"]
+        == "release_smoke_report_missing"
+    )
 
 
 def test_release_certification_failed_quality_log_preserves_redacted_stderr(tmp_path: Path) -> None:

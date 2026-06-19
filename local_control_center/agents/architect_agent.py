@@ -3,6 +3,7 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 import json
@@ -30,7 +31,6 @@ from .architect_agent_contract import (
 from .repository import AgentsRepository
 from .runtime_status import RuntimeStatusService
 from .tool_broker import ToolBroker
-
 
 RUNTIME_UNAVAILABLE_STATUS = "runtime_unavailable"
 FAILED_VALIDATION_STATUS = "failed_validation"
@@ -116,17 +116,23 @@ def _as_object_list(payload: dict[str, Any], field: str) -> list[dict[str, Any]]
     result: list[dict[str, Any]] = []
     for index, item in enumerate(value):
         if not isinstance(item, dict):
-            raise ArchitectOutputValidationError(f"ArchitectAgent output schema requires {field}[{index}] as an object.")
+            raise ArchitectOutputValidationError(
+                f"ArchitectAgent output schema requires {field}[{index}] as an object."
+            )
         result.append(item)
     return result
 
 
 def _string_list(value: Any, *, field: str) -> list[str]:
     if not isinstance(value, list):
-        raise ArchitectOutputValidationError(f"ArchitectAgent output schema requires {field} as a string list.")
+        raise ArchitectOutputValidationError(
+            f"ArchitectAgent output schema requires {field} as a string list."
+        )
     refs = [str(item).strip() for item in value if isinstance(item, str) and item.strip()]
     if len(refs) != len(value):
-        raise ArchitectOutputValidationError(f"ArchitectAgent output schema requires {field} to contain only strings.")
+        raise ArchitectOutputValidationError(
+            f"ArchitectAgent output schema requires {field} to contain only strings."
+        )
     return refs
 
 
@@ -142,7 +148,9 @@ def _validate_refs(
         raise ArchitectOutputValidationError(f"{field} must include at least one evidence reference.")
     unknown = sorted(set(refs) - allowed_refs)
     if unknown:
-        raise ArchitectOutputValidationError(f"{field} contains unknown evidence references: {', '.join(unknown)}")
+        raise ArchitectOutputValidationError(
+            f"{field} contains unknown evidence references: {', '.join(unknown)}"
+        )
     if require_grounding and not set(refs).intersection(grounding_refs):
         raise ArchitectOutputValidationError(f"{field} must cite the diff artifact or test evidence.")
 
@@ -185,7 +193,9 @@ def _validate_architect_output(
     allowed_refs: set[str],
     grounding_refs: set[str],
 ) -> dict[str, Any]:
-    missing = [field for field in architect_agent_contract()["outputSchema"]["required"] if field not in payload]
+    missing = [
+        field for field in architect_agent_contract()["outputSchema"]["required"] if field not in payload
+    ]
     if missing:
         raise ArchitectOutputValidationError(
             "ArchitectAgent output schema is missing required fields: " + ", ".join(missing)
@@ -248,7 +258,9 @@ def _validate_architect_output(
     recommendation_reason = str(recommendation.get("reason") or "").strip()
     if not recommendation_decision or not recommendation_reason:
         raise ArchitectOutputValidationError("approvalRecommendation requires decision and reason.")
-    recommendation_refs = _string_list(recommendation.get("evidenceRefs"), field="approvalRecommendation.evidenceRefs")
+    recommendation_refs = _string_list(
+        recommendation.get("evidenceRefs"), field="approvalRecommendation.evidenceRefs"
+    )
     _validate_refs(
         refs=recommendation_refs,
         field="approvalRecommendation.evidenceRefs",
@@ -455,28 +467,27 @@ class ArchitectAgentRunner:
         runtime_id: str,
         agent_run_id: str,
     ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-        risk_entries: list[dict[str, Any]] = []
-        for risk in output["risks"]:
-            risk_entries.append(
-                self.governance.create_risk(
-                    {
-                        "projectId": project_id,
-                        "title": risk["title"],
-                        "severity": risk.get("severity", "medium"),
-                        "status": "open",
-                        "description": risk["description"],
-                        "mitigation": risk["mitigation"],
-                        "owner": ARCHITECT_AGENT_ID,
-                        "evidenceRefs": risk["evidenceRefs"],
-                        "metadata": {
-                            "source": ARCHITECT_AGENT_ID,
-                            "taskId": task_id,
-                            "agentRunId": agent_run_id,
-                            "runtimeId": runtime_id,
-                        },
-                    }
-                )
+        risk_entries: list[dict[str, Any]] = [
+            self.governance.create_risk(
+                {
+                    "projectId": project_id,
+                    "title": risk["title"],
+                    "severity": risk.get("severity", "medium"),
+                    "status": "open",
+                    "description": risk["description"],
+                    "mitigation": risk["mitigation"],
+                    "owner": ARCHITECT_AGENT_ID,
+                    "evidenceRefs": risk["evidenceRefs"],
+                    "metadata": {
+                        "source": ARCHITECT_AGENT_ID,
+                        "taskId": task_id,
+                        "agentRunId": agent_run_id,
+                        "runtimeId": runtime_id,
+                    },
+                }
             )
+            for risk in output["risks"]
+        ]
         decision = self.governance.create_architecture_decision(
             {
                 "projectId": project_id,
@@ -658,7 +669,10 @@ class ArchitectAgentRunner:
                 }
             ],
             artifact_ids=artifact_ids,
-            diff_summary={"inputDiffArtifactId": diff_artifact["id"], "outputArtifactId": runtime_result.get("outputArtifactId")},
+            diff_summary={
+                "inputDiffArtifactId": diff_artifact["id"],
+                "outputArtifactId": runtime_result.get("outputArtifactId"),
+            },
             runtime_health={
                 "id": runtime_id,
                 "status": runtime_result.get("status"),
@@ -676,7 +690,9 @@ class ArchitectAgentRunner:
             qa_verdict=qa_verdict,
         )
         for artifact_id in artifact_ids:
-            self.evidence.attach_artifact_to_evidence(artifact_id=artifact_id, evidence_package_id=evidence["id"])
+            self.evidence.attach_artifact_to_evidence(
+                artifact_id=artifact_id, evidence_package_id=evidence["id"]
+            )
         contract_errors = evidence_package_contract_errors(
             evidence,
             require_runtime_links=final_status == "completed",
@@ -685,7 +701,9 @@ class ArchitectAgentRunner:
         if final_status == "completed" and contract_errors:
             final_status = FAILED_VALIDATION_STATUS
             qa_verdict = "failed"
-            final_reason = "Evidence package contract is incomplete or unverifiable: " + " ".join(contract_errors)
+            final_reason = "Evidence package contract is incomplete or unverifiable: " + " ".join(
+                contract_errors
+            )
             evidence = self.evidence.update_evidence_links(
                 evidence["id"],
                 qa_verdict=qa_verdict,

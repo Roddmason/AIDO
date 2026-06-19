@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 FRONTEND_SOURCE_ROOT = ROOT / "local-control-center" / "web" / "src"
 BACKEND_SOURCE_ROOT = ROOT / "local_control_center"
@@ -26,9 +25,7 @@ def source_files(root: Path, suffixes: set[str]) -> list[Path]:
     return sorted(
         path
         for path in root.rglob("*")
-        if path.is_file()
-        and path.suffix in suffixes
-        and "generated" not in path.relative_to(root).parts
+        if path.is_file() and path.suffix in suffixes and "generated" not in path.relative_to(root).parts
     )
 
 

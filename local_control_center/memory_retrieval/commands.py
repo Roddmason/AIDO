@@ -3,6 +3,7 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -40,7 +41,9 @@ def create_memory(memory: MemoryRepository, events: EventBus, body: dict[str, An
     return {"memoryItem": memory_item}
 
 
-def delete_memory(memory: MemoryRepository, events: EventBus, memory_id: str, body: dict[str, Any]) -> dict[str, Any]:
+def delete_memory(
+    memory: MemoryRepository, events: EventBus, memory_id: str, body: dict[str, Any]
+) -> dict[str, Any]:
     memory_item = memory.delete_memory_item(memory_id, reason=str(body.get("reason") or ""))
     events.record_event(
         project_id=memory_item["projectId"],

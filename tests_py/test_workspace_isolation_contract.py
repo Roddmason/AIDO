@@ -19,7 +19,9 @@ def auth_headers(client: TestClient) -> dict[str, str]:
     return {"X-Local-Control-Token": token, "Origin": "http://127.0.0.1"}
 
 
-def make_app(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[ControlPlaneFixture, TestClient, dict[str, str]]:
+def make_app(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> tuple[ControlPlaneFixture, TestClient, dict[str, str]]:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
     store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
     store.init()
@@ -50,7 +52,9 @@ def create_git_repo(path: Path) -> str:
     return head.stdout.strip()
 
 
-def test_non_git_workspace_is_isolated_copy_with_manifest_and_hashes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_non_git_workspace_is_isolated_copy_with_manifest_and_hashes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     store, client, headers = make_app(tmp_path, monkeypatch)
     project_root = tmp_path / "plain-project"
     (project_root / "src").mkdir(parents=True)
@@ -121,7 +125,9 @@ def test_agent_tool_execution_without_workspace_is_blocked_before_runtime(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     store, client, headers = make_app(tmp_path, monkeypatch)
-    project = store.create_project(name="No Workspace Run", path=tmp_path / "no-workspace", template_id="other")
+    project = store.create_project(
+        name="No Workspace Run", path=tmp_path / "no-workspace", template_id="other"
+    )
     client.post(
         "/api/v1/agent-profiles",
         json={
@@ -138,7 +144,9 @@ def test_agent_tool_execution_without_workspace_is_blocked_before_runtime(
     def fail_execute(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
         raise AssertionError("runtime must not execute without an allocated workspace")
 
-    monkeypatch.setattr("local_control_center.security_policy.sandbox.RestrictedSubprocessSandbox.execute", fail_execute)
+    monkeypatch.setattr(
+        "local_control_center.security_policy.sandbox.RestrictedSubprocessSandbox.execute", fail_execute
+    )
 
     response = client.post(
         "/api/v1/agent-runs",
@@ -175,7 +183,9 @@ def test_runtime_path_outside_registered_workspace_is_denied_before_execution(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     store, _client, _headers = make_app(tmp_path, monkeypatch)
-    project = store.create_project(name="Workspace Boundary", path=tmp_path / "boundary-project", template_id="other")
+    project = store.create_project(
+        name="Workspace Boundary", path=tmp_path / "boundary-project", template_id="other"
+    )
     workspace = WorkspacesRepository(store.connection, root=tmp_path).allocate_workspace(
         project_id=project["id"],
         task_id="story-boundary",
@@ -204,7 +214,9 @@ def test_runtime_path_outside_registered_workspace_is_denied_before_execution(
     def fail_execute(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
         raise AssertionError("runtime must not execute outside the registered workspace")
 
-    monkeypatch.setattr("local_control_center.security_policy.sandbox.RestrictedSubprocessSandbox.execute", fail_execute)
+    monkeypatch.setattr(
+        "local_control_center.security_policy.sandbox.RestrictedSubprocessSandbox.execute", fail_execute
+    )
 
     result = ToolBroker(store.connection).evaluate_tool_call(
         project_id=project["id"],
@@ -227,7 +239,9 @@ def test_runtime_path_outside_registered_workspace_is_denied_before_execution(
 
 
 @pytest.mark.skipif(not git_available(), reason="git CLI is not available")
-def test_workspace_archive_keeps_evidence_after_worktree_cleanup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_workspace_archive_keeps_evidence_after_worktree_cleanup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     store, client, headers = make_app(tmp_path, monkeypatch)
     repo = tmp_path / "cleanup-repo"
     create_git_repo(repo)

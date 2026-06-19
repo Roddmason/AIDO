@@ -3,10 +3,10 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 from typing import Any
-
 
 SECURITY_AGENT_ID = "security_agent"
 SECURITY_AGENT_ALLOWED_TOOLS = ["shell", "openai_compatible", "ollama"]
@@ -37,7 +37,14 @@ def security_agent_contract() -> dict[str, Any]:
         },
         "outputSchema": {
             "type": "object",
-            "required": ["status", "verdict", "findings", "filesScanned", "externalScanners", "findingsArtifact"],
+            "required": [
+                "status",
+                "verdict",
+                "findings",
+                "filesScanned",
+                "externalScanners",
+                "findingsArtifact",
+            ],
             "properties": {
                 "status": {"type": "string", "enum": sorted(SECURITY_AGENT_VERDICTS)},
                 "verdict": {"type": "string", "enum": sorted(SECURITY_AGENT_VERDICTS)},
@@ -50,7 +57,10 @@ def security_agent_contract() -> dict[str, Any]:
             },
         },
         "allowedTools": SECURITY_AGENT_ALLOWED_TOOLS,
-        "requiredRuntimeCapabilities": ["deterministic_security_checks", "optional_external_security_scanners"],
+        "requiredRuntimeCapabilities": [
+            "deterministic_security_checks",
+            "optional_external_security_scanners",
+        ],
         "requiredWorkspace": True,
         "requiredEvidence": True,
         "verdictSource": "deterministic_controls_with_optional_external_scanners",
@@ -74,13 +84,16 @@ def security_agent_status(runtime_statuses: list[dict[str, Any]]) -> dict[str, A
     model_candidates = [
         runtime
         for runtime in runtime_statuses
-        if str(runtime.get("id") or "") in SECURITY_AGENT_MODEL_RUNTIMES and is_security_model_runtime(runtime)
+        if str(runtime.get("id") or "") in SECURITY_AGENT_MODEL_RUNTIMES
+        and is_security_model_runtime(runtime)
     ]
     ordered = sorted(
         model_candidates,
-        key=lambda item: SECURITY_AGENT_RUNTIME_ORDER.index(str(item["id"]))
-        if str(item["id"]) in SECURITY_AGENT_RUNTIME_ORDER
-        else len(SECURITY_AGENT_RUNTIME_ORDER),
+        key=lambda item: (
+            SECURITY_AGENT_RUNTIME_ORDER.index(str(item["id"]))
+            if str(item["id"]) in SECURITY_AGENT_RUNTIME_ORDER
+            else len(SECURITY_AGENT_RUNTIME_ORDER)
+        ),
     )
     return {
         "id": SECURITY_AGENT_ID,

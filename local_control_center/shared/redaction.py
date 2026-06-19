@@ -3,11 +3,11 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 import re
 from typing import Any
-
 
 SECRET_KEY_PATTERN = re.compile(r"(api[_-]?key|authorization|credential|secret|token)", re.I)
 SECRET_VALUE_PATTERN = re.compile(
@@ -33,7 +33,9 @@ def redact_secrets(value: Any, *, key: str = "") -> Any:
     if SECRET_KEY_PATTERN.search(key):
         return "[redacted]"
     if isinstance(value, dict):
-        return {item_key: redact_secrets(item_value, key=str(item_key)) for item_key, item_value in value.items()}
+        return {
+            item_key: redact_secrets(item_value, key=str(item_key)) for item_key, item_value in value.items()
+        }
     if isinstance(value, list):
         return [redact_secrets(item) for item in value]
     if isinstance(value, str):

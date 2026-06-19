@@ -3,6 +3,7 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -66,7 +67,11 @@ class RuntimeProviderConfiguration:
 
     @property
     def missing(self) -> list[str]:
-        return [variable.spec.name for variable in self.variables if variable.spec.required and not variable.configured]
+        return [
+            variable.spec.name
+            for variable in self.variables
+            if variable.spec.required and not variable.configured
+        ]
 
     @property
     def status(self) -> str:

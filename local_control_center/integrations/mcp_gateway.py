@@ -3,20 +3,25 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
+import contextlib
 import ctypes
 import json
 import os
 import queue
 import shlex
-from subprocess import TimeoutExpired
 import threading
 import time
 import uuid
+from subprocess import TimeoutExpired
 from typing import Any
 
-from local_control_center.security_policy.sandbox import open_restricted_text_process, validate_restricted_process
+from local_control_center.security_policy.sandbox import (
+    open_restricted_text_process,
+    validate_restricted_process,
+)
 from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.serialization import json_dumps
 from local_control_center.shared.time import utc_now
@@ -117,7 +122,7 @@ class McpStdioSession:
         self.stderr: list[str] = []
         self.process: Any | None = None
 
-    def __enter__(self) -> "McpStdioSession":
+    def __enter__(self) -> McpStdioSession:
         self.process = open_restricted_text_process(
             argv=self.argv,
             cwd=self.cwd,
@@ -134,10 +139,8 @@ class McpStdioSession:
         if process is None:
             return
         if process.stdin:
-            try:
+            with contextlib.suppress(OSError):
                 process.stdin.close()
-            except OSError:
-                pass
         if process.poll() is None:
             process.terminate()
             try:
@@ -193,13 +196,23 @@ class McpBrokerAdapter:
     def execute(self, *, tool_call: dict[str, Any], policy_input: dict[str, Any]) -> dict[str, Any]:
         server_id = str(tool_call.get("serverId") or tool_call.get("mcpServerId") or "")
         if not server_id:
-            return {"status": "blocked", "executed": False, "blocked": True, "reason": "MCP execution requires serverId."}
+            return {
+                "status": "blocked",
+                "executed": False,
+                "blocked": True,
+                "reason": "MCP execution requires serverId.",
+            }
         try:
             server = self.repository.get_mcp_server(server_id)
         except KeyError as error:
             return {"status": "blocked", "executed": False, "blocked": True, "reason": str(error)}
         if server["status"] != "registered":
-            return {"status": "blocked", "executed": False, "blocked": True, "reason": "MCP server is not registered."}
+            return {
+                "status": "blocked",
+                "executed": False,
+                "blocked": True,
+                "reason": "MCP server is not registered.",
+            }
         if server["transport"] != "stdio":
             return {
                 "status": "blocked",
@@ -259,7 +272,12 @@ class McpBrokerAdapter:
                 },
             )
         if not argv:
-            return {"status": "blocked", "executed": False, "blocked": True, "reason": "MCP server command is empty."}
+            return {
+                "status": "blocked",
+                "executed": False,
+                "blocked": True,
+                "reason": "MCP server command is empty.",
+            }
         cwd = policy_input.get("workspacePath") or None
         boundary_error = _validate_process_boundary(argv, str(cwd) if cwd else None)
         if boundary_error:
@@ -403,7 +421,9 @@ class McpBrokerAdapter:
             "initializeResponse": redact_secrets(initialize_response) if initialize_response else None,
             "stderr": stderr,
         }
-        return self._record_call(server_id=server_id, operation=operation, status="unavailable", payload=payload)
+        return self._record_call(
+            server_id=server_id, operation=operation, status="unavailable", payload=payload
+        )
 
     def _failed(
         self,

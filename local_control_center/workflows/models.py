@@ -3,6 +3,7 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 from typing import Any, Literal
@@ -14,7 +15,6 @@ from local_control_center.evidence.models import ArtifactRecord, EvidencePackage
 from local_control_center.jobs_approvals.models import ActionRequestRecord, JobRecord, JobRunRecord
 from local_control_center.security_policy.models import PermissionDecisionRecord
 from local_control_center.workspaces_projects.models import WorkspaceRecord
-
 
 WorkflowKind = Literal[
     "idea_to_pr",
@@ -168,7 +168,9 @@ class WorkflowRunDetail(BaseModel):
     agent_runs: list[AgentRunRecord] = Field(alias="agentRuns")
     agent_tool_calls: list[AgentToolCallRecord] = Field(default_factory=list, alias="agentToolCalls")
     model_calls: list[ModelCallRecord] = Field(default_factory=list, alias="modelCalls")
-    permission_decisions: list[PermissionDecisionRecord] = Field(default_factory=list, alias="permissionDecisions")
+    permission_decisions: list[PermissionDecisionRecord] = Field(
+        default_factory=list, alias="permissionDecisions"
+    )
 
 
 class WorkflowDetailResponse(BaseModel):
@@ -187,7 +189,9 @@ class WorkflowDetailResponse(BaseModel):
     agent_runs: list[AgentRunRecord] = Field(alias="agentRuns")
     agent_tool_calls: list[AgentToolCallRecord] = Field(default_factory=list, alias="agentToolCalls")
     model_calls: list[ModelCallRecord] = Field(default_factory=list, alias="modelCalls")
-    permission_decisions: list[PermissionDecisionRecord] = Field(default_factory=list, alias="permissionDecisions")
+    permission_decisions: list[PermissionDecisionRecord] = Field(
+        default_factory=list, alias="permissionDecisions"
+    )
 
 
 class WorkflowStartResponse(BaseModel):

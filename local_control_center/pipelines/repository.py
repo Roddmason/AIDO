@@ -3,6 +3,7 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -10,9 +11,7 @@ import uuid
 from typing import Any
 
 from local_control_center.shared.serialization import json_dumps, json_loads
-
 from local_control_center.shared.time import utc_now
-
 
 DEFAULT_STAGES = [
     {"name": "idea_intake", "status": "pending"},
@@ -88,5 +87,3 @@ class PipelinesRepository:
         else:
             rows = self.connection.execute("SELECT * FROM pipelines ORDER BY created_at DESC").fetchall()
         return [row_to_pipeline(row) for row in rows]
-
-

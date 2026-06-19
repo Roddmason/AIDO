@@ -6,7 +6,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_STATIC_DIR = ROOT / "local-control-center" / "dist" / "web"
 sys.path.insert(0, str(ROOT))

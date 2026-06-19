@@ -3,6 +3,7 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -11,10 +12,10 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 
 from ..agents.model_router import ModelRouter, RoutingRequest
-from ..agents.routing_profiles import RoutingProfileStore
 from ..agents.repository import AgentsRepository
-from ..evidence.repository import EvidenceRepository
+from ..agents.routing_profiles import RoutingProfileStore
 from ..evidence.quality import qa_passed_without_failed_results
+from ..evidence.repository import EvidenceRepository
 from ..governance.repository import GovernanceRepository
 from ..governance.signals import record_governance_risk
 from ..jobs_approvals.repository import JobsRepository
@@ -22,6 +23,8 @@ from ..security_policy.repository import SecurityPolicyRepository
 from ..shared.event_bus import EventBus
 from ..shared.time import utc_now
 from ..workspaces_projects.repository import WorkspacesRepository
+from .issue_to_patch_runner import IssueToPatchRunner
+from .issue_to_pr_runner import IssueToPrRunner
 from .models import (
     IssueToPatchRequest,
     IssueToPatchResponse,
@@ -38,11 +41,7 @@ from .models import (
     WorkflowStartResponse,
     WorkflowStatusChangeRequest,
 )
-from .issue_to_patch_runner import IssueToPatchRunner
-from .issue_to_pr_runner import IssueToPrRunner
-from .repository import WorkflowsRepository
-from .repository import validate_workflow_metadata
-
+from .repository import WorkflowsRepository, validate_workflow_metadata
 
 ALLOWED_WORKFLOW_KINDS = {
     "idea_to_pr",
@@ -67,7 +66,14 @@ TOOL_STEPS = {
     "release_gate",
 }
 SEARCH_STEPS = {"project_discovery", "backlog_generation"}
-REASONING_STEPS = {"architecture_review", "technical_review", "release_candidate", "pr_review", "release_gate", "retro"}
+REASONING_STEPS = {
+    "architecture_review",
+    "technical_review",
+    "release_candidate",
+    "pr_review",
+    "release_gate",
+    "retro",
+}
 
 
 def _manual_override(step: dict[str, Any]) -> dict[str, str]:
@@ -118,13 +124,14 @@ def validate_issue_to_patch_body(body: IssueToPatchRequest) -> dict[str, Any]:
     qa_commands = payload.get("qaCommands") or []
     for index, argv in enumerate(qa_commands):
         if not isinstance(argv, list) or not argv or not all(isinstance(item, str) and item for item in argv):
-            raise HTTPException(status_code=422, detail=f"qaCommands[{index}] must be a non-empty structured argv list.")
+            raise HTTPException(
+                status_code=422, detail=f"qaCommands[{index}] must be a non-empty structured argv list."
+            )
     return payload
 
 
 def validate_issue_to_pr_body(body: IssueToPrRequest) -> dict[str, Any]:
-    payload = validate_issue_to_patch_body(body)
-    return payload
+    return validate_issue_to_patch_body(body)
 
 
 def create_router(*, platform: Any, require_write: Callable[[Request], None]) -> APIRouter:
@@ -195,7 +202,9 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
                 record=True,
             )
 
-    def record_gate_result(step: dict[str, Any], *, suffix: str, payload: dict[str, Any], severity: str = "info") -> None:
+    def record_gate_result(
+        step: dict[str, Any], *, suffix: str, payload: dict[str, Any], severity: str = "info"
+    ) -> None:
         action = f"workflow.gate.{step['name']}.{suffix}"
         repository().record_workflow_event(
             workflow_id=step["workflowId"],
@@ -218,7 +227,9 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         record_gate_result(step, suffix="blocked", payload={"reason": detail, **payload}, severity="warning")
         raise HTTPException(status_code=409, detail=detail)
 
-    def passed_qa_evidence_for_step(step: dict[str, Any], evidence_package_id: str | None) -> dict[str, Any] | None:
+    def passed_qa_evidence_for_step(
+        step: dict[str, Any], evidence_package_id: str | None
+    ) -> dict[str, Any] | None:
         packages = evidence().list_evidence_for_workflow_runs([step["workflowRunId"]])
         for package in packages:
             if evidence_package_id and package["id"] != evidence_package_id:
@@ -235,7 +246,9 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         ]
         pending: list[dict[str, Any]] = []
         for job in release_jobs:
-            pending.extend([action for action in jobs().list_action_requests(job["id"]) if action["status"] == "pending"])
+            pending.extend(
+                [action for action in jobs().list_action_requests(job["id"]) if action["status"] == "pending"]
+            )
         return pending
 
     def has_retro_governance_records(step: dict[str, Any]) -> bool:
@@ -269,7 +282,11 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             title=validated["title"],
             metadata=validated["metadata"],
         )
-        event_bus().record_event(project_id=workflow["projectId"], event_type="workflow.created", payload={"workflowId": workflow["id"]})
+        event_bus().record_event(
+            project_id=workflow["projectId"],
+            event_type="workflow.created",
+            payload={"workflowId": workflow["id"]},
+        )
         return {"workflow": workflow}
 
     @router.post("/api/v1/workflows/issue-to-patch", status_code=202, response_model=IssueToPatchResponse)
@@ -294,14 +311,22 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         )
         return result
 
-    @router.post("/api/v1/workflows/issue-to-patch/{run_id}/approve", status_code=202, response_model=IssueToPatchResponse)
-    async def approve_issue_to_patch(run_id: str, body: WorkflowStatusChangeRequest, request: Request) -> dict[str, Any]:
+    @router.post(
+        "/api/v1/workflows/issue-to-patch/{run_id}/approve",
+        status_code=202,
+        response_model=IssueToPatchResponse,
+    )
+    async def approve_issue_to_patch(
+        run_id: str, body: WorkflowStatusChangeRequest, request: Request
+    ) -> dict[str, Any]:
         require_write(request)
         reason = str(body.reason or "").strip()
         if not reason:
             raise HTTPException(status_code=422, detail="Approval reason is required.")
         try:
-            result = IssueToPatchRunner(platform.connection, root=platform.cwd).approve_patch(run_id, reason=reason)
+            result = IssueToPatchRunner(platform.connection, root=platform.cwd).approve_patch(
+                run_id, reason=reason
+            )
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
         except ValueError as error:
@@ -319,8 +344,14 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         )
         return result
 
-    @router.post("/api/v1/workflows/issue-to-patch/{run_id}/promote", status_code=202, response_model=IssueToPatchResponse)
-    async def promote_patch_to_branch(run_id: str, body: PromotePatchToBranchRequest, request: Request) -> dict[str, Any]:
+    @router.post(
+        "/api/v1/workflows/issue-to-patch/{run_id}/promote",
+        status_code=202,
+        response_model=IssueToPatchResponse,
+    )
+    async def promote_patch_to_branch(
+        run_id: str, body: PromotePatchToBranchRequest, request: Request
+    ) -> dict[str, Any]:
         require_write(request)
         try:
             result = IssueToPatchRunner(platform.connection, root=platform.cwd).promote_patch_to_branch(
@@ -348,7 +379,11 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         )
         return result
 
-    @router.post("/api/v1/workflows/issue-to-patch/{run_id}/pull-request", status_code=202, response_model=IssueToPatchResponse)
+    @router.post(
+        "/api/v1/workflows/issue-to-patch/{run_id}/pull-request",
+        status_code=202,
+        response_model=IssueToPatchResponse,
+    )
     async def create_pull_request_from_promoted_branch(
         run_id: str,
         body: PullRequestCreateRequest,
@@ -356,7 +391,9 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     ) -> dict[str, Any]:
         require_write(request)
         try:
-            result = IssueToPatchRunner(platform.connection, root=platform.cwd).create_pull_request_from_promoted_branch(
+            result = IssueToPatchRunner(
+                platform.connection, root=platform.cwd
+            ).create_pull_request_from_promoted_branch(
                 run_id,
                 reason=body.reason,
                 title=body.title,
@@ -403,14 +440,20 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         )
         return result
 
-    @router.post("/api/v1/workflows/issue-to-pr/{run_id}/approve", status_code=202, response_model=IssueToPrResponse)
-    async def approve_issue_to_pr(run_id: str, body: WorkflowStatusChangeRequest, request: Request) -> dict[str, Any]:
+    @router.post(
+        "/api/v1/workflows/issue-to-pr/{run_id}/approve", status_code=202, response_model=IssueToPrResponse
+    )
+    async def approve_issue_to_pr(
+        run_id: str, body: WorkflowStatusChangeRequest, request: Request
+    ) -> dict[str, Any]:
         require_write(request)
         reason = str(body.reason or "").strip()
         if not reason:
             raise HTTPException(status_code=422, detail="Approval reason is required.")
         try:
-            result = IssueToPrRunner(platform.connection, root=platform.cwd).approve_issue_to_pr(run_id, reason=reason)
+            result = IssueToPrRunner(platform.connection, root=platform.cwd).approve_issue_to_pr(
+                run_id, reason=reason
+            )
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
         except ValueError as error:
@@ -428,8 +471,12 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         )
         return result
 
-    @router.post("/api/v1/workflows/issue-to-pr/{run_id}/promote", status_code=202, response_model=IssueToPrResponse)
-    async def promote_issue_to_pr_branch(run_id: str, body: PromotePatchToBranchRequest, request: Request) -> dict[str, Any]:
+    @router.post(
+        "/api/v1/workflows/issue-to-pr/{run_id}/promote", status_code=202, response_model=IssueToPrResponse
+    )
+    async def promote_issue_to_pr_branch(
+        run_id: str, body: PromotePatchToBranchRequest, request: Request
+    ) -> dict[str, Any]:
         require_write(request)
         try:
             result = IssueToPrRunner(platform.connection, root=platform.cwd).promote_branch(
@@ -457,7 +504,11 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         )
         return result
 
-    @router.post("/api/v1/workflows/issue-to-pr/{run_id}/pull-request", status_code=202, response_model=IssueToPrResponse)
+    @router.post(
+        "/api/v1/workflows/issue-to-pr/{run_id}/pull-request",
+        status_code=202,
+        response_model=IssueToPrResponse,
+    )
     async def create_pull_request_from_issue_to_pr(
         run_id: str,
         body: PullRequestCreateRequest,
@@ -512,15 +563,23 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             evidence_repo = evidence()
             evidence_packages = evidence_repo.list_evidence_for_workflow_runs(workflow_run_ids)
             evidence_ids = {package["id"] for package in evidence_packages}
-            artifacts = [artifact for artifact in evidence_repo.list_all_artifacts() if artifact.get("evidencePackageId") in evidence_ids]
+            artifacts = [
+                artifact
+                for artifact in evidence_repo.list_all_artifacts()
+                if artifact.get("evidencePackageId") in evidence_ids
+            ]
             test_result_records = [
-                result for result in evidence_repo.list_all_test_results() if result.get("evidencePackageId") in evidence_ids
+                result
+                for result in evidence_repo.list_all_test_results()
+                if result.get("evidencePackageId") in evidence_ids
             ]
             jobs_repo = jobs()
             workflow_jobs = jobs_repo.list_jobs_for_workflow_runs(workflow_run_ids)
             job_ids = {job["id"] for job in workflow_jobs}
             job_runs = [run for job_id in job_ids for run in jobs_repo.list_job_runs(job_id)]
-            action_requests = [request for job_id in job_ids for request in jobs_repo.list_action_requests(job_id)]
+            action_requests = [
+                request for job_id in job_ids for request in jobs_repo.list_action_requests(job_id)
+            ]
             agents_repo = agents()
             agent_runs = agents_repo.list_agent_runs_for_workflow_runs(workflow_run_ids)
             agent_run_ids = {run["id"] for run in agent_runs}
@@ -545,27 +604,39 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             workflow_run_details = []
             for run in workflow_runs:
                 run_id = run["id"]
-                run_evidence = [package for package in evidence_packages if package["workflowRunId"] == run_id]
+                run_evidence = [
+                    package for package in evidence_packages if package["workflowRunId"] == run_id
+                ]
                 run_evidence_ids = {package["id"] for package in run_evidence}
                 run_jobs = [job for job in workflow_jobs if job["workflowRunId"] == run_id]
                 run_job_ids = {job["id"] for job in run_jobs}
-                run_agent_runs = [agent_run for agent_run in agent_runs if agent_run["workflowRunId"] == run_id]
+                run_agent_runs = [
+                    agent_run for agent_run in agent_runs if agent_run["workflowRunId"] == run_id
+                ]
                 run_agent_run_ids = {agent_run["id"] for agent_run in run_agent_runs}
                 run_tool_calls = [
-                    tool_call for tool_call in agent_tool_calls if tool_call["agentRunId"] in run_agent_run_ids
+                    tool_call
+                    for tool_call in agent_tool_calls
+                    if tool_call["agentRunId"] in run_agent_run_ids
                 ]
                 run_permission_decision_ids = permission_decision_ids_from_tool_calls(run_tool_calls)
                 workflow_run_details.append(
                     {
                         "workflowRun": run,
                         "workflowSteps": [step for step in workflow_steps if step["workflowRunId"] == run_id],
-                        "workflowEvents": [event for event in workflow_events if event.get("workflowRunId") == run_id],
+                        "workflowEvents": [
+                            event for event in workflow_events if event.get("workflowRunId") == run_id
+                        ],
                         "workspaces": [
-                            workspace for workspace in runtime_workspaces if workspace["workflowRunId"] == run_id
+                            workspace
+                            for workspace in runtime_workspaces
+                            if workspace["workflowRunId"] == run_id
                         ],
                         "evidencePackages": run_evidence,
                         "artifacts": [
-                            artifact for artifact in artifacts if artifact.get("evidencePackageId") in run_evidence_ids
+                            artifact
+                            for artifact in artifacts
+                            if artifact.get("evidencePackageId") in run_evidence_ids
                         ],
                         "testResultRecords": [
                             result
@@ -614,8 +685,12 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
 
-    @router.post("/api/v1/workflows/{workflow_id}/start", status_code=202, response_model=WorkflowStartResponse)
-    async def start_workflow(workflow_id: str, body: WorkflowStatusChangeRequest, request: Request) -> dict[str, Any]:
+    @router.post(
+        "/api/v1/workflows/{workflow_id}/start", status_code=202, response_model=WorkflowStartResponse
+    )
+    async def start_workflow(
+        workflow_id: str, body: WorkflowStatusChangeRequest, request: Request
+    ) -> dict[str, Any]:
         require_write(request)
         result = repository().start_workflow(workflow_id, reason=body.reason)
         route_started_workflow_steps(result)
@@ -650,7 +725,9 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         if step["workflowId"] != workflow_id:
             raise HTTPException(status_code=404, detail=f"Workflow step not found for workflow: {step_id}")
         if step["name"] not in {"pr_review", "release_gate", "retro"}:
-            raise HTTPException(status_code=422, detail=f"Workflow step {step['name']} is not a governed gate.")
+            raise HTTPException(
+                status_code=422, detail=f"Workflow step {step['name']} is not a governed gate."
+            )
 
         reason = body.reason or "Advance governed workflow gate."
         if step["name"] == "pr_review":
@@ -678,7 +755,12 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
                 suffix="advanced",
                 payload={"evidencePackageId": package["id"], "reason": reason},
             )
-            return {"workflowStep": updated, "advanced": True, "gateState": metadata["gateState"], "reason": reason}
+            return {
+                "workflowStep": updated,
+                "advanced": True,
+                "gateState": metadata["gateState"],
+                "reason": reason,
+            }
 
         if step["name"] == "release_gate":
             pending_actions = pending_release_actions_for_step(step)
@@ -700,7 +782,12 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
                 output={"advanced": True, "reason": reason},
             )
             record_gate_result(updated, suffix="advanced", payload={"reason": reason})
-            return {"workflowStep": updated, "advanced": True, "gateState": metadata["gateState"], "reason": reason}
+            return {
+                "workflowStep": updated,
+                "advanced": True,
+                "gateState": metadata["gateState"],
+                "reason": reason,
+            }
 
         if not has_retro_governance_records(step):
             block_gate(
@@ -720,27 +807,50 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             output={"advanced": True, "reason": reason},
         )
         record_gate_result(updated, suffix="advanced", payload={"reason": reason})
-        return {"workflowStep": updated, "advanced": True, "gateState": metadata["gateState"], "reason": reason}
+        return {
+            "workflowStep": updated,
+            "advanced": True,
+            "gateState": metadata["gateState"],
+            "reason": reason,
+        }
 
     @router.post("/api/v1/workflows/{workflow_id}/pause", status_code=202, response_model=WorkflowResponse)
-    async def pause_workflow(workflow_id: str, body: WorkflowStatusChangeRequest, request: Request) -> dict[str, Any]:
+    async def pause_workflow(
+        workflow_id: str, body: WorkflowStatusChangeRequest, request: Request
+    ) -> dict[str, Any]:
         require_write(request)
         workflow = repository().update_workflow_status(workflow_id, status="paused", reason=body.reason)
-        event_bus().record_event(project_id=workflow["projectId"], event_type="workflow.paused", payload={"workflowId": workflow_id})
+        event_bus().record_event(
+            project_id=workflow["projectId"],
+            event_type="workflow.paused",
+            payload={"workflowId": workflow_id},
+        )
         return {"workflow": workflow}
 
     @router.post("/api/v1/workflows/{workflow_id}/resume", status_code=202, response_model=WorkflowResponse)
-    async def resume_workflow(workflow_id: str, body: WorkflowStatusChangeRequest, request: Request) -> dict[str, Any]:
+    async def resume_workflow(
+        workflow_id: str, body: WorkflowStatusChangeRequest, request: Request
+    ) -> dict[str, Any]:
         require_write(request)
         workflow = repository().update_workflow_status(workflow_id, status="running", reason=body.reason)
-        event_bus().record_event(project_id=workflow["projectId"], event_type="workflow.resumed", payload={"workflowId": workflow_id})
+        event_bus().record_event(
+            project_id=workflow["projectId"],
+            event_type="workflow.resumed",
+            payload={"workflowId": workflow_id},
+        )
         return {"workflow": workflow}
 
     @router.post("/api/v1/workflows/{workflow_id}/cancel", status_code=202, response_model=WorkflowResponse)
-    async def cancel_workflow(workflow_id: str, body: WorkflowStatusChangeRequest, request: Request) -> dict[str, Any]:
+    async def cancel_workflow(
+        workflow_id: str, body: WorkflowStatusChangeRequest, request: Request
+    ) -> dict[str, Any]:
         require_write(request)
         workflow = repository().update_workflow_status(workflow_id, status="cancelled", reason=body.reason)
-        event_bus().record_event(project_id=workflow["projectId"], event_type="workflow.cancelled", payload={"workflowId": workflow_id})
+        event_bus().record_event(
+            project_id=workflow["projectId"],
+            event_type="workflow.cancelled",
+            payload={"workflowId": workflow_id},
+        )
         risk = record_governance_risk(
             platform.connection,
             project_id=workflow["projectId"],

@@ -3,6 +3,7 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -14,7 +15,16 @@ from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.serialization import json_dumps, json_loads
 from local_control_center.shared.time import utc_now
 
-PROVIDER_HEALTH_RESET_FIELDS = {"providerType", "provider_type", "apiFormat", "api_format", "baseUrl", "base_url", "credentialRef", "credential_ref"}
+PROVIDER_HEALTH_RESET_FIELDS = {
+    "providerType",
+    "provider_type",
+    "apiFormat",
+    "api_format",
+    "baseUrl",
+    "base_url",
+    "credentialRef",
+    "credential_ref",
+}
 
 
 def _bool(value: Any) -> bool:
@@ -41,7 +51,9 @@ def row_to_provider_account(row: sqlite3.Row) -> dict[str, Any]:
         "healthStatus": row["health_status"],
         "lastHealthCheckAt": row["last_health_check_at"],
         "lastError": redact_secrets(row["last_error"] or ""),
-        "metadata": redact_secrets(json_loads(row["metadata_json"], {})) if "metadata_json" in row.keys() else {},
+        "metadata": redact_secrets(json_loads(row["metadata_json"], {}))
+        if "metadata_json" in row.keys()
+        else {},
         "createdAt": row["created_at"],
         "updatedAt": row["updated_at"],
     }
@@ -105,7 +117,9 @@ class ProviderAccountStore:
         return [row_to_provider_account(row) for row in rows]
 
     def get_provider_account(self, provider_id: str) -> dict[str, Any]:
-        row = self.connection.execute("SELECT * FROM provider_accounts WHERE provider_id = ? OR id = ?", (provider_id, provider_id)).fetchone()
+        row = self.connection.execute(
+            "SELECT * FROM provider_accounts WHERE provider_id = ? OR id = ?", (provider_id, provider_id)
+        ).fetchone()
         if not row:
             raise KeyError(f"Provider account not found: {provider_id}")
         return row_to_provider_account(row)
@@ -161,7 +175,9 @@ class ProviderAccountStore:
     def patch_provider_account(self, provider_id: str, body: dict[str, Any]) -> dict[str, Any]:
         existing = self.get_provider_account(provider_id)
         merged = {**existing, **body, "providerId": existing["providerId"]}
-        if any(field in body and body[field] != existing.get(field) for field in PROVIDER_HEALTH_RESET_FIELDS):
+        if any(
+            field in body and body[field] != existing.get(field) for field in PROVIDER_HEALTH_RESET_FIELDS
+        ):
             merged["healthStatus"] = "unknown"
             merged["lastHealthCheckAt"] = None
             merged["lastError"] = ""
@@ -174,7 +190,9 @@ class ProviderAccountStore:
                 (provider_id,),
             ).fetchall()
         else:
-            rows = self.connection.execute("SELECT * FROM model_catalog ORDER BY provider_id ASC, model ASC").fetchall()
+            rows = self.connection.execute(
+                "SELECT * FROM model_catalog ORDER BY provider_id ASC, model ASC"
+            ).fetchall()
         return [row_to_model_catalog(row) for row in rows]
 
     def get_model(self, model_id: str) -> dict[str, Any]:
@@ -248,12 +266,21 @@ class ProviderAccountStore:
                 now,
             ),
         )
-        row = self.connection.execute("SELECT * FROM model_catalog WHERE provider_id = ? AND model = ?", (body["providerId"], body["model"])).fetchone()
+        row = self.connection.execute(
+            "SELECT * FROM model_catalog WHERE provider_id = ? AND model = ?",
+            (body["providerId"], body["model"]),
+        ).fetchone()
         return row_to_model_catalog(row)
 
     def patch_model(self, model_id: str, body: dict[str, Any]) -> dict[str, Any]:
         existing = self.get_model(model_id)
-        merged = {**existing, **body, "id": existing["id"], "providerId": existing["providerId"], "model": existing["model"]}
+        merged = {
+            **existing,
+            **body,
+            "id": existing["id"],
+            "providerId": existing["providerId"],
+            "model": existing["model"],
+        }
         return self.upsert_model(merged)
 
     def list_pricing_snapshots(
@@ -336,12 +363,16 @@ class ProviderAccountStore:
         return snapshot
 
     def get_pricing_snapshot(self, snapshot_id: str) -> dict[str, Any]:
-        row = self.connection.execute("SELECT * FROM pricing_snapshots WHERE id = ?", (snapshot_id,)).fetchone()
+        row = self.connection.execute(
+            "SELECT * FROM pricing_snapshots WHERE id = ?", (snapshot_id,)
+        ).fetchone()
         if not row:
             raise KeyError(f"Pricing snapshot not found: {snapshot_id}")
         return row_to_pricing_snapshot(row)
 
-    def record_health_check(self, *, provider_id: str, status: str, payload: dict[str, Any]) -> dict[str, Any]:
+    def record_health_check(
+        self, *, provider_id: str, status: str, payload: dict[str, Any]
+    ) -> dict[str, Any]:
         now = utc_now()
         check_id = f"provider-health-{uuid.uuid4()}"
         health_status = str(payload.get("healthStatus") or status)
@@ -360,4 +391,10 @@ class ProviderAccountStore:
             provider_id,
             {"healthStatus": health_status, "lastHealthCheckAt": now, "lastError": last_error},
         )
-        return {"id": check_id, "providerId": provider_id, "status": status, "payload": redact_secrets(payload), "createdAt": now}
+        return {
+            "id": check_id,
+            "providerId": provider_id,
+            "status": status,
+            "payload": redact_secrets(payload),
+            "createdAt": now,
+        }

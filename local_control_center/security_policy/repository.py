@@ -3,6 +3,7 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -13,9 +14,7 @@ from typing import Any
 from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.serialization import json_dumps, json_loads
 from local_control_center.shared.telemetry import record_policy_decision
-
 from local_control_center.shared.time import add_millis, utc_now
-
 
 GRANT_TTL_MS = 24 * 60 * 60 * 1000
 
@@ -52,7 +51,9 @@ def row_to_decision(row: sqlite3.Row) -> dict[str, Any]:
 def row_to_grant(row: sqlite3.Row) -> dict[str, Any]:
     payload = json_loads(row["payload"])
     row_keys = set(row.keys())
-    command_argv = json_loads(row["command_argv"], []) if "command_argv" in row_keys else payload.get("commandArgv", [])
+    command_argv = (
+        json_loads(row["command_argv"], []) if "command_argv" in row_keys else payload.get("commandArgv", [])
+    )
     if not isinstance(command_argv, list):
         command_argv = []
     return {
@@ -207,7 +208,9 @@ class SecurityPolicyRepository:
         return self.get_policy_revision(revision_id)
 
     def get_policy_revision(self, revision_id: str) -> dict[str, Any]:
-        row = self.connection.execute("SELECT * FROM policy_revisions WHERE id = ?", (revision_id,)).fetchone()
+        row = self.connection.execute(
+            "SELECT * FROM policy_revisions WHERE id = ?", (revision_id,)
+        ).fetchone()
         if not row:
             raise KeyError(f"Policy revision not found: {revision_id}")
         return row_to_policy_revision(row)
@@ -270,7 +273,9 @@ class SecurityPolicyRepository:
                 utc_now(),
             ),
         )
-        row = self.connection.execute("SELECT * FROM permission_decisions WHERE id = ?", (decision_id,)).fetchone()
+        row = self.connection.execute(
+            "SELECT * FROM permission_decisions WHERE id = ?", (decision_id,)
+        ).fetchone()
         decision_record = row_to_decision(row)
         record_policy_decision(self.connection, decision_record)
         return decision_record
@@ -282,7 +287,9 @@ class SecurityPolicyRepository:
                 (project_id,),
             ).fetchall()
         else:
-            rows = self.connection.execute("SELECT * FROM permission_decisions ORDER BY created_at DESC").fetchall()
+            rows = self.connection.execute(
+                "SELECT * FROM permission_decisions ORDER BY created_at DESC"
+            ).fetchall()
         return [row_to_decision(row) for row in rows]
 
     def upsert_sandbox_profile(self, body: dict[str, Any]) -> dict[str, Any]:
@@ -401,7 +408,9 @@ class SecurityPolicyRepository:
         command_argv = _normalized_argv(action_request.get("commandArgv") or payload.get("commandArgv"))
         workspace_id = action_request.get("workspaceId") or payload.get("workspaceId")
         runtime_id = action_request.get("runtimeId") or payload.get("runtimeId")
-        scoped_path = payload.get("path") or action_request.get("workspacePath") or payload.get("workspacePath")
+        scoped_path = (
+            payload.get("path") or action_request.get("workspacePath") or payload.get("workspacePath")
+        )
         expires_at = action_request.get("expiresAt") or payload.get("expiresAt") or add_millis(GRANT_TTL_MS)
         self.connection.execute(
             """
@@ -459,7 +468,9 @@ class SecurityPolicyRepository:
                 (project_id,),
             ).fetchall()
         else:
-            rows = self.connection.execute("SELECT * FROM permission_grants ORDER BY granted_at DESC").fetchall()
+            rows = self.connection.execute(
+                "SELECT * FROM permission_grants ORDER BY granted_at DESC"
+            ).fetchall()
         return [row_to_grant(row) for row in rows]
 
     def validate_and_consume_grant(
@@ -555,5 +566,3 @@ class SecurityPolicyRepository:
                 (timestamp, actor, reason, grant_id),
             )
         return self.get_grant(grant_id)
-
-

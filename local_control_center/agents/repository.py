@@ -3,6 +3,7 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -12,7 +13,6 @@ from typing import Any
 from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.serialization import json_dumps, json_loads
 from local_control_center.shared.telemetry import record_agent_run
-
 from local_control_center.shared.time import utc_now
 
 PRODUCT_RUNTIME_MODES = {"api", "cli", "ollama", "hybrid", "manual"}
@@ -29,8 +29,12 @@ def row_to_agent_profile(row: sqlite3.Row) -> dict[str, Any]:
         "modelPolicyId": row["model_policy_id"],
         "routingProfileId": row["routing_profile_id"] if "routing_profile_id" in row.keys() else None,
         "roleModelPolicyId": row["role_model_policy_id"] if "role_model_policy_id" in row.keys() else None,
-        "allowedProviders": json_loads(row["allowed_providers"] if "allowed_providers" in row.keys() else "[]", []),
-        "allowedRuntimes": json_loads(row["allowed_runtimes"] if "allowed_runtimes" in row.keys() else "[]", []),
+        "allowedProviders": json_loads(
+            row["allowed_providers"] if "allowed_providers" in row.keys() else "[]", []
+        ),
+        "allowedRuntimes": json_loads(
+            row["allowed_runtimes"] if "allowed_runtimes" in row.keys() else "[]", []
+        ),
         "allowedSkills": json_loads(row["allowed_skills"], []),
         "allowedTools": json_loads(row["allowed_tools"], []),
         "permissionProfile": row["permission_profile"],
@@ -41,7 +45,9 @@ def row_to_agent_profile(row: sqlite3.Row) -> dict[str, Any]:
         "allowRemote": bool(row["allow_remote"]) if "allow_remote" in row.keys() else True,
         "allowCli": bool(row["allow_cli"]) if "allow_cli" in row.keys() else True,
         "allowApi": bool(row["allow_api"]) if "allow_api" in row.keys() else True,
-        "requiresApprovalOverUsd": row["requires_approval_over_usd"] if "requires_approval_over_usd" in row.keys() else None,
+        "requiresApprovalOverUsd": row["requires_approval_over_usd"]
+        if "requires_approval_over_usd" in row.keys()
+        else None,
         "outputSchema": json_loads(row["output_schema"]),
         "qualityGates": json_loads(row["quality_gates"], []),
         "status": row["status"],
@@ -299,7 +305,7 @@ class AgentsRepository:
         completion_tokens: int = 0,
         cost_usd: float = 0.0,
         metadata: dict[str, Any] | None = None,
-        ) -> dict[str, Any]:
+    ) -> dict[str, Any]:
         timestamp = utc_now()
         call_id = f"model-call-{uuid.uuid4()}"
         clean_metadata = redact_secrets(metadata or {})
@@ -358,7 +364,9 @@ class AgentsRepository:
         profile = self.get_agent_profile(agent_profile_id)
         clean_input = redact_secrets(input_payload)
         clean_output = redact_secrets(output_payload)
-        clean_metadata = redact_secrets({"agentProfileId": agent_profile_id, "taskId": task_id, "runtimeType": profile["runtimeType"]})
+        clean_metadata = redact_secrets(
+            {"agentProfileId": agent_profile_id, "taskId": task_id, "runtimeType": profile["runtimeType"]}
+        )
         timestamp = utc_now()
         run_id = f"agent-run-{uuid.uuid4()}"
         self.connection.execute(
@@ -386,7 +394,9 @@ class AgentsRepository:
         record_agent_run(self.connection, agent_run)
         return agent_run
 
-    def update_agent_run_status(self, run_id: str, *, status: str, output_payload: dict[str, Any]) -> dict[str, Any]:
+    def update_agent_run_status(
+        self, run_id: str, *, status: str, output_payload: dict[str, Any]
+    ) -> dict[str, Any]:
         clean_output = redact_secrets(output_payload)
         self.connection.execute(
             """
@@ -460,5 +470,3 @@ class AgentsRepository:
     def list_cost_usage(self) -> list[dict[str, Any]]:
         rows = self.connection.execute("SELECT * FROM cost_usage ORDER BY created_at DESC").fetchall()
         return [row_to_cost_usage(row) for row in rows]
-
-

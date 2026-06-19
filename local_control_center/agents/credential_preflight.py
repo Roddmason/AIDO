@@ -3,13 +3,13 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 import os
 from collections.abc import Sequence
 
 from .credentials import CredentialResolver
-
 
 PASSING_STATUS_BY_MODE = {
     "status": {"configured", "unverified"},
@@ -34,7 +34,6 @@ def run_credential_preflight(
     fetch: bool = False,
 ) -> dict[str, object]:
     """Validate credential refs without exposing resolved credential values."""
-
     mode = "fetch" if fetch else "status"
     resolver = resolver or CredentialResolver()
     allowed_statuses = PASSING_STATUS_BY_MODE[mode]

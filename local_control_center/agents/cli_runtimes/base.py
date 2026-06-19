@@ -3,6 +3,7 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 import json
@@ -14,12 +15,11 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from local_control_center.agents.providers.base import UsageRecord
 from local_control_center.agents.cli_sessions import CliSessionStore
-from local_control_center.shared.redaction import redact_secrets
-from local_control_center.security_policy.policy_engine import evaluate_action
+from local_control_center.agents.providers.base import UsageRecord
 from local_control_center.security_policy import sandbox as subprocess_sandbox
-
+from local_control_center.security_policy.policy_engine import evaluate_action
+from local_control_center.shared.redaction import redact_secrets
 
 DANGEROUS_CLI_FLAGS = {
     "--dangerously-bypass-approvals-and-sandbox",
@@ -106,7 +106,9 @@ class CliRuntime(ABC):
         if not workspace.exists():
             raise ValueError("workspace_path does not exist")
         if self.connection is not None:
-            row = self.connection.execute("SELECT path FROM workspaces WHERE id = ?", (request.workspace_id,)).fetchone()
+            row = self.connection.execute(
+                "SELECT path FROM workspaces WHERE id = ?", (request.workspace_id,)
+            ).fetchone()
             if not row:
                 raise ValueError("workspace must be registered before real CLI execution")
             registered = Path(row["path"]).resolve(strict=False)
@@ -126,8 +128,16 @@ class CliRuntime(ABC):
     def detect(self) -> RuntimeDetection:
         executable = self._which()
         if not executable:
-            return RuntimeDetection(runtime=self.runtime_id, status="not_installed", message=f"{self.display_name} not detected")
-        return RuntimeDetection(runtime=self.runtime_id, status="installed", executable=executable, version=self._version(executable), message=f"{self.display_name} detected")
+            return RuntimeDetection(
+                runtime=self.runtime_id, status="not_installed", message=f"{self.display_name} not detected"
+            )
+        return RuntimeDetection(
+            runtime=self.runtime_id,
+            status="installed",
+            executable=executable,
+            version=self._version(executable),
+            message=f"{self.display_name} detected",
+        )
 
     def health_check(self) -> RuntimeHealth:
         detection = self.detect()
@@ -163,7 +173,9 @@ class CliRuntime(ABC):
             return blocked
         workspace = Path(request.workspace_path).resolve(strict=False)
         if os.environ.get("AIDO_ENABLE_CLI_RUNTIMES", "false").lower() != "true":
-            blocked = RuntimeResult(runtime=self.runtime_id, status="blocked", command=command, error="CLI runtimes are disabled")
+            blocked = RuntimeResult(
+                runtime=self.runtime_id, status="blocked", command=command, error="CLI runtimes are disabled"
+            )
             gated_request = request.model_copy(
                 update={
                     "env_policy": {
@@ -178,7 +190,9 @@ class CliRuntime(ABC):
             self._record_result(gated_request, blocked)
             return blocked
         policy = self._evaluate_policy(request, command, workspace)
-        policy_request = request.model_copy(update={"env_policy": {**request.env_policy, "policyResult": policy}})
+        policy_request = request.model_copy(
+            update={"env_policy": {**request.env_policy, "policyResult": policy}}
+        )
         if policy.get("decision") != "allow":
             blocked = RuntimeResult(
                 runtime=self.runtime_id,
@@ -230,7 +244,9 @@ class CliRuntime(ABC):
                 "role": request.role,
                 "permissionProfile": request.env_policy.get("permissionProfile", "dev_safe"),
                 "networkRequired": bool(request.env_policy.get("network", False)),
-                "secretsRequired": bool(request.env_policy.get("secrets") or request.env_policy.get("secretRefs")),
+                "secretsRequired": bool(
+                    request.env_policy.get("secrets") or request.env_policy.get("secretRefs")
+                ),
             }
         )
 
@@ -349,7 +365,9 @@ def _usage_record_from_mapping(usage: dict[str, Any]) -> UsageRecord | None:
     if not (set(usage) & token_keys):
         return None
     input_tokens = _int_token(usage.get("prompt_tokens") or usage.get("input_tokens") or usage.get("input"))
-    output_tokens = _int_token(usage.get("completion_tokens") or usage.get("output_tokens") or usage.get("output"))
+    output_tokens = _int_token(
+        usage.get("completion_tokens") or usage.get("output_tokens") or usage.get("output")
+    )
     cached_input_tokens = _int_token(
         usage.get("cached_input_tokens")
         or usage.get("cached_input")

@@ -3,6 +3,7 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -26,7 +27,6 @@ from .models import (
     RetrievalSearchResponse,
 )
 from .repository import MemoryRepository
-
 
 DELETE_MEMORY_BODY = Body(default_factory=MemoryDeleteRequest)
 
@@ -73,13 +73,13 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         return MemoryResponse(memoryItem=payload["memoryItem"])
 
     @router.get("/api/v1/retrieval/status", response_model=RetrievalStatusResponse)
-    async def retrieval_status(project_id: str | None = Query(default=None, alias="projectId")) -> dict[str, Any]:
+    async def retrieval_status(
+        project_id: str | None = Query(default=None, alias="projectId"),
+    ) -> dict[str, Any]:
         return commands.retrieval_status(retrieval_index(), project_id=project_id)
 
     @router.post("/api/v1/retrieval/reindex", status_code=202, response_model=RetrievalReindexResponse)
-    async def retrieval_reindex(
-        request: Request, body: RetrievalReindexRequest
-    ) -> RetrievalReindexResponse:
+    async def retrieval_reindex(request: Request, body: RetrievalReindexRequest) -> RetrievalReindexResponse:
         require_write(request)
         payload = commands.retrieval_reindex(retrieval_index(), body.model_dump(by_alias=True))
         return RetrievalReindexResponse(index=payload["index"])

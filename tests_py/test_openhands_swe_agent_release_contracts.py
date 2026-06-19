@@ -14,11 +14,13 @@ from local_control_center.agents.cli_runtimes.base import RuntimeRequest
 from local_control_center.agents.cli_runtimes.openhands import OpenHandsRuntime
 from local_control_center.agents.cli_runtimes.swe_agent import SweAgentRuntime
 from local_control_center.agents.runtime_provider_config import list_runtime_provider_configurations
-from local_control_center.agents.runtime_registry import RuntimeCommandUnavailableError, build_issue_to_patch_argv
+from local_control_center.agents.runtime_registry import (
+    RuntimeCommandUnavailableError,
+    build_issue_to_patch_argv,
+)
 from local_control_center.agents.runtime_status import RuntimeStatusService
 from local_control_center.shared.db import open_sqlite_connection
 from local_control_center.shared.migrations import initialize_platform_schema
-
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "local-control-center" / "scripts" / "release_validate_optional_cli_runtime.py"
@@ -43,7 +45,9 @@ def init_git_workspace(path: Path) -> Path:
         check=True,
     )
     (path / "README.md").write_text("# Test workspace\n", encoding="utf-8")
-    subprocess.run(["git", "add", "--", "."], cwd=path, capture_output=True, text=True, shell=False, check=True)
+    subprocess.run(
+        ["git", "add", "--", "."], cwd=path, capture_output=True, text=True, shell=False, check=True
+    )
     subprocess.run(
         ["git", "commit", "-m", "Initial test workspace"],
         cwd=path,
@@ -95,17 +99,25 @@ def test_optional_cli_release_validation_requires_runtime_command_and_cli_gate()
     )
     assert any("openhands argv" in error.lower() and "python" in error.lower() for error in invalid_override)
 
-    assert module.required_environment_errors(
-        "openhands",
-        {"AIDO_OPENHANDS_COMMAND": "openhands", "AIDO_ENABLE_CLI_RUNTIMES": "true"},
-    ) == []
-    assert module.required_environment_errors(
-        "swe_agent",
-        {"AIDO_SWE_AGENT_COMMAND": "sweagent", "AIDO_ENABLE_CLI_RUNTIMES": "true"},
-    ) == []
+    assert (
+        module.required_environment_errors(
+            "openhands",
+            {"AIDO_OPENHANDS_COMMAND": "openhands", "AIDO_ENABLE_CLI_RUNTIMES": "true"},
+        )
+        == []
+    )
+    assert (
+        module.required_environment_errors(
+            "swe_agent",
+            {"AIDO_SWE_AGENT_COMMAND": "sweagent", "AIDO_ENABLE_CLI_RUNTIMES": "true"},
+        )
+        == []
+    )
 
 
-def test_optional_cli_release_validation_direct_execution_reports_configuration_required(tmp_path: Path) -> None:
+def test_optional_cli_release_validation_direct_execution_reports_configuration_required(
+    tmp_path: Path,
+) -> None:
     report = tmp_path / "report.json"
     env = {
         key: value
@@ -200,7 +212,7 @@ def test_optional_cli_configuration_exposes_command_and_explicit_argv_without_se
     assert providers["openhands"]["configured"] is True
     assert providers["swe_agent"]["configured"] is True
     serialized = str(providers)
-    assert "openhands\",\"--headless" not in serialized
+    assert 'openhands","--headless' not in serialized
     assert "--env.repo.path=/repo" not in serialized
     assert all(variable["fingerprint"] for variable in providers["openhands"]["variables"])
     assert all(variable["fingerprint"] for variable in providers["swe_agent"]["variables"])
@@ -230,7 +242,9 @@ def test_openhands_and_swe_agent_are_not_executable_without_developer_agent_capa
     monkeypatch.setenv("AIDO_ENABLE_CLI_RUNTIMES", "true")
     with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
         initialize_platform_schema(connection)
-        connection.execute("UPDATE provider_accounts SET enabled = 1 WHERE provider_id IN ('openhands', 'swe_agent')")
+        connection.execute(
+            "UPDATE provider_accounts SET enabled = 1 WHERE provider_id IN ('openhands', 'swe_agent')"
+        )
         statuses = {
             provider["id"]: provider
             for provider in RuntimeStatusService(connection).list_provider_statuses()

@@ -3,12 +3,12 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
-
 
 DecisionStatus = Literal["proposed", "accepted", "rejected", "superseded", "deprecated"]
 RiskSeverity = Literal["low", "medium", "high", "critical"]
@@ -55,8 +55,8 @@ class ArchitectureDecisionResponse(BaseModel):
 
 class GovernanceResponse(BaseModel):
     architecture_decisions: list[ArchitectureDecisionRecord] = Field(alias="architectureDecisions")
-    risks: list["RiskRecord"]
-    next_steps: list["NextStepRecord"] = Field(alias="nextSteps")
+    risks: list[RiskRecord]
+    next_steps: list[NextStepRecord] = Field(alias="nextSteps")
 
 
 class ArchitectureDecisionsListResponse(BaseModel):

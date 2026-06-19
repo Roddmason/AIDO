@@ -3,6 +3,7 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -33,7 +34,9 @@ def build_markdown_report(
         "",
     ]
     checklist = evidence.get("acceptanceChecklist") or []
-    lines.extend(f"- {item}" for item in checklist) if checklist else lines.append("- No checklist items recorded.")
+    lines.extend(f"- {item}" for item in checklist) if checklist else lines.append(
+        "- No checklist items recorded."
+    )
     lines.extend(["", "## Test Results", ""])
     if test_results:
         lines.extend(_test_result_line(result) for result in test_results)
@@ -61,7 +64,9 @@ def build_markdown_report(
         lines.append("- No artifacts recorded.")
     lines.extend(["", "## Risk Notes", ""])
     risk_notes = evidence.get("riskNotes") or []
-    lines.extend(f"- {note}" for note in risk_notes) if risk_notes else lines.append("- No risk notes recorded.")
+    lines.extend(f"- {note}" for note in risk_notes) if risk_notes else lines.append(
+        "- No risk notes recorded."
+    )
     lines.append("")
     return "\n".join(lines)
 

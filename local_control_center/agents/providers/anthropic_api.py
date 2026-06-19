@@ -3,6 +3,7 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 import json
@@ -15,9 +16,16 @@ from local_control_center.agents.credentials import CredentialResolver
 from local_control_center.agents.runtime_provider_config import runtime_provider_configuration
 from local_control_center.shared.redaction import redact_secrets
 
-from .base import CostEstimate, ModelInfo, ModelProvider, ModelRequest, ModelResponse, ProviderHealth, UsageRecord
+from .base import (
+    CostEstimate,
+    ModelInfo,
+    ModelProvider,
+    ModelRequest,
+    ModelResponse,
+    ProviderHealth,
+    UsageRecord,
+)
 from .openai_compatible import real_provider_calls_enabled
-
 
 DEFAULT_ANTHROPIC_BASE_URL = "https://api.anthropic.com/v1"
 ANTHROPIC_VERSION = "2023-06-01"

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import subprocess
 import sys
+from pathlib import Path
 from typing import Any
 
 from fastapi.testclient import TestClient
@@ -95,7 +95,9 @@ def mcp_server_command(script: Path) -> str:
 def make_agent_run(tmp_path: Path, *, allowed_tools: list[str], permission_profile: str = "dev_safe"):
     store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
     store.init()
-    project = store.create_project(name="Runtime adapters", path=tmp_path / "runtime-adapters", template_id="other")
+    project = store.create_project(
+        name="Runtime adapters", path=tmp_path / "runtime-adapters", template_id="other"
+    )
     workspace = WorkspacesRepository(store.connection, root=tmp_path).allocate_workspace(
         project_id=project["id"],
         task_id="adapter-call",
@@ -163,7 +165,9 @@ def test_mcp_tools_list_executes_registered_stdio_server_and_records_evidence(tm
     assert result["operation"] == "tools/list"
     assert result["initializeResponse"]["result"]["capabilities"]["tools"]
     assert result["operationResponse"]["result"]["tools"][0]["name"] == "echo"
-    calls = runtime.connection.execute("SELECT * FROM mcp_tool_calls WHERE mcp_server_id = ?", ("test-mcp",)).fetchall()
+    calls = runtime.connection.execute(
+        "SELECT * FROM mcp_tool_calls WHERE mcp_server_id = ?", ("test-mcp",)
+    ).fetchall()
     assert len(calls) == 1
     assert calls[0]["tool_name"] == "tools/list"
     assert calls[0]["status"] == "completed"
@@ -196,7 +200,9 @@ def test_mcp_server_command_blocks_dangerous_subprocess_args(tmp_path: Path) -> 
     assert result["executed"] is False
     assert "restricted process validation" in result["reason"]
     assert "Dangerous subprocess flag" in result["reason"]
-    call = runtime.connection.execute("SELECT * FROM mcp_tool_calls WHERE mcp_server_id = ?", ("unsafe-mcp",)).fetchone()
+    call = runtime.connection.execute(
+        "SELECT * FROM mcp_tool_calls WHERE mcp_server_id = ?", ("unsafe-mcp",)
+    ).fetchone()
     assert call["status"] == "blocked"
 
 
@@ -224,7 +230,9 @@ def test_mcp_registered_server_without_protocol_response_is_unavailable(tmp_path
     assert result["status"] == "unavailable"
     assert result["executed"] is True
     assert "response" in result["reason"].lower()
-    call = runtime.connection.execute("SELECT * FROM mcp_tool_calls WHERE mcp_server_id = ?", ("silent-mcp",)).fetchone()
+    call = runtime.connection.execute(
+        "SELECT * FROM mcp_tool_calls WHERE mcp_server_id = ?", ("silent-mcp",)
+    ).fetchone()
     assert call["status"] == "unavailable"
 
 
@@ -288,7 +296,9 @@ def test_mcp_tools_list_agent_run_creates_execution_evidence(tmp_path: Path) -> 
     tool_call = next(call for call in overview["agentToolCalls"] if call["agentRunId"] == agent_run["id"])
     assert tool_call["status"] == "completed"
     assert tool_call["payload"]["execution"] == "runtime_adapter:mcp"
-    assert tool_call["payload"]["executionResult"]["operationResponse"]["result"]["tools"][0]["name"] == "echo"
+    assert (
+        tool_call["payload"]["executionResult"]["operationResponse"]["result"]["tools"][0]["name"] == "echo"
+    )
     evidence = client.get("/api/v1/evidence").json()["evidencePackages"]
     package = next(item for item in evidence if item["id"] == agent_run["output"]["evidence_refs"][0])
     assert package["agentId"] == "mcp_agent"
@@ -300,7 +310,9 @@ def test_mcp_tools_list_agent_run_creates_execution_evidence(tmp_path: Path) -> 
 def test_mcp_agent_run_is_runtime_unavailable_when_server_does_not_respond(tmp_path: Path) -> None:
     store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
     store.init()
-    project = store.create_project(name="MCP Unavailable", path=tmp_path / "mcp-unavailable", template_id="other")
+    project = store.create_project(
+        name="MCP Unavailable", path=tmp_path / "mcp-unavailable", template_id="other"
+    )
     workspace = store.workspaces.allocate_workspace(
         project_id=project["id"],
         task_id="mcp-timeout",

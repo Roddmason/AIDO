@@ -3,12 +3,12 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
-from datetime import datetime, timezone
 import sqlite3
+from datetime import UTC, datetime
 from typing import Any
-
 
 STALE_AFTER_DAYS = 90
 
@@ -109,8 +109,8 @@ class PricingCatalog:
             normalized = updated_at.replace("Z", "+00:00")
             updated = datetime.fromisoformat(normalized)
             if updated.tzinfo is None:
-                updated = updated.replace(tzinfo=timezone.utc)
+                updated = updated.replace(tzinfo=UTC)
         except ValueError:
             return "unknown"
-        age = datetime.now(timezone.utc) - updated.astimezone(timezone.utc)
+        age = datetime.now(UTC) - updated.astimezone(UTC)
         return "stale" if age.days > STALE_AFTER_DAYS else "fresh"

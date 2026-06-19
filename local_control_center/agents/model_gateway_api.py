@@ -3,6 +3,7 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 import os
@@ -16,25 +17,29 @@ from local_control_center.shared.event_bus import EventBus
 from local_control_center.shared.redaction import redact_secrets
 
 from .credentials import CredentialResolver
+from .model_benchmarks import ModelBenchmarkStore
 from .model_gateway import ModelGateway, provider_instance, real_provider_calls_enabled
 from .model_gateway_models import (
     BudgetRulePatchRequest,
     BudgetRuleResponse,
-    BudgetRuleUpsertRequest,
     BudgetRulesListResponse,
+    BudgetRuleUpsertRequest,
     CliRuntimesListResponse,
     CliSessionResponse,
     CliSessionsListResponse,
     DiscoverModelsResponse,
-    ModelCatalogListResponse,
-    ModelCatalogPatchRequest,
-    ModelCatalogResponse,
-    ModelCatalogUpsertRequest,
     ModelBenchmarkOutcomeCreateRequest,
     ModelBenchmarkOutcomeResponse,
     ModelBenchmarkOutcomesListResponse,
     ModelBenchmarksListResponse,
+    ModelCatalogListResponse,
+    ModelCatalogPatchRequest,
+    ModelCatalogResponse,
+    ModelCatalogUpsertRequest,
     ModelGatewayOverviewResponse,
+    PricingSnapshotCreateRequest,
+    PricingSnapshotResponse,
+    PricingSnapshotsListResponse,
     ProviderAccountPatchRequest,
     ProviderAccountResponse,
     ProviderAccountsListResponse,
@@ -43,9 +48,6 @@ from .model_gateway_models import (
     ProviderLimitPatchRequest,
     ProviderLimitResponse,
     ProviderLimitsListResponse,
-    PricingSnapshotCreateRequest,
-    PricingSnapshotResponse,
-    PricingSnapshotsListResponse,
     RolePoliciesListResponse,
     RolePolicyPatchRequest,
     RolePolicyResponse,
@@ -63,14 +65,12 @@ from .model_gateway_models import (
     UsageLedgerListResponse,
     UsageSummaryResponse,
 )
-from .model_benchmarks import ModelBenchmarkStore
 from .model_router import ModelRouter, RoutingRequest
 from .provider_accounts import ProviderAccountStore
 from .quota_manager import QuotaManager
 from .routing_profiles import RoutingProfileStore
 from .runtime_registry import RuntimeRegistry
 from .usage_ledger import UsageLedger
-
 
 CATALOG_ID_RE = re.compile(r"^[a-z0-9_.:-]{2,96}$")
 SERVER_OWNED_PROVIDER_HEALTH_FIELDS = {"healthStatus", "lastHealthCheckAt", "lastError"}
@@ -106,7 +106,9 @@ def _validate_real_discovery_credentials(account: dict[str, Any]) -> None:
         return
     credential_ref = str(account.get("credentialRef") or "")
     if not credential_ref:
-        raise HTTPException(status_code=400, detail=f"Credential ref is required for provider {account['providerId']}.")
+        raise HTTPException(
+            status_code=400, detail=f"Credential ref is required for provider {account['providerId']}."
+        )
     credential = CredentialResolver().resolve(credential_ref, fetch=False)
     if credential.status not in {"configured", "unverified"}:
         raise HTTPException(
@@ -142,9 +144,13 @@ def _validate_role_policy_payload(body: dict[str, Any], *, provider_ids: set[str
             provider = str(candidate.get("provider") or "")
             model = str(candidate.get("model") or "")
             if provider not in provider_ids:
-                raise HTTPException(status_code=422, detail="Role policy provider is not in the configured provider catalog.")
+                raise HTTPException(
+                    status_code=422, detail="Role policy provider is not in the configured provider catalog."
+                )
             if not model or len(model) > 160 or any(char.isspace() for char in model):
-                raise HTTPException(status_code=422, detail="Role policy model id must be a compact catalog value.")
+                raise HTTPException(
+                    status_code=422, detail="Role policy model id must be a compact catalog value."
+                )
 
     try:
         max_cost = float(body.get("maxCostPerTaskUsd", 0))
@@ -193,12 +199,16 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
         return {
             "overview": {
                 "providersEnabled": sum(1 for item in provider_rows if item["enabled"]),
-                "apiProviders": sum(1 for item in provider_rows if item["providerType"] in {"api", "gateway"}),
+                "apiProviders": sum(
+                    1 for item in provider_rows if item["providerType"] in {"api", "gateway"}
+                ),
                 "cliRuntimes": sum(1 for item in provider_rows if item["providerType"] == "cli"),
                 "localProviders": sum(1 for item in provider_rows if item["providerType"] == "local"),
                 "healthy": sum(1 for item in provider_rows if item["healthStatus"] == "healthy"),
                 "degraded": sum(1 for item in provider_rows if item["healthStatus"] == "degraded"),
-                "offline": sum(1 for item in provider_rows if item["healthStatus"] in {"offline", "misconfigured"}),
+                "offline": sum(
+                    1 for item in provider_rows if item["healthStatus"] in {"offline", "misconfigured"}
+                ),
                 "totalTokensToday": usage_summary["totalTokens"],
                 "estimatedCostToday": usage_summary["estimatedCostUsd"],
                 "actualCostToday": usage_summary["actualCostUsd"],
@@ -223,7 +233,9 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
             provider = providers().upsert_provider_account(_provider_client_payload(body))
         except ValueError as error:
             raise HTTPException(status_code=400, detail=f"Invalid credential_ref: {error}") from error
-        audit("model_gateway.provider.upserted", provider["providerId"], {"providerId": provider["providerId"]})
+        audit(
+            "model_gateway.provider.upserted", provider["providerId"], {"providerId": provider["providerId"]}
+        )
         return {"provider": provider}
 
     @router.get("/providers/{provider_id}", response_model=ProviderAccountResponse)
@@ -234,7 +246,9 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
             raise HTTPException(status_code=404, detail=str(error)) from error
 
     @router.patch("/providers/{provider_id}", response_model=ProviderAccountResponse)
-    async def patch_provider(provider_id: str, body: ProviderAccountPatchRequest, request: Request) -> dict[str, Any]:
+    async def patch_provider(
+        provider_id: str, body: ProviderAccountPatchRequest, request: Request
+    ) -> dict[str, Any]:
         require_write(request)
         try:
             provider = providers().patch_provider_account(provider_id, _provider_client_payload(body))
@@ -253,10 +267,16 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
         health = ModelGateway(platform.connection).provider_health(provider_id)
-        if health.get("status") == "rate_limited" or "429" in str(health.get("message") or health.get("lastError") or ""):
+        if health.get("status") == "rate_limited" or "429" in str(
+            health.get("message") or health.get("lastError") or ""
+        ):
             model = "auto_best_available" if provider_id == "nvidia_nim" else "*"
-            QuotaManager(platform.connection).record_rate_limit(provider_id=provider_id, model=model, retry_after_seconds=300)
-        providers().record_health_check(provider_id=provider_id, status=health["healthStatus"], payload=health)
+            QuotaManager(platform.connection).record_rate_limit(
+                provider_id=provider_id, model=model, retry_after_seconds=300
+            )
+        providers().record_health_check(
+            provider_id=provider_id, status=health["healthStatus"], payload=health
+        )
         audit("model_gateway.provider.health_checked", provider_id, health)
         return {"health": health}
 
@@ -268,15 +288,24 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
         if not account.get("enabled"):
-            raise HTTPException(status_code=403, detail=f"Provider {provider_id} is disabled; discovery requires explicit enablement.")
+            raise HTTPException(
+                status_code=403,
+                detail=f"Provider {provider_id} is disabled; discovery requires explicit enablement.",
+            )
         if _requires_remote_provider_call(account) and not real_provider_calls_enabled():
-            raise HTTPException(status_code=403, detail="Real provider discovery is disabled by AIDO_ENABLE_REAL_PROVIDER_CALLS=false.")
+            raise HTTPException(
+                status_code=403,
+                detail="Real provider discovery is disabled by AIDO_ENABLE_REAL_PROVIDER_CALLS=false.",
+            )
         _validate_real_discovery_credentials(account)
         discovered = [
             item.model_dump(by_alias=True)
             for item in _provider_instance(provider_id, connection=platform.connection).list_models()
         ]
-        stored = [providers().upsert_model({**item, "providerId": provider_id, "enabled": True}) for item in discovered]
+        stored = [
+            providers().upsert_model({**item, "providerId": provider_id, "enabled": True})
+            for item in discovered
+        ]
         audit(
             "model_gateway.provider.models_discovered",
             provider_id,
@@ -292,7 +321,11 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
     async def create_model(body: ModelCatalogUpsertRequest, request: Request) -> dict[str, Any]:
         require_write(request)
         model = providers().upsert_model(_payload(body))
-        audit("model_gateway.model.upserted", model["id"], {"providerId": model["providerId"], "model": model["model"]})
+        audit(
+            "model_gateway.model.upserted",
+            model["id"],
+            {"providerId": model["providerId"], "model": model["model"]},
+        )
         return {"model": model}
 
     @router.patch("/models/{model_id:path}", response_model=ModelCatalogResponse)
@@ -336,7 +369,9 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
         return {"routingProfile": profile}
 
     @router.patch("/routing-profiles/{profile_id}", response_model=RoutingProfileResponse)
-    async def patch_routing_profile(profile_id: str, body: RoutingProfilePatchRequest, request: Request) -> dict[str, Any]:
+    async def patch_routing_profile(
+        profile_id: str, body: RoutingProfilePatchRequest, request: Request
+    ) -> dict[str, Any]:
         require_write(request)
         try:
             profile = routing().patch_routing_profile(profile_id, _payload(body))
@@ -358,7 +393,9 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
         return {"rolePolicy": policy}
 
     @router.patch("/role-policies/{policy_id}", response_model=RolePolicyResponse)
-    async def patch_role_policy(policy_id: str, body: RolePolicyPatchRequest, request: Request) -> dict[str, Any]:
+    async def patch_role_policy(
+        policy_id: str, body: RolePolicyPatchRequest, request: Request
+    ) -> dict[str, Any]:
         require_write(request)
         try:
             payload = body.model_dump(by_alias=True, exclude_none=True, exclude_unset=True)
@@ -375,7 +412,11 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
         require_write(request)
         body_payload = _payload(body)
         result = ModelRouter(platform.connection).preview(RoutingRequest(**body_payload), record=True)
-        audit("model_gateway.route.previewed", body_payload.get("role", "unknown"), {"selected": result.get("selected")})
+        audit(
+            "model_gateway.route.previewed",
+            body_payload.get("role", "unknown"),
+            {"selected": result.get("selected")},
+        )
         return result
 
     @router.post("/route/execute", response_model=RouteExecuteResponse)
@@ -411,12 +452,20 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
                 selected.get("provider", "unknown"),
                 {"jobId": job_result["job"]["id"], "actionRequestId": action["id"]},
             )
-            raise HTTPException(status_code=409, detail="Route execution requires approval before calling a provider or runtime.")
+            raise HTTPException(
+                status_code=409,
+                detail="Route execution requires approval before calling a provider or runtime.",
+            )
         runtime_type = str(selected.get("runtime") or "")
         if runtime_type == "cli" and os.environ.get("AIDO_ENABLE_CLI_RUNTIMES", "false").lower() != "true":
-            raise HTTPException(status_code=403, detail="CLI route execution is disabled by AIDO_ENABLE_CLI_RUNTIMES=false.")
+            raise HTTPException(
+                status_code=403, detail="CLI route execution is disabled by AIDO_ENABLE_CLI_RUNTIMES=false."
+            )
         if runtime_type == "cli":
-            raise HTTPException(status_code=501, detail="Real CLI execution must be launched through policy-approved agent runtime sessions.")
+            raise HTTPException(
+                status_code=501,
+                detail="Real CLI execution must be launched through policy-approved agent runtime sessions.",
+            )
         message = str(body_payload.get("prompt") or body_payload.get("taskType") or "Execute routed task.")
         gateway = ModelGateway(platform.connection)
         planned_call = gateway.plan_model_call(
@@ -449,7 +498,9 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
             }.get(str(execution["status"]), 409)
             detail = f"{execution['status']}: {execution.get('reason') or 'model call did not complete'}"
             raise HTTPException(status_code=status_code, detail=redact_secrets(detail))
-        audit("model_gateway.route.execute", selected["provider"], {"usageLedgerId": execution["usage"]["id"]})
+        audit(
+            "model_gateway.route.execute", selected["provider"], {"usageLedgerId": execution["usage"]["id"]}
+        )
         return {"routing": result, "usage": execution["usage"], "content": execution["content"]}
 
     @router.get("/usage-ledger", response_model=UsageLedgerListResponse)
@@ -473,7 +524,9 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
         return {"outcomes": benchmarks().list_outcomes()}
 
     @router.post("/benchmark-outcomes", status_code=201, response_model=ModelBenchmarkOutcomeResponse)
-    async def create_benchmark_outcome(body: ModelBenchmarkOutcomeCreateRequest, request: Request) -> dict[str, Any]:
+    async def create_benchmark_outcome(
+        body: ModelBenchmarkOutcomeCreateRequest, request: Request
+    ) -> dict[str, Any]:
         require_write(request)
         outcome = benchmarks().record_outcome(_payload(body))
         audit("model_gateway.benchmark_outcome.recorded", outcome["providerId"], {"outcomeId": outcome["id"]})
@@ -484,7 +537,9 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
         return {"providerLimits": routing().list_provider_limits()}
 
     @router.patch("/provider-limits/{limit_id}", response_model=ProviderLimitResponse)
-    async def patch_provider_limit(limit_id: str, body: ProviderLimitPatchRequest, request: Request) -> dict[str, Any]:
+    async def patch_provider_limit(
+        limit_id: str, body: ProviderLimitPatchRequest, request: Request
+    ) -> dict[str, Any]:
         require_write(request)
         try:
             return {"providerLimit": routing().patch_provider_limit(limit_id, _payload(body))}
@@ -501,7 +556,9 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
         return {"budgetRule": routing().upsert_budget_rule(_payload(body))}
 
     @router.patch("/budget-rules/{rule_id}", response_model=BudgetRuleResponse)
-    async def patch_budget_rule(rule_id: str, body: BudgetRulePatchRequest, request: Request) -> dict[str, Any]:
+    async def patch_budget_rule(
+        rule_id: str, body: BudgetRulePatchRequest, request: Request
+    ) -> dict[str, Any]:
         require_write(request)
         try:
             return {"budgetRule": routing().patch_budget_rule(rule_id, _payload(body))}

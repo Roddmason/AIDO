@@ -3,6 +3,7 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -19,6 +20,7 @@ from .control_plane.runtime import ControlCenterRuntime
 from .shared.settings import default_db_path
 from .worker import ConcurrentWorker
 
+
 def configure_windows_event_loop_policy(platform_name: str = os.name) -> bool:
     if platform_name != "nt":
         return False
@@ -27,6 +29,7 @@ def configure_windows_event_loop_policy(platform_name: str = os.name) -> bool:
         return False
     asyncio.set_event_loop_policy(selector_policy())
     return True
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Local Control Center Python backend")
@@ -42,6 +45,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--db-path", default=str(default_db_path()))
     parser.add_argument("--static-dir", default=str(Path("local-control-center") / "dist" / "web"))
     return parser.parse_args()
+
 
 def main() -> None:
     configure_windows_event_loop_policy()

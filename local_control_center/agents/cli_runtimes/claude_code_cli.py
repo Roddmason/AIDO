@@ -3,13 +3,13 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 import os
 import sqlite3
 
 from .base import CliRuntime, RuntimeRequest
-
 
 CLAUDE_PROFILES = {
     "claude_sonnet_developer": {"model": "sonnet", "effort": "medium"},
@@ -32,7 +32,9 @@ class ClaudeCodeCliRuntime(CliRuntime):
         connection: sqlite3.Connection | None = None,
     ):
         super().__init__(
-            executable=executable or os.environ.get("AIDO_CLAUDE_COMMAND") or os.environ.get("CLAUDE_CODE_CLI_PATH", "claude"),
+            executable=executable
+            or os.environ.get("AIDO_CLAUDE_COMMAND")
+            or os.environ.get("CLAUDE_CODE_CLI_PATH", "claude"),
             connection=connection,
         )
 
@@ -41,7 +43,14 @@ class ClaudeCodeCliRuntime(CliRuntime):
         self._validate_safe_args(request)
         profile = CLAUDE_PROFILES.get(request.profile or "", {})
         model = request.model or profile.get("model")
-        command = [self.executable, "--print", "--permission-mode", "acceptEdits", "--add-dir", str(workspace)]
+        command = [
+            self.executable,
+            "--print",
+            "--permission-mode",
+            "acceptEdits",
+            "--add-dir",
+            str(workspace),
+        ]
         if model:
             command.extend(["--model", str(model)])
         command.extend(request.extra_args)

@@ -3,6 +3,7 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -42,7 +43,11 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         event_bus().record_event(
             project_id=pipeline["projectId"],
             event_type="pipeline.created",
-            payload={"pipelineId": pipeline["id"], "sessionId": pipeline["sessionId"], "chatId": pipeline["chatId"]},
+            payload={
+                "pipelineId": pipeline["id"],
+                "sessionId": pipeline["sessionId"],
+                "chatId": pipeline["chatId"],
+            },
         )
         return PipelineResponse(pipeline=pipeline)
 

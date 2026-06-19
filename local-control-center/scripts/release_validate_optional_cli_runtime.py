@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 # ruff: noqa: E402
-
 import argparse
 import json
 import os
@@ -10,7 +9,7 @@ import subprocess
 import sys
 import traceback
 from collections.abc import Mapping
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -24,7 +23,6 @@ from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.serialization import json_dumps
 from local_control_center.shared.time import utc_now
 from local_control_center.workflows.issue_to_patch_runner import IssueToPatchRunner
-
 
 RUNTIME_SPECS: dict[str, dict[str, Any]] = {
     "openhands": {
@@ -82,7 +80,9 @@ def required_environment_errors(runtime_id: str, environ: Mapping[str, str]) -> 
     if not str(environ.get(command_env) or "").strip().strip('"'):
         errors.append(f"{command_env} is required for {spec['displayName']} release validation.")
     if str(environ.get("AIDO_ENABLE_CLI_RUNTIMES") or "").strip().lower() != "true":
-        errors.append(f"AIDO_ENABLE_CLI_RUNTIMES=true is required for {spec['displayName']} release validation.")
+        errors.append(
+            f"AIDO_ENABLE_CLI_RUNTIMES=true is required for {spec['displayName']} release validation."
+        )
     argv_error = explicit_argv_error(runtime_id, environ)
     if argv_error:
         errors.append(argv_error)
@@ -98,7 +98,11 @@ def explicit_argv_error(runtime_id: str, environ: Mapping[str, str]) -> str | No
         parsed = json.loads(raw)
     except json.JSONDecodeError as error:
         return f"{spec['argvEnv']} must be valid JSON: {error.msg}."
-    if not isinstance(parsed, list) or not parsed or not all(isinstance(item, str) and item for item in parsed):
+    if (
+        not isinstance(parsed, list)
+        or not parsed
+        or not all(isinstance(item, str) and item for item in parsed)
+    ):
         return f"{spec['argvEnv']} must be a non-empty JSON array of strings."
     executable_name = Path(str(parsed[0])).name.lower()
     required_tokens = spec["executableTokens"]
@@ -108,7 +112,9 @@ def explicit_argv_error(runtime_id: str, environ: Mapping[str, str]) -> str | No
 
 
 def release_result_contract_errors(result: Mapping[str, Any], runtime_id: str | None = None) -> list[str]:
-    expected_runtime = runtime_id or str(((result.get("runtime") or {}) if isinstance(result.get("runtime"), Mapping) else {}).get("id") or "")
+    expected_runtime = runtime_id or str(
+        ((result.get("runtime") or {}) if isinstance(result.get("runtime"), Mapping) else {}).get("id") or ""
+    )
     if expected_runtime not in RUNTIME_SPECS:
         expected_runtime = "openhands"
     spec = _spec(expected_runtime)
@@ -120,8 +126,12 @@ def release_result_contract_errors(result: Mapping[str, Any], runtime_id: str | 
     evidence = result.get("evidencePackage") if isinstance(result.get("evidencePackage"), Mapping) else {}
     qa_results = result.get("qaResults") if isinstance(result.get("qaResults"), list) else []
     tool_calls = evidence.get("toolCalls") if isinstance(evidence.get("toolCalls"), list) else []
-    policy_decisions = evidence.get("policyDecisions") if isinstance(evidence.get("policyDecisions"), list) else []
-    tool_call_ids = {str(item.get("id")) for item in tool_calls if isinstance(item, Mapping) and item.get("id")}
+    policy_decisions = (
+        evidence.get("policyDecisions") if isinstance(evidence.get("policyDecisions"), list) else []
+    )
+    tool_call_ids = {
+        str(item.get("id")) for item in tool_calls if isinstance(item, Mapping) and item.get("id")
+    }
     allowed_policy_ids = {
         str(item.get("id"))
         for item in policy_decisions
@@ -133,7 +143,9 @@ def release_result_contract_errors(result: Mapping[str, Any], runtime_id: str | 
     if runtime.get("id") != expected_runtime or runtime.get("kind") != "cli":
         errors.append(f"Runtime must be {expected_runtime} with cli kind.")
     if "issue_to_patch" not in set(runtime.get("capabilities") or []):
-        errors.append(f"{spec['displayName']} runtime must advertise issue_to_patch only for this validated contract.")
+        errors.append(
+            f"{spec['displayName']} runtime must advertise issue_to_patch only for this validated contract."
+        )
     if not (runtime.get("safety") or {}).get("workspaceBound"):
         errors.append("Runtime safety must be workspace-bound.")
     if runtime_result.get("status") != "completed" or runtime_result.get("returnCode") != 0:
@@ -148,7 +160,9 @@ def release_result_contract_errors(result: Mapping[str, Any], runtime_id: str | 
     if not stderr_artifact_id:
         errors.append("Runtime stderr artifact is required.")
 
-    changed_files = diff_summary.get("changedFiles") if isinstance(diff_summary.get("changedFiles"), list) else []
+    changed_files = (
+        diff_summary.get("changedFiles") if isinstance(diff_summary.get("changedFiles"), list) else []
+    )
     patch_size = int(diff_summary.get("patchSizeBytes") or 0)
     if not changed_files or patch_size <= 0 or not diff_summary.get("patchArtifactId"):
         errors.append(f"{spec['displayName']} issue_to_patch must produce a non-empty patch artifact.")
@@ -167,11 +181,19 @@ def release_result_contract_errors(result: Mapping[str, Any], runtime_id: str | 
             errors.append(f"QA result {index} is missing toolCallId.")
         elif tool_call_ids and tool_call_id not in tool_call_ids:
             errors.append(f"QA result {index} toolCallId is not linked in the evidence package.")
-        hashes = qa_result.get("artifactHashes") if isinstance(qa_result.get("artifactHashes"), Mapping) else {}
-        if not hashes.get("stdoutHash") or not hashes.get("stderrHash") or not hashes.get("outputArtifactHash"):
+        hashes = (
+            qa_result.get("artifactHashes") if isinstance(qa_result.get("artifactHashes"), Mapping) else {}
+        )
+        if (
+            not hashes.get("stdoutHash")
+            or not hashes.get("stderrHash")
+            or not hashes.get("outputArtifactHash")
+        ):
             errors.append(f"QA result {index} is missing stdout/stderr/output artifact hashes.")
         metadata = qa_result.get("metadata") if isinstance(qa_result.get("metadata"), Mapping) else {}
-        policy_decision_id = str(metadata.get("permissionDecisionId") or metadata.get("policyDecisionId") or "")
+        policy_decision_id = str(
+            metadata.get("permissionDecisionId") or metadata.get("policyDecisionId") or ""
+        )
         if not policy_decision_id:
             errors.append(f"QA result {index} is missing policy decision reference.")
         elif allowed_policy_ids and policy_decision_id not in allowed_policy_ids:
@@ -180,7 +202,13 @@ def release_result_contract_errors(result: Mapping[str, Any], runtime_id: str | 
     artifacts = evidence.get("artifacts") if isinstance(evidence.get("artifacts"), list) else []
     artifact_names = {artifact.get("name") for artifact in artifacts if isinstance(artifact, Mapping)}
     artifact_ids = {artifact.get("id") for artifact in artifacts if isinstance(artifact, Mapping)}
-    required_artifacts = {"diff.patch", "qa-results.json", "issue-to-patch-evidence.json", "stdout.log", "stderr.log"}
+    required_artifacts = {
+        "diff.patch",
+        "qa-results.json",
+        "issue-to-patch-evidence.json",
+        "stdout.log",
+        "stderr.log",
+    }
     missing_artifacts = sorted(required_artifacts - artifact_names)
     if stdout_artifact_id and stdout_artifact_id not in artifact_ids:
         errors.append("Runtime stdout artifact must be linked in the evidence package.")
@@ -194,7 +222,9 @@ def release_result_contract_errors(result: Mapping[str, Any], runtime_id: str | 
         errors.append(f"Evidence package must be linked to {expected_runtime}.")
     if missing_artifacts:
         errors.append("Evidence package is missing required artifacts: " + ", ".join(missing_artifacts) + ".")
-    if not artifacts or any(not artifact.get("hash") for artifact in artifacts if isinstance(artifact, Mapping)):
+    if not artifacts or any(
+        not artifact.get("hash") for artifact in artifacts if isinstance(artifact, Mapping)
+    ):
         errors.append("Evidence package artifacts must include SHA-256 hashes.")
     if not evidence.get("hashes"):
         errors.append("Evidence package must include artifact hashes.")
@@ -206,7 +236,7 @@ def release_result_contract_errors(result: Mapping[str, Any], runtime_id: str | 
 
 
 def _utc_slug() -> str:
-    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    return datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
 
 
 def _default_work_root(runtime_id: str) -> Path:
@@ -239,7 +269,9 @@ def _run_checked(argv: list[str], *, cwd: Path) -> str:
 
 def _create_validation_git_repo(work_root: Path, runtime_id: str) -> Path:
     if not shutil.which("git"):
-        raise ReleaseValidationError("git CLI is required to create the real temporary validation repository.")
+        raise ReleaseValidationError(
+            "git CLI is required to create the real temporary validation repository."
+        )
     spec = _spec(runtime_id)
     repo_path = work_root / "source-repo"
     repo_path.mkdir(parents=True, exist_ok=False)
@@ -307,8 +339,12 @@ def _build_payload(*, runtime_id: str, project_id: str, title: str, issue_text: 
 
 def run_release_validation(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
     spec = _spec(args.runtime)
-    work_root = Path(args.work_root).resolve(strict=False) if args.work_root else _default_work_root(args.runtime)
-    report_path = Path(args.report_path).resolve(strict=False) if args.report_path else work_root / "report.json"
+    work_root = (
+        Path(args.work_root).resolve(strict=False) if args.work_root else _default_work_root(args.runtime)
+    )
+    report_path = (
+        Path(args.report_path).resolve(strict=False) if args.report_path else work_root / "report.json"
+    )
     started_at = utc_now()
     env_errors = required_environment_errors(args.runtime, os.environ)
     if env_errors:
@@ -337,7 +373,9 @@ def run_release_validation(args: argparse.Namespace) -> tuple[int, dict[str, Any
             "workRoot": str(work_root),
             "reportPath": str(report_path),
             "command": configured_command,
-            "errors": [f"{spec['displayName']} CLI command not found from {spec['commandEnv']}: {configured_command}"],
+            "errors": [
+                f"{spec['displayName']} CLI command not found from {spec['commandEnv']}: {configured_command}"
+            ],
         }
 
     runtime: ControlCenterRuntime | None = None
@@ -410,10 +448,18 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     if "--" in normalized_argv:
         separator_index = normalized_argv.index("--")
         normalized_argv = normalized_argv[:separator_index] + normalized_argv[separator_index + 1 :]
-    parser = argparse.ArgumentParser(description="Run real optional CLI release validation through issue_to_patch.")
+    parser = argparse.ArgumentParser(
+        description="Run real optional CLI release validation through issue_to_patch."
+    )
     parser.add_argument("--runtime", choices=sorted(RUNTIME_SPECS), required=True)
-    parser.add_argument("--work-root", default="", help="Directory for the temporary DB, source repo, worktree, and artifacts.")
-    parser.add_argument("--report-path", default="", help="JSON report path. Defaults to <work-root>/report.json.")
+    parser.add_argument(
+        "--work-root",
+        default="",
+        help="Directory for the temporary DB, source repo, worktree, and artifacts.",
+    )
+    parser.add_argument(
+        "--report-path", default="", help="JSON report path. Defaults to <work-root>/report.json."
+    )
     parser.add_argument("--title", default="")
     parser.add_argument("--issue-text", default="")
     return parser.parse_args(normalized_argv)

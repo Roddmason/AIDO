@@ -3,6 +3,7 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 from pydantic import BaseModel, Field
@@ -23,7 +24,6 @@ from local_control_center.integrations.models import IdeConnectionRecord, McpSer
 from local_control_center.jobs_approvals.models import ActionRequestRecord, JobRecord, JobRunRecord
 from local_control_center.memory_retrieval.models import MemoryItemRecord
 from local_control_center.pipelines.models import PipelineRecord
-from local_control_center.prompts.models import PromptTemplateRecord
 from local_control_center.projects.models import (
     CatalogAgentRecord,
     ProjectRecord,
@@ -31,6 +31,7 @@ from local_control_center.projects.models import (
     ProviderRecord,
     TeamRecord,
 )
+from local_control_center.prompts.models import PromptTemplateRecord
 from local_control_center.security_policy.models import (
     PermissionDecisionRecord,
     PermissionGrantRecord,
@@ -39,7 +40,12 @@ from local_control_center.security_policy.models import (
 )
 from local_control_center.sessions_chats.models import ChatRecord, SessionRecord
 from local_control_center.shared.schemas import AuditEventRecord, EventRecord
-from local_control_center.workflows.models import WorkflowEventRecord, WorkflowRecord, WorkflowRunRecord, WorkflowStepRecord
+from local_control_center.workflows.models import (
+    WorkflowEventRecord,
+    WorkflowRecord,
+    WorkflowRunRecord,
+    WorkflowStepRecord,
+)
 from local_control_center.workspaces_projects.models import WorkspaceRecord
 
 

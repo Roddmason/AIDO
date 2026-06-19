@@ -5,7 +5,6 @@ from pathlib import Path
 
 from local_control_center.security_policy.policy_engine import evaluate_action
 
-
 ROOT = Path(__file__).resolve().parents[1]
 PRODUCT_ROOT = ROOT / "local_control_center"
 
@@ -102,7 +101,9 @@ def test_product_workflows_do_not_bypass_tool_broker_with_direct_sandbox_executi
         source = path.read_text(encoding="utf-8")
         if rel in APPROVED_SANDBOX_EXECUTION_FILES:
             continue
-        if "RestrictedSubprocessSandbox" in source and (".execute(" in source or ".execute_with_input(" in source):
+        if "RestrictedSubprocessSandbox" in source and (
+            ".execute(" in source or ".execute_with_input(" in source
+        ):
             violations.append(rel)
 
     assert violations == []

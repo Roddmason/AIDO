@@ -3,6 +3,7 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -12,7 +13,12 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from local_control_center.evidence.artifacts import artifact_hashes, artifact_records_from_ids, artifact_ref, write_text_artifact
+from local_control_center.evidence.artifacts import (
+    artifact_hashes,
+    artifact_records_from_ids,
+    artifact_ref,
+    write_text_artifact,
+)
 from local_control_center.evidence.quality import evidence_package_contract_errors
 from local_control_center.evidence.repository import EvidenceRepository
 from local_control_center.jobs_approvals.repository import JobsRepository
@@ -22,7 +28,6 @@ from local_control_center.workspaces_projects.repository import WorkspacesReposi
 
 from .repository import AgentsRepository
 from .tool_broker import ToolBroker
-
 
 QA_AGENT_ID = "qa_agent"
 QA_AGENT_ALLOWED_TOOLS = ["shell"]
@@ -51,7 +56,11 @@ def qa_agent_contract() -> dict[str, Any]:
                             "label": {"type": "string"},
                             "argv": {"type": "array", "items": {"type": "string"}},
                             "critical": {"type": "boolean"},
-                            "timeoutSeconds": {"type": "integer", "minimum": 1, "maximum": QA_MAX_TIMEOUT_SECONDS},
+                            "timeoutSeconds": {
+                                "type": "integer",
+                                "minimum": 1,
+                                "maximum": QA_MAX_TIMEOUT_SECONDS,
+                            },
                         },
                     },
                 },
@@ -141,9 +150,13 @@ def discover_qa_commands(workspace_path: str | Path) -> list[dict[str, Any]]:
     tests_py = workspace / "tests_py"
     tests = workspace / "tests"
     if tests_py.exists() and tests_py.is_dir():
-        commands.append({"label": "Python tests", "argv": ["uv", "run", "pytest", "tests_py", "-q"], "critical": True})
+        commands.append(
+            {"label": "Python tests", "argv": ["uv", "run", "pytest", "tests_py", "-q"], "critical": True}
+        )
     elif tests.exists() and tests.is_dir():
-        commands.append({"label": "Python tests", "argv": ["uv", "run", "pytest", "tests", "-q"], "critical": True})
+        commands.append(
+            {"label": "Python tests", "argv": ["uv", "run", "pytest", "tests", "-q"], "critical": True}
+        )
 
     package_json = workspace / "package.json"
     if package_json.exists() and package_json.is_file():
@@ -151,7 +164,7 @@ def discover_qa_commands(workspace_path: str | Path) -> list[dict[str, Any]]:
             scripts = (json.loads(package_json.read_text(encoding="utf-8")).get("scripts") or {}).keys()
         except (OSError, json.JSONDecodeError):
             scripts = []
-        script_names = set(str(item) for item in scripts)
+        script_names = {str(item) for item in scripts}
         for label, candidates in (
             ("Web tests", ("test:web", "test")),
             ("Build", ("build:control-center", "build:web", "build")),
@@ -183,7 +196,11 @@ def qa_verdict_allows_completion(verdict: str, results: list[dict[str, Any]]) ->
         if not result.get("toolCallId"):
             return False
         hashes = result.get("artifactHashes") or {}
-        if not hashes.get("stdoutHash") or not hashes.get("stderrHash") or not hashes.get("outputArtifactHash"):
+        if (
+            not hashes.get("stdoutHash")
+            or not hashes.get("stderrHash")
+            or not hashes.get("outputArtifactHash")
+        ):
             return False
     return True
 
@@ -243,7 +260,9 @@ class QAAgentRunner:
     ) -> dict[str, Any]:
         artifact_id = f"artifact-{uuid.uuid4()}"
         content = json_dumps(redact_secrets({"kind": "qa_command_result", **result}))
-        artifact = write_text_artifact(root=self.root, artifact_id=artifact_id, suffix=".qa.json", content=content)
+        artifact = write_text_artifact(
+            root=self.root, artifact_id=artifact_id, suffix=".qa.json", content=content
+        )
         return self.evidence.create_artifact(
             artifact_id=artifact_id,
             project_id=project_id,
@@ -300,8 +319,12 @@ class QAAgentRunner:
             "reason": reason,
             "durationMs": execution_result.get("durationMs"),
             "toolCallId": tool_call.get("id"),
-            "stdout": execution_result.get("stdout") if isinstance(execution_result.get("stdout"), str) else "",
-            "stderr": execution_result.get("stderr") if isinstance(execution_result.get("stderr"), str) else "",
+            "stdout": execution_result.get("stdout")
+            if isinstance(execution_result.get("stdout"), str)
+            else "",
+            "stderr": execution_result.get("stderr")
+            if isinstance(execution_result.get("stderr"), str)
+            else "",
             "stdoutArtifactId": execution_result.get("stdoutArtifactId"),
             "stderrArtifactId": execution_result.get("stderrArtifactId"),
             "artifactHashes": {
@@ -425,7 +448,9 @@ class QAAgentRunner:
 
     def attach_artifacts_to_evidence(self, *, evidence_id: str, artifact_ids: list[str]) -> None:
         for artifact_id in sorted(set(artifact_ids)):
-            self.evidence.attach_artifact_to_evidence(artifact_id=artifact_id, evidence_package_id=evidence_id)
+            self.evidence.attach_artifact_to_evidence(
+                artifact_id=artifact_id, evidence_package_id=evidence_id
+            )
 
     def run(self, payload: dict[str, Any]) -> dict[str, Any]:
         project_id = str(payload["projectId"])
@@ -459,8 +484,7 @@ class QAAgentRunner:
         ]
         qa_runtime_available = bool(qa_run["results"])
         qa_runtime_executable = any(
-            bool(result.get("executed")) and not bool(result.get("blocked"))
-            for result in qa_run["results"]
+            bool(result.get("executed")) and not bool(result.get("blocked")) for result in qa_run["results"]
         )
         evidence = self.evidence.create_evidence_package(
             project_id=project_id,
@@ -517,7 +541,9 @@ class QAAgentRunner:
         if completed and contract_errors:
             completed = False
             qa_run["verdict"] = "blocked"
-            qa_run["reason"] = "Evidence package contract is incomplete or unverifiable: " + " ".join(contract_errors)
+            qa_run["reason"] = "Evidence package contract is incomplete or unverifiable: " + " ".join(
+                contract_errors
+            )
             evidence = self.evidence.update_evidence_links(
                 evidence["id"],
                 qa_verdict=qa_run["verdict"],

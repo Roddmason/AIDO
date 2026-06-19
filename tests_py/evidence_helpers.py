@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from typing import Any
 
-
 REAL_QA_HASH = "a" * 64
 
 

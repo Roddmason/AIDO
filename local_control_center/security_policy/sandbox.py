@@ -3,14 +3,14 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
+import shutil
 import subprocess
 import time
-import shutil
 from pathlib import Path
 from typing import Any
-
 
 ALLOWED_EXECUTABLES = {
     "claude",
@@ -143,7 +143,11 @@ def run_version_check(
     cwd: str | None = None,
     timeout_seconds: int = 5,
 ) -> dict[str, Any]:
-    if not isinstance(argv, list) or len(argv) != 2 or not all(isinstance(item, str) and item for item in argv):
+    if (
+        not isinstance(argv, list)
+        or len(argv) != 2
+        or not all(isinstance(item, str) and item for item in argv)
+    ):
         return {
             "executed": False,
             "blocked": True,

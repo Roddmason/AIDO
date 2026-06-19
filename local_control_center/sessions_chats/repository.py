@@ -3,6 +3,7 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -10,7 +11,6 @@ import uuid
 from typing import Any
 
 from local_control_center.shared.serialization import json_dumps, json_loads
-
 from local_control_center.shared.time import utc_now
 
 
@@ -108,5 +108,3 @@ class SessionsChatsRepository:
         else:
             rows = self.connection.execute("SELECT * FROM chats ORDER BY created_at DESC").fetchall()
         return [row_to_chat(row) for row in rows]
-
-

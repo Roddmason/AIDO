@@ -2,7 +2,6 @@ import json
 import re
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 WEB = ROOT / "local-control-center" / "web"
 SRC = WEB / "src"
@@ -19,7 +18,11 @@ def test_editorial_design_context_is_documented() -> None:
 
     source = read(context)
     assert "## Design Context" in source
-    assert "small team" in source.lower() or "equipo pequeno" in source.lower() or "equipo pequeño" in source.lower()
+    assert (
+        "small team" in source.lower()
+        or "equipo pequeno" in source.lower()
+        or "equipo pequeño" in source.lower()
+    )
     assert "editorial premium" in source.lower()
     assert "Windows" in source
     assert "traceability" in source.lower() or "trazabilidad" in source.lower()
@@ -58,9 +61,7 @@ def test_frontend_feature_slices_are_explicit() -> None:
 
 def test_dashboard_reads_v1_overview_without_removed_state_contract() -> None:
     web_sources = "\n".join(
-        read(path)
-        for path in SRC.rglob("*")
-        if path.is_file() and path.suffix in {".ts", ".tsx"}
+        read(path) for path in SRC.rglob("*") if path.is_file() and path.suffix in {".ts", ".tsx"}
     )
     removed_state_route = "/api/" + "state"
     removed_workspace_key = "workspace" + "State"
@@ -100,7 +101,10 @@ def test_stable_frontend_artifact_and_retrieval_surfaces_are_not_dictionary_type
 
     assert "RetrievalStatusResponse" in types_source
     assert "ArtifactRecord" in types_source
-    assert "requestGeneratedOperation<'retrieval_status_api_v1_retrieval_status_get', RetrievalStatus>" in client_source
+    assert (
+        "requestGeneratedOperation<'retrieval_status_api_v1_retrieval_status_get', RetrievalStatus>"
+        in client_source
+    )
     assert "RetrievalStatus" in hook_source
     assert "retrievalStatus: RetrievalStatus | null" in hook_source
     assert "retrievalStatus: Dictionary | null" not in hook_source
@@ -127,10 +131,21 @@ def test_frontend_mutation_helpers_use_generated_request_response_types() -> Non
     client_source = read(SRC / "api" / "client.ts")
 
     assert "OperationRequestBody" in client_source
-    assert "type MutationBody<TOperationId extends ApiOperationId> = OperationRequestBody<TOperationId>" in client_source
-    assert "requestGeneratedOperation<'approve_action_api_v1_jobs__job_id__actions__action_id__approve_post', Dictionary>" not in client_source
-    assert "requestGeneratedOperation<'create_workflow_api_v1_workflows_post', Dictionary>" not in client_source
-    assert "requestGeneratedOperation<'upsert_agent_profile_api_v1_agent_profiles_post', Dictionary>" not in client_source
+    assert (
+        "type MutationBody<TOperationId extends ApiOperationId> = OperationRequestBody<TOperationId>"
+        in client_source
+    )
+    assert (
+        "requestGeneratedOperation<'approve_action_api_v1_jobs__job_id__actions__action_id__approve_post', Dictionary>"
+        not in client_source
+    )
+    assert (
+        "requestGeneratedOperation<'create_workflow_api_v1_workflows_post', Dictionary>" not in client_source
+    )
+    assert (
+        "requestGeneratedOperation<'upsert_agent_profile_api_v1_agent_profiles_post', Dictionary>"
+        not in client_source
+    )
     assert "body: MutationBody<'create_workflow_api_v1_workflows_post'>" in client_source
     assert "body: MutationBody<'upsert_agent_profile_api_v1_agent_profiles_post'>" in client_source
     assert "body: MutationBody<'create_role_policy_api_v1_model_gateway_role_policies_post'>" in client_source
@@ -225,7 +240,9 @@ def test_visual_guardrails_reject_generic_ai_dashboard_patterns() -> None:
     assert "Aptos" in combined
     assert "Cascadia Code" in combined
 
-    side_stripe_pattern = re.compile(r"border-(left|right)\s*:\s*(?!0(?:px)?\b|1px\b)(?:[2-9]|\d{2,})px", re.I)
+    side_stripe_pattern = re.compile(
+        r"border-(left|right)\s*:\s*(?!0(?:px)?\b|1px\b)(?:[2-9]|\d{2,})px", re.I
+    )
     assert side_stripe_pattern.search(combined) is None
 
 

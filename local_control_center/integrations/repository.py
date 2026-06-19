@@ -3,15 +3,15 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 import sqlite3
 import uuid
 from typing import Any
 
-from local_control_center.shared.time import utc_now
-
 from local_control_center.shared.serialization import json_dumps, json_loads
+from local_control_center.shared.time import utc_now
 
 
 def row_to_ide_connection(row: sqlite3.Row) -> dict[str, Any]:
@@ -117,7 +117,9 @@ class IntegrationsRepository:
         return self.get_ide_connection(connection_id)
 
     def get_ide_connection(self, connection_id: str) -> dict[str, Any]:
-        row = self.connection.execute("SELECT * FROM ide_connections WHERE id = ?", (connection_id,)).fetchone()
+        row = self.connection.execute(
+            "SELECT * FROM ide_connections WHERE id = ?", (connection_id,)
+        ).fetchone()
         if not row:
             raise KeyError(f"IDE connection not found: {connection_id}")
         return row_to_ide_connection(row)
@@ -129,7 +131,9 @@ class IntegrationsRepository:
                 (project_id,),
             ).fetchall()
         else:
-            rows = self.connection.execute("SELECT * FROM ide_connections ORDER BY updated_at DESC").fetchall()
+            rows = self.connection.execute(
+                "SELECT * FROM ide_connections ORDER BY updated_at DESC"
+            ).fetchall()
         return [row_to_ide_connection(row) for row in rows]
 
     def list_integrations(self) -> list[dict[str, Any]]:
@@ -169,5 +173,3 @@ class IntegrationsRepository:
     def list_mcp_servers(self) -> list[dict[str, Any]]:
         rows = self.connection.execute("SELECT * FROM mcp_servers ORDER BY updated_at DESC").fetchall()
         return [row_to_mcp_server(row) for row in rows]
-
-

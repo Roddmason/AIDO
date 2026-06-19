@@ -42,7 +42,9 @@ def test_phase2_schema_adds_control_plane_foundation_tables(tmp_path: Path) -> N
     } <= tables
 
 
-def test_workflows_policy_evidence_agents_and_model_policy_routes_are_real(tmp_path: Path, monkeypatch) -> None:
+def test_workflows_policy_evidence_agents_and_model_policy_routes_are_real(
+    tmp_path: Path, monkeypatch
+) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
     store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
     store.init()
@@ -60,12 +62,16 @@ def test_workflows_policy_evidence_agents_and_model_policy_routes_are_real(tmp_p
     workflow_id = workflow.json()["workflow"]["id"]
     assert workflow.json()["workflow"]["status"] == "queued"
 
-    started = client.post(f"/api/v1/workflows/{workflow_id}/start", json={"reason": "phase2 test"}, headers=headers)
+    started = client.post(
+        f"/api/v1/workflows/{workflow_id}/start", json={"reason": "phase2 test"}, headers=headers
+    )
     assert started.status_code == 202
     assert started.json()["workflowRun"]["status"] == "running"
     assert {step["name"] for step in started.json()["workflowSteps"]} >= {"idea_intake", "project_discovery"}
 
-    paused = client.post(f"/api/v1/workflows/{workflow_id}/pause", json={"reason": "human check"}, headers=headers)
+    paused = client.post(
+        f"/api/v1/workflows/{workflow_id}/pause", json={"reason": "human check"}, headers=headers
+    )
     assert paused.status_code == 202
     assert paused.json()["workflow"]["status"] == "paused"
 

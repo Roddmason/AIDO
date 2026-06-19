@@ -3,12 +3,12 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 import hashlib
 from pathlib import Path
 from typing import Any
-
 
 IGNORED_PARTS = {
     ".git",

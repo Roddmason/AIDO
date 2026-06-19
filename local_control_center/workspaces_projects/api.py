@@ -3,6 +3,7 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -62,11 +63,17 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         event_bus().record_event(
             project_id=workspace["projectId"],
             event_type="workspace.created",
-            payload={"workspaceId": workspace["id"], "taskId": workspace["taskId"], "agentId": workspace["ownerAgentId"]},
+            payload={
+                "workspaceId": workspace["id"],
+                "taskId": workspace["taskId"],
+                "agentId": workspace["ownerAgentId"],
+            },
         )
         return WorkspaceResponse(workspace=workspace)
 
-    @router.post("/api/v1/workspaces/{workspace_id}/archive", status_code=202, response_model=WorkspaceArchiveResponse)
+    @router.post(
+        "/api/v1/workspaces/{workspace_id}/archive", status_code=202, response_model=WorkspaceArchiveResponse
+    )
     async def archive_workspace(
         workspace_id: str, body: WorkspaceArchiveRequest, request: Request
     ) -> WorkspaceArchiveResponse:

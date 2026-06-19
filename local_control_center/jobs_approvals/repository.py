@@ -3,12 +3,14 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
-import sqlite3
 import shlex
+import sqlite3
 import uuid
-from typing import Any, Iterable
+from collections.abc import Iterable
+from typing import Any
 
 from local_control_center.security_policy.repository import SecurityPolicyRepository
 from local_control_center.shared.event_bus import EventBus
@@ -158,7 +160,11 @@ class JobsRepository:
                 timestamp,
             ),
         )
-        events = [self.record_event(project_id=project_id, job_id=job_id, event_type="job.created", payload={"kind": kind})]
+        events = [
+            self.record_event(
+                project_id=project_id, job_id=job_id, event_type="job.created", payload={"kind": kind}
+            )
+        ]
         action_requests: list[dict[str, Any]] = []
         if needs_approval:
             action_requests.append(
@@ -194,7 +200,9 @@ class JobsRepository:
 
     def list_jobs(self, project_id: str | None = None) -> list[dict[str, Any]]:
         if project_id:
-            rows = self._query("SELECT * FROM jobs WHERE project_id = ? ORDER BY created_at DESC", (project_id,))
+            rows = self._query(
+                "SELECT * FROM jobs WHERE project_id = ? ORDER BY created_at DESC", (project_id,)
+            )
         else:
             rows = self._query("SELECT * FROM jobs ORDER BY created_at DESC")
         return [row_to_job(row) for row in rows]
@@ -235,7 +243,9 @@ class JobsRepository:
             clean_payload["commandArgv"] = (
                 [str(item) for item in payload_argv]
                 if isinstance(payload_argv, list)
-                else [] if _payload_requests_execution(clean_payload) else _command_argv(clean_command)
+                else []
+                if _payload_requests_execution(clean_payload)
+                else _command_argv(clean_command)
             )
         expires_at = expires_at or add_millis(ACTION_REQUEST_TTL_MS)
         self.connection.execute(
@@ -275,7 +285,9 @@ class JobsRepository:
 
     def list_action_requests(self, job_id: str | None = None) -> list[dict[str, Any]]:
         if job_id:
-            rows = self._query("SELECT * FROM action_requests WHERE job_id = ? ORDER BY requested_at ASC", (job_id,))
+            rows = self._query(
+                "SELECT * FROM action_requests WHERE job_id = ? ORDER BY requested_at ASC", (job_id,)
+            )
         else:
             rows = self._query("SELECT * FROM action_requests ORDER BY requested_at DESC")
         return [row_to_action_request(row) for row in rows]
@@ -296,14 +308,21 @@ class JobsRepository:
             action="job.approve",
             actor=actor,
             target=job_id,
-            payload=redact_secrets({"reason": reason, "granularActionsPending": len(self._pending_actions(job_id))}),
+            payload=redact_secrets(
+                {"reason": reason, "granularActionsPending": len(self._pending_actions(job_id))}
+            ),
         )
         if not self._pending_actions(job_id) and job["status"] == "approval_required":
             self.connection.execute(
                 "UPDATE jobs SET status = 'queued', updated_at = ? WHERE id = ?",
                 (utc_now(), job_id),
             )
-            self.record_event(project_id=job["projectId"], job_id=job_id, event_type="job.approved", payload={"reason": reason})
+            self.record_event(
+                project_id=job["projectId"],
+                job_id=job_id,
+                event_type="job.approved",
+                payload={"reason": reason},
+            )
         return {"job": self.get_job(job_id), "auditEvent": audit}
 
     def approve_action(
@@ -367,7 +386,9 @@ class JobsRepository:
                 "UPDATE jobs SET status = 'queued', updated_at = ? WHERE id = ?",
                 (timestamp, job_id),
             )
-            self.record_event(project_id=job["projectId"], job_id=job_id, event_type="job.approved", payload={})
+            self.record_event(
+                project_id=job["projectId"], job_id=job_id, event_type="job.approved", payload={}
+            )
         return {
             "job": self.get_job(job_id),
             "actionRequest": self.get_action_request(action_id),
@@ -405,7 +426,12 @@ class JobsRepository:
             (timestamp, job_id),
         )
         job = self.get_job(job_id)
-        self.record_event(project_id=job["projectId"], job_id=job_id, event_type="action.denied", payload={"actionRequestId": action_id})
+        self.record_event(
+            project_id=job["projectId"],
+            job_id=job_id,
+            event_type="action.denied",
+            payload={"actionRequestId": action_id},
+        )
         audit = self.record_audit(
             project_id=job["projectId"],
             action="action.deny",
@@ -421,7 +447,9 @@ class JobsRepository:
             "UPDATE jobs SET status = 'cancelled', lease_owner = NULL, lease_expires_at = NULL, updated_at = ? WHERE id = ?",
             (utc_now(), job_id),
         )
-        self.record_event(project_id=job["projectId"], job_id=job_id, event_type="job.cancelled", payload={"reason": reason})
+        self.record_event(
+            project_id=job["projectId"], job_id=job_id, event_type="job.cancelled", payload={"reason": reason}
+        )
         audit = self.record_audit(
             project_id=job["projectId"],
             action="job.cancel",
@@ -438,7 +466,9 @@ class JobsRepository:
             "UPDATE jobs SET status = ?, lease_owner = NULL, lease_expires_at = NULL, updated_at = ? WHERE id = ?",
             (status, utc_now(), job_id),
         )
-        self.record_event(project_id=job["projectId"], job_id=job_id, event_type="job.retried", payload={"reason": reason})
+        self.record_event(
+            project_id=job["projectId"], job_id=job_id, event_type="job.retried", payload={"reason": reason}
+        )
         audit = self.record_audit(
             project_id=job["projectId"],
             action="job.retry",
@@ -448,7 +478,9 @@ class JobsRepository:
         )
         return {"job": self.get_job(job_id), "auditEvent": audit}
 
-    def update_job_status(self, job_id: str, *, status: str, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
+    def update_job_status(
+        self, job_id: str, *, status: str, metadata: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         job = self.get_job(job_id)
         payload = dict(job["payload"] or {})
         if metadata is not None:
@@ -508,7 +540,12 @@ class JobsRepository:
             raise
         job = self.get_job(row["id"])
         run = row_to_job_run(self._query_one("SELECT * FROM job_runs WHERE id = ?", (run_id,)))
-        self.record_event(project_id=job["projectId"], job_id=job["id"], event_type="job.claimed", payload={"workerId": worker_id})
+        self.record_event(
+            project_id=job["projectId"],
+            job_id=job["id"],
+            event_type="job.claimed",
+            payload={"workerId": worker_id},
+        )
         return {"job": job, "run": run}
 
     def requeue_expired_jobs(self, *, now_iso: str | None = None) -> list[dict[str, Any]]:
@@ -634,5 +671,3 @@ class JobsRepository:
 
     def list_audit_events(self, project_id: str | None = None) -> list[dict[str, Any]]:
         return EventBus(self.connection).list_audit_events(project_id=project_id)
-
-

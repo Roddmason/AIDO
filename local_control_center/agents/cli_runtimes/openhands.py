@@ -3,6 +3,7 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
 import os
@@ -22,7 +23,9 @@ class OpenHandsRuntime(CliRuntime):
         connection: sqlite3.Connection | None = None,
     ):
         super().__init__(
-            executable=executable or os.environ.get("AIDO_OPENHANDS_COMMAND") or os.environ.get("OPENHANDS_CLI_PATH", "openhands"),
+            executable=executable
+            or os.environ.get("AIDO_OPENHANDS_COMMAND")
+            or os.environ.get("OPENHANDS_CLI_PATH", "openhands"),
             connection=connection,
         )
 

@@ -3,10 +3,11 @@
 Copyright (c) AIDO.
 Author: Roddmason.
 """
+
 from __future__ import annotations
 
-from collections.abc import Callable
 import re
+from collections.abc import Callable
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
@@ -47,7 +48,9 @@ async def read_json_body(request: Request) -> dict[str, Any]:
     try:
         body = await request.json()
     except ClientDisconnect as error:
-        raise HTTPException(status_code=499, detail="Client disconnected while sending request body.") from error
+        raise HTTPException(
+            status_code=499, detail="Client disconnected while sending request body."
+        ) from error
     if not isinstance(body, dict):
         raise HTTPException(status_code=422, detail="Request body must be a JSON object.")
     return body
@@ -58,15 +61,25 @@ def validate_sandbox_profile_patch(body: dict[str, Any]) -> dict[str, Any]:
     if "allowedImages" in patch:
         images = patch["allowedImages"]
         if not isinstance(images, list) or not images or not all(isinstance(item, str) for item in images):
-            raise HTTPException(status_code=422, detail="allowedImages must be a non-empty list of catalog image strings.")
+            raise HTTPException(
+                status_code=422, detail="allowedImages must be a non-empty list of catalog image strings."
+            )
         if any(not IMAGE_RE.match(item) or any(char.isspace() for char in item) for item in images):
-            raise HTTPException(status_code=422, detail="allowedImages contains an invalid Docker image catalog value.")
+            raise HTTPException(
+                status_code=422, detail="allowedImages contains an invalid Docker image catalog value."
+            )
     if "allowedNetworks" in patch:
         networks = patch["allowedNetworks"]
-        if not isinstance(networks, list) or not networks or not all(isinstance(item, str) for item in networks):
+        if (
+            not isinstance(networks, list)
+            or not networks
+            or not all(isinstance(item, str) for item in networks)
+        ):
             raise HTTPException(status_code=422, detail="allowedNetworks must be a non-empty list.")
         if not set(networks) <= SAFE_DOCKER_NETWORKS:
-            raise HTTPException(status_code=422, detail="Sandbox network edits are limited to network=none in MVP.")
+            raise HTTPException(
+                status_code=422, detail="Sandbox network edits are limited to network=none in MVP."
+            )
     if "defaultNetwork" in patch:
         network = str(patch["defaultNetwork"])
         if network not in SAFE_DOCKER_NETWORKS:
@@ -225,7 +238,11 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         if payload.get("workspaceId"):
             try:
                 workspace = workspaces().get_workspace(payload["workspaceId"])
-                payload = {**payload, "workspacePath": workspace["path"], "workspaceStatus": workspace["status"]}
+                payload = {
+                    **payload,
+                    "workspacePath": workspace["path"],
+                    "workspaceStatus": workspace["status"],
+                }
             except KeyError:
                 payload = {**payload, "workspacePath": None, "workspaceStatus": "unknown"}
         result = evaluate_action(payload)

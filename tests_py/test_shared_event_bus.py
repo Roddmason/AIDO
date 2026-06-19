@@ -6,7 +6,6 @@ from local_control_center.projects.repository import ProjectsRepository
 from local_control_center.shared.db import open_sqlite_connection
 from local_control_center.shared.migrations import initialize_platform_schema
 
-
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -27,7 +26,9 @@ def test_shared_event_bus_records_and_lists_events_and_audit(tmp_path: Path) -> 
         )
         bus = EventBus(connection)
 
-        event = bus.record_event(project_id=project["id"], event_type="risk.created", payload={"riskId": "risk-1"})
+        event = bus.record_event(
+            project_id=project["id"], event_type="risk.created", payload={"riskId": "risk-1"}
+        )
         audit = bus.record_audit(
             project_id=project["id"],
             action="risk.create",

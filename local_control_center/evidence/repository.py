@@ -1,7 +1,9 @@
-"""AIDO backend source module.
+"""Persistencia SQLite de paquetes de evidencia, resultados de test y artefactos.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Traduce filas a dicts con claves camelCase y agrupa las escrituras de cada paquete. Las
+mutaciones usan la `connection` recibida del caller y NO hacen commit: el caller delimita la
+transacción (típicamente un INSERT de paquete + sus test_results + su qa_verdict deben confirmarse
+o revertirse juntos). Toda entrada se pasa por `redact_secrets` antes de serializarse a JSON.
 """
 
 from __future__ import annotations
@@ -28,6 +30,7 @@ def _redact_diff_refs(diff_refs: list[Any]) -> list[Any]:
 
 
 def row_to_evidence_package(row: sqlite3.Row) -> dict[str, Any]:
+    """Mapea una fila de `evidence_packages` al dict de API, tolerando columnas aún no migradas."""
     return {
         "id": row["id"],
         "projectId": row["project_id"],
@@ -64,6 +67,7 @@ def row_to_evidence_package(row: sqlite3.Row) -> dict[str, Any]:
 
 
 def row_to_test_result(row: sqlite3.Row) -> dict[str, Any]:
+    """Mapea una fila de `test_results` al dict de API con su metadata deserializada."""
     return {
         "id": row["id"],
         "projectId": row["project_id"],
@@ -78,6 +82,7 @@ def row_to_test_result(row: sqlite3.Row) -> dict[str, Any]:
 
 
 def row_to_artifact(row: sqlite3.Row) -> dict[str, Any]:
+    """Mapea una fila de `artifacts` al dict de API con su metadata deserializada."""
     return {
         "id": row["id"],
         "projectId": row["project_id"],
@@ -91,6 +96,8 @@ def row_to_artifact(row: sqlite3.Row) -> dict[str, Any]:
 
 
 class EvidenceRepository:
+    """Acceso de datos a paquetes de evidencia y sus tablas satélite sobre una conexión SQLite."""
+
     def __init__(self, connection: sqlite3.Connection):
         self.connection = connection
 
@@ -125,6 +132,12 @@ class EvidenceRepository:
         evidence_source: str = "operator_attested",
         qa_verdict: str = "not_started",
     ) -> dict[str, Any]:
+        """Inserta el paquete, una fila por testResult y su qa_verdict en la misma conexión.
+
+        Las tres escrituras forman una unidad lógica que el caller debe confirmar/revertir
+        atómicamente (este método no hace commit). Toda entrada se redacta antes de serializarse.
+        Devuelve el paquete recién leído.
+        """
         evidence_id = f"evidence-{uuid.uuid4()}"
         clean_acceptance = redact_secrets(acceptance_checklist or [])
         clean_test_results = redact_secrets(test_results or [])
@@ -224,6 +237,11 @@ class EvidenceRepository:
         return self.get_evidence_package(evidence_id)
 
     def get_evidence_package(self, evidence_id: str) -> dict[str, Any]:
+        """Lee un paquete por id.
+
+        Raises:
+            KeyError: si no existe ningún paquete con ese id.
+        """
         row = self.connection.execute(
             "SELECT * FROM evidence_packages WHERE id = ?", (evidence_id,)
         ).fetchone()
@@ -248,6 +266,11 @@ class EvidenceRepository:
         qa_verdict: str | None = None,
         risk_notes: list[Any] | None = None,
     ) -> dict[str, Any]:
+        """Aplica un UPDATE parcial sobre un paquete: los argumentos None conservan el valor actual.
+
+        Lee el estado vigente, mezcla solo los campos provistos y reescribe la fila en un único
+        UPDATE sobre la conexión del caller (sin commit). Devuelve el paquete actualizado.
+        """
         current = self.get_evidence_package(evidence_id)
         next_agent_run_id = agent_run_id if agent_run_id is not None else current.get("agentRunId")
         next_artifact_ids = artifact_ids if artifact_ids is not None else current.get("artifactIds", [])
@@ -298,6 +321,7 @@ class EvidenceRepository:
         return self.get_evidence_package(evidence_id)
 
     def list_test_results(self, evidence_id: str) -> list[dict[str, Any]]:
+        """Lista los resultados de test de un paquete en orden cronológico de creación."""
         rows = self.connection.execute(
             "SELECT * FROM test_results WHERE evidence_package_id = ? ORDER BY created_at ASC",
             (evidence_id,),
@@ -315,6 +339,10 @@ class EvidenceRepository:
         metadata: dict[str, Any] | None = None,
         artifact_id: str | None = None,
     ) -> dict[str, Any]:
+        """Inserta un artefacto (generando id si falta) y devuelve la fila persistida.
+
+        Un `evidence_package_id` None deja el artefacto sin enlazar, listo para adjuntarse luego.
+        """
         resolved_id = artifact_id or f"artifact-{uuid.uuid4()}"
         self.connection.execute(
             """
@@ -337,6 +365,7 @@ class EvidenceRepository:
         return row_to_artifact(row)
 
     def list_artifacts(self, evidence_id: str) -> list[dict[str, Any]]:
+        """Lista los artefactos enlazados a un paquete en orden cronológico de creación."""
         rows = self.connection.execute(
             "SELECT * FROM artifacts WHERE evidence_package_id = ? ORDER BY created_at ASC",
             (evidence_id,),
@@ -344,10 +373,16 @@ class EvidenceRepository:
         return [row_to_artifact(row) for row in rows]
 
     def list_all_artifacts(self) -> list[dict[str, Any]]:
+        """Lista todos los artefactos del store, enlazados o no, en orden de creación."""
         rows = self.connection.execute("SELECT * FROM artifacts ORDER BY created_at ASC").fetchall()
         return [row_to_artifact(row) for row in rows]
 
     def list_expired_referenced_artifacts(self, *, now_iso: str) -> list[dict[str, Any]]:
+        """Devuelve los artefactos enlazados cuyo `expiresAt` ya pasó respecto de `now_iso`.
+
+        Anota cada uno con `retentionStatus='expired'` y `expiresAt` para alimentar el plan de
+        retención. Los artefactos sin paquete o sin fecha de expiración se excluyen.
+        """
         expired: list[dict[str, Any]] = []
         for artifact in self.list_all_artifacts():
             if not artifact.get("evidencePackageId"):
@@ -359,6 +394,11 @@ class EvidenceRepository:
         return expired
 
     def get_artifact(self, *, evidence_id: str, artifact_id: str) -> dict[str, Any]:
+        """Lee un artefacto exigiendo que pertenezca al paquete indicado.
+
+        Raises:
+            KeyError: si el artefacto no existe o no está enlazado a ese paquete.
+        """
         row = self.connection.execute(
             "SELECT * FROM artifacts WHERE id = ? AND evidence_package_id = ?",
             (artifact_id, evidence_id),
@@ -368,12 +408,18 @@ class EvidenceRepository:
         return row_to_artifact(row)
 
     def get_artifact_by_id(self, artifact_id: str) -> dict[str, Any]:
+        """Lee un artefacto por id sin importar el paquete al que esté enlazado.
+
+        Raises:
+            KeyError: si no existe ningún artefacto con ese id.
+        """
         row = self.connection.execute("SELECT * FROM artifacts WHERE id = ?", (artifact_id,)).fetchone()
         if not row:
             raise KeyError(f"Artifact not found: {artifact_id}")
         return row_to_artifact(row)
 
     def update_artifact_metadata(self, *, artifact_id: str, metadata: dict[str, Any]) -> dict[str, Any]:
+        """Reemplaza la metadata de un artefacto (redactada) y devuelve la fila actualizada."""
         self.connection.execute(
             "UPDATE artifacts SET metadata = ? WHERE id = ?",
             (json_dumps(redact_secrets(metadata)), artifact_id),
@@ -381,12 +427,14 @@ class EvidenceRepository:
         return self.get_artifact_by_id(artifact_id)
 
     def attach_artifact_to_evidence(self, *, artifact_id: str, evidence_package_id: str) -> None:
+        """Enlaza un artefacto existente a un paquete reescribiendo su `evidence_package_id`."""
         self.connection.execute(
             "UPDATE artifacts SET evidence_package_id = ? WHERE id = ?",
             (evidence_package_id, artifact_id),
         )
 
     def list_all_test_results(self, project_id: str | None = None) -> list[dict[str, Any]]:
+        """Lista resultados de test (todos o de un proyecto) del más reciente al más antiguo."""
         if project_id:
             rows = self.connection.execute(
                 "SELECT * FROM test_results WHERE project_id = ? ORDER BY created_at DESC",
@@ -397,6 +445,7 @@ class EvidenceRepository:
         return [row_to_test_result(row) for row in rows]
 
     def list_evidence_packages(self, project_id: str | None = None) -> list[dict[str, Any]]:
+        """Lista paquetes de evidencia (todos o de un proyecto) del más reciente al más antiguo."""
         if project_id:
             rows = self.connection.execute(
                 "SELECT * FROM evidence_packages WHERE project_id = ? ORDER BY created_at DESC",
@@ -409,6 +458,7 @@ class EvidenceRepository:
         return [row_to_evidence_package(row) for row in rows]
 
     def list_evidence_for_workflow_runs(self, workflow_run_ids: list[str]) -> list[dict[str, Any]]:
+        """Lista los paquetes asociados a un conjunto de workflow runs; vacío si no se pide ninguno."""
         if not workflow_run_ids:
             return []
         placeholders = ",".join("?" for _ in workflow_run_ids)

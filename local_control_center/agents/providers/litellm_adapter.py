@@ -1,7 +1,8 @@
-"""AIDO backend source module.
+"""Expone un proxy/gateway LiteLLM a traves de su superficie compatible con OpenAI.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+LiteLLM unifica muchos backends tras una API estilo OpenAI; este adaptador hereda toda
+la mecanica de `OpenAICompatibleProvider` y solo distingue el proveedor por su id y la
+deteccion opcional del paquete `litellm`.
 """
 
 from __future__ import annotations
@@ -10,11 +11,14 @@ from .openai_compatible import OpenAICompatibleProvider
 
 
 class LiteLLMAdapter(OpenAICompatibleProvider):
+    """Adaptador para un gateway LiteLLM expuesto con API estilo OpenAI."""
+
     def __init__(self, *, base_url: str | None = None, credential_ref: str = "LITELLM_API_KEY"):
         super().__init__(provider_id="litellm", base_url=base_url, credential_ref=credential_ref)
 
     @staticmethod
     def available() -> bool:
+        """Indica si el SDK `litellm` esta instalado en el entorno."""
         try:
             import litellm  # noqa: F401
         except ImportError:

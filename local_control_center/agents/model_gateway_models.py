@@ -1,7 +1,8 @@
-"""AIDO backend source module.
+"""Modelos Pydantic del Model Gateway: cuentas, catálogo, precios, ruteo, uso y benchmarks.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Define el contrato de datos de la API del gateway de modelos: records persistidos, requests de
+upsert/patch (que aceptan campos extra vía GatewayFlexibleModel) y las respuestas envoltorio. Es solo
+esquema, sin lógica de negocio; los Field con alias fijan el camelCase con que viajan por HTTP.
 """
 
 from __future__ import annotations
@@ -16,10 +17,14 @@ BenchmarkProvenance = Literal["operator_reported", "automated_run", "release_val
 
 
 class GatewayFlexibleModel(BaseModel):
+    """Base Pydantic del gateway que admite campos extra y poblar por nombre o alias."""
+
     model_config = ConfigDict(populate_by_name=True, extra="allow")
 
 
 class ProviderAccountRecord(BaseModel):
+    """Cuenta de proveedor persistida con su credential ref, salud y metadatos."""
+
     id: str
     provider_id: str = Field(alias="providerId")
     display_name: str = Field(alias="displayName")
@@ -39,6 +44,8 @@ class ProviderAccountRecord(BaseModel):
 
 
 class ProviderAccountUpsertRequest(GatewayFlexibleModel):
+    """Payload para crear o reemplazar una cuenta de proveedor."""
+
     provider_id: str = Field(alias="providerId")
     display_name: str | None = Field(default=None, alias="displayName")
     provider_type: str = Field(default="api", alias="providerType")
@@ -51,6 +58,8 @@ class ProviderAccountUpsertRequest(GatewayFlexibleModel):
 
 
 class ProviderAccountPatchRequest(GatewayFlexibleModel):
+    """Payload para modificar parcialmente una cuenta de proveedor."""
+
     display_name: str | None = Field(default=None, alias="displayName")
     provider_type: str | None = Field(default=None, alias="providerType")
     api_format: str | None = Field(default=None, alias="apiFormat")
@@ -62,14 +71,20 @@ class ProviderAccountPatchRequest(GatewayFlexibleModel):
 
 
 class ProviderAccountResponse(BaseModel):
+    """Respuesta con una única cuenta de proveedor."""
+
     provider: ProviderAccountRecord
 
 
 class ProviderAccountsListResponse(BaseModel):
+    """Respuesta con el listado de cuentas de proveedor."""
+
     providers: list[ProviderAccountRecord]
 
 
 class ModelCatalogRecord(BaseModel):
+    """Modelo catalogado con sus capacidades, límites y precios por millón de tokens."""
+
     id: str
     provider_id: str = Field(alias="providerId")
     model: str
@@ -99,6 +114,8 @@ class ModelCatalogRecord(BaseModel):
 
 
 class ModelCatalogUpsertRequest(GatewayFlexibleModel):
+    """Payload para crear o reemplazar una entrada del catálogo de modelos."""
+
     provider_id: str = Field(alias="providerId")
     model: str
     display_name: str | None = Field(default=None, alias="displayName")
@@ -125,6 +142,8 @@ class ModelCatalogUpsertRequest(GatewayFlexibleModel):
 
 
 class ModelCatalogPatchRequest(GatewayFlexibleModel):
+    """Payload para modificar parcialmente una entrada del catálogo de modelos."""
+
     display_name: str | None = Field(default=None, alias="displayName")
     model_family: str | None = Field(default=None, alias="modelFamily")
     context_window: int | None = Field(default=None, alias="contextWindow")
@@ -149,14 +168,20 @@ class ModelCatalogPatchRequest(GatewayFlexibleModel):
 
 
 class ModelCatalogResponse(BaseModel):
+    """Respuesta con un único modelo del catálogo."""
+
     model: ModelCatalogRecord
 
 
 class ModelCatalogListResponse(BaseModel):
+    """Respuesta con el listado de modelos del catálogo."""
+
     models: list[ModelCatalogRecord]
 
 
 class PricingSnapshotRecord(BaseModel):
+    """Snapshot de precios de un modelo en un momento dado, con su fuente."""
+
     id: str
     provider_id: str = Field(alias="providerId")
     model: str
@@ -173,6 +198,8 @@ class PricingSnapshotRecord(BaseModel):
 
 
 class PricingSnapshotCreateRequest(GatewayFlexibleModel):
+    """Payload para registrar un snapshot de precios, opcionalmente aplicado al catálogo."""
+
     provider_id: str = Field(alias="providerId")
     model: str
     input_price_per_mtok: float | None = Field(default=None, alias="inputPricePerMtok")
@@ -187,14 +214,20 @@ class PricingSnapshotCreateRequest(GatewayFlexibleModel):
 
 
 class PricingSnapshotResponse(BaseModel):
+    """Respuesta con un único snapshot de precios."""
+
     pricing_snapshot: PricingSnapshotRecord = Field(alias="pricingSnapshot")
 
 
 class PricingSnapshotsListResponse(BaseModel):
+    """Respuesta con el listado de snapshots de precios."""
+
     pricing_snapshots: list[PricingSnapshotRecord] = Field(alias="pricingSnapshots")
 
 
 class RoutingProfileRecord(BaseModel):
+    """Perfil de ruteo persistido con su modo, objetivo y reglas."""
+
     id: str
     name: str
     mode: str
@@ -206,6 +239,8 @@ class RoutingProfileRecord(BaseModel):
 
 
 class RoutingProfileUpsertRequest(GatewayFlexibleModel):
+    """Payload para crear o reemplazar un perfil de ruteo."""
+
     id: str | None = None
     name: str
     mode: str | None = None
@@ -215,6 +250,8 @@ class RoutingProfileUpsertRequest(GatewayFlexibleModel):
 
 
 class RoutingProfilePatchRequest(GatewayFlexibleModel):
+    """Payload para modificar parcialmente un perfil de ruteo."""
+
     name: str | None = None
     mode: str | None = None
     objective: str | None = None
@@ -223,14 +260,20 @@ class RoutingProfilePatchRequest(GatewayFlexibleModel):
 
 
 class RoutingProfileResponse(BaseModel):
+    """Respuesta con un único perfil de ruteo."""
+
     routing_profile: RoutingProfileRecord = Field(alias="routingProfile")
 
 
 class RoutingProfilesListResponse(BaseModel):
+    """Respuesta con el listado de perfiles de ruteo."""
+
     routing_profiles: list[RoutingProfileRecord] = Field(alias="routingProfiles")
 
 
 class RolePolicyRecord(BaseModel):
+    """Política de un rol: candidatos preferidos/fallback/escalación, bloqueos y límites de costo."""
+
     id: str
     role: str
     routing_profile_id: str = Field(alias="routingProfileId")
@@ -253,6 +296,8 @@ class RolePolicyRecord(BaseModel):
 
 
 class RolePolicyUpsertRequest(GatewayFlexibleModel):
+    """Payload para crear o reemplazar la política de un rol."""
+
     id: str | None = None
     role: str
     routing_profile_id: str | None = Field(default=None, alias="routingProfileId")
@@ -273,18 +318,26 @@ class RolePolicyUpsertRequest(GatewayFlexibleModel):
 
 
 class RolePolicyPatchRequest(RolePolicyUpsertRequest):
+    """Payload para modificar parcialmente la política de un rol."""
+
     role: str | None = None
 
 
 class RolePolicyResponse(BaseModel):
+    """Respuesta con una única política de rol."""
+
     role_policy: RolePolicyRecord = Field(alias="rolePolicy")
 
 
 class RolePoliciesListResponse(BaseModel):
+    """Respuesta con el listado de políticas de rol."""
+
     role_policies: list[RolePolicyRecord] = Field(alias="rolePolicies")
 
 
 class RoutingSelection(BaseModel):
+    """Selección de ruteo: proveedor, modelo, runtime y esfuerzo elegidos."""
+
     provider: str
     model: str
     runtime: str
@@ -292,6 +345,8 @@ class RoutingSelection(BaseModel):
 
 
 class RoutingCandidateRecord(RoutingSelection):
+    """Candidato de ruteo con su costo estimado, origen de precio y desglose de puntaje."""
+
     estimated_cost_usd: float | None = Field(default=None, alias="estimatedCostUsd")
     pricing_source: str = Field(default="unknown", alias="pricingSource")
     pricing_staleness: str = Field(default="unknown", alias="pricingStaleness")
@@ -302,6 +357,8 @@ class RoutingCandidateRecord(RoutingSelection):
 
 
 class RoutingRejectedRecord(BaseModel):
+    """Candidato descartado durante el ruteo, con el motivo del rechazo."""
+
     provider: str
     model: str | None = None
     runtime: str | None = None
@@ -309,6 +366,8 @@ class RoutingRejectedRecord(BaseModel):
 
 
 class RoutingPolicyResult(BaseModel):
+    """Resultado de política del ruteo: si requiere aprobación y la política de costo desconocido."""
+
     requires_approval: bool = Field(alias="requiresApproval")
     role_policy_id: str = Field(alias="rolePolicyId")
     max_cost_per_task_usd: float | None = Field(default=None, alias="maxCostPerTaskUsd")
@@ -318,6 +377,8 @@ class RoutingPolicyResult(BaseModel):
 
 
 class RoutingPreviewRequest(GatewayFlexibleModel):
+    """Payload de vista previa de ruteo con los requisitos y restricciones de la solicitud."""
+
     project_id: str | None = Field(default=None, alias="projectId")
     role: str = "developer"
     task_type: str = Field(default="task", alias="taskType")
@@ -344,6 +405,8 @@ class RoutingPreviewRequest(GatewayFlexibleModel):
 
 
 class RoutingPreviewResponse(BaseModel):
+    """Respuesta de vista previa de ruteo: elegido, candidatos, rechazos y resultados de política."""
+
     selected: RoutingSelection | None
     estimated_cost_usd: float | None = Field(default=None, alias="estimatedCostUsd")
     estimated_tokens: int = Field(alias="estimatedTokens")
@@ -357,6 +420,8 @@ class RoutingPreviewResponse(BaseModel):
 
 
 class UsageLedgerRecord(BaseModel):
+    """Asiento del ledger de uso: tokens, costo, latencia y trazabilidad de una llamada."""
+
     id: str
     provider_id: str = Field(alias="providerId")
     model: str
@@ -387,16 +452,22 @@ class UsageLedgerRecord(BaseModel):
 
 
 class UsageLedgerListResponse(BaseModel):
+    """Respuesta con el listado de asientos del ledger de uso."""
+
     usage_ledger: list[UsageLedgerRecord] = Field(alias="usageLedger")
 
 
 class UsageSummaryProvider(BaseModel):
+    """Totales de uso agregados por proveedor."""
+
     provider_id: str = Field(alias="providerId")
     total_tokens: int = Field(alias="totalTokens")
     estimated_cost_usd: float = Field(alias="estimatedCostUsd")
 
 
 class UsageSummaryRecord(BaseModel):
+    """Resumen de uso: totales globales de tokens y costo y su desglose por proveedor."""
+
     total_tokens: int = Field(alias="totalTokens")
     estimated_cost_usd: float = Field(alias="estimatedCostUsd")
     actual_cost_usd: float = Field(alias="actualCostUsd")
@@ -404,16 +475,22 @@ class UsageSummaryRecord(BaseModel):
 
 
 class UsageSummaryResponse(BaseModel):
+    """Respuesta con el resumen de uso agregado."""
+
     summary: UsageSummaryRecord
 
 
 class RouteExecuteResponse(BaseModel):
+    """Respuesta de ejecución de ruteo: decisión, uso registrado y contenido generado."""
+
     routing: RoutingPreviewResponse
     usage: UsageLedgerRecord | None = None
     content: str | None = None
 
 
 class RoutingDecisionRecord(BaseModel):
+    """Decisión de ruteo registrada, con lo seleccionado, candidatos, rechazos y política aplicada."""
+
     id: str
     role: str
     task_type: str = Field(alias="taskType")
@@ -438,10 +515,14 @@ class RoutingDecisionRecord(BaseModel):
 
 
 class RoutingDecisionsListResponse(BaseModel):
+    """Respuesta con el historial de decisiones de ruteo."""
+
     routing_decisions: list[RoutingDecisionRecord] = Field(alias="routingDecisions")
 
 
 class ProviderLimitRecord(BaseModel):
+    """Límites de un proveedor/modelo (rpm/tpm, cuotas y presupuesto) y su ventana actual."""
+
     id: str
     provider_id: str = Field(alias="providerId")
     model: str
@@ -462,14 +543,20 @@ class ProviderLimitRecord(BaseModel):
 
 
 class ProviderLimitsListResponse(BaseModel):
+    """Respuesta con el listado de límites por proveedor."""
+
     provider_limits: list[ProviderLimitRecord] = Field(alias="providerLimits")
 
 
 class ProviderLimitResponse(BaseModel):
+    """Respuesta con los límites de un único proveedor."""
+
     provider_limit: ProviderLimitRecord = Field(alias="providerLimit")
 
 
 class ProviderLimitPatchRequest(GatewayFlexibleModel):
+    """Payload para modificar parcialmente los límites de un proveedor."""
+
     rpm: int | None = None
     tpm: int | None = None
     daily_requests: int | None = Field(default=None, alias="dailyRequests")
@@ -485,6 +572,8 @@ class ProviderLimitPatchRequest(GatewayFlexibleModel):
 
 
 class BudgetRuleRecord(BaseModel):
+    """Regla de presupuesto persistida: ámbito, topes, período y acción al excederse."""
+
     id: str
     scope_type: str = Field(alias="scopeType")
     scope_id: str | None = Field(default=None, alias="scopeId")
@@ -498,6 +587,8 @@ class BudgetRuleRecord(BaseModel):
 
 
 class BudgetRuleUpsertRequest(GatewayFlexibleModel):
+    """Payload para crear o reemplazar una regla de presupuesto."""
+
     id: str | None = None
     scope_type: str = Field(default="global", alias="scopeType")
     scope_id: str | None = Field(default=None, alias="scopeId")
@@ -509,18 +600,26 @@ class BudgetRuleUpsertRequest(GatewayFlexibleModel):
 
 
 class BudgetRulePatchRequest(BudgetRuleUpsertRequest):
+    """Payload para modificar parcialmente una regla de presupuesto."""
+
     scope_type: str | None = Field(default=None, alias="scopeType")
 
 
 class BudgetRulesListResponse(BaseModel):
+    """Respuesta con el listado de reglas de presupuesto."""
+
     budget_rules: list[BudgetRuleRecord] = Field(alias="budgetRules")
 
 
 class BudgetRuleResponse(BaseModel):
+    """Respuesta con una única regla de presupuesto."""
+
     budget_rule: BudgetRuleRecord = Field(alias="budgetRule")
 
 
 class CliRuntimeRecord(BaseModel):
+    """Estado de un runtime CLI detectado: ejecutable, versión y mensaje."""
+
     id: str | None = None
     runtime: str
     status: str
@@ -530,24 +629,34 @@ class CliRuntimeRecord(BaseModel):
 
 
 class CliRuntimesListResponse(BaseModel):
+    """Respuesta con el listado de runtimes CLI detectados."""
+
     cli_runtimes: list[CliRuntimeRecord] = Field(alias="cliRuntimes")
 
 
 class RuntimeDetectionResponse(BaseModel):
+    """Respuesta con el resultado de detección de un runtime CLI."""
+
     detection: CliRuntimeRecord
 
 
 class RuntimeHealthRecord(BaseModel):
+    """Estado de salud de un runtime con su mensaje asociado."""
+
     runtime: str
     status: str
     message: str = ""
 
 
 class RuntimeHealthResponse(BaseModel):
+    """Respuesta con el estado de salud de un runtime."""
+
     health: RuntimeHealthRecord
 
 
 class CliSessionRecord(BaseModel):
+    """Sesión CLI persistida con sus artefactos de evidencia y referencia de uso."""
+
     id: str
     runtime: str
     executable: str
@@ -569,22 +678,32 @@ class CliSessionRecord(BaseModel):
 
 
 class CliSessionsListResponse(BaseModel):
+    """Respuesta con el listado de sesiones CLI."""
+
     cli_sessions: list[CliSessionRecord] = Field(alias="cliSessions")
 
 
 class CliSessionResponse(BaseModel):
+    """Respuesta con una única sesión CLI."""
+
     cli_session: CliSessionRecord = Field(alias="cliSession")
 
 
 class ProviderHealthResponse(BaseModel):
+    """Respuesta con el estado de salud de un proveedor."""
+
     health: ProviderHealth
 
 
 class DiscoverModelsResponse(BaseModel):
+    """Respuesta con los modelos descubiertos en un proveedor."""
+
     models: list[ModelCatalogRecord]
 
 
 class ModelGatewayOverviewRecord(BaseModel):
+    """Resumen del gateway: conteos de proveedores/runtimes, salud, costo del día y pendientes."""
+
     providers_enabled: int = Field(alias="providersEnabled")
     api_providers: int = Field(alias="apiProviders")
     cli_runtimes: int = Field(alias="cliRuntimes")
@@ -601,10 +720,14 @@ class ModelGatewayOverviewRecord(BaseModel):
 
 
 class ModelGatewayOverviewResponse(BaseModel):
+    """Respuesta con el resumen general del Model Gateway."""
+
     overview: ModelGatewayOverviewRecord
 
 
 class ModelBenchmarkRecord(BaseModel):
+    """Benchmark agregado de un modelo/rol con sus tasas y conteos por provenance."""
+
     id: str
     provider_id: str = Field(alias="providerId")
     model: str
@@ -628,10 +751,14 @@ class ModelBenchmarkRecord(BaseModel):
 
 
 class ModelBenchmarksListResponse(BaseModel):
+    """Respuesta con el listado de benchmarks de modelos."""
+
     benchmarks: list[ModelBenchmarkRecord]
 
 
 class ModelBenchmarkOutcomeRecord(BaseModel):
+    """Outcome individual de benchmark con su provenance y métricas de éxito/QA/rework."""
+
     id: str
     provider_id: str = Field(alias="providerId")
     model: str
@@ -655,6 +782,8 @@ class ModelBenchmarkOutcomeRecord(BaseModel):
 
 
 class ModelBenchmarkOutcomeCreateRequest(GatewayFlexibleModel):
+    """Payload para registrar un outcome de benchmark."""
+
     provider_id: str = Field(alias="providerId")
     model: str
     runtime_type: str = Field(default="api", alias="runtimeType")
@@ -676,8 +805,12 @@ class ModelBenchmarkOutcomeCreateRequest(GatewayFlexibleModel):
 
 
 class ModelBenchmarkOutcomeResponse(BaseModel):
+    """Respuesta con un único outcome de benchmark."""
+
     outcome: ModelBenchmarkOutcomeRecord
 
 
 class ModelBenchmarkOutcomesListResponse(BaseModel):
+    """Respuesta con el listado de outcomes de benchmark."""
+
     outcomes: list[ModelBenchmarkOutcomeRecord]

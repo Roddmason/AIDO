@@ -1,7 +1,7 @@
 /**
- * @file AIDO frontend source module.
- * @copyright Copyright (c) AIDO.
- * @author Roddmason
+ * One presentational lane of the review board — header, live count, and a stack
+ * of cards or an empty state. Stateless: the page passes the grouped items and
+ * the localized copy, and the column just renders and forwards open callbacks.
  */
 import { Badge, EmptyState, StatusDot } from '../../components/primitives';
 import type { ReviewColumn as ReviewColumnId, ReviewItem } from './model';

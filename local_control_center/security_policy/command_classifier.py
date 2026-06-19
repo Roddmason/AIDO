@@ -1,7 +1,9 @@
-"""AIDO backend source module.
+"""Clasifica el riesgo de un comando shell por coincidencia de patrones y categorias.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Mapea un comando crudo a un nivel de riesgo (low/medium/critical) y a categorias semanticas
+que el motor de politicas consume para decidir. Invariante: cualquier patron critico
+(borrado destructivo, force-push, deploy a prod, escalada de privilegios, escritura de
+secretos) gana sobre el resto y fuerza riskLevel critical; no ejecuta nada, solo etiqueta.
 """
 
 from __future__ import annotations
@@ -37,6 +39,13 @@ MEDIUM_RULES: list[tuple[str, re.Pattern[str]]] = [
 
 
 def classify_command(command: str | None) -> dict[str, Any]:
+    """Devuelve ``{"riskLevel", "categories"}`` para un comando, priorizando reglas criticas.
+
+    Las reglas criticas (borrado destructivo, force-push, deploy a prod, escalada de
+    privilegios, escritura de secretos) cortocircuitan a ``critical``. Si no aplica ninguna,
+    deriva el riesgo de paquetes/scripts, reglas medias (git de escritura, red) y, por ultimo,
+    categorias de bajo riesgo; un comando vacio es ``low``/``none`` y uno opaco es ``medium``.
+    """
     text = command or ""
     categories: list[str] = []
     for name, pattern in CRITICAL_RULES:

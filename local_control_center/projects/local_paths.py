@@ -1,7 +1,8 @@
-"""AIDO backend source module.
+"""Selector nativo de directorios del workspace, brokeado por el proceso de escritorio local.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Existe porque los pickers del navegador no exponen rutas absolutas del SO; este módulo
+abre un diálogo Tk del runtime local para obtenerlas. Usa solo la stdlib y degrada con
+gracia (estado ``unavailable``) cuando Tk o la sesión de escritorio no están disponibles.
 """
 
 from __future__ import annotations

@@ -1,7 +1,7 @@
 /**
- * @file AIDO frontend source module.
- * @copyright Copyright (c) AIDO.
- * @author Roddmason
+ * Panel de solo lectura que tabula el catálogo de modelos conocidos por el Model Gateway.
+ * Por modelo expone proveedor, familia, ventana de contexto, capacidades (tools/JSON/visión/razonamiento),
+ * precios por millón de tokens y si está habilitado, con su origen (seed o descubrimiento de proveedor).
  */
 import type { ModelGatewayModel } from '../../api/types';
 import { Badge, DataTable, EmptyState } from '../../components/primitives';

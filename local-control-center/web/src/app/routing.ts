@@ -1,7 +1,7 @@
 /**
- * @file AIDO frontend source module.
- * @copyright Copyright (c) AIDO.
- * @author Roddmason
+ * Hash-based routing: maps `window.location.hash` to a canonical page, folding
+ * legacy bookmarks and retired per-tab settings hashes onto their current
+ * destination so old links keep resolving instead of 404-ing to home silently.
  */
 
 import type { PageId } from './navigation';

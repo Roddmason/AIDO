@@ -1,7 +1,8 @@
-"""AIDO backend source module.
+"""Ejecuta el ArchitectAgent: revisa un diff con un modelo y solo aprueba con evidencia fundada.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Selecciona un runtime de modelo, le envía el diff junto a docs/tests/riesgos acotados, valida que el
+JSON de salida cumpla el esquema y que cada finding/risk/cambio cite refs de evidencia presentes en la
+entrada (anti-alucinación). Solo persiste ADR y riesgos tras validar; falla cerrado si la evidencia falta.
 """
 
 from __future__ import annotations
@@ -43,7 +44,7 @@ PROMPT_TEXT_LIMIT_CHARS = 8_000
 
 
 class ArchitectOutputValidationError(ValueError):
-    pass
+    """Se lanza cuando la salida del modelo no cumple el esquema o cita evidencia no permitida."""
 
 
 def _runtime_mode(runtime_id: str) -> str:
@@ -325,6 +326,8 @@ def _collect_grounding_refs(payload: dict[str, Any]) -> set[str]:
 
 
 class ArchitectAgentRunner:
+    """Orquesta una revisión de arquitectura: prepara entrada, ejecuta el modelo y registra evidencia."""
+
     def __init__(self, connection: sqlite3.Connection, *, root: Path):
         self.connection = connection
         self.root = root
@@ -335,6 +338,7 @@ class ArchitectAgentRunner:
         self.workspaces = WorkspacesRepository(connection, root=root)
 
     def status(self, *, preferred_runtime: str | None = None) -> dict[str, Any]:
+        """Devuelve el readiness del ArchitectAgent según los runtimes de modelo disponibles."""
         statuses = RuntimeStatusService(self.connection).list_provider_statuses()
         return architect_agent_readiness(statuses, preferred_runtime=preferred_runtime)
 
@@ -515,6 +519,12 @@ class ArchitectAgentRunner:
         return decision, risk_entries
 
     def run(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Ejecuta la revisión end-to-end y devuelve estado, evidencia, ADR y riesgos derivados.
+
+        Crea job y agent run, ejecuta el modelo si hay runtime ejecutable, valida la salida contra el
+        esquema y la evidencia, persiste ADR/riesgos solo si valida, y arma el paquete de evidencia.
+        Falla cerrado (runtime_unavailable/failed_validation/failed) ante cualquier brecha verificable.
+        """
         project_id = str(payload["projectId"])
         task_id = str(payload.get("taskId") or "architect_agent")
         workspace = self._workspace(project_id=project_id, workspace_id=str(payload["workspaceId"]))

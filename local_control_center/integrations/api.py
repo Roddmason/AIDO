@@ -1,7 +1,8 @@
-"""AIDO backend source module.
+"""Router HTTP del slice de integraciones: conexiones IDE y registro/listado de servidores MCP.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Expone los endpoints ``/api/v1/integrations``, ``/ide-connections``, ``/integrations/mcp/register``
+y ``/open-design``; valida el registro MCP (defensa anti-inyección de shell) antes de persistir,
+exige permiso de escritura en las mutaciones y emite eventos/auditoría tras cada cambio.
 """
 
 from __future__ import annotations
@@ -34,6 +35,19 @@ ALLOWED_MCP_TRANSPORTS = {"stdio"}
 
 
 def validate_mcp_registration(body: dict[str, Any]) -> dict[str, Any]:
+    """Sanea y valida el registro de un servidor MCP antes de persistirlo.
+
+    Invariante de seguridad: el comando aceptado es argv-style de un solo proceso, sin
+    metacaracteres de shell (``&&``, ``|``, ``;``, redirecciones, backticks, saltos de línea),
+    el id cumple el patrón restringido y el transport está en el allowlist (``stdio``).
+
+    Returns:
+        El cuerpo normalizado con ``id``, ``command``, ``transport`` y ``metadata``.
+
+    Raises:
+        HTTPException: 422 ante id inválido, comando vacío/demasiado largo, comando con
+            operadores de shell, transport no permitido o metadata que no es objeto.
+    """
     server_id = str(body.get("id") or "").strip()
     if not MCP_SERVER_ID_RE.match(server_id):
         raise HTTPException(
@@ -59,23 +73,29 @@ def validate_mcp_registration(body: dict[str, Any]) -> dict[str, Any]:
 
 
 def create_router(*, platform: Any, require_write: Callable[[Request], None]) -> APIRouter:
+    """Construye el ``APIRouter`` del slice ligado a la conexión del ``platform`` y al guard de escritura."""
     router = APIRouter()
 
     def repository() -> IntegrationsRepository:
+        """Repositorio de integraciones sobre la conexión activa del platform."""
         return IntegrationsRepository(platform.connection)
 
     def projects() -> ProjectsRepository:
+        """Repositorio de proyectos, usado para resolver y validar el proyecto destino."""
         return ProjectsRepository(platform.connection)
 
     def event_bus() -> EventBus:
+        """Bus de eventos/auditoría sobre la conexión activa del platform."""
         return EventBus(platform.connection)
 
     @router.get("/api/v1/ide-connections", response_model=IdeConnectionsListResponse)
     async def list_ide_connections() -> dict[str, list[Any]]:
+        """Devuelve todas las conexiones IDE registradas."""
         return {"ideConnections": repository().list_ide_connections()}
 
     @router.get("/api/v1/integrations", response_model=IntegrationsListResponse)
     async def list_integrations() -> dict[str, Any]:
+        """Devuelve integraciones, servidores MCP y el estado de los adaptadores opcionales."""
         return {
             "integrations": repository().list_integrations(),
             "mcpServers": repository().list_mcp_servers(),
@@ -88,6 +108,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
 
     @router.post("/api/v1/integrations/mcp/register", status_code=201, response_model=McpServerResponse)
     async def register_mcp_server(body: McpServerRegisterRequest, request: Request) -> McpServerResponse:
+        """Registra un servidor MCP validado; exige escritura y emite evento + auditoría."""
         require_write(request)
         payload = validate_mcp_registration(body.model_dump(by_alias=True))
         server = repository().register_mcp_server(
@@ -108,6 +129,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     async def upsert_ide_connection(
         body: IdeConnectionUpsertRequest, request: Request
     ) -> IdeConnectionResponse:
+        """Crea o actualiza una conexión IDE para un proyecto válido; exige escritura y emite evento."""
         require_write(request)
         project = projects().get_project(body.project_id)
         connection = repository().upsert_ide_connection(
@@ -129,6 +151,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
 
     @router.get("/api/v1/open-design", response_model=OpenDesignResponse)
     async def open_design() -> dict[str, Any]:
+        """Sonda de salud del backend Open Design (identifica runtime y framework)."""
         return {"status": "python-backend", "backend": "fastapi", "runtime": "windows-native"}
 
     return router

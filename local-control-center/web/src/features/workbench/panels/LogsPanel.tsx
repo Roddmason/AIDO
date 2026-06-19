@@ -1,7 +1,6 @@
 /**
- * @file AIDO frontend source module.
- * @copyright Copyright (c) AIDO.
- * @author Roddmason
+ * Workbench Logs panel: merges project events and workflow events into one
+ * recency-sorted, client-filterable table, capped to the latest entries.
  */
 import { useMemo, useState } from 'react';
 

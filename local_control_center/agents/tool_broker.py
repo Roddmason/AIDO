@@ -1,7 +1,14 @@
-"""AIDO backend source module.
+"""Security chokepoint: every agent tool call is evaluated, gated, and audited here.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+The ToolBroker is the single path through which agents act. Invariants it guarantees:
+no execution happens without a `policy_engine` allow decision (or a validated approval
+grant consumed exactly once); executable calls must carry a structured argv, a matching
+allocated workspace, and a path inside that workspace boundary; the tool must be in the
+agent profile's allowlist; Docker runs are confined to allowed images/networks of an
+active sandbox profile. Every decision and tool call is persisted for audit and its
+execution result is redacted before storage. A denied/unsupported call is recorded but
+never executed. This module does not itself raise on policy violations — it returns a
+deny decision and a `denied`/`approval_required` status; downstream sandboxes raise.
 """
 
 from __future__ import annotations
@@ -80,6 +87,7 @@ def default_runtime_adapters(
     *,
     artifact_root: str | Path | None = None,
 ) -> dict[str, RuntimeExecutionAdapter]:
+    """Build the default runtime-adapter map (MCP, OpenHands, SWE-agent, model, patch) by tool name."""
     from local_control_center.integrations.mcp_gateway import McpBrokerAdapter
 
     from .openhands_adapter import OpenHandsBrokerAdapter
@@ -102,6 +110,8 @@ def default_runtime_adapters(
 
 
 class ToolBroker:
+    """Evaluates, gates, executes, and audits agent tool calls under security policy."""
+
     def __init__(
         self,
         connection: sqlite3.Connection,
@@ -200,6 +210,14 @@ class ToolBroker:
         tool_call: dict[str, Any],
         job_id: str | None = None,
     ) -> dict[str, Any]:
+        """Gate one tool call end to end: decide, persist the decision, then execute if allowed.
+
+        Enforces (in order) the executable-argv boundary, the workspace/path boundary, the
+        agent-profile allowlist, and the policy engine; consumes an approval grant when the
+        decision requires one. Only an `allow` decision reaches a sandbox/runtime adapter;
+        the execution result is redacted and promoted to evidence artifacts. Returns the
+        recorded decision, any created action request, and the persisted tool-call record.
+        """
         tool_name = str(tool_call.get("tool") or tool_call.get("toolName") or "")
         command = str(tool_call.get("command") or "")
         operation = _normalized_operation(tool_name, tool_call)
@@ -502,6 +520,7 @@ class ToolBroker:
         tool_calls: list[dict[str, Any]],
         job_id: str | None = None,
     ) -> list[dict[str, Any]]:
+        """Evaluate a batch of tool calls in order, returning one result per call."""
         return [
             self.evaluate_tool_call(
                 project_id=project_id,

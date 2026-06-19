@@ -1,7 +1,8 @@
 /**
- * @file AIDO frontend source module.
- * @copyright Copyright (c) AIDO.
- * @author Roddmason
+ * Context-aware left sidebar: per-area navigation plus the selected project's scope.
+ *
+ * When a project is selected it lists that project's active runs, approvals,
+ * workspaces and evidence in collapsible sections whose state persists in localStorage.
  */
 import {
 	ChevronRight,

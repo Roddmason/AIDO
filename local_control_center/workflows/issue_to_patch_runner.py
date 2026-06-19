@@ -1,7 +1,11 @@
-"""AIDO backend source module.
+"""State machine that drives an issue from agent-generated patch to merged pull request.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Orchestrates the issue_to_patch vertical slice and its downstream integration transitions:
+select a runtime, run the developer/QA agents in an isolated workspace, build a contract-checked
+evidence package, then gate the manual transitions evidence_ready -> approved_for_integration
+-> promoted_to_branch -> pr_created. Each transition validates linked evidence/approvals and
+re-checks QA and security before mutating git, so no patch reaches a branch or PR unapproved;
+git operations refuse force-push and direct edits to main. Reused by the issue_to_pr runner.
 """
 
 from __future__ import annotations
@@ -747,6 +751,13 @@ def _status_from_developer_result(
 
 
 class IssueToPatchRunner:
+    """Runs issue_to_patch and the patch->branch->PR integration transitions for one project.
+
+    Holds the repositories it coordinates (workflows, jobs, agents, workspaces, evidence,
+    security) over a shared connection rooted at ``root``. Methods are the workflow transitions;
+    they validate the current run status, evidence and approvals before each side effect.
+    """
+
     def __init__(self, connection: sqlite3.Connection, *, root: Path):
         self.connection = connection
         self.root = root
@@ -758,6 +769,15 @@ class IssueToPatchRunner:
         self.security = SecurityPolicyRepository(connection)
 
     def approve_patch(self, run_id: str, *, reason: str, actor: str = "operator") -> dict[str, Any]:
+        """Transition an evidence_ready run to approved_for_integration after revalidating evidence.
+
+        Requires a non-empty reason and an evidence package linked to a job, agent run and
+        workspace; re-checks QA before approving. Does not touch git.
+
+        Raises:
+            ValueError: if the reason is empty, the run is the wrong kind/status, or the
+                evidence/links are missing or do not belong to this run.
+        """
         clean_reason = str(redact_secrets(reason or "")).strip()
         if not clean_reason:
             raise ValueError("Approval reason is required.")
@@ -936,6 +956,17 @@ class IssueToPatchRunner:
         qa_commands: list[list[str]] | None = None,
         actor: str = "operator",
     ) -> dict[str, Any]:
+        """Promote an approved patch onto a working branch, re-running QA and recording evidence.
+
+        Accepted for issue_to_patch and issue_to_pr runs in approved_for_integration (or after a
+        prior promotion_failed retry). Verifies the approval action and approved evidence belong to
+        the run, applies the patch on a fresh branch (never main, never force-push), and returns
+        ``promoted_to_branch`` or ``promotion_failed``.
+
+        Raises:
+            ValueError: if the reason is empty, the run is the wrong kind/status, or the approved
+                evidence/approval is missing or mismatched.
+        """
         clean_reason = str(redact_secrets(reason or "")).strip()
         if not clean_reason:
             raise ValueError("Promotion reason is required.")
@@ -1445,6 +1476,16 @@ class IssueToPatchRunner:
         base_branch: str | None = None,
         actor: str = "operator",
     ) -> dict[str, Any]:
+        """Open a GitHub PR from a previously promoted branch for an approved run.
+
+        Requires a successful prior promotion (promoted branch, promotion evidence and workspace);
+        idempotency-guards against double creation. Returns ``pr_created``, or ``pr_unavailable``
+        when GitHub is not configured / ``pr_failed`` when the API call fails.
+
+        Raises:
+            ValueError: if the reason is empty, the run is the wrong kind, a PR already exists, or
+                the promotion prerequisites are absent.
+        """
         clean_reason = str(redact_secrets(reason or "")).strip()
         if not clean_reason:
             raise ValueError("Pull request creation reason is required.")
@@ -1917,6 +1958,16 @@ class IssueToPatchRunner:
         }
 
     def run(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Execute the issue_to_patch slice end-to-end and return its terminal status and evidence.
+
+        Selects an executable runtime, creates and starts the workflow, runs the developer agent
+        in an isolated workspace, runs QA on the resulting diff and assembles an evidence package.
+        Returns ``evidence_ready`` on success or ``runtime_unavailable``/``qa_failed``/``failed``;
+        stops before approval (the manual transitions take over from there).
+
+        Raises:
+            ValueError: if a requested ``preferredRuntime`` is not in the product catalog.
+        """
         title = str(payload["title"]).strip()
         issue_text = str(payload["issueText"]).strip()
         preferred_runtime = payload.get("preferredRuntime")

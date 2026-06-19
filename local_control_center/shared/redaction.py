@@ -1,7 +1,11 @@
-"""AIDO backend source module.
+"""Saneamiento de secretos antes de persistir o exportar payloads (control de seguridad).
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Invariante: ningún valor que pase por aquí debe contener credenciales en claro al
+salir. Redacta tanto por nombre de clave sospechosa (api_key, token, secret...) como
+por patrón de valor (claves OpenAI, Bearer, tokens de GitHub/GitLab/Slack, AWS...),
+preservando contadores de tokens y campos de estado que no son secretos. No lanza:
+ante valores no reconocidos los devuelve sin tocar, por lo que la cobertura del patrón
+es la última línea de defensa. Todo evento/auditoría debe redactarse antes de escribirse.
 """
 
 from __future__ import annotations
@@ -26,6 +30,13 @@ SECRET_VALUE_PATTERN = re.compile(
 
 
 def redact_secrets(value: Any, *, key: str = "") -> Any:
+    """Reemplaza secretos por ``[redacted]`` recursivamente, conservando contadores y estados no sensibles.
+
+    Args:
+        value: Dato a sanear; recorre dicts y listas y aplica el patrón de valor a strings.
+        key: Nombre de la clave contenedora; activa la redacción por clave sospechosa y las
+            excepciones de contadores de tokens y campos ``*_status``.
+    """
     if key.lower() in {"token_status", "tokenstatus", "cost_status", "coststatus"}:
         return value
     if key.lower().endswith(("tokens", "_tokens", "token_count")) and isinstance(value, int | float):

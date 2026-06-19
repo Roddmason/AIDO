@@ -1,7 +1,8 @@
-"""AIDO backend source module.
+"""Inventario hash de los archivos de un workspace aislado para evidencia de archivado.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Recorre el árbol del workspace ignorando artefactos de build/cachés y produce un manifiesto
+con tamaño y SHA-256 por archivo. Sirve como huella verificable del contenido en el momento
+de capturar o archivar; trunca el detalle a un máximo de archivos pero conserva el conteo real.
 """
 
 from __future__ import annotations
@@ -38,6 +39,11 @@ def _sha256(path: Path) -> str:
 
 
 def capture_workspace_snapshot(workspace_path: str | Path) -> dict[str, Any]:
+    """Inventaría tamaño y SHA-256 de cada archivo del workspace, ignorando cachés y builds.
+
+    Si la ruta no existe devuelve estado ``missing``. El listado de archivos se trunca a
+    ``MAX_FILES``, pero ``fileCount`` refleja el total real y ``truncated`` lo señaliza.
+    """
     root = Path(workspace_path)
     if not root.exists():
         return {

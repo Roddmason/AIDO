@@ -1,7 +1,8 @@
-"""AIDO backend source module.
+"""Router HTTP del catálogo i18n: expone leer (GET) y reemplazar (PUT) el catálogo.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Conecta los endpoints REST con los casos de uso, abriendo un repositorio sobre la
+conexión de la plataforma por request. El PUT está protegido por el guard de escritura
+inyectado, dejando el GET de lectura abierto.
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ from .repository import I18nRepository
 
 
 def create_router(*, platform: Any, require_write: Callable[[Request], None]) -> APIRouter:
+    """Construye el APIRouter de i18n; require_write protege el PUT que reemplaza el catálogo."""
     router = APIRouter()
 
     def repository() -> I18nRepository:

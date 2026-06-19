@@ -1,7 +1,7 @@
 /**
- * @file AIDO frontend source module.
- * @copyright Copyright (c) AIDO.
- * @author Roddmason
+ * Helpers de formato y celdas compartidas por los paneles del Model Gateway.
+ * Normalizan valores potencialmente nulos del API a texto legible (con fallbacks), formatean montos
+ * en USD y redactan secretos antes de pintarlos, evitando que cada panel reimplemente esa lógica.
  */
 import { Surface } from '../../components/primitives';
 import { useI18n } from '../../i18n/I18nProvider';
@@ -21,6 +21,7 @@ export const EXECUTABLE_AGENT_ROLES = [
 	'release_manager',
 ];
 
+/** Coacciona cualquier valor a string recortado; devuelve `fallback` cuando queda vacío o es nullish. */
 export function text(value: unknown, fallback = 'n/a') {
 	const result = String(value ?? '').trim();
 	return result || fallback;
@@ -30,6 +31,7 @@ export function boolLabel(value: unknown) {
 	return value ? 'yes' : 'no';
 }
 
+/** Formatea un monto USD con 4 decimales; devuelve `unknownLabel` si es nullish, vacío o no numérico. */
 export function money(value: unknown, unknownLabel = 'unknown') {
 	if (value === null || value === undefined || value === '') {
 		return unknownLabel;
@@ -38,12 +40,14 @@ export function money(value: unknown, unknownLabel = 'unknown') {
 	return Number.isFinite(number) ? `$${number.toFixed(4)}` : unknownLabel;
 }
 
+/** Une un arreglo en una lista separada por comas; cae a `text()` para valores no-arreglo. */
 export function listLabel(value: unknown, noneLabel = 'none') {
 	return Array.isArray(value)
 		? value.map((item) => String(item)).join(', ') || noneLabel
 		: text(value, noneLabel);
 }
 
+/** Pinta un valor en monoespaciado, sustituyéndolo por `[redacted]` si parece llave API o token Bearer. */
 export function SecretSafeValue({ value }: { value: unknown }) {
 	const { t } = useI18n();
 	const rendered = text(value, t('app.modelGateway.runtime.notConfigured', 'not configured'));
@@ -51,6 +55,7 @@ export function SecretSafeValue({ value }: { value: unknown }) {
 	return <span className="mono">{unsafe ? '[redacted]' : rendered}</span>;
 }
 
+/** Tarjeta KPI: muestra un valor destacado (con fallback `0`) sobre su etiqueta, en una `Surface` plana. */
 export function Metric({ label, value }: { label: string; value: unknown }) {
 	return (
 		<Surface flat>

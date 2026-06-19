@@ -1,7 +1,8 @@
-"""AIDO backend source module.
+"""Router HTTP del Model Gateway: CRUD de proveedores/modelos/políticas y ejecución de ruteo.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Expone los endpoints REST que administran el catálogo de proveedores, modelos, precios, perfiles/políticas
+de ruteo, límites, presupuestos, ledger de uso, benchmarks y runtimes CLI, además de previsualizar y
+ejecutar rutas. La ejecución falla cerrada: exige aprobación, flags de habilitación y credenciales válidas.
 """
 
 from __future__ import annotations
@@ -169,6 +170,7 @@ def _validate_role_policy_payload(body: dict[str, Any], *, provider_ids: set[str
 
 
 def create_router(*, platform: Any, require_write: Any) -> APIRouter:
+    """Construye el APIRouter del Model Gateway, cableado a la conexión y al guard de escritura."""
     router = APIRouter(prefix="/api/v1/model-gateway", tags=["model-gateway"])
 
     def providers() -> ProviderAccountStore:
@@ -191,6 +193,7 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
 
     @router.get("/overview", response_model=ModelGatewayOverviewResponse)
     async def overview() -> dict[str, Any]:
+        """Resume el estado del gateway: proveedores, salud, costo del día y pendientes."""
         provider_rows = providers().list_provider_accounts()
         usage_summary = usage().summary()
         limit_rows = routing().list_provider_limits()
@@ -224,10 +227,12 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
 
     @router.get("/providers", response_model=ProviderAccountsListResponse)
     async def list_providers() -> dict[str, Any]:
+        """Lista todas las cuentas de proveedor configuradas."""
         return {"providers": providers().list_provider_accounts()}
 
     @router.post("/providers", status_code=201, response_model=ProviderAccountResponse)
     async def create_provider(body: ProviderAccountUpsertRequest, request: Request) -> dict[str, Any]:
+        """Crea o reemplaza una cuenta de proveedor (los campos de salud los gestiona el servidor)."""
         require_write(request)
         try:
             provider = providers().upsert_provider_account(_provider_client_payload(body))
@@ -240,6 +245,7 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
 
     @router.get("/providers/{provider_id}", response_model=ProviderAccountResponse)
     async def get_provider(provider_id: str) -> dict[str, Any]:
+        """Devuelve una cuenta de proveedor por id (404 si no existe)."""
         try:
             return {"provider": providers().get_provider_account(provider_id)}
         except KeyError as error:
@@ -249,6 +255,7 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
     async def patch_provider(
         provider_id: str, body: ProviderAccountPatchRequest, request: Request
     ) -> dict[str, Any]:
+        """Actualiza parcialmente una cuenta de proveedor."""
         require_write(request)
         try:
             provider = providers().patch_provider_account(provider_id, _provider_client_payload(body))
@@ -261,6 +268,7 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
 
     @router.post("/providers/{provider_id}/health-check", response_model=ProviderHealthResponse)
     async def provider_health_check(provider_id: str, request: Request) -> dict[str, Any]:
+        """Ejecuta un health-check del proveedor, registra el resultado y activa cooldown si hubo 429."""
         require_write(request)
         try:
             providers().get_provider_account(provider_id)
@@ -282,6 +290,7 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
 
     @router.post("/providers/{provider_id}/discover-models", response_model=DiscoverModelsResponse)
     async def discover_models(provider_id: str, request: Request) -> dict[str, Any]:
+        """Descubre y cataloga los modelos del proveedor; exige habilitación, flag de llamadas y credencial."""
         require_write(request)
         try:
             account = providers().get_provider_account(provider_id)
@@ -315,10 +324,12 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
 
     @router.get("/models", response_model=ModelCatalogListResponse)
     async def list_models() -> dict[str, Any]:
+        """Lista el catálogo de modelos de todos los proveedores."""
         return {"models": providers().list_models()}
 
     @router.post("/models", status_code=201, response_model=ModelCatalogResponse)
     async def create_model(body: ModelCatalogUpsertRequest, request: Request) -> dict[str, Any]:
+        """Crea o reemplaza una entrada del catálogo de modelos."""
         require_write(request)
         model = providers().upsert_model(_payload(body))
         audit(
@@ -330,6 +341,7 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
 
     @router.patch("/models/{model_id:path}", response_model=ModelCatalogResponse)
     async def patch_model(model_id: str, body: ModelCatalogPatchRequest, request: Request) -> dict[str, Any]:
+        """Actualiza parcialmente una entrada del catálogo de modelos."""
         require_write(request)
         try:
             model = providers().patch_model(model_id, _payload(body))
@@ -340,10 +352,12 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
 
     @router.get("/pricing-snapshots", response_model=PricingSnapshotsListResponse)
     async def list_pricing_snapshots() -> dict[str, Any]:
+        """Lista los snapshots de precios registrados."""
         return {"pricingSnapshots": providers().list_pricing_snapshots()}
 
     @router.post("/pricing-snapshots", status_code=201, response_model=PricingSnapshotResponse)
     async def create_pricing_snapshot(body: PricingSnapshotCreateRequest, request: Request) -> dict[str, Any]:
+        """Registra un snapshot de precios, opcionalmente aplicándolo al catálogo."""
         require_write(request)
         snapshot = providers().create_pricing_snapshot(_payload(body))
         audit(
@@ -360,10 +374,12 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
 
     @router.get("/routing-profiles", response_model=RoutingProfilesListResponse)
     async def list_routing_profiles() -> dict[str, Any]:
+        """Lista los perfiles de ruteo configurados."""
         return {"routingProfiles": routing().list_routing_profiles()}
 
     @router.post("/routing-profiles", status_code=201, response_model=RoutingProfileResponse)
     async def create_routing_profile(body: RoutingProfileUpsertRequest, request: Request) -> dict[str, Any]:
+        """Crea o reemplaza un perfil de ruteo."""
         require_write(request)
         profile = routing().upsert_routing_profile(_payload(body))
         return {"routingProfile": profile}
@@ -372,6 +388,7 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
     async def patch_routing_profile(
         profile_id: str, body: RoutingProfilePatchRequest, request: Request
     ) -> dict[str, Any]:
+        """Actualiza parcialmente un perfil de ruteo."""
         require_write(request)
         try:
             profile = routing().patch_routing_profile(profile_id, _payload(body))
@@ -381,10 +398,12 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
 
     @router.get("/role-policies", response_model=RolePoliciesListResponse)
     async def list_role_policies() -> dict[str, Any]:
+        """Lista las políticas de modelo por rol."""
         return {"rolePolicies": routing().list_role_policies()}
 
     @router.post("/role-policies", status_code=201, response_model=RolePolicyResponse)
     async def create_role_policy(body: RolePolicyUpsertRequest, request: Request) -> dict[str, Any]:
+        """Crea o reemplaza la política de un rol, validando ids, candidatos y límites numéricos."""
         require_write(request)
         payload = _payload(body)
         provider_ids = {item["providerId"] for item in providers().list_provider_accounts()}
@@ -396,6 +415,7 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
     async def patch_role_policy(
         policy_id: str, body: RolePolicyPatchRequest, request: Request
     ) -> dict[str, Any]:
+        """Actualiza parcialmente la política de un rol, revalidando el resultado fusionado."""
         require_write(request)
         try:
             payload = body.model_dump(by_alias=True, exclude_none=True, exclude_unset=True)
@@ -409,6 +429,7 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
 
     @router.post("/route/preview", response_model=RoutingPreviewResponse)
     async def route_preview(body: RoutingPreviewRequest, request: Request) -> dict[str, Any]:
+        """Previsualiza la decisión de ruteo para la solicitud y registra la decisión."""
         require_write(request)
         body_payload = _payload(body)
         result = ModelRouter(platform.connection).preview(RoutingRequest(**body_payload), record=True)
@@ -421,6 +442,11 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
 
     @router.post("/route/execute", response_model=RouteExecuteResponse)
     async def route_execute(body: RoutingPreviewRequest, request: Request) -> dict[str, Any]:
+        """Rutea y ejecuta la llamada de modelo; abre solicitud de aprobación o bloquea cuando corresponde.
+
+        Falla cerrado: 409 si no hay ruta o requiere aprobación, 403 para CLI deshabilitado, 501 para
+        ejecución CLI real, y propaga el estado no-completado del gateway como el HTTP equivalente.
+        """
         require_write(request)
         body_payload = _payload(body)
         result = ModelRouter(platform.connection).preview(RoutingRequest(**body_payload), record=True)
@@ -505,28 +531,34 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
 
     @router.get("/usage-ledger", response_model=UsageLedgerListResponse)
     async def list_usage_ledger() -> dict[str, Any]:
+        """Lista los asientos del ledger de uso."""
         return {"usageLedger": usage().list_usage()}
 
     @router.get("/usage-ledger/summary", response_model=UsageSummaryResponse)
     async def usage_summary() -> dict[str, Any]:
+        """Devuelve el resumen de uso agregado (tokens y costo, con desglose por proveedor)."""
         return {"summary": usage().summary()}
 
     @router.get("/routing-decisions", response_model=RoutingDecisionsListResponse)
     async def list_routing_decisions() -> dict[str, Any]:
+        """Lista el historial de decisiones de ruteo registradas."""
         return {"routingDecisions": routing().list_routing_decisions()}
 
     @router.get("/benchmarks", response_model=ModelBenchmarksListResponse)
     async def list_benchmarks() -> dict[str, Any]:
+        """Lista los benchmarks agregados de modelos."""
         return {"benchmarks": benchmarks().list_benchmarks()}
 
     @router.get("/benchmark-outcomes", response_model=ModelBenchmarkOutcomesListResponse)
     async def list_benchmark_outcomes() -> dict[str, Any]:
+        """Lista los outcomes de benchmark crudos."""
         return {"outcomes": benchmarks().list_outcomes()}
 
     @router.post("/benchmark-outcomes", status_code=201, response_model=ModelBenchmarkOutcomeResponse)
     async def create_benchmark_outcome(
         body: ModelBenchmarkOutcomeCreateRequest, request: Request
     ) -> dict[str, Any]:
+        """Registra un outcome de benchmark reportado."""
         require_write(request)
         outcome = benchmarks().record_outcome(_payload(body))
         audit("model_gateway.benchmark_outcome.recorded", outcome["providerId"], {"outcomeId": outcome["id"]})
@@ -534,12 +566,14 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
 
     @router.get("/provider-limits", response_model=ProviderLimitsListResponse)
     async def list_provider_limits() -> dict[str, Any]:
+        """Lista los límites configurados por proveedor."""
         return {"providerLimits": routing().list_provider_limits()}
 
     @router.patch("/provider-limits/{limit_id}", response_model=ProviderLimitResponse)
     async def patch_provider_limit(
         limit_id: str, body: ProviderLimitPatchRequest, request: Request
     ) -> dict[str, Any]:
+        """Actualiza parcialmente los límites de un proveedor."""
         require_write(request)
         try:
             return {"providerLimit": routing().patch_provider_limit(limit_id, _payload(body))}
@@ -548,10 +582,12 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
 
     @router.get("/budget-rules", response_model=BudgetRulesListResponse)
     async def list_budget_rules() -> dict[str, Any]:
+        """Lista las reglas de presupuesto configuradas."""
         return {"budgetRules": routing().list_budget_rules()}
 
     @router.post("/budget-rules", status_code=201, response_model=BudgetRuleResponse)
     async def create_budget_rule(body: BudgetRuleUpsertRequest, request: Request) -> dict[str, Any]:
+        """Crea o reemplaza una regla de presupuesto."""
         require_write(request)
         return {"budgetRule": routing().upsert_budget_rule(_payload(body))}
 
@@ -559,6 +595,7 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
     async def patch_budget_rule(
         rule_id: str, body: BudgetRulePatchRequest, request: Request
     ) -> dict[str, Any]:
+        """Actualiza parcialmente una regla de presupuesto."""
         require_write(request)
         try:
             return {"budgetRule": routing().patch_budget_rule(rule_id, _payload(body))}
@@ -567,10 +604,12 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
 
     @router.get("/cli-runtimes", response_model=CliRuntimesListResponse)
     async def list_cli_runtimes() -> dict[str, Any]:
+        """Lista los runtimes CLI conocidos por el registry."""
         return {"cliRuntimes": RuntimeRegistry().list_runtimes()}
 
     @router.post("/cli-runtimes/{runtime_id}/detect", response_model=RuntimeDetectionResponse)
     async def detect_cli_runtime(runtime_id: str, request: Request) -> dict[str, Any]:
+        """Detecta el ejecutable y versión de un runtime CLI."""
         require_write(request)
         try:
             return {"detection": RuntimeRegistry().detect(runtime_id)}
@@ -579,6 +618,7 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
 
     @router.post("/cli-runtimes/{runtime_id}/health-check", response_model=RuntimeHealthResponse)
     async def health_cli_runtime(runtime_id: str, request: Request) -> dict[str, Any]:
+        """Ejecuta un health-check de un runtime CLI."""
         require_write(request)
         try:
             return {"health": RuntimeRegistry().health_check(runtime_id)}
@@ -587,10 +627,12 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
 
     @router.get("/cli-sessions", response_model=CliSessionsListResponse)
     async def list_cli_sessions() -> dict[str, Any]:
+        """Lista las sesiones CLI registradas."""
         return {"cliSessions": routing().list_cli_sessions()}
 
     @router.get("/cli-sessions/{session_id}", response_model=CliSessionResponse)
     async def get_cli_session(session_id: str) -> dict[str, Any]:
+        """Devuelve una sesión CLI por id (404 si no existe)."""
         try:
             return {"cliSession": routing().get_cli_session(session_id)}
         except KeyError as error:

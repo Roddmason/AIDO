@@ -1,7 +1,9 @@
-"""AIDO backend source module.
+"""Aislamiento por git worktree: crea/elimina ramas-rama de trabajo y captura su diff.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Provee a un proyecto que es repositorio git un workspace independiente sobre una rama nueva,
+sin tocar el árbol original, y al archivar captura el diff resultante. Toda invocación a git
+pasa por el runner saneado (``security_policy.git_command_runner``); ante git ausente o repo
+inválido devuelve estados ``degraded_*`` en vez de lanzar, para que el aislamiento sea opcional.
 """
 
 from __future__ import annotations
@@ -14,11 +16,13 @@ from local_control_center.security_policy.git_command_runner import git_availabl
 
 
 def slugify_branch_segment(value: str) -> str:
+    """Convierte un texto libre en un segmento de rama seguro (<=48 chars), con fallback ``task``."""
     cleaned = re.sub(r"[^A-Za-z0-9._-]+", "-", value).strip("-").lower()
     return cleaned[:48] or "task"
 
 
 def is_git_repository(path: Path) -> bool:
+    """Indica si la ruta está dentro de un árbol de trabajo git (False si git no está disponible)."""
     if not git_available():
         return False
     result = run_git(["-C", str(path), "rev-parse", "--is-inside-work-tree"])
@@ -26,6 +30,7 @@ def is_git_repository(path: Path) -> bool:
 
 
 def git_head_commit(path: Path, ref: str = "HEAD") -> str | None:
+    """Resuelve el SHA del ref indicado, o None si git/repo no aplica o el ref no existe."""
     if not git_available() or not is_git_repository(path):
         return None
     result = run_git(["-C", str(path), "rev-parse", ref])
@@ -35,6 +40,7 @@ def git_head_commit(path: Path, ref: str = "HEAD") -> str | None:
 
 
 def git_current_branch(path: Path) -> str | None:
+    """Devuelve la rama actual del repo, o None si está en detached HEAD o git/repo no aplica."""
     if not git_available() or not is_git_repository(path):
         return None
     result = run_git(["-C", str(path), "branch", "--show-current"])
@@ -44,6 +50,12 @@ def git_current_branch(path: Path) -> str | None:
 
 
 def git_branch_name_error(repo_path: Path, branch_name: str) -> str | None:
+    """Valida un nombre de rama y devuelve el motivo de rechazo, o None si es aceptable.
+
+    Invariante de seguridad: rechaza refs protegidas (HEAD/main/master), inyección de rutas
+    (``..``, barra invertida, segmentos vacíos), nombres que git no acepta y ramas ya
+    existentes, de modo que el worktree nunca se cree sobre un destino inseguro ni pise una rama real.
+    """
     clean_name = branch_name.strip()
     if not clean_name:
         return "Branch name is required."
@@ -77,6 +89,12 @@ def create_git_worktree(
     base_branch: str = "HEAD",
     branch_name: str | None = None,
 ) -> dict[str, Any]:
+    """Crea un worktree sobre una rama nueva derivada de ``base_branch`` para el workspace.
+
+    Si no se da ``branch_name`` deriva uno determinista desde la tarea y el workspace. Nunca
+    lanza: ante git ausente, repo inválido, nombre de rama inseguro o fallo de ``worktree add``
+    devuelve un dict con ``status`` ``degraded_*`` y el detalle, dejando que el caller decida.
+    """
     if not git_available():
         return {"status": "degraded_git_unavailable"}
     if not is_git_repository(repo_path):
@@ -113,6 +131,7 @@ def create_git_worktree(
 
 
 def remove_git_worktree(*, repo_path: Path, worktree_path: Path) -> dict[str, Any]:
+    """Elimina forzadamente el worktree del workspace; devuelve ``removed`` o el motivo del fallo."""
     if not git_available():
         return {"status": "cleanup_failed_git_unavailable"}
     result = run_git(["-C", str(repo_path), "worktree", "remove", "--force", str(worktree_path)])
@@ -137,6 +156,12 @@ def _parse_porcelain_status(output: str) -> list[dict[str, str]]:
 
 
 def capture_git_diff(workspace_path: Path) -> dict[str, Any]:
+    """Captura el cambio del workspace (status porcelain, name-only, stat y patch) como evidencia.
+
+    Marca archivos nuevos con ``--intent-to-add`` para que aparezcan en el diff. El patch se
+    expone íntegro en ``patchFull`` y recortado en ``patch`` (con ``truncated``). Ante git/repo
+    no disponible devuelve un estado ``degraded_*`` en lugar de lanzar.
+    """
     if not git_available():
         return {"kind": "git_diff", "state": "degraded_git_unavailable", "statusRaw": "", "status": []}
     if not is_git_repository(workspace_path):

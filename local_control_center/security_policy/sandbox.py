@@ -1,7 +1,13 @@
-"""AIDO backend source module.
+"""Sandboxes de ejecucion: aisla comandos en Docker o, como fallback, en subproceso restringido.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Provee dos backends de ejecucion controlada y comparte sus invariantes de aislamiento. Bloquea:
+ejecutables fuera del allowlist, flags peligrosos (``--privileged``, ``--network host``,
+``--mount``/``--volume``, ``--no-sandbox``) y cualquier cwd fuera del workspace asignado. El
+sandbox Docker corre con ``--rm --read-only --network none``, tmpfs noexec/nosuid y el workspace
+montado de solo lectura. ``open_restricted_text_process`` lanza ``PermissionError`` si la
+invocacion viola la politica; los metodos ``execute*`` no lanzan: devuelven
+``{"blocked": True, "reason": ...}`` cuando rechazan. Toda ejecucion usa ``shell=False`` con argv
+estructurado (sin inyeccion) y la salida capturada se trunca a un maximo de caracteres.
 """
 
 from __future__ import annotations
@@ -111,6 +117,11 @@ def _validate_restricted_process(argv: Any, cwd: str | None, workspace_path: str
 
 
 def validate_restricted_process(argv: Any, cwd: str | None, workspace_path: str | None) -> str | None:
+    """Devuelve el motivo de bloqueo si la invocacion no es admisible, o ``None`` si es segura.
+
+    Comprueba que argv sea estructurado y no vacio, que el ejecutable este en el allowlist, que no
+    use flags peligrosos y que el cwd resuelva dentro del workspace y exista.
+    """
     return _validate_restricted_process(argv, cwd, workspace_path)
 
 
@@ -120,6 +131,12 @@ def open_restricted_text_process(
     cwd: str | None,
     workspace_path: str | None,
 ) -> subprocess.Popen[str]:
+    """Abre un proceso de texto restringido con pipes stdin/stdout/stderr y ``shell=False``.
+
+    Valida la invocacion antes de lanzarla y, ante violacion de politica, lanza
+    ``PermissionError`` en vez de iniciar el proceso. El caller es responsable de drenar y cerrar
+    los pipes.
+    """
     error = _validate_restricted_process(argv, cwd, workspace_path)
     if error:
         raise PermissionError(error)
@@ -143,6 +160,12 @@ def run_version_check(
     cwd: str | None = None,
     timeout_seconds: int = 5,
 ) -> dict[str, Any]:
+    """Ejecuta un chequeo de version acotado: solo ``[ejecutable, flag-de-version]``.
+
+    Invariante: rechaza (``blocked=True``) cualquier argv que no tenga exactamente dos elementos
+    o cuyo segundo no sea un flag de version permitido, evitando colar otros subcomandos. El
+    timeout se acota a [1, 30] s y la salida se trunca.
+    """
     if (
         not isinstance(argv, list)
         or len(argv) != 2
@@ -206,6 +229,7 @@ class RestrictedSubprocessSandbox:
     """
 
     def status(self) -> dict[str, Any]:
+        """Reporta las garantias de este fallback: sin shell, argv requerido, atado al workspace."""
         return {
             "available": bool(ALLOWED_EXECUTABLES),
             "shell": False,
@@ -223,6 +247,12 @@ class RestrictedSubprocessSandbox:
         timeout_seconds: int = 30,
         truncate_output: bool = True,
     ) -> dict[str, Any]:
+        """Corre un comando allowlisted dentro del workspace y devuelve su resultado capturado.
+
+        Rechaza con ``{"blocked": True, ...}`` (sin lanzar) si argv es invalido, el ejecutable no
+        esta allowlisted, hay un flag peligroso o el cwd cae fuera del workspace. El timeout se
+        acota a [1, 120] s; la salida se trunca salvo que ``truncate_output`` sea ``False``.
+        """
         if not isinstance(argv, list) or not argv or not all(isinstance(item, str) for item in argv):
             return {
                 "executed": False,
@@ -307,6 +337,11 @@ class RestrictedSubprocessSandbox:
         workspace_path: str | None,
         timeout_seconds: int = 30,
     ) -> dict[str, Any]:
+        """Como ``execute`` pero alimentando ``stdin_text`` por la entrada estandar del proceso.
+
+        Aplica los mismos chequeos de allowlist, flags y confinamiento al workspace, devolviendo
+        ``{"blocked": True, ...}`` ante violacion en lugar de lanzar.
+        """
         if not isinstance(argv, list) or not argv or not all(isinstance(item, str) for item in argv):
             return {
                 "executed": False,
@@ -385,6 +420,15 @@ class RestrictedSubprocessSandbox:
 
 
 class DockerSandbox:
+    """Ejecuta comandos en un contenedor efimero, aislado de red y con el workspace de solo lectura.
+
+    Es el backend de aislamiento preferido. Invariantes de la ejecucion: ``--rm`` (efimero),
+    ``--read-only`` con tmpfs ``noexec,nosuid`` para ``/tmp``, red por defecto ``none`` y el
+    workspace montado de solo lectura en ``/workspace``. ``build_run_args`` lanza ``ValueError``
+    ante una imagen con espacios o un argv mal formado; ``execute`` no lanza: si Docker no esta
+    disponible o el workspace no existe devuelve ``{"blocked": True, ...}``.
+    """
+
     def __init__(self, docker_executable: str | None = None):
         self.docker_executable = docker_executable
 
@@ -392,6 +436,7 @@ class DockerSandbox:
         return self.docker_executable or shutil.which("docker")
 
     def status(self) -> dict[str, Any]:
+        """Reporta disponibilidad de Docker y la postura de aislamiento (red none, mount RO)."""
         docker = self._docker()
         return {
             "mode": "docker",
@@ -414,6 +459,12 @@ class DockerSandbox:
         memory: str = "2g",
         cpus: str = "2",
     ) -> list[str]:
+        """Arma el argv de ``docker run`` con todos los flags de aislamiento aplicados.
+
+        Fija ``--rm``, red, limites de memoria/cpu, ``--read-only`` con tmpfs noexec/nosuid y el
+        workspace montado de solo lectura. Lanza ``ValueError`` si la imagen no es un unico valor
+        de catalogo (sin espacios) o si el argv no es una lista de strings no vacios.
+        """
         if not image or any(char.isspace() for char in image):
             raise ValueError("Docker image must be a single catalog value.")
         if not argv or not all(isinstance(item, str) and item for item in argv):
@@ -452,6 +503,12 @@ class DockerSandbox:
         cpus: str = "2",
         timeout_seconds: int = 120,
     ) -> dict[str, Any]:
+        """Corre el contenedor aislado sobre el workspace y devuelve su resultado capturado.
+
+        Devuelve ``{"blocked": True, ...}`` (sin lanzar) si Docker no esta disponible o el
+        workspace no existe. El timeout se acota a [1, 900] s y la salida se trunca; el resultado
+        incluye el argv efectivo en ``command``.
+        """
         docker = self._docker()
         if not docker:
             return {

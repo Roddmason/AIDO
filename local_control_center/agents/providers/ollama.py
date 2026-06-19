@@ -1,7 +1,8 @@
-"""AIDO backend source module.
+"""Conecta con un servidor Ollama local hablando su API nativa (no estilo OpenAI).
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Implementa el contrato directamente contra los endpoints `/api/tags` y `/api/chat` de
+Ollama, sin requerir credencial ni el interruptor de llamadas reales (el servicio es
+local). Trata el costo como gratis y deriva el uso de los contadores `*_eval_count`.
 """
 
 from __future__ import annotations
@@ -30,6 +31,8 @@ def _public_error(error: BaseException) -> str:
 
 
 class OllamaProvider(ModelProvider):
+    """Proveedor para un Ollama local; habla su API nativa y no usa credencial ni costo."""
+
     provider_id = "ollama"
 
     def __init__(self, *, base_url: str | None = None):
@@ -43,6 +46,7 @@ class OllamaProvider(ModelProvider):
         ).rstrip("/")
 
     def health_check(self) -> ProviderHealth:
+        """Sondea `/api/tags` con timeout corto; offline si el servidor local no responde."""
         try:
             request = Request(f"{self.base_url}/api/tags", method="GET")
             with urlopen(request, timeout=2):
@@ -62,6 +66,7 @@ class OllamaProvider(ModelProvider):
         )
 
     def list_models(self) -> list[ModelInfo]:
+        """Lista los modelos descargados localmente desde `/api/tags`; [] si falla la consulta."""
         try:
             request = Request(f"{self.base_url}/api/tags", method="GET")
             with urlopen(request, timeout=2) as response:
@@ -80,6 +85,7 @@ class OllamaProvider(ModelProvider):
         ]
 
     def chat_completion(self, request: ModelRequest) -> ModelResponse:
+        """Postea a `/api/chat` sin streaming y deriva el uso de los contadores `*_eval_count`."""
         payload = json.dumps(
             {
                 "model": request.model,
@@ -119,7 +125,9 @@ class OllamaProvider(ModelProvider):
         )
 
     def estimate_cost(self, request: ModelRequest, model: str) -> CostEstimate:
+        """Ejecucion local: costo cero, etiquetado como `local`."""
         return CostEstimate(estimatedCostUsd=0.0, source="local")
 
     def parse_usage(self, raw_response):
+        """Ollama no entrega `usage` estandar: marca el origen como estimado y delega el conteo al chat."""
         return UsageRecord(rawUsage={"usage_source": "estimated"})

@@ -1,7 +1,7 @@
 /**
- * @file AIDO frontend source module.
- * @copyright Copyright (c) AIDO.
- * @author Roddmason
+ * Pure selectors that turn raw overview/runtime data into the workbench's derived
+ * views: runtime capability checks, recency sorting, the staged issue_to_patch
+ * timeline and the project blocker list. No React, no I/O — kept testable in isolation.
  */
 import type { IssueToPatchResponse } from '../../api/client';
 import type { Overview, Project, RuntimeProvider } from '../../api/types';
@@ -39,6 +39,10 @@ export function activeProjects(projects: Project[]) {
 	return projects.filter((project) => String(project.status ?? 'active') === 'active');
 }
 
+/**
+ * True when a runtime can apply code changes: it advertises an issue_to_patch/code_edit
+ * capability and is not a test/simulation stub (those never count as real runtimes).
+ */
 export function runtimeSupportsIssueToPatch(runtime: RuntimeProvider) {
 	const kind = String(runtime.kind ?? '').toLowerCase();
 	return (
@@ -48,10 +52,15 @@ export function runtimeSupportsIssueToPatch(runtime: RuntimeProvider) {
 	);
 }
 
+/** Narrows to runtimes that both support patching and are currently executable (ready to run). */
 export function runtimeIsExecutableIssueRuntime(runtime: RuntimeProvider) {
 	return runtimeSupportsIssueToPatch(runtime) && runtime.executable === true;
 }
 
+/**
+ * Best-effort timestamp (ms) for recency sorting, picking the freshest of
+ * updatedAt > completedAt > startedAt > createdAt. Returns 0 when none parse.
+ */
 export function timeOf(record: {
 	updatedAt?: string | null;
 	createdAt?: string | null;
@@ -64,6 +73,7 @@ export function timeOf(record: {
 	return Number.isNaN(parsed) ? 0 : parsed;
 }
 
+/** Returns a new array sorted newest-first by timeOf, leaving the input untouched. */
 export function sortByTimeDesc<
 	T extends {
 		updatedAt?: string | null;

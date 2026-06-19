@@ -1,7 +1,9 @@
-"""AIDO backend source module.
+"""Builds workspace-bound CLI commands and detects the available CLI runtimes.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Composes the safety-prefixed prompts and structured argv for issue-to-patch and
+DeveloperAgent runs (explicit configured argv first, otherwise the runtime's own
+builder), and exposes detection/health checks per CLI runtime. Every generated command
+stays inside the allocated workspace and never commits, pushes, or touches secrets.
 """
 
 from __future__ import annotations
@@ -26,10 +28,11 @@ CLI_EXECUTABLE_TOKENS = {
 
 
 class RuntimeCommandUnavailableError(RuntimeError):
-    pass
+    """Raised when no safe workspace-bound command can be built for the requested runtime."""
 
 
 def issue_to_patch_prompt(*, title: str, issue_text: str) -> str:
+    """Build the workspace-scoped prompt that constrains an issue-to-patch run."""
     return (
         "Execute the issue_to_patch workflow in the current workspace only. "
         "Do not commit, push, install dependencies, or modify files outside the workspace.\n\n"
@@ -38,6 +41,7 @@ def issue_to_patch_prompt(*, title: str, issue_text: str) -> str:
 
 
 def developer_agent_prompt(*, instruction: str, qa_commands: list[list[str]]) -> str:
+    """Build the DeveloperAgent prompt with workspace, secret, and QA-preservation rules."""
     qa_text = (
         "\n".join(" ".join(command) for command in qa_commands)
         if qa_commands
@@ -133,6 +137,14 @@ def build_issue_to_patch_argv(
     agent_id: str,
     connection: sqlite3.Connection,
 ) -> list[str]:
+    """Build the structured argv for an issue-to-patch run on the given runtime.
+
+    Prefers the runtime's explicit `issueToPatchArgv`; otherwise requires a detected
+    executable that matches the runtime's tokens and delegates to its command builder.
+
+    Raises:
+        RuntimeCommandUnavailableError: if the runtime cannot produce a safe command.
+    """
     explicit = _explicit_issue_to_patch_argv(
         runtime,
         runtime_id=str(runtime.get("id") or ""),
@@ -191,6 +203,14 @@ def build_developer_agent_argv(
     agent_id: str,
     connection: sqlite3.Connection,
 ) -> list[str]:
+    """Build the structured argv for a DeveloperAgent run (Codex or Claude Code CLI only).
+
+    Prefers the runtime's explicit `developerAgentArgv`; otherwise validates the detected
+    executable and delegates to the runtime's command builder.
+
+    Raises:
+        RuntimeCommandUnavailableError: if the runtime cannot produce a safe command.
+    """
     explicit = _explicit_developer_agent_argv(runtime)
     if explicit is not None:
         return explicit
@@ -237,6 +257,11 @@ def runtime_for(
     connection: sqlite3.Connection | None = None,
     executable: str | None = None,
 ):
+    """Instantiate the CLI runtime implementation for a runtime id.
+
+    Raises:
+        KeyError: if `runtime_id` is not a known runtime.
+    """
     runtimes = {
         "codex_cli": CodexCliRuntime(executable=executable, connection=connection),
         "claude_code_cli": ClaudeCodeCliRuntime(executable=executable, connection=connection),
@@ -250,7 +275,10 @@ def runtime_for(
 
 
 class RuntimeRegistry:
+    """Detection facade over the known CLI runtimes."""
+
     def list_runtimes(self) -> list[dict[str, Any]]:
+        """Detect every known runtime and return its detection payload."""
         result = []
         for runtime_id in ["codex_cli", "claude_code_cli", "openhands", "swe_agent", "manual"]:
             runtime = runtime_for(runtime_id)
@@ -259,7 +287,9 @@ class RuntimeRegistry:
         return result
 
     def detect(self, runtime_id: str, *, executable: str | None = None) -> dict[str, Any]:
+        """Detect a single runtime, optionally probing a specific executable path."""
         return runtime_for(runtime_id, executable=executable).detect().model_dump(by_alias=True)
 
     def health_check(self, runtime_id: str, *, executable: str | None = None) -> dict[str, Any]:
+        """Run a runtime's safe version/health check and return its result."""
         return runtime_for(runtime_id, executable=executable).health_check().model_dump(by_alias=True)

@@ -1,7 +1,8 @@
 /**
- * @file AIDO frontend source module.
- * @copyright Copyright (c) AIDO.
- * @author Roddmason
+ * Home gallery card for a runtime that cannot execute work yet, surfacing the
+ * blocking reason so the user can clear it before runs proceed. The badge
+ * distinguishes "not configured" from configured-but-not-ready. One of the four
+ * masonry card kinds.
  */
 import { ArrowRight, PlugZap } from 'lucide-react';
 

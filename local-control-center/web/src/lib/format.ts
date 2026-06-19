@@ -1,10 +1,11 @@
 /**
- * @file AIDO frontend source module.
- * @copyright Copyright (c) AIDO.
- * @author Roddmason
+ * Helpers de presentación que mapean datos crudos a texto/semántica para la UI.
+ * Cubre el truncado de IDs largos, el enmascarado defensivo de secretos en texto
+ * libre, y la traducción de estados de dominio al tono visual de la paleta.
  */
 import { maskSecrets } from './redaction';
 
+/** Trunca IDs largos (>18) a `12 chars + …`; `'none'` si viene vacío o nulo. */
 export function shortId(id?: string | null) {
 	if (!id) return 'none';
 	return id.length > 18 ? `${id.slice(0, 12)}...` : id;
@@ -22,6 +23,10 @@ export function redactVisibleSecret(value: unknown, fallback = 'n/a'): string {
 	return maskSecrets(base, '[redacted_secret]');
 }
 
+/**
+ * Clasifica un estado de dominio (de cualquier etapa del pipeline) en el tono de la
+ * paleta que lo representa. Estados desconocidos o ausentes caen a `'info'` (neutro).
+ */
 export function toneForStatus(status?: string): 'ok' | 'warn' | 'danger' | 'info' | 'pending' {
 	if (!status) return 'info';
 	if (

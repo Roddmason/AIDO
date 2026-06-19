@@ -1,7 +1,8 @@
 /**
- * @file AIDO frontend source module.
- * @copyright Copyright (c) AIDO.
- * @author Roddmason
+ * Project lifecycle board: one reusable page that lists projects filtered by lifecycle
+ * lane (active / finished / error / cancelled), driven by `statusView`.
+ * Only the active lane can select a project to run work against; other lanes stay
+ * audit-only and visible for traceability. Per-lane copy lives in `statusCopy`.
  */
 import { FolderPlus, Settings } from 'lucide-react';
 
@@ -90,6 +91,10 @@ function matchesProjectStatus(status: string, view: ProjectStatusView) {
 	return ['cancelled', 'canceled'].includes(normalized);
 }
 
+/**
+ * Project lane route page. `statusView` selects which lifecycle lane to render; the
+ * active lane exposes Select buttons (operational), other lanes render as audit-only.
+ */
 export function ActiveProjectsPage({
 	overview,
 	selectedProject,

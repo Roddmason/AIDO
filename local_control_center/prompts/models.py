@@ -1,7 +1,7 @@
-"""AIDO backend source module.
+"""Esquemas de contrato HTTP del slice de prompts (request/response, camelCase externo).
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Definen la forma de entrada y salida de la API de plantillas de prompts y traducen entre el
+camelCase del cliente (alias Pydantic) y el snake_case interno usado por el repositorio.
 """
 
 from __future__ import annotations
@@ -12,6 +12,8 @@ from pydantic import BaseModel, Field
 
 
 class PromptUpsertRequest(BaseModel):
+    """Cuerpo del upsert: crea una plantilla nueva cuando `id` es nulo, o actualiza la existente."""
+
     id: str | None = None
     project_id: str = Field(alias="projectId")
     name: str
@@ -22,6 +24,8 @@ class PromptUpsertRequest(BaseModel):
 
 
 class PromptTemplateRecord(BaseModel):
+    """Plantilla persistida tal como se expone al cliente, incluyendo versión y marcas de tiempo."""
+
     id: str
     project_id: str = Field(alias="projectId")
     name: str
@@ -35,8 +39,12 @@ class PromptTemplateRecord(BaseModel):
 
 
 class PromptResponse(BaseModel):
+    """Envoltura de respuesta para una única plantilla tras crearla o actualizarla."""
+
     prompt_template: PromptTemplateRecord = Field(alias="promptTemplate")
 
 
 class PromptTemplatesListResponse(BaseModel):
+    """Envoltura de respuesta para el listado completo de plantillas."""
+
     prompt_templates: list[PromptTemplateRecord] = Field(alias="promptTemplates")

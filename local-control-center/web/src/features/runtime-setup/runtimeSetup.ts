@@ -1,7 +1,8 @@
 /**
- * @file AIDO frontend source module.
- * @copyright Copyright (c) AIDO.
- * @author Roddmason
+ * Shared domain logic for the runtime-setup cards: the fixed list of providers to
+ * explain, the left-join of live status with configuration, and the rule that collapses
+ * the backend readiness booleans into one user-facing state plus its display metadata.
+ * UI-agnostic so both the full panel and the compact inspector card render identically.
  */
 
 import type { LucideProps } from 'lucide-react';

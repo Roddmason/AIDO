@@ -1,7 +1,8 @@
 /**
- * @file AIDO frontend source module.
- * @copyright Copyright (c) AIDO.
- * @author Roddmason
+ * Full runtime-setup panel: one expandable card per provider answering "why can/can't
+ * this execute?" — required env vars, detected command, health and configure steps.
+ * Re-probes API/gateway providers on refresh (their health is stored, not live on GET)
+ * and redacts secret values everywhere, showing only set/unset state and a fingerprint.
  */
 
 import { CheckCircle2, RefreshCw, XCircle } from 'lucide-react';

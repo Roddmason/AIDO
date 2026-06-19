@@ -1,7 +1,8 @@
-"""AIDO backend source module.
+"""Worker concurrente que reclama jobs de la cola, los ejecuta y cierra su run.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+`ConcurrentWorker` abre su propia conexión SQLite por operación, recupera leases vencidos y
+drena la cola con un pool de hilos. `execute_job` es hoy un placeholder: ningún kind tiene
+executor real, así que cada job termina en `failed` con el motivo en su metadata.
 """
 
 from __future__ import annotations
@@ -15,6 +16,8 @@ from local_control_center.shared.migrations import initialize_platform_schema
 
 
 class JobExecutionUnavailable(RuntimeError):
+    """Señala que un job no se pudo ejecutar, portando el status y metadata para marcar el run fallido."""
+
     def __init__(self, *, status: str, summary: str, metadata: dict):
         super().__init__(summary)
         self.status = status
@@ -23,6 +26,8 @@ class JobExecutionUnavailable(RuntimeError):
 
 
 class ConcurrentWorker:
+    """Ejecuta jobs de la cola SQLite, gestionando recuperación de leases y drenado concurrente."""
+
     def __init__(
         self,
         *,
@@ -33,6 +38,7 @@ class ConcurrentWorker:
         self.lease_ms = lease_ms
 
     def recover(self) -> list[dict]:
+        """Reencola los jobs cuyo lease venció antes de empezar a procesar la cola."""
         connection = open_sqlite_connection(self.db_path)
         try:
             initialize_platform_schema(connection)
@@ -41,6 +47,14 @@ class ConcurrentWorker:
             connection.close()
 
     def run_once(self, *, worker_id: str) -> dict | None:
+        """Reclama y ejecuta un único job, cerrando su run como completado o fallido.
+
+        Todo fallo de ejecución (incluido `JobExecutionUnavailable`) se captura y se materializa
+        como run `failed` con su motivo; no propaga la excepción.
+
+        Returns:
+            El resultado del run cerrado, o `None` si no había job para reclamar.
+        """
         connection = open_sqlite_connection(self.db_path)
         try:
             initialize_platform_schema(connection)
@@ -77,6 +91,11 @@ class ConcurrentWorker:
             connection.close()
 
     def run_batch(self, *, worker_count: int = 2, max_jobs: int | None = None) -> list[dict]:
+        """Recupera leases y drena la cola con un pool de hilos, devolviendo los runs ejecutados.
+
+        Lanza `max_jobs` (o `worker_count`) intentos `run_once` en paralelo; cada intento sin job
+        disponible se descarta del resultado.
+        """
         self.recover()
         total = max_jobs or worker_count
         results: list[dict] = []
@@ -90,6 +109,14 @@ class ConcurrentWorker:
 
 
 def execute_job(job: dict) -> dict:
+    """Ejecuta un job según su kind.
+
+    Placeholder actual: ningún kind tiene executor real conectado.
+
+    Raises:
+        JobExecutionUnavailable: siempre, con `configuration_required` para kinds conocidos y
+            `unsupported_job_kind` para el resto.
+    """
     kind = job["kind"]
     if kind in {
         "prompt.optimize",

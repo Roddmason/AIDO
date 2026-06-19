@@ -1,7 +1,11 @@
-"""AIDO backend source module.
+"""Repositorio SQLite del slice de jobs/aprobaciones: ciclo de vida del job, runs y action requests.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Transacciones: la mayoría de los métodos emiten varios `UPDATE/INSERT` (cambio de estado +
+evento + auditoría) y delegan el commit en la transacción del `connection` del caller (modo
+autocommit del wrapper). La excepción es `claim_next_job`, que abre `BEGIN IMMEDIATE` y hace
+COMMIT/ROLLBACK propios para serializar el reclamo de la cola entre workers concurrentes.
+Invariante de seguridad: todo command/payload/reason se redacta con `redact_secrets` antes de
+persistir o registrar, de modo que ningún secreto llega a `jobs`, `action_requests` ni eventos.
 """
 
 from __future__ import annotations
@@ -22,6 +26,7 @@ from .models import SENSITIVE_JOB_KINDS
 
 
 def row_to_job(row: sqlite3.Row) -> dict[str, Any]:
+    """Proyecta una fila de `jobs` al dict camelCase de la API, deserializando el payload JSON."""
     return {
         "id": row["id"],
         "projectId": row["project_id"],
@@ -39,6 +44,7 @@ def row_to_job(row: sqlite3.Row) -> dict[str, Any]:
 
 
 def row_to_job_run(row: sqlite3.Row) -> dict[str, Any]:
+    """Proyecta una fila de `job_runs` al dict camelCase, deserializando su metadata JSON."""
     return {
         "id": row["id"],
         "jobId": row["job_id"],
@@ -88,6 +94,12 @@ def _payload_requests_execution(payload: dict[str, Any]) -> bool:
 
 
 def row_to_action_request(row: sqlite3.Row) -> dict[str, Any]:
+    """Proyecta una fila de `action_requests` al dict de la API.
+
+    Rehidrata desde el payload JSON los campos derivados (argv, workspace, runtime, refs de
+    evidencia/diff) que no tienen columna propia, tolerando que `expires_at` no exista en
+    esquemas antiguos.
+    """
     payload = json_loads(row["payload"])
     return {
         "id": row["id"],
@@ -115,6 +127,12 @@ def row_to_action_request(row: sqlite3.Row) -> dict[str, Any]:
 
 
 class JobsRepository:
+    """Acceso a `jobs`, `job_runs` y `action_requests` sobre el connection del caller.
+
+    Cada método agrupa el cambio de estado con sus eventos y auditoría; salvo `claim_next_job`
+    no abre transacciones explícitas, por lo que confía en la transacción/commit del connection.
+    """
+
     def __init__(self, connection: sqlite3.Connection):
         self.connection = connection
 
@@ -135,6 +153,15 @@ class JobsRepository:
         workflow_run_id: str | None = None,
         workflow_step_id: str | None = None,
     ) -> dict[str, Any]:
+        """Inserta un job y, si el kind es sensible o el payload lo pide, su action request de aprobación.
+
+        Escribe en una sola transacción del caller: la fila `jobs`, los eventos `job.created`
+        (+ `job.approval_required`) y, cuando aplica, la action request. El status inicial es
+        `approval_required` si requiere gating, si no `queued`.
+
+        Returns:
+            Dict con el job creado, los eventos emitidos y las action requests generadas.
+        """
         payload = redact_secrets(payload or {})
         timestamp = utc_now()
         job_id = f"job-{uuid.uuid4()}"
@@ -193,12 +220,18 @@ class JobsRepository:
         }
 
     def get_job(self, job_id: str) -> dict[str, Any]:
+        """Devuelve el job por id.
+
+        Raises:
+            KeyError: si el job no existe.
+        """
         row = self._query_one("SELECT * FROM jobs WHERE id = ?", (job_id,))
         if not row:
             raise KeyError(f"Job not found: {job_id}")
         return row_to_job(row)
 
     def list_jobs(self, project_id: str | None = None) -> list[dict[str, Any]]:
+        """Lista los jobs (todos o de un proyecto) ordenados del más reciente al más antiguo."""
         if project_id:
             rows = self._query(
                 "SELECT * FROM jobs WHERE project_id = ? ORDER BY created_at DESC", (project_id,)
@@ -208,6 +241,7 @@ class JobsRepository:
         return [row_to_job(row) for row in rows]
 
     def list_jobs_for_workflow_runs(self, workflow_run_ids: list[str]) -> list[dict[str, Any]]:
+        """Trae los jobs ligados a un conjunto de workflow runs; lista vacía si no se pasan ids."""
         if not workflow_run_ids:
             return []
         placeholders = ",".join("?" for _ in workflow_run_ids)
@@ -230,6 +264,14 @@ class JobsRepository:
         reason: str = "",
         expires_at: str | None = None,
     ) -> dict[str, Any]:
+        """Crea una action request `pending` con TTL y emite el evento `action.requested`.
+
+        Redacta command/payload/reason antes de persistir y deriva `commandArgv` desde el argv
+        explícito, el payload o el parseo shell del comando. El TTL por defecto es de 24 h.
+
+        Raises:
+            ValueError: si la razón queda vacía tras redactar/normalizar.
+        """
         action_id = f"action-{uuid.uuid4()}"
         clean_command = str(redact_secrets(command or ""))
         clean_payload = redact_secrets(payload or {})
@@ -278,12 +320,18 @@ class JobsRepository:
         return self.get_action_request(action_id)
 
     def get_action_request(self, action_id: str) -> dict[str, Any]:
+        """Devuelve la action request por id.
+
+        Raises:
+            KeyError: si la action request no existe.
+        """
         row = self._query_one("SELECT * FROM action_requests WHERE id = ?", (action_id,))
         if not row:
             raise KeyError(f"Action request not found: {action_id}")
         return row_to_action_request(row)
 
     def list_action_requests(self, job_id: str | None = None) -> list[dict[str, Any]]:
+        """Lista action requests: por job en orden cronológico, o todas de la más reciente a la más antigua."""
         if job_id:
             rows = self._query(
                 "SELECT * FROM action_requests WHERE job_id = ? ORDER BY requested_at ASC", (job_id,)
@@ -302,6 +350,12 @@ class JobsRepository:
         ]
 
     def approve_job(self, job_id: str, reason: str = "", actor: str = "operator") -> dict[str, Any]:
+        """Aprueba el job a nivel global y, si ya no quedan acciones pendientes, lo pasa a `queued`.
+
+        Siempre deja rastro de auditoría `job.approve`; la promoción de estado y el evento
+        `job.approved` solo ocurren cuando no hay action requests pendientes y el job estaba
+        en `approval_required`. Persiste con la transacción del caller.
+        """
         job = self.get_job(job_id)
         audit = self.record_audit(
             project_id=job["projectId"],
@@ -333,6 +387,17 @@ class JobsRepository:
         reason: str = "",
         actor: str = "operator",
     ) -> dict[str, Any]:
+        """Aprueba una action request, crea su permission grant y promueve el job si procede.
+
+        En la misma transacción del caller: marca la acción `approved`, emite `action.approved`,
+        registra auditoría, crea el grant de seguridad (vía `SecurityPolicyRepository`) que
+        habilita la ejecución, y pasa el job a `queued` si era la última acción pendiente. Una
+        acción expirada se marca `expired` aquí mismo antes de rechazar.
+
+        Raises:
+            KeyError: si la acción no pertenece al job.
+            ValueError: si la acción ya fue decidida, la razón está vacía, o la acción expiró.
+        """
         action = self.get_action_request(action_id)
         if action["jobId"] != job_id:
             raise KeyError(f"Action {action_id} does not belong to job {job_id}")
@@ -404,6 +469,15 @@ class JobsRepository:
         reason: str = "",
         actor: str = "operator",
     ) -> dict[str, Any]:
+        """Deniega una action request y cancela el job, liberando su lease.
+
+        En la transacción del caller: marca la acción `denied`, pone el job en `cancelled`
+        (sin grant alguno), y emite `action.denied` más la auditoría `action.deny`.
+
+        Raises:
+            KeyError: si la acción no pertenece al job.
+            ValueError: si la acción ya fue decidida o la razón está vacía.
+        """
         action = self.get_action_request(action_id)
         if action["jobId"] != job_id:
             raise KeyError(f"Action {action_id} does not belong to job {job_id}")
@@ -442,6 +516,7 @@ class JobsRepository:
         return {"job": job, "actionRequest": self.get_action_request(action_id), "auditEvent": audit}
 
     def cancel_job(self, job_id: str, reason: str = "", actor: str = "operator") -> dict[str, Any]:
+        """Cancela el job, libera su lease y deja evento `job.cancelled` más auditoría."""
         job = self.get_job(job_id)
         self.connection.execute(
             "UPDATE jobs SET status = 'cancelled', lease_owner = NULL, lease_expires_at = NULL, updated_at = ? WHERE id = ?",
@@ -460,6 +535,7 @@ class JobsRepository:
         return {"job": self.get_job(job_id), "auditEvent": audit}
 
     def retry_job(self, job_id: str, reason: str = "", actor: str = "operator") -> dict[str, Any]:
+        """Reencola el job liberando su lease; vuelve a `approval_required` si aún tiene acciones pendientes."""
         job = self.get_job(job_id)
         status = "approval_required" if self._pending_actions(job_id) else "queued"
         self.connection.execute(
@@ -481,6 +557,10 @@ class JobsRepository:
     def update_job_status(
         self, job_id: str, *, status: str, metadata: dict[str, Any] | None = None
     ) -> dict[str, Any]:
+        """Fija el status del job, fusiona la metadata redactada en `payload.result` y libera el lease.
+
+        Emite un evento `job.<status>` con la metadata redactada; usa la transacción del caller.
+        """
         job = self.get_job(job_id)
         payload = dict(job["payload"] or {})
         if metadata is not None:
@@ -503,6 +583,16 @@ class JobsRepository:
         return self.get_job(job_id)
 
     def claim_next_job(self, *, worker_id: str, lease_ms: int = 300000) -> dict[str, Any] | None:
+        """Reclama atómicamente el job `queued` más antiguo, lo pone `running` y abre su run.
+
+        Transacción propia: abre `BEGIN IMMEDIATE` para serializar el reclamo entre workers
+        concurrentes y hace COMMIT (o ROLLBACK ante cualquier error) antes de leer el resultado;
+        el UPDATE condicionado a `status = 'queued'` evita doble-reclamo. El evento `job.claimed`
+        se emite ya fuera de esa transacción.
+
+        Returns:
+            Dict con el job y su run reclamados, o `None` si la cola está vacía.
+        """
         timestamp = utc_now()
         run_id = f"run-{uuid.uuid4()}"
         try:
@@ -549,6 +639,13 @@ class JobsRepository:
         return {"job": job, "run": run}
 
     def requeue_expired_jobs(self, *, now_iso: str | None = None) -> list[dict[str, Any]]:
+        """Recupera jobs `running` cuyo lease venció: los reencola y marca su run como `failed`.
+
+        Por cada job vencido emite `job.requeued`; opera sobre la transacción del caller.
+
+        Returns:
+            Los jobs recuperados, en el estado `queued` resultante.
+        """
         now_value = now_iso or utc_now()
         rows = self._query(
             """
@@ -595,6 +692,12 @@ class JobsRepository:
         summary: str = "",
         metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        """Cierra un run con su resultado y propaga el estado terminal al job, liberando el lease.
+
+        El job queda `completed` solo si el run lo está; cualquier otro status lo deja `failed`.
+        Summary y metadata se redactan antes de persistir y de emitir `job.<status>`; usa la
+        transacción del caller.
+        """
         job_status = "completed" if status == "completed" else "failed"
         timestamp = utc_now()
         clean_summary = str(redact_secrets(summary))
@@ -628,6 +731,7 @@ class JobsRepository:
         }
 
     def list_job_runs(self, job_id: str | None = None) -> list[dict[str, Any]]:
+        """Lista los runs (de un job o globales) en orden cronológico de inicio."""
         if job_id:
             rows = self._query("SELECT * FROM job_runs WHERE job_id = ? ORDER BY started_at ASC", (job_id,))
         else:
@@ -642,6 +746,7 @@ class JobsRepository:
         project_id: str | None = None,
         job_id: str | None = None,
     ) -> dict[str, Any]:
+        """Registra un evento de dominio en el bus, atado opcionalmente a proyecto y job."""
         return EventBus(self.connection).record_event(
             event_type=event_type,
             payload=payload,
@@ -650,6 +755,7 @@ class JobsRepository:
         )
 
     def list_events(self, project_id: str | None = None) -> list[dict[str, Any]]:
+        """Devuelve los eventos del bus, filtrando por proyecto cuando se indica."""
         return EventBus(self.connection).list_events(project_id=project_id)
 
     def record_audit(
@@ -661,6 +767,7 @@ class JobsRepository:
         project_id: str | None = None,
         actor: str = "system",
     ) -> dict[str, Any]:
+        """Registra una entrada de auditoría (acción de un actor sobre un target) en el bus."""
         return EventBus(self.connection).record_audit(
             action=action,
             target=target,
@@ -670,4 +777,5 @@ class JobsRepository:
         )
 
     def list_audit_events(self, project_id: str | None = None) -> list[dict[str, Any]]:
+        """Devuelve las entradas de auditoría, filtrando por proyecto cuando se indica."""
         return EventBus(self.connection).list_audit_events(project_id=project_id)

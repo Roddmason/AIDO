@@ -1,7 +1,8 @@
 /**
- * @file AIDO frontend source module.
- * @copyright Copyright (c) AIDO.
- * @author Roddmason
+ * Drawer body that renders the full approve/reject experience for one action:
+ * scope, policy reason, linked evidence/artifacts, the patch/diff/security gate,
+ * and the decision reason with the gated Approve/Reject buttons. Purely
+ * presentational — all decision state and side effects come in via the page.
  */
 import type { ActionRequest } from '../../api/types';
 import { Badge, DataTable, EmptyState, Surface } from '../../components/primitives';

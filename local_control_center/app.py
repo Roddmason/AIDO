@@ -1,7 +1,7 @@
-"""AIDO backend source module.
+"""Facade canonica del factory de la aplicacion: reexporta `create_app` desde `api`.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Da a los consumidores (cli, tests, despliegue) un punto de import estable
+(`local_control_center.app:create_app`) desacoplado del modulo de ensamblado real.
 """
 
 from .api import create_app

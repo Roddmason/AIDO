@@ -1,7 +1,9 @@
-"""AIDO backend source module.
+"""Router FastAPI del slice: endpoints HTTP de memoria y retrieval.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Expone el CRUD de memory items y las operaciones de índice (status, reindex,
+search) sobre /api/v1, cableando cada handler con repositorio, event bus e
+índice construidos por petición. Las mutaciones pasan por require_write; la
+lógica vive en commands, este módulo solo traduce HTTP a casos de uso.
 """
 
 from __future__ import annotations
@@ -32,6 +34,11 @@ DELETE_MEMORY_BODY = Body(default_factory=MemoryDeleteRequest)
 
 
 def create_router(*, platform: Any, require_write: Callable[[Request], None]) -> APIRouter:
+    """Arma el APIRouter de memoria/retrieval ligado a la plataforma y al guard de escritura.
+
+    El índice se persiste bajo db_path.parent / "faiss-index"; las rutas de
+    creación, borrado y reindex exigen require_write antes de mutar.
+    """
     router = APIRouter()
 
     def memory_repository() -> MemoryRepository:

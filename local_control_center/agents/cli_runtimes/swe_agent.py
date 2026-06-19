@@ -1,7 +1,8 @@
-"""AIDO backend source module.
+"""Adaptador del runtime SWE-agent: traduce una request al argv de `sweagent run`.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Resuelve el binario por env vars (AIDO_SWE_AGENT_COMMAND / SWE_AGENT_CLI_PATH) y arma el comando
+pasando el repo y el enunciado del problema como parámetros nombrados, con aplicación local del
+parche. Exige que el workspace sea un worktree Git. Ejecución y registro se heredan de CliRuntime.
 """
 
 from __future__ import annotations
@@ -13,6 +14,8 @@ from .base import CliRuntime, RuntimeRequest
 
 
 class SweAgentRuntime(CliRuntime):
+    """Runtime CLI para SWE-agent, que resuelve el problema sobre un worktree Git y aplica el parche."""
+
     runtime_id = "swe_agent"
     display_name = "SWE-agent"
 
@@ -30,6 +33,11 @@ class SweAgentRuntime(CliRuntime):
         )
 
     def build_command(self, request: RuntimeRequest) -> list[str]:
+        """Arma el argv de `sweagent run` con el repo y el enunciado como parámetros nombrados.
+
+        Raises:
+            ValueError: si el workspace no está registrado, no existe o no es un worktree Git.
+        """
         workspace = self._validate_workspace(request)
         self._validate_git_workspace(workspace)
         self._validate_safe_args(request)

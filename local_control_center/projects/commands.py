@@ -1,7 +1,8 @@
-"""AIDO backend source module.
+"""Comandos de aplicación del slice de proyectos (orquestan repositorio, descubrimiento y auditoría).
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Cada función envuelve su resultado en el shape de respuesta que espera la API y delega la
+persistencia al repositorio. La creación resuelve la ruta destino, redacta la telemetría
+sensible del metadata y emite un evento de auditoría tras escribir el proyecto.
 """
 
 from __future__ import annotations
@@ -17,14 +18,17 @@ from .repository import ProjectsRepository
 
 
 def list_project_templates(projects: ProjectsRepository) -> dict[str, Any]:
+    """Devuelve las plantillas de proyecto disponibles para el flujo de creación."""
     return {"projectTemplates": projects.list_project_templates()}
 
 
 def list_projects(projects: ProjectsRepository) -> dict[str, Any]:
+    """Devuelve los proyectos registrados, ordenados como los entrega el repositorio."""
     return {"projects": projects.list_projects()}
 
 
 def discover_project(*, path: str | Path) -> dict[str, Any]:
+    """Inspecciona una ruta y reporta runtimes, manifiestos y nombre sugerido (solo lectura)."""
     return {"discovery": discover_project_path(path)}
 
 
@@ -69,6 +73,12 @@ def create_project(
     cwd: Path,
     body: dict[str, Any],
 ) -> dict[str, Any]:
+    """Crea (o adjunta) un proyecto y registra el evento de auditoría con telemetría redactada.
+
+    Returns:
+        El proyecto persistido y el ``auditEvent`` emitido; ``created`` indica si la fila
+        es nueva o ya existía para esa ruta.
+    """
     project_path, metadata = _resolve_project_path(body, cwd)
     project = projects.create_project(
         name=body.get("name") or Path(project_path).name or "Project",
@@ -89,12 +99,15 @@ def create_project(
 
 
 def list_providers(projects: ProjectsRepository) -> dict[str, Any]:
+    """Devuelve los proveedores de modelos/agentes registrados."""
     return {"providers": projects.list_providers()}
 
 
 def list_teams(projects: ProjectsRepository, *, project_id: str | None = None) -> dict[str, Any]:
+    """Devuelve los equipos (filtrables por proyecto) junto con el catálogo completo de agentes."""
     return {"teams": projects.list_teams(project_id=project_id), "agents": projects.list_agents()}
 
 
 def list_agents(projects: ProjectsRepository, *, team_id: str | None = None) -> dict[str, Any]:
+    """Devuelve los agentes del catálogo, opcionalmente acotados a un equipo."""
     return {"agents": projects.list_agents(team_id=team_id)}

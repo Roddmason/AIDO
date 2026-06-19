@@ -1,7 +1,7 @@
 /**
- * @file AIDO frontend source module.
- * @copyright Copyright (c) AIDO.
- * @author Roddmason
+ * Shared chrome for every Home gallery card: the clickable card button and its
+ * header row, kept in one place so the four card kinds share identical layout,
+ * focus/selection affordances and a11y wiring instead of duplicating boilerplate.
  */
 import type { ReactNode } from 'react';
 

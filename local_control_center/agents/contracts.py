@@ -1,7 +1,8 @@
-"""AIDO backend source module.
+"""Modelos Pydantic y literales de tipos del API de agentes (request/response y estados).
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Centraliza el contrato de datos del slice de agentes: roles, perfiles, runs, tool calls, políticas de
+modelo y los DTO de cada agente (developer/qa/devops/security/architect). Define los Literal de estados
+permitidos y los alias camelCase con que viajan hacia/desde la API; no contiene lógica de negocio.
 """
 
 from __future__ import annotations
@@ -65,11 +66,15 @@ ModelCallStatus = Literal["planned", "completed", "failed", "blocked", "unavaila
 
 
 class ModelProviderCandidate(BaseModel):
+    """Par proveedor/modelo candidato dentro de una política de ruteo."""
+
     provider: str
     model: str
 
 
 class AgentProfileUpsertRequest(BaseModel):
+    """Payload para crear o actualizar un perfil de agente con sus políticas y límites."""
+
     id: str
     name: str | None = None
     role: AgentRole = "implementer"
@@ -97,6 +102,8 @@ class AgentProfileUpsertRequest(BaseModel):
 
 
 class AgentProfileRecord(BaseModel):
+    """Perfil de agente persistido, con timestamps y todos los campos resueltos."""
+
     id: str
     name: str
     role: AgentRole
@@ -126,14 +133,20 @@ class AgentProfileRecord(BaseModel):
 
 
 class AgentProfileResponse(BaseModel):
+    """Respuesta con un único perfil de agente."""
+
     agent_profile: AgentProfileRecord = Field(alias="agentProfile")
 
 
 class AgentProfilesListResponse(BaseModel):
+    """Respuesta con el listado de perfiles de agente."""
+
     agent_profiles: list[AgentProfileRecord] = Field(alias="agentProfiles")
 
 
 class AgentRunCreateRequest(BaseModel):
+    """Payload para encolar la ejecución de un agente sobre una tarea de un proyecto."""
+
     project_id: str = Field(alias="projectId")
     agent_profile_id: str = Field(alias="agentProfileId")
     task_id: str = Field(default="task", alias="taskId")
@@ -144,6 +157,8 @@ class AgentRunCreateRequest(BaseModel):
 
 
 class AgentRunRecord(BaseModel):
+    """Ejecución de agente persistida, con su estado, input/output y metadatos."""
+
     id: str
     project_id: str = Field(alias="projectId")
     job_id: str | None = Field(default=None, alias="jobId")
@@ -158,6 +173,8 @@ class AgentRunRecord(BaseModel):
 
 
 class AgentToolCallRecord(BaseModel):
+    """Invocación de tool dentro de un run, con su estado de autorización y payload."""
+
     id: str
     agent_run_id: str = Field(alias="agentRunId")
     tool_name: str = Field(alias="toolName")
@@ -168,18 +185,26 @@ class AgentToolCallRecord(BaseModel):
 
 
 class AgentRunResponse(BaseModel):
+    """Respuesta con un único run de agente."""
+
     agent_run: AgentRunRecord = Field(alias="agentRun")
 
 
 class AgentRunsListResponse(BaseModel):
+    """Respuesta con el listado de runs de agente."""
+
     agent_runs: list[AgentRunRecord] = Field(alias="agentRuns")
 
 
 class SkillsSyncRequest(BaseModel):
+    """Payload para sincronizar el catálogo de skills desde un directorio."""
+
     skills_path: str = Field(default="skills", alias="skillsPath")
 
 
 class SkillRecord(BaseModel):
+    """Skill catalogada con su licencia, compatibilidad y nivel de riesgo."""
+
     id: str
     name: str
     description: str
@@ -193,15 +218,21 @@ class SkillRecord(BaseModel):
 
 
 class SkillsSyncResponse(BaseModel):
+    """Resultado de una sincronización de skills: cuántas se sincronizaron y el catálogo resultante."""
+
     synced: int
     skills: list[SkillRecord]
 
 
 class SkillsListResponse(BaseModel):
+    """Respuesta con el catálogo de skills disponibles."""
+
     skills: list[SkillRecord]
 
 
 class ModelPolicyRecord(BaseModel):
+    """Política de modelo persistida: candidatos preferidos/fallback y límites de costo/tokens."""
+
     id: str
     name: str
     preferred: list[ModelProviderCandidate]
@@ -217,6 +248,8 @@ class ModelPolicyRecord(BaseModel):
 
 
 class ModelProviderRecord(BaseModel):
+    """Proveedor de modelo registrado, con su política de uso remoto y metadatos."""
+
     id: str
     provider: str
     label: str
@@ -228,6 +261,8 @@ class ModelProviderRecord(BaseModel):
 
 
 class ModelCallRecord(BaseModel):
+    """Llamada a modelo registrada con su consumo de tokens y costo estimado."""
+
     id: str
     project_id: str = Field(alias="projectId")
     agent_run_id: str | None = Field(default=None, alias="agentRunId")
@@ -243,6 +278,8 @@ class ModelCallRecord(BaseModel):
 
 
 class CostUsageRecord(BaseModel):
+    """Registro de costo acumulado por ámbito (proyecto/agente/etc.)."""
+
     id: str
     project_id: str = Field(alias="projectId")
     scope: str
@@ -252,6 +289,8 @@ class CostUsageRecord(BaseModel):
 
 
 class OllamaRuntimeProviderStatus(BaseModel):
+    """Estado del runtime Ollama: disponibilidad y modelos locales detectados."""
+
     provider: str
     available: bool
     models: list[str]
@@ -259,23 +298,31 @@ class OllamaRuntimeProviderStatus(BaseModel):
 
 
 class CliAdaptersStatus(BaseModel):
+    """Presencia de los adaptadores CLI de código (codex y claude)."""
+
     cli_codex: bool
     cli_claude: bool
 
 
 class CliRuntimeProviderStatus(BaseModel):
+    """Estado del runtime CLI con el detalle de sus adaptadores detectados."""
+
     provider: str
     available: bool
     adapters: CliAdaptersStatus
 
 
 class ApiRuntimeProviderStatus(BaseModel):
+    """Estado del runtime API con la lista de adaptadores disponibles."""
+
     provider: str
     available: bool
     adapters: list[str]
 
 
 class RuntimeProviderSafety(BaseModel):
+    """Postura de seguridad de un runtime: confinamiento a workspace, shell, argv y red."""
+
     workspace_bound: bool = Field(default=True, alias="workspaceBound")
     shell: bool = False
     structured_argv: bool = Field(default=True, alias="structuredArgv")
@@ -283,6 +330,8 @@ class RuntimeProviderSafety(BaseModel):
 
 
 class RuntimeProviderStatus(BaseModel):
+    """Estado completo de un runtime provider: detección, salud, capacidades y postura de seguridad."""
+
     id: str
     kind: RuntimeProviderKind
     display_name: str = Field(alias="displayName")
@@ -303,6 +352,8 @@ class RuntimeProviderStatus(BaseModel):
 
 
 class DeveloperAgentContract(BaseModel):
+    """Contrato del DeveloperAgent expuesto por la API (esquemas, tools y capacidades requeridas)."""
+
     id: str
     input_schema: dict[str, Any] = Field(alias="inputSchema")
     output_schema: dict[str, Any] = Field(alias="outputSchema")
@@ -313,6 +364,8 @@ class DeveloperAgentContract(BaseModel):
 
 
 class DeveloperAgentStatus(BaseModel):
+    """Readiness del DeveloperAgent: si es ejecutable, el runtime elegido y los candidatos."""
+
     id: str
     executable: bool
     status: str
@@ -323,10 +376,14 @@ class DeveloperAgentStatus(BaseModel):
 
 
 class DeveloperAgentStatusResponse(BaseModel):
+    """Respuesta con el estado de readiness del DeveloperAgent."""
+
     developer_agent: DeveloperAgentStatus = Field(alias="developerAgent")
 
 
 class DeveloperAgentRunRequest(BaseModel):
+    """Payload para ejecutar el DeveloperAgent sobre un workspace con una instrucción concreta."""
+
     project_id: str = Field(alias="projectId")
     workspace_id: str = Field(alias="workspaceId")
     task_id: str = Field(default="developer_agent", alias="taskId")
@@ -341,6 +398,8 @@ class DeveloperAgentRunRequest(BaseModel):
 
 
 class DeveloperAgentRunResponse(BaseModel):
+    """Resultado de un run del DeveloperAgent: diff, resultados de QA y paquete de evidencia."""
+
     status: str
     reason: str
     developer_agent: DeveloperAgentStatus = Field(alias="developerAgent")
@@ -355,6 +414,8 @@ class DeveloperAgentRunResponse(BaseModel):
 
 
 class QAAgentCommandRequest(BaseModel):
+    """Comando de QA a ejecutar (argv), si es crítico para el veredicto y su timeout."""
+
     model_config = ConfigDict(extra="forbid")
 
     label: str | None = None
@@ -364,6 +425,8 @@ class QAAgentCommandRequest(BaseModel):
 
 
 class QAAgentContract(BaseModel):
+    """Contrato del QAAgent expuesto por la API, incluida la fuente de su veredicto."""
+
     id: str
     input_schema: dict[str, Any] = Field(alias="inputSchema")
     output_schema: dict[str, Any] = Field(alias="outputSchema")
@@ -375,6 +438,8 @@ class QAAgentContract(BaseModel):
 
 
 class QAAgentRunRequest(BaseModel):
+    """Payload para ejecutar el QAAgent con la lista de comandos a correr en el workspace."""
+
     model_config = ConfigDict(extra="forbid")
 
     project_id: str = Field(alias="projectId")
@@ -385,6 +450,8 @@ class QAAgentRunRequest(BaseModel):
 
 
 class QAAgentRunResponse(BaseModel):
+    """Resultado de un run del QAAgent: veredicto, resultados por comando y evidencia."""
+
     status: str
     verdict: str
     reason: str
@@ -397,6 +464,8 @@ class QAAgentRunResponse(BaseModel):
 
 
 class DevOpsAgentContract(BaseModel):
+    """Contrato del DevOpsAgent expuesto por la API, incluida la fuente de su veredicto."""
+
     id: str
     input_schema: dict[str, Any] = Field(alias="inputSchema")
     output_schema: dict[str, Any] = Field(alias="outputSchema")
@@ -408,6 +477,8 @@ class DevOpsAgentContract(BaseModel):
 
 
 class DevOpsAgentStatus(BaseModel):
+    """Readiness del DevOpsAgent: si sus checks deterministas son ejecutables."""
+
     id: str
     executable: bool
     status: str
@@ -416,10 +487,14 @@ class DevOpsAgentStatus(BaseModel):
 
 
 class DevOpsAgentStatusResponse(BaseModel):
+    """Respuesta con el estado de readiness del DevOpsAgent."""
+
     devops_agent: DevOpsAgentStatus = Field(alias="devopsAgent")
 
 
 class DevOpsAgentRunRequest(BaseModel):
+    """Payload para ejecutar el DevOpsAgent: scripts de build/quality y healthcheck opcional."""
+
     model_config = ConfigDict(extra="forbid")
 
     project_id: str = Field(alias="projectId")
@@ -432,6 +507,8 @@ class DevOpsAgentRunRequest(BaseModel):
 
 
 class DevOpsAgentRunResponse(BaseModel):
+    """Resultado de un run del DevOpsAgent: comandos, hallazgos de config y artefacto de evidencia."""
+
     status: str
     verdict: str
     reason: str
@@ -449,6 +526,8 @@ class DevOpsAgentRunResponse(BaseModel):
 
 
 class SecurityAgentCommandCandidateRequest(BaseModel):
+    """Comando candidato (argv) que el SecurityAgent podría ejecutar como escáner externo."""
+
     model_config = ConfigDict(extra="forbid")
 
     label: str | None = None
@@ -456,6 +535,8 @@ class SecurityAgentCommandCandidateRequest(BaseModel):
 
 
 class SecurityAgentContract(BaseModel):
+    """Contrato del SecurityAgent expuesto por la API, incluida la fuente de su veredicto."""
+
     id: str
     input_schema: dict[str, Any] = Field(alias="inputSchema")
     output_schema: dict[str, Any] = Field(alias="outputSchema")
@@ -467,6 +548,8 @@ class SecurityAgentContract(BaseModel):
 
 
 class SecurityAgentStatus(BaseModel):
+    """Readiness del SecurityAgent: si es ejecutable, el runtime elegido y los candidatos."""
+
     id: str
     executable: bool
     status: str
@@ -477,10 +560,14 @@ class SecurityAgentStatus(BaseModel):
 
 
 class SecurityAgentStatusResponse(BaseModel):
+    """Respuesta con el estado de readiness del SecurityAgent."""
+
     security_agent: SecurityAgentStatus = Field(alias="securityAgent")
 
 
 class SecurityAgentRunRequest(BaseModel):
+    """Payload para ejecutar el SecurityAgent: diff, escáneres candidatos y rutas a revisar."""
+
     model_config = ConfigDict(extra="forbid")
 
     project_id: str = Field(alias="projectId")
@@ -499,6 +586,8 @@ class SecurityAgentRunRequest(BaseModel):
 
 
 class SecurityAgentRunResponse(BaseModel):
+    """Resultado de un run del SecurityAgent: hallazgos, archivos escaneados y análisis de modelo."""
+
     status: str
     verdict: str
     reason: str
@@ -516,6 +605,8 @@ class SecurityAgentRunResponse(BaseModel):
 
 
 class ArchitectAgentContract(BaseModel):
+    """Contrato del ArchitectAgent expuesto por la API, incluida la fuente de su veredicto."""
+
     id: str
     input_schema: dict[str, Any] = Field(alias="inputSchema")
     output_schema: dict[str, Any] = Field(alias="outputSchema")
@@ -527,6 +618,8 @@ class ArchitectAgentContract(BaseModel):
 
 
 class ArchitectAgentStatus(BaseModel):
+    """Readiness del ArchitectAgent: si es ejecutable, el runtime elegido y los candidatos."""
+
     id: str
     executable: bool
     status: str
@@ -537,10 +630,14 @@ class ArchitectAgentStatus(BaseModel):
 
 
 class ArchitectAgentStatusResponse(BaseModel):
+    """Respuesta con el estado de readiness del ArchitectAgent."""
+
     architect_agent: ArchitectAgentStatus = Field(alias="architectAgent")
 
 
 class ArchitectAgentRunRequest(BaseModel):
+    """Payload para ejecutar el ArchitectAgent: diff, contexto de workflow y evidencia de soporte."""
+
     model_config = ConfigDict(extra="forbid")
 
     project_id: str = Field(alias="projectId")
@@ -559,6 +656,8 @@ class ArchitectAgentRunRequest(BaseModel):
 
 
 class ArchitectAgentRunResponse(BaseModel):
+    """Resultado de un run del ArchitectAgent: decisión de arquitectura, riesgos y evidencia."""
+
     status: str
     reason: str
     architect_agent: ArchitectAgentStatus = Field(alias="architectAgent")
@@ -574,6 +673,8 @@ class ArchitectAgentRunResponse(BaseModel):
 
 
 class RuntimeProviderConfigurationVariable(BaseModel):
+    """Variable de configuración de un runtime: si es requerida, secreta y si está configurada."""
+
     key: str
     name: str
     required: bool
@@ -583,6 +684,8 @@ class RuntimeProviderConfigurationVariable(BaseModel):
 
 
 class RuntimeProviderConfigurationRecord(BaseModel):
+    """Estado de configuración de un runtime provider: qué falta y el detalle de sus variables."""
+
     id: str
     display_name: str = Field(alias="displayName")
     kind: RuntimeProviderKind
@@ -594,10 +697,14 @@ class RuntimeProviderConfigurationRecord(BaseModel):
 
 
 class RuntimeProviderConfigurationResponse(BaseModel):
+    """Respuesta con el estado de configuración de todos los runtime providers."""
+
     providers: list[RuntimeProviderConfigurationRecord]
 
 
 class RuntimeProvidersResponse(BaseModel):
+    """Vista agregada de runtimes: modos disponibles, estado por tipo y readiness del DeveloperAgent."""
+
     runtime_modes: list[RuntimeMode] = Field(alias="runtimeModes")
     ollama: OllamaRuntimeProviderStatus
     cli: CliRuntimeProviderStatus

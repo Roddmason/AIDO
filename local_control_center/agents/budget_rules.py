@@ -1,7 +1,8 @@
-"""AIDO backend source module.
+"""Evalúa reglas de presupuesto por ámbito antes de autorizar una llamada de modelo.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Aplica primero el saldo restante y luego la regla de mayor especificidad (agent > workflow > provider
+> role > global) que exceda costo o tokens estimados, traduciendo su acción (deny/fallback/require_approval/
+warn) a una decisión allow/deny con motivo. No persiste nada: solo lee la tabla budget_rules.
 """
 
 from __future__ import annotations
@@ -13,6 +14,8 @@ from typing import Any
 
 @dataclass(frozen=True)
 class BudgetResult:
+    """Veredicto de presupuesto: si se permite, qué acción aplica y qué regla la disparó."""
+
     allowed: bool
     action: str
     reason: str
@@ -21,6 +24,7 @@ class BudgetResult:
     warnings: tuple[str, ...] = ()
 
     def as_dict(self) -> dict[str, Any]:
+        """Serializa el veredicto a claves camelCase para la respuesta de la API."""
         return {
             "allowed": self.allowed,
             "action": self.action,
@@ -32,6 +36,8 @@ class BudgetResult:
 
 
 class BudgetRuleEvaluator:
+    """Resuelve el veredicto de presupuesto consultando las reglas activas de la conexión SQLite."""
+
     def __init__(self, connection: sqlite3.Connection):
         self.connection = connection
 
@@ -46,6 +52,12 @@ class BudgetRuleEvaluator:
         estimated_tokens: int,
         budget_remaining_usd: float | None = None,
     ) -> BudgetResult:
+        """Decide si una ejecución cabe en presupuesto aplicando saldo restante y la primera regla excedida.
+
+        Returns:
+            Veredicto allow por defecto ("within_budget") o el dictado por la regla de mayor especificidad
+            cuyo costo/tokens estimados superen su límite.
+        """
         if (
             budget_remaining_usd is not None
             and estimated_cost_usd is not None

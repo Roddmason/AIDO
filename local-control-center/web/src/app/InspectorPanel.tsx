@@ -1,7 +1,5 @@
 /**
- * @file AIDO frontend source module.
- * @copyright Copyright (c) AIDO.
- * @author Roddmason
+ * Right-hand context panel summarizing the selected project's key signals.
  */
 import { useMemo } from 'react';
 
@@ -10,6 +8,10 @@ import { Badge, EmptyState } from '../components/primitives';
 import { useI18n } from '../i18n/I18nProvider';
 import { toneForStatus } from '../lib/format';
 
+/**
+ * Shows the selected project's path, status and counts (approvals, evidence,
+ * workspaces, workflows) scoped to that project, or an empty state when none is set.
+ */
 export function InspectorPanel({
 	overview,
 	selectedProject,

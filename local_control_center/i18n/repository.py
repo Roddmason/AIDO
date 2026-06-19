@@ -1,7 +1,8 @@
-"""AIDO backend source module.
+"""Persistencia SQLite del catálogo i18n sobre las tablas de idiomas, settings y traducciones.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Reconstituye el catálogo desde las tres tablas y aplica sus escrituras dentro de una
+transacción inmediata, de modo que settings, idiomas y traducciones queden siempre
+consistentes entre sí (un reemplazo total o un sembrado parcial nunca se ven a medias).
 """
 
 from __future__ import annotations
@@ -16,14 +17,18 @@ from .models import I18nCatalog
 
 
 class I18nRepository:
+    """Acceso a datos del catálogo i18n sobre una conexión SQLite dada."""
+
     def __init__(self, connection: sqlite3.Connection):
         self.connection = connection
 
     def has_catalog(self) -> bool:
+        """Indica si ya existe al menos un idioma sembrado."""
         row = self.connection.execute("SELECT 1 FROM i18n_languages LIMIT 1").fetchone()
         return row is not None
 
     def get_catalog(self) -> dict[str, Any]:
+        """Reconstruye el catálogo completo desde las tres tablas, con claves en alias camelCase."""
         default_row = self.connection.execute(
             "SELECT value FROM i18n_settings WHERE key = 'default_language'"
         ).fetchone()
@@ -60,6 +65,14 @@ class I18nRepository:
         }
 
     def replace_catalog(self, catalog: I18nCatalog) -> dict[str, Any]:
+        """Sustituye atómicamente el catálogo entero: borra las tres tablas y reinserta todo.
+
+        El borrado y la reinserción de settings, idiomas y traducciones ocurren dentro de
+        una única transacción inmediata; si algo falla, ninguna fila queda modificada.
+
+        Returns:
+            El catálogo recién persistido, releído desde la base.
+        """
         timestamp = utc_now()
         with immediate_transaction(self.connection):
             self.connection.execute("DELETE FROM i18n_settings")
@@ -101,6 +114,15 @@ class I18nRepository:
         return self.get_catalog()
 
     def ensure_seeded(self, catalog: I18nCatalog) -> dict[str, Any]:
+        """Siembra solo lo ausente: inserta idioma por defecto, idiomas y claves que aún no existen.
+
+        Si no hay catálogo, delega en un reemplazo completo. En caso contrario aplica
+        inserciones idempotentes dentro de una transacción inmediata, preservando los
+        valores ya editados por el usuario (nunca sobrescribe filas existentes).
+
+        Returns:
+            El catálogo resultante tras el sembrado, releído desde la base.
+        """
         if not self.has_catalog():
             return self.replace_catalog(catalog)
         timestamp = utc_now()

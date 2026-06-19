@@ -1,7 +1,10 @@
-"""AIDO backend source module.
+"""Persistencia SQLite de sesiones y chats: inserta, consulta y mapea filas a dicts del API.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Concentra todo el acceso a las tablas `sessions` y `chats` del slice. Cada creación es un
+único `INSERT` y, como la conexión corre en autocommit (`isolation_level=None`), confirma de
+forma atómica por sentencia: no agrupa varias escrituras ni abre `BEGIN/COMMIT` propios. El
+caller que necesite atomicidad entre el `INSERT` y el evento de dominio debe envolverlos él
+mismo (p. ej. con `immediate_transaction`); este repositorio no lo hace.
 """
 
 from __future__ import annotations
@@ -15,6 +18,7 @@ from local_control_center.shared.time import utc_now
 
 
 def row_to_session(row: sqlite3.Row) -> dict[str, Any]:
+    """Proyecta una fila de `sessions` al dict camelCase del API, deserializando `metadata`."""
     return {
         "id": row["id"],
         "projectId": row["project_id"],
@@ -28,6 +32,7 @@ def row_to_session(row: sqlite3.Row) -> dict[str, Any]:
 
 
 def row_to_chat(row: sqlite3.Row) -> dict[str, Any]:
+    """Proyecta una fila de `chats` al dict camelCase del API, deserializando `metadata`."""
     return {
         "id": row["id"],
         "projectId": row["project_id"],
@@ -42,10 +47,16 @@ def row_to_chat(row: sqlite3.Row) -> dict[str, Any]:
 
 
 class SessionsChatsRepository:
+    """Acceso a las tablas `sessions` y `chats` sobre una conexión SQLite ya abierta."""
+
     def __init__(self, connection: sqlite3.Connection):
         self.connection = connection
 
     def create_session(self, *, project_id: str, name: str, team_id: str | None = None) -> dict[str, Any]:
+        """Inserta una sesión `active` con metadata vacía y devuelve el registro recién creado.
+
+        Genera id (`session-<uuid>`) y timestamps; el `INSERT` confirma de inmediato (autocommit).
+        """
         timestamp = utc_now()
         session_id = f"session-{uuid.uuid4()}"
         self.connection.execute(
@@ -58,12 +69,18 @@ class SessionsChatsRepository:
         return self.get_session(session_id)
 
     def get_session(self, session_id: str) -> dict[str, Any]:
+        """Devuelve la sesión por id.
+
+        Raises:
+            KeyError: si no existe ninguna sesión con ese id.
+        """
         row = self.connection.execute("SELECT * FROM sessions WHERE id = ?", (session_id,)).fetchone()
         if not row:
             raise KeyError(f"Session not found: {session_id}")
         return row_to_session(row)
 
     def list_sessions(self, project_id: str | None = None) -> list[dict[str, Any]]:
+        """Lista sesiones, las más recientes primero; filtra por proyecto si se indica."""
         if project_id:
             rows = self.connection.execute(
                 "SELECT * FROM sessions WHERE project_id = ? ORDER BY created_at DESC",
@@ -81,6 +98,11 @@ class SessionsChatsRepository:
         prompt: str,
         title: str | None = None,
     ) -> dict[str, Any]:
+        """Inserta un chat `active` y devuelve el registro creado.
+
+        Si no se pasa `title`, lo deriva de la primera línea del prompt (recortada a 80 chars),
+        con fallback `"Untitled chat"`. El `INSERT` confirma de inmediato (autocommit).
+        """
         timestamp = utc_now()
         chat_id = f"chat-{uuid.uuid4()}"
         resolved_title = title or prompt.strip().splitlines()[0][:80] or "Untitled chat"
@@ -94,12 +116,18 @@ class SessionsChatsRepository:
         return self.get_chat(chat_id)
 
     def get_chat(self, chat_id: str) -> dict[str, Any]:
+        """Devuelve el chat por id.
+
+        Raises:
+            KeyError: si no existe ningún chat con ese id.
+        """
         row = self.connection.execute("SELECT * FROM chats WHERE id = ?", (chat_id,)).fetchone()
         if not row:
             raise KeyError(f"Chat not found: {chat_id}")
         return row_to_chat(row)
 
     def list_chats(self, project_id: str | None = None) -> list[dict[str, Any]]:
+        """Lista chats, los más recientes primero; filtra por proyecto si se indica."""
         if project_id:
             rows = self.connection.execute(
                 "SELECT * FROM chats WHERE project_id = ? ORDER BY created_at DESC",

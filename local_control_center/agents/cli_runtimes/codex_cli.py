@@ -1,7 +1,8 @@
-"""AIDO backend source module.
+"""Adaptador del runtime Codex CLI: traduce una request al argv de `codex exec`.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Resuelve el binario por env vars (AIDO_CODEX_COMMAND / CODEX_CLI_PATH), mapea perfiles a modelo
+y esfuerzo de razonamiento, y arma el comando con sandbox workspace-write y aprobación on-request.
+La ejecución bajo el sandbox de subprocesos y el registro del resultado los hereda de CliRuntime.
 """
 
 from __future__ import annotations
@@ -20,6 +21,8 @@ CODEX_PROFILES = {
 
 
 class CodexCliRuntime(CliRuntime):
+    """Runtime CLI para Codex, con perfiles que fijan modelo y esfuerzo de razonamiento por rol."""
+
     runtime_id = "codex_cli"
     display_name = "Codex CLI"
 
@@ -37,6 +40,11 @@ class CodexCliRuntime(CliRuntime):
         )
 
     def build_command(self, request: RuntimeRequest) -> list[str]:
+        """Arma el argv de `codex exec` para el workspace validado; el prompt va al final.
+
+        Modelo y esfuerzo de la request prevalecen sobre los del perfil y se omiten si no hay valor;
+        los extra_args se interponen antes del prompt posicional.
+        """
         workspace = self._validate_workspace(request)
         self._validate_safe_args(request)
         profile = CODEX_PROFILES.get(request.profile or "", {})

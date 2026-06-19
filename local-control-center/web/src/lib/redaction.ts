@@ -1,7 +1,9 @@
 /**
- * @file AIDO frontend source module.
- * @copyright Copyright (c) AIDO.
- * @author Roddmason
+ * Última barrera del cliente contra fuga de secretos: enmascara tokens antes del DOM.
+ * Invariante: todo texto libre de origen no confiable que se renderice debe pasar por
+ * `maskSecrets` (vía un redactor de este módulo); ningún patrón de secreto soportado
+ * (Bearer, sk-, ghp_/github_pat_, glpat-, xox*, AKIA…, pares clave=valor y query params)
+ * puede alcanzar la UI sin reemplazarse. Defensa en profundidad: el backend ya redacta.
  */
 
 /**
@@ -32,6 +34,11 @@ export function maskSecrets(input: string, label: string): string {
 		);
 }
 
+/**
+ * Redactor para evidencia/datos arbitrarios: serializa objetos a JSON indentado y
+ * enmascara con el marcador `[redacted]` que fija el contrato Playwright. Usa
+ * `fallback` cuando el valor es `null`/`undefined`.
+ */
 export function redactVisibleText(value: unknown, fallback = 'not recorded') {
 	const raw =
 		typeof value === 'string'

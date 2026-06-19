@@ -1,7 +1,7 @@
 /**
- * @file AIDO frontend source module.
- * @copyright Copyright (c) AIDO.
- * @author Roddmason
+ * Navigation registry: the canonical map of pages, the five top-level areas and
+ * their explorer links/labels. Drives the ActivityBar, ExplorerPanel and tab
+ * title from one declarative source so navigation stays consistent everywhere.
  */
 
 import type { LucideProps } from 'lucide-react';
@@ -30,6 +30,8 @@ import type { ComponentType } from 'react';
 
 type IconComponent = ComponentType<LucideProps>;
 
+/** Every reachable page hash, in declaration order. The route vocabulary shared
+ *  by the router, navigation registry and {@link resolveHashRoute}. */
 export const pageIds = [
 	'home',
 	'workbench',
@@ -63,6 +65,9 @@ export type AreaId = 'home' | 'workbench' | 'runs' | 'review' | 'settings';
 
 export type BilingualLabel = { en: string; es: string };
 
+/** A top-level area in the ActivityBar. `leadPage` is the page opened when the
+ *  area icon is clicked; `pages` are all pages that count as inside this area
+ *  (used to highlight the active area regardless of which child page is shown). */
 export type AreaDef = {
 	id: AreaId;
 	leadPage: PageId;
@@ -185,6 +190,8 @@ const AREA_BY_PAGE: Record<PageId, AreaId> = pageIds.reduce(
 	{} as Record<PageId, AreaId>,
 );
 
+/** Resolves which top-level area owns a page, so the ActivityBar can highlight
+ *  the active area. Falls back to `workbench` for any unmapped page. */
 export function areaForPage(page: PageId): AreaId {
 	return AREA_BY_PAGE[page] ?? 'workbench';
 }
@@ -239,6 +246,8 @@ export const EXPLORER_TITLE: Record<AreaId, BilingualLabel> = {
 	settings: { en: 'Settings', es: 'Configuración' },
 };
 
+/** Picks the label variant for the active language; defaults to English for any
+ *  language other than `es`. */
 export function pickLabel(label: BilingualLabel, language: string): string {
 	return language === 'es' ? label.es : label.en;
 }

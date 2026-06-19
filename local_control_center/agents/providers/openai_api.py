@@ -1,7 +1,8 @@
-"""AIDO backend source module.
+"""Conecta con la API oficial de OpenAI reutilizando el proveedor compatible base.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Solo fija el `provider_id`, la URL por defecto de OpenAI (override via AIDO/OPENAI
+base url) y la referencia de credencial; toda la logica HTTP, de costo y de uso la
+hereda de `OpenAICompatibleProvider`.
 """
 
 from __future__ import annotations
@@ -12,6 +13,8 @@ from .openai_compatible import OpenAICompatibleProvider
 
 
 class OpenAIAPIProvider(OpenAICompatibleProvider):
+    """Proveedor para la API oficial de OpenAI; configura URL y credencial sobre la base compatible."""
+
     def __init__(self, *, base_url: str | None = None, credential_ref: str = "OPENAI_API_KEY"):
         super().__init__(
             provider_id="openai_api",

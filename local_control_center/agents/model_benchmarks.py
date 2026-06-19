@@ -1,7 +1,8 @@
-"""AIDO backend source module.
+"""Benchmarks de modelos por proveedor/modelo/rol con provenance que separa lo objetivo de lo reportado.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Persiste outcomes individuales y los agrega en tasas de éxito/QA/rework, costo y latencia. Solo computa
+métricas de calidad sobre provenance objetivo (automated_run/release_validation); lo operator_reported
+cuenta pero no alimenta las tasas. Si no hay benchmark explícito, deriva uno de outcomes y del usage_ledger.
 """
 
 from __future__ import annotations
@@ -102,10 +103,13 @@ def _optional_bool(value: Any) -> bool | None:
 
 
 class ModelBenchmarkStore:
+    """Lee y escribe benchmarks de modelos sobre la conexión SQLite del caller."""
+
     def __init__(self, connection: sqlite3.Connection):
         self.connection = connection
 
     def list_benchmarks(self) -> list[dict[str, Any]]:
+        """Devuelve los benchmarks por modelo/rol, completando los faltantes desde outcomes y usage_ledger."""
         explicit_rows = self.connection.execute(
             "SELECT * FROM model_benchmarks ORDER BY provider_id ASC, model ASC, role ASC"
         ).fetchall()
@@ -225,6 +229,7 @@ class ModelBenchmarkStore:
         return benchmarks
 
     def record_outcome(self, body: dict[str, Any]) -> dict[str, Any]:
+        """Inserta un outcome de benchmark (metadata redactada) y devuelve la fila persistida."""
         outcome_id = str(body.get("id") or f"benchmark-outcome-{uuid.uuid4()}")
         now = utc_now()
         provenance = normalize_benchmark_provenance(body.get("provenance"), metadata=body.get("metadata"))
@@ -271,6 +276,11 @@ class ModelBenchmarkStore:
         payload: dict[str, Any],
         test_results: list[dict[str, Any]],
     ) -> dict[str, Any] | None:
+        """Deriva un outcome desde un paquete de evidencia de QA, evitando duplicar el mismo usage_ledger_id.
+
+        Returns:
+            El outcome registrado, o None si falta proveedor/modelo o ya existe uno para ese usage_ledger_id.
+        """
         usage = self._usage_for_outcome(payload.get("usageLedgerId"))
         provider_id = payload.get("providerId") or (usage or {}).get("providerId")
         model = payload.get("model") or (usage or {}).get("model")
@@ -324,6 +334,7 @@ class ModelBenchmarkStore:
         )
 
     def list_outcomes(self) -> list[dict[str, Any]]:
+        """Lista los outcomes de benchmark crudos, del más reciente al más antiguo."""
         rows = self.connection.execute(
             "SELECT * FROM model_benchmark_outcomes ORDER BY created_at DESC"
         ).fetchall()
@@ -383,6 +394,11 @@ def _int_row_value(row: sqlite3.Row, key: str, default: Any = 0) -> int:
 
 
 def normalize_benchmark_provenance(value: Any, *, metadata: Any | None = None) -> str:
+    """Valida y normaliza la provenance de un benchmark, infiriéndola de la metadata cuando falta.
+
+    Raises:
+        ValueError: si la provenance no es operator_reported, automated_run ni release_validation.
+    """
     if value is None:
         if isinstance(metadata, dict) and metadata.get("source") == "release_validation":
             return "release_validation"

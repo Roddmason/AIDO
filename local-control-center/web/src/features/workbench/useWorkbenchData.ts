@@ -1,7 +1,7 @@
 /**
- * @file AIDO frontend source module.
- * @copyright Copyright (c) AIDO.
- * @author Roddmason
+ * Data hook for the Workbench: scopes the global overview to the selected project and
+ * session, builds the team/delivery/timeline rows and blockers, and keeps the session
+ * selection valid as projects change. Holds all derivation so WorkbenchPage stays a thin shell.
  */
 
 import type { LucideIcon } from 'lucide-react';
@@ -36,6 +36,7 @@ type JsonRecord = Record<string, unknown>;
 /** Sentinel session id meaning "compose a brand-new work session". Shared with the page. */
 export const NEW_SESSION_ID = '__new_work_session__';
 
+/** Renders an ISO timestamp in the user's locale, falling back to the raw/empty label when unparseable. */
 export function formatTime(value: string | undefined, notRecordedLabel = 'not recorded') {
 	if (!value) return notRecordedLabel;
 	const parsed = Date.parse(value);

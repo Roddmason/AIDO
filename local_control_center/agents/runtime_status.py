@@ -1,7 +1,9 @@
-"""AIDO backend source module.
+"""Computes the availability/executability of every runtime provider for the UI.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Joins provider accounts, model catalog, runtime detections, and env configuration into
+one status per provider (API, CLI, Ollama, manual), deciding detected/configured/
+available/executable and a human reason. Execution is gated by explicit env flags
+(`AIDO_ENABLE_REAL_PROVIDER_CALLS`, `AIDO_ENABLE_CLI_RUNTIMES`); error text is redacted.
 """
 
 from __future__ import annotations
@@ -400,12 +402,19 @@ def _manual_provider_status(account: dict[str, Any], capabilities: list[str]) ->
 
 
 class RuntimeStatusService:
+    """Derives per-provider runtime status from accounts, detections, and configuration."""
+
     def __init__(self, connection: sqlite3.Connection):
         self.connection = connection
         self.accounts = ProviderAccountStore(connection)
         self.registry = RuntimeRegistry()
 
     def list_provider_statuses(self) -> list[dict[str, Any]]:
+        """Compute a status payload for every catalogued provider, dispatching by kind.
+
+        CLI providers are detected by their configured command, API/Ollama providers by
+        configuration plus health, manual by enablement; unknown kinds report non-executable.
+        """
         capabilities = _capabilities(self.connection)
         configurations = {
             provider_id: runtime_provider_configuration(provider_id)
@@ -480,6 +489,7 @@ class RuntimeStatusService:
         return statuses
 
     def runtime_provider_status(self) -> dict[str, Any]:
+        """Summarize provider statuses into Ollama/CLI/API rollups and DeveloperAgent readiness."""
         providers = self.list_provider_statuses()
         ollama = next((provider for provider in providers if provider["id"] == "ollama"), None)
         cli_providers = [provider for provider in providers if provider["id"] in CLI_RUNTIME_IDS]

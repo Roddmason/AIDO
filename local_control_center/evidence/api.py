@@ -1,7 +1,9 @@
-"""AIDO backend source module.
+"""Endpoints HTTP del slice de evidencia: crear, listar, exportar y gestionar artefactos.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Expone el router FastAPI que valida cada paquete contra las reglas de QA real antes de
+persistirlo, promueve logs/diffs/screenshots grandes a artefactos en disco, emite eventos y
+auditoría, y abre riesgos de gobernanza ante veredictos fallidos o artefactos expirados. Las
+descargas de artefactos verifican el hash y confinan las rutas al root de artefactos.
 """
 
 from __future__ import annotations
@@ -51,6 +53,11 @@ from .test_results import TestReportError, normalize_test_result_reports
 
 
 def create_router(*, platform: Any, require_write: Callable[[Request], None]) -> APIRouter:
+    """Construye el APIRouter de evidencia ligado a la plataforma y al guard de escritura.
+
+    `require_write` se invoca en cada ruta mutante o sensible (creación, ingesta, limpieza,
+    retención, exportación y descarga de artefactos) para imponer el control de acceso.
+    """
     router = APIRouter()
     allowed_artifact_kinds = set(get_args(ArtifactKind))
     max_ingested_artifact_bytes = 2_000_000

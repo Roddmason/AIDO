@@ -1,7 +1,8 @@
-"""AIDO backend source module.
+"""Expone los endpoints HTTP del slice de proyectos sobre FastAPI.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Cablea cada ruta a su comando de aplicación, construye el repositorio y el bus de eventos
+por petición desde la conexión de la plataforma, y aplica el guard de escritura en las
+mutaciones (descubrir, crear, seleccionar directorio). No contiene lógica de negocio.
 """
 
 from __future__ import annotations
@@ -32,6 +33,7 @@ from .repository import ProjectsRepository
 
 
 def create_router(*, platform: Any, require_write: Callable[[Request], None]) -> APIRouter:
+    """Arma el router de proyectos; ``require_write`` protege las rutas mutadoras."""
     router = APIRouter()
 
     def repository() -> ProjectsRepository:

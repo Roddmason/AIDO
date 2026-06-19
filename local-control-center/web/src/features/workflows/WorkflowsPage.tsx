@@ -1,7 +1,10 @@
 /**
- * @file AIDO frontend source module.
- * @copyright Copyright (c) AIDO.
- * @author Roddmason
+ * Workflows console: the SDLC graph view of durable workflow runs.
+ * Picks one workflow, joins every linked record (runs, steps, agent/tool/model calls,
+ * permission decisions, evidence, artifacts, jobs, approvals, audit) into one bundle,
+ * and renders the step graph, a merged timeline, blockers, a "what's missing for
+ * completed" gap list and queue recovery (retry/cancel) — so completion claims are
+ * backed by real diff + passing-QA evidence rather than asserted.
  */
 import { Background, Controls, type Edge, type Node, ReactFlow } from '@xyflow/react';
 import { useEffect, useMemo, useState } from 'react';
@@ -495,6 +498,11 @@ function WorkflowTimeline({ items }: { items: WorkflowTimelineItem[] }) {
 
 type Mutate = <T>(operation: (token: string) => Promise<T>) => Promise<T>;
 
+/**
+ * Workflows route page. Owns the selected-workflow state, artifact preview/download,
+ * and the gated queue-recovery flow (retry/cancel require a non-empty reason); all
+ * linked records are derived via `useMemo` from the selected workflow.
+ */
 export function WorkflowsPage({
 	overview,
 	token,

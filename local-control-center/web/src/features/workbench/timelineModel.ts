@@ -1,7 +1,7 @@
 /**
- * @file AIDO frontend source module.
- * @copyright Copyright (c) AIDO.
- * @author Roddmason
+ * Presentation model for the workbench run timeline: turns the staged status from
+ * buildIssueTimeline into operator-facing phases with icon, i18n label and a human
+ * reason per (phase, status), plus the index of the stage to focus.
  */
 
 import type { LucideIcon } from 'lucide-react';
@@ -36,6 +36,7 @@ export type TimelinePhase =
 	| 'review'
 	| 'terminal';
 
+/** One rendered timeline step: resolved status plus everything the UI needs to draw it. */
 export type WorkflowTimelineStage = {
 	/** Canonical stage id from buildIssueTimeline, kept visible as provenance. */
 	id: string;

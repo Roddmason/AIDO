@@ -1,7 +1,9 @@
-"""AIDO backend source module.
+"""Pydantic request/response contracts for the workflows API and its DTO shapes.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Defines the wire-level payloads exchanged by the workflow endpoints (create, start,
+gate advance, issue-to-patch/PR) plus the read models that aggregate a run with its
+evidence, jobs, agent runs and permission decisions. Field aliases keep the JSON
+camelCase while the Python attributes stay snake_case; no persistence or logic lives here.
 """
 
 from __future__ import annotations
@@ -60,6 +62,8 @@ WorkflowRiskLevel = Literal["low", "medium", "high", "critical"]
 
 
 class WorkflowCreateRequest(BaseModel):
+    """Body to register a new workflow under a project, optionally seeded with an idea."""
+
     project_id: str = Field(alias="projectId")
     kind: WorkflowKind = "idea_to_pr"
     title: str | None = None
@@ -68,10 +72,14 @@ class WorkflowCreateRequest(BaseModel):
 
 
 class WorkflowStatusChangeRequest(BaseModel):
+    """Body for pause/resume/cancel transitions; carries the human-supplied reason."""
+
     reason: str = ""
 
 
 class PromotePatchToBranchRequest(BaseModel):
+    """Body to promote an approved patch onto a working branch, optionally re-running QA."""
+
     reason: str
     branch_name: str | None = Field(default=None, alias="branchName")
     evidence_package_id: str | None = Field(default=None, alias="evidencePackageId")
@@ -79,17 +87,23 @@ class PromotePatchToBranchRequest(BaseModel):
 
 
 class PullRequestCreateRequest(BaseModel):
+    """Body to open a GitHub pull request from a promoted branch."""
+
     reason: str
     title: str | None = None
     base_branch: str | None = Field(default=None, alias="baseBranch")
 
 
 class WorkflowGateAdvanceRequest(BaseModel):
+    """Body to advance a governed gate (pr_review/release_gate/retro) with optional evidence."""
+
     reason: str = ""
     evidence_package_id: str | None = Field(default=None, alias="evidencePackageId")
 
 
 class WorkflowRecord(BaseModel):
+    """Persisted workflow header: identity, kind, current status and timestamps."""
+
     id: str
     project_id: str = Field(alias="projectId")
     kind: WorkflowKind
@@ -101,6 +115,8 @@ class WorkflowRecord(BaseModel):
 
 
 class WorkflowRunRecord(BaseModel):
+    """One execution of a workflow: its lifecycle status and start/completion times."""
+
     id: str
     workflow_id: str = Field(alias="workflowId")
     project_id: str = Field(alias="projectId")
@@ -111,6 +127,8 @@ class WorkflowRunRecord(BaseModel):
 
 
 class WorkflowStepRecord(BaseModel):
+    """A single step of a run, including its agent/role assignment and routing hints."""
+
     id: str
     workflow_run_id: str = Field(alias="workflowRunId")
     workflow_id: str = Field(alias="workflowId")
@@ -131,6 +149,8 @@ class WorkflowStepRecord(BaseModel):
 
 
 class WorkflowEventRecord(BaseModel):
+    """An audit/timeline event emitted during a run, with severity and correlation chain."""
+
     id: str
     workflow_id: str = Field(alias="workflowId")
     workflow_run_id: str | None = Field(default=None, alias="workflowRunId")
@@ -145,16 +165,26 @@ class WorkflowEventRecord(BaseModel):
 
 
 class WorkflowResponse(BaseModel):
+    """Single-workflow envelope returned by create and status-change endpoints."""
+
     workflow: WorkflowRecord
 
 
 class WorkflowsListResponse(BaseModel):
+    """Project listing: workflows plus their runs and steps for the board view."""
+
     workflows: list[WorkflowRecord]
     workflow_runs: list[WorkflowRunRecord] = Field(alias="workflowRuns")
     workflow_steps: list[WorkflowStepRecord] = Field(alias="workflowSteps")
 
 
 class WorkflowRunDetail(BaseModel):
+    """Full traceability bundle for one run: steps, events and every linked SDLC artifact.
+
+    Aggregates the evidence, jobs, agent runs, tool calls, model calls and permission
+    decisions so a run can be audited end-to-end from a single payload.
+    """
+
     workflow_run: WorkflowRunRecord = Field(alias="workflowRun")
     workflow_steps: list[WorkflowStepRecord] = Field(alias="workflowSteps")
     workflow_events: list[WorkflowEventRecord] = Field(default_factory=list, alias="workflowEvents")
@@ -174,6 +204,8 @@ class WorkflowRunDetail(BaseModel):
 
 
 class WorkflowDetailResponse(BaseModel):
+    """Detail view of one workflow: all runs (with per-run details) and their linked records."""
+
     workflow: WorkflowRecord
     workflow_runs: list[WorkflowRunRecord] = Field(alias="workflowRuns")
     workflow_steps: list[WorkflowStepRecord] = Field(alias="workflowSteps")
@@ -195,12 +227,16 @@ class WorkflowDetailResponse(BaseModel):
 
 
 class WorkflowStartResponse(BaseModel):
+    """Result of starting a workflow: the run that was created and its seeded steps."""
+
     workflow: WorkflowRecord
     workflow_run: WorkflowRunRecord = Field(alias="workflowRun")
     workflow_steps: list[WorkflowStepRecord] = Field(alias="workflowSteps")
 
 
 class IssueToPatchRequest(BaseModel):
+    """Input to the issue-to-patch runner: the issue, optional target/runtime and QA commands."""
+
     project_id: str = Field(alias="projectId")
     title: str
     issue_text: str = Field(alias="issueText")
@@ -212,6 +248,8 @@ class IssueToPatchRequest(BaseModel):
 
 
 class IssueToPrRequest(IssueToPatchRequest):
+    """Issue-to-patch input extended with rework budget and optional PR/build/quality gates."""
+
     max_rework_attempts: int = Field(default=1, ge=0, le=3, alias="maxReworkAttempts")
     create_pull_request: bool = Field(default=False, alias="createPullRequest")
     build_scripts: list[str] = Field(default_factory=list, alias="buildScripts")
@@ -220,6 +258,12 @@ class IssueToPrRequest(IssueToPatchRequest):
 
 
 class IssueToPatchResponse(BaseModel):
+    """Outcome of an issue-to-patch run: terminal status plus the produced evidence and diff.
+
+    Bundles the runtime result, QA results and diff summary alongside the workflow/run/steps
+    so the caller can render the run and (when applicable) the resulting pull request.
+    """
+
     status: str
     reason: str
     workflow: WorkflowRecord
@@ -237,6 +281,8 @@ class IssueToPatchResponse(BaseModel):
 
 
 class IssueToPrResponse(IssueToPatchResponse):
+    """Issue-to-patch outcome extended with the gate DAG, per-gate results and rework/timeline."""
+
     dag: dict[str, Any]
     gate_results: list[dict[str, Any]] = Field(alias="gateResults")
     rework: dict[str, Any]
@@ -245,6 +291,8 @@ class IssueToPrResponse(IssueToPatchResponse):
 
 
 class WorkflowGateAdvanceResponse(BaseModel):
+    """Result of a gate-advance attempt: the updated step, whether it advanced and the new gate state."""
+
     workflow_step: WorkflowStepRecord = Field(alias="workflowStep")
     advanced: bool
     gate_state: str = Field(alias="gateState")

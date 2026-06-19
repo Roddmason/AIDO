@@ -1,7 +1,9 @@
-"""AIDO backend source module.
+"""Enforces provider rate/quota limits and records cooldowns after 429 responses.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Checks a request against `provider_limits` (TPM, daily/monthly request and token
+windows, active cooldown) before routing picks a provider, and persists a cooldown
+window when the provider returns a rate-limit error. Returns a quota-pressure signal
+so the router can prefer less-pressured providers.
 """
 
 from __future__ import annotations
@@ -17,6 +19,8 @@ from local_control_center.shared.time import utc_now
 
 @dataclass(frozen=True)
 class QuotaResult:
+    """Outcome of a quota check: allow/deny, the limiting reason, and quota pressure."""
+
     allowed: bool
     reason: str
     cooldown_until: str | None = None
@@ -24,6 +28,7 @@ class QuotaResult:
     quota_pressure: float = 0.0
 
     def as_dict(self) -> dict[str, Any]:
+        """Serialize to the camelCase shape consumed by the routing/API layer."""
         return {
             "allowed": self.allowed,
             "reason": self.reason,
@@ -43,10 +48,18 @@ def _parse_utc(value: str | None) -> datetime | None:
 
 
 class QuotaManager:
+    """Evaluates and updates per-provider rate limits stored in `provider_limits`."""
+
     def __init__(self, connection: sqlite3.Connection):
         self.connection = connection
 
     def check(self, *, provider_id: str, model: str, request_tokens: int) -> QuotaResult:
+        """Decide whether a request fits the provider's limits and current usage window.
+
+        Matches the most specific model limit (falling back to the wildcard row), denies
+        on active cooldown or any exceeded TPM/request/token threshold, and otherwise
+        allows with a pressure score derived from TPM utilization.
+        """
         row = self.connection.execute(
             "SELECT * FROM provider_limits WHERE provider_id = ? AND (model = ? OR model = '*') ORDER BY model DESC LIMIT 1",
             (provider_id, model),
@@ -88,6 +101,11 @@ class QuotaManager:
         return QuotaResult(allowed=True, reason="within_limit", limit_id=row["id"], quota_pressure=pressure)
 
     def record_rate_limit(self, *, provider_id: str, model: str, retry_after_seconds: int = 300) -> None:
+        """Persist a cooldown window for a provider/model after a 429/rate-limit error.
+
+        Upserts the limit row so subsequent `check` calls deny until the cooldown expires;
+        only cooldown/error timestamps are written, leaving configured limits untouched.
+        """
         now = utc_now()
         cooldown = (datetime.now(UTC) + timedelta(seconds=retry_after_seconds)).isoformat()
         limit_id = f"{provider_id}:{model or '*'}"

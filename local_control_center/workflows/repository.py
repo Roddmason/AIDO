@@ -1,7 +1,14 @@
-"""AIDO backend source module.
+"""SQLite persistence and governance seeding for workflows, runs, steps and events.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Owns the workflow tables and the rules that keep runs auditable: it validates declared
+metadata (rejecting force-push and direct-main operations), seeds the step graph on start,
+and materializes release-control gates (pr_review evidence, production approval jobs, retro
+governance records) as side effects of starting a run.
+
+Transactions: every write uses the caller-supplied ``connection`` and never commits;
+the caller owns the commit/rollback boundary. ``start_workflow`` performs a multi-statement
+unit of work (workflow status UPDATE + run INSERT + one INSERT per step + gate side effects)
+that is only durable if the caller commits, so a failed start leaves no partial run behind.
 """
 
 from __future__ import annotations
@@ -94,6 +101,15 @@ def _assert_release_safety(spec: dict[str, Any], *, location: str) -> None:
 
 
 def validate_workflow_metadata(metadata: dict[str, Any]) -> None:
+    """Reject unsafe or malformed workflow metadata before it can seed a run.
+
+    Enforces release safety (no force push, no direct main edits) on the metadata and any
+    declared step, and bounds the declared step list to known names, a non-empty list and at
+    most 32 entries with object-typed input/output/metadata fields.
+
+    Raises:
+        ValueError: on any violated invariant, with a location-prefixed message.
+    """
     _assert_release_safety(metadata, location="metadata")
     steps = metadata.get("steps")
     if steps is None:
@@ -132,6 +148,7 @@ def _normalize_declared_steps(metadata: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def row_to_workflow(row: sqlite3.Row) -> dict[str, Any]:
+    """Map a ``workflows`` row to the camelCase API dict, parsing JSON metadata."""
     return {
         "id": row["id"],
         "projectId": row["project_id"],
@@ -145,6 +162,7 @@ def row_to_workflow(row: sqlite3.Row) -> dict[str, Any]:
 
 
 def row_to_workflow_run(row: sqlite3.Row) -> dict[str, Any]:
+    """Map a ``workflow_runs`` row to the camelCase API dict, parsing JSON metadata."""
     return {
         "id": row["id"],
         "workflowId": row["workflow_id"],
@@ -157,6 +175,7 @@ def row_to_workflow_run(row: sqlite3.Row) -> dict[str, Any]:
 
 
 def row_to_workflow_step(row: sqlite3.Row) -> dict[str, Any]:
+    """Map a ``workflow_steps`` row to the API dict, tolerating older schemas without the routing columns."""
     return {
         "id": row["id"],
         "workflowRunId": row["workflow_run_id"],
@@ -181,6 +200,7 @@ def row_to_workflow_step(row: sqlite3.Row) -> dict[str, Any]:
 
 
 def row_to_workflow_event(row: sqlite3.Row) -> dict[str, Any]:
+    """Map a ``workflow_events`` row to the API dict, parsing JSON payload and correlation ids."""
     return {
         "id": row["id"],
         "workflowId": row["workflow_id"],
@@ -197,12 +217,19 @@ def row_to_workflow_event(row: sqlite3.Row) -> dict[str, Any]:
 
 
 class WorkflowsRepository:
+    """Data-access layer for workflows, runs, steps and events over a shared SQLite connection.
+
+    Reads and writes use the injected ``connection`` and never commit; the caller controls the
+    transaction. Several methods also emit timeline events as part of the same unit of work.
+    """
+
     def __init__(self, connection: sqlite3.Connection):
         self.connection = connection
 
     def create_workflow(
         self, *, project_id: str, kind: str, title: str, metadata: dict[str, Any] | None = None
     ) -> dict[str, Any]:
+        """Insert a queued workflow and return it; metadata defaults to an empty object."""
         workflow_id = f"workflow-{uuid.uuid4()}"
         timestamp = utc_now()
         self.connection.execute(
@@ -215,12 +242,18 @@ class WorkflowsRepository:
         return self.get_workflow(workflow_id)
 
     def get_workflow(self, workflow_id: str) -> dict[str, Any]:
+        """Fetch a workflow by id.
+
+        Raises:
+            KeyError: if no workflow has that id.
+        """
         row = self.connection.execute("SELECT * FROM workflows WHERE id = ?", (workflow_id,)).fetchone()
         if not row:
             raise KeyError(f"Workflow not found: {workflow_id}")
         return row_to_workflow(row)
 
     def list_workflows(self, project_id: str | None = None) -> list[dict[str, Any]]:
+        """List workflows newest-first, optionally scoped to one project."""
         if project_id:
             rows = self.connection.execute(
                 "SELECT * FROM workflows WHERE project_id = ? ORDER BY created_at DESC",
@@ -231,6 +264,16 @@ class WorkflowsRepository:
         return [row_to_workflow(row) for row in rows]
 
     def start_workflow(self, workflow_id: str, *, reason: str = "") -> dict[str, Any]:
+        """Create a run, mark the workflow running and seed its steps and release-control gates.
+
+        Single unit of work on the caller's connection: flips the workflow to ``running``,
+        inserts a run, inserts one step per declared step (the first ``ready``, the rest
+        ``pending``), seeds gate metadata for pr_review/release_gate/retro, and records the
+        ``workflow.started`` event. Durable only if the caller commits.
+
+        Raises:
+            ValueError: if the stored metadata fails ``validate_workflow_metadata``.
+        """
         workflow = self.get_workflow(workflow_id)
         validate_workflow_metadata(workflow.get("metadata") or {})
         step_specs = _normalize_declared_steps(workflow.get("metadata") or {})
@@ -495,6 +538,7 @@ class WorkflowsRepository:
             )
 
     def update_workflow_status(self, workflow_id: str, *, status: str, reason: str = "") -> dict[str, Any]:
+        """Set the workflow status, record a ``workflow.<status>`` event, and return the workflow."""
         workflow = self.get_workflow(workflow_id)
         timestamp = utc_now()
         self.connection.execute(
@@ -519,6 +563,11 @@ class WorkflowsRepository:
         completed: bool = False,
         clear_completed: bool = False,
     ) -> dict[str, Any]:
+        """Update a run's status/metadata and record a ``workflow.run.<status>`` event.
+
+        ``completed`` stamps ``completed_at`` to now; ``clear_completed`` resets it to NULL.
+        ``metadata`` left as ``None`` keeps the current value rather than overwriting it.
+        """
         current = self.get_workflow_run(run_id)
         next_metadata = current["metadata"] if metadata is None else metadata
         self.connection.execute(
@@ -548,12 +597,18 @@ class WorkflowsRepository:
         return self.get_workflow_run(run_id)
 
     def get_workflow_run(self, run_id: str) -> dict[str, Any]:
+        """Fetch a run by id.
+
+        Raises:
+            KeyError: if no run has that id.
+        """
         row = self.connection.execute("SELECT * FROM workflow_runs WHERE id = ?", (run_id,)).fetchone()
         if not row:
             raise KeyError(f"Workflow run not found: {run_id}")
         return row_to_workflow_run(row)
 
     def list_workflow_runs(self, workflow_id: str | None = None) -> list[dict[str, Any]]:
+        """List runs newest-first, optionally scoped to one workflow."""
         if workflow_id:
             rows = self.connection.execute(
                 "SELECT * FROM workflow_runs WHERE workflow_id = ? ORDER BY started_at DESC",
@@ -564,6 +619,7 @@ class WorkflowsRepository:
         return [row_to_workflow_run(row) for row in rows]
 
     def list_workflow_steps(self, workflow_run_id: str | None = None) -> list[dict[str, Any]]:
+        """List steps in creation (execution) order, optionally scoped to one run."""
         if workflow_run_id:
             rows = self.connection.execute(
                 "SELECT * FROM workflow_steps WHERE workflow_run_id = ? ORDER BY created_at ASC",
@@ -574,6 +630,7 @@ class WorkflowsRepository:
         return [row_to_workflow_step(row) for row in rows]
 
     def list_workflow_events(self, workflow_run_id: str | None = None) -> list[dict[str, Any]]:
+        """List events for one run oldest-first, or all events newest-first when no run is given."""
         if workflow_run_id:
             rows = self.connection.execute(
                 "SELECT * FROM workflow_events WHERE workflow_run_id = ? ORDER BY created_at ASC",
@@ -586,6 +643,11 @@ class WorkflowsRepository:
         return [row_to_workflow_event(row) for row in rows]
 
     def get_workflow_step(self, step_id: str) -> dict[str, Any]:
+        """Fetch a step by id.
+
+        Raises:
+            KeyError: if no step has that id.
+        """
         row = self.connection.execute("SELECT * FROM workflow_steps WHERE id = ?", (step_id,)).fetchone()
         if not row:
             raise KeyError(f"Workflow step not found: {step_id}")
@@ -599,6 +661,7 @@ class WorkflowsRepository:
         metadata: dict[str, Any] | None = None,
         output: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        """Patch a step's status/metadata/output; any argument left ``None`` keeps its current value."""
         current = self.get_workflow_step(step_id)
         next_status = status or current["status"]
         next_metadata = current["metadata"] if metadata is None else metadata
@@ -630,6 +693,7 @@ class WorkflowsRepository:
         severity: str = "info",
         step_id: str | None = None,
     ) -> dict[str, Any]:
+        """Insert a timeline event for the run/step and return it; correlation ids are left null."""
         event_id = f"workflow-event-{uuid.uuid4()}"
         self.connection.execute(
             """

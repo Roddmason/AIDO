@@ -1,7 +1,8 @@
-"""AIDO backend source module.
+"""Modelos Pydantic de respuesta compartidos entre endpoints transversales.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Define el contrato de salida (con alias camelCase para el frontend) de health,
+handshake, estado de retrieval/telemetría y los registros de evento/auditoría.
+Son DTO de borde: validan y serializan; no contienen lógica de dominio.
 """
 
 from __future__ import annotations
@@ -12,15 +13,21 @@ from pydantic import BaseModel, Field
 
 
 class HealthResponse(BaseModel):
+    """Respuesta del health-check: indica si el backend está operativo."""
+
     ok: bool
 
 
 class HandshakeResponse(BaseModel):
+    """Respuesta del handshake: token de sesión y si el acceso queda restringido a loopback."""
+
     token: str
     loopback_only: bool = Field(alias="loopbackOnly")
 
 
 class RetrievalStatusResponse(BaseModel):
+    """Estado del subsistema de retrieval: disponibilidad, backend, degradación e índice."""
+
     status: str
     available: bool
     reason: str
@@ -33,6 +40,8 @@ class RetrievalStatusResponse(BaseModel):
 
 
 class ExternalTelemetryStatus(BaseModel):
+    """Estado del exportador OpenTelemetry externo: modo, disponibilidad y endpoints."""
+
     enabled: bool
     mode: str
     available: bool
@@ -45,10 +54,14 @@ class ExternalTelemetryStatus(BaseModel):
 
 
 class TelemetryStatusResponse(BaseModel):
+    """Respuesta de estado de telemetría: envuelve el estado del exportador externo."""
+
     external_exporter: ExternalTelemetryStatus = Field(alias="externalExporter")
 
 
 class EventRecord(BaseModel):
+    """Evento operativo expuesto por la API: tipo, severidad, payload y vínculos a job/proyecto."""
+
     id: str
     job_id: str | None = Field(default=None, alias="jobId")
     project_id: str | None = Field(default=None, alias="projectId")
@@ -59,6 +72,8 @@ class EventRecord(BaseModel):
 
 
 class AuditEventRecord(BaseModel):
+    """Evento de auditoría expuesto por la API: acción de un actor sobre un objetivo."""
+
     id: str
     project_id: str | None = Field(default=None, alias="projectId")
     action: str

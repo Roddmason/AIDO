@@ -1,7 +1,7 @@
 /**
- * @file AIDO frontend source module.
- * @copyright Copyright (c) AIDO.
- * @author Roddmason
+ * Panel de solo lectura para runtimes CLI y sus sesiones de ejecución en el Model Gateway.
+ * Muestra el estado de cada runtime CLI y el detalle de cada sesión (workspace, agente, comando,
+ * artefactos), redactando ejecutables, comandos y errores que puedan contener secretos.
  */
 import type { ModelGatewayCliRuntime, ModelGatewayCliSession } from '../../api/types';
 import { Badge, DataTable, EmptyState } from '../../components/primitives';

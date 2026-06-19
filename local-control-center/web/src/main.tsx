@@ -1,7 +1,8 @@
 /**
- * @file AIDO frontend source module.
- * @copyright Copyright (c) AIDO.
- * @author Roddmason
+ * Browser entrypoint: imports the design-system CSS and mounts the React app.
+ *
+ * Applies the persisted theme before the first paint and wraps the app in
+ * `I18nProvider` so every component can resolve copy from the runtime catalog.
  */
 import '@xyflow/react/dist/style.css';
 import './design-system/tokens.css';

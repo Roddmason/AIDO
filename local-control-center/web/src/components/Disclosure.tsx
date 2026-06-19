@@ -1,7 +1,8 @@
 /**
- * @file AIDO frontend source module.
- * @copyright Copyright (c) AIDO.
- * @author Roddmason
+ * Accessible collapsible-section primitive used for progressive disclosure in Settings.
+ *
+ * Keeps the WAI-ARIA disclosure wiring (heading-level trigger, `aria-expanded`,
+ * controlled region) in one place so feature panels can hide dense content safely.
  */
 import { ChevronDown } from 'lucide-react';
 import type { ReactNode } from 'react';

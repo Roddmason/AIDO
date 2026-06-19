@@ -1,7 +1,9 @@
 /**
- * @file AIDO frontend source module.
- * @copyright Copyright (c) AIDO.
- * @author Roddmason
+ * Shared presentational UI primitives reused across the control-center pages.
+ *
+ * Badges, surfaces, tables and the dialog/drawer pair live here so layout, motion
+ * hooks (`data-motion-item`) and the accessible-dialog focus trap stay consistent
+ * everywhere instead of being re-implemented per feature.
  */
 
 import type { ReactNode, RefObject } from 'react';
@@ -32,6 +34,7 @@ export function StatusDot({
 	return <span className="status-dot" data-tone={tone} aria-hidden="true" />;
 }
 
+/** Card-like content section; participates in page enter animations via `data-motion-item`. */
 export function Surface({
 	title,
 	children,
@@ -76,6 +79,7 @@ export function PageHeader({
 	);
 }
 
+/** Generic column-driven table that renders `empty` when there are no rows; keys by row `id`. */
 export function DataTable<T>({
 	columns,
 	rows,
@@ -161,6 +165,7 @@ function useDialogFocus(open: boolean, panelRef: RefObject<HTMLElement | null>) 
 	}, [open, panelRef]);
 }
 
+/** Side-anchored modal dialog: portal + scrim + focus trap, closes on Escape or scrim click. */
 export function Drawer({
 	children,
 	label,
@@ -218,6 +223,7 @@ export function Drawer({
 	);
 }
 
+/** Centered variant of {@link Drawer} for confirmations; same focus trap and close behaviour. */
 export function Modal({
 	children,
 	label,

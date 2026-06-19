@@ -1,7 +1,9 @@
-"""AIDO backend source module.
+"""Índice vectorial por proyecto sobre embeddings reales de memoria.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Reconstruye y consulta un índice de similitud (faiss si está instalado, numpy
+como respaldo) persistido por proyecto, y reporta su estado. Solo opera con
+embeddings reales: sin proveedor configurado o sin vectores persistidos
+devuelve estados degradados/bloqueados en vez de inventar resultados.
 """
 
 from __future__ import annotations
@@ -31,21 +33,42 @@ QUERY_PROVIDER_REQUIRED_REASON = "No real query embedding provider is configured
 
 
 class EmbeddingProvider(Protocol):
-    def status(self) -> dict[str, Any]: ...
+    """Contrato del proveedor que reporta disponibilidad y embebe texto de consulta."""
 
-    def embed_text(self, text: str) -> list[float]: ...
+    def status(self) -> dict[str, Any]:
+        """Informa si el proveedor está disponible o por qué no lo está."""
+        ...
+
+    def embed_text(self, text: str) -> list[float]:
+        """Convierte el texto de consulta en su vector de embedding."""
+        ...
 
 
 class UnavailableEmbeddingProvider:
+    """Proveedor por defecto que declara no haber embeddings reales configurados."""
+
     def status(self) -> dict[str, Any]:
+        """Reporta siempre configuration_required: no hay proveedor real de consulta."""
         return {"status": "configuration_required", "reason": QUERY_PROVIDER_REQUIRED_REASON}
 
     def embed_text(self, text: str) -> list[float]:
+        """Rechaza embeber texto porque no hay proveedor real.
+
+        Raises:
+            RuntimeError: siempre, para impedir búsquedas con vectores ficticios.
+        """
         _ = text
         raise RuntimeError(QUERY_PROVIDER_REQUIRED_REASON)
 
 
 class RetrievalIndex:
+    """Construye, persiste y consulta el índice de similitud de memoria por proyecto.
+
+    Cada proyecto tiene su propio directorio (derivado de un hash estable del
+    id) con un manifiesto y los vectores. Sin embeddings reales no se crea
+    índice utilizable; las consultas devuelven estados explícitos.
+    """
+
     def __init__(
         self,
         *,
@@ -63,6 +86,7 @@ class RetrievalIndex:
         return self.index_dir / f"project-{stable_hash(project_id)[:16]}"
 
     def manifest_path(self, project_id: str) -> Path:
+        """Ruta del manifiesto JSON que describe el índice persistido del proyecto."""
         return self._project_dir(project_id) / "manifest.json"
 
     def _summary(
@@ -88,6 +112,11 @@ class RetrievalIndex:
         }
 
     def status(self, project_id: str | None = None) -> dict[str, Any]:
+        """Combina el estado del proveedor con el manifiesto del proyecto para diagnóstico.
+
+        Reporta disponibilidad, backend, si faiss está presente y cuántos
+        vectores hay indexados, sin reconstruir nada.
+        """
         provider_status = self.embedding_provider.status()
         manifest: dict[str, Any] = {}
         if project_id and self.manifest_path(project_id).exists():
@@ -107,6 +136,13 @@ class RetrievalIndex:
         }
 
     def rebuild(self, *, project_id: str) -> dict[str, Any]:
+        """Reconstruye el índice del proyecto desde los embeddings persistidos.
+
+        Sin embeddings borra artefactos viejos y deja el índice como
+        configuration_required; con dimensiones inconsistentes o payload
+        inválido devuelve estado blocked sin escribir vectores. En el camino
+        feliz escribe el índice faiss/numpy y reescribe el manifiesto.
+        """
         project_dir = self._project_dir(project_id)
         project_dir.mkdir(parents=True, exist_ok=True)
         rows = self.memory.list_indexable_embeddings(project_id)
@@ -190,6 +226,11 @@ class RetrievalIndex:
     def search_embedding(
         self, *, project_id: str, embedding: list[float], limit: int = 5
     ) -> list[dict[str, Any]]:
+        """Rankea memory items por producto interno contra un vector de consulta dado.
+
+        Devuelve lista vacía si el índice no está cargado o la dimensión del
+        vector no coincide; descarta coincidencias con puntaje cero.
+        """
         manifest, vectors = self._load(project_id=project_id)
         if vectors is None or len(vectors) == 0:
             return []
@@ -209,6 +250,11 @@ class RetrievalIndex:
         return results
 
     def search(self, *, project_id: str, query: str, limit: int = 5) -> dict[str, Any]:
+        """Busca por texto: embebe la consulta con el proveedor y rankea contra el índice.
+
+        Devuelve status/reason explícitos cuando el proveedor no está
+        disponible, el embedding falla o el índice del proyecto no está listo.
+        """
         provider_status = self.embedding_provider.status()
         if provider_status.get("status") != "available":
             return {

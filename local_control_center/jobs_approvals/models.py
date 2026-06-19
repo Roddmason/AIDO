@@ -1,7 +1,8 @@
-"""AIDO backend source module.
+"""Contratos Pydantic y vocabulario de estados del slice de jobs/aprobaciones.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Define los request/response de la API HTTP (en camelCase vía alias) y las tuplas de
+estados válidos para jobs, runs y action requests. `SENSITIVE_JOB_KINDS` es la lista
+canónica de kinds que fuerzan aprobación granular antes de ejecutarse.
 """
 
 from __future__ import annotations
@@ -35,6 +36,8 @@ ActionRequestStatus = Literal["pending", "approved", "denied", "expired"]
 
 
 class JobCreateRequest(BaseModel):
+    """Cuerpo para encolar un job; opcionalmente lo liga a un paso de workflow."""
+
     project_id: str = Field(alias="projectId")
     kind: str
     payload: dict[str, Any] = Field(default_factory=dict)
@@ -44,14 +47,20 @@ class JobCreateRequest(BaseModel):
 
 
 class ApprovalReasonRequest(BaseModel):
+    """Decisión de aprobar/denegar donde la razón es obligatoria para la auditoría."""
+
     reason: str
 
 
 class OptionalReasonRequest(BaseModel):
+    """Mutación (cancelar/reintentar) donde la razón es opcional."""
+
     reason: str = ""
 
 
 class JobRecord(BaseModel):
+    """Vista serializada de una fila de `jobs`, incluyendo estado del lease."""
+
     id: str
     project_id: str = Field(alias="projectId")
     workflow_run_id: str | None = Field(default=None, alias="workflowRunId")
@@ -67,6 +76,8 @@ class JobRecord(BaseModel):
 
 
 class JobRunRecord(BaseModel):
+    """Intento de ejecución de un job: proveedor, tiempos y resumen del resultado."""
+
     id: str
     job_id: str = Field(alias="jobId")
     provider_id: str | None = Field(default=None, alias="providerId")
@@ -78,6 +89,8 @@ class JobRunRecord(BaseModel):
 
 
 class ActionRequestRecord(BaseModel):
+    """Acción sensible pendiente de decisión humana, con su contexto de riesgo y evidencia."""
+
     id: str
     job_id: str = Field(alias="jobId")
     project_id: str = Field(alias="projectId")
@@ -102,6 +115,8 @@ class ActionRequestRecord(BaseModel):
 
 
 class JobMutationResponse(BaseModel):
+    """Respuesta unificada de toda mutación: job resultante más efectos colaterales emitidos."""
+
     job: JobRecord
     audit_event: AuditEventRecord | None = Field(default=None, alias="auditEvent")
     events: list[EventRecord] = Field(default_factory=list)
@@ -111,9 +126,13 @@ class JobMutationResponse(BaseModel):
 
 
 class JobsListResponse(BaseModel):
+    """Listado de jobs junto con el stream de eventos recientes que los acompaña."""
+
     jobs: list[JobRecord]
     events: list[EventRecord] = Field(default_factory=list)
 
 
 class ApprovalsListResponse(BaseModel):
+    """Cola de aprobaciones: las action requests que esperan decisión."""
+
     action_requests: list[ActionRequestRecord] = Field(alias="actionRequests")

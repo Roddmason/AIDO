@@ -1,7 +1,10 @@
-"""AIDO backend source module.
+"""Esquemas Pydantic del slice de seguridad: requests, decisiones, grants y sandbox.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Define el contrato HTTP de entrada/salida para evaluar politicas, revocar/editar grants y
+perfiles de sandbox. La validacion estructural (tipos, alias, choices normalizados) vive aqui e impone una invariante
+de entrada: un payload que no cumpla el esquema hace que FastAPI lo rechace con 422 antes de
+tocar el motor (Pydantic lanza ValidationError), que es la primera barrera de seguridad de
+entrada. Estos modelos no ejecutan ni persisten nada.
 """
 
 from __future__ import annotations
@@ -17,10 +20,14 @@ SandboxProfileStatus = Literal["active", "disabled", "revoked"]
 
 
 class RequiredReasonRequest(BaseModel):
+    """Cuerpo minimo para acciones que exigen una razon auditada (revocar/editar)."""
+
     reason: str
 
 
 class PolicyEvaluateRequest(BaseModel):
+    """Accion a evaluar por el motor de politicas; admite campos extra de contexto."""
+
     model_config = ConfigDict(extra="allow")
 
     project_id: str | None = Field(default=None, alias="projectId")
@@ -41,10 +48,14 @@ class PolicyEvaluateRequest(BaseModel):
 
 
 class PolicyEvaluationResponse(BaseModel):
+    """Respuesta de ``/policies/evaluate``: la decision registrada y persistida."""
+
     decision: PermissionDecisionRecord
 
 
 class PolicyRecord(BaseModel):
+    """Politica de permisos versionada con su perfil y conjunto de reglas."""
+
     id: str
     name: str
     profile: str
@@ -54,6 +65,8 @@ class PolicyRecord(BaseModel):
 
 
 class PolicyRevisionRecord(BaseModel):
+    """Entrada de auditoria de un cambio de politica/sandbox: antes, despues y campos tocados."""
+
     id: str
     subject_type: str = Field(alias="subjectType")
     subject_id: str = Field(alias="subjectId")
@@ -67,6 +80,8 @@ class PolicyRevisionRecord(BaseModel):
 
 
 class PermissionDecisionRecord(BaseModel):
+    """Decision de politica persistida (allow/deny/...) con su riesgo, razon y payload saneado."""
+
     id: str
     project_id: str | None = Field(default=None, alias="projectId")
     workspace_id: str | None = Field(default=None, alias="workspaceId")
@@ -83,6 +98,12 @@ class PermissionDecisionRecord(BaseModel):
 
 
 class ApprovalGrantRecord(BaseModel):
+    """Grant de aprobacion humana que habilita una accion concreta, con TTL y trazabilidad.
+
+    Lleva el alcance exacto (tool/command/argv/workspace/runtime/path) contra el que debe
+    coincidir la ejecucion, mas su estado de ciclo de vida (active/consumed/expired/revoked).
+    """
+
     id: str
     project_id: str | None = Field(default=None, alias="projectId")
     job_id: str | None = Field(default=None, alias="jobId")
@@ -112,6 +133,8 @@ PermissionGrantRecord = ApprovalGrantRecord
 
 
 class SandboxProfileRecord(BaseModel):
+    """Perfil de sandbox: imagenes/redes permitidas, limites de recursos y estado de vigencia."""
+
     id: str
     name: str
     allowed_images: list[str] = Field(alias="allowedImages")
@@ -129,6 +152,8 @@ class SandboxProfileRecord(BaseModel):
 
 
 class PoliciesListResponse(BaseModel):
+    """Vista agregada de gobernanza: politicas, revisiones, decisiones, grants y sandboxes."""
+
     policies: list[PolicyRecord]
     policy_revisions: list[PolicyRevisionRecord] = Field(alias="policyRevisions")
     permission_decisions: list[PermissionDecisionRecord] = Field(alias="permissionDecisions")
@@ -137,6 +162,8 @@ class PoliciesListResponse(BaseModel):
 
 
 class SandboxProfilePatchRequest(BaseModel):
+    """Edicion parcial de un perfil de sandbox; exige razon y normaliza choices a minuscula."""
+
     reason: str
     name: str | None = None
     allowed_images: list[str] | None = Field(default=None, alias="allowedImages")
@@ -150,25 +177,33 @@ class SandboxProfilePatchRequest(BaseModel):
     @field_validator("status", "default_network", mode="before")
     @classmethod
     def normalize_scalar_choices(cls, value: Any) -> Any:
+        """Pasa status y default_network a minuscula para comparar contra los choices canonicos."""
         return value.lower() if isinstance(value, str) else value
 
     @field_validator("allowed_networks", mode="before")
     @classmethod
     def normalize_networks(cls, value: Any) -> Any:
+        """Normaliza cada red de la lista a minuscula antes de validar el allowlist."""
         if isinstance(value, list):
             return [item.lower() if isinstance(item, str) else item for item in value]
         return value
 
 
 class PermissionGrantResponse(BaseModel):
+    """Respuesta que envuelve un grant tras revocarlo."""
+
     permission_grant: ApprovalGrantRecord = Field(alias="permissionGrant")
 
 
 class SandboxProfileResponse(BaseModel):
+    """Respuesta que envuelve un perfil de sandbox tras revocarlo."""
+
     sandbox_profile: SandboxProfileRecord = Field(alias="sandboxProfile")
 
 
 class DockerSandboxStatus(BaseModel):
+    """Estado del sandbox Docker: disponibilidad, red/mount por defecto y politica vigente."""
+
     mode: str
     available: bool
     required: bool
@@ -181,6 +216,8 @@ class DockerSandboxStatus(BaseModel):
 
 
 class RestrictedSubprocessStatus(BaseModel):
+    """Estado del sandbox de subproceso restringido (fallback sin shell, atado al workspace)."""
+
     available: bool
     shell: bool
     requires_argv: bool = Field(alias="requiresArgv")
@@ -189,10 +226,14 @@ class RestrictedSubprocessStatus(BaseModel):
 
 
 class SandboxStatusResponse(BaseModel):
+    """Estado combinado de ambos sandboxes (Docker y subproceso restringido)."""
+
     docker: DockerSandboxStatus
     restricted_subprocess: RestrictedSubprocessStatus = Field(alias="restrictedSubprocess")
 
 
 class SandboxProfileMutationResponse(BaseModel):
+    """Resultado de editar un perfil de sandbox: el perfil actualizado y su revision de auditoria."""
+
     sandbox_profile: SandboxProfileRecord = Field(alias="sandboxProfile")
     policy_revision: PolicyRevisionRecord | None = Field(default=None, alias="policyRevision")

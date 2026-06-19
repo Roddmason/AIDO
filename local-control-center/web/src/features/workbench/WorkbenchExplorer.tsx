@@ -1,7 +1,6 @@
 /**
- * @file AIDO frontend source module.
- * @copyright Copyright (c) AIDO.
- * @author Roddmason
+ * Left rail of the Workbench: picks the active workspace folder and lets the user switch between
+ * its work sessions and recent runs, which drives what the rest of the page shows.
  */
 import { Bot, FolderKanban, GitBranch, History, Workflow } from 'lucide-react';
 
@@ -16,6 +15,7 @@ function formatTime(value: string | null | undefined, missingLabel: string) {
 	return Number.isNaN(parsed) ? value : new Date(parsed).toLocaleString();
 }
 
+/** Workspace/session/run navigator; selection is controlled by the page via the on* callbacks. */
 export function WorkbenchExplorer({
 	projects,
 	project,

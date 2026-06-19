@@ -1,11 +1,15 @@
 /**
- * @file AIDO frontend source module.
- * @copyright Copyright (c) AIDO.
- * @author Roddmason
+ * Inspecciona patches unificados y listas de artefactos para la vista de revisión.
+ * Detecta si un diff trae cambios reales, ubica los artefactos de patch/seguridad
+ * por nombre o `kind`, y extrae los archivos tocados sin depender de un parser externo.
  */
 import type { Artifact } from '../api/types';
 import { artifactDisplayName } from './artifacts';
 
+/**
+ * `true` solo si hay líneas de contenido (`+`/`-`) dentro de algún hunk `@@`,
+ * ignorando cabeceras (`+++`/`---`) y diffs vacíos o de puro metadata.
+ */
 export function hasRealPatchChanges(text: string) {
 	const trimmed = text.trim();
 	if (!trimmed) return false;
@@ -26,6 +30,7 @@ export function hasRealPatchChanges(text: string) {
 	return false;
 }
 
+/** Primer artefacto que parece un patch (`diff.patch`, `*.patch` o `kind` con `patch`). */
 export function findPatchArtifact(artifacts: Artifact[]) {
 	return (
 		artifacts.find((artifact) => {
@@ -36,6 +41,7 @@ export function findPatchArtifact(artifacts: Artifact[]) {
 	);
 }
 
+/** Primer artefacto de hallazgos de seguridad, por nombre conocido o `kind`. */
 export function findSecurityArtifact(artifacts: Artifact[]) {
 	return (
 		artifacts.find((artifact) => {
@@ -50,6 +56,10 @@ export function findSecurityArtifact(artifacts: Artifact[]) {
 	);
 }
 
+/**
+ * Conteo de archivos cambiados desde el `diffSummary` de la evidencia, tolerando
+ * sus tres alias (`filesChanged`/`changedFiles`/`changed_files`); `null` si no aplica.
+ */
 export function evidenceDiffChangedFiles(
 	evidence: { diffSummary?: unknown } | null | undefined,
 ): number | null {
@@ -61,6 +71,11 @@ export function evidenceDiffChangedFiles(
 	return Number.isFinite(changed) ? changed : null;
 }
 
+/**
+ * Lista de rutas tocadas por un patch. Usa las cabeceras `+++`/`---` (cayendo a la
+ * ruta vieja cuando el destino es `/dev/null`) y, si no hay ninguna, recurre a las
+ * líneas `diff --git`. Quita el prefijo `a/`/`b/` y deduplica preservando el orden.
+ */
 export function changedFilesFromPatch(text: string): string[] {
 	const files: string[] = [];
 	const seen = new Set<string>();

@@ -1,7 +1,9 @@
-"""AIDO backend source module.
+"""Optional OpenHands CLI adapter that runs issue-to-patch work behind the broker.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Exposes the OpenHands runtime as an optional, policy-gated adapter: it advertises
+detection status and, when invoked, re-validates the tool call against the runtime
+contract before delegating execution to the restricted subprocess sandbox. The
+adapter never bypasses policy, workspace isolation, or evidence capture.
 """
 
 from __future__ import annotations
@@ -16,6 +18,7 @@ from .runtime_contracts import get_runtime_contract, validate_runtime_tool_call
 
 
 def openhands_status() -> dict[str, Any]:
+    """Report whether the OpenHands CLI/package is detectable and its runtime contract."""
     cli_available = shutil.which("openhands") is not None
     package_available = importlib.util.find_spec("openhands") is not None
     available = package_available or cli_available
@@ -33,10 +36,17 @@ def openhands_status() -> dict[str, Any]:
 
 
 class OpenHandsBrokerAdapter:
+    """Broker-facing adapter that validates and runs OpenHands CLI tool calls."""
+
     def __init__(self) -> None:
         self.sandbox = RestrictedSubprocessSandbox()
 
     def execute(self, *, tool_call: dict[str, Any], policy_input: dict[str, Any]) -> dict[str, Any]:
+        """Run an approved OpenHands tool call after contract, availability, and argv checks.
+
+        Blocks (without executing) when the runtime contract fails, the adapter is not
+        installed, argv is not a structured list, or the executable is not an OpenHands CLI.
+        """
         validation = validate_runtime_tool_call("openhands", tool_call, policy_input)
         if not validation["valid"]:
             return {

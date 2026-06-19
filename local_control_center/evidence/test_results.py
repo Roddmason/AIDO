@@ -1,7 +1,8 @@
-"""AIDO backend source module.
+"""Normaliza informes de test crudos (JUnit XML, resumen pytest) a resultados uniformes.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Convierte cada informe entrante en filas con command/status/durationMs/metadata que el resto del
+slice trata por igual. Acota el tamaño aceptado y rechaza XML inseguro (DOCTYPE/ENTITY) para evitar
+ataques XXE/expansión de entidades al parsear JUnit.
 """
 
 from __future__ import annotations
@@ -18,10 +19,16 @@ PYTEST_DURATION_RE = re.compile(r"in\s+(?P<seconds>\d+(?:\.\d+)?)s")
 
 
 class TestReportError(ValueError):
-    pass
+    """Informe de test inválido, demasiado grande, inseguro o de formato no soportado."""
 
 
 def normalize_test_result_reports(reports: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Convierte informes JUnit/pytest en la lista plana de resultados de test del slice.
+
+    Raises:
+        TestReportError: si el contenido no es texto, excede el tamaño máximo, trae XML inseguro
+            o el formato declarado no es 'junit' ni 'pytest'.
+    """
     normalized: list[dict[str, Any]] = []
     for report in reports:
         report_format = str(report.get("format", "")).lower().strip()

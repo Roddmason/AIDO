@@ -1,7 +1,7 @@
-"""AIDO backend source module.
+"""Runtime de sesión manual: registra la intervención de un operador sin lanzar ningún proceso.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Sirve como adaptador de respaldo cuando el trabajo lo realiza una persona; valida el workspace
+y los flags como el resto, pero su run no invoca el sandbox: solo deja constancia de la sesión.
 """
 
 from __future__ import annotations
@@ -12,6 +12,8 @@ from .base import CliRuntime, RuntimeRequest, RuntimeResult
 
 
 class ManualRuntime(CliRuntime):
+    """Runtime que materializa una sesión de operador humano, sin ejecución automatizada."""
+
     runtime_id = "manual"
     display_name = "Manual Runtime"
 
@@ -24,11 +26,13 @@ class ManualRuntime(CliRuntime):
         super().__init__(executable=executable, connection=connection)
 
     def build_command(self, request: RuntimeRequest) -> list[str]:
+        """Devuelve un comando simbólico (no ejecutable) tras validar workspace y flags."""
         self._validate_workspace(request)
         self._validate_safe_args(request)
         return ["manual", request.prompt]
 
     def run(self, request: RuntimeRequest) -> RuntimeResult:
+        """Crea y registra la sesión manual en estado 'created', sin pasar por el sandbox."""
         result = RuntimeResult(
             runtime=self.runtime_id,
             status="created",

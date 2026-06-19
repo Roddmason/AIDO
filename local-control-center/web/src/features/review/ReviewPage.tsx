@@ -1,7 +1,8 @@
 /**
- * @file AIDO frontend source module.
- * @copyright Copyright (c) AIDO.
- * @author Roddmason
+ * Top-level review board page: builds and groups the four decision lanes from the
+ * overview, and owns the two drawers (approve/reject and ship-a-run) plus their
+ * focus handling. Board state lives here; lanes, cards and the decision/ship UI
+ * are delegated to child components and the review hooks.
  */
 import { useMemo, useRef, useState } from 'react';
 

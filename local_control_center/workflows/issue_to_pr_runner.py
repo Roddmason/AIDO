@@ -1,7 +1,11 @@
-"""AIDO backend source module.
+"""Multi-agent gated state machine taking an issue to PR through a developer/QA/security/arch/devops DAG.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Runs the issue_to_pr workflow as a directed gate graph: the developer agent implements, then
+QA, security, architecture and devops gates each must pass (with bounded rework loops) before
+the evidence is aggregated and the run reaches evidence_ready. Builds on IssueToPatchRunner for
+the downstream approve -> promote-branch -> create-PR transitions, adapting each result onto the
+issue_to_pr steps and timeline. A blocked gate stops the DAG and records why; nothing is promoted
+until every required gate has passed and a human approval action exists.
 """
 
 from __future__ import annotations
@@ -161,6 +165,13 @@ def _copy_security_findings_artifact(
 
 
 class IssueToPrRunner:
+    """Drives the issue_to_pr gate DAG and its integration transitions for one project.
+
+    Holds the repositories it coordinates (workflows, jobs, agents, workspaces, evidence) over a
+    shared connection rooted at ``root``, and delegates branch promotion and PR creation to an
+    IssueToPatchRunner while mapping the outcomes onto the issue_to_pr steps and events.
+    """
+
     def __init__(self, connection: sqlite3.Connection, *, root: Path):
         self.connection = connection
         self.root = root
@@ -566,6 +577,16 @@ class IssueToPrRunner:
         ]
 
     def run(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Execute the full issue_to_pr gate DAG and return its terminal status and per-gate results.
+
+        Creates and starts the workflow, runs the developer agent (retrying up to
+        ``maxReworkAttempts``), then the QA/security/architecture/devops gates, and aggregates a
+        contract-checked evidence package. Returns ``evidence_ready`` (seeding the approval action)
+        when every gate passes, otherwise ``blocked`` naming the first failing gate.
+
+        Raises:
+            ValueError: if a requested ``preferredRuntime`` is not in the product catalog.
+        """
         preferred_runtime = str(payload.get("preferredRuntime") or "").strip()
         if preferred_runtime:
             runtime_statuses = RuntimeStatusService(self.connection).list_provider_statuses()
@@ -906,6 +927,15 @@ class IssueToPrRunner:
         )
 
     def approve_issue_to_pr(self, run_id: str, *, reason: str, actor: str = "operator") -> dict[str, Any]:
+        """Transition an evidence_ready issue_to_pr run to approved_for_integration.
+
+        Requires a non-empty reason, an approved action request for this run's evidence package,
+        and a complete evidence contract (runtime + workflow-run links) before approving.
+
+        Raises:
+            ValueError: if the reason is empty, the run is the wrong kind/status, the evidence or
+                its links are missing/mismatched, or the evidence contract is incomplete.
+        """
         clean_reason = str(redact_secrets(reason or "")).strip()
         if not clean_reason:
             raise ValueError("Approval reason is required.")
@@ -1030,6 +1060,12 @@ class IssueToPrRunner:
         evidence_package_id: str | None = None,
         qa_commands: list[list[str]] | None = None,
     ) -> dict[str, Any]:
+        """Promote the approved patch to a branch and mirror the outcome onto the issue_to_pr steps.
+
+        Delegates to ``IssueToPatchRunner.promote_patch_to_branch`` then updates the
+        ``branch_promotion`` step, records the timeline event and returns the issue_to_pr response
+        with gate/rework/completion context.
+        """
         result = IssueToPatchRunner(self.connection, root=self.root).promote_patch_to_branch(
             run_id,
             reason=reason,
@@ -1096,6 +1132,11 @@ class IssueToPrRunner:
         title: str | None = None,
         base_branch: str | None = None,
     ) -> dict[str, Any]:
+        """Open the PR from the promoted branch and mirror the outcome onto the issue_to_pr steps.
+
+        Delegates to ``IssueToPatchRunner.create_pull_request_from_promoted_branch`` then updates
+        the ``pr_creation`` step, records the timeline event and returns the issue_to_pr response.
+        """
         result = IssueToPatchRunner(self.connection, root=self.root).create_pull_request_from_promoted_branch(
             run_id,
             reason=reason,

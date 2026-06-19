@@ -1,7 +1,9 @@
-"""AIDO backend source module.
+"""Ensambla la aplicacion FastAPI del Local Control Center: routers, middleware y estaticos.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Punto unico de cableado HTTP: inicializa el runtime del control plane, monta los 15 routers
+de dominio (jobs, memoria, workflows, seguridad, evidencia, agents, gateway, etc.), instala el
+middleware que serializa el acceso al runtime y registra correlacion/telemetria, expone las rutas
+de salud/handshake/overview/eventos y, si hay build web, sirve los estaticos con fallback al SPA.
 """
 
 from __future__ import annotations
@@ -52,6 +54,14 @@ def create_app(
     runtime: Any | None = None,
     static_dir: str | Path | None = None,
 ) -> FastAPI:
+    """Construye y devuelve la app FastAPI cableada con runtime, routers, middleware y estaticos.
+
+    Args:
+        runtime: runtime del control plane ya inicializable; si es None crea uno por defecto.
+        static_dir: directorio del build web a servir; si no existe, la app queda solo-API.
+
+    El acceso de escritura exige el token de loopback del handshake (`X-Local-Control-Token`).
+    """
     platform = runtime or ControlCenterRuntime()
     platform.init()
     platform.ensure_runtime_project()

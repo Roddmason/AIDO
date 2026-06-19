@@ -1,5 +1,5 @@
-"""AIDO backend source module.
+"""Slice de internacionalización: catálogo bilingüe de UI persistido y servido por API.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Agrupa el modelo del catálogo (idiomas + traducciones), su repositorio SQLite,
+los comandos de orquestación y el router HTTP que expone lectura/reemplazo del catálogo.
 """

@@ -1,7 +1,9 @@
-"""AIDO backend source module.
+"""Endpoints HTTP de sesiones y chats: listar, crear y emitir su evento de dominio.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Expone las rutas `/api/v1/sessions` y `/api/v1/chats` sobre el repositorio del slice.
+Las mutaciones exigen permiso de escritura (`require_write`), validan el prompt y, tras
+persistir, publican un evento (`session.created` / `chat.created`) en el `EventBus` para
+que otros slices reaccionen. Las lecturas son abiertas (sin gate de escritura).
 """
 
 from __future__ import annotations
@@ -25,6 +27,11 @@ from .repository import SessionsChatsRepository
 
 
 def create_router(*, platform: Any, require_write: Callable[[Request], None]) -> APIRouter:
+    """Construye el router de sesiones y chats enlazado a la conexión de `platform`.
+
+    Inyecta `require_write` como gate de escritura en las rutas POST y abre el repositorio
+    y el `EventBus` por petición sobre `platform.connection`.
+    """
     router = APIRouter()
 
     def repository() -> SessionsChatsRepository:

@@ -1,7 +1,8 @@
-"""AIDO backend source module.
+"""Puente para que otros slices den de alta riesgos de gobernanza derivados.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Expone un helper que, ante un evento de origen (su tipo e id), crea un riesgo en el
+registro anotando la procedencia en metadata, sin que el slice emisor conozca el
+repositorio. Es no-op si no hay proyecto asociado.
 """
 
 from __future__ import annotations
@@ -25,6 +26,11 @@ def record_governance_risk(
     owner: str = "",
     metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
+    """Crea un riesgo derivado de un evento de origen, trazando ``sourceType``/``sourceId``.
+
+    Returns:
+        El riesgo creado, o ``None`` si no se indicó ``project_id`` (no-op).
+    """
     if not project_id:
         return None
     risk_metadata = {

@@ -1,7 +1,10 @@
-"""AIDO backend source module.
+"""Resuelve referencias de credenciales (env/keyring/openbao/vault) sin persistir secretos.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Seguridad: nunca acepta un secreto en crudo como ref (lo marca "invalid" y redacta el valor);
+el valor resuelto solo viaja en `CredentialResolution.value` cuando `fetch=True` y jamás se
+serializa por `to_public_dict()` ni por el `__repr__` (que imprime '[redacted]'). Invariantes de
+transporte Vault: dirección absoluta https (http solo en loopback con flag explícito), sin redirects,
+y refs de auth que no pueden referenciar recursivamente a otro vault.
 """
 
 from __future__ import annotations
@@ -25,6 +28,8 @@ SECRET_LIKE_PATTERN = re.compile(
 
 @dataclass(frozen=True, repr=False)
 class CredentialResolution:
+    """Resultado inmutable de resolver una ref: estado/origen públicos y el valor opcional redactado."""
+
     ref: str
     status: str
     source: str
@@ -33,6 +38,7 @@ class CredentialResolution:
 
     @property
     def configured(self) -> bool:
+        """True solo si la credencial está resuelta y trae valor (status 'configured' con value no vacío)."""
         return self.status == "configured" and bool(self.value)
 
     def __repr__(self) -> str:
@@ -44,6 +50,7 @@ class CredentialResolution:
         )
 
     def to_public_dict(self) -> dict[str, str]:
+        """Proyecta solo los campos seguros de exponer (ref/status/source/message); omite el valor."""
         return {
             "credentialRef": self.ref,
             "credentialStatus": self.status,
@@ -66,6 +73,16 @@ class CredentialResolver:
         self.http_json_post = http_json_post or self._default_http_json_post
 
     def resolve(self, credential_ref: str | None, *, fetch: bool = True) -> CredentialResolution:
+        """Resuelve una ref al proveedor correcto; con fetch=False solo valida formato sin leer el secreto.
+
+        Args:
+            credential_ref: ref con prefijo (env:/keyring:/openbao:/vault:) o nombre legacy en mayúsculas.
+            fetch: si True intenta obtener el valor real; si False hace verificación de formato/presencia.
+
+        Returns:
+            Resolución con status 'configured'/'unverified'/'missing'/'invalid'/'unsupported'/'unavailable';
+            un secreto en crudo se rechaza como 'invalid' con la ref redactada.
+        """
         ref = (credential_ref or "").strip()
         if not ref:
             return CredentialResolution(
@@ -110,15 +127,22 @@ class CredentialResolver:
         )
 
     def status(self, credential_ref: str | None) -> str:
+        """Devuelve solo el status de la ref haciendo una verificación de formato (sin leer el secreto)."""
         return self.resolve(credential_ref, fetch=False).status
 
     def normalize_ref_for_storage(self, credential_ref: str | None) -> str:
+        """Canoniza una ref legacy en mayúsculas a su forma 'env:NAME' antes de persistirla."""
         ref = (credential_ref or "").strip()
         if LEGACY_ENV_REF_PATTERN.match(ref):
             return f"env:{ref}"
         return ref
 
     def validate_ref(self, credential_ref: str | None) -> None:
+        """Valida el formato de la ref y lanza si es inaceptable.
+
+        Raises:
+            ValueError: si la ref es un secreto en crudo o usa un formato no soportado.
+        """
         result = self.resolve(credential_ref, fetch=False)
         if result.status == "invalid":
             raise ValueError(result.message)

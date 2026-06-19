@@ -1,7 +1,9 @@
-"""AIDO backend source module.
+"""Records per-call token usage and cost in the usage ledger with redaction.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Persists one `usage_ledger` row per model/runtime call and, when a cost is known, a
+paired `cost_usage` row, sanitizing raw usage payloads before storage. Also derives a
+trustworthy `usageSource`/`tokenStatus`/`costStatus` so downstream summaries can tell
+provider-reported usage from estimates.
 """
 
 from __future__ import annotations
@@ -16,6 +18,7 @@ from local_control_center.shared.time import utc_now
 
 
 def row_to_usage(row: sqlite3.Row) -> dict[str, Any]:
+    """Map a `usage_ledger` row to the camelCase usage dict, deriving usage/token/cost status."""
     raw_usage = json_loads(row["raw_usage_json"], {})
     usage_source = (
         row["usage_source"] if "usage_source" in row.keys() else _usage_source_from_raw(raw_usage, None)
@@ -66,6 +69,8 @@ def _usage_source_from_raw(raw_usage: dict[str, Any] | None, actual_cost_usd: fl
 
 
 class UsageLedger:
+    """Append-only ledger of model/runtime token usage and cost."""
+
     def __init__(self, connection: sqlite3.Connection):
         self.connection = connection
 
@@ -95,6 +100,12 @@ class UsageLedger:
         raw_usage: dict[str, Any] | None = None,
         usage_source: str | None = None,
     ) -> dict[str, Any]:
+        """Insert a ledger row (and a cost_usage row when cost is known) and return it.
+
+        Raw usage is redacted before storage. The two inserts are emitted on the caller's
+        connection without an explicit commit, so they are atomic only within the caller's
+        transaction.
+        """
         total_tokens = input_tokens + cached_input_tokens + output_tokens + reasoning_tokens + tool_tokens
         ledger_id = f"usage-{uuid.uuid4()}"
         sanitized_usage = redact_secrets(raw_usage or {"usage_source": "estimated"})
@@ -153,10 +164,12 @@ class UsageLedger:
         return row_to_usage(row)
 
     def list_usage(self) -> list[dict[str, Any]]:
+        """Return all ledger entries, newest first."""
         rows = self.connection.execute("SELECT * FROM usage_ledger ORDER BY created_at DESC").fetchall()
         return [row_to_usage(row) for row in rows]
 
     def summary(self) -> dict[str, Any]:
+        """Aggregate total tokens and estimated/actual cost overall and per provider."""
         row = self.connection.execute(
             """
             SELECT COALESCE(SUM(total_tokens), 0) AS total_tokens,

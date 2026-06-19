@@ -1,7 +1,9 @@
-"""AIDO backend source module.
+"""Broker que ejecuta herramientas MCP por stdio bajo la política de sandbox y deja traza auditada.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Habla JSON-RPC con un servidor MCP registrado (initialize -> notificación -> operación) restringido
+a un conjunto de métodos permitidos. Invariantes de seguridad: el comando se valida contra el sandbox
+(``validate_restricted_process``) y se arranca con ``open_restricted_text_process``; cada llamada se
+persiste en ``mcp_tool_calls`` con secretos redactados (``redact_secrets``) y la salida se trunca.
 """
 
 from __future__ import annotations
@@ -35,6 +37,11 @@ MAX_CAPTURE_CHARS = 4000
 
 
 def mcp_gateway_status() -> dict[str, Any]:
+    """Describe el adaptador MCP como opcional y no disponible hasta probarlo por servidor.
+
+    La disponibilidad real no se infiere del registro: se prueba por cada servidor mediante una
+    llamada ``tools/list`` brokerada. Este estado declara esa política, no ejecuta ningún proceso.
+    """
     return {
         "id": "mcp",
         "label": "Model Context Protocol",
@@ -113,6 +120,12 @@ def _reader(stream: Any, output: queue.Queue[str]) -> None:
 
 
 class McpStdioSession:
+    """Sesión JSON-RPC efímera sobre el stdio de un proceso MCP arrancado en el sandbox.
+
+    Context manager: al entrar lanza el proceso restringido y drena stdout/stderr en hilos;
+    al salir cierra stdin y termina/mata el proceso. El timeout se acota a [1, 120] segundos.
+    """
+
     def __init__(self, *, argv: list[str], cwd: str | None, timeout_seconds: int):
         self.argv = argv
         self.cwd = cwd
@@ -149,12 +162,23 @@ class McpStdioSession:
                 process.kill()
 
     def send(self, message: dict[str, Any]) -> None:
+        """Serializa el mensaje JSON-RPC y lo escribe como una línea en el stdin del proceso.
+
+        Raises:
+            RuntimeError: si el proceso o su stdin no están disponibles.
+        """
         if self.process is None or self.process.stdin is None:
             raise RuntimeError("MCP process is not running.")
         self.process.stdin.write(json.dumps(message, ensure_ascii=False, separators=(",", ":")) + "\n")
         self.process.stdin.flush()
 
     def wait_response(self, request_id: Any) -> dict[str, Any] | str:
+        """Espera hasta el timeout la respuesta JSON-RPC cuyo ``id`` coincide con ``request_id``.
+
+        Returns:
+            El mensaje decodificado si llega a tiempo, o un string de error legible (proceso
+            terminado antes de responder, JSON inválido en stdout, o timeout sin coincidencia).
+        """
         deadline = time.monotonic() + self.timeout_seconds
         while time.monotonic() < deadline:
             self._drain_stderr()
@@ -184,16 +208,30 @@ class McpStdioSession:
                 return
 
     def stderr_text(self) -> str:
+        """Devuelve el stderr acumulado del proceso, truncado para acotar el tamaño capturado."""
         self._drain_stderr()
         return _truncate("".join(self.stderr))
 
 
 class McpBrokerAdapter:
+    """Media la ejecución de una operación MCP contra un servidor registrado y la persiste auditada.
+
+    Aplica una cadena de guardas (serverId presente, servidor 'registered', transport stdio,
+    método permitido, comando que pasa el sandbox) y solo entonces abre la sesión stdio. Toda
+    salida —bloqueada, no disponible, fallida o completada— se registra en ``mcp_tool_calls``.
+    """
+
     def __init__(self, connection):
         self.connection = connection
         self.repository = IntegrationsRepository(connection)
 
     def execute(self, *, tool_call: dict[str, Any], policy_input: dict[str, Any]) -> dict[str, Any]:
+        """Ejecuta la operación MCP solicitada respetando las guardas de política y sandbox.
+
+        Valida el servidor y la operación, valida el comando contra el sandbox, abre la sesión
+        stdio (initialize -> notificación -> operación) y devuelve un payload de resultado con el
+        estado (blocked/unavailable/failed/completed). Todo intento queda persistido y redactado.
+        """
         server_id = str(tool_call.get("serverId") or tool_call.get("mcpServerId") or "")
         if not server_id:
             return {

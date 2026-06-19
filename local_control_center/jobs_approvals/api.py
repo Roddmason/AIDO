@@ -1,7 +1,8 @@
-"""AIDO backend source module.
+"""Router FastAPI del slice de jobs/aprobaciones: expone los endpoints `/api/v1/jobs` y `/api/v1/approvals`.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Construye el `APIRouter` cableando cada ruta a su comando, abriendo un repositorio/event-bus
+por request sobre `platform.connection`. Las rutas mutadoras pasan por `require_write` antes de
+ejecutar y devuelven 202, dejando la lógica de transacción y validación en `commands`/`repository`.
 """
 
 from __future__ import annotations
@@ -26,6 +27,12 @@ from .repository import JobsRepository
 
 
 def create_router(*, platform: Any, require_write: Callable[[Request], None]) -> APIRouter:
+    """Arma el router de jobs/aprobaciones.
+
+    Args:
+        platform: Portador del `connection` SQLite usado por repositorio y event-bus.
+        require_write: Guardia que autoriza las rutas mutadoras (lanza si no procede).
+    """
     router = APIRouter()
 
     def jobs() -> JobsRepository:

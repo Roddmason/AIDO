@@ -1,7 +1,15 @@
-"""AIDO backend source module.
+"""Persistencia SQLite de gobernanza: ADRs, riesgos y next steps.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Mapea filas a dicts con claves camelCase (contrato del API) y ejecuta las
+escrituras (INSERT/UPDATE) sobre la conexión del caller.
+
+Transacciones: la conexión se abre en autocommit (``isolation_level=None``, ver
+``shared/db.py``) y estos métodos NO envuelven sus statements; cada ``execute``
+confía en el autocommit, de modo que un create se confirma con su único INSERT y
+un update con su único UPDATE. No hay atomicidad entre statements: si el caller
+necesita agrupar una escritura con su auditoría/evento debe abrir él mismo una
+``immediate_transaction``. Las lecturas de ``get_*`` tras la escritura ven el dato
+ya confirmado por estar en la misma conexión.
 """
 
 from __future__ import annotations
@@ -15,6 +23,7 @@ from local_control_center.shared.time import utc_now
 
 
 def row_to_architecture_decision(row: sqlite3.Row) -> dict[str, Any]:
+    """Mapea una fila de ``architecture_decisions`` al dict camelCase del API."""
     return {
         "id": row["id"],
         "projectId": row["project_id"],
@@ -32,6 +41,7 @@ def row_to_architecture_decision(row: sqlite3.Row) -> dict[str, Any]:
 
 
 def row_to_risk(row: sqlite3.Row) -> dict[str, Any]:
+    """Mapea una fila de ``risk_register`` al dict camelCase del API."""
     return {
         "id": row["id"],
         "projectId": row["project_id"],
@@ -49,6 +59,7 @@ def row_to_risk(row: sqlite3.Row) -> dict[str, Any]:
 
 
 def row_to_next_step(row: sqlite3.Row) -> dict[str, Any]:
+    """Mapea una fila de ``next_steps`` al dict camelCase del API."""
     return {
         "id": row["id"],
         "projectId": row["project_id"],
@@ -66,10 +77,13 @@ def row_to_next_step(row: sqlite3.Row) -> dict[str, Any]:
 
 
 class GovernanceRepository:
+    """Acceso a datos de gobernanza sobre la conexión SQLite del caller (autocommit por statement)."""
+
     def __init__(self, connection: sqlite3.Connection):
         self.connection = connection
 
     def create_architecture_decision(self, body: dict[str, Any]) -> dict[str, Any]:
+        """Inserta una ADR (id ``adr-<uuid>``) y devuelve el registro recién creado."""
         decision_id = f"adr-{uuid.uuid4()}"
         timestamp = utc_now()
         self.connection.execute(
@@ -97,6 +111,11 @@ class GovernanceRepository:
         return self.get_architecture_decision(decision_id)
 
     def get_architecture_decision(self, decision_id: str) -> dict[str, Any]:
+        """Recupera una ADR por id.
+
+        Raises:
+            KeyError: si no existe ninguna ADR con ese id.
+        """
         row = self.connection.execute(
             "SELECT * FROM architecture_decisions WHERE id = ?", (decision_id,)
         ).fetchone()
@@ -105,6 +124,7 @@ class GovernanceRepository:
         return row_to_architecture_decision(row)
 
     def list_architecture_decisions(self, project_id: str | None = None) -> list[dict[str, Any]]:
+        """Lista ADRs (todas o filtradas por proyecto), más recientes primero."""
         if project_id:
             rows = self.connection.execute(
                 "SELECT * FROM architecture_decisions WHERE project_id = ? ORDER BY updated_at DESC",
@@ -117,6 +137,7 @@ class GovernanceRepository:
         return [row_to_architecture_decision(row) for row in rows]
 
     def create_risk(self, body: dict[str, Any]) -> dict[str, Any]:
+        """Inserta un riesgo (id ``risk-<uuid>``) y devuelve el registro recién creado."""
         risk_id = f"risk-{uuid.uuid4()}"
         timestamp = utc_now()
         self.connection.execute(
@@ -144,12 +165,18 @@ class GovernanceRepository:
         return self.get_risk(risk_id)
 
     def get_risk(self, risk_id: str) -> dict[str, Any]:
+        """Recupera un riesgo por id.
+
+        Raises:
+            KeyError: si no existe ningún riesgo con ese id.
+        """
         row = self.connection.execute("SELECT * FROM risk_register WHERE id = ?", (risk_id,)).fetchone()
         if not row:
             raise KeyError(f"Risk not found: {risk_id}")
         return row_to_risk(row)
 
     def list_risks(self, project_id: str | None = None) -> list[dict[str, Any]]:
+        """Lista riesgos (todos o por proyecto), ordenados por severidad y recencia."""
         if project_id:
             rows = self.connection.execute(
                 "SELECT * FROM risk_register WHERE project_id = ? ORDER BY severity DESC, updated_at DESC",
@@ -162,6 +189,14 @@ class GovernanceRepository:
         return [row_to_risk(row) for row in rows]
 
     def update_risk(self, risk_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        """Aplica un patch sobre un riesgo y devuelve el registro actualizado.
+
+        Mezcla ``body`` sobre el estado actual y persiste status, mitigation, owner,
+        evidence_refs y metadata; la severidad no se reescribe aquí.
+
+        Raises:
+            KeyError: si el riesgo no existe.
+        """
         current = self.get_risk(risk_id)
         timestamp = utc_now()
         next_value = {**current, **body}
@@ -184,6 +219,7 @@ class GovernanceRepository:
         return self.get_risk(risk_id)
 
     def create_next_step(self, body: dict[str, Any]) -> dict[str, Any]:
+        """Inserta un next step (id ``next-step-<uuid>``) y devuelve el registro creado."""
         step_id = f"next-step-{uuid.uuid4()}"
         timestamp = utc_now()
         self.connection.execute(
@@ -211,12 +247,18 @@ class GovernanceRepository:
         return self.get_next_step(step_id)
 
     def get_next_step(self, step_id: str) -> dict[str, Any]:
+        """Recupera un next step por id.
+
+        Raises:
+            KeyError: si no existe ningún next step con ese id.
+        """
         row = self.connection.execute("SELECT * FROM next_steps WHERE id = ?", (step_id,)).fetchone()
         if not row:
             raise KeyError(f"Next step not found: {step_id}")
         return row_to_next_step(row)
 
     def list_next_steps(self, project_id: str | None = None) -> list[dict[str, Any]]:
+        """Lista next steps (todos o por proyecto), más recientes primero."""
         if project_id:
             rows = self.connection.execute(
                 "SELECT * FROM next_steps WHERE project_id = ? ORDER BY updated_at DESC",
@@ -227,6 +269,14 @@ class GovernanceRepository:
         return [row_to_next_step(row) for row in rows]
 
     def update_next_step(self, step_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        """Aplica un patch sobre un next step y devuelve el registro actualizado.
+
+        Mezcla ``body`` sobre el estado actual y persiste status, priority, owner,
+        due_at y metadata.
+
+        Raises:
+            KeyError: si el next step no existe.
+        """
         current = self.get_next_step(step_id)
         timestamp = utc_now()
         next_value = {**current, **body}

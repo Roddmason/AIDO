@@ -1,7 +1,9 @@
-"""AIDO backend source module.
+"""Declares per-runtime execution contracts and validates tool calls against them.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Holds the immutable contract for each optional CLI runtime (supported operations,
+required executable tokens, forbidden args, workspace requirement) and the validator
+the adapters call before execution. Centralizing the rules keeps every adapter's
+guardrails identical and audit-consistent.
 """
 
 from __future__ import annotations
@@ -43,6 +45,11 @@ RUNTIME_CONTRACTS: dict[str, dict[str, Any]] = {
 
 
 def get_runtime_contract(adapter_id: str) -> dict[str, Any]:
+    """Return a deep copy of the named runtime contract.
+
+    Raises:
+        KeyError: if no contract is registered for `adapter_id`.
+    """
     if adapter_id not in RUNTIME_CONTRACTS:
         raise KeyError(f"Runtime contract is not registered: {adapter_id}")
     return deepcopy(RUNTIME_CONTRACTS[adapter_id])
@@ -80,6 +87,12 @@ def validate_runtime_tool_call(
     tool_call: dict[str, Any],
     policy_input: dict[str, Any],
 ) -> dict[str, Any]:
+    """Validate a runtime tool call against its contract before any execution.
+
+    Enforces a supported operation, structured argv, the runtime's own executable, the
+    absence of forbidden flags, a valid workspace path, and required issue-to-patch
+    fields. Returns `{"valid": bool, "operation", "reason"|"contract"}` without executing.
+    """
     contract = get_runtime_contract(adapter_id)
     operation = _operation_for(tool_call)
     if operation not in contract["supportedOperations"]:

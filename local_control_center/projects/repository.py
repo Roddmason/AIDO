@@ -1,7 +1,11 @@
-"""AIDO backend source module.
+"""Acceso SQLite al catálogo de proyectos, proveedores, equipos y agentes.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Mapea filas ``sqlite3.Row`` a dicts ``camelCase`` para la API y emite los ``INSERT``
+del catálogo. La conexión recibida opera en autocommit (``isolation_level=None``, ver
+``shared/db.py``): cada ``execute`` confirma su propia transacción de forma independiente,
+no se agrupan escrituras atómicamente. ``create_project`` se confirma con su único
+``INSERT`` y es idempotente por ruta: si el proyecto ya existe no inserta y lo devuelve
+con ``_created=False``.
 """
 
 from __future__ import annotations
@@ -23,6 +27,7 @@ PROJECT_TEMPLATES = [
 
 
 def row_to_project(row: sqlite3.Row) -> dict[str, Any]:
+    """Convierte una fila de ``projects`` al dict ``camelCase`` que expone la API."""
     return {
         "id": row["id"],
         "name": row["name"],
@@ -37,6 +42,7 @@ def row_to_project(row: sqlite3.Row) -> dict[str, Any]:
 
 
 def row_to_provider(row: sqlite3.Row) -> dict[str, Any]:
+    """Convierte una fila de ``providers`` al dict ``camelCase`` (deserializa JSON con default)."""
     return {
         "id": row["id"],
         "kind": row["kind"],
@@ -50,6 +56,7 @@ def row_to_provider(row: sqlite3.Row) -> dict[str, Any]:
 
 
 def row_to_team(row: sqlite3.Row) -> dict[str, Any]:
+    """Convierte una fila de ``teams`` al dict ``camelCase`` que expone la API."""
     return {
         "id": row["id"],
         "projectId": row["project_id"],
@@ -63,6 +70,7 @@ def row_to_team(row: sqlite3.Row) -> dict[str, Any]:
 
 
 def row_to_agent(row: sqlite3.Row) -> dict[str, Any]:
+    """Convierte una fila de ``agents`` al dict ``camelCase`` que expone la API."""
     return {
         "id": row["id"],
         "teamId": row["team_id"],
@@ -79,10 +87,13 @@ def row_to_agent(row: sqlite3.Row) -> dict[str, Any]:
 
 
 class ProjectsRepository:
+    """Repositorio del catálogo de proyectos sobre una conexión SQLite en autocommit."""
+
     def __init__(self, connection: sqlite3.Connection):
         self.connection = connection
 
     def seed_providers(self) -> None:
+        """Inserta los proveedores por defecto; ``INSERT OR IGNORE`` lo hace idempotente."""
         providers = [
             ("codex", "agent", "Codex", ["code", "review"], ["gpt-5", "gpt-5.4"], "available"),
             ("claudecode", "agent", "Claude Code", ["code", "analysis"], ["sonnet"], "available"),
@@ -110,10 +121,12 @@ class ProjectsRepository:
             )
 
     def get_project_by_path(self, path: str | Path) -> dict[str, Any] | None:
+        """Busca un proyecto por su ruta normalizada; ``None`` si no existe."""
         row = self.connection.execute("SELECT * FROM projects WHERE path = ?", (str(Path(path)),)).fetchone()
         return row_to_project(row) if row else None
 
     def find_project(self, ref: str | Path) -> dict[str, Any] | None:
+        """Resuelve un proyecto por id y, si no hay coincidencia, por ruta; ``None`` si falla ambas."""
         ref_text = str(ref)
         row = self.connection.execute("SELECT * FROM projects WHERE id = ?", (ref_text,)).fetchone()
         if row:
@@ -130,6 +143,11 @@ class ProjectsRepository:
         source: str = "manual",
         metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        """Crea el proyecto (opcionalmente su carpeta) o devuelve el existente para esa ruta.
+
+        Idempotente por ruta: si ya hay proyecto en ``path`` no inserta y lo retorna con
+        ``_created=False``; al crear, el ``INSERT`` se autocommitea y retorna ``_created=True``.
+        """
         project_path = Path(path)
         if create_directory:
             project_path.mkdir(parents=True, exist_ok=True)
@@ -159,23 +177,32 @@ class ProjectsRepository:
         return {**self.get_project(project_id), "_created": True}
 
     def get_project(self, project_id: str) -> dict[str, Any]:
+        """Devuelve el proyecto por id.
+
+        Raises:
+            KeyError: si no existe un proyecto con ese id.
+        """
         row = self.connection.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
         if not row:
             raise KeyError(f"Project not found: {project_id}")
         return row_to_project(row)
 
     def list_projects(self) -> list[dict[str, Any]]:
+        """Lista todos los proyectos ordenados por fecha de creación ascendente."""
         rows = self.connection.execute("SELECT * FROM projects ORDER BY created_at ASC").fetchall()
         return [row_to_project(row) for row in rows]
 
     def list_project_templates(self) -> list[dict[str, Any]]:
+        """Devuelve copias de las plantillas estáticas para no exponer la lista mutable interna."""
         return [template.copy() for template in PROJECT_TEMPLATES]
 
     def list_providers(self) -> list[dict[str, Any]]:
+        """Lista los proveedores registrados ordenados por id."""
         rows = self.connection.execute("SELECT * FROM providers ORDER BY id ASC").fetchall()
         return [row_to_provider(row) for row in rows]
 
     def list_teams(self, project_id: str | None = None) -> list[dict[str, Any]]:
+        """Lista los equipos, filtrados por proyecto si se indica ``project_id``."""
         if project_id:
             rows = self.connection.execute(
                 "SELECT * FROM teams WHERE project_id = ? ORDER BY created_at ASC",
@@ -186,6 +213,7 @@ class ProjectsRepository:
         return [row_to_team(row) for row in rows]
 
     def list_agents(self, team_id: str | None = None) -> list[dict[str, Any]]:
+        """Lista los agentes del catálogo, acotados a un equipo si se indica ``team_id``."""
         if team_id:
             rows = self.connection.execute(
                 "SELECT * FROM agents WHERE team_id = ? ORDER BY created_at ASC",

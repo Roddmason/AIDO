@@ -1,7 +1,5 @@
 /**
- * @file AIDO frontend source module.
- * @copyright Copyright (c) AIDO.
- * @author Roddmason
+ * Slide-over that surfaces pending action requests awaiting a human approval.
  */
 import type { Overview } from '../api/types';
 import { Badge, DataTable, Drawer, EmptyState } from '../components/primitives';

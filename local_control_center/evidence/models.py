@@ -1,7 +1,8 @@
-"""AIDO backend source module.
+"""Contratos Pydantic y enums del slice de evidencia (requests, responses y registros).
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Define el vocabulario tipado compartido por el API y el repositorio: tipos de artefacto, fuentes
+de evidencia, veredictos QA y estados de test, más los modelos de entrada/salida HTTP. Los alias
+camelCase fijan la forma del JSON expuesto frente al snake_case interno de Python.
 """
 
 from __future__ import annotations
@@ -66,15 +67,21 @@ TestResultStatus = Literal[
 
 
 class ArtifactCleanupRequest(BaseModel):
+    """Cuerpo para barrer artefactos huérfanos; por defecto en modo simulación."""
+
     dry_run: bool = Field(default=True, alias="dryRun")
 
 
 class ArtifactRetentionPlanRequest(BaseModel):
+    """Cuerpo para planificar la revisión de retención; `now` permite fijar el instante de corte."""
+
     dry_run: bool = Field(default=True, alias="dryRun")
     now: str | None = None
 
 
 class ArtifactRetentionActionRequest(BaseModel):
+    """Cuerpo para ejecutar una acción de retención (export/delete) auditada sobre artefactos expirados."""
+
     reason: str
     action: str
     artifact_ids: list[str] = Field(alias="artifactIds")
@@ -82,6 +89,8 @@ class ArtifactRetentionActionRequest(BaseModel):
 
 
 class EvidenceCreateRequest(BaseModel):
+    """Carga completa para crear un paquete de evidencia: enlaces de runtime, QA, costos y artefactos."""
+
     project_id: str = Field(alias="projectId")
     workflow_run_id: str | None = Field(default=None, alias="workflowRunId")
     workflow_step_id: str | None = Field(default=None, alias="workflowStepId")
@@ -122,6 +131,8 @@ class EvidenceCreateRequest(BaseModel):
 
 
 class ArtifactIngestRequest(BaseModel):
+    """Cuerpo para ingerir un artefacto: contenido en texto o base64, con su tipo y nombre."""
+
     kind: ArtifactKind
     name: str | None = None
     content: str | None = None
@@ -130,6 +141,8 @@ class ArtifactIngestRequest(BaseModel):
 
 
 class EvidencePackageRecord(BaseModel):
+    """Paquete de evidencia persistido tal como se devuelve al cliente."""
+
     id: str
     project_id: str = Field(alias="projectId")
     workflow_run_id: str | None = Field(alias="workflowRunId")
@@ -162,6 +175,8 @@ class EvidencePackageRecord(BaseModel):
 
 
 class TestResultRecord(BaseModel):
+    """Resultado de un comando de test persistido y enlazado a su paquete."""
+
     id: str
     project_id: str = Field(alias="projectId")
     evidence_package_id: str = Field(alias="evidencePackageId")
@@ -174,6 +189,8 @@ class TestResultRecord(BaseModel):
 
 
 class ArtifactRecord(BaseModel):
+    """Artefacto persistido con su ruta, hash y metadata; puede estar sin enlazar a un paquete."""
+
     id: str
     project_id: str = Field(alias="projectId")
     evidence_package_id: str | None = Field(default=None, alias="evidencePackageId")
@@ -185,11 +202,15 @@ class ArtifactRecord(BaseModel):
 
 
 class ArtifactFileRecord(BaseModel):
+    """Fichero físico de artefacto descrito por ruta y tamaño (usado en reportes de limpieza)."""
+
     path: str
     size_bytes: int = Field(alias="sizeBytes")
 
 
 class ExpiredArtifactRecord(BaseModel):
+    """Artefacto que superó su fecha de retención, anotado con estado y `expiresAt` para revisión."""
+
     id: str
     project_id: str = Field(alias="projectId")
     evidence_package_id: str | None = Field(default=None, alias="evidencePackageId")
@@ -203,6 +224,8 @@ class ExpiredArtifactRecord(BaseModel):
 
 
 class ArtifactRetentionResultRecord(BaseModel):
+    """Artefacto tras aplicarle una acción de retención, con el detalle de la acción ejecutada."""
+
     id: str
     project_id: str = Field(alias="projectId")
     evidence_package_id: str | None = Field(default=None, alias="evidencePackageId")
@@ -215,24 +238,34 @@ class ArtifactRetentionResultRecord(BaseModel):
 
 
 class EvidencePackageResponse(BaseModel):
+    """Respuesta que envuelve un único paquete de evidencia."""
+
     evidence_package: EvidencePackageRecord = Field(alias="evidencePackage")
 
 
 class EvidenceListResponse(BaseModel):
+    """Respuesta con el listado de paquetes de evidencia."""
+
     evidence_packages: list[EvidencePackageRecord] = Field(alias="evidencePackages")
 
 
 class EvidenceDetailResponse(BaseModel):
+    """Detalle de un paquete junto a sus resultados de test y artefactos enlazados."""
+
     evidence_package: EvidencePackageRecord = Field(alias="evidencePackage")
     test_result_records: list[TestResultRecord] = Field(alias="testResultRecords")
     artifacts: list[ArtifactRecord]
 
 
 class ArtifactResponse(BaseModel):
+    """Respuesta que envuelve un único artefacto."""
+
     artifact: ArtifactRecord
 
 
 class ArtifactCleanupResponse(BaseModel):
+    """Resultado de la limpieza: huérfanos detectados, borrados y referenciados conservados."""
+
     dry_run: bool = Field(alias="dryRun")
     artifact_root: str = Field(alias="artifactRoot")
     orphan_files: list[ArtifactFileRecord] = Field(alias="orphanFiles")
@@ -241,6 +274,8 @@ class ArtifactCleanupResponse(BaseModel):
 
 
 class ArtifactRetentionPlanResponse(BaseModel):
+    """Plan de retención: artefactos expirados y los riesgos de gobernanza abiertos para revisarlos."""
+
     dry_run: bool = Field(alias="dryRun")
     now: str
     expired_artifacts: list[ExpiredArtifactRecord] = Field(alias="expiredArtifacts")
@@ -248,5 +283,7 @@ class ArtifactRetentionPlanResponse(BaseModel):
 
 
 class ArtifactRetentionActionResponse(BaseModel):
+    """Resultado de una acción de retención y los artefactos sobre los que se aplicó."""
+
     action: str
     artifacts: list[ArtifactRetentionResultRecord]

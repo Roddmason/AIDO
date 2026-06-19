@@ -1,7 +1,7 @@
 /**
- * @file AIDO frontend source module.
- * @copyright Copyright (c) AIDO.
- * @author Roddmason
+ * Workbench Diff panel: fetches the evidence patch artifact and renders the (redacted)
+ * diff. Gates review by refusing to show a verdict unless a real patch with actual
+ * additions/deletions exists — diff refs alone do not prove code changed.
  */
 import { useEffect, useMemo, useState } from 'react';
 

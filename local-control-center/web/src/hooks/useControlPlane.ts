@@ -1,7 +1,9 @@
 /**
- * @file AIDO frontend source module.
- * @copyright Copyright (c) AIDO.
- * @author Roddmason
+ * Owns the control-plane session: handshake token, polled state, and mutations.
+ *
+ * Performs the authenticated handshake, polls overview/status every 5s, and exposes
+ * a `mutate` runner that injects the write token and refreshes afterwards. Secondary
+ * reads are wrapped in a timeout so a slow optional endpoint cannot stall the page.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
@@ -45,6 +47,7 @@ const initialState: ControlPlaneState = {
 	busy: false,
 };
 
+/** Resolves to `null` instead of rejecting/hanging if the promise fails or exceeds the timeout. */
 function optionalWithTimeout<T>(promise: Promise<T>, timeoutMs = 4000): Promise<T | null> {
 	return new Promise((resolve) => {
 		const timeoutId = window.setTimeout(() => resolve(null), timeoutMs);

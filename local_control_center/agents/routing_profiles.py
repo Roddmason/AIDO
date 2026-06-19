@@ -1,7 +1,9 @@
-"""AIDO backend source module.
+"""Persists routing inputs and the audit trail of routing decisions.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Stores the configuration the model router reads (routing profiles, per-role policies,
+provider limits, budget rules) plus the immutable record of each routing decision and
+CLI session it produced. This module only reads/writes those tables; it does not score
+candidates or choose a model (that is the router's job).
 """
 
 from __future__ import annotations
@@ -19,6 +21,7 @@ def _bool(value: Any) -> bool:
 
 
 def row_to_routing_profile(row: sqlite3.Row) -> dict[str, Any]:
+    """Map a `routing_profiles` row to its camelCase dict."""
     return {
         "id": row["id"],
         "name": row["name"],
@@ -32,6 +35,7 @@ def row_to_routing_profile(row: sqlite3.Row) -> dict[str, Any]:
 
 
 def row_to_role_policy(row: sqlite3.Row) -> dict[str, Any]:
+    """Map a `role_model_policies` row to its camelCase dict, defaulting newer columns."""
     return {
         "id": row["id"],
         "role": row["role"],
@@ -58,6 +62,7 @@ def row_to_role_policy(row: sqlite3.Row) -> dict[str, Any]:
 
 
 def row_to_provider_limit(row: sqlite3.Row) -> dict[str, Any]:
+    """Map a `provider_limits` row to its camelCase dict."""
     return {
         "id": row["id"],
         "providerId": row["provider_id"],
@@ -80,6 +85,7 @@ def row_to_provider_limit(row: sqlite3.Row) -> dict[str, Any]:
 
 
 def row_to_budget_rule(row: sqlite3.Row) -> dict[str, Any]:
+    """Map a `budget_rules` row to its camelCase dict."""
     return {
         "id": row["id"],
         "scopeType": row["scope_type"],
@@ -95,6 +101,7 @@ def row_to_budget_rule(row: sqlite3.Row) -> dict[str, Any]:
 
 
 def row_to_routing_decision(row: sqlite3.Row) -> dict[str, Any]:
+    """Map a `routing_decisions` row to its camelCase dict (candidates/scores decoded)."""
     return {
         "id": row["id"],
         "role": row["role"],
@@ -121,6 +128,7 @@ def row_to_routing_decision(row: sqlite3.Row) -> dict[str, Any]:
 
 
 def row_to_cli_session(row: sqlite3.Row) -> dict[str, Any]:
+    """Map a `cli_sessions` row to its camelCase dict (command/env policy decoded)."""
     return {
         "id": row["id"],
         "runtime": row["runtime"],
@@ -144,14 +152,22 @@ def row_to_cli_session(row: sqlite3.Row) -> dict[str, Any]:
 
 
 class RoutingProfileStore:
+    """SQLite store for routing profiles, role policies, limits, budgets, decisions, sessions."""
+
     def __init__(self, connection: sqlite3.Connection):
         self.connection = connection
 
     def list_routing_profiles(self) -> list[dict[str, Any]]:
+        """List all routing profiles ordered by id."""
         rows = self.connection.execute("SELECT * FROM routing_profiles ORDER BY id ASC").fetchall()
         return [row_to_routing_profile(row) for row in rows]
 
     def get_routing_profile(self, profile_id: str) -> dict[str, Any]:
+        """Fetch a routing profile by id or name.
+
+        Raises:
+            KeyError: if no matching profile exists.
+        """
         row = self.connection.execute(
             "SELECT * FROM routing_profiles WHERE id = ? OR name = ?", (profile_id, profile_id)
         ).fetchone()
@@ -160,6 +176,7 @@ class RoutingProfileStore:
         return row_to_routing_profile(row)
 
     def upsert_routing_profile(self, body: dict[str, Any]) -> dict[str, Any]:
+        """Insert or update a routing profile keyed by id and return the stored row."""
         profile_id = str(body.get("id") or body["name"])
         now = utc_now()
         self.connection.execute(
@@ -188,14 +205,21 @@ class RoutingProfileStore:
         return self.get_routing_profile(profile_id)
 
     def patch_routing_profile(self, profile_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        """Apply a partial update to a routing profile, preserving its id."""
         existing = self.get_routing_profile(profile_id)
         return self.upsert_routing_profile({**existing, **body, "id": existing["id"]})
 
     def list_role_policies(self) -> list[dict[str, Any]]:
+        """List all per-role model policies ordered by role."""
         rows = self.connection.execute("SELECT * FROM role_model_policies ORDER BY role ASC").fetchall()
         return [row_to_role_policy(row) for row in rows]
 
     def get_role_policy(self, role: str) -> dict[str, Any]:
+        """Fetch a role policy by role or id.
+
+        Raises:
+            KeyError: if no matching policy exists.
+        """
         row = self.connection.execute(
             "SELECT * FROM role_model_policies WHERE role = ? OR id = ?", (role, role)
         ).fetchone()
@@ -204,6 +228,7 @@ class RoutingProfileStore:
         return row_to_role_policy(row)
 
     def upsert_role_policy(self, body: dict[str, Any]) -> dict[str, Any]:
+        """Insert or update a role's model policy keyed by role and return the stored row."""
         role = str(body["role"])
         policy_id = str(body.get("id") or role)
         now = utc_now()
@@ -261,16 +286,23 @@ class RoutingProfileStore:
         return self.get_role_policy(role)
 
     def patch_role_policy(self, policy_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        """Apply a partial update to a role policy, preserving its id and role."""
         existing = self.get_role_policy(policy_id)
         return self.upsert_role_policy({**existing, **body, "id": existing["id"], "role": existing["role"]})
 
     def list_provider_limits(self) -> list[dict[str, Any]]:
+        """List all provider limits ordered by provider then model."""
         rows = self.connection.execute(
             "SELECT * FROM provider_limits ORDER BY provider_id ASC, model ASC"
         ).fetchall()
         return [row_to_provider_limit(row) for row in rows]
 
     def patch_provider_limit(self, limit_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        """Apply a partial update to an existing provider limit row and return it.
+
+        Raises:
+            KeyError: if no limit has the given id.
+        """
         existing_row = self.connection.execute(
             "SELECT * FROM provider_limits WHERE id = ?", (limit_id,)
         ).fetchone()
@@ -309,12 +341,14 @@ class RoutingProfileStore:
         )
 
     def list_budget_rules(self) -> list[dict[str, Any]]:
+        """List all budget rules ordered by scope type then scope id."""
         rows = self.connection.execute(
             "SELECT * FROM budget_rules ORDER BY scope_type ASC, scope_id ASC"
         ).fetchall()
         return [row_to_budget_rule(row) for row in rows]
 
     def upsert_budget_rule(self, body: dict[str, Any]) -> dict[str, Any]:
+        """Insert or update a budget rule (generating an id when absent) and return it."""
         rule_id = str(body.get("id") or f"budget-{uuid.uuid4()}")
         now = utc_now()
         self.connection.execute(
@@ -349,12 +383,18 @@ class RoutingProfileStore:
         return row_to_budget_rule(row)
 
     def patch_budget_rule(self, rule_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        """Apply a partial update to an existing budget rule, preserving its id.
+
+        Raises:
+            KeyError: if no rule has the given id.
+        """
         row = self.connection.execute("SELECT * FROM budget_rules WHERE id = ?", (rule_id,)).fetchone()
         if not row:
             raise KeyError(f"Budget rule not found: {rule_id}")
         return self.upsert_budget_rule({**row_to_budget_rule(row), **body, "id": rule_id})
 
     def record_routing_decision(self, decision: dict[str, Any]) -> dict[str, Any]:
+        """Append a routing decision to the audit trail and return the stored record."""
         decision_id = str(decision.get("id") or f"routing-decision-{uuid.uuid4()}")
         self.connection.execute(
             """
@@ -395,14 +435,21 @@ class RoutingProfileStore:
         return row_to_routing_decision(row)
 
     def list_routing_decisions(self) -> list[dict[str, Any]]:
+        """List the routing-decision audit trail, newest first."""
         rows = self.connection.execute("SELECT * FROM routing_decisions ORDER BY created_at DESC").fetchall()
         return [row_to_routing_decision(row) for row in rows]
 
     def list_cli_sessions(self) -> list[dict[str, Any]]:
+        """List all CLI runtime sessions, newest first."""
         rows = self.connection.execute("SELECT * FROM cli_sessions ORDER BY created_at DESC").fetchall()
         return [row_to_cli_session(row) for row in rows]
 
     def get_cli_session(self, session_id: str) -> dict[str, Any]:
+        """Fetch one CLI session by id.
+
+        Raises:
+            KeyError: if no session has the given id.
+        """
         row = self.connection.execute("SELECT * FROM cli_sessions WHERE id = ?", (session_id,)).fetchone()
         if not row:
             raise KeyError(f"CLI session not found: {session_id}")

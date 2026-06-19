@@ -1,7 +1,7 @@
 /**
- * @file AIDO frontend source module.
- * @copyright Copyright (c) AIDO.
- * @author Roddmason
+ * Persistent bottom status bar of the shell: surfaces control-plane health
+ * (API link, runtimes, approvals, QA, cost) as localized, glanceable signals.
+ * Presentation only — the numbers come pre-derived from deriveShellStatus.
  */
 import type { Overview, Project, RuntimeProviders } from '../api/types';
 import { StatusDot } from '../components/primitives';

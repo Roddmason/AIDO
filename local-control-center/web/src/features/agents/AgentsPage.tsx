@@ -1,7 +1,9 @@
 /**
- * @file AIDO frontend source module.
- * @copyright Copyright (c) AIDO.
- * @author Roddmason
+ * Agents console: defines strict agent profiles (runtime mode, permission profile,
+ * routing, model policy, provider/tool allowlists and budget limits) and shows live
+ * runtime detection. Profile creation is blocked until the model-gateway catalogs
+ * (providers, routing profiles, role policies) and runtime modes all load, so a profile
+ * can never reference an option the backend hasn't confirmed exists.
  */
 import { useEffect, useMemo, useState } from 'react';
 
@@ -75,6 +77,11 @@ function moneyLabel(value: unknown, fallback: string) {
 	return Number.isFinite(number) ? `$${number.toFixed(2)}` : fallback;
 }
 
+/**
+ * Agents route page. Loads runtime providers and the model-gateway catalogs on mount,
+ * gates the create form on their availability (`catalogAvailable`), and validates token
+ * and approval-threshold bounds before the gated profile write.
+ */
 export function AgentsPage({
 	overview,
 	runtimeProviders,

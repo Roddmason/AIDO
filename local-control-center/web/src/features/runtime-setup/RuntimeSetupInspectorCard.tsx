@@ -1,7 +1,8 @@
 /**
- * @file AIDO frontend source module.
- * @copyright Copyright (c) AIDO.
- * @author Roddmason
+ * Compact runtime-setup readout for inspector/sidebar contexts: a headline state, the
+ * executable/total count and a one-line-per-provider status list, with refresh-health
+ * and a deep link into the full runtime setup. Shares all derivation with the panel via
+ * `runtimeSetup` so both surfaces stay consistent.
  */
 
 import { ArrowRight, RefreshCw } from 'lucide-react';
@@ -26,6 +27,10 @@ type RuntimeSetupInspectorCardProps = {
 	onOpenRuntimeSetup: () => void;
 };
 
+/**
+ * Refresh first re-probes API/gateway providers (when a token is present) so their
+ * stored health is current, then calls `onRefresh` to reload the snapshot.
+ */
 export function RuntimeSetupInspectorCard({
 	runtimeProviders,
 	runtimeProviderConfiguration,

@@ -1,7 +1,7 @@
 /**
- * @file AIDO frontend source module.
- * @copyright Copyright (c) AIDO.
- * @author Roddmason
+ * Top bar of the active workspace: identifies the current page and exposes the
+ * shell-wide controls (language, theme, command palette, drawers, inspector,
+ * refresh). Stateless dispatcher — every action is delegated upward via props.
  */
 import { Moon, PanelRight, RefreshCw, Sun } from 'lucide-react';
 

@@ -1,7 +1,8 @@
-"""AIDO backend source module.
+"""Discovers SKILL.md skill definitions on disk and syncs them into the catalog.
 
-Copyright (c) AIDO.
-Author: Roddmason.
+Parses each skill's required front-matter keys, upserts the skill record, and pins an
+immutable content-hashed version row so skill instructions are auditable over time.
+The registry is the source of truth for which skills an agent profile may invoke.
 """
 
 from __future__ import annotations
@@ -28,6 +29,7 @@ REQUIRED_SKILL_KEYS = {
 
 
 def parse_skill_markdown(path: Path) -> dict[str, Any]:
+    """Parse a SKILL.md file into a normalized skill dict, raising if required keys are missing."""
     values: dict[str, str] = {}
     for line in path.read_text(encoding="utf-8").splitlines():
         if ":" not in line:
@@ -55,6 +57,7 @@ def parse_skill_markdown(path: Path) -> dict[str, Any]:
 
 
 def row_to_skill(row: sqlite3.Row) -> dict[str, Any]:
+    """Map a `skills` row to the camelCase skill dict returned by the API."""
     return {
         "id": row["id"],
         "name": row["name"],
@@ -70,10 +73,17 @@ def row_to_skill(row: sqlite3.Row) -> dict[str, Any]:
 
 
 class SkillRegistry:
+    """Catalog of installed skills backed by the `skills` and `skill_versions` tables."""
+
     def __init__(self, connection: sqlite3.Connection):
         self.connection = connection
 
     def sync(self, skills_path: str | Path) -> int:
+        """Scan `<root>/*/SKILL.md`, upsert each skill, version it by hash, and return the count.
+
+        Per skill, writes one `skills` upsert plus an idempotent `skill_versions` insert
+        keyed by content hash. The caller owns the surrounding transaction/commit.
+        """
         root = Path(skills_path)
         count = 0
         for skill_file in root.glob("*/SKILL.md"):
@@ -122,5 +132,6 @@ class SkillRegistry:
         return count
 
     def list_skills(self) -> list[dict[str, Any]]:
+        """Return all catalogued skills ordered by name."""
         rows = self.connection.execute("SELECT * FROM skills ORDER BY name ASC").fetchall()
         return [row_to_skill(row) for row in rows]

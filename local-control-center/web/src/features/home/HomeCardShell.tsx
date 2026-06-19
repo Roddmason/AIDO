@@ -3,14 +3,21 @@
  * header row, kept in one place so the four card kinds share identical layout,
  * focus/selection affordances and a11y wiring instead of duplicating boilerplate.
  */
+import { m } from 'motion/react';
 import type { ReactNode } from 'react';
 
+import { cardTransition, HOVER_LIFT, HOVER_TAP_TRANSITION, TAP_SCALE } from '../../motion/variants';
 import type { HomeCardItem } from './homeModel';
 
 /**
  * Shared clickable shell for every gallery card: a full-card button with a
  * kind hook (`data-kind`) for scannability, selection state and an accessible
  * label. Keeps the four card components free of duplicated button boilerplate.
+ *
+ * Motion: the button is the per-item stagger child of the gallery's
+ * `MotionList` (`cardTransition`), and adds a discreet hover lift + tap feedback
+ * gesture. Under `MotionConfig reducedMotion="user"` the transforms collapse to
+ * no-ops, leaving the CSS `.home-card:hover` affordance as the fallback.
  */
 export function HomeCard({
 	kind,
@@ -26,16 +33,20 @@ export function HomeCard({
 	children: ReactNode;
 }) {
 	return (
-		<button
+		<m.button
 			type="button"
 			className="home-card"
 			data-kind={kind}
 			data-selected={selected ? 'true' : undefined}
 			onClick={onClick}
 			aria-label={ariaLabel}
+			variants={cardTransition}
+			whileHover={HOVER_LIFT}
+			whileTap={TAP_SCALE}
+			transition={HOVER_TAP_TRANSITION}
 		>
 			{children}
-		</button>
+		</m.button>
 	);
 }
 

@@ -653,6 +653,9 @@ kbd.command-kbd {
 }
 
 .drawer-body {
+	/* Containing block for the shared-layout review accent (position: absolute),
+	   which must anchor to the content area, not the fixed .drawer ancestor. */
+	position: relative;
 	overflow: auto;
 	display: grid;
 	gap: var(--space-3);
@@ -1438,6 +1441,10 @@ kbd.command-kbd {
 
 .workbench-tabpanel {
 	min-width: 0;
+	/* Containing block for the exiting tab panel, which AnimatePresence mode="popLayout"
+	   takes out of flow (position: absolute) during the crossfade so the panel height does
+	   not collapse between the old and new tab. */
+	position: relative;
 }
 
 .workbench-tabpanel:focus-visible {

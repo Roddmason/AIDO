@@ -5,6 +5,7 @@
  * bar, and owns the local collapse/open state of the explorer and inspector panels.
  */
 
+import { AnimatePresence } from 'motion/react';
 import type { ReactNode } from 'react';
 import { useState } from 'react';
 
@@ -85,18 +86,21 @@ export function AppShell({
 				onToggleExplorer={() => setExplorerCollapsed((value) => !value)}
 			/>
 
-			{explorerCollapsed ? null : (
-				<ExplorerPanel
-					activeArea={area}
-					page={page}
-					language={language}
-					overview={overview}
-					selectedProject={selectedProject}
-					onNavigate={navigateTo}
-					onSelectProject={onSelectProject}
-					onCreateProject={onCreateProject}
-				/>
-			)}
+			<AnimatePresence mode="popLayout" initial={false}>
+				{explorerCollapsed ? null : (
+					<ExplorerPanel
+						key="explorer"
+						activeArea={area}
+						page={page}
+						language={language}
+						overview={overview}
+						selectedProject={selectedProject}
+						onNavigate={navigateTo}
+						onSelectProject={onSelectProject}
+						onCreateProject={onCreateProject}
+					/>
+				)}
+			</AnimatePresence>
 
 			<main className="workbench main-area">
 				<WorkbenchHeader
@@ -118,13 +122,16 @@ export function AppShell({
 				</section>
 			</main>
 
-			{inspectorOpen ? (
-				<InspectorPanel
-					overview={overview}
-					selectedProject={selectedProject}
-					onClose={() => setInspectorOpen(false)}
-				/>
-			) : null}
+			<AnimatePresence mode="popLayout" initial={false}>
+				{inspectorOpen ? (
+					<InspectorPanel
+						key="inspector"
+						overview={overview}
+						selectedProject={selectedProject}
+						onClose={() => setInspectorOpen(false)}
+					/>
+				) : null}
+			</AnimatePresence>
 
 			<StatusBar
 				overview={overview}

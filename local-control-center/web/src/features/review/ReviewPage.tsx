@@ -4,6 +4,7 @@
  * focus handling. Board state lives here; lanes, cards and the decision/ship UI
  * are delegated to child components and the review hooks.
  */
+import { AnimatePresence, m } from 'motion/react';
 import { useMemo, useRef, useState } from 'react';
 
 import type { ActionRequest, Overview } from '../../api/types';
@@ -19,6 +20,7 @@ import {
 import { useI18n } from '../../i18n/I18nProvider';
 import { shortId, toneForStatus } from '../../lib/format';
 import { redactVisibleText } from '../../lib/redaction';
+import { panelTransition } from '../../motion/variants';
 import { ApprovalDecisionPanel } from './ApprovalDecisionPanel';
 import type { ReviewColumn as ReviewColumnId, ReviewItem } from './model';
 import {
@@ -27,7 +29,7 @@ import {
 	REVIEW_COLUMNS,
 	requiresPatchEvidenceGate,
 } from './model';
-import { shipOperationFor } from './ReviewCard';
+import { ReviewSharedAccent, shipOperationFor } from './ReviewCard';
 import { ReviewColumn } from './ReviewColumn';
 import { useArtifactPreview } from './useArtifactPreview';
 import { useReviewDecision } from './useReviewDecision';
@@ -65,6 +67,13 @@ export function ReviewPage({
 		() => overview.actionRequests.find((action) => action.id === selectedActionId) ?? null,
 		[overview, selectedActionId],
 	);
+	// Item key behind the open approval drawer, used to pair the shared-layout
+	// accent with the card it expanded from.
+	const selectedItemKey = useMemo(
+		() =>
+			selectedActionId ? (items.find((item) => item.actionId === selectedActionId)?.key ?? '') : '',
+		[items, selectedActionId],
+	);
 	const decision = useReviewDecision(selectedAction, overview, token, mutate);
 	const artifactPreview = useArtifactPreview(token);
 
@@ -93,6 +102,10 @@ export function ReviewPage({
 	const openReview = (item: ReviewItem, trigger: HTMLElement | null) => {
 		if (!item.actionId) return;
 		triggerRef.current = trigger;
+		// Only one drawer open at a time: close the ship detail so a single card↔drawer
+		// `layoutId` pair is matched and two drawers never stack.
+		setShipItemKey('');
+		ship.reset();
 		setSelectedActionId(item.actionId);
 	};
 	const closeReview = () => {
@@ -105,6 +118,9 @@ export function ReviewPage({
 	const openDetail = (item: ReviewItem, trigger: HTMLElement | null) => {
 		shipTriggerRef.current = trigger;
 		ship.reset();
+		// Only one drawer open at a time: close the review drawer (see openReview).
+		setSelectedActionId('');
+		artifactPreview.clear();
 		setShipItemKey(item.key);
 	};
 	const closeDetail = () => {
@@ -183,6 +199,7 @@ export function ReviewPage({
 						items={columns[column]}
 						meta={columnCopy[column]}
 						selectedActionId={selectedActionId}
+						activeDetailKey={shipItemKey}
 						onOpenReview={openReview}
 						onOpenDetail={openDetail}
 					/>
@@ -195,6 +212,9 @@ export function ReviewPage({
 				onClose={closeReview}
 			>
 				<div className="drawer-body">
+					{selectedAction ? (
+						<ReviewSharedAccent itemKey={selectedItemKey} active={Boolean(selectedItemKey)} />
+					) : null}
 					{selectedAction ? (
 						<ApprovalDecisionPanel
 							selectedAction={selectedAction}
@@ -214,170 +234,180 @@ export function ReviewPage({
 				onClose={closeDetail}
 			>
 				<div className="drawer-body">
-					{liveShipItem ? (
-						<div className="stack">
-							<div className="inline">
-								<Badge tone={toneForStatus(liveShipItem.runStatus ?? undefined)}>
-									{liveShipItem.runStatus}
-								</Badge>
-								{liveShipItem.workflowKind ? <Badge>{liveShipItem.workflowKind}</Badge> : null}
-								<span className="mono">{shortId(liveShipItem.runId)}</span>
-							</div>
-							<p className="card-body">{liveShipItem.runLabel}</p>
-							<Surface title={t('app.review.evidenceSectionTitle', 'Linked evidence')} flat>
-								<DataTable
-									rows={detailEvidence}
-									empty={
-										<EmptyState
-											title={t(
-												'ui.static.no.linked.evidence.packages.97fa8274',
-												'No linked evidence packages',
-											)}
-											body={t(
-												'app.review.noLinkedEvidenceRun',
-												'This run did not record evidence package references.',
-											)}
-										/>
-									}
-									columns={[
-										{
-											key: 'id',
-											label: t('ui.static.evidence.7ea014de', 'Evidence'),
-											render: (row) => <span className="mono">{String(row.id ?? '')}</span>,
-										},
-										{
-											key: 'verdict',
-											label: 'QA',
-											render: (row) => (
-												<Badge tone={toneForStatus(String(row.qaVerdict ?? ''))}>
-													{String(row.qaVerdict ?? '')}
+					{liveShipItem ? <ReviewSharedAccent itemKey={liveShipItem.key} active /> : null}
+					<AnimatePresence mode="wait">
+						{liveShipItem ? (
+							<m.div
+								key={liveShipItem.key}
+								className="stack"
+								variants={panelTransition}
+								initial="initial"
+								animate="animate"
+								exit="exit"
+							>
+								<div className="inline">
+									<Badge tone={toneForStatus(liveShipItem.runStatus ?? undefined)}>
+										{liveShipItem.runStatus}
+									</Badge>
+									{liveShipItem.workflowKind ? <Badge>{liveShipItem.workflowKind}</Badge> : null}
+									<span className="mono">{shortId(liveShipItem.runId)}</span>
+								</div>
+								<p className="card-body">{liveShipItem.runLabel}</p>
+								<Surface title={t('app.review.evidenceSectionTitle', 'Linked evidence')} flat>
+									<DataTable
+										rows={detailEvidence}
+										empty={
+											<EmptyState
+												title={t(
+													'ui.static.no.linked.evidence.packages.97fa8274',
+													'No linked evidence packages',
+												)}
+												body={t(
+													'app.review.noLinkedEvidenceRun',
+													'This run did not record evidence package references.',
+												)}
+											/>
+										}
+										columns={[
+											{
+												key: 'id',
+												label: t('ui.static.evidence.7ea014de', 'Evidence'),
+												render: (row) => <span className="mono">{String(row.id ?? '')}</span>,
+											},
+											{
+												key: 'verdict',
+												label: 'QA',
+												render: (row) => (
+													<Badge tone={toneForStatus(String(row.qaVerdict ?? ''))}>
+														{String(row.qaVerdict ?? '')}
+													</Badge>
+												),
+											},
+											{
+												key: 'source',
+												label: t('ui.static.source.6da13add', 'Source'),
+												render: (row) => (
+													<span className="mono">
+														{String(row.evidenceSource ?? 'operator_attested')}
+													</span>
+												),
+											},
+											{
+												key: 'task',
+												label: t('ui.static.task.7bb0ddf9', 'Task'),
+												render: (row) => String(row.taskId ?? ''),
+											},
+										]}
+									/>
+									<a className="settings-console-link" href="#evidence">
+										{t('app.review.openFullEvidence', 'Open full evidence')}
+									</a>
+								</Surface>
+								{shipOp ? (
+									<>
+										{/* Ship operations: promote / create PR (shippable runs only) */}
+										<div className="field">
+											<label htmlFor="review-ship-reason">
+												{t('app.review.shipReasonLabel', 'Workflow operation reason')}
+											</label>
+											<textarea
+												id="review-ship-reason"
+												className="textarea"
+												value={ship.reason}
+												onChange={(event) => {
+													ship.setReason(event.target.value);
+													ship.setError('');
+												}}
+											/>
+											<div className="field-help">
+												{t(
+													'app.review.shipReasonHelp',
+													'Branch promotion and PR creation stay blocked until a reason is recorded.',
+												)}
+											</div>
+										</div>
+										<Disclosure title={t('app.review.shipAdvanced', 'Advanced options')}>
+											<div className="field">
+												<label htmlFor="review-ship-branch">
+													{t(
+														'ui.static.promotion.branch.optional.1a9de010',
+														'Promotion branch (optional)',
+													)}
+												</label>
+												<input
+													id="review-ship-branch"
+													className="input"
+													value={ship.branchName}
+													onChange={(event) => ship.setBranchName(event.target.value)}
+												/>
+											</div>
+											<div className="field">
+												<label htmlFor="review-ship-pr-title">
+													{t('app.review.shipPrTitleLabel', 'PR title (optional)')}
+												</label>
+												<input
+													id="review-ship-pr-title"
+													className="input"
+													value={ship.pullRequestTitle}
+													onChange={(event) => ship.setPullRequestTitle(event.target.value)}
+												/>
+											</div>
+											<div className="field">
+												<label htmlFor="review-ship-pr-base">
+													{t(
+														'ui.static.pr.base.branch.optional.a00b34a5',
+														'PR base branch (optional)',
+													)}
+												</label>
+												<input
+													id="review-ship-pr-base"
+													className="input"
+													value={ship.pullRequestBaseBranch}
+													onChange={(event) => ship.setPullRequestBaseBranch(event.target.value)}
+												/>
+											</div>
+										</Disclosure>
+										{ship.error ? (
+											<div className="form-error" role="alert">
+												{ship.error}
+											</div>
+										) : null}
+										{ship.lastOperation ? (
+											<div className="inline" role="status">
+												<Badge tone={toneForStatus(ship.lastOperation.status)}>
+													{ship.lastOperation.status}
 												</Badge>
-											),
-										},
-										{
-											key: 'source',
-											label: t('ui.static.source.6da13add', 'Source'),
-											render: (row) => (
-												<span className="mono">
-													{String(row.evidenceSource ?? 'operator_attested')}
-												</span>
-											),
-										},
-										{
-											key: 'task',
-											label: t('ui.static.task.7bb0ddf9', 'Task'),
-											render: (row) => String(row.taskId ?? ''),
-										},
-									]}
-								/>
-								<a className="settings-console-link" href="#evidence">
-									{t('app.review.openFullEvidence', 'Open full evidence')}
-								</a>
-							</Surface>
-							{shipOp ? (
-								<>
-									{/* Ship operations: promote / create PR (shippable runs only) */}
-									<div className="field">
-										<label htmlFor="review-ship-reason">
-											{t('app.review.shipReasonLabel', 'Workflow operation reason')}
-										</label>
-										<textarea
-											id="review-ship-reason"
-											className="textarea"
-											value={ship.reason}
-											onChange={(event) => {
-												ship.setReason(event.target.value);
-												ship.setError('');
-											}}
-										/>
-										<div className="field-help">
-											{t(
-												'app.review.shipReasonHelp',
-												'Branch promotion and PR creation stay blocked until a reason is recorded.',
-											)}
-										</div>
-									</div>
-									<Disclosure title={t('app.review.shipAdvanced', 'Advanced options')}>
-										<div className="field">
-											<label htmlFor="review-ship-branch">
-												{t(
-													'ui.static.promotion.branch.optional.1a9de010',
-													'Promotion branch (optional)',
-												)}
-											</label>
-											<input
-												id="review-ship-branch"
-												className="input"
-												value={ship.branchName}
-												onChange={(event) => ship.setBranchName(event.target.value)}
-											/>
-										</div>
-										<div className="field">
-											<label htmlFor="review-ship-pr-title">
-												{t('app.review.shipPrTitleLabel', 'PR title (optional)')}
-											</label>
-											<input
-												id="review-ship-pr-title"
-												className="input"
-												value={ship.pullRequestTitle}
-												onChange={(event) => ship.setPullRequestTitle(event.target.value)}
-											/>
-										</div>
-										<div className="field">
-											<label htmlFor="review-ship-pr-base">
-												{t(
-													'ui.static.pr.base.branch.optional.a00b34a5',
-													'PR base branch (optional)',
-												)}
-											</label>
-											<input
-												id="review-ship-pr-base"
-												className="input"
-												value={ship.pullRequestBaseBranch}
-												onChange={(event) => ship.setPullRequestBaseBranch(event.target.value)}
-											/>
-										</div>
-									</Disclosure>
-									{ship.error ? (
-										<div className="form-error" role="alert">
-											{ship.error}
-										</div>
-									) : null}
-									{ship.lastOperation ? (
-										<div className="inline" role="status">
-											<Badge tone={toneForStatus(ship.lastOperation.status)}>
-												{ship.lastOperation.status}
-											</Badge>
-											<span>
-												{redactVisibleText(
-													ship.lastOperation.reason ||
+												<span>
+													{redactVisibleText(
+														ship.lastOperation.reason ||
+															t('app.review.shipPromoted', 'Last operation'),
 														t('app.review.shipPromoted', 'Last operation'),
-													t('app.review.shipPromoted', 'Last operation'),
-												)}
-											</span>
-											{ship.lastOperation.runId ? (
-												<span className="mono">{shortId(ship.lastOperation.runId)}</span>
-											) : null}
+													)}
+												</span>
+												{ship.lastOperation.runId ? (
+													<span className="mono">{shortId(ship.lastOperation.runId)}</span>
+												) : null}
+											</div>
+										) : null}
+										<div className="inline">
+											<button
+												className="button primary"
+												type="button"
+												disabled={!ship.reasonRecorded || Boolean(ship.busyId)}
+												onClick={() =>
+													void ship.run(shipOp.operation, liveShipItem.runId ?? '', shipOp.kind)
+												}
+											>
+												{shipOp.operation === 'promote'
+													? t('app.review.promote', 'Promote branch')
+													: t('app.review.createPr', 'Create PR')}
+											</button>
 										</div>
-									) : null}
-									<div className="inline">
-										<button
-											className="button primary"
-											type="button"
-											disabled={!ship.reasonRecorded || Boolean(ship.busyId)}
-											onClick={() =>
-												void ship.run(shipOp.operation, liveShipItem.runId ?? '', shipOp.kind)
-											}
-										>
-											{shipOp.operation === 'promote'
-												? t('app.review.promote', 'Promote branch')
-												: t('app.review.createPr', 'Create PR')}
-										</button>
-									</div>
-								</>
-							) : null}
-						</div>
-					) : null}
+									</>
+								) : null}
+							</m.div>
+						) : null}
+					</AnimatePresence>
 				</div>
 			</Drawer>
 		</>

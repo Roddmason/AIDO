@@ -6,7 +6,8 @@
  */
 
 import { AlertTriangle, FileCheck2, GitBranch, ShieldAlert } from 'lucide-react';
-import type { KeyboardEvent } from 'react';
+import { m } from 'motion/react';
+import type { CSSProperties, KeyboardEvent } from 'react';
 import { useRef } from 'react';
 
 import { Badge, StatusDot } from '../../components/primitives';
@@ -15,6 +16,42 @@ import { shortId, toneForStatus } from '../../lib/format';
 import type { PatchWorkflowKind, ReviewItem } from './model';
 import { patchWorkflowKind, riskTone } from './model';
 import type { ShipOperation } from './useShipOperations';
+
+/**
+ * Shared-layout accent emitted by the active card AND by the open drawer panel.
+ * Motion morphs this thin top edge between the two for a fluid card→detail
+ * expansion. Anchored inline so it never touches the design-system CSS; under
+ * `MotionConfig reducedMotion="user"` the layout move collapses to a no-op.
+ */
+const SHARED_ACCENT_STYLE: CSSProperties = {
+	position: 'absolute',
+	left: 'var(--space-3)',
+	right: 'var(--space-3)',
+	top: 0,
+	height: '2px',
+	borderRadius: 'var(--radius-full)',
+	background: 'var(--color-accent, var(--color-text-primary))',
+	pointerEvents: 'none',
+};
+const SHARED_ACCENT_TRANSITION = { type: 'spring', stiffness: 420, damping: 36 } as const;
+
+/**
+ * The shared-layout accent for the review expansion: a thin edge bar tagged with
+ * a stable `layoutId` (`review-<item key>`). Rendered both by the active card and
+ * by its open drawer panel so Motion morphs it between the two; renders only when
+ * active so a single `layoutId` pair (card ↔ drawer) is matched at a time.
+ */
+export function ReviewSharedAccent({ itemKey, active }: { itemKey: string; active: boolean }) {
+	if (!active) return null;
+	return (
+		<m.span
+			layoutId={`review-${itemKey}`}
+			aria-hidden="true"
+			style={SHARED_ACCENT_STYLE}
+			transition={SHARED_ACCENT_TRANSITION}
+		/>
+	);
+}
 
 /**
  * A shippable board item: a reviewed patch-workflow run whose status allows the
@@ -44,11 +81,13 @@ export function shipOperationFor(
 export function ReviewCard({
 	item,
 	selected,
+	activeDetail,
 	onOpenReview,
 	onOpenDetail,
 }: {
 	item: ReviewItem;
 	selected: boolean;
+	activeDetail: boolean;
 	onOpenReview: (item: ReviewItem, trigger: HTMLElement | null) => void;
 	onOpenDetail: (item: ReviewItem, trigger: HTMLElement | null) => void;
 }) {
@@ -88,6 +127,7 @@ export function ReviewCard({
 			aria-labelledby={titleId}
 			onKeyDown={handleCardKeyDown}
 		>
+			<ReviewSharedAccent itemKey={item.key} active={selected || activeDetail} />
 			<div className="card-header">
 				<h3 id={titleId} className="card-title">
 					{item.projectName}

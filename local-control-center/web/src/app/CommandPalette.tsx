@@ -5,11 +5,13 @@
  * combobox+listbox. Open/close and Escape are owned by the App shortcut layer.
  */
 
+import { m } from 'motion/react';
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import { EmptyState } from '../components/primitives';
 import { useI18n } from '../i18n/I18nProvider';
+import { cardTransition, dialogTransition, listStagger } from '../motion/variants';
 import type { CommandAction, CommandGroupId } from './commandActions';
 
 const GROUP_ORDER: CommandGroupId[] = ['navigate', 'actions', 'runtime'];
@@ -99,8 +101,6 @@ export function CommandPalette({
 		listRef.current?.querySelector('[data-active="true"]')?.scrollIntoView({ block: 'nearest' });
 	}, [activeIndex, open, results.length]);
 
-	if (!open) return null;
-
 	const runAction = (action: CommandAction) => {
 		if (action.disabled) return;
 		action.run();
@@ -145,21 +145,33 @@ export function CommandPalette({
 
 	const resultCount = enabledResults.length;
 
+	// Close is a hard unmount (deliberately no AnimatePresence/exit): the palette must
+	// disappear the instant `open` flips false so the useLayoutEffect cleanup restores
+	// focus to the trigger synchronously. An exit animation keeps it mounted and strands
+	// focus (regressing the Escape-restores-focus behavior). Enter animation only.
+	if (!open) return null;
+
 	return (
 		<div className="modal-layer command-palette-layer" role="presentation">
-			<button
+			<m.button
 				className="drawer-scrim"
 				type="button"
 				tabIndex={-1}
 				aria-label={t('app.commandPalette.close', 'Close command palette')}
 				onClick={onClose}
+				style={{ backdropFilter: 'blur(2px)' }}
+				initial={{ opacity: 0 }}
+				animate={{ opacity: 1, transition: { duration: 0.16 } }}
 			/>
-			<section
-				className="command-palette panel-enter"
+			<m.section
+				className="command-palette"
 				role="dialog"
 				aria-modal="true"
 				aria-label={t('app.commandPalette.title', 'Command palette')}
 				onKeyDown={onPanelKeyDown}
+				variants={dialogTransition}
+				initial="initial"
+				animate="animate"
 			>
 				<input
 					ref={inputRef}
@@ -177,12 +189,15 @@ export function CommandPalette({
 					onKeyDown={onInputKeyDown}
 				/>
 
-				<div
+				<m.div
 					ref={listRef}
 					id={LISTBOX_ID}
 					className="command-palette-results"
 					role="listbox"
 					aria-label={t('app.commandPalette.title', 'Command palette')}
+					variants={listStagger}
+					initial="initial"
+					animate="animate"
 				>
 					{results.length === 0 ? (
 						<EmptyState
@@ -210,7 +225,7 @@ export function CommandPalette({
 									const reason =
 										disabled && action.disabledReason ? action.disabledReason : action.hint;
 									return (
-										<button
+										<m.button
 											key={action.id}
 											id={optionId(action.id)}
 											type="button"
@@ -227,6 +242,7 @@ export function CommandPalette({
 												const index = enabledResults.findIndex((item) => item.id === action.id);
 												if (index >= 0 && index !== activeIndex) setActiveIndex(index);
 											}}
+											variants={cardTransition}
 										>
 											<span className="command-item-row">
 												{Icon ? (
@@ -247,13 +263,13 @@ export function CommandPalette({
 												) : null}
 											</span>
 											<small>{reason}</small>
-										</button>
+										</m.button>
 									);
 								})}
 							</div>
 						))
 					)}
-				</div>
+				</m.div>
 
 				<div className="command-palette-footer">
 					<span className="sr-only" aria-live="polite">
@@ -271,7 +287,7 @@ export function CommandPalette({
 						<span>{t('app.commandPalette.hintDismiss', 'dismiss')}</span>
 					</span>
 				</div>
-			</section>
+			</m.section>
 		</div>
 	);
 }

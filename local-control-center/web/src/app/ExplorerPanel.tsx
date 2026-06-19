@@ -16,6 +16,8 @@ import {
 	Settings as SettingsIcon,
 	Workflow,
 } from 'lucide-react';
+import type { Variants } from 'motion/react';
+import { m } from 'motion/react';
 import type { ReactNode } from 'react';
 import { useCallback, useMemo, useState } from 'react';
 
@@ -23,8 +25,21 @@ import type { Overview, Project } from '../api/types';
 import { Badge, EmptyState, StatusDot } from '../components/primitives';
 import { useI18n } from '../i18n/I18nProvider';
 import { shortId, toneForStatus } from '../lib/format';
+import { EASE_OUT, INDICATOR_TRANSITION } from '../motion/variants';
 import type { AreaId, NavigationItem, PageId } from './navigation';
 import { EXPLORER_GROUPS, EXPLORER_LINKS, EXPLORER_TITLE, pickLabel } from './navigation';
+
+/**
+ * Revelado/colapso del Explorer: el panel entra/sale fundiéndose y deslizándose desde su
+ * borde (no un corte). Vive dentro del `AnimatePresence` del AppShell, que conserva el
+ * montaje durante la salida; la columna del grid la sigue gobernando `data-explorer`.
+ * Bajo `MotionConfig reducedMotion="user"` el desplazamiento cae a no-op y queda el fundido.
+ */
+const explorerReveal: Variants = {
+	initial: { opacity: 0, x: -16 },
+	animate: { opacity: 1, x: 0, transition: { duration: 0.22, ease: EASE_OUT } },
+	exit: { opacity: 0, x: -16, transition: { duration: 0.16, ease: 'easeIn' } },
+};
 
 type Tone = 'ok' | 'warn' | 'danger' | 'info';
 type RunStatus = Overview['workflows'][number]['status'];
@@ -163,15 +178,33 @@ export function ExplorerPanel({
 	const renderLink = (link: NavigationItem) => {
 		const Icon = link.icon;
 		const label = pickLabel(link.label, language);
+		const isActive = page === link.page;
 		return (
 			<button
 				key={link.page}
 				className="nav-item"
 				type="button"
 				aria-label={label}
-				aria-current={page === link.page ? 'page' : undefined}
+				aria-current={isActive ? 'page' : undefined}
 				onClick={() => onNavigate(link.page)}
+				style={{ position: 'relative' }}
 			>
+				{isActive ? (
+					<m.span
+						layoutId="explorer-active"
+						aria-hidden="true"
+						style={{
+							position: 'absolute',
+							left: 0,
+							top: '0.5rem',
+							bottom: '0.5rem',
+							width: '2px',
+							borderRadius: '999px',
+							background: 'var(--color-accent)',
+						}}
+						transition={INDICATOR_TRANSITION}
+					/>
+				) : null}
 				<Icon aria-hidden="true" size={16} />
 				<span>{label}</span>
 			</button>
@@ -227,7 +260,15 @@ export function ExplorerPanel({
 	const showAll = (count: number) => `${t('app.explorer.showAll', 'Show all')} (${count})`;
 
 	return (
-		<aside className="explorer-panel" aria-label={t('app.explorer.aria.panel', 'Explorer')}>
+		<m.aside
+			className="explorer-panel"
+			aria-label={t('app.explorer.aria.panel', 'Explorer')}
+			variants={explorerReveal}
+			initial="initial"
+			animate="animate"
+			exit="exit"
+			style={{ boxShadow: 'var(--shadow-panel-edge, 0 0 1.25rem rgb(0 0 0 / 0.18))' }}
+		>
 			<div className="explorer-top">
 				<div className="explorer-header">
 					<div className="explorer-title">{title}</div>
@@ -508,6 +549,6 @@ export function ExplorerPanel({
 					</div>
 				) : null}
 			</nav>
-		</aside>
+		</m.aside>
 	);
 }

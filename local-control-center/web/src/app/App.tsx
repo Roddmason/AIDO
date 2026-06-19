@@ -5,6 +5,7 @@
  * flags, wires the control-plane data hook and global shortcuts, and dispatches each
  * route to its feature page. Every chrome piece lives in its own component here.
  */
+import { AnimatePresence } from 'motion/react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { EmptyState } from '../components/primitives';
 import type { Language, ProjectStatusView } from '../features/active-projects/ActiveProjectsPage';
@@ -30,7 +31,8 @@ import { NewWorkspaceDialog } from '../features/workspace/NewWorkspaceDialog';
 import type { WorkspaceMode } from '../features/workspace/useProjectDiscovery';
 import { useControlPlane } from '../hooks/useControlPlane';
 import { useI18n } from '../i18n/I18nProvider';
-import { useMotionPreference, usePageMotion } from '../motion/useControlMotion';
+import { MotionPage } from '../motion/MotionPage';
+import { useMotionPreference } from '../motion/useControlMotion';
 import { ApprovalsDrawer } from './ApprovalsDrawer';
 import { AppShell } from './AppShell';
 import { CommandPalette } from './CommandPalette';
@@ -102,7 +104,6 @@ export function App() {
 	const [eventDrawerOpen, setEventDrawerOpen] = useState(false);
 	const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
 	const state = useControlPlane();
-	const motionRef = usePageMotion(page);
 	const commandActionsRef = useRef<CommandAction[]>([]);
 
 	const navigateTo = useCallback((nextPage: AppRoute) => {
@@ -373,9 +374,10 @@ export function App() {
 				onRefresh={() => void state.refresh()}
 				headerKicker={t('app.global.projectWorkspaceRuntime', 'Project · Workspace · Runtime')}
 				headerTitle={selectedProject?.name ?? t('app.global.runtimeProject', 'Runtime project')}
-				contentRef={motionRef}
 			>
-				{pageContent()}
+				<AnimatePresence mode="wait">
+					<MotionPage key={page}>{pageContent()}</MotionPage>
+				</AnimatePresence>
 			</AppShell>
 
 			<NewWorkspaceDialog

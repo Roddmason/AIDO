@@ -5,7 +5,7 @@
  * bar, and owns the local collapse/open state of the explorer and inspector panels.
  */
 
-import type { ReactNode, Ref } from 'react';
+import type { ReactNode } from 'react';
 import { useState } from 'react';
 
 import type { Overview, Project, RuntimeProviders } from '../api/types';
@@ -43,7 +43,6 @@ export function AppShell({
 	onRefresh,
 	headerKicker,
 	headerTitle,
-	contentRef,
 	children,
 }: {
 	area: AreaId;
@@ -65,7 +64,6 @@ export function AppShell({
 	onRefresh: () => void;
 	headerKicker: string;
 	headerTitle: string;
-	contentRef: Ref<HTMLElement>;
 	children: ReactNode;
 }) {
 	const [explorerCollapsed, setExplorerCollapsed] = useState(false);
@@ -115,7 +113,7 @@ export function AppShell({
 					inspectorOpen={inspectorOpen}
 					onToggleInspector={() => setInspectorOpen((value) => !value)}
 				/>
-				<section ref={contentRef} className="content-frame motion-scope" aria-live="polite">
+				<section className="content-frame" aria-live="polite">
 					{children}
 				</section>
 			</main>

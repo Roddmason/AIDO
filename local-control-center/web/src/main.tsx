@@ -1,8 +1,10 @@
 /**
  * Browser entrypoint: imports the design-system CSS and mounts the React app.
  *
- * Applies the persisted theme before the first paint and wraps the app in
- * `I18nProvider` so every component can resolve copy from the runtime catalog.
+ * Applies the persisted theme before the first paint and wraps the app in `I18nProvider`
+ * (runtime copy) plus the Motion providers: `LazyMotion`/`domAnimation` in `strict` mode
+ * (lazy-loaded animation features, forbids the heavy `motion.*` API) and
+ * `MotionConfig reducedMotion="user"` (declarative, accessible reduced-motion fallback).
  */
 import '@xyflow/react/dist/style.css';
 import './design-system/tokens.css';
@@ -11,6 +13,7 @@ import './design-system/layout.css';
 import './design-system/components.css';
 import './design-system/motion.css';
 
+import { domAnimation, LazyMotion, MotionConfig } from 'motion/react';
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 
@@ -25,7 +28,11 @@ applyStoredTheme();
 createRoot(document.getElementById('root') as HTMLElement).render(
 	<React.StrictMode>
 		<I18nProvider>
-			<App />
+			<LazyMotion features={domAnimation} strict>
+				<MotionConfig reducedMotion="user">
+					<App />
+				</MotionConfig>
+			</LazyMotion>
 		</I18nProvider>
 	</React.StrictMode>,
 );

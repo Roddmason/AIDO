@@ -3,14 +3,23 @@
  * @copyright Copyright (c) AIDO.
  * @author Roddmason
  */
-import { useMemo } from 'react';
-import type { ComponentType } from 'react';
-import type { LucideProps } from 'lucide-react';
-import { ClipboardCheck, Code2, FileCheck2, FolderPlus, Network, Plus, RefreshCw, Settings as SettingsIcon } from 'lucide-react';
 
-import type { PageId } from './navigation';
+import type { LucideProps } from 'lucide-react';
+import {
+	ClipboardCheck,
+	Code2,
+	FileCheck2,
+	FolderPlus,
+	Network,
+	Plus,
+	RefreshCw,
+	Settings as SettingsIcon,
+} from 'lucide-react';
+import type { ComponentType } from 'react';
+import { useMemo } from 'react';
 import type { Project, RuntimeProviders } from '../api/types';
 import type { WorkspaceMode } from '../features/workspace/useProjectDiscovery';
+import type { PageId } from './navigation';
 
 export type CommandGroupId = 'navigate' | 'actions' | 'runtime';
 
@@ -185,5 +194,16 @@ export function useCommandActions(deps: CommandActionDeps): CommandAction[] {
 				}),
 			},
 		];
-	}, [navigateTo, openWorkspaceDialog, onOpenApprovals, refresh, selectedProject, runtimeProviders, pendingReviewCount, evidenceCount, connected, close]);
+	}, [
+		navigateTo,
+		openWorkspaceDialog,
+		onOpenApprovals,
+		refresh,
+		selectedProject,
+		runtimeProviders,
+		pendingReviewCount,
+		evidenceCount,
+		connected,
+		close,
+	]);
 }

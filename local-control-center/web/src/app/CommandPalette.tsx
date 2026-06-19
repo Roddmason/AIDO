@@ -3,8 +3,9 @@
  * @copyright Copyright (c) AIDO.
  * @author Roddmason
  */
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import { EmptyState } from '../components/primitives';
 import { useI18n } from '../i18n/I18nProvider';
@@ -35,7 +36,15 @@ function matches(action: CommandAction, query: string): boolean {
  * Open/close (Ctrl/Cmd+K) and Escape are owned by the App-level capture
  * listener; this component never registers global key handlers.
  */
-export function CommandPalette({ open, onClose, actions }: { open: boolean; onClose: () => void; actions: CommandAction[] }) {
+export function CommandPalette({
+	open,
+	onClose,
+	actions,
+}: {
+	open: boolean;
+	onClose: () => void;
+	actions: CommandAction[];
+}) {
 	const { t } = useI18n();
 	const [query, setQuery] = useState('');
 	const [activeIndex, setActiveIndex] = useState(0);
@@ -167,15 +176,29 @@ export function CommandPalette({ open, onClose, actions }: { open: boolean; onCl
 					onKeyDown={onInputKeyDown}
 				/>
 
-				<div ref={listRef} id={LISTBOX_ID} className="command-palette-results" role="listbox" aria-label={t('app.commandPalette.title', 'Command palette')}>
+				<div
+					ref={listRef}
+					id={LISTBOX_ID}
+					className="command-palette-results"
+					role="listbox"
+					aria-label={t('app.commandPalette.title', 'Command palette')}
+				>
 					{results.length === 0 ? (
 						<EmptyState
 							title={t('ui.static.no.commands.c0f14586', 'No commands')}
-							body={t('app.commandPalette.empty.body', 'Try open, runtime, evidence, approvals or settings.')}
+							body={t(
+								'app.commandPalette.empty.body',
+								'Try open, runtime, evidence, approvals or settings.',
+							)}
 						/>
 					) : (
 						groups.map((entry) => (
-							<div key={entry.group} className="command-palette-group" role="group" aria-labelledby={groupHeaderId(entry.group)}>
+							<div
+								key={entry.group}
+								className="command-palette-group"
+								role="group"
+								aria-labelledby={groupHeaderId(entry.group)}
+							>
 								<div id={groupHeaderId(entry.group)} className="command-group-header">
 									{entry.label}
 								</div>
@@ -183,7 +206,8 @@ export function CommandPalette({ open, onClose, actions }: { open: boolean; onCl
 									const Icon = action.icon;
 									const disabled = Boolean(action.disabled);
 									const isActive = activeAction?.id === action.id;
-									const reason = disabled && action.disabledReason ? action.disabledReason : action.hint;
+									const reason =
+										disabled && action.disabledReason ? action.disabledReason : action.hint;
 									return (
 										<button
 											key={action.id}
@@ -204,9 +228,13 @@ export function CommandPalette({ open, onClose, actions }: { open: boolean; onCl
 											}}
 										>
 											<span className="command-item-row">
-												{Icon ? <Icon aria-hidden="true" size={16} className="command-item-icon" /> : null}
+												{Icon ? (
+													<Icon aria-hidden="true" size={16} className="command-item-icon" />
+												) : null}
 												<span className="command-item-label">{action.label}</span>
-												{action.badge ? <span className="command-item-badge">{action.badge}</span> : null}
+												{action.badge ? (
+													<span className="command-item-badge">{action.badge}</span>
+												) : null}
 												{action.shortcut ? (
 													<span className="command-item-shortcut" aria-hidden="true">
 														{action.shortcut.map((token) => (

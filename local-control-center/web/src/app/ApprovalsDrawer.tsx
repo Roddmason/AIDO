@@ -25,12 +25,33 @@ export function ApprovalsDrawer({
 		<Drawer label="Approval drawer" open={open} onClose={onClose}>
 			<DataTable
 				rows={actionRequests.filter((item) => item.status === 'pending').slice(0, 12)}
-				empty={<EmptyState title="No pending approvals" body="Action requests appear here when policy gates execution." />}
+				empty={
+					<EmptyState
+						title="No pending approvals"
+						body="Action requests appear here when policy gates execution."
+					/>
+				}
 				columns={[
-					{ key: 'action', label: 'Action', render: (row) => <span className="mono">{row.actionType}</span> },
-					{ key: 'risk', label: 'Risk', render: (row) => <Badge tone={toneForStatus(row.riskLevel)}>{row.riskLevel}</Badge> },
-					{ key: 'command', label: 'Command', render: (row) => <span className="mono">{row.command || 'n/a'}</span> },
-					{ key: 'job', label: 'Job', render: (row) => <span className="mono">{shortId(row.jobId)}</span> },
+					{
+						key: 'action',
+						label: 'Action',
+						render: (row) => <span className="mono">{row.actionType}</span>,
+					},
+					{
+						key: 'risk',
+						label: 'Risk',
+						render: (row) => <Badge tone={toneForStatus(row.riskLevel)}>{row.riskLevel}</Badge>,
+					},
+					{
+						key: 'command',
+						label: 'Command',
+						render: (row) => <span className="mono">{row.command || 'n/a'}</span>,
+					},
+					{
+						key: 'job',
+						label: 'Job',
+						render: (row) => <span className="mono">{shortId(row.jobId)}</span>,
+					},
 				]}
 			/>
 		</Drawer>

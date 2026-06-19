@@ -5,9 +5,8 @@
  */
 import { Languages, Plus, Save, Undo2 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-
-import { updateI18nCatalog } from '../api/client';
 import type { I18nCatalogResponse } from '../api/client';
+import { updateI18nCatalog } from '../api/client';
 import { EmptyState, Surface } from '../components/primitives';
 import { useI18n } from './I18nProvider';
 
@@ -29,7 +28,9 @@ function normalizeLanguageCode(value: string) {
 
 export function TranslationMaintainer({ mutate }: { mutate: Mutate }) {
 	const { catalog, error: loadError, loading, reloadCatalog, setCatalog, t } = useI18n();
-	const [draft, setDraft] = useState<I18nCatalogResponse | null>(catalog ? cloneCatalog(catalog) : null);
+	const [draft, setDraft] = useState<I18nCatalogResponse | null>(
+		catalog ? cloneCatalog(catalog) : null,
+	);
 	const [filter, setFilter] = useState('');
 	const [newLanguageCode, setNewLanguageCode] = useState('');
 	const [newLanguageName, setNewLanguageName] = useState('');
@@ -43,14 +44,18 @@ export function TranslationMaintainer({ mutate }: { mutate: Mutate }) {
 		if (catalog) setDraft(cloneCatalog(catalog));
 	}, [catalog]);
 
-	const languageCodes = draft?.languages.filter((language) => language.enabled).map((language) => language.code) ?? [];
+	const languageCodes =
+		draft?.languages.filter((language) => language.enabled).map((language) => language.code) ?? [];
 	const visibleEntries = useMemo(() => {
 		if (!draft) return [];
 		const query = filter.trim().toLowerCase();
 		return Object.entries(draft.translations)
 			.filter(([key, values]) => {
 				if (!query) return true;
-				return key.toLowerCase().includes(query) || Object.values(values).some((value) => value.toLowerCase().includes(query));
+				return (
+					key.toLowerCase().includes(query) ||
+					Object.values(values).some((value) => value.toLowerCase().includes(query))
+				);
 			})
 			.sort(([left], [right]) => left.localeCompare(right));
 	}, [draft, filter]);
@@ -135,14 +140,23 @@ export function TranslationMaintainer({ mutate }: { mutate: Mutate }) {
 			setCatalog(saved);
 			setMessage(t('i18n.maintainer.saved', 'Translation catalog saved.'));
 		} catch (requestError) {
-			setError(requestError instanceof Error ? requestError.message : t('i18n.maintainer.saveFailed', 'Translation catalog could not be saved.'));
+			setError(
+				requestError instanceof Error
+					? requestError.message
+					: t('i18n.maintainer.saveFailed', 'Translation catalog could not be saved.'),
+			);
 		} finally {
 			setBusy(false);
 		}
 	};
 
 	if (loading && !draft) {
-		return <EmptyState title={t('i18n.maintainer.loadingTitle', 'Loading translations')} body={t('i18n.maintainer.loadingBody', 'Fetching the runtime translation catalog.')} />;
+		return (
+			<EmptyState
+				title={t('i18n.maintainer.loadingTitle', 'Loading translations')}
+				body={t('i18n.maintainer.loadingBody', 'Fetching the runtime translation catalog.')}
+			/>
+		);
 	}
 
 	if (!draft) {
@@ -158,19 +172,48 @@ export function TranslationMaintainer({ mutate }: { mutate: Mutate }) {
 		<div className="translation-maintainer">
 			<Surface title={t('i18n.maintainer.title', 'Translation maintainer')}>
 				<div className="stack">
-					<p className="muted">{t('i18n.maintainer.summary', 'Edit copy, add languages, and persist the runtime catalog without rebuilding the dashboard.')}</p>
+					<p className="muted">
+						{t(
+							'i18n.maintainer.summary',
+							'Edit copy, add languages, and persist the runtime catalog without rebuilding the dashboard.',
+						)}
+					</p>
 					<div className="form-grid">
 						<div className="field">
-							<label htmlFor="i18n-language-code">{t('i18n.maintainer.languageCode', 'Language code')}</label>
-							<input id="i18n-language-code" className="input" value={newLanguageCode} onChange={(event) => setNewLanguageCode(event.target.value)} placeholder="pt-br" />
+							<label htmlFor="i18n-language-code">
+								{t('i18n.maintainer.languageCode', 'Language code')}
+							</label>
+							<input
+								id="i18n-language-code"
+								className="input"
+								value={newLanguageCode}
+								onChange={(event) => setNewLanguageCode(event.target.value)}
+								placeholder="pt-br"
+							/>
 						</div>
 						<div className="field">
-							<label htmlFor="i18n-language-name">{t('i18n.maintainer.languageName', 'Language name')}</label>
-							<input id="i18n-language-name" className="input" value={newLanguageName} onChange={(event) => setNewLanguageName(event.target.value)} placeholder={t('app.i18nMaintainer.languageNamePlaceholder', 'Portuguese')} />
+							<label htmlFor="i18n-language-name">
+								{t('i18n.maintainer.languageName', 'Language name')}
+							</label>
+							<input
+								id="i18n-language-name"
+								className="input"
+								value={newLanguageName}
+								onChange={(event) => setNewLanguageName(event.target.value)}
+								placeholder={t('app.i18nMaintainer.languageNamePlaceholder', 'Portuguese')}
+							/>
 						</div>
 						<div className="field">
-							<label htmlFor="i18n-language-native">{t('i18n.maintainer.nativeName', 'Native name')}</label>
-							<input id="i18n-language-native" className="input" value={newLanguageNativeName} onChange={(event) => setNewLanguageNativeName(event.target.value)} placeholder={t('app.i18nMaintainer.nativeNamePlaceholder', 'Portugues')} />
+							<label htmlFor="i18n-language-native">
+								{t('i18n.maintainer.nativeName', 'Native name')}
+							</label>
+							<input
+								id="i18n-language-native"
+								className="input"
+								value={newLanguageNativeName}
+								onChange={(event) => setNewLanguageNativeName(event.target.value)}
+								placeholder={t('app.i18nMaintainer.nativeNamePlaceholder', 'Portugues')}
+							/>
 						</div>
 						<button className="button settings-action" type="button" onClick={addLanguage}>
 							<Plus aria-hidden="true" size={16} />
@@ -179,8 +222,16 @@ export function TranslationMaintainer({ mutate }: { mutate: Mutate }) {
 					</div>
 					<div className="form-grid">
 						<div className="field">
-							<label htmlFor="i18n-new-key">{t('i18n.maintainer.translationKey', 'Translation key')}</label>
-							<input id="i18n-new-key" className="input" value={newKey} onChange={(event) => setNewKey(event.target.value)} placeholder="feature.section.label" />
+							<label htmlFor="i18n-new-key">
+								{t('i18n.maintainer.translationKey', 'Translation key')}
+							</label>
+							<input
+								id="i18n-new-key"
+								className="input"
+								value={newKey}
+								onChange={(event) => setNewKey(event.target.value)}
+								placeholder="feature.section.label"
+							/>
 						</div>
 						<button className="button settings-action" type="button" onClick={addTranslationKey}>
 							<Languages aria-hidden="true" size={16} />
@@ -188,17 +239,38 @@ export function TranslationMaintainer({ mutate }: { mutate: Mutate }) {
 						</button>
 					</div>
 					<div className="inline">
-						<button className="button primary" type="button" onClick={() => void save()} disabled={busy}>
+						<button
+							className="button primary"
+							type="button"
+							onClick={() => void save()}
+							disabled={busy}
+						>
 							<Save aria-hidden="true" size={16} />
 							{t('i18n.maintainer.saveCatalog', 'Save translation catalog')}
 						</button>
-						<button className="button" type="button" onClick={() => { setDraft(catalog ? cloneCatalog(catalog) : draft); void reloadCatalog(); }} disabled={busy}>
+						<button
+							className="button"
+							type="button"
+							onClick={() => {
+								setDraft(catalog ? cloneCatalog(catalog) : draft);
+								void reloadCatalog();
+							}}
+							disabled={busy}
+						>
 							<Undo2 aria-hidden="true" size={16} />
 							{t('i18n.maintainer.resetDraft', 'Reset draft')}
 						</button>
 					</div>
-					{message ? <div className="badge" data-tone="ok">{message}</div> : null}
-					{error ? <div className="form-error" role="alert">{error}</div> : null}
+					{message ? (
+						<div className="badge" data-tone="ok">
+							{message}
+						</div>
+					) : null}
+					{error ? (
+						<div className="form-error" role="alert">
+							{error}
+						</div>
+					) : null}
 				</div>
 			</Surface>
 			<Surface>
@@ -219,14 +291,18 @@ export function TranslationMaintainer({ mutate }: { mutate: Mutate }) {
 								<tr>
 									<th scope="col">{t('i18n.maintainer.translationKey', 'Translation key')}</th>
 									{languageCodes.map((code) => (
-										<th key={code} scope="col">{code.toUpperCase()}</th>
+										<th key={code} scope="col">
+											{code.toUpperCase()}
+										</th>
 									))}
 								</tr>
 							</thead>
 							<tbody>
 								{visibleEntries.map(([key, values]) => (
 									<tr key={key}>
-										<td data-label={t('i18n.maintainer.translationKey', 'Translation key')}><span className="mono">{key}</span></td>
+										<td data-label={t('i18n.maintainer.translationKey', 'Translation key')}>
+											<span className="mono">{key}</span>
+										</td>
 										{languageCodes.map((code) => (
 											<td key={code} data-label={code.toUpperCase()}>
 												<input
@@ -243,7 +319,10 @@ export function TranslationMaintainer({ mutate }: { mutate: Mutate }) {
 						</table>
 					</div>
 				) : (
-					<EmptyState title={t('i18n.maintainer.empty', 'No translation keys match the filter.')} body={filter} />
+					<EmptyState
+						title={t('i18n.maintainer.empty', 'No translation keys match the filter.')}
+						body={filter}
+					/>
 				)}
 			</Surface>
 		</div>

@@ -17,29 +17,46 @@ export function hasRealPatchChanges(text: string) {
 			continue;
 		}
 		if (!inHunk) continue;
-		if ((line.startsWith('+') && !line.startsWith('+++')) || (line.startsWith('-') && !line.startsWith('---'))) return true;
+		if (
+			(line.startsWith('+') && !line.startsWith('+++')) ||
+			(line.startsWith('-') && !line.startsWith('---'))
+		)
+			return true;
 	}
 	return false;
 }
 
 export function findPatchArtifact(artifacts: Artifact[]) {
-	return artifacts.find((artifact) => {
-		const name = artifactDisplayName(artifact).toLowerCase();
-		const kind = String(artifact.kind ?? '').toLowerCase();
-		return name === 'diff.patch' || name.endsWith('.patch') || kind.includes('patch');
-	}) ?? null;
+	return (
+		artifacts.find((artifact) => {
+			const name = artifactDisplayName(artifact).toLowerCase();
+			const kind = String(artifact.kind ?? '').toLowerCase();
+			return name === 'diff.patch' || name.endsWith('.patch') || kind.includes('patch');
+		}) ?? null
+	);
 }
 
 export function findSecurityArtifact(artifacts: Artifact[]) {
-	return artifacts.find((artifact) => {
-		const name = artifactDisplayName(artifact).toLowerCase();
-		const kind = String(artifact.kind ?? '').toLowerCase();
-		return name === 'security-findings.json' || (name.includes('security') && name.includes('finding')) || kind.includes('security');
-	}) ?? null;
+	return (
+		artifacts.find((artifact) => {
+			const name = artifactDisplayName(artifact).toLowerCase();
+			const kind = String(artifact.kind ?? '').toLowerCase();
+			return (
+				name === 'security-findings.json' ||
+				(name.includes('security') && name.includes('finding')) ||
+				kind.includes('security')
+			);
+		}) ?? null
+	);
 }
 
-export function evidenceDiffChangedFiles(evidence: { diffSummary?: unknown } | null | undefined): number | null {
-	const summary = evidence?.diffSummary && typeof evidence.diffSummary === 'object' ? (evidence.diffSummary as Record<string, unknown>) : undefined;
+export function evidenceDiffChangedFiles(
+	evidence: { diffSummary?: unknown } | null | undefined,
+): number | null {
+	const summary =
+		evidence?.diffSummary && typeof evidence.diffSummary === 'object'
+			? (evidence.diffSummary as Record<string, unknown>)
+			: undefined;
 	const changed = Number(summary?.filesChanged ?? summary?.changedFiles ?? summary?.changed_files);
 	return Number.isFinite(changed) ? changed : null;
 }

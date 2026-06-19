@@ -6,8 +6,8 @@
 import { PanelLeft } from 'lucide-react';
 
 import { useI18n } from '../i18n/I18nProvider';
-import { AREAS, pickLabel } from './navigation';
 import type { AreaId, PageId } from './navigation';
+import { AREAS, pickLabel } from './navigation';
 
 /**
  * Narrow icon rail (primary navigation): one button per top-level area that
@@ -33,8 +33,14 @@ export function ActivityBar({
 		: t('app.activityBar.hideExplorer', 'Hide explorer');
 
 	return (
-		<nav className="activity-bar" role="navigation" aria-label={t('app.global.primaryNavigation', 'Primary navigation')}>
-			<div className="brand-orb" aria-hidden="true"><span /></div>
+		<nav
+			className="activity-bar"
+			role="navigation"
+			aria-label={t('app.global.primaryNavigation', 'Primary navigation')}
+		>
+			<div className="brand-orb" aria-hidden="true">
+				<span />
+			</div>
 			<div className="activity-bar-nav">
 				{AREAS.map((area) => {
 					const Icon = area.icon;

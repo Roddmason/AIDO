@@ -3,7 +3,7 @@
  * @copyright Copyright (c) AIDO.
  * @author Roddmason
  */
-import type { ComponentType } from 'react';
+
 import type { LucideProps } from 'lucide-react';
 import {
 	Ban,
@@ -26,6 +26,7 @@ import {
 	Workflow,
 	XCircle,
 } from 'lucide-react';
+import type { ComponentType } from 'react';
 
 type IconComponent = ComponentType<LucideProps>;
 
@@ -94,17 +95,33 @@ const SETTINGS_GROUPS: ExplorerGroup[] = [
 		label: { en: 'Setup', es: 'Configuración' },
 		links: [
 			{ page: 'settings-project', icon: FolderKanban, label: { en: 'Project', es: 'Proyecto' } },
-			{ page: 'settings-runtime', icon: Network, label: { en: 'Runtime & Models', es: 'Runtime y modelos' } },
+			{
+				page: 'settings-runtime',
+				icon: Network,
+				label: { en: 'Runtime & Models', es: 'Runtime y modelos' },
+			},
 			{ page: 'settings-agents', icon: Bot, label: { en: 'Agents', es: 'Agentes' } },
 			{ page: 'settings-security', icon: ShieldCheck, label: { en: 'Security', es: 'Seguridad' } },
-			{ page: 'settings-workspaces', icon: GitBranch, label: { en: 'Workspaces', es: 'Workspaces' } },
-			{ page: 'settings-integrations', icon: PlugZap, label: { en: 'Integrations', es: 'Integraciones' } },
+			{
+				page: 'settings-workspaces',
+				icon: GitBranch,
+				label: { en: 'Workspaces', es: 'Workspaces' },
+			},
+			{
+				page: 'settings-integrations',
+				icon: PlugZap,
+				label: { en: 'Integrations', es: 'Integraciones' },
+			},
 		],
 	},
 	{
 		label: { en: 'Advanced', es: 'Avanzado' },
 		links: [
-			{ page: 'settings-advanced', icon: SlidersHorizontal, label: { en: 'Advanced', es: 'Avanzado' } },
+			{
+				page: 'settings-advanced',
+				icon: SlidersHorizontal,
+				label: { en: 'Advanced', es: 'Avanzado' },
+			},
 		],
 	},
 ];
@@ -159,11 +176,14 @@ export const AREAS: AreaDef[] = [
 	},
 ];
 
-const AREA_BY_PAGE: Record<PageId, AreaId> = pageIds.reduce((map, page) => {
-	const owner = AREAS.find((area) => area.pages.includes(page)) ?? AREAS[1];
-	map[page] = owner.id;
-	return map;
-}, {} as Record<PageId, AreaId>);
+const AREA_BY_PAGE: Record<PageId, AreaId> = pageIds.reduce(
+	(map, page) => {
+		const owner = AREAS.find((area) => area.pages.includes(page)) ?? AREAS[1];
+		map[page] = owner.id;
+		return map;
+	},
+	{} as Record<PageId, AreaId>,
+);
 
 export function areaForPage(page: PageId): AreaId {
 	return AREA_BY_PAGE[page] ?? 'workbench';
@@ -187,10 +207,18 @@ export const EXPLORER_LINKS: Record<AreaId, NavigationItem[]> = {
 		{ page: 'agents', icon: Bot, label: { en: 'Agents', es: 'Agentes' } },
 	],
 	review: [
-		{ page: 'review-board', icon: LayoutGrid, label: { en: 'Review board', es: 'Tablero de revisión' } },
+		{
+			page: 'review-board',
+			icon: LayoutGrid,
+			label: { en: 'Review board', es: 'Tablero de revisión' },
+		},
 		{ page: 'evidence', icon: FileCheck2, label: { en: 'Evidence & QA', es: 'Evidencia y QA' } },
 		{ page: 'governance', icon: KeyRound, label: { en: 'Governance', es: 'Gobierno' } },
-		{ page: 'policy', icon: ShieldCheck, label: { en: 'Policy & Security', es: 'Política y seguridad' } },
+		{
+			page: 'policy',
+			icon: ShieldCheck,
+			label: { en: 'Policy & Security', es: 'Política y seguridad' },
+		},
 		{ page: 'audit', icon: History, label: { en: 'Audit Log', es: 'Auditoría' } },
 	],
 	settings: SETTINGS_GROUPS.flatMap((group) => group.links),

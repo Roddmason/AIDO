@@ -4,9 +4,8 @@
  * @author Roddmason
  */
 import { useRef, useState } from 'react';
-
-import { downloadEvidenceArtifact, fetchEvidenceArtifact } from '../../api/client';
 import type { ArtifactPayload } from '../../api/client';
+import { downloadEvidenceArtifact, fetchEvidenceArtifact } from '../../api/client';
 import type { Artifact } from '../../api/types';
 import { artifactDisplayName } from '../../lib/artifacts';
 
@@ -57,7 +56,8 @@ export function useArtifactPreview(token: string): ArtifactPreview {
 			const result = await fetchEvidenceArtifact(token, evidenceId, artifactId);
 			if (requestRef.current === generation) setPayload(result);
 		} catch (caught) {
-			if (requestRef.current === generation) setError(caught instanceof Error ? caught.message : 'Artifact preview failed.');
+			if (requestRef.current === generation)
+				setError(caught instanceof Error ? caught.message : 'Artifact preview failed.');
 		} finally {
 			if (requestRef.current === generation) setLoadingId('');
 		}
@@ -76,7 +76,8 @@ export function useArtifactPreview(token: string): ArtifactPreview {
 		try {
 			await downloadEvidenceArtifact(token, evidenceId, artifactId, artifactDisplayName(next));
 		} catch (caught) {
-			if (downloadRef.current === generation) setError(caught instanceof Error ? caught.message : 'Artifact download failed.');
+			if (downloadRef.current === generation)
+				setError(caught instanceof Error ? caught.message : 'Artifact download failed.');
 		} finally {
 			if (downloadRef.current === generation) setDownloadingId('');
 		}

@@ -15,15 +15,15 @@ import {
 	Settings as SettingsIcon,
 	Workflow,
 } from 'lucide-react';
-import { useCallback, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 
 import type { Overview, Project } from '../api/types';
 import { Badge, EmptyState, StatusDot } from '../components/primitives';
 import { useI18n } from '../i18n/I18nProvider';
 import { shortId, toneForStatus } from '../lib/format';
-import { EXPLORER_GROUPS, EXPLORER_LINKS, EXPLORER_TITLE, pickLabel } from './navigation';
 import type { AreaId, NavigationItem, PageId } from './navigation';
+import { EXPLORER_GROUPS, EXPLORER_LINKS, EXPLORER_TITLE, pickLabel } from './navigation';
 
 type Tone = 'ok' | 'warn' | 'danger' | 'info';
 type RunStatus = Overview['workflows'][number]['status'];
@@ -32,7 +32,13 @@ type StackChip = { id: string; label: string };
 /** Runs in any of these statuses are finished, not "active". Derived from the
  *  generated WorkflowRecord status union; unknown/new statuses are treated as
  *  active (fail-open) so in-flight work is never silently hidden from view. */
-const TERMINAL_RUN_STATUSES = new Set<RunStatus>(['completed', 'failed', 'cancelled', 'promoted_to_branch', 'pr_created']);
+const TERMINAL_RUN_STATUSES = new Set<RunStatus>([
+	'completed',
+	'failed',
+	'cancelled',
+	'promoted_to_branch',
+	'pr_created',
+]);
 
 /** Verdicts that mark an evidence package as blocking — drives the danger tone. */
 const BLOCKING_VERDICTS = ['failed', 'blocked', 'security_blocked', 'devops_blocked'];
@@ -180,14 +186,27 @@ export function ExplorerPanel({
 		if (!selectedProject) return null;
 		const id = selectedProject.id;
 		return {
-			runs: overview.workflows.filter((run) => run.projectId === id && !TERMINAL_RUN_STATUSES.has(run.status)),
-			approvals: overview.actionRequests.filter((item) => item.projectId === id && item.status === 'pending'),
+			runs: overview.workflows.filter(
+				(run) => run.projectId === id && !TERMINAL_RUN_STATUSES.has(run.status),
+			),
+			approvals: overview.actionRequests.filter(
+				(item) => item.projectId === id && item.status === 'pending',
+			),
 			workspaces: overview.runtimeWorkspaces.filter((item) => item.projectId === id),
 			evidence: overview.evidencePackages.filter((item) => item.projectId === id),
 		};
-	}, [overview.workflows, overview.actionRequests, overview.runtimeWorkspaces, overview.evidencePackages, selectedProject]);
+	}, [
+		overview.workflows,
+		overview.actionRequests,
+		overview.runtimeWorkspaces,
+		overview.evidencePackages,
+		selectedProject,
+	]);
 
-	const stack = useMemo(() => (selectedProject ? readDetectedStack(selectedProject) : []), [selectedProject]);
+	const stack = useMemo(
+		() => (selectedProject ? readDetectedStack(selectedProject) : []),
+		[selectedProject],
+	);
 
 	const [openSections, setOpenSections] = useState<Record<string, boolean>>(readStoredSections);
 	const toggleSection = useCallback((id: string, fallbackOpen: boolean) => {
@@ -201,7 +220,8 @@ export function ExplorerPanel({
 	const sectionOpen = (id: string, fallbackOpen: boolean) => openSections[id] ?? fallbackOpen;
 
 	const evidenceBlocking =
-		scope?.evidence.some((item) => BLOCKING_VERDICTS.includes(String(item.qaVerdict ?? ''))) ?? false;
+		scope?.evidence.some((item) => BLOCKING_VERDICTS.includes(String(item.qaVerdict ?? ''))) ??
+		false;
 
 	const showAll = (count: number) => `${t('app.explorer.showAll', 'Show all')} (${count})`;
 
@@ -219,7 +239,10 @@ export function ExplorerPanel({
 				</div>
 
 				{selectedProject ? (
-					<section className="explorer-project" aria-label={t('app.explorer.currentProject', 'Current project')}>
+					<section
+						className="explorer-project"
+						aria-label={t('app.explorer.currentProject', 'Current project')}
+					>
 						<div className="workspace-root-card">
 							<span>{t('app.explorer.project', 'Project')}</span>
 							<strong>{selectedProject.name}</strong>
@@ -237,14 +260,20 @@ export function ExplorerPanel({
 										</Badge>
 									))
 								) : (
-									<Badge tone="info">{t('app.explorer.stackNotDetected', 'Stack not detected')}</Badge>
+									<Badge tone="info">
+										{t('app.explorer.stackNotDetected', 'Stack not detected')}
+									</Badge>
 								)}
 								{stack.length > 3 ? <Badge tone="info">{`+${stack.length - 3}`}</Badge> : null}
 							</div>
 						</div>
 
 						<div className="explorer-actions">
-							<button className="button primary" type="button" onClick={() => onNavigate('workbench')}>
+							<button
+								className="button primary"
+								type="button"
+								onClick={() => onNavigate('workbench')}
+							>
 								<MessageSquarePlus aria-hidden="true" size={15} />
 								{t('app.explorer.newTask', 'New task')}
 							</button>
@@ -256,7 +285,11 @@ export function ExplorerPanel({
 								<ClipboardCheck aria-hidden="true" size={15} />
 								{t('app.explorer.review', 'Review')}
 							</button>
-							<button className="button" type="button" onClick={() => onNavigate('settings-project')}>
+							<button
+								className="button"
+								type="button"
+								onClick={() => onNavigate('settings-project')}
+							>
 								<SettingsIcon aria-hidden="true" size={15} />
 								{t('app.explorer.settings', 'Settings')}
 							</button>
@@ -279,7 +312,10 @@ export function ExplorerPanel({
 				)}
 			</div>
 
-			<nav className="nav-list ide-nav" aria-label={t('app.explorer.aria.nav', 'Explorer navigation')}>
+			<nav
+				className="nav-list ide-nav"
+				aria-label={t('app.explorer.aria.nav', 'Explorer navigation')}
+			>
 				{scope ? (
 					<>
 						<ProjectSection
@@ -292,7 +328,12 @@ export function ExplorerPanel({
 							emptyLabel={t('app.explorer.noActiveRuns', 'No active runs')}
 						>
 							{scope.runs.slice(0, SECTION_ROW_CAP).map((run) => (
-								<button key={run.id} className="nav-item" type="button" onClick={() => onNavigate('workflows')}>
+								<button
+									key={run.id}
+									className="nav-item"
+									type="button"
+									onClick={() => onNavigate('workflows')}
+								>
 									<Workflow aria-hidden="true" size={16} />
 									<span>{String(run.title ?? run.id)}</span>
 									<span className="nav-item-meta">
@@ -318,16 +359,26 @@ export function ExplorerPanel({
 							emptyLabel={t('app.explorer.noPendingApprovals', 'No pending approvals')}
 						>
 							{scope.approvals.slice(0, SECTION_ROW_CAP).map((request) => (
-								<button key={request.id} className="nav-item" type="button" onClick={() => onNavigate('review-board')}>
+								<button
+									key={request.id}
+									className="nav-item"
+									type="button"
+									onClick={() => onNavigate('review-board')}
+								>
 									<ClipboardCheck aria-hidden="true" size={16} />
 									<span className="mono">{String(request.actionType ?? request.id)}</span>
 									<span className="nav-item-meta">
-										<StatusDot tone={toneForStatus(String(request.riskLevel))} /> {String(request.riskLevel)}
+										<StatusDot tone={toneForStatus(String(request.riskLevel))} />{' '}
+										{String(request.riskLevel)}
 									</span>
 								</button>
 							))}
 							{scope.approvals.length > SECTION_ROW_CAP ? (
-								<button className="nav-item" type="button" onClick={() => onNavigate('review-board')}>
+								<button
+									className="nav-item"
+									type="button"
+									onClick={() => onNavigate('review-board')}
+								>
 									<ChevronRight aria-hidden="true" size={16} />
 									<span>{showAll(scope.approvals.length)}</span>
 								</button>
@@ -344,10 +395,17 @@ export function ExplorerPanel({
 							emptyLabel={t('app.explorer.noWorkspaces', 'No workspaces')}
 						>
 							{scope.workspaces.slice(0, SECTION_ROW_CAP).map((workspace) => (
-								<button key={workspace.id} className="nav-item" type="button" onClick={() => onNavigate('workspaces')}>
+								<button
+									key={workspace.id}
+									className="nav-item"
+									type="button"
+									onClick={() => onNavigate('workspaces')}
+								>
 									<GitBranch aria-hidden="true" size={16} />
 									<span className="mono">{shortId(String(workspace.taskId ?? workspace.id))}</span>
-									<span className="nav-item-meta">{String(workspace.isolationType ?? workspace.status ?? '')}</span>
+									<span className="nav-item-meta">
+										{String(workspace.isolationType ?? workspace.status ?? '')}
+									</span>
 								</button>
 							))}
 							{scope.workspaces.length > SECTION_ROW_CAP ? (
@@ -368,11 +426,17 @@ export function ExplorerPanel({
 							emptyLabel={t('app.explorer.noEvidencePackages', 'No evidence packages')}
 						>
 							{scope.evidence.slice(0, SECTION_ROW_CAP).map((item) => (
-								<button key={item.id} className="nav-item" type="button" onClick={() => onNavigate('evidence')}>
+								<button
+									key={item.id}
+									className="nav-item"
+									type="button"
+									onClick={() => onNavigate('evidence')}
+								>
 									<FileCheck2 aria-hidden="true" size={16} />
 									<span className="mono">{shortId(String(item.taskId ?? item.id))}</span>
 									<span className="nav-item-meta">
-										<StatusDot tone={toneForStatus(String(item.qaVerdict ?? ''))} /> {String(item.qaVerdict ?? t('app.runtime.card.unknown', 'unknown'))}
+										<StatusDot tone={toneForStatus(String(item.qaVerdict ?? ''))} />{' '}
+										{String(item.qaVerdict ?? t('app.runtime.card.unknown', 'unknown'))}
 									</span>
 								</button>
 							))}
@@ -385,7 +449,9 @@ export function ExplorerPanel({
 						</ProjectSection>
 
 						<div className="explorer-section">
-							<div className="nav-section-label">{t('app.explorer.projectFiles', 'Project files')}</div>
+							<div className="nav-section-label">
+								{t('app.explorer.projectFiles', 'Project files')}
+							</div>
 							<div className="empty-state-action">
 								<EmptyState
 									title={t('app.explorer.projectFilesUnavailable', 'Project files unavailable')}
@@ -419,7 +485,9 @@ export function ExplorerPanel({
 
 				{activeArea === 'home' && activeProjects.length ? (
 					<div className="explorer-section">
-						<div className="nav-section-label">{t('app.explorer.switchProject', 'Switch project')}</div>
+						<div className="nav-section-label">
+							{t('app.explorer.switchProject', 'Switch project')}
+						</div>
 						{activeProjects.slice(0, 8).map((project) => (
 							<button
 								key={project.id}

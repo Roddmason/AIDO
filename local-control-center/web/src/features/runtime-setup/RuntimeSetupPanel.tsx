@@ -3,8 +3,9 @@
  * @copyright Copyright (c) AIDO.
  * @author Roddmason
  */
-import { useId, useMemo, useState } from 'react';
+
 import { CheckCircle2, RefreshCw, XCircle } from 'lucide-react';
+import { useId, useMemo, useState } from 'react';
 
 import { healthCheckModelGatewayProvider } from '../../api/client';
 import type { RuntimeProviderConfiguration, RuntimeProviders } from '../../api/types';
@@ -12,14 +13,14 @@ import { Badge } from '../../components/primitives';
 import { useI18n } from '../../i18n/I18nProvider';
 import { redactVisibleSecret } from '../../lib/format';
 import {
-	INSTRUCTIONS_KEY,
-	PROVIDER_ICON,
-	STATE_META,
 	apiProviderIdsNeedingProbe,
 	deriveRuntimeState,
-	mergeProviders,
+	INSTRUCTIONS_KEY,
 	type MergedProvider,
+	mergeProviders,
+	PROVIDER_ICON,
 	type RuntimeSetupProviderId,
+	STATE_META,
 } from './runtimeSetup';
 
 type RuntimeSetupPanelProps = {
@@ -29,7 +30,12 @@ type RuntimeSetupPanelProps = {
 	onRefresh: () => Promise<unknown> | void;
 };
 
-export function RuntimeSetupPanel({ runtimeProviders, runtimeProviderConfiguration, token, onRefresh }: RuntimeSetupPanelProps) {
+export function RuntimeSetupPanel({
+	runtimeProviders,
+	runtimeProviderConfiguration,
+	token,
+	onRefresh,
+}: RuntimeSetupPanelProps) {
 	const { t } = useI18n();
 	const [refreshing, setRefreshing] = useState(false);
 
@@ -37,7 +43,9 @@ export function RuntimeSetupPanel({ runtimeProviders, runtimeProviderConfigurati
 		() => mergeProviders(runtimeProviders?.providers, runtimeProviderConfiguration),
 		[runtimeProviders, runtimeProviderConfiguration],
 	);
-	const executableCount = providers.filter((provider) => deriveRuntimeState(provider) === 'executable').length;
+	const executableCount = providers.filter(
+		(provider) => deriveRuntimeState(provider) === 'executable',
+	).length;
 
 	const refreshHealth = async () => {
 		if (refreshing) return;
@@ -58,12 +66,17 @@ export function RuntimeSetupPanel({ runtimeProviders, runtimeProviderConfigurati
 	return (
 		<>
 			<p className="muted">
-				{t('app.runtime.summary', 'See, for each provider, exactly why it can or cannot execute — required configuration, detected command, and health.')}
+				{t(
+					'app.runtime.summary',
+					'See, for each provider, exactly why it can or cannot execute — required configuration, detected command, and health.',
+				)}
 			</p>
 			<div className="surface-toolbar">
 				<div className="inline">
 					<strong className="tnum">{executableCount}</strong>
-					<span className="muted">/ {providers.length} {t('app.runtime.executable', 'executable')}</span>
+					<span className="muted">
+						/ {providers.length} {t('app.runtime.executable', 'executable')}
+					</span>
 				</div>
 				<button
 					className="button"
@@ -97,7 +110,10 @@ function ProviderCard({ provider }: { provider: MergedProvider }) {
 	const stateLabel = t(meta.labelKey, state);
 
 	const status = provider.status;
-	const reason = redactVisibleSecret(status?.reason ?? provider.config?.reason, t('app.runtime.card.noReason', 'No status reported yet.'));
+	const reason = redactVisibleSecret(
+		status?.reason ?? provider.config?.reason,
+		t('app.runtime.card.noReason', 'No status reported yet.'),
+	);
 	const variables = provider.config?.variables ?? [];
 	const isCli = provider.kind === 'cli';
 	const capabilities = status?.capabilities ?? [];
@@ -126,12 +142,16 @@ function ProviderCard({ provider }: { provider: MergedProvider }) {
 				aria-controls={detailsId}
 				onClick={() => setOpen((value) => !value)}
 			>
-				{open ? t('app.runtime.card.hideDetails', 'Hide details') : t('app.runtime.card.details', 'Configuration details')}
+				{open
+					? t('app.runtime.card.hideDetails', 'Hide details')
+					: t('app.runtime.card.details', 'Configuration details')}
 			</button>
 
 			<div id={detailsId} className="stack" hidden={!open}>
 				<section className="stack compact">
-					<h3 className="field-label">{t('app.runtime.card.envVars', 'Required environment variables')}</h3>
+					<h3 className="field-label">
+						{t('app.runtime.card.envVars', 'Required environment variables')}
+					</h3>
 					{variables.length ? (
 						variables.map((variable) => (
 							<div className="inline" key={variable.key}>
@@ -143,14 +163,25 @@ function ProviderCard({ provider }: { provider: MergedProvider }) {
 											? t('app.runtime.card.missing', 'missing')
 											: t('app.runtime.card.optional', 'optional')}
 								</Badge>
-								{variable.secret ? <Badge tone="info">{t('app.runtime.card.secret', 'secret')}</Badge> : null}
-								{variable.fingerprint ? <span className="mono muted">{variable.fingerprint}</span> : null}
+								{variable.secret ? (
+									<Badge tone="info">{t('app.runtime.card.secret', 'secret')}</Badge>
+								) : null}
+								{variable.fingerprint ? (
+									<span className="mono muted">{variable.fingerprint}</span>
+								) : null}
 							</div>
 						))
 					) : (
-						<span className="muted">{t('app.runtime.card.noEnvVars', 'No environment variables required.')}</span>
+						<span className="muted">
+							{t('app.runtime.card.noEnvVars', 'No environment variables required.')}
+						</span>
 					)}
-					<span className="field-help">{t('app.runtime.card.noSecretsNote', 'Secret values are never shown — only whether they are set and a short fingerprint.')}</span>
+					<span className="field-help">
+						{t(
+							'app.runtime.card.noSecretsNote',
+							'Secret values are never shown — only whether they are set and a short fingerprint.',
+						)}
+					</span>
 				</section>
 
 				{isCli ? (
@@ -162,7 +193,9 @@ function ProviderCard({ provider }: { provider: MergedProvider }) {
 								{status.version ? ` · ${redactVisibleSecret(status.version)}` : ''}
 							</span>
 						) : (
-							<span className="muted">{t('app.runtime.card.notDetected', 'Not detected on PATH.')}</span>
+							<span className="muted">
+								{t('app.runtime.card.notDetected', 'Not detected on PATH.')}
+							</span>
 						)}
 					</section>
 				) : null}
@@ -170,15 +203,25 @@ function ProviderCard({ provider }: { provider: MergedProvider }) {
 				<section className="stack compact">
 					<h3 className="field-label">{t('app.runtime.card.health', 'Health check')}</h3>
 					<div className="inline">
-						{status?.healthStatus === 'healthy' ? <CheckCircle2 aria-hidden="true" size={14} /> : <XCircle aria-hidden="true" size={14} />}
-						<span className="mono">{redactVisibleSecret(status?.healthStatus, t('app.runtime.card.unknown', 'unknown'))}</span>
+						{status?.healthStatus === 'healthy' ? (
+							<CheckCircle2 aria-hidden="true" size={14} />
+						) : (
+							<XCircle aria-hidden="true" size={14} />
+						)}
+						<span className="mono">
+							{redactVisibleSecret(status?.healthStatus, t('app.runtime.card.unknown', 'unknown'))}
+						</span>
 					</div>
 					<span className="field-help">
-						{t('app.runtime.card.lastChecked', 'Last checked')}: <span className="mono">{redactVisibleSecret(status?.healthCheckedAt, t('app.runtime.card.never', 'never'))}</span>
+						{t('app.runtime.card.lastChecked', 'Last checked')}:{' '}
+						<span className="mono">
+							{redactVisibleSecret(status?.healthCheckedAt, t('app.runtime.card.never', 'never'))}
+						</span>
 					</span>
 					{status?.lastError ? (
 						<span className="field-help">
-							{t('app.runtime.card.lastError', 'Last error')}: {redactVisibleSecret(status.lastError, t('app.runtime.card.none', 'none'))}
+							{t('app.runtime.card.lastError', 'Last error')}:{' '}
+							{redactVisibleSecret(status.lastError, t('app.runtime.card.none', 'none'))}
 						</span>
 					) : null}
 				</section>
@@ -188,16 +231,24 @@ function ProviderCard({ provider }: { provider: MergedProvider }) {
 						<h3 className="field-label">{t('app.runtime.card.capabilities', 'Capabilities')}</h3>
 						<div className="inline">
 							{capabilities.map((capability) => (
-								<Badge tone="info" key={capability}>{capability}</Badge>
+								<Badge tone="info" key={capability}>
+									{capability}
+								</Badge>
 							))}
-							{status?.requiresApproval ? <Badge tone="warn">{t('app.runtime.card.requiresApproval', 'requires approval')}</Badge> : null}
+							{status?.requiresApproval ? (
+								<Badge tone="warn">
+									{t('app.runtime.card.requiresApproval', 'requires approval')}
+								</Badge>
+							) : null}
 						</div>
 					</section>
 				) : null}
 
 				<section className="stack compact">
 					<h3 className="field-label">{t('app.runtime.card.instructions', 'How to configure')}</h3>
-					<span className="field-help">{t(INSTRUCTIONS_KEY[provider.id as RuntimeSetupProviderId], '')}</span>
+					<span className="field-help">
+						{t(INSTRUCTIONS_KEY[provider.id as RuntimeSetupProviderId], '')}
+					</span>
 				</section>
 			</div>
 		</article>

@@ -32,7 +32,12 @@ export function WorkspaceCard({
 	const openLabel = t('app.home.openInWorkbench', 'Open in workbench');
 
 	return (
-		<HomeCard kind="workspace" onClick={onOpen} selected={selected} ariaLabel={`${openLabel}: ${project.name}`}>
+		<HomeCard
+			kind="workspace"
+			onClick={onOpen}
+			selected={selected}
+			ariaLabel={`${openLabel}: ${project.name}`}
+		>
 			<CardHead
 				icon={<FolderGit2 size={15} aria-hidden="true" />}
 				label={t('app.home.kindProject', 'Project')}

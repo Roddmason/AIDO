@@ -15,41 +15,77 @@ export type Language = 'en' | 'es';
 
 type StatusCopyField = { key: string; en: string };
 
-const statusCopy: Record<ProjectStatusView, { kicker: StatusCopyField; title: StatusCopyField; summary: StatusCopyField; emptyTitle: StatusCopyField; emptyBody: StatusCopyField }> = {
+const statusCopy: Record<
+	ProjectStatusView,
+	{
+		kicker: StatusCopyField;
+		title: StatusCopyField;
+		summary: StatusCopyField;
+		emptyTitle: StatusCopyField;
+		emptyBody: StatusCopyField;
+	}
+> = {
 	active: {
 		kicker: { key: 'app.activeProjects.active.kicker', en: 'Active work' },
 		title: { key: 'app.activeProjects.active.title', en: 'Active Projects' },
-		summary: { key: 'app.activeProjects.active.summary', en: 'Only active projects can run work here. Inactive and archived projects stay visible in Settings for audit and configuration.' },
+		summary: {
+			key: 'app.activeProjects.active.summary',
+			en: 'Only active projects can run work here. Inactive and archived projects stay visible in Settings for audit and configuration.',
+		},
 		emptyTitle: { key: 'app.activeProjects.active.emptyTitle', en: 'No active projects' },
-		emptyBody: { key: 'app.activeProjects.active.emptyBody', en: 'Create a project or reactivate one in Settings before starting workflows, jobs, workspaces or governance records.' },
+		emptyBody: {
+			key: 'app.activeProjects.active.emptyBody',
+			en: 'Create a project or reactivate one in Settings before starting workflows, jobs, workspaces or governance records.',
+		},
 	},
 	finished: {
 		kicker: { key: 'app.activeProjects.finished.kicker', en: 'Delivered' },
 		title: { key: 'app.activeProjects.finished.title', en: 'Finished Projects' },
-		summary: { key: 'app.activeProjects.finished.summary', en: 'Completed and archived projects stay available for audit and cannot be selected to run new work.' },
+		summary: {
+			key: 'app.activeProjects.finished.summary',
+			en: 'Completed and archived projects stay available for audit and cannot be selected to run new work.',
+		},
 		emptyTitle: { key: 'app.activeProjects.finished.emptyTitle', en: 'No finished projects' },
-		emptyBody: { key: 'app.activeProjects.finished.emptyBody', en: 'Projects with completed, finished, done, finalized or archived status will appear here.' },
+		emptyBody: {
+			key: 'app.activeProjects.finished.emptyBody',
+			en: 'Projects with completed, finished, done, finalized or archived status will appear here.',
+		},
 	},
 	error: {
 		kicker: { key: 'app.activeProjects.error.kicker', en: 'Errors' },
 		title: { key: 'app.activeProjects.error.title', en: 'Projects With Error' },
-		summary: { key: 'app.activeProjects.error.summary', en: 'Projects in failed or error states are isolated here so operators can triage without mixing them into active work.' },
+		summary: {
+			key: 'app.activeProjects.error.summary',
+			en: 'Projects in failed or error states are isolated here so operators can triage without mixing them into active work.',
+		},
 		emptyTitle: { key: 'app.activeProjects.error.emptyTitle', en: 'No projects with error' },
-		emptyBody: { key: 'app.activeProjects.error.emptyBody', en: 'Projects with failed, error or errored status will appear here.' },
+		emptyBody: {
+			key: 'app.activeProjects.error.emptyBody',
+			en: 'Projects with failed, error or errored status will appear here.',
+		},
 	},
 	cancelled: {
 		kicker: { key: 'app.activeProjects.cancelled.kicker', en: 'Cancelled' },
 		title: { key: 'app.activeProjects.cancelled.title', en: 'Cancelled Projects' },
-		summary: { key: 'app.activeProjects.cancelled.summary', en: 'Cancelled projects stay visible for traceability, but cannot be selected to run new work.' },
+		summary: {
+			key: 'app.activeProjects.cancelled.summary',
+			en: 'Cancelled projects stay visible for traceability, but cannot be selected to run new work.',
+		},
 		emptyTitle: { key: 'app.activeProjects.cancelled.emptyTitle', en: 'No cancelled projects' },
-		emptyBody: { key: 'app.activeProjects.cancelled.emptyBody', en: 'Projects with cancelled or canceled status will appear here.' },
+		emptyBody: {
+			key: 'app.activeProjects.cancelled.emptyBody',
+			en: 'Projects with cancelled or canceled status will appear here.',
+		},
 	},
 };
 
 function matchesProjectStatus(status: string, view: ProjectStatusView) {
 	const normalized = status.toLowerCase();
 	if (view === 'active') return normalized === 'active';
-	if (view === 'finished') return ['completed', 'complete', 'finished', 'finalized', 'done', 'archived'].includes(normalized);
+	if (view === 'finished')
+		return ['completed', 'complete', 'finished', 'finalized', 'done', 'archived'].includes(
+			normalized,
+		);
 	if (view === 'error') return ['failed', 'error', 'errored'].includes(normalized);
 	return ['cancelled', 'canceled'].includes(normalized);
 }
@@ -73,20 +109,35 @@ export function ActiveProjectsPage({
 	const { t } = useI18n();
 	const copy = statusCopy[statusView];
 	const isActiveView = statusView === 'active';
-	const visibleProjects = overview.projects.filter((project) => matchesProjectStatus(project.status, statusView));
+	const visibleProjects = overview.projects.filter((project) =>
+		matchesProjectStatus(project.status, statusView),
+	);
 	const pendingApprovals = overview.actionRequests.filter((item) => item.status === 'pending');
-	const activeWorkspaces = overview.runtimeWorkspaces.filter((workspace) => workspace.status === 'active');
-	const projectJobCount = (projectId: string) => overview.jobs.filter((job) => job.projectId === projectId).length;
-	const projectWorkspaceCount = (projectId: string) => overview.runtimeWorkspaces.filter((workspace) => workspace.projectId === projectId).length;
-	const hasPendingApproval = (projectId: string) => overview.actionRequests.some((item) => item.projectId === projectId && item.status === 'pending');
+	const activeWorkspaces = overview.runtimeWorkspaces.filter(
+		(workspace) => workspace.status === 'active',
+	);
+	const projectJobCount = (projectId: string) =>
+		overview.jobs.filter((job) => job.projectId === projectId).length;
+	const projectWorkspaceCount = (projectId: string) =>
+		overview.runtimeWorkspaces.filter((workspace) => workspace.projectId === projectId).length;
+	const hasPendingApproval = (projectId: string) =>
+		overview.actionRequests.some(
+			(item) => item.projectId === projectId && item.status === 'pending',
+		);
 
 	return (
 		<>
-			<PageHeader kicker={t(copy.kicker.key, copy.kicker.en)} title={t(copy.title.key, copy.title.en)} summary={t(copy.summary.key, copy.summary.en)} />
+			<PageHeader
+				kicker={t(copy.kicker.key, copy.kicker.en)}
+				title={t(copy.title.key, copy.title.en)}
+				summary={t(copy.summary.key, copy.summary.en)}
+			/>
 
 			<div className="surface-toolbar" data-motion-item>
 				<Badge tone={selectedProject ? 'ok' : 'warn'}>
-					{selectedProject ? `${t('app.activeProjects.selected', 'Selected')}: ${selectedProject.name}` : t('app.activeProjects.noOperationalProject', 'No operational project')}
+					{selectedProject
+						? `${t('app.activeProjects.selected', 'Selected')}: ${selectedProject.name}`
+						: t('app.activeProjects.noOperationalProject', 'No operational project')}
 				</Badge>
 				<div className="inline">
 					<button className="button" type="button" onClick={onOpenSettings}>
@@ -106,20 +157,37 @@ export function ActiveProjectsPage({
 						const selected = selectedProject?.id === project.id;
 						const pending = hasPendingApproval(project.id);
 						return (
-							<article className="card" data-selected={selected ? 'true' : undefined} key={project.id}>
+							<article
+								className="card"
+								data-selected={selected ? 'true' : undefined}
+								key={project.id}
+							>
 								<div className="card-header">
 									<strong className="card-title">{project.name}</strong>
 									<Badge tone={toneForStatus(project.status)}>{project.status}</Badge>
 								</div>
 								<span className="mono muted">{project.path}</span>
 								<div className="card-meta">
-									<span>{projectJobCount(project.id)} {t('app.activeProjects.jobs', 'jobs')}</span>
+									<span>
+										{projectJobCount(project.id)} {t('app.activeProjects.jobs', 'jobs')}
+									</span>
 									<span>{projectWorkspaceCount(project.id)} workspaces</span>
-									<Badge tone={pending ? 'warn' : 'ok'}>{pending ? t('app.activeProjects.approval', 'approval') : t('app.activeProjects.clear', 'clear')}</Badge>
+									<Badge tone={pending ? 'warn' : 'ok'}>
+										{pending
+											? t('app.activeProjects.approval', 'approval')
+											: t('app.activeProjects.clear', 'clear')}
+									</Badge>
 								</div>
 								{isActiveView ? (
-									<button className="button" type="button" disabled={selected} onClick={() => onSelectProject(project.id)}>
-										{selected ? t('app.activeProjects.selected', 'Selected') : t('app.activeProjects.select', 'Select')}
+									<button
+										className="button"
+										type="button"
+										disabled={selected}
+										onClick={() => onSelectProject(project.id)}
+									>
+										{selected
+											? t('app.activeProjects.selected', 'Selected')
+											: t('app.activeProjects.select', 'Select')}
 									</button>
 								) : (
 									<Badge>{t('app.activeProjects.auditOnly', 'Audit only')}</Badge>
@@ -129,7 +197,10 @@ export function ActiveProjectsPage({
 					})}
 				</div>
 			) : (
-				<EmptyState title={t(copy.emptyTitle.key, copy.emptyTitle.en)} body={t(copy.emptyBody.key, copy.emptyBody.en)} />
+				<EmptyState
+					title={t(copy.emptyTitle.key, copy.emptyTitle.en)}
+					body={t(copy.emptyBody.key, copy.emptyBody.en)}
+				/>
 			)}
 
 			<div className="grid two">
@@ -147,7 +218,10 @@ export function ActiveProjectsPage({
 					) : (
 						<EmptyState
 							title={t('app.activeProjects.noPendingApprovals', 'No pending approvals')}
-							body={t('app.activeProjects.noPendingApprovalsBody', 'Risky actions stop in the approval queue before execution.')}
+							body={t(
+								'app.activeProjects.noPendingApprovalsBody',
+								'Risky actions stop in the approval queue before execution.',
+							)}
 						/>
 					)}
 				</Surface>
@@ -165,7 +239,10 @@ export function ActiveProjectsPage({
 					) : (
 						<EmptyState
 							title={t('app.activeProjects.noActiveWorkspaces', 'No active workspaces')}
-							body={t('app.activeProjects.noActiveWorkspacesBody', 'Workflow implementation steps allocate isolated workspaces.')}
+							body={t(
+								'app.activeProjects.noActiveWorkspacesBody',
+								'Workflow implementation steps allocate isolated workspaces.',
+							)}
 						/>
 					)}
 				</Surface>

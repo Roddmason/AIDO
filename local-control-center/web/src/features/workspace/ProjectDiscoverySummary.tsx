@@ -26,15 +26,28 @@ export function ProjectDiscoverySummary({
 
 	return (
 		<>
-			<div className="detection-grid" aria-label={t('app.workspace.detection.aria', 'Detected project markers')}>
+			<div
+				className="detection-grid"
+				aria-label={t('app.workspace.detection.aria', 'Detected project markers')}
+			>
 				{markers.map((marker) => (
-					<div key={marker.file} className="card detection-card" data-detected={marker.detected ? 'true' : 'false'}>
+					<div
+						key={marker.file}
+						className="card detection-card"
+						data-detected={marker.detected ? 'true' : 'false'}
+					>
 						<span className="detection-card-file">{marker.file}</span>
 						<span className="detection-card-state">
 							{marker.detected ? (
-								<Badge tone="ok"><Check size={13} aria-hidden="true" /> {t('app.workspace.detection.found', 'Detected')}</Badge>
+								<Badge tone="ok">
+									<Check size={13} aria-hidden="true" />{' '}
+									{t('app.workspace.detection.found', 'Detected')}
+								</Badge>
 							) : (
-								<span className="muted"><Minus size={13} aria-hidden="true" /> {t('app.workspace.detection.missing', 'Not found')}</span>
+								<span className="muted">
+									<Minus size={13} aria-hidden="true" />{' '}
+									{t('app.workspace.detection.missing', 'Not found')}
+								</span>
 							)}
 						</span>
 					</div>
@@ -42,12 +55,20 @@ export function ProjectDiscoverySummary({
 			</div>
 
 			<div className="field">
-				<span className="field-label">{t('app.workspace.detection.runtimes', 'Runtimes detected')}</span>
+				<span className="field-label">
+					{t('app.workspace.detection.runtimes', 'Runtimes detected')}
+				</span>
 				<div className="detection-runtimes">
 					{runtimeLabels.length ? (
-						runtimeLabels.map((label, index) => <Badge key={`${label}-${index}`} tone="info">{label}</Badge>)
+						runtimeLabels.map((label, index) => (
+							<Badge key={`${label}-${index}`} tone="info">
+								{label}
+							</Badge>
+						))
 					) : (
-						<span className="muted">{t('app.workspace.detection.noRuntimes', 'No runtimes detected yet.')}</span>
+						<span className="muted">
+							{t('app.workspace.detection.noRuntimes', 'No runtimes detected yet.')}
+						</span>
 					)}
 				</div>
 			</div>

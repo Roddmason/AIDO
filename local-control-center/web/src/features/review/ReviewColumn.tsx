@@ -4,8 +4,8 @@
  * @author Roddmason
  */
 import { Badge, EmptyState, StatusDot } from '../../components/primitives';
-import { COLUMN_TONE } from './model';
 import type { ReviewColumn as ReviewColumnId, ReviewItem } from './model';
+import { COLUMN_TONE } from './model';
 import { ReviewCard } from './ReviewCard';
 
 /**
@@ -39,7 +39,9 @@ export function ReviewColumn({
 		>
 			<header className="review-column-header">
 				<StatusDot tone={COLUMN_TONE[column]} />
-				<span id={headerId} className="review-column-title">{meta.title}</span>
+				<span id={headerId} className="review-column-title">
+					{meta.title}
+				</span>
 				<span className="review-column-count">
 					<Badge tone={items.length ? COLUMN_TONE[column] : undefined}>{items.length}</Badge>
 				</span>

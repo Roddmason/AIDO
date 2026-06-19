@@ -3,11 +3,11 @@
  * @copyright Copyright (c) AIDO.
  * @author Roddmason
  */
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import type { ReactNode } from 'react';
 
-import { getI18nCatalog } from '../api/client';
+import type { ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import type { I18nCatalogResponse, I18nLanguageRecord } from '../api/client';
+import { getI18nCatalog } from '../api/client';
 
 const LANGUAGE_STORAGE_KEY = 'aido:language';
 
@@ -69,7 +69,11 @@ export function I18nProvider({ children }: { children: ReactNode }) {
 			}
 			return nextCatalog;
 		} catch (requestError) {
-			setError(requestError instanceof Error ? requestError.message : 'Translation catalog could not be loaded.');
+			setError(
+				requestError instanceof Error
+					? requestError.message
+					: 'Translation catalog could not be loaded.',
+			);
 			return null;
 		} finally {
 			setLoading(false);
@@ -84,17 +88,23 @@ export function I18nProvider({ children }: { children: ReactNode }) {
 		document.documentElement.lang = language;
 	}, [language]);
 
-	const value = useMemo<I18nContextValue>(() => ({
-		catalog,
-		language,
-		languages: catalog?.languages.filter((item) => item.enabled) ?? [],
-		error,
-		loading,
-		reloadCatalog,
-		setCatalog,
-		setLanguage,
-		t: (key, fallback = key) => catalog?.translations[key]?.[language] ?? catalog?.translations[key]?.[catalog.defaultLanguage] ?? fallback,
-	}), [catalog, error, language, loading, reloadCatalog, setCatalog, setLanguage]);
+	const value = useMemo<I18nContextValue>(
+		() => ({
+			catalog,
+			language,
+			languages: catalog?.languages.filter((item) => item.enabled) ?? [],
+			error,
+			loading,
+			reloadCatalog,
+			setCatalog,
+			setLanguage,
+			t: (key, fallback = key) =>
+				catalog?.translations[key]?.[language] ??
+				catalog?.translations[key]?.[catalog.defaultLanguage] ??
+				fallback,
+		}),
+		[catalog, error, language, loading, reloadCatalog, setCatalog, setLanguage],
+	);
 
 	return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;
 }

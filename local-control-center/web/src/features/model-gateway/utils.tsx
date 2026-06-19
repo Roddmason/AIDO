@@ -39,7 +39,9 @@ export function money(value: unknown, unknownLabel = 'unknown') {
 }
 
 export function listLabel(value: unknown, noneLabel = 'none') {
-	return Array.isArray(value) ? value.map((item) => String(item)).join(', ') || noneLabel : text(value, noneLabel);
+	return Array.isArray(value)
+		? value.map((item) => String(item)).join(', ') || noneLabel
+		: text(value, noneLabel);
 }
 
 export function SecretSafeValue({ value }: { value: unknown }) {

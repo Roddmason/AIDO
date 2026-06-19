@@ -15,7 +15,10 @@
 
 .app-shell-ide {
 	display: grid;
-	grid-template-columns: var(--size-activity-bar) minmax(16rem, var(--size-explorer)) minmax(0, 1fr) minmax(18rem, var(--size-inspector));
+	grid-template-columns: var(--size-activity-bar) minmax(16rem, var(--size-explorer)) minmax(0, 1fr) minmax(
+			18rem,
+			var(--size-inspector)
+		);
 	grid-template-rows: minmax(0, 1fr) var(--size-status-bar);
 }
 
@@ -328,11 +331,17 @@
    <=980px breakpoint below collapses the shell to a single column. */
 @media (min-width: 981px) {
 	.app-shell-ide[data-explorer="false"][data-inspector="true"] {
-		grid-template-columns: var(--size-activity-bar) minmax(0, 1fr) minmax(18rem, var(--size-inspector));
+		grid-template-columns: var(--size-activity-bar) minmax(0, 1fr) minmax(
+				18rem,
+				var(--size-inspector)
+			);
 	}
 
 	.app-shell-ide[data-explorer="true"][data-inspector="false"] {
-		grid-template-columns: var(--size-activity-bar) minmax(16rem, var(--size-explorer)) minmax(0, 1fr);
+		grid-template-columns: var(--size-activity-bar) minmax(16rem, var(--size-explorer)) minmax(
+				0,
+				1fr
+			);
 	}
 
 	.app-shell-ide[data-explorer="false"][data-inspector="false"] {
@@ -777,7 +786,8 @@
 	height: 1.85rem;
 	display: inline-grid;
 	place-items: center;
-	border: 1px solid color-mix(in oklch, var(--color-accent-secondary) 38%, var(--color-border-default));
+	border: 1px solid
+		color-mix(in oklch, var(--color-accent-secondary) 38%, var(--color-border-default));
 	border-radius: var(--radius-md);
 	color: var(--color-accent-secondary);
 	background: color-mix(in oklch, var(--color-accent-secondary) 10%, var(--color-surface-card));

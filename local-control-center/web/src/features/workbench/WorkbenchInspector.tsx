@@ -8,7 +8,7 @@ import { ClipboardCheck, FileCheck2, SlidersHorizontal } from 'lucide-react';
 import type { Overview, RuntimeProviderConfiguration, RuntimeProviders } from '../../api/types';
 import { Badge, DataTable, EmptyState, StatusDot, Surface } from '../../components/primitives';
 import { useI18n } from '../../i18n/I18nProvider';
-import { shortId, toneForStatus } from '../../lib/format';
+import { toneForStatus } from '../../lib/format';
 import { RuntimeSetupInspectorCard } from '../runtime-setup/RuntimeSetupInspectorCard';
 import type { Blocker } from './workbenchSelectors';
 
@@ -44,7 +44,10 @@ export function WorkbenchInspector({
 	const failedTests = testResults.filter((result) => result.status === 'failed').length;
 
 	return (
-		<aside className="workbench-side" aria-label={t('app.workbench.inspector.region', 'Run inspector')}>
+		<aside
+			className="workbench-side"
+			aria-label={t('app.workbench.inspector.region', 'Run inspector')}
+		>
 			<Surface title={t('app.workbench.inspector.runtime', 'Runtime status')}>
 				<RuntimeSetupInspectorCard
 					runtimeProviders={runtimeProviders}
@@ -57,31 +60,62 @@ export function WorkbenchInspector({
 
 			<Surface title={t('app.workbench.inspector.approvals', 'Approvals')}>
 				<div className="signal-grid">
-					<div className="signal-card"><span>{t('app.workbench.inspector.pending', 'Pending')}</span><strong className="tnum">{pendingApprovals.length}</strong></div>
+					<div className="signal-card">
+						<span>{t('app.workbench.inspector.pending', 'Pending')}</span>
+						<strong className="tnum">{pendingApprovals.length}</strong>
+					</div>
 				</div>
 				<DataTable
 					rows={pendingApprovals.slice(0, 3)}
-					empty={<EmptyState title={t('app.workbench.inspector.noApprovals', 'No pending approvals')} body={t('app.workbench.inspector.noApprovalsBody', 'Risky actions stop here until a human records a reason.')} />}
+					empty={
+						<EmptyState
+							title={t('app.workbench.inspector.noApprovals', 'No pending approvals')}
+							body={t(
+								'app.workbench.inspector.noApprovalsBody',
+								'Risky actions stop here until a human records a reason.',
+							)}
+						/>
+					}
 					columns={[
-						{ key: 'action', label: t('app.workbench.inspector.colAction', 'Action'), render: (row) => <span className="mono">{row.actionType}</span> },
-						{ key: 'risk', label: t('app.workbench.inspector.colRisk', 'Risk'), render: (row) => <Badge tone={toneForStatus(row.riskLevel)}>{row.riskLevel}</Badge> },
+						{
+							key: 'action',
+							label: t('app.workbench.inspector.colAction', 'Action'),
+							render: (row) => <span className="mono">{row.actionType}</span>,
+						},
+						{
+							key: 'risk',
+							label: t('app.workbench.inspector.colRisk', 'Risk'),
+							render: (row) => <Badge tone={toneForStatus(row.riskLevel)}>{row.riskLevel}</Badge>,
+						},
 					]}
 				/>
 				<button className="button" type="button" onClick={onOpenJobs}>
-					<ClipboardCheck aria-hidden="true" size={15} /> {t('app.workbench.inspector.reviewApprovals', 'Review approvals')}
+					<ClipboardCheck aria-hidden="true" size={15} />{' '}
+					{t('app.workbench.inspector.reviewApprovals', 'Review approvals')}
 				</button>
 			</Surface>
 
 			<Surface title={t('app.workbench.inspector.qa', 'QA')}>
 				<div className="inline">
-					<Badge tone={latestEvidence ? toneForStatus(String(latestEvidence.qaVerdict)) : 'warn'}>{latestEvidence ? String(latestEvidence.qaVerdict) : t('app.workbench.inspector.noVerdict', 'no_evidence')}</Badge>
+					<Badge tone={latestEvidence ? toneForStatus(String(latestEvidence.qaVerdict)) : 'warn'}>
+						{latestEvidence
+							? String(latestEvidence.qaVerdict)
+							: t('app.workbench.inspector.noVerdict', 'no_evidence')}
+					</Badge>
 				</div>
 				<div className="signal-grid">
-					<div className="signal-card"><span>{t('app.workbench.inspector.passed', 'Passed')}</span><strong className="tnum">{passedTests}</strong></div>
-					<div className="signal-card"><span>{t('app.workbench.inspector.failed', 'Failed')}</span><strong className="tnum">{failedTests}</strong></div>
+					<div className="signal-card">
+						<span>{t('app.workbench.inspector.passed', 'Passed')}</span>
+						<strong className="tnum">{passedTests}</strong>
+					</div>
+					<div className="signal-card">
+						<span>{t('app.workbench.inspector.failed', 'Failed')}</span>
+						<strong className="tnum">{failedTests}</strong>
+					</div>
 				</div>
 				<button className="button" type="button" onClick={onOpenEvidence}>
-					<FileCheck2 aria-hidden="true" size={15} /> {t('app.workbench.inspector.inspectEvidence', 'Full evidence audit')}
+					<FileCheck2 aria-hidden="true" size={15} />{' '}
+					{t('app.workbench.inspector.inspectEvidence', 'Full evidence audit')}
 				</button>
 			</Surface>
 
@@ -100,14 +134,28 @@ export function WorkbenchInspector({
 				) : (
 					<div className="inline">
 						<StatusDot tone="ok" />
-						<EmptyState title={t('app.workbench.inspector.noBlockers', 'No blockers')} body={t('app.workbench.inspector.noBlockersBody', 'No runtime, QA or risk blocker is recorded for this workspace.')} />
+						<EmptyState
+							title={t('app.workbench.inspector.noBlockers', 'No blockers')}
+							body={t(
+								'app.workbench.inspector.noBlockersBody',
+								'No runtime, QA or risk blocker is recorded for this workspace.',
+							)}
+						/>
 					</div>
 				)}
 			</Surface>
 
 			<button className="command-item" type="button" onClick={onOpenSettings}>
-				<span><SlidersHorizontal aria-hidden="true" size={15} /> {t('app.workbench.inspector.projectSettings', 'Project settings')}</span>
-				<small>{t('app.workbench.inspector.projectSettingsHint', 'Selection, templates and workspace configuration')}</small>
+				<span>
+					<SlidersHorizontal aria-hidden="true" size={15} />{' '}
+					{t('app.workbench.inspector.projectSettings', 'Project settings')}
+				</span>
+				<small>
+					{t(
+						'app.workbench.inspector.projectSettingsHint',
+						'Selection, templates and workspace configuration',
+					)}
+				</small>
 			</button>
 		</aside>
 	);

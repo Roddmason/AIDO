@@ -36,11 +36,14 @@ export function deriveShellStatus(
 		.filter((amount) => Number.isFinite(amount));
 	return {
 		connected,
-		executableRuntimes: runtimeProviders?.providers.filter((provider) => provider.executable).length ?? 0,
+		executableRuntimes:
+			runtimeProviders?.providers.filter((provider) => provider.executable).length ?? 0,
 		pendingApprovals: overview.actionRequests.filter((item) => item.status === 'pending').length,
 		qaPassed: evidence.filter((item) => String(item.qaVerdict ?? '') === 'passed').length,
 		qaTotal: evidence.length,
-		qaBlocking: evidence.filter((item) => BLOCKING_QA_VERDICTS.includes(String(item.qaVerdict ?? ''))).length,
+		qaBlocking: evidence.filter((item) =>
+			BLOCKING_QA_VERDICTS.includes(String(item.qaVerdict ?? '')),
+		).length,
 		recordedCost: amounts.length ? amounts.reduce((sum, amount) => sum + amount, 0) : null,
 		projectName: selectedProject?.name ?? null,
 	};

@@ -40,7 +40,9 @@ export function selectRecentRuns(workflows: Overview['workflows'], limit = 6): H
 
 /** Count of a project's jobs that are still running or queued. */
 export function projectInProgressCount(jobs: Overview['jobs'], projectId: string): number {
-	return jobs.filter((job) => job.projectId === projectId && IN_PROGRESS_JOB_STATUSES.has(String(job.status))).length;
+	return jobs.filter(
+		(job) => job.projectId === projectId && IN_PROGRESS_JOB_STATUSES.has(String(job.status)),
+	).length;
 }
 
 /** Count of a project's pending reviews, given the already-filtered pending list. */
@@ -50,7 +52,13 @@ export function projectPendingReviewCount(pendingReviews: HomeReview[], projectI
 
 /** One entry in the single masonry wall, discriminated by card kind. */
 export type HomeCardItem =
-	| { kind: 'workspace'; key: string; project: HomeProject; inProgress: number; pendingReviews: number }
+	| {
+			kind: 'workspace';
+			key: string;
+			project: HomeProject;
+			inProgress: number;
+			pendingReviews: number;
+	  }
 	| { kind: 'blocker'; key: string; provider: HomeProvider }
 	| { kind: 'review'; key: string; request: HomeReview }
 	| { kind: 'run'; key: string; run: HomeRun };

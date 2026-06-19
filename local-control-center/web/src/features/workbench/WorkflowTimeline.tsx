@@ -6,8 +6,8 @@
 import { ArrowUpRight } from 'lucide-react';
 
 import { useI18n } from '../../i18n/I18nProvider';
-import { currentStageIndex } from './timelineModel';
 import type { TimelineArtifactRef, WorkflowTimelineStage } from './timelineModel';
+import { currentStageIndex } from './timelineModel';
 
 type WorkflowTimelineProps = {
 	stages: WorkflowTimelineStage[];
@@ -17,7 +17,12 @@ type WorkflowTimelineProps = {
 	onOpenArtifact?: (artifact: TimelineArtifactRef) => void;
 };
 
-export function WorkflowTimeline({ stages, label, variant = 'detailed', onOpenArtifact }: WorkflowTimelineProps) {
+export function WorkflowTimeline({
+	stages,
+	label,
+	variant = 'detailed',
+	onOpenArtifact,
+}: WorkflowTimelineProps) {
 	const { t } = useI18n();
 	const current = currentStageIndex(stages);
 	const isRail = variant === 'rail';
@@ -50,7 +55,11 @@ export function WorkflowTimeline({ stages, label, variant = 'detailed', onOpenAr
 							</div>
 							{isRail ? null : <p className="run-flow-reason">{reason}</p>}
 							{!isRail && stage.artifact ? (
-								<button className="run-flow-link" type="button" onClick={() => onOpenArtifact?.(stage.artifact as TimelineArtifactRef)}>
+								<button
+									className="run-flow-link"
+									type="button"
+									onClick={() => onOpenArtifact?.(stage.artifact as TimelineArtifactRef)}
+								>
 									<ArrowUpRight size={14} aria-hidden="true" />
 									{t('app.workbench.timeline.viewEvidence', 'View evidence')}
 								</button>

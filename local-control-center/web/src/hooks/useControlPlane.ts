@@ -5,8 +5,19 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { getHandshake, getOverview, getRetrievalStatus, getRuntimeProviderConfiguration, getRuntimeProviders } from '../api/client';
-import type { Overview, RetrievalStatus, RuntimeProviderConfiguration, RuntimeProviders } from '../api/types';
+import {
+	getHandshake,
+	getOverview,
+	getRetrievalStatus,
+	getRuntimeProviderConfiguration,
+	getRuntimeProviders,
+} from '../api/client';
+import type {
+	Overview,
+	RetrievalStatus,
+	RuntimeProviderConfiguration,
+	RuntimeProviders,
+} from '../api/types';
 
 type ControlPlaneState = {
 	token: string;
@@ -63,11 +74,12 @@ export function useControlPlane() {
 				getHandshake(controller.signal),
 				getOverview(controller.signal),
 			]);
-			const [retrievalStatus, runtimeProviders, runtimeProviderConfigurationResponse] = await Promise.all([
-				optionalWithTimeout(getRetrievalStatus(controller.signal)),
-				optionalWithTimeout(getRuntimeProviders(controller.signal)),
-				optionalWithTimeout(getRuntimeProviderConfiguration(controller.signal)),
-			]);
+			const [retrievalStatus, runtimeProviders, runtimeProviderConfigurationResponse] =
+				await Promise.all([
+					optionalWithTimeout(getRetrievalStatus(controller.signal)),
+					optionalWithTimeout(getRuntimeProviders(controller.signal)),
+					optionalWithTimeout(getRuntimeProviderConfiguration(controller.signal)),
+				]);
 			if (!mountedRef.current) return;
 			setState((current) => ({
 				...current,
@@ -87,7 +99,8 @@ export function useControlPlane() {
 		} catch (error) {
 			if (controller.signal.aborted) return;
 			if (!mountedRef.current) return;
-			const message = error instanceof Error ? error.message : 'Unable to load control plane state.';
+			const message =
+				error instanceof Error ? error.message : 'Unable to load control plane state.';
 			setState((current) => ({
 				...current,
 				loading: false,
@@ -116,7 +129,10 @@ export function useControlPlane() {
 	}, [refresh]);
 
 	const mutate = useCallback(
-		async <T,>(operation: (token: string) => Promise<T>, options: { awaitRefresh?: boolean } = {}) => {
+		async <T>(
+			operation: (token: string) => Promise<T>,
+			options: { awaitRefresh?: boolean } = {},
+		) => {
 			if (!state.token) {
 				const message = 'Control plane is still connecting; retry once the session token is ready.';
 				setState((current) => ({ ...current, error: message }));
@@ -127,7 +143,9 @@ export function useControlPlane() {
 				const result = await operation(state.token);
 				const refreshPromise = refresh(true);
 				if (options.awaitRefresh === false) {
-					void refreshPromise.catch(() => undefined).finally(() => setState((current) => ({ ...current, busy: false })));
+					void refreshPromise
+						.catch(() => undefined)
+						.finally(() => setState((current) => ({ ...current, busy: false })));
 					return result;
 				}
 				await refreshPromise;

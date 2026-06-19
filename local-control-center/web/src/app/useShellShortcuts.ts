@@ -3,11 +3,11 @@
  * @copyright Copyright (c) AIDO.
  * @author Roddmason
  */
-import { useLayoutEffect } from 'react';
-import type { RefObject } from 'react';
 
-import { matchesShortcut } from './commandActions';
+import type { RefObject } from 'react';
+import { useLayoutEffect } from 'react';
 import type { CommandAction } from './commandActions';
+import { matchesShortcut } from './commandActions';
 import type { AppRoute } from './routing';
 
 /**

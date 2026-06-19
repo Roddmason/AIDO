@@ -34,7 +34,9 @@ export function StatusBar({
 		<footer className="status-bar" aria-label={t('app.global.globalStatus', 'Global status')}>
 			<span className="status-bar-item">
 				<StatusDot tone={status.connected ? 'ok' : 'warn'} />
-				{status.connected ? t('app.statusBar.apiConnected', 'API connected') : t('app.statusBar.polling', 'polling')}
+				{status.connected
+					? t('app.statusBar.apiConnected', 'API connected')
+					: t('app.statusBar.polling', 'polling')}
 			</span>
 			<span className="status-bar-item" title={String(selectedProject?.path ?? '')}>
 				<span className="status-bar-label">{t('app.statusBar.project', 'Project')}</span>
@@ -54,7 +56,11 @@ export function StatusBar({
 			</span>
 			<span className="status-bar-item">
 				<span className="status-bar-label">{t('app.statusBar.cost', 'Cost')}</span>
-				<strong>{status.recordedCost === null ? t('app.statusBar.unavailable', 'unavailable') : `$${status.recordedCost.toFixed(2)}`}</strong>
+				<strong>
+					{status.recordedCost === null
+						? t('app.statusBar.unavailable', 'unavailable')
+						: `$${status.recordedCost.toFixed(2)}`}
+				</strong>
 			</span>
 		</footer>
 	);

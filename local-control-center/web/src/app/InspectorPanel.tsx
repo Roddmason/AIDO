@@ -24,18 +24,31 @@ export function InspectorPanel({
 		if (!selectedProject) return null;
 		const id = selectedProject.id;
 		return {
-			approvals: overview.actionRequests.filter((item) => item.projectId === id && item.status === 'pending').length,
+			approvals: overview.actionRequests.filter(
+				(item) => item.projectId === id && item.status === 'pending',
+			).length,
 			evidence: overview.evidencePackages.filter((item) => item.projectId === id).length,
 			workspaces: overview.runtimeWorkspaces.filter((item) => item.projectId === id).length,
 			workflows: overview.workflows.filter((item) => item.projectId === id).length,
 		};
-	}, [overview.actionRequests, overview.evidencePackages, overview.runtimeWorkspaces, overview.workflows, selectedProject]);
+	}, [
+		overview.actionRequests,
+		overview.evidencePackages,
+		overview.runtimeWorkspaces,
+		overview.workflows,
+		selectedProject,
+	]);
 
 	return (
 		<aside className="inspector-panel" aria-label={t('app.global.inspector', 'Inspector')}>
 			<div className="inspector-header">
 				<h2 className="surface-title">{t('app.global.inspector', 'Inspector')}</h2>
-				<button className="icon-button" type="button" aria-label={t('app.inspector.closeInspector', 'Close inspector')} onClick={onClose}>
+				<button
+					className="icon-button"
+					type="button"
+					aria-label={t('app.inspector.closeInspector', 'Close inspector')}
+					onClick={onClose}
+				>
 					×
 				</button>
 			</div>
@@ -47,7 +60,9 @@ export function InspectorPanel({
 						<strong>{selectedProject.name}</strong>
 						<strong className="mono">{String(selectedProject.path ?? selectedProject.id)}</strong>
 						<div className="workspace-root-meta">
-							<Badge tone={toneForStatus(String(selectedProject.status ?? 'active'))}>{String(selectedProject.status ?? 'active')}</Badge>
+							<Badge tone={toneForStatus(String(selectedProject.status ?? 'active'))}>
+								{String(selectedProject.status ?? 'active')}
+							</Badge>
 						</div>
 					</div>
 					<div className="signal-grid">
@@ -72,7 +87,10 @@ export function InspectorPanel({
 			) : (
 				<EmptyState
 					title={t('app.inspector.noProjectSelected', 'No project selected')}
-					body={t('app.inspector.pickWorkspaceContext', 'Pick a workspace to see its context here.')}
+					body={t(
+						'app.inspector.pickWorkspaceContext',
+						'Pick a workspace to see its context here.',
+					)}
 				/>
 			)}
 		</aside>

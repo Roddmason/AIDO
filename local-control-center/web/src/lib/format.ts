@@ -24,37 +24,55 @@ export function redactVisibleSecret(value: unknown, fallback = 'n/a'): string {
 
 export function toneForStatus(status?: string): 'ok' | 'warn' | 'danger' | 'info' | 'pending' {
 	if (!status) return 'info';
-	if (['completed', 'passed', 'approved', 'approved_for_integration', 'pr_created', 'active', 'available', 'security_passed'].includes(status)) return 'ok';
+	if (
+		[
+			'completed',
+			'passed',
+			'approved',
+			'approved_for_integration',
+			'pr_created',
+			'active',
+			'available',
+			'security_passed',
+		].includes(status)
+	)
+		return 'ok';
 	// Waiting on a human decision — use the distinct "pending" tone the palette defines.
 	if (['pending', 'awaiting_permission', 'awaiting_approval'].includes(status)) return 'pending';
-	if ([
-		'queued',
-		'running',
-		'awaiting_human',
-		'approval_required',
-		'evidence_ready',
-		'optional',
-		'promoted_to_branch',
-		'pr_unavailable',
-		'skipped_with_reason',
-		'needs_human_review',
-		'warning',
-	].includes(status)) return 'warn';
-	if ([
-		'failed',
-		'blocked',
-		'denied',
-		'cancelled',
-		'configuration_required',
-		'unavailable',
-		'runtime_unavailable',
-		'qa_failed',
-		'security_blocked',
-		'devops_blocked',
-		'promotion_failed',
-		'pr_failed',
-		'error',
-		'critical',
-	].includes(status)) return 'danger';
+	if (
+		[
+			'queued',
+			'running',
+			'awaiting_human',
+			'approval_required',
+			'evidence_ready',
+			'optional',
+			'promoted_to_branch',
+			'pr_unavailable',
+			'skipped_with_reason',
+			'needs_human_review',
+			'warning',
+		].includes(status)
+	)
+		return 'warn';
+	if (
+		[
+			'failed',
+			'blocked',
+			'denied',
+			'cancelled',
+			'configuration_required',
+			'unavailable',
+			'runtime_unavailable',
+			'qa_failed',
+			'security_blocked',
+			'devops_blocked',
+			'promotion_failed',
+			'pr_failed',
+			'error',
+			'critical',
+		].includes(status)
+	)
+		return 'danger';
 	return 'info';
 }

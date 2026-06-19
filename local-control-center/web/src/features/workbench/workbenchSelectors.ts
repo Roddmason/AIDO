@@ -41,20 +41,37 @@ export function activeProjects(projects: Project[]) {
 
 export function runtimeSupportsIssueToPatch(runtime: RuntimeProvider) {
 	const kind = String(runtime.kind ?? '').toLowerCase();
-	return kind !== 'test' && kind !== 'simulation' && (runtime.capabilities ?? []).some((capability) => issueRuntimeCapabilities.has(capability));
+	return (
+		kind !== 'test' &&
+		kind !== 'simulation' &&
+		(runtime.capabilities ?? []).some((capability) => issueRuntimeCapabilities.has(capability))
+	);
 }
 
 export function runtimeIsExecutableIssueRuntime(runtime: RuntimeProvider) {
 	return runtimeSupportsIssueToPatch(runtime) && runtime.executable === true;
 }
 
-export function timeOf(record: { updatedAt?: string | null; createdAt?: string | null; startedAt?: string | null; completedAt?: string | null }) {
-	const value = record.updatedAt ?? record.completedAt ?? record.startedAt ?? record.createdAt ?? '';
+export function timeOf(record: {
+	updatedAt?: string | null;
+	createdAt?: string | null;
+	startedAt?: string | null;
+	completedAt?: string | null;
+}) {
+	const value =
+		record.updatedAt ?? record.completedAt ?? record.startedAt ?? record.createdAt ?? '';
 	const parsed = Date.parse(String(value));
 	return Number.isNaN(parsed) ? 0 : parsed;
 }
 
-export function sortByTimeDesc<T extends { updatedAt?: string | null; createdAt?: string | null; startedAt?: string | null; completedAt?: string | null }>(rows: T[]) {
+export function sortByTimeDesc<
+	T extends {
+		updatedAt?: string | null;
+		createdAt?: string | null;
+		startedAt?: string | null;
+		completedAt?: string | null;
+	},
+>(rows: T[]) {
 	return [...rows].sort((left, right) => timeOf(right) - timeOf(left));
 }
 
@@ -62,12 +79,24 @@ export function sortByTimeDesc<T extends { updatedAt?: string | null; createdAt?
  * Maps an issue_to_patch response (or its absence) to the staged run timeline.
  * Moved verbatim from the former CommandCenterPage so behavior is preserved.
  */
-export function buildIssueTimeline(result: IssueToPatchResponse | null, isSubmittingTask: boolean, hasExecutableRuntime: boolean): IssueTimelineEntry[] {
+export function buildIssueTimeline(
+	result: IssueToPatchResponse | null,
+	isSubmittingTask: boolean,
+	hasExecutableRuntime: boolean,
+): IssueTimelineEntry[] {
 	if (!result) {
 		return [
-			{ id: 'created', status: isSubmittingTask ? 'done' : 'pending', detail: isSubmittingTask ? 'request submitted' : 'not started' },
+			{
+				id: 'created',
+				status: isSubmittingTask ? 'done' : 'pending',
+				detail: isSubmittingTask ? 'request submitted' : 'not started',
+			},
 			{ id: 'workspace_allocated', status: 'pending', detail: 'waiting for workflow run' },
-			{ id: 'runtime_selected', status: hasExecutableRuntime ? 'pending' : 'blocked', detail: hasExecutableRuntime ? 'waiting for run' : 'runtime_unavailable' },
+			{
+				id: 'runtime_selected',
+				status: hasExecutableRuntime ? 'pending' : 'blocked',
+				detail: hasExecutableRuntime ? 'waiting for run' : 'runtime_unavailable',
+			},
 			{ id: 'running', status: 'pending', detail: 'waiting for executable runtime' },
 			{ id: 'qa_running', status: 'pending', detail: 'waiting for runtime output' },
 			{ id: 'evidence_ready', status: 'pending', detail: 'waiting for artifact package' },
@@ -84,33 +113,92 @@ export function buildIssueTimeline(result: IssueToPatchResponse | null, isSubmit
 	const evidence = objectRecord(result.evidencePackage);
 	const qaResults = Array.isArray(result.qaResults) ? result.qaResults : [];
 	const isRuntimeUnavailable = status === 'runtime_unavailable' || status === 'unavailable';
-	const isFailed = isRuntimeUnavailable || status === 'failed' || String(workflowRun?.status ?? '') === 'failed';
+	const isFailed =
+		isRuntimeUnavailable || status === 'failed' || String(workflowRun?.status ?? '') === 'failed';
 	const isCompleted = status === 'completed' || String(workflowRun?.status ?? '') === 'completed';
-	const isApprovedForIntegration = status === 'approved_for_integration' || String(workflowRun?.status ?? '') === 'approved_for_integration';
-	const awaitingApproval = Boolean(rawResult.actionRequest) || (Boolean(rawResult.approvalRequired) && (status === 'evidence_ready' || String(workflowRun?.status ?? '') === 'awaiting_permission'));
+	const isApprovedForIntegration =
+		status === 'approved_for_integration' ||
+		String(workflowRun?.status ?? '') === 'approved_for_integration';
+	const awaitingApproval =
+		Boolean(rawResult.actionRequest) ||
+		(Boolean(rawResult.approvalRequired) &&
+			(status === 'evidence_ready' || String(workflowRun?.status ?? '') === 'awaiting_permission'));
 	const stageDetails: Record<(typeof issueTimelineOrder)[number], string> = {
-		created: String(workflowRun?.id ?? objectRecord(result.workflow)?.id ?? 'workflow not recorded'),
+		created: String(
+			workflowRun?.id ?? objectRecord(result.workflow)?.id ?? 'workflow not recorded',
+		),
 		workspace_allocated: String(workspace?.id ?? 'workspace not allocated'),
 		runtime_selected: String(runtime?.id ?? 'runtime not selected'),
 		running: String(runtimeResult?.status ?? (status || 'not started')),
-		qa_running: qaResults.length ? String(objectRecord(qaResults[0])?.status ?? objectRecord(qaResults[0])?.verdict ?? 'qa_recorded') : 'qa_not_run',
+		qa_running: qaResults.length
+			? String(
+					objectRecord(qaResults[0])?.status ??
+						objectRecord(qaResults[0])?.verdict ??
+						'qa_recorded',
+				)
+			: 'qa_not_run',
 		evidence_ready: String(evidence?.id ?? 'evidence not created'),
-		awaiting_approval: isApprovedForIntegration ? 'approved for integration' : awaitingApproval ? 'approval gate open' : 'no pending approval',
+		awaiting_approval: isApprovedForIntegration
+			? 'approved for integration'
+			: awaitingApproval
+				? 'approval gate open'
+				: 'no pending approval',
 	};
 	const stageStatuses: Record<(typeof issueTimelineOrder)[number], TimelineStatus> = {
-		created: workflowRun?.id || objectRecord(result.workflow)?.id ? 'done' : isFailed ? 'failed' : 'pending',
+		created:
+			workflowRun?.id || objectRecord(result.workflow)?.id
+				? 'done'
+				: isFailed
+					? 'failed'
+					: 'pending',
 		workspace_allocated: workspace?.id ? 'done' : isFailed ? 'failed' : 'pending',
-		runtime_selected: isRuntimeUnavailable ? 'failed' : runtime?.id ? 'done' : isFailed ? 'failed' : 'pending',
-		running: isFailed ? 'failed' : isCompleted || runtimeResult ? 'done' : isSubmittingTask ? 'active' : 'pending',
-		qa_running: qaResults.length ? (String(objectRecord(qaResults[0])?.status ?? objectRecord(qaResults[0])?.verdict ?? '') === 'failed' ? 'failed' : 'done') : 'pending',
+		runtime_selected: isRuntimeUnavailable
+			? 'failed'
+			: runtime?.id
+				? 'done'
+				: isFailed
+					? 'failed'
+					: 'pending',
+		running: isFailed
+			? 'failed'
+			: isCompleted || runtimeResult
+				? 'done'
+				: isSubmittingTask
+					? 'active'
+					: 'pending',
+		qa_running: qaResults.length
+			? String(objectRecord(qaResults[0])?.status ?? objectRecord(qaResults[0])?.verdict ?? '') ===
+				'failed'
+				? 'failed'
+				: 'done'
+			: 'pending',
 		evidence_ready: evidence?.id ? 'done' : isFailed ? 'failed' : 'pending',
-		awaiting_approval: awaitingApproval ? 'active' : isCompleted || isApprovedForIntegration ? 'done' : 'pending',
+		awaiting_approval: awaitingApproval
+			? 'active'
+			: isCompleted || isApprovedForIntegration
+				? 'done'
+				: 'pending',
 	};
-	const terminalId = isCompleted ? 'completed' : isApprovedForIntegration ? 'approved_for_integration' : isFailed ? 'failed' : 'completed/failed';
-	const terminalStatus: TimelineStatus = isCompleted || isApprovedForIntegration ? 'done' : isFailed ? 'failed' : 'pending';
+	const terminalId = isCompleted
+		? 'completed'
+		: isApprovedForIntegration
+			? 'approved_for_integration'
+			: isFailed
+				? 'failed'
+				: 'completed/failed';
+	const terminalStatus: TimelineStatus =
+		isCompleted || isApprovedForIntegration ? 'done' : isFailed ? 'failed' : 'pending';
 	return [
-		...issueTimelineOrder.map((id) => ({ id, status: stageStatuses[id], detail: stageDetails[id] })),
-		{ id: terminalId, status: terminalStatus, detail: status || String(workflowRun?.status ?? 'not terminal') },
+		...issueTimelineOrder.map((id) => ({
+			id,
+			status: stageStatuses[id],
+			detail: stageDetails[id],
+		})),
+		{
+			id: terminalId,
+			status: terminalStatus,
+			detail: status || String(workflowRun?.status ?? 'not terminal'),
+		},
 	];
 }
 
@@ -123,20 +211,58 @@ export function deriveBlockers(params: {
 	hasExecutableRuntime: boolean;
 	runtimeBlockerReason: string;
 }): Blocker[] {
-	const { projectId, workflowRuns, testResults, risks, hasExecutableRuntime, runtimeBlockerReason } = params;
+	const {
+		projectId,
+		workflowRuns,
+		testResults,
+		risks,
+		hasExecutableRuntime,
+		runtimeBlockerReason,
+	} = params;
 	const blockers: Blocker[] = [];
 	if (!hasExecutableRuntime) {
-		blockers.push({ id: 'runtime', label: 'runtime_unavailable', detail: runtimeBlockerReason, tone: 'danger' });
+		blockers.push({
+			id: 'runtime',
+			label: 'runtime_unavailable',
+			detail: runtimeBlockerReason,
+			tone: 'danger',
+		});
 	}
-	for (const run of sortByTimeDesc(workflowRuns.filter((run) => run.projectId === projectId && failingRunStatuses.has(String(run.status))))) {
+	for (const run of sortByTimeDesc(
+		workflowRuns.filter(
+			(run) => run.projectId === projectId && failingRunStatuses.has(String(run.status)),
+		),
+	)) {
 		const tone = run.status === 'blocked' || run.status === 'cancelled' ? 'warn' : 'danger';
-		blockers.push({ id: `run-${run.id}`, label: String(run.status), detail: `run ${shortId(run.id)}`, tone });
+		blockers.push({
+			id: `run-${run.id}`,
+			label: String(run.status),
+			detail: `run ${shortId(run.id)}`,
+			tone,
+		});
 	}
-	for (const result of testResults.filter((result) => result.projectId === projectId && result.status === 'failed').slice(0, 3)) {
-		blockers.push({ id: `qa-${result.id}`, label: 'qa_failed', detail: result.command || shortId(result.id), tone: 'danger' });
+	for (const result of testResults
+		.filter((result) => result.projectId === projectId && result.status === 'failed')
+		.slice(0, 3)) {
+		blockers.push({
+			id: `qa-${result.id}`,
+			label: 'qa_failed',
+			detail: result.command || shortId(result.id),
+			tone: 'danger',
+		});
 	}
-	for (const risk of risks.filter((risk) => risk.projectId === projectId && risk.status === 'open' && (risk.severity === 'high' || risk.severity === 'critical'))) {
-		blockers.push({ id: `risk-${risk.id}`, label: `risk_${risk.severity}`, detail: risk.title, tone: risk.severity === 'critical' ? 'danger' : 'warn' });
+	for (const risk of risks.filter(
+		(risk) =>
+			risk.projectId === projectId &&
+			risk.status === 'open' &&
+			(risk.severity === 'high' || risk.severity === 'critical'),
+	)) {
+		blockers.push({
+			id: `risk-${risk.id}`,
+			label: `risk_${risk.severity}`,
+			detail: risk.title,
+			tone: risk.severity === 'critical' ? 'danger' : 'warn',
+		});
 	}
 	return blockers.slice(0, 6);
 }

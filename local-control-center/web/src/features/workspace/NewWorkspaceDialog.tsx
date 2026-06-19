@@ -3,15 +3,16 @@
  * @copyright Copyright (c) AIDO.
  * @author Roddmason
  */
-import { useEffect, useState } from 'react';
+
 import { FolderOpen, FolderPlus, Search } from 'lucide-react';
+import { useEffect, useState } from 'react';
 
 import type { Overview } from '../../api/types';
 import { Modal } from '../../components/primitives';
 import { useI18n } from '../../i18n/I18nProvider';
 import { ProjectDiscoverySummary } from './ProjectDiscoverySummary';
-import { useProjectDiscovery } from './useProjectDiscovery';
 import type { WorkspaceMode } from './useProjectDiscovery';
+import { useProjectDiscovery } from './useProjectDiscovery';
 
 type Mutate = <T>(operation: (token: string) => Promise<T>) => Promise<T>;
 type DialogStep = 'source' | 'review' | 'open';
@@ -73,7 +74,10 @@ export function NewWorkspaceDialog({
 	return (
 		<Modal open={open} label={t('app.workspace.dialog.title', 'New workspace')} onClose={onClose}>
 			<div className="form-grid">
-				<ol className="wizard-steps" aria-label={t('app.workspace.steps.aria', 'Workspace setup steps')}>
+				<ol
+					className="wizard-steps"
+					aria-label={t('app.workspace.steps.aria', 'Workspace setup steps')}
+				>
 					{STEP_ORDER.map((item, index) => (
 						<li key={item} className={item === step ? 'current' : ''}>
 							<span className="mono">0{index + 1}</span>
@@ -84,7 +88,11 @@ export function NewWorkspaceDialog({
 
 				{step === 'source' ? (
 					<>
-						<div className="workspace-mode-grid" role="group" aria-label={t('app.workspace.mode.aria', 'Workspace source')}>
+						<div
+							className="workspace-mode-grid"
+							role="group"
+							aria-label={t('app.workspace.mode.aria', 'Workspace source')}
+						>
 							<button
 								type="button"
 								className="card workspace-mode-card"
@@ -95,8 +103,15 @@ export function NewWorkspaceDialog({
 								<span className="card-header">
 									<FolderOpen size={18} aria-hidden="true" />
 								</span>
-								<strong className="card-title">{t('app.workspace.mode.openFolder', 'Open folder')}</strong>
-								<span className="card-body">{t('app.workspace.mode.openFolderHint', 'Use a local folder that already contains a project.')}</span>
+								<strong className="card-title">
+									{t('app.workspace.mode.openFolder', 'Open folder')}
+								</strong>
+								<span className="card-body">
+									{t(
+										'app.workspace.mode.openFolderHint',
+										'Use a local folder that already contains a project.',
+									)}
+								</span>
 							</button>
 							<button
 								type="button"
@@ -108,14 +123,23 @@ export function NewWorkspaceDialog({
 								<span className="card-header">
 									<FolderPlus size={18} aria-hidden="true" />
 								</span>
-								<strong className="card-title">{t('app.workspace.mode.create', 'Create workspace')}</strong>
-								<span className="card-body">{t('app.workspace.mode.createHint', 'Create a new folder and start an empty workspace.')}</span>
+								<strong className="card-title">
+									{t('app.workspace.mode.create', 'Create workspace')}
+								</strong>
+								<span className="card-body">
+									{t(
+										'app.workspace.mode.createHint',
+										'Create a new folder and start an empty workspace.',
+									)}
+								</span>
 							</button>
 						</div>
 
 						{workspace.mode === 'open_folder' ? (
 							<div className="field">
-								<label htmlFor="workspace-folder">{t('app.workspace.field.folder', 'Workspace folder')}</label>
+								<label htmlFor="workspace-folder">
+									{t('app.workspace.field.folder', 'Workspace folder')}
+								</label>
 								<div className="inline">
 									<input
 										id="workspace-folder"
@@ -124,17 +148,29 @@ export function NewWorkspaceDialog({
 										autoComplete="off"
 										onChange={(event) => workspace.setWorkspaceFolder(event.target.value)}
 									/>
-									<button className="button primary" type="button" onClick={() => void workspace.browseDirectory('workspaceFolder')} disabled={workspace.pickerBusy}>
+									<button
+										className="button primary"
+										type="button"
+										onClick={() => void workspace.browseDirectory('workspaceFolder')}
+										disabled={workspace.pickerBusy}
+									>
 										<FolderOpen size={16} aria-hidden="true" />
 										{t('app.workspace.action.openFolder', 'Open folder')}
 									</button>
 								</div>
-								<span className="field-help">{t('app.workspace.field.folderHelp', 'Pick a folder and AIDO detects the project automatically.')}</span>
+								<span className="field-help">
+									{t(
+										'app.workspace.field.folderHelp',
+										'Pick a folder and AIDO detects the project automatically.',
+									)}
+								</span>
 							</div>
 						) : (
 							<>
 								<div className="field">
-									<label htmlFor="workspace-base-path">{t('app.workspace.field.basePath', 'Workspace base path')}</label>
+									<label htmlFor="workspace-base-path">
+										{t('app.workspace.field.basePath', 'Workspace base path')}
+									</label>
 									<div className="inline">
 										<input
 											id="workspace-base-path"
@@ -143,14 +179,21 @@ export function NewWorkspaceDialog({
 											autoComplete="off"
 											onChange={(event) => workspace.setWorkspaceBasePath(event.target.value)}
 										/>
-										<button className="button" type="button" onClick={() => void workspace.browseDirectory('workspaceBasePath')} disabled={workspace.pickerBusy}>
+										<button
+											className="button"
+											type="button"
+											onClick={() => void workspace.browseDirectory('workspaceBasePath')}
+											disabled={workspace.pickerBusy}
+										>
 											<FolderOpen size={16} aria-hidden="true" />
 											{t('app.workspace.action.openFolder', 'Open folder')}
 										</button>
 									</div>
 								</div>
 								<div className="field">
-									<label htmlFor="workspace-name">{t('app.workspace.field.workspaceName', 'Workspace name')}</label>
+									<label htmlFor="workspace-name">
+										{t('app.workspace.field.workspaceName', 'Workspace name')}
+									</label>
 									<input
 										id="workspace-name"
 										className="input"
@@ -159,16 +202,26 @@ export function NewWorkspaceDialog({
 										onChange={(event) => workspace.updateWorkspaceName(event.target.value)}
 									/>
 									<span className="field-help">
-										{t('app.workspace.field.finalPath', 'Final path:')} <span className="mono">{workspace.finalPath || 'workspace/workspace-name'}</span>
+										{t('app.workspace.field.finalPath', 'Final path:')}{' '}
+										<span className="mono">
+											{workspace.finalPath || 'workspace/workspace-name'}
+										</span>
 									</span>
 									{workspace.workspaceNameConflict ? (
-										<span className="form-error" role="alert">{t('app.workspace.error.nameExists', 'Workspace name already exists.')}</span>
+										<span className="form-error" role="alert">
+											{t('app.workspace.error.nameExists', 'Workspace name already exists.')}
+										</span>
 									) : null}
 								</div>
 							</>
 						)}
 
-						<button className="button" type="button" onClick={() => void workspace.runDiscovery()} disabled={workspace.discoveryBusy || workspace.pickerBusy}>
+						<button
+							className="button"
+							type="button"
+							onClick={() => void workspace.runDiscovery()}
+							disabled={workspace.discoveryBusy || workspace.pickerBusy}
+						>
 							<Search size={16} aria-hidden="true" />
 							{t('app.workspace.action.detect', 'Detect project')}
 						</button>
@@ -177,10 +230,15 @@ export function NewWorkspaceDialog({
 
 				{step === 'review' ? (
 					<>
-						<ProjectDiscoverySummary markers={workspace.detectionMarkers} runtimeLabels={workspace.runtimeLabels} />
+						<ProjectDiscoverySummary
+							markers={workspace.detectionMarkers}
+							runtimeLabels={workspace.runtimeLabels}
+						/>
 
 						<div className="field">
-							<label htmlFor="workspace-project-name">{t('app.workspace.field.projectName', 'Project name')}</label>
+							<label htmlFor="workspace-project-name">
+								{t('app.workspace.field.projectName', 'Project name')}
+							</label>
 							<input
 								id="workspace-project-name"
 								className="input"
@@ -191,14 +249,28 @@ export function NewWorkspaceDialog({
 							/>
 						</div>
 						<div className="field">
-							<label htmlFor="workspace-template">{t('app.workspace.field.template', 'Project template')}</label>
-							<select id="workspace-template" className="select" value={workspace.templateId} onChange={(event) => workspace.setTemplateId(event.target.value)}>
+							<label htmlFor="workspace-template">
+								{t('app.workspace.field.template', 'Project template')}
+							</label>
+							<select
+								id="workspace-template"
+								className="select"
+								value={workspace.templateId}
+								onChange={(event) => workspace.setTemplateId(event.target.value)}
+							>
 								{overview.projectTemplates.map((template) => (
-									<option key={template.id} value={template.id}>{template.name}</option>
+									<option key={template.id} value={template.id}>
+										{template.name}
+									</option>
 								))}
 							</select>
 						</div>
-						<button className="button" type="button" onClick={() => void workspace.runDiscovery()} disabled={workspace.discoveryBusy || workspace.pickerBusy}>
+						<button
+							className="button"
+							type="button"
+							onClick={() => void workspace.runDiscovery()}
+							disabled={workspace.discoveryBusy || workspace.pickerBusy}
+						>
 							<Search size={16} aria-hidden="true" />
 							{t('app.workspace.action.detect', 'Detect project')}
 						</button>
@@ -207,22 +279,68 @@ export function NewWorkspaceDialog({
 
 				{step === 'open' ? (
 					<div className="review-grid">
-						<div><span className="muted">{t('app.workspace.summary.name', 'Name')}</span><strong>{workspace.name.trim()}</strong></div>
-						<div><span className="muted">{t('app.workspace.summary.source', 'Source')}</span><strong>{workspace.mode === 'create_workspace' ? t('app.workspace.mode.create', 'Create workspace') : t('app.workspace.mode.openFolder', 'Open folder')}</strong></div>
-						<div><span className="muted">{t('app.workspace.summary.path', 'Path')}</span><strong className="mono">{workspace.finalPath}</strong></div>
-						<div><span className="muted">{t('app.workspace.summary.template', 'Template')}</span><strong className="mono">{workspace.templateId}</strong></div>
-						<div><span className="muted">{t('app.workspace.detection.runtimes', 'Runtimes detected')}</span><strong>{workspace.runtimeLabels.length || t('app.workspace.detection.none', 'none')}</strong></div>
+						<div>
+							<span className="muted">{t('app.workspace.summary.name', 'Name')}</span>
+							<strong>{workspace.name.trim()}</strong>
+						</div>
+						<div>
+							<span className="muted">{t('app.workspace.summary.source', 'Source')}</span>
+							<strong>
+								{workspace.mode === 'create_workspace'
+									? t('app.workspace.mode.create', 'Create workspace')
+									: t('app.workspace.mode.openFolder', 'Open folder')}
+							</strong>
+						</div>
+						<div>
+							<span className="muted">{t('app.workspace.summary.path', 'Path')}</span>
+							<strong className="mono">{workspace.finalPath}</strong>
+						</div>
+						<div>
+							<span className="muted">{t('app.workspace.summary.template', 'Template')}</span>
+							<strong className="mono">{workspace.templateId}</strong>
+						</div>
+						<div>
+							<span className="muted">
+								{t('app.workspace.detection.runtimes', 'Runtimes detected')}
+							</span>
+							<strong>
+								{workspace.runtimeLabels.length || t('app.workspace.detection.none', 'none')}
+							</strong>
+						</div>
 					</div>
 				) : null}
 
-				{workspace.error ? <div className="form-error" role="alert">{workspace.error}</div> : null}
+				{workspace.error ? (
+					<div className="form-error" role="alert">
+						{workspace.error}
+					</div>
+				) : null}
 
 				<div className="wizard-actions">
-					<button className="button" type="button" onClick={stepIndex === 0 ? onClose : () => { workspace.setError(''); setStep(STEP_ORDER[Math.max(stepIndex - 1, 0)]); }} disabled={workspace.busy}>
-						{stepIndex === 0 ? t('app.workspace.action.cancel', 'Cancel') : t('app.workspace.action.back', 'Back')}
+					<button
+						className="button"
+						type="button"
+						onClick={
+							stepIndex === 0
+								? onClose
+								: () => {
+										workspace.setError('');
+										setStep(STEP_ORDER[Math.max(stepIndex - 1, 0)]);
+									}
+						}
+						disabled={workspace.busy}
+					>
+						{stepIndex === 0
+							? t('app.workspace.action.cancel', 'Cancel')
+							: t('app.workspace.action.back', 'Back')}
 					</button>
 					{step === 'open' ? (
-						<button className="button primary" type="button" onClick={() => void handleOpen()} disabled={workspace.busy}>
+						<button
+							className="button primary"
+							type="button"
+							onClick={() => void handleOpen()}
+							disabled={workspace.busy}
+						>
 							{t('app.workspace.action.openInWorkbench', 'Open in workbench')}
 						</button>
 					) : (
@@ -230,7 +348,12 @@ export function NewWorkspaceDialog({
 							className="button primary"
 							type="button"
 							onClick={step === 'source' ? goReview : () => setStep('open')}
-							disabled={workspace.busy || workspace.discoveryBusy || workspace.pickerBusy || workspace.workspaceNameConflict}
+							disabled={
+								workspace.busy ||
+								workspace.discoveryBusy ||
+								workspace.pickerBusy ||
+								workspace.workspaceNameConflict
+							}
 						>
 							{t('app.workspace.action.next', 'Next')}
 						</button>

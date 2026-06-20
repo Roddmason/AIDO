@@ -19,6 +19,10 @@
       "en": "Close",
       "es": "Cerrar"
     },
+    "app.global.toggleDensity": {
+      "en": "Toggle compact density",
+      "es": "Alternar densidad compacta"
+    },
     "app.shell.resizeExplorer": {
       "en": "Resize explorer panel",
       "es": "Redimensionar panel de explorador"

@@ -99,16 +99,12 @@
 	--color-focus: oklch(64% 0.13 250);
 
 	/* ---- Layout sizes (IDE shell) ---- */
-	--size-activity-bar: 3.5rem;
-	--size-explorer: 19.5rem;
-	--size-inspector: 22rem;
 	--size-status-bar: 2rem;
 	--content-max: 92rem;
 
 	/* ---- Density (control sizing; default stays touch-safe) ---- */
 	--control-height: 2.75rem;
 	--control-height-sm: 2.25rem;
-	--control-height-xs: 1.9rem;
 
 	/* ---- Motion ---- */
 	--duration-fast: 120ms;
@@ -124,6 +120,14 @@
 	--z-drawer: 40;
 	--z-command: 50;
 	--z-toast: 60;
+}
+
+/* Density: comfortable (touch-safe) is the :root default above; compact tightens
+   control sizing for information-dense, mouse-first sessions. Selected via the
+   `data-density` attribute on <html>. */
+:root[data-density="compact"] {
+	--control-height: 2.35rem;
+	--control-height-sm: 2rem;
 }
 
 :root[data-theme="light"] {

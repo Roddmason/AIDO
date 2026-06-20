@@ -890,7 +890,7 @@ test('IDE shell uses dark modern surfaces and compact navigation', async ({ page
 	await expect(page.locator('.ide-nav')).toBeVisible();
 	await expect(page.locator('.workbench-layout')).toBeVisible();
 	await expect(page.locator('.rotor-ring')).toHaveCount(0);
-	await expect(page.locator('.console-grid')).toBeVisible();
+	await expect(page.locator('.console-grid')).toHaveCount(0);
 });
 
 test('theme toggle switches to light, applies the light surface and persists across reloads', async ({ page }) => {

@@ -13,10 +13,10 @@ import { toneForStatus } from '../lib/format';
 import { EASE_OUT } from '../motion/variants';
 
 /**
- * Apertura/cierre del Inspector: el panel entra/sale fundiéndose y deslizándose desde su
- * borde derecho (no un corte). Vive dentro del `AnimatePresence` del AppShell, que conserva
- * el montaje durante la salida; la columna del grid la sigue gobernando `data-inspector`.
- * Bajo `MotionConfig reducedMotion="user"` el desplazamiento cae a no-op y queda el fundido.
+ * Apertura del Inspector: el panel entra fundiéndose y deslizándose desde su borde derecho
+ * (no un corte). En desktop vive en un pane redimensionable del shell; en el layout apilado
+ * se monta/desmonta según su estado. Bajo `MotionConfig reducedMotion="user"` el
+ * desplazamiento cae a no-op y queda solo el fundido.
  */
 const inspectorReveal: Variants = {
 	initial: { opacity: 0, x: 16 },

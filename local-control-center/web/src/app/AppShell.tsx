@@ -263,12 +263,7 @@ export function AppShell({
 
 	if (!isDesktop) {
 		return (
-			<div
-				className="app-shell-ide app-shell-ide--stacked"
-				data-explorer={explorerCollapsed ? 'false' : 'true'}
-				data-inspector={inspectorCollapsed ? 'false' : 'true'}
-			>
-				<span className="console-grid" aria-hidden="true" />
+			<div className="app-shell-ide app-shell-ide--stacked">
 				{activityBar}
 				{explorerCollapsed ? null : explorer}
 				{workbench}
@@ -281,7 +276,6 @@ export function AppShell({
 
 	return (
 		<div className="app-shell-ide">
-			<span className="console-grid" aria-hidden="true" />
 			<div className="ide-body">
 				{activityBar}
 				<Group

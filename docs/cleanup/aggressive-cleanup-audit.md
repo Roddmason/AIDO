@@ -119,6 +119,8 @@ La verificación adversarial **interceptó 5 propuestas de borrado peligrosas**.
 | FE-CORE-002 | `design-system/layout.css` | Selectores pre-IDE-shell huérfanos; el shell vivo usa `.app-shell-ide`/`.explorer-panel`/`.nav-section-label`/`.brand-wordmark`. **Caveat:** varios están agrupados con selectores vivos → quitar **solo el huérfano** de cada grupo, no el bloque. | low | Edición quirúrgica (ver detalle en finding). No tocar `.main-area`/`.console-grid` (asertados por test dark-surfaces). | `confirmed_unused` |
 | FE-CORE-003 | `design-system/{components,layout,motion}.css` | 8 utilidades huérfanas; `.panel-tab` singular vs `.panel-tabs` (plural, vivo). Algunas comparten grupo con selectores vivos. | low | Quitar solo los 8 huérfanos de sus grupos; re-grep cada token justo antes de borrar. | `confirmed_unused` |
 
+> ✅ **Resuelto** (cleanup CSS, 2026-06-19): FE-CORE-001/002/003 eliminados — `.app-shell`, `.sidebar`, `.sidebar-footer`, `.nav-primary`, `.split-pane`, `.brand-mark/-title/-kicker`, `.wizard-layout`, `.wizard-tech-strip`, `.panel-tab`, las card-variant huérfanas de `motion.css`, `.workspace-meta`, `.progress-current`, `.workbench-actions`, `.workbench-progress-grid/-signals`, `.settings-defaults-trigger`, `.home-hero-error`, los tokens `--size-activity-bar/-explorer/-inspector` y `--control-height-xs`, y el render de `.console-grid`. Se quitó solo el huérfano de cada grupo; los selectores agrupados vivos se conservan. Se añadió `data-density` (comfortable/compact).
+
 ### 4.4 `duplicated logic` (9)
 
 | ID | Archivos · símbolo | Evidencia | Riesgo | Acción | Veredicto |

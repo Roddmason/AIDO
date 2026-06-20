@@ -365,16 +365,14 @@
 	background: var(--color-surface-inset);
 }
 
-.tabs .button,
-.panel-tab {
+.tabs .button {
 	min-height: var(--control-height-sm);
 	border-color: transparent;
 	background: transparent;
 	color: var(--color-text-secondary);
 }
 
-.tabs .button[aria-selected="true"],
-.panel-tab[aria-selected="true"] {
+.tabs .button[aria-selected="true"] {
 	background: var(--color-surface-card);
 	color: var(--color-text-primary);
 	border-color: var(--color-border-default);
@@ -728,24 +726,6 @@ kbd.command-kbd {
 	gap: var(--space-3);
 }
 
-.settings-defaults-trigger {
-	min-height: var(--control-height);
-	display: flex;
-	align-items: center;
-	width: 100%;
-	padding: 0 var(--space-3);
-	border: 1px solid var(--color-border-default);
-	border-radius: var(--radius-md);
-	background: var(--color-surface-card);
-	color: var(--color-text-primary);
-	font-weight: var(--weight-bold);
-	cursor: pointer;
-}
-
-.settings-defaults-trigger[aria-expanded="true"] {
-	background: var(--color-surface-card-hover);
-}
-
 /* Settings hub: grouped configuration cards + reusable disclosure sections. */
 .settings-hub {
 	display: grid;
@@ -914,13 +894,6 @@ kbd.command-kbd {
 	animation: panel-enter var(--duration-normal) var(--ease-emphasized);
 }
 
-.wizard-layout {
-	display: grid;
-	grid-template-columns: minmax(11rem, 0.28fr) minmax(0, 1fr);
-	gap: var(--space-4);
-	align-items: start;
-}
-
 .wizard-mode-toggle {
 	display: grid;
 	grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -941,13 +914,6 @@ kbd.command-kbd {
 	border-color: var(--color-accent);
 	background: var(--color-accent);
 	color: var(--color-text-inverse);
-}
-
-.wizard-tech-strip {
-	display: flex;
-	flex-wrap: wrap;
-	gap: var(--space-2);
-	align-items: center;
 }
 
 .wizard-steps {
@@ -1088,7 +1054,6 @@ kbd.command-kbd {
 }
 
 @media (max-width: 760px) {
-	.wizard-layout,
 	.review-grid,
 	.wizard-mode-toggle,
 	.diff-row {
@@ -1167,11 +1132,6 @@ kbd.command-kbd {
 
 .home-open {
 	padding-inline: var(--space-5);
-}
-
-.home-hero-error {
-	grid-column: 1 / -1;
-	margin: 0;
 }
 
 .home-empty {

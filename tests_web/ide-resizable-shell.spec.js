@@ -80,6 +80,28 @@ test('pane collapse persists in versioned localStorage across reloads', async ({
 	await expect(page.locator('.explorer-panel')).toBeHidden();
 });
 
+test('density toggle flips data-density and persists across reload', async ({ page }, info) => {
+	await page.goto('/');
+	await expectShellLoaded(page);
+
+	const html = page.locator('html');
+	await expect(html).toHaveAttribute('data-density', 'comfortable');
+
+	await page.getByRole('button', { name: 'Toggle compact density' }).click();
+	await expect(html).toHaveAttribute('data-density', 'compact');
+
+	await page.reload();
+	await expectShellLoaded(page);
+	await expect(page.locator('html')).toHaveAttribute('data-density', 'compact');
+	await page.screenshot({ path: `${SHOT_DIR}/compact-${info.project.name}.png` });
+});
+
+test('the decorative console grid is gone', async ({ page }) => {
+	await page.goto('/');
+	await expectShellLoaded(page);
+	await expect(page.locator('.console-grid')).toHaveCount(0);
+});
+
 test('mobile shell stacks the explorer and keeps it reachable', async ({ page }, info) => {
 	test.skip(isDesktopViewport(page), 'stacked layout is the narrow-viewport fallback');
 	await page.goto('/');

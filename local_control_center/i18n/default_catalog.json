@@ -543,6 +543,14 @@
       "en": "Approve patch can proceed after a human reason.",
       "es": "Aprobar el parche puede continuar tras una razón humana."
     },
+    "app.review.checkPassed": {
+      "en": "Passed",
+      "es": "Aprobado"
+    },
+    "app.review.checkFailed": {
+      "en": "Failed",
+      "es": "Falló"
+    },
     "app.review.patchGateBlocked": {
       "en": "Approve patch is blocked until evidence is complete.",
       "es": "Aprobar el parche está bloqueado hasta que la evidencia esté completa."

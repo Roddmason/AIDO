@@ -59,6 +59,16 @@ export function ReviewPage({
 
 	const [selectedActionId, setSelectedActionId] = useState('');
 	const triggerRef = useRef<HTMLElement | null>(null);
+	// One reason state shared by the decision and ship flows: it carries decide -> ship for the
+	// same item (inheritable) and is editable; it resets only when a different item is opened.
+	const [reason, setReason] = useState('');
+	const reasonItemKeyRef = useRef('');
+	const adoptReasonFor = (itemKey: string) => {
+		if (reasonItemKeyRef.current !== itemKey) {
+			reasonItemKeyRef.current = itemKey;
+			setReason('');
+		}
+	};
 
 	const items = useMemo(() => buildReviewItems(overview), [overview]);
 	const columns = useMemo(() => groupReviewItems(items), [items]);
@@ -74,13 +84,13 @@ export function ReviewPage({
 			selectedActionId ? (items.find((item) => item.actionId === selectedActionId)?.key ?? '') : '',
 		[items, selectedActionId],
 	);
-	const decision = useReviewDecision(selectedAction, overview, token, mutate);
+	const decision = useReviewDecision(selectedAction, overview, token, mutate, reason, setReason);
 	const artifactPreview = useArtifactPreview(token);
 
 	// Ship lifecycle (promote/PR) for a reviewed, approved run — additive to the
 	// decision flow. Keyed by item key so it re-resolves the live run after a
 	// refresh (promote → the same drawer then offers Create PR).
-	const ship = useShipOperations(token, refresh);
+	const ship = useShipOperations(token, refresh, reason, setReason);
 	const [shipItemKey, setShipItemKey] = useState('');
 	const shipTriggerRef = useRef<HTMLElement | null>(null);
 	const liveShipItem = useMemo(
@@ -106,6 +116,7 @@ export function ReviewPage({
 		// `layoutId` pair is matched and two drawers never stack.
 		setShipItemKey('');
 		ship.reset();
+		adoptReasonFor(item.key);
 		setSelectedActionId(item.actionId);
 	};
 	const closeReview = () => {
@@ -121,6 +132,7 @@ export function ReviewPage({
 		// Only one drawer open at a time: close the review drawer (see openReview).
 		setSelectedActionId('');
 		artifactPreview.clear();
+		adoptReasonFor(item.key);
 		setShipItemKey(item.key);
 	};
 	const closeDetail = () => {

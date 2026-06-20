@@ -58,8 +58,10 @@ export function useReviewDecision(
 	overview: Overview,
 	token: string,
 	mutate: Mutate,
+	// Single, page-owned reason shared with the ship flow (one reason state, inheritable + editable).
+	decisionReason: string,
+	setDecisionReason: (value: string) => void,
 ): ReviewDecision {
-	const [decisionReason, setDecisionReason] = useState('');
 	const [decisionError, setDecisionError] = useState('');
 	const [patchPayload, setPatchPayload] = useState<ArtifactPayload | null>(null);
 	const [patchLoadingId, setPatchLoadingId] = useState('');
@@ -107,9 +109,9 @@ export function useReviewDecision(
 		],
 	);
 
-	// Reset the reason whenever the reviewed action changes.
+	// Clear any stale decide error when the reviewed action changes; the reason is page-owned
+	// (reset there per item) so it can carry from the decision into the ship flow.
 	useEffect(() => {
-		setDecisionReason('');
 		setDecisionError('');
 	}, [action?.id]);
 

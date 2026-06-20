@@ -19,8 +19,12 @@ export type RiskLevel = ActionRequest['riskLevel'];
 export type ReviewColumn = 'needs_review' | 'blocked' | 'ready' | 'done';
 export type ReviewItemSource = 'patch_workflow' | 'standalone_action' | 'decided_action';
 
-/** One control of the patch evidence gate: passed/failed plus its operator-facing message. */
-export type EvidenceCheck = { ok: boolean; message: string };
+/**
+ * One control of the patch evidence gate: passed/failed plus its operator-facing label. The
+ * label is carried as an i18n key + English fallback (this module stays React-free, so the panel
+ * translates it); `detail` holds an optional runtime note (e.g. the raw fetch error) shown as-is.
+ */
+export type EvidenceCheck = { ok: boolean; labelKey: string; label: string; detail?: string };
 
 /**
  * One review card. Holds only ids and display-ready fields — never the heavy
@@ -241,19 +245,61 @@ export function evidenceCompleteness({
 	const hasSecurityHash = Boolean(securityArtifact?.hash || securityPayload?.hash);
 	const hasNonBlockingSecurityFindings = securityFindingsAreNonBlocking(securityPayload);
 	const checks: EvidenceCheck[] = [
-		{ ok: hasEvidencePackage, message: 'linked evidence package recorded' },
-		{ ok: hasDiffRefs, message: 'diff refs recorded' },
-		{ ok: hasPatchArtifact, message: 'patch artifact linked' },
-		{ ok: !diffLoading, message: 'patch artifact loaded' },
-		{ ok: !diffError, message: diffError || 'patch artifact readable' },
-		{ ok: hasPatchHash, message: 'patch artifact hash recorded' },
-		{ ok: hasPatchChanges, message: 'patch artifact contains real unified diff changes' },
-		{ ok: hasPassingQa, message: 'QA command evidence passed' },
-		{ ok: hasSecurityArtifact, message: 'security findings artifact linked' },
-		{ ok: !securityLoading, message: 'security findings artifact loaded' },
-		{ ok: !securityError, message: securityError || 'security findings artifact readable' },
-		{ ok: hasSecurityHash, message: 'security findings artifact hash recorded' },
-		{ ok: hasNonBlockingSecurityFindings, message: 'security findings are non-blocking' },
+		{
+			ok: hasEvidencePackage,
+			labelKey: 'app.review.gate.evidencePackage',
+			label: 'linked evidence package recorded',
+		},
+		{ ok: hasDiffRefs, labelKey: 'app.review.gate.diffRefs', label: 'diff refs recorded' },
+		{
+			ok: hasPatchArtifact,
+			labelKey: 'app.review.gate.patchArtifact',
+			label: 'patch artifact linked',
+		},
+		{ ok: !diffLoading, labelKey: 'app.review.gate.patchLoaded', label: 'patch artifact loaded' },
+		{
+			ok: !diffError,
+			labelKey: 'app.review.gate.patchReadable',
+			label: 'patch artifact readable',
+			detail: diffError || undefined,
+		},
+		{
+			ok: hasPatchHash,
+			labelKey: 'app.review.gate.patchHash',
+			label: 'patch artifact hash recorded',
+		},
+		{
+			ok: hasPatchChanges,
+			labelKey: 'app.review.gate.patchChanges',
+			label: 'patch artifact contains real unified diff changes',
+		},
+		{ ok: hasPassingQa, labelKey: 'app.review.gate.qaPassed', label: 'QA command evidence passed' },
+		{
+			ok: hasSecurityArtifact,
+			labelKey: 'app.review.gate.securityArtifact',
+			label: 'security findings artifact linked',
+		},
+		{
+			ok: !securityLoading,
+			labelKey: 'app.review.gate.securityLoaded',
+			label: 'security findings artifact loaded',
+		},
+		{
+			ok: !securityError,
+			labelKey: 'app.review.gate.securityReadable',
+			label: 'security findings artifact readable',
+			detail: securityError || undefined,
+		},
+		{
+			ok: hasSecurityHash,
+			labelKey: 'app.review.gate.securityHash',
+			label: 'security findings artifact hash recorded',
+		},
+		{
+			ok: hasNonBlockingSecurityFindings,
+			labelKey: 'app.review.gate.securityNonBlocking',
+			label: 'security findings are non-blocking',
+		},
 	];
 	return { required, complete: checks.every((check) => check.ok), checks };
 }

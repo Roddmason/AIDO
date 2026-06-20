@@ -14,12 +14,140 @@
 }
 
 .app-shell-ide {
+	display: flex;
+	flex-direction: column;
+	height: 100dvh;
+	overflow: hidden;
+}
+
+/* Stacked fallback (narrow / touch viewports): the shell scrolls as one column
+   instead of holding fixed-height resizable panes. */
+.app-shell-ide--stacked {
+	height: auto;
+	min-height: 100dvh;
+	overflow: visible;
+}
+
+/* Desktop body row: the fixed activity rail plus the resizable pane group fill the
+   height above the status bar. */
+.ide-body {
+	flex: 1 1 auto;
+	min-height: 0;
+	display: flex;
+}
+
+.ide-panes {
+	flex: 1 1 auto;
+	min-width: 0;
+}
+
+.ide-center {
+	flex: 1 1 auto;
+	min-width: 0;
+	min-height: 0;
+}
+
+/* react-resizable-panels applies our className to an inner wrapper; let the pane's
+   content fill it and own its own scrolling. */
+.ide-pane {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+	min-width: 0;
+	min-height: 0;
+	/* Clip pane content to the pane box: the panel collapses to width/height 0 but its
+	   content keeps its padding box, which would otherwise overflow as a thin strip. */
+	overflow: hidden;
+}
+
+.ide-pane > * {
+	flex: 1 1 auto;
+	min-width: 0;
+	min-height: 0;
+}
+
+/* A collapsed pane hides its content from sight and from the focus/AT order (the
+   pane stays mounted so it can be expanded again by drag or shortcut). */
+.ide-pane.is-collapsed > * {
+	visibility: hidden;
+}
+
+/* In the resizable layout the group sizes each pane, so the rail and pane content
+   fill their box instead of being sticky/full-viewport (the stacked layout keeps
+   the original flow). */
+.ide-body > .activity-bar {
+	position: static;
+	height: 100%;
+}
+
+.ide-pane > .explorer-panel,
+.ide-pane > .inspector-panel,
+.ide-pane > .workbench,
+.ide-pane > .main-area,
+.ide-pane > .bottom-panel {
+	position: static;
+	height: 100%;
+	min-height: 0;
+}
+
+.ide-pane .content-frame {
+	min-height: 0;
+	overflow: auto;
+}
+
+/* Resize handles: a thin visible line; the group's resizeTargetMinimumSize widens
+   the actual drag/touch hit zone beyond this so it is hard to miss. */
+.ide-separator {
+	width: 3px;
+	background: var(--color-border-subtle);
+	transition: background var(--duration-fast) var(--ease-standard);
+}
+
+.ide-separator--horizontal {
+	width: auto;
+	height: 3px;
+}
+
+.ide-separator:hover,
+.ide-separator:focus-visible {
+	background: var(--color-accent);
+}
+
+.ide-separator:focus-visible {
+	outline: none;
+	box-shadow: var(--shadow-focus);
+}
+
+/* Collapsible bottom dock (logs / terminal). */
+.bottom-panel {
 	display: grid;
-	grid-template-columns: var(--size-activity-bar) minmax(16rem, var(--size-explorer)) minmax(0, 1fr) minmax(
-			18rem,
-			var(--size-inspector)
-		);
-	grid-template-rows: minmax(0, 1fr) var(--size-status-bar);
+	grid-template-rows: auto minmax(0, 1fr);
+	min-height: 0;
+	background: var(--color-surface-panel);
+	border-top: 1px solid var(--color-border-subtle);
+}
+
+.bottom-panel-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--space-2);
+	padding: var(--space-2) var(--space-4);
+	border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.bottom-panel-title {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-2);
+	font-size: var(--font-size-sm);
+	color: var(--color-text-secondary);
+}
+
+.bottom-panel-body {
+	min-height: 0;
+	overflow: auto;
+	padding: var(--space-4);
 }
 
 /* Kept as an inert element (App.tsx still renders it) but with no texture:
@@ -314,39 +442,13 @@
 }
 
 .app-shell-ide .status-bar {
-	grid-column: 1 / -1;
-	grid-row: 2;
-	position: sticky;
-	bottom: 0;
-	z-index: var(--z-sticky);
+	flex: 0 0 auto;
 	display: flex;
 	flex-wrap: wrap;
 	align-items: center;
 	gap: var(--space-4);
 	border-top: 1px solid var(--color-border-subtle);
 	border-bottom: 0;
-}
-
-/* IDE shell collapse variants (Explorer / Inspector) — desktop only; the
-   <=980px breakpoint below collapses the shell to a single column. */
-@media (min-width: 981px) {
-	.app-shell-ide[data-explorer="false"][data-inspector="true"] {
-		grid-template-columns: var(--size-activity-bar) minmax(0, 1fr) minmax(
-				18rem,
-				var(--size-inspector)
-			);
-	}
-
-	.app-shell-ide[data-explorer="true"][data-inspector="false"] {
-		grid-template-columns: var(--size-activity-bar) minmax(16rem, var(--size-explorer)) minmax(
-				0,
-				1fr
-			);
-	}
-
-	.app-shell-ide[data-explorer="false"][data-inspector="false"] {
-		grid-template-columns: var(--size-activity-bar) minmax(0, 1fr);
-	}
 }
 
 .content-frame {

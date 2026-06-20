@@ -3,6 +3,7 @@
  */
 import { PanelLeft } from 'lucide-react';
 import { m } from 'motion/react';
+import type { Ref } from 'react';
 
 import { useI18n } from '../i18n/I18nProvider';
 import { INDICATOR_TRANSITION } from '../motion/variants';
@@ -23,12 +24,14 @@ export function ActivityBar({
 	onNavigate,
 	explorerCollapsed,
 	onToggleExplorer,
+	toggleRef,
 }: {
 	activeArea: AreaId;
 	language: string;
 	onNavigate: (page: PageId) => void;
 	explorerCollapsed: boolean;
 	onToggleExplorer: () => void;
+	toggleRef?: Ref<HTMLButtonElement>;
 }) {
 	const { t } = useI18n();
 	const toggleLabel = explorerCollapsed
@@ -83,6 +86,7 @@ export function ActivityBar({
 				})}
 			</div>
 			<button
+				ref={toggleRef}
 				className="activity-bar-item"
 				type="button"
 				aria-label={toggleLabel}

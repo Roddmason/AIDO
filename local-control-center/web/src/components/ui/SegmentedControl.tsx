@@ -19,6 +19,8 @@ export interface SegmentedControlProps<T extends string> {
 	onChange: (value: T) => void;
 	/** Accessible name for the group. */
 	label: string;
+	/** Disable the whole control. */
+	disabled?: boolean;
 	className?: string;
 }
 
@@ -27,6 +29,7 @@ export function SegmentedControl<T extends string>({
 	value,
 	onChange,
 	label,
+	disabled = false,
 	className,
 }: SegmentedControlProps<T>) {
 	const optionRefs = useRef<Record<string, HTMLButtonElement | null>>({});
@@ -37,6 +40,7 @@ export function SegmentedControl<T extends string>({
 	};
 
 	const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+		if (disabled) return;
 		const index = options.findIndex((option) => option.value === value);
 		if (index < 0) return;
 		if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
@@ -74,6 +78,7 @@ export function SegmentedControl<T extends string>({
 						role="radio"
 						aria-checked={checked}
 						tabIndex={checked ? 0 : -1}
+						disabled={disabled}
 						onClick={() => onChange(option.value)}
 					>
 						{option.label}

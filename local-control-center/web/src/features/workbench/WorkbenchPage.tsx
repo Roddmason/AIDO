@@ -31,6 +31,7 @@ import type {
 	RuntimeProviders,
 } from '../../api/types';
 import { Badge, Drawer, EmptyState, PageHeader, Surface } from '../../components/primitives';
+import { SegmentedControl } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { shortId, toneForStatus } from '../../lib/format';
 import { LogsPanel } from './panels/LogsPanel';
@@ -362,30 +363,31 @@ export function WorkbenchPage({
 										</button>
 									</div>
 								) : null}
-								<div
-									className="wizard-mode-toggle"
-									role="group"
-									aria-label={t('app.workbench.task.modeLabel', 'Task intake mode')}
-								>
-									<button
-										className="button"
-										type="button"
-										aria-pressed={taskMode === 'conversation'}
-										onClick={() => setTaskMode('conversation')}
-									>
-										<MessageSquare aria-hidden="true" size={15} />{' '}
-										{t('app.workbench.task.modeConversation', 'Conversation')}
-									</button>
-									<button
-										className="button"
-										type="button"
-										aria-pressed={taskMode === 'governed'}
-										onClick={() => setTaskMode('governed')}
-									>
-										<SquareTerminal aria-hidden="true" size={15} />{' '}
-										{t('app.workbench.task.modeGoverned', 'Governed patch')}
-									</button>
-								</div>
+								<SegmentedControl
+									label={t('app.workbench.task.modeLabel', 'Task intake mode')}
+									value={taskMode}
+									onChange={setTaskMode}
+									options={[
+										{
+											value: 'conversation',
+											label: (
+												<>
+													<MessageSquare aria-hidden="true" size={15} />
+													{t('app.workbench.task.modeConversation', 'Conversation')}
+												</>
+											),
+										},
+										{
+											value: 'governed',
+											label: (
+												<>
+													<SquareTerminal aria-hidden="true" size={15} />
+													{t('app.workbench.task.modeGoverned', 'Governed patch')}
+												</>
+											),
+										},
+									]}
+								/>
 								{taskMode === 'conversation' ? (
 									<div className="workbench-chat">
 										<div

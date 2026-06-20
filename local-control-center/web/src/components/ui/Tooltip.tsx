@@ -26,11 +26,14 @@ export function Tooltip({ label, children, className }: TooltipProps) {
 	const show = () => setOpen(true);
 	const hide = () => setOpen(false);
 
-	const existingDescribedBy = (children.props as { 'aria-describedby'?: string })[
-		'aria-describedby'
-	];
+	const triggerProps = children.props as { 'aria-label'?: string; 'aria-describedby'?: string };
+	// When the trigger is already named by the same text (e.g. an icon button echoing its
+	// aria-label), the bubble is a visual hint only — don't double-announce it via describedby.
+	const echoesLabel = triggerProps['aria-label'] === label;
 	const trigger = cloneElement(children, {
-		'aria-describedby': cn(existingDescribedBy, open ? id : '') || undefined,
+		'aria-describedby': echoesLabel
+			? triggerProps['aria-describedby']
+			: cn(triggerProps['aria-describedby'], open ? id : '') || undefined,
 		onMouseEnter: show,
 		onMouseLeave: hide,
 		onFocus: show,
@@ -40,7 +43,13 @@ export function Tooltip({ label, children, className }: TooltipProps) {
 	return (
 		<span className={cn('ui-tooltip-anchor', className)}>
 			{trigger}
-			<span className="ui-tooltip" role="tooltip" id={id} hidden={!open}>
+			<span
+				className="ui-tooltip"
+				role="tooltip"
+				id={id}
+				hidden={!open}
+				aria-hidden={echoesLabel || undefined}
+			>
 				{label}
 			</span>
 		</span>

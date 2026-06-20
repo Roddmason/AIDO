@@ -156,3 +156,24 @@
 .error-state span {
 	color: var(--color-text-secondary);
 }
+
+/* Generic Tabs wrapper: tablist on top, the active panel below. */
+.tabs-root {
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-3);
+}
+
+/* Bottom dock variant: the tablist plus a filling, scrollable panel. */
+.bottom-panel-tabs {
+	min-height: 0;
+	gap: var(--space-2);
+	padding: var(--space-2) var(--space-3) 0;
+}
+
+.bottom-panel-tabs > [role="tabpanel"] {
+	flex: 1 1 auto;
+	min-height: 0;
+	display: grid;
+}

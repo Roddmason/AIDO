@@ -6,9 +6,7 @@
 
 import type { LucideProps } from 'lucide-react';
 import {
-	Ban,
 	Bot,
-	CheckCircle2,
 	ClipboardCheck,
 	Code2,
 	FileCheck2,
@@ -24,7 +22,6 @@ import {
 	ShieldCheck,
 	SlidersHorizontal,
 	Workflow,
-	XCircle,
 } from 'lucide-react';
 import type { ComponentType } from 'react';
 
@@ -35,10 +32,7 @@ type IconComponent = ComponentType<LucideProps>;
 export const pageIds = [
 	'home',
 	'workbench',
-	'projects-active',
-	'projects-finished',
-	'projects-error',
-	'projects-cancelled',
+	'projects',
 	'workflows',
 	'review-board',
 	'agents',
@@ -138,7 +132,7 @@ export const AREAS: AreaDef[] = [
 		leadPage: 'home',
 		icon: Home,
 		label: { en: 'Home', es: 'Inicio' },
-		pages: ['home', 'projects-active', 'projects-finished', 'projects-error', 'projects-cancelled'],
+		pages: ['home', 'projects'],
 	},
 	{
 		id: 'workbench',
@@ -200,10 +194,7 @@ export function areaForPage(page: PageId): AreaId {
 export const EXPLORER_LINKS: Record<AreaId, NavigationItem[]> = {
 	home: [
 		{ page: 'home', icon: LayoutGrid, label: { en: 'Home', es: 'Inicio' } },
-		{ page: 'projects-active', icon: CheckCircle2, label: { en: 'Active', es: 'Activos' } },
-		{ page: 'projects-finished', icon: FolderKanban, label: { en: 'Finished', es: 'Finalizados' } },
-		{ page: 'projects-error', icon: XCircle, label: { en: 'With error', es: 'Con error' } },
-		{ page: 'projects-cancelled', icon: Ban, label: { en: 'Cancelled', es: 'Cancelados' } },
+		{ page: 'projects', icon: FolderKanban, label: { en: 'Projects', es: 'Proyectos' } },
 	],
 	workbench: [
 		{ page: 'workbench', icon: Code2, label: { en: 'Workbench', es: 'Workbench' } },

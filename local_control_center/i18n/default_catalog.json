@@ -59,6 +59,26 @@
       "en": "Retry",
       "es": "Reintentar"
     },
+    "app.projects.filterLabel": {
+      "en": "Project lane",
+      "es": "Estado de proyectos"
+    },
+    "app.projects.filter.active": {
+      "en": "Active",
+      "es": "Activos"
+    },
+    "app.projects.filter.finished": {
+      "en": "Finished",
+      "es": "Finalizados"
+    },
+    "app.projects.filter.error": {
+      "en": "With error",
+      "es": "Con error"
+    },
+    "app.projects.filter.cancelled": {
+      "en": "Cancelled",
+      "es": "Cancelados"
+    },
     "app.toast.workspaceReady": {
       "en": "Workspace ready",
       "es": "Workspace listo"

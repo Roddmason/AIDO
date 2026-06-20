@@ -1,18 +1,34 @@
 /**
- * Project lifecycle board: one reusable page that lists projects filtered by lifecycle
- * lane (active / finished / error / cancelled), driven by `statusView`.
- * Only the active lane can select a project to run work against; other lanes stay
- * audit-only and visible for traceability. Per-lane copy lives in `statusCopy`.
+ * Projects: one surface listing projects across four lifecycle lanes (active / finished /
+ * error / cancelled), switched with a SegmentedControl instead of four near-identical pages.
+ * The lane is mirrored in the URL hash (`#projects-<lane>`) so old per-lane deep links keep
+ * resolving and back/forward stays in sync. Only the active lane can select a project to run
+ * work against; other lanes stay audit-only. Per-lane copy lives in `statusCopy`.
  */
 import { FolderPlus, Settings } from 'lucide-react';
+import { useEffect, useState } from 'react';
 
 import type { Overview, Project } from '../../api/types';
 import { Badge, EmptyState, PageHeader, Surface } from '../../components/primitives';
+import { SegmentedControl } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { shortId, toneForStatus } from '../../lib/format';
 
 export type ProjectStatusView = 'active' | 'finished' | 'error' | 'cancelled';
 export type Language = 'en' | 'es';
+
+/** Lane order shown in the SegmentedControl. */
+const STATUS_VIEWS: ProjectStatusView[] = ['active', 'finished', 'error', 'cancelled'];
+const PROJECTS_HASH_PREFIX = 'projects-';
+
+/** Reads the active lane from the URL hash so `#projects-finished` deep links open that lane. */
+function statusViewFromHash(): ProjectStatusView {
+	const hash = window.location.hash.replace('#', '');
+	const suffix = hash.startsWith(PROJECTS_HASH_PREFIX)
+		? hash.slice(PROJECTS_HASH_PREFIX.length)
+		: '';
+	return (STATUS_VIEWS as string[]).includes(suffix) ? (suffix as ProjectStatusView) : 'active';
+}
 
 type StatusCopyField = { key: string; en: string };
 
@@ -92,26 +108,39 @@ function matchesProjectStatus(status: string, view: ProjectStatusView) {
 }
 
 /**
- * Project lane route page. `statusView` selects which lifecycle lane to render; the
- * active lane exposes Select buttons (operational), other lanes render as audit-only.
+ * Projects surface. The SegmentedControl picks which lifecycle lane to render; the active
+ * lane exposes Select buttons (operational), other lanes render as audit-only. The lane is
+ * held in state and mirrored to the hash so deep links and back/forward stay consistent.
  */
-export function ActiveProjectsPage({
+export function ProjectsPage({
 	overview,
 	selectedProject,
-	statusView = 'active',
 	onSelectProject,
 	onCreateProject,
 	onOpenSettings,
 }: {
 	overview: Overview;
 	selectedProject: Project | null;
-	statusView?: ProjectStatusView;
-	language?: Language;
 	onSelectProject: (projectId: string) => void;
 	onCreateProject: () => void;
 	onOpenSettings: () => void;
 }) {
 	const { t } = useI18n();
+	const [statusView, setStatusView] = useState<ProjectStatusView>(statusViewFromHash);
+
+	// Keep the lane synced with the hash so old deep links and back/forward both work.
+	useEffect(() => {
+		const onHash = () => setStatusView(statusViewFromHash());
+		window.addEventListener('hashchange', onHash);
+		return () => window.removeEventListener('hashchange', onHash);
+	}, []);
+
+	const handleStatusChange = (next: ProjectStatusView) => {
+		setStatusView(next);
+		// Mirror the lane into the hash (resolves to `projects` via alias) for deep-linking.
+		window.location.hash = `${PROJECTS_HASH_PREFIX}${next}`;
+	};
+
 	const copy = statusCopy[statusView];
 	const isActiveView = statusView === 'active';
 	const visibleProjects = overview.projects.filter((project) =>
@@ -137,6 +166,20 @@ export function ActiveProjectsPage({
 				title={t(copy.title.key, copy.title.en)}
 				summary={t(copy.summary.key, copy.summary.en)}
 			/>
+
+			<div data-motion-item>
+				<SegmentedControl
+					label={t('app.projects.filterLabel', 'Project lane')}
+					value={statusView}
+					onChange={handleStatusChange}
+					options={[
+						{ value: 'active', label: t('app.projects.filter.active', 'Active') },
+						{ value: 'finished', label: t('app.projects.filter.finished', 'Finished') },
+						{ value: 'error', label: t('app.projects.filter.error', 'With error') },
+						{ value: 'cancelled', label: t('app.projects.filter.cancelled', 'Cancelled') },
+					]}
+				/>
+			</div>
 
 			<div className="surface-toolbar" data-motion-item>
 				<Badge tone={selectedProject ? 'ok' : 'warn'}>

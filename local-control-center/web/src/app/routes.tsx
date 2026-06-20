@@ -14,9 +14,9 @@ import type {
 	RuntimeProviderConfiguration,
 	RuntimeProviders,
 } from '../api/types';
-import type { Language, ProjectStatusView } from '../features/active-projects/ActiveProjectsPage';
-import { ActiveProjectsPage } from '../features/active-projects/ActiveProjectsPage';
 import { HomePage } from '../features/home/HomePage';
+import type { Language } from '../features/projects/ProjectsPage';
+import { ProjectsPage } from '../features/projects/ProjectsPage';
 import type { SettingsGroupId } from '../features/settings/SettingsPage';
 import type { WorkspaceMode } from '../features/workspace/useProjectDiscovery';
 import type { AppRoute } from './routing';
@@ -82,13 +82,6 @@ interface RouteEntry {
 	preload?: () => Promise<unknown>;
 }
 
-const projectStatusByPage: Partial<Record<AppRoute, ProjectStatusView>> = {
-	'projects-active': 'active',
-	'projects-finished': 'finished',
-	'projects-error': 'error',
-	'projects-cancelled': 'cancelled',
-};
-
 const settingsGroupByPage: Partial<Record<AppRoute, SettingsGroupId>> = {
 	'settings-project': 'project',
 	'settings-runtime': 'runtime',
@@ -97,20 +90,6 @@ const settingsGroupByPage: Partial<Record<AppRoute, SettingsGroupId>> = {
 	'settings-workspaces': 'workspaces',
 	'settings-integrations': 'integrations',
 	'settings-advanced': 'advanced',
-};
-
-const projectsEntry: RouteEntry = {
-	render: (ctx, route) => (
-		<ActiveProjectsPage
-			overview={ctx.overview}
-			selectedProject={ctx.selectedProject}
-			statusView={projectStatusByPage[route]}
-			language={ctx.language}
-			onSelectProject={ctx.onSelectProject}
-			onOpenSettings={() => ctx.navigateTo('settings-project')}
-			onCreateProject={() => ctx.openWorkspaceDialog('open_folder')}
-		/>
-	),
 };
 
 const settingsEntry: RouteEntry = {
@@ -145,7 +124,7 @@ export const routeTable: Record<AppRoute, RouteEntry> = {
 				onCreateProject={() => ctx.openWorkspaceDialog('create_workspace')}
 				onOpenFolder={() => ctx.openWorkspaceDialog('open_folder')}
 				onOpenWorkbench={() => ctx.navigateTo('workbench')}
-				onOpenProjects={() => ctx.navigateTo('projects-active')}
+				onOpenProjects={() => ctx.navigateTo('projects')}
 				onOpenReview={() => ctx.navigateTo('review-board')}
 				onOpenRuns={() => ctx.navigateTo('workflows')}
 				onOpenRuntimes={() => ctx.navigateTo('models')}
@@ -172,10 +151,17 @@ export const routeTable: Record<AppRoute, RouteEntry> = {
 		),
 		preload: importWorkbench,
 	},
-	'projects-active': projectsEntry,
-	'projects-finished': projectsEntry,
-	'projects-error': projectsEntry,
-	'projects-cancelled': projectsEntry,
+	projects: {
+		render: (ctx) => (
+			<ProjectsPage
+				overview={ctx.overview}
+				selectedProject={ctx.selectedProject}
+				onSelectProject={ctx.onSelectProject}
+				onOpenSettings={() => ctx.navigateTo('settings-project')}
+				onCreateProject={() => ctx.openWorkspaceDialog('open_folder')}
+			/>
+		),
+	},
 	workflows: {
 		render: (ctx) => (
 			<WorkflowsPage overview={ctx.overview} token={ctx.token} mutate={ctx.mutate} />

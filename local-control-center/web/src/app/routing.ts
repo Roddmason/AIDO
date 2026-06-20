@@ -17,7 +17,7 @@ export type AppRoute = PageId;
  * bookmarks and the retired per-tab settings hashes keep working.
  */
 const routeAliases: Record<string, AppRoute> = {
-	active: 'projects-active',
+	active: 'projects',
 	ide: 'workbench',
 	workspace: 'workbench',
 	command: 'workbench',
@@ -25,6 +25,12 @@ const routeAliases: Record<string, AppRoute> = {
 	review: 'review-board',
 	jobs: 'review-board',
 	settings: 'settings-project',
+	// Backward-compat: the four retired per-lane project hashes now resolve to the single
+	// Projects surface; ProjectsPage reads the hash suffix to open the matching lane.
+	'projects-active': 'projects',
+	'projects-finished': 'projects',
+	'projects-error': 'projects',
+	'projects-cancelled': 'projects',
 	// Backward-compat: resolve the retired per-tab settings hashes to their owning group.
 	'settings-projects': 'settings-project',
 	'settings-user': 'settings-advanced',

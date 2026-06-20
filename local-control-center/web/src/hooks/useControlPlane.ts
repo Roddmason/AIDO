@@ -155,6 +155,13 @@ export function useControlPlane() {
 				setState((current) => ({ ...current, busy: false }));
 				return result;
 			} catch (error) {
+				// A user-cancelled request (AbortController) must not pollute the global error
+				// channel — that would trip the shell's full-screen error guard. Clear busy, leave
+				// any existing error untouched, and re-throw so callers can detect the abort.
+				if ((error as { name?: string } | null)?.name === 'AbortError') {
+					setState((current) => ({ ...current, busy: false }));
+					throw error;
+				}
 				setState((current) => ({
 					...current,
 					busy: false,

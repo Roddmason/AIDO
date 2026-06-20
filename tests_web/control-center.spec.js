@@ -966,7 +966,7 @@ test('Workbench chat creates a chat intake and linked pipeline', async ({ page }
 	await page.getByRole('tab', { name: /^Task/ }).click();
 	await page.getByLabel('Workspace folder', { exact: true }).selectOption(project.id);
 	await page.getByRole('button', { name: 'New work session' }).click();
-	await page.getByLabel('Task prompt').fill(prompt);
+	await page.getByLabel('What should AIDO do?').fill(prompt);
 	await page.getByRole('button', { name: 'Start intake' }).click();
 
 	await expect(page.getByText('Chat intake created')).toBeVisible({ timeout: 30_000 });
@@ -2068,9 +2068,9 @@ test('Workbench governed patch blocks issue_to_patch when no executable runtime 
 	});
 	await page.goto('/#command');
 	await expect(page.locator('.workbench-layout')).toBeVisible();
-	await page.getByRole('radio', { name: 'Governed patch' }).click();
+	await page.getByRole('radio', { name: 'Fix bug' }).click();
 
-	await page.getByLabel('What should AIDO change?').fill('Change a small file through the real runtime slice.');
+	await page.getByLabel('What should AIDO do?').fill('Change a small file through the real runtime slice.');
 	await expect(page.getByText('runtime_unavailable').first()).toBeVisible();
 	await expect(page.getByText(blockReason).first()).toBeVisible();
 	await expect(page.getByRole('button', { name: 'Configure runtime' })).toBeVisible();
@@ -2126,7 +2126,7 @@ test('Workbench governed patch enables issue_to_patch only with an executable ru
 	});
 	await page.goto('/#command');
 	await expect(page.locator('.workbench-layout')).toBeVisible();
-	await page.getByRole('radio', { name: 'Governed patch' }).click();
+	await page.getByRole('radio', { name: 'Fix bug' }).click();
 
 	await expect(page.getByRole('button', { name: 'Request change' })).toBeDisabled();
 	await page.getByRole('button', { name: 'Advanced' }).click();
@@ -2134,7 +2134,7 @@ test('Workbench governed patch enables issue_to_patch only with an executable ru
 	await expect(page.getByLabel('Preferred runtime')).toContainText('codex_cli - executable');
 	await expect(page.getByLabel('Preferred runtime')).not.toContainText('manual');
 	await expect(page.getByLabel('Preferred runtime')).not.toContainText('internal_mock');
-	await page.getByLabel('What should AIDO change?').fill('Change a small file through the real runtime slice.');
+	await page.getByLabel('What should AIDO do?').fill('Change a small file through the real runtime slice.');
 	await expect(page.getByRole('button', { name: 'Request change' })).toBeEnabled();
 });
 
@@ -2159,7 +2159,7 @@ test('Workbench governed patch keeps runtime, QA preset and cost inside Advanced
 	});
 	await page.goto('/#command');
 	await expect(page.locator('.workbench-layout')).toBeVisible();
-	await page.getByRole('radio', { name: 'Governed patch' }).click();
+	await page.getByRole('radio', { name: 'Fix bug' }).click();
 
 	// The technical knobs are tucked inside Advanced so the primary surface stays simple.
 	await page.getByRole('button', { name: 'Advanced' }).click();
@@ -2210,9 +2210,9 @@ test('Workbench governed patch surfaces runtime_unavailable status honestly', as
 	});
 	await page.goto('/#command');
 	await expect(page.locator('.workbench-layout')).toBeVisible();
-	await page.getByRole('radio', { name: 'Governed patch' }).click();
+	await page.getByRole('radio', { name: 'Fix bug' }).click();
 
-	await page.getByLabel('What should AIDO change?').fill('Change a small file through the real runtime slice.');
+	await page.getByLabel('What should AIDO do?').fill('Change a small file through the real runtime slice.');
 	await page.getByRole('button', { name: 'Request change' }).click();
 	await expect(page.getByRole('button', { name: 'Request change' })).toBeEnabled({ timeout: 60_000 });
 
@@ -2312,10 +2312,10 @@ test('strict configuration forms prevent manual JSON edits', async ({ page }) =>
 test('strict operational forms cover workflows governance sandbox and MCP settings', async ({ page }) => {
 	await page.goto('/#command');
 	await expect(page.locator('.workbench-layout')).toBeVisible();
-	await page.getByRole('radio', { name: 'Governed patch' }).click();
+	await page.getByRole('radio', { name: 'Fix bug' }).click();
 
 	await expect(page.getByLabel('Workspace folder', { exact: true })).toBeVisible();
-	await expect(page.getByLabel('What should AIDO change?')).toBeVisible();
+	await expect(page.getByLabel('What should AIDO do?')).toBeVisible();
 	// Runtime/QA/cost stay behind the Advanced disclosure by default.
 	await expect(page.getByLabel('Preferred runtime')).toBeHidden();
 	await expect(page.getByLabel('QA preset')).toBeHidden();

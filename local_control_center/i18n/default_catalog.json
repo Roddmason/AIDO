@@ -1303,18 +1303,6 @@
       "en": "This run did not record evidence package references.",
       "es": "Esta ejecución no registró referencias a paquetes de evidencia."
     },
-    "app.workbench.task.changePrompt": {
-      "en": "What should AIDO change?",
-      "es": "Que debe cambiar AIDO?"
-    },
-    "app.workbench.task.changePlaceholder": {
-      "en": "Describe the change in plain language. The AI team plans, implements and tests it inside this workspace.",
-      "es": "Describe el cambio en lenguaje simple. El equipo IA lo planifica, implementa y prueba dentro de este workspace."
-    },
-    "app.workbench.task.modeGroup": {
-      "en": "Change type",
-      "es": "Tipo de cambio"
-    },
     "app.workbench.task.modeFix": {
       "en": "Fix bug",
       "es": "Corregir error"
@@ -5091,14 +5079,6 @@
       "en": "Use the composer to start coordinated project work for this workspace.",
       "es": "Usa el compositor para iniciar trabajo coordinado de proyecto en este workspace."
     },
-    "app.workbench.chat.promptLabel": {
-      "en": "Task prompt",
-      "es": "Prompt de tarea"
-    },
-    "app.workbench.chat.placeholder": {
-      "en": "Ask the AI team to plan, implement, test or prepare a long-running delivery inside this workspace.",
-      "es": "Pide al equipo IA planificar, implementar, probar o preparar una entrega de largo aliento dentro de este workspace."
-    },
     "app.workbench.chat.creating": {
       "en": "Creating work session",
       "es": "Creando sesión de trabajo"
@@ -5122,6 +5102,26 @@
     "app.workbench.chat.pipelineLinked": {
       "en": "pipeline",
       "es": "flujo"
+    },
+    "app.workbench.composer.promptLabel": {
+      "en": "What should AIDO do?",
+      "es": "¿Qué debe hacer AIDO?"
+    },
+    "app.workbench.composer.promptPlaceholder": {
+      "en": "Describe the task in plain language. The AI team plans, implements and tests it inside this workspace.",
+      "es": "Describe la tarea en lenguaje natural. El equipo de IA la planifica, implementa y prueba en este workspace."
+    },
+    "app.workbench.composer.titleLabel": {
+      "en": "Title",
+      "es": "Título"
+    },
+    "app.workbench.composer.titleHelp": {
+      "en": "Auto-derived from your prompt — edit to override.",
+      "es": "Derivado de tu prompt; edítalo para sobrescribir."
+    },
+    "app.workbench.composer.cancel": {
+      "en": "Cancel intake",
+      "es": "Cancelar ingreso"
     },
     "app.workbench.sessions.region": {
       "en": "Workspace sessions",
@@ -5874,10 +5874,6 @@
     "app.workbench.task.modeConversation": {
       "en": "Conversation",
       "es": "Conversación"
-    },
-    "app.workbench.task.modeGoverned": {
-      "en": "Governed patch",
-      "es": "Parche gobernado"
     },
     "app.workbench.task.modeLabel": {
       "en": "Task intake mode",

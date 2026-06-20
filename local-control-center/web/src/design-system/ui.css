@@ -26,9 +26,12 @@
 	font-weight: var(--weight-medium);
 }
 
-/* SegmentedControl: single-select row of options (selected option uses aria-checked). */
+/* SegmentedControl: single-select row of options (selected option uses aria-checked).
+   Wraps and caps at the container width so many options never overflow a narrow viewport. */
 .segmented {
 	display: inline-flex;
+	flex-wrap: wrap;
+	max-width: 100%;
 	gap: var(--space-1);
 	padding: var(--space-1);
 	border: 1px solid var(--color-border-subtle);

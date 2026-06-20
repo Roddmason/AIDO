@@ -452,32 +452,35 @@ export function createWorkflowWithBody(
 	});
 }
 
-export function createChat(token: string, body: ChatCreateRequest) {
+export function createChat(token: string, body: ChatCreateRequest, signal?: AbortSignal) {
 	return requestGeneratedOperation<'create_chat_api_v1_chats_post', ChatCreateResponse>(
 		'create_chat_api_v1_chats_post',
 		{
 			token,
 			body,
+			signal,
 		},
 	);
 }
 
-export function createSession(token: string, body: SessionCreateRequest) {
+export function createSession(token: string, body: SessionCreateRequest, signal?: AbortSignal) {
 	return requestGeneratedOperation<'create_session_api_v1_sessions_post', SessionCreateResponse>(
 		'create_session_api_v1_sessions_post',
 		{
 			token,
 			body,
+			signal,
 		},
 	);
 }
 
-export function createPipeline(token: string, body: PipelineCreateRequest) {
+export function createPipeline(token: string, body: PipelineCreateRequest, signal?: AbortSignal) {
 	return requestGeneratedOperation<'create_pipeline_api_v1_pipelines_post', PipelineCreateResponse>(
 		'create_pipeline_api_v1_pipelines_post',
 		{
 			token,
 			body,
+			signal,
 		},
 	);
 }

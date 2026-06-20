@@ -4,9 +4,11 @@
  * and the decision reason with the gated Approve/Reject buttons. Purely
  * presentational — all decision state and side effects come in via the page.
  */
+import { CheckCircle2, XCircle } from 'lucide-react';
 import { AnimatePresence, m } from 'motion/react';
 
 import type { ActionRequest } from '../../api/types';
+import { Disclosure } from '../../components/Disclosure';
 import { Badge, DataTable, EmptyState, Surface } from '../../components/primitives';
 import { useI18n } from '../../i18n/I18nProvider';
 import { artifactDisplayName } from '../../lib/artifacts';
@@ -289,13 +291,35 @@ export function ApprovalDecisionPanel({
 										)}
 							</span>
 						</div>
-						<pre className="artifact-preview">{decision.patchGate.reasons.join('\n')}</pre>
+						{/* 13-control checklist: failures first so blockers are seen at a glance. */}
+						<ul className="evidence-checklist">
+							{[...decision.patchGate.checks]
+								.sort((left, right) => Number(left.ok) - Number(right.ok))
+								.map((check) => (
+									<li className="evidence-check" data-ok={check.ok} key={check.message}>
+										{check.ok ? (
+											<CheckCircle2
+												className="evidence-check-icon"
+												size={16}
+												aria-label={t('app.review.checkPassed', 'Passed')}
+											/>
+										) : (
+											<XCircle
+												className="evidence-check-icon"
+												size={16}
+												aria-label={t('app.review.checkFailed', 'Failed')}
+											/>
+										)}
+										<span>{check.message}</span>
+									</li>
+								))}
+						</ul>
 					</Surface>
 				) : null}
 				{decision.patchGate?.required ? (
-					<Surface
+					<Disclosure
 						title={t('ui.static.full.diff.before.approval.4c0c93c5', 'Full diff before approval')}
-						flat
+						defaultOpen
 					>
 						{decision.patchLoading ? (
 							<EmptyState
@@ -342,15 +366,15 @@ export function ApprovalDecisionPanel({
 								{redactVisibleText(decision.patchPayload.text, '')}
 							</pre>
 						) : null}
-					</Surface>
+					</Disclosure>
 				) : null}
 				{decision.patchGate?.required ? (
-					<Surface
+					<Disclosure
 						title={t(
 							'ui.static.security.findings.before.approval.967fe426',
 							'Security findings before approval',
 						)}
-						flat
+						defaultOpen
 					>
 						{decision.securityLoading ? (
 							<EmptyState
@@ -400,57 +424,59 @@ export function ApprovalDecisionPanel({
 								{redactVisibleText(decision.securityPayload.text, '')}
 							</pre>
 						) : null}
-					</Surface>
+					</Disclosure>
 				) : null}
-				<div className="field">
-					<label htmlFor="review-decision-reason">
-						{t('app.review.copy.24', 'Human decision reason')}
-					</label>
-					<textarea
-						id="review-decision-reason"
-						className="textarea"
-						value={decision.decisionReason}
-						onChange={(event) => {
-							decision.setDecisionReason(event.target.value);
-							decision.setDecisionError('');
-						}}
-					/>
-					<div className="field-help">
-						{decision.patchGate?.required
-							? t(
-									'app.review.copy.25',
-									'Approve patch also requires complete linked evidence, non-blocking security findings, and a real diff. Reject only requires a recorded reason.',
-								)
-							: t(
-									'app.review.copy.26',
-									'Approve or reject is blocked until this reason is recorded.',
-								)}
+				<div className="review-decision-bar">
+					<div className="field">
+						<label htmlFor="review-decision-reason">
+							{t('app.review.copy.24', 'Human decision reason')}
+						</label>
+						<textarea
+							id="review-decision-reason"
+							className="textarea"
+							value={decision.decisionReason}
+							onChange={(event) => {
+								decision.setDecisionReason(event.target.value);
+								decision.setDecisionError('');
+							}}
+						/>
+						<div className="field-help">
+							{decision.patchGate?.required
+								? t(
+										'app.review.copy.25',
+										'Approve patch also requires complete linked evidence, non-blocking security findings, and a real diff. Reject only requires a recorded reason.',
+									)
+								: t(
+										'app.review.copy.26',
+										'Approve or reject is blocked until this reason is recorded.',
+									)}
+						</div>
 					</div>
-				</div>
-				{decision.decisionError ? (
-					<div className="form-error" role="alert">
-						{decision.decisionError}
+					{decision.decisionError ? (
+						<div className="form-error" role="alert">
+							{decision.decisionError}
+						</div>
+					) : null}
+					<div className="inline">
+						<button
+							className="button primary"
+							type="button"
+							disabled={decision.approveBlocked}
+							onClick={onApprove}
+						>
+							{requiresGate
+								? t('app.review.copy.28', 'Approve patch')
+								: t('ui.static.approve.78a1f3c9', 'Approve')}
+						</button>
+						<button
+							className="button danger"
+							type="button"
+							disabled={decision.decisionBlocked}
+							onClick={onReject}
+						>
+							{t('ui.static.reject.4c7c9dde', 'Reject')}
+						</button>
 					</div>
-				) : null}
-				<div className="inline">
-					<button
-						className="button primary"
-						type="button"
-						disabled={decision.approveBlocked}
-						onClick={onApprove}
-					>
-						{requiresGate
-							? t('app.review.copy.28', 'Approve patch')
-							: t('ui.static.approve.78a1f3c9', 'Approve')}
-					</button>
-					<button
-						className="button danger"
-						type="button"
-						disabled={decision.decisionBlocked}
-						onClick={onReject}
-					>
-						{t('ui.static.reject.4c7c9dde', 'Reject')}
-					</button>
 				</div>
 			</m.div>
 		</AnimatePresence>

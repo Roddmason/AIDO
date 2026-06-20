@@ -1210,7 +1210,7 @@ test('Review board approve patch is evidence-first blocked while reject stays op
 	await expect(review.getByRole('heading', { name: 'Full diff before approval' })).toBeVisible();
 	await expect(review.getByText('diff --git a/src/approval.ts b/src/approval.ts')).toBeVisible();
 	await expect(review.getByRole('heading', { name: 'Security findings before approval' })).toBeVisible();
-	await expect(review.getByText('ok: security findings are non-blocking')).toBeVisible();
+	await expect(review.getByText('security findings are non-blocking')).toBeVisible();
 	await expect(review.getByRole('heading', { name: 'Evidence completeness' })).toBeVisible();
 	await expect(review.getByText('evidence_complete')).toBeVisible();
 	await expect(review.getByRole('button', { name: 'Approve patch' })).toBeDisabled();

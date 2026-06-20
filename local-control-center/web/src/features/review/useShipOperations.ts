@@ -47,8 +47,13 @@ export type ShipOperations = {
  * it requires a non-empty reason, dispatches promote vs PR by `kind`, and records
  * the result; `reset` clears the form when the drawer closes or reopens.
  */
-export function useShipOperations(token: string, refresh: Refresh): ShipOperations {
-	const [reason, setReason] = useState('');
+export function useShipOperations(
+	token: string,
+	refresh: Refresh,
+	// Single, page-owned reason shared with the decision flow (inherited from the approval).
+	reason: string,
+	setReason: (value: string) => void,
+): ShipOperations {
 	const [branchName, setBranchName] = useState('');
 	const [pullRequestTitle, setPullRequestTitle] = useState('');
 	const [pullRequestBaseBranch, setPullRequestBaseBranch] = useState('');
@@ -113,8 +118,9 @@ export function useShipOperations(token: string, refresh: Refresh): ShipOperatio
 		}
 	};
 
+	// Clears the ship form (branch/PR/error/result). The reason is page-owned (so it carries
+	// from the approval into the ship flow) and is reset there per item, not here.
 	const reset = () => {
-		setReason('');
 		setBranchName('');
 		setPullRequestTitle('');
 		setPullRequestBaseBranch('');

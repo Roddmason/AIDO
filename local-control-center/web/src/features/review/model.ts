@@ -19,6 +19,9 @@ export type RiskLevel = ActionRequest['riskLevel'];
 export type ReviewColumn = 'needs_review' | 'blocked' | 'ready' | 'done';
 export type ReviewItemSource = 'patch_workflow' | 'standalone_action' | 'decided_action';
 
+/** One control of the patch evidence gate: passed/failed plus its operator-facing message. */
+export type EvidenceCheck = { ok: boolean; message: string };
+
 /**
  * One review card. Holds only ids and display-ready fields — never the heavy
  * records — so the board memoizes cheaply and the decision drawer re-resolves
@@ -222,12 +225,7 @@ export function evidenceCompleteness({
 	securityPayload: ArtifactPayload | null;
 }) {
 	const required = requiresPatchEvidenceGate(action);
-	if (!required)
-		return {
-			required,
-			complete: true,
-			reasons: ['No patch evidence gate is required for this action request.'],
-		};
+	if (!required) return { required, complete: true, checks: [] as EvidenceCheck[] };
 	const patchArtifact = findPatchArtifact(artifacts);
 	const securityArtifact = findSecurityFindingsArtifact(artifacts);
 	const hasEvidencePackage = evidence.length > 0;
@@ -242,7 +240,7 @@ export function evidenceCompleteness({
 	const hasSecurityArtifact = Boolean(securityArtifact);
 	const hasSecurityHash = Boolean(securityArtifact?.hash || securityPayload?.hash);
 	const hasNonBlockingSecurityFindings = securityFindingsAreNonBlocking(securityPayload);
-	const checks = [
+	const checks: EvidenceCheck[] = [
 		{ ok: hasEvidencePackage, message: 'linked evidence package recorded' },
 		{ ok: hasDiffRefs, message: 'diff refs recorded' },
 		{ ok: hasPatchArtifact, message: 'patch artifact linked' },
@@ -257,11 +255,7 @@ export function evidenceCompleteness({
 		{ ok: hasSecurityHash, message: 'security findings artifact hash recorded' },
 		{ ok: hasNonBlockingSecurityFindings, message: 'security findings are non-blocking' },
 	];
-	return {
-		required,
-		complete: checks.every((check) => check.ok),
-		reasons: checks.map((check) => `${check.ok ? 'ok' : 'missing'}: ${check.message}`),
-	};
+	return { required, complete: checks.every((check) => check.ok), checks };
 }
 
 // ----------------------------------------------------------------------------

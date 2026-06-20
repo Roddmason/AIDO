@@ -32,7 +32,7 @@ import { Badge, DataTable, EmptyState, PageHeader } from '../../components/primi
 import { useI18n } from '../../i18n/I18nProvider';
 import { TranslationMaintainer } from '../../i18n/TranslationMaintainer';
 import { toneForStatus } from '../../lib/format';
-import type { Language } from '../active-projects/ActiveProjectsPage';
+import type { Language } from '../projects/ProjectsPage';
 import { RuntimeSetupPanel } from '../runtime-setup/RuntimeSetupPanel';
 
 type Mutate = <T>(operation: (token: string) => Promise<T>) => Promise<T>;

@@ -1070,17 +1070,19 @@ test('project status navigation filters finished error and cancelled projects', 
 	});
 	await page.route('/api/v1/events', (route) => route.abort());
 
+	// Old per-lane deep link still resolves and opens the matching lane (now via alias).
 	await page.goto('/#projects-finished');
 	await expect(page.getByRole('heading', { name: 'Finished Projects' })).toBeVisible();
 	await expect(page.locator('.masonry-grid').getByText('Status Finished Project')).toBeVisible();
 	await expect(page.locator('.masonry-grid').getByText('Status Active Project')).toBeHidden();
 
-	await page.getByRole('button', { name: 'With error' }).click();
+	// Lanes are now a SegmentedControl (radiogroup) on a single Projects surface.
+	await page.getByRole('radio', { name: 'With error' }).click();
 	await expect(page.getByRole('heading', { name: 'Projects With Error' })).toBeVisible();
 	await expect(page.locator('.masonry-grid').getByText('Status Error Project')).toBeVisible();
 	await expect(page.locator('.masonry-grid').getByText('Status Finished Project')).toBeHidden();
 
-	await page.getByRole('button', { name: 'Cancelled' }).click();
+	await page.getByRole('radio', { name: 'Cancelled' }).click();
 	await expect(page.getByRole('heading', { name: 'Cancelled Projects' })).toBeVisible();
 	await expect(page.locator('.masonry-grid').getByText('Status Cancelled Project')).toBeVisible();
 	await expect(page.locator('.masonry-grid').getByText('Status Error Project')).toBeHidden();

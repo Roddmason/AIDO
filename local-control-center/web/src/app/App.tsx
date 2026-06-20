@@ -8,7 +8,7 @@
 import { AnimatePresence } from 'motion/react';
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { EmptyState, ErrorState, useToast } from '../components/ui';
-import type { Language } from '../features/active-projects/ActiveProjectsPage';
+import type { Language } from '../features/projects/ProjectsPage';
 import { NewWorkspaceDialog } from '../features/workspace/NewWorkspaceDialog';
 import type { WorkspaceMode } from '../features/workspace/useProjectDiscovery';
 import { useControlPlane } from '../hooks/useControlPlane';

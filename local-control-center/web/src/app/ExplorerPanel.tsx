@@ -539,7 +539,7 @@ export function ExplorerPanel({
 								aria-current={selectedProject?.id === project.id ? 'page' : undefined}
 								onClick={() => {
 									onSelectProject(project.id);
-									onNavigate('projects-active');
+									onNavigate('projects');
 								}}
 							>
 								<FolderKanban aria-hidden="true" size={16} />

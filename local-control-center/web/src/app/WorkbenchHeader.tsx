@@ -3,7 +3,8 @@
  * shell-wide controls (language, theme, command palette, drawers, inspector,
  * refresh). Stateless dispatcher — every action is delegated upward via props.
  */
-import { Moon, PanelRight, RefreshCw, Sun } from 'lucide-react';
+import { Moon, PanelBottom, PanelRight, RefreshCw, Sun } from 'lucide-react';
+import type { Ref } from 'react';
 
 import { useTheme } from '../hooks/useTheme';
 
@@ -28,6 +29,10 @@ export function WorkbenchHeader({
 	onRefresh,
 	inspectorOpen,
 	onToggleInspector,
+	inspectorToggleRef,
+	bottomOpen,
+	onToggleBottom,
+	bottomToggleRef,
 }: {
 	kicker: string;
 	title: string;
@@ -41,6 +46,10 @@ export function WorkbenchHeader({
 	onRefresh: () => void;
 	inspectorOpen: boolean;
 	onToggleInspector: () => void;
+	inspectorToggleRef?: Ref<HTMLButtonElement>;
+	bottomOpen: boolean;
+	onToggleBottom: () => void;
+	bottomToggleRef?: Ref<HTMLButtonElement>;
 }) {
 	const { theme, toggleTheme } = useTheme();
 	const languageOptions = languages.length
@@ -100,6 +109,7 @@ export function WorkbenchHeader({
 						{t('app.global.openEventDrawer', 'Open event drawer')}
 					</button>
 					<button
+						ref={inspectorToggleRef}
 						className="button"
 						type="button"
 						aria-pressed={inspectorOpen}
@@ -107,6 +117,17 @@ export function WorkbenchHeader({
 					>
 						<PanelRight aria-hidden="true" size={16} />
 						{t('app.global.inspector', 'Inspector')}
+					</button>
+					<button
+						ref={bottomToggleRef}
+						className="button"
+						type="button"
+						aria-pressed={bottomOpen}
+						aria-keyshortcuts="Control+J"
+						onClick={onToggleBottom}
+					>
+						<PanelBottom aria-hidden="true" size={16} />
+						{t('app.bottomPanel.title', 'Bottom panel')}
 					</button>
 					<button
 						className="icon-button"

@@ -19,6 +19,38 @@
       "en": "Close",
       "es": "Cerrar"
     },
+    "app.shell.resizeExplorer": {
+      "en": "Resize explorer panel",
+      "es": "Redimensionar panel de explorador"
+    },
+    "app.shell.resizeInspector": {
+      "en": "Resize inspector panel",
+      "es": "Redimensionar panel de inspector"
+    },
+    "app.shell.resizeBottomPanel": {
+      "en": "Resize bottom panel",
+      "es": "Redimensionar panel inferior"
+    },
+    "app.bottomPanel.title": {
+      "en": "Bottom panel",
+      "es": "Panel inferior"
+    },
+    "app.bottomPanel.toggle": {
+      "en": "Toggle bottom panel",
+      "es": "Alternar panel inferior"
+    },
+    "app.bottomPanel.close": {
+      "en": "Close bottom panel",
+      "es": "Cerrar panel inferior"
+    },
+    "app.bottomPanel.emptyTitle": {
+      "en": "No active session",
+      "es": "Sin sesion activa"
+    },
+    "app.bottomPanel.emptyBody": {
+      "en": "Logs and terminal output will appear here.",
+      "es": "Los registros y la salida del terminal apareceran aqui."
+    },
     "app.pages.downloadPreviewArtifact": {
       "en": "Download preview artifact",
       "es": "Descargar artefacto de vista previa"

@@ -14,6 +14,7 @@ import {
 	fetchEvidenceArtifact,
 } from '../../api/client';
 import type { ActionRequest, Artifact, Overview } from '../../api/types';
+import { useI18n } from '../../i18n/I18nProvider';
 import { findPatchArtifact } from '../../lib/diff';
 import {
 	evidenceCompleteness,
@@ -62,6 +63,7 @@ export function useReviewDecision(
 	decisionReason: string,
 	setDecisionReason: (value: string) => void,
 ): ReviewDecision {
+	const { t } = useI18n();
 	const [decisionError, setDecisionError] = useState('');
 	const [patchPayload, setPatchPayload] = useState<ArtifactPayload | null>(null);
 	const [patchLoadingId, setPatchLoadingId] = useState('');
@@ -111,11 +113,13 @@ export function useReviewDecision(
 
 	// Clear any stale decide error when the reviewed action changes; the reason is page-owned
 	// (reset there per item) so it can carry from the decision into the ship flow.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: action?.id is the intended trigger (reset on action change).
 	useEffect(() => {
 		setDecisionError('');
 	}, [action?.id]);
 
 	// Lazily load the patch artifact through the protected evidence endpoint.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: t only formats a rarely-shown error; re-fetching the artifact on a language switch would be wasteful.
 	useEffect(() => {
 		setPatchPayload(null);
 		setPatchError('');
@@ -126,7 +130,7 @@ export function useReviewDecision(
 		const artifactId = String(patchArtifact.id ?? '');
 		const evidenceId = String(patchArtifact.evidencePackageId ?? '');
 		if (!artifactId || !evidenceId) {
-			setPatchError('Patch artifact metadata is incomplete.');
+			setPatchError(t('app.review.error.patchMetadata', 'Patch artifact metadata is incomplete.'));
 			return undefined;
 		}
 		let cancelled = false;
@@ -137,7 +141,11 @@ export function useReviewDecision(
 			})
 			.catch((error) => {
 				if (!cancelled)
-					setPatchError(error instanceof Error ? error.message : 'Patch artifact preview failed.');
+					setPatchError(
+						error instanceof Error
+							? error.message
+							: t('app.review.error.patchPreview', 'Patch artifact preview failed.'),
+					);
 			})
 			.finally(() => {
 				if (!cancelled) setPatchLoadingId('');
@@ -148,6 +156,7 @@ export function useReviewDecision(
 	}, [action, patchArtifact, token]);
 
 	// Lazily load the security findings artifact.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: t only formats a rarely-shown error; re-fetching the artifact on a language switch would be wasteful.
 	useEffect(() => {
 		setSecurityPayload(null);
 		setSecurityError('');
@@ -158,7 +167,12 @@ export function useReviewDecision(
 		const artifactId = String(securityArtifact.id ?? '');
 		const evidenceId = String(securityArtifact.evidencePackageId ?? '');
 		if (!artifactId || !evidenceId) {
-			setSecurityError('Security findings artifact metadata is incomplete.');
+			setSecurityError(
+				t(
+					'app.review.error.securityMetadata',
+					'Security findings artifact metadata is incomplete.',
+				),
+			);
 			return undefined;
 		}
 		let cancelled = false;
@@ -170,7 +184,9 @@ export function useReviewDecision(
 			.catch((error) => {
 				if (!cancelled)
 					setSecurityError(
-						error instanceof Error ? error.message : 'Security findings preview failed.',
+						error instanceof Error
+							? error.message
+							: t('app.review.error.securityPreview', 'Security findings preview failed.'),
 					);
 			})
 			.finally(() => {
@@ -188,12 +204,20 @@ export function useReviewDecision(
 	const decide = async (kind: 'approve' | 'reject'): Promise<boolean> => {
 		if (!action) return false;
 		if (!trimmedReason) {
-			setDecisionError('A human reason is required before this request can be decided.');
+			setDecisionError(
+				t(
+					'app.review.error.reasonRequired',
+					'A human reason is required before this request can be decided.',
+				),
+			);
 			return false;
 		}
 		if (kind === 'approve' && patchGate?.required && !patchGate.complete) {
 			setDecisionError(
-				'Complete linked evidence, a readable non-empty patch artifact, passing QA evidence, and non-blocking security findings are required before approve patch.',
+				t(
+					'app.review.error.approveGate',
+					'Complete linked evidence, a readable non-empty patch artifact, passing QA evidence, and non-blocking security findings are required before approve patch.',
+				),
 			);
 			return false;
 		}
@@ -215,7 +239,11 @@ export function useReviewDecision(
 			});
 			return true;
 		} catch (error) {
-			setDecisionError(error instanceof Error ? error.message : 'Decision failed.');
+			setDecisionError(
+				error instanceof Error
+					? error.message
+					: t('app.review.error.decisionFailed', 'Decision failed.'),
+			);
 			return false;
 		}
 	};

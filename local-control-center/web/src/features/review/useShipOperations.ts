@@ -11,6 +11,7 @@ import {
 	promoteIssueToPrBranch,
 	promotePatchToBranch,
 } from '../../api/client';
+import { useI18n } from '../../i18n/I18nProvider';
 import type { PatchWorkflowKind } from './model';
 import { asRecord } from './model';
 
@@ -54,6 +55,7 @@ export function useShipOperations(
 	reason: string,
 	setReason: (value: string) => void,
 ): ShipOperations {
+	const { t } = useI18n();
 	const [branchName, setBranchName] = useState('');
 	const [pullRequestTitle, setPullRequestTitle] = useState('');
 	const [pullRequestBaseBranch, setPullRequestBaseBranch] = useState('');
@@ -79,7 +81,7 @@ export function useShipOperations(
 
 	const run = async (operation: ShipOperation, runId: string, kind: PatchWorkflowKind) => {
 		if (!trimmedReason) {
-			setError('Workflow operation reason is required.');
+			setError(t('app.review.error.shipReasonRequired', 'Workflow operation reason is required.'));
 			return;
 		}
 		setError('');
@@ -112,7 +114,11 @@ export function useShipOperations(
 			}
 			void refresh(true).catch(() => undefined);
 		} catch (caught) {
-			setError(caught instanceof Error ? caught.message : 'Workflow operation failed.');
+			setError(
+				caught instanceof Error
+					? caught.message
+					: t('app.review.error.shipFailed', 'Workflow operation failed.'),
+			);
 		} finally {
 			setBusyId('');
 		}

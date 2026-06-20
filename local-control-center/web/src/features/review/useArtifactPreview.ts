@@ -7,6 +7,7 @@ import { useRef, useState } from 'react';
 import type { ArtifactPayload } from '../../api/client';
 import { downloadEvidenceArtifact, fetchEvidenceArtifact } from '../../api/client';
 import type { Artifact } from '../../api/types';
+import { useI18n } from '../../i18n/I18nProvider';
 import { artifactDisplayName } from '../../lib/artifacts';
 
 type ArtifactPreview = {
@@ -28,6 +29,7 @@ type ArtifactPreview = {
  * (redactVisibleText) to `payload.text` before rendering it.
  */
 export function useArtifactPreview(token: string): ArtifactPreview {
+	const { t } = useI18n();
 	const [artifact, setArtifact] = useState<Artifact | null>(null);
 	const [payload, setPayload] = useState<ArtifactPayload | null>(null);
 	const [loadingId, setLoadingId] = useState('');
@@ -44,7 +46,7 @@ export function useArtifactPreview(token: string): ArtifactPreview {
 		const artifactId = String(next.id ?? '');
 		const evidenceId = String(next.evidencePackageId ?? '');
 		if (!artifactId || !evidenceId) {
-			setError('Artifact metadata is incomplete.');
+			setError(t('app.review.error.artifactMetadata', 'Artifact metadata is incomplete.'));
 			return;
 		}
 		const generation = ++requestRef.current;
@@ -57,7 +59,11 @@ export function useArtifactPreview(token: string): ArtifactPreview {
 			if (requestRef.current === generation) setPayload(result);
 		} catch (caught) {
 			if (requestRef.current === generation)
-				setError(caught instanceof Error ? caught.message : 'Artifact preview failed.');
+				setError(
+					caught instanceof Error
+						? caught.message
+						: t('app.review.error.artifactPreview', 'Artifact preview failed.'),
+				);
 		} finally {
 			if (requestRef.current === generation) setLoadingId('');
 		}
@@ -67,7 +73,7 @@ export function useArtifactPreview(token: string): ArtifactPreview {
 		const artifactId = String(next.id ?? '');
 		const evidenceId = String(next.evidencePackageId ?? '');
 		if (!artifactId || !evidenceId) {
-			setError('Artifact metadata is incomplete.');
+			setError(t('app.review.error.artifactMetadata', 'Artifact metadata is incomplete.'));
 			return;
 		}
 		const generation = ++downloadRef.current;
@@ -77,7 +83,11 @@ export function useArtifactPreview(token: string): ArtifactPreview {
 			await downloadEvidenceArtifact(token, evidenceId, artifactId, artifactDisplayName(next));
 		} catch (caught) {
 			if (downloadRef.current === generation)
-				setError(caught instanceof Error ? caught.message : 'Artifact download failed.');
+				setError(
+					caught instanceof Error
+						? caught.message
+						: t('app.review.error.artifactDownload', 'Artifact download failed.'),
+				);
 		} finally {
 			if (downloadRef.current === generation) setDownloadingId('');
 		}

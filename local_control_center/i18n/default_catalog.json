@@ -639,6 +639,18 @@
       "en": "Workflow operation failed.",
       "es": "La operación del flujo falló."
     },
+    "app.review.error.artifactMetadata": {
+      "en": "Artifact metadata is incomplete.",
+      "es": "Los metadatos del artefacto están incompletos."
+    },
+    "app.review.error.artifactPreview": {
+      "en": "Artifact preview failed.",
+      "es": "La previsualización del artefacto falló."
+    },
+    "app.review.error.artifactDownload": {
+      "en": "Artifact download failed.",
+      "es": "La descarga del artefacto falló."
+    },
     "app.review.patchGateBlocked": {
       "en": "Approve patch is blocked until evidence is complete.",
       "es": "Aprobar el parche está bloqueado hasta que la evidencia esté completa."

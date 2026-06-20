@@ -2,17 +2,14 @@
  * Workbench Timeline panel: the run-progress view. Combines signal counters, the
  * detailed run timeline, the project delivery flow and recent runs/pipelines/events.
  */
-import type { IssueToPatchResponse } from '../../../api/client';
 import type { Overview } from '../../../api/types';
 import { Badge, DataTable, EmptyState, Surface } from '../../../components/primitives';
 import { useI18n } from '../../../i18n/I18nProvider';
 import { shortId, toneForStatus } from '../../../lib/format';
-import type { TimelineArtifactRef } from '../timelineModel';
-import { buildWorkflowTimeline } from '../timelineModel';
+import type { TimelineArtifactRef, WorkflowTimelineStage } from '../timelineModel';
 import { WorkflowTimeline } from '../WorkflowTimeline';
 import { sortByTimeDesc } from '../workbenchSelectors';
 
-type DeliveryRow = { id: string; label: string; owner: string; status: string };
 type Signals = { workflows: number; evidence: number; approvals: number; workspaces: number };
 
 function formatTime(value: string | null | undefined, emptyLabel: string) {
@@ -22,10 +19,10 @@ function formatTime(value: string | null | undefined, emptyLabel: string) {
 }
 
 export function TimelinePanel({
-	taskRunResult,
-	isSubmittingTask,
-	hasExecutableRuntime,
-	deliveryRows,
+	runTimeline,
+	hasRun,
+	deliveryTimeline,
+	hasPipeline,
 	signals,
 	workflows,
 	workflowRuns,
@@ -33,10 +30,10 @@ export function TimelinePanel({
 	pipelines,
 	onOpenArtifact,
 }: {
-	taskRunResult: IssueToPatchResponse | null;
-	isSubmittingTask: boolean;
-	hasExecutableRuntime: boolean;
-	deliveryRows: DeliveryRow[];
+	runTimeline: WorkflowTimelineStage[];
+	hasRun: boolean;
+	deliveryTimeline: WorkflowTimelineStage[];
+	hasPipeline: boolean;
 	signals: Signals;
 	workflows: Overview['workflows'];
 	workflowRuns: Overview['workflowRuns'];
@@ -45,7 +42,6 @@ export function TimelinePanel({
 	onOpenArtifact?: (artifact: TimelineArtifactRef) => void;
 }) {
 	const { t } = useI18n();
-	const timeline = buildWorkflowTimeline(taskRunResult, isSubmittingTask, hasExecutableRuntime);
 	const runs = sortByTimeDesc(workflowRuns).slice(0, 6);
 	const events = sortByTimeDesc(workflowEvents).slice(0, 8);
 	const workflowTitle = (workflowId: string) =>
@@ -73,26 +69,40 @@ export function TimelinePanel({
 			</div>
 
 			<Surface title={t('app.workbench.timeline.runTitle', 'Run timeline')} flat>
-				<WorkflowTimeline
-					variant="detailed"
-					stages={timeline}
-					label={t('app.workbench.timeline.runLabel', 'Detailed run timeline')}
-					onOpenArtifact={onOpenArtifact}
-				/>
+				{hasRun ? (
+					<WorkflowTimeline
+						variant="detailed"
+						stages={runTimeline}
+						label={t('app.workbench.timeline.runLabel', 'Detailed run timeline')}
+						onOpenArtifact={onOpenArtifact}
+					/>
+				) : (
+					<EmptyState
+						title={t('app.workbench.timeline.runEmptyTitle', 'No run yet')}
+						body={t(
+							'app.workbench.timeline.runEmptyBody',
+							'Submit a governed task to see its run progress here.',
+						)}
+					/>
+				)}
 			</Surface>
 
 			<Surface title={t('app.workbench.timeline.deliveryTitle', 'Project delivery flow')} flat>
-				<ol className="delivery-rail">
-					{deliveryRows.map((stage) => (
-						<li className="delivery-step" key={stage.id}>
-							<Badge tone={toneForStatus(stage.status)}>{stage.status}</Badge>
-							<div>
-								<strong>{stage.label}</strong>
-								<span className="muted">{stage.owner}</span>
-							</div>
-						</li>
-					))}
-				</ol>
+				{hasPipeline ? (
+					<WorkflowTimeline
+						variant="detailed"
+						stages={deliveryTimeline}
+						label={t('app.workbench.timeline.deliveryLabel', 'Project delivery phases')}
+					/>
+				) : (
+					<EmptyState
+						title={t('app.workbench.timeline.deliveryEmptyTitle', 'No delivery pipeline yet')}
+						body={t(
+							'app.workbench.timeline.deliveryEmptyBody',
+							'Start a conversation intake to create the delivery pipeline.',
+						)}
+					/>
+				)}
 			</Surface>
 
 			<Surface title={t('app.workbench.timeline.runsTitle', 'Workflow runs')} flat>

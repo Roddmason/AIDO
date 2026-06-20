@@ -25,7 +25,8 @@ import { buildIssueTimeline } from './workbenchSelectors';
 /** A workbench-internal artifact a stage can link to (opened inside the workbench). */
 export type TimelineArtifactRef = { kind: 'evidence'; id: string };
 
-/** The seven leading run phases, in order. The eighth stage is the terminal verdict. */
+/** The seven leading run phases, in order, then the terminal verdict; `delivery` tags the
+ *  governed-pipeline stages folded into the same canonical timeline (distinct taxonomy). */
 export type TimelinePhase =
 	| 'created'
 	| 'workspace'
@@ -34,7 +35,8 @@ export type TimelinePhase =
 	| 'qa'
 	| 'evidence'
 	| 'review'
-	| 'terminal';
+	| 'terminal'
+	| 'delivery';
 
 /** One rendered timeline step: resolved status plus everything the UI needs to draw it. */
 export type WorkflowTimelineStage = {
@@ -110,6 +112,18 @@ const FALLBACK_REASON: Record<TimelineStatus, string> = {
 	failed: 'Failed',
 };
 
+/** Normalizes a free-form pipeline stage status into the timeline's status vocabulary, so
+ *  governed delivery stages can be rendered by the same canonical {@link WorkflowTimeline}. */
+export function deliveryStatusToTimeline(raw: string): TimelineStatus {
+	const normalized = raw.toLowerCase();
+	if (['done', 'complete', 'completed', 'success', 'succeeded', 'approved'].includes(normalized))
+		return 'done';
+	if (['active', 'running', 'in_progress', 'in-progress'].includes(normalized)) return 'active';
+	if (['failed', 'error', 'errored'].includes(normalized)) return 'failed';
+	if (['blocked', 'cancelled', 'canceled'].includes(normalized)) return 'blocked';
+	return 'pending';
+}
+
 /**
  * Human reason per (phase, status). Phrased so the operator understands what
  * happened and what is still missing — not the raw machine status.
@@ -155,6 +169,9 @@ const REASONS: Record<TimelinePhase, Partial<Record<TimelineStatus, string>>> = 
 		blocked: 'Delivery blocked',
 		pending: 'No terminal verdict yet',
 	},
+	// Delivery stages carry their own reason (the stage owner), set by the adapter in
+	// useWorkbenchData, so no per-status reason is resolved from this run-phase map.
+	delivery: {},
 };
 
 function reasonFor(phase: TimelinePhase, status: TimelineStatus): Reason {

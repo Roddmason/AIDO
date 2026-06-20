@@ -688,14 +688,7 @@
 	min-height: 8.5rem;
 }
 
-.delivery-rail {
-	display: grid;
-	gap: var(--space-2);
-	margin: 0;
-	padding: 0;
-	list-style: none;
-}
-
+/* Inspector blocker cards (the only consumer now the delivery timeline uses WorkflowTimeline). */
 .delivery-step {
 	display: grid;
 	grid-template-columns: auto minmax(0, 1fr);

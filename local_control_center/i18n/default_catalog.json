@@ -35,6 +35,18 @@
       "en": "Control plane unavailable",
       "es": "Plano de control no disponible"
     },
+    "app.controlPlane.error.loadFailed": {
+      "en": "Unable to load control plane state.",
+      "es": "No se pudo cargar el estado del plano de control."
+    },
+    "app.controlPlane.error.connecting": {
+      "en": "Control plane is still connecting; retry once the session token is ready.",
+      "es": "El plano de control aún se está conectando; reintenta cuando el token de sesión esté listo."
+    },
+    "app.controlPlane.error.operationFailed": {
+      "en": "Operation failed.",
+      "es": "La operación falló."
+    },
     "app.boot.loading": {
       "en": "Loading control plane",
       "es": "Cargando plano de control"

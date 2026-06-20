@@ -6,27 +6,9 @@
  * route to its feature page. Every chrome piece lives in its own component here.
  */
 import { AnimatePresence } from 'motion/react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { EmptyState, ErrorState, useToast } from '../components/ui';
-import type { Language, ProjectStatusView } from '../features/active-projects/ActiveProjectsPage';
-import { ActiveProjectsPage } from '../features/active-projects/ActiveProjectsPage';
-import { AgentsPage } from '../features/agents/AgentsPage';
-import { HomePage } from '../features/home/HomePage';
-import { ModelGatewayPage } from '../features/model-gateway/ModelGatewayPage';
-import {
-	AuditPage,
-	EvidencePage,
-	GovernancePage,
-	IntegrationsPage,
-	MemoryPage,
-	PolicySecurityPage,
-	WorkspacesPage,
-} from '../features/pages';
-import { ReviewPage } from '../features/review/ReviewPage';
-import type { SettingsGroupId } from '../features/settings/SettingsPage';
-import { SettingsPage } from '../features/settings/SettingsPage';
-import { WorkbenchPage } from '../features/workbench/WorkbenchPage';
-import { WorkflowsPage } from '../features/workflows/WorkflowsPage';
+import type { Language } from '../features/active-projects/ActiveProjectsPage';
 import { NewWorkspaceDialog } from '../features/workspace/NewWorkspaceDialog';
 import type { WorkspaceMode } from '../features/workspace/useProjectDiscovery';
 import { useControlPlane } from '../hooks/useControlPlane';
@@ -40,30 +22,15 @@ import type { CommandAction } from './commandActions';
 import { useCommandActions } from './commandActions';
 import { EventsDrawer } from './EventsDrawer';
 import { areaForPage, titleForPage } from './navigation';
+import { RouteErrorBoundary } from './RouteErrorBoundary';
+import { RouteSkeleton } from './RouteSkeleton';
+import type { RouteContext } from './routes';
+import { renderRoute } from './routes';
 import type { AppRoute } from './routing';
 import { resolveHashRoute } from './routing';
 import { useShellShortcuts } from './useShellShortcuts';
 
 const SELECTED_PROJECT_STORAGE_KEY = 'aido:selectedProjectId';
-
-/** Status-filtered project pages map to an ActiveProjectsPage status view. */
-const projectStatusByPage: Partial<Record<AppRoute, ProjectStatusView>> = {
-	'projects-active': 'active',
-	'projects-finished': 'finished',
-	'projects-error': 'error',
-	'projects-cancelled': 'cancelled',
-};
-
-/** Settings routes map to the SettingsPage group they should open. */
-const settingsGroupByPage: Partial<Record<AppRoute, SettingsGroupId>> = {
-	'settings-project': 'project',
-	'settings-runtime': 'runtime',
-	'settings-agents': 'agents',
-	'settings-security': 'security',
-	'settings-workspaces': 'workspaces',
-	'settings-integrations': 'integrations',
-	'settings-advanced': 'advanced',
-};
 
 function readStoredSelectedProjectId() {
 	try {
@@ -195,152 +162,6 @@ export function App() {
 	});
 	commandActionsRef.current = commandActions;
 
-	const pageContent = () => {
-		if (!overview) return null;
-		if (state.error) {
-			return (
-				<ErrorState
-					title={t('app.boot.controlPlaneUnavailable', 'Control plane unavailable')}
-					body={state.error}
-				/>
-			);
-		}
-		if (page === 'home') {
-			return (
-				<HomePage
-					overview={overview}
-					runtimeProviders={state.runtimeProviders}
-					selectedProject={selectedProject}
-					language={bilingualLanguage}
-					onSelectProject={setOperationalProject}
-					onCreateProject={() => openWorkspaceDialog('create_workspace')}
-					onOpenFolder={() => openWorkspaceDialog('open_folder')}
-					onOpenWorkbench={() => navigateTo('workbench')}
-					onOpenProjects={() => navigateTo('projects-active')}
-					onOpenReview={() => navigateTo('review-board')}
-					onOpenRuns={() => navigateTo('workflows')}
-					onOpenRuntimes={() => navigateTo('models')}
-				/>
-			);
-		}
-		if (page === 'workbench') {
-			return (
-				<WorkbenchPage
-					overview={overview}
-					selectedProject={selectedProject}
-					runtimeProviders={state.runtimeProviders}
-					runtimeProviderConfiguration={state.runtimeProviderConfiguration}
-					mutate={state.mutate}
-					token={state.token}
-					onSelectProject={setOperationalProject}
-					onCreateProject={() => openWorkspaceDialog('open_folder')}
-					onOpenJobs={() => navigateTo('review-board')}
-					onOpenEvidence={() => navigateTo('evidence')}
-					onOpenSettings={() => navigateTo('settings-project')}
-					onOpenRuntimeSetup={() => navigateTo('settings-runtime')}
-					onRefresh={() => state.refresh(true)}
-				/>
-			);
-		}
-		const projectStatusView = projectStatusByPage[page];
-		if (projectStatusView) {
-			return (
-				<ActiveProjectsPage
-					overview={overview}
-					selectedProject={selectedProject}
-					statusView={projectStatusView}
-					language={bilingualLanguage}
-					onSelectProject={setOperationalProject}
-					onOpenSettings={() => navigateTo('settings-project')}
-					onCreateProject={() => openWorkspaceDialog('open_folder')}
-				/>
-			);
-		}
-		switch (page) {
-			case 'workflows':
-				return <WorkflowsPage overview={overview} token={state.token} mutate={state.mutate} />;
-			case 'review-board':
-				return (
-					<ReviewPage
-						overview={overview}
-						token={state.token}
-						mutate={state.mutate}
-						refresh={state.refresh}
-					/>
-				);
-			case 'agents':
-				return (
-					<AgentsPage
-						overview={overview}
-						runtimeProviders={state.runtimeProviders}
-						mutate={state.mutate}
-					/>
-				);
-			case 'workspaces':
-				return <WorkspacesPage overview={overview} />;
-			case 'policy':
-				return <PolicySecurityPage overview={overview} mutate={state.mutate} />;
-			case 'memory':
-				return <MemoryPage overview={overview} retrievalStatus={state.retrievalStatus} />;
-			case 'evidence':
-				return <EvidencePage overview={overview} token={state.token} />;
-			case 'models':
-				return (
-					<ModelGatewayPage
-						overview={overview}
-						runtimeProviders={state.runtimeProviders}
-						token={state.token}
-						onRefreshRuntimeProviders={() => state.refresh(true)}
-					/>
-				);
-			case 'governance':
-				return (
-					<GovernancePage
-						overview={overview}
-						selectedProject={selectedProject}
-						mutate={state.mutate}
-					/>
-				);
-			case 'audit':
-				return <AuditPage overview={overview} />;
-			case 'integrations':
-				return <IntegrationsPage overview={overview} mutate={state.mutate} />;
-			case 'settings-project':
-			case 'settings-runtime':
-			case 'settings-agents':
-			case 'settings-security':
-			case 'settings-integrations':
-			case 'settings-advanced':
-			case 'settings-workspaces':
-				return (
-					<SettingsPage
-						overview={overview}
-						selectedProject={selectedProject}
-						onSelectProject={setOperationalProject}
-						onCreateProject={() => openWorkspaceDialog('open_folder')}
-						mutate={state.mutate}
-						section={settingsGroupByPage[page]}
-						runtimeProviders={state.runtimeProviders}
-						runtimeProviderConfiguration={state.runtimeProviderConfiguration}
-						token={state.token}
-						onRefresh={() => state.refresh(true)}
-						language={bilingualLanguage}
-					/>
-				);
-			default:
-				return (
-					<ActiveProjectsPage
-						overview={overview}
-						selectedProject={selectedProject}
-						language={bilingualLanguage}
-						onSelectProject={setOperationalProject}
-						onOpenSettings={() => navigateTo('settings-project')}
-						onCreateProject={() => openWorkspaceDialog('open_folder')}
-					/>
-				);
-		}
-	};
-
 	if (state.loading || !overview) {
 		const failed = Boolean(state.error);
 		return (
@@ -367,6 +188,22 @@ export function App() {
 		);
 	}
 
+	// Shared context handed to the active route's page (overview is non-null past the guard).
+	const routeContext: RouteContext = {
+		overview,
+		selectedProject,
+		runtimeProviders: state.runtimeProviders,
+		runtimeProviderConfiguration: state.runtimeProviderConfiguration,
+		retrievalStatus: state.retrievalStatus,
+		token: state.token,
+		mutate: state.mutate,
+		refresh: state.refresh,
+		language: bilingualLanguage,
+		navigateTo,
+		onSelectProject: setOperationalProject,
+		openWorkspaceDialog,
+	};
+
 	return (
 		<>
 			<AppShell
@@ -391,7 +228,27 @@ export function App() {
 				headerTitle={selectedProject?.name ?? t('app.global.runtimeProject', 'Runtime project')}
 			>
 				<AnimatePresence mode="wait">
-					<MotionPage key={page}>{pageContent()}</MotionPage>
+					<MotionPage key={page}>
+						<RouteErrorBoundary
+							title={t('app.route.loadErrorTitle', 'This view could not be loaded')}
+							body={t(
+								'app.route.loadErrorBody',
+								'Something went wrong opening this page. Retry or pick another view.',
+							)}
+							retryLabel={t('app.route.retry', 'Retry')}
+						>
+							<Suspense fallback={<RouteSkeleton />}>
+								{state.error ? (
+									<ErrorState
+										title={t('app.boot.controlPlaneUnavailable', 'Control plane unavailable')}
+										body={state.error}
+									/>
+								) : (
+									renderRoute(page, routeContext)
+								)}
+							</Suspense>
+						</RouteErrorBoundary>
+					</MotionPage>
 				</AnimatePresence>
 			</AppShell>
 

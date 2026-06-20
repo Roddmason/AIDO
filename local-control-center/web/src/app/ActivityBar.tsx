@@ -9,6 +9,7 @@ import { useI18n } from '../i18n/I18nProvider';
 import { INDICATOR_TRANSITION } from '../motion/variants';
 import type { AreaId, PageId } from './navigation';
 import { AREAS, pickLabel } from './navigation';
+import { preloadRoute } from './routes';
 
 /** Shared-layout id of the decorative pill that slides to the active area button. */
 const ACTIVE_INDICATOR_LAYOUT_ID = 'activitybar-active';
@@ -61,6 +62,8 @@ export function ActivityBar({
 							title={label}
 							aria-current={isActive ? 'page' : undefined}
 							onClick={() => onNavigate(area.leadPage)}
+							onMouseEnter={() => preloadRoute(area.leadPage)}
+							onFocus={() => preloadRoute(area.leadPage)}
 							style={{ position: 'relative' }}
 						>
 							{isActive ? (

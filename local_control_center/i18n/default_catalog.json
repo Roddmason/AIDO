@@ -43,6 +43,22 @@
       "en": "Waiting for FastAPI v1, SQLite and runtime providers.",
       "es": "Esperando FastAPI v1, SQLite y proveedores de runtime."
     },
+    "app.route.loading": {
+      "en": "Loading view",
+      "es": "Cargando vista"
+    },
+    "app.route.loadErrorTitle": {
+      "en": "This view could not be loaded",
+      "es": "No se pudo cargar esta vista"
+    },
+    "app.route.loadErrorBody": {
+      "en": "Something went wrong opening this page. Retry or pick another view.",
+      "es": "Algo salió mal al abrir esta página. Reintenta o elige otra vista."
+    },
+    "app.route.retry": {
+      "en": "Retry",
+      "es": "Reintentar"
+    },
     "app.toast.workspaceReady": {
       "en": "Workspace ready",
       "es": "Workspace listo"

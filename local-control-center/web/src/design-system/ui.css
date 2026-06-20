@@ -177,3 +177,28 @@
 	min-height: 0;
 	display: grid;
 }
+
+/* Skeleton: neutral placeholder block; the opacity shimmer is driven by motion variants. */
+.skeleton {
+	min-height: 1rem;
+	border-radius: var(--radius-md);
+	background: var(--color-surface-inset);
+}
+
+/* RouteSkeleton: fills the content frame while a lazy page chunk downloads. */
+.route-skeleton {
+	display: grid;
+	gap: var(--space-3);
+	align-content: start;
+	padding: var(--space-4);
+}
+
+.route-skeleton-title {
+	height: 2.25rem;
+	max-width: 18rem;
+}
+
+.route-skeleton-block {
+	height: 9rem;
+	border-radius: var(--radius-lg);
+}

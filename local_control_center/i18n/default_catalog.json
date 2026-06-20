@@ -551,6 +551,58 @@
       "en": "Failed",
       "es": "Falló"
     },
+    "app.review.gate.evidencePackage": {
+      "en": "linked evidence package recorded",
+      "es": "paquete de evidencia vinculado registrado"
+    },
+    "app.review.gate.diffRefs": {
+      "en": "diff refs recorded",
+      "es": "referencias de diff registradas"
+    },
+    "app.review.gate.patchArtifact": {
+      "en": "patch artifact linked",
+      "es": "artefacto de parche vinculado"
+    },
+    "app.review.gate.patchLoaded": {
+      "en": "patch artifact loaded",
+      "es": "artefacto de parche cargado"
+    },
+    "app.review.gate.patchReadable": {
+      "en": "patch artifact readable",
+      "es": "artefacto de parche legible"
+    },
+    "app.review.gate.patchHash": {
+      "en": "patch artifact hash recorded",
+      "es": "hash del artefacto de parche registrado"
+    },
+    "app.review.gate.patchChanges": {
+      "en": "patch artifact contains real unified diff changes",
+      "es": "el artefacto de parche contiene cambios reales en diff unificado"
+    },
+    "app.review.gate.qaPassed": {
+      "en": "QA command evidence passed",
+      "es": "la evidencia de comandos QA pasó"
+    },
+    "app.review.gate.securityArtifact": {
+      "en": "security findings artifact linked",
+      "es": "artefacto de hallazgos de seguridad vinculado"
+    },
+    "app.review.gate.securityLoaded": {
+      "en": "security findings artifact loaded",
+      "es": "artefacto de hallazgos de seguridad cargado"
+    },
+    "app.review.gate.securityReadable": {
+      "en": "security findings artifact readable",
+      "es": "artefacto de hallazgos de seguridad legible"
+    },
+    "app.review.gate.securityHash": {
+      "en": "security findings artifact hash recorded",
+      "es": "hash del artefacto de hallazgos de seguridad registrado"
+    },
+    "app.review.gate.securityNonBlocking": {
+      "en": "security findings are non-blocking",
+      "es": "los hallazgos de seguridad no son bloqueantes"
+    },
     "app.review.patchGateBlocked": {
       "en": "Approve patch is blocked until evidence is complete.",
       "es": "Aprobar el parche está bloqueado hasta que la evidencia esté completa."

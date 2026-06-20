@@ -296,7 +296,7 @@ export function ApprovalDecisionPanel({
 							{[...decision.patchGate.checks]
 								.sort((left, right) => Number(left.ok) - Number(right.ok))
 								.map((check) => (
-									<li className="evidence-check" data-ok={check.ok} key={check.message}>
+									<li className="evidence-check" data-ok={check.ok} key={check.labelKey}>
 										{check.ok ? (
 											<CheckCircle2
 												className="evidence-check-icon"
@@ -310,7 +310,10 @@ export function ApprovalDecisionPanel({
 												aria-label={t('app.review.checkFailed', 'Failed')}
 											/>
 										)}
-										<span>{check.message}</span>
+										<span>
+											{t(check.labelKey, check.label)}
+											{check.detail ? ` — ${check.detail}` : ''}
+										</span>
 									</li>
 								))}
 						</ul>

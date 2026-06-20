@@ -603,6 +603,42 @@
       "en": "security findings are non-blocking",
       "es": "los hallazgos de seguridad no son bloqueantes"
     },
+    "app.review.error.patchMetadata": {
+      "en": "Patch artifact metadata is incomplete.",
+      "es": "Los metadatos del artefacto de parche están incompletos."
+    },
+    "app.review.error.patchPreview": {
+      "en": "Patch artifact preview failed.",
+      "es": "La previsualización del artefacto de parche falló."
+    },
+    "app.review.error.securityMetadata": {
+      "en": "Security findings artifact metadata is incomplete.",
+      "es": "Los metadatos del artefacto de hallazgos de seguridad están incompletos."
+    },
+    "app.review.error.securityPreview": {
+      "en": "Security findings preview failed.",
+      "es": "La previsualización de los hallazgos de seguridad falló."
+    },
+    "app.review.error.reasonRequired": {
+      "en": "A human reason is required before this request can be decided.",
+      "es": "Se requiere una razón humana antes de poder decidir esta solicitud."
+    },
+    "app.review.error.approveGate": {
+      "en": "Complete linked evidence, a readable non-empty patch artifact, passing QA evidence, and non-blocking security findings are required before approve patch.",
+      "es": "Se requieren evidencia vinculada completa, un artefacto de parche legible y no vacío, evidencia de QA aprobada y hallazgos de seguridad no bloqueantes antes de aprobar el parche."
+    },
+    "app.review.error.decisionFailed": {
+      "en": "Decision failed.",
+      "es": "La decisión falló."
+    },
+    "app.review.error.shipReasonRequired": {
+      "en": "Workflow operation reason is required.",
+      "es": "Se requiere una razón para la operación del flujo."
+    },
+    "app.review.error.shipFailed": {
+      "en": "Workflow operation failed.",
+      "es": "La operación del flujo falló."
+    },
     "app.review.patchGateBlocked": {
       "en": "Approve patch is blocked until evidence is complete.",
       "es": "Aprobar el parche está bloqueado hasta que la evidencia esté completa."

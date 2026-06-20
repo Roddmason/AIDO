@@ -2066,7 +2066,7 @@ test('Workbench governed patch blocks issue_to_patch when no executable runtime 
 	});
 	await page.goto('/#command');
 	await expect(page.locator('.workbench-layout')).toBeVisible();
-	await page.getByRole('button', { name: 'Governed patch' }).click();
+	await page.getByRole('radio', { name: 'Governed patch' }).click();
 
 	await page.getByLabel('What should AIDO change?').fill('Change a small file through the real runtime slice.');
 	await expect(page.getByText('runtime_unavailable').first()).toBeVisible();
@@ -2124,7 +2124,7 @@ test('Workbench governed patch enables issue_to_patch only with an executable ru
 	});
 	await page.goto('/#command');
 	await expect(page.locator('.workbench-layout')).toBeVisible();
-	await page.getByRole('button', { name: 'Governed patch' }).click();
+	await page.getByRole('radio', { name: 'Governed patch' }).click();
 
 	await expect(page.getByRole('button', { name: 'Request change' })).toBeDisabled();
 	await page.getByRole('button', { name: 'Advanced' }).click();
@@ -2157,7 +2157,7 @@ test('Workbench governed patch keeps runtime, QA preset and cost inside Advanced
 	});
 	await page.goto('/#command');
 	await expect(page.locator('.workbench-layout')).toBeVisible();
-	await page.getByRole('button', { name: 'Governed patch' }).click();
+	await page.getByRole('radio', { name: 'Governed patch' }).click();
 
 	// The technical knobs are tucked inside Advanced so the primary surface stays simple.
 	await page.getByRole('button', { name: 'Advanced' }).click();
@@ -2208,7 +2208,7 @@ test('Workbench governed patch surfaces runtime_unavailable status honestly', as
 	});
 	await page.goto('/#command');
 	await expect(page.locator('.workbench-layout')).toBeVisible();
-	await page.getByRole('button', { name: 'Governed patch' }).click();
+	await page.getByRole('radio', { name: 'Governed patch' }).click();
 
 	await page.getByLabel('What should AIDO change?').fill('Change a small file through the real runtime slice.');
 	await page.getByRole('button', { name: 'Request change' }).click();
@@ -2310,7 +2310,7 @@ test('strict configuration forms prevent manual JSON edits', async ({ page }) =>
 test('strict operational forms cover workflows governance sandbox and MCP settings', async ({ page }) => {
 	await page.goto('/#command');
 	await expect(page.locator('.workbench-layout')).toBeVisible();
-	await page.getByRole('button', { name: 'Governed patch' }).click();
+	await page.getByRole('radio', { name: 'Governed patch' }).click();
 
 	await expect(page.getByLabel('Workspace folder', { exact: true })).toBeVisible();
 	await expect(page.getByLabel('What should AIDO change?')).toBeVisible();

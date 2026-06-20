@@ -894,28 +894,6 @@ kbd.command-kbd {
 	animation: panel-enter var(--duration-normal) var(--ease-emphasized);
 }
 
-.wizard-mode-toggle {
-	display: grid;
-	grid-template-columns: repeat(2, minmax(0, 1fr));
-	gap: var(--space-2);
-	padding: var(--space-1);
-	border: 1px solid var(--color-border-subtle);
-	border-radius: var(--radius-lg);
-	background: var(--color-surface-inset);
-}
-
-.wizard-mode-toggle .button {
-	width: 100%;
-	border-color: transparent;
-	background: transparent;
-}
-
-.wizard-mode-toggle .button[aria-pressed="true"] {
-	border-color: var(--color-accent);
-	background: var(--color-accent);
-	color: var(--color-text-inverse);
-}
-
 .wizard-steps {
 	display: grid;
 	gap: var(--space-2);
@@ -1055,7 +1033,6 @@ kbd.command-kbd {
 
 @media (max-width: 760px) {
 	.review-grid,
-	.wizard-mode-toggle,
 	.diff-row {
 		grid-template-columns: 1fr;
 	}
@@ -1213,16 +1190,6 @@ kbd.command-kbd {
 	display: inline-flex;
 	flex-wrap: wrap;
 	gap: var(--space-1);
-}
-
-.task-mode-chips {
-	display: flex;
-	flex-wrap: wrap;
-	gap: var(--space-2);
-}
-
-.task-mode-chips .chip {
-	border-radius: 999px;
 }
 
 .home-card {

@@ -10,7 +10,7 @@ import { runIssueToPatch } from '../../api/client';
 import type { Project, RuntimeProviders } from '../../api/types';
 import { Disclosure } from '../../components/Disclosure';
 import { Badge } from '../../components/primitives';
-import { Button, Checkbox, TextArea, TextField } from '../../components/ui';
+import { Button, Checkbox, SegmentedControl, TextArea, TextField } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { toneForStatus } from '../../lib/format';
 import {
@@ -263,24 +263,16 @@ export function TaskComposer({
 				onChange={(event) => setDescription(event.target.value)}
 			/>
 
-			<div
-				className="task-mode-chips"
-				role="group"
-				aria-label={t('app.workbench.task.modeGroup', 'Change type')}
-			>
-				{taskModes.map((item) => (
-					<button
-						key={item.id}
-						className="button chip"
-						type="button"
-						aria-pressed={mode === item.id}
-						disabled={!project || busy}
-						onClick={() => setMode(item.id)}
-					>
-						{t(item.labelKey, item.label)}
-					</button>
-				))}
-			</div>
+			<SegmentedControl
+				label={t('app.workbench.task.modeGroup', 'Change type')}
+				value={mode}
+				onChange={setMode}
+				disabled={!project || busy}
+				options={taskModes.map((item) => ({
+					value: item.id,
+					label: t(item.labelKey, item.label),
+				}))}
+			/>
 
 			<div className="stack compact">
 				<Checkbox

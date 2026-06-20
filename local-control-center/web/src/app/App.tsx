@@ -7,7 +7,7 @@
  */
 import { AnimatePresence } from 'motion/react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { EmptyState } from '../components/primitives';
+import { EmptyState, ErrorState, useToast } from '../components/ui';
 import type { Language, ProjectStatusView } from '../features/active-projects/ActiveProjectsPage';
 import { ActiveProjectsPage } from '../features/active-projects/ActiveProjectsPage';
 import { AgentsPage } from '../features/agents/AgentsPage';
@@ -95,6 +95,7 @@ function persistSelectedProjectId(projectId: string) {
 export function App() {
 	useMotionPreference();
 	const { language, languages, setLanguage, t } = useI18n();
+	const { notify } = useToast();
 	const bilingualLanguage: Language = language === 'es' ? 'es' : 'en';
 	const [page, setPage] = useState<AppRoute>(resolveHashRoute());
 	const [selectedProjectId, setSelectedProjectId] = useState(readStoredSelectedProjectId);
@@ -197,7 +198,12 @@ export function App() {
 	const pageContent = () => {
 		if (!overview) return null;
 		if (state.error) {
-			return <EmptyState title="Control plane unavailable" body={state.error} />;
+			return (
+				<ErrorState
+					title={t('app.boot.controlPlaneUnavailable', 'Control plane unavailable')}
+					body={state.error}
+				/>
+			);
 		}
 		if (page === 'home') {
 			return (
@@ -341,10 +347,20 @@ export function App() {
 			<div className="app-shell-ide">
 				<main className="workbench main-area">
 					<section className="content-frame">
-						<EmptyState
-							title={failed ? 'Control plane unavailable' : 'Loading control plane'}
-							body={failed ? state.error : 'Waiting for FastAPI v1, SQLite and runtime providers.'}
-						/>
+						{failed ? (
+							<ErrorState
+								title={t('app.boot.controlPlaneUnavailable', 'Control plane unavailable')}
+								body={state.error ?? ''}
+							/>
+						) : (
+							<EmptyState
+								title={t('app.boot.loading', 'Loading control plane')}
+								body={t(
+									'app.boot.loadingBody',
+									'Waiting for FastAPI v1, SQLite and runtime providers.',
+								)}
+							/>
+						)}
 					</section>
 				</main>
 			</div>
@@ -389,6 +405,11 @@ export function App() {
 					setOperationalProject(projectId);
 					setWorkspaceDialogOpen(false);
 					navigateTo('workbench');
+					notify({
+						title: t('app.toast.workspaceReady', 'Workspace ready'),
+						body: t('app.toast.workspaceReadyBody', 'Opened in the workbench.'),
+						tone: 'ok',
+					});
 				}}
 			/>
 

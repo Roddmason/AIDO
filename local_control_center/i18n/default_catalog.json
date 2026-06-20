@@ -31,6 +31,26 @@
       "en": "Dismiss",
       "es": "Descartar"
     },
+    "app.boot.controlPlaneUnavailable": {
+      "en": "Control plane unavailable",
+      "es": "Plano de control no disponible"
+    },
+    "app.boot.loading": {
+      "en": "Loading control plane",
+      "es": "Cargando plano de control"
+    },
+    "app.boot.loadingBody": {
+      "en": "Waiting for FastAPI v1, SQLite and runtime providers.",
+      "es": "Esperando FastAPI v1, SQLite y proveedores de runtime."
+    },
+    "app.toast.workspaceReady": {
+      "en": "Workspace ready",
+      "es": "Workspace listo"
+    },
+    "app.toast.workspaceReadyBody": {
+      "en": "Opened in the workbench.",
+      "es": "Abierto en el workbench."
+    },
     "app.shell.resizeExplorer": {
       "en": "Resize explorer panel",
       "es": "Redimensionar panel de explorador"
@@ -54,6 +74,14 @@
     "app.bottomPanel.close": {
       "en": "Close bottom panel",
       "es": "Cerrar panel inferior"
+    },
+    "app.bottomPanel.logs": {
+      "en": "Logs",
+      "es": "Registros"
+    },
+    "app.bottomPanel.output": {
+      "en": "Output",
+      "es": "Salida"
     },
     "app.bottomPanel.emptyTitle": {
       "en": "No active session",

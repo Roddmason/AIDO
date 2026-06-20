@@ -6,7 +6,7 @@
 import { Moon, PanelBottom, PanelRight, RefreshCw, Rows3, Sun } from 'lucide-react';
 import type { Ref } from 'react';
 
-import { Button, IconButton } from '../components/ui';
+import { Button, IconButton, Tooltip } from '../components/ui';
 import { useDensity } from '../hooks/useDensity';
 import { useTheme } from '../hooks/useTheme';
 
@@ -86,24 +86,28 @@ export function WorkbenchHeader({
 							</Button>
 						))}
 					</div>
-					<IconButton
-						aria-label={t('app.global.toggleTheme', 'Toggle light and dark theme')}
-						aria-pressed={theme === 'light'}
-						onClick={toggleTheme}
-					>
-						{theme === 'light' ? (
-							<Moon aria-hidden="true" size={18} />
-						) : (
-							<Sun aria-hidden="true" size={18} />
-						)}
-					</IconButton>
-					<IconButton
-						aria-label={t('app.global.toggleDensity', 'Toggle compact density')}
-						aria-pressed={density === 'compact'}
-						onClick={toggleDensity}
-					>
-						<Rows3 aria-hidden="true" size={18} />
-					</IconButton>
+					<Tooltip label={t('app.global.toggleTheme', 'Toggle light and dark theme')}>
+						<IconButton
+							aria-label={t('app.global.toggleTheme', 'Toggle light and dark theme')}
+							aria-pressed={theme === 'light'}
+							onClick={toggleTheme}
+						>
+							{theme === 'light' ? (
+								<Moon aria-hidden="true" size={18} />
+							) : (
+								<Sun aria-hidden="true" size={18} />
+							)}
+						</IconButton>
+					</Tooltip>
+					<Tooltip label={t('app.global.toggleDensity', 'Toggle compact density')}>
+						<IconButton
+							aria-label={t('app.global.toggleDensity', 'Toggle compact density')}
+							aria-pressed={density === 'compact'}
+							onClick={toggleDensity}
+						>
+							<Rows3 aria-hidden="true" size={18} />
+						</IconButton>
+					</Tooltip>
 					<Button onClick={onOpenCommandPalette}>
 						{t('app.global.openCommandPalette', 'Open command palette')}
 						<kbd className="command-kbd">{'Ctrl K'}</kbd>
@@ -131,12 +135,14 @@ export function WorkbenchHeader({
 					>
 						{t('app.bottomPanel.title', 'Bottom panel')}
 					</Button>
-					<IconButton
-						aria-label={t('app.global.refreshState', 'Refresh state')}
-						onClick={onRefresh}
-					>
-						<RefreshCw aria-hidden="true" size={18} />
-					</IconButton>
+					<Tooltip label={t('app.global.refreshState', 'Refresh state')}>
+						<IconButton
+							aria-label={t('app.global.refreshState', 'Refresh state')}
+							onClick={onRefresh}
+						>
+							<RefreshCw aria-hidden="true" size={18} />
+						</IconButton>
+					</Tooltip>
 				</div>
 			</div>
 		</header>

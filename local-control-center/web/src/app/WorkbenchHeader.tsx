@@ -6,6 +6,7 @@
 import { Moon, PanelBottom, PanelRight, RefreshCw, Rows3, Sun } from 'lucide-react';
 import type { Ref } from 'react';
 
+import { Button, IconButton } from '../components/ui';
 import { useDensity } from '../hooks/useDensity';
 import { useTheme } from '../hooks/useTheme';
 
@@ -76,22 +77,18 @@ export function WorkbenchHeader({
 						aria-label={t('app.global.languageControl', 'Language control')}
 					>
 						{languageOptions.map((item) => (
-							<button
+							<Button
 								key={item.code}
-								className="button"
-								type="button"
 								aria-pressed={language === item.code}
 								onClick={() => onChangeLanguage(item.code)}
 							>
 								{item.code.toUpperCase()}
-							</button>
+							</Button>
 						))}
 					</div>
-					<button
-						className="icon-button"
-						type="button"
-						aria-pressed={theme === 'light'}
+					<IconButton
 						aria-label={t('app.global.toggleTheme', 'Toggle light and dark theme')}
+						aria-pressed={theme === 'light'}
 						onClick={toggleTheme}
 					>
 						{theme === 'light' ? (
@@ -99,55 +96,47 @@ export function WorkbenchHeader({
 						) : (
 							<Sun aria-hidden="true" size={18} />
 						)}
-					</button>
-					<button
-						className="icon-button"
-						type="button"
-						aria-pressed={density === 'compact'}
+					</IconButton>
+					<IconButton
 						aria-label={t('app.global.toggleDensity', 'Toggle compact density')}
+						aria-pressed={density === 'compact'}
 						onClick={toggleDensity}
 					>
 						<Rows3 aria-hidden="true" size={18} />
-					</button>
-					<button className="button" type="button" onClick={onOpenCommandPalette}>
+					</IconButton>
+					<Button onClick={onOpenCommandPalette}>
 						{t('app.global.openCommandPalette', 'Open command palette')}
 						<kbd className="command-kbd">{'Ctrl K'}</kbd>
-					</button>
-					<button className="button" type="button" onClick={onOpenApprovals}>
+					</Button>
+					<Button onClick={onOpenApprovals}>
 						{t('app.global.openApprovalsDrawer', 'Open approvals drawer')}
-					</button>
-					<button className="button" type="button" onClick={onOpenEvents}>
+					</Button>
+					<Button onClick={onOpenEvents}>
 						{t('app.global.openEventDrawer', 'Open event drawer')}
-					</button>
-					<button
+					</Button>
+					<Button
 						ref={inspectorToggleRef}
-						className="button"
-						type="button"
 						aria-pressed={inspectorOpen}
+						icon={<PanelRight aria-hidden="true" size={16} />}
 						onClick={onToggleInspector}
 					>
-						<PanelRight aria-hidden="true" size={16} />
 						{t('app.global.inspector', 'Inspector')}
-					</button>
-					<button
+					</Button>
+					<Button
 						ref={bottomToggleRef}
-						className="button"
-						type="button"
 						aria-pressed={bottomOpen}
 						aria-keyshortcuts="Control+J"
+						icon={<PanelBottom aria-hidden="true" size={16} />}
 						onClick={onToggleBottom}
 					>
-						<PanelBottom aria-hidden="true" size={16} />
 						{t('app.bottomPanel.title', 'Bottom panel')}
-					</button>
-					<button
-						className="icon-button"
-						type="button"
+					</Button>
+					<IconButton
 						aria-label={t('app.global.refreshState', 'Refresh state')}
 						onClick={onRefresh}
 					>
 						<RefreshCw aria-hidden="true" size={18} />
-					</button>
+					</IconButton>
 				</div>
 			</div>
 		</header>

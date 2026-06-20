@@ -8,6 +8,7 @@ import { useLayoutEffect, useMemo, useRef } from 'react';
 
 import type { Overview, Project } from '../api/types';
 import { Badge, EmptyState } from '../components/primitives';
+import { IconButton } from '../components/ui';
 import { useI18n } from '../i18n/I18nProvider';
 import { toneForStatus } from '../lib/format';
 import { EASE_OUT } from '../motion/variants';
@@ -80,14 +81,12 @@ export function InspectorPanel({
 		>
 			<div className="inspector-header">
 				<h2 className="surface-title">{t('app.global.inspector', 'Inspector')}</h2>
-				<button
-					className="icon-button"
-					type="button"
+				<IconButton
 					aria-label={t('app.inspector.closeInspector', 'Close inspector')}
 					onClick={onClose}
 				>
 					×
-				</button>
+				</IconButton>
 			</div>
 
 			{selectedProject && stats ? (

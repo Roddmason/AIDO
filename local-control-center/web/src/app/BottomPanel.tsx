@@ -7,7 +7,7 @@
  */
 import { Terminal, X } from 'lucide-react';
 
-import { EmptyState } from '../components/primitives';
+import { EmptyState, IconButton } from '../components/ui';
 import { useI18n } from '../i18n/I18nProvider';
 
 /** Titled, closable bottom dock surface; `onClose` collapses the pane. */
@@ -21,14 +21,9 @@ export function BottomPanel({ onClose }: { onClose: () => void }) {
 					<Terminal aria-hidden="true" size={15} />
 					{title}
 				</span>
-				<button
-					className="icon-button"
-					type="button"
-					aria-label={t('app.bottomPanel.close', 'Close bottom panel')}
-					onClick={onClose}
-				>
+				<IconButton aria-label={t('app.bottomPanel.close', 'Close bottom panel')} onClick={onClose}>
 					<X aria-hidden="true" size={16} />
-				</button>
+				</IconButton>
 			</header>
 			<div className="bottom-panel-body">
 				<EmptyState

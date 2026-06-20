@@ -5311,14 +5311,6 @@
       "en": "Guardrails",
       "es": "Controles"
     },
-    "app.workbench.delivery.title": {
-      "en": "Project delivery flow",
-      "es": "Flujo de entrega del proyecto"
-    },
-    "app.workbench.delivery.region": {
-      "en": "Project delivery flow",
-      "es": "Flujo de entrega del proyecto"
-    },
     "app.workbench.delivery.intake": {
       "en": "Intake",
       "es": "Recepcion"
@@ -5966,6 +5958,54 @@
     "app.workbench.timeline.deliveryTitle": {
       "en": "Project delivery flow",
       "es": "Flujo de entrega del proyecto"
+    },
+    "app.workbench.timeline.deliveryLabel": {
+      "en": "Project delivery phases",
+      "es": "Fases de entrega del proyecto"
+    },
+    "app.workbench.timeline.deliveryOwner": {
+      "en": "Owner",
+      "es": "Responsable"
+    },
+    "app.workbench.timeline.runEmptyTitle": {
+      "en": "No run yet",
+      "es": "Aún no hay ejecución"
+    },
+    "app.workbench.timeline.runEmptyBody": {
+      "en": "Submit a governed task to see its run progress here.",
+      "es": "Envía una tarea gobernada para ver aquí su progreso de ejecución."
+    },
+    "app.workbench.timeline.deliveryEmptyTitle": {
+      "en": "No delivery pipeline yet",
+      "es": "Aún no hay pipeline de entrega"
+    },
+    "app.workbench.timeline.deliveryEmptyBody": {
+      "en": "Start a conversation intake to create the delivery pipeline.",
+      "es": "Inicia un ingreso por conversación para crear el pipeline de entrega."
+    },
+    "app.workbench.runTimeline.emptyTitle": {
+      "en": "No run yet",
+      "es": "Aún no hay ejecución"
+    },
+    "app.workbench.runTimeline.emptyBody": {
+      "en": "Submit a governed task to track its run here.",
+      "es": "Envía una tarea gobernada para seguir aquí su ejecución."
+    },
+    "app.workbench.chat.viewFull": {
+      "en": "View full chat history",
+      "es": "Ver historial completo del chat"
+    },
+    "app.workbench.chat.showFewer": {
+      "en": "Show fewer",
+      "es": "Mostrar menos"
+    },
+    "app.workbench.evidence.developerTitle": {
+      "en": "Developer details",
+      "es": "Detalle técnico"
+    },
+    "app.workbench.evidence.developerHint": {
+      "en": "Raw model, tool, policy, hash and security data for debugging.",
+      "es": "Datos crudos de modelo, herramientas, política, hashes y seguridad para depuración."
     },
     "app.workbench.timeline.eventsEmptyBody": {
       "en": "Step and run events appear here as the workflow progresses.",

@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState } from 'react';
 
 import { downloadEvidenceArtifact, fetchEvidenceArtifact } from '../../../api/client';
 import type { Overview } from '../../../api/types';
+import { Disclosure } from '../../../components/Disclosure';
 import { Badge, DataTable, Drawer, EmptyState, Surface } from '../../../components/primitives';
 import { useI18n } from '../../../i18n/I18nProvider';
 import { artifactDisplayName, artifactSizeLabel } from '../../../lib/artifacts';
@@ -209,6 +210,51 @@ export function WorkbenchEvidencePanel({
 				/>
 			</Surface>
 
+			<Surface title={t('app.workbench.evidence.securityTitle', 'Security findings')}>
+				<div className="stack">
+					{securityError ? (
+						<div className="form-error" role="alert">
+							{securityError}
+						</div>
+					) : null}
+					{securityLoading ? (
+						<div className="empty-state" aria-busy="true">
+							<strong>
+								{t('app.workbench.evidence.securityLoading', 'Loading security findings')}
+							</strong>
+							<span>
+								{t(
+									'app.workbench.evidence.securityLoadingBody',
+									'Findings are read from the linked artifact.',
+								)}
+							</span>
+						</div>
+					) : null}
+					{!securityArtifact ? (
+						<EmptyState
+							title={t(
+								'app.workbench.evidence.securityEmptyTitle',
+								'No security findings artifact',
+							)}
+							body={t(
+								'app.workbench.evidence.securityEmptyBody',
+								'No security-findings.json artifact is linked to this evidence package.',
+							)}
+						/>
+					) : (
+						<div className="inline">
+							<Badge>{artifactDisplayName(securityArtifact)}</Badge>
+							<span className="mono">
+								sha256{' '}
+								{String(
+									securityArtifact.hash ?? t('app.workbenchEvidence.notRecorded', 'not recorded'),
+								)}
+							</span>
+						</div>
+					)}
+				</div>
+			</Surface>
+
 			<Surface title={t('app.workbench.evidence.deliverablesTitle', 'Deliverables & hashes')}>
 				{actionError ? (
 					<div className="form-error" role="alert">
@@ -292,55 +338,13 @@ export function WorkbenchEvidencePanel({
 				/>
 			</Surface>
 
-			<Surface title={t('app.workbench.evidence.securityTitle', 'Security findings')}>
-				<div className="stack">
-					{securityError ? (
-						<div className="form-error" role="alert">
-							{securityError}
-						</div>
-					) : null}
-					{securityLoading ? (
-						<div className="empty-state" aria-busy="true">
-							<strong>
-								{t('app.workbench.evidence.securityLoading', 'Loading security findings')}
-							</strong>
-							<span>
-								{t(
-									'app.workbench.evidence.securityLoadingBody',
-									'Findings are read from the linked artifact.',
-								)}
-							</span>
-						</div>
-					) : null}
-					{!securityArtifact ? (
-						<EmptyState
-							title={t(
-								'app.workbench.evidence.securityEmptyTitle',
-								'No security findings artifact',
-							)}
-							body={t(
-								'app.workbench.evidence.securityEmptyBody',
-								'No security-findings.json artifact is linked to this evidence package.',
-							)}
-						/>
-					) : (
-						<div className="inline">
-							<Badge>{artifactDisplayName(securityArtifact)}</Badge>
-							<span className="mono">
-								sha256{' '}
-								{String(
-									securityArtifact.hash ?? t('app.workbenchEvidence.notRecorded', 'not recorded'),
-								)}
-							</span>
-						</div>
-					)}
-					{securityText ? (
-						<pre className="artifact-preview">{redactVisibleText(securityText, '')}</pre>
-					) : null}
-				</div>
-			</Surface>
-
-			<Surface title={t('app.workbench.evidence.callsTitle', 'Model & tool calls')}>
+			<Disclosure
+				title={t('app.workbench.evidence.developerTitle', 'Developer details')}
+				summary={t(
+					'app.workbench.evidence.developerHint',
+					'Raw model, tool, policy, hash and security data for debugging.',
+				)}
+			>
 				<div className="stack">
 					<div className="inline">
 						<Badge>
@@ -376,12 +380,24 @@ export function WorkbenchEvidencePanel({
 							)}
 						</pre>
 					</div>
+					<div>
+						<div className="metric-label">
+							{t('app.workbench.evidence.hashesTitle', 'Artifact hashes')}
+						</div>
+						<pre className="artifact-preview">
+							{redactVisibleText(evidencePackage.hashes, '{}')}
+						</pre>
+					</div>
+					{securityText ? (
+						<div>
+							<div className="metric-label">
+								{t('app.workbench.evidence.securityTitle', 'Security findings')}
+							</div>
+							<pre className="artifact-preview">{redactVisibleText(securityText, '')}</pre>
+						</div>
+					) : null}
 				</div>
-			</Surface>
-
-			<Surface title={t('app.workbench.evidence.hashesTitle', 'Artifact hashes')}>
-				<pre className="artifact-preview">{redactVisibleText(evidencePackage.hashes, '{}')}</pre>
-			</Surface>
+			</Disclosure>
 
 			<Drawer
 				label={preview.title || t('app.workbench.evidence.artifact', 'Artifact')}

@@ -71,6 +71,9 @@ const COMPOSER_MODES: { id: ComposerMode; labelKey: string; label: string }[] = 
 	{ id: 'tests', labelKey: 'app.workbench.task.modeTests', label: 'Write tests' },
 ];
 
+/** Chats shown before the "View full chat history" toggle reveals the rest. */
+const CHAT_PREVIEW_COUNT = 8;
+
 type WorkbenchPageProps = {
 	overview: Overview;
 	selectedProject: Project | null;
@@ -153,6 +156,7 @@ export function WorkbenchPage({
 	const [isSubmittingTask, setIsSubmittingTask] = useState(false);
 	const [selectedRunId, setSelectedRunId] = useState('');
 	const [teamOpen, setTeamOpen] = useState(false);
+	const [showAllChats, setShowAllChats] = useState(false);
 
 	// Draft-persistence refs: latest values for the synchronous unmount flush, the project the
 	// composer is currently hydrated for (so the debounced save never clobbers with pre-hydration
@@ -187,8 +191,10 @@ export function WorkbenchPage({
 		latestRunStatus,
 		blockers,
 		teamRows,
-		deliveryRows,
+		deliveryTimeline,
 		runTimeline,
+		hasRun,
+		hasPipeline,
 	} = useWorkbenchData({
 		overview,
 		selectedProject,
@@ -556,11 +562,21 @@ export function WorkbenchPage({
 					</div>
 
 					<Surface title={t('app.workbench.runTimeline.title', 'Run timeline')} flat>
-						<WorkflowTimeline
-							variant="rail"
-							stages={runTimeline}
-							label={t('app.workbench.runTimeline.title', 'Run timeline')}
-						/>
+						{hasRun ? (
+							<WorkflowTimeline
+								variant="rail"
+								stages={runTimeline}
+								label={t('app.workbench.runTimeline.title', 'Run timeline')}
+							/>
+						) : (
+							<EmptyState
+								title={t('app.workbench.runTimeline.emptyTitle', 'No run yet')}
+								body={t(
+									'app.workbench.runTimeline.emptyBody',
+									'Submit a governed task to track its run here.',
+								)}
+							/>
+						)}
 					</Surface>
 
 					<WorkbenchTabs tabs={tabs} activeTab={activeTab} onChangeTab={setActiveTab}>
@@ -750,23 +766,26 @@ export function WorkbenchPage({
 
 								<div className="workbench-chat">
 									<div
+										id="workbench-chat-transcript"
 										className="chat-transcript"
 										aria-label={t('app.workbench.chat.history', 'Session chat history')}
 									>
 										{sessionChats.length ? (
-											sessionChats.slice(0, 8).map((chat) => (
-												<article className="chat-bubble" key={chat.id}>
-													<div className="chat-bubble-header">
-														<Badge tone={toneForStatus(String(chat.status ?? 'active'))}>
-															{String(chat.status ?? 'active')}
-														</Badge>
-														<span className="mono">{shortId(chat.id)}</span>
-														<span className="muted">{formatTime(chat.createdAt)}</span>
-													</div>
-													<strong>{chat.title}</strong>
-													<p>{chat.prompt}</p>
-												</article>
-											))
+											(showAllChats ? sessionChats : sessionChats.slice(0, CHAT_PREVIEW_COUNT)).map(
+												(chat) => (
+													<article className="chat-bubble" key={chat.id}>
+														<div className="chat-bubble-header">
+															<Badge tone={toneForStatus(String(chat.status ?? 'active'))}>
+																{String(chat.status ?? 'active')}
+															</Badge>
+															<span className="mono">{shortId(chat.id)}</span>
+															<span className="muted">{formatTime(chat.createdAt)}</span>
+														</div>
+														<strong>{chat.title}</strong>
+														<p>{chat.prompt}</p>
+													</article>
+												),
+											)
 										) : (
 											<EmptyState
 												title={t('app.workbench.chat.emptyTitle', 'No chat in this session')}
@@ -777,16 +796,27 @@ export function WorkbenchPage({
 											/>
 										)}
 									</div>
+									{sessionChats.length > CHAT_PREVIEW_COUNT ? (
+										<Button
+											aria-expanded={showAllChats}
+											aria-controls="workbench-chat-transcript"
+											onClick={() => setShowAllChats((open) => !open)}
+										>
+											{showAllChats
+												? t('app.workbench.chat.showFewer', 'Show fewer')
+												: t('app.workbench.chat.viewFull', 'View full chat history')}
+										</Button>
+									) : null}
 								</div>
 							</div>
 						) : null}
 
 						{activeTab === 'timeline' ? (
 							<TimelinePanel
-								taskRunResult={taskRunResult}
-								isSubmittingTask={isSubmittingTask}
-								hasExecutableRuntime={hasExecutableRuntime}
-								deliveryRows={deliveryRows}
+								runTimeline={runTimeline}
+								hasRun={hasRun}
+								deliveryTimeline={deliveryTimeline}
+								hasPipeline={hasPipeline}
 								signals={{
 									workflows: projectWorkflows.length,
 									evidence: projectEvidence.length,

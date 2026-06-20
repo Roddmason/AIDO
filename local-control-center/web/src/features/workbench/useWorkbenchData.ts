@@ -9,6 +9,7 @@ import {
 	ClipboardCheck,
 	Code2,
 	FileCheck2,
+	GitBranch,
 	ListChecks,
 	ShieldCheck,
 	TerminalSquare,
@@ -21,7 +22,8 @@ import type { Overview, Project, RuntimeProviders } from '../../api/types';
 import { useI18n } from '../../i18n/I18nProvider';
 import { evidenceDiffChangedFiles } from '../../lib/diff';
 import { shortId } from '../../lib/format';
-import { buildWorkflowTimeline } from './timelineModel';
+import type { WorkflowTimelineStage } from './timelineModel';
+import { buildWorkflowTimeline, deliveryStatusToTimeline } from './timelineModel';
 import {
 	activeProjects,
 	deriveBlockers,
@@ -467,7 +469,10 @@ export function useWorkbenchData({
 	});
 
 	const latestPipeline = sessionPipelines[0] ?? projectPipelines[0] ?? null;
-	const deliveryRows = deliveryStageBlueprints.map((stage, index) => {
+	const ownerLabel = t('app.workbench.timeline.deliveryOwner', 'Owner');
+	// Governed delivery stages adapted into the canonical timeline shape so one component
+	// renders them (instead of a bespoke list); `delivery` phase keeps them visually distinct.
+	const deliveryTimeline: WorkflowTimelineStage[] = deliveryStageBlueprints.map((stage, index) => {
 		const pipelineStage = latestPipeline?.stages.map(asRecord).find((item) => {
 			const normalized = stageName(item).toLowerCase();
 			return (
@@ -475,15 +480,29 @@ export function useWorkbenchData({
 				normalized.includes(stage.label.toLowerCase().split(' ')[0])
 			);
 		});
-		const status = pipelineStage
+		const rawStatus = pipelineStage
 			? stageStatus(pipelineStage)
 			: index === 0 && latestPipeline
 				? latestPipeline.status
 				: 'pending';
-		return { id: stage.id, label: t(stage.labelKey, stage.label), owner: stage.owner, status };
+		const reason = `${ownerLabel}: ${stage.owner}`;
+		return {
+			id: `delivery:${stage.id}`,
+			phase: 'delivery' as const,
+			status: deliveryStatusToTimeline(rawStatus),
+			icon: GitBranch,
+			labelKey: stage.labelKey,
+			label: stage.label,
+			reasonKey: reason,
+			reason,
+		};
 	});
 
 	const runTimeline = buildWorkflowTimeline(taskRunResult, isSubmittingTask, hasExecutableRuntime);
+	// "Has a run" = a result exists or a submission is in flight; otherwise the timeline must show
+	// an empty state, not the always-populated 8-step skeleton. Delivery is gated on a real pipeline.
+	const hasRun = taskRunResult != null || isSubmittingTask;
+	const hasPipeline = latestPipeline != null;
 
 	return {
 		projects,
@@ -512,7 +531,9 @@ export function useWorkbenchData({
 		latestRunStatus,
 		blockers,
 		teamRows,
-		deliveryRows,
+		deliveryTimeline,
 		runTimeline,
+		hasRun,
+		hasPipeline,
 	};
 }

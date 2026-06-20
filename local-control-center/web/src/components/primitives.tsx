@@ -1,48 +1,23 @@
 /**
- * Shared presentational UI primitives reused across the control-center pages.
+ * Presentational primitives not (yet) part of the typed component library: the status
+ * dot, content surface, page header, data table and progress bar.
  *
- * Badges, surfaces, tables and the dialog/drawer pair live here so layout, motion
- * hooks (`data-motion-item`) and the accessible-dialog focus trap stay consistent
- * everywhere instead of being re-implemented per feature.
+ * The library-equivalent primitives live in `components/ui` and are re-exported here so
+ * existing `import { Badge, EmptyState, Skeleton, Drawer, Modal } from '../primitives'`
+ * sites keep working against a single implementation while pages migrate to `ui` directly.
  */
-
 import { m, useReducedMotion } from 'motion/react';
-import type { ReactNode, RefObject } from 'react';
-import { useEffect, useRef } from 'react';
-import { createPortal } from 'react-dom';
+import type { ReactNode } from 'react';
 
-import { useI18n } from '../i18n/I18nProvider';
-import { EASE_OUT, skeletonShimmer } from '../motion/variants';
+import { EASE_OUT } from '../motion/variants';
+
+export { Dialog as Modal, Drawer, EmptyState, Skeleton, StatusChip as Badge } from './ui';
 
 /** Crossfade breve al cambiar de tono: keyed por tono para reanimar opacity sin tocar el color (CSS). */
 const TONE_CHANGE = {
 	initial: { opacity: 0.55 },
 	animate: { opacity: 1, transition: { duration: 0.2, ease: EASE_OUT } },
 } as const;
-
-export function Badge({
-	children,
-	tone,
-}: {
-	children: ReactNode;
-	tone?: 'ok' | 'warn' | 'danger' | 'info' | 'pending';
-}) {
-	// Under prefers-reduced-motion the tone crossfade is suppressed (opacity is not a
-	// positional key, so MotionConfig does not neutralize it on its own — gate the enter).
-	const prefersReducedMotion = useReducedMotion();
-	return (
-		<m.span
-			key={tone ?? 'default'}
-			className="badge"
-			data-tone={tone}
-			variants={TONE_CHANGE}
-			initial={prefersReducedMotion ? false : 'initial'}
-			animate="animate"
-		>
-			{children}
-		</m.span>
-	);
-}
 
 export function StatusDot({
 	tone = 'info',
@@ -78,15 +53,6 @@ export function Surface({
 			{title ? <h2 className="surface-title">{title}</h2> : null}
 			{children}
 		</section>
-	);
-}
-
-export function EmptyState({ title, body }: { title: string; body: string }) {
-	return (
-		<div className="empty-state">
-			<strong>{title}</strong>
-			<span>{body}</span>
-		</div>
 	);
 }
 
@@ -150,137 +116,6 @@ export function DataTable<T>({
 	);
 }
 
-const DIALOG_FOCUSABLE =
-	'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
-
-/**
- * Modal dialog focus management for Drawer/Modal (WAI-ARIA dialog pattern):
- * move focus into the panel on open, keep Tab cycling inside it, and restore
- * focus to the previously focused element on close. Escape handling stays in the
- * caller's own effect so closing behaviour is unchanged.
- */
-function useDialogFocus(open: boolean, panelRef: RefObject<HTMLElement | null>) {
-	useEffect(() => {
-		if (!open) return undefined;
-		const panel = panelRef.current;
-		const previouslyFocused = document.activeElement as HTMLElement | null;
-		const focusable = () =>
-			Array.from(panel?.querySelectorAll<HTMLElement>(DIALOG_FOCUSABLE) ?? []);
-		(focusable()[0] ?? panel)?.focus();
-		const onKeyDown = (event: KeyboardEvent) => {
-			if (event.key !== 'Tab') return;
-			const items = focusable();
-			if (!items.length) {
-				event.preventDefault();
-				panel?.focus();
-				return;
-			}
-			const first = items[0];
-			const last = items[items.length - 1];
-			const active = document.activeElement;
-			if (event.shiftKey && (active === first || active === panel)) {
-				event.preventDefault();
-				last.focus();
-			} else if (!event.shiftKey && active === last) {
-				event.preventDefault();
-				first.focus();
-			}
-		};
-		document.addEventListener('keydown', onKeyDown, true);
-		return () => {
-			document.removeEventListener('keydown', onKeyDown, true);
-			previouslyFocused?.focus?.();
-		};
-	}, [open, panelRef]);
-}
-
-/** Side-anchored modal dialog: portal + scrim + focus trap, closes on Escape or scrim click. */
-export function Drawer({
-	children,
-	label,
-	open,
-	onClose,
-}: {
-	children: ReactNode;
-	label: string;
-	open: boolean;
-	onClose: () => void;
-}) {
-	const panelRef = useRef<HTMLDivElement>(null);
-	const { t } = useI18n();
-	useDialogFocus(open, panelRef);
-	useEffect(() => {
-		if (!open) return undefined;
-		const closeOnEscape = (event: KeyboardEvent) => {
-			if (event.key === 'Escape') onClose();
-		};
-		window.addEventListener('keydown', closeOnEscape);
-		return () => window.removeEventListener('keydown', closeOnEscape);
-	}, [open, onClose]);
-	if (!open) return null;
-	return createPortal(
-		<div className="drawer-layer" role="presentation">
-			<button
-				className="drawer-scrim"
-				type="button"
-				aria-label={`${t('app.global.close', 'Close')} ${label}`}
-				onClick={onClose}
-			/>
-			<div
-				ref={panelRef}
-				tabIndex={-1}
-				className="drawer-panel"
-				role="dialog"
-				aria-modal="true"
-				aria-label={label}
-			>
-				<div className="drawer-header">
-					<h2>{label}</h2>
-					<button
-						className="icon-button"
-						type="button"
-						aria-label={`${t('app.global.close', 'Close')} ${label}`}
-						onClick={onClose}
-					>
-						×
-					</button>
-				</div>
-				{children}
-			</div>
-		</div>,
-		document.body,
-	);
-}
-
-/**
- * Loading placeholder with a subtle opacity shimmer ({@link skeletonShimmer}).
- *
- * The shimmer loop is GATED by {@link useReducedMotion}: under prefers-reduced-motion
- * it stays on the static `idle` opacity (no autoplay). Reduced-motion is otherwise
- * handled globally by `MotionConfig reducedMotion="user"`; this gate only stops the loop.
- */
-export function Skeleton({
-	className,
-	label,
-}: {
-	className?: string;
-	/** Optional accessible status label; falls back to `aria-hidden` decorative placeholder. */
-	label?: string;
-}) {
-	const prefersReducedMotion = useReducedMotion();
-	return (
-		<m.div
-			className={className ? `skeleton ${className}` : 'skeleton'}
-			variants={skeletonShimmer}
-			initial="idle"
-			animate={prefersReducedMotion ? 'idle' : 'loading'}
-			role={label ? 'status' : undefined}
-			aria-label={label}
-			aria-hidden={label ? undefined : true}
-		/>
-	);
-}
-
 /**
  * Animated progress bar that eases its fill width to `value` (0–100, clamped).
  *
@@ -316,63 +151,5 @@ export function Progress({
 				transition={{ duration: 0.3, ease: EASE_OUT }}
 			/>
 		</div>
-	);
-}
-
-/** Centered variant of {@link Drawer} for confirmations; same focus trap and close behaviour. */
-export function Modal({
-	children,
-	label,
-	open,
-	onClose,
-}: {
-	children: ReactNode;
-	label: string;
-	open: boolean;
-	onClose: () => void;
-}) {
-	const panelRef = useRef<HTMLDivElement>(null);
-	const { t } = useI18n();
-	useDialogFocus(open, panelRef);
-	useEffect(() => {
-		if (!open) return undefined;
-		const closeOnEscape = (event: KeyboardEvent) => {
-			if (event.key === 'Escape') onClose();
-		};
-		window.addEventListener('keydown', closeOnEscape);
-		return () => window.removeEventListener('keydown', closeOnEscape);
-	}, [open, onClose]);
-	if (!open) return null;
-	return createPortal(
-		<div className="modal-layer" role="presentation">
-			<button
-				className="drawer-scrim"
-				type="button"
-				aria-label={`${t('app.global.close', 'Close')} ${label}`}
-				onClick={onClose}
-			/>
-			<div
-				ref={panelRef}
-				tabIndex={-1}
-				className="modal-panel"
-				role="dialog"
-				aria-modal="true"
-				aria-label={label}
-			>
-				<div className="drawer-header">
-					<h2>{label}</h2>
-					<button
-						className="icon-button"
-						type="button"
-						aria-label={`${t('app.global.close', 'Close')} ${label}`}
-						onClick={onClose}
-					>
-						×
-					</button>
-				</div>
-				{children}
-			</div>
-		</div>,
-		document.body,
 	);
 }

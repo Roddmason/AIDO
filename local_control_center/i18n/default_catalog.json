@@ -23,6 +23,14 @@
       "en": "Toggle compact density",
       "es": "Alternar densidad compacta"
     },
+    "app.global.notifications": {
+      "en": "Notifications",
+      "es": "Notificaciones"
+    },
+    "app.global.dismiss": {
+      "en": "Dismiss",
+      "es": "Descartar"
+    },
     "app.shell.resizeExplorer": {
       "en": "Resize explorer panel",
       "es": "Redimensionar panel de explorador"

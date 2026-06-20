@@ -1,0 +1,158 @@
+/* Styles for the typed component library (components/ui/*). Wraps existing design-system
+   classes where they exist; defines only the genuinely new surfaces (spinner, field error,
+   segmented control, tooltip, toast, error state). */
+
+/* Loading spinner used by Button/IconButton; aria-busy conveys the state to assistive tech. */
+.ui-spinner {
+	width: 0.95em;
+	height: 0.95em;
+	flex: 0 0 auto;
+	border: 2px solid currentColor;
+	border-top-color: transparent;
+	border-radius: var(--radius-pill);
+	animation: ui-spin 0.6s linear infinite;
+}
+
+@keyframes ui-spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+
+/* Inline field error; replaces the help text when a field is invalid. */
+.field-error {
+	color: var(--color-status-danger);
+	font-size: var(--font-size-sm);
+	font-weight: var(--weight-medium);
+}
+
+/* SegmentedControl: single-select row of options (selected option uses aria-checked). */
+.segmented {
+	display: inline-flex;
+	gap: var(--space-1);
+	padding: var(--space-1);
+	border: 1px solid var(--color-border-subtle);
+	border-radius: var(--radius-md);
+	background: var(--color-surface-inset);
+}
+
+.segmented-option {
+	min-height: var(--control-height-sm);
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-2);
+	padding: 0 var(--space-3);
+	border: 1px solid transparent;
+	border-radius: var(--radius-sm);
+	background: transparent;
+	color: var(--color-text-secondary);
+	font-weight: var(--weight-semibold);
+	cursor: pointer;
+}
+
+.segmented-option[aria-checked="true"] {
+	background: var(--color-surface-card);
+	color: var(--color-text-primary);
+	border-color: var(--color-border-default);
+}
+
+.segmented-option:focus-visible {
+	outline: none;
+	box-shadow: var(--shadow-focus);
+}
+
+/* Tooltip: bubble anchored to its trigger, shown on hover/focus. */
+.ui-tooltip-anchor {
+	position: relative;
+	display: inline-flex;
+}
+
+.ui-tooltip {
+	position: absolute;
+	top: calc(100% + var(--space-1));
+	left: 50%;
+	transform: translateX(-50%);
+	z-index: var(--z-toast);
+	width: max-content;
+	max-width: 18rem;
+	padding: var(--space-1) var(--space-2);
+	border-radius: var(--radius-sm);
+	background: var(--color-surface-overlay);
+	color: var(--color-text-primary);
+	font-size: var(--font-size-sm);
+	line-height: var(--line-snug);
+	box-shadow: var(--shadow-md);
+	pointer-events: none;
+}
+
+/* Toast: transient notifications stacked bottom-right; the viewport ignores pointer events
+   so only the toasts themselves are interactive. */
+.toast-viewport {
+	position: fixed;
+	right: var(--space-4);
+	bottom: var(--space-4);
+	z-index: var(--z-toast);
+	display: grid;
+	gap: var(--space-2);
+	width: min(22rem, calc(100vw - 2 * var(--space-4)));
+	pointer-events: none;
+}
+
+.toast {
+	pointer-events: auto;
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	gap: var(--space-1) var(--space-3);
+	padding: var(--space-3);
+	/* Tone is carried by the full border colour (no side stripe). */
+	border: 1px solid var(--color-accent);
+	border-radius: var(--radius-md);
+	background: var(--color-surface-overlay);
+	box-shadow: var(--shadow-lg);
+}
+
+.toast[data-tone="ok"] {
+	border-color: var(--color-status-success);
+}
+
+.toast[data-tone="warn"] {
+	border-color: var(--color-status-warning);
+}
+
+.toast[data-tone="danger"] {
+	border-color: var(--color-status-danger);
+}
+
+.toast-title {
+	font-weight: var(--weight-bold);
+}
+
+.toast-body {
+	color: var(--color-text-secondary);
+	font-size: var(--font-size-sm);
+}
+
+.toast-dismiss {
+	grid-row: 1 / span 2;
+	grid-column: 2;
+	align-self: start;
+}
+
+/* ErrorState: a danger-toned sibling of .empty-state for failed loads/actions. */
+.error-state {
+	display: grid;
+	gap: var(--space-2);
+	justify-items: start;
+	padding: var(--space-4);
+	border: 1px solid color-mix(in oklch, var(--color-status-danger) 40%, var(--color-border-default));
+	border-radius: var(--radius-lg);
+	background: color-mix(in oklch, var(--color-status-danger) 7%, var(--color-surface-card));
+}
+
+.error-state strong {
+	color: var(--color-status-danger);
+}
+
+.error-state span {
+	color: var(--color-text-secondary);
+}

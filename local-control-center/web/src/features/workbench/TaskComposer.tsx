@@ -10,6 +10,7 @@ import { runIssueToPatch } from '../../api/client';
 import type { Project, RuntimeProviders } from '../../api/types';
 import { Disclosure } from '../../components/Disclosure';
 import { Badge } from '../../components/primitives';
+import { Button, Checkbox, TextArea, TextField } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { toneForStatus } from '../../lib/format';
 import {
@@ -240,30 +241,27 @@ export function TaskComposer({
 							'AIDO will not run changes until a runtime is executable. Configure one to unblock this workspace.',
 						)}
 					</p>
-					<button className="button primary" type="button" onClick={onConfigureRuntime}>
-						<SlidersHorizontal aria-hidden="true" size={15} />{' '}
+					<Button
+						variant="primary"
+						icon={<SlidersHorizontal aria-hidden="true" size={15} />}
+						onClick={onConfigureRuntime}
+					>
 						{t('app.workbench.task.configureRuntime', 'Configure runtime')}
-					</button>
+					</Button>
 				</div>
 			) : null}
 
-			<div className="field">
-				<label htmlFor="task-change">
-					{t('app.workbench.task.changePrompt', 'What should AIDO change?')}
-				</label>
-				<textarea
-					id="task-change"
-					className="textarea"
-					value={description}
-					rows={6}
-					disabled={!project || busy}
-					placeholder={t(
-						'app.workbench.task.changePlaceholder',
-						'Describe the change in plain language. The AI team plans, implements and tests it inside this workspace.',
-					)}
-					onChange={(event) => setDescription(event.target.value)}
-				/>
-			</div>
+			<TextArea
+				label={t('app.workbench.task.changePrompt', 'What should AIDO change?')}
+				value={description}
+				rows={6}
+				disabled={!project || busy}
+				placeholder={t(
+					'app.workbench.task.changePlaceholder',
+					'Describe the change in plain language. The AI team plans, implements and tests it inside this workspace.',
+				)}
+				onChange={(event) => setDescription(event.target.value)}
+			/>
 
 			<div
 				className="task-mode-chips"
@@ -285,26 +283,18 @@ export function TaskComposer({
 			</div>
 
 			<div className="stack compact">
-				<label className="checkbox-row" htmlFor="task-run-checks">
-					<input
-						id="task-run-checks"
-						type="checkbox"
-						checked={runChecks}
-						disabled={!project || busy}
-						onChange={(event) => setRunChecks(event.target.checked)}
-					/>
-					{t('app.workbench.task.runChecks', 'Run project checks')}
-				</label>
-				<label className="checkbox-row" htmlFor="task-require-review">
-					<input
-						id="task-require-review"
-						type="checkbox"
-						checked={requireReview}
-						disabled={!project || busy}
-						onChange={(event) => setRequireReview(event.target.checked)}
-					/>
-					{t('app.workbench.task.requireReview', 'Require review before applying')}
-				</label>
+				<Checkbox
+					label={t('app.workbench.task.runChecks', 'Run project checks')}
+					checked={runChecks}
+					disabled={!project || busy}
+					onChange={(event) => setRunChecks(event.target.checked)}
+				/>
+				<Checkbox
+					label={t('app.workbench.task.requireReview', 'Require review before applying')}
+					checked={requireReview}
+					disabled={!project || busy}
+					onChange={(event) => setRequireReview(event.target.checked)}
+				/>
 				{!runChecks ? (
 					<p className="form-error" role="status">
 						{t(
@@ -386,44 +376,36 @@ export function TaskComposer({
 						{selectedQaPreset.commands.map((command) => command.join(' ')).join(' | ')}
 					</div>
 				</div>
-				<div className="field">
-					<label htmlFor="task-cost">{t('app.workbench.task.cost', 'Maximum cost USD')}</label>
-					<input
-						id="task-cost"
-						className="input tnum"
-						type="number"
-						min="0"
-						step="0.01"
-						value={maxCostUsd}
-						disabled={!project || busy}
-						onChange={(event) => setMaxCostUsd(event.target.value)}
-					/>
-				</div>
-				<div className="field">
-					<label htmlFor="task-target">{t('app.workbench.task.target', 'Target path')}</label>
-					<input
-						id="task-target"
-						className="input"
-						value={targetPath}
-						disabled={!project || busy}
-						placeholder={t('app.workbench.task.targetHint', 'Optional repository-relative path')}
-						onChange={(event) => setTargetPath(event.target.value)}
-					/>
-				</div>
+				<TextField
+					label={t('app.workbench.task.cost', 'Maximum cost USD')}
+					className="tnum"
+					type="number"
+					min="0"
+					step="0.01"
+					value={maxCostUsd}
+					disabled={!project || busy}
+					onChange={(event) => setMaxCostUsd(event.target.value)}
+				/>
+				<TextField
+					label={t('app.workbench.task.target', 'Target path')}
+					value={targetPath}
+					disabled={!project || busy}
+					placeholder={t('app.workbench.task.targetHint', 'Optional repository-relative path')}
+					onChange={(event) => setTargetPath(event.target.value)}
+				/>
 			</Disclosure>
 
 			<div className="inline">
-				<button
-					className="button primary"
-					type="button"
+				<Button
+					variant="primary"
+					icon={<Rocket aria-hidden="true" size={16} />}
 					disabled={runDisabled}
 					onClick={() => void runPatchWorkflow()}
 				>
-					<Rocket aria-hidden="true" size={16} />{' '}
 					{busy
 						? t('app.workbench.task.submitting', 'Requesting change')
 						: t('app.workbench.task.submit', 'Request change')}
-				</button>
+				</Button>
 				{selectedRuntime ? (
 					<Badge tone="ok">{selectedRuntime.displayName}</Badge>
 				) : (

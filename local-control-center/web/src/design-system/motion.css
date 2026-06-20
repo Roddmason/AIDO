@@ -10,17 +10,12 @@
 }
 
 .card,
-.workspace-card,
-.task-card,
-.run-card,
-.setting-card,
 .session-item,
 .command-item,
 .button,
 .icon-button,
 .nav-item,
-.activity-bar-item,
-.panel-tab {
+.activity-bar-item {
 	transition-duration: var(--duration-normal);
 	transition-timing-function: var(--ease-standard);
 }
@@ -50,11 +45,7 @@
 		transition-duration: 0.01ms !important;
 	}
 
-	.card:hover,
-	.workspace-card:hover,
-	.task-card:hover,
-	.run-card:hover,
-	.setting-card:hover {
+	.card:hover {
 		transform: none;
 	}
 }

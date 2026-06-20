@@ -338,8 +338,7 @@ export function App() {
 	if (state.loading || !overview) {
 		const failed = Boolean(state.error);
 		return (
-			<div className="app-shell-ide" data-explorer="false" data-inspector="false">
-				<span className="console-grid" aria-hidden="true" />
+			<div className="app-shell-ide">
 				<main className="workbench main-area">
 					<section className="content-frame">
 						<EmptyState

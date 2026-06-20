@@ -3,9 +3,10 @@
  * shell-wide controls (language, theme, command palette, drawers, inspector,
  * refresh). Stateless dispatcher — every action is delegated upward via props.
  */
-import { Moon, PanelBottom, PanelRight, RefreshCw, Sun } from 'lucide-react';
+import { Moon, PanelBottom, PanelRight, RefreshCw, Rows3, Sun } from 'lucide-react';
 import type { Ref } from 'react';
 
+import { useDensity } from '../hooks/useDensity';
 import { useTheme } from '../hooks/useTheme';
 
 type LanguageOption = { code: string; name: string; nativeName: string; enabled: boolean };
@@ -52,6 +53,7 @@ export function WorkbenchHeader({
 	bottomToggleRef?: Ref<HTMLButtonElement>;
 }) {
 	const { theme, toggleTheme } = useTheme();
+	const { density, toggleDensity } = useDensity();
 	const languageOptions = languages.length
 		? languages
 		: [
@@ -97,6 +99,15 @@ export function WorkbenchHeader({
 						) : (
 							<Sun aria-hidden="true" size={18} />
 						)}
+					</button>
+					<button
+						className="icon-button"
+						type="button"
+						aria-pressed={density === 'compact'}
+						aria-label={t('app.global.toggleDensity', 'Toggle compact density')}
+						onClick={toggleDensity}
+					>
+						<Rows3 aria-hidden="true" size={18} />
 					</button>
 					<button className="button" type="button" onClick={onOpenCommandPalette}>
 						{t('app.global.openCommandPalette', 'Open command palette')}

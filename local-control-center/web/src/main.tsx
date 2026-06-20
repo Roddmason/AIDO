@@ -19,12 +19,14 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 
 import { App } from './app/App';
+import { applyStoredDensity } from './hooks/useDensity';
 import { applyStoredTheme } from './hooks/useTheme';
 import { I18nProvider } from './i18n/I18nProvider';
 
-// Apply the persisted theme before the first paint so a stored light preference
-// does not flash the dark default on reload.
+// Apply the persisted theme and density before the first paint so stored preferences
+// do not flash the defaults on reload.
 applyStoredTheme();
+applyStoredDensity();
 
 createRoot(document.getElementById('root') as HTMLElement).render(
 	<React.StrictMode>

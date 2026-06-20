@@ -30,10 +30,10 @@ import type { AreaId, NavigationItem, PageId } from './navigation';
 import { EXPLORER_GROUPS, EXPLORER_LINKS, EXPLORER_TITLE, pickLabel } from './navigation';
 
 /**
- * Revelado/colapso del Explorer: el panel entra/sale fundiéndose y deslizándose desde su
- * borde (no un corte). Vive dentro del `AnimatePresence` del AppShell, que conserva el
- * montaje durante la salida; la columna del grid la sigue gobernando `data-explorer`.
- * Bajo `MotionConfig reducedMotion="user"` el desplazamiento cae a no-op y queda el fundido.
+ * Revelado del Explorer: el panel entra fundiéndose y deslizándose desde su borde (no un
+ * corte). En desktop vive en un pane redimensionable del shell; en el layout apilado se
+ * monta/desmonta según su estado. Bajo `MotionConfig reducedMotion="user"` el
+ * desplazamiento cae a no-op y queda solo el fundido.
  */
 const explorerReveal: Variants = {
 	initial: { opacity: 0, x: -16 },

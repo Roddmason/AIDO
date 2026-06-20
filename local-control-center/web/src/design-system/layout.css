@@ -1,23 +1,12 @@
-.app-shell,
 .app-shell-ide {
 	position: relative;
 	isolation: isolate;
-	min-height: 100vh;
-	min-height: 100dvh;
-	background: var(--color-surface-canvas);
-	color: var(--color-text-primary);
-}
-
-.app-shell {
-	display: grid;
-	grid-template-columns: minmax(17.5rem, var(--size-explorer)) minmax(0, 1fr);
-}
-
-.app-shell-ide {
 	display: flex;
 	flex-direction: column;
 	height: 100dvh;
 	overflow: hidden;
+	background: var(--color-surface-canvas);
+	color: var(--color-text-primary);
 }
 
 /* Stacked fallback (narrow / touch viewports): the shell scrolls as one column
@@ -150,17 +139,6 @@
 	padding: var(--space-4);
 }
 
-/* Kept as an inert element (App.tsx still renders it) but with no texture:
-   the decorative "console" grid is removed for a calmer, content-first shell. */
-.console-grid {
-	position: fixed;
-	inset: 0;
-	z-index: var(--z-base);
-	pointer-events: none;
-	background-image: none;
-	opacity: 0;
-}
-
 .activity-bar {
 	position: sticky;
 	top: 0;
@@ -195,7 +173,6 @@
 	color: var(--color-text-primary);
 }
 
-.sidebar,
 .explorer-panel {
 	position: sticky;
 	top: 0;
@@ -211,15 +188,6 @@
 	border-right: 1px solid var(--color-border-subtle);
 	color: var(--color-text-primary);
 	overflow: auto;
-}
-
-.brand-mark {
-	min-width: 0;
-	display: grid;
-	grid-template-columns: auto minmax(0, 1fr);
-	align-items: center;
-	gap: var(--space-3);
-	padding-bottom: var(--space-2);
 }
 
 .brand-orb {
@@ -240,21 +208,6 @@
 	display: block;
 	border-radius: var(--radius-xs);
 	background: var(--color-accent);
-}
-
-.brand-kicker {
-	color: var(--color-text-muted);
-	font-size: var(--font-size-xs);
-	font-weight: var(--weight-medium);
-}
-
-.brand-title {
-	margin: 0;
-	font-family: var(--font-display);
-	font-size: var(--font-size-lg);
-	line-height: var(--line-tight);
-	letter-spacing: 0;
-	overflow-wrap: anywhere;
 }
 
 .nav-list {
@@ -324,13 +277,6 @@
 	white-space: nowrap;
 }
 
-.nav-primary {
-	color: var(--color-text-primary);
-	background: color-mix(in oklch, var(--color-accent) 10%, transparent);
-	border-color: color-mix(in oklch, var(--color-accent) 34%, var(--color-border-subtle));
-	font-weight: var(--weight-semibold);
-}
-
 .nav-item svg,
 .nav-group-trigger svg {
 	width: 1rem;
@@ -348,13 +294,6 @@
 
 .nav-item[aria-current="page"] {
 	box-shadow: inset 3px 0 0 var(--color-accent);
-}
-
-.sidebar-footer {
-	display: grid;
-	gap: var(--space-2);
-	color: var(--color-text-muted);
-	font-size: var(--font-size-sm);
 }
 
 .main-area,
@@ -613,18 +552,6 @@
 	align-items: start;
 }
 
-.split-pane {
-	display: grid;
-	grid-template-columns: minmax(15rem, 0.32fr) minmax(0, 1fr);
-	gap: var(--space-4);
-	align-items: stretch;
-	min-width: 0;
-}
-
-.split-pane[data-inspector="true"] {
-	grid-template-columns: minmax(15rem, 0.28fr) minmax(0, 1fr) minmax(18rem, 0.34fr);
-}
-
 .inspector-panel {
 	min-width: 0;
 	display: grid;
@@ -676,8 +603,7 @@
 	background: var(--color-surface-inset);
 }
 
-.workspace-root-card > span,
-.progress-current span {
+.workspace-root-card > span {
 	color: var(--color-text-muted);
 	font-size: var(--font-size-xs);
 	font-weight: var(--weight-medium);
@@ -695,13 +621,6 @@
 	align-items: center;
 }
 
-.workspace-meta {
-	display: grid;
-	grid-template-columns: repeat(3, minmax(0, 1fr));
-	gap: var(--space-3);
-}
-
-.workspace-meta > div,
 .signal-card {
 	min-width: 0;
 	display: grid;
@@ -712,19 +631,12 @@
 	background: var(--color-surface-card);
 }
 
-.workspace-meta span,
 .signal-card span {
 	color: var(--color-text-muted);
 	font-size: var(--font-size-xs);
 	font-weight: var(--weight-medium);
 }
 
-.workspace-meta strong {
-	min-width: 0;
-	overflow-wrap: anywhere;
-}
-
-.workbench-actions,
 .chat-composer-actions {
 	display: flex;
 	flex-wrap: wrap;
@@ -776,13 +688,6 @@
 	min-height: 8.5rem;
 }
 
-.workbench-progress-grid {
-	display: grid;
-	grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
-	gap: var(--space-4);
-	align-items: stretch;
-}
-
 .delivery-rail {
 	display: grid;
 	gap: var(--space-2);
@@ -822,28 +727,6 @@
 	font-family: var(--font-display);
 	font-size: var(--font-size-2xl);
 	line-height: var(--line-tight);
-}
-
-.workbench-progress-signals .signal-card {
-	min-height: 5.5rem;
-}
-
-.progress-current {
-	display: grid;
-	gap: var(--space-2);
-}
-
-.progress-current > div {
-	display: grid;
-	gap: var(--space-1);
-	padding: var(--space-3);
-	border: 1px solid var(--color-border-subtle);
-	border-radius: var(--radius-md);
-	background: var(--color-surface-card);
-}
-
-.progress-current strong {
-	overflow-wrap: anywhere;
 }
 
 .team-grid {
@@ -1058,22 +941,10 @@
 	.workbench-side .surface {
 		align-content: start;
 	}
-
-	.split-pane,
-	.split-pane[data-inspector="true"] {
-		grid-template-columns: 1fr;
-	}
 }
 
 @media (max-width: 980px) {
-	.app-shell,
-	.app-shell-ide {
-		grid-template-columns: 1fr;
-		grid-template-rows: auto;
-	}
-
 	.activity-bar,
-	.sidebar,
 	.explorer-panel {
 		position: relative;
 		height: auto;
@@ -1115,7 +986,6 @@
 	.grid.two,
 	.grid.three,
 	.workbench-layout,
-	.workbench-progress-grid,
 	.workbench-side {
 		grid-template-columns: 1fr;
 	}
@@ -1138,13 +1008,8 @@
 }
 
 @media (max-width: 560px) {
-	.sidebar,
 	.explorer-panel {
 		padding-inline: var(--space-3);
-	}
-
-	.brand-title {
-		font-size: var(--font-size-lg);
 	}
 
 	.nav-list {
@@ -1190,13 +1055,11 @@
 		font-size: var(--font-size-2xl);
 	}
 
-	.workspace-meta,
 	.signal-grid,
 	.team-card-header {
 		grid-template-columns: 1fr;
 	}
 
-	.workbench-actions .button,
 	.chat-composer-actions .button,
 	.workspace-context .button {
 		width: 100%;

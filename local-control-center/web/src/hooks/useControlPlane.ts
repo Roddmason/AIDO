@@ -20,6 +20,7 @@ import type {
 	RuntimeProviderConfiguration,
 	RuntimeProviders,
 } from '../api/types';
+import { useI18n } from '../i18n/I18nProvider';
 
 type ControlPlaneState = {
 	token: string;
@@ -67,6 +68,12 @@ export function useControlPlane() {
 	const [state, setState] = useState(initialState);
 	const mountedRef = useRef(false);
 	const controllersRef = useRef<Set<AbortController>>(new Set());
+	// Latest t in a ref: refresh/mutate are stable useCallbacks created before the i18n catalog
+	// loads, so reading t directly would freeze the pre-catalog (English) value; the ref always
+	// holds the current translator without re-creating the callbacks (which would restart polling).
+	const { t } = useI18n();
+	const tRef = useRef(t);
+	tRef.current = t;
 
 	const refresh = useCallback(async (silent = false) => {
 		const controller = new AbortController();
@@ -103,7 +110,12 @@ export function useControlPlane() {
 			if (controller.signal.aborted) return;
 			if (!mountedRef.current) return;
 			const message =
-				error instanceof Error ? error.message : 'Unable to load control plane state.';
+				error instanceof Error
+					? error.message
+					: tRef.current(
+							'app.controlPlane.error.loadFailed',
+							'Unable to load control plane state.',
+						);
 			setState((current) => ({
 				...current,
 				loading: false,
@@ -137,7 +149,10 @@ export function useControlPlane() {
 			options: { awaitRefresh?: boolean } = {},
 		) => {
 			if (!state.token) {
-				const message = 'Control plane is still connecting; retry once the session token is ready.';
+				const message = tRef.current(
+					'app.controlPlane.error.connecting',
+					'Control plane is still connecting; retry once the session token is ready.',
+				);
 				setState((current) => ({ ...current, error: message }));
 				throw new Error(message);
 			}
@@ -165,7 +180,10 @@ export function useControlPlane() {
 				setState((current) => ({
 					...current,
 					busy: false,
-					error: error instanceof Error ? error.message : 'Operation failed.',
+					error:
+						error instanceof Error
+							? error.message
+							: tRef.current('app.controlPlane.error.operationFailed', 'Operation failed.'),
 				}));
 				throw error;
 			}

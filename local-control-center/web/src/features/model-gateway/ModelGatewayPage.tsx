@@ -54,7 +54,7 @@ import type {
 } from '../../api/types';
 import { Badge, DataTable, EmptyState, PageHeader, Surface } from '../../components/primitives';
 import { useI18n } from '../../i18n/I18nProvider';
-import { redactVisibleSecret, toneForStatus } from '../../lib/format';
+import { toneForStatus } from '../../lib/format';
 import { BenchmarksPanel } from './BenchmarksPanel';
 import { BudgetsPanel } from './BudgetsPanel';
 import { CliSessionsPanel } from './CliSessionsPanel';
@@ -65,6 +65,7 @@ import { RoleAssignmentsPanel } from './RoleAssignmentsPanel';
 import { RoutePreviewPanel } from './RoutePreviewPanel';
 import { RoutingDecisionsPanel } from './RoutingDecisionsPanel';
 import { RoutingProfilesPanel } from './RoutingProfilesPanel';
+import { RuntimeProvidersPanel } from './RuntimeProvidersPanel';
 import { UsageLedgerPanel } from './UsageLedgerPanel';
 import { Metric, money, text } from './utils';
 
@@ -454,10 +455,6 @@ export function ModelGatewayPage({
 		(row) => row.configured !== true,
 	).length;
 
-	const runtimeStateBadge = (enabled: boolean, positive: string, negative: string) => (
-		<Badge tone={enabled ? 'ok' : 'warn'}>{enabled ? positive : negative}</Badge>
-	);
-
 	const refreshRuntimeHealth = async (runtime: RuntimeProvider) => {
 		const runtimeId = String(runtime.id ?? '');
 		const kind = String(runtime.kind ?? '');
@@ -775,234 +772,12 @@ export function ModelGatewayPage({
 				</div>
 			</Surface>
 
-			<Surface title={t('ui.static.runtime.and.model.gateway.45cf9fb6', 'Runtime & Model Gateway')}>
-				<h3 className="section-subtitle">
-					{t('ui.static.runtime.providers.0acdc40d', 'Runtime Providers')}
-				</h3>
-				<DataTable
-					rows={runtimeRows}
-					empty={
-						<EmptyState
-							title={t(
-								'ui.static.no.runtime.provider.status.70888a8d',
-								'No runtime provider status',
-							)}
-							body={t(
-								'ui.static.runtime.discovery.has.not.returned.provider.status.records.baf9776d',
-								'Runtime discovery has not returned provider status records.',
-							)}
-						/>
-					}
-					columns={[
-						{
-							key: 'id',
-							label: t('ui.static.id.87ea5dfc', 'Id'),
-							render: (row) => <span className="mono">{row.id}</span>,
-						},
-						{
-							key: 'kind',
-							label: t('ui.static.kind.e00ac23f', 'Kind'),
-							render: (row) => <Badge>{row.kind}</Badge>,
-						},
-						{
-							key: 'detected',
-							label: t('app.workspace.detection.found', 'Detected'),
-							render: (row) =>
-								runtimeStateBadge(
-									Boolean(row.detected),
-									t('app.modelGateway.runtime.detected', 'detected'),
-									t('app.modelGateway.runtime.notDetected', 'not detected'),
-								),
-						},
-						{
-							key: 'configured',
-							label: t('ui.static.configured.7bde0f0a', 'Configured'),
-							render: (row) =>
-								runtimeStateBadge(
-									Boolean(row.configured),
-									t('app.modelGateway.runtime.configured', 'configured'),
-									t('app.modelGateway.runtime.notConfigured', 'not configured'),
-								),
-						},
-						{
-							key: 'available',
-							label: t('ui.static.available.78945de8', 'Available'),
-							render: (row) =>
-								runtimeStateBadge(
-									Boolean(row.available),
-									t('app.modelGateway.runtime.available', 'available'),
-									t('app.modelGateway.runtime.notAvailable', 'not available'),
-								),
-						},
-						{
-							key: 'executable',
-							label: t('ui.static.executable.6f703eda', 'Executable'),
-							render: (row) =>
-								runtimeStateBadge(
-									Boolean(row.executable),
-									t('app.modelGateway.runtime.executable', 'executable'),
-									t('app.modelGateway.runtime.notExecutable', 'not executable'),
-								),
-						},
-						{
-							key: 'healthStatus',
-							label: t('ui.static.health.status.a4a97cf0', 'Health status'),
-							render: (row) => (
-								<Badge tone={row.healthStatus === 'healthy' ? 'ok' : 'warn'}>
-									{redactVisibleSecret(row.healthStatus, t('app.runtime.card.unknown', 'unknown'))}
-								</Badge>
-							),
-						},
-						{
-							key: 'capabilities',
-							label: t('ui.static.capabilities.ca09c54b', 'Capabilities'),
-							render: (row) => (
-								<div className="inline">
-									{row.requiresApproval ? (
-										<Badge tone="warn">
-											{t('app.modelGateway.runtime.approvalBadge', 'approval')}
-										</Badge>
-									) : null}
-									{row.capabilities?.length ? (
-										row.capabilities.map((capability) => (
-											<Badge key={capability}>{capability}</Badge>
-										))
-									) : (
-										<Badge tone="warn">{t('app.workspace.detection.none', 'none')}</Badge>
-									)}
-								</div>
-							),
-						},
-						{
-							key: 'configuration',
-							label: t('ui.static.configuration.8ce677fb', 'Configuration'),
-							render: (row) => {
-								const configuration = runtimeConfigurationById.get(String(row.id ?? ''));
-								const configured = configuration?.configured === true || row.configured;
-								const missingFromConfiguration = Array.isArray(configuration?.missing)
-									? configuration.missing
-									: [];
-								const missingSource =
-									missingFromConfiguration.length || configured
-										? missingFromConfiguration
-										: (row.requiredConfiguration ?? []);
-								const missing = missingSource
-									.map((item) => redactVisibleSecret(item))
-									.filter(Boolean);
-								const variables = Array.isArray(configuration?.variables)
-									? configuration.variables
-									: [];
-								return (
-									<div className="stack">
-										<Badge tone={configured ? 'ok' : 'warn'}>
-											{text(
-												configuration?.status,
-												configured
-													? t('app.modelGateway.runtime.configured', 'configured')
-													: 'missing_config',
-											)}
-										</Badge>
-										<div className="inline">
-											{missing.length ? (
-												missing.map((item) => (
-													<Badge key={item} tone="warn">
-														{item}
-													</Badge>
-												))
-											) : (
-												<Badge tone="ok">
-													{t('app.modelGateway.runtime.noneMissing', 'none missing')}
-												</Badge>
-											)}
-										</div>
-										{variables.map((variable) => {
-											const name = redactVisibleSecret(variable.name);
-											const fingerprint = redactVisibleSecret(variable.fingerprint, '');
-											return (
-												<div className="inline" key={name}>
-													<Badge tone={variable.configured ? 'ok' : 'warn'}>
-														{variable.configured
-															? t('app.modelGateway.runtime.variableSet', 'set')
-															: t('app.runtime.card.missing', 'missing')}
-													</Badge>
-													<span className="mono">{name}</span>
-													{fingerprint ? <span className="mono">{fingerprint}</span> : null}
-												</div>
-											);
-										})}
-									</div>
-								);
-							},
-						},
-						{
-							key: 'reason',
-							label: t('ui.static.reason.f219cc06', 'Reason'),
-							render: (row) => redactVisibleSecret(row.reason),
-						},
-						{
-							key: 'lastError',
-							label: t('ui.static.last.error.5e4df866', 'Last error'),
-							render: (row) =>
-								redactVisibleSecret(row.lastError, t('app.workspace.detection.none', 'none')),
-						},
-						{
-							key: 'version',
-							label: t('ui.static.version.2da600bf', 'Version'),
-							render: (row) => <span className="mono">{redactVisibleSecret(row.version)}</span>,
-						},
-						{
-							key: 'command',
-							label: t('ui.static.detected.command.c696971c', 'Detected command'),
-							render: (row) => (
-								<span className="mono">{redactVisibleSecret(row.detectedCommand)}</span>
-							),
-						},
-						{
-							key: 'health',
-							label: t('ui.static.healthcheck.b89e0ef6', 'Healthcheck'),
-							render: (row) => {
-								const runtimeId = String(row.id ?? '');
-								const kind = String(row.kind ?? '');
-								const canRefresh =
-									kind === 'cli' || kind === 'api' || kind === 'gateway' || kind === 'local';
-								const busy = busyAction === `${runtimeId}:runtime-health`;
-								return (
-									<div className="stack">
-										<span className="mono">
-											{redactVisibleSecret(
-												row.healthCheckedAt,
-												t('app.modelGateway.runtime.notChecked', 'not checked'),
-											)}
-										</span>
-										<button
-											className="button"
-											type="button"
-											disabled={!canRefresh || busy}
-											aria-label={`${t('app.modelGateway.runtime.refreshHealthcheckFor', 'Refresh healthcheck for')} ${runtimeId}`}
-											onClick={() => void refreshRuntimeHealth(row)}
-										>
-											{busy
-												? t(
-														'app.modelGateway.runtime.refreshingHealthcheck',
-														'Refreshing healthcheck',
-													)
-												: t('app.modelGateway.runtime.refreshHealthcheck', 'Refresh healthcheck')}
-										</button>
-										{canRefresh ? null : (
-											<span className="muted">
-												{t(
-													'ui.static.no.automated.healthcheck.endpoint.f9c95375',
-													'No automated healthcheck endpoint.',
-												)}
-											</span>
-										)}
-									</div>
-								);
-							},
-						},
-					]}
-				/>
-			</Surface>
+			<RuntimeProvidersPanel
+				runtimeRows={runtimeRows}
+				runtimeConfigurationById={runtimeConfigurationById}
+				busyAction={busyAction}
+				onRefreshHealth={(runtime) => void refreshRuntimeHealth(runtime)}
+			/>
 
 			<RoutePreviewPanel
 				form={{

@@ -42,17 +42,21 @@ const AgentsPage = lazy(() => importAgents().then((m) => ({ default: m.AgentsPag
 const importSettings = () => import('../features/settings/SettingsPage');
 const SettingsPage = lazy(() => importSettings().then((m) => ({ default: m.SettingsPage })));
 
-// The secondary pages share one barrel module, so they share one chunk.
+// Remaining shared-barrel pages (split incrementally into per-feature chunks).
 const importPages = () => import('../features/pages');
-const AuditPage = lazy(() => importPages().then((m) => ({ default: m.AuditPage })));
 const EvidencePage = lazy(() => importPages().then((m) => ({ default: m.EvidencePage })));
 const GovernancePage = lazy(() => importPages().then((m) => ({ default: m.GovernancePage })));
 const IntegrationsPage = lazy(() => importPages().then((m) => ({ default: m.IntegrationsPage })));
-const MemoryPage = lazy(() => importPages().then((m) => ({ default: m.MemoryPage })));
 const PolicySecurityPage = lazy(() =>
 	importPages().then((m) => ({ default: m.PolicySecurityPage })),
 );
-const WorkspacesPage = lazy(() => importPages().then((m) => ({ default: m.WorkspacesPage })));
+// Per-feature chunks (extracted from the barrel).
+const importAudit = () => import('../features/audit/AuditPage');
+const AuditPage = lazy(() => importAudit().then((m) => ({ default: m.AuditPage })));
+const importMemory = () => import('../features/memory/MemoryPage');
+const MemoryPage = lazy(() => importMemory().then((m) => ({ default: m.MemoryPage })));
+const importWorkspaces = () => import('../features/workspaces/WorkspacesPage');
+const WorkspacesPage = lazy(() => importWorkspaces().then((m) => ({ default: m.WorkspacesPage })));
 
 /** Token-injecting write runner from the control plane. */
 export type Mutate = <T>(
@@ -191,7 +195,7 @@ export const routeTable: Record<AppRoute, RouteEntry> = {
 	},
 	workspaces: {
 		render: (ctx) => <WorkspacesPage overview={ctx.overview} />,
-		preload: importPages,
+		preload: importWorkspaces,
 	},
 	policy: {
 		render: (ctx) => <PolicySecurityPage overview={ctx.overview} mutate={ctx.mutate} />,
@@ -199,7 +203,7 @@ export const routeTable: Record<AppRoute, RouteEntry> = {
 	},
 	memory: {
 		render: (ctx) => <MemoryPage overview={ctx.overview} retrievalStatus={ctx.retrievalStatus} />,
-		preload: importPages,
+		preload: importMemory,
 	},
 	evidence: {
 		render: (ctx) => <EvidencePage overview={ctx.overview} token={ctx.token} />,
@@ -228,7 +232,7 @@ export const routeTable: Record<AppRoute, RouteEntry> = {
 	},
 	audit: {
 		render: (ctx) => <AuditPage overview={ctx.overview} />,
-		preload: importPages,
+		preload: importAudit,
 	},
 	integrations: {
 		render: (ctx) => <IntegrationsPage overview={ctx.overview} mutate={ctx.mutate} />,

@@ -4,7 +4,7 @@
  * mutación (toggle/health de proveedores, preview de ruta, alta de políticas y outcomes); cada panel
  * recibe sus datos por props y notifica de vuelta vía callbacks.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import {
 	createModelGatewayRolePolicy,
@@ -12,20 +12,6 @@ import {
 	discoverModelGatewayProviderModels,
 	getModelGatewayBenchmarkOutcomes,
 	getModelGatewayBenchmarks,
-	getModelGatewayBudgetRules,
-	getModelGatewayCliRuntimes,
-	getModelGatewayCliSessions,
-	getModelGatewayModels,
-	getModelGatewayOverview,
-	getModelGatewayProviderLimits,
-	getModelGatewayProviders,
-	getModelGatewayRolePolicies,
-	getModelGatewayRoutingDecisions,
-	getModelGatewayRoutingProfiles,
-	getModelGatewayUsageLedger,
-	getModelGatewayUsageSummary,
-	getRuntimeProviderConfiguration,
-	getRuntimeProviders,
 	healthCheckModelGatewayProvider,
 	type ModelGatewayRoutePreviewResponse,
 	patchModelGatewayProvider,
@@ -35,24 +21,15 @@ import {
 import type {
 	ModelGatewayBenchmark,
 	ModelGatewayBenchmarkOutcome,
-	ModelGatewayBudgetRule,
-	ModelGatewayCliRuntime,
-	ModelGatewayCliSession,
-	ModelGatewayModel,
-	ModelGatewayOverview,
-	ModelGatewayProviderAccount,
-	ModelGatewayProviderLimit,
 	ModelGatewayRolePolicy,
-	ModelGatewayRoutingDecision,
-	ModelGatewayRoutingProfile,
-	ModelGatewayUsage,
-	ModelGatewayUsageSummary,
 	Overview,
 	RuntimeProvider,
 	RuntimeProviderConfiguration,
 	RuntimeProviders,
 } from '../../api/types';
+import { resolveHashRoute, splitHash } from '../../app/routing';
 import { Badge, DataTable, EmptyState, PageHeader, Surface } from '../../components/primitives';
+import { ErrorState, Tabs } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { toneForStatus } from '../../lib/format';
 import { BenchmarksPanel } from './BenchmarksPanel';
@@ -67,57 +44,14 @@ import { RoutingDecisionsPanel } from './RoutingDecisionsPanel';
 import { RoutingProfilesPanel } from './RoutingProfilesPanel';
 import { RuntimeProvidersPanel } from './RuntimeProvidersPanel';
 import { UsageLedgerPanel } from './UsageLedgerPanel';
+import {
+	emptyGatewayState,
+	MODEL_GATEWAY_TABS,
+	type ModelGatewayState,
+	type ModelGatewayTab,
+	useModelGatewayTabData,
+} from './useModelGatewayTabData';
 import { Metric, money, text } from './utils';
-
-type ModelGatewayState = {
-	overview: ModelGatewayOverview;
-	providers: ModelGatewayProviderAccount[];
-	models: ModelGatewayModel[];
-	routingProfiles: ModelGatewayRoutingProfile[];
-	rolePolicies: ModelGatewayRolePolicy[];
-	usageLedger: ModelGatewayUsage[];
-	usageSummary: ModelGatewayUsageSummary | null;
-	routingDecisions: ModelGatewayRoutingDecision[];
-	providerLimits: ModelGatewayProviderLimit[];
-	budgetRules: ModelGatewayBudgetRule[];
-	cliRuntimes: ModelGatewayCliRuntime[];
-	cliSessions: ModelGatewayCliSession[];
-	benchmarks: ModelGatewayBenchmark[];
-	benchmarkOutcomes: ModelGatewayBenchmarkOutcome[];
-	runtimeProviderConfiguration: RuntimeProviderConfiguration[];
-};
-
-const emptyGatewayState: ModelGatewayState = {
-	overview: {
-		activeCliSessions: 0,
-		actualCostToday: 0,
-		apiProviders: 0,
-		cliRuntimes: 0,
-		degraded: 0,
-		estimatedCostToday: 0,
-		healthy: 0,
-		localProviders: 0,
-		offline: 0,
-		pendingModelApprovals: 0,
-		providersEnabled: 0,
-		providersInCooldown: 0,
-		totalTokensToday: 0,
-	},
-	providers: [],
-	models: [],
-	routingProfiles: [],
-	rolePolicies: [],
-	usageLedger: [],
-	usageSummary: null,
-	routingDecisions: [],
-	providerLimits: [],
-	budgetRules: [],
-	cliRuntimes: [],
-	cliSessions: [],
-	benchmarks: [],
-	benchmarkOutcomes: [],
-	runtimeProviderConfiguration: [],
-};
 
 function upsertNewestById<T extends { id: string; updatedAt?: string; createdAt?: string }>(
 	records: T[],
@@ -186,6 +120,14 @@ function sumRecordedCost(rows: Overview['costUsage']) {
 	return amounts.length ? amounts.reduce((sum, amount) => sum + amount, 0) : null;
 }
 
+/** Reads the deep-linked tab from `#models?tab=<id>`, defaulting to the providers tab. */
+function initialModelGatewayTab(): ModelGatewayTab {
+	const tab = splitHash().params.get('tab');
+	return (MODEL_GATEWAY_TABS as string[]).includes(tab ?? '')
+		? (tab as ModelGatewayTab)
+		: 'providers';
+}
+
 /**
  * Compone la consola completa del Model Gateway a partir del `overview` ya cargado por el host.
  * Recarga su propio estado del gateway al montar y tras cada acción; usa `token` para las mutaciones
@@ -203,15 +145,7 @@ export function ModelGatewayPage({
 	onRefreshRuntimeProviders: () => Promise<unknown>;
 }) {
 	const { t } = useI18n();
-	// useI18n's `t` is rebuilt on every catalog/language/loading change, so it must not drive
-	// the data-fetch invalidation below. Keep the latest `t` in a ref for error-path messages
-	// while letting reload() stay referentially stable (fires once on mount, not per language switch).
-	const tRef = useRef(t);
-	useEffect(() => {
-		tRef.current = t;
-	});
 	const [gateway, setGateway] = useState<ModelGatewayState>(emptyGatewayState);
-	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState('');
 	const [usageFilter, setUsageFilter] = useState('');
 	const [decisionFilter, setDecisionFilter] = useState('');
@@ -239,8 +173,6 @@ export function ModelGatewayPage({
 	const [policyAllowLocal, setPolicyAllowLocal] = useState(true);
 	const [policyError, setPolicyError] = useState('');
 	const [createdPolicies, setCreatedPolicies] = useState<ModelGatewayRolePolicy[]>([]);
-	const [policyCatalogModels, setPolicyCatalogModels] = useState<ModelGatewayModel[]>([]);
-	const [policyCatalogLoaded, setPolicyCatalogLoaded] = useState(false);
 	const [benchmarkProvider, setBenchmarkProvider] = useState('codex_cli');
 	const [benchmarkModel, setBenchmarkModel] = useState('gpt-5.5');
 	const [benchmarkRuntime, setBenchmarkRuntime] = useState('cli');
@@ -259,90 +191,25 @@ export function ModelGatewayPage({
 		setRuntimeProviderState(runtimeProviders);
 	}, [runtimeProviders]);
 
-	const reload = useCallback(async () => {
-		setLoading(true);
-		setError('');
-		try {
-			setPolicyCatalogLoaded(false);
-			const modelCatalogPromise = getModelGatewayModels();
-			void modelCatalogPromise
-				.then((payload) => {
-					setPolicyCatalogModels(payload.models);
-					setPolicyCatalogLoaded(true);
-				})
-				.catch(() => setPolicyCatalogLoaded(true));
-			const [
-				gatewayOverview,
-				providers,
-				models,
-				routingProfiles,
-				rolePolicies,
-				usageLedger,
-				usageSummary,
-				routingDecisions,
-				providerLimits,
-				budgetRules,
-				cliRuntimes,
-				cliSessions,
-				benchmarks,
-				benchmarkOutcomes,
-				runtimeProviderConfiguration,
-			] = await Promise.all([
-				getModelGatewayOverview(),
-				getModelGatewayProviders(),
-				modelCatalogPromise,
-				getModelGatewayRoutingProfiles(),
-				getModelGatewayRolePolicies(),
-				getModelGatewayUsageLedger(),
-				getModelGatewayUsageSummary(),
-				getModelGatewayRoutingDecisions(),
-				getModelGatewayProviderLimits(),
-				getModelGatewayBudgetRules(),
-				getModelGatewayCliRuntimes(),
-				getModelGatewayCliSessions(),
-				getModelGatewayBenchmarks(),
-				getModelGatewayBenchmarkOutcomes(),
-				getRuntimeProviderConfiguration(),
-			]);
-			setGateway({
-				overview: gatewayOverview.overview,
-				providers: providers.providers,
-				models: models.models,
-				routingProfiles: routingProfiles.routingProfiles,
-				rolePolicies: rolePolicies.rolePolicies,
-				usageLedger: usageLedger.usageLedger,
-				usageSummary: usageSummary.summary,
-				routingDecisions: routingDecisions.routingDecisions,
-				providerLimits: providerLimits.providerLimits,
-				budgetRules: budgetRules.budgetRules,
-				cliRuntimes: cliRuntimes.cliRuntimes,
-				cliSessions: cliSessions.cliSessions,
-				benchmarks: benchmarks.benchmarks,
-				benchmarkOutcomes: benchmarkOutcomes.outcomes,
-				runtimeProviderConfiguration: runtimeProviderConfiguration.providers,
-			});
-			setPolicyCatalogModels(models.models);
-			setPolicyCatalogLoaded(true);
-			void getRuntimeProviders()
-				.then((runtimeProviderStatus) => setRuntimeProviderState(runtimeProviderStatus))
-				.catch(() => undefined);
-		} catch (loadError) {
-			setError(
-				loadError instanceof Error
-					? loadError.message
-					: tRef.current(
-							'app.modelGateway.error.stateLoadFailed',
-							'Model Gateway state failed to load.',
-						),
-			);
-		} finally {
-			setLoading(false);
-		}
+	const [activeTab, setActiveTab] = useState<ModelGatewayTab>(initialModelGatewayTab);
+	const tabs = useModelGatewayTabData({ activeTab, setGateway, setRuntimeProviderState, t });
+	const selectTab = useCallback((tab: ModelGatewayTab) => {
+		setActiveTab(tab);
+		window.location.hash = `models?tab=${encodeURIComponent(tab)}`;
 	}, []);
-
+	// Keep the active tab in sync with the URL (back/forward and external deep links). The tab
+	// param lives only in the hash query, so resolveHashRoute still resolves `#models` normally.
 	useEffect(() => {
-		void reload();
-	}, [reload]);
+		const onHash = () => {
+			if (resolveHashRoute() !== 'models') return;
+			const tab = splitHash().params.get('tab');
+			if (tab && (MODEL_GATEWAY_TABS as string[]).includes(tab)) {
+				setActiveTab(tab as ModelGatewayTab);
+			}
+		};
+		window.addEventListener('hashchange', onHash);
+		return () => window.removeEventListener('hashchange', onHash);
+	}, []);
 
 	const filteredUsage = useMemo(() => {
 		const query = usageFilter.trim().toLowerCase();
@@ -382,7 +249,7 @@ export function ModelGatewayPage({
 
 	const totalCost = sumRecordedCost(overview.costUsage);
 	const providerCatalog = useMemo(() => {
-		const policyModels = policyCatalogLoaded ? policyCatalogModels : gateway.models;
+		const policyModels = gateway.models;
 		const modelsFor = (providerId: string) =>
 			Array.from(
 				new Set(
@@ -404,7 +271,7 @@ export function ModelGatewayPage({
 			{ provider: 'openrouter', models: modelsFor('openrouter'), remote: true },
 			{ provider: 'openai_agents', models: modelsFor('openai_agents'), remote: true },
 		];
-	}, [gateway.models, policyCatalogLoaded, policyCatalogModels, runtimeProviderState]);
+	}, [gateway.models, runtimeProviderState]);
 	const modelOptions =
 		providerCatalog.find((item) => item.provider === policyProvider)?.models ?? [];
 	useEffect(() => {
@@ -421,7 +288,7 @@ export function ModelGatewayPage({
 		setPolicyModel(currentCatalog.models[0] ?? '');
 	}, [policyModel, policyProvider, providerCatalog]);
 	const policyProviderOptions = providerCatalog.filter((item) => item.models.length > 0);
-	const policyCatalogReady = policyCatalogLoaded || !loading;
+	const policyCatalogReady = tabs.slice('policies').status === 'ready';
 	const benchmarkModelOptions = useMemo(() => {
 		const models = gateway.models
 			.filter((item) => item.providerId === benchmarkProvider)
@@ -470,7 +337,8 @@ export function ModelGatewayPage({
 					`Runtime provider ${runtimeId} does not expose an automated healthcheck endpoint.`,
 				);
 			}
-			await Promise.all([reload(), onRefreshRuntimeProviders()]);
+			tabs.refresh('providers');
+			await onRefreshRuntimeProviders();
 		} catch (actionError) {
 			setError(
 				actionError instanceof Error
@@ -498,7 +366,7 @@ export function ModelGatewayPage({
 			}
 			if (action === 'health') await healthCheckModelGatewayProvider(token, providerId);
 			if (action === 'discover') await discoverModelGatewayProviderModels(token, providerId);
-			await reload();
+			tabs.refresh('providers');
 		} catch (actionError) {
 			setError(
 				actionError instanceof Error
@@ -529,7 +397,7 @@ export function ModelGatewayPage({
 				budgetRemainingUsd: Number(previewBudget) || 0,
 			});
 			setPreview(result);
-			await reload();
+			tabs.refresh('decisions');
 		} catch (previewError) {
 			setError(
 				previewError instanceof Error
@@ -677,6 +545,19 @@ export function ModelGatewayPage({
 		}
 	};
 
+	const tabItems: { id: ModelGatewayTab; label: string }[] = [
+		{ id: 'providers', label: t('app.modelGateway.tabs.providers', 'Providers') },
+		{ id: 'catalog', label: t('app.modelGateway.tabs.catalog', 'Catalog') },
+		{ id: 'routing', label: t('app.modelGateway.tabs.routing', 'Routing') },
+		{ id: 'policies', label: t('app.modelGateway.tabs.policies', 'Policies') },
+		{ id: 'budgets', label: t('app.modelGateway.tabs.budgets', 'Budgets') },
+		{ id: 'usage', label: t('app.modelGateway.tabs.usage', 'Usage') },
+		{ id: 'benchmarks', label: t('app.modelGateway.tabs.benchmarks', 'Benchmarks') },
+		{ id: 'decisions', label: t('app.modelGateway.tabs.decisions', 'Decisions') },
+		{ id: 'cli', label: t('app.modelGateway.tabs.cli', 'CLI sessions') },
+	];
+	const tabSlice = tabs.slice(activeTab);
+
 	return (
 		<>
 			<PageHeader
@@ -695,16 +576,6 @@ export function ModelGatewayPage({
 					{error}
 				</div>
 			) : null}
-			{loading ? (
-				<EmptyState
-					title={t('ui.static.loading.model.gateway.132cdca6', 'Loading Model Gateway')}
-					body={t(
-						'ui.static.reading.provider.accounts.routing.policies.and.usage.ledger.e6389e35',
-						'Reading provider accounts, routing policies and usage history.',
-					)}
-				/>
-			) : null}
-
 			<Surface title={t('ui.static.overview.0efc2e6b', 'Overview')}>
 				<div className="grid metrics">
 					<Metric
@@ -772,370 +643,408 @@ export function ModelGatewayPage({
 				</div>
 			</Surface>
 
-			<RuntimeProvidersPanel
-				runtimeRows={runtimeRows}
-				runtimeConfigurationById={runtimeConfigurationById}
-				busyAction={busyAction}
-				onRefreshHealth={(runtime) => void refreshRuntimeHealth(runtime)}
-			/>
-
-			<RoutePreviewPanel
-				form={{
-					role: previewRole,
-					mode: previewMode,
-					taskType: previewTaskType,
-					risk: previewRisk,
-					tokens: previewTokens,
-					budget: previewBudget,
-					privacy: previewPrivacy,
-					requiresCodeEdit,
-					requiresTools,
-					requiresSearch,
-					requiresReasoning,
-					requiresJson,
-				}}
-				preview={preview}
-				busyAction={busyAction}
-				onChange={(field, value) => {
-					if (field === 'role') setPreviewRole(String(value));
-					if (field === 'mode') setPreviewMode(String(value));
-					if (field === 'taskType') setPreviewTaskType(String(value));
-					if (field === 'risk') setPreviewRisk(String(value));
-					if (field === 'tokens') setPreviewTokens(String(value));
-					if (field === 'budget') setPreviewBudget(String(value));
-					if (field === 'privacy') setPreviewPrivacy(String(value));
-					if (field === 'requiresCodeEdit') setRequiresCodeEdit(Boolean(value));
-					if (field === 'requiresTools') setRequiresTools(Boolean(value));
-					if (field === 'requiresSearch') setRequiresSearch(Boolean(value));
-					if (field === 'requiresReasoning') setRequiresReasoning(Boolean(value));
-					if (field === 'requiresJson') setRequiresJson(Boolean(value));
-				}}
-				onSubmit={() => void submitPreview()}
-			/>
-
-			<ProviderAccountsPanel
-				providers={gateway.providers}
-				busyAction={busyAction}
-				onProviderAction={(providerId, action) => void runProviderAction(providerId, action)}
-			/>
-
-			<Surface title={t('ui.static.strict.model.policy.form.b2d420cc', 'Strict model policy form')}>
-				{!policyCatalogReady ? (
-					<EmptyState
-						title={t('ui.static.loading.model.catalog.2a1f6d83', 'Loading model catalog')}
-						body={t(
-							'ui.static.model.policies.can.be.edited.after.backend.catalog.loaded.6450fcb1',
-							'Model policies can be edited after the backend catalog is loaded.',
-						)}
+			<Tabs
+				className="model-gateway-tabs"
+				idBase="model-gateway"
+				label={t('app.modelGateway.tablist.aria', 'Model Gateway sections')}
+				tabs={tabItems}
+				activeTab={activeTab}
+				onChange={(id) => selectTab(id as ModelGatewayTab)}
+			>
+				{tabSlice.status === 'error' ? (
+					<ErrorState
+						title={t('app.modelGateway.tab.error', 'This section failed to load')}
+						body={tabSlice.error}
 					/>
-				) : policyProviderOptions.length === 0 ? (
-					<EmptyState
-						title={t('ui.static.model.catalog.unavailable.c0e4b5a7', 'Model catalog unavailable')}
-						body={t(
-							'ui.static.no.enabled.model.catalog.entries.available.for.policy.creation.1afeb0fb',
-							'No enabled model catalog entries are available for policy creation.',
-						)}
-					/>
-				) : (
-					<div className="form-grid">
-						<div className="field">
-							<label htmlFor="model-policy-id">
-								{t('ui.static.policy.id.4d35e204', 'Policy id')}
-							</label>
-							<input
-								id="model-policy-id"
-								className="input"
-								value={policyId}
-								pattern="[a-z0-9_-]{3,64}"
-								onChange={(event) => setPolicyId(event.target.value)}
-							/>
-						</div>
-						<div className="field">
-							<label htmlFor="model-policy-name">
-								{t('ui.static.policy.name.101bf6ea', 'Policy name')}
-							</label>
-							<input
-								id="model-policy-name"
-								className="input"
-								value={policyName}
-								onChange={(event) => setPolicyName(event.target.value)}
-							/>
-						</div>
-						<div className="field">
-							<label htmlFor="preferred-provider">
-								{t('ui.static.preferred.provider.a21572df', 'Preferred provider')}
-							</label>
-							<select
-								id="preferred-provider"
-								className="select"
-								value={policyProvider}
-								onChange={(event) => {
-									const nextProvider = event.target.value;
-									const nextCatalog = providerCatalog.find(
-										(item) => item.provider === nextProvider,
-									);
-									setPolicyProvider(nextProvider);
-									setPolicyModel(nextCatalog?.models[0] ?? '');
-									setPolicyAllowRemote(Boolean(nextCatalog?.remote));
-									setPolicyAllowLocal(!nextCatalog?.remote);
-								}}
-							>
-								{policyProviderOptions.map((item) => (
-									<option key={item.provider} value={item.provider}>
-										{item.provider}
-									</option>
-								))}
-							</select>
-						</div>
-						<div className="field">
-							<label htmlFor="model-catalog">{t('ui.static.model.68c2cc7f', 'Model')}</label>
-							<select
-								id="model-catalog"
-								className="select"
-								value={policyModel}
-								onChange={(event) => setPolicyModel(event.target.value)}
-							>
-								{modelOptions.map((item) => (
-									<option key={item} value={item}>
-										{item}
-									</option>
-								))}
-							</select>
-						</div>
-						<div className="field">
-							<label htmlFor="max-cost-usd">
-								{t('ui.static.maximum.cost.usd.03a1d8c3', 'Maximum cost USD')}
-							</label>
-							<input
-								id="max-cost-usd"
-								className="input"
-								type="number"
-								min="0"
-								step="0.01"
-								value={policyMaxCostUsd}
-								onChange={(event) => setPolicyMaxCostUsd(event.target.value)}
-							/>
-						</div>
-						<div className="field">
-							<label htmlFor="max-tokens">
-								{t('ui.static.maximum.tokens.c7be12de', 'Maximum tokens')}
-							</label>
-							<input
-								id="max-tokens"
-								className="input"
-								type="number"
-								min="512"
-								max="200000"
-								step="1"
-								value={policyMaxTokens}
-								onChange={(event) => setPolicyMaxTokens(event.target.value)}
-							/>
-						</div>
-						<label className="checkbox-row" htmlFor="allow-remote">
-							<input
-								id="allow-remote"
-								type="checkbox"
-								checked={policyAllowRemote}
-								onChange={(event) => setPolicyAllowRemote(event.target.checked)}
-							/>
-							{t('app.modelGateway.policy.allowRemote', 'Allow remote providers')}
-						</label>
-						<label className="checkbox-row" htmlFor="allow-local">
-							<input
-								id="allow-local"
-								type="checkbox"
-								checked={policyAllowLocal}
-								onChange={(event) => setPolicyAllowLocal(event.target.checked)}
-							/>
-							{t('app.modelGateway.policy.allowLocal', 'Allow local providers')}
-						</label>
-						{policyError ? (
-							<div className="form-error" role="alert">
-								{policyError}
+				) : null}
+				{activeTab === 'providers' ? (
+					<>
+						<RuntimeProvidersPanel
+							runtimeRows={runtimeRows}
+							runtimeConfigurationById={runtimeConfigurationById}
+							busyAction={busyAction}
+							onRefreshHealth={(runtime) => void refreshRuntimeHealth(runtime)}
+						/>
+						<ProviderAccountsPanel
+							providers={gateway.providers}
+							busyAction={busyAction}
+							onProviderAction={(providerId, action) => void runProviderAction(providerId, action)}
+						/>
+						<Surface title={t('app.nav.settings', 'Settings')}>
+							<div className="grid three">
+								<Metric
+									label={t('ui.static.default.routing.mode.b752ab89', 'default routing mode')}
+									value="balanced_best_value"
+								/>
+								<Metric
+									label={t('ui.static.real.provider.calls.20f8f3a3', 'real provider calls')}
+									value={t('app.modelGateway.settings.disabledByDefault', 'disabled by default')}
+								/>
+								<Metric
+									label={t('ui.static.cli.runtimes.d0947c09', 'CLI runtimes')}
+									value={t('app.modelGateway.settings.disabledByDefault', 'disabled by default')}
+								/>
+								<Metric
+									label={t('ui.static.executable.runtimes.f27d567f', 'executable runtimes')}
+									value={executableRuntimeCount}
+								/>
+								<Metric
+									label={t('ui.static.unavailable.runtimes.a6f44775', 'unavailable runtimes')}
+									value={unavailableRuntimeCount}
+								/>
+								<Metric
+									label={t(
+										'ui.static.legacy.model.usage.total.c0e7e1e5',
+										'legacy model usage total',
+									)}
+									value={money(totalCost, t('app.runtime.card.unknown', 'unknown'))}
+								/>
 							</div>
-						) : null}
-						<button
-							className="button primary"
-							type="button"
-							disabled={busyAction === 'save-model-policy'}
-							onClick={() => void savePolicy()}
+						</Surface>
+					</>
+				) : null}
+				{activeTab === 'catalog' ? <ModelCatalogPanel models={gateway.models} /> : null}
+				{activeTab === 'routing' ? (
+					<>
+						<RoutePreviewPanel
+							form={{
+								role: previewRole,
+								mode: previewMode,
+								taskType: previewTaskType,
+								risk: previewRisk,
+								tokens: previewTokens,
+								budget: previewBudget,
+								privacy: previewPrivacy,
+								requiresCodeEdit,
+								requiresTools,
+								requiresSearch,
+								requiresReasoning,
+								requiresJson,
+							}}
+							preview={preview}
+							busyAction={busyAction}
+							onChange={(field, value) => {
+								if (field === 'role') setPreviewRole(String(value));
+								if (field === 'mode') setPreviewMode(String(value));
+								if (field === 'taskType') setPreviewTaskType(String(value));
+								if (field === 'risk') setPreviewRisk(String(value));
+								if (field === 'tokens') setPreviewTokens(String(value));
+								if (field === 'budget') setPreviewBudget(String(value));
+								if (field === 'privacy') setPreviewPrivacy(String(value));
+								if (field === 'requiresCodeEdit') setRequiresCodeEdit(Boolean(value));
+								if (field === 'requiresTools') setRequiresTools(Boolean(value));
+								if (field === 'requiresSearch') setRequiresSearch(Boolean(value));
+								if (field === 'requiresReasoning') setRequiresReasoning(Boolean(value));
+								if (field === 'requiresJson') setRequiresJson(Boolean(value));
+							}}
+							onSubmit={() => void submitPreview()}
+						/>
+						<RoutingProfilesPanel routingProfiles={gateway.routingProfiles} />
+					</>
+				) : null}
+				{activeTab === 'policies' ? (
+					<>
+						<Surface
+							title={t('ui.static.strict.model.policy.form.b2d420cc', 'Strict model policy form')}
 						>
-							{t('ui.static.save.model.policy.144bf8c2', 'Save model policy')}
-						</button>
-					</div>
-				)}
-			</Surface>
-
-			<Surface title={t('ui.static.model.policies.68e48433', 'Model policies')}>
-				<DataTable
-					rows={visibleModelPolicies}
-					empty={
-						<EmptyState
-							title={t('ui.static.no.model.policies.993f8301', 'No model policies')}
-							body={t(
-								'ui.static.model.policies.define.allowed.providers.fallback.chains.and.6b28dbd0',
-								'Model policies define allowed providers, fallback chains and budgets.',
+							{!policyCatalogReady ? (
+								<EmptyState
+									title={t('ui.static.loading.model.catalog.2a1f6d83', 'Loading model catalog')}
+									body={t(
+										'ui.static.model.policies.can.be.edited.after.backend.catalog.loaded.6450fcb1',
+										'Model policies can be edited after the backend catalog is loaded.',
+									)}
+								/>
+							) : policyProviderOptions.length === 0 ? (
+								<EmptyState
+									title={t(
+										'ui.static.model.catalog.unavailable.c0e4b5a7',
+										'Model catalog unavailable',
+									)}
+									body={t(
+										'ui.static.no.enabled.model.catalog.entries.available.for.policy.creation.1afeb0fb',
+										'No enabled model catalog entries are available for policy creation.',
+									)}
+								/>
+							) : (
+								<div className="form-grid">
+									<div className="field">
+										<label htmlFor="model-policy-id">
+											{t('ui.static.policy.id.4d35e204', 'Policy id')}
+										</label>
+										<input
+											id="model-policy-id"
+											className="input"
+											value={policyId}
+											pattern="[a-z0-9_-]{3,64}"
+											onChange={(event) => setPolicyId(event.target.value)}
+										/>
+									</div>
+									<div className="field">
+										<label htmlFor="model-policy-name">
+											{t('ui.static.policy.name.101bf6ea', 'Policy name')}
+										</label>
+										<input
+											id="model-policy-name"
+											className="input"
+											value={policyName}
+											onChange={(event) => setPolicyName(event.target.value)}
+										/>
+									</div>
+									<div className="field">
+										<label htmlFor="preferred-provider">
+											{t('ui.static.preferred.provider.a21572df', 'Preferred provider')}
+										</label>
+										<select
+											id="preferred-provider"
+											className="select"
+											value={policyProvider}
+											onChange={(event) => {
+												const nextProvider = event.target.value;
+												const nextCatalog = providerCatalog.find(
+													(item) => item.provider === nextProvider,
+												);
+												setPolicyProvider(nextProvider);
+												setPolicyModel(nextCatalog?.models[0] ?? '');
+												setPolicyAllowRemote(Boolean(nextCatalog?.remote));
+												setPolicyAllowLocal(!nextCatalog?.remote);
+											}}
+										>
+											{policyProviderOptions.map((item) => (
+												<option key={item.provider} value={item.provider}>
+													{item.provider}
+												</option>
+											))}
+										</select>
+									</div>
+									<div className="field">
+										<label htmlFor="model-catalog">{t('ui.static.model.68c2cc7f', 'Model')}</label>
+										<select
+											id="model-catalog"
+											className="select"
+											value={policyModel}
+											onChange={(event) => setPolicyModel(event.target.value)}
+										>
+											{modelOptions.map((item) => (
+												<option key={item} value={item}>
+													{item}
+												</option>
+											))}
+										</select>
+									</div>
+									<div className="field">
+										<label htmlFor="max-cost-usd">
+											{t('ui.static.maximum.cost.usd.03a1d8c3', 'Maximum cost USD')}
+										</label>
+										<input
+											id="max-cost-usd"
+											className="input"
+											type="number"
+											min="0"
+											step="0.01"
+											value={policyMaxCostUsd}
+											onChange={(event) => setPolicyMaxCostUsd(event.target.value)}
+										/>
+									</div>
+									<div className="field">
+										<label htmlFor="max-tokens">
+											{t('ui.static.maximum.tokens.c7be12de', 'Maximum tokens')}
+										</label>
+										<input
+											id="max-tokens"
+											className="input"
+											type="number"
+											min="512"
+											max="200000"
+											step="1"
+											value={policyMaxTokens}
+											onChange={(event) => setPolicyMaxTokens(event.target.value)}
+										/>
+									</div>
+									<label className="checkbox-row" htmlFor="allow-remote">
+										<input
+											id="allow-remote"
+											type="checkbox"
+											checked={policyAllowRemote}
+											onChange={(event) => setPolicyAllowRemote(event.target.checked)}
+										/>
+										{t('app.modelGateway.policy.allowRemote', 'Allow remote providers')}
+									</label>
+									<label className="checkbox-row" htmlFor="allow-local">
+										<input
+											id="allow-local"
+											type="checkbox"
+											checked={policyAllowLocal}
+											onChange={(event) => setPolicyAllowLocal(event.target.checked)}
+										/>
+										{t('app.modelGateway.policy.allowLocal', 'Allow local providers')}
+									</label>
+									{policyError ? (
+										<div className="form-error" role="alert">
+											{policyError}
+										</div>
+									) : null}
+									<button
+										className="button primary"
+										type="button"
+										disabled={busyAction === 'save-model-policy'}
+										onClick={() => void savePolicy()}
+									>
+										{t('ui.static.save.model.policy.144bf8c2', 'Save model policy')}
+									</button>
+								</div>
 							)}
+						</Surface>
+						<Surface title={t('ui.static.model.policies.68e48433', 'Model policies')}>
+							<DataTable
+								rows={visibleModelPolicies}
+								empty={
+									<EmptyState
+										title={t('ui.static.no.model.policies.993f8301', 'No model policies')}
+										body={t(
+											'ui.static.model.policies.define.allowed.providers.fallback.chains.and.6b28dbd0',
+											'Model policies define allowed providers, fallback chains and budgets.',
+										)}
+									/>
+								}
+								columns={[
+									{
+										key: 'id',
+										label: t('ui.static.policy.bb9cf141', 'Policy'),
+										render: (row) => <span className="mono">{text(row.id)}</span>,
+									},
+									{
+										key: 'budget',
+										label: t('ui.static.budget.7aeba4cd', 'Budget'),
+										render: (row) =>
+											money(policyBudgetUsd(row), t('app.runtime.card.unknown', 'unknown')),
+									},
+									{
+										key: 'remote',
+										label: t('ui.static.remote.c93f6536', 'Remote'),
+										render: (row) =>
+											row.allowRemote
+												? t('app.modelGateway.policy.remoteAllowed', 'allowed')
+												: t('app.modelGateway.policy.remoteBlocked', 'blocked'),
+									},
+								]}
+							/>
+						</Surface>
+						<RoleAssignmentsPanel rolePolicies={gateway.rolePolicies} />
+					</>
+				) : null}
+				{activeTab === 'budgets' ? (
+					<>
+						<BudgetsPanel budgetRules={gateway.budgetRules} />
+						<ProviderLimitsPanel providerLimits={gateway.providerLimits} />
+					</>
+				) : null}
+				{activeTab === 'usage' ? (
+					<>
+						<UsageLedgerPanel
+							rows={filteredUsage}
+							filter={usageFilter}
+							onFilterChange={setUsageFilter}
 						/>
-					}
-					columns={[
-						{
-							key: 'id',
-							label: t('ui.static.policy.bb9cf141', 'Policy'),
-							render: (row) => <span className="mono">{text(row.id)}</span>,
-						},
-						{
-							key: 'budget',
-							label: t('ui.static.budget.7aeba4cd', 'Budget'),
-							render: (row) =>
-								money(policyBudgetUsd(row), t('app.runtime.card.unknown', 'unknown')),
-						},
-						{
-							key: 'remote',
-							label: t('ui.static.remote.c93f6536', 'Remote'),
-							render: (row) =>
-								row.allowRemote
-									? t('app.modelGateway.policy.remoteAllowed', 'allowed')
-									: t('app.modelGateway.policy.remoteBlocked', 'blocked'),
-						},
-					]}
-				/>
-			</Surface>
-
-			<ModelCatalogPanel models={gateway.models} />
-
-			<RoutingProfilesPanel routingProfiles={gateway.routingProfiles} />
-
-			<RoleAssignmentsPanel rolePolicies={gateway.rolePolicies} />
-
-			<UsageLedgerPanel rows={filteredUsage} filter={usageFilter} onFilterChange={setUsageFilter} />
-
-			<BudgetsPanel budgetRules={gateway.budgetRules} />
-
-			<ProviderLimitsPanel providerLimits={gateway.providerLimits} />
-
-			<RoutingDecisionsPanel
-				rows={filteredDecisions}
-				filter={decisionFilter}
-				onFilterChange={setDecisionFilter}
-			/>
-
-			<CliSessionsPanel cliRuntimes={gateway.cliRuntimes} cliSessions={gateway.cliSessions} />
-
-			<BenchmarksPanel
-				benchmarks={gateway.benchmarks}
-				benchmarkOutcomes={gateway.benchmarkOutcomes}
-				providers={gateway.providers}
-				models={gateway.models}
-				modelOptions={benchmarkModelOptions}
-				busyAction={busyAction}
-				error={benchmarkError}
-				form={{
-					provider: benchmarkProvider,
-					model: benchmarkModel,
-					runtime: benchmarkRuntime,
-					role: benchmarkRole,
-					success: benchmarkSuccess,
-					qaPass: benchmarkQaPass,
-					rework: benchmarkRework,
-					cost: benchmarkCost,
-					latency: benchmarkLatency,
-					provenance: 'operator_reported',
-				}}
-				onProviderChange={(provider, firstModel) => {
-					setBenchmarkProvider(provider);
-					if (firstModel) setBenchmarkModel(firstModel);
-				}}
-				onChange={(field, value) => {
-					if (field === 'model') setBenchmarkModel(String(value));
-					if (field === 'runtime') setBenchmarkRuntime(String(value));
-					if (field === 'role') setBenchmarkRole(String(value));
-					if (field === 'cost') setBenchmarkCost(String(value));
-					if (field === 'latency') setBenchmarkLatency(String(value));
-					if (field === 'success') setBenchmarkSuccess(Boolean(value));
-					if (field === 'qaPass') setBenchmarkQaPass(Boolean(value));
-					if (field === 'rework') setBenchmarkRework(Boolean(value));
-				}}
-				onSubmit={() => void recordBenchmarkOutcome()}
-			/>
-
-			<Surface title={t('app.nav.settings', 'Settings')}>
-				<div className="grid three">
-					<Metric
-						label={t('ui.static.default.routing.mode.b752ab89', 'default routing mode')}
-						value="balanced_best_value"
+						<Surface title={t('ui.static.model.calls.88e40906', 'Model calls')}>
+							<DataTable
+								rows={overview.modelCalls}
+								empty={
+									<EmptyState
+										title={t('ui.static.no.model.calls.3e3394fe', 'No model calls')}
+										body={t(
+											'ui.static.agent.runs.and.model.gateway.preparations.are.recorded.here.26abd766',
+											'Agent runs and model gateway preparations are recorded here.',
+										)}
+									/>
+								}
+								columns={[
+									{
+										key: 'provider',
+										label: t('ui.static.provider.7ceee3f3', 'Provider'),
+										render: (row) => <span className="mono">{String(row.provider ?? '')}</span>,
+									},
+									{
+										key: 'model',
+										label: t('ui.static.model.68c2cc7f', 'Model'),
+										render: (row) => <span className="mono">{String(row.model ?? '')}</span>,
+									},
+									{
+										key: 'status',
+										label: t('ui.static.status.bae7d5be', 'Status'),
+										render: (row) => (
+											<Badge tone={toneForStatus(String(row.status ?? ''))}>
+												{String(row.status ?? '')}
+											</Badge>
+										),
+									},
+									{
+										key: 'cost',
+										label: t('ui.static.cost.64ae43e8', 'Cost'),
+										render: (row) => money(row.costUsd, t('app.runtime.card.unknown', 'unknown')),
+									},
+								]}
+							/>
+						</Surface>
+						<Surface title={t('ui.static.cost.ledger.7af91996', 'Cost history')}>
+							<div className="metric-value">
+								{money(totalCost, t('app.runtime.card.unknown', 'unknown'))}
+							</div>
+							<div className="metric-label">
+								{t('app.modelGateway.cost.recordedLegacy', 'recorded legacy model usage')}
+							</div>
+						</Surface>
+					</>
+				) : null}
+				{activeTab === 'benchmarks' ? (
+					<BenchmarksPanel
+						benchmarks={gateway.benchmarks}
+						benchmarkOutcomes={gateway.benchmarkOutcomes}
+						providers={gateway.providers}
+						models={gateway.models}
+						modelOptions={benchmarkModelOptions}
+						busyAction={busyAction}
+						error={benchmarkError}
+						form={{
+							provider: benchmarkProvider,
+							model: benchmarkModel,
+							runtime: benchmarkRuntime,
+							role: benchmarkRole,
+							success: benchmarkSuccess,
+							qaPass: benchmarkQaPass,
+							rework: benchmarkRework,
+							cost: benchmarkCost,
+							latency: benchmarkLatency,
+							provenance: 'operator_reported',
+						}}
+						onProviderChange={(provider, firstModel) => {
+							setBenchmarkProvider(provider);
+							if (firstModel) setBenchmarkModel(firstModel);
+						}}
+						onChange={(field, value) => {
+							if (field === 'model') setBenchmarkModel(String(value));
+							if (field === 'runtime') setBenchmarkRuntime(String(value));
+							if (field === 'role') setBenchmarkRole(String(value));
+							if (field === 'cost') setBenchmarkCost(String(value));
+							if (field === 'latency') setBenchmarkLatency(String(value));
+							if (field === 'success') setBenchmarkSuccess(Boolean(value));
+							if (field === 'qaPass') setBenchmarkQaPass(Boolean(value));
+							if (field === 'rework') setBenchmarkRework(Boolean(value));
+						}}
+						onSubmit={() => void recordBenchmarkOutcome()}
 					/>
-					<Metric
-						label={t('ui.static.real.provider.calls.20f8f3a3', 'real provider calls')}
-						value={t('app.modelGateway.settings.disabledByDefault', 'disabled by default')}
+				) : null}
+				{activeTab === 'decisions' ? (
+					<RoutingDecisionsPanel
+						rows={filteredDecisions}
+						filter={decisionFilter}
+						onFilterChange={setDecisionFilter}
 					/>
-					<Metric
-						label={t('ui.static.cli.runtimes.d0947c09', 'CLI runtimes')}
-						value={t('app.modelGateway.settings.disabledByDefault', 'disabled by default')}
-					/>
-					<Metric
-						label={t('ui.static.executable.runtimes.f27d567f', 'executable runtimes')}
-						value={executableRuntimeCount}
-					/>
-					<Metric
-						label={t('ui.static.unavailable.runtimes.a6f44775', 'unavailable runtimes')}
-						value={unavailableRuntimeCount}
-					/>
-					<Metric
-						label={t('ui.static.legacy.model.usage.total.c0e7e1e5', 'legacy model usage total')}
-						value={money(totalCost, t('app.runtime.card.unknown', 'unknown'))}
-					/>
-				</div>
-			</Surface>
-
-			<Surface title={t('ui.static.model.calls.88e40906', 'Model calls')}>
-				<DataTable
-					rows={overview.modelCalls}
-					empty={
-						<EmptyState
-							title={t('ui.static.no.model.calls.3e3394fe', 'No model calls')}
-							body={t(
-								'ui.static.agent.runs.and.model.gateway.preparations.are.recorded.here.26abd766',
-								'Agent runs and model gateway preparations are recorded here.',
-							)}
-						/>
-					}
-					columns={[
-						{
-							key: 'provider',
-							label: t('ui.static.provider.7ceee3f3', 'Provider'),
-							render: (row) => <span className="mono">{String(row.provider ?? '')}</span>,
-						},
-						{
-							key: 'model',
-							label: t('ui.static.model.68c2cc7f', 'Model'),
-							render: (row) => <span className="mono">{String(row.model ?? '')}</span>,
-						},
-						{
-							key: 'status',
-							label: t('ui.static.status.bae7d5be', 'Status'),
-							render: (row) => (
-								<Badge tone={toneForStatus(String(row.status ?? ''))}>
-									{String(row.status ?? '')}
-								</Badge>
-							),
-						},
-						{
-							key: 'cost',
-							label: t('ui.static.cost.64ae43e8', 'Cost'),
-							render: (row) => money(row.costUsd, t('app.runtime.card.unknown', 'unknown')),
-						},
-					]}
-				/>
-			</Surface>
-			<Surface title={t('ui.static.cost.ledger.7af91996', 'Cost history')}>
-				<div className="metric-value">
-					{money(totalCost, t('app.runtime.card.unknown', 'unknown'))}
-				</div>
-				<div className="metric-label">
-					{t('app.modelGateway.cost.recordedLegacy', 'recorded legacy model usage')}
-				</div>
-			</Surface>
+				) : null}
+				{activeTab === 'cli' ? (
+					<CliSessionsPanel cliRuntimes={gateway.cliRuntimes} cliSessions={gateway.cliSessions} />
+				) : null}
+			</Tabs>
 		</>
 	);
 }

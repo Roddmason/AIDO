@@ -99,6 +99,8 @@ def test_stable_frontend_artifact_and_retrieval_surfaces_are_not_dictionary_type
     pages_source = read(SRC / "features" / "pages.tsx")
     # The workflow artifact preview now lives in the run-detail Inspector body, not the launcher page.
     run_detail_source = read(SRC / "features" / "workflows" / "RunDetail.tsx")
+    # MemoryPage was extracted out of the pages barrel into its own feature module.
+    memory_source = read(SRC / "features" / "memory" / "MemoryPage.tsx")
 
     assert "RetrievalStatusResponse" in types_source
     assert "ArtifactRecord" in types_source
@@ -110,7 +112,7 @@ def test_stable_frontend_artifact_and_retrieval_surfaces_are_not_dictionary_type
     assert "retrievalStatus: RetrievalStatus | null" in hook_source
     assert "retrievalStatus: Dictionary | null" not in hook_source
     assert "artifact: Artifact" in artifacts_source
-    assert "retrievalStatus: RetrievalStatus | null" in pages_source
+    assert "retrievalStatus: RetrievalStatus | null" in memory_source
     assert "useState<Artifact | null>" in pages_source
     assert "useState<Artifact | null>" in run_detail_source
     assert "const openPreview = async (artifact: Artifact)" in pages_source

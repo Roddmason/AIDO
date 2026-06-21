@@ -26,7 +26,6 @@ import type {
 	Overview,
 	PolicyRevision,
 	Project,
-	RetrievalStatus,
 	RiskSeverity,
 	RiskStatus,
 } from '../api/types';
@@ -89,72 +88,6 @@ function mergeNewestById<T extends { id: string; updatedAt?: string; createdAt?:
 	incoming: T[],
 ) {
 	return incoming.reduce((merged, record) => upsertNewestById(merged, record), current);
-}
-
-/**
- * Read-only inventory of task-owned runtime workspaces (the isolated working trees
- * agents run in). Surfaces ownership and isolation type so two agents are never seen
- * sharing one mutable tree.
- */
-export function WorkspacesPage({ overview }: { overview: Overview }) {
-	const { t } = useI18n();
-	return (
-		<>
-			<PageHeader
-				kicker={t('ui.static.isolation.616318d9', 'Isolation')}
-				title={t('app.nav.workspaces', 'Workspaces')}
-				summary={t(
-					'ui.static.task.owned.workspace.allocations.prevent.agents.from.sharing.42c454d7',
-					'Task-owned workspace allocations prevent agents from sharing one mutable working tree.',
-				)}
-			/>
-			<Surface title={t('ui.static.allocated.workspaces.b052cf67', 'Allocated workspaces')}>
-				<DataTable
-					rows={overview.runtimeWorkspaces}
-					empty={
-						<EmptyState
-							title={t('ui.static.no.isolated.workspaces.1d0dc404', 'No isolated workspaces')}
-							body={t(
-								'ui.static.workflow.implementation.steps.will.allocate.workspaces.f402df35',
-								'Workflow implementation steps will allocate workspaces.',
-							)}
-						/>
-					}
-					columns={[
-						{
-							key: 'task',
-							label: t('ui.static.task.7bb0ddf9', 'Task'),
-							render: (row) => <span className="mono">{String(row.taskId ?? '')}</span>,
-						},
-						{
-							key: 'project',
-							label: t('ui.static.project.f6f4da8d', 'Project'),
-							render: (row) => <span className="mono">{String(row.projectId ?? '')}</span>,
-						},
-						{
-							key: 'owner',
-							label: t('ui.static.owner.89ff3122', 'Owner'),
-							render: (row) => String(row.ownerAgentId ?? ''),
-						},
-						{
-							key: 'isolation',
-							label: t('ui.static.isolation.616318d9', 'Isolation'),
-							render: (row) => <span className="mono">{String(row.isolationType ?? '')}</span>,
-						},
-						{
-							key: 'status',
-							label: t('ui.static.status.bae7d5be', 'Status'),
-							render: (row) => (
-								<Badge tone={toneForStatus(String(row.status ?? ''))}>
-									{String(row.status ?? '')}
-								</Badge>
-							),
-						},
-					]}
-				/>
-			</Surface>
-		</>
-	);
 }
 
 /**
@@ -694,55 +627,6 @@ export function PolicySecurityPage({ overview, mutate }: { overview: Overview; m
 					) : null}
 				</div>
 			</Drawer>
-		</>
-	);
-}
-
-/**
- * Memory & Retrieval readout: shows the retrieval backend posture and stored item
- * count. Reinforces the invariant that SQLite is canonical while vector indexes
- * (FAISS/NumPy) are rebuildable, not source of truth.
- */
-export function MemoryPage({
-	overview,
-	retrievalStatus,
-}: {
-	overview: Overview;
-	retrievalStatus: RetrievalStatus | null;
-}) {
-	const { t } = useI18n();
-	const retrievalPosture = retrievalStatus
-		? retrievalStatus.available
-			? retrievalStatus.degraded
-				? t('app.pages.memoryIndexDegraded', 'index degraded')
-				: t('app.modelGateway.runtime.available', 'available')
-			: retrievalStatus.status
-		: t('app.runtime.card.unknown', 'unknown');
-
-	return (
-		<>
-			<PageHeader
-				kicker={t('ui.static.semantic.context.8744e1fb', 'Semantic context')}
-				title={t('app.nav.memory', 'Memory & Retrieval')}
-				summary={t(
-					'ui.static.sqlite.is.canonical.faiss.numpy.and.future.vector.stores.are.f2fb19e8',
-					'SQLite is canonical. FAISS, NumPy and future vector stores are rebuildable indexes, not source of truth.',
-				)}
-			/>
-			<div className="grid two">
-				<Surface title={t('ui.static.retrieval.backend.fa3c92fd', 'Retrieval backend')}>
-					<div className="metric-value">
-						{String(retrievalStatus?.backend ?? t('app.runtime.card.unknown', 'unknown'))}
-					</div>
-					<div className="metric-label">{retrievalPosture}</div>
-				</Surface>
-				<Surface title={t('ui.static.memory.items.d8a2b209', 'Memory items')}>
-					<div className="metric-value">{overview.memoryItems.length}</div>
-					<div className="metric-label">
-						{t('app.pages.memoryRecordsInSqlite', 'records in SQLite')}
-					</div>
-				</Surface>
-			</div>
 		</>
 	);
 }
@@ -2416,57 +2300,6 @@ export function IntegrationsPage({ overview, mutate }: { overview: Overview; mut
 					/>
 				</Surface>
 			</div>
-		</>
-	);
-}
-
-/**
- * Append-only audit trail: lists every recorded mutation with its actor, target and
- * action so changes are traceable to who made them and what they touched.
- */
-export function AuditPage({ overview }: { overview: Overview }) {
-	const { t } = useI18n();
-	return (
-		<>
-			<PageHeader
-				kicker={t('ui.static.traceability.61d2e70b', 'Traceability')}
-				title={t('app.nav.audit', 'Audit Log')}
-				summary={t(
-					'ui.static.every.mutation.needs.actor.target.payload.and.event.correlat.6735cfc2',
-					'Every change records who made it, what it targeted, the data sent and a linked event.',
-				)}
-			/>
-			<Surface title={t('ui.static.audit.records.e11faea4', 'Audit records')}>
-				<DataTable
-					rows={overview.auditEvents}
-					empty={
-						<EmptyState
-							title={t('ui.static.no.audit.records.3d57cdc9', 'No audit records')}
-							body={t(
-								'ui.static.mutating.api.calls.will.be.recorded.here.ddf49c4f',
-								'Every change to the system is recorded here.',
-							)}
-						/>
-					}
-					columns={[
-						{
-							key: 'action',
-							label: t('ui.static.action.97c89a4d', 'Action'),
-							render: (row) => <span className="mono">{String(row.action ?? '')}</span>,
-						},
-						{
-							key: 'actor',
-							label: t('ui.static.actor.cbd19b5c', 'Actor'),
-							render: (row) => String(row.actor ?? ''),
-						},
-						{
-							key: 'target',
-							label: t('ui.static.target.61ad50a9', 'Target'),
-							render: (row) => String(row.target ?? ''),
-						},
-					]}
-				/>
-			</Surface>
 		</>
 	);
 }

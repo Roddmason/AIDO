@@ -1784,6 +1784,7 @@ test('Model Gateway renders model calls and cost ledger without synthetic runtim
 	await page.goto('/#models');
 
 	await expect(page.getByRole('heading', { name: 'Model Gateway', exact: true })).toBeVisible();
+	await page.getByRole('tab', { name: 'Usage' }).click();
 	await expect(page.getByRole('heading', { name: 'Model calls' })).toBeVisible();
 	await expect(page.getByText('Cost history')).toBeVisible();
 	await expect(page.locator('body')).not.toContainText('internal_mock');
@@ -1794,19 +1795,30 @@ test('Model Gateway console renders provider catalog routing usage budgets and C
 
 	await expect(page.getByRole('heading', { name: 'Model Gateway', exact: true })).toBeVisible();
 	await expect(page.getByRole('heading', { name: 'Overview' })).toBeVisible();
+	// Providers is the default landing tab; Settings lives there too.
 	await expect(page.getByRole('heading', { name: 'Provider Accounts' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
+	// Each group is reachable through its own tab (data loads on demand).
+	await page.getByRole('tab', { name: 'Catalog' }).click();
 	await expect(page.getByRole('heading', { name: 'Model Catalog' })).toBeVisible();
+	await page.getByRole('tab', { name: 'Routing' }).click();
 	await expect(page.getByRole('heading', { name: 'Routing Profiles' })).toBeVisible();
+	await page.getByRole('tab', { name: 'Policies' }).click();
 	await expect(page.getByRole('heading', { name: 'Role Assignments' })).toBeVisible();
-	await expect(page.getByRole('heading', { name: 'Usage history' })).toBeVisible();
+	await page.getByRole('tab', { name: 'Budgets' }).click();
 	await expect(page.getByRole('heading', { name: 'Budgets' })).toBeVisible();
 	await expect(page.getByRole('heading', { name: 'Provider Limits' })).toBeVisible();
-	await expect(page.getByRole('heading', { name: 'Routing Decisions' })).toBeVisible();
-	await expect(page.getByRole('heading', { name: 'CLI Sessions' })).toBeVisible();
-	await expect(page.getByRole('heading', { name: 'Benchmarks' })).toBeVisible();
-	await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
+	await page.getByRole('tab', { name: 'Usage' }).click();
+	await expect(page.getByRole('heading', { name: 'Usage history' })).toBeVisible();
 	await expect(page.getByText('No usage history entries')).toBeVisible();
+	await page.getByRole('tab', { name: 'Decisions' }).click();
+	await expect(page.getByRole('heading', { name: 'Routing Decisions' })).toBeVisible();
+	await page.getByRole('tab', { name: 'CLI sessions' }).click();
+	await expect(page.getByRole('heading', { name: 'CLI Sessions' })).toBeVisible();
 	await expect(page.getByText('No CLI sessions')).toBeVisible();
+	await page.getByRole('tab', { name: 'Benchmarks' }).click();
+	await expect(page.getByRole('heading', { name: 'Benchmarks' })).toBeVisible();
+	// Cold-loading the Benchmarks tab also pulls its shared provider/model dependencies.
 	await expect(page.getByLabel('Benchmark provider')).toBeVisible();
 	await page.getByLabel('Benchmark provider').selectOption('codex_cli');
 	await page.getByLabel('Benchmark model').selectOption('gpt-5.5');
@@ -1821,6 +1833,36 @@ test('Model Gateway console renders provider catalog routing usage budgets and C
 	await expect(page.getByText('operator_reported').first()).toBeVisible();
 	await expect(page.getByText('100.00%')).toHaveCount(0);
 	await expect(page.getByRole('cell', { name: '$0.4200' }).first()).toBeVisible();
+});
+
+test('Model Gateway first load fetches only the active tab, not every endpoint', async ({ page }) => {
+	let usageRequested = false;
+	let decisionsRequested = false;
+	let benchmarksRequested = false;
+	await page.route('**/api/v1/model-gateway/usage-ledger', async (route) => {
+		usageRequested = true;
+		await route.continue();
+	});
+	await page.route('**/api/v1/model-gateway/routing-decisions', async (route) => {
+		decisionsRequested = true;
+		await route.continue();
+	});
+	await page.route('**/api/v1/model-gateway/benchmarks', async (route) => {
+		benchmarksRequested = true;
+		await route.continue();
+	});
+	await page.goto('/#models');
+	// Default providers tab paints without touching the usage, decisions or benchmark endpoints.
+	await expect(page.getByRole('heading', { name: 'Provider Accounts' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Runtime Providers' })).toBeVisible();
+	await page.waitForLoadState('networkidle');
+	expect(usageRequested).toBe(false);
+	expect(decisionsRequested).toBe(false);
+	expect(benchmarksRequested).toBe(false);
+	// The Usage endpoint is requested only when its tab is opened.
+	await page.getByRole('tab', { name: 'Usage' }).click();
+	await expect.poll(() => usageRequested).toBe(true);
+	expect(decisionsRequested).toBe(false);
 });
 
 test('Runtime provider tables report unavailable states honestly', async ({ page }) => {
@@ -2266,6 +2308,7 @@ test('Model Gateway route preview submits request without exposing credentials',
 
 	await expect(page.locator('body')).not.toContainText('sk-websecret');
 	await expect(page.getByText('AIDO_NVIDIA_API_KEY').first()).toBeVisible();
+	await page.getByRole('tab', { name: 'Routing' }).click();
 	await page.getByLabel('Preview role').selectOption('analyst');
 	await page.getByLabel('Preview mode').selectOption('free_first');
 	await page.getByLabel('Preview task type').fill('research_brief');
@@ -2320,6 +2363,7 @@ test('strict configuration forms prevent manual JSON edits', async ({ page }) =>
 
 	await ensureLocalModelGatewayCatalog(page);
 	await page.goto('/#models');
+	await page.getByRole('tab', { name: 'Policies' }).click();
 	await expect(page.getByLabel('Policy id')).toBeVisible();
 	await expect(page.locator('textarea[data-json-editor="true"]')).toHaveCount(0);
 	await page.getByLabel('Policy id').fill('Bad Policy!');

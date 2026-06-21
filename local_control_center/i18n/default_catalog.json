@@ -1307,6 +1307,50 @@
       "en": "healthy",
       "es": "saludables"
     },
+    "app.modelGateway.tablist.aria": {
+      "en": "Model Gateway sections",
+      "es": "Secciones de la Pasarela de modelos"
+    },
+    "app.modelGateway.tab.error": {
+      "en": "This section failed to load",
+      "es": "Esta sección no se pudo cargar"
+    },
+    "app.modelGateway.tabs.providers": {
+      "en": "Providers",
+      "es": "Proveedores"
+    },
+    "app.modelGateway.tabs.catalog": {
+      "en": "Catalog",
+      "es": "Catálogo"
+    },
+    "app.modelGateway.tabs.routing": {
+      "en": "Routing",
+      "es": "Ruteo"
+    },
+    "app.modelGateway.tabs.policies": {
+      "en": "Policies",
+      "es": "Políticas"
+    },
+    "app.modelGateway.tabs.budgets": {
+      "en": "Budgets",
+      "es": "Presupuestos"
+    },
+    "app.modelGateway.tabs.usage": {
+      "en": "Usage",
+      "es": "Uso"
+    },
+    "app.modelGateway.tabs.benchmarks": {
+      "en": "Benchmarks",
+      "es": "Comparativas"
+    },
+    "app.modelGateway.tabs.decisions": {
+      "en": "Decisions",
+      "es": "Decisiones"
+    },
+    "app.modelGateway.tabs.cli": {
+      "en": "CLI sessions",
+      "es": "Sesiones CLI"
+    },
     "app.modelGateway.overview.degraded": {
       "en": "degraded",
       "es": "degradados"

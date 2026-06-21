@@ -111,6 +111,11 @@ const SETTINGS_GROUPS: ExplorerGroup[] = [
 				icon: PlugZap,
 				label: { en: 'Integrations', es: 'Integraciones' },
 			},
+			{
+				page: 'models',
+				icon: LayoutGrid,
+				label: { en: 'Model Gateway', es: 'Pasarela de modelos' },
+			},
 		],
 	},
 	{

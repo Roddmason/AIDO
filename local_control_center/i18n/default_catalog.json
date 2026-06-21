@@ -1351,6 +1351,10 @@
       "en": "CLI sessions",
       "es": "Sesiones CLI"
     },
+    "app.modelGateway.columns.chooser": {
+      "en": "Columns",
+      "es": "Columnas"
+    },
     "app.modelGateway.overview.degraded": {
       "en": "degraded",
       "es": "degradados"

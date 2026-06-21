@@ -1865,6 +1865,18 @@ test('Model Gateway first load fetches only the active tab, not every endpoint',
 	expect(decisionsRequested).toBe(false);
 });
 
+test('Model Gateway runtime table keeps a narrow primary view with a column chooser', async ({ page }) => {
+	await page.goto('/#models');
+	await expect(page.getByRole('heading', { name: 'Runtime Providers' })).toBeVisible();
+	// Advanced columns are hidden from the primary view by default.
+	await expect(page.getByRole('columnheader', { name: 'Version', exact: true })).toHaveCount(0);
+	await expect(page.getByRole('columnheader', { name: 'Detected command', exact: true })).toHaveCount(0);
+	// The column chooser reveals an advanced column on demand.
+	await page.getByText('Columns', { exact: true }).click();
+	await page.getByRole('checkbox', { name: 'Version' }).check();
+	await expect(page.getByRole('columnheader', { name: 'Version', exact: true })).toBeVisible();
+});
+
 test('Runtime provider tables report unavailable states honestly', async ({ page }) => {
 	const providersResponse = await page.request.get('/api/v1/runtime/providers');
 	const runtimeStatus = await providersResponse.json();

@@ -97,7 +97,8 @@ def test_stable_frontend_artifact_and_retrieval_surfaces_are_not_dictionary_type
     hook_source = read(SRC / "hooks" / "useControlPlane.ts")
     artifacts_source = read(SRC / "lib" / "artifacts.ts")
     pages_source = read(SRC / "features" / "pages.tsx")
-    workflows_source = read(SRC / "features" / "workflows" / "WorkflowsPage.tsx")
+    # The workflow artifact preview now lives in the run-detail Inspector body, not the launcher page.
+    run_detail_source = read(SRC / "features" / "workflows" / "RunDetail.tsx")
 
     assert "RetrievalStatusResponse" in types_source
     assert "ArtifactRecord" in types_source
@@ -111,9 +112,9 @@ def test_stable_frontend_artifact_and_retrieval_surfaces_are_not_dictionary_type
     assert "artifact: Artifact" in artifacts_source
     assert "retrievalStatus: RetrievalStatus | null" in pages_source
     assert "useState<Artifact | null>" in pages_source
-    assert "useState<Artifact | null>" in workflows_source
+    assert "useState<Artifact | null>" in run_detail_source
     assert "const openPreview = async (artifact: Artifact)" in pages_source
-    assert "const openPreview = async (artifact: Artifact)" in workflows_source
+    assert "const openPreview = async (artifact: Artifact)" in run_detail_source
 
 
 def test_stable_frontend_policy_revision_surface_is_not_dictionary_typed() -> None:
@@ -189,18 +190,19 @@ def test_control_plane_optional_state_does_not_reuse_stale_health_snapshots() ->
 def test_frontend_does_not_invent_cost_or_token_limits_from_null_values() -> None:
     pages_source = read(SRC / "features" / "pages.tsx")
     agents_source = read(SRC / "features" / "agents" / "AgentsPage.tsx")
-    workflows_source = read(SRC / "features" / "workflows" / "WorkflowsPage.tsx")
+    # Model-call cost/token rendering moved with the run detail into the Inspector body.
+    run_detail_source = read(SRC / "features" / "workflows" / "RunDetail.tsx")
 
     assert "row.amountUsd ?? 0" not in pages_source
     assert "row.costUsd ?? 0" not in pages_source
-    assert "row.costUsd ?? 0" not in workflows_source
-    assert "row.promptTokens ?? 0" not in workflows_source
-    assert "row.completionTokens ?? 0" not in workflows_source
+    assert "row.costUsd ?? 0" not in run_detail_source
+    assert "row.promptTokens ?? 0" not in run_detail_source
+    assert "row.completionTokens ?? 0" not in run_detail_source
     # The null-safe label helpers now take a translated fallback arg (i18n), so match
     # "helper(arg," rather than the exact closing paren; the anti-fabrication intent
     # (use the helper, never `?? 0`) is still enforced by the negative checks above.
-    assert "tokenLabel(row.promptTokens," in workflows_source
-    assert "costLabel(row.costUsd," in workflows_source
+    assert "tokenLabel(row.promptTokens," in run_detail_source
+    assert "costLabel(row.costUsd," in run_detail_source
     assert "maxTokensPerRun ?? 0" not in agents_source
     assert "maxCostPerRun ?? 0" not in agents_source
     assert "numericLabel(row.maxTokensPerRun," in agents_source

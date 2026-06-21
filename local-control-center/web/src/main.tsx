@@ -7,7 +7,6 @@
  * forbids the heavy `motion.*` API) and `MotionConfig reducedMotion="user"` (declarative,
  * accessible reduced-motion fallback).
  */
-import '@xyflow/react/dist/style.css';
 import './design-system/tokens.css';
 import './design-system/base.css';
 import './design-system/layout.css';

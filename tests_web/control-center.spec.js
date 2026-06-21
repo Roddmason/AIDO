@@ -1471,15 +1471,35 @@ test('reduced motion disables non-essential motion', async ({ browser }) => {
 	await context.close();
 });
 
-test('Workflows shows runs, steps, workspaces and evidence from backend', async ({ page }) => {
+test('Workflows shows the catalog and run ledger, and a run opens its steps', async ({ page }) => {
 	const workflow = await createWorkflowEvidence(page);
 	await page.goto('/#workflows');
 	await page.getByRole('button', { name: 'Workflows' }).click();
 
 	await expect(page.getByRole('heading', { name: 'Workflows' })).toBeVisible();
-	await expect(page.getByRole('cell', { name: workflow.title, exact: true })).toBeVisible();
+	await expect(page.getByRole('cell', { name: workflow.title, exact: true }).first()).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Workflow runs' })).toBeVisible();
+
+	// The run's steps now live in the shell Inspector (no artificial page-local step graph).
+	await page.getByRole('button', { name: `Inspect workflow ${workflow.title}` }).click();
+	await expect(page.getByRole('heading', { name: 'Run inspector' })).toBeVisible();
+	await page.getByRole('tab', { name: 'Evidence' }).click();
 	await expect(page.getByText('workspace_create').first()).toBeVisible();
-	await expect(page.getByText('Workflow graph')).toBeVisible();
+});
+
+test('a workflow run is deep-linkable into the shell Run inspector', async ({ page }) => {
+	const project = await getActiveProject(page);
+	const fixture = issueToPatchApprovalFixture(project.id, 'deeplink', {
+		completeEvidence: true,
+		runStatus: 'pr_created',
+	});
+	await routeIssueToPatchApprovalOverview(page, [fixture]);
+
+	// Landing directly on the deep link opens the run inspector on load — no clicking required.
+	await page.goto(`/#workflows?run=${fixture.workflowRun.id}`);
+	await expect(page.getByRole('heading', { name: 'Run inspector' })).toBeVisible();
+	await page.getByRole('tab', { name: 'Timeline' }).click();
+	await expect(page.getByRole('list', { name: 'Workflow timeline' })).toBeVisible();
 });
 
 test('Workflow inspector retries a job with a mandatory reason', async ({ page }) => {
@@ -1496,6 +1516,7 @@ test('Workflow inspector retries a job with a mandatory reason', async ({ page }
 	await page.goto('/#workflows');
 	await page.getByRole('button', { name: 'Workflows' }).click();
 	await page.getByRole('button', { name: `Inspect workflow ${fixture.workflow.title}` }).click();
+	await expect(page.getByRole('heading', { name: 'Run inspector' })).toBeVisible();
 	const retry = page.getByRole('button', { name: `Retry job ${fixture.job.kind}` }).first();
 	await expect(retry).toBeVisible();
 	await expect(retry).toBeDisabled();
@@ -1519,6 +1540,7 @@ test('Workflow inspector cancels a job with a mandatory reason', async ({ page }
 	await page.goto('/#workflows');
 	await page.getByRole('button', { name: 'Workflows' }).click();
 	await page.getByRole('button', { name: `Inspect workflow ${fixture.workflow.title}` }).click();
+	await expect(page.getByRole('heading', { name: 'Run inspector' })).toBeVisible();
 	const cancel = page.getByRole('button', { name: `Cancel job ${fixture.job.kind}` }).first();
 	await expect(cancel).toBeVisible();
 	await expect(cancel).toBeDisabled();
@@ -1542,6 +1564,8 @@ test('Workflow timeline shows approval promotion and PR operational states', asy
 	await page.goto('/#workflows');
 	await page.getByRole('button', { name: 'Workflows' }).click();
 	await page.getByRole('button', { name: `Inspect workflow ${fixture.workflow.title}` }).click();
+	await expect(page.getByRole('heading', { name: 'Run inspector' })).toBeVisible();
+	await page.getByRole('tab', { name: 'Timeline' }).click();
 
 	const timeline = page.getByRole('list', { name: 'Workflow timeline' });
 	await expect(timeline).toContainText('workflow.issue_to_patch.approved_for_integration');
@@ -1565,7 +1589,8 @@ test('Workflow inspector exposes auditable real workflow detail without SQLite',
 	await page.getByRole('button', { name: 'Workflows' }).click();
 	await page.getByRole('button', { name: `Inspect workflow ${incomplete.workflow.title}` }).click();
 
-	await expect(page.getByRole('dialog', { name: 'Workflow inspector' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Run inspector' })).toBeVisible();
+	// Overview tab (default): completion gaps, blockers, jobs/leases and links.
 	await expect(page.getByRole('heading', { name: 'What is missing for completed' })).toBeVisible();
 	await expect(page.getByText('No diff evidence refs recorded.')).toBeVisible();
 	await expect(page.getByText('No passing QA test results recorded.')).toBeVisible();
@@ -1573,18 +1598,21 @@ test('Workflow inspector exposes auditable real workflow detail without SQLite',
 	await expect(page.getByText('QA evidence is missing.').first()).toBeVisible();
 	await expect(page.getByRole('heading', { name: 'Jobs and leases' })).toBeVisible();
 	await expect(page.getByText('worker-issue-to-patch')).toBeVisible();
-	await expect(page.getByRole('heading', { name: 'Model calls' })).toBeVisible();
-	await expect(page.getByText('gpt-audit').first()).toBeVisible();
 	await expect(page.getByRole('heading', { name: 'Links' })).toBeVisible();
 	await expect(page.getByText('No diff artifact link recorded.')).toBeVisible();
+	// Model calls live in the Agents tab.
+	await page.getByRole('tab', { name: 'Agents' }).click();
+	await expect(page.getByRole('heading', { name: 'Model calls' })).toBeVisible();
+	await expect(page.getByText('gpt-audit').first()).toBeVisible();
 
-	await page.keyboard.press('Escape');
 	await page.getByRole('button', { name: `Inspect workflow ${complete.workflow.title}` }).click();
-	await expect(page.getByRole('dialog', { name: 'Workflow inspector' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Run inspector' })).toBeVisible();
 	await expect(page.getByText('Completion prerequisites satisfied by linked records.')).toBeVisible();
-	await expect(page.getByRole('button', { name: 'Preview workflow artifact diff.patch' })).toBeVisible();
 	await expect(page.getByRole('link', { name: `Evidence ${complete.evidencePackage.id}` })).toBeVisible();
 	await expect(page.getByRole('link', { name: 'PR https://github.test/aido/pulls/detail-pr' })).toBeVisible();
+	// The artifact preview action lives in the Artifacts tab.
+	await page.getByRole('tab', { name: 'Artifacts' }).click();
+	await expect(page.getByRole('button', { name: 'Preview workflow artifact diff.patch' })).toBeVisible();
 });
 
 test('Evidence and QA shows persisted test result records', async ({ page }) => {
@@ -2387,18 +2415,27 @@ test('command palette executes v1 actions and workflow inspector shows linked re
 	await expect(page.getByRole('heading', { name: 'Workflows' })).toBeVisible();
 
 	await page.getByRole('button', { name: `Inspect workflow ${workflow.title}` }).click();
-	const inspector = page.getByRole('dialog', { name: 'Workflow inspector' });
-	await expect(inspector).toBeVisible();
+	const inspector = page.getByRole('complementary', { name: 'Inspector' });
+	await expect(page.getByRole('heading', { name: 'Run inspector' })).toBeVisible();
 	await expect(inspector.getByText(workflow.title).first()).toBeVisible();
-	await expect(inspector.getByText('Workflow timeline')).toBeVisible();
+	// Timeline tab: merged steps + workflow events.
+	await page.getByRole('tab', { name: 'Timeline' }).click();
 	const workflowTimeline = page.getByLabel('Workflow timeline');
 	await expect(workflowTimeline).toContainText('workspace_create');
 	await expect(workflowTimeline).toContainText('workflow.started');
+	// Evidence tab: steps and evidence packages.
+	await page.getByRole('tab', { name: 'Evidence' }).click();
 	await expect(inspector.getByText('workspace_create').first()).toBeVisible();
 	await expect(inspector.getByText('web-story-evidence').first()).toBeVisible();
+	// Agents tab: linked tool calls.
+	await page.getByRole('tab', { name: 'Agents' }).click();
 	await expect(inspector.getByText('python --version').first()).toBeVisible();
-	await expect(inspector.getByText('Policy decisions')).toBeVisible();
+	// Policy tab: security & policy decisions.
+	await page.getByRole('tab', { name: 'Policy' }).click();
+	await expect(inspector.getByText('Security and policy decisions')).toBeVisible();
 	await expect(inspector.getByText('allowlisted_diagnostic').first()).toBeVisible();
+	// Artifacts tab: preview/download.
+	await page.getByRole('tab', { name: 'Artifacts' }).click();
 	await expect(inspector.getByRole('heading', { name: 'Artifacts' })).toBeVisible();
 	await expect(inspector.getByText(workflow.artifactName).first()).toBeVisible();
 	await page.getByRole('button', { name: `Preview workflow artifact ${workflow.artifactName}` }).click();
@@ -2407,8 +2444,6 @@ test('command palette executes v1 actions and workflow inspector shows linked re
 	await expect(page.getByRole('button', { name: `Download workflow artifact ${workflow.artifactName}` })).toBeVisible();
 	await page.keyboard.press('Escape');
 	await expect(page.getByRole('dialog', { name: 'Workflow artifact preview' })).toBeHidden();
-	await page.keyboard.press('Escape');
-	await expect(page.getByRole('dialog', { name: 'Workflow inspector' })).toBeHidden();
 
 	await page.getByRole('button', { name: 'Open command palette' }).click();
 	const approvalsPalette = page.getByRole('dialog', { name: 'Command palette' });

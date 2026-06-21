@@ -41,8 +41,37 @@ const routeAliases: Record<string, AppRoute> = {
 	'settings-defaults': 'settings-advanced',
 };
 
+/**
+ * Splits the URL hash into its page token and query params. The hash carries one PageId token,
+ * optionally followed by `?key=value` pairs — e.g. `#workflows?run=<id>` deep-links a run.
+ */
+export function splitHash(): { token: string; params: URLSearchParams } {
+	const raw = window.location.hash.replace('#', '');
+	const queryIndex = raw.indexOf('?');
+	if (queryIndex < 0) return { token: raw, params: new URLSearchParams() };
+	return {
+		token: raw.slice(0, queryIndex),
+		params: new URLSearchParams(raw.slice(queryIndex + 1)),
+	};
+}
+
 /** Reads `window.location.hash`, resolving aliases and unknown values to `home`. */
 export function resolveHashRoute(): AppRoute {
-	const value = window.location.hash.replace('#', '');
-	return routeAliases[value] ?? (pageIds.includes(value as PageId) ? (value as PageId) : 'home');
+	const { token } = splitHash();
+	return routeAliases[token] ?? (pageIds.includes(token as PageId) ? (token as PageId) : 'home');
+}
+
+/** The full shell location: the canonical page plus an optional selected run id. */
+export type HashState = { page: AppRoute; runId: string | null };
+
+/** Reads the full shell location (page + selected run) from the URL hash. */
+export function resolveHashState(): HashState {
+	const { params } = splitHash();
+	const runId = params.get('run');
+	return { page: resolveHashRoute(), runId: runId && runId.trim() ? runId : null };
+}
+
+/** Encodes a page (and optional selected run) into a URL hash value. */
+export function encodeHash(page: AppRoute, runId?: string | null): string {
+	return runId ? `${page}?run=${encodeURIComponent(runId)}` : page;
 }

@@ -158,6 +158,7 @@ export function ExplorerPanel({
 	overview,
 	selectedProject,
 	onNavigate,
+	onOpenRun,
 	onSelectProject,
 	onCreateProject,
 }: {
@@ -167,6 +168,7 @@ export function ExplorerPanel({
 	overview: Overview;
 	selectedProject: Project | null;
 	onNavigate: (page: PageId) => void;
+	onOpenRun: (runId: string) => void;
 	onSelectProject: (projectId: string) => void;
 	onCreateProject: () => void;
 }) {
@@ -240,6 +242,31 @@ export function ExplorerPanel({
 	const stack = useMemo(
 		() => (selectedProject ? readDetectedStack(selectedProject) : []),
 		[selectedProject],
+	);
+
+	// Newest run id per workflow, so a run row in the Explorer opens that concrete run in the
+	// shell Inspector (deep-linkable) instead of just navigating to the Workflows page.
+	const latestRunByWorkflow = useMemo(() => {
+		const latest = new Map<string, string>();
+		const newestStartedAt = new Map<string, number>();
+		for (const run of overview.workflowRuns) {
+			const workflowId = String(run.workflowId ?? '');
+			if (!workflowId) continue;
+			const startedAt = Date.parse(String(run.startedAt ?? '')) || 0;
+			if (!latest.has(workflowId) || startedAt >= (newestStartedAt.get(workflowId) ?? 0)) {
+				latest.set(workflowId, String(run.id ?? ''));
+				newestStartedAt.set(workflowId, startedAt);
+			}
+		}
+		return latest;
+	}, [overview.workflowRuns]);
+	const openWorkflowRun = useCallback(
+		(workflowId: string) => {
+			const runId = latestRunByWorkflow.get(workflowId);
+			if (runId) onOpenRun(runId);
+			else onNavigate('workflows');
+		},
+		[latestRunByWorkflow, onOpenRun, onNavigate],
 	);
 
 	const [openSections, setOpenSections] = useState<Record<string, boolean>>(readStoredSections);
@@ -374,7 +401,7 @@ export function ExplorerPanel({
 									key={run.id}
 									className="nav-item"
 									type="button"
-									onClick={() => onNavigate('workflows')}
+									onClick={() => openWorkflowRun(run.id)}
 								>
 									<Workflow aria-hidden="true" size={16} />
 									<span>{String(run.title ?? run.id)}</span>

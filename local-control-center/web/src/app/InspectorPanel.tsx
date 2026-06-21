@@ -9,9 +9,11 @@ import { useLayoutEffect, useMemo, useRef } from 'react';
 import type { Overview, Project } from '../api/types';
 import { Badge, EmptyState } from '../components/primitives';
 import { IconButton } from '../components/ui';
+import { RunDetail } from '../features/workflows/RunDetail';
 import { useI18n } from '../i18n/I18nProvider';
 import { toneForStatus } from '../lib/format';
 import { EASE_OUT } from '../motion/variants';
+import type { Mutate } from './routes';
 
 /**
  * Apertura del Inspector: el panel entra fundiéndose y deslizándose desde su borde derecho
@@ -32,11 +34,20 @@ const inspectorReveal: Variants = {
 export function InspectorPanel({
 	overview,
 	selectedProject,
+	selectedRunId,
+	token,
+	mutate,
 	onClose,
+	onClearRun,
 }: {
 	overview: Overview;
 	selectedProject: Project | null;
+	/** When set, the panel shows the run's detail instead of the project summary. */
+	selectedRunId: string | null;
+	token: string;
+	mutate: Mutate;
 	onClose: () => void;
+	onClearRun: () => void;
 }) {
 	const { t } = useI18n();
 	// Restore focus to whatever opened the inspector (the header toggle) when the panel
@@ -80,16 +91,26 @@ export function InspectorPanel({
 			style={{ boxShadow: 'var(--shadow-panel-edge, 0 0 1.25rem rgb(0 0 0 / 0.18))' }}
 		>
 			<div className="inspector-header">
-				<h2 className="surface-title">{t('app.global.inspector', 'Inspector')}</h2>
+				<h2 className="surface-title">
+					{selectedRunId
+						? t('app.runInspector.title', 'Run inspector')
+						: t('app.global.inspector', 'Inspector')}
+				</h2>
 				<IconButton
-					aria-label={t('app.inspector.closeInspector', 'Close inspector')}
-					onClick={onClose}
+					aria-label={
+						selectedRunId
+							? t('app.inspector.closeRun', 'Close run')
+							: t('app.inspector.closeInspector', 'Close inspector')
+					}
+					onClick={selectedRunId ? onClearRun : onClose}
 				>
 					×
 				</IconButton>
 			</div>
 
-			{selectedProject && stats ? (
+			{selectedRunId ? (
+				<RunDetail overview={overview} runId={selectedRunId} token={token} mutate={mutate} />
+			) : selectedProject && stats ? (
 				<>
 					<div className="workspace-root-card">
 						<span>{t('app.inspector.project', 'Project')}</span>

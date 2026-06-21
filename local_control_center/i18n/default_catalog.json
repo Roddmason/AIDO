@@ -1131,6 +1131,62 @@
       "en": "Close inspector",
       "es": "Cerrar inspector"
     },
+    "app.inspector.closeRun": {
+      "en": "Close run",
+      "es": "Cerrar ejecución"
+    },
+    "app.runInspector.title": {
+      "en": "Run inspector",
+      "es": "Inspector de ejecución"
+    },
+    "app.runDetail.tablistLabel": {
+      "en": "Run detail sections",
+      "es": "Secciones del detalle de ejecución"
+    },
+    "app.runDetail.tab.overview": {
+      "en": "Overview",
+      "es": "Resumen"
+    },
+    "app.runDetail.tab.timeline": {
+      "en": "Timeline",
+      "es": "Cronología"
+    },
+    "app.runDetail.tab.agents": {
+      "en": "Agents",
+      "es": "Agentes"
+    },
+    "app.runDetail.tab.evidence": {
+      "en": "Evidence",
+      "es": "Evidencia"
+    },
+    "app.runDetail.tab.artifacts": {
+      "en": "Artifacts",
+      "es": "Artefactos"
+    },
+    "app.runDetail.tab.policy": {
+      "en": "Policy",
+      "es": "Política"
+    },
+    "app.runDetail.agentRuns": {
+      "en": "Agent runs",
+      "es": "Ejecuciones de agente"
+    },
+    "app.runDetail.started": {
+      "en": "Started",
+      "es": "Iniciada"
+    },
+    "app.runDetail.untitledRun": {
+      "en": "Workflow run",
+      "es": "Ejecución de flujo de trabajo"
+    },
+    "app.runDetail.notFound": {
+      "en": "Run not found",
+      "es": "Ejecución no encontrada"
+    },
+    "app.runDetail.notFoundBody": {
+      "en": "This run id has no linked record in the current overview.",
+      "es": "Este identificador de ejecución no tiene registro vinculado en la vista actual."
+    },
     "app.inspector.project": {
       "en": "Project",
       "es": "Proyecto"

@@ -23,6 +23,7 @@ import { BottomPanel } from './BottomPanel';
 import { ExplorerPanel } from './ExplorerPanel';
 import { InspectorPanel } from './InspectorPanel';
 import type { AreaId, PageId } from './navigation';
+import type { Mutate } from './routes';
 import { StatusBar } from './StatusBar';
 import { WorkbenchHeader } from './WorkbenchHeader';
 
@@ -74,6 +75,11 @@ export function AppShell({
 	overview,
 	runtimeProviders,
 	selectedProject,
+	selectedRunId,
+	token,
+	mutate,
+	onOpenRun,
+	onClearRun,
 	connected,
 	onSelectProject,
 	onCreateProject,
@@ -90,11 +96,17 @@ export function AppShell({
 	language: string;
 	languages: LanguageOption[];
 	t: (key: string, fallback?: string) => string;
-	navigateTo: (page: PageId) => void;
+	navigateTo: (page: PageId, runId?: string) => void;
 	onChangeLanguage: (code: string) => void;
 	overview: Overview;
 	runtimeProviders: RuntimeProviders | null;
 	selectedProject: Project | null;
+	/** The deep-linked workflow run shown in the Inspector, or null for the project summary. */
+	selectedRunId: string | null;
+	token: string;
+	mutate: Mutate;
+	onOpenRun: (runId: string) => void;
+	onClearRun: () => void;
 	connected: boolean;
 	onSelectProject: (projectId: string) => void;
 	onCreateProject: () => void;
@@ -154,6 +166,25 @@ export function AppShell({
 		inspectorToggleRef.current?.focus();
 	}, [inspectorPanelRef]);
 
+	// Expand-only reveal for the Inspector: unlike toggleInspector it never collapses and never
+	// moves focus, so revealing the run detail can't fight the resize-driven collapse state or
+	// steal focus from the deep link / Explorer action that triggered it.
+	const expandInspector = useCallback(() => {
+		const handle = inspectorPanelRef.current;
+		if (handle) {
+			if (handle.isCollapsed()) handle.expand();
+		} else {
+			setInspectorCollapsed(false);
+		}
+	}, [inspectorPanelRef]);
+
+	// Reveal the Inspector whenever a run becomes selected — on a deep-link load and on every
+	// Explorer "open run". Keyed on selectedRunId only, so a manual collapse stays collapsed
+	// until the next selection change.
+	useEffect(() => {
+		if (selectedRunId) expandInspector();
+	}, [selectedRunId, expandInspector]);
+
 	const toggleBottom = useCallback(() => {
 		const handle = bottomPanelRef.current;
 		if (handle) {
@@ -209,6 +240,7 @@ export function AppShell({
 			overview={overview}
 			selectedProject={selectedProject}
 			onNavigate={navigateTo}
+			onOpenRun={onOpenRun}
 			onSelectProject={onSelectProject}
 			onCreateProject={onCreateProject}
 		/>
@@ -244,7 +276,11 @@ export function AppShell({
 		<InspectorPanel
 			overview={overview}
 			selectedProject={selectedProject}
+			selectedRunId={selectedRunId}
+			token={token}
+			mutate={mutate}
 			onClose={toggleInspector}
+			onClearRun={onClearRun}
 		/>
 	);
 

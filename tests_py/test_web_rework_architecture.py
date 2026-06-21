@@ -155,18 +155,20 @@ def test_frontend_mutation_helpers_use_generated_request_response_types() -> Non
 
 
 def test_runtime_provider_ui_exposes_healthcheck_state_and_sanitized_reasons() -> None:
-    page_source = read(SRC / "features" / "model-gateway" / "ModelGatewayPage.tsx")
+    # The runtime provider status table was extracted from the gateway container into its own
+    # read-surface panel; the healthcheck/redaction assertions follow it there.
+    panel_source = read(SRC / "features" / "model-gateway" / "RuntimeProvidersPanel.tsx")
     generated_types = read(SRC / "api" / "generated" / "openapi.ts")
 
     assert '"healthStatus"' in generated_types
     assert '"lastError"' in generated_types
-    assert "Health status" in page_source
-    assert "Last error" in page_source
-    assert "row.healthStatus" in page_source
-    assert "row.lastError" in page_source
-    assert "redactVisibleSecret(row.reason)" in page_source
-    assert "redactVisibleSecret(row.lastError" in page_source
-    assert "row.healthCheckedAt" in page_source
+    assert "Health status" in panel_source
+    assert "Last error" in panel_source
+    assert "row.healthStatus" in panel_source
+    assert "row.lastError" in panel_source
+    assert "redactVisibleSecret(row.reason)" in panel_source
+    assert "redactVisibleSecret(row.lastError" in panel_source
+    assert "row.healthCheckedAt" in panel_source
 
 
 def test_agents_page_does_not_fallback_to_unverified_provider_catalogs() -> None:

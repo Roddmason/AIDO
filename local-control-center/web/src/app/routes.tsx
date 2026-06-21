@@ -71,7 +71,9 @@ export interface RouteContext {
 	mutate: Mutate;
 	refresh: (silent?: boolean) => Promise<void>;
 	language: Language;
-	navigateTo: (route: AppRoute) => void;
+	navigateTo: (route: AppRoute, runId?: string) => void;
+	/** Deep-links a concrete workflow run into the shell Inspector (`#workflows?run=<id>`). */
+	openRun: (runId: string) => void;
 	onSelectProject: (projectId: string) => void;
 	openWorkspaceDialog: (mode?: WorkspaceMode) => void;
 }

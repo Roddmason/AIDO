@@ -9,6 +9,7 @@ import { FolderPlus, Settings } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 import type { Overview, Project } from '../../api/types';
+import { splitHash } from '../../app/routing';
 import { Badge, EmptyState, PageHeader, Surface } from '../../components/primitives';
 import { SegmentedControl } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
@@ -23,9 +24,9 @@ const PROJECTS_HASH_PREFIX = 'projects-';
 
 /** Reads the active lane from the URL hash so `#projects-finished` deep links open that lane. */
 function statusViewFromHash(): ProjectStatusView {
-	const hash = window.location.hash.replace('#', '');
-	const suffix = hash.startsWith(PROJECTS_HASH_PREFIX)
-		? hash.slice(PROJECTS_HASH_PREFIX.length)
+	const { token } = splitHash();
+	const suffix = token.startsWith(PROJECTS_HASH_PREFIX)
+		? token.slice(PROJECTS_HASH_PREFIX.length)
 		: '';
 	return (STATUS_VIEWS as string[]).includes(suffix) ? (suffix as ProjectStatusView) : 'active';
 }

@@ -27,7 +27,7 @@ import { RouteSkeleton } from './RouteSkeleton';
 import type { RouteContext } from './routes';
 import { renderRoute } from './routes';
 import type { AppRoute } from './routing';
-import { resolveHashRoute } from './routing';
+import { encodeHash, resolveHashState } from './routing';
 import { useShellShortcuts } from './useShellShortcuts';
 
 const SELECTED_PROJECT_STORAGE_KEY = 'aido:selectedProjectId';
@@ -64,7 +64,8 @@ export function App() {
 	const { language, languages, setLanguage, t } = useI18n();
 	const { notify } = useToast();
 	const bilingualLanguage: Language = language === 'es' ? 'es' : 'en';
-	const [page, setPage] = useState<AppRoute>(resolveHashRoute());
+	const [page, setPage] = useState<AppRoute>(() => resolveHashState().page);
+	const [selectedRunId, setSelectedRunId] = useState<string | null>(() => resolveHashState().runId);
 	const [selectedProjectId, setSelectedProjectId] = useState(readStoredSelectedProjectId);
 	const [workspaceDialogOpen, setWorkspaceDialogOpen] = useState(false);
 	const [workspaceDialogMode, setWorkspaceDialogMode] = useState<WorkspaceMode>('open_folder');
@@ -74,10 +75,15 @@ export function App() {
 	const state = useControlPlane();
 	const commandActionsRef = useRef<CommandAction[]>([]);
 
-	const navigateTo = useCallback((nextPage: AppRoute) => {
-		window.location.hash = nextPage;
+	// Navigation owns both the active page and the optional selected run (deep-linked as
+	// `#workflows?run=<id>`); navigating to any page without a run id clears the run selection.
+	const navigateTo = useCallback((nextPage: AppRoute, runId?: string) => {
+		window.location.hash = encodeHash(nextPage, runId);
 		setPage(nextPage);
+		setSelectedRunId(runId ?? null);
 	}, []);
+	const openRun = useCallback((runId: string) => navigateTo('workflows', runId), [navigateTo]);
+	const clearRun = useCallback(() => navigateTo('workflows'), [navigateTo]);
 
 	const openWorkspaceDialog = useCallback((mode: WorkspaceMode = 'open_folder') => {
 		setWorkspaceDialogMode(mode);
@@ -110,7 +116,11 @@ export function App() {
 	}, [page, language]);
 
 	useEffect(() => {
-		const onHash = () => setPage(resolveHashRoute());
+		const onHash = () => {
+			const next = resolveHashState();
+			setPage(next.page);
+			setSelectedRunId(next.runId);
+		};
 		window.addEventListener('hashchange', onHash);
 		return () => window.removeEventListener('hashchange', onHash);
 	}, []);
@@ -200,6 +210,7 @@ export function App() {
 		refresh: state.refresh,
 		language: bilingualLanguage,
 		navigateTo,
+		openRun,
 		onSelectProject: setOperationalProject,
 		openWorkspaceDialog,
 	};
@@ -217,6 +228,11 @@ export function App() {
 				overview={overview}
 				runtimeProviders={state.runtimeProviders}
 				selectedProject={selectedProject}
+				selectedRunId={selectedRunId}
+				token={state.token}
+				mutate={state.mutate}
+				onOpenRun={openRun}
+				onClearRun={clearRun}
 				connected={state.connected}
 				onSelectProject={setOperationalProject}
 				onCreateProject={() => openWorkspaceDialog('open_folder')}

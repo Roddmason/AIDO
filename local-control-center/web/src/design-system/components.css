@@ -970,14 +970,6 @@ kbd.command-kbd {
 	resize: vertical;
 }
 
-.flow-board {
-	height: min(32rem, 62vh);
-	border: 1px solid var(--color-border-subtle);
-	border-radius: var(--radius-lg);
-	background: var(--color-surface-card);
-	overflow: hidden;
-}
-
 .workflow-timeline {
 	display: grid;
 	gap: var(--space-2);

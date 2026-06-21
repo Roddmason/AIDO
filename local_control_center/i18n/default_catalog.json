@@ -363,6 +363,18 @@
       "en": "time unavailable",
       "es": "hora no disponible"
     },
+    "app.workflows.kicker": {
+      "en": "Durable runs",
+      "es": "Ejecuciones durables"
+    },
+    "app.workflows.openRun": {
+      "en": "Open",
+      "es": "Abrir"
+    },
+    "app.workflows.ariaOpenRun": {
+      "en": "Open run",
+      "es": "Abrir ejecución"
+    },
     "app.workflows.errQueueReasonRequired": {
       "en": "Queue change reason is required.",
       "es": "Se requiere un motivo para cambiar la cola."
@@ -2427,10 +2439,6 @@
       "en": "Changed",
       "es": "Cambió"
     },
-    "ui.static.choose.a.workflow.to.inspect.its.linked.records.4f7e51a2": {
-      "en": "Choose a workflow to inspect its linked records.",
-      "es": "Elija un flujo de trabajo para inspeccionar sus registros vinculados."
-    },
     "ui.static.closed.ledger.2b3a3aac": {
       "en": "Closed ledger",
       "es": "Libro mayor cerrado"
@@ -3343,10 +3351,6 @@
       "en": "No usage history entries",
       "es": "No hay entradas de historial de uso"
     },
-    "ui.static.no.workflow.selected.215ac484": {
-      "en": "No workflow selected",
-      "es": "No se seleccionó ningún flujo de trabajo"
-    },
     "ui.static.no.workflows.52b4f780": {
       "en": "No workflows",
       "es": "Sin flujos de trabajo"
@@ -3955,26 +3959,6 @@
       "en": "Workflow runs",
       "es": "Ejecuciones de workflows"
     },
-    "ui.static.selected.workflow.steps": {
-      "en": "Selected workflow steps",
-      "es": "Pasos del workflow seleccionado"
-    },
-    "ui.static.no.workflow.steps": {
-      "en": "No workflow steps",
-      "es": "Sin pasos de workflow"
-    },
-    "ui.static.no.selected.workflow.steps": {
-      "en": "No selected workflow steps",
-      "es": "Sin pasos del workflow seleccionado"
-    },
-    "ui.static.select.or.start.workflow.run.before.reading.graph": {
-      "en": "Select or start a workflow run before reading a graph.",
-      "es": "Selecciona o inicia una ejecución de workflow antes de leer el grafo."
-    },
-    "ui.static.inspect.workflow.with.run.to.see.step.plan": {
-      "en": "Inspect a workflow with a run to see its step plan.",
-      "es": "Inspecciona un workflow con una ejecución para ver su plan de pasos."
-    },
     "ui.static.starting.workflow.creates.run.record": {
       "en": "Starting a workflow creates a run record.",
       "es": "Iniciar un workflow crea un registro de ejecución."
@@ -4002,10 +3986,6 @@
     "ui.static.runtimes.8fb69b37": {
       "en": "Runtimes",
       "es": "Entornos de ejecución"
-    },
-    "ui.static.sdlc.graph.45dff846": {
-      "en": "SDLC graph",
-      "es": "gráfico SDLC"
     },
     "ui.static.sqlite.is.canonical.faiss.numpy.and.future.vector.stores.are.f2fb19e8": {
       "en": "SQLite is canonical. FAISS, NumPy and future vector stores are rebuildable indexes, not source of truth.",
@@ -4423,10 +4403,6 @@
       "en": "Workflow artifact preview",
       "es": "Vista previa de artefactos de flujo de trabajo"
     },
-    "ui.static.workflow.graph.32f4369a": {
-      "en": "Workflow graph",
-      "es": "Gráfico de flujo de trabajo"
-    },
     "ui.static.workflow.implementation.steps.allocate.isolated.workspaces.bf160a66": {
       "en": "Workflow implementation steps allocate isolated workspaces.",
       "es": "Los pasos de implementación del flujo de trabajo asignan espacios de trabajo aislados."
@@ -4434,10 +4410,6 @@
     "ui.static.workflow.implementation.steps.will.allocate.workspaces.f402df35": {
       "en": "Workflow implementation steps will allocate workspaces.",
       "es": "Los pasos de implementación del flujo de trabajo asignarán espacios de trabajo."
-    },
-    "ui.static.workflow.inspector.d8560d75": {
-      "en": "Workflow inspector",
-      "es": "inspector de flujo de trabajo"
     },
     "ui.static.workflow.intake.71433104": {
       "en": "Workflow intake",

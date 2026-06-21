@@ -58,7 +58,6 @@
   "description": "Local-first control center for AI-assisted software development workflows.",
   "dependencies": {
     "@tanstack/react-virtual": "3.14.3",
-    "@xyflow/react": "^12.10.2",
     "lucide-react": "^1.16.0",
     "motion": "12.40.0",
     "react": "^18.3.1",

@@ -165,9 +165,7 @@ export const routeTable: Record<AppRoute, RouteEntry> = {
 		),
 	},
 	workflows: {
-		render: (ctx) => (
-			<WorkflowsPage overview={ctx.overview} token={ctx.token} mutate={ctx.mutate} />
-		),
+		render: (ctx) => <WorkflowsPage overview={ctx.overview} onOpenRun={ctx.openRun} />,
 		preload: importWorkflows,
 	},
 	'review-board': {

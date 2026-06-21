@@ -526,7 +526,7 @@ def test_playwright_uses_isolated_state_for_mutating_e2e() -> None:
     assert "'--output', chunkOutput" in runner_content
     assert "safePathSegment(project)" in runner_content
     assert "defaultDashboardPort" in runner_content
-    assert "30000 + (process.pid % 20000)" in runner_content
+    assert "8600 + (process.pid % 900)" in runner_content
     assert "playwrightProjects = ['desktop', 'mobile']" in runner_content
     assert "`--project=${project}`" in runner_content
     assert "dashboardServerCommand" in runner_content

@@ -9,7 +9,9 @@ const viteCli = fileURLToPath(new URL('../node_modules/vite/bin/vite.js', import
 const playwrightCli = fileURLToPath(new URL('../node_modules/@playwright/test/cli.js', import.meta.url));
 const windowsPython = fileURLToPath(new URL('../.venv/Scripts/python.exe', import.meta.url));
 const posixPython = fileURLToPath(new URL('../.venv/bin/python', import.meta.url));
-const defaultDashboardPort = String(30000 + (process.pid % 20000));
+// Low, non-ephemeral base: the 30000-49999 range can land on Windows reserved/ephemeral ports
+// (winerror 10013). 8600-9499 is safe, and per-chunk increments below stay well under 10000.
+const defaultDashboardPort = String(8600 + (process.pid % 900));
 const dashboardPort = process.env.PLAYWRIGHT_DASHBOARD_PORT || defaultDashboardPort;
 const dbPath = process.env.PLAYWRIGHT_DB_PATH || `.tmp/playwright-control-center-${process.pid}.sqlite`;
 const playwrightProjects = ['desktop', 'mobile'];
@@ -225,8 +227,12 @@ if (status === 0) {
 		}
 		const chunks = chunkTests(tests);
 		for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex += 1) {
-			const chunkPort = process.env.PLAYWRIGHT_DASHBOARD_PORT
-				|| (Number.isFinite(dashboardPortNumber) ? String(dashboardPortNumber + projectIndex * 200 + chunkIndex + 1) : dashboardPort);
+			// Always increment per chunk from the (env or default) base. Reusing one fixed port
+			// across sequential chunks can hit a TIME_WAIT bind collision (abnormal exit); a unique
+			// port per chunk avoids both that and the reserved-range failure.
+			const chunkPort = Number.isFinite(dashboardPortNumber)
+				? String(dashboardPortNumber + projectIndex * 200 + chunkIndex + 1)
+				: dashboardPort;
 			const chunkEnv = {
 				...projectEnv,
 				PLAYWRIGHT_DASHBOARD_PORT: chunkPort,

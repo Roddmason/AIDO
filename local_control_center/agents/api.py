@@ -17,6 +17,7 @@ from local_control_center.evidence.repository import EvidenceRepository
 from local_control_center.shared.event_bus import EventBus
 
 from .architect_agent import ArchitectAgentRunner
+from .autonomy_profiles import AutonomyProfile, AutonomyValidationError
 from .contracts import (
     AgentProfileResponse,
     AgentProfilesListResponse,
@@ -491,6 +492,12 @@ def validate_product_owner_agent_run_body(body: ProductOwnerAgentRunRequest) -> 
         raise HTTPException(
             status_code=422, detail="ProductOwnerAgent completenessThreshold must be between 0 and 100."
         )
+    autonomy = payload.get("autonomy")
+    if autonomy is not None:
+        try:
+            AutonomyProfile.from_dict(autonomy)
+        except AutonomyValidationError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
     return payload
 
 

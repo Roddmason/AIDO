@@ -158,6 +158,19 @@ def discovery_questions() -> list[dict[str, Any]]:
     ]
 
 
+def autonomous_blocking_decision() -> dict[str, Any]:
+    return {
+        "title": "Choose the onboarding layout",
+        "question": "Wizard or checklist?",
+        "status": "open",
+        "rationale": "Both are reversible UI choices with a clear default.",
+        "options": ["Wizard", "Checklist"],
+        "recommendation": "Wizard",
+        "reversibility": "reversible",
+        "confidence": "high",
+    }
+
+
 def product_owner_output(*, blocking: bool) -> dict[str, Any]:
     return {
         "completeness": {"score": 90, "missing": [], "rationale": "Brief covers the core."},
@@ -409,4 +422,66 @@ def test_product_owner_agent_invalid_output_fails_validation_without_persistence
     assert body["output"] is None
     assert body["evidencePackage"]["qaVerdict"] == "failed"
     assert ProductDiscoveryRepository(store.connection).list_initiatives(project["id"]) == []
+    assert BacklogRepository(store.connection).list_epics(project["id"]) == []
+
+
+def test_product_owner_autonomous_profile_auto_resolves_reversible_decision(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store, client, headers = create_client(tmp_path, monkeypatch)
+    project, workspace = create_project_and_workspace(store, tmp_path, task_id="po-autonomous")
+    output = product_owner_output(blocking=False)
+    output["blockingDecisions"] = [autonomous_blocking_decision()]
+    body = product_owner_request(project, workspace)
+    body["autonomy"] = {"level": "autonomous"}
+
+    response = run_with_controlled_provider(
+        client, headers, monkeypatch, content=json.dumps(output), body=body
+    )
+
+    assert response.status_code == 202
+    result = response.json()
+    # The reversible, high-confidence decision is auto-resolved, so the backlog still ships.
+    assert result["status"] == "completed"
+    autonomy = result["output"]["autonomy"]
+    assert autonomy["profile"]["level"] == "autonomous"
+    assert autonomy["counts"] == {"automatic": 1, "escalated": 0, "resolved": 0}
+    record = autonomy["automatic"][0]
+    assert record["alternatives"] == ["Checklist"]
+    assert record["reason"]
+    assert record["confidence"] == "high"
+    assert record["reversibility"] == "reversible"
+    assert record["automatic"] is True
+    assert result["epics"]  # backlog generated despite the (auto-resolved) decision
+
+    discovery = ProductDiscoveryRepository(store.connection)
+    decisions = discovery.list_product_decisions(
+        initiative_id=discovery.list_initiatives(project["id"])[0]["id"]
+    )
+    assert len(decisions) == 1
+    assert decisions[0]["status"] == "accepted"
+    assert decisions[0]["metadata"]["blocking"] is False
+    assert decisions[0]["metadata"]["autonomy"]["automatic"] is True
+
+
+def test_product_owner_guided_profile_escalates_and_withholds_backlog(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store, client, headers = create_client(tmp_path, monkeypatch)
+    project, workspace = create_project_and_workspace(store, tmp_path, task_id="po-guided")
+    output = product_owner_output(blocking=False)
+    output["blockingDecisions"] = [autonomous_blocking_decision()]
+    body = product_owner_request(project, workspace)
+    body["autonomy"] = {"level": "autonomous", "overrides": {"product": "guided"}}
+
+    response = run_with_controlled_provider(
+        client, headers, monkeypatch, content=json.dumps(output), body=body
+    )
+
+    result = response.json()
+    # The per-category override forces the product decision back to the human, withholding the backlog.
+    assert result["status"] == "blocked"
+    assert result["output"]["autonomy"]["counts"]["escalated"] == 1
+    assert result["output"]["autonomy"]["counts"]["automatic"] == 0
+    assert result["epics"] == []
     assert BacklogRepository(store.connection).list_epics(project["id"]) == []

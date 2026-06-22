@@ -701,6 +701,7 @@ class ProductOwnerAgentRunRequest(BaseModel):
     idea: str | None = None
     initiative_id: str | None = Field(default=None, alias="initiativeId")
     completeness_threshold: float | None = Field(default=None, alias="completenessThreshold")
+    autonomy: dict[str, Any] | None = None
     workflow_context: dict[str, Any] = Field(default_factory=dict, alias="workflowContext")
     preferred_runtime: str | None = Field(default=None, alias="preferredRuntime")
     approval_grant_id: str | None = Field(default=None, alias="approvalGrantId")

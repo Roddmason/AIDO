@@ -22,6 +22,16 @@ FINGERPRINT_ALGO = "hmac-sha256"
 DEFAULT_BACKEND = "keyring"
 
 
+def new_salt() -> str:
+    """Genera una sal aleatoria (hex) para el fingerprint de una credencial; no es secreta."""
+    return secrets.token_hex(16)
+
+
+def secret_fingerprint(value: str, salt: str) -> str:
+    """Calcula el fingerprint HMAC-SHA256 (hex) de un secreto con su sal; es unidireccional, no reversible."""
+    return hmac.new(bytes.fromhex(salt), str(value).encode("utf-8"), hashlib.sha256).hexdigest()
+
+
 class CredentialError(ValueError):
     """Se lanza ante una operación inválida del CredentialManager (input faltante, backend ausente, etc.)."""
 
@@ -48,7 +58,7 @@ class CredentialManager:
 
     @staticmethod
     def _fingerprint(value: str, salt: str) -> str:
-        return hmac.new(bytes.fromhex(salt), str(value).encode("utf-8"), hashlib.sha256).hexdigest()
+        return secret_fingerprint(value, salt)
 
     @staticmethod
     def _public(record: dict[str, Any]) -> dict[str, Any]:
@@ -119,7 +129,7 @@ class CredentialManager:
             raise CredentialError(f"Credential already exists: {name}")
         kind = backend or self.default_backend
         store = self._backend(kind)
-        salt = secrets.token_hex(16)
+        salt = new_salt()
         fingerprint = self._fingerprint(value, salt)
         try:
             store.write(locator, value)
@@ -216,7 +226,7 @@ class CredentialManager:
             raise CredentialError("New credential value is required.")
         record = self.repository.get_credential_by_name(name)
         store = self._backend(record["backendKind"])
-        salt = secrets.token_hex(16)
+        salt = new_salt()
         fingerprint = self._fingerprint(new_value, salt)
         try:
             store.write(record["locator"], new_value)

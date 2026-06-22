@@ -37,12 +37,12 @@ def executable_override(runtime_id: str, env: dict[str, str] | None = None) -> s
 def resolve_executable(installation: dict[str, Any], env: dict[str, str] | None = None) -> dict[str, Any]:
     """Resuelve la ruta del ejecutable aplicando la env var solo como override sobre lo persistido.
 
-    Devuelve ``{path, source}`` donde ``source`` es ``env_override`` (ganó la env var), ``persisted``
-    (se usó ``executable_path`` de la base) o ``unset`` (ni override ni valor guardado).
+    Devuelve ``{path, source}`` donde ``source`` es ``environment_override`` (ganó la env var),
+    ``persisted`` (se usó ``executable_path`` de la base) o ``unset`` (ni override ni valor guardado).
     """
     override = executable_override(str(installation.get("runtimeId") or ""), env)
     if override:
-        return {"path": override, "source": "env_override"}
+        return {"path": override, "source": "environment_override"}
     persisted = installation.get("executablePath")
     return {"path": persisted, "source": "persisted" if persisted else "unset"}
 

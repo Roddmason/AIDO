@@ -30,6 +30,7 @@ from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.serialization import json_dumps
 from local_control_center.workspaces_projects.repository import WorkspacesRepository
 
+from .autonomy_profiles import REVERSIBILITIES, AutonomyEngine, AutonomyProfile
 from .impact_question_engine import (
     ImpactQuestionEngine,
     ImpactQuestionValidationError,
@@ -132,6 +133,28 @@ def _question_priority(question: dict[str, Any]) -> str:
     if question.get("blocking"):
         return "high"
     return QUESTION_CONFIDENCE_PRIORITY.get(str(question.get("confidence")), "medium")
+
+
+def _autonomy_candidate(decision: dict[str, Any]) -> dict[str, Any] | None:
+    """Mapea una decisión bloqueante a una candidata de autonomía (categoría ``product``).
+
+    Devuelve ``None`` si la decisión no trae alternativas suficientes o una recomendación válida, en
+    cuyo caso no puede resolverse automáticamente y debe escalarse.
+    """
+    options = decision.get("options") or []
+    recommendation = decision.get("recommendation") or ""
+    if len(options) < 2 or recommendation not in options:
+        return None
+    return {
+        "category": "product",
+        "decision": decision["title"],
+        "options": options,
+        "chosen": recommendation,
+        "reason": decision.get("rationale") or decision.get("question") or decision["title"],
+        "confidence": decision.get("confidence") or "low",
+        "reversibility": decision.get("reversibility") or "irreversible",
+        "blocking": True,
+    }
 
 
 class ProductOwnerAgent:
@@ -247,6 +270,12 @@ class ProductOwnerAgent:
         for index, item in enumerate(value):
             if not isinstance(item, dict):
                 raise ProductOwnerOutputValidationError(f"blockingDecisions[{index}] must be an object.")
+            options_value = item.get("options")
+            options = (
+                _string_list(options_value, field=f"blockingDecisions[{index}].options")
+                if options_value is not None
+                else []
+            )
             decisions.append(
                 {
                     "title": _required_text(item, "title", field=f"blockingDecisions[{index}]"),
@@ -258,6 +287,18 @@ class ProductOwnerAgent:
                         BLOCKING_DECISION_STATUSES,
                         "open",
                         field=f"blockingDecisions[{index}]",
+                    ),
+                    "options": options,
+                    "recommendation": str(item.get("recommendation") or "").strip(),
+                    "reversibility": _enum_value(
+                        item,
+                        "reversibility",
+                        REVERSIBILITIES,
+                        "irreversible",
+                        field=f"blockingDecisions[{index}]",
+                    ),
+                    "confidence": _enum_value(
+                        item, "confidence", CONFIDENCES, "low", field=f"blockingDecisions[{index}]"
                     ),
                 }
             )
@@ -334,10 +375,6 @@ class ProductOwnerAgent:
             "openQuestions": open_questions,
             "unresolvedBlockingDecisions": unresolved_blocking,
         }
-
-    def unresolved_blocking_decisions(self, decisions: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Filtra las decisiones bloqueantes que aún no están resueltas (status distinto de 'resolved')."""
-        return [decision for decision in decisions if decision.get("status") != "resolved"]
 
 
 class ProductOwnerAgentRunner:
@@ -544,8 +581,70 @@ class ProductOwnerAgentRunner:
             }
         )
 
+    def _route_decisions(
+        self, blocking_decisions: list[dict[str, Any]], *, engine: AutonomyEngine
+    ) -> dict[str, list[dict[str, Any]]]:
+        """Separa las decisiones bloqueantes en resueltas, automáticas (auto) y escaladas (recommend/ask).
+
+        Las ya resueltas pasan directo; el resto se mapea a candidatas de autonomía y se resuelve con el
+        motor: solo las acciones ``auto`` cuentan como automáticas; el resto se escala y retiene el backlog.
+        """
+        resolved: list[dict[str, Any]] = []
+        automatic: list[dict[str, Any]] = []
+        escalated: list[dict[str, Any]] = []
+        for decision in blocking_decisions:
+            if decision["status"] == "resolved":
+                resolved.append({"decision": decision, "record": None})
+                continue
+            candidate = _autonomy_candidate(decision)
+            if candidate is None:
+                escalated.append({"decision": decision, "record": None})
+                continue
+            resolution = engine.resolve(candidate)
+            target = automatic if resolution["action"] == "auto" else escalated
+            target.append({"decision": decision, "record": resolution["decision"]})
+        return {"resolved": resolved, "automatic": automatic, "escalated": escalated}
+
+    def _create_product_decision(
+        self,
+        *,
+        project_id: str,
+        initiative_id: str,
+        brief_id: str,
+        decision: dict[str, Any],
+        task_id: str,
+        status: str,
+        blocking: bool,
+        audit: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        return self.discovery.create_product_decision(
+            {
+                "projectId": project_id,
+                "initiativeId": initiative_id,
+                "briefId": brief_id,
+                "title": decision["title"],
+                "status": status,
+                "context": decision["question"],
+                "decision": (audit or {}).get("chosen", ""),
+                "rationale": decision["rationale"],
+                "decidedBy": PRODUCT_OWNER_AGENT_ID,
+                "metadata": {
+                    "source": PRODUCT_OWNER_AGENT_ID,
+                    "taskId": task_id,
+                    "blocking": blocking,
+                    "autonomy": audit,
+                },
+            }
+        )
+
     def _persist_discovery(
-        self, *, project_id: str, initiative_id: str, output: dict[str, Any], task_id: str
+        self,
+        *,
+        project_id: str,
+        initiative_id: str,
+        output: dict[str, Any],
+        task_id: str,
+        routing: dict[str, list[dict[str, Any]]],
     ) -> dict[str, Any]:
         questions = [
             self.discovery.create_clarification_question(
@@ -601,27 +700,33 @@ class ProductOwnerAgentRunner:
                 "authoredBy": PRODUCT_OWNER_AGENT_ID,
             }
         )
-        decisions = [
-            self.discovery.create_product_decision(
-                {
-                    "projectId": project_id,
-                    "initiativeId": initiative_id,
-                    "briefId": brief["id"],
-                    "title": decision["title"],
-                    "status": "proposed",
-                    "context": decision["question"],
-                    "decision": "",
-                    "rationale": decision["rationale"],
-                    "decidedBy": PRODUCT_OWNER_AGENT_ID,
-                    "metadata": {
-                        "source": PRODUCT_OWNER_AGENT_ID,
-                        "taskId": task_id,
-                        "blocking": decision["status"] != "resolved",
-                    },
-                }
+        decisions: list[dict[str, Any]] = []
+        decisions.extend(
+            self._create_product_decision(
+                project_id=project_id,
+                initiative_id=initiative_id,
+                brief_id=brief["id"],
+                decision=item["decision"],
+                task_id=task_id,
+                status="accepted",
+                blocking=False,
+                audit=item["record"],
             )
-            for decision in output["blockingDecisions"]
-        ]
+            for item in [*routing["resolved"], *routing["automatic"]]
+        )
+        decisions.extend(
+            self._create_product_decision(
+                project_id=project_id,
+                initiative_id=initiative_id,
+                brief_id=brief["id"],
+                decision=item["decision"],
+                task_id=task_id,
+                status="proposed",
+                blocking=True,
+                audit=item["record"],
+            )
+            for item in routing["escalated"]
+        )
         return {"questions": questions, "assumptions": assumptions, "brief": brief, "decisions": decisions}
 
     def _persist_backlog(self, *, project_id: str, output: dict[str, Any]) -> list[dict[str, Any]]:
@@ -843,9 +948,10 @@ class ProductOwnerAgentRunner:
         output["suppressedQuestions"] = selection["suppressed"]
         output["questionSelection"] = selection["counts"]
 
-        unresolved = self.agent.unresolved_blocking_decisions(output["blockingDecisions"])
+        engine = AutonomyEngine(AutonomyProfile.from_dict(payload.get("autonomy")))
+        routing = self._route_decisions(output["blockingDecisions"], engine=engine)
         existing_unresolved = assessment.get("unresolvedDecisions") or []
-        unresolved_count = len(unresolved) + len(existing_unresolved)
+        unresolved_count = len(routing["escalated"]) + len(existing_unresolved)
         completeness = self.agent.calculate_completeness(
             brief=output["brief"],
             unresolved_blocking=unresolved_count,
@@ -853,6 +959,16 @@ class ProductOwnerAgentRunner:
         )
         completeness["threshold"] = threshold
         completeness["meetsThreshold"] = completeness["score"] >= threshold
+        output["autonomy"] = {
+            "profile": engine.profile.to_dict(),
+            "automatic": [item["record"] for item in routing["automatic"]],
+            "escalated": [item["decision"]["title"] for item in routing["escalated"]],
+            "counts": {
+                "automatic": len(routing["automatic"]),
+                "escalated": len(routing["escalated"]),
+                "resolved": len(routing["resolved"]),
+            },
+        }
         result["output"] = output
         result["completeness"] = completeness
 
@@ -861,7 +977,11 @@ class ProductOwnerAgentRunner:
         )
         result["initiative"] = initiative
         result["discovery"] = self._persist_discovery(
-            project_id=project_id, initiative_id=initiative["id"], output=output, task_id=task_id
+            project_id=project_id,
+            initiative_id=initiative["id"],
+            output=output,
+            task_id=task_id,
+            routing=routing,
         )
         if unresolved_count:
             result["status"] = BLOCKED_STATUS

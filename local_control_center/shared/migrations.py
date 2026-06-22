@@ -35,6 +35,7 @@ def initialize_platform_schema(connection: sqlite3.Connection) -> None:
     init_phase16_schema(connection)
     init_phase17_schema(connection)
     init_phase18_schema(connection)
+    init_phase19_schema(connection)
     seed_platform_catalogs(connection)
 
 
@@ -2763,6 +2764,51 @@ def init_phase18_schema(connection: sqlite3.Connection) -> None:
     connection.execute(
         "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
         (18, utc_now()),
+    )
+
+
+def init_phase19_schema(connection: sqlite3.Connection) -> None:
+    """Fase 19: instala la máquina de estados durable del ProductLoopCoordinator (product_loops) y su
+    bitácora append-only de transiciones (product_loop_transitions). El estado vive en la base —no solo
+    en memoria— para reanudar el loop tras reiniciar AIDO; cada transición queda registrada y trazable."""
+    connection.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS product_loops (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            initiative_id TEXT,
+            title TEXT NOT NULL,
+            state TEXT NOT NULL,
+            previous_state TEXT,
+            status TEXT NOT NULL,
+            context TEXT NOT NULL,
+            version INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS product_loop_transitions (
+            id TEXT PRIMARY KEY,
+            loop_id TEXT NOT NULL,
+            project_id TEXT NOT NULL,
+            from_state TEXT NOT NULL,
+            to_state TEXT NOT NULL,
+            reason TEXT NOT NULL,
+            actor TEXT NOT NULL,
+            trigger TEXT NOT NULL,
+            version INTEGER NOT NULL,
+            metadata TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE(loop_id, version)
+        );
+        CREATE INDEX IF NOT EXISTS idx_product_loops_project_state
+            ON product_loops(project_id, state, updated_at);
+        CREATE INDEX IF NOT EXISTS idx_product_loop_transitions_loop
+            ON product_loop_transitions(loop_id, version);
+        """
+    )
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (19, utc_now()),
     )
 
 

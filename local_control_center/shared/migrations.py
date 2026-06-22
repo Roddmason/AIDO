@@ -37,6 +37,7 @@ def initialize_platform_schema(connection: sqlite3.Connection) -> None:
     init_phase18_schema(connection)
     init_phase19_schema(connection)
     init_phase20_schema(connection)
+    init_phase21_schema(connection)
     seed_platform_catalogs(connection)
 
 
@@ -2848,6 +2849,98 @@ def init_phase20_schema(connection: sqlite3.Connection) -> None:
     connection.execute(
         "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
         (20, utc_now()),
+    )
+
+
+def init_phase21_schema(connection: sqlite3.Connection) -> None:
+    """Fase 21: instala la configuración persistida de runtimes (runtime_installations, cli_accounts,
+    runtime_preferences) para que la config normal viva en la base —no en variables de entorno— y deja a
+    las env vars solo como override. Siembra las instalaciones de los CLI y la preferencia global que
+    convierte el CLI (codex_cli) en el runtime predeterminado. NO almacena tokens: cli_accounts solo
+    guarda el modo de auth y la clase de almacén de credenciales (dónde vive el secreto), nunca el secreto."""
+    connection.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS runtime_installations (
+            id TEXT PRIMARY KEY,
+            runtime_id TEXT NOT NULL UNIQUE,
+            kind TEXT NOT NULL,
+            executable_path TEXT,
+            detected_version TEXT,
+            enabled INTEGER NOT NULL DEFAULT 0,
+            health_status TEXT NOT NULL DEFAULT 'unknown',
+            last_health_check_at TEXT,
+            last_error TEXT,
+            metadata TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS cli_accounts (
+            id TEXT PRIMARY KEY,
+            runtime_id TEXT NOT NULL,
+            account_label TEXT NOT NULL,
+            auth_mode TEXT NOT NULL,
+            credential_store_kind TEXT NOT NULL,
+            credential_ref TEXT,
+            enabled INTEGER NOT NULL DEFAULT 1,
+            is_default INTEGER NOT NULL DEFAULT 0,
+            health_status TEXT NOT NULL DEFAULT 'unknown',
+            metadata TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(runtime_id, account_label)
+        );
+        CREATE TABLE IF NOT EXISTS runtime_preferences (
+            id TEXT PRIMARY KEY,
+            scope TEXT NOT NULL,
+            scope_id TEXT NOT NULL DEFAULT '',
+            default_runtime TEXT,
+            runtime_order TEXT NOT NULL DEFAULT '[]',
+            default_profiles TEXT NOT NULL DEFAULT '{}',
+            enabled INTEGER NOT NULL DEFAULT 1,
+            metadata TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(scope, scope_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_runtime_installations_enabled
+            ON runtime_installations(enabled, health_status);
+        CREATE INDEX IF NOT EXISTS idx_cli_accounts_runtime
+            ON cli_accounts(runtime_id, enabled);
+        """
+    )
+    timestamp = utc_now()
+    cli_installations = [
+        ("runtime-installation-codex_cli", "codex_cli", "cli"),
+        ("runtime-installation-claude_code_cli", "claude_code_cli", "cli"),
+    ]
+    for installation_id, runtime_id, kind in cli_installations:
+        connection.execute(
+            """
+            INSERT OR IGNORE INTO runtime_installations
+                (id, runtime_id, kind, executable_path, detected_version, enabled, health_status,
+                 last_health_check_at, last_error, metadata, created_at, updated_at)
+            VALUES (?, ?, ?, NULL, NULL, 0, 'unknown', NULL, NULL, '{}', ?, ?)
+            """,
+            (installation_id, runtime_id, kind, timestamp, timestamp),
+        )
+    connection.execute(
+        """
+        INSERT OR IGNORE INTO runtime_preferences
+            (id, scope, scope_id, default_runtime, runtime_order, default_profiles, enabled,
+             metadata, created_at, updated_at)
+        VALUES (?, 'global', '', 'codex_cli', ?, ?, 1, '{}', ?, ?)
+        """,
+        (
+            "runtime-preference-global",
+            json_dumps(["codex_cli", "claude_code_cli", "openai_compatible", "ollama"]),
+            json_dumps({"permissionProfile": "dev_safe", "modelRuntimeProfile": "plan"}),
+            timestamp,
+            timestamp,
+        ),
+    )
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (21, utc_now()),
     )
 
 

@@ -30,6 +30,12 @@ from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.serialization import json_dumps
 from local_control_center.workspaces_projects.repository import WorkspacesRepository
 
+from .impact_question_engine import (
+    ImpactQuestionEngine,
+    ImpactQuestionValidationError,
+    detected_facts_from_assessment,
+    validate_impact_question,
+)
 from .product_owner_agent_contract import (
     PRODUCT_OWNER_AGENT_ALLOWED_TOOLS,
     PRODUCT_OWNER_AGENT_CLI_RUNTIMES,
@@ -47,10 +53,10 @@ RUNTIME_UNAVAILABLE_STATUS = "runtime_unavailable"
 FAILED_VALIDATION_STATUS = "failed_validation"
 COMPLETED_STATUS = "completed"
 BLOCKED_STATUS = "blocked"
-PRIORITIES = {"low", "medium", "high"}
 CONFIDENCES = {"low", "medium", "high"}
 BUSINESS_VALUES = {"low", "medium", "high"}
 BLOCKING_DECISION_STATUSES = {"open", "resolved"}
+QUESTION_CONFIDENCE_PRIORITY = {"low": "high", "medium": "medium", "high": "low"}
 DEFAULT_COMPLETENESS_THRESHOLD = 70
 BLOCKED_COMPLETENESS_CAP = 60
 PROMPT_TEXT_LIMIT_CHARS = 8_000
@@ -122,6 +128,12 @@ def _enum_value(item: dict[str, Any], key: str, allowed: set[str], default: str,
     return value
 
 
+def _question_priority(question: dict[str, Any]) -> str:
+    if question.get("blocking"):
+        return "high"
+    return QUESTION_CONFIDENCE_PRIORITY.get(str(question.get("confidence")), "medium")
+
+
 class ProductOwnerAgent:
     """Lógica pura del ProductOwnerAgent: arma el prompt, valida la salida y calcula la completitud.
 
@@ -171,9 +183,12 @@ class ProductOwnerAgent:
             "valid JSON, without markdown fences, matching this schema: "
             + json_dumps(self.contract()["outputSchema"])
             + " Rules: a user story represents user value (asA/iWant/soThat) and is never duplicated per "
-            "technical role; surface clarifying questions and explicit assumptions; record any decision that "
-            "must be made before building as a blockingDecision with status open; do not invent acceptance "
-            "criteria without a story. Each generated story must include at least one acceptance criterion."
+            "technical role; record any decision that must be made before building as a blockingDecision with "
+            "status open; do not invent acceptance criteria without a story; each generated story must include "
+            "at least one acceptance criterion. Every question is an impact-ranked object with category (one of "
+            "scope/users/data/integration/compliance/nonfunctional/ux/risk/delivery), question, whyItMatters, "
+            "blocking (boolean), options (>=2 strings), recommendation (one of options), defaultDecision (one of "
+            "options) and confidence (low/medium/high); do not ask about facts already present in the assessment."
         )
 
     def validate_output(self, payload: Any) -> dict[str, Any]:
@@ -202,19 +217,10 @@ class ProductOwnerAgent:
     def _validate_questions(self, value: Any) -> list[dict[str, Any]]:
         if not isinstance(value, list):
             raise ProductOwnerOutputValidationError("questions must be a list.")
-        questions: list[dict[str, Any]] = []
-        for index, item in enumerate(value):
-            if not isinstance(item, dict):
-                raise ProductOwnerOutputValidationError(f"questions[{index}] must be an object.")
-            questions.append(
-                {
-                    "question": _required_text(item, "question", field=f"questions[{index}]"),
-                    "priority": _enum_value(
-                        item, "priority", PRIORITIES, "medium", field=f"questions[{index}]"
-                    ),
-                }
-            )
-        return questions
+        try:
+            return [validate_impact_question(item, index=index) for index, item in enumerate(value)]
+        except ImpactQuestionValidationError as error:
+            raise ProductOwnerOutputValidationError(str(error)) from error
 
     def _validate_assumptions(self, value: Any) -> list[dict[str, Any]]:
         if not isinstance(value, list):
@@ -547,9 +553,19 @@ class ProductOwnerAgentRunner:
                     "projectId": project_id,
                     "initiativeId": initiative_id,
                     "question": question["question"],
-                    "priority": question["priority"],
+                    "priority": _question_priority(question),
                     "askedBy": PRODUCT_OWNER_AGENT_ID,
-                    "metadata": {"source": PRODUCT_OWNER_AGENT_ID, "taskId": task_id},
+                    "metadata": {
+                        "source": PRODUCT_OWNER_AGENT_ID,
+                        "taskId": task_id,
+                        "category": question["category"],
+                        "whyItMatters": question["whyItMatters"],
+                        "blocking": question["blocking"],
+                        "options": question["options"],
+                        "recommendation": question["recommendation"],
+                        "defaultDecision": question["defaultDecision"],
+                        "confidence": question["confidence"],
+                    },
                 }
             )
             for question in output["questions"]
@@ -811,10 +827,21 @@ class ProductOwnerAgentRunner:
             runtime_output = self._runtime_output_text(runtime_result)
             result["outputArtifactId"] = runtime_output["artifactId"]
             output = self.agent.validate_output(self._json_object_from_text(runtime_output["text"]))
-        except ProductOwnerOutputValidationError as error:
+            selection = ImpactQuestionEngine().select(
+                output["questions"],
+                detected_facts=detected_facts_from_assessment(
+                    brief=assessment.get("brief"),
+                    existing_questions=assessment.get("openQuestions"),
+                ),
+            )
+        except (ProductOwnerOutputValidationError, ImpactQuestionValidationError) as error:
             result["status"] = FAILED_VALIDATION_STATUS
             result["reason"] = str(error)
             return result
+        output["questions"] = selection["turn"]
+        output["deferredQuestions"] = selection["deferred"]
+        output["suppressedQuestions"] = selection["suppressed"]
+        output["questionSelection"] = selection["counts"]
 
         unresolved = self.agent.unresolved_blocking_decisions(output["blockingDecisions"])
         existing_unresolved = assessment.get("unresolvedDecisions") or []

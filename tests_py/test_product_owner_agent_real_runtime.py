@@ -118,10 +118,50 @@ def start_controlled_provider(content: str) -> tuple[ThreadingHTTPServer, str]:
     return server, f"http://{host}:{port}"
 
 
+def impact_question(*, category: str, text: str, blocking: bool, confidence: str) -> dict[str, Any]:
+    return {
+        "category": category,
+        "question": text,
+        "whyItMatters": f"It changes the {category} plan and estimates.",
+        "blocking": blocking,
+        "options": ["Option A", "Option B"],
+        "recommendation": "Option A",
+        "defaultDecision": "Option A",
+        "confidence": confidence,
+    }
+
+
+def discovery_questions() -> list[dict[str, Any]]:
+    # Six candidates so the engine groups five per turn and defers the lowest-impact one (the ux/high one).
+    return [
+        impact_question(
+            category="compliance",
+            text="Which jurisdictions must we support?",
+            blocking=True,
+            confidence="low",
+        ),
+        impact_question(
+            category="data", text="Which records must be retained?", blocking=True, confidence="medium"
+        ),
+        impact_question(
+            category="integration", text="Which payment APIs are in scope?", blocking=False, confidence="low"
+        ),
+        impact_question(
+            category="scope", text="What is in scope for v1?", blocking=False, confidence="medium"
+        ),
+        impact_question(
+            category="users", text="Who is the primary persona?", blocking=False, confidence="medium"
+        ),
+        impact_question(
+            category="ux", text="Which onboarding tone do we want?", blocking=False, confidence="high"
+        ),
+    ]
+
+
 def product_owner_output(*, blocking: bool) -> dict[str, Any]:
     return {
         "completeness": {"score": 90, "missing": [], "rationale": "Brief covers the core."},
-        "questions": [{"question": "Which platform do we target first?", "priority": "high"}],
+        "questions": discovery_questions(),
         "assumptions": [
             {"statement": "Users already have email accounts.", "confidence": "high", "validation": "survey"}
         ],
@@ -268,13 +308,31 @@ def test_product_owner_agent_valid_output_generates_brief_and_backlog(
     assert body["completeness"]["meetsThreshold"] is True
     assert body["evidencePackage"]["qaVerdict"] == "backlog_generated"
     assert body["agentRun"]["status"] == "completed"
+    # The impact engine groups at most five questions per turn and defers the lowest-impact one.
+    assert body["output"]["questionSelection"] == {
+        "candidates": 6,
+        "asked": 5,
+        "deferred": 1,
+        "suppressed": 0,
+    }
+    assert [q["category"] for q in body["output"]["deferredQuestions"]] == ["ux"]
 
     discovery = ProductDiscoveryRepository(store.connection)
     backlog = BacklogRepository(store.connection)
     initiatives = discovery.list_initiatives(project["id"])
     assert len(initiatives) == 1
     initiative_id = initiatives[0]["id"]
-    assert discovery.list_clarification_questions(initiative_id=initiative_id)
+    persisted_questions = discovery.list_clarification_questions(initiative_id=initiative_id)
+    assert len(persisted_questions) == 5  # exactly the turn, not all six candidates
+    # The blocking, lowest-confidence compliance question is asked first and keeps the eight-field payload.
+    top = persisted_questions[0]
+    assert top["metadata"]["category"] == "compliance"
+    assert top["metadata"]["blocking"] is True
+    assert top["metadata"]["recommendation"] == "Option A"
+    assert top["metadata"]["defaultDecision"] == "Option A"
+    assert top["metadata"]["confidence"] == "low"
+    assert top["metadata"]["whyItMatters"]
+    assert top["priority"] == "high"
     assert discovery.list_assumptions(initiative_id=initiative_id)
     briefs = discovery.list_product_briefs(initiative_id=initiative_id)
     assert briefs and briefs[0]["goals"] == ["Cut setup steps", "Raise day-1 activation"]

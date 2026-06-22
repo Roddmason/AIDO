@@ -1,0 +1,180 @@
+"""Motor de preguntas por impacto: valida, prioriza y agrupa preguntas de descubrimiento.
+
+Cada pregunta declara category, question, whyItMatters, blocking, options, recommendation,
+defaultDecision y confidence. El motor valida ese contrato estricto, descarta lo ya detectado en el
+repositorio (para no repreguntar), ordena por impacto (bloqueo > menor confianza > peso de categoría)
+y agrupa como máximo cinco preguntas por turno; el resto queda diferido con su decisión por defecto
+para que el flujo pueda avanzar sin bloquearse.
+"""
+
+from __future__ import annotations
+
+import re
+from typing import Any
+
+QUESTION_CATEGORIES = {
+    "scope",
+    "users",
+    "data",
+    "integration",
+    "compliance",
+    "nonfunctional",
+    "ux",
+    "risk",
+    "delivery",
+}
+CONFIDENCES = {"low", "medium", "high"}
+MAX_QUESTIONS_PER_TURN = 5
+MIN_OPTIONS = 2
+BLOCKING_IMPACT = 1000
+CONFIDENCE_IMPACT = {"low": 100, "medium": 50, "high": 20}
+CATEGORY_IMPACT = {
+    "compliance": 50,
+    "data": 45,
+    "risk": 45,
+    "integration": 35,
+    "scope": 30,
+    "users": 25,
+    "nonfunctional": 20,
+    "delivery": 15,
+    "ux": 10,
+}
+# Campos del brief que, si ya están poblados, marcan su categoría como detectada en el repositorio.
+BRIEF_FIELD_CATEGORY = {"targetUsers": "users", "scope": "scope", "successMetrics": "delivery"}
+
+
+class ImpactQuestionValidationError(ValueError):
+    """Se lanza cuando una pregunta no cumple el contrato del motor de preguntas por impacto."""
+
+
+def _required_text(item: dict[str, Any], key: str, *, index: int) -> str:
+    value = str(item.get(key) or "").strip()
+    if not value:
+        raise ImpactQuestionValidationError(f"questions[{index}].{key} is required.")
+    return value
+
+
+def _slug(text: str) -> str:
+    return "-".join(re.findall(r"[a-z0-9]+", str(text or "").lower()))[:80]
+
+
+def question_dedup_key(question: dict[str, Any]) -> str:
+    """Clave determinista (category + slug del texto) para detectar preguntas repetidas o ya resueltas."""
+    return f"{question.get('category')}:{_slug(question.get('question', ''))}"
+
+
+def impact_score(question: dict[str, Any]) -> int:
+    """Puntúa el impacto: el bloqueo domina, luego la menor confianza y el peso de la categoría."""
+    blocking = BLOCKING_IMPACT if question.get("blocking") else 0
+    confidence = CONFIDENCE_IMPACT.get(str(question.get("confidence")), CONFIDENCE_IMPACT["high"])
+    category = CATEGORY_IMPACT.get(str(question.get("category")), 10)
+    return blocking + confidence + category
+
+
+def validate_impact_question(item: Any, *, index: int = 0) -> dict[str, Any]:
+    """Valida y normaliza una pregunta contra el contrato de ocho campos del motor.
+
+    Raises:
+        ImpactQuestionValidationError: si falta un campo, un tipo no coincide o un enum es inválido
+            (category/confidence fuera de catálogo, options con menos de dos opciones, o
+            recommendation/defaultDecision que no figuran entre las options).
+    """
+    if not isinstance(item, dict):
+        raise ImpactQuestionValidationError(f"questions[{index}] must be an object.")
+    category = str(item.get("category") or "").strip().lower()
+    if category not in QUESTION_CATEGORIES:
+        raise ImpactQuestionValidationError(
+            f"questions[{index}].category must be one of {sorted(QUESTION_CATEGORIES)}."
+        )
+    confidence = str(item.get("confidence") or "").strip().lower()
+    if confidence not in CONFIDENCES:
+        raise ImpactQuestionValidationError(
+            f"questions[{index}].confidence must be one of {sorted(CONFIDENCES)}."
+        )
+    blocking = item.get("blocking")
+    if not isinstance(blocking, bool):
+        raise ImpactQuestionValidationError(f"questions[{index}].blocking must be a boolean.")
+    options = item.get("options")
+    if not isinstance(options, list):
+        raise ImpactQuestionValidationError(f"questions[{index}].options must be a list.")
+    normalized_options = [
+        str(option).strip() for option in options if isinstance(option, str) and option.strip()
+    ]
+    if len(normalized_options) < MIN_OPTIONS or len(normalized_options) != len(options):
+        raise ImpactQuestionValidationError(
+            f"questions[{index}].options must list at least {MIN_OPTIONS} non-empty strings."
+        )
+    recommendation = _required_text(item, "recommendation", index=index)
+    default_decision = _required_text(item, "defaultDecision", index=index)
+    if recommendation not in normalized_options:
+        raise ImpactQuestionValidationError(f"questions[{index}].recommendation must be one of options.")
+    if default_decision not in normalized_options:
+        raise ImpactQuestionValidationError(f"questions[{index}].defaultDecision must be one of options.")
+    return {
+        "category": category,
+        "question": _required_text(item, "question", index=index),
+        "whyItMatters": _required_text(item, "whyItMatters", index=index),
+        "blocking": blocking,
+        "options": normalized_options,
+        "recommendation": recommendation,
+        "defaultDecision": default_decision,
+        "confidence": confidence,
+    }
+
+
+def detected_facts_from_assessment(
+    *, brief: dict[str, Any] | None = None, existing_questions: list[dict[str, Any]] | None = None
+) -> set[str]:
+    """Reúne lo ya detectado en el repositorio: claves de preguntas previas y categorías cubiertas por el brief.
+
+    Un campo poblado del brief (targetUsers/scope/successMetrics) marca su categoría como detectada;
+    cada pregunta existente aporta su clave puntual para no repetir exactamente la misma pregunta.
+    """
+    facts: set[str] = set()
+    for field, category in BRIEF_FIELD_CATEGORY.items():
+        if (brief or {}).get(field):
+            facts.add(category)
+    for question in existing_questions or []:
+        category = str((question.get("metadata") or {}).get("category") or question.get("category") or "")
+        facts.add(f"{category}:{_slug(question.get('question', ''))}")
+    return facts
+
+
+class ImpactQuestionEngine:
+    """Agrupa preguntas por impacto: valida, descarta lo ya detectado y limita a cinco por turno."""
+
+    def __init__(self, *, max_per_turn: int = MAX_QUESTIONS_PER_TURN):
+        self.max_per_turn = max_per_turn
+
+    def select(self, candidates: list[Any], *, detected_facts: set[str] | None = None) -> dict[str, Any]:
+        """Valida, descarta lo ya detectado, ordena por impacto y separa el turno (≤max) de lo diferido.
+
+        Una candidata se descarta si su clave puntual o su categoría ya están en ``detected_facts``.
+        Las diferidas conservan su ``defaultDecision`` para poder avanzar sin haberlas preguntado.
+
+        Raises:
+            ImpactQuestionValidationError: si alguna candidata no cumple el contrato de ocho campos.
+        """
+        detected = detected_facts or set()
+        validated = [validate_impact_question(item, index=index) for index, item in enumerate(candidates)]
+        kept: list[dict[str, Any]] = []
+        suppressed: list[dict[str, Any]] = []
+        for question in validated:
+            if question_dedup_key(question) in detected or question["category"] in detected:
+                suppressed.append(question)
+            else:
+                kept.append(question)
+        ranked = sorted(kept, key=lambda question: -impact_score(question))
+        turn = ranked[: self.max_per_turn]
+        deferred = ranked[self.max_per_turn :]
+        return {
+            "turn": turn,
+            "deferred": deferred,
+            "suppressed": suppressed,
+            "counts": {
+                "candidates": len(validated),
+                "asked": len(turn),
+                "deferred": len(deferred),
+                "suppressed": len(suppressed),
+            },
+        }

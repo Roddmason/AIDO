@@ -1,18 +1,22 @@
 /**
- * Workbench IDE shell: composes the explorer, task/timeline/diff/evidence/logs tabs and inspector
- * into the single screen where a workspace task is intaked, run under governance and reviewed.
- * Owns the page-level UI state (prompt, active tab, selected session/run, task mode) and wires
- * intake (session + chat + pipeline) to the API; the derived data comes from useWorkbenchData.
+ * Workbench IDE shell: a single composer drives the product loop (conversation → questions →
+ * brief → assumptions → decisions → architecture → backlog → iteration → execution → review),
+ * laid out with the explorer and inspector. Owns the page-level UI state (prompt, active loop
+ * section, selected session/run, task mode) and wires intake (session + chat + pipeline) to the
+ * API; the derived data comes from useWorkbenchData. Sections wired to live overview data render
+ * real content; the discovery/backlog sections render an honest shell until their endpoint exists.
  */
 import {
 	Bot,
 	CheckCircle2,
+	ClipboardCheck,
 	Code2,
 	FileCheck2,
 	FolderKanban,
 	GitBranch,
 	Rocket,
 	Users,
+	Workflow,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type {
@@ -45,10 +49,10 @@ import { LogsPanel } from './panels/LogsPanel';
 import { TimelinePanel } from './panels/TimelinePanel';
 import { WorkbenchDiffPanel } from './panels/WorkbenchDiffPanel';
 import { WorkbenchEvidencePanel } from './panels/WorkbenchEvidencePanel';
+import { buildProductLoopSections, type ProductLoopSectionId } from './productLoopModel';
 import { formatTime, NEW_SESSION_ID, useWorkbenchData } from './useWorkbenchData';
 import { WorkbenchExplorer } from './WorkbenchExplorer';
 import { WorkbenchInspector } from './WorkbenchInspector';
-import type { WorkbenchTabId } from './WorkbenchTabs';
 import { WorkbenchTabs } from './WorkbenchTabs';
 import { WorkflowTimeline } from './WorkflowTimeline';
 import {
@@ -118,7 +122,8 @@ function defaultAdvanced(project: Project | null): GovernedAdvanced {
 
 /**
  * Top-level Workbench screen. Renders an empty state until a workspace is selected, then lays out
- * explorer, primary task/review column and inspector, and drives intake against the live API.
+ * explorer, the single-composer product-loop column and inspector, and drives intake against the
+ * live API.
  */
 export function WorkbenchPage({
 	overview,
@@ -151,7 +156,7 @@ export function WorkbenchPage({
 		chatId: string;
 		pipelineId: string;
 	} | null>(null);
-	const [activeTab, setActiveTab] = useState<WorkbenchTabId>('task');
+	const [activeSection, setActiveSection] = useState<ProductLoopSectionId>('conversation');
 	const [taskRunResult, setTaskRunResult] = useState<IssueToPatchResponse | null>(null);
 	const [isSubmittingTask, setIsSubmittingTask] = useState(false);
 	const [selectedRunId, setSelectedRunId] = useState('');
@@ -242,6 +247,9 @@ export function WorkbenchPage({
 	const trimmedPrompt = prompt.trim();
 	const isGoverned = composerMode !== 'conversation';
 	const composerDisabled = busy || !project || !trimmedPrompt || (isGoverned && !selectedRuntime);
+	// AIDO decides can run with no typed prompt (it falls back to the autonomous scoping prompt),
+	// so it is gated only on a project and, for governed runs, an executable runtime.
+	const aidoDecideDisabled = busy || !project || (isGoverned && !selectedRuntime);
 	const effectiveQaCommands = advanced.runChecks ? selectedQaPreset.commands : [];
 
 	const updateAdvanced = (patch: Partial<GovernedAdvanced>) =>
@@ -313,24 +321,30 @@ export function WorkbenchPage({
 		};
 	}, []);
 
-	const submitConversation = async (activeProject: Project, text: string, signal: AbortSignal) => {
+	const submitConversation = async (
+		activeProject: Project,
+		text: string,
+		signal: AbortSignal,
+		titleOverride?: string,
+	) => {
 		setBusy(true);
 		setError('');
 		setCreated(null);
+		const sendTitle = titleOverride ?? submitTitle;
 		try {
 			const result = await mutate(async (token) => {
 				let session = activeSession;
 				if (!session) {
 					const sessionResult: SessionCreateResponse = await createSession(
 						token,
-						{ projectId: activeProject.id, teamId: primaryTeam?.id, name: submitTitle },
+						{ projectId: activeProject.id, teamId: primaryTeam?.id, name: sendTitle },
 						signal,
 					);
 					session = sessionResult.session;
 				}
 				const chatResult: ChatCreateResponse = await createChat(
 					token,
-					{ projectId: activeProject.id, sessionId: session.id, prompt: text, title: submitTitle },
+					{ projectId: activeProject.id, sessionId: session.id, prompt: text, title: sendTitle },
 					signal,
 				);
 				const pipelineResult: PipelineCreateResponse = await createPipeline(
@@ -339,7 +353,7 @@ export function WorkbenchPage({
 						projectId: activeProject.id,
 						sessionId: session.id,
 						chatId: chatResult.chat.id,
-						title: submitTitle,
+						title: sendTitle,
 						stages: [
 							{ id: 'intake', status: 'created', owner: 'product_owner', source: 'workbench_chat' },
 							{ id: 'planning', status: 'pending', owner: 'technical_lead' },
@@ -375,7 +389,11 @@ export function WorkbenchPage({
 		}
 	};
 
-	const submitGoverned = async (activeProject: Project, text: string) => {
+	const submitGoverned = async (
+		activeProject: Project,
+		text: string,
+		{ autonomous = false, titleOverride }: { autonomous?: boolean; titleOverride?: string } = {},
+	) => {
 		if (!selectedRuntime) {
 			setError(runtimeBlockerReason);
 			return;
@@ -391,17 +409,18 @@ export function WorkbenchPage({
 		setIsSubmittingTask(true);
 		setError('');
 		setTaskRunResult(null);
+		const sendTitle = titleOverride ?? submitTitle;
 		try {
 			const response = await mutate((token) =>
 				runIssueToPatch(token, {
 					projectId: activeProject.id,
-					title: submitTitle,
+					title: sendTitle,
 					issueText: text,
 					targetPath: advanced.targetPath.trim() || undefined,
 					preferredRuntime: selectedRuntime.id,
 					qaCommands: effectiveQaCommands.length ? effectiveQaCommands : undefined,
 					maxCostUsd: parsedMaxCost,
-					requireApproval: advanced.requireReview,
+					requireApproval: autonomous ? false : advanced.requireReview,
 				}),
 			);
 			setTaskRunResult(response);
@@ -417,28 +436,51 @@ export function WorkbenchPage({
 		}
 	};
 
-	const submitComposer = () => {
+	// One submit path for both primary buttons: Respond runs the typed intake; AIDO decides runs
+	// autonomously — it falls back to the scoping prompt when none is typed and, for governed
+	// runs, drops the human approval gate (requireApproval=false).
+	const runComposer = (autonomous: boolean) => {
 		if (!project) {
 			setError(
 				t('app.workbench.error.noProject', 'Select a workspace folder before starting intake.'),
 			);
 			return;
 		}
-		const text = prompt.trim();
+		const typed = prompt.trim();
+		const text =
+			typed ||
+			(autonomous
+				? t(
+						'app.workbench.chat.quickPrompt',
+						'Inspect this workspace, identify the real architecture and propose the smallest safe execution plan with QA evidence.',
+					)
+				: '');
 		if (!text) {
 			setError(t('app.workbench.error.noPrompt', 'Write a prompt before starting intake.'));
 			return;
 		}
+		// When the prompt was just injected (autonomous from an empty composer), submitTitle still
+		// reflects the empty prompt this render, so derive the title from the resolved text instead.
+		const injectedTitle =
+			!typed && autonomous
+				? deriveTitle(text, composerMode, activeModeLabel) || firstLine(text)
+				: undefined;
+		if (!typed && autonomous) {
+			setPrompt(text);
+			setTitleEdited(false);
+		}
 		if (isGoverned) {
-			void submitGoverned(project, text);
+			void submitGoverned(project, text, { autonomous, titleOverride: injectedTitle });
 			return;
 		}
 		const controller = new AbortController();
 		abortRef.current = controller;
-		void submitConversation(project, text, controller.signal).finally(() => {
+		void submitConversation(project, text, controller.signal, injectedTitle).finally(() => {
 			if (abortRef.current === controller) abortRef.current = null;
 		});
 	};
+	const submitComposer = () => runComposer(false);
+	const submitAidoDecide = () => runComposer(true);
 
 	const cancelConversation = () => abortRef.current?.abort();
 
@@ -462,28 +504,38 @@ export function WorkbenchPage({
 
 	const onSelectRun = (runId: string) => {
 		setSelectedRunId(runId);
-		setActiveTab('timeline');
+		setActiveSection('iteration');
 	};
 
-	const tabs = [
-		{ id: 'task' as const, label: t('app.workbench.tab.task', 'Task') },
-		{
-			id: 'timeline' as const,
-			label: t('app.workbench.tab.timeline', 'Timeline'),
-			count: projectWorkflowRuns.length,
-		},
-		{ id: 'diff' as const, label: t('app.workbench.tab.diff', 'Diff') },
-		{
-			id: 'evidence' as const,
-			label: t('app.workbench.tab.evidence', 'Evidence'),
-			count: projectEvidence.length,
-		},
-		{
-			id: 'logs' as const,
-			label: t('app.workbench.tab.logs', 'Logs'),
-			count: projectEvents.length + projectWorkflowEvents.length,
-		},
-	];
+	// Tab badges count only what is wired to live overview data today; the discovery and backlog
+	// sections stay at 0 (an honest empty shell) until their HTTP endpoints exist.
+	const loopSections = buildProductLoopSections({
+		conversation: sessionChats.length,
+		iteration: sessionPipelines.length,
+		execution: projectWorkflowRuns.length,
+		review: projectEvidence.length,
+	});
+	const loopTabs = loopSections.map((section) => ({
+		id: section.id,
+		label: t(section.labelKey, section.label),
+		count: section.count,
+	}));
+
+	// Honest shell for the loop sections whose product-discovery/backlog/loop endpoint is not wired
+	// yet: a pending badge plus an empty state describing what will populate it.
+	const renderLoopShell = (
+		titleKey: string,
+		titleFallback: string,
+		bodyKey: string,
+		bodyFallback: string,
+	) => (
+		<div className="stack">
+			<div className="inline">
+				<Badge tone="pending">{t('app.workbench.loop.shellBadge', 'Not connected yet')}</Badge>
+			</div>
+			<EmptyState title={t(titleKey, titleFallback)} body={t(bodyKey, bodyFallback)} />
+		</div>
+	);
 
 	const header = (
 		<PageHeader
@@ -561,6 +613,202 @@ export function WorkbenchPage({
 						</button>
 					</div>
 
+					{/* Single composer: always visible, drives every loop action from one place. */}
+					<Surface flat>
+						<div className="stack">
+							{taskRunResult ? (
+								<div className="form-success" role="status">
+									<CheckCircle2 aria-hidden="true" size={16} />
+									<span>
+										{t(
+											'app.workbench.review.ready',
+											'Run complete — review changes without leaving the workbench.',
+										)}
+									</span>
+									<Badge tone={toneForStatus(latestRunStatus)}>{latestRunStatus}</Badge>
+									{activeEvidence ? (
+										<Badge tone={toneForStatus(String(activeEvidence.qaVerdict))}>
+											QA {String(activeEvidence.qaVerdict ?? 'not_started')}
+										</Badge>
+									) : null}
+									{reviewChangedFiles !== null ? (
+										<span className="mono">
+											{t('app.workbench.review.changedFiles', 'changed files')} {reviewChangedFiles}
+										</span>
+									) : null}
+									<button
+										className="button"
+										type="button"
+										onClick={() => setActiveSection('execution')}
+									>
+										<Code2 aria-hidden="true" size={15} />{' '}
+										{t('app.workbench.review.diff', 'Review diff')}
+									</button>
+									<button
+										className="button"
+										type="button"
+										onClick={() => setActiveSection('review')}
+									>
+										<FileCheck2 aria-hidden="true" size={15} />{' '}
+										{t('app.workbench.review.evidence', 'Review evidence')}
+									</button>
+								</div>
+							) : null}
+
+							<TextArea
+								label={t('app.workbench.composer.promptLabel', 'What should AIDO do?')}
+								value={prompt}
+								rows={6}
+								disabled={!project || busy}
+								placeholder={t(
+									'app.workbench.composer.promptPlaceholder',
+									'Describe the task in plain language. The AI team plans, implements and tests it inside this workspace.',
+								)}
+								onChange={(event) => setPrompt(event.target.value)}
+							/>
+							<TextField
+								label={t('app.workbench.composer.titleLabel', 'Title')}
+								help={t(
+									'app.workbench.composer.titleHelp',
+									'Auto-derived from your prompt — edit to override.',
+								)}
+								value={effectiveTitle}
+								disabled={!project || busy}
+								onChange={(event) => {
+									setTitle(event.target.value);
+									setTitleEdited(true);
+								}}
+							/>
+							<SegmentedControl
+								label={t('app.workbench.task.modeLabel', 'Task intake mode')}
+								value={composerMode}
+								onChange={setComposerMode}
+								disabled={!project || busy}
+								options={COMPOSER_MODES.map((item) => ({
+									value: item.id,
+									label: t(item.labelKey, item.label),
+								}))}
+							/>
+
+							{isGoverned ? (
+								<GovernedAdvancedPanel
+									project={project}
+									busy={busy}
+									advanced={advanced}
+									onAdvancedChange={updateAdvanced}
+									executableRuntimes={executableRuntimes}
+									selectedRuntime={selectedRuntime}
+									selectedQaPreset={selectedQaPreset}
+									hasExecutableRuntime={hasExecutableRuntime}
+									runtimeBlockerReason={runtimeBlockerReason}
+									onConfigureRuntime={onOpenRuntimeSetup}
+								/>
+							) : null}
+
+							<div className="inline">
+								<Button
+									variant="primary"
+									icon={<Rocket aria-hidden="true" size={16} />}
+									disabled={composerDisabled}
+									onClick={submitComposer}
+								>
+									{busy
+										? isGoverned
+											? t('app.workbench.task.submitting', 'Requesting change')
+											: t('app.workbench.chat.creating', 'Creating work session')
+										: t('app.workbench.loop.respond', 'Respond')}
+								</Button>
+								<Button
+									icon={<Bot aria-hidden="true" size={16} />}
+									disabled={aidoDecideDisabled}
+									onClick={submitAidoDecide}
+								>
+									{t('app.workbench.loop.aidoDecide', 'AIDO decides')}
+								</Button>
+								<Button
+									icon={<FileCheck2 aria-hidden="true" size={16} />}
+									disabled={busy}
+									onClick={() => setActiveSection('brief')}
+								>
+									{t('app.workbench.loop.reviewBrief', 'Review brief')}
+								</Button>
+								<Button
+									icon={<ClipboardCheck aria-hidden="true" size={16} />}
+									disabled={busy}
+									onClick={() => setActiveSection('backlog')}
+								>
+									{t('app.workbench.loop.approveBacklog', 'Approve backlog')}
+								</Button>
+								<Button
+									icon={<Workflow aria-hidden="true" size={16} />}
+									disabled={busy}
+									onClick={() => setActiveSection('iteration')}
+								>
+									{t('app.workbench.loop.startIteration', 'Start iteration')}
+								</Button>
+								{!isGoverned && busy ? (
+									<Button onClick={cancelConversation}>
+										{t('app.workbench.composer.cancel', 'Cancel intake')}
+									</Button>
+								) : null}
+								{isGoverned ? (
+									selectedRuntime ? (
+										<Badge tone="ok">{selectedRuntime.displayName}</Badge>
+									) : (
+										<Badge tone="danger">runtime_unavailable</Badge>
+									)
+								) : null}
+							</div>
+
+							{error ? (
+								<div className="form-error" role="alert">
+									{error}
+								</div>
+							) : null}
+							{created ? (
+								<div className="form-success" role="status">
+									<CheckCircle2 aria-hidden="true" size={16} />
+									<span>{t('app.workbench.chat.created', 'Chat intake created')}</span>
+									<span className="mono">{shortId(created.sessionId)}</span>
+									<span>{t('app.workbench.chat.pipelineLinked', 'pipeline')}</span>
+									<span className="mono">{shortId(created.pipelineId)}</span>
+								</div>
+							) : null}
+
+							{taskRunResult ? (
+								<div className="stack" aria-live="polite">
+									<div className="inline">
+										<Badge tone={toneForStatus(resultStatus)}>{resultStatus || 'no_status'}</Badge>
+										<Badge>{String(resultRuntime?.id ?? 'no_runtime')}</Badge>
+										<Badge tone={toneForStatus(executionMode)}>{executionMode}</Badge>
+										<Badge
+											tone={
+												resultQa
+													? toneForStatus(String(resultQa?.status ?? resultQa?.verdict ?? ''))
+													: 'warn'
+											}
+										>
+											{String(resultQa?.status ?? resultQa?.verdict ?? 'qa_not_run')}
+										</Badge>
+									</div>
+									<div className="mono">
+										{String(
+											taskRunResult.reason ??
+												resultRuntime?.reason ??
+												t('app.workbench.task.noReason', 'No runtime reason recorded.'),
+										)}
+									</div>
+									<div className="mono">
+										{t('app.workbench.task.evidenceLine', 'Evidence')}{' '}
+										{String(resultEvidence?.id ?? 'not_created')} /{' '}
+										{t('app.workbench.task.changedFiles', 'changed files')}{' '}
+										<span className="tnum">{Number.isFinite(changedFiles) ? changedFiles : 0}</span>
+									</div>
+								</div>
+							) : null}
+						</div>
+					</Surface>
+
 					<Surface title={t('app.workbench.runTimeline.title', 'Run timeline')} flat>
 						{hasRun ? (
 							<WorkflowTimeline
@@ -579,239 +827,104 @@ export function WorkbenchPage({
 						)}
 					</Surface>
 
-					<WorkbenchTabs tabs={tabs} activeTab={activeTab} onChangeTab={setActiveTab}>
-						{activeTab === 'task' ? (
-							<div className="stack">
-								{taskRunResult ? (
-									<div className="form-success" role="status">
-										<CheckCircle2 aria-hidden="true" size={16} />
-										<span>
-											{t(
-												'app.workbench.review.ready',
-												'Run complete — review changes without leaving the workbench.',
-											)}
-										</span>
-										<Badge tone={toneForStatus(latestRunStatus)}>{latestRunStatus}</Badge>
-										{activeEvidence ? (
-											<Badge tone={toneForStatus(String(activeEvidence.qaVerdict))}>
-												QA {String(activeEvidence.qaVerdict ?? 'not_started')}
-											</Badge>
-										) : null}
-										{reviewChangedFiles !== null ? (
-											<span className="mono">
-												{t('app.workbench.review.changedFiles', 'changed files')}{' '}
-												{reviewChangedFiles}
-											</span>
-										) : null}
-										<button className="button" type="button" onClick={() => setActiveTab('diff')}>
-											<Code2 aria-hidden="true" size={15} />{' '}
-											{t('app.workbench.review.diff', 'Review diff')}
-										</button>
-										<button
-											className="button"
-											type="button"
-											onClick={() => setActiveTab('evidence')}
-										>
-											<FileCheck2 aria-hidden="true" size={15} />{' '}
-											{t('app.workbench.review.evidence', 'Review evidence')}
-										</button>
-									</div>
-								) : null}
-								<TextArea
-									label={t('app.workbench.composer.promptLabel', 'What should AIDO do?')}
-									value={prompt}
-									rows={6}
-									disabled={!project || busy}
-									placeholder={t(
-										'app.workbench.composer.promptPlaceholder',
-										'Describe the task in plain language. The AI team plans, implements and tests it inside this workspace.',
-									)}
-									onChange={(event) => setPrompt(event.target.value)}
-								/>
-								<TextField
-									label={t('app.workbench.composer.titleLabel', 'Title')}
-									help={t(
-										'app.workbench.composer.titleHelp',
-										'Auto-derived from your prompt — edit to override.',
-									)}
-									value={effectiveTitle}
-									disabled={!project || busy}
-									onChange={(event) => {
-										setTitle(event.target.value);
-										setTitleEdited(true);
-									}}
-								/>
-								<SegmentedControl
-									label={t('app.workbench.task.modeLabel', 'Task intake mode')}
-									value={composerMode}
-									onChange={setComposerMode}
-									disabled={!project || busy}
-									options={COMPOSER_MODES.map((item) => ({
-										value: item.id,
-										label: t(item.labelKey, item.label),
-									}))}
-								/>
-
-								{isGoverned ? (
-									<GovernedAdvancedPanel
-										project={project}
-										busy={busy}
-										advanced={advanced}
-										onAdvancedChange={updateAdvanced}
-										executableRuntimes={executableRuntimes}
-										selectedRuntime={selectedRuntime}
-										selectedQaPreset={selectedQaPreset}
-										hasExecutableRuntime={hasExecutableRuntime}
-										runtimeBlockerReason={runtimeBlockerReason}
-										onConfigureRuntime={onOpenRuntimeSetup}
-									/>
-								) : null}
-
-								<div className="inline">
-									<Button
-										variant="primary"
-										icon={<Rocket aria-hidden="true" size={16} />}
-										disabled={composerDisabled}
-										onClick={submitComposer}
-									>
-										{busy
-											? isGoverned
-												? t('app.workbench.task.submitting', 'Requesting change')
-												: t('app.workbench.chat.creating', 'Creating work session')
-											: isGoverned
-												? t('app.workbench.task.submit', 'Request change')
-												: t('app.workbench.chat.submit', 'Start intake')}
-									</Button>
-									{!isGoverned && busy ? (
-										<Button onClick={cancelConversation}>
-											{t('app.workbench.composer.cancel', 'Cancel intake')}
-										</Button>
-									) : null}
-									{!isGoverned ? (
-										<Button
-											icon={<Bot aria-hidden="true" size={16} />}
-											disabled={!project || busy}
-											onClick={() => {
-												setPrompt(
-													t(
-														'app.workbench.chat.quickPrompt',
-														'Inspect this workspace, identify the real architecture and propose the smallest safe execution plan with QA evidence.',
-													),
-												);
-												setTitleEdited(false);
-											}}
-										>
-											{t('app.workbench.chat.quickAction', 'Scope with team')}
-										</Button>
-									) : null}
-									{isGoverned ? (
-										selectedRuntime ? (
-											<Badge tone="ok">{selectedRuntime.displayName}</Badge>
-										) : (
-											<Badge tone="danger">runtime_unavailable</Badge>
+					<WorkbenchTabs tabs={loopTabs} activeTab={activeSection} onChangeTab={setActiveSection}>
+						{activeSection === 'conversation' ? (
+							<div className="workbench-chat">
+								<div
+									id="workbench-chat-transcript"
+									className="chat-transcript"
+									aria-label={t('app.workbench.chat.history', 'Session chat history')}
+								>
+									{sessionChats.length ? (
+										(showAllChats ? sessionChats : sessionChats.slice(0, CHAT_PREVIEW_COUNT)).map(
+											(chat) => (
+												<article className="chat-bubble" key={chat.id}>
+													<div className="chat-bubble-header">
+														<Badge tone={toneForStatus(String(chat.status ?? 'active'))}>
+															{String(chat.status ?? 'active')}
+														</Badge>
+														<span className="mono">{shortId(chat.id)}</span>
+														<span className="muted">{formatTime(chat.createdAt)}</span>
+													</div>
+													<strong>{chat.title}</strong>
+													<p>{chat.prompt}</p>
+												</article>
+											),
 										)
-									) : null}
-								</div>
-
-								{error ? (
-									<div className="form-error" role="alert">
-										{error}
-									</div>
-								) : null}
-								{created ? (
-									<div className="form-success" role="status">
-										<CheckCircle2 aria-hidden="true" size={16} />
-										<span>{t('app.workbench.chat.created', 'Chat intake created')}</span>
-										<span className="mono">{shortId(created.sessionId)}</span>
-										<span>{t('app.workbench.chat.pipelineLinked', 'pipeline')}</span>
-										<span className="mono">{shortId(created.pipelineId)}</span>
-									</div>
-								) : null}
-
-								{taskRunResult ? (
-									<div className="stack" aria-live="polite">
-										<div className="inline">
-											<Badge tone={toneForStatus(resultStatus)}>
-												{resultStatus || 'no_status'}
-											</Badge>
-											<Badge>{String(resultRuntime?.id ?? 'no_runtime')}</Badge>
-											<Badge tone={toneForStatus(executionMode)}>{executionMode}</Badge>
-											<Badge
-												tone={
-													resultQa
-														? toneForStatus(String(resultQa?.status ?? resultQa?.verdict ?? ''))
-														: 'warn'
-												}
-											>
-												{String(resultQa?.status ?? resultQa?.verdict ?? 'qa_not_run')}
-											</Badge>
-										</div>
-										<div className="mono">
-											{String(
-												taskRunResult.reason ??
-													resultRuntime?.reason ??
-													t('app.workbench.task.noReason', 'No runtime reason recorded.'),
+									) : (
+										<EmptyState
+											title={t('app.workbench.chat.emptyTitle', 'No chat in this session')}
+											body={t(
+												'app.workbench.chat.emptyBody',
+												'Use the composer to start coordinated project work for this workspace.',
 											)}
-										</div>
-										<div className="mono">
-											{t('app.workbench.task.evidenceLine', 'Evidence')}{' '}
-											{String(resultEvidence?.id ?? 'not_created')} /{' '}
-											{t('app.workbench.task.changedFiles', 'changed files')}{' '}
-											<span className="tnum">
-												{Number.isFinite(changedFiles) ? changedFiles : 0}
-											</span>
-										</div>
-									</div>
-								) : null}
-
-								<div className="workbench-chat">
-									<div
-										id="workbench-chat-transcript"
-										className="chat-transcript"
-										aria-label={t('app.workbench.chat.history', 'Session chat history')}
-									>
-										{sessionChats.length ? (
-											(showAllChats ? sessionChats : sessionChats.slice(0, CHAT_PREVIEW_COUNT)).map(
-												(chat) => (
-													<article className="chat-bubble" key={chat.id}>
-														<div className="chat-bubble-header">
-															<Badge tone={toneForStatus(String(chat.status ?? 'active'))}>
-																{String(chat.status ?? 'active')}
-															</Badge>
-															<span className="mono">{shortId(chat.id)}</span>
-															<span className="muted">{formatTime(chat.createdAt)}</span>
-														</div>
-														<strong>{chat.title}</strong>
-														<p>{chat.prompt}</p>
-													</article>
-												),
-											)
-										) : (
-											<EmptyState
-												title={t('app.workbench.chat.emptyTitle', 'No chat in this session')}
-												body={t(
-													'app.workbench.chat.emptyBody',
-													'Use the composer to start coordinated project work for this workspace.',
-												)}
-											/>
-										)}
-									</div>
-									{sessionChats.length > CHAT_PREVIEW_COUNT ? (
-										<Button
-											aria-expanded={showAllChats}
-											aria-controls="workbench-chat-transcript"
-											onClick={() => setShowAllChats((open) => !open)}
-										>
-											{showAllChats
-												? t('app.workbench.chat.showFewer', 'Show fewer')
-												: t('app.workbench.chat.viewFull', 'View full chat history')}
-										</Button>
-									) : null}
+										/>
+									)}
 								</div>
+								{sessionChats.length > CHAT_PREVIEW_COUNT ? (
+									<Button
+										aria-expanded={showAllChats}
+										aria-controls="workbench-chat-transcript"
+										onClick={() => setShowAllChats((open) => !open)}
+									>
+										{showAllChats
+											? t('app.workbench.chat.showFewer', 'Show fewer')
+											: t('app.workbench.chat.viewFull', 'View full chat history')}
+									</Button>
+								) : null}
 							</div>
 						) : null}
 
-						{activeTab === 'timeline' ? (
+						{activeSection === 'questions'
+							? renderLoopShell(
+									'app.workbench.loop.questions.emptyTitle',
+									'No pending questions',
+									'app.workbench.loop.questions.emptyBody',
+									'AIDO surfaces impact questions here once discovery runs against this workspace.',
+								)
+							: null}
+						{activeSection === 'brief'
+							? renderLoopShell(
+									'app.workbench.loop.brief.emptyTitle',
+									'No product brief yet',
+									'app.workbench.loop.brief.emptyBody',
+									'The living product brief appears here once the product owner agent produces it.',
+								)
+							: null}
+						{activeSection === 'assumptions'
+							? renderLoopShell(
+									'app.workbench.loop.assumptions.emptyTitle',
+									'No assumptions recorded',
+									'app.workbench.loop.assumptions.emptyBody',
+									'Assumptions captured during discovery are listed here with their rationale.',
+								)
+							: null}
+						{activeSection === 'decisions'
+							? renderLoopShell(
+									'app.workbench.loop.decisions.emptyTitle',
+									'No decisions yet',
+									'app.workbench.loop.decisions.emptyBody',
+									'Product and architecture decisions, with alternatives and reversibility, appear here.',
+								)
+							: null}
+						{activeSection === 'architecture'
+							? renderLoopShell(
+									'app.workbench.loop.architecture.emptyTitle',
+									'No architecture options yet',
+									'app.workbench.loop.architecture.emptyBody',
+									'Candidate architecture options and their tradeoffs are compared here.',
+								)
+							: null}
+						{activeSection === 'backlog'
+							? renderLoopShell(
+									'app.workbench.loop.backlog.emptyTitle',
+									'No backlog yet',
+									'app.workbench.loop.backlog.emptyBody',
+									'Epics, user stories and acceptance criteria appear here once the backlog is generated.',
+								)
+							: null}
+
+						{activeSection === 'iteration' ? (
 							<TimelinePanel
 								runTimeline={runTimeline}
 								hasRun={hasRun}
@@ -827,20 +940,23 @@ export function WorkbenchPage({
 								workflowRuns={projectWorkflowRuns}
 								workflowEvents={projectWorkflowEvents}
 								pipelines={sessionPipelines}
-								onOpenArtifact={() => setActiveTab('evidence')}
+								onOpenArtifact={() => setActiveSection('review')}
 							/>
 						) : null}
 
-						{activeTab === 'diff' ? (
-							<WorkbenchDiffPanel
-								token={token}
-								evidenceId={resolvedEvidenceId}
-								artifacts={projectArtifacts}
-								evidencePackage={activeEvidence}
-							/>
+						{activeSection === 'execution' ? (
+							<div className="stack">
+								<WorkbenchDiffPanel
+									token={token}
+									evidenceId={resolvedEvidenceId}
+									artifacts={projectArtifacts}
+									evidencePackage={activeEvidence}
+								/>
+								<LogsPanel events={projectEvents} workflowEvents={projectWorkflowEvents} />
+							</div>
 						) : null}
 
-						{activeTab === 'evidence' ? (
+						{activeSection === 'review' ? (
 							<WorkbenchEvidencePanel
 								token={token}
 								evidenceId={resolvedEvidenceId}
@@ -848,10 +964,6 @@ export function WorkbenchPage({
 								testResults={projectTestResults}
 								artifacts={projectArtifacts}
 							/>
-						) : null}
-
-						{activeTab === 'logs' ? (
-							<LogsPanel events={projectEvents} workflowEvents={projectWorkflowEvents} />
 						) : null}
 					</WorkbenchTabs>
 				</section>

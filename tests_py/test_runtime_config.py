@@ -79,7 +79,7 @@ def test_env_vars_are_override_only_not_normal_config(tmp_path: Path) -> None:
         # The env var ONLY overrides the persisted config.
         assert resolve_executable(installation, env={"AIDO_CODEX_COMMAND": "/opt/codex"}) == {
             "path": "/opt/codex",
-            "source": "env_override",
+            "source": "environment_override",
         }
 
         preferences = repo.get_preferences()

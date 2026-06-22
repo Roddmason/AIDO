@@ -38,6 +38,7 @@ def initialize_platform_schema(connection: sqlite3.Connection) -> None:
     init_phase19_schema(connection)
     init_phase20_schema(connection)
     init_phase21_schema(connection)
+    init_phase22_schema(connection)
     seed_platform_catalogs(connection)
 
 
@@ -2941,6 +2942,53 @@ def init_phase21_schema(connection: sqlite3.Connection) -> None:
     connection.execute(
         "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
         (21, utc_now()),
+    )
+
+
+def init_phase22_schema(connection: sqlite3.Connection) -> None:
+    """Fase 22: instala el metadato del CredentialManager (credential_refs) y su auditoría append-only
+    (credential_audit). SQLite SOLO guarda referencias al almacén externo (keyring/vault/openbao/dpapi/
+    env), el fingerprint (hash con sal, nunca el secreto) y el registro de operaciones; el valor del
+    secreto vive en su backend y nunca se persiste ni se devuelve por la API."""
+    connection.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS credential_refs (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL UNIQUE,
+            backend_kind TEXT NOT NULL,
+            locator TEXT NOT NULL,
+            fingerprint TEXT,
+            fingerprint_algo TEXT NOT NULL DEFAULT 'hmac-sha256',
+            salt TEXT,
+            auth_mode TEXT NOT NULL DEFAULT 'token',
+            status TEXT NOT NULL DEFAULT 'active',
+            enabled INTEGER NOT NULL DEFAULT 1,
+            rotated_at TEXT,
+            last_validated_at TEXT,
+            metadata TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS credential_audit (
+            id TEXT PRIMARY KEY,
+            credential_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            action TEXT NOT NULL,
+            outcome TEXT NOT NULL,
+            actor TEXT NOT NULL,
+            backend_kind TEXT NOT NULL,
+            detail TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_credential_refs_status
+            ON credential_refs(status, backend_kind);
+        CREATE INDEX IF NOT EXISTS idx_credential_audit_credential
+            ON credential_audit(credential_id, created_at);
+        """
+    )
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (22, utc_now()),
     )
 
 

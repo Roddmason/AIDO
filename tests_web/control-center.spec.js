@@ -947,8 +947,19 @@ test('Workbench chat creates a chat intake and linked pipeline', async ({ page }
 	await expect(page.locator('.workbench-layout')).toBeVisible();
 	await expect(page.getByRole('heading', { name: 'Work sessions' })).toBeVisible();
 
-	// The five primary views are exposed as accessible tabs.
-	for (const tabName of ['Task', 'Timeline', 'Diff', 'Evidence', 'Logs']) {
+	// The ten product-loop stages are exposed as accessible tabs.
+	for (const tabName of [
+		'Conversation',
+		'Questions',
+		'Product brief',
+		'Assumptions',
+		'Decisions',
+		'Architecture',
+		'Backlog',
+		'Iteration',
+		'Execution',
+		'Review',
+	]) {
 		await expect(page.getByRole('tab', { name: new RegExp(`^${tabName}`) })).toBeVisible();
 	}
 
@@ -958,18 +969,19 @@ test('Workbench chat creates a chat intake and linked pipeline', async ({ page }
 	await page.getByRole('dialog', { name: 'AI delivery team' }).getByRole('button', { name: 'Close AI delivery team' }).click();
 	await expect(page.getByRole('heading', { name: 'AI delivery team' })).toBeHidden();
 
-	// The project delivery flow lives in the Timeline tab.
-	await page.getByRole('tab', { name: /^Timeline/ }).click();
+	// The project delivery flow lives in the Iteration section.
+	await page.getByRole('tab', { name: /^Iteration/ }).click();
 	await expect(page.getByRole('heading', { name: 'Project delivery flow' })).toBeVisible();
 
-	// Compose the intake from the Task tab.
-	await page.getByRole('tab', { name: /^Task/ }).click();
+	// The single composer is always visible: compose the intake directly, no tab switch needed.
 	await page.getByLabel('Workspace folder', { exact: true }).selectOption(project.id);
 	await page.getByRole('button', { name: 'New work session' }).click();
 	await page.getByLabel('What should AIDO do?').fill(prompt);
-	await page.getByRole('button', { name: 'Start intake' }).click();
+	await page.getByRole('button', { name: 'Respond' }).click();
 
 	await expect(page.getByText('Chat intake created')).toBeVisible({ timeout: 30_000 });
+	// The new chat appears in the Conversation section transcript.
+	await page.getByRole('tab', { name: /^Conversation/ }).click();
 	await expect(page.getByText(prompt).first()).toBeVisible();
 	await expect
 		.poll(async () => {
@@ -2156,7 +2168,7 @@ test('Workbench governed patch blocks issue_to_patch when no executable runtime 
 	await expect(page.getByText('runtime_unavailable').first()).toBeVisible();
 	await expect(page.getByText(blockReason).first()).toBeVisible();
 	await expect(page.getByRole('button', { name: 'Configure runtime' })).toBeVisible();
-	await expect(page.getByRole('button', { name: 'Request change' })).toBeDisabled();
+	await expect(page.getByRole('button', { name: 'Respond' })).toBeDisabled();
 	await page.getByRole('button', { name: 'Advanced' }).click();
 	await expect(page.getByLabel('Preferred runtime')).toBeDisabled();
 	await expect(page.getByLabel('Preferred runtime')).not.toContainText('manual');
@@ -2210,14 +2222,14 @@ test('Workbench governed patch enables issue_to_patch only with an executable ru
 	await expect(page.locator('.workbench-layout')).toBeVisible();
 	await page.getByRole('radio', { name: 'Fix bug' }).click();
 
-	await expect(page.getByRole('button', { name: 'Request change' })).toBeDisabled();
+	await expect(page.getByRole('button', { name: 'Respond' })).toBeDisabled();
 	await page.getByRole('button', { name: 'Advanced' }).click();
 	await expect(page.getByLabel('Preferred runtime')).toBeEnabled();
 	await expect(page.getByLabel('Preferred runtime')).toContainText('codex_cli - executable');
 	await expect(page.getByLabel('Preferred runtime')).not.toContainText('manual');
 	await expect(page.getByLabel('Preferred runtime')).not.toContainText('internal_mock');
 	await page.getByLabel('What should AIDO do?').fill('Change a small file through the real runtime slice.');
-	await expect(page.getByRole('button', { name: 'Request change' })).toBeEnabled();
+	await expect(page.getByRole('button', { name: 'Respond' })).toBeEnabled();
 });
 
 test('Workbench governed patch keeps runtime, QA preset and cost inside Advanced', async ({ page }) => {
@@ -2295,8 +2307,8 @@ test('Workbench governed patch surfaces runtime_unavailable status honestly', as
 	await page.getByRole('radio', { name: 'Fix bug' }).click();
 
 	await page.getByLabel('What should AIDO do?').fill('Change a small file through the real runtime slice.');
-	await page.getByRole('button', { name: 'Request change' }).click();
-	await expect(page.getByRole('button', { name: 'Request change' })).toBeEnabled({ timeout: 60_000 });
+	await page.getByRole('button', { name: 'Respond' }).click();
+	await expect(page.getByRole('button', { name: 'Respond' })).toBeEnabled({ timeout: 60_000 });
 
 	const result = page.locator('div[aria-live="polite"]').filter({ hasText: runtimeUnavailableReason });
 	await expect(result).toBeVisible();
@@ -2405,7 +2417,7 @@ test('strict operational forms cover workflows governance sandbox and MCP settin
 	await expect(page.getByLabel('QA preset')).toBeHidden();
 	await expect(page.getByLabel('Maximum cost USD')).toBeHidden();
 	await expect(page.locator('textarea[data-json-editor="true"]')).toHaveCount(0);
-	await expect(page.getByRole('button', { name: 'Request change' })).toBeDisabled();
+	await expect(page.getByRole('button', { name: 'Respond' })).toBeDisabled();
 	await page.getByRole('button', { name: 'Advanced' }).click();
 	await expect(page.getByLabel('Preferred runtime')).toBeVisible();
 	await expect(page.getByLabel('Preferred runtime')).not.toContainText('internal_mock');

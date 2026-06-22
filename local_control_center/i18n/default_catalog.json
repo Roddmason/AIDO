@@ -6019,6 +6019,118 @@
       "en": "Timeline",
       "es": "Cronología"
     },
+    "app.workbench.loop.conversation": {
+      "en": "Conversation",
+      "es": "Conversación"
+    },
+    "app.workbench.loop.questions": {
+      "en": "Questions",
+      "es": "Preguntas"
+    },
+    "app.workbench.loop.brief": {
+      "en": "Product brief",
+      "es": "Brief de producto"
+    },
+    "app.workbench.loop.assumptions": {
+      "en": "Assumptions",
+      "es": "Supuestos"
+    },
+    "app.workbench.loop.decisions": {
+      "en": "Decisions",
+      "es": "Decisiones"
+    },
+    "app.workbench.loop.architecture": {
+      "en": "Architecture",
+      "es": "Arquitectura"
+    },
+    "app.workbench.loop.backlog": {
+      "en": "Backlog",
+      "es": "Backlog del producto"
+    },
+    "app.workbench.loop.iteration": {
+      "en": "Iteration",
+      "es": "Iteración"
+    },
+    "app.workbench.loop.execution": {
+      "en": "Execution",
+      "es": "Ejecución"
+    },
+    "app.workbench.loop.review": {
+      "en": "Review",
+      "es": "Revisión"
+    },
+    "app.workbench.loop.respond": {
+      "en": "Respond",
+      "es": "Responder"
+    },
+    "app.workbench.loop.aidoDecide": {
+      "en": "AIDO decides",
+      "es": "AIDO decide"
+    },
+    "app.workbench.loop.reviewBrief": {
+      "en": "Review brief",
+      "es": "Revisar brief"
+    },
+    "app.workbench.loop.approveBacklog": {
+      "en": "Approve backlog",
+      "es": "Aprobar backlog"
+    },
+    "app.workbench.loop.startIteration": {
+      "en": "Start iteration",
+      "es": "Iniciar iteración"
+    },
+    "app.workbench.loop.shellBadge": {
+      "en": "Not connected yet",
+      "es": "Aún sin conexión"
+    },
+    "app.workbench.loop.questions.emptyTitle": {
+      "en": "No pending questions",
+      "es": "Sin preguntas pendientes"
+    },
+    "app.workbench.loop.questions.emptyBody": {
+      "en": "AIDO surfaces impact questions here once discovery runs against this workspace.",
+      "es": "AIDO mostrará aquí las preguntas por impacto cuando la discovery se ejecute sobre este workspace."
+    },
+    "app.workbench.loop.brief.emptyTitle": {
+      "en": "No product brief yet",
+      "es": "Aún no hay brief de producto"
+    },
+    "app.workbench.loop.brief.emptyBody": {
+      "en": "The living product brief appears here once the product owner agent produces it.",
+      "es": "El brief de producto vivo aparece aquí cuando el agente product owner lo produce."
+    },
+    "app.workbench.loop.assumptions.emptyTitle": {
+      "en": "No assumptions recorded",
+      "es": "Sin supuestos registrados"
+    },
+    "app.workbench.loop.assumptions.emptyBody": {
+      "en": "Assumptions captured during discovery are listed here with their rationale.",
+      "es": "Los supuestos capturados durante la discovery se listan aquí con su justificación."
+    },
+    "app.workbench.loop.decisions.emptyTitle": {
+      "en": "No decisions yet",
+      "es": "Aún no hay decisiones"
+    },
+    "app.workbench.loop.decisions.emptyBody": {
+      "en": "Product and architecture decisions, with alternatives and reversibility, appear here.",
+      "es": "Las decisiones de producto y arquitectura, con alternativas y reversibilidad, aparecen aquí."
+    },
+    "app.workbench.loop.architecture.emptyTitle": {
+      "en": "No architecture options yet",
+      "es": "Aún no hay opciones de arquitectura"
+    },
+    "app.workbench.loop.architecture.emptyBody": {
+      "en": "Candidate architecture options and their tradeoffs are compared here.",
+      "es": "Las opciones de arquitectura candidatas y sus tradeoffs se comparan aquí."
+    },
+    "app.workbench.loop.backlog.emptyTitle": {
+      "en": "No backlog yet",
+      "es": "Aún no hay backlog"
+    },
+    "app.workbench.loop.backlog.emptyBody": {
+      "en": "Epics, user stories and acceptance criteria appear here once the backlog is generated.",
+      "es": "Las épicas, historias de usuario y criterios de aceptación aparecen aquí cuando se genera el backlog."
+    },
     "app.workbench.task.approval": {
       "en": "Require approval before completion",
       "es": "Requerir aprobación antes de completar"

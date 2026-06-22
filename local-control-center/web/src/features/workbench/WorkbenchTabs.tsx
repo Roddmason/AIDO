@@ -28,26 +28,27 @@ const TAB_INDICATOR_STYLE: CSSProperties = {
 const TAB_INDICATOR_TRANSITION = { type: 'spring', stiffness: 480, damping: 38 } as const;
 const TAB_ANCHOR_STYLE: CSSProperties = { position: 'relative' };
 
-export type WorkbenchTabId = 'task' | 'timeline' | 'diff' | 'evidence' | 'logs';
 /** Descriptor the page passes per tab; `count` renders an optional badge (e.g. pending items). */
-type WorkbenchTabDef = { id: WorkbenchTabId; label: string; count?: number };
+export type WorkbenchTabDef<Id extends string = string> = { id: Id; label: string; count?: number };
 
-/** Accessible tablist whose selected panel wraps `children`; selection is fully controlled. */
-export function WorkbenchTabs({
+/** Accessible tablist whose selected panel wraps `children`; selection is fully controlled.
+ *  Generic over the tab id so the same chrome hosts the workbench review tabs and the product-loop
+ *  sections without losing exhaustiveness at the call site. */
+export function WorkbenchTabs<Id extends string = string>({
 	tabs,
 	activeTab,
 	onChangeTab,
 	children,
 }: {
-	tabs: WorkbenchTabDef[];
-	activeTab: WorkbenchTabId;
-	onChangeTab: (tab: WorkbenchTabId) => void;
+	tabs: WorkbenchTabDef<Id>[];
+	activeTab: Id;
+	onChangeTab: (tab: Id) => void;
 	children: ReactNode;
 }) {
 	const { t } = useI18n();
 	const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
-	const focusTab = (tabId: WorkbenchTabId) => {
+	const focusTab = (tabId: Id) => {
 		onChangeTab(tabId);
 		tabRefs.current[tabId]?.focus();
 	};

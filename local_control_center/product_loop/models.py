@@ -216,3 +216,29 @@ class ProductLoopStateResponse(BaseModel):
     stories: list[UserStoryRecord]
     tasks: list[AgentTaskRecord]
     iterations: list[IterationRecord]
+
+
+class ProductLoopStartRequest(BaseModel):
+    """Cuerpo para arrancar un product loop en ``idea_received`` para un proyecto."""
+
+    title: str
+    initiative_id: str | None = Field(default=None, alias="initiativeId")
+    context: dict[str, Any] | None = None
+
+
+class ProductLoopTransitionRequest(BaseModel):
+    """Cuerpo para avanzar un loop a un estado destino permitido por la FSM."""
+
+    to_state: str = Field(alias="toState")
+    reason: str | None = None
+    trigger: str | None = None
+    expected_version: int | None = Field(default=None, alias="expectedVersion")
+
+
+class ProductLoopResumeResponse(BaseModel):
+    """Estado del loop tras arrancar o transicionar, con las transiciones que admite ahora."""
+
+    loop: ProductLoopRecord
+    resumable: bool
+    allowed_next_states: list[str] = Field(alias="allowedNextStates")
+    transitions: list[ProductLoopTransitionRecord]

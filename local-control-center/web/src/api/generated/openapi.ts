@@ -162,8 +162,11 @@ export type PricingSnapshotsListResponse = { "pricingSnapshots": Array<PricingSn
 export type ProductBriefRecord = { "createdAt": string; "goals": Array<JsonValue>; "id": string; "initiativeId"?: null | string; "outOfScope"?: null | string; "problemStatement"?: null | string; "projectId": string; "scope"?: null | string; "status": string; "successMetrics": Array<JsonValue>; "summary"?: null | string; "targetUsers": Array<JsonValue>; "title": string; "updatedAt": string; "version": number };
 export type ProductDecisionRecord = { "briefId"?: null | string; "consequences": Array<JsonValue>; "context"?: null | string; "createdAt": string; "decidedAt"?: null | string; "decidedBy"?: null | string; "decision"?: null | string; "id": string; "initiativeId"?: null | string; "linkedAssumptionIds": Array<JsonValue>; "linkedQuestionIds": Array<JsonValue>; "metadata": JsonObject; "projectId": string; "rationale"?: null | string; "status": string; "supersedesId"?: null | string; "title": string; "updatedAt": string; "version": number };
 export type ProductLoopRecord = { "context": JsonObject; "createdAt": string; "id": string; "initiativeId"?: null | string; "previousState"?: null | string; "projectId": string; "state": string; "status": string; "title": string; "updatedAt": string; "version": number };
+export type ProductLoopResumeResponse = { "allowedNextStates": Array<string>; "loop": ProductLoopRecord; "resumable": boolean; "transitions": Array<ProductLoopTransitionRecord> };
+export type ProductLoopStartRequest = { "context"?: JsonObject | null; "initiativeId"?: null | string; "title": string };
 export type ProductLoopStateResponse = { "assumptions": Array<AssumptionRecord>; "brief"?: ProductBriefRecord | null; "decisions": Array<ProductDecisionRecord>; "epics": Array<EpicRecord>; "iterations": Array<IterationRecord>; "loops": Array<ProductLoopRecord>; "questions": Array<ClarificationQuestionRecord>; "stories": Array<UserStoryRecord>; "tasks": Array<AgentTaskRecord>; "transitions": Array<ProductLoopTransitionRecord> };
 export type ProductLoopTransitionRecord = { "actor": string; "createdAt": string; "fromState": string; "id": string; "loopId": string; "metadata": JsonObject; "projectId": string; "reason": string; "toState": string; "trigger": string; "version": number };
+export type ProductLoopTransitionRequest = { "expectedVersion"?: null | number; "reason"?: null | string; "toState": string; "trigger"?: null | string };
 export type ProductOwnerAgentRunRequest = { "approvalGrantId"?: null | string; "autonomy"?: JsonObject | null; "completenessThreshold"?: null | number; "idea"?: null | string; "initiativeId"?: null | string; "metadata"?: JsonObject; "model"?: null | string; "preferredRuntime"?: null | string; "projectId": string; "taskId"?: string; "workflowContext"?: JsonObject; "workspaceId": string };
 export type ProductOwnerAgentRunResponse = { "agentRun": AgentRunRecord; "assumptions"?: Array<JsonObject>; "blockingDecisions"?: Array<JsonObject>; "brief"?: JsonObject | null; "completeness"?: JsonObject | null; "epics"?: Array<JsonObject>; "evidencePackage": JsonObject; "initiative"?: JsonObject | null; "job": JsonObject; "output"?: JsonObject | null; "productOwnerAgent": ProductOwnerAgentStatus; "questions"?: Array<JsonObject>; "reason": string; "runtime": JsonObject; "runtimeResult": JsonObject; "status": string; "workspace": JsonObject };
 export type ProductOwnerAgentStatus = { "candidateRuntimeIds"?: Array<string>; "contract": JsonObject; "executable": boolean; "id": string; "reason": string; "selectedRuntimeId"?: null | string; "status": string };
@@ -396,6 +399,8 @@ export const API_ENDPOINTS = [
 	{"method": "POST", "operationId": "create_project_api_v1_projects_post", "path": "/api/v1/projects", "summary": "Create Project"},
 	{"method": "POST", "operationId": "discover_project_api_v1_projects_discover_post", "path": "/api/v1/projects/discover", "summary": "Discover Project"},
 	{"method": "GET", "operationId": "get_product_loop_state_api_v1_projects__project_id__product_loop_get", "path": "/api/v1/projects/{project_id}/product-loop", "summary": "Get Product Loop State"},
+	{"method": "POST", "operationId": "start_product_loop_api_v1_projects__project_id__product_loop_post", "path": "/api/v1/projects/{project_id}/product-loop", "summary": "Start Product Loop"},
+	{"method": "POST", "operationId": "transition_product_loop_api_v1_projects__project_id__product_loop__loop_id__transition_post", "path": "/api/v1/projects/{project_id}/product-loop/{loop_id}/transition", "summary": "Transition Product Loop"},
 	{"method": "GET", "operationId": "list_prompts_api_v1_prompts_get", "path": "/api/v1/prompts", "summary": "List Prompts"},
 	{"method": "POST", "operationId": "upsert_prompt_api_v1_prompts_post", "path": "/api/v1/prompts", "summary": "Upsert Prompt"},
 	{"method": "GET", "operationId": "providers_api_v1_providers_get", "path": "/api/v1/providers", "summary": "Providers"},
@@ -578,10 +583,12 @@ export type OperationRequestBodies = {
 	"sandbox_status_api_v1_sandbox_status_get": never,
 	"security_agent_status_api_v1_agents_security_status_get": never,
 	"select_directory_api_v1_local_paths_select_directory_post": DirectoryPickerRequest,
+	"start_product_loop_api_v1_projects__project_id__product_loop_post": ProductLoopStartRequest,
 	"start_workflow_api_v1_workflows__workflow_id__start_post": WorkflowStatusChangeRequest,
 	"sync_skills_api_v1_skills_sync_post": SkillsSyncRequest,
 	"teams_api_v1_teams_get": never,
 	"telemetry_status_api_v1_telemetry_status_get": never,
+	"transition_product_loop_api_v1_projects__project_id__product_loop__loop_id__transition_post": ProductLoopTransitionRequest,
 	"update_next_step_api_v1_next_steps__step_id__patch": NextStepUpdateRequest,
 	"update_risk_api_v1_risks__risk_id__patch": RiskUpdateRequest,
 	"update_sandbox_profile_api_v1_sandbox_profiles__profile_id__patch": SandboxProfilePatchRequest,
@@ -722,10 +729,12 @@ export type OperationResponseBodies = {
 	"sandbox_status_api_v1_sandbox_status_get": SandboxStatusResponse,
 	"security_agent_status_api_v1_agents_security_status_get": SecurityAgentStatusResponse,
 	"select_directory_api_v1_local_paths_select_directory_post": DirectoryPickerResponse,
+	"start_product_loop_api_v1_projects__project_id__product_loop_post": ProductLoopResumeResponse,
 	"start_workflow_api_v1_workflows__workflow_id__start_post": WorkflowStartResponse,
 	"sync_skills_api_v1_skills_sync_post": SkillsSyncResponse,
 	"teams_api_v1_teams_get": TeamsListResponse,
 	"telemetry_status_api_v1_telemetry_status_get": TelemetryStatusResponse,
+	"transition_product_loop_api_v1_projects__project_id__product_loop__loop_id__transition_post": ProductLoopResumeResponse,
 	"update_next_step_api_v1_next_steps__step_id__patch": NextStepResponse,
 	"update_risk_api_v1_risks__risk_id__patch": RiskResponse,
 	"update_sandbox_profile_api_v1_sandbox_profiles__profile_id__patch": SandboxProfileMutationResponse,
@@ -839,6 +848,8 @@ export const OPERATIONS_BY_ID = {
 	"create_project_api_v1_projects_post": {"method": "POST", "operationId": "create_project_api_v1_projects_post", "path": "/api/v1/projects", "summary": "Create Project"},
 	"discover_project_api_v1_projects_discover_post": {"method": "POST", "operationId": "discover_project_api_v1_projects_discover_post", "path": "/api/v1/projects/discover", "summary": "Discover Project"},
 	"get_product_loop_state_api_v1_projects__project_id__product_loop_get": {"method": "GET", "operationId": "get_product_loop_state_api_v1_projects__project_id__product_loop_get", "path": "/api/v1/projects/{project_id}/product-loop", "summary": "Get Product Loop State"},
+	"start_product_loop_api_v1_projects__project_id__product_loop_post": {"method": "POST", "operationId": "start_product_loop_api_v1_projects__project_id__product_loop_post", "path": "/api/v1/projects/{project_id}/product-loop", "summary": "Start Product Loop"},
+	"transition_product_loop_api_v1_projects__project_id__product_loop__loop_id__transition_post": {"method": "POST", "operationId": "transition_product_loop_api_v1_projects__project_id__product_loop__loop_id__transition_post", "path": "/api/v1/projects/{project_id}/product-loop/{loop_id}/transition", "summary": "Transition Product Loop"},
 	"list_prompts_api_v1_prompts_get": {"method": "GET", "operationId": "list_prompts_api_v1_prompts_get", "path": "/api/v1/prompts", "summary": "List Prompts"},
 	"upsert_prompt_api_v1_prompts_post": {"method": "POST", "operationId": "upsert_prompt_api_v1_prompts_post", "path": "/api/v1/prompts", "summary": "Upsert Prompt"},
 	"providers_api_v1_providers_get": {"method": "GET", "operationId": "providers_api_v1_providers_get", "path": "/api/v1/providers", "summary": "Providers"},

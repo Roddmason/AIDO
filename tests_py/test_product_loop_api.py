@@ -208,3 +208,103 @@ def test_product_loop_endpoint_aggregates_real_loop_state_scoped_to_the_project(
         assert [item["id"] for item in other_body["loops"]] == [other_loop["id"]]
     finally:
         runtime.close()
+
+
+def test_start_and_transition_product_loop_mutations(tmp_path: Path) -> None:
+    runtime, client = _client(tmp_path)
+    try:
+        project = ProjectsRepository(runtime.connection).create_project(
+            name="Loop", path=tmp_path / "loop", template_id="other"
+        )
+        project_id = project["id"]
+        token = client.get("/api/v1/security/handshake").json()["token"]
+        headers = {"X-Local-Control-Token": token}
+
+        # Both mutations are write-guarded: no token is a 403.
+        assert (
+            client.post(
+                f"/api/v1/projects/{project_id}/product-loop", json={"title": "Onboarding"}
+            ).status_code
+            == 403
+        )
+
+        # Start a loop in idea_received and surface the allowed next states.
+        started = client.post(
+            f"/api/v1/projects/{project_id}/product-loop", json={"title": "Onboarding"}, headers=headers
+        )
+        assert started.status_code == 201
+        started_body = started.json()
+        assert started_body["loop"]["state"] == "idea_received"
+        assert started_body["loop"]["version"] == 1
+        assert started_body["resumable"] is True
+        assert "discovery_running" in started_body["allowedNextStates"]
+        loop_id = started_body["loop"]["id"]
+
+        # A transition with no token is also a 403.
+        assert (
+            client.post(
+                f"/api/v1/projects/{project_id}/product-loop/{loop_id}/transition",
+                json={"toState": "discovery_running"},
+            ).status_code
+            == 403
+        )
+
+        # Advance to an allowed state; the version increments and the log grows.
+        advanced = client.post(
+            f"/api/v1/projects/{project_id}/product-loop/{loop_id}/transition",
+            json={"toState": "discovery_running", "reason": "Discovery kicked off."},
+            headers=headers,
+        )
+        assert advanced.status_code == 200
+        advanced_body = advanced.json()
+        assert advanced_body["loop"]["state"] == "discovery_running"
+        assert advanced_body["loop"]["version"] == 2
+
+        # A transition the FSM forbids from the current state is rejected with 422.
+        invalid = client.post(
+            f"/api/v1/projects/{project_id}/product-loop/{loop_id}/transition",
+            json={"toState": "completed"},
+            headers=headers,
+        )
+        assert invalid.status_code == 422
+
+        # The read aggregate now reflects the started/advanced loop and its two transitions.
+        state = client.get(f"/api/v1/projects/{project_id}/product-loop").json()
+        assert [item["id"] for item in state["loops"]] == [loop_id]
+        assert len(state["transitions"]) == 2
+    finally:
+        runtime.close()
+
+
+def test_transition_unknown_or_cross_project_loop_returns_404(tmp_path: Path) -> None:
+    runtime, client = _client(tmp_path)
+    try:
+        projects = ProjectsRepository(runtime.connection)
+        project = projects.create_project(name="A", path=tmp_path / "a", template_id="other")
+        other = projects.create_project(name="B", path=tmp_path / "b", template_id="other")
+        token = client.get("/api/v1/security/handshake").json()["token"]
+        headers = {"X-Local-Control-Token": token}
+
+        loop = ProductLoopCoordinator(runtime.connection).start(project_id=project["id"], title="X")
+
+        # Unknown loop id is a 404.
+        assert (
+            client.post(
+                f"/api/v1/projects/{project['id']}/product-loop/does-not-exist/transition",
+                json={"toState": "discovery_running"},
+                headers=headers,
+            ).status_code
+            == 404
+        )
+
+        # A real loop addressed under the wrong project is a 404 (scoping guard).
+        assert (
+            client.post(
+                f"/api/v1/projects/{other['id']}/product-loop/{loop['id']}/transition",
+                json={"toState": "discovery_running"},
+                headers=headers,
+            ).status_code
+            == 404
+        )
+    finally:
+        runtime.close()

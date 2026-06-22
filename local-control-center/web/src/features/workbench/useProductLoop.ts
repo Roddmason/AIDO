@@ -1,11 +1,12 @@
 /**
  * Fetches the project-scoped product-loop aggregate (loops, questions, brief, assumptions, decisions,
- * backlog, iterations) for the Workbench loop sections. Re-fetches when the selected project changes
- * and aborts the in-flight request on change/unmount. Decoupled from the 5s overview poll: the loop is
- * detail-shaped and changes infrequently, so it is loaded on demand rather than folded into /overview.
+ * backlog, iterations) for the Workbench loop sections. Re-fetches when the selected project changes or
+ * when `refresh()` is called (after a loop mutation), and aborts the in-flight request on change/unmount.
+ * Decoupled from the 5s overview poll: the loop is detail-shaped and changes infrequently, so it is
+ * loaded on demand rather than folded into /overview.
  */
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import { getProjectProductLoop, type ProjectProductLoopResponse } from '../../api/client';
 
@@ -13,6 +14,8 @@ export type ProductLoopState = {
 	data: ProjectProductLoopResponse | null;
 	loading: boolean;
 	error: string;
+	/** Re-fetches the loop aggregate (call after a start/transition mutation). */
+	refresh: () => void;
 };
 
 /** Loads the product-loop aggregate for `projectId`; null id (no project) clears the state. */
@@ -20,7 +23,11 @@ export function useProductLoop(projectId: string | undefined): ProductLoopState 
 	const [data, setData] = useState<ProjectProductLoopResponse | null>(null);
 	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState('');
+	const [reloadToken, setReloadToken] = useState(0);
 
+	const refresh = useCallback(() => setReloadToken((token) => token + 1), []);
+
+	// biome-ignore lint/correctness/useExhaustiveDependencies: reloadToken is an intentional re-fetch trigger (bumped by refresh()), a dependency by design not read inside the effect body.
 	useEffect(() => {
 		if (!projectId) {
 			setData(null);
@@ -44,7 +51,7 @@ export function useProductLoop(projectId: string | undefined): ProductLoopState 
 				if (!controller.signal.aborted) setLoading(false);
 			});
 		return () => controller.abort();
-	}, [projectId]);
+	}, [projectId, reloadToken]);
 
-	return { data, loading, error };
+	return { data, loading, error, refresh };
 }

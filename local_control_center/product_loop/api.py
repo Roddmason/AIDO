@@ -1,10 +1,11 @@
-"""Expone el endpoint HTTP de solo lectura del product loop sobre FastAPI.
+"""Expone los endpoints HTTP del product loop sobre FastAPI: una lectura agregada y dos mutaciones.
 
-Agrega, por proyecto y en una sola lectura para el Workbench, el estado durable del loop y su bitácora
-(slice product_loop), las preguntas de clarificación, el brief vivo, los supuestos y las decisiones
-(slice product_discovery) y el backlog —épicas, historias, tareas e iteraciones— (slice backlog). No
-contiene lógica de negocio: delega en los repositorios. Es solo lectura scoped por proyecto, por lo que
-no expone mutaciones ni exige el token de escritura.
+La lectura agrega, por proyecto y en una sola llamada para el Workbench, el estado durable del loop y su
+bitácora (slice product_loop), las preguntas de clarificación, el brief vivo, los supuestos y las
+decisiones (slice product_discovery) y el backlog —épicas, historias, tareas e iteraciones— (slice
+backlog). Las mutaciones arrancan un loop y lo avanzan por su FSM durable vía el ``ProductLoopCoordinator``;
+exigen el token de escritura y validan la transición contra el mapa permitido. No contiene lógica de
+negocio: delega en los repositorios y el coordinador.
 """
 
 from __future__ import annotations
@@ -12,25 +13,27 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 
 from local_control_center.backlog.repository import BacklogRepository
 from local_control_center.product_discovery.repository import ProductDiscoveryRepository
 
-from .models import ProductLoopStateResponse
+from .coordinator import ProductLoopCoordinator, ProductLoopTransitionError
+from .models import (
+    ProductLoopResumeResponse,
+    ProductLoopStartRequest,
+    ProductLoopStateResponse,
+    ProductLoopTransitionRequest,
+)
 from .repository import ProductLoopRepository
 
 
-def create_router(*, platform: Any, require_write: Callable[[Request], None]) -> APIRouter:  # noqa: ARG001
-    """Arma el router del product loop.
-
-    Mantiene la firma uniforme de los routers del control plane (``require_write`` se inyecta a todos),
-    pero este slice es de solo lectura y no protege ninguna ruta, por eso el guard no se usa aquí.
-    """
+def create_router(*, platform: Any, require_write: Callable[[Request], None]) -> APIRouter:
+    """Arma el router del product loop: una lectura agregada y dos mutaciones protegidas por token."""
     router = APIRouter()
 
-    def product_loop_repository() -> ProductLoopRepository:
-        return ProductLoopRepository(platform.connection)
+    def coordinator() -> ProductLoopCoordinator:
+        return ProductLoopCoordinator(platform.connection)
 
     def discovery_repository() -> ProductDiscoveryRepository:
         return ProductDiscoveryRepository(platform.connection)
@@ -43,7 +46,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         response_model=ProductLoopStateResponse,
     )
     async def get_product_loop_state(project_id: str) -> dict[str, Any]:
-        loops_repo = product_loop_repository()
+        loops_repo = ProductLoopRepository(platform.connection)
         discovery = discovery_repository()
         backlog = backlog_repository()
         loops = loops_repo.list_loops(project_id)
@@ -60,5 +63,50 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             "tasks": backlog.list_agent_tasks(project_id=project_id),
             "iterations": backlog.list_iterations(project_id),
         }
+
+    @router.post(
+        "/api/v1/projects/{project_id}/product-loop",
+        status_code=201,
+        response_model=ProductLoopResumeResponse,
+    )
+    async def start_product_loop(
+        project_id: str, body: ProductLoopStartRequest, request: Request
+    ) -> dict[str, Any]:
+        require_write(request)
+        engine = coordinator()
+        loop = engine.start(
+            project_id=project_id,
+            title=body.title,
+            initiative_id=body.initiative_id,
+            context=body.context,
+        )
+        return engine.resume(loop["id"])
+
+    @router.post(
+        "/api/v1/projects/{project_id}/product-loop/{loop_id}/transition",
+        response_model=ProductLoopResumeResponse,
+    )
+    async def transition_product_loop(
+        project_id: str, loop_id: str, body: ProductLoopTransitionRequest, request: Request
+    ) -> dict[str, Any]:
+        require_write(request)
+        engine = coordinator()
+        try:
+            loop = engine.get(loop_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        if loop["projectId"] != project_id:
+            raise HTTPException(status_code=404, detail=f"Product loop not found in project: {loop_id}")
+        try:
+            engine.transition(
+                loop_id,
+                to_state=body.to_state,
+                reason=body.reason or "",
+                trigger=body.trigger or "",
+                expected_version=body.expected_version,
+            )
+        except ProductLoopTransitionError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        return engine.resume(loop_id)
 
     return router

@@ -25,7 +25,14 @@ import type {
 	PipelineCreateResponse,
 	SessionCreateResponse,
 } from '../../api/client';
-import { createChat, createPipeline, createSession, runIssueToPatch } from '../../api/client';
+import {
+	createChat,
+	createPipeline,
+	createSession,
+	runIssueToPatch,
+	startProductLoop,
+	transitionProductLoop,
+} from '../../api/client';
 import type {
 	Overview,
 	Project,
@@ -33,7 +40,7 @@ import type {
 	RuntimeProviders,
 } from '../../api/types';
 import { Badge, Drawer, EmptyState, PageHeader, Surface } from '../../components/primitives';
-import { Button, SegmentedControl, TextArea, TextField } from '../../components/ui';
+import { Button, SegmentedControl, TextArea, TextField, useToast } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { shortId, toneForStatus } from '../../lib/format';
 import type { ComposerDraft, ComposerMode } from './composerDraft';
@@ -45,6 +52,7 @@ import {
 	issueQaPresets,
 	type RuntimeRow,
 } from './GovernedAdvancedPanel';
+import { ProductLoopStepper } from './ProductLoopStepper';
 import { LogsPanel } from './panels/LogsPanel';
 import { ProductLoopSection } from './panels/ProductLoopSection';
 import { TimelinePanel } from './panels/TimelinePanel';
@@ -143,6 +151,7 @@ export function WorkbenchPage({
 	onRefresh,
 }: WorkbenchPageProps) {
 	const { t } = useI18n();
+	const { notify } = useToast();
 	const [prompt, setPrompt] = useState('');
 	const [title, setTitle] = useState('');
 	const [titleEdited, setTitleEdited] = useState(false);
@@ -164,6 +173,7 @@ export function WorkbenchPage({
 	const [selectedRunId, setSelectedRunId] = useState('');
 	const [teamOpen, setTeamOpen] = useState(false);
 	const [showAllChats, setShowAllChats] = useState(false);
+	const [loopStarting, setLoopStarting] = useState(false);
 
 	// Draft-persistence refs: latest values for the synchronous unmount flush, the project the
 	// composer is currently hydrated for (so the debounced save never clobbers with pre-hydration
@@ -490,6 +500,53 @@ export function WorkbenchPage({
 
 	const cancelConversation = () => abortRef.current?.abort();
 
+	// Starts a durable product loop for the project (the loop-creation seam) and refreshes the view.
+	const startLoop = async () => {
+		if (!project || loopStarting) return;
+		setLoopStarting(true);
+		try {
+			await startProductLoop(token, project.id, { title: submitTitle || project.name });
+			loop.refresh();
+			notify({ title: t('app.workbench.loop.started', 'Product loop started'), tone: 'ok' });
+		} catch (startError) {
+			notify({
+				title: t('app.workbench.loop.startFailed', 'Could not start the product loop'),
+				body: startError instanceof Error ? startError.message : undefined,
+				tone: 'danger',
+			});
+		} finally {
+			setLoopStarting(false);
+		}
+	};
+
+	// Navigates to the section and, when a loop exists, attempts the FSM transition. The backend is
+	// authoritative: a step that is not allowed from the current state returns 422 and we just inform.
+	const advanceLoop = async (toState: string, section: ProductLoopSectionId) => {
+		setActiveSection(section);
+		if (!project) return;
+		const activeLoopId = loop.data?.loops[0]?.id;
+		if (!activeLoopId) {
+			notify({
+				title: t('app.workbench.loop.startFirst', 'Start the product loop first'),
+				tone: 'info',
+			});
+			return;
+		}
+		try {
+			await transitionProductLoop(token, project.id, activeLoopId, { toState });
+			loop.refresh();
+			notify({ title: t('app.workbench.loop.advanced', 'Loop advanced'), tone: 'ok' });
+		} catch (advanceError) {
+			// The backend FSM is authoritative; surface its real reason (an invalid transition, or a
+			// 404/5xx) instead of disguising every failure as a single benign "not available" outcome.
+			notify({
+				title: t('app.workbench.loop.advanceFailed', 'Could not advance the loop'),
+				body: advanceError instanceof Error ? advanceError.message : undefined,
+				tone: 'warn',
+			});
+		}
+	};
+
 	// Governed run-result detail (moved from the old TaskComposer; rendered under the composer).
 	const resultRuntime = objectRecord(taskRunResult?.runtime);
 	const resultQa = Array.isArray(taskRunResult?.qaResults)
@@ -731,14 +788,14 @@ export function WorkbenchPage({
 								<Button
 									icon={<ClipboardCheck aria-hidden="true" size={16} />}
 									disabled={busy}
-									onClick={() => setActiveSection('backlog')}
+									onClick={() => advanceLoop('ready_for_planning', 'backlog')}
 								>
 									{t('app.workbench.loop.approveBacklog', 'Approve backlog')}
 								</Button>
 								<Button
 									icon={<Workflow aria-hidden="true" size={16} />}
 									disabled={busy}
-									onClick={() => setActiveSection('iteration')}
+									onClick={() => advanceLoop('iteration_running', 'iteration')}
 								>
 									{t('app.workbench.loop.startIteration', 'Start iteration')}
 								</Button>
@@ -821,6 +878,14 @@ export function WorkbenchPage({
 								)}
 							/>
 						)}
+					</Surface>
+
+					<Surface title={t('app.workbench.loop.stepperTitle', 'Loop status')} flat>
+						<ProductLoopStepper
+							loop={loop.data?.loops[0] ?? null}
+							onStart={startLoop}
+							starting={loopStarting}
+						/>
 					</Surface>
 
 					<WorkbenchTabs tabs={loopTabs} activeTab={activeSection} onChangeTab={setActiveSection}>

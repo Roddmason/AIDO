@@ -6159,6 +6159,42 @@
       "en": "planned tasks",
       "es": "tareas planificadas"
     },
+    "app.workbench.loop.stepperTitle": {
+      "en": "Loop status",
+      "es": "Estado del ciclo"
+    },
+    "app.workbench.loop.noLoop": {
+      "en": "No product loop yet",
+      "es": "Aún no hay ciclo de producto"
+    },
+    "app.workbench.loop.noLoopBody": {
+      "en": "Start a product loop to track this idea from discovery to delivery.",
+      "es": "Inicia un ciclo de producto para seguir esta idea desde la discovery hasta la entrega."
+    },
+    "app.workbench.loop.start": {
+      "en": "Start product loop",
+      "es": "Iniciar ciclo de producto"
+    },
+    "app.workbench.loop.started": {
+      "en": "Product loop started",
+      "es": "Ciclo de producto iniciado"
+    },
+    "app.workbench.loop.startFailed": {
+      "en": "Could not start the product loop",
+      "es": "No se pudo iniciar el ciclo de producto"
+    },
+    "app.workbench.loop.advanced": {
+      "en": "Loop advanced",
+      "es": "Ciclo avanzado"
+    },
+    "app.workbench.loop.advanceFailed": {
+      "en": "Could not advance the loop",
+      "es": "No se pudo avanzar el ciclo"
+    },
+    "app.workbench.loop.startFirst": {
+      "en": "Start the product loop first",
+      "es": "Inicia primero el ciclo de producto"
+    },
     "app.workbench.loop.questions.emptyTitle": {
       "en": "No pending questions",
       "es": "Sin preguntas pendientes"

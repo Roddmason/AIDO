@@ -59,6 +59,40 @@ export const PRODUCT_LOOP_SECTIONS: ProductLoopSectionBlueprint[] = [
 	{ id: 'review', labelKey: 'app.workbench.loop.review', label: 'Review', backed: true },
 ];
 
+/** Full FSM state order, mirroring the backend coordinator.PRODUCT_LOOP_STATES, used only to rank a
+ *  loop's progress (done/current/upcoming) in the read-only stepper. The backend FSM stays the
+ *  authority on which transitions are allowed; this list never gates a mutation. */
+export const PRODUCT_LOOP_STATE_ORDER = [
+	'idea_received',
+	'discovery_running',
+	'awaiting_user',
+	'brief_ready',
+	'awaiting_architecture_decision',
+	'backlog_draft',
+	'backlog_review',
+	'ready_for_planning',
+	'iteration_running',
+	'quality_review',
+	'awaiting_feedback',
+	'completed',
+	'blocked',
+] as const;
+
+/** The happy-path phases shown as stepper nodes, in order; off-path states (awaiting_*, blocked)
+ *  surface via the live state badge instead of as their own nodes. */
+export const PRODUCT_LOOP_PHASES = [
+	'idea_received',
+	'discovery_running',
+	'brief_ready',
+	'awaiting_architecture_decision',
+	'backlog_draft',
+	'backlog_review',
+	'ready_for_planning',
+	'iteration_running',
+	'quality_review',
+	'completed',
+] as const;
+
 export type ProductLoopSectionView = ProductLoopSectionBlueprint & { count: number };
 
 /** Per-section item counts surfaced as tab badges; sections without a backend stay at 0. */

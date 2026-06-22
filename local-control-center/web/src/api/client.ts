@@ -72,6 +72,12 @@ export type EvidenceDetailResponse =
 	OperationResponse<'get_evidence_api_v1_evidence__evidence_id__get'>;
 export type ProjectProductLoopResponse =
 	OperationResponse<'get_product_loop_state_api_v1_projects__project_id__product_loop_get'>;
+export type ProductLoopStartRequest =
+	MutationBody<'start_product_loop_api_v1_projects__project_id__product_loop_post'>;
+export type ProductLoopTransitionRequest =
+	MutationBody<'transition_product_loop_api_v1_projects__project_id__product_loop__loop_id__transition_post'>;
+export type ProductLoopResumeResponse =
+	OperationResponse<'start_product_loop_api_v1_projects__project_id__product_loop_post'>;
 export type DeveloperAgentRunRequest =
 	MutationBody<'run_developer_agent_api_v1_agents_developer_runs_post'>;
 export type DeveloperAgentRunResponse =
@@ -193,6 +199,31 @@ export function getProjectProductLoop(projectId: string, signal?: AbortSignal) {
 		pathParams: { project_id: projectId },
 		signal,
 	});
+}
+
+/** Starts a durable product loop (idea_received) for a project; a write, so the token is required. */
+export function startProductLoop(token: string, projectId: string, body: ProductLoopStartRequest) {
+	return requestGeneratedOperation(
+		'start_product_loop_api_v1_projects__project_id__product_loop_post',
+		{
+			token,
+			pathParams: { project_id: projectId },
+			body,
+		},
+	);
+}
+
+/** Advances a product loop to an FSM-allowed state; a write, so the token is required. */
+export function transitionProductLoop(
+	token: string,
+	projectId: string,
+	loopId: string,
+	body: ProductLoopTransitionRequest,
+) {
+	return requestGeneratedOperation(
+		'transition_product_loop_api_v1_projects__project_id__product_loop__loop_id__transition_post',
+		{ token, pathParams: { project_id: projectId, loop_id: loopId }, body },
+	);
 }
 
 export function getRuntimeProviderConfiguration(signal?: AbortSignal) {

@@ -509,6 +509,81 @@ def evaluate_action(input_payload: dict[str, Any]) -> dict[str, Any]:
             "categories": [*categories, "architect_agent_model_call"],
         }
 
+    if operation in {"product_owner_runtime", "product_owner_model_call"}:
+        if input_payload.get("agentId") != "product_owner_agent":
+            categories.append("product_owner_agent_denied")
+            return {
+                "decision": "deny",
+                "riskLevel": "high",
+                "reason": "ProductOwnerAgent runtime operations are restricted to the ProductOwnerAgent profile.",
+                "categories": categories,
+            }
+        if permission_profile != "plan":
+            categories.append("product_owner_agent_profile_denied")
+            return {
+                "decision": "deny",
+                "riskLevel": "high",
+                "reason": "ProductOwnerAgent execution requires the plan permission profile.",
+                "categories": categories,
+            }
+        if (
+            not input_payload.get("workspaceId")
+            or not input_payload.get("workspacePath")
+            or not input_payload.get("agentRunId")
+        ):
+            categories.append("product_owner_agent_context_required")
+            return {
+                "decision": "deny",
+                "riskLevel": "high",
+                "reason": "ProductOwnerAgent execution requires workspace and agent run context.",
+                "categories": categories,
+            }
+        if operation == "product_owner_runtime":
+            if tool != "shell" or input_payload.get("runtimeId") not in {"codex_cli", "claude_code_cli"}:
+                categories.append("product_owner_cli_runtime_denied")
+                return {
+                    "decision": "deny",
+                    "riskLevel": "high",
+                    "reason": "ProductOwnerAgent CLI execution is limited to configured Codex or Claude CLI runtimes.",
+                    "categories": categories,
+                }
+            if input_payload.get("networkRequired") or input_payload.get("secretsRequired"):
+                categories.append("product_owner_cli_approval_required")
+                return {
+                    "decision": "requires_approval",
+                    "riskLevel": "medium",
+                    "reason": "ProductOwnerAgent CLI execution with network or secrets requires approval.",
+                    "categories": categories,
+                }
+            return {
+                "decision": "allow",
+                "riskLevel": "medium",
+                "reason": "ProductOwnerAgent CLI runtime execution is allowed inside the allocated workspace.",
+                "categories": [*categories, "product_owner_runtime"],
+            }
+        if tool not in {"ollama", "openai_compatible"} or input_payload.get("runtimeId") != tool:
+            categories.append("product_owner_model_runtime_denied")
+            return {
+                "decision": "deny",
+                "riskLevel": "high",
+                "reason": "ProductOwnerAgent model execution is limited to configured OpenAI-compatible or Ollama adapters.",
+                "categories": categories,
+            }
+        if input_payload.get("secretsRequired"):
+            categories.append("product_owner_secrets_denied")
+            return {
+                "decision": "deny",
+                "riskLevel": "high",
+                "reason": "ProductOwnerAgent prompts cannot request secret-bearing execution.",
+                "categories": categories,
+            }
+        return {
+            "decision": "allow",
+            "riskLevel": "medium",
+            "reason": "ProductOwnerAgent model execution is allowed for a configured runtime adapter.",
+            "categories": [*categories, "product_owner_model_call"],
+        }
+
     if operation == "security_agent_model_call":
         if input_payload.get("agentId") != "security_agent":
             categories.append("security_agent_denied")

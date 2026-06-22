@@ -251,6 +251,70 @@ def build_developer_agent_argv(
         raise RuntimeCommandUnavailableError(str(error)) from error
 
 
+def _explicit_product_owner_agent_argv(runtime: dict[str, Any]) -> list[str] | None:
+    argv = runtime.get("productOwnerAgentArgv")
+    if argv is None:
+        return None
+    if not isinstance(argv, list) or not argv or not all(isinstance(item, str) and item for item in argv):
+        raise RuntimeCommandUnavailableError(
+            "Runtime productOwnerAgentArgv must be a non-empty structured argv list."
+        )
+    return list(argv)
+
+
+def build_product_owner_agent_argv(
+    *,
+    runtime: dict[str, Any],
+    workspace_id: str,
+    workspace_path: str,
+    prompt: str,
+    agent_id: str,
+    connection: sqlite3.Connection,
+) -> list[str]:
+    """Build the structured argv for a ProductOwnerAgent run (Codex or Claude Code CLI only).
+
+    Prefers the runtime's explicit `productOwnerAgentArgv`; otherwise validates the detected executable
+    and delegates to the runtime's command builder with the supplied analysis prompt.
+
+    Raises:
+        RuntimeCommandUnavailableError: if the runtime cannot produce a safe command.
+    """
+    explicit = _explicit_product_owner_agent_argv(runtime)
+    if explicit is not None:
+        return explicit
+    runtime_id = str(runtime.get("id") or "")
+    if runtime_id not in {"codex_cli", "claude_code_cli"}:
+        raise RuntimeCommandUnavailableError(
+            "Runtime provider does not expose a ProductOwnerAgent CLI executor."
+        )
+    executable = str(runtime.get("detectedCommand") or "").strip()
+    if not executable:
+        raise RuntimeCommandUnavailableError("Runtime status did not provide a detected executable command.")
+    executable_name = Path(executable).name.lower()
+    required_tokens = CLI_EXECUTABLE_TOKENS.get(runtime_id, ())
+    if required_tokens and not all(token in executable_name for token in required_tokens):
+        raise RuntimeCommandUnavailableError(
+            "Runtime detected executable does not match the declared runtime command."
+        )
+    cli_runtime = runtime_for(runtime_id, connection=connection, executable=executable)
+    request = RuntimeRequest.model_validate(
+        {
+            "runtime": runtime_id,
+            "workspaceId": workspace_id,
+            "workspacePath": workspace_path,
+            "prompt": prompt,
+            "envPolicy": {"permissionProfile": "plan", "network": False, "secrets": False},
+            "extraArgs": [],
+            "role": "product_owner",
+            "agentId": agent_id,
+        }
+    )
+    try:
+        return cli_runtime.build_command(request)
+    except ValueError as error:
+        raise RuntimeCommandUnavailableError(str(error)) from error
+
+
 def runtime_for(
     runtime_id: str,
     *,

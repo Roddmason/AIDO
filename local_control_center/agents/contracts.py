@@ -672,6 +672,64 @@ class ArchitectAgentRunResponse(BaseModel):
     risk_entries: list[dict[str, Any]] = Field(default_factory=list, alias="riskEntries")
 
 
+class ProductOwnerAgentStatus(BaseModel):
+    """Readiness del ProductOwnerAgent: si es ejecutable, el runtime elegido y los candidatos."""
+
+    id: str
+    executable: bool
+    status: str
+    reason: str
+    selected_runtime_id: str | None = Field(default=None, alias="selectedRuntimeId")
+    candidate_runtime_ids: list[str] = Field(default_factory=list, alias="candidateRuntimeIds")
+    contract: dict[str, Any]
+
+
+class ProductOwnerAgentStatusResponse(BaseModel):
+    """Respuesta con el estado de readiness del ProductOwnerAgent."""
+
+    product_owner_agent: ProductOwnerAgentStatus = Field(alias="productOwnerAgent")
+
+
+class ProductOwnerAgentRunRequest(BaseModel):
+    """Payload para ejecutar el ProductOwnerAgent: idea o assessment existente y contexto de workflow."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    project_id: str = Field(alias="projectId")
+    workspace_id: str = Field(alias="workspaceId")
+    task_id: str = Field(default="product_owner_agent", alias="taskId")
+    idea: str | None = None
+    initiative_id: str | None = Field(default=None, alias="initiativeId")
+    completeness_threshold: float | None = Field(default=None, alias="completenessThreshold")
+    workflow_context: dict[str, Any] = Field(default_factory=dict, alias="workflowContext")
+    preferred_runtime: str | None = Field(default=None, alias="preferredRuntime")
+    approval_grant_id: str | None = Field(default=None, alias="approvalGrantId")
+    model: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class ProductOwnerAgentRunResponse(BaseModel):
+    """Resultado de un run del ProductOwnerAgent: completitud, brief, decisiones y backlog."""
+
+    status: str
+    reason: str
+    product_owner_agent: ProductOwnerAgentStatus = Field(alias="productOwnerAgent")
+    workspace: dict[str, Any]
+    job: dict[str, Any]
+    agent_run: AgentRunRecord = Field(alias="agentRun")
+    evidence_package: dict[str, Any] = Field(alias="evidencePackage")
+    runtime: dict[str, Any]
+    runtime_result: dict[str, Any] = Field(alias="runtimeResult")
+    output: dict[str, Any] | None = None
+    completeness: dict[str, Any] | None = None
+    initiative: dict[str, Any] | None = None
+    questions: list[dict[str, Any]] = Field(default_factory=list)
+    assumptions: list[dict[str, Any]] = Field(default_factory=list)
+    brief: dict[str, Any] | None = None
+    blocking_decisions: list[dict[str, Any]] = Field(default_factory=list, alias="blockingDecisions")
+    epics: list[dict[str, Any]] = Field(default_factory=list)
+
+
 class RuntimeProviderConfigurationVariable(BaseModel):
     """Variable de configuración de un runtime: si es requerida, secreta y si está configurada."""
 

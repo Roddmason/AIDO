@@ -36,6 +36,7 @@ def initialize_platform_schema(connection: sqlite3.Connection) -> None:
     init_phase17_schema(connection)
     init_phase18_schema(connection)
     init_phase19_schema(connection)
+    init_phase20_schema(connection)
     seed_platform_catalogs(connection)
 
 
@@ -2809,6 +2810,44 @@ def init_phase19_schema(connection: sqlite3.Connection) -> None:
     connection.execute(
         "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
         (19, utc_now()),
+    )
+
+
+def init_phase20_schema(connection: sqlite3.Connection) -> None:
+    """Fase 20: añade la tabla ``iterations`` que el IterationPlanner produce a partir del brief
+    aprobado y las historias ready. La iteración es el contenedor del plan (estrategia de workspace,
+    quality gates, security gates risk-based y costo estimado marcado como estimado); el DAG de tareas,
+    las asignaciones y las dependencias se materializan en las tablas del slice backlog y referencian la
+    iteración por ``metadata.iterationId``."""
+    connection.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS iterations (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            brief_id TEXT NOT NULL,
+            title TEXT NOT NULL,
+            goal TEXT NOT NULL,
+            status TEXT NOT NULL,
+            story_ids TEXT NOT NULL,
+            workspace_strategy TEXT NOT NULL,
+            quality_gates TEXT NOT NULL,
+            security_gates TEXT NOT NULL,
+            estimated_cost TEXT NOT NULL,
+            runtimes TEXT NOT NULL,
+            task_count INTEGER NOT NULL,
+            assignment_count INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_iterations_project_status
+            ON iterations(project_id, status, updated_at);
+        CREATE INDEX IF NOT EXISTS idx_iterations_brief
+            ON iterations(brief_id);
+        """
+    )
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (20, utc_now()),
     )
 
 

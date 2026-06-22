@@ -32,6 +32,7 @@ def initialize_platform_schema(connection: sqlite3.Connection) -> None:
     init_phase13_schema(connection)
     init_phase14_schema(connection)
     init_phase15_schema(connection)
+    init_phase16_schema(connection)
     seed_platform_catalogs(connection)
 
 
@@ -2387,6 +2388,189 @@ def init_phase15_schema(connection: sqlite3.Connection) -> None:
     connection.execute(
         "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
         (15, utc_now()),
+    )
+
+
+def init_phase16_schema(connection: sqlite3.Connection) -> None:
+    """Fase 16: instala el slice de product discovery (iniciativas, sesiones de descubrimiento,
+    mensajes de conversación, preguntas/respuestas de aclaración, briefs versionados, supuestos y
+    decisiones de producto). Cada entidad es su propia tabla (sin metadata-como-entidad),
+    project-scoped, trazable por referencias e historial, y versionable donde el dominio lo exige."""
+    connection.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS initiatives (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            title TEXT NOT NULL,
+            summary TEXT NOT NULL,
+            status TEXT NOT NULL,
+            priority TEXT NOT NULL,
+            owner TEXT NOT NULL,
+            version INTEGER NOT NULL,
+            metadata TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS discovery_sessions (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            initiative_id TEXT NOT NULL,
+            title TEXT NOT NULL,
+            objective TEXT NOT NULL,
+            status TEXT NOT NULL,
+            facilitator TEXT NOT NULL,
+            metadata TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS conversation_messages (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            session_id TEXT NOT NULL,
+            initiative_id TEXT NOT NULL,
+            sequence INTEGER NOT NULL,
+            role TEXT NOT NULL,
+            author TEXT NOT NULL,
+            content TEXT NOT NULL,
+            metadata TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE(session_id, sequence)
+        );
+        CREATE TABLE IF NOT EXISTS clarification_questions (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            initiative_id TEXT NOT NULL,
+            session_id TEXT,
+            sequence INTEGER NOT NULL,
+            question TEXT NOT NULL,
+            status TEXT NOT NULL,
+            priority TEXT NOT NULL,
+            asked_by TEXT NOT NULL,
+            metadata TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS clarification_answers (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            question_id TEXT NOT NULL,
+            initiative_id TEXT NOT NULL,
+            answer TEXT NOT NULL,
+            status TEXT NOT NULL,
+            answered_by TEXT NOT NULL,
+            supersedes_id TEXT,
+            metadata TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS product_briefs (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            initiative_id TEXT NOT NULL,
+            title TEXT NOT NULL,
+            status TEXT NOT NULL,
+            summary TEXT NOT NULL,
+            problem_statement TEXT NOT NULL,
+            goals TEXT NOT NULL,
+            target_users TEXT NOT NULL,
+            success_metrics TEXT NOT NULL,
+            scope TEXT NOT NULL,
+            out_of_scope TEXT NOT NULL,
+            version INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS product_brief_versions (
+            id TEXT PRIMARY KEY,
+            brief_id TEXT NOT NULL,
+            project_id TEXT NOT NULL,
+            initiative_id TEXT NOT NULL,
+            version INTEGER NOT NULL,
+            title TEXT NOT NULL,
+            status TEXT NOT NULL,
+            summary TEXT NOT NULL,
+            problem_statement TEXT NOT NULL,
+            goals TEXT NOT NULL,
+            target_users TEXT NOT NULL,
+            success_metrics TEXT NOT NULL,
+            scope TEXT NOT NULL,
+            out_of_scope TEXT NOT NULL,
+            change_summary TEXT NOT NULL,
+            authored_by TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE(brief_id, version)
+        );
+        CREATE TABLE IF NOT EXISTS assumptions (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            initiative_id TEXT NOT NULL,
+            brief_id TEXT,
+            source_question_id TEXT,
+            statement TEXT NOT NULL,
+            status TEXT NOT NULL,
+            confidence TEXT NOT NULL,
+            validation TEXT NOT NULL,
+            owner TEXT NOT NULL,
+            metadata TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS product_decisions (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            initiative_id TEXT NOT NULL,
+            brief_id TEXT,
+            supersedes_id TEXT,
+            title TEXT NOT NULL,
+            status TEXT NOT NULL,
+            context TEXT NOT NULL,
+            decision TEXT NOT NULL,
+            rationale TEXT NOT NULL,
+            consequences TEXT NOT NULL,
+            linked_assumption_ids TEXT NOT NULL,
+            linked_question_ids TEXT NOT NULL,
+            decided_by TEXT NOT NULL,
+            decided_at TEXT,
+            version INTEGER NOT NULL,
+            metadata TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_initiatives_project_status
+            ON initiatives(project_id, status, updated_at);
+        CREATE INDEX IF NOT EXISTS idx_discovery_sessions_initiative
+            ON discovery_sessions(initiative_id, status, updated_at);
+        CREATE INDEX IF NOT EXISTS idx_discovery_sessions_project
+            ON discovery_sessions(project_id, updated_at);
+        CREATE INDEX IF NOT EXISTS idx_conversation_messages_session_seq
+            ON conversation_messages(session_id, sequence);
+        CREATE INDEX IF NOT EXISTS idx_conversation_messages_project_created
+            ON conversation_messages(project_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_clarification_questions_initiative
+            ON clarification_questions(initiative_id, status, created_at);
+        CREATE INDEX IF NOT EXISTS idx_clarification_questions_project
+            ON clarification_questions(project_id, status);
+        CREATE INDEX IF NOT EXISTS idx_clarification_answers_question
+            ON clarification_answers(question_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_product_briefs_initiative
+            ON product_briefs(initiative_id, status, updated_at);
+        CREATE INDEX IF NOT EXISTS idx_product_briefs_project
+            ON product_briefs(project_id, updated_at);
+        CREATE INDEX IF NOT EXISTS idx_product_brief_versions_brief
+            ON product_brief_versions(brief_id, version);
+        CREATE INDEX IF NOT EXISTS idx_assumptions_initiative
+            ON assumptions(initiative_id, status, updated_at);
+        CREATE INDEX IF NOT EXISTS idx_assumptions_project
+            ON assumptions(project_id, status);
+        CREATE INDEX IF NOT EXISTS idx_product_decisions_initiative
+            ON product_decisions(initiative_id, status, updated_at);
+        CREATE INDEX IF NOT EXISTS idx_product_decisions_project
+            ON product_decisions(project_id, status);
+        """
+    )
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (16, utc_now()),
     )
 
 

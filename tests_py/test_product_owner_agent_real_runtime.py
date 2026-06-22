@@ -1,0 +1,354 @@
+from __future__ import annotations
+
+import json
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from typing import Any
+
+import pytest
+from fastapi.testclient import TestClient
+
+from local_control_center.agents.product_owner_agent_contract import product_owner_agent_readiness
+from local_control_center.app import create_app
+from local_control_center.backlog.repository import BacklogRepository
+from local_control_center.product_discovery.repository import ProductDiscoveryRepository
+from tests_py.control_plane_fixture import ControlPlaneFixture
+
+
+def auth_headers(client: TestClient) -> dict[str, str]:
+    token = client.get("/api/v1/security/handshake").json()["token"]
+    return {"X-Local-Control-Token": token, "Origin": "http://127.0.0.1"}
+
+
+def create_client(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> tuple[ControlPlaneFixture, TestClient, dict[str, str]]:
+    monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
+    monkeypatch.delenv("AIDO_ENABLE_REAL_PROVIDER_CALLS", raising=False)
+    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store.init()
+    client = TestClient(create_app(runtime=store, static_dir=None))
+    return store, client, auth_headers(client)
+
+
+def create_project_and_workspace(
+    store: ControlPlaneFixture, tmp_path: Path, *, task_id: str
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    project_path = tmp_path / task_id
+    project_path.mkdir(parents=True, exist_ok=True)
+    (project_path / "README.md").write_text("# Product owner test project\n", encoding="utf-8")
+    project = store.create_project(name=f"PO {task_id}", path=project_path, template_id="other")
+    workspace = store.workspaces.allocate_workspace(
+        project_id=project["id"],
+        task_id=task_id,
+        agent_id="product_owner_agent",
+        reason="product owner agent test workspace",
+        isolation_type="directory",
+    )
+    return project, workspace
+
+
+def executable_openai_runtime_status() -> list[dict[str, Any]]:
+    return [
+        {
+            "id": "openai_compatible",
+            "kind": "api",
+            "displayName": "Controlled OpenAI-compatible runtime",
+            "detected": True,
+            "configured": True,
+            "available": True,
+            "executable": True,
+            "requiresApproval": False,
+            "reason": "Controlled provider is executable.",
+            "capabilities": ["chat"],
+            "requiredConfiguration": ["baseUrl", "apiKey", "model"],
+            "safety": {
+                "workspaceBound": False,
+                "shell": False,
+                "structuredArgv": True,
+                "network": "remote_calls_disabled_by_default",
+            },
+        }
+    ]
+
+
+class ControlledProductOwnerProviderHandler(BaseHTTPRequestHandler):
+    response_content = "{}"
+
+    def do_GET(self) -> None:
+        if self.path != "/models":
+            self.send_response(404)
+            self.end_headers()
+            return
+        body = json.dumps({"data": [{"id": "controlled-product-owner-model"}]}).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_POST(self) -> None:
+        if self.path != "/chat/completions":
+            self.send_response(404)
+            self.end_headers()
+            return
+        self.rfile.read(int(self.headers.get("Content-Length") or "0"))
+        payload = {
+            "choices": [{"message": {"content": self.response_content}}],
+            "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+        }
+        body = json.dumps(payload).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *_args: object) -> None:
+        return
+
+
+def start_controlled_provider(content: str) -> tuple[ThreadingHTTPServer, str]:
+    ControlledProductOwnerProviderHandler.response_content = content
+    server = ThreadingHTTPServer(("127.0.0.1", 0), ControlledProductOwnerProviderHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    host, port = server.server_address
+    return server, f"http://{host}:{port}"
+
+
+def product_owner_output(*, blocking: bool) -> dict[str, Any]:
+    return {
+        "completeness": {"score": 90, "missing": [], "rationale": "Brief covers the core."},
+        "questions": [{"question": "Which platform do we target first?", "priority": "high"}],
+        "assumptions": [
+            {"statement": "Users already have email accounts.", "confidence": "high", "validation": "survey"}
+        ],
+        "blockingDecisions": (
+            [
+                {
+                    "title": "Choose the payment provider",
+                    "question": "Stripe or a local processor?",
+                    "status": "open",
+                    "rationale": "It changes scope and compliance.",
+                }
+            ]
+            if blocking
+            else []
+        ),
+        "brief": {
+            "title": "Self-serve onboarding",
+            "summary": "Reduce time-to-value for new SMB users.",
+            "problemStatement": "New users stall at manual setup.",
+            "goals": ["Cut setup steps", "Raise day-1 activation"],
+            "targetUsers": ["SMB admins"],
+            "successMetrics": ["activation_rate"],
+            "scope": "Guided setup wizard.",
+            "outOfScope": "Enterprise SSO.",
+        },
+        "epics": [
+            {
+                "title": "Guided onboarding",
+                "description": "A wizard that walks users through setup.",
+                "stories": [
+                    {
+                        "title": "Guided account setup",
+                        "asA": "new SMB admin",
+                        "iWant": "to complete setup through a guided wizard",
+                        "soThat": "I reach first value without manual configuration",
+                        "businessValue": "high",
+                        "acceptanceCriteria": [
+                            "Setup completes without manual config",
+                            "Progress is shown at each step",
+                        ],
+                    }
+                ],
+            }
+        ],
+    }
+
+
+def product_owner_request(project: dict[str, Any], workspace: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "projectId": project["id"],
+        "workspaceId": workspace["id"],
+        "taskId": "discovery-intake",
+        "idea": "Let SMB users onboard themselves without manual setup.",
+        "workflowContext": {"title": "Product discovery intake"},
+        "preferredRuntime": "openai_compatible",
+    }
+
+
+def run_with_controlled_provider(
+    client: TestClient, headers: dict[str, str], monkeypatch: pytest.MonkeyPatch, *, content: str, body: dict
+):
+    server, base_url = start_controlled_provider(content)
+    try:
+        monkeypatch.setenv("AIDO_ENABLE_REAL_PROVIDER_CALLS", "true")
+        monkeypatch.setenv("AIDO_OPENAI_COMPATIBLE_BASE_URL", base_url)
+        monkeypatch.setenv("AIDO_OPENAI_COMPATIBLE_API_KEY", "unit-test-openai-compatible-key")
+        monkeypatch.setenv("AIDO_OPENAI_COMPATIBLE_MODEL", "controlled-product-owner-model")
+        monkeypatch.setattr(
+            "local_control_center.agents.runtime_status.RuntimeStatusService.list_provider_statuses",
+            lambda _service: executable_openai_runtime_status(),
+        )
+        return client.post("/api/v1/agents/product-owner/runs", headers=headers, json=body)
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_product_owner_readiness_prefers_cli_runtime() -> None:
+    statuses = [
+        {"id": "openai_compatible", "executable": True, "configured": True, "capabilities": ["chat"]},
+        {
+            "id": "codex_cli",
+            "executable": True,
+            "configured": True,
+            "capabilities": ["code_edit"],
+            "detectedCommand": "codex",
+        },
+    ]
+    readiness = product_owner_agent_readiness(statuses)
+    assert readiness["executable"] is True
+    assert readiness["selectedRuntimeId"] == "codex_cli"
+    assert readiness["candidateRuntimeIds"][0] == "codex_cli"
+
+
+def test_product_owner_agent_without_real_runtime_returns_unavailable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "local_control_center.agents.runtime_status.RuntimeStatusService.list_provider_statuses",
+        lambda _service: [],
+    )
+    store, client, headers = create_client(tmp_path, monkeypatch)
+    project, workspace = create_project_and_workspace(store, tmp_path, task_id="po-unavailable")
+
+    response = client.post(
+        "/api/v1/agents/product-owner/runs",
+        headers=headers,
+        json=product_owner_request(project, workspace),
+    )
+
+    assert response.status_code == 202
+    body = response.json()
+    assert body["status"] == "runtime_unavailable"
+    assert body["reason"]
+    assert body["output"] is None
+    assert body["completeness"] is None
+    assert body["epics"] == []
+    assert body["evidencePackage"]["qaVerdict"] == "blocked"
+    assert ProductDiscoveryRepository(store.connection).list_initiatives(project["id"]) == []
+    assert BacklogRepository(store.connection).list_epics(project["id"]) == []
+    assert "internal_mock" not in str(body)
+
+
+def test_product_owner_agent_valid_output_generates_brief_and_backlog(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store, client, headers = create_client(tmp_path, monkeypatch)
+    project, workspace = create_project_and_workspace(store, tmp_path, task_id="po-valid")
+
+    response = run_with_controlled_provider(
+        client,
+        headers,
+        monkeypatch,
+        content=json.dumps(product_owner_output(blocking=False)),
+        body=product_owner_request(project, workspace),
+    )
+
+    assert response.status_code == 202
+    body = response.json()
+    assert body["status"] == "completed"
+    assert body["runtimeResult"]["status"] == "completed"
+    assert body["output"]["brief"]["title"] == "Self-serve onboarding"
+    assert body["completeness"]["score"] == 100
+    assert body["completeness"]["meetsThreshold"] is True
+    assert body["evidencePackage"]["qaVerdict"] == "backlog_generated"
+    assert body["agentRun"]["status"] == "completed"
+
+    discovery = ProductDiscoveryRepository(store.connection)
+    backlog = BacklogRepository(store.connection)
+    initiatives = discovery.list_initiatives(project["id"])
+    assert len(initiatives) == 1
+    initiative_id = initiatives[0]["id"]
+    assert discovery.list_clarification_questions(initiative_id=initiative_id)
+    assert discovery.list_assumptions(initiative_id=initiative_id)
+    briefs = discovery.list_product_briefs(initiative_id=initiative_id)
+    assert briefs and briefs[0]["goals"] == ["Cut setup steps", "Raise day-1 activation"]
+
+    epics = backlog.list_epics(project["id"])
+    assert len(epics) == 1
+    stories = backlog.list_user_stories(epic_id=epics[0]["id"])
+    assert len(stories) == 1
+    # The persisted story carries user value (asA/iWant/soThat) and no technical role.
+    assert stories[0]["asA"] == "new SMB admin"
+    assert "role" not in stories[0]
+    criteria = backlog.list_acceptance_criteria(stories[0]["id"])
+    assert [criterion["criterion"] for criterion in criteria] == [
+        "Setup completes without manual config",
+        "Progress is shown at each step",
+    ]
+
+
+def test_product_owner_agent_blocking_decisions_withhold_backlog(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store, client, headers = create_client(tmp_path, monkeypatch)
+    project, workspace = create_project_and_workspace(store, tmp_path, task_id="po-blocked")
+
+    response = run_with_controlled_provider(
+        client,
+        headers,
+        monkeypatch,
+        content=json.dumps(product_owner_output(blocking=True)),
+        body=product_owner_request(project, workspace),
+    )
+
+    assert response.status_code == 202
+    body = response.json()
+    assert body["status"] == "blocked"
+    assert "blocking" in body["reason"].lower()
+    assert body["epics"] == []
+    assert body["completeness"]["unresolvedBlockingDecisions"] == 1
+    assert body["evidencePackage"]["qaVerdict"] == "blocked_pending_decisions"
+
+    discovery = ProductDiscoveryRepository(store.connection)
+    backlog = BacklogRepository(store.connection)
+    initiatives = discovery.list_initiatives(project["id"])
+    assert len(initiatives) == 1
+    initiative_id = initiatives[0]["id"]
+    # Discovery (questions, assumptions, brief, blocking decision) is recorded...
+    assert discovery.list_clarification_questions(initiative_id=initiative_id)
+    assert discovery.list_product_briefs(initiative_id=initiative_id)
+    decisions = discovery.list_product_decisions(initiative_id=initiative_id)
+    assert decisions and decisions[0]["metadata"]["blocking"] is True
+    # ...but the backlog is NOT generated while blocking decisions remain unresolved.
+    assert backlog.list_epics(project["id"]) == []
+    assert backlog.list_user_stories(project["id"]) == []
+
+
+def test_product_owner_agent_invalid_output_fails_validation_without_persistence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store, client, headers = create_client(tmp_path, monkeypatch)
+    project, workspace = create_project_and_workspace(store, tmp_path, task_id="po-invalid")
+
+    response = run_with_controlled_provider(
+        client,
+        headers,
+        monkeypatch,
+        content=json.dumps({"brief": {"title": "Partial"}}),
+        body=product_owner_request(project, workspace),
+    )
+
+    assert response.status_code == 202
+    body = response.json()
+    assert body["status"] == "failed_validation"
+    assert "missing" in body["reason"].lower() or "required" in body["reason"].lower()
+    assert body["output"] is None
+    assert body["evidencePackage"]["qaVerdict"] == "failed"
+    assert ProductDiscoveryRepository(store.connection).list_initiatives(project["id"]) == []
+    assert BacklogRepository(store.connection).list_epics(project["id"]) == []

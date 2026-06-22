@@ -33,6 +33,9 @@ from .contracts import (
     DevOpsAgentRunRequest,
     DevOpsAgentRunResponse,
     DevOpsAgentStatusResponse,
+    ProductOwnerAgentRunRequest,
+    ProductOwnerAgentRunResponse,
+    ProductOwnerAgentStatusResponse,
     QAAgentRunRequest,
     QAAgentRunResponse,
     RuntimeProviderConfigurationResponse,
@@ -46,6 +49,7 @@ from .contracts import (
 )
 from .developer_agent import DeveloperAgentRunner
 from .devops_agent import DevOpsAgentRunner
+from .product_owner_agent import ProductOwnerAgentRunner
 from .qa_agent import QAAgentRunner
 from .repository import AgentsRepository
 from .runtime_provider_config import list_runtime_provider_configurations
@@ -77,6 +81,7 @@ VALID_PERMISSION_PROFILES = {"plan", "dev_safe", "qa", "release"}
 DEVELOPER_AGENT_RUNTIMES = {"codex_cli", "claude_code_cli", "openai_compatible", "ollama"}
 ARCHITECT_AGENT_RUNTIMES = {"openai_compatible", "ollama"}
 SECURITY_AGENT_RUNTIMES = {"openai_compatible", "ollama"}
+PRODUCT_OWNER_AGENT_RUNTIMES = {"codex_cli", "claude_code_cli", "openai_compatible", "ollama"}
 
 
 def _require_id(value: Any, *, label: str) -> str:
@@ -462,6 +467,33 @@ def _create_execution_evidence(
     return [evidence["id"]]
 
 
+def validate_product_owner_agent_run_body(body: ProductOwnerAgentRunRequest) -> dict[str, Any]:
+    """Valida un run de ProductOwnerAgent: taskId, idea o initiativeId, runtime y umbral de completitud.
+
+    Raises:
+        HTTPException: 422 si falta taskId, no se entrega idea ni initiativeId, el runtime no es
+            permitido o el umbral de completitud está fuera de [0, 100].
+    """
+    payload = body.model_dump(by_alias=True)
+    if not str(payload.get("taskId") or "").strip():
+        raise HTTPException(status_code=422, detail="ProductOwnerAgent taskId is required.")
+    idea = str(payload.get("idea") or "").strip()
+    initiative_id = str(payload.get("initiativeId") or "").strip()
+    if not idea and not initiative_id:
+        raise HTTPException(status_code=422, detail="ProductOwnerAgent requires an idea or an initiativeId.")
+    preferred_runtime = payload.get("preferredRuntime")
+    if preferred_runtime and preferred_runtime not in PRODUCT_OWNER_AGENT_RUNTIMES:
+        raise HTTPException(
+            status_code=422, detail=f"ProductOwnerAgent runtime is not allowed: {preferred_runtime}"
+        )
+    threshold = payload.get("completenessThreshold")
+    if threshold is not None and (not isinstance(threshold, int | float) or not 0 <= threshold <= 100):
+        raise HTTPException(
+            status_code=422, detail="ProductOwnerAgent completenessThreshold must be between 0 and 100."
+        )
+    return payload
+
+
 def create_router(*, platform: Any, require_write: Callable[[Request], None]) -> APIRouter:
     """Construye el APIRouter de agentes, cableado a la conexión/cwd del platform y al guard de escritura."""
     router = APIRouter()
@@ -607,6 +639,39 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
                 "evidencePackageId": result["evidencePackage"]["id"],
                 "architectureDecisionId": (result.get("architectureDecision") or {}).get("id"),
                 "riskIds": [risk["id"] for risk in result.get("riskEntries") or []],
+            },
+        )
+        return result
+
+    @router.get("/api/v1/agents/product-owner/status", response_model=ProductOwnerAgentStatusResponse)
+    async def product_owner_agent_status() -> dict[str, Any]:
+        """Devuelve el readiness del ProductOwnerAgent."""
+        return {"productOwnerAgent": ProductOwnerAgentRunner(platform.connection, root=platform.cwd).status()}
+
+    @router.post(
+        "/api/v1/agents/product-owner/runs",
+        status_code=202,
+        response_model=ProductOwnerAgentRunResponse,
+    )
+    async def run_product_owner_agent(body: ProductOwnerAgentRunRequest, request: Request) -> dict[str, Any]:
+        """Ejecuta el ProductOwnerAgent sobre una idea o assessment y emite el evento del estado resultante."""
+        require_write(request)
+        payload = validate_product_owner_agent_run_body(body)
+        try:
+            result = ProductOwnerAgentRunner(platform.connection, root=platform.cwd).run(payload)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        event_bus().record_event(
+            project_id=result["agentRun"]["projectId"],
+            event_type=f"agent.product_owner.{result['status']}",
+            payload={
+                "agentRunId": result["agentRun"]["id"],
+                "workspaceId": result["workspace"]["id"],
+                "runtimeId": result["runtime"]["id"],
+                "evidencePackageId": result["evidencePackage"]["id"],
+                "initiativeId": (result.get("initiative") or {}).get("id"),
             },
         )
         return result

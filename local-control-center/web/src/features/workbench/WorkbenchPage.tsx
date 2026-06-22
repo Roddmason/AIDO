@@ -46,10 +46,12 @@ import {
 	type RuntimeRow,
 } from './GovernedAdvancedPanel';
 import { LogsPanel } from './panels/LogsPanel';
+import { ProductLoopSection } from './panels/ProductLoopSection';
 import { TimelinePanel } from './panels/TimelinePanel';
 import { WorkbenchDiffPanel } from './panels/WorkbenchDiffPanel';
 import { WorkbenchEvidencePanel } from './panels/WorkbenchEvidencePanel';
 import { buildProductLoopSections, type ProductLoopSectionId } from './productLoopModel';
+import { useProductLoop } from './useProductLoop';
 import { formatTime, NEW_SESSION_ID, useWorkbenchData } from './useWorkbenchData';
 import { WorkbenchExplorer } from './WorkbenchExplorer';
 import { WorkbenchInspector } from './WorkbenchInspector';
@@ -210,6 +212,10 @@ export function WorkbenchPage({
 		selectedRunId,
 		onResetSession: setSelectedSessionId,
 	});
+
+	// Live product-loop data for the loop sections; re-fetched on project change, on demand
+	// (decoupled from the 5s overview poll since the loop is detail-shaped and changes rarely).
+	const loop = useProductLoop(project?.id);
 
 	// --- Runtime / QA derivation (single source on the page; lifted from the old TaskComposer). ---
 	const runtimeRows = runtimeProviders?.providers ?? [];
@@ -521,22 +527,6 @@ export function WorkbenchPage({
 		count: section.count,
 	}));
 
-	// Honest shell for the loop sections whose product-discovery/backlog/loop endpoint is not wired
-	// yet: a pending badge plus an empty state describing what will populate it.
-	const renderLoopShell = (
-		titleKey: string,
-		titleFallback: string,
-		bodyKey: string,
-		bodyFallback: string,
-	) => (
-		<div className="stack">
-			<div className="inline">
-				<Badge tone="pending">{t('app.workbench.loop.shellBadge', 'Not connected yet')}</Badge>
-			</div>
-			<EmptyState title={t(titleKey, titleFallback)} body={t(bodyKey, bodyFallback)} />
-		</div>
-	);
-
 	const header = (
 		<PageHeader
 			kicker={t('app.workbench.kicker', 'AI project workbench')}
@@ -568,6 +558,12 @@ export function WorkbenchPage({
 			</>
 		);
 	}
+
+	// The architecture section reuses the already-available overview architecture decisions,
+	// scoped to this project; the other loop sections come from the product-loop endpoint.
+	const projectArchitectureDecisions = overview.architectureDecisions.filter(
+		(decision) => decision.projectId === project.id,
+	);
 
 	return (
 		<>
@@ -875,73 +871,88 @@ export function WorkbenchPage({
 							</div>
 						) : null}
 
-						{activeSection === 'questions'
-							? renderLoopShell(
-									'app.workbench.loop.questions.emptyTitle',
-									'No pending questions',
-									'app.workbench.loop.questions.emptyBody',
-									'AIDO surfaces impact questions here once discovery runs against this workspace.',
-								)
-							: null}
-						{activeSection === 'brief'
-							? renderLoopShell(
-									'app.workbench.loop.brief.emptyTitle',
-									'No product brief yet',
-									'app.workbench.loop.brief.emptyBody',
-									'The living product brief appears here once the product owner agent produces it.',
-								)
-							: null}
-						{activeSection === 'assumptions'
-							? renderLoopShell(
-									'app.workbench.loop.assumptions.emptyTitle',
-									'No assumptions recorded',
-									'app.workbench.loop.assumptions.emptyBody',
-									'Assumptions captured during discovery are listed here with their rationale.',
-								)
-							: null}
-						{activeSection === 'decisions'
-							? renderLoopShell(
-									'app.workbench.loop.decisions.emptyTitle',
-									'No decisions yet',
-									'app.workbench.loop.decisions.emptyBody',
-									'Product and architecture decisions, with alternatives and reversibility, appear here.',
-								)
-							: null}
-						{activeSection === 'architecture'
-							? renderLoopShell(
-									'app.workbench.loop.architecture.emptyTitle',
-									'No architecture options yet',
-									'app.workbench.loop.architecture.emptyBody',
-									'Candidate architecture options and their tradeoffs are compared here.',
-								)
-							: null}
-						{activeSection === 'backlog'
-							? renderLoopShell(
-									'app.workbench.loop.backlog.emptyTitle',
-									'No backlog yet',
-									'app.workbench.loop.backlog.emptyBody',
-									'Epics, user stories and acceptance criteria appear here once the backlog is generated.',
-								)
-							: null}
+						{activeSection === 'questions' ? (
+							<ProductLoopSection
+								section="questions"
+								data={loop.data}
+								architectureDecisions={projectArchitectureDecisions}
+								loading={loop.loading}
+								error={loop.error}
+							/>
+						) : null}
+						{activeSection === 'brief' ? (
+							<ProductLoopSection
+								section="brief"
+								data={loop.data}
+								architectureDecisions={projectArchitectureDecisions}
+								loading={loop.loading}
+								error={loop.error}
+							/>
+						) : null}
+						{activeSection === 'assumptions' ? (
+							<ProductLoopSection
+								section="assumptions"
+								data={loop.data}
+								architectureDecisions={projectArchitectureDecisions}
+								loading={loop.loading}
+								error={loop.error}
+							/>
+						) : null}
+						{activeSection === 'decisions' ? (
+							<ProductLoopSection
+								section="decisions"
+								data={loop.data}
+								architectureDecisions={projectArchitectureDecisions}
+								loading={loop.loading}
+								error={loop.error}
+							/>
+						) : null}
+						{activeSection === 'architecture' ? (
+							<ProductLoopSection
+								section="architecture"
+								data={loop.data}
+								architectureDecisions={projectArchitectureDecisions}
+								loading={loop.loading}
+								error={loop.error}
+							/>
+						) : null}
+						{activeSection === 'backlog' ? (
+							<ProductLoopSection
+								section="backlog"
+								data={loop.data}
+								architectureDecisions={projectArchitectureDecisions}
+								loading={loop.loading}
+								error={loop.error}
+							/>
+						) : null}
 
 						{activeSection === 'iteration' ? (
-							<TimelinePanel
-								runTimeline={runTimeline}
-								hasRun={hasRun}
-								deliveryTimeline={deliveryTimeline}
-								hasPipeline={hasPipeline}
-								signals={{
-									workflows: projectWorkflows.length,
-									evidence: projectEvidence.length,
-									approvals: pendingApprovals.length,
-									workspaces: projectWorkspaces.length,
-								}}
-								workflows={projectWorkflows}
-								workflowRuns={projectWorkflowRuns}
-								workflowEvents={projectWorkflowEvents}
-								pipelines={sessionPipelines}
-								onOpenArtifact={() => setActiveSection('review')}
-							/>
+							<div className="stack">
+								<ProductLoopSection
+									section="iterations"
+									data={loop.data}
+									architectureDecisions={projectArchitectureDecisions}
+									loading={loop.loading}
+									error={loop.error}
+								/>
+								<TimelinePanel
+									runTimeline={runTimeline}
+									hasRun={hasRun}
+									deliveryTimeline={deliveryTimeline}
+									hasPipeline={hasPipeline}
+									signals={{
+										workflows: projectWorkflows.length,
+										evidence: projectEvidence.length,
+										approvals: pendingApprovals.length,
+										workspaces: projectWorkspaces.length,
+									}}
+									workflows={projectWorkflows}
+									workflowRuns={projectWorkflowRuns}
+									workflowEvents={projectWorkflowEvents}
+									pipelines={sessionPipelines}
+									onOpenArtifact={() => setActiveSection('review')}
+								/>
+							</div>
 						) : null}
 
 						{activeSection === 'execution' ? (

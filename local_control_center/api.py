@@ -30,6 +30,7 @@ from .integrations.api import create_router as create_integrations_router
 from .jobs_approvals.api import create_router as create_jobs_approvals_router
 from .memory_retrieval.api import create_router as create_memory_retrieval_router
 from .pipelines.api import create_router as create_pipelines_router
+from .product_loop.api import create_router as create_product_loop_router
 from .projects.api import create_router as create_projects_router
 from .prompts.api import create_router as create_prompts_router
 from .security_policy.api import create_router as create_security_policy_router
@@ -113,6 +114,7 @@ def create_app(
     app.include_router(create_integrations_router(platform=platform, require_write=require_write))
     app.include_router(create_prompts_router(platform=platform, require_write=require_write))
     app.include_router(create_projects_router(platform=platform, require_write=require_write))
+    app.include_router(create_product_loop_router(platform=platform, require_write=require_write))
     app.include_router(create_i18n_router(platform=platform, require_write=require_write))
 
     def snapshot_overview() -> dict[str, Any]:

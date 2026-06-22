@@ -14,6 +14,7 @@ export type AgentRunCreateRequest = { "agentProfileId": string; "input"?: JsonOb
 export type AgentRunRecord = { "createdAt": string; "id": string; "input": JsonObject; "jobId"?: null | string; "metadata": JsonObject; "output": JsonObject; "projectId": string; "status": "queued" | "running" | "completed" | "approved" | "failed" | "blocked" | "runtime_unavailable" | "qa_failed" | "evidence_ready" | "approval_required" | "awaiting_permission" | "cancelled"; "updatedAt": string; "workflowRunId"?: null | string; "workflowStepId"?: null | string };
 export type AgentRunResponse = { "agentRun": AgentRunRecord };
 export type AgentRunsListResponse = { "agentRuns": Array<AgentRunRecord> };
+export type AgentTaskRecord = { "category": string; "createdAt": string; "description"?: null | string; "estimateHours"?: null | number; "id": string; "metadata": JsonObject; "priority": string; "projectId": string; "role": string; "status": string; "storyId"?: null | string; "title": string; "updatedAt": string; "version": number };
 export type AgentToolCallRecord = { "agentRunId": string; "createdAt": string; "id": string; "payload": JsonObject; "status": "pending" | "allowed" | "denied" | "requires_approval" | "approval_required" | "completed" | "failed" | "blocked" | "configuration_required" | "unavailable"; "toolName": string; "updatedAt": string };
 export type AgentsListResponse = { "agents": Array<CatalogAgentRecord> };
 export type ApiRuntimeProviderStatus = { "adapters": Array<string>; "available": boolean; "provider": string };
@@ -40,6 +41,7 @@ export type ArtifactRetentionActionResponse = { "action": string; "artifacts": A
 export type ArtifactRetentionPlanRequest = { "dryRun"?: boolean; "now"?: null | string };
 export type ArtifactRetentionPlanResponse = { "dryRun": boolean; "expiredArtifacts": Array<ExpiredArtifactRecord>; "now": string; "riskIds": Array<string> };
 export type ArtifactRetentionResultRecord = { "createdAt": string; "evidencePackageId"?: null | string; "hash"?: null | string; "id": string; "kind": "execution_log" | "screenshot" | "test_report" | "qa_report" | "generic_artifact" | "git_patch" | "git_status" | "security_findings" | "model_call" | "evidence_manifest" | "devops_command_report" | "devops_report" | "security_report" | "cli_stdout" | "cli_stderr" | "cli_runtime_log" | "workspace_patch_manifest"; "metadata": JsonObject; "path": string; "projectId": string; "retentionAction": JsonObject };
+export type AssumptionRecord = { "briefId"?: null | string; "confidence"?: null | string; "createdAt": string; "id": string; "initiativeId"?: null | string; "metadata": JsonObject; "owner"?: null | string; "projectId": string; "sourceQuestionId"?: null | string; "statement": string; "status": string; "updatedAt": string; "validation"?: null | string };
 export type AuditEventRecord = { "action": string; "actor": string; "createdAt": string; "id": string; "payload": JsonObject; "projectId"?: null | string; "target": string };
 export type BudgetRulePatchRequest = { "actionOnExceed"?: string; "enabled"?: boolean; "id"?: null | string; "maxCostUsd"?: null | number; "maxTokens"?: null | number; "period"?: string; "scopeId"?: null | string; "scopeType"?: null | string };
 export type BudgetRuleRecord = { "actionOnExceed": string; "createdAt": string; "enabled": boolean; "id": string; "maxCostUsd"?: null | number; "maxTokens"?: null | number; "period": string; "scopeId"?: null | string; "scopeType": string; "updatedAt": string };
@@ -51,6 +53,7 @@ export type ChatCreateRequest = { "projectId": string; "prompt": string; "sessio
 export type ChatRecord = { "createdAt": string; "id": string; "metadata": JsonObject; "projectId": string; "prompt": string; "sessionId"?: null | string; "status": string; "title": string; "updatedAt": string };
 export type ChatResponse = { "chat": ChatRecord };
 export type ChatsListResponse = { "chats": Array<ChatRecord> };
+export type ClarificationQuestionRecord = { "askedBy"?: null | string; "createdAt": string; "id": string; "initiativeId"?: null | string; "metadata": JsonObject; "priority": string; "projectId": string; "question": string; "sequence": number; "sessionId"?: null | string; "status": string; "updatedAt": string };
 export type CliAdaptersStatus = { "cli_claude": boolean; "cli_codex": boolean };
 export type CliRuntimeProviderStatus = { "adapters": CliAdaptersStatus; "available": boolean; "provider": string };
 export type CliRuntimeRecord = { "executable"?: null | string; "id"?: null | string; "message"?: string; "runtime": string; "status": string; "version"?: null | string };
@@ -74,6 +77,7 @@ export type DirectoryPickerRequest = { "initialPath"?: null | string; "title"?: 
 export type DirectoryPickerResponse = { "reason"?: null | string; "selectedPath"?: null | string; "status": string };
 export type DiscoverModelsResponse = { "models": Array<ModelCatalogRecord> };
 export type DockerSandboxStatus = { "available": boolean; "defaultNetwork": string; "executable"?: null | string; "fallback": string; "hostMount": string; "mode": string; "policy": SandboxProfileRecord; "required": boolean; "writes": string };
+export type EpicRecord = { "createdAt": string; "description"?: null | string; "id": string; "metadata": JsonObject; "owner"?: null | string; "priority": string; "projectId": string; "status": string; "title": string; "updatedAt": string; "version": number };
 export type EventRecord = { "createdAt": string; "id": string; "jobId"?: null | string; "payload": JsonObject; "projectId"?: null | string; "severity"?: string; "type": string };
 export type EvidenceCreateRequest = { "acceptanceChecklist"?: Array<JsonValue>; "actualCostUsd"?: null | number; "agentId"?: null | string; "agentRunId"?: null | string; "approvals"?: Array<JsonObject>; "artifactIds"?: Array<string>; "artifacts"?: Array<JsonObject>; "diffRefs"?: Array<JsonValue>; "diffSummary"?: JsonObject; "estimatedCostUsd"?: null | number; "evidenceSource"?: "operator_attested" | "evidence_collected" | "qa_passed_by_command" | "verified_completion"; "hashes"?: JsonObject; "jobId"?: null | string; "latencyMs"?: null | number; "logs"?: Array<JsonValue>; "model"?: null | string; "modelCalls"?: Array<JsonObject>; "policyDecisions"?: Array<JsonObject>; "projectId": string; "providerId"?: null | string; "qaVerdict"?: "not_started" | "passed" | "failed" | "blocked" | "needs_human_review" | "evidence_collected" | "architecture_reviewed" | "devops_risk" | "devops_blocked" | "security_passed" | "security_blocked" | "skipped_with_reason"; "rework"?: boolean | null; "riskNotes"?: Array<JsonValue>; "role"?: null | string; "runtimeHealth"?: JsonObject; "runtimeId"?: null | string; "runtimeType"?: null | string; "screenshotRefs"?: Array<JsonValue>; "taskId"?: string; "testPlan"?: string; "testResultReports"?: Array<JsonObject>; "testResults"?: Array<JsonObject>; "toolCalls"?: Array<JsonObject>; "usageLedgerId"?: null | string; "workflowRunId"?: null | string; "workflowStepId"?: null | string; "workspaceId"?: null | string };
 export type EvidenceDetailResponse = { "artifacts": Array<ArtifactRecord>; "evidencePackage": EvidencePackageRecord; "testResultRecords": Array<TestResultRecord> };
@@ -99,6 +103,7 @@ export type IssueToPatchRequest = { "issueText": string; "maxCostUsd"?: null | n
 export type IssueToPatchResponse = { "agentRun": AgentRunRecord; "diffSummary": JsonObject; "evidencePackage": EvidencePackageRecord; "job": JobRecord; "pullRequest"?: JsonObject | null; "qaResults": Array<JsonObject>; "reason": string; "runtime": JsonObject; "runtimeResult": JsonObject; "status": string; "workflow": WorkflowRecord; "workflowRun": WorkflowRunRecord; "workflowSteps": Array<WorkflowStepRecord>; "workspace": WorkspaceRecord };
 export type IssueToPrRequest = { "buildScripts"?: Array<string>; "createPullRequest"?: boolean; "dockerHealthcheck"?: boolean; "issueText": string; "maxCostUsd"?: null | number; "maxReworkAttempts"?: number; "preferredRuntime"?: null | string; "projectId": string; "qaCommands"?: Array<Array<string>>; "qualityScripts"?: Array<string>; "requireApproval"?: boolean; "targetPath"?: null | string; "title": string };
 export type IssueToPrResponse = { "agentRun": AgentRunRecord; "completion": JsonObject; "dag": JsonObject; "diffSummary": JsonObject; "evidencePackage": EvidencePackageRecord; "gateResults": Array<JsonObject>; "job": JobRecord; "pullRequest"?: JsonObject | null; "qaResults": Array<JsonObject>; "reason": string; "rework": JsonObject; "runtime": JsonObject; "runtimeResult": JsonObject; "status": string; "timeline"?: Array<JsonObject>; "workflow": WorkflowRecord; "workflowRun": WorkflowRunRecord; "workflowSteps": Array<WorkflowStepRecord>; "workspace": WorkspaceRecord };
+export type IterationRecord = { "assignmentCount": number; "briefId"?: null | string; "createdAt": string; "estimatedCost": JsonObject; "goal"?: null | string; "id": string; "projectId": string; "qualityGates": Array<JsonValue>; "runtimes": Array<JsonValue>; "securityGates": Array<JsonValue>; "status": string; "storyIds": Array<JsonValue>; "taskCount": number; "title": string; "updatedAt": string; "workspaceStrategy"?: null | string };
 export type JobCreateRequest = { "idempotencyKey"?: null | string; "kind": string; "payload"?: JsonObject; "projectId": string; "workflowRunId"?: null | string; "workflowStepId"?: null | string };
 export type JobMutationResponse = { "actionRequest"?: ActionRequestRecord | null; "actionRequests"?: Array<ActionRequestRecord>; "auditEvent"?: AuditEventRecord | null; "events"?: Array<EventRecord>; "job": JobRecord; "permissionGrant"?: ApprovalGrantRecord | null };
 export type JobRecord = { "createdAt": string; "id": string; "idempotencyKey"?: null | string; "kind": string; "leaseExpiresAt"?: null | string; "leaseOwner"?: null | string; "payload": JsonObject; "projectId": string; "status": "queued" | "running" | "approval_required" | "completed" | "approved" | "failed" | "cancelled"; "updatedAt": string; "workflowRunId"?: null | string; "workflowStepId"?: null | string };
@@ -154,6 +159,15 @@ export type PricingSnapshotCreateRequest = { "applyToCatalog"?: boolean; "cached
 export type PricingSnapshotRecord = { "applyToCatalog": boolean; "cachedInputPricePerMtok"?: null | number; "createdAt": string; "effectiveAt"?: null | string; "freeTier": boolean; "id": string; "inputPricePerMtok"?: null | number; "metadata": JsonObject; "model": string; "outputPricePerMtok"?: null | number; "providerId": string; "reasoningPricePerMtok"?: null | number; "sourceRef": string };
 export type PricingSnapshotResponse = { "pricingSnapshot": PricingSnapshotRecord };
 export type PricingSnapshotsListResponse = { "pricingSnapshots": Array<PricingSnapshotRecord> };
+export type ProductBriefRecord = { "createdAt": string; "goals": Array<JsonValue>; "id": string; "initiativeId"?: null | string; "outOfScope"?: null | string; "problemStatement"?: null | string; "projectId": string; "scope"?: null | string; "status": string; "successMetrics": Array<JsonValue>; "summary"?: null | string; "targetUsers": Array<JsonValue>; "title": string; "updatedAt": string; "version": number };
+export type ProductDecisionRecord = { "briefId"?: null | string; "consequences": Array<JsonValue>; "context"?: null | string; "createdAt": string; "decidedAt"?: null | string; "decidedBy"?: null | string; "decision"?: null | string; "id": string; "initiativeId"?: null | string; "linkedAssumptionIds": Array<JsonValue>; "linkedQuestionIds": Array<JsonValue>; "metadata": JsonObject; "projectId": string; "rationale"?: null | string; "status": string; "supersedesId"?: null | string; "title": string; "updatedAt": string; "version": number };
+export type ProductLoopRecord = { "context": JsonObject; "createdAt": string; "id": string; "initiativeId"?: null | string; "previousState"?: null | string; "projectId": string; "state": string; "status": string; "title": string; "updatedAt": string; "version": number };
+export type ProductLoopStateResponse = { "assumptions": Array<AssumptionRecord>; "brief"?: ProductBriefRecord | null; "decisions": Array<ProductDecisionRecord>; "epics": Array<EpicRecord>; "iterations": Array<IterationRecord>; "loops": Array<ProductLoopRecord>; "questions": Array<ClarificationQuestionRecord>; "stories": Array<UserStoryRecord>; "tasks": Array<AgentTaskRecord>; "transitions": Array<ProductLoopTransitionRecord> };
+export type ProductLoopTransitionRecord = { "actor": string; "createdAt": string; "fromState": string; "id": string; "loopId": string; "metadata": JsonObject; "projectId": string; "reason": string; "toState": string; "trigger": string; "version": number };
+export type ProductOwnerAgentRunRequest = { "approvalGrantId"?: null | string; "autonomy"?: JsonObject | null; "completenessThreshold"?: null | number; "idea"?: null | string; "initiativeId"?: null | string; "metadata"?: JsonObject; "model"?: null | string; "preferredRuntime"?: null | string; "projectId": string; "taskId"?: string; "workflowContext"?: JsonObject; "workspaceId": string };
+export type ProductOwnerAgentRunResponse = { "agentRun": AgentRunRecord; "assumptions"?: Array<JsonObject>; "blockingDecisions"?: Array<JsonObject>; "brief"?: JsonObject | null; "completeness"?: JsonObject | null; "epics"?: Array<JsonObject>; "evidencePackage": JsonObject; "initiative"?: JsonObject | null; "job": JsonObject; "output"?: JsonObject | null; "productOwnerAgent": ProductOwnerAgentStatus; "questions"?: Array<JsonObject>; "reason": string; "runtime": JsonObject; "runtimeResult": JsonObject; "status": string; "workspace": JsonObject };
+export type ProductOwnerAgentStatus = { "candidateRuntimeIds"?: Array<string>; "contract": JsonObject; "executable": boolean; "id": string; "reason": string; "selectedRuntimeId"?: null | string; "status": string };
+export type ProductOwnerAgentStatusResponse = { "productOwnerAgent": ProductOwnerAgentStatus };
 export type ProjectCreateRequest = { "createDirectory"?: boolean; "metadata"?: JsonObject; "name"?: null | string; "path"?: null | string; "projectDirectoryName"?: null | string; "templateId"?: null | string; "workspaceBasePath"?: null | string };
 export type ProjectDiscoveryRequest = { "path": string };
 export type ProjectDiscoveryResponse = { "discovery": JsonObject };
@@ -256,6 +270,7 @@ export type UsageLedgerRecord = { "actualCostUsd"?: null | number; "agentId"?: n
 export type UsageSummaryProvider = { "estimatedCostUsd": number; "providerId": string; "totalTokens": number };
 export type UsageSummaryRecord = { "actualCostUsd": number; "byProvider": Array<UsageSummaryProvider>; "estimatedCostUsd": number; "totalTokens": number };
 export type UsageSummaryResponse = { "summary": UsageSummaryRecord };
+export type UserStoryRecord = { "asA"?: null | string; "businessValue"?: null | string; "createdAt": string; "description"?: null | string; "epicId"?: null | string; "iWant"?: null | string; "id": string; "metadata": JsonObject; "owner"?: null | string; "priority": string; "projectId": string; "soThat"?: null | string; "status": string; "storyPoints"?: null | number; "title": string; "updatedAt": string; "version": number };
 export type ValidationError = { "ctx"?: JsonObject; "input"?: JsonValue; "loc": Array<number | string>; "msg": string; "type": string };
 export type WorkflowCreateRequest = { "idea"?: null | string; "kind"?: "idea_to_pr" | "project_discovery" | "issue_to_patch" | "issue_to_pr" | "qa_validation" | "release_candidate" | "pr_release_retro"; "metadata"?: JsonObject; "projectId": string; "title"?: null | string };
 export type WorkflowDetailResponse = { "actionRequests"?: Array<ActionRequestRecord>; "agentRuns": Array<AgentRunRecord>; "agentToolCalls"?: Array<AgentToolCallRecord>; "artifacts"?: Array<ArtifactRecord>; "evidencePackages": Array<EvidencePackageRecord>; "jobRuns"?: Array<JobRunRecord>; "jobs": Array<JobRecord>; "modelCalls"?: Array<ModelCallRecord>; "permissionDecisions"?: Array<PermissionDecisionRecord>; "testResultRecords"?: Array<TestResultRecord>; "workflow": WorkflowRecord; "workflowEvents"?: Array<WorkflowEventRecord>; "workflowRunDetails"?: Array<WorkflowRunDetail>; "workflowRuns": Array<WorkflowRunRecord>; "workflowSteps": Array<WorkflowStepRecord>; "workspaces": Array<WorkspaceRecord> };
@@ -292,6 +307,8 @@ export const API_ENDPOINTS = [
 	{"method": "GET", "operationId": "developer_agent_status_api_v1_agents_developer_status_get", "path": "/api/v1/agents/developer/status", "summary": "Developer Agent Status"},
 	{"method": "POST", "operationId": "run_devops_agent_api_v1_agents_devops_runs_post", "path": "/api/v1/agents/devops/runs", "summary": "Run Devops Agent"},
 	{"method": "GET", "operationId": "devops_agent_status_api_v1_agents_devops_status_get", "path": "/api/v1/agents/devops/status", "summary": "Devops Agent Status"},
+	{"method": "POST", "operationId": "run_product_owner_agent_api_v1_agents_product_owner_runs_post", "path": "/api/v1/agents/product-owner/runs", "summary": "Run Product Owner Agent"},
+	{"method": "GET", "operationId": "product_owner_agent_status_api_v1_agents_product_owner_status_get", "path": "/api/v1/agents/product-owner/status", "summary": "Product Owner Agent Status"},
 	{"method": "POST", "operationId": "run_qa_agent_api_v1_agents_qa_runs_post", "path": "/api/v1/agents/qa/runs", "summary": "Run Qa Agent"},
 	{"method": "POST", "operationId": "run_security_agent_api_v1_agents_security_runs_post", "path": "/api/v1/agents/security/runs", "summary": "Run Security Agent"},
 	{"method": "GET", "operationId": "security_agent_status_api_v1_agents_security_status_get", "path": "/api/v1/agents/security/status", "summary": "Security Agent Status"},
@@ -378,6 +395,7 @@ export const API_ENDPOINTS = [
 	{"method": "GET", "operationId": "projects_api_v1_projects_get", "path": "/api/v1/projects", "summary": "Projects"},
 	{"method": "POST", "operationId": "create_project_api_v1_projects_post", "path": "/api/v1/projects", "summary": "Create Project"},
 	{"method": "POST", "operationId": "discover_project_api_v1_projects_discover_post", "path": "/api/v1/projects/discover", "summary": "Discover Project"},
+	{"method": "GET", "operationId": "get_product_loop_state_api_v1_projects__project_id__product_loop_get", "path": "/api/v1/projects/{project_id}/product-loop", "summary": "Get Product Loop State"},
 	{"method": "GET", "operationId": "list_prompts_api_v1_prompts_get", "path": "/api/v1/prompts", "summary": "List Prompts"},
 	{"method": "POST", "operationId": "upsert_prompt_api_v1_prompts_post", "path": "/api/v1/prompts", "summary": "Upsert Prompt"},
 	{"method": "GET", "operationId": "providers_api_v1_providers_get", "path": "/api/v1/providers", "summary": "Providers"},
@@ -479,6 +497,7 @@ export type OperationRequestBodies = {
 	"get_cli_session_api_v1_model_gateway_cli_sessions__session_id__get": never,
 	"get_evidence_api_v1_evidence__evidence_id__get": never,
 	"get_i18n_catalog_api_v1_i18n_catalog_get": never,
+	"get_product_loop_state_api_v1_projects__project_id__product_loop_get": never,
 	"get_provider_api_v1_model_gateway_providers__provider_id__get": never,
 	"get_workflow_api_v1_workflows__workflow_id__get": never,
 	"governance_api_v1_governance_get": never,
@@ -530,6 +549,7 @@ export type OperationRequestBodies = {
 	"patch_routing_profile_api_v1_model_gateway_routing_profiles__profile_id__patch": RoutingProfilePatchRequest,
 	"pause_workflow_api_v1_workflows__workflow_id__pause_post": WorkflowStatusChangeRequest,
 	"plan_artifact_retention_api_v1_evidence_artifacts_retention_post": ArtifactRetentionPlanRequest,
+	"product_owner_agent_status_api_v1_agents_product_owner_status_get": never,
 	"project_templates_api_v1_project_templates_get": never,
 	"projects_api_v1_projects_get": never,
 	"promote_issue_to_pr_branch_api_v1_workflows_issue_to_pr__run_id__promote_post": PromotePatchToBranchRequest,
@@ -552,6 +572,7 @@ export type OperationRequestBodies = {
 	"run_devops_agent_api_v1_agents_devops_runs_post": DevOpsAgentRunRequest,
 	"run_issue_to_patch_api_v1_workflows_issue_to_patch_post": IssueToPatchRequest,
 	"run_issue_to_pr_api_v1_workflows_issue_to_pr_post": IssueToPrRequest,
+	"run_product_owner_agent_api_v1_agents_product_owner_runs_post": ProductOwnerAgentRunRequest,
 	"run_qa_agent_api_v1_agents_qa_runs_post": QAAgentRunRequest,
 	"run_security_agent_api_v1_agents_security_runs_post": SecurityAgentRunRequest,
 	"sandbox_status_api_v1_sandbox_status_get": never,
@@ -620,6 +641,7 @@ export type OperationResponseBodies = {
 	"get_cli_session_api_v1_model_gateway_cli_sessions__session_id__get": CliSessionResponse,
 	"get_evidence_api_v1_evidence__evidence_id__get": EvidenceDetailResponse,
 	"get_i18n_catalog_api_v1_i18n_catalog_get": I18nCatalogResponse,
+	"get_product_loop_state_api_v1_projects__project_id__product_loop_get": ProductLoopStateResponse,
 	"get_provider_api_v1_model_gateway_providers__provider_id__get": ProviderAccountResponse,
 	"get_workflow_api_v1_workflows__workflow_id__get": WorkflowDetailResponse,
 	"governance_api_v1_governance_get": GovernanceResponse,
@@ -671,6 +693,7 @@ export type OperationResponseBodies = {
 	"patch_routing_profile_api_v1_model_gateway_routing_profiles__profile_id__patch": RoutingProfileResponse,
 	"pause_workflow_api_v1_workflows__workflow_id__pause_post": WorkflowResponse,
 	"plan_artifact_retention_api_v1_evidence_artifacts_retention_post": ArtifactRetentionPlanResponse,
+	"product_owner_agent_status_api_v1_agents_product_owner_status_get": ProductOwnerAgentStatusResponse,
 	"project_templates_api_v1_project_templates_get": ProjectTemplatesResponse,
 	"projects_api_v1_projects_get": ProjectsListResponse,
 	"promote_issue_to_pr_branch_api_v1_workflows_issue_to_pr__run_id__promote_post": IssueToPrResponse,
@@ -693,6 +716,7 @@ export type OperationResponseBodies = {
 	"run_devops_agent_api_v1_agents_devops_runs_post": DevOpsAgentRunResponse,
 	"run_issue_to_patch_api_v1_workflows_issue_to_patch_post": IssueToPatchResponse,
 	"run_issue_to_pr_api_v1_workflows_issue_to_pr_post": IssueToPrResponse,
+	"run_product_owner_agent_api_v1_agents_product_owner_runs_post": ProductOwnerAgentRunResponse,
 	"run_qa_agent_api_v1_agents_qa_runs_post": QAAgentRunResponse,
 	"run_security_agent_api_v1_agents_security_runs_post": SecurityAgentRunResponse,
 	"sandbox_status_api_v1_sandbox_status_get": SandboxStatusResponse,
@@ -726,6 +750,8 @@ export const OPERATIONS_BY_ID = {
 	"developer_agent_status_api_v1_agents_developer_status_get": {"method": "GET", "operationId": "developer_agent_status_api_v1_agents_developer_status_get", "path": "/api/v1/agents/developer/status", "summary": "Developer Agent Status"},
 	"run_devops_agent_api_v1_agents_devops_runs_post": {"method": "POST", "operationId": "run_devops_agent_api_v1_agents_devops_runs_post", "path": "/api/v1/agents/devops/runs", "summary": "Run Devops Agent"},
 	"devops_agent_status_api_v1_agents_devops_status_get": {"method": "GET", "operationId": "devops_agent_status_api_v1_agents_devops_status_get", "path": "/api/v1/agents/devops/status", "summary": "Devops Agent Status"},
+	"run_product_owner_agent_api_v1_agents_product_owner_runs_post": {"method": "POST", "operationId": "run_product_owner_agent_api_v1_agents_product_owner_runs_post", "path": "/api/v1/agents/product-owner/runs", "summary": "Run Product Owner Agent"},
+	"product_owner_agent_status_api_v1_agents_product_owner_status_get": {"method": "GET", "operationId": "product_owner_agent_status_api_v1_agents_product_owner_status_get", "path": "/api/v1/agents/product-owner/status", "summary": "Product Owner Agent Status"},
 	"run_qa_agent_api_v1_agents_qa_runs_post": {"method": "POST", "operationId": "run_qa_agent_api_v1_agents_qa_runs_post", "path": "/api/v1/agents/qa/runs", "summary": "Run Qa Agent"},
 	"run_security_agent_api_v1_agents_security_runs_post": {"method": "POST", "operationId": "run_security_agent_api_v1_agents_security_runs_post", "path": "/api/v1/agents/security/runs", "summary": "Run Security Agent"},
 	"security_agent_status_api_v1_agents_security_status_get": {"method": "GET", "operationId": "security_agent_status_api_v1_agents_security_status_get", "path": "/api/v1/agents/security/status", "summary": "Security Agent Status"},
@@ -812,6 +838,7 @@ export const OPERATIONS_BY_ID = {
 	"projects_api_v1_projects_get": {"method": "GET", "operationId": "projects_api_v1_projects_get", "path": "/api/v1/projects", "summary": "Projects"},
 	"create_project_api_v1_projects_post": {"method": "POST", "operationId": "create_project_api_v1_projects_post", "path": "/api/v1/projects", "summary": "Create Project"},
 	"discover_project_api_v1_projects_discover_post": {"method": "POST", "operationId": "discover_project_api_v1_projects_discover_post", "path": "/api/v1/projects/discover", "summary": "Discover Project"},
+	"get_product_loop_state_api_v1_projects__project_id__product_loop_get": {"method": "GET", "operationId": "get_product_loop_state_api_v1_projects__project_id__product_loop_get", "path": "/api/v1/projects/{project_id}/product-loop", "summary": "Get Product Loop State"},
 	"list_prompts_api_v1_prompts_get": {"method": "GET", "operationId": "list_prompts_api_v1_prompts_get", "path": "/api/v1/prompts", "summary": "List Prompts"},
 	"upsert_prompt_api_v1_prompts_post": {"method": "POST", "operationId": "upsert_prompt_api_v1_prompts_post", "path": "/api/v1/prompts", "summary": "Upsert Prompt"},
 	"providers_api_v1_providers_get": {"method": "GET", "operationId": "providers_api_v1_providers_get", "path": "/api/v1/providers", "summary": "Providers"},

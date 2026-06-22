@@ -6079,9 +6079,85 @@
       "en": "Start iteration",
       "es": "Iniciar iteración"
     },
-    "app.workbench.loop.shellBadge": {
-      "en": "Not connected yet",
-      "es": "Aún sin conexión"
+    "app.workbench.loop.loading": {
+      "en": "Loading the product loop",
+      "es": "Cargando el ciclo de producto"
+    },
+    "app.workbench.loop.errorTitle": {
+      "en": "Could not load the product loop",
+      "es": "No se pudo cargar el ciclo de producto"
+    },
+    "app.workbench.loop.brief.problem": {
+      "en": "Problem statement",
+      "es": "Planteamiento del problema"
+    },
+    "app.workbench.loop.brief.goals": {
+      "en": "Goals",
+      "es": "Objetivos"
+    },
+    "app.workbench.loop.brief.targetUsers": {
+      "en": "Target users",
+      "es": "Usuarios objetivo"
+    },
+    "app.workbench.loop.brief.successMetrics": {
+      "en": "Success metrics",
+      "es": "Métricas de éxito"
+    },
+    "app.workbench.loop.brief.scope": {
+      "en": "Scope",
+      "es": "Alcance"
+    },
+    "app.workbench.loop.brief.outOfScope": {
+      "en": "Out of scope",
+      "es": "Fuera de alcance"
+    },
+    "app.workbench.loop.assumptions.confidence": {
+      "en": "Confidence",
+      "es": "Confianza"
+    },
+    "app.workbench.loop.decisions.rationale": {
+      "en": "Rationale",
+      "es": "Justificación"
+    },
+    "app.workbench.loop.decisions.consequences": {
+      "en": "Consequences",
+      "es": "Consecuencias"
+    },
+    "app.workbench.loop.backlog.epics": {
+      "en": "Epics",
+      "es": "Épicas"
+    },
+    "app.workbench.loop.backlog.stories": {
+      "en": "User stories",
+      "es": "Historias de usuario"
+    },
+    "app.workbench.loop.backlog.tasks": {
+      "en": "Agent tasks",
+      "es": "Tareas de agentes"
+    },
+    "app.workbench.loop.story.asA": {
+      "en": "As a",
+      "es": "Como"
+    },
+    "app.workbench.loop.story.iWant": {
+      "en": "I want",
+      "es": "Quiero"
+    },
+    "app.workbench.loop.story.soThat": {
+      "en": "so that",
+      "es": "para que"
+    },
+    "app.workbench.loop.iteration.emptyTitle": {
+      "en": "No planned iterations",
+      "es": "Sin iteraciones planificadas"
+    },
+    "app.workbench.loop.iteration.emptyBody": {
+      "en": "Planned iterations appear here once the iteration planner runs against the approved backlog.",
+      "es": "Las iteraciones planificadas aparecen aquí cuando el planificador de iteraciones corre sobre el backlog aprobado."
+    },
+    "app.workbench.loop.iteration.tasksLabel": {
+      "en": "planned tasks",
+      "es": "tareas planificadas"
     },
     "app.workbench.loop.questions.emptyTitle": {
       "en": "No pending questions",

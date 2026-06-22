@@ -70,6 +70,8 @@ export type IssueToPrPullRequestCreateResponse =
 	OperationResponse<'create_pull_request_from_issue_to_pr_api_v1_workflows_issue_to_pr__run_id__pull_request_post'>;
 export type EvidenceDetailResponse =
 	OperationResponse<'get_evidence_api_v1_evidence__evidence_id__get'>;
+export type ProjectProductLoopResponse =
+	OperationResponse<'get_product_loop_state_api_v1_projects__project_id__product_loop_get'>;
 export type DeveloperAgentRunRequest =
 	MutationBody<'run_developer_agent_api_v1_agents_developer_runs_post'>;
 export type DeveloperAgentRunResponse =
@@ -177,6 +179,18 @@ export function getEvidenceDetail(evidenceId: string, signal?: AbortSignal) {
 		EvidenceDetailResponse
 	>('get_evidence_api_v1_evidence__evidence_id__get', {
 		pathParams: { evidence_id: evidenceId },
+		signal,
+	});
+}
+
+/** Project-scoped product-loop aggregate (loops, questions, brief, assumptions, decisions, backlog,
+ *  iterations) that backs the Workbench loop sections; a read, so no write token. */
+export function getProjectProductLoop(projectId: string, signal?: AbortSignal) {
+	return requestGeneratedOperation<
+		'get_product_loop_state_api_v1_projects__project_id__product_loop_get',
+		ProjectProductLoopResponse
+	>('get_product_loop_state_api_v1_projects__project_id__product_loop_get', {
+		pathParams: { project_id: projectId },
 		signal,
 	});
 }

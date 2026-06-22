@@ -33,6 +33,7 @@ def initialize_platform_schema(connection: sqlite3.Connection) -> None:
     init_phase14_schema(connection)
     init_phase15_schema(connection)
     init_phase16_schema(connection)
+    init_phase17_schema(connection)
     seed_platform_catalogs(connection)
 
 
@@ -2571,6 +2572,148 @@ def init_phase16_schema(connection: sqlite3.Connection) -> None:
     connection.execute(
         "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
         (16, utc_now()),
+    )
+
+
+def init_phase17_schema(connection: sqlite3.Connection) -> None:
+    """Fase 17: instala el slice de backlog (epics, user stories, criterios de aceptación,
+    grafos de dependencias de historias y tareas, tareas de agente y asignaciones). Modela la HU
+    como valor de usuario (sin rol: no se duplica por rol) y el trabajo técnico como agent_tasks
+    con rol propio; cada entidad es su propia tabla, project-scoped, trazable y versionable donde
+    el dominio lo exige."""
+    connection.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS epics (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            title TEXT NOT NULL,
+            description TEXT NOT NULL,
+            status TEXT NOT NULL,
+            priority TEXT NOT NULL,
+            owner TEXT NOT NULL,
+            version INTEGER NOT NULL,
+            metadata TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS user_stories (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            epic_id TEXT NOT NULL,
+            title TEXT NOT NULL,
+            as_a TEXT NOT NULL,
+            i_want TEXT NOT NULL,
+            so_that TEXT NOT NULL,
+            description TEXT NOT NULL,
+            status TEXT NOT NULL,
+            priority TEXT NOT NULL,
+            business_value TEXT NOT NULL,
+            story_points INTEGER,
+            owner TEXT NOT NULL,
+            version INTEGER NOT NULL,
+            metadata TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS acceptance_criteria (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            story_id TEXT NOT NULL,
+            sequence INTEGER NOT NULL,
+            criterion TEXT NOT NULL,
+            status TEXT NOT NULL,
+            metadata TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(story_id, sequence)
+        );
+        CREATE TABLE IF NOT EXISTS story_dependencies (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            story_id TEXT NOT NULL,
+            depends_on_story_id TEXT NOT NULL,
+            type TEXT NOT NULL,
+            reason TEXT NOT NULL,
+            metadata TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE(story_id, depends_on_story_id, type)
+        );
+        CREATE TABLE IF NOT EXISTS agent_tasks (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            story_id TEXT NOT NULL,
+            title TEXT NOT NULL,
+            description TEXT NOT NULL,
+            role TEXT NOT NULL,
+            category TEXT NOT NULL,
+            status TEXT NOT NULL,
+            priority TEXT NOT NULL,
+            estimate_hours REAL,
+            version INTEGER NOT NULL,
+            metadata TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS task_dependencies (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            task_id TEXT NOT NULL,
+            depends_on_task_id TEXT NOT NULL,
+            type TEXT NOT NULL,
+            reason TEXT NOT NULL,
+            metadata TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE(task_id, depends_on_task_id, type)
+        );
+        CREATE TABLE IF NOT EXISTS agent_assignments (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            task_id TEXT NOT NULL,
+            agent_id TEXT NOT NULL,
+            role TEXT NOT NULL,
+            status TEXT NOT NULL,
+            assigned_by TEXT NOT NULL,
+            assigned_at TEXT NOT NULL,
+            released_at TEXT,
+            metadata TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_epics_project_status
+            ON epics(project_id, status, updated_at);
+        CREATE INDEX IF NOT EXISTS idx_user_stories_epic
+            ON user_stories(epic_id, status, updated_at);
+        CREATE INDEX IF NOT EXISTS idx_user_stories_project
+            ON user_stories(project_id, status);
+        CREATE INDEX IF NOT EXISTS idx_acceptance_criteria_story
+            ON acceptance_criteria(story_id, sequence);
+        CREATE INDEX IF NOT EXISTS idx_story_dependencies_story
+            ON story_dependencies(story_id, type);
+        CREATE INDEX IF NOT EXISTS idx_story_dependencies_depends_on
+            ON story_dependencies(depends_on_story_id);
+        CREATE INDEX IF NOT EXISTS idx_story_dependencies_project
+            ON story_dependencies(project_id);
+        CREATE INDEX IF NOT EXISTS idx_agent_tasks_story
+            ON agent_tasks(story_id, status, updated_at);
+        CREATE INDEX IF NOT EXISTS idx_agent_tasks_project_role
+            ON agent_tasks(project_id, role, status);
+        CREATE INDEX IF NOT EXISTS idx_task_dependencies_task
+            ON task_dependencies(task_id, type);
+        CREATE INDEX IF NOT EXISTS idx_task_dependencies_depends_on
+            ON task_dependencies(depends_on_task_id);
+        CREATE INDEX IF NOT EXISTS idx_task_dependencies_project
+            ON task_dependencies(project_id);
+        CREATE INDEX IF NOT EXISTS idx_agent_assignments_task
+            ON agent_assignments(task_id, status);
+        CREATE INDEX IF NOT EXISTS idx_agent_assignments_agent
+            ON agent_assignments(agent_id, status);
+        CREATE INDEX IF NOT EXISTS idx_agent_assignments_project
+            ON agent_assignments(project_id, status);
+        """
+    )
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (17, utc_now()),
     )
 
 

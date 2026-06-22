@@ -34,6 +34,7 @@ def initialize_platform_schema(connection: sqlite3.Connection) -> None:
     init_phase15_schema(connection)
     init_phase16_schema(connection)
     init_phase17_schema(connection)
+    init_phase18_schema(connection)
     seed_platform_catalogs(connection)
 
 
@@ -2714,6 +2715,54 @@ def init_phase17_schema(connection: sqlite3.Connection) -> None:
     connection.execute(
         "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
         (17, utc_now()),
+    )
+
+
+def init_phase18_schema(connection: sqlite3.Connection) -> None:
+    """Fase 18: instala el assessment estático de proyectos (project_assessments) y sus hallazgos
+    por dimensión (project_findings: stack, módulos, arquitectura, endpoints, datos, tests, cobertura,
+    quality commands, deuda, seguridad, documentación, git history, funcionalidades, riesgos y gaps).
+    Cada hallazgo es su propia fila, project-scoped y trazable a su assessment; no usa metadata JSON
+    como sustituto de entidades."""
+    connection.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS project_assessments (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            root_path TEXT NOT NULL,
+            status TEXT NOT NULL,
+            source TEXT NOT NULL,
+            summary TEXT NOT NULL,
+            findings_count INTEGER NOT NULL,
+            risk_count INTEGER NOT NULL,
+            gap_count INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS project_findings (
+            id TEXT PRIMARY KEY,
+            assessment_id TEXT NOT NULL,
+            project_id TEXT NOT NULL,
+            category TEXT NOT NULL,
+            title TEXT NOT NULL,
+            detail TEXT NOT NULL,
+            severity TEXT NOT NULL,
+            evidence TEXT NOT NULL,
+            confidence TEXT NOT NULL,
+            metadata TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_project_assessments_project
+            ON project_assessments(project_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_project_findings_assessment
+            ON project_findings(assessment_id, category);
+        CREATE INDEX IF NOT EXISTS idx_project_findings_project_category
+            ON project_findings(project_id, category, severity);
+        """
+    )
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (18, utc_now()),
     )
 
 

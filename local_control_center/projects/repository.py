@@ -86,6 +86,40 @@ def row_to_agent(row: sqlite3.Row) -> dict[str, Any]:
     }
 
 
+def row_to_project_assessment(row: sqlite3.Row) -> dict[str, Any]:
+    """Convierte una fila de ``project_assessments`` al dict ``camelCase`` que expone la API."""
+    return {
+        "id": row["id"],
+        "projectId": row["project_id"],
+        "rootPath": row["root_path"],
+        "status": row["status"],
+        "source": row["source"],
+        "summary": json_loads(row["summary"]),
+        "findingsCount": row["findings_count"],
+        "riskCount": row["risk_count"],
+        "gapCount": row["gap_count"],
+        "createdAt": row["created_at"],
+        "updatedAt": row["updated_at"],
+    }
+
+
+def row_to_project_finding(row: sqlite3.Row) -> dict[str, Any]:
+    """Convierte una fila de ``project_findings`` al dict ``camelCase`` que expone la API."""
+    return {
+        "id": row["id"],
+        "assessmentId": row["assessment_id"],
+        "projectId": row["project_id"],
+        "category": row["category"],
+        "title": row["title"],
+        "detail": row["detail"],
+        "severity": row["severity"],
+        "evidence": row["evidence"],
+        "confidence": row["confidence"],
+        "metadata": json_loads(row["metadata"]),
+        "createdAt": row["created_at"],
+    }
+
+
 class ProjectsRepository:
     """Repositorio del catálogo de proyectos sobre una conexión SQLite en autocommit."""
 
@@ -222,3 +256,109 @@ class ProjectsRepository:
         else:
             rows = self.connection.execute("SELECT * FROM agents ORDER BY created_at ASC").fetchall()
         return [row_to_agent(row) for row in rows]
+
+    def create_project_assessment(self, body: dict[str, Any]) -> dict[str, Any]:
+        """Inserta un assessment estático de proyecto (id ``project-assessment-<uuid>``) y lo devuelve."""
+        assessment_id = f"project-assessment-{uuid.uuid4()}"
+        timestamp = utc_now()
+        self.connection.execute(
+            """
+            INSERT INTO project_assessments
+                (id, project_id, root_path, status, source, summary, findings_count, risk_count,
+                 gap_count, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                assessment_id,
+                body["projectId"],
+                body["rootPath"],
+                body.get("status", "completed"),
+                body.get("source", "static_analysis"),
+                json_dumps(body.get("summary") or {}),
+                int(body.get("findingsCount") or 0),
+                int(body.get("riskCount") or 0),
+                int(body.get("gapCount") or 0),
+                timestamp,
+                timestamp,
+            ),
+        )
+        return self.get_project_assessment(assessment_id)
+
+    def get_project_assessment(self, assessment_id: str) -> dict[str, Any]:
+        """Devuelve un assessment de proyecto por id.
+
+        Raises:
+            KeyError: si no existe un assessment con ese id.
+        """
+        row = self.connection.execute(
+            "SELECT * FROM project_assessments WHERE id = ?", (assessment_id,)
+        ).fetchone()
+        if not row:
+            raise KeyError(f"Project assessment not found: {assessment_id}")
+        return row_to_project_assessment(row)
+
+    def list_project_assessments(self, project_id: str | None = None) -> list[dict[str, Any]]:
+        """Lista assessments (todos o por proyecto), el más reciente primero."""
+        if project_id:
+            rows = self.connection.execute(
+                "SELECT * FROM project_assessments WHERE project_id = ? ORDER BY created_at DESC",
+                (project_id,),
+            ).fetchall()
+        else:
+            rows = self.connection.execute(
+                "SELECT * FROM project_assessments ORDER BY created_at DESC"
+            ).fetchall()
+        return [row_to_project_assessment(row) for row in rows]
+
+    def create_project_finding(self, body: dict[str, Any]) -> dict[str, Any]:
+        """Inserta un hallazgo del assessment (id ``project-finding-<uuid>``) y lo devuelve."""
+        finding_id = f"project-finding-{uuid.uuid4()}"
+        timestamp = utc_now()
+        self.connection.execute(
+            """
+            INSERT INTO project_findings
+                (id, assessment_id, project_id, category, title, detail, severity, evidence,
+                 confidence, metadata, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                finding_id,
+                body["assessmentId"],
+                body["projectId"],
+                body["category"],
+                body["title"],
+                body.get("detail", ""),
+                body.get("severity", "info"),
+                body.get("evidence", ""),
+                body.get("confidence", "medium"),
+                json_dumps(body.get("metadata") or {}),
+                timestamp,
+            ),
+        )
+        row = self.connection.execute("SELECT * FROM project_findings WHERE id = ?", (finding_id,)).fetchone()
+        return row_to_project_finding(row)
+
+    def list_project_findings(
+        self,
+        *,
+        assessment_id: str | None = None,
+        project_id: str | None = None,
+        category: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Lista hallazgos filtrando por assessment, proyecto y/o categoría, en orden de inserción."""
+        conditions: list[str] = []
+        params: list[Any] = []
+        if assessment_id:
+            conditions.append("assessment_id = ?")
+            params.append(assessment_id)
+        if project_id:
+            conditions.append("project_id = ?")
+            params.append(project_id)
+        if category:
+            conditions.append("category = ?")
+            params.append(category)
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        rows = self.connection.execute(
+            f"SELECT * FROM project_findings {where} ORDER BY created_at ASC, id ASC", params
+        ).fetchall()
+        return [row_to_project_finding(row) for row in rows]

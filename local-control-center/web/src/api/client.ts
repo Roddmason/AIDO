@@ -78,6 +78,10 @@ export type ProductLoopTransitionRequest =
 	MutationBody<'transition_product_loop_api_v1_projects__project_id__product_loop__loop_id__transition_post'>;
 export type ProductLoopResumeResponse =
 	OperationResponse<'start_product_loop_api_v1_projects__project_id__product_loop_post'>;
+export type ProductOwnerAgentRunRequest =
+	MutationBody<'run_product_owner_agent_api_v1_agents_product_owner_runs_post'>;
+export type ProductOwnerAgentRunResponse =
+	OperationResponse<'run_product_owner_agent_api_v1_agents_product_owner_runs_post'>;
 export type DeveloperAgentRunRequest =
 	MutationBody<'run_developer_agent_api_v1_agents_developer_runs_post'>;
 export type DeveloperAgentRunResponse =
@@ -224,6 +228,16 @@ export function transitionProductLoop(
 		'transition_product_loop_api_v1_projects__project_id__product_loop__loop_id__transition_post',
 		{ token, pathParams: { project_id: projectId, loop_id: loopId }, body },
 	);
+}
+
+/** Runs the Product Owner agent over an idea: it produces and persists the brief, clarification
+ *  questions, assumptions, decisions and backlog (epics/stories/criteria). A write, so the token is
+ *  required; fail-closed — with no executable product-owner runtime it persists nothing and says so. */
+export function runProductOwnerAgent(token: string, body: ProductOwnerAgentRunRequest) {
+	return requestGeneratedOperation<
+		'run_product_owner_agent_api_v1_agents_product_owner_runs_post',
+		ProductOwnerAgentRunResponse
+	>('run_product_owner_agent_api_v1_agents_product_owner_runs_post', { token, body });
 }
 
 export function getRuntimeProviderConfiguration(signal?: AbortSignal) {

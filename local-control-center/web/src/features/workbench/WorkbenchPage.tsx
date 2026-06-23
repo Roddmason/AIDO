@@ -30,6 +30,7 @@ import {
 	createPipeline,
 	createSession,
 	runIssueToPatch,
+	runProductOwnerAgent,
 	startProductLoop,
 	transitionProductLoop,
 } from '../../api/client';
@@ -174,6 +175,7 @@ export function WorkbenchPage({
 	const [teamOpen, setTeamOpen] = useState(false);
 	const [showAllChats, setShowAllChats] = useState(false);
 	const [loopStarting, setLoopStarting] = useState(false);
+	const [discoveryBusy, setDiscoveryBusy] = useState(false);
 
 	// Draft-persistence refs: latest values for the synchronous unmount flush, the project the
 	// composer is currently hydrated for (so the debounced save never clobbers with pre-hydration
@@ -263,9 +265,8 @@ export function WorkbenchPage({
 	const trimmedPrompt = prompt.trim();
 	const isGoverned = composerMode !== 'conversation';
 	const composerDisabled = busy || !project || !trimmedPrompt || (isGoverned && !selectedRuntime);
-	// AIDO decides can run with no typed prompt (it falls back to the autonomous scoping prompt),
-	// so it is gated only on a project and, for governed runs, an executable runtime.
-	const aidoDecideDisabled = busy || !project || (isGoverned && !selectedRuntime);
+	// "AIDO decide" runs the Product Owner agent over the typed idea, so it needs a project and a prompt.
+	const aidoDecideDisabled = busy || discoveryBusy || !project || !trimmedPrompt;
 	const effectiveQaCommands = advanced.runChecks ? selectedQaPreset.commands : [];
 
 	const updateAdvanced = (patch: Partial<GovernedAdvanced>) =>
@@ -337,30 +338,24 @@ export function WorkbenchPage({
 		};
 	}, []);
 
-	const submitConversation = async (
-		activeProject: Project,
-		text: string,
-		signal: AbortSignal,
-		titleOverride?: string,
-	) => {
+	const submitConversation = async (activeProject: Project, text: string, signal: AbortSignal) => {
 		setBusy(true);
 		setError('');
 		setCreated(null);
-		const sendTitle = titleOverride ?? submitTitle;
 		try {
 			const result = await mutate(async (token) => {
 				let session = activeSession;
 				if (!session) {
 					const sessionResult: SessionCreateResponse = await createSession(
 						token,
-						{ projectId: activeProject.id, teamId: primaryTeam?.id, name: sendTitle },
+						{ projectId: activeProject.id, teamId: primaryTeam?.id, name: submitTitle },
 						signal,
 					);
 					session = sessionResult.session;
 				}
 				const chatResult: ChatCreateResponse = await createChat(
 					token,
-					{ projectId: activeProject.id, sessionId: session.id, prompt: text, title: sendTitle },
+					{ projectId: activeProject.id, sessionId: session.id, prompt: text, title: submitTitle },
 					signal,
 				);
 				const pipelineResult: PipelineCreateResponse = await createPipeline(
@@ -369,7 +364,7 @@ export function WorkbenchPage({
 						projectId: activeProject.id,
 						sessionId: session.id,
 						chatId: chatResult.chat.id,
-						title: sendTitle,
+						title: submitTitle,
 						stages: [
 							{ id: 'intake', status: 'created', owner: 'product_owner', source: 'workbench_chat' },
 							{ id: 'planning', status: 'pending', owner: 'technical_lead' },
@@ -405,11 +400,7 @@ export function WorkbenchPage({
 		}
 	};
 
-	const submitGoverned = async (
-		activeProject: Project,
-		text: string,
-		{ autonomous = false, titleOverride }: { autonomous?: boolean; titleOverride?: string } = {},
-	) => {
+	const submitGoverned = async (activeProject: Project, text: string) => {
 		if (!selectedRuntime) {
 			setError(runtimeBlockerReason);
 			return;
@@ -425,18 +416,17 @@ export function WorkbenchPage({
 		setIsSubmittingTask(true);
 		setError('');
 		setTaskRunResult(null);
-		const sendTitle = titleOverride ?? submitTitle;
 		try {
 			const response = await mutate((token) =>
 				runIssueToPatch(token, {
 					projectId: activeProject.id,
-					title: sendTitle,
+					title: submitTitle,
 					issueText: text,
 					targetPath: advanced.targetPath.trim() || undefined,
 					preferredRuntime: selectedRuntime.id,
 					qaCommands: effectiveQaCommands.length ? effectiveQaCommands : undefined,
 					maxCostUsd: parsedMaxCost,
-					requireApproval: autonomous ? false : advanced.requireReview,
+					requireApproval: advanced.requireReview,
 				}),
 			);
 			setTaskRunResult(response);
@@ -452,51 +442,28 @@ export function WorkbenchPage({
 		}
 	};
 
-	// One submit path for both primary buttons: Respond runs the typed intake; AIDO decides runs
-	// autonomously — it falls back to the scoping prompt when none is typed and, for governed
-	// runs, drops the human approval gate (requireApproval=false).
-	const runComposer = (autonomous: boolean) => {
+	const submitComposer = () => {
 		if (!project) {
 			setError(
 				t('app.workbench.error.noProject', 'Select a workspace folder before starting intake.'),
 			);
 			return;
 		}
-		const typed = prompt.trim();
-		const text =
-			typed ||
-			(autonomous
-				? t(
-						'app.workbench.chat.quickPrompt',
-						'Inspect this workspace, identify the real architecture and propose the smallest safe execution plan with QA evidence.',
-					)
-				: '');
+		const text = prompt.trim();
 		if (!text) {
 			setError(t('app.workbench.error.noPrompt', 'Write a prompt before starting intake.'));
 			return;
 		}
-		// When the prompt was just injected (autonomous from an empty composer), submitTitle still
-		// reflects the empty prompt this render, so derive the title from the resolved text instead.
-		const injectedTitle =
-			!typed && autonomous
-				? deriveTitle(text, composerMode, activeModeLabel) || firstLine(text)
-				: undefined;
-		if (!typed && autonomous) {
-			setPrompt(text);
-			setTitleEdited(false);
-		}
 		if (isGoverned) {
-			void submitGoverned(project, text, { autonomous, titleOverride: injectedTitle });
+			void submitGoverned(project, text);
 			return;
 		}
 		const controller = new AbortController();
 		abortRef.current = controller;
-		void submitConversation(project, text, controller.signal, injectedTitle).finally(() => {
+		void submitConversation(project, text, controller.signal).finally(() => {
 			if (abortRef.current === controller) abortRef.current = null;
 		});
 	};
-	const submitComposer = () => runComposer(false);
-	const submitAidoDecide = () => runComposer(true);
 
 	const cancelConversation = () => abortRef.current?.abort();
 
@@ -544,6 +511,62 @@ export function WorkbenchPage({
 				body: advanceError instanceof Error ? advanceError.message : undefined,
 				tone: 'warn',
 			});
+		}
+	};
+
+	// "AIDO decide": runs the Product Owner agent over the typed idea. The agent produces and persists
+	// the brief, clarification questions, assumptions, decisions and backlog; we then refresh the loop
+	// sections. Fail-closed: with no executable product-owner runtime it persists nothing and reports it.
+	const runDiscovery = async () => {
+		if (!project || discoveryBusy) return;
+		const idea = prompt.trim();
+		if (!idea) {
+			setError(t('app.workbench.error.noPrompt', 'Write a prompt before starting intake.'));
+			return;
+		}
+		const workspaceId = projectWorkspaces[0]?.id;
+		if (!workspaceId) {
+			notify({
+				title: t('app.workbench.loop.noWorkspace', 'No workspace available for discovery'),
+				body: t(
+					'app.workbench.loop.noWorkspaceBody',
+					'Run a governed task first to allocate a workspace for this project.',
+				),
+				tone: 'warn',
+			});
+			return;
+		}
+		setDiscoveryBusy(true);
+		setError('');
+		try {
+			const result = await runProductOwnerAgent(token, {
+				projectId: project.id,
+				workspaceId,
+				idea,
+			});
+			loop.refresh();
+			const reason = typeof result.reason === 'string' ? result.reason : undefined;
+			if (String(result.status ?? '') === 'completed') {
+				notify({
+					title: t('app.workbench.loop.discoveryDone', 'Product discovery completed'),
+					tone: 'ok',
+				});
+			} else {
+				notify({
+					title: t('app.workbench.loop.discoveryIncomplete', 'Product discovery did not complete'),
+					body: reason,
+					tone: 'warn',
+				});
+			}
+			setActiveSection('questions');
+		} catch (discoveryError) {
+			notify({
+				title: t('app.workbench.loop.discoveryIncomplete', 'Product discovery did not complete'),
+				body: discoveryError instanceof Error ? discoveryError.message : undefined,
+				tone: 'danger',
+			});
+		} finally {
+			setDiscoveryBusy(false);
 		}
 	};
 
@@ -773,8 +796,9 @@ export function WorkbenchPage({
 								</Button>
 								<Button
 									icon={<Bot aria-hidden="true" size={16} />}
+									loading={discoveryBusy}
 									disabled={aidoDecideDisabled}
-									onClick={submitAidoDecide}
+									onClick={runDiscovery}
 								>
 									{t('app.workbench.loop.aidoDecide', 'AIDO decides')}
 								</Button>

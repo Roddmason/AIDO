@@ -5283,14 +5283,6 @@
       "en": "Start intake",
       "es": "Iniciar intake"
     },
-    "app.workbench.chat.quickPrompt": {
-      "en": "Inspect this workspace, identify the real architecture and propose the smallest safe execution plan with QA evidence.",
-      "es": "Inspecciona este workspace, identifica la arquitectura real y propone el plan de ejecución seguro más pequeño con evidencia QA."
-    },
-    "app.workbench.chat.quickAction": {
-      "en": "Scope with team",
-      "es": "Acotar con equipo"
-    },
     "app.workbench.chat.created": {
       "en": "Chat intake created",
       "es": "Intake de chat creado"
@@ -6194,6 +6186,22 @@
     "app.workbench.loop.startFirst": {
       "en": "Start the product loop first",
       "es": "Inicia primero el ciclo de producto"
+    },
+    "app.workbench.loop.discoveryDone": {
+      "en": "Product discovery completed",
+      "es": "Discovery de producto completada"
+    },
+    "app.workbench.loop.discoveryIncomplete": {
+      "en": "Product discovery did not complete",
+      "es": "La discovery de producto no se completó"
+    },
+    "app.workbench.loop.noWorkspace": {
+      "en": "No workspace available for discovery",
+      "es": "No hay workspace disponible para la discovery"
+    },
+    "app.workbench.loop.noWorkspaceBody": {
+      "en": "Run a governed task first to allocate a workspace for this project.",
+      "es": "Ejecuta primero una tarea gobernada para asignar un workspace a este proyecto."
     },
     "app.workbench.loop.questions.emptyTitle": {
       "en": "No pending questions",

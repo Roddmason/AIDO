@@ -18,7 +18,11 @@ from fastapi import APIRouter, HTTPException, Request
 from local_control_center.backlog.repository import BacklogRepository
 from local_control_center.product_discovery.repository import ProductDiscoveryRepository
 
-from .coordinator import ProductLoopCoordinator, ProductLoopTransitionError
+from .coordinator import (
+    ProductLoopCoordinator,
+    ProductLoopStopConditionError,
+    ProductLoopTransitionError,
+)
 from .models import (
     ProductLoopResumeResponse,
     ProductLoopStartRequest,
@@ -79,6 +83,11 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             title=body.title,
             initiative_id=body.initiative_id,
             context=body.context,
+            correlation_id=body.correlation_id,
+            budget=body.budget,
+            timeouts=body.timeouts,
+            max_rework_rounds=body.max_rework_rounds,
+            deadline=body.deadline,
         )
         return engine.resume(loop["id"])
 
@@ -103,9 +112,10 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
                 to_state=body.to_state,
                 reason=body.reason or "",
                 trigger=body.trigger or "",
+                correlation_id=body.correlation_id,
                 expected_version=body.expected_version,
             )
-        except ProductLoopTransitionError as error:
+        except (ProductLoopTransitionError, ProductLoopStopConditionError) as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
         return engine.resume(loop_id)
 

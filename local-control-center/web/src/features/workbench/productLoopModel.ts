@@ -63,34 +63,36 @@ export const PRODUCT_LOOP_SECTIONS: ProductLoopSectionBlueprint[] = [
  *  loop's progress (done/current/upcoming) in the read-only stepper. The backend FSM stays the
  *  authority on which transitions are allowed; this list never gates a mutation. */
 export const PRODUCT_LOOP_STATE_ORDER = [
-	'idea_received',
-	'discovery_running',
+	'goal_received',
+	'discovering',
 	'awaiting_user',
 	'brief_ready',
-	'awaiting_architecture_decision',
-	'backlog_draft',
-	'backlog_review',
-	'ready_for_planning',
-	'iteration_running',
+	'architecture_review',
+	'backlog_ready',
+	'iteration_planning',
+	'executing',
 	'quality_review',
+	'awaiting_approval',
 	'awaiting_feedback',
-	'completed',
+	'reworking',
+	'delivered',
 	'blocked',
+	'cancelled',
 ] as const;
 
-/** The happy-path phases shown as stepper nodes, in order; off-path states (awaiting_*, blocked)
- *  surface via the live state badge instead of as their own nodes. */
+/** The happy-path phases shown as stepper nodes, in order; off-path states (awaiting_user,
+ *  reworking, blocked, cancelled) surface via the live state badge instead of as their own nodes. */
 export const PRODUCT_LOOP_PHASES = [
-	'idea_received',
-	'discovery_running',
+	'goal_received',
+	'discovering',
 	'brief_ready',
-	'awaiting_architecture_decision',
-	'backlog_draft',
-	'backlog_review',
-	'ready_for_planning',
-	'iteration_running',
+	'architecture_review',
+	'backlog_ready',
+	'iteration_planning',
+	'executing',
 	'quality_review',
-	'completed',
+	'awaiting_approval',
+	'delivered',
 ] as const;
 
 export type ProductLoopSectionView = ProductLoopSectionBlueprint & { count: number };

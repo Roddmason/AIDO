@@ -812,14 +812,14 @@ export function WorkbenchPage({
 								<Button
 									icon={<ClipboardCheck aria-hidden="true" size={16} />}
 									disabled={busy}
-									onClick={() => advanceLoop('ready_for_planning', 'backlog')}
+									onClick={() => advanceLoop('iteration_planning', 'backlog')}
 								>
 									{t('app.workbench.loop.approveBacklog', 'Approve backlog')}
 								</Button>
 								<Button
 									icon={<Workflow aria-hidden="true" size={16} />}
 									disabled={busy}
-									onClick={() => advanceLoop('iteration_running', 'iteration')}
+									onClick={() => advanceLoop('executing', 'iteration')}
 								>
 									{t('app.workbench.loop.startIteration', 'Start iteration')}
 								</Button>

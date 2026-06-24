@@ -22,3 +22,14 @@ def add_millis(ms: int) -> str:
         .isoformat(timespec="milliseconds")
         .replace("+00:00", "Z")
     )
+
+
+def iso_after_seconds(base_iso: str, seconds: float) -> str:
+    """Devuelve ``base_iso`` desplazado ``seconds`` segundos, en el mismo formato ISO-8601 (ms, ``Z``).
+
+    Conserva el formato canónico (milisegundos, sufijo ``Z``) para que el resultado sea comparable
+    lexicográficamente con ``utc_now()``; así un deadline calculado y un instante actual se ordenan
+    como texto sin parsear. Acepta una base con sufijo ``Z`` o ``+00:00``.
+    """
+    base = datetime.fromisoformat(base_iso.replace("Z", "+00:00"))
+    return (base + timedelta(seconds=seconds)).isoformat(timespec="milliseconds").replace("+00:00", "Z")

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { getToolPluginMetadata } from "openclaw/plugin-sdk/tool-plugin";
-import entry from "./index.js";
+import entry from "../src/index.js";
 
 describe("aido-control plugin", () => {
   it("declares the four AIDO tools in order", () => {

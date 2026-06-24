@@ -219,11 +219,16 @@ class ProductLoopStateResponse(BaseModel):
 
 
 class ProductLoopStartRequest(BaseModel):
-    """Cuerpo para arrancar un product loop en ``idea_received`` para un proyecto."""
+    """Cuerpo para arrancar un product loop en ``goal_received``, con su política de gobierno opcional."""
 
     title: str
     initiative_id: str | None = Field(default=None, alias="initiativeId")
     context: dict[str, Any] | None = None
+    correlation_id: str | None = Field(default=None, alias="correlationId")
+    budget: dict[str, Any] | None = None
+    timeouts: dict[str, Any] | None = None
+    max_rework_rounds: int | None = Field(default=None, alias="maxReworkRounds")
+    deadline: str | None = None
 
 
 class ProductLoopTransitionRequest(BaseModel):
@@ -232,6 +237,7 @@ class ProductLoopTransitionRequest(BaseModel):
     to_state: str = Field(alias="toState")
     reason: str | None = None
     trigger: str | None = None
+    correlation_id: str | None = Field(default=None, alias="correlationId")
     expected_version: int | None = Field(default=None, alias="expectedVersion")
 
 

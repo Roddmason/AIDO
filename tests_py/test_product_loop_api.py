@@ -178,7 +178,7 @@ def test_product_loop_endpoint_aggregates_real_loop_state_scoped_to_the_project(
         body = response.json()
 
         assert [item["id"] for item in body["loops"]] == [loop["id"]]
-        assert body["loops"][0]["state"] == "idea_received"
+        assert body["loops"][0]["state"] == "goal_received"
         assert isinstance(body["transitions"], list)  # transitions of the active loop, if any
         assert [item["id"] for item in body["questions"]] == [question["id"]]
         assert body["brief"]["id"] == brief["id"]
@@ -228,23 +228,23 @@ def test_start_and_transition_product_loop_mutations(tmp_path: Path) -> None:
             == 403
         )
 
-        # Start a loop in idea_received and surface the allowed next states.
+        # Start a loop in goal_received and surface the allowed next states.
         started = client.post(
             f"/api/v1/projects/{project_id}/product-loop", json={"title": "Onboarding"}, headers=headers
         )
         assert started.status_code == 201
         started_body = started.json()
-        assert started_body["loop"]["state"] == "idea_received"
+        assert started_body["loop"]["state"] == "goal_received"
         assert started_body["loop"]["version"] == 1
         assert started_body["resumable"] is True
-        assert "discovery_running" in started_body["allowedNextStates"]
+        assert "discovering" in started_body["allowedNextStates"]
         loop_id = started_body["loop"]["id"]
 
         # A transition with no token is also a 403.
         assert (
             client.post(
                 f"/api/v1/projects/{project_id}/product-loop/{loop_id}/transition",
-                json={"toState": "discovery_running"},
+                json={"toState": "discovering"},
             ).status_code
             == 403
         )
@@ -252,18 +252,18 @@ def test_start_and_transition_product_loop_mutations(tmp_path: Path) -> None:
         # Advance to an allowed state; the version increments and the log grows.
         advanced = client.post(
             f"/api/v1/projects/{project_id}/product-loop/{loop_id}/transition",
-            json={"toState": "discovery_running", "reason": "Discovery kicked off."},
+            json={"toState": "discovering", "reason": "Discovery kicked off."},
             headers=headers,
         )
         assert advanced.status_code == 200
         advanced_body = advanced.json()
-        assert advanced_body["loop"]["state"] == "discovery_running"
+        assert advanced_body["loop"]["state"] == "discovering"
         assert advanced_body["loop"]["version"] == 2
 
         # A transition the FSM forbids from the current state is rejected with 422.
         invalid = client.post(
             f"/api/v1/projects/{project_id}/product-loop/{loop_id}/transition",
-            json={"toState": "completed"},
+            json={"toState": "delivered"},
             headers=headers,
         )
         assert invalid.status_code == 422
@@ -291,7 +291,7 @@ def test_transition_unknown_or_cross_project_loop_returns_404(tmp_path: Path) ->
         assert (
             client.post(
                 f"/api/v1/projects/{project['id']}/product-loop/does-not-exist/transition",
-                json={"toState": "discovery_running"},
+                json={"toState": "discovering"},
                 headers=headers,
             ).status_code
             == 404
@@ -301,7 +301,7 @@ def test_transition_unknown_or_cross_project_loop_returns_404(tmp_path: Path) ->
         assert (
             client.post(
                 f"/api/v1/projects/{other['id']}/product-loop/{loop['id']}/transition",
-                json={"toState": "discovery_running"},
+                json={"toState": "discovering"},
                 headers=headers,
             ).status_code
             == 404

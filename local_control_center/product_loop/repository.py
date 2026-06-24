@@ -135,6 +135,24 @@ class ProductLoopRepository:
         )
         return self.get_loop(loop_id)
 
+    def update_loop_context(self, loop_id: str, *, context: dict[str, Any]) -> dict[str, Any]:
+        """Actualiza solo el contexto durable del loop, sin tocar estado ni versión de la FSM.
+
+        Camino de medición (consumo de presupuesto): reescribe ``context`` y ``updated_at`` pero deja
+        intactos ``state``/``version``, de modo que el consumo no genera una transición ni desplaza el
+        guard optimista de la FSM. La atomicidad del read-modify-write la garantiza el caller con una
+        ``immediate_transaction``.
+
+        Raises:
+            KeyError: si el loop no existe.
+        """
+        self.get_loop(loop_id)
+        self.connection.execute(
+            "UPDATE product_loops SET context = ?, updated_at = ? WHERE id = ?",
+            (json_dumps(context or {}), utc_now(), loop_id),
+        )
+        return self.get_loop(loop_id)
+
     def create_transition(self, body: dict[str, Any]) -> dict[str, Any]:
         """Inserta una transición en la bitácora append-only y la devuelve."""
         transition_id = f"product-loop-transition-{uuid.uuid4()}"

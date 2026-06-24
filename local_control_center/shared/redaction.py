@@ -23,7 +23,11 @@ SECRET_VALUE_PATTERN = re.compile(
     r"glpat-[A-Za-z0-9_-]{12,}|"
     r"xox[baprs]-[A-Za-z0-9-]{10,}|"
     r"AKIA[0-9A-Z]{16}|"
-    r"password\s*=\s*[^&\s]+"
+    r"password\s*=\s*[^&\s]+|"
+    # Connection strings that embed credentials (proto://user:password@host).
+    r"[a-z][a-z0-9+.\-]*://[^\s:@/]+:[^\s@/]+@[^\s]+|"
+    # PEM private key blocks (whole block, header to footer).
+    r"-----BEGIN[A-Z0-9 ]*PRIVATE KEY-----[\s\S]+?-----END[A-Z0-9 ]*PRIVATE KEY-----"
     r")",
     re.I,
 )

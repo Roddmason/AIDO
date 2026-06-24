@@ -17,15 +17,25 @@ from .command_classifier import classify_command
 
 PROFILE_DEFAULTS: dict[str, str] = {
     "product_owner": "plan",
+    "project_manager": "plan",
+    "scrum_master": "plan",
+    "architect": "plan",
     "technical_lead": "plan",
     "technical_lead_shadow": "plan",
+    "researcher": "plan",
     "implementer": "dev_safe",
     "backend_engineer": "dev_safe",
     "frontend_engineer": "dev_safe",
+    "mobile_engineer": "dev_safe",
+    "data_engineer": "dev_safe",
+    "database_engineer": "dev_safe",
     "devops": "qa",
+    "devops_engineer": "qa",
     "qa_reviewer": "qa",
     "qa_engineer": "qa",
     "security_reviewer": "qa",
+    "security_engineer": "qa",
+    "pentester": "qa",
     "release_manager": "release",
 }
 

@@ -223,6 +223,32 @@ def test_delete_keeps_ref_and_raises_when_writable_backend_removal_fails(tmp_pat
         assert repository.list_audit()[-1]["outcome"] == "failure"
 
 
+def test_list_audit_is_stable_by_insertion_order_on_timestamp_ties(tmp_path: Path) -> None:
+    # Two audit rows in the SAME millisecond must order by insertion, never by their random uuid id;
+    # otherwise list_audit()[-1] (the latest action) is non-deterministic. Regression for a flake.
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        repository = CredentialRepository(connection)
+        same_ts = "2026-01-01T00:00:00.000Z"
+
+        def _insert(audit_id: str, outcome: str) -> None:
+            connection.execute(
+                """
+                INSERT INTO credential_audit
+                    (id, credential_id, name, action, outcome, actor, backend_kind, detail, created_at)
+                VALUES (?, 'cred-1', 'c', 'delete', ?, 'op', 'memory', '', ?)
+                """,
+                (audit_id, outcome, same_ts),
+            )
+
+        # The chronologically later row is given a lexically smaller id than the earlier one.
+        _insert("credential-audit-zzz", "success")
+        _insert("credential-audit-aaa", "failure")
+
+        assert repository.list_audit()[-1]["outcome"] == "failure"
+        assert repository.list_audit(credential_id="cred-1")[-1]["outcome"] == "failure"
+
+
 def test_create_rolls_back_backend_secret_when_ref_persistence_fails(tmp_path: Path) -> None:
     with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
         initialize_platform_schema(connection)

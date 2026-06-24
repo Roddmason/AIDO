@@ -6011,6 +6011,54 @@
       "en": "Timeline",
       "es": "Cronología"
     },
+    "app.cliSession.activity": {
+      "en": "Activity",
+      "es": "Actividad"
+    },
+    "app.cliSession.activityTitle": {
+      "en": "Session activity",
+      "es": "Actividad de la sesión"
+    },
+    "app.cliSession.running": {
+      "en": "Running",
+      "es": "En curso"
+    },
+    "app.cliSession.idle": {
+      "en": "Idle",
+      "es": "Inactiva"
+    },
+    "app.cliSession.cancel": {
+      "en": "Cancel",
+      "es": "Cancelar"
+    },
+    "app.cliSession.view": {
+      "en": "View activity",
+      "es": "Ver actividad"
+    },
+    "app.cliSession.waiting": {
+      "en": "Waiting for activity",
+      "es": "Esperando actividad"
+    },
+    "app.cliSession.emptyTitle": {
+      "en": "No activity recorded",
+      "es": "Sin actividad registrada"
+    },
+    "app.cliSession.emptyBody": {
+      "en": "Select a running session to watch its live output.",
+      "es": "Selecciona una sesión en curso para ver su salida en vivo."
+    },
+    "app.cliSession.errorTitle": {
+      "en": "Could not load session activity",
+      "es": "No se pudo cargar la actividad de la sesión"
+    },
+    "app.cliSession.cancelled": {
+      "en": "Cancellation requested",
+      "es": "Cancelación solicitada"
+    },
+    "app.cliSession.cancelFailed": {
+      "en": "Could not cancel the session",
+      "es": "No se pudo cancelar la sesión"
+    },
     "app.workbench.loop.conversation": {
       "en": "Conversation",
       "es": "Conversación"
@@ -7242,6 +7290,202 @@
     "app.settings.workspaces.validateHelp": {
       "en": "Validate the workspace name before creating a directory and project record.",
       "es": "Valida el nombre del workspace antes de crear un directorio y un registro de proyecto."
+    },
+    "app.assessment.kicker": {
+      "en": "Project health",
+      "es": "Salud del proyecto"
+    },
+    "app.assessment.title": {
+      "en": "Assessment",
+      "es": "Evaluación"
+    },
+    "app.assessment.headerSummary": {
+      "en": "Run a static assessment on the selected project to surface stack, risks, gaps and technical debt.",
+      "es": "Ejecuta una evaluación estática del proyecto seleccionado para detectar stack, riesgos, brechas y deuda técnica."
+    },
+    "app.assessment.runButton": {
+      "en": "Run assessment",
+      "es": "Ejecutar evaluación"
+    },
+    "app.assessment.runAriaLabel": {
+      "en": "Run assessment for selected project",
+      "es": "Ejecutar evaluación del proyecto seleccionado"
+    },
+    "app.assessment.noProjectHint": {
+      "en": "Select a project to run an assessment.",
+      "es": "Selecciona un proyecto para ejecutar una evaluación."
+    },
+    "app.assessment.lastRunLabel": {
+      "en": "Last run:",
+      "es": "Última ejecución:"
+    },
+    "app.assessment.runErrorTitle": {
+      "en": "Assessment failed",
+      "es": "La evaluación falló"
+    },
+    "app.assessment.runFailed": {
+      "en": "Assessment run failed.",
+      "es": "La ejecución de la evaluación falló."
+    },
+    "app.assessment.loadErrorTitle": {
+      "en": "Could not load assessment",
+      "es": "No se pudo cargar la evaluación"
+    },
+    "app.assessment.loadFailed": {
+      "en": "Failed to load assessment data.",
+      "es": "Error al cargar los datos de evaluación."
+    },
+    "app.assessment.retryButton": {
+      "en": "Retry",
+      "es": "Reintentar"
+    },
+    "app.assessment.loadingLabel": {
+      "en": "Loading assessment data",
+      "es": "Cargando datos de evaluación"
+    },
+    "app.assessment.emptyNoProject": {
+      "en": "No project selected",
+      "es": "Ningún proyecto seleccionado"
+    },
+    "app.assessment.emptyNoProjectBody": {
+      "en": "Choose a project from the Projects panel to run an assessment.",
+      "es": "Elige un proyecto desde el panel de Proyectos para ejecutar una evaluación."
+    },
+    "app.assessment.emptyNoAssessment": {
+      "en": "No assessments yet",
+      "es": "Sin evaluaciones todavía"
+    },
+    "app.assessment.emptyNoAssessmentBody": {
+      "en": "Click \"Run assessment\" above to generate the first assessment for this project.",
+      "es": "Haz clic en \"Ejecutar evaluación\" para generar la primera evaluación de este proyecto."
+    },
+    "app.assessment.summarySection": {
+      "en": "Latest assessment",
+      "es": "Última evaluación"
+    },
+    "app.assessment.idLabel": {
+      "en": "ID:",
+      "es": "Identificador:"
+    },
+    "app.assessment.rootPathLabel": {
+      "en": "Root:",
+      "es": "Raíz:"
+    },
+    "app.assessment.summaryUnavailable": {
+      "en": "Summary unavailable",
+      "es": "Resumen no disponible"
+    },
+    "app.assessment.summaryUnavailableBody": {
+      "en": "The assessment completed but did not produce a summary.",
+      "es": "La evaluación se completó pero no generó un resumen."
+    },
+    "app.assessment.findingsSection": {
+      "en": "Findings",
+      "es": "Hallazgos"
+    },
+    "app.assessment.summaryStack": {
+      "en": "Stack",
+      "es": "Tecnologías detectadas"
+    },
+    "app.assessment.summaryStackLabel": {
+      "en": "Detected stack technologies",
+      "es": "Tecnologías del stack detectadas"
+    },
+    "app.assessment.summaryStackEmpty": {
+      "en": "No stack detected",
+      "es": "Sin stack detectado"
+    },
+    "app.assessment.summarySignals": {
+      "en": "Quality signals",
+      "es": "Indicadores de calidad"
+    },
+    "app.assessment.summarySignalsLabel": {
+      "en": "Quality signal indicators",
+      "es": "Indicadores de señales de calidad"
+    },
+    "app.assessment.signalHasTests": {
+      "en": "Tests",
+      "es": "Tiene tests"
+    },
+    "app.assessment.signalNoTests": {
+      "en": "No tests",
+      "es": "Sin tests"
+    },
+    "app.assessment.signalHasCoverage": {
+      "en": "Coverage",
+      "es": "Tiene cobertura"
+    },
+    "app.assessment.signalNoCoverage": {
+      "en": "No coverage",
+      "es": "Sin cobertura"
+    },
+    "app.assessment.signalHasSecurity": {
+      "en": "Security tooling",
+      "es": "Herramientas de seguridad"
+    },
+    "app.assessment.signalNoSecurity": {
+      "en": "No security tooling",
+      "es": "Sin herramientas de seguridad"
+    },
+    "app.assessment.signalHasGit": {
+      "en": "Git history",
+      "es": "Historial Git"
+    },
+    "app.assessment.signalNoGit": {
+      "en": "No git history",
+      "es": "Sin historial Git"
+    },
+    "app.assessment.summaryCounts": {
+      "en": "Risk and gap counts",
+      "es": "Conteo de riesgos y brechas"
+    },
+    "app.assessment.riskCount": {
+      "en": "risks",
+      "es": "riesgos"
+    },
+    "app.assessment.gapCount": {
+      "en": "gaps",
+      "es": "brechas"
+    },
+    "app.assessment.summaryDebt": {
+      "en": "Debt markers",
+      "es": "Marcadores de deuda"
+    },
+    "app.assessment.summaryDebtLabel": {
+      "en": "Technical debt markers",
+      "es": "Marcadores de deuda técnica"
+    },
+    "app.assessment.findingsTableCaption": {
+      "en": "Assessment findings",
+      "es": "Hallazgos de la evaluación"
+    },
+    "app.assessment.findingsEmpty": {
+      "en": "No findings",
+      "es": "Sin hallazgos"
+    },
+    "app.assessment.findingsEmptyBody": {
+      "en": "The assessment did not produce any findings for this project.",
+      "es": "La evaluación no generó hallazgos para este proyecto."
+    },
+    "app.assessment.colSeverity": {
+      "en": "Severity",
+      "es": "Severidad"
+    },
+    "app.assessment.colCategory": {
+      "en": "Category",
+      "es": "Categoría"
+    },
+    "app.assessment.colTitle": {
+      "en": "Title",
+      "es": "Título"
+    },
+    "app.assessment.colDetail": {
+      "en": "Detail",
+      "es": "Detalle"
+    },
+    "app.assessment.colConfidence": {
+      "en": "Confidence",
+      "es": "Confianza"
     }
   }
 }

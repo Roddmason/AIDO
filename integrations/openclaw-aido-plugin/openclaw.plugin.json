@@ -1,19 +1,32 @@
 {
   "id": "aido-control",
   "name": "AIDO Control",
-  "description": "Add AIDO Control tools to OpenClaw.",
+  "description": "Inspect and control your AIDO Local Control Center projects.",
   "version": "0.1.0",
   "configSchema": {
     "type": "object",
-    "additionalProperties": false,
-    "properties": {}
+    "properties": {
+      "baseUrl": {
+        "type": "string",
+        "description": "AIDO base URL (loopback).",
+        "default": "http://127.0.0.1:4310"
+      }
+    }
   },
   "activation": {
     "onStartup": true
   },
   "contracts": {
     "tools": [
-      "echo"
+      "aido_overview",
+      "aido_list_projects",
+      "aido_list_templates",
+      "aido_create_project"
     ]
+  },
+  "toolMetadata": {
+    "aido_create_project": {
+      "optional": true
+    }
   }
 }

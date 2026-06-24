@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { AidoClient, AidoError, summarizeOverview } from "./aidoClient.js";
+import { AidoClient, AidoError, summarizeOverview } from "../src/aidoClient.js";
 
 const BASE = "http://127.0.0.1:4310";
 

@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 
 from local_control_center.shared.event_bus import EventBus
 
@@ -20,9 +20,12 @@ from .models import (
     AgentsListResponse,
     DirectoryPickerRequest,
     DirectoryPickerResponse,
+    ProjectAssessmentRunResponse,
+    ProjectAssessmentsListResponse,
     ProjectCreateRequest,
     ProjectDiscoveryRequest,
     ProjectDiscoveryResponse,
+    ProjectFindingsListResponse,
     ProjectResponse,
     ProjectsListResponse,
     ProjectTemplatesResponse,
@@ -82,5 +85,34 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     @router.get("/api/v1/agents", response_model=AgentsListResponse)
     async def agents(teamId: str | None = None) -> dict[str, Any]:
         return commands.list_agents(repository(), team_id=teamId)
+
+    @router.post(
+        "/api/v1/projects/{project_id}/assessment",
+        status_code=201,
+        response_model=ProjectAssessmentRunResponse,
+    )
+    async def run_assessment(project_id: str, request: Request) -> dict[str, Any]:
+        require_write(request)
+        # Lazy import keeps the projects slice free of an import-time dependency on the agents slice.
+        from local_control_center.agents.assessment_runner import ProjectAssessmentRunner
+
+        try:
+            return ProjectAssessmentRunner(platform.connection, root=platform.cwd).run(project_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+
+    @router.get(
+        "/api/v1/projects/{project_id}/assessments",
+        response_model=ProjectAssessmentsListResponse,
+    )
+    async def list_assessments(project_id: str) -> dict[str, Any]:
+        return commands.list_project_assessments(repository(), project_id=project_id)
+
+    @router.get(
+        "/api/v1/projects/{project_id}/findings",
+        response_model=ProjectFindingsListResponse,
+    )
+    async def list_findings(project_id: str, category: str | None = None) -> dict[str, Any]:
+        return commands.list_project_findings(repository(), project_id=project_id, category=category)
 
     return router

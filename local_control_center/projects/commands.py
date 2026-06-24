@@ -111,3 +111,15 @@ def list_teams(projects: ProjectsRepository, *, project_id: str | None = None) -
 def list_agents(projects: ProjectsRepository, *, team_id: str | None = None) -> dict[str, Any]:
     """Devuelve los agentes del catálogo, opcionalmente acotados a un equipo."""
     return {"agents": projects.list_agents(team_id=team_id)}
+
+
+def list_project_assessments(projects: ProjectsRepository, *, project_id: str) -> dict[str, Any]:
+    """Devuelve los assessments estáticos persistidos del proyecto, el más reciente primero."""
+    return {"assessments": projects.list_project_assessments(project_id)}
+
+
+def list_project_findings(
+    projects: ProjectsRepository, *, project_id: str, category: str | None = None
+) -> dict[str, Any]:
+    """Devuelve los hallazgos de assessment del proyecto, opcionalmente filtrados por categoría."""
+    return {"findings": projects.list_project_findings(project_id=project_id, category=category)}

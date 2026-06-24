@@ -635,6 +635,47 @@ def evaluate_action(input_payload: dict[str, Any]) -> dict[str, Any]:
             "reason": "SecurityAgent optional model analysis is allowed for a configured runtime adapter.",
             "categories": [*categories, "security_agent_model_call"],
         }
+
+    if operation == "project_assessment":
+        if input_payload.get("agentId") != "project_assessment_agent":
+            categories.append("project_assessment_agent_denied")
+            return {
+                "decision": "deny",
+                "riskLevel": "high",
+                "reason": "Project assessment inspection is restricted to the ProjectAssessment agent.",
+                "categories": categories,
+            }
+        if permission_profile != "plan":
+            categories.append("project_assessment_profile_denied")
+            return {
+                "decision": "deny",
+                "riskLevel": "high",
+                "reason": "Project assessment inspection requires the plan permission profile.",
+                "categories": categories,
+            }
+        if not input_payload.get("path") or not input_payload.get("agentRunId"):
+            categories.append("project_assessment_context_required")
+            return {
+                "decision": "deny",
+                "riskLevel": "high",
+                "reason": "Project assessment inspection requires the project path and agent run context.",
+                "categories": categories,
+            }
+        if input_payload.get("networkRequired") or input_payload.get("secretsRequired"):
+            categories.append("project_assessment_remote_or_secret_denied")
+            return {
+                "decision": "deny",
+                "riskLevel": "high",
+                "reason": "Project assessment must run as a local read-only scan without network or secrets.",
+                "categories": categories,
+            }
+        return {
+            "decision": "allow",
+            "riskLevel": "low",
+            "reason": "Project assessment static read-only inspection is allowed for local assessment evidence.",
+            "categories": [*categories, "project_assessment"],
+        }
+
     if tool == "shell" and command:
         if operation == "issue_to_patch_runtime":
             if input_payload.get("agentId") != "aido_issue_to_patch_runner":

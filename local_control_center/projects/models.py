@@ -152,3 +152,56 @@ class AgentsListResponse(BaseModel):
     """Listado de agentes del catálogo."""
 
     agents: list[CatalogAgentRecord]
+
+
+class ProjectAssessmentRecord(BaseModel):
+    """Snapshot de assessment estático de un proyecto, con su resumen por dimensión y contadores."""
+
+    id: str
+    project_id: str = Field(alias="projectId")
+    root_path: str = Field(alias="rootPath")
+    status: str
+    source: str
+    summary: dict[str, Any]
+    findings_count: int = Field(alias="findingsCount")
+    risk_count: int = Field(alias="riskCount")
+    gap_count: int = Field(alias="gapCount")
+    created_at: str = Field(alias="createdAt")
+    updated_at: str = Field(alias="updatedAt")
+
+
+class ProjectFindingRecord(BaseModel):
+    """Hallazgo de assessment (una detección por fila), trazable a su assessment y proyecto."""
+
+    id: str
+    assessment_id: str = Field(alias="assessmentId")
+    project_id: str = Field(alias="projectId")
+    category: str
+    title: str
+    detail: str
+    severity: str
+    evidence: str
+    confidence: str
+    metadata: dict[str, Any]
+    created_at: str = Field(alias="createdAt")
+
+
+class ProjectAssessmentRunResponse(BaseModel):
+    """Resultado de correr el assessment policy-gated: estado, motivo, snapshot y hallazgos."""
+
+    status: str
+    reason: str
+    assessment: ProjectAssessmentRecord | None = None
+    findings: list[ProjectFindingRecord] = Field(default_factory=list)
+
+
+class ProjectAssessmentsListResponse(BaseModel):
+    """Listado de assessments de un proyecto (el más reciente primero)."""
+
+    assessments: list[ProjectAssessmentRecord]
+
+
+class ProjectFindingsListResponse(BaseModel):
+    """Listado de hallazgos de assessment de un proyecto (filtrable por categoría)."""
+
+    findings: list[ProjectFindingRecord]

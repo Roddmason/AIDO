@@ -192,14 +192,19 @@ class CredentialRepository:
         return row_to_credential_audit(row)
 
     def list_audit(self, credential_id: str | None = None) -> list[dict[str, Any]]:
-        """Lista la auditoría (toda o por credencial), en orden cronológico."""
+        """Lista la auditoría (toda o por credencial), en orden cronológico estable.
+
+        Desempata por ``rowid`` (orden de inserción monótono), no por ``id`` (un uuid aleatorio): así
+        dos entradas del mismo milisegundo conservan su orden real de escritura y ``list_audit()[-1]``
+        es siempre la última acción registrada.
+        """
         if credential_id:
             rows = self.connection.execute(
-                "SELECT * FROM credential_audit WHERE credential_id = ? ORDER BY created_at ASC, id ASC",
+                "SELECT * FROM credential_audit WHERE credential_id = ? ORDER BY created_at ASC, rowid ASC",
                 (credential_id,),
             ).fetchall()
         else:
             rows = self.connection.execute(
-                "SELECT * FROM credential_audit ORDER BY created_at ASC, id ASC"
+                "SELECT * FROM credential_audit ORDER BY created_at ASC, rowid ASC"
             ).fetchall()
         return [row_to_credential_audit(row) for row in rows]

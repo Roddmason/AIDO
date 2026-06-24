@@ -98,6 +98,29 @@ def test_assess_project_detects_every_dimension(tmp_path: Path) -> None:
     assert summary["debtMarkers"] >= 2  # TODO + FIXME
 
 
+def test_list_project_findings_is_stable_by_insertion_order_on_timestamp_ties(tmp_path: Path) -> None:
+    # Every finding of one assessment shares the same millisecond created_at; they must come back in
+    # insertion order, not by their random uuid id (the documented "orden de inserción" contract).
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        same_ts = "2026-01-01T00:00:00.000Z"
+        expected_order = ["stack", "module", "risk", "gap"]
+        for index, category in enumerate(expected_order):
+            # The later-inserted row gets a lexically smaller id than the earlier one.
+            connection.execute(
+                """
+                INSERT INTO project_findings
+                    (id, assessment_id, project_id, category, title, detail, severity, evidence,
+                     confidence, metadata, created_at)
+                VALUES (?, 'assessment-1', 'project-1', ?, ?, '', 'info', '', 'medium', '{}', ?)
+                """,
+                (f"project-finding-{len(expected_order) - index:02d}", category, category, same_ts),
+            )
+
+        findings = ProjectsRepository(connection).list_project_findings(assessment_id="assessment-1")
+        assert [finding["category"] for finding in findings] == expected_order
+
+
 def test_run_project_assessment_persists_assessment_and_findings(tmp_path: Path) -> None:
     project_root = tmp_path / "sample"
     build_sample_project(project_root)

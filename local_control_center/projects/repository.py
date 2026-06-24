@@ -345,7 +345,12 @@ class ProjectsRepository:
         project_id: str | None = None,
         category: str | None = None,
     ) -> list[dict[str, Any]]:
-        """Lista hallazgos filtrando por assessment, proyecto y/o categoría, en orden de inserción."""
+        """Lista hallazgos filtrando por assessment, proyecto y/o categoría, en orden de inserción.
+
+        Desempata por ``rowid`` (orden de inserción monótono), no por ``id`` (un uuid aleatorio): todos
+        los hallazgos de un assessment comparten el mismo milisegundo ``created_at``, así que solo el
+        ``rowid`` preserva el orden real en que las dimensiones se detectaron y persistieron.
+        """
         conditions: list[str] = []
         params: list[Any] = []
         if assessment_id:
@@ -359,6 +364,6 @@ class ProjectsRepository:
             params.append(category)
         where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         rows = self.connection.execute(
-            f"SELECT * FROM project_findings {where} ORDER BY created_at ASC, id ASC", params
+            f"SELECT * FROM project_findings {where} ORDER BY created_at ASC, rowid ASC", params
         ).fetchall()
         return [row_to_project_finding(row) for row in rows]

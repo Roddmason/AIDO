@@ -73,6 +73,7 @@ export class AidoClient {
       headers: {
         "content-type": "application/json",
         "x-local-control-token": token,
+        // Enviado defensivamente: AIDO hoy valida solo el token; el Origin replica al cliente canónico.
         origin: WRITE_ORIGIN,
       },
       body,

@@ -18,6 +18,7 @@ import {
 	LayoutGrid,
 	Network,
 	PlugZap,
+	ScanSearch,
 	Settings as SettingsIcon,
 	ShieldCheck,
 	SlidersHorizontal,
@@ -44,6 +45,7 @@ export const pageIds = [
 	'governance',
 	'audit',
 	'integrations',
+	'assessment',
 	'settings-project',
 	'settings-runtime',
 	'settings-agents',
@@ -158,7 +160,7 @@ export const AREAS: AreaDef[] = [
 		leadPage: 'review-board',
 		icon: ClipboardCheck,
 		label: { en: 'Review', es: 'Revisión' },
-		pages: ['review-board', 'evidence', 'governance', 'policy', 'audit'],
+		pages: ['review-board', 'evidence', 'governance', 'policy', 'audit', 'assessment'],
 	},
 	{
 		id: 'settings',
@@ -223,6 +225,11 @@ export const EXPLORER_LINKS: Record<AreaId, NavigationItem[]> = {
 			label: { en: 'Policy & Security', es: 'Política y seguridad' },
 		},
 		{ page: 'audit', icon: History, label: { en: 'Audit Log', es: 'Auditoría' } },
+		{
+			page: 'assessment',
+			icon: ScanSearch,
+			label: { en: 'Assessment', es: 'Evaluación' },
+		},
 	],
 	settings: SETTINGS_GROUPS.flatMap((group) => group.links),
 };

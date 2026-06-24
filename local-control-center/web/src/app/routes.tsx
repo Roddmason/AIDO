@@ -51,6 +51,8 @@ const PolicySecurityPage = lazy(() =>
 	importPages().then((m) => ({ default: m.PolicySecurityPage })),
 );
 // Per-feature chunks (extracted from the barrel).
+const importAssessment = () => import('../features/assessment/AssessmentPage');
+const AssessmentPage = lazy(() => importAssessment().then((m) => ({ default: m.AssessmentPage })));
 const importAudit = () => import('../features/audit/AuditPage');
 const AuditPage = lazy(() => importAudit().then((m) => ({ default: m.AuditPage })));
 const importMemory = () => import('../features/memory/MemoryPage');
@@ -229,6 +231,16 @@ export const routeTable: Record<AppRoute, RouteEntry> = {
 			/>
 		),
 		preload: importPages,
+	},
+	assessment: {
+		render: (ctx) => (
+			<AssessmentPage
+				overview={ctx.overview}
+				selectedProject={ctx.selectedProject}
+				token={ctx.token}
+			/>
+		),
+		preload: importAssessment,
 	},
 	audit: {
 		render: (ctx) => <AuditPage overview={ctx.overview} />,

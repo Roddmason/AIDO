@@ -26,7 +26,7 @@ export default defineToolPlugin({
         default: DEFAULT_BASE_URL,
       }),
     ),
-  }),
+  }, { additionalProperties: false }),
   tools: (tool) => [
     tool({
       name: "aido_overview",

@@ -24,6 +24,30 @@ describe("AidoClient reads", () => {
     expect(projects).toEqual([{ id: "p1", name: "Demo" }]);
   });
 
+  it("getOverview calls GET /api/v1/overview and returns a curated summary", async () => {
+    const rawOverview = {
+      security: { loopbackOnly: true, writeTokenRequired: true },
+      projects: [{ id: "p1", name: "Demo", path: "/demo", status: "active", templateId: "t1" }],
+      workflows: [{}, {}],
+      jobs: [{}],
+      nextSteps: [{ id: "ns1" }],
+      riskRegister: [],
+    };
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(rawOverview));
+    const client = new AidoClient({ baseUrl: BASE, fetchImpl });
+    const summary = await client.getOverview();
+
+    expect(fetchImpl).toHaveBeenCalledWith(
+      `${BASE}/api/v1/overview`,
+      expect.objectContaining({ method: "GET" }),
+    );
+    expect(summary.security).toEqual({ loopbackOnly: true, writeTokenRequired: true });
+    expect(summary.counts.projects).toBe(1);
+    expect(summary.projects).toEqual([
+      { id: "p1", name: "Demo", path: "/demo", status: "active", templateId: "t1" },
+    ]);
+  });
+
   it("listTemplates calls GET /api/v1/project-templates and returns projectTemplates", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(
       jsonResponse({ projectTemplates: [{ id: "frontend", name: "Frontend", kind: "frontend" }] }),
@@ -103,6 +127,13 @@ describe("AidoClient.createProject", () => {
     expect(posts).toBe(2);
     expect(handshakes).toBe(2);
     expect(project.id).toBe("p9");
+
+    // The SECOND POST must carry the fresh token, not the stale one.
+    const postCalls = fetchImpl.mock.calls.filter(
+      ([, init]) => (init as RequestInit).method === "POST",
+    );
+    const secondPostHeaders = (postCalls[1][1] as RequestInit).headers as Record<string, string>;
+    expect(secondPostHeaders["x-local-control-token"]).toBe("FRESH");
   });
 });
 

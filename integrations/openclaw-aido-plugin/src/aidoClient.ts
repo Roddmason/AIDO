@@ -50,9 +50,11 @@ export class AidoClient {
       response = await this.postProjects(body, await this.token(signal), signal);
     }
     if (!response.ok) {
-      throw new AidoError(
-        `AIDO create_project falló: HTTP ${response.status} ${await safeText(response)}`.trim(),
-      );
+      const suffix =
+        response.status === 403
+          ? " (acceso denegado tras refrescar el token)"
+          : ` ${await safeText(response)}`;
+      throw new AidoError(`AIDO create_project falló: HTTP ${response.status}${suffix}`.trim());
     }
     const data = (await response.json()) as { project: ProjectRecord };
     return data.project;

@@ -26,10 +26,12 @@ from local_control_center.evidence.quality import evidence_package_contract_erro
 from local_control_center.evidence.repository import EvidenceRepository
 from local_control_center.jobs_approvals.repository import JobsRepository
 from local_control_center.product_discovery.repository import ProductDiscoveryRepository
+from local_control_center.projects.repository import ProjectsRepository
 from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.serialization import json_dumps
 from local_control_center.workspaces_projects.repository import WorkspacesRepository
 
+from .assessment_runner import ProjectAssessmentRunner
 from .autonomy_profiles import REVERSIBILITIES, AutonomyEngine, AutonomyProfile
 from .impact_question_engine import (
     ImpactQuestionEngine,
@@ -63,6 +65,7 @@ BLOCKED_COMPLETENESS_CAP = 60
 PROMPT_TEXT_LIMIT_CHARS = 8_000
 PROMPT_COLLECTION_LIMIT = 20
 RUNTIME_OUTPUT_LIMIT_CHARS = 200_000
+ASSESSMENT_SIGNAL_LIMIT = 5
 
 REQUIRED_BRIEF_TEXT_FIELDS = ["title", "summary", "problemStatement", "scope", "outOfScope"]
 REQUIRED_BRIEF_LIST_FIELDS = ["goals", "targetUsers", "successMetrics"]
@@ -157,6 +160,36 @@ def _autonomy_candidate(decision: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
+def _codebase_signals(assessment: dict[str, Any], findings: list[dict[str, Any]]) -> dict[str, Any]:
+    """Resume un project assessment como señales acotadas y decision-relevant para el ProductOwnerAgent.
+
+    Surface solo lo que cambia la dirección a recomendar (stack, presencia de tests/seguridad/cobertura,
+    deuda, riesgos y gaps, notas de arquitectura) y descarta el ruido de implementación (módulos,
+    endpoints por archivo, historia de commits) para no inflar el prompt.
+    """
+    summary = assessment.get("summary") or {}
+
+    def titles(category: str) -> list[str]:
+        return [finding["title"] for finding in findings if finding.get("category") == category][
+            :ASSESSMENT_SIGNAL_LIMIT
+        ]
+
+    return {
+        "assessmentId": assessment.get("id"),
+        "stack": summary.get("stack", []),
+        "hasTests": summary.get("hasTests"),
+        "hasCoverage": summary.get("hasCoverage"),
+        "hasSecurityTooling": summary.get("hasSecurityTooling"),
+        "totalEndpoints": summary.get("totalEndpoints"),
+        "debtMarkers": summary.get("debtMarkers"),
+        "riskCount": summary.get("riskCount"),
+        "gapCount": summary.get("gapCount"),
+        "risks": titles("risk"),
+        "gaps": titles("gap"),
+        "architectureNotes": titles("architecture"),
+    }
+
+
 class ProductOwnerAgent:
     """Lógica pura del ProductOwnerAgent: arma el prompt, valida la salida y calcula la completitud.
 
@@ -171,6 +204,7 @@ class ProductOwnerAgent:
     def _assessment_context(self, *, idea: str, assessment: dict[str, Any]) -> dict[str, Any]:
         return {
             "idea": _bounded_text(idea),
+            "codebaseSignals": assessment.get("projectAssessment"),
             "existingInitiative": assessment.get("initiative"),
             "existingBrief": assessment.get("brief"),
             "existingOpenQuestions": [
@@ -390,6 +424,7 @@ class ProductOwnerAgentRunner:
         self.discovery = ProductDiscoveryRepository(connection)
         self.backlog = BacklogRepository(connection)
         self.workspaces = WorkspacesRepository(connection, root=root)
+        self.projects = ProjectsRepository(connection)
 
     def status(self, *, preferred_runtime: str | None = None) -> dict[str, Any]:
         """Devuelve el readiness del ProductOwnerAgent según los runtimes CLI/modelo disponibles."""
@@ -454,6 +489,27 @@ class ProductOwnerAgentRunner:
             "openQuestions": open_questions,
             "unresolvedDecisions": unresolved_decisions,
         }
+
+    def _project_assessment_signals(self, project_id: str) -> dict[str, Any] | None:
+        """Carga (o produce, si falta) el último project assessment del proyecto como señales acotadas.
+
+        Garantiza que el ProductOwnerAgent disponga del assessment estático *antes* de preguntarle al
+        usuario qué dirección tomar: reutiliza el assessment más reciente si existe y, si no hay
+        ninguno, lo produce vía el ``ProjectAssessmentRunner`` (policy-gated). Es best-effort: ante
+        cualquier fallo del assessment devuelve ``None`` y el agente continúa sin esa fundamentación.
+        """
+        assessments = self.projects.list_project_assessments(project_id)
+        if not assessments:
+            try:
+                ProjectAssessmentRunner(self.connection, root=self.root).run(project_id)
+            except (KeyError, ValueError, sqlite3.Error):
+                return None
+            assessments = self.projects.list_project_assessments(project_id)
+        if not assessments:
+            return None
+        latest = assessments[0]
+        findings = self.projects.list_project_findings(assessment_id=latest["id"])
+        return _codebase_signals(latest, findings)
 
     def _runtime_output_text(self, result: dict[str, Any]) -> dict[str, Any]:
         artifact_id = result.get("outputArtifactId") or result.get("stdoutArtifactId")
@@ -805,6 +861,8 @@ class ProductOwnerAgentRunner:
         threshold = int(threshold) if isinstance(threshold, (int, float)) else DEFAULT_COMPLETENESS_THRESHOLD
         workspace = self._workspace(project_id=project_id, workspace_id=str(payload["workspaceId"]))
         assessment = self._assessment(project_id=project_id, idea=idea, initiative_id=initiative_id)
+        # Ground the agent in the static project assessment before it asks the user for a direction.
+        assessment["projectAssessment"] = self._project_assessment_signals(project_id)
 
         readiness = self.status(preferred_runtime=payload.get("preferredRuntime"))
         runtime = self._runtime_by_id(readiness.get("selectedRuntimeId")) or {

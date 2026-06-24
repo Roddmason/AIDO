@@ -13,6 +13,7 @@ from local_control_center.agents.product_owner_agent_contract import product_own
 from local_control_center.app import create_app
 from local_control_center.backlog.repository import BacklogRepository
 from local_control_center.product_discovery.repository import ProductDiscoveryRepository
+from local_control_center.projects.repository import ProjectsRepository
 from tests_py.control_plane_fixture import ControlPlaneFixture
 
 
@@ -321,6 +322,8 @@ def test_product_owner_agent_valid_output_generates_brief_and_backlog(
     assert body["completeness"]["meetsThreshold"] is True
     assert body["evidencePackage"]["qaVerdict"] == "backlog_generated"
     assert body["agentRun"]["status"] == "completed"
+    # The Product Owner produced and consumed a static project assessment before asking the user.
+    assert ProjectsRepository(store.connection).list_project_assessments(project["id"])
     # The impact engine groups at most five questions per turn and defers the lowest-impact one.
     assert body["output"]["questionSelection"] == {
         "candidates": 6,

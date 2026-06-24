@@ -4,8 +4,13 @@ Amplía el descubrimiento de ``discovery`` a un assessment por dimensiones (stac
 arquitectura, endpoints, datos, tests, cobertura, quality commands, deuda, seguridad, documentación,
 git history acotado y funcionalidades) y deriva riesgos y gaps. Es estrictamente de solo lectura: no
 ejecuta ninguna herramienta (la historia de git se lee del reflog ``.git/logs/HEAD``), por lo que
-respeta el límite de no ejecutar nada fuera del ToolBroker. ``run_project_assessment`` persiste el
-assessment y un hallazgo por detección en ``project_assessments`` y ``project_findings``.
+respeta el límite de no ejecutar nada fuera del ToolBroker.
+
+Seguridad: nunca sigue symlinks al leer archivos (evita exfiltrar rutas fuera del proyecto) y
+``run_project_assessment`` redacta secretos del summary y de cada hallazgo con ``redact_secrets``
+antes de persistirlos, de modo que un token incrustado en un mensaje de commit o un script no se
+guarde en claro. ``run_project_assessment`` persiste el assessment y un hallazgo por detección en
+``project_assessments`` y ``project_findings``.
 """
 
 from __future__ import annotations
@@ -15,6 +20,8 @@ import os
 import re
 from pathlib import Path
 from typing import Any
+
+from local_control_center.shared.redaction import redact_secrets
 
 from .discovery import discover_project_path
 from .repository import ProjectsRepository
@@ -74,6 +81,8 @@ DEBT_RE = re.compile(r"\b(?:TODO|FIXME|HACK|XXX)\b")
 
 def _read_bounded(path: Path) -> str:
     try:
+        if path.is_symlink():
+            return ""
         return path.read_bytes()[:MAX_FILE_BYTES].decode("utf-8", errors="replace")
     except OSError:
         return ""
@@ -101,12 +110,19 @@ def _finding(
 
 
 def _iter_all_files(root: Path) -> list[Path]:
-    """Lista las rutas relativas de archivos del proyecto, podando directorios pesados y ocultos."""
+    """Lista las rutas relativas de archivos del proyecto, podando directorios pesados y ocultos.
+
+    ``os.walk`` no desciende a symlinks de directorio (``followlinks=False``); además se omiten los
+    archivos que son symlink para no exponer destinos fuera del árbol del proyecto al leerlos.
+    """
     files: list[Path] = []
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [name for name in dirnames if name not in PRUNE_DIRS and not name.startswith(".")]
         for filename in filenames:
-            files.append((Path(dirpath) / filename).relative_to(root))
+            absolute = Path(dirpath) / filename
+            if absolute.is_symlink():
+                continue
+            files.append(absolute.relative_to(root))
             if len(files) >= MAX_FILES:
                 return files
     return files
@@ -403,7 +419,7 @@ def _detect_documentation(root: Path) -> list[dict[str, Any]]:
 
 def _detect_git_history(root: Path) -> list[dict[str, Any]]:
     reflog = root / ".git" / "logs" / "HEAD"
-    if not reflog.exists():
+    if not reflog.exists() or reflog.is_symlink():
         return []
     commits: list[dict[str, str]] = []
     for line in _read_bounded(reflog).splitlines():
@@ -569,10 +585,14 @@ def run_project_assessment(
     """Ejecuta el assessment estático y persiste el snapshot y sus hallazgos.
 
     Inserta un ``project_assessments`` y un ``project_findings`` por hallazgo (project-scoped y
-    trazable al assessment). Devuelve ``{assessment, findings}`` ya persistidos.
+    trazable al assessment). El summary y cada hallazgo se redactan con ``redact_secrets`` antes de
+    persistirse para que ningún secreto incrustado (token en un mensaje de commit, script con
+    ``password=...``) quede en claro en la base ni en los artefactos derivados. Devuelve
+    ``{assessment, findings}`` ya persistidos y redactados.
     """
     result = assess_project(root_path)
-    summary = result["summary"]
+    summary = redact_secrets(result["summary"])
+    redacted_findings = [redact_secrets(finding) for finding in result["findings"]]
     assessment = repository.create_project_assessment(
         {
             "projectId": project_id,
@@ -580,7 +600,7 @@ def run_project_assessment(
             "status": result["status"],
             "source": result["source"],
             "summary": summary,
-            "findingsCount": len(result["findings"]),
+            "findingsCount": len(redacted_findings),
             "riskCount": summary["riskCount"],
             "gapCount": summary["gapCount"],
         }
@@ -589,6 +609,6 @@ def run_project_assessment(
         repository.create_project_finding(
             {"assessmentId": assessment["id"], "projectId": project_id, **finding}
         )
-        for finding in result["findings"]
+        for finding in redacted_findings
     ]
     return {"assessment": assessment, "findings": findings}

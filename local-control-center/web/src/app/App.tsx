@@ -227,7 +227,6 @@ export function App() {
 		<>
 			<AppShell
 				area={areaForPage(page)}
-				page={page}
 				language={bilingualLanguage}
 				languages={languages}
 				t={t}
@@ -239,7 +238,6 @@ export function App() {
 				selectedRunId={selectedRunId}
 				token={state.token}
 				mutate={state.mutate}
-				onOpenRun={openRun}
 				onClearRun={clearRun}
 				selectedSessionId={selectedSessionId}
 				onSelectSession={setSelectedSessionId}

@@ -27,7 +27,7 @@ test('desktop shell exposes resizable panes with accessible separators', async (
 	await expect(separators.first()).toBeVisible();
 	expect(await separators.count()).toBeGreaterThanOrEqual(3);
 
-	await expect(page.locator('.explorer-panel')).toBeVisible();
+	await expect(page.locator('.shell-sidebar')).toBeVisible();
 	await expect(page.locator('.main-area')).toBeVisible();
 
 	await page.screenshot({ path: `${SHOT_DIR}/desktop-default-${info.project.name}.png` });
@@ -40,7 +40,7 @@ test('shortcuts toggle the explorer (Ctrl+B), inspector (Ctrl+Shift+B) and botto
 	await page.goto('/#workbench');
 	await expectShellLoaded(page);
 
-	const explorer = page.locator('.explorer-panel');
+	const explorer = page.locator('.shell-sidebar');
 	await expect(explorer).toBeVisible();
 
 	await page.keyboard.press('Control+b');
@@ -65,7 +65,7 @@ test('pane collapse persists in versioned localStorage across reloads', async ({
 	await page.goto('/#workbench');
 	await expectShellLoaded(page);
 
-	const explorer = page.locator('.explorer-panel');
+	const explorer = page.locator('.shell-sidebar');
 	await expect(explorer).toBeVisible();
 	await page.keyboard.press('Control+b');
 	await expect(explorer).toBeHidden();
@@ -77,7 +77,7 @@ test('pane collapse persists in versioned localStorage across reloads', async ({
 
 	await page.reload();
 	await expectShellLoaded(page);
-	await expect(page.locator('.explorer-panel')).toBeHidden();
+	await expect(page.locator('.shell-sidebar')).toBeHidden();
 });
 
 test('density toggle flips data-density and persists across reload', async ({ page }, info) => {
@@ -107,6 +107,6 @@ test('mobile shell stacks the explorer and keeps it reachable', async ({ page },
 	await page.goto('/#workbench');
 	await expectShellLoaded(page);
 
-	await expect(page.locator('.explorer-panel')).toBeVisible();
+	await expect(page.locator('.shell-sidebar')).toBeVisible();
 	await page.screenshot({ path: `${SHOT_DIR}/mobile-${info.project.name}.png`, fullPage: true });
 });

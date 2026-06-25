@@ -851,7 +851,7 @@
 }
 
 .content-frame {
-	width: min(100%, var(--content-max));
+	width: 100%;
 	display: grid;
 	gap: var(--space-6);
 	padding: var(--space-6);

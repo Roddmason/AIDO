@@ -111,56 +111,87 @@ export function SettingsPage({
 				)}
 			/>
 			<div className="settings-hub">
-				<SettingsGroup id="project" status={projectStatus(selectedProject, t)}>
-					<ProjectBody
-						overview={overview}
-						activeProjects={activeProjects}
-						selectedProject={selectedProject}
-						onSelectProject={onSelectProject}
-						onNewProject={onCreateProject}
-					/>
-				</SettingsGroup>
+				{/* ---- Per-project scope ---- */}
+				<div className="settings-scope-section">
+					<div className="settings-scope-header">
+						<div className="settings-scope-heading">
+							<span className="settings-scope-label">
+								{t('app.settings.scope.project', 'Project settings')}
+							</span>
+							{selectedProject ? (
+								<span className="settings-scope-project-name">{selectedProject.name}</span>
+							) : null}
+						</div>
+						<span className="settings-scope-hint">
+							{t('app.settings.scope.project.hint', 'Scoped to the active project')}
+						</span>
+					</div>
 
-				<SettingsGroup id="runtime" status={runtimeStatus(runtimeProviders, t)}>
-					<RuntimeBody
-						overview={overview}
-						runtimeProviders={runtimeProviders}
-						runtimeProviderConfiguration={runtimeProviderConfiguration}
-						token={token}
-						onRefresh={onRefresh}
-					/>
-				</SettingsGroup>
+					<SettingsGroup id="project" status={projectStatus(selectedProject, t)}>
+						<ProjectBody
+							overview={overview}
+							activeProjects={activeProjects}
+							selectedProject={selectedProject}
+							onSelectProject={onSelectProject}
+							onNewProject={onCreateProject}
+						/>
+					</SettingsGroup>
 
-				<SettingsGroup id="agents" status={agentsStatus(overview, t)}>
-					<AgentsBody overview={overview} selectedProject={selectedProject} />
-				</SettingsGroup>
+					<SettingsGroup id="workspaces" status={workspacesStatus(overview, t)}>
+						<WorkspacesBody overview={overview} />
+					</SettingsGroup>
+				</div>
 
-				<SettingsGroup
-					id="security"
-					status={{ tone: 'ok', label: t('app.settings.security.statusLabel', 'Local token') }}
-				>
-					<SecurityBody overview={overview} token={token} />
-				</SettingsGroup>
+				{/* ---- General / app-wide scope ---- */}
+				<div className="settings-scope-section">
+					<div className="settings-scope-header">
+						<div className="settings-scope-heading">
+							<span className="settings-scope-label">
+								{t('app.settings.scope.general', 'General settings')}
+							</span>
+						</div>
+						<span className="settings-scope-hint">
+							{t('app.settings.scope.general.hint', 'App-wide configuration')}
+						</span>
+					</div>
 
-				<SettingsGroup id="workspaces" status={workspacesStatus(overview, t)}>
-					<WorkspacesBody overview={overview} />
-				</SettingsGroup>
+					<SettingsGroup id="runtime" status={runtimeStatus(runtimeProviders, t)}>
+						<RuntimeBody
+							overview={overview}
+							runtimeProviders={runtimeProviders}
+							runtimeProviderConfiguration={runtimeProviderConfiguration}
+							token={token}
+							onRefresh={onRefresh}
+						/>
+					</SettingsGroup>
 
-				<SettingsGroup
-					id="integrations"
-					status={{ tone: 'info', label: `${overview.mcpServers.length} MCP` }}
-				>
-					<IntegrationsBody overview={overview} />
-				</SettingsGroup>
+					<SettingsGroup id="agents" status={agentsStatus(overview, t)}>
+						<AgentsBody overview={overview} selectedProject={selectedProject} />
+					</SettingsGroup>
 
-				<SettingsGroup id="advanced">
-					<AdvancedBody
-						overview={overview}
-						selectedProject={selectedProject}
-						mutate={mutate}
-						language={language}
-					/>
-				</SettingsGroup>
+					<SettingsGroup
+						id="security"
+						status={{ tone: 'ok', label: t('app.settings.security.statusLabel', 'Local token') }}
+					>
+						<SecurityBody overview={overview} token={token} />
+					</SettingsGroup>
+
+					<SettingsGroup
+						id="integrations"
+						status={{ tone: 'info', label: `${overview.mcpServers.length} MCP` }}
+					>
+						<IntegrationsBody overview={overview} />
+					</SettingsGroup>
+
+					<SettingsGroup id="advanced">
+						<AdvancedBody
+							overview={overview}
+							selectedProject={selectedProject}
+							mutate={mutate}
+							language={language}
+						/>
+					</SettingsGroup>
+				</div>
 			</div>
 		</>
 	);

@@ -782,6 +782,54 @@ kbd.command-kbd {
 	gap: var(--space-3);
 }
 
+/* Settings scope sections: presentational grouping of per-project vs general groups. */
+.settings-scope-section {
+	display: grid;
+	gap: var(--space-3);
+}
+
+.settings-scope-header {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: var(--space-3);
+	padding: var(--space-2) var(--space-1);
+	border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.settings-scope-heading {
+	display: flex;
+	align-items: baseline;
+	gap: var(--space-2);
+	min-width: 0;
+}
+
+.settings-scope-label {
+	font-family: var(--font-ui);
+	font-size: var(--font-size-xs);
+	font-weight: var(--weight-semibold);
+	letter-spacing: 0.05em;
+	text-transform: uppercase;
+	color: var(--color-text-muted);
+}
+
+.settings-scope-project-name {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-family: var(--font-data);
+	font-size: var(--font-size-xs);
+	color: var(--color-accent-strong);
+}
+
+.settings-scope-hint {
+	flex: none;
+	font-size: var(--font-size-xs);
+	color: var(--color-text-muted);
+	white-space: nowrap;
+}
+
 .settings-console-link {
 	justify-self: start;
 	display: inline-flex;

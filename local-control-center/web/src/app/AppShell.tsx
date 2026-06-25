@@ -21,7 +21,6 @@ import { ShellSidebar } from '../features/shell/ShellSidebar';
 import type { WorkspaceMode } from '../features/workspace/useProjectDiscovery';
 import { useIsDesktopLayout } from '../hooks/useIsDesktopLayout';
 import { BottomPanel } from './BottomPanel';
-import { ExplorerPanel } from './ExplorerPanel';
 import { InspectorPanel } from './InspectorPanel';
 import { MenuBar } from './MenuBar';
 import type { AreaId, PageId } from './navigation';
@@ -67,7 +66,6 @@ const RESIZE_HIT_TARGET = { coarse: 24, fine: 10 } as const;
  */
 export function AppShell({
 	area,
-	page,
 	language,
 	languages,
 	t,
@@ -79,7 +77,6 @@ export function AppShell({
 	selectedRunId,
 	token,
 	mutate,
-	onOpenRun,
 	onClearRun,
 	selectedSessionId,
 	onSelectSession,
@@ -94,7 +91,6 @@ export function AppShell({
 	children,
 }: {
 	area: AreaId;
-	page: PageId;
 	language: string;
 	languages: LanguageOption[];
 	t: (key: string, fallback?: string) => string;
@@ -107,7 +103,6 @@ export function AppShell({
 	selectedRunId: string | null;
 	token: string;
 	mutate: Mutate;
-	onOpenRun: (runId: string) => void;
 	onClearRun: () => void;
 	/** Shell-owned active session selection, threaded to the ShellSidebar for the `threads` area. */
 	selectedSessionId: string;
@@ -225,32 +220,23 @@ export function AppShell({
 		return () => window.removeEventListener('keydown', onKeyDown);
 	}, [toggleExplorer, toggleInspector, toggleBottom]);
 
-	// The thread/loop shell area swaps the flat Explorer for the Threads/Loops ShellSidebar; every
-	// other area keeps the standard ExplorerPanel so no existing surface is orphaned.
-	const explorer =
-		area === 'threads' ? (
-			<ShellSidebar
-				overview={overview}
-				selectedProjectId={selectedProject?.id ?? ''}
-				selectedSessionId={selectedSessionId}
-				onSelectProject={onSelectProject}
-				onSelectSession={onSelectSession}
-				onCreateProject={onCreateProject}
-				navigateTo={navigateTo}
-			/>
-		) : (
-			<ExplorerPanel
-				activeArea={area}
-				page={page}
-				language={language}
-				overview={overview}
-				selectedProject={selectedProject}
-				onNavigate={navigateTo}
-				onOpenRun={onOpenRun}
-				onSelectProject={onSelectProject}
-				onCreateProject={onCreateProject}
-			/>
-		);
+	// One persistent Projects sidebar everywhere (Codex-style): the same workspace → thread navigator on
+	// every route, toggled only by Ctrl/Cmd+B — it never swaps per area. Selecting a thread (or starting
+	// a new one) navigates to the thread/loop shell so the chat opens in the center.
+	const explorer = (
+		<ShellSidebar
+			overview={overview}
+			selectedProjectId={selectedProject?.id ?? ''}
+			selectedSessionId={selectedSessionId}
+			onSelectProject={onSelectProject}
+			onSelectSession={(sessionId) => {
+				onSelectSession(sessionId);
+				navigateTo('threads');
+			}}
+			onCreateProject={onCreateProject}
+			navigateTo={navigateTo}
+		/>
+	);
 
 	const workbench = (
 		<main className="workbench main-area">

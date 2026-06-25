@@ -9,6 +9,7 @@ import { useLayoutEffect, useMemo, useRef } from 'react';
 import type { Overview, Project } from '../api/types';
 import { Badge, EmptyState } from '../components/primitives';
 import { IconButton } from '../components/ui';
+import { LoopList } from '../features/shell/LoopList';
 import { RunDetail } from '../features/workflows/RunDetail';
 import { useI18n } from '../i18n/I18nProvider';
 import { toneForStatus } from '../lib/format';
@@ -39,6 +40,7 @@ export function InspectorPanel({
 	mutate,
 	onClose,
 	onClearRun,
+	showLoops = false,
 }: {
 	overview: Overview;
 	selectedProject: Project | null;
@@ -48,6 +50,9 @@ export function InspectorPanel({
 	mutate: Mutate;
 	onClose: () => void;
 	onClearRun: () => void;
+	/** Show the project's product-loop list (phase + status) under the summary — the thread/loop shell's
+	 *  Plan surface, since the sidebar no longer carries a Loops tab. */
+	showLoops?: boolean;
 }) {
 	const { t } = useI18n();
 	// Restore focus to whatever opened the inspector (the header toggle) when the panel
@@ -150,6 +155,12 @@ export function InspectorPanel({
 					)}
 				/>
 			)}
+			{showLoops && !selectedRunId ? (
+				<div className="inspector-plan">
+					<h3 className="surface-title">{t('app.shell.loops.listLabel', 'Product loops')}</h3>
+					<LoopList projectId={selectedProject?.id} filter="" />
+				</div>
+			) : null}
 		</m.aside>
 	);
 }

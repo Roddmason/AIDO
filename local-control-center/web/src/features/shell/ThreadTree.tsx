@@ -24,10 +24,9 @@ type ThreadTreeProps = {
 	filter: string;
 	onSelectProject: (projectId: string) => void;
 	onSelectSession: (sessionId: string) => void;
-	onCreateProject: () => void;
 };
 
-/** The Threads tab body: workspaces with their nested sessions, or an honest empty state. */
+/** The Projects tree body: workspaces with their nested threads, or an honest empty state. */
 export function ThreadTree({
 	projects,
 	sessions,
@@ -37,7 +36,6 @@ export function ThreadTree({
 	filter,
 	onSelectProject,
 	onSelectSession,
-	onCreateProject,
 }: ThreadTreeProps) {
 	const { t } = useI18n();
 	// Expanded workspaces; the operational workspace starts open so its threads are visible.
@@ -145,10 +143,6 @@ export function ThreadTree({
 					</section>
 				);
 			})}
-			<button type="button" className="thread-add-workspace" onClick={onCreateProject}>
-				<Plus aria-hidden="true" size={15} />
-				{t('app.shell.threads.openFolder', 'Open folder')}
-			</button>
 		</div>
 	);
 }

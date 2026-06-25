@@ -253,6 +253,7 @@ export function AppShell({
 				onSelectProject={onSelectProject}
 				onSelectSession={onSelectSession}
 				onCreateProject={onCreateProject}
+				navigateTo={navigateTo}
 			/>
 		) : (
 			<ExplorerPanel
@@ -303,6 +304,7 @@ export function AppShell({
 			mutate={mutate}
 			onClose={toggleInspector}
 			onClearRun={onClearRun}
+			showLoops={area === 'threads'}
 		/>
 	);
 

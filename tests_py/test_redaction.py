@@ -1,8 +1,19 @@
 from __future__ import annotations
 
+import time
+
 from local_control_center.shared.redaction import redact_secrets
 
 REDACTED = "[redacted]"
+
+
+def test_redaction_stays_linear_on_large_inputs() -> None:
+    # Regression: an unbounded scheme run in the DSN pattern caused O(n^2) backtracking (ReDoS) on a
+    # long alphanumeric blob (e.g. a flooded log/artifact). It must stay linear and leave it unchanged.
+    blob = "A" * 1_000_000
+    start = time.perf_counter()
+    assert redact_secrets(blob) == blob
+    assert time.perf_counter() - start < 5.0
 
 
 def test_known_token_patterns_are_redacted() -> None:

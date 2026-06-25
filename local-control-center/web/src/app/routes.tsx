@@ -2,7 +2,7 @@
  * Typed route table: maps every {@link AppRoute} to a render function plus an optional
  * chunk-preload hook. Heavy feature pages are declared with `React.lazy` at module scope
  * (never inside a component) so each becomes its own build chunk; Home, the projects views
- * and the shell stay eager. `preloadRoute` warms a lazy chunk on intent (ActivityBar hover).
+ * and the shell stay eager. `preloadRoute` warms a lazy chunk on intent (Go-menu item hover).
  */
 import type { ReactNode } from 'react';
 import { lazy } from 'react';

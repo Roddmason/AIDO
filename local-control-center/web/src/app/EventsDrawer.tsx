@@ -10,7 +10,7 @@ import { shortId, toneForStatus } from '../lib/format';
 /**
  * Slide-over showing recent operational events with a free-text filter over
  * type, severity, ids and payload. Owns its own filter state; opened from the
- * WorkbenchHeader "Open event drawer" button (and Ctrl+Alt+E).
+ * Edit menu ("Events") and Ctrl+Alt+E.
  */
 export function EventsDrawer({
 	open,

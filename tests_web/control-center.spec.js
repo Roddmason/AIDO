@@ -558,7 +558,7 @@ async function routeIssueToPatchApprovalOverview(page, fixtures) {
 }
 
 async function expectNavigationTargetsReachable(page) {
-	const failures = await page.locator('.ide-nav .nav-item, .activity-bar-item').evaluateAll((buttons) => {
+	const failures = await page.locator('.ide-nav .nav-item').evaluateAll((buttons) => {
 		const results = [];
 		for (const button of buttons) {
 			const rect = button.getBoundingClientRect();
@@ -723,7 +723,6 @@ test('Settings owns selected project and persists it across reloads', async ({ p
 
 	await page.goto('/#settings');
 	await expectControlPlaneLoaded(page);
-	await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name: 'Settings', exact: true }).click();
 	await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
 	await page.getByLabel('Operational project').selectOption(project.id);
 	await page.reload();
@@ -740,7 +739,6 @@ test('New Project wizard validates input creates project and selects it', async 
 	const projectDirectoryName = `wizard-project-${suffix}`;
 
 	await page.goto('/#settings');
-	await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name: 'Settings', exact: true }).click();
 	await page.getByRole('button', { name: 'New project' }).click();
 	await page.locator('.workspace-mode-card').filter({ hasText: 'Create workspace' }).click();
 
@@ -791,7 +789,6 @@ test('New Project wizard validates input creates project and selects it', async 
 
 test('New Project wizard exposes attach existing mode and discovery controls', async ({ page }) => {
 	await page.goto('/#settings');
-	await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name: 'Settings', exact: true }).click();
 	await page.getByRole('button', { name: 'New project' }).click();
 
 	const openCard = page.locator('.workspace-mode-card').filter({ hasText: 'Open folder' });
@@ -817,44 +814,47 @@ test('Workspaces shows allocated workspaces without the project catalog', async 
 	await expect(page.getByRole('heading', { name: 'Projects' })).toHaveCount(0);
 });
 
-test('IDE ActivityBar exposes the primary destinations across context changes', async ({ page }) => {
-	await page.goto('/');
+test('Go menu exposes the primary destinations and explorer reflects the active area', async ({ page }) => {
+	await page.goto('/#threads');
+	await expectControlPlaneLoaded(page);
 
-	const nav = page.getByRole('navigation', { name: 'Primary navigation' });
+	// The Go menu lists all primary destinations.
+	await page.getByRole('menuitem', { name: 'Go' }).click();
+	for (const name of ['Home', 'Workbench', 'Runs', 'Review board', 'Settings']) {
+		await expect(page.getByRole('menuitem', { name, exact: true })).toBeVisible();
+	}
+	// Close the menu.
+	await page.keyboard.press('Escape');
+
+	// Navigating to Settings via hash exposes Project/Workspaces in the explorer.
+	await page.goto('/#settings');
 	const explorer = page.locator('.explorer-panel');
-
-	for (const name of ['Home', 'Workbench', 'Runs', 'Review', 'Settings']) {
-		await expect(nav.getByRole('button', { name, exact: true })).toBeVisible();
-	}
-
-	await nav.getByRole('button', { name: 'Settings', exact: true }).click();
-
-	for (const name of ['Home', 'Workbench', 'Runs', 'Review', 'Settings']) {
-		await expect(nav.getByRole('button', { name, exact: true })).toBeVisible();
-	}
 	await expect(explorer.getByRole('button', { name: 'Project', exact: true })).toBeVisible();
 	await expect(explorer.getByRole('button', { name: 'Workspaces', exact: true })).toBeVisible();
 });
 
-test('IDE ActivityBar has six destinations and marks the active route', async ({ page }) => {
-	await page.goto('/');
+test('Go menu has primary destinations and explorer marks the active route', async ({ page }) => {
+	await page.goto('/#settings');
+	await expectControlPlaneLoaded(page);
 
-	await expect(page.locator('.activity-bar-nav .activity-bar-item')).toHaveCount(6);
+	// The Go menu exposes at least the core destinations.
+	await page.getByRole('menuitem', { name: 'Go' }).click();
+	for (const name of ['Home', 'Workbench', 'Runs', 'Review board', 'Settings']) {
+		await expect(page.getByRole('menuitem', { name, exact: true })).toBeVisible();
+	}
+	await page.keyboard.press('Escape');
 
+	// The explorer nav-item[aria-current] tracks the active sub-route within settings.
 	const explorer = page.locator('.explorer-panel');
-	await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name: 'Settings', exact: true }).click();
 	await explorer.getByRole('button', { name: 'Runtime & Models' }).click();
 	await expect(page.getByRole('heading', { name: 'Runtime & Models' })).toBeVisible();
 	await expect(page.locator('.explorer-panel .nav-item[aria-current="page"]')).toHaveAttribute('aria-label', 'Runtime & Models');
 });
 
 test('IDE navigation keeps touch-safe targets across key destinations', async ({ page }) => {
-	await page.goto('/');
-	await expectNavigationTargetsReachable(page);
-
-	const nav = page.getByRole('navigation', { name: 'Primary navigation' });
-	for (const area of ['Home', 'Workbench', 'Runs', 'Review', 'Settings']) {
-		await nav.getByRole('button', { name: area, exact: true }).click();
+	for (const hash of ['#threads', '#home', '#workbench', '#workflows', '#review-board', '#settings']) {
+		await page.goto(`/${hash}`);
+		await expectControlPlaneLoaded(page);
 		await expectNavigationTargetsReachable(page);
 	}
 });
@@ -901,7 +901,7 @@ test('theme toggle switches to light, applies the light surface and persists acr
 			colorScheme: window.getComputedStyle(document.documentElement).colorScheme,
 		}));
 
-	await page.goto('/');
+	await page.goto('/#threads');
 	await expectControlPlaneLoaded(page);
 	await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
 	const dark = await surface();
@@ -924,16 +924,14 @@ test('theme toggle switches to light, applies the light surface and persists acr
 });
 
 test('IDE Explorer exposes audit log and workspace settings from the shell', async ({ page }) => {
-	await page.goto('/');
-
-	const nav = page.getByRole('navigation', { name: 'Primary navigation' });
 	const explorer = page.locator('.explorer-panel');
 
-	await nav.getByRole('button', { name: 'Review', exact: true }).click();
+	await page.goto('/#review-board');
+	await expectControlPlaneLoaded(page);
 	await explorer.getByRole('button', { name: 'Audit Log' }).click();
 	await expect(page.getByRole('heading', { name: 'Audit Log' })).toBeVisible();
 
-	await nav.getByRole('button', { name: 'Settings', exact: true }).click();
+	await page.goto('/#settings');
 	await explorer.getByRole('button', { name: 'Workspaces', exact: true }).click();
 	await expect(page.getByRole('heading', { name: 'Workspaces', exact: true })).toBeVisible();
 	await expect(page.getByText('IDE-style workspace roots').first()).toBeVisible();
@@ -995,20 +993,26 @@ test('Workbench chat creates a chat intake and linked pipeline', async ({ page }
 		.toBe(true);
 });
 
-test('IDE ActivityBar localizes primary destinations with the ES EN control', async ({ page }) => {
-	await page.goto('/');
+test('Go menu localizes primary destinations with the ES EN control', async ({ page }) => {
+	await page.goto('/#threads');
+	await expectControlPlaneLoaded(page);
 
-	const bar = page.locator('.activity-bar');
-	for (const name of ['Home', 'Workbench', 'Runs', 'Review', 'Settings']) {
-		await expect(bar.getByRole('button', { name, exact: true })).toBeVisible();
+	// Verify EN destinations in the Go menu.
+	await page.getByRole('menuitem', { name: 'Go' }).click();
+	for (const name of ['Home', 'Workbench', 'Runs', 'Review board', 'Settings']) {
+		await expect(page.getByRole('menuitem', { name, exact: true })).toBeVisible();
 	}
+	await page.keyboard.press('Escape');
 
+	// Switch to Spanish and verify destination labels are localized.
 	await page.getByRole('button', { name: 'ES', exact: true }).click();
 	await expect(page.locator('html')).toHaveAttribute('lang', 'es');
 
-	for (const name of ['Inicio', 'Ejecuciones', 'Revisión', 'Configuración']) {
-		await expect(bar.getByRole('button', { name, exact: true })).toBeVisible();
+	await page.getByRole('menuitem', { name: 'Ir' }).click();
+	for (const name of ['Inicio', 'Ejecuciones', 'Tablero de revisión', 'Configuración']) {
+		await expect(page.getByRole('menuitem', { name, exact: true })).toBeVisible();
 	}
+	await page.keyboard.press('Escape');
 });
 
 test('language control localizes Settings and New Project wizard chrome', async ({ page }) => {
@@ -1053,7 +1057,6 @@ test('New Project wizard uses IDE workspace import and blocks duplicate workspac
 	const existing = await getActiveProject(page);
 
 	await page.goto('/#settings');
-	await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name: 'Settings', exact: true }).click();
 	await page.getByRole('button', { name: 'New project' }).click();
 
 	await expect(page.locator('.workspace-mode-card').filter({ hasText: 'Open folder' })).toHaveAttribute('aria-pressed', 'true');
@@ -1120,12 +1123,12 @@ test('settings separates configuration types and keeps defaults collapsed', asyn
 test('shell renders the editorial control plane', async ({ page }) => {
 	await page.goto('/#workbench');
 	await expect(page.locator('.workbench-layout')).toBeVisible();
-	await expect(page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name: 'Review', exact: true })).toBeVisible();
-	await expect(page.getByText('AIDO Control Center')).toBeVisible();
+	await expect(page.getByRole('menuitem', { name: 'Go' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'AIDO Control Center' })).toBeVisible();
 });
 
-test('Home is the default landing and leads with the open-folder action', async ({ page }) => {
-	await page.goto('/');
+test('Home gallery leads with the open-folder action', async ({ page }) => {
+	await page.goto('/#home');
 
 	await expect(page.getByRole('heading', { name: 'Open or continue a project' })).toBeVisible();
 	await expect(page.getByRole('button', { name: 'Open folder' }).first()).toBeVisible();
@@ -1146,7 +1149,7 @@ test('Home gallery is a single masonry wall of cards that opens the workbench', 
 	});
 	await page.route('/api/v1/events', (route) => route.abort());
 
-	await page.goto('/');
+	await page.goto('/#home');
 	await expectControlPlaneLoaded(page);
 
 	// Single masonry wall, card-first, no tables and no retired "Recent evidence" jargon band.
@@ -1183,7 +1186,7 @@ test('Review board requires contextual review before action decision', async ({ 
 	await expect(review.getByRole('button', { name: 'Approve', exact: true })).toBeEnabled();
 	await expect(review.getByRole('button', { name: 'Reject', exact: true })).toBeEnabled();
 	await page.keyboard.press('Escape');
-	await page.getByRole('button', { name: 'Open approvals drawer' }).click();
+	await page.keyboard.press('Control+Alt+a');
 	await expect(page.getByRole('dialog', { name: 'Approval drawer' })).toBeVisible();
 	await expect(page.getByText('pipeline.start').first()).toBeVisible();
 	await page.keyboard.press('Escape');
@@ -1413,24 +1416,30 @@ test('legacy /#jobs route resolves to the Review board surface', async ({ page }
 	await page.goto('/#jobs');
 	await expectControlPlaneLoaded(page);
 	await expect(page.getByRole('region', { name: 'Review board' })).toBeVisible();
-	await expect(page.locator('.activity-bar-item[aria-current="page"]')).toHaveAttribute('aria-label', 'Review');
+	// The Review Board surface is active: verify the Go menu is reachable (presence confirms the menubar rendered).
+	await page.getByRole('menuitem', { name: 'Go' }).click();
+	await expect(page.getByRole('menuitem', { name: 'Review board', exact: true })).toBeVisible();
+	await page.keyboard.press('Escape');
 });
 
 test('Event drawer exposes recent operational events', async ({ page }) => {
 	await createApprovalJob(page);
-	await page.goto('/');
+	await page.goto('/#threads');
+	await expectControlPlaneLoaded(page);
 
-	await page.getByRole('button', { name: 'Open event drawer' }).click();
+	await page.getByRole('menuitem', { name: 'Edit' }).click();
+	await page.getByRole('menuitem', { name: 'Events' }).click();
 	await expect(page.getByRole('dialog', { name: 'Event drawer' })).toBeVisible();
 	await expect(page.getByText('job.created').first()).toBeVisible();
 });
 
 test('event drawer filters operational events by query', async ({ page }) => {
 	await createApprovalJob(page);
-	await page.goto('/');
+	await page.goto('/#threads');
+	await expectControlPlaneLoaded(page);
 
-	await page.getByRole('button', { name: 'Open event drawer' }).click();
-
+	await page.getByRole('menuitem', { name: 'Edit' }).click();
+	await page.getByRole('menuitem', { name: 'Events' }).click();
 	await expect(page.getByRole('dialog', { name: 'Event drawer' })).toBeVisible();
 	await page.getByLabel('Event filter').fill('job.created');
 	await expect(page.getByText('job.created').first()).toBeVisible();
@@ -1440,7 +1449,7 @@ test('event drawer filters operational events by query', async ({ page }) => {
 
 test('keyboard shortcuts open operational surfaces without mouse navigation', async ({ page }) => {
 	await createApprovalJob(page);
-	await page.goto('/');
+	await page.goto('/#threads');
 	await expectControlPlaneLoaded(page);
 
 	await page.keyboard.press('Control+Alt+A');
@@ -1468,7 +1477,7 @@ test('Memory & Retrieval shows backend status and memory records', async ({ page
 
 test('mobile layout has no horizontal overflow', async ({ page }) => {
 	await page.setViewportSize({ width: 375, height: 812 });
-	await page.goto('/');
+	await page.goto('/#threads');
 	const overflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
 	expect(overflow).toBe(false);
 });
@@ -1476,7 +1485,7 @@ test('mobile layout has no horizontal overflow', async ({ page }) => {
 test('reduced motion disables non-essential motion', async ({ browser }) => {
 	const context = await browser.newContext({ reducedMotion: 'reduce' });
 	const page = await context.newPage();
-	await page.goto('/');
+	await page.goto('/#threads');
 	// Reduced motion is honored declaratively: useMotionPreference mirrors the OS setting
 	// onto <html data-motion> and MotionConfig reducedMotion="user" strips transforms.
 	await expect(page.locator('html')).toHaveAttribute('data-motion', 'reduced');
@@ -2477,7 +2486,6 @@ test('command palette executes v1 actions and workflow inspector shows linked re
 	const workflow = await createWorkflowEvidence(page);
 	await createRuntimeTrace(page, workflow.workflowRunId);
 	await createApprovalJob(page);
-	await page.goto('/');
 
 	await page.goto('/#workflows');
 	await expect(page.getByRole('heading', { name: 'Workflows' })).toBeVisible();
@@ -2513,7 +2521,7 @@ test('command palette executes v1 actions and workflow inspector shows linked re
 	await page.keyboard.press('Escape');
 	await expect(page.getByRole('dialog', { name: 'Workflow artifact preview' })).toBeHidden();
 
-	await page.getByRole('button', { name: 'Open command palette' }).click();
+	await page.keyboard.press('Control+k');
 	const approvalsPalette = page.getByRole('dialog', { name: 'Command palette' });
 	await approvalsPalette.getByRole('combobox', { name: 'Filter commands' }).fill('approval');
 	await approvalsPalette.getByRole('option', { name: /Review pending approvals/ }).click();

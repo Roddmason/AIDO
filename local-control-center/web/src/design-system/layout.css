@@ -36,9 +36,10 @@
 .menu-bar-brand {
 	display: inline-flex;
 	align-items: center;
+	margin: 0 var(--space-1) 0 0;
 	padding-inline: var(--space-2);
-	margin-right: var(--space-1);
 	font-family: var(--font-display);
+	font-size: var(--font-size-sm);
 	font-weight: var(--weight-bold);
 	letter-spacing: 0.04em;
 	color: var(--color-text-secondary);
@@ -819,6 +820,14 @@
 	gap: var(--space-4);
 	border-top: 1px solid var(--color-border-subtle);
 	border-bottom: 0;
+}
+
+/* Relocated global controls (language, theme, density) pushed to the right of the status bar. */
+.status-bar-controls {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	margin-left: auto;
 }
 
 .content-frame {

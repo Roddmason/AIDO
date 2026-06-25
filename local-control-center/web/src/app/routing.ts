@@ -55,10 +55,11 @@ export function splitHash(): { token: string; params: URLSearchParams } {
 	};
 }
 
-/** Reads `window.location.hash`, resolving aliases and unknown values to `home`. */
+/** Reads `window.location.hash`, resolving aliases and unknown values to the thread/loop shell
+ *  (`threads`) — the primary Codex-style experience the shell now lands on. */
 export function resolveHashRoute(): AppRoute {
 	const { token } = splitHash();
-	return routeAliases[token] ?? (pageIds.includes(token as PageId) ? (token as PageId) : 'home');
+	return routeAliases[token] ?? (pageIds.includes(token as PageId) ? (token as PageId) : 'threads');
 }
 
 /** The full shell location: the canonical page plus an optional selected run id. */

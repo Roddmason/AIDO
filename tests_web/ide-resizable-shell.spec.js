@@ -18,7 +18,7 @@ function isDesktopViewport(page) {
 
 test('desktop shell exposes resizable panes with accessible separators', async ({ page }, info) => {
 	test.skip(!isDesktopViewport(page), 'resizable panes are a desktop-only layout');
-	await page.goto('/');
+	await page.goto('/#workbench');
 	await expectShellLoaded(page);
 
 	// One accessible (role=separator) resize handle per pane edge: explorer | center
@@ -37,7 +37,7 @@ test('shortcuts toggle the explorer (Ctrl+B), inspector (Ctrl+Shift+B) and botto
 	page,
 }, info) => {
 	test.skip(!isDesktopViewport(page), 'desktop-only shortcuts for the resizable layout');
-	await page.goto('/');
+	await page.goto('/#workbench');
 	await expectShellLoaded(page);
 
 	const explorer = page.locator('.explorer-panel');
@@ -48,7 +48,7 @@ test('shortcuts toggle the explorer (Ctrl+B), inspector (Ctrl+Shift+B) and botto
 	await page.keyboard.press('Control+b');
 	await expect(explorer).toBeVisible();
 
-	const inspector = page.getByRole('complementary', { name: 'Inspector' });
+	const inspector = page.getByRole('complementary', { name: 'Inspector', exact: true });
 	await expect(inspector).toBeHidden();
 	await page.keyboard.press('Control+Shift+B');
 	await expect(inspector).toBeVisible();
@@ -62,7 +62,7 @@ test('shortcuts toggle the explorer (Ctrl+B), inspector (Ctrl+Shift+B) and botto
 
 test('pane collapse persists in versioned localStorage across reloads', async ({ page }) => {
 	test.skip(!isDesktopViewport(page), 'persistence applies to the resizable layout');
-	await page.goto('/');
+	await page.goto('/#workbench');
 	await expectShellLoaded(page);
 
 	const explorer = page.locator('.explorer-panel');
@@ -81,7 +81,7 @@ test('pane collapse persists in versioned localStorage across reloads', async ({
 });
 
 test('density toggle flips data-density and persists across reload', async ({ page }, info) => {
-	await page.goto('/');
+	await page.goto('/#workbench');
 	await expectShellLoaded(page);
 
 	const html = page.locator('html');
@@ -97,14 +97,14 @@ test('density toggle flips data-density and persists across reload', async ({ pa
 });
 
 test('the decorative console grid is gone', async ({ page }) => {
-	await page.goto('/');
+	await page.goto('/#workbench');
 	await expectShellLoaded(page);
 	await expect(page.locator('.console-grid')).toHaveCount(0);
 });
 
 test('mobile shell stacks the explorer and keeps it reachable', async ({ page }, info) => {
 	test.skip(isDesktopViewport(page), 'stacked layout is the narrow-viewport fallback');
-	await page.goto('/');
+	await page.goto('/#workbench');
 	await expectShellLoaded(page);
 
 	await expect(page.locator('.explorer-panel')).toBeVisible();

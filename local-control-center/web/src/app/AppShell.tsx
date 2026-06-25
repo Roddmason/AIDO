@@ -20,7 +20,6 @@ import type { Overview, Project, RuntimeProviders } from '../api/types';
 import { ShellSidebar } from '../features/shell/ShellSidebar';
 import type { WorkspaceMode } from '../features/workspace/useProjectDiscovery';
 import { useIsDesktopLayout } from '../hooks/useIsDesktopLayout';
-import { ActivityBar } from './ActivityBar';
 import { BottomPanel } from './BottomPanel';
 import { ExplorerPanel } from './ExplorerPanel';
 import { InspectorPanel } from './InspectorPanel';
@@ -28,7 +27,6 @@ import { MenuBar } from './MenuBar';
 import type { AreaId, PageId } from './navigation';
 import type { Mutate } from './routes';
 import { StatusBar } from './StatusBar';
-import { WorkbenchHeader } from './WorkbenchHeader';
 
 type LanguageOption = { code: string; name: string; nativeName: string; enabled: boolean };
 
@@ -93,8 +91,6 @@ export function AppShell({
 	onOpenApprovals,
 	onOpenEvents,
 	onRefresh,
-	headerKicker,
-	headerTitle,
 	children,
 }: {
 	area: AreaId;
@@ -124,8 +120,6 @@ export function AppShell({
 	onOpenApprovals: () => void;
 	onOpenEvents: () => void;
 	onRefresh: () => void;
-	headerKicker: string;
-	headerTitle: string;
 	children: ReactNode;
 }) {
 	const isDesktop = useIsDesktopLayout();
@@ -231,17 +225,6 @@ export function AppShell({
 		return () => window.removeEventListener('keydown', onKeyDown);
 	}, [toggleExplorer, toggleInspector, toggleBottom]);
 
-	const activityBar = (
-		<ActivityBar
-			activeArea={area}
-			language={language}
-			onNavigate={navigateTo}
-			explorerCollapsed={explorerCollapsed}
-			onToggleExplorer={toggleExplorer}
-			toggleRef={explorerToggleRef}
-		/>
-	);
-
 	// The thread/loop shell area swaps the flat Explorer for the Threads/Loops ShellSidebar; every
 	// other area keeps the standard ExplorerPanel so no existing surface is orphaned.
 	const explorer =
@@ -271,24 +254,6 @@ export function AppShell({
 
 	const workbench = (
 		<main className="workbench main-area">
-			<WorkbenchHeader
-				kicker={headerKicker}
-				title={headerTitle}
-				language={language}
-				languages={languages}
-				onChangeLanguage={onChangeLanguage}
-				t={t}
-				onOpenCommandPalette={onOpenCommandPalette}
-				onOpenApprovals={onOpenApprovals}
-				onOpenEvents={onOpenEvents}
-				onRefresh={onRefresh}
-				inspectorOpen={!inspectorCollapsed}
-				onToggleInspector={toggleInspector}
-				inspectorToggleRef={inspectorToggleRef}
-				bottomOpen={!bottomCollapsed}
-				onToggleBottom={toggleBottom}
-				bottomToggleRef={bottomToggleRef}
-			/>
 			<section className="content-frame" aria-live="polite">
 				{children}
 			</section>
@@ -317,6 +282,8 @@ export function AppShell({
 			selectedProject={selectedProject}
 			connected={connected}
 			language={language}
+			languages={languages}
+			onChangeLanguage={onChangeLanguage}
 			t={t}
 		/>
 	);
@@ -339,7 +306,6 @@ export function AppShell({
 		return (
 			<div className="app-shell-ide app-shell-ide--stacked">
 				{menuBar}
-				{activityBar}
 				{explorerCollapsed ? null : explorer}
 				{workbench}
 				{bottomCollapsed ? null : bottomDock}
@@ -353,7 +319,6 @@ export function AppShell({
 		<div className="app-shell-ide">
 			{menuBar}
 			<div className="ide-body">
-				{activityBar}
 				<Group
 					id={HORIZONTAL_LAYOUT_ID}
 					className="ide-panes"

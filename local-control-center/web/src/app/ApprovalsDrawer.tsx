@@ -7,8 +7,8 @@ import { shortId, toneForStatus } from '../lib/format';
 
 /**
  * Slide-over listing the pending action requests awaiting a human decision.
- * Opened from the WorkbenchHeader "Open approvals drawer" button and dismissed
- * with Escape (handled by the shell shortcut layer).
+ * Opened from the Edit menu ("Approvals") or Ctrl+Alt+A, and dismissed with
+ * Escape (handled by the shell shortcut layer).
  */
 export function ApprovalsDrawer({
 	open,

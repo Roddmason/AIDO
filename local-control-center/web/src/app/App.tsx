@@ -236,6 +236,7 @@ export function App() {
 				connected={state.connected}
 				onSelectProject={setOperationalProject}
 				onCreateProject={() => openWorkspaceDialog('open_folder')}
+				onOpenWorkspaceDialog={openWorkspaceDialog}
 				onOpenCommandPalette={() => setCommandPaletteOpen(true)}
 				onOpenApprovals={() => setApprovalDrawerOpen(true)}
 				onOpenEvents={() => setEventDrawerOpen(true)}

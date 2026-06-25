@@ -17,6 +17,116 @@
 	overflow: visible;
 }
 
+/* Desktop-style application menu bar: a thin top strip above the IDE body that
+   hosts the File/Edit/View/Help menus. Sits in normal flow as the shell's first row. */
+.menu-bar {
+	display: flex;
+	align-items: stretch;
+	gap: var(--space-1);
+	flex: 0 0 auto;
+	height: 2.25rem;
+	padding-inline: var(--space-2);
+	background: var(--color-surface-shell);
+	border-bottom: 1px solid var(--color-border-subtle);
+	font-family: var(--font-ui);
+	font-size: var(--font-size-sm);
+	z-index: var(--z-sticky);
+}
+
+.menu-bar-brand {
+	display: inline-flex;
+	align-items: center;
+	padding-inline: var(--space-2);
+	margin-right: var(--space-1);
+	font-family: var(--font-display);
+	font-weight: var(--weight-bold);
+	letter-spacing: 0.04em;
+	color: var(--color-text-secondary);
+}
+
+.menu-bar-item {
+	position: relative;
+	display: flex;
+}
+
+.menu-bar-button {
+	appearance: none;
+	border: 0;
+	background: transparent;
+	color: var(--color-text-secondary);
+	font: inherit;
+	padding-inline: var(--space-3);
+	border-radius: var(--radius-sm);
+	cursor: pointer;
+}
+
+.menu-bar-button:hover,
+.menu-bar-button[aria-expanded="true"] {
+	background: var(--color-surface-card-hover);
+	color: var(--color-text-primary);
+}
+
+.menu-bar-button:focus-visible {
+	outline: none;
+	box-shadow: var(--shadow-focus);
+}
+
+.menu-dropdown {
+	position: absolute;
+	top: calc(100% + 2px);
+	left: 0;
+	z-index: var(--z-drawer);
+	display: flex;
+	flex-direction: column;
+	min-width: 14rem;
+	padding: var(--space-1);
+	background: var(--color-surface-overlay);
+	border: 1px solid var(--color-border-default);
+	border-radius: var(--radius-md);
+	box-shadow: var(--shadow-md);
+}
+
+.menu-dropdown-item {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--space-5);
+	appearance: none;
+	border: 0;
+	background: transparent;
+	color: var(--color-text-secondary);
+	font: inherit;
+	text-align: left;
+	padding: var(--space-2) var(--space-3);
+	border-radius: var(--radius-sm);
+	cursor: pointer;
+	white-space: nowrap;
+}
+
+.menu-dropdown-item:hover,
+.menu-dropdown-item:focus-visible {
+	outline: none;
+	background: var(--color-accent-muted);
+	color: var(--color-text-primary);
+}
+
+.menu-separator {
+	height: 1px;
+	margin: var(--space-1) var(--space-2);
+	border: 0;
+	background: var(--color-border-subtle);
+}
+
+.menu-shortcut {
+	font-family: var(--font-data);
+	font-size: var(--font-size-2xs);
+	color: var(--color-text-muted);
+	background: var(--color-surface-inset);
+	border: 1px solid var(--color-border-subtle);
+	border-radius: var(--radius-xs);
+	padding: 0 var(--space-1);
+}
+
 /* Desktop body row: the fixed activity rail plus the resizable pane group fill the
    height above the status bar. */
 .ide-body {

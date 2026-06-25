@@ -23,6 +23,82 @@
       "en": "Refresh credentials",
       "es": "Actualizar credenciales"
     },
+    "app.shell.sidebar": {
+      "en": "Threads and loops",
+      "es": "Hilos y ciclos"
+    },
+    "app.shell.tabsLabel": {
+      "en": "Sidebar view",
+      "es": "Vista de la barra lateral"
+    },
+    "app.shell.tabThreads": {
+      "en": "Threads",
+      "es": "Hilos"
+    },
+    "app.shell.tabLoops": {
+      "en": "Loops",
+      "es": "Ciclos"
+    },
+    "app.shell.searchLabel": {
+      "en": "Search threads and loops",
+      "es": "Buscar hilos y ciclos"
+    },
+    "app.shell.searchPlaceholder": {
+      "en": "Search…",
+      "es": "Buscar…"
+    },
+    "app.shell.threads.emptyTitle": {
+      "en": "No workspaces yet",
+      "es": "Aún no hay workspaces"
+    },
+    "app.shell.threads.emptyBody": {
+      "en": "Open a folder to start your first workspace.",
+      "es": "Abre una carpeta para crear tu primer workspace."
+    },
+    "app.shell.threads.newThread": {
+      "en": "New thread",
+      "es": "Nuevo hilo"
+    },
+    "app.shell.threads.workspaceEmpty": {
+      "en": "No threads yet — start one above.",
+      "es": "Aún no hay hilos — inicia uno arriba."
+    },
+    "app.shell.threads.openFolder": {
+      "en": "Open folder",
+      "es": "Abrir carpeta"
+    },
+    "app.shell.loops.noProjectTitle": {
+      "en": "No workspace selected",
+      "es": "Ningún workspace seleccionado"
+    },
+    "app.shell.loops.noProjectBody": {
+      "en": "Pick a workspace in Threads to see its loops.",
+      "es": "Elige un workspace en Hilos para ver sus ciclos."
+    },
+    "app.shell.loops.errorTitle": {
+      "en": "Could not load loops",
+      "es": "No se pudieron cargar los ciclos"
+    },
+    "app.shell.loops.emptyTitle": {
+      "en": "No active loops",
+      "es": "No hay ciclos activos"
+    },
+    "app.shell.loops.emptyBody": {
+      "en": "Start a product loop from the composer to track its phase here.",
+      "es": "Inicia un ciclo de producto desde el compositor para seguir su fase aquí."
+    },
+    "app.shell.loops.listLabel": {
+      "en": "Product loops",
+      "es": "Ciclos de producto"
+    },
+    "app.shell.loops.phaseProgress": {
+      "en": "Phase progress",
+      "es": "Progreso de fase"
+    },
+    "app.shell.loops.untitled": {
+      "en": "Untitled loop",
+      "es": "Ciclo sin título"
+    },
     "app.menu.file": {
       "en": "File",
       "es": "Archivo"

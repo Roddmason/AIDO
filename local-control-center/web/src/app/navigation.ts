@@ -16,6 +16,7 @@ import {
 	Home,
 	KeyRound,
 	LayoutGrid,
+	MessagesSquare,
 	Network,
 	PlugZap,
 	ScanSearch,
@@ -31,6 +32,7 @@ type IconComponent = ComponentType<LucideProps>;
 /** Every reachable page hash, in declaration order. The route vocabulary shared
  *  by the router, navigation registry and {@link resolveHashRoute}. */
 export const pageIds = [
+	'threads',
 	'home',
 	'workbench',
 	'projects',
@@ -57,7 +59,7 @@ export const pageIds = [
 
 export type PageId = (typeof pageIds)[number];
 
-export type AreaId = 'home' | 'workbench' | 'runs' | 'review' | 'settings';
+export type AreaId = 'threads' | 'home' | 'workbench' | 'runs' | 'review' | 'settings';
 
 export type BilingualLabel = { en: string; es: string };
 
@@ -135,6 +137,13 @@ const SETTINGS_GROUPS: ExplorerGroup[] = [
 /** Primary destinations shown as icons in the narrow ActivityBar (in order). */
 export const AREAS: AreaDef[] = [
 	{
+		id: 'threads',
+		leadPage: 'threads',
+		icon: MessagesSquare,
+		label: { en: 'Threads', es: 'Hilos' },
+		pages: ['threads'],
+	},
+	{
 		id: 'home',
 		leadPage: 'home',
 		icon: Home,
@@ -199,6 +208,9 @@ export function areaForPage(page: PageId): AreaId {
 
 /** Static, contextual ExplorerPanel links per area (dynamic lists are added in the component). */
 export const EXPLORER_LINKS: Record<AreaId, NavigationItem[]> = {
+	// The threads area renders the ShellSidebar (Threads/Loops tabs) instead of the flat Explorer
+	// list, so this single entry is only a fallback for the navigation registry's exhaustiveness.
+	threads: [{ page: 'threads', icon: MessagesSquare, label: { en: 'Threads', es: 'Hilos' } }],
 	home: [
 		{ page: 'home', icon: LayoutGrid, label: { en: 'Home', es: 'Inicio' } },
 		{ page: 'projects', icon: FolderKanban, label: { en: 'Projects', es: 'Proyectos' } },
@@ -242,6 +254,7 @@ export const EXPLORER_GROUPS: Partial<Record<AreaId, ExplorerGroup[]>> = {
 
 /** Short bilingual title for the ExplorerPanel header per area. */
 export const EXPLORER_TITLE: Record<AreaId, BilingualLabel> = {
+	threads: { en: 'Threads', es: 'Hilos' },
 	home: { en: 'Projects', es: 'Proyectos' },
 	workbench: { en: 'Workspace', es: 'Workspace' },
 	runs: { en: 'Runs', es: 'Ejecuciones' },

@@ -836,10 +836,10 @@ test('IDE ActivityBar exposes the primary destinations across context changes', 
 	await expect(explorer.getByRole('button', { name: 'Workspaces', exact: true })).toBeVisible();
 });
 
-test('IDE ActivityBar has five destinations and marks the active route', async ({ page }) => {
+test('IDE ActivityBar has six destinations and marks the active route', async ({ page }) => {
 	await page.goto('/');
 
-	await expect(page.locator('.activity-bar-nav .activity-bar-item')).toHaveCount(5);
+	await expect(page.locator('.activity-bar-nav .activity-bar-item')).toHaveCount(6);
 
 	const explorer = page.locator('.explorer-panel');
 	await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name: 'Settings', exact: true }).click();

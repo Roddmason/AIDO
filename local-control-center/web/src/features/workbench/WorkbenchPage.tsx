@@ -726,7 +726,7 @@ export function WorkbenchPage({
 					{sessionChats.length > CHAT_PREVIEW_COUNT ? (
 						<Button
 							aria-expanded={showAllChats}
-							aria-controls="shell-chat-transcript-list"
+							aria-controls="shell-chat-transcript"
 							onClick={() => setShowAllChats((open) => !open)}
 						>
 							{showAllChats

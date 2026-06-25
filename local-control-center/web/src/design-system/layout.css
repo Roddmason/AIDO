@@ -1148,6 +1148,140 @@
 	min-height: 8.5rem;
 }
 
+/* ---- Shell chat mode: full-height chat-first layout (hideExplorer=true) ---- */
+
+/*
+ * The shell chat layout fills the center pane with a scrollable transcript above
+ * and a pinned bottom composer. The outer .ide-pane already supplies height:100%
+ * and overflow:hidden, so this column fills and clips cleanly.
+ */
+.shell-chat-layout {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+	min-height: 0;
+	background: var(--color-surface-workbench);
+}
+
+/* Transcript region: grows to fill remaining height and scrolls vertically. */
+.shell-chat-transcript {
+	flex: 1 1 auto;
+	min-height: 0;
+	overflow-y: auto;
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-3);
+	padding: var(--space-5) var(--space-6) var(--space-3);
+}
+
+/* Empty transcript placeholder. */
+.shell-chat-transcript-empty {
+	flex: 1 1 auto;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+/* The composer area: pinned at the bottom, never scrolls. */
+.shell-chat-composer {
+	flex: 0 0 auto;
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-2);
+	padding: var(--space-3) var(--space-6) var(--space-4);
+	background: var(--color-surface-panel);
+	border-top: 1px solid var(--color-border-subtle);
+}
+
+/* TextArea inside shell composer: shorter rows, no extra margin. */
+.shell-chat-composer .textarea-field {
+	margin: 0;
+}
+
+/* Inline options row: mode selector + runtime indicator + Send, all in one line. */
+.shell-chat-options {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-2);
+}
+
+/* Compact mode selector inside the options row: strip the label visually but keep it for AT. */
+.shell-chat-options .segmented-control-label {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	overflow: hidden;
+	clip: rect(0 0 0 0);
+	white-space: nowrap;
+}
+
+/* Runtime inline indicator inside the options row. */
+.shell-chat-runtime {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-1);
+	font-family: var(--font-data);
+	font-size: var(--font-size-xs);
+	color: var(--color-text-muted);
+	padding: var(--space-1) var(--space-2);
+	border: 1px solid var(--color-border-subtle);
+	border-radius: var(--radius-md);
+	background: var(--color-surface-inset);
+}
+
+.shell-chat-runtime.is-blocker {
+	color: var(--color-status-danger);
+	border-color: color-mix(in oklch, var(--color-status-danger) 30%, var(--color-border-subtle));
+}
+
+/* Send / cancel button pushed to the end of the options row. */
+.shell-chat-options .shell-chat-send {
+	margin-left: auto;
+}
+
+/* Read-only context row: project · branch · runtime in muted data font. */
+.shell-chat-context {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-3);
+	font-family: var(--font-data);
+	font-size: var(--font-size-xs);
+	color: var(--color-text-muted);
+	padding-top: var(--space-1);
+}
+
+.shell-chat-context-sep {
+	color: var(--color-border-default);
+	user-select: none;
+}
+
+/* Secondary loop actions: a subdued row of ghost buttons for advanced loop commands. */
+.shell-chat-secondary {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-2);
+	padding-top: var(--space-1);
+	border-top: 1px solid var(--color-border-subtle);
+}
+
+.shell-chat-secondary .button {
+	min-height: var(--control-height-sm);
+	padding-inline: var(--space-2);
+	font-size: var(--font-size-sm);
+	color: var(--color-text-muted);
+	border-color: transparent;
+	background: transparent;
+}
+
+.shell-chat-secondary .button:hover {
+	color: var(--color-text-secondary);
+	background: var(--color-surface-card-hover);
+	border-color: var(--color-border-subtle);
+}
+
 /* Inspector blocker cards (the only consumer now the delivery timeline uses WorkflowTimeline). */
 .delivery-step {
 	display: grid;

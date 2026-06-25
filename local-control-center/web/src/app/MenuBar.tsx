@@ -17,6 +17,7 @@ import { useTheme } from '../hooks/useTheme';
 import { useI18n } from '../i18n/I18nProvider';
 import { MENUS, type MenuCommandId, type MenuDef, type MenuId } from './menuModel';
 import type { PageId } from './navigation';
+import { preloadRoute } from './routes';
 
 type MenuBarProps = {
 	navigateTo: (page: PageId) => void;
@@ -44,7 +45,7 @@ export function MenuBar({
 	onToggleInspector,
 	onToggleBottom,
 }: MenuBarProps) {
-	const { t } = useI18n();
+	const { t, setLanguage } = useI18n();
 	const { toggleTheme } = useTheme();
 	const { toggleDensity } = useDensity();
 	const { notify } = useToast();
@@ -66,14 +67,22 @@ export function MenuBar({
 			events: onOpenEvents,
 			'toggle-theme': toggleTheme,
 			'toggle-density': toggleDensity,
+			'set-lang-en': () => setLanguage('en'),
+			'set-lang-es': () => setLanguage('es'),
 			'toggle-explorer': onToggleExplorer,
 			'toggle-inspector': onToggleInspector,
 			'toggle-bottom': onToggleBottom,
+			'go-threads': () => navigateTo('threads'),
+			'go-home': () => navigateTo('home'),
 			'go-workbench': () => navigateTo('workbench'),
+			'go-runs': () => navigateTo('workflows'),
 			'go-review': () => navigateTo('review-board'),
 			'go-evidence': () => navigateTo('evidence'),
 			'go-governance': () => navigateTo('governance'),
+			'go-audit': () => navigateTo('audit'),
 			'go-models': () => navigateTo('models'),
+			'go-integrations': () => navigateTo('integrations'),
+			'go-memory': () => navigateTo('memory'),
 			'go-settings': () => navigateTo('settings-project'),
 			'keyboard-shortcuts': onOpenCommandPalette,
 			about: () =>
@@ -98,6 +107,7 @@ export function MenuBar({
 			onToggleBottom,
 			toggleTheme,
 			toggleDensity,
+			setLanguage,
 			notify,
 			t,
 		],
@@ -277,6 +287,9 @@ export function MenuBar({
 											role="menuitem"
 											className="menu-dropdown-item"
 											onClick={() => runCommand(item.command)}
+											onMouseEnter={() => {
+												if (item.page) preloadRoute(item.page);
+											}}
 										>
 											<span>{t(item.labelKey, item.label)}</span>
 											{item.shortcut ? <kbd className="menu-shortcut">{item.shortcut}</kbd> : null}

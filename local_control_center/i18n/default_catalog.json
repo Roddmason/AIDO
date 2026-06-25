@@ -179,6 +179,42 @@
       "en": "Settings",
       "es": "Configuración"
     },
+    "app.menu.go": {
+      "en": "Go",
+      "es": "Ir"
+    },
+    "app.menu.goThreads": {
+      "en": "Threads",
+      "es": "Hilos"
+    },
+    "app.menu.goHome": {
+      "en": "Home",
+      "es": "Inicio"
+    },
+    "app.menu.goRuns": {
+      "en": "Runs",
+      "es": "Ejecuciones"
+    },
+    "app.menu.goAudit": {
+      "en": "Audit",
+      "es": "Auditoría"
+    },
+    "app.menu.goIntegrations": {
+      "en": "Integrations",
+      "es": "Integraciones"
+    },
+    "app.menu.goMemory": {
+      "en": "Memory",
+      "es": "Memoria"
+    },
+    "app.menu.langEn": {
+      "en": "English",
+      "es": "Inglés"
+    },
+    "app.menu.langEs": {
+      "en": "Spanish",
+      "es": "Español"
+    },
     "app.menu.keyboardShortcuts": {
       "en": "Keyboard shortcuts",
       "es": "Atajos de teclado"

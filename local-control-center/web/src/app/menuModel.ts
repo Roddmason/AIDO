@@ -6,6 +6,8 @@
  * and no callbacks; MenuBar maps each item's `command` to a handler.
  */
 
+import type { PageId } from './navigation';
+
 /** Every action a menu item can dispatch. MenuBar owns the command → handler map. */
 export type MenuCommandId =
 	| 'open-folder'
@@ -17,20 +19,28 @@ export type MenuCommandId =
 	| 'events'
 	| 'toggle-theme'
 	| 'toggle-density'
+	| 'set-lang-en'
+	| 'set-lang-es'
 	| 'toggle-explorer'
 	| 'toggle-inspector'
 	| 'toggle-bottom'
+	| 'go-threads'
+	| 'go-home'
 	| 'go-workbench'
+	| 'go-runs'
 	| 'go-review'
 	| 'go-evidence'
 	| 'go-governance'
+	| 'go-audit'
 	| 'go-models'
+	| 'go-integrations'
+	| 'go-memory'
 	| 'go-settings'
 	| 'keyboard-shortcuts'
 	| 'about';
 
-/** The four top-level menus. */
-export type MenuId = 'file' | 'edit' | 'view' | 'help';
+/** The five top-level menus. */
+export type MenuId = 'file' | 'edit' | 'view' | 'go' | 'help';
 
 /** A menu entry: an actionable command or a non-interactive separator rule. */
 export type MenuItem =
@@ -42,6 +52,8 @@ export type MenuItem =
 			label: string;
 			/** Display-only shortcut hint (e.g. 'Ctrl K'); the binding itself lives in useShellShortcuts. */
 			shortcut?: string;
+			/** Target page for navigation commands — lets MenuBar warm the route chunk on hover. */
+			page?: PageId;
 	  }
 	| { kind: 'separator' };
 
@@ -152,39 +164,108 @@ export const MENUS: MenuDef[] = [
 			separator,
 			{
 				kind: 'command',
+				command: 'set-lang-en',
+				labelKey: 'app.menu.langEn',
+				label: 'English',
+			},
+			{
+				kind: 'command',
+				command: 'set-lang-es',
+				labelKey: 'app.menu.langEs',
+				label: 'Spanish',
+			},
+		],
+	},
+	{
+		id: 'go',
+		labelKey: 'app.menu.go',
+		label: 'Go',
+		items: [
+			{
+				kind: 'command',
+				command: 'go-threads',
+				labelKey: 'app.menu.goThreads',
+				label: 'Threads',
+				page: 'threads',
+			},
+			{
+				kind: 'command',
+				command: 'go-home',
+				labelKey: 'app.menu.goHome',
+				label: 'Home',
+				page: 'home',
+			},
+			{
+				kind: 'command',
 				command: 'go-workbench',
 				labelKey: 'app.menu.goWorkbench',
 				label: 'Workbench',
+				page: 'workbench',
 			},
+			{
+				kind: 'command',
+				command: 'go-runs',
+				labelKey: 'app.menu.goRuns',
+				label: 'Runs',
+				page: 'workflows',
+			},
+			separator,
 			{
 				kind: 'command',
 				command: 'go-review',
 				labelKey: 'app.menu.goReview',
 				label: 'Review board',
+				page: 'review-board',
 			},
 			{
 				kind: 'command',
 				command: 'go-evidence',
 				labelKey: 'app.menu.goEvidence',
 				label: 'Evidence',
+				page: 'evidence',
 			},
 			{
 				kind: 'command',
 				command: 'go-governance',
 				labelKey: 'app.menu.goGovernance',
 				label: 'Governance',
+				page: 'governance',
 			},
+			{
+				kind: 'command',
+				command: 'go-audit',
+				labelKey: 'app.menu.goAudit',
+				label: 'Audit',
+				page: 'audit',
+			},
+			separator,
 			{
 				kind: 'command',
 				command: 'go-models',
 				labelKey: 'app.menu.goModels',
 				label: 'Model gateway',
+				page: 'models',
+			},
+			{
+				kind: 'command',
+				command: 'go-integrations',
+				labelKey: 'app.menu.goIntegrations',
+				label: 'Integrations',
+				page: 'integrations',
+			},
+			{
+				kind: 'command',
+				command: 'go-memory',
+				labelKey: 'app.menu.goMemory',
+				label: 'Memory',
+				page: 'memory',
 			},
 			{
 				kind: 'command',
 				command: 'go-settings',
 				labelKey: 'app.menu.goSettings',
 				label: 'Settings',
+				page: 'settings-project',
 			},
 		],
 	},

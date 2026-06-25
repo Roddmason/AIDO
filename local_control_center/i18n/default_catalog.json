@@ -1119,6 +1119,22 @@
       "en": "English",
       "es": "Inglés"
     },
+    "app.settings.scope.project": {
+      "en": "Project settings",
+      "es": "Configuración de proyecto"
+    },
+    "app.settings.scope.project.hint": {
+      "en": "Scoped to the active project",
+      "es": "Aplicado al proyecto activo"
+    },
+    "app.settings.scope.general": {
+      "en": "General settings",
+      "es": "Configuración general"
+    },
+    "app.settings.scope.general.hint": {
+      "en": "App-wide configuration",
+      "es": "Configuración global de la aplicación"
+    },
     "app.activeProjects.active.kicker": {
       "en": "Active work",
       "es": "Trabajo activo"

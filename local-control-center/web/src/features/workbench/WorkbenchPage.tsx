@@ -5,6 +5,9 @@
  * section, selected session/run, task mode) and wires intake (session + chat + pipeline) to the
  * API; the derived data comes from useWorkbenchData. Sections wired to live overview data render
  * real content; the discovery/backlog sections render an honest shell until their endpoint exists.
+ *
+ * When hideExplorer=true (shell mode) the center renders a clean chat-first layout: transcript
+ * leads, composer is pinned at the bottom, auxiliary panels are hidden.
  */
 import {
 	Bot,
@@ -18,6 +21,7 @@ import {
 	Users,
 	Workflow,
 } from 'lucide-react';
+import type { KeyboardEvent } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
 	ChatCreateResponse,
@@ -665,28 +669,253 @@ export function WorkbenchPage({
 		(decision) => decision.projectId === project.id,
 	);
 
+	// Ctrl/Cmd+Enter → submit in the shell chat composer.
+	const onComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+		if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+			event.preventDefault();
+			if (!composerDisabled) submitComposer();
+		}
+	};
+
+	// ---- Shell chat mode (hideExplorer=true): clean chat-first layout ----
+	if (hideExplorer) {
+		const runtimeLabel = selectedRuntime
+			? selectedRuntime.displayName
+			: t('app.workbench.shell.noRuntime', 'no runtime');
+		const runtimeIsOk = !!selectedRuntime;
+
+		return (
+			<section
+				className="shell-chat-layout"
+				aria-label={t('app.workbench.primaryRegion', 'Task and progress')}
+			>
+				{/* --- Transcript: leads, fills available height, scrolls --- */}
+				<div
+					id="shell-chat-transcript"
+					className="shell-chat-transcript"
+					aria-label={t('app.workbench.shell.transcriptRegion', 'Session transcript')}
+					role="log"
+				>
+					{sessionChats.length ? (
+						(showAllChats ? sessionChats : sessionChats.slice(0, CHAT_PREVIEW_COUNT)).map(
+							(chat) => (
+								<article className="chat-bubble" key={chat.id}>
+									<div className="chat-bubble-header">
+										<Badge tone={toneForStatus(String(chat.status ?? 'active'))}>
+											{String(chat.status ?? 'active')}
+										</Badge>
+										<span className="mono">{shortId(chat.id)}</span>
+										<span className="muted">{formatTime(chat.createdAt)}</span>
+									</div>
+									<strong>{chat.title}</strong>
+									<p>{chat.prompt}</p>
+								</article>
+							),
+						)
+					) : (
+						<div className="shell-chat-transcript-empty">
+							<EmptyState
+								title={t('app.workbench.shell.emptyTranscriptTitle', 'Start a conversation')}
+								body={t(
+									'app.workbench.shell.emptyTranscriptBody',
+									'Describe what you want to build. AIDO plans, implements and tests it in this workspace.',
+								)}
+							/>
+						</div>
+					)}
+					{sessionChats.length > CHAT_PREVIEW_COUNT ? (
+						<Button
+							aria-expanded={showAllChats}
+							aria-controls="shell-chat-transcript-list"
+							onClick={() => setShowAllChats((open) => !open)}
+						>
+							{showAllChats
+								? t('app.workbench.chat.showFewer', 'Show fewer')
+								: t('app.workbench.chat.viewFull', 'View full chat history')}
+						</Button>
+					) : null}
+
+					{/* Run-complete banner inside transcript, above the composer. */}
+					{taskRunResult ? (
+						<div className="form-success" role="status">
+							<CheckCircle2 aria-hidden="true" size={16} />
+							<span>
+								{t(
+									'app.workbench.review.ready',
+									'Run complete — review changes without leaving the workbench.',
+								)}
+							</span>
+							<Badge tone={toneForStatus(latestRunStatus)}>{latestRunStatus}</Badge>
+							{activeEvidence ? (
+								<Badge tone={toneForStatus(String(activeEvidence.qaVerdict))}>
+									QA {String(activeEvidence.qaVerdict ?? 'not_started')}
+								</Badge>
+							) : null}
+							{reviewChangedFiles !== null ? (
+								<span className="mono">
+									{t('app.workbench.review.changedFiles', 'changed files')} {reviewChangedFiles}
+								</span>
+							) : null}
+						</div>
+					) : null}
+				</div>
+
+				{/* --- Pinned bottom composer --- */}
+				<div className="shell-chat-composer">
+					{error ? (
+						<div className="form-error" role="alert">
+							{error}
+						</div>
+					) : null}
+					{created ? (
+						<div className="form-success" role="status">
+							<CheckCircle2 aria-hidden="true" size={16} />
+							<span>{t('app.workbench.chat.created', 'Chat intake created')}</span>
+							<span className="mono">{shortId(created.sessionId)}</span>
+							<span>{t('app.workbench.chat.pipelineLinked', 'pipeline')}</span>
+							<span className="mono">{shortId(created.pipelineId)}</span>
+						</div>
+					) : null}
+
+					<TextArea
+						label={t('app.workbench.composer.promptLabel', 'What should AIDO do?')}
+						value={prompt}
+						rows={3}
+						disabled={!project || busy}
+						placeholder={t(
+							'app.workbench.composer.promptPlaceholder',
+							'Describe the task in plain language. The AI team plans, implements and tests it inside this workspace.',
+						)}
+						onChange={(event) => setPrompt(event.target.value)}
+						onKeyDown={onComposerKeyDown}
+					/>
+
+					{/* Inline options row: mode · runtime · Send */}
+					<div className="shell-chat-options">
+						<SegmentedControl
+							label={t('app.workbench.task.modeLabel', 'Task intake mode')}
+							value={composerMode}
+							onChange={setComposerMode}
+							disabled={!project || busy}
+							options={COMPOSER_MODES.map((item) => ({
+								value: item.id,
+								label: t(item.labelKey, item.label),
+							}))}
+						/>
+
+						{isGoverned ? (
+							<span
+								className={`shell-chat-runtime${runtimeIsOk ? '' : ' is-blocker'}`}
+								title={runtimeIsOk ? undefined : runtimeBlockerReason}
+							>
+								{t('app.workbench.shell.runtimeLabel', 'Runtime')}: <span>{runtimeLabel}</span>
+							</span>
+						) : null}
+
+						<div className="shell-chat-send">
+							{!isGoverned && busy ? (
+								<Button onClick={cancelConversation}>
+									{t('app.workbench.composer.cancel', 'Cancel intake')}
+								</Button>
+							) : (
+								<Button
+									variant="primary"
+									icon={<Rocket aria-hidden="true" size={16} />}
+									disabled={composerDisabled}
+									onClick={submitComposer}
+								>
+									{busy
+										? isGoverned
+											? t('app.workbench.task.submitting', 'Requesting change')
+											: t('app.workbench.chat.creating', 'Creating work session')
+										: t('app.workbench.loop.respond', 'Respond')}
+								</Button>
+							)}
+						</div>
+					</div>
+
+					{/* Context row: project · branch · runtime (read-only) */}
+					<div className="shell-chat-context" aria-hidden="true">
+						<span>{project.name}</span>
+						<span className="shell-chat-context-sep" aria-hidden="true">
+							·
+						</span>
+						<span>
+							<GitBranch
+								aria-hidden="true"
+								size={11}
+								style={{ display: 'inline', verticalAlign: 'middle' }}
+							/>{' '}
+							{branch}
+						</span>
+						{selectedRuntime ? (
+							<>
+								<span className="shell-chat-context-sep" aria-hidden="true">
+									·
+								</span>
+								<span>{selectedRuntime.displayName}</span>
+							</>
+						) : null}
+					</div>
+
+					{/* Secondary loop actions: subdued row, shell mode only */}
+					<div className="shell-chat-secondary">
+						<Button
+							icon={<Bot aria-hidden="true" size={14} />}
+							loading={discoveryBusy}
+							disabled={aidoDecideDisabled}
+							onClick={runDiscovery}
+						>
+							{t('app.workbench.loop.aidoDecide', 'AIDO decides')}
+						</Button>
+						<Button
+							icon={<FileCheck2 aria-hidden="true" size={14} />}
+							disabled={busy}
+							onClick={() => setActiveSection('brief')}
+						>
+							{t('app.workbench.loop.reviewBrief', 'Review brief')}
+						</Button>
+						<Button
+							icon={<ClipboardCheck aria-hidden="true" size={14} />}
+							disabled={busy}
+							onClick={() => advanceLoop('iteration_planning', 'backlog')}
+						>
+							{t('app.workbench.loop.approveBacklog', 'Approve backlog')}
+						</Button>
+						<Button
+							icon={<Workflow aria-hidden="true" size={14} />}
+							disabled={busy}
+							onClick={() => advanceLoop('executing', 'iteration')}
+						>
+							{t('app.workbench.loop.startIteration', 'Start iteration')}
+						</Button>
+					</div>
+				</div>
+			</section>
+		);
+	}
+
+	// ---- Standalone workbench layout (hideExplorer=false): unchanged ----
 	return (
 		<>
 			{header}
 			<div className="workbench-layout">
-				{hideExplorer ? null : (
-					<WorkbenchExplorer
-						projects={projects}
-						project={project}
-						branch={branch}
-						sessions={projectSessions}
-						chats={projectChats}
-						recentRuns={projectWorkflowRuns}
-						workflows={projectWorkflows}
-						selectedSessionId={selectedSessionId}
-						selectedRunId={selectedRunId}
-						newSessionSentinel={NEW_SESSION_ID}
-						onSelectProject={onSelectProject}
-						onSelectSession={setSelectedSessionId}
-						onSelectRun={onSelectRun}
-						onCreateProject={onCreateProject}
-					/>
-				)}
+				<WorkbenchExplorer
+					projects={projects}
+					project={project}
+					branch={branch}
+					sessions={projectSessions}
+					chats={projectChats}
+					recentRuns={projectWorkflowRuns}
+					workflows={projectWorkflows}
+					selectedSessionId={selectedSessionId}
+					selectedRunId={selectedRunId}
+					newSessionSentinel={NEW_SESSION_ID}
+					onSelectProject={onSelectProject}
+					onSelectSession={setSelectedSessionId}
+					onSelectRun={onSelectRun}
+					onCreateProject={onCreateProject}
+				/>
 
 				<section
 					className="workbench-primary"

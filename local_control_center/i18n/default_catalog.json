@@ -7730,6 +7730,38 @@
     "app.assessment.colConfidence": {
       "en": "Confidence",
       "es": "Confianza"
+    },
+    "app.workbench.shell.transcriptRegion": {
+      "en": "Session transcript",
+      "es": "Transcripción de la sesión"
+    },
+    "app.workbench.shell.composerRegion": {
+      "en": "Composer",
+      "es": "Compositor"
+    },
+    "app.workbench.shell.contextRegion": {
+      "en": "Session context",
+      "es": "Contexto de la sesión"
+    },
+    "app.workbench.shell.runtimeLabel": {
+      "en": "Runtime",
+      "es": "Entorno de ejecución"
+    },
+    "app.workbench.shell.noRuntime": {
+      "en": "no runtime",
+      "es": "sin runtime"
+    },
+    "app.workbench.shell.secondaryActions": {
+      "en": "Loop actions",
+      "es": "Acciones del ciclo"
+    },
+    "app.workbench.shell.emptyTranscriptTitle": {
+      "en": "Start a conversation",
+      "es": "Inicia una conversación"
+    },
+    "app.workbench.shell.emptyTranscriptBody": {
+      "en": "Describe what you want to build. AIDO plans, implements and tests it in this workspace.",
+      "es": "Describe lo que quieres construir. AIDO lo planifica, implementa y prueba en este workspace."
     }
   }
 }

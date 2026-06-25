@@ -1042,7 +1042,11 @@ export function ModelGatewayPage({
 					/>
 				) : null}
 				{activeTab === 'cli' ? (
-					<CliSessionsPanel cliRuntimes={gateway.cliRuntimes} cliSessions={gateway.cliSessions} />
+					<CliSessionsPanel
+						cliRuntimes={gateway.cliRuntimes}
+						cliSessions={gateway.cliSessions}
+						token={token}
+					/>
 				) : null}
 			</Tabs>
 		</>

@@ -1,23 +1,30 @@
 /**
- * Panel de solo lectura para runtimes CLI y sus sesiones de ejecución en el Model Gateway.
+ * Panel de runtimes CLI y sus sesiones de ejecución en el Model Gateway, con la actividad en vivo.
  * Muestra el estado de cada runtime CLI y el detalle de cada sesión (workspace, agente, comando,
- * artefactos), redactando ejecutables, comandos y errores que puedan contener secretos.
+ * artefactos), redactando ejecutables, comandos y errores que puedan contener secretos; al elegir una
+ * sesión despliega su bitácora de eventos en streaming (actividad real, no spinner indefinido).
  */
+import { useState } from 'react';
+
 import type { ModelGatewayCliRuntime, ModelGatewayCliSession } from '../../api/types';
 import { Badge, DataTable, EmptyState } from '../../components/primitives';
 import { useI18n } from '../../i18n/I18nProvider';
 import { toneForStatus } from '../../lib/format';
+import { CliSessionActivity } from './CliSessionActivity';
 import { PanelShell } from './PanelShell';
 import { listLabel, SecretSafeValue, text } from './utils';
 
 export function CliSessionsPanel({
 	cliRuntimes,
 	cliSessions,
+	token,
 }: {
 	cliRuntimes: ModelGatewayCliRuntime[];
 	cliSessions: ModelGatewayCliSession[];
+	token?: string;
 }) {
 	const { t } = useI18n();
+	const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
 	return (
 		<PanelShell title={t('ui.static.cli.sessions.e179e262', 'CLI Sessions')}>
 			<div className="grid two">
@@ -131,9 +138,25 @@ export function CliSessionsPanel({
 							label: t('ui.static.error.7f2f6a15', 'Error'),
 							render: (row) => <SecretSafeValue value={row.error} />,
 						},
+						{
+							key: 'activity',
+							label: t('app.cliSession.activity', 'Activity'),
+							render: (row) => (
+								<button
+									className="button"
+									type="button"
+									onClick={() => setSelectedSessionId(row.id)}
+								>
+									{t('app.cliSession.view', 'View activity')}
+								</button>
+							),
+						},
 					]}
 				/>
 			</div>
+			{selectedSessionId ? (
+				<CliSessionActivity sessionId={selectedSessionId} token={token} />
+			) : null}
 		</PanelShell>
 	);
 }

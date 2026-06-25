@@ -15,6 +15,6 @@ paths = [
   '''^\.claude/''',
   '''^\.tmp/''',
   '''^test-results/''',
-  # Redaction unit test: fixtures are intentional FAKE secrets used to prove redact_secrets works.
+  # Redaction unit test: its fixtures are non-real credential look-alikes that exercise redact_secrets.
   '''^tests_py/test_redaction\.py$''',
 ]

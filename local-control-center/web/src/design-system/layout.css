@@ -127,6 +127,249 @@
 	padding: 0 var(--space-1);
 }
 
+/* Thread/loop ShellSidebar: the Codex-style left navigator (Threads/Loops tabs + search). */
+.shell-sidebar {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+	min-height: 0;
+	background: var(--color-surface-panel);
+	font-family: var(--font-ui);
+}
+
+.shell-sidebar-tabs {
+	padding: var(--space-3) var(--space-3) var(--space-2);
+}
+
+.shell-search {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	height: var(--control-height-sm);
+	margin: 0 var(--space-3) var(--space-2);
+	padding: 0 var(--space-2);
+	background: var(--color-surface-inset);
+	border: 1px solid var(--color-border-subtle);
+	border-radius: var(--radius-md);
+	color: var(--color-text-muted);
+}
+
+.shell-search:focus-within {
+	border-color: var(--color-border-selected);
+	box-shadow: var(--shadow-focus);
+}
+
+.shell-search-input {
+	flex: 1 1 auto;
+	min-width: 0;
+	border: 0;
+	background: transparent;
+	color: var(--color-text-primary);
+	font: inherit;
+	outline: none;
+}
+
+.shell-search-input::placeholder {
+	color: var(--color-text-muted);
+}
+
+.shell-sidebar-body {
+	flex: 1 1 auto;
+	min-height: 0;
+	overflow-y: auto;
+	padding: 0 var(--space-2) var(--space-3);
+}
+
+.thread-tree {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-1);
+}
+
+.thread-workspace {
+	display: flex;
+	flex-direction: column;
+}
+
+.thread-workspace-head,
+.thread-row,
+.thread-add-workspace {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	width: 100%;
+	padding: var(--space-2);
+	border: 0;
+	background: transparent;
+	color: var(--color-text-secondary);
+	font: inherit;
+	text-align: left;
+	border-radius: var(--radius-sm);
+	cursor: pointer;
+}
+
+.thread-workspace-head {
+	color: var(--color-text-primary);
+	font-weight: var(--weight-semibold);
+}
+
+.thread-workspace-head:hover,
+.thread-row:hover,
+.thread-add-workspace:hover {
+	background: var(--color-surface-card-hover);
+}
+
+.thread-workspace-head:focus-visible,
+.thread-row:focus-visible,
+.thread-add-workspace:focus-visible {
+	outline: none;
+	box-shadow: var(--shadow-focus);
+}
+
+.thread-caret {
+	flex: 0 0 auto;
+	transition: transform var(--duration-fast) var(--ease-standard);
+}
+
+.thread-caret.is-open {
+	transform: rotate(90deg);
+}
+
+.thread-workspace-name,
+.thread-row-name {
+	flex: 1 1 auto;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.thread-count {
+	flex: 0 0 auto;
+	font-family: var(--font-data);
+	font-size: var(--font-size-2xs);
+	color: var(--color-text-muted);
+	background: var(--color-surface-inset);
+	border-radius: var(--radius-pill);
+	padding: 0 var(--space-2);
+}
+
+.thread-children {
+	display: flex;
+	flex-direction: column;
+	padding-left: var(--space-4);
+}
+
+.thread-row {
+	padding-block: var(--space-1);
+}
+
+.thread-row[aria-current="true"] {
+	background: var(--color-surface-card-hover);
+	color: var(--color-text-primary);
+	box-shadow: inset 0 0 0 1px var(--color-border-selected);
+}
+
+.thread-row.is-new {
+	color: var(--color-text-secondary);
+}
+
+.thread-dot {
+	flex: 0 0 auto;
+	width: 0.5rem;
+	height: 0.5rem;
+	border-radius: var(--radius-pill);
+	background: var(--color-text-muted);
+}
+
+.thread-dot.tone-ok {
+	background: var(--color-status-success);
+}
+
+.thread-dot.tone-warn {
+	background: var(--color-status-warning);
+}
+
+.thread-dot.tone-danger {
+	background: var(--color-status-danger);
+}
+
+.thread-dot.tone-info {
+	background: var(--color-status-info);
+}
+
+.thread-dot.tone-pending {
+	background: var(--color-status-pending);
+}
+
+.thread-empty {
+	padding: var(--space-2) var(--space-3);
+	color: var(--color-text-muted);
+	font-size: var(--font-size-sm);
+}
+
+.thread-add-workspace {
+	margin-top: var(--space-2);
+	color: var(--color-accent);
+}
+
+.loop-list {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-2);
+	margin: 0;
+	padding: var(--space-1);
+	list-style: none;
+}
+
+.loop-row {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-1);
+	padding: var(--space-3);
+	background: var(--color-surface-card);
+	border: 1px solid var(--color-border-subtle);
+	border-radius: var(--radius-lg);
+	color: var(--color-text-secondary);
+}
+
+.loop-row-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--space-2);
+}
+
+.loop-row-title {
+	overflow: hidden;
+	color: var(--color-text-primary);
+	font-weight: var(--weight-semibold);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.loop-row-phase {
+	color: var(--color-text-muted);
+	font-size: var(--font-size-sm);
+}
+
+.loop-phase-bar {
+	display: flex;
+	gap: 3px;
+	margin-top: var(--space-1);
+}
+
+.loop-phase-seg {
+	flex: 1 1 0;
+	height: var(--space-1);
+	border-radius: var(--radius-pill);
+	background: var(--color-border-default);
+}
+
+.loop-phase-seg.is-filled {
+	background: var(--color-accent);
+}
+
 /* Desktop body row: the fixed activity rail plus the resizable pane group fill the
    height above the status bar. */
 .ide-body {

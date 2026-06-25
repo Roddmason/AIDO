@@ -67,6 +67,9 @@ export function App() {
 	const [page, setPage] = useState<AppRoute>(() => resolveHashState().page);
 	const [selectedRunId, setSelectedRunId] = useState<string | null>(() => resolveHashState().runId);
 	const [selectedProjectId, setSelectedProjectId] = useState(readStoredSelectedProjectId);
+	// Active session for the thread/loop shell: owned here so the ShellSidebar and the shell center
+	// (the Workbench) stay in sync. Resets when the operational project changes.
+	const [selectedSessionId, setSelectedSessionId] = useState('');
 	const [workspaceDialogOpen, setWorkspaceDialogOpen] = useState(false);
 	const [workspaceDialogMode, setWorkspaceDialogMode] = useState<WorkspaceMode>('open_folder');
 	const [approvalDrawerOpen, setApprovalDrawerOpen] = useState(false);
@@ -141,7 +144,10 @@ export function App() {
 	const selectedProject =
 		activeProjects.find((project) => project.id === selectedProjectId) ?? activeProjects[0] ?? null;
 	const setOperationalProject = useCallback((projectId: string) => {
-		setSelectedProjectId(projectId);
+		setSelectedProjectId((current) => {
+			if (current !== projectId) setSelectedSessionId('');
+			return projectId;
+		});
 		persistSelectedProjectId(projectId);
 	}, []);
 	useEffect(() => {
@@ -213,6 +219,8 @@ export function App() {
 		openRun,
 		onSelectProject: setOperationalProject,
 		openWorkspaceDialog,
+		selectedSessionId,
+		onSelectSession: setSelectedSessionId,
 	};
 
 	return (
@@ -233,6 +241,8 @@ export function App() {
 				mutate={state.mutate}
 				onOpenRun={openRun}
 				onClearRun={clearRun}
+				selectedSessionId={selectedSessionId}
+				onSelectSession={setSelectedSessionId}
 				connected={state.connected}
 				onSelectProject={setOperationalProject}
 				onCreateProject={() => openWorkspaceDialog('open_folder')}

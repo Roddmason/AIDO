@@ -22,6 +22,9 @@ import type { WorkspaceMode } from '../features/workspace/useProjectDiscovery';
 import type { AppRoute } from './routing';
 
 // --- Lazy feature chunks (module-scope; one import() per chunk so preload reuses it). ---
+const importShell = () => import('../features/shell/ShellPage');
+const ShellPage = lazy(() => importShell().then((m) => ({ default: m.ShellPage })));
+
 const importWorkbench = () => import('../features/workbench/WorkbenchPage');
 const WorkbenchPage = lazy(() => importWorkbench().then((m) => ({ default: m.WorkbenchPage })));
 
@@ -82,6 +85,9 @@ export interface RouteContext {
 	openRun: (runId: string) => void;
 	onSelectProject: (projectId: string) => void;
 	openWorkspaceDialog: (mode?: WorkspaceMode) => void;
+	/** Shell-owned active session selection: drives the thread/loop shell center (the Workbench). */
+	selectedSessionId: string;
+	onSelectSession: (sessionId: string) => void;
 }
 
 interface RouteEntry {
@@ -121,6 +127,10 @@ const settingsEntry: RouteEntry = {
 
 /** The single source of truth mapping each route to its (possibly lazy) page. */
 export const routeTable: Record<AppRoute, RouteEntry> = {
+	threads: {
+		render: (ctx) => <ShellPage ctx={ctx} />,
+		preload: importShell,
+	},
 	home: {
 		render: (ctx) => (
 			<HomePage

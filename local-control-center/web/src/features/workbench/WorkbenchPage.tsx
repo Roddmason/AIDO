@@ -18,7 +18,7 @@ import {
 	Users,
 	Workflow,
 } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
 	ChatCreateResponse,
 	IssueToPatchResponse,
@@ -103,6 +103,13 @@ type WorkbenchPageProps = {
 	onOpenSettings: () => void;
 	onOpenRuntimeSetup: () => void;
 	onRefresh: () => Promise<unknown> | void;
+	/** Hide the in-page workspace/session explorer when an outer shell already provides one
+	 *  (the thread/loop ShellSidebar). Defaults to false so the standalone Workbench is unchanged. */
+	hideExplorer?: boolean;
+	/** Optional controlled session selection: when provided, the shell owns which session is active
+	 *  (so the ShellSidebar can drive the center). When omitted, the page keeps its own internal state. */
+	selectedSessionId?: string;
+	onSelectSession?: (sessionId: string) => void;
 };
 
 function firstLine(value: string) {
@@ -150,6 +157,9 @@ export function WorkbenchPage({
 	onOpenSettings,
 	onOpenRuntimeSetup,
 	onRefresh,
+	hideExplorer = false,
+	selectedSessionId: controlledSessionId,
+	onSelectSession,
 }: WorkbenchPageProps) {
 	const { t } = useI18n();
 	const { notify } = useToast();
@@ -160,7 +170,17 @@ export function WorkbenchPage({
 	const [advanced, setAdvanced] = useState<GovernedAdvanced>(() =>
 		defaultAdvanced(selectedProject),
 	);
-	const [selectedSessionId, setSelectedSessionId] = useState('');
+	// Session selection is optionally controlled: when the shell passes selectedSessionId/onSelectSession
+	// it owns the active session (so the ShellSidebar drives the center); otherwise the page owns it.
+	const [internalSessionId, setInternalSessionId] = useState('');
+	const selectedSessionId = controlledSessionId ?? internalSessionId;
+	const setSelectedSessionId = useCallback(
+		(sessionId: string) => {
+			if (onSelectSession) onSelectSession(sessionId);
+			else setInternalSessionId(sessionId);
+		},
+		[onSelectSession],
+	);
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState('');
 	const [created, setCreated] = useState<{
@@ -649,22 +669,24 @@ export function WorkbenchPage({
 		<>
 			{header}
 			<div className="workbench-layout">
-				<WorkbenchExplorer
-					projects={projects}
-					project={project}
-					branch={branch}
-					sessions={projectSessions}
-					chats={projectChats}
-					recentRuns={projectWorkflowRuns}
-					workflows={projectWorkflows}
-					selectedSessionId={selectedSessionId}
-					selectedRunId={selectedRunId}
-					newSessionSentinel={NEW_SESSION_ID}
-					onSelectProject={onSelectProject}
-					onSelectSession={setSelectedSessionId}
-					onSelectRun={onSelectRun}
-					onCreateProject={onCreateProject}
-				/>
+				{hideExplorer ? null : (
+					<WorkbenchExplorer
+						projects={projects}
+						project={project}
+						branch={branch}
+						sessions={projectSessions}
+						chats={projectChats}
+						recentRuns={projectWorkflowRuns}
+						workflows={projectWorkflows}
+						selectedSessionId={selectedSessionId}
+						selectedRunId={selectedRunId}
+						newSessionSentinel={NEW_SESSION_ID}
+						onSelectProject={onSelectProject}
+						onSelectSession={setSelectedSessionId}
+						onSelectRun={onSelectRun}
+						onCreateProject={onCreateProject}
+					/>
+				)}
 
 				<section
 					className="workbench-primary"

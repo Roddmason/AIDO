@@ -17,6 +17,7 @@ import type { LayoutStorage } from 'react-resizable-panels';
 import { Group, Panel, Separator, useDefaultLayout, usePanelRef } from 'react-resizable-panels';
 
 import type { Overview, Project, RuntimeProviders } from '../api/types';
+import { ShellSidebar } from '../features/shell/ShellSidebar';
 import type { WorkspaceMode } from '../features/workspace/useProjectDiscovery';
 import { useIsDesktopLayout } from '../hooks/useIsDesktopLayout';
 import { ActivityBar } from './ActivityBar';
@@ -82,6 +83,8 @@ export function AppShell({
 	mutate,
 	onOpenRun,
 	onClearRun,
+	selectedSessionId,
+	onSelectSession,
 	connected,
 	onSelectProject,
 	onCreateProject,
@@ -110,6 +113,9 @@ export function AppShell({
 	mutate: Mutate;
 	onOpenRun: (runId: string) => void;
 	onClearRun: () => void;
+	/** Shell-owned active session selection, threaded to the ShellSidebar for the `threads` area. */
+	selectedSessionId: string;
+	onSelectSession: (sessionId: string) => void;
 	connected: boolean;
 	onSelectProject: (projectId: string) => void;
 	onCreateProject: () => void;
@@ -236,19 +242,31 @@ export function AppShell({
 		/>
 	);
 
-	const explorer = (
-		<ExplorerPanel
-			activeArea={area}
-			page={page}
-			language={language}
-			overview={overview}
-			selectedProject={selectedProject}
-			onNavigate={navigateTo}
-			onOpenRun={onOpenRun}
-			onSelectProject={onSelectProject}
-			onCreateProject={onCreateProject}
-		/>
-	);
+	// The thread/loop shell area swaps the flat Explorer for the Threads/Loops ShellSidebar; every
+	// other area keeps the standard ExplorerPanel so no existing surface is orphaned.
+	const explorer =
+		area === 'threads' ? (
+			<ShellSidebar
+				overview={overview}
+				selectedProjectId={selectedProject?.id ?? ''}
+				selectedSessionId={selectedSessionId}
+				onSelectProject={onSelectProject}
+				onSelectSession={onSelectSession}
+				onCreateProject={onCreateProject}
+			/>
+		) : (
+			<ExplorerPanel
+				activeArea={area}
+				page={page}
+				language={language}
+				overview={overview}
+				selectedProject={selectedProject}
+				onNavigate={navigateTo}
+				onOpenRun={onOpenRun}
+				onSelectProject={onSelectProject}
+				onCreateProject={onCreateProject}
+			/>
+		);
 
 	const workbench = (
 		<main className="workbench main-area">

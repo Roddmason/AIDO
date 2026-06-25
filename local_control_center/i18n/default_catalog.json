@@ -15,6 +15,114 @@
     }
   ],
   "translations": {
+    "app.menu.bar": {
+      "en": "Application menu",
+      "es": "Menú de la aplicación"
+    },
+    "settings.credentials.refresh": {
+      "en": "Refresh credentials",
+      "es": "Actualizar credenciales"
+    },
+    "app.menu.file": {
+      "en": "File",
+      "es": "Archivo"
+    },
+    "app.menu.edit": {
+      "en": "Edit",
+      "es": "Editar"
+    },
+    "app.menu.view": {
+      "en": "View",
+      "es": "Ver"
+    },
+    "app.menu.help": {
+      "en": "Help",
+      "es": "Ayuda"
+    },
+    "app.menu.openFolder": {
+      "en": "Open folder…",
+      "es": "Abrir carpeta…"
+    },
+    "app.menu.newWorkspace": {
+      "en": "New workspace…",
+      "es": "Nuevo workspace…"
+    },
+    "app.menu.newTask": {
+      "en": "New task",
+      "es": "Nueva tarea"
+    },
+    "app.menu.refresh": {
+      "en": "Refresh",
+      "es": "Actualizar"
+    },
+    "app.menu.commandPalette": {
+      "en": "Command palette…",
+      "es": "Paleta de comandos…"
+    },
+    "app.menu.approvals": {
+      "en": "Approvals",
+      "es": "Aprobaciones"
+    },
+    "app.menu.events": {
+      "en": "Events",
+      "es": "Eventos"
+    },
+    "app.menu.toggleTheme": {
+      "en": "Toggle theme",
+      "es": "Alternar tema"
+    },
+    "app.menu.toggleDensity": {
+      "en": "Compact density",
+      "es": "Densidad compacta"
+    },
+    "app.menu.toggleExplorer": {
+      "en": "Explorer",
+      "es": "Explorador"
+    },
+    "app.menu.toggleInspector": {
+      "en": "Inspector",
+      "es": "Panel de inspección"
+    },
+    "app.menu.toggleBottom": {
+      "en": "Bottom panel",
+      "es": "Panel inferior"
+    },
+    "app.menu.goWorkbench": {
+      "en": "Workbench",
+      "es": "Banco de trabajo"
+    },
+    "app.menu.goReview": {
+      "en": "Review board",
+      "es": "Tablero de revisión"
+    },
+    "app.menu.goEvidence": {
+      "en": "Evidence",
+      "es": "Evidencia"
+    },
+    "app.menu.goGovernance": {
+      "en": "Governance",
+      "es": "Gobierno"
+    },
+    "app.menu.goModels": {
+      "en": "Model gateway",
+      "es": "Pasarela de modelos"
+    },
+    "app.menu.goSettings": {
+      "en": "Settings",
+      "es": "Configuración"
+    },
+    "app.menu.keyboardShortcuts": {
+      "en": "Keyboard shortcuts",
+      "es": "Atajos de teclado"
+    },
+    "app.menu.about": {
+      "en": "About AIDO",
+      "es": "Acerca de AIDO"
+    },
+    "app.menu.aboutBody": {
+      "en": "Local-first AI control center. Press Ctrl+K for the command palette.",
+      "es": "Centro de control de IA local. Pulsa Ctrl+K para la paleta de comandos."
+    },
     "app.global.close": {
       "en": "Close",
       "es": "Cerrar"

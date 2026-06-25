@@ -17,11 +17,13 @@ import type { LayoutStorage } from 'react-resizable-panels';
 import { Group, Panel, Separator, useDefaultLayout, usePanelRef } from 'react-resizable-panels';
 
 import type { Overview, Project, RuntimeProviders } from '../api/types';
+import type { WorkspaceMode } from '../features/workspace/useProjectDiscovery';
 import { useIsDesktopLayout } from '../hooks/useIsDesktopLayout';
 import { ActivityBar } from './ActivityBar';
 import { BottomPanel } from './BottomPanel';
 import { ExplorerPanel } from './ExplorerPanel';
 import { InspectorPanel } from './InspectorPanel';
+import { MenuBar } from './MenuBar';
 import type { AreaId, PageId } from './navigation';
 import type { Mutate } from './routes';
 import { StatusBar } from './StatusBar';
@@ -83,6 +85,7 @@ export function AppShell({
 	connected,
 	onSelectProject,
 	onCreateProject,
+	onOpenWorkspaceDialog,
 	onOpenCommandPalette,
 	onOpenApprovals,
 	onOpenEvents,
@@ -110,6 +113,7 @@ export function AppShell({
 	connected: boolean;
 	onSelectProject: (projectId: string) => void;
 	onCreateProject: () => void;
+	onOpenWorkspaceDialog: (mode: WorkspaceMode) => void;
 	onOpenCommandPalette: () => void;
 	onOpenApprovals: () => void;
 	onOpenEvents: () => void;
@@ -297,9 +301,24 @@ export function AppShell({
 		/>
 	);
 
+	const menuBar = (
+		<MenuBar
+			navigateTo={navigateTo}
+			onOpenWorkspaceDialog={onOpenWorkspaceDialog}
+			onOpenCommandPalette={onOpenCommandPalette}
+			onOpenApprovals={onOpenApprovals}
+			onOpenEvents={onOpenEvents}
+			onRefresh={onRefresh}
+			onToggleExplorer={toggleExplorer}
+			onToggleInspector={toggleInspector}
+			onToggleBottom={toggleBottom}
+		/>
+	);
+
 	if (!isDesktop) {
 		return (
 			<div className="app-shell-ide app-shell-ide--stacked">
+				{menuBar}
 				{activityBar}
 				{explorerCollapsed ? null : explorer}
 				{workbench}
@@ -312,6 +331,7 @@ export function AppShell({
 
 	return (
 		<div className="app-shell-ide">
+			{menuBar}
 			<div className="ide-body">
 				{activityBar}
 				<Group

@@ -16,7 +16,7 @@ async function routeEmptyEvidenceAndApprovals(page) {
 }
 
 test('command palette opens as a top-centered modal with grouped actions and shortcut chips', async ({ page }) => {
-	await page.goto('/');
+	await page.goto('/#threads');
 	await expectControlPlaneLoaded(page);
 
 	await page.keyboard.press('Control+k');
@@ -66,7 +66,7 @@ test('command palette opens as a top-centered modal with grouped actions and sho
 });
 
 test('command palette filters by text', async ({ page }) => {
-	await page.goto('/');
+	await page.goto('/#threads');
 	await expectControlPlaneLoaded(page);
 	await page.keyboard.press('Control+k');
 
@@ -80,7 +80,7 @@ test('command palette filters by text', async ({ page }) => {
 
 test('disabled commands show the reason and cannot be activated', async ({ page }) => {
 	await routeEmptyEvidenceAndApprovals(page);
-	await page.goto('/');
+	await page.goto('/#threads');
 	await expectControlPlaneLoaded(page);
 	await page.keyboard.press('Control+k');
 
@@ -101,14 +101,13 @@ test('disabled commands show the reason and cannot be activated', async ({ page 
 	expect(page.url()).not.toContain('#evidence');
 });
 
-test('keyboard navigation skips disabled items and Escape restores focus', async ({ page }) => {
+test('keyboard navigation skips disabled items and Escape closes the palette', async ({ page }) => {
 	await routeEmptyEvidenceAndApprovals(page);
-	await page.goto('/');
+	await page.goto('/#threads');
 	await expectControlPlaneLoaded(page);
 
-	// Open via the header trigger so focus restoration has a known target.
-	const trigger = page.getByRole('button', { name: 'Open command palette' });
-	await trigger.click();
+	// Open via keyboard shortcut.
+	await page.keyboard.press('Control+k');
 	const dialog = page.getByRole('dialog', { name: 'Command palette' });
 	const combobox = dialog.getByRole('combobox', { name: 'Filter commands' });
 	await expect(combobox).toBeFocused();
@@ -120,19 +119,18 @@ test('keyboard navigation skips disabled items and Escape restores focus', async
 	await page.keyboard.press('ArrowDown');
 	await expect(combobox).toHaveAttribute('aria-activedescendant', 'command-palette-option-open-settings');
 
-	// Escape closes the palette and restores focus to the trigger button.
+	// Escape closes the palette.
 	await page.keyboard.press('Escape');
 	await expect(dialog).toBeHidden();
-	await expect(trigger).toBeFocused();
 
-	// Reopening resets the highlight back to the first action.
-	await trigger.click();
+	// Reopening via keyboard resets the highlight back to the first action.
+	await page.keyboard.press('Control+k');
 	await expect(combobox).toHaveAttribute('aria-activedescendant', 'command-palette-option-go-workbench');
 });
 
 test('Enter runs the highlighted command', async ({ page }) => {
 	await routeEmptyEvidenceAndApprovals(page);
-	await page.goto('/');
+	await page.goto('/#threads');
 	await expectControlPlaneLoaded(page);
 
 	await page.keyboard.press('Control+k');
@@ -149,7 +147,7 @@ test('Enter runs the highlighted command', async ({ page }) => {
 
 test('Ctrl+Alt+A opens approvals only when approvals are pending', async ({ page }) => {
 	await routeEmptyEvidenceAndApprovals(page);
-	await page.goto('/');
+	await page.goto('/#threads');
 	await expectControlPlaneLoaded(page);
 
 	// Disabled action -> wired shortcut is inert.

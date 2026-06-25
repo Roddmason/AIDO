@@ -243,9 +243,9 @@ export function MenuBar({
 			role="menubar"
 			aria-label={t('app.menu.bar', 'Application menu')}
 		>
-			<span className="menu-bar-brand" aria-hidden="true">
+			<h1 className="menu-bar-brand" aria-label={t('app.brand.title', 'AIDO Control Center')}>
 				AIDO
-			</span>
+			</h1>
 			{MENUS.map((menu: MenuDef) => {
 				const expanded = openMenu === menu.id;
 				return (

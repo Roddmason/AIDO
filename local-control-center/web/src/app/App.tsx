@@ -251,8 +251,6 @@ export function App() {
 				onOpenApprovals={() => setApprovalDrawerOpen(true)}
 				onOpenEvents={() => setEventDrawerOpen(true)}
 				onRefresh={() => void state.refresh()}
-				headerKicker={t('app.global.projectWorkspaceRuntime', 'Project · Workspace · Runtime')}
-				headerTitle={selectedProject?.name ?? t('app.global.runtimeProject', 'Runtime project')}
 			>
 				<AnimatePresence mode="wait">
 					<MotionPage key={page}>

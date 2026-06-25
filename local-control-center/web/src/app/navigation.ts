@@ -1,7 +1,8 @@
 /**
- * Navigation registry: the canonical map of pages, the five top-level areas and
- * their explorer links/labels. Drives the ActivityBar, ExplorerPanel and tab
- * title from one declarative source so navigation stays consistent everywhere.
+ * Navigation registry: the canonical map of pages, the top-level areas and their
+ * explorer links/labels. Drives `areaForPage` (which sidebar an area shows), the
+ * ExplorerPanel and the browser tab title from one declarative source. The icon
+ * rail was retired; the Go menu and command palette now carry page navigation.
  */
 
 import type { LucideProps } from 'lucide-react';
@@ -134,7 +135,8 @@ const SETTINGS_GROUPS: ExplorerGroup[] = [
 	},
 ];
 
-/** Primary destinations shown as icons in the narrow ActivityBar (in order). */
+/** Top-level areas (in order). Each owns a set of pages; `areaForPage` resolves the
+ *  owning area so the shell knows which sidebar to show and which tab title to set. */
 export const AREAS: AreaDef[] = [
 	{
 		id: 'threads',

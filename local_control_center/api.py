@@ -19,10 +19,12 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from .agents.api import create_router as create_agents_router
+from .agents.cli_session_stream_api import create_router as create_cli_session_stream_router
 from .agents.model_gateway_api import create_router as create_model_gateway_router
 from .control_plane.models import OverviewResponse
 from .control_plane.overview import build_overview_from_connection
 from .control_plane.runtime import ControlCenterRuntime
+from .credentials.api import create_router as create_credentials_router
 from .evidence.api import create_router as create_evidence_router
 from .governance.api import create_router as create_governance_router
 from .i18n.api import create_router as create_i18n_router
@@ -106,6 +108,7 @@ def create_app(
     app.include_router(create_security_policy_router(platform=platform, require_write=require_write))
     app.include_router(create_evidence_router(platform=platform, require_write=require_write))
     app.include_router(create_agents_router(platform=platform, require_write=require_write))
+    app.include_router(create_cli_session_stream_router(platform=platform, require_write=require_write))
     app.include_router(create_model_gateway_router(platform=platform, require_write=require_write))
     app.include_router(create_workspaces_router(platform=platform, require_write=require_write))
     app.include_router(create_governance_router(platform=platform, require_write=require_write))
@@ -116,6 +119,7 @@ def create_app(
     app.include_router(create_projects_router(platform=platform, require_write=require_write))
     app.include_router(create_product_loop_router(platform=platform, require_write=require_write))
     app.include_router(create_i18n_router(platform=platform, require_write=require_write))
+    app.include_router(create_credentials_router(platform=platform, require_write=require_write))
 
     def snapshot_overview() -> dict[str, Any]:
         connection = open_sqlite_connection(platform.db_path)

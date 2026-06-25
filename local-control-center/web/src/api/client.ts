@@ -101,12 +101,36 @@ export type SecurityAgentRunResponse =
 	OperationResponse<'run_security_agent_api_v1_agents_security_runs_post'>;
 export type SecurityAgentStatusResponse =
 	OperationResponse<'security_agent_status_api_v1_agents_security_status_get'>;
+export type ResearchAgentRunRequest =
+	MutationBody<'run_research_agent_api_v1_agents_research_runs_post'>;
+export type ResearchAgentRunResponse =
+	OperationResponse<'run_research_agent_api_v1_agents_research_runs_post'>;
+export type ResearchAgentStatusResponse =
+	OperationResponse<'research_agent_status_api_v1_agents_research_status_get'>;
 export type ArchitectAgentRunRequest =
 	MutationBody<'run_architect_agent_api_v1_agents_architect_runs_post'>;
 export type ArchitectAgentRunResponse =
 	OperationResponse<'run_architect_agent_api_v1_agents_architect_runs_post'>;
 export type ArchitectAgentStatusResponse =
 	OperationResponse<'architect_agent_status_api_v1_agents_architect_status_get'>;
+export type CredentialsResponse = OperationResponse<'list_credentials_api_v1_credentials_get'>;
+export type CredentialCreateRequest = MutationBody<'create_credential_api_v1_credentials_post'>;
+export type CredentialCreateResponse =
+	OperationResponse<'create_credential_api_v1_credentials_post'>;
+export type CredentialRotateRequest =
+	MutationBody<'rotate_credential_api_v1_credentials__credential_id__rotate_post'>;
+export type CredentialRotateResponse =
+	OperationResponse<'rotate_credential_api_v1_credentials__credential_id__rotate_post'>;
+export type CredentialValidateResponse =
+	OperationResponse<'validate_credential_api_v1_credentials__credential_id__validate_post'>;
+export type CredentialDeleteResponse =
+	OperationResponse<'delete_credential_api_v1_credentials__credential_id__delete'>;
+export type CredentialAuditResponse =
+	OperationResponse<'list_credential_audit_api_v1_credentials_audit_get'>;
+export type CredentialMigrateRequest =
+	MutationBody<'migrate_credentials_api_v1_credentials_migrate_post'>;
+export type CredentialMigrateResponse =
+	OperationResponse<'migrate_credentials_api_v1_credentials_migrate_post'>;
 export type I18nLanguageRecord = {
 	code: string;
 	name: string;
@@ -240,11 +264,108 @@ export function runProductOwnerAgent(token: string, body: ProductOwnerAgentRunRe
 	>('run_product_owner_agent_api_v1_agents_product_owner_runs_post', { token, body });
 }
 
+export type CliSessionStartRequest = MutationBody<'start_session_api_v1_cli_sessions_post'>;
+export type CliSessionStartResponse = OperationResponse<'start_session_api_v1_cli_sessions_post'>;
+export type CliSessionEventsResponse =
+	OperationResponse<'session_events_api_v1_cli_sessions__session_id__events_get'>;
+export type CliSessionEvent = CliSessionEventsResponse['events'][number];
+
+/** Starts a streaming CLI session (runs a command in a workspace, emitting live events); a write. */
+export function startCliSession(token: string, body: CliSessionStartRequest) {
+	return requestGeneratedOperation('start_session_api_v1_cli_sessions_post', { token, body });
+}
+
+/** Reads the bounded CLI-session event log incrementally (events with seq > afterSeq); a read. */
+export function getCliSessionEvents(sessionId: string, afterSeq = 0, signal?: AbortSignal) {
+	return requestGeneratedOperation<
+		'session_events_api_v1_cli_sessions__session_id__events_get',
+		CliSessionEventsResponse
+	>('session_events_api_v1_cli_sessions__session_id__events_get', {
+		pathParams: { session_id: sessionId },
+		query: { afterSeq },
+		signal,
+	});
+}
+
+/** Requests cancellation of a running CLI session (kills its process); a write. */
+export function cancelCliSession(token: string, sessionId: string) {
+	return requestGeneratedOperation('cancel_session_api_v1_cli_sessions__session_id__cancel_post', {
+		token,
+		pathParams: { session_id: sessionId },
+	});
+}
+
 export function getRuntimeProviderConfiguration(signal?: AbortSignal) {
 	return requestGeneratedOperation<
 		'list_runtime_provider_configuration_api_v1_runtime_provider_configuration_get',
 		OperationResponse<'list_runtime_provider_configuration_api_v1_runtime_provider_configuration_get'>
 	>('list_runtime_provider_configuration_api_v1_runtime_provider_configuration_get', { signal });
+}
+
+export function getCredentials(signal?: AbortSignal) {
+	return requestGeneratedOperation<'list_credentials_api_v1_credentials_get', CredentialsResponse>(
+		'list_credentials_api_v1_credentials_get',
+		{ signal },
+	);
+}
+
+export function createCredential(token: string, body: CredentialCreateRequest) {
+	return requestGeneratedOperation<
+		'create_credential_api_v1_credentials_post',
+		CredentialCreateResponse
+	>('create_credential_api_v1_credentials_post', { token, body });
+}
+
+export function validateCredential(token: string, credentialId: string) {
+	return requestGeneratedOperation<
+		'validate_credential_api_v1_credentials__credential_id__validate_post',
+		CredentialValidateResponse
+	>('validate_credential_api_v1_credentials__credential_id__validate_post', {
+		token,
+		pathParams: { credential_id: credentialId },
+	});
+}
+
+export function rotateCredential(
+	token: string,
+	credentialId: string,
+	body: CredentialRotateRequest,
+) {
+	return requestGeneratedOperation<
+		'rotate_credential_api_v1_credentials__credential_id__rotate_post',
+		CredentialRotateResponse
+	>('rotate_credential_api_v1_credentials__credential_id__rotate_post', {
+		token,
+		pathParams: { credential_id: credentialId },
+		body,
+	});
+}
+
+export function deleteCredential(token: string, credentialId: string) {
+	return requestGeneratedOperation<
+		'delete_credential_api_v1_credentials__credential_id__delete',
+		CredentialDeleteResponse
+	>('delete_credential_api_v1_credentials__credential_id__delete', {
+		token,
+		pathParams: { credential_id: credentialId },
+	});
+}
+
+export function migrateCredentials(token: string, body?: CredentialMigrateRequest) {
+	return requestGeneratedOperation<
+		'migrate_credentials_api_v1_credentials_migrate_post',
+		CredentialMigrateResponse
+	>('migrate_credentials_api_v1_credentials_migrate_post', { token, body });
+}
+
+export function getCredentialAudit(credentialId?: string, signal?: AbortSignal) {
+	return requestGeneratedOperation<
+		'list_credential_audit_api_v1_credentials_audit_get',
+		CredentialAuditResponse
+	>('list_credential_audit_api_v1_credentials_audit_get', {
+		query: credentialId ? { credential_id: credentialId } : undefined,
+		signal,
+	});
 }
 
 export function getDeveloperAgentStatus(signal?: AbortSignal) {
@@ -273,6 +394,13 @@ export function getSecurityAgentStatus(signal?: AbortSignal) {
 		'security_agent_status_api_v1_agents_security_status_get',
 		SecurityAgentStatusResponse
 	>('security_agent_status_api_v1_agents_security_status_get', { signal });
+}
+
+export function getResearchAgentStatus(signal?: AbortSignal) {
+	return requestGeneratedOperation<
+		'research_agent_status_api_v1_agents_research_status_get',
+		ResearchAgentStatusResponse
+	>('research_agent_status_api_v1_agents_research_status_get', { signal });
 }
 
 export function runQAAgent(token: string, body: QAAgentRunRequest) {
@@ -669,6 +797,13 @@ export function runArchitectAgent(token: string, body: ArchitectAgentRunRequest)
 
 export function runSecurityAgent(token: string, body: SecurityAgentRunRequest) {
 	return requestGeneratedOperation('run_security_agent_api_v1_agents_security_runs_post', {
+		token,
+		body,
+	});
+}
+
+export function runResearchAgent(token: string, body: ResearchAgentRunRequest) {
+	return requestGeneratedOperation('run_research_agent_api_v1_agents_research_runs_post', {
 		token,
 		body,
 	});

@@ -604,6 +604,112 @@ class SecurityAgentRunResponse(BaseModel):
     model_analysis: dict[str, Any] | None = Field(default=None, alias="modelAnalysis")
 
 
+ResearchTrustLevel = Literal[
+    "official_documentation",
+    "official_repository",
+    "standard_rfc",
+    "primary_research",
+    "reputable_secondary",
+    "untrusted",
+]
+ResearchAgentVerdict = Literal["completed", "blocked", "needs_human_review"]
+
+
+class ResearchSourceRequest(BaseModel):
+    """Fuente investigada por el ResearchAgent, con contenido o URL fetchable y provenance esperado."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    url: str
+    publisher: str
+    content: str | None = None
+    fetched_at: str | None = Field(default=None, alias="fetchedAt")
+    trust_level: ResearchTrustLevel | None = Field(default=None, alias="trustLevel")
+    related_artifact: str | None = Field(default=None, alias="relatedArtifact")
+
+
+class ResearchConclusionRequest(BaseModel):
+    """Conclusión técnica que debe citar fuentes confiables si proviene de investigación web."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    statement: str
+    citations: list[str] = Field(default_factory=list)
+    web_based: bool = Field(default=True, alias="webBased")
+
+
+class ResearchClaimRequest(BaseModel):
+    """Claim verificable usado para detectar conflictos entre fuentes sobre un mismo tópico."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    topic: str
+    value: str
+    source_url: str = Field(alias="sourceUrl")
+
+
+class ResearchAgentContract(BaseModel):
+    """Contrato del ResearchAgent expuesto por la API, incluida su política de fuentes."""
+
+    id: str
+    input_schema: dict[str, Any] = Field(alias="inputSchema")
+    output_schema: dict[str, Any] = Field(alias="outputSchema")
+    allowed_tools: list[str] = Field(alias="allowedTools")
+    required_runtime_capabilities: list[str] = Field(alias="requiredRuntimeCapabilities")
+    required_workspace: bool = Field(alias="requiredWorkspace")
+    required_evidence: bool = Field(alias="requiredEvidence")
+    verdict_source: str = Field(alias="verdictSource")
+    source_policy: dict[str, Any] = Field(alias="sourcePolicy")
+
+
+class ResearchAgentStatus(BaseModel):
+    """Readiness del ResearchAgent: sus checks deterministas no dependen de runtime de modelo."""
+
+    id: str
+    executable: bool
+    status: str
+    reason: str
+    contract: ResearchAgentContract
+
+
+class ResearchAgentStatusResponse(BaseModel):
+    """Respuesta con el estado de readiness del ResearchAgent."""
+
+    research_agent: ResearchAgentStatus = Field(alias="researchAgent")
+
+
+class ResearchAgentRunRequest(BaseModel):
+    """Payload para ejecutar el ResearchAgent con fuentes, conclusiones y claims opcionales."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    project_id: str = Field(alias="projectId")
+    workspace_id: str = Field(alias="workspaceId")
+    task_id: str = Field(default="research_agent", alias="taskId")
+    sources: list[ResearchSourceRequest]
+    conclusions: list[ResearchConclusionRequest] = Field(default_factory=list)
+    claims: list[ResearchClaimRequest] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class ResearchAgentRunResponse(BaseModel):
+    """Resultado del ResearchAgent: fuentes persistidas, citas, conflictos y evidencia."""
+
+    status: ResearchAgentVerdict
+    verdict: ResearchAgentVerdict
+    reason: str
+    contract: ResearchAgentContract
+    workspace: dict[str, Any]
+    job: dict[str, Any]
+    agent_run: AgentRunRecord = Field(alias="agentRun")
+    evidence_package: dict[str, Any] = Field(alias="evidencePackage")
+    sources: list[dict[str, Any]]
+    conclusions: list[dict[str, Any]]
+    citation_check: dict[str, Any] = Field(alias="citationCheck")
+    conflict_findings: list[dict[str, Any]] = Field(alias="conflictFindings")
+    report_artifact: dict[str, Any] = Field(alias="reportArtifact")
+
+
 class ArchitectAgentContract(BaseModel):
     """Contrato del ArchitectAgent expuesto por la API, incluida la fuente de su veredicto."""
 
@@ -749,7 +855,7 @@ class RuntimeProviderConfigurationRecord(BaseModel):
     display_name: str = Field(alias="displayName")
     kind: RuntimeProviderKind
     configured: bool
-    status: Literal["configured", "configuration_required"]
+    status: Literal["configured", "configuration_required", "override_unset"]
     reason: str
     missing: list[str]
     variables: list[RuntimeProviderConfigurationVariable]

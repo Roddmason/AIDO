@@ -39,6 +39,8 @@ def initialize_platform_schema(connection: sqlite3.Connection) -> None:
     init_phase20_schema(connection)
     init_phase21_schema(connection)
     init_phase22_schema(connection)
+    init_phase23_schema(connection)
+    init_phase24_schema(connection)
     seed_platform_catalogs(connection)
 
 
@@ -2854,10 +2856,10 @@ def init_phase20_schema(connection: sqlite3.Connection) -> None:
 
 
 def init_phase21_schema(connection: sqlite3.Connection) -> None:
-    """Fase 21: instala la configuración persistida de runtimes (runtime_installations, cli_accounts,
+    """Fase 21: instala la configuración persistida de runtimes (runtime_installations, runtime_accounts,
     runtime_preferences) para que la config normal viva en la base —no en variables de entorno— y deja a
     las env vars solo como override. Siembra las instalaciones de los CLI y la preferencia global que
-    convierte el CLI (codex_cli) en el runtime predeterminado. NO almacena tokens: cli_accounts solo
+    convierte el CLI (codex_cli) en el runtime predeterminado. NO almacena tokens: runtime_accounts solo
     guarda el modo de auth y la clase de almacén de credenciales (dónde vive el secreto), nunca el secreto."""
     connection.executescript(
         """
@@ -2868,12 +2870,35 @@ def init_phase21_schema(connection: sqlite3.Connection) -> None:
             executable_path TEXT,
             detected_version TEXT,
             enabled INTEGER NOT NULL DEFAULT 0,
+            capabilities TEXT NOT NULL DEFAULT '[]',
+            preferred_roles TEXT NOT NULL DEFAULT '[]',
             health_status TEXT NOT NULL DEFAULT 'unknown',
+            last_validation_at TEXT,
             last_health_check_at TEXT,
             last_error TEXT,
+            configuration_source TEXT NOT NULL DEFAULT 'persisted',
             metadata TEXT NOT NULL DEFAULT '{}',
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS runtime_accounts (
+            id TEXT PRIMARY KEY,
+            runtime_id TEXT NOT NULL,
+            account_label TEXT NOT NULL,
+            auth_mode TEXT NOT NULL,
+            credential_store_kind TEXT NOT NULL,
+            credential_ref TEXT,
+            enabled INTEGER NOT NULL DEFAULT 1,
+            is_default INTEGER NOT NULL DEFAULT 0,
+            capabilities TEXT NOT NULL DEFAULT '[]',
+            preferred_roles TEXT NOT NULL DEFAULT '[]',
+            health_status TEXT NOT NULL DEFAULT 'unknown',
+            last_validation_at TEXT,
+            configuration_source TEXT NOT NULL DEFAULT 'persisted',
+            metadata TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(runtime_id, account_label)
         );
         CREATE TABLE IF NOT EXISTS cli_accounts (
             id TEXT PRIMARY KEY,
@@ -2905,24 +2930,130 @@ def init_phase21_schema(connection: sqlite3.Connection) -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_runtime_installations_enabled
             ON runtime_installations(enabled, health_status);
+        CREATE INDEX IF NOT EXISTS idx_runtime_accounts_runtime
+            ON runtime_accounts(runtime_id, enabled);
         CREATE INDEX IF NOT EXISTS idx_cli_accounts_runtime
             ON cli_accounts(runtime_id, enabled);
         """
     )
+    _add_column_if_missing(
+        connection, "runtime_installations", "capabilities", "capabilities TEXT NOT NULL DEFAULT '[]'"
+    )
+    _add_column_if_missing(
+        connection,
+        "runtime_installations",
+        "preferred_roles",
+        "preferred_roles TEXT NOT NULL DEFAULT '[]'",
+    )
+    _add_column_if_missing(
+        connection, "runtime_installations", "last_validation_at", "last_validation_at TEXT"
+    )
+    _add_column_if_missing(
+        connection,
+        "runtime_installations",
+        "configuration_source",
+        "configuration_source TEXT NOT NULL DEFAULT 'persisted'",
+    )
     timestamp = utc_now()
     cli_installations = [
-        ("runtime-installation-codex_cli", "codex_cli", "cli"),
-        ("runtime-installation-claude_code_cli", "claude_code_cli", "cli"),
+        (
+            "runtime-installation-codex_cli",
+            "codex_cli",
+            "cli",
+            ["code_edit"],
+            ["developer", "implementer", "technical_lead"],
+        ),
+        (
+            "runtime-installation-claude_code_cli",
+            "claude_code_cli",
+            "cli",
+            ["code_edit"],
+            ["developer", "technical_lead", "product_owner"],
+        ),
     ]
-    for installation_id, runtime_id, kind in cli_installations:
+    for installation_id, runtime_id, kind, capabilities, preferred_roles in cli_installations:
         connection.execute(
             """
             INSERT OR IGNORE INTO runtime_installations
-                (id, runtime_id, kind, executable_path, detected_version, enabled, health_status,
-                 last_health_check_at, last_error, metadata, created_at, updated_at)
-            VALUES (?, ?, ?, NULL, NULL, 0, 'unknown', NULL, NULL, '{}', ?, ?)
+                (id, runtime_id, kind, executable_path, detected_version, enabled, capabilities,
+                 preferred_roles, health_status, last_validation_at, last_health_check_at, last_error,
+                 configuration_source, metadata, created_at, updated_at)
+            VALUES (?, ?, ?, NULL, NULL, 0, ?, ?, 'unknown', NULL, NULL, NULL, 'seed', '{}', ?, ?)
             """,
-            (installation_id, runtime_id, kind, timestamp, timestamp),
+            (
+                installation_id,
+                runtime_id,
+                kind,
+                json_dumps(capabilities),
+                json_dumps(preferred_roles),
+                timestamp,
+                timestamp,
+            ),
+        )
+        connection.execute(
+            """
+            UPDATE runtime_installations
+            SET capabilities = CASE WHEN capabilities = '[]' THEN ? ELSE capabilities END,
+                preferred_roles = CASE WHEN preferred_roles = '[]' THEN ? ELSE preferred_roles END,
+                configuration_source = CASE
+                    WHEN metadata LIKE '%environment_override%' THEN 'environment_override'
+                    WHEN configuration_source = 'persisted'
+                         AND executable_path IS NULL
+                         AND detected_version IS NULL THEN 'seed'
+                    ELSE configuration_source
+                END
+            WHERE runtime_id = ?
+            """,
+            (json_dumps(capabilities), json_dumps(preferred_roles), runtime_id),
+        )
+
+    connection.execute(
+        """
+        INSERT OR IGNORE INTO runtime_accounts
+            (id, runtime_id, account_label, auth_mode, credential_store_kind, credential_ref, enabled,
+             is_default, capabilities, preferred_roles, health_status, last_validation_at,
+             configuration_source, metadata, created_at, updated_at)
+        SELECT id, runtime_id, account_label, auth_mode, credential_store_kind, credential_ref, enabled,
+               is_default, '[]', '[]', health_status, NULL, 'legacy_cli_accounts',
+               metadata, created_at, updated_at
+        FROM cli_accounts
+        """
+    )
+    native_accounts = [
+        (
+            "runtime-account-codex_cli-native",
+            "codex_cli",
+            "Local Codex CLI",
+            ["code_edit"],
+            ["developer", "implementer", "technical_lead"],
+        ),
+        (
+            "runtime-account-claude_code_cli-native",
+            "claude_code_cli",
+            "Local Claude Code CLI",
+            ["code_edit"],
+            ["developer", "technical_lead", "product_owner"],
+        ),
+    ]
+    for account_id, runtime_id, account_label, capabilities, preferred_roles in native_accounts:
+        connection.execute(
+            """
+            INSERT OR IGNORE INTO runtime_accounts
+                (id, runtime_id, account_label, auth_mode, credential_store_kind, credential_ref, enabled,
+                 is_default, capabilities, preferred_roles, health_status, last_validation_at,
+                 configuration_source, metadata, created_at, updated_at)
+            VALUES (?, ?, ?, 'provider_native_cli', 'provider_native_cli', NULL, 1, 1, ?, ?, 'unknown',
+                    NULL, 'seed', '{}', ?, ?)
+            """,
+            (
+                account_id,
+                runtime_id,
+                account_label,
+                json_dumps(capabilities),
+                json_dumps(preferred_roles),
+                timestamp,
+                timestamp,
+            ),
         )
     connection.execute(
         """
@@ -2989,6 +3120,126 @@ def init_phase22_schema(connection: sqlite3.Connection) -> None:
     connection.execute(
         "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
         (22, utc_now()),
+    )
+
+
+def init_phase23_schema(connection: sqlite3.Connection) -> None:
+    """Fase 23: stream de sesiones CLI — bitácora acotada de eventos por sesión (cli_session_events).
+
+    Cada evento del ciclo de una sesión CLI (started/stdout_chunk/stderr_chunk/tool_action/file_changed/
+    approval_requested/completed/failed/cancelled) se persiste con un ``seq`` monótono por sesión y su
+    payload redactado y truncado; los chunks grandes se promueven a artifacts y se referencian por id.
+    Un cap por sesión conserva solo los eventos más recientes, de modo que la tabla nunca crece sin límite.
+    """
+    connection.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS cli_session_events (
+            id TEXT PRIMARY KEY,
+            cli_session_id TEXT NOT NULL,
+            project_id TEXT,
+            seq INTEGER NOT NULL,
+            type TEXT NOT NULL,
+            payload TEXT NOT NULL,
+            artifact_id TEXT,
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_cli_session_events_session_seq
+            ON cli_session_events(cli_session_id, seq);
+        """
+    )
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (23, utc_now()),
+    )
+
+
+def init_phase24_schema(connection: sqlite3.Connection) -> None:
+    """Fase 24: colaboración basada en artefactos para asignaciones de agentes.
+
+    Cada ``agent_assignment`` declara un contrato de entrada/salida, enlaza un artefacto canónico
+    y crea un handoff durable. Las revisiones exigidas por política, los desacuerdos y la resolución
+    final viven como entidades trazables en lugar de viajar en prompts compartidos sin control.
+    """
+    _add_column_if_missing(
+        connection, "agent_assignments", "input_schema", "input_schema TEXT NOT NULL DEFAULT '{}'"
+    )
+    _add_column_if_missing(
+        connection, "agent_assignments", "output_schema", "output_schema TEXT NOT NULL DEFAULT '{}'"
+    )
+    _add_column_if_missing(
+        connection,
+        "agent_assignments",
+        "canonical_artifact_id",
+        "canonical_artifact_id TEXT NOT NULL DEFAULT ''",
+    )
+    _add_column_if_missing(
+        connection, "agent_assignments", "handoff_id", "handoff_id TEXT NOT NULL DEFAULT ''"
+    )
+    _add_column_if_missing(
+        connection, "agent_assignments", "review_required", "review_required INTEGER NOT NULL DEFAULT 0"
+    )
+    connection.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS assignment_handoffs (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            assignment_id TEXT NOT NULL,
+            artifact_id TEXT NOT NULL,
+            from_agent_id TEXT NOT NULL,
+            to_agent_id TEXT NOT NULL,
+            status TEXT NOT NULL,
+            review_required INTEGER NOT NULL,
+            blocked_reason TEXT NOT NULL,
+            metadata TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS assignment_reviews (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            assignment_id TEXT NOT NULL,
+            handoff_id TEXT NOT NULL,
+            reviewer_agent_id TEXT NOT NULL,
+            policy_required INTEGER NOT NULL,
+            status TEXT NOT NULL,
+            decision TEXT NOT NULL,
+            findings TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            resolved_at TEXT
+        );
+        CREATE TABLE IF NOT EXISTS assignment_conflicts (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            assignment_id TEXT NOT NULL,
+            handoff_id TEXT NOT NULL,
+            status TEXT NOT NULL,
+            raised_by TEXT NOT NULL,
+            disagreement TEXT NOT NULL,
+            final_resolution TEXT NOT NULL,
+            resolved_by TEXT,
+            resolved_at TEXT,
+            metadata TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_assignment_handoffs_assignment
+            ON assignment_handoffs(assignment_id, status);
+        CREATE INDEX IF NOT EXISTS idx_assignment_handoffs_project
+            ON assignment_handoffs(project_id, status);
+        CREATE INDEX IF NOT EXISTS idx_assignment_reviews_assignment
+            ON assignment_reviews(assignment_id, status);
+        CREATE INDEX IF NOT EXISTS idx_assignment_reviews_project
+            ON assignment_reviews(project_id, status);
+        CREATE INDEX IF NOT EXISTS idx_assignment_conflicts_assignment
+            ON assignment_conflicts(assignment_id, status);
+        CREATE INDEX IF NOT EXISTS idx_assignment_conflicts_project
+            ON assignment_conflicts(project_id, status);
+        """
+    )
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (24, utc_now()),
     )
 
 

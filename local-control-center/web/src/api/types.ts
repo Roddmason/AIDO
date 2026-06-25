@@ -15,6 +15,9 @@ import type {
 	ChatRecord,
 	CliRuntimeRecord,
 	CliSessionRecord,
+	CredentialAuditRecord,
+	CredentialBackendStatus,
+	CredentialRecord,
 	EventRecord as GeneratedEventRecord,
 	RiskRecord as GeneratedRiskRecord,
 	JobRecord,
@@ -91,6 +94,9 @@ export type ModelGatewayCliRuntime = CliRuntimeRecord;
 export type ModelGatewayCliSession = CliSessionRecord;
 export type ModelGatewayBenchmark = ModelBenchmarkRecord;
 export type ModelGatewayBenchmarkOutcome = ModelBenchmarkOutcomeRecord;
+export type Credential = CredentialRecord;
+export type CredentialBackend = CredentialBackendStatus;
+export type CredentialAudit = CredentialAuditRecord;
 export type AgentRole = NonNullable<AgentProfileUpsertRequest['role']>;
 export type AgentRuntimeMode = NonNullable<AgentProfileUpsertRequest['runtimeMode']>;
 export type PermissionProfile = NonNullable<AgentProfileUpsertRequest['permissionProfile']>;

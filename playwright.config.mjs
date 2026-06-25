@@ -6,6 +6,10 @@ const playwrightDbPath = process.env.PLAYWRIGHT_DB_PATH || `.tmp/playwright-cont
 const venvPython = process.platform === 'win32' ? '.\\.venv\\Scripts\\python.exe' : './.venv/bin/python';
 const pythonCommand = existsSync(venvPython) ? `"${venvPython}"` : 'uv run python';
 const externalWebServer = process.env.PLAYWRIGHT_EXTERNAL_SERVER === '1';
+// Headless/sandboxed/CI environments where chromium's own sandbox can't initialize: opt in with
+// PLAYWRIGHT_NO_SANDBOX=1. Off by default so normal (Windows) runs keep the chromium sandbox.
+const chromiumLaunchOptions =
+	process.env.PLAYWRIGHT_NO_SANDBOX === '1' ? { args: ['--no-sandbox', '--disable-gpu'] } : {};
 const webServerConfig = externalWebServer
 	? {}
 	: {
@@ -27,6 +31,7 @@ export default defineConfig({
 	use: {
 		baseURL: `http://127.0.0.1:${dashboardPort}`,
 		trace: 'on-first-retry',
+		launchOptions: chromiumLaunchOptions,
 	},
 	...webServerConfig,
 	projects: [

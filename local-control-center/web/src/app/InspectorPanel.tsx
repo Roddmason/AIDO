@@ -4,15 +4,15 @@
 
 import type { Variants } from 'motion/react';
 import { m } from 'motion/react';
-import { useLayoutEffect, useMemo, useRef } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import type { Overview, Project } from '../api/types';
 import { Badge, EmptyState } from '../components/primitives';
-import { IconButton } from '../components/ui';
+import { IconButton, Tabs } from '../components/ui';
 import { LoopList } from '../features/shell/LoopList';
 import { RunDetail } from '../features/workflows/RunDetail';
 import { useI18n } from '../i18n/I18nProvider';
-import { toneForStatus } from '../lib/format';
+import { shortId, toneForStatus } from '../lib/format';
 import { EASE_OUT } from '../motion/variants';
 import type { Mutate } from './routes';
 
@@ -55,6 +55,7 @@ export function InspectorPanel({
 	showLoops?: boolean;
 }) {
 	const { t } = useI18n();
+	const [inspectorTab, setInspectorTab] = useState<'team' | 'plan' | 'artifacts'>('plan');
 	// Restore focus to whatever opened the inspector (the header toggle) when the panel
 	// closes. AppShell keeps the panel mounted during its exit animation, so without this
 	// the focused close button would unmount under the user and strand keyboard focus.
@@ -84,6 +85,9 @@ export function InspectorPanel({
 		overview.workflows,
 		selectedProject,
 	]);
+	const projectArtifacts = selectedProject
+		? overview.artifacts.filter((artifact) => artifact.projectId === selectedProject.id)
+		: [];
 
 	return (
 		<m.aside
@@ -157,8 +161,57 @@ export function InspectorPanel({
 			)}
 			{showLoops && !selectedRunId ? (
 				<div className="inspector-plan">
-					<h3 className="surface-title">{t('app.shell.loops.listLabel', 'Product loops')}</h3>
-					<LoopList projectId={selectedProject?.id} filter="" />
+					<Tabs
+						label={t('app.inspector.tabsLabel', 'Inspector views')}
+						activeTab={inspectorTab}
+						onChange={(id) => setInspectorTab(id as 'team' | 'plan' | 'artifacts')}
+						idBase="inspector"
+						tabs={[
+							{ id: 'team', label: t('app.inspector.team', 'Team') },
+							{ id: 'plan', label: t('app.inspector.plan', 'Plan') },
+							{ id: 'artifacts', label: t('app.inspector.artifacts', 'Artifacts') },
+						]}
+					>
+						{inspectorTab === 'plan' ? (
+							<LoopList projectId={selectedProject?.id} filter="" />
+						) : inspectorTab === 'team' ? (
+							overview.agentProfiles.length ? (
+								<ul className="inspector-list">
+									{overview.agentProfiles.map((profile) => (
+										<li key={profile.id} className="inspector-row">
+											<strong>{profile.name}</strong>
+											<Badge>{String(profile.role)}</Badge>
+										</li>
+									))}
+								</ul>
+							) : (
+								<EmptyState
+									title={t('app.inspector.teamEmpty', 'No agents configured')}
+									body={t(
+										'app.inspector.teamEmptyBody',
+										'Configure the AI team in Settings → Agents.',
+									)}
+								/>
+							)
+						) : projectArtifacts.length ? (
+							<ul className="inspector-list">
+								{projectArtifacts.slice(0, 20).map((artifact) => (
+									<li key={artifact.id} className="inspector-row">
+										<span className="mono">{shortId(artifact.id)}</span>
+										<Badge>{String(artifact.kind)}</Badge>
+									</li>
+								))}
+							</ul>
+						) : (
+							<EmptyState
+								title={t('app.inspector.artifactsEmpty', 'No artifacts yet')}
+								body={t(
+									'app.inspector.artifactsEmptyBody',
+									'Artifacts produced by runs appear here.',
+								)}
+							/>
+						)}
+					</Tabs>
 				</div>
 			) : null}
 		</m.aside>

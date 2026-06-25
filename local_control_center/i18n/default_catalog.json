@@ -1415,6 +1415,38 @@
       "en": "Project",
       "es": "Proyecto"
     },
+    "app.inspector.tabsLabel": {
+      "en": "Inspector views",
+      "es": "Vistas del inspector"
+    },
+    "app.inspector.team": {
+      "en": "Team",
+      "es": "Equipo"
+    },
+    "app.inspector.plan": {
+      "en": "Plan",
+      "es": "Planificación"
+    },
+    "app.inspector.artifacts": {
+      "en": "Artifacts",
+      "es": "Artefactos"
+    },
+    "app.inspector.teamEmpty": {
+      "en": "No agents configured",
+      "es": "Sin agentes configurados"
+    },
+    "app.inspector.teamEmptyBody": {
+      "en": "Configure the AI team in Settings → Agents.",
+      "es": "Configura el equipo de IA en Configuración → Agentes."
+    },
+    "app.inspector.artifactsEmpty": {
+      "en": "No artifacts yet",
+      "es": "Aún no hay artefactos"
+    },
+    "app.inspector.artifactsEmptyBody": {
+      "en": "Artifacts produced by runs appear here.",
+      "es": "Los artefactos producidos por las ejecuciones aparecen aquí."
+    },
     "app.inspector.pendingApprovals": {
       "en": "Pending approvals",
       "es": "Aprobaciones pendientes"

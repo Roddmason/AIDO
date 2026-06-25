@@ -132,6 +132,15 @@ def test_planner_produces_full_plan_and_persists_the_dag(tmp_path: Path) -> None
         assert all(task["metadata"]["iterationId"] == iteration["id"] for task in persisted_tasks)
         assert backlog.list_iterations(project["id"])[0]["id"] == iteration["id"]
         assert len(result["assignments"]) == 6
+        assert all(assignment["inputSchema"]["required"] for assignment in result["assignments"])
+        assert all(assignment["outputSchema"]["required"] for assignment in result["assignments"])
+        assert all(assignment["canonicalArtifactId"] for assignment in result["assignments"])
+        assert all(assignment["handoffId"] for assignment in result["assignments"])
+        assert {
+            assignment["role"] for assignment in result["assignments"] if assignment["reviewRequired"]
+        } == {"backend_engineer", "frontend_engineer"}
+        assert len(backlog.list_assignment_handoffs(project_id=project["id"])) == 6
+        assert len(backlog.list_assignment_reviews(project_id=project["id"])) == 4
         assert backlog.list_task_dependencies(task_id=qa_first["taskId"])  # qa has persisted deps
 
 

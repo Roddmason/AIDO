@@ -20,6 +20,10 @@ EMPTY_LOOP_STATE = {
     "epics": [],
     "stories": [],
     "tasks": [],
+    "assignments": [],
+    "assignmentHandoffs": [],
+    "assignmentReviews": [],
+    "assignmentConflicts": [],
     "iterations": [],
 }
 
@@ -151,13 +155,24 @@ def test_product_loop_endpoint_aggregates_real_loop_state_scoped_to_the_project(
                 "storyPoints": 5,
             }
         )
-        backlog.create_agent_task(
+        task = backlog.create_agent_task(
             {
                 "projectId": project_id,
                 "storyId": story["id"],
                 "title": "frontend work for guest checkout",
                 "role": "frontend",
                 "estimateHours": 4.0,
+            }
+        )
+        assignment = backlog.create_agent_assignment(
+            {
+                "projectId": project_id,
+                "taskId": task["id"],
+                "agentId": "agent-frontend",
+                "role": "frontend_engineer",
+                "assignedBy": "iteration_planner",
+                "reviewRequired": True,
+                "reviewerAgentId": "agent-qa",
             }
         )
         backlog.create_iteration(
@@ -194,6 +209,14 @@ def test_product_loop_endpoint_aggregates_real_loop_state_scoped_to_the_project(
         assert body["stories"][0]["storyPoints"] == 5
         assert len(body["tasks"]) == 1
         assert body["tasks"][0]["role"] == "frontend"
+        assert [item["id"] for item in body["assignments"]] == [assignment["id"]]
+        assert body["assignments"][0]["canonicalArtifactId"] == assignment["canonicalArtifactId"]
+        assert body["assignments"][0]["inputSchema"]["type"] == "object"
+        assert [item["assignmentId"] for item in body["assignmentHandoffs"]] == [assignment["id"]]
+        assert body["assignmentHandoffs"][0]["artifactId"] == assignment["canonicalArtifactId"]
+        assert [item["assignmentId"] for item in body["assignmentReviews"]] == [assignment["id"]]
+        assert body["assignmentReviews"][0]["status"] == "pending"
+        assert body["assignmentConflicts"] == []
         assert len(body["iterations"]) == 1
         assert body["iterations"][0]["workspaceStrategy"] == "worktree_per_task"
 
@@ -205,6 +228,10 @@ def test_product_loop_endpoint_aggregates_real_loop_state_scoped_to_the_project(
         assert other_body["questions"] == []
         assert other_body["brief"] is None
         assert other_body["epics"] == []
+        assert other_body["assignments"] == []
+        assert other_body["assignmentHandoffs"] == []
+        assert other_body["assignmentReviews"] == []
+        assert other_body["assignmentConflicts"] == []
         assert [item["id"] for item in other_body["loops"]] == [other_loop["id"]]
     finally:
         runtime.close()

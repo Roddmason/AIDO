@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from local_control_center.backlog.repository import BacklogRepository
+from local_control_center.evidence.repository import EvidenceRepository
 from local_control_center.projects.repository import ProjectsRepository
 from local_control_center.shared.db import open_sqlite_connection
 from local_control_center.shared.migrations import initialize_platform_schema
@@ -17,6 +18,9 @@ BACKLOG_TABLES = {
     "agent_tasks",
     "task_dependencies",
     "agent_assignments",
+    "assignment_handoffs",
+    "assignment_reviews",
+    "assignment_conflicts",
 }
 
 
@@ -168,3 +172,183 @@ def test_user_story_is_role_agnostic_and_work_decomposes_into_agent_tasks(tmp_pa
         assert {item["id"] for item in repo.list_epics(project_id)} == {epic["id"]}
         assert repo.list_user_stories(other_project["id"]) == []
         assert repo.list_agent_tasks(project_id=other_project["id"]) == []
+
+
+def test_agent_assignment_creates_structured_artifact_handoff_and_review_contract(
+    tmp_path: Path,
+) -> None:
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        projects = ProjectsRepository(connection)
+        repo = BacklogRepository(connection)
+        artifacts = EvidenceRepository(connection)
+
+        project = projects.create_project(name="Collab", path=tmp_path / "collab", template_id="other")
+        project_id = project["id"]
+        epic = repo.create_epic({"projectId": project_id, "title": "Checkout"})
+        story = repo.create_user_story({"projectId": project_id, "epicId": epic["id"], "title": "Pay"})
+        task = repo.create_agent_task(
+            {
+                "projectId": project_id,
+                "storyId": story["id"],
+                "title": "Backend checkout work",
+                "role": "backend_engineer",
+            }
+        )
+        input_schema = {"type": "object", "required": ["storyId", "taskId"]}
+        output_schema = {"type": "object", "required": ["artifactId", "summary"]}
+
+        assignment = repo.create_agent_assignment(
+            {
+                "projectId": project_id,
+                "taskId": task["id"],
+                "agentId": "agent-backend",
+                "role": "backend_engineer",
+                "assignedBy": "iteration_planner",
+                "inputSchema": input_schema,
+                "outputSchema": output_schema,
+                "reviewRequired": True,
+                "reviewerAgentId": "agent-qa",
+            }
+        )
+
+        assert assignment["inputSchema"] == input_schema
+        assert assignment["outputSchema"] == output_schema
+        assert assignment["canonicalArtifactId"].startswith("artifact-")
+        assert assignment["handoffId"].startswith("assignment-handoff-")
+        assert assignment["reviewRequired"] is True
+
+        artifact = artifacts.get_artifact_by_id(assignment["canonicalArtifactId"])
+        assert artifact["kind"] == "generic_artifact"
+        assert artifact["metadata"]["artifactContract"] == "agent_assignment_canonical"
+        assert artifact["metadata"]["assignmentId"] == assignment["id"]
+        assert artifact["metadata"]["inputSchema"] == input_schema
+        assert artifact["metadata"]["outputSchema"] == output_schema
+
+        handoffs = repo.list_assignment_handoffs(assignment_id=assignment["id"])
+        assert len(handoffs) == 1
+        assert handoffs[0]["artifactId"] == assignment["canonicalArtifactId"]
+        assert handoffs[0]["status"] == "pending"
+        assert handoffs[0]["fromAgentId"] == "iteration_planner"
+        assert handoffs[0]["toAgentId"] == "agent-backend"
+
+        reviews = repo.list_assignment_reviews(assignment_id=assignment["id"])
+        assert len(reviews) == 1
+        assert reviews[0]["handoffId"] == assignment["handoffId"]
+        assert reviews[0]["reviewerAgentId"] == "agent-qa"
+        assert reviews[0]["policyRequired"] is True
+        assert reviews[0]["status"] == "pending"
+
+        with pytest.raises(ValueError, match="free-form prompt"):
+            repo.create_agent_assignment(
+                {
+                    "projectId": project_id,
+                    "taskId": task["id"],
+                    "agentId": "agent-backend-2",
+                    "role": "backend_engineer",
+                    "assignedBy": "operator",
+                    "prompt": "Read the shared prompt and do whatever is needed.",
+                }
+            )
+
+
+def test_downstream_assignment_cannot_begin_until_upstream_collaboration_is_resolved(
+    tmp_path: Path,
+) -> None:
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        projects = ProjectsRepository(connection)
+        repo = BacklogRepository(connection)
+
+        project = projects.create_project(name="Gate", path=tmp_path / "gate", template_id="other")
+        project_id = project["id"]
+        epic = repo.create_epic({"projectId": project_id, "title": "Checkout"})
+        story = repo.create_user_story({"projectId": project_id, "epicId": epic["id"], "title": "Pay"})
+        backend_task = repo.create_agent_task(
+            {
+                "projectId": project_id,
+                "storyId": story["id"],
+                "title": "Backend checkout work",
+                "role": "backend_engineer",
+            }
+        )
+        qa_task = repo.create_agent_task(
+            {
+                "projectId": project_id,
+                "storyId": story["id"],
+                "title": "QA checkout validation",
+                "role": "qa",
+            }
+        )
+        repo.create_task_dependency(
+            {
+                "projectId": project_id,
+                "taskId": qa_task["id"],
+                "dependsOnTaskId": backend_task["id"],
+            }
+        )
+        upstream = repo.create_agent_assignment(
+            {
+                "projectId": project_id,
+                "taskId": backend_task["id"],
+                "agentId": "agent-backend",
+                "role": "backend_engineer",
+                "assignedBy": "iteration_planner",
+                "reviewRequired": True,
+                "reviewerAgentId": "agent-qa-reviewer",
+            }
+        )
+        downstream = repo.create_agent_assignment(
+            {
+                "projectId": project_id,
+                "taskId": qa_task["id"],
+                "agentId": "agent-qa",
+                "role": "qa",
+                "assignedBy": "iteration_planner",
+                "reviewRequired": False,
+            }
+        )
+
+        with pytest.raises(ValueError, match="upstream handoff"):
+            repo.update_agent_assignment(downstream["id"], {"status": "in_progress"})
+
+        repo.update_assignment_handoff(upstream["handoffId"], {"status": "accepted"})
+        with pytest.raises(ValueError, match="required review"):
+            repo.update_agent_assignment(downstream["id"], {"status": "in_progress"})
+
+        review = repo.list_assignment_reviews(assignment_id=upstream["id"])[0]
+        recorded_review = repo.record_assignment_review(
+            review["id"],
+            {
+                "status": "approved",
+                "decision": "approved",
+                "findings": [{"severity": "info", "message": "Covered by focused QA."}],
+                "reviewerAgentId": "agent-qa-reviewer",
+            },
+        )
+        assert recorded_review["findings"][0]["message"] == "Covered by focused QA."
+
+        conflict = repo.create_assignment_conflict(
+            {
+                "projectId": project_id,
+                "assignmentId": upstream["id"],
+                "handoffId": upstream["handoffId"],
+                "raisedBy": "agent-qa-reviewer",
+                "disagreement": "Reviewer and implementer disagree on the validation boundary.",
+            }
+        )
+        with pytest.raises(ValueError, match="unresolved conflict"):
+            repo.update_agent_assignment(downstream["id"], {"status": "in_progress"})
+
+        resolved = repo.resolve_assignment_conflict(
+            conflict["id"],
+            {
+                "finalResolution": "Validation boundary accepted after adding focused QA evidence.",
+                "resolvedBy": "technical_lead",
+            },
+        )
+        assert resolved["status"] == "resolved"
+        assert resolved["finalResolution"] == "Validation boundary accepted after adding focused QA evidence."
+
+        started = repo.update_agent_assignment(downstream["id"], {"status": "in_progress"})
+        assert started["status"] == "in_progress"

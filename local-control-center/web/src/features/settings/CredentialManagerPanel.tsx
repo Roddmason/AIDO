@@ -221,7 +221,7 @@ export function CredentialManagerPanel({ token }: { token: string }) {
 				</div>
 				<div className="inline">
 					<Button onClick={() => void refresh()} disabled={disabled} icon={<RefreshCw size={15} />}>
-						{t('app.runtime.refresh', 'Refresh')}
+						{t('settings.credentials.refresh', 'Refresh credentials')}
 					</Button>
 					<Button
 						onClick={() => void handleMigrate()}

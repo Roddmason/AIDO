@@ -63,10 +63,13 @@ class CredentialManager:
     @staticmethod
     def _public(record: dict[str, Any]) -> dict[str, Any]:
         # Proyecta solo metadatos no sensibles: nunca fingerprint ni sal (ni, por supuesto, el valor).
+        backend_kind = record["backendKind"]
+        if backend_kind == "env":
+            backend_kind = "environment_override"
         return {
             "id": record["id"],
             "name": record["name"],
-            "backendKind": record["backendKind"],
+            "backendKind": backend_kind,
             "locator": record["locator"],
             "authMode": record["authMode"],
             "status": record["status"],

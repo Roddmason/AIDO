@@ -34,6 +34,7 @@ import { TranslationMaintainer } from '../../i18n/TranslationMaintainer';
 import { toneForStatus } from '../../lib/format';
 import type { Language } from '../projects/ProjectsPage';
 import { RuntimeSetupPanel } from '../runtime-setup/RuntimeSetupPanel';
+import { CredentialManagerPanel } from './CredentialManagerPanel';
 
 type Mutate = <T>(operation: (token: string) => Promise<T>) => Promise<T>;
 type Tone = 'ok' | 'warn' | 'danger' | 'info';
@@ -88,7 +89,7 @@ export function SettingsPage({
 	runtimeProviders: RuntimeProviders | null;
 	runtimeProviderConfiguration: RuntimeProviderConfiguration[] | null;
 	token: string;
-	onRefresh: () => Promise<unknown> | void;
+	onRefresh: () => Promise<unknown> | undefined;
 }) {
 	const { t } = useI18n();
 	const activeProjects = overview.projects.filter((project) => project.status === 'active');
@@ -138,7 +139,7 @@ export function SettingsPage({
 					id="security"
 					status={{ tone: 'ok', label: t('app.settings.security.statusLabel', 'Local token') }}
 				>
-					<SecurityBody overview={overview} />
+					<SecurityBody overview={overview} token={token} />
 				</SettingsGroup>
 
 				<SettingsGroup id="workspaces" status={workspacesStatus(overview, t)}>
@@ -409,7 +410,7 @@ function RuntimeBody({
 	runtimeProviders: RuntimeProviders | null;
 	runtimeProviderConfiguration: RuntimeProviderConfiguration[] | null;
 	token: string;
-	onRefresh: () => Promise<unknown> | void;
+	onRefresh: () => Promise<unknown> | undefined;
 }) {
 	const { t } = useI18n();
 	return (
@@ -515,7 +516,7 @@ function AgentsBody({
 	);
 }
 
-function SecurityBody({ overview }: { overview: Overview }) {
+function SecurityBody({ overview, token }: { overview: Overview; token: string }) {
 	const { t } = useI18n();
 	const sandboxProfile = overview.sandboxProfiles[0];
 	return (
@@ -543,6 +544,7 @@ function SecurityBody({ overview }: { overview: Overview }) {
 				<ConsoleLink page="evidence" label={t('app.settings.openEvidence', 'Open Evidence & QA')} />
 				<ConsoleLink page="audit" label={t('app.settings.openAudit', 'Open Audit Log')} />
 			</div>
+			<CredentialManagerPanel token={token} />
 		</>
 	);
 }

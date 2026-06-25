@@ -1,10 +1,11 @@
 """Adaptadores de backend de credenciales: dónde vive realmente el secreto, fuera de SQLite.
 
 Define el protocolo ``CredentialBackend`` (write/read/remove) y sus implementaciones: keyring (por
-defecto, Windows Credential Manager), env (solo bootstrap/CI, de solo lectura), vault y openbao (KV v2
-por HTTP) y dpapi_sqlite (opcional, cifra con DPAPI de Windows y guarda el blob cifrado en su propio
-SQLite). Las dependencias externas (keyring, win32crypt) se importan de forma perezosa y, si faltan o
-la operación no aplica, fallan cerrado con un error claro. Ningún adaptador imprime ni registra el valor.
+defecto, Windows Credential Manager), environment_override (solo bootstrap/CI, de solo lectura), vault
+y openbao (KV v2 por HTTP) y dpapi_sqlite (opcional, cifra con DPAPI de Windows y guarda el blob
+cifrado en su propio SQLite). Las dependencias externas (keyring, win32crypt) se importan de forma
+perezosa y, si faltan o la operación no aplica, fallan cerrado con un error claro. Ningún adaptador
+imprime ni registra el valor.
 """
 
 from __future__ import annotations
@@ -97,18 +98,20 @@ class KeyringBackend:
             raise CredentialBackendError(f"keyring delete failed: {error}") from error
 
 
-class EnvBackend:
+class EnvironmentOverrideBackend:
     """Backend de solo lectura para bootstrap/CI: el secreto viene de una variable de entorno."""
 
-    backend_kind = "env"
+    backend_kind = "environment_override"
     read_only = True
 
     def __init__(self, env: dict[str, str] | None = None):
         self._env = env
 
     def write(self, locator: str, value: str) -> None:
-        """Siempre falla: el backend env es solo bootstrap y de solo lectura."""
-        raise CredentialBackendError("The env backend is bootstrap-only and read-only; cannot write.")
+        """Siempre falla: este backend es solo bootstrap y de solo lectura."""
+        raise CredentialBackendError(
+            "The environment_override backend is bootstrap-only and read-only; cannot write."
+        )
 
     def read(self, locator: str) -> str | None:
         """Lee el secreto de la variable de entorno nombrada por ``locator``."""
@@ -116,8 +119,11 @@ class EnvBackend:
         return source.get(locator) or None
 
     def remove(self, locator: str) -> None:
-        """Siempre falla: el backend env es solo bootstrap; no borra variables de entorno."""
-        raise CredentialBackendError("The env backend is bootstrap-only; cannot delete.")
+        """Siempre falla: este backend es solo bootstrap; no borra variables de entorno."""
+        raise CredentialBackendError("The environment_override backend is bootstrap-only; cannot delete.")
+
+
+EnvBackend = EnvironmentOverrideBackend
 
 
 class VaultBackend:
@@ -249,10 +255,20 @@ def default_backends(env: dict[str, str] | None = None) -> dict[str, CredentialB
 
     Vault/OpenBao se registran solo si su dirección y token están en el entorno de bootstrap
     (``AIDO_VAULT_ADDR``/``AIDO_VAULT_TOKEN``, ``AIDO_OPENBAO_ADDR``/``AIDO_OPENBAO_TOKEN``); el secreto
-    de auth a Vault es el único caso de env como bootstrap, no como configuración normal.
+    de auth a Vault es bootstrap, no configuración normal. ``dpapi_sqlite`` se registra solo cuando
+    ``AIDO_DPAPI_SQLITE_PATH`` apunta a su SQLite cifrada. ``env`` queda como alias legacy interno de
+    ``environment_override`` para filas antiguas.
     """
     source = os.environ if env is None else env
-    backends: dict[str, CredentialBackend] = {"keyring": KeyringBackend(), "env": EnvBackend(env)}
+    environment_override = EnvironmentOverrideBackend(env)
+    backends: dict[str, CredentialBackend] = {
+        "keyring": KeyringBackend(),
+        "environment_override": environment_override,
+        "env": environment_override,
+    }
+    dpapi_path = str(source.get("AIDO_DPAPI_SQLITE_PATH") or "").strip()
+    if dpapi_path:
+        backends["dpapi_sqlite"] = DpapiSqliteBackend(Path(dpapi_path))
     for kind, addr_var, token_var in (
         ("vault", "AIDO_VAULT_ADDR", "AIDO_VAULT_TOKEN"),
         ("openbao", "AIDO_OPENBAO_ADDR", "AIDO_OPENBAO_TOKEN"),

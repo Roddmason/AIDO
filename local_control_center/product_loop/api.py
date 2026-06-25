@@ -65,6 +65,10 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             "epics": backlog.list_epics(project_id),
             "stories": backlog.list_user_stories(project_id=project_id),
             "tasks": backlog.list_agent_tasks(project_id=project_id),
+            "assignments": backlog.list_agent_assignments(project_id=project_id),
+            "assignmentHandoffs": backlog.list_assignment_handoffs(project_id=project_id),
+            "assignmentReviews": backlog.list_assignment_reviews(project_id=project_id),
+            "assignmentConflicts": backlog.list_assignment_conflicts(project_id=project_id),
             "iterations": backlog.list_iterations(project_id),
         }
 

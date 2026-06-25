@@ -182,6 +182,80 @@ class AgentTaskRecord(BaseModel):
     updated_at: str = Field(alias="updatedAt")
 
 
+class AgentAssignmentRecord(BaseModel):
+    """Asignación de agente con contrato estructurado y enlaces de colaboración."""
+
+    id: str
+    project_id: str = Field(alias="projectId")
+    task_id: str = Field(alias="taskId")
+    agent_id: str = Field(alias="agentId")
+    role: str
+    status: str
+    assigned_by: str = Field(alias="assignedBy")
+    assigned_at: str = Field(alias="assignedAt")
+    released_at: str | None = Field(default=None, alias="releasedAt")
+    input_schema: dict[str, Any] = Field(alias="inputSchema")
+    output_schema: dict[str, Any] = Field(alias="outputSchema")
+    canonical_artifact_id: str = Field(alias="canonicalArtifactId")
+    handoff_id: str = Field(alias="handoffId")
+    review_required: bool = Field(alias="reviewRequired")
+    metadata: dict[str, Any]
+    created_at: str = Field(alias="createdAt")
+    updated_at: str = Field(alias="updatedAt")
+
+
+class AssignmentHandoffRecord(BaseModel):
+    """Handoff durable de una asignación hacia el agente responsable."""
+
+    id: str
+    project_id: str = Field(alias="projectId")
+    assignment_id: str = Field(alias="assignmentId")
+    artifact_id: str = Field(alias="artifactId")
+    from_agent_id: str = Field(alias="fromAgentId")
+    to_agent_id: str = Field(alias="toAgentId")
+    status: str
+    review_required: bool = Field(alias="reviewRequired")
+    blocked_reason: str = Field(alias="blockedReason")
+    metadata: dict[str, Any]
+    created_at: str = Field(alias="createdAt")
+    updated_at: str = Field(alias="updatedAt")
+
+
+class AssignmentReviewRecord(BaseModel):
+    """Review policy-driven de un handoff, con hallazgos persistidos."""
+
+    id: str
+    project_id: str = Field(alias="projectId")
+    assignment_id: str = Field(alias="assignmentId")
+    handoff_id: str = Field(alias="handoffId")
+    reviewer_agent_id: str = Field(alias="reviewerAgentId")
+    policy_required: bool = Field(alias="policyRequired")
+    status: str
+    decision: str
+    findings: list[Any]
+    created_at: str = Field(alias="createdAt")
+    updated_at: str = Field(alias="updatedAt")
+    resolved_at: str | None = Field(default=None, alias="resolvedAt")
+
+
+class AssignmentConflictRecord(BaseModel):
+    """Desacuerdo entre agentes/reviewers y su resolución final."""
+
+    id: str
+    project_id: str = Field(alias="projectId")
+    assignment_id: str = Field(alias="assignmentId")
+    handoff_id: str = Field(alias="handoffId")
+    status: str
+    raised_by: str = Field(alias="raisedBy")
+    disagreement: str
+    final_resolution: str = Field(alias="finalResolution")
+    resolved_by: str | None = Field(default=None, alias="resolvedBy")
+    resolved_at: str | None = Field(default=None, alias="resolvedAt")
+    metadata: dict[str, Any]
+    created_at: str = Field(alias="createdAt")
+    updated_at: str = Field(alias="updatedAt")
+
+
 class IterationRecord(BaseModel):
     """Iteración planificada: estrategia de workspace, gates de calidad/seguridad y costo estimado."""
 
@@ -215,6 +289,10 @@ class ProductLoopStateResponse(BaseModel):
     epics: list[EpicRecord]
     stories: list[UserStoryRecord]
     tasks: list[AgentTaskRecord]
+    assignments: list[AgentAssignmentRecord]
+    assignment_handoffs: list[AssignmentHandoffRecord] = Field(alias="assignmentHandoffs")
+    assignment_reviews: list[AssignmentReviewRecord] = Field(alias="assignmentReviews")
+    assignment_conflicts: list[AssignmentConflictRecord] = Field(alias="assignmentConflicts")
     iterations: list[IterationRecord]
 
 

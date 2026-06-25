@@ -6,10 +6,17 @@ CLI runtimes are coding/runtime adapters, not model providers. The gateway separ
 
 ## Configuration
 
-- `AIDO_CODEX_COMMAND=codex`
-- `AIDO_CLAUDE_COMMAND=claude`
-- `AIDO_OPENHANDS_COMMAND=openhands`
-- `AIDO_SWE_AGENT_COMMAND=sweagent`
+- `runtime_installations` stores executable path, detected version, capabilities,
+  preferred roles, health, last validation, and configuration source.
+- `runtime_accounts` stores account label, auth mode, enabled/default state,
+  capabilities, preferred roles, health, last validation, and configuration
+  source.
+- Codex and Claude Code seed provider-native CLI accounts
+  (`authMode=provider_native_cli`), so AIDO uses each CLI's native login/session
+  by default instead of copying secrets.
+- Command env vars such as `AIDO_CODEX_COMMAND`, `AIDO_CLAUDE_COMMAND`,
+  `AIDO_OPENHANDS_COMMAND`, and `AIDO_SWE_AGENT_COMMAND` are deprecated
+  bootstrap/CI overrides only.
 - `AIDO_ENABLE_CLI_RUNTIMES=false`
 
 Execution is disabled by default. Detection and health checks are safe.
@@ -37,6 +44,7 @@ Codex has an additional real release smoke that is intentionally opt-in and
 excluded from unit tests:
 
 ```powershell
+# Deprecated CI/bootstrap override; normal runtime config lives in SQLite.
 $env:AIDO_CODEX_COMMAND = "codex"
 $env:AIDO_ENABLE_CLI_RUNTIMES = "true"
 corepack pnpm@10.24.0 run smoke:codex:release
@@ -45,6 +53,7 @@ corepack pnpm@10.24.0 run smoke:codex:release
 Claude Code has the equivalent release smoke:
 
 ```powershell
+# Deprecated CI/bootstrap override; normal runtime config lives in SQLite.
 $env:AIDO_CLAUDE_COMMAND = "claude"
 $env:AIDO_ENABLE_CLI_RUNTIMES = "true"
 corepack pnpm@10.24.0 run smoke:claude:release
@@ -90,6 +99,7 @@ not silently fall back to another command.
 Run the optional release smokes with:
 
 ```powershell
+# Deprecated CI/bootstrap overrides for optional release smokes.
 $env:AIDO_OPENHANDS_COMMAND = "openhands"
 $env:AIDO_ENABLE_CLI_RUNTIMES = "true"
 corepack pnpm@10.24.0 run smoke:openhands:release

@@ -14,6 +14,8 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
+from local_control_center.runtime_integrations.config import resolve_executable
+from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
 from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.time import utc_now
 
@@ -263,7 +265,8 @@ def _cli_provider_status(
     can_code_edit = "code_edit" in set(capabilities)
     issue_to_patch_argv, issue_to_patch_argv_error = _configured_argv(configuration, "issueToPatchArgv")
     version = detection.get("version") if detected else None
-    configured = bool(configuration.configured if configuration is not None else detected)
+    command_configured = bool(detection.get("executable"))
+    configured = bool(command_configured or (configuration and configuration.configured) or detected)
     available = configured and detected and bool(version)
     command_matches_provider = (
         _cli_command_matches_provider(str(account["providerId"]), detection) if can_code_edit else True
@@ -421,10 +424,17 @@ class RuntimeStatusService:
             for provider_id in CLI_RUNTIME_IDS
             | {"openai_compatible", "openrouter", "nvidia_nim", "anthropic_api", "ollama"}
         }
+        runtime_installations = {
+            installation["runtimeId"]: installation
+            for installation in RuntimeConfigRepository(self.connection).list_installations()
+        }
         detections: dict[str, dict[str, Any]] = {}
         for runtime_id in sorted(CLI_RUNTIME_IDS):
             configuration = configurations.get(runtime_id)
-            command = configuration.value("command") if configuration else None
+            installation = runtime_installations.get(
+                runtime_id, {"runtimeId": runtime_id, "executablePath": None}
+            )
+            command = resolve_executable(installation).get("path")
             detections[runtime_id] = (
                 self.registry.detect(runtime_id, executable=command)
                 if command

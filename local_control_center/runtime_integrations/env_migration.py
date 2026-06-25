@@ -2,9 +2,10 @@
 
 Lee las env vars heredadas (rutas de CLI, GitHub token, API keys de proveedores y refs de auth de
 Vault) y las registra en ``runtime_installations`` (ruta del ejecutable) y ``credential_refs``
-(referencia + fingerprint; el valor del secreto NUNCA se copia, queda en el entorno), enlazando además
-``provider_accounts``. El valor sigue resolviéndose desde el entorno como fallback durante el período
-de deprecación: cada variable usada emite un warning y queda marcada con ``source=environment_override``.
+    (referencia + fingerprint; el valor del secreto NUNCA se copia, queda en el entorno), enlazando además
+``provider_accounts``. El valor sigue resolviéndose desde el adapter ``environment_override`` durante
+el período de deprecación: cada variable usada emite un warning y queda marcada con
+``source=environment_override``.
 La migración es idempotente (upsert por runtime/credencial) y no almacena ni registra ningún secreto.
 """
 
@@ -126,7 +127,7 @@ def migrate_environment_config(
         metadata = {"source": ENVIRONMENT_OVERRIDE_SOURCE, "migratedFrom": env_var, "deprecated": True}
         existing_credential = credential_repository.find_credential_by_name(name)
         patch = {
-            "backendKind": "env",
+            "backendKind": ENVIRONMENT_OVERRIDE_SOURCE,
             "locator": env_var,
             "fingerprint": fingerprint,
             "salt": salt,
@@ -145,7 +146,7 @@ def migrate_environment_config(
                 "action": "migrate",
                 "outcome": "success",
                 "actor": actor,
-                "backendKind": "env",
+                "backendKind": ENVIRONMENT_OVERRIDE_SOURCE,
                 "detail": (
                     f"Registered reference from environment variable {env_var}; env fallback is "
                     f"deprecated ({ENVIRONMENT_OVERRIDE_SOURCE}). The secret value was not copied."

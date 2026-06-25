@@ -6,7 +6,14 @@
 
 ## Configuration
 
-- `AIDO_CLAUDE_COMMAND=claude`
+- `runtime_installations` stores the Claude Code executable path, version,
+  capabilities, preferred roles, health, last validation, and configuration
+  source.
+- `runtime_accounts` seeds `Local Claude Code CLI` with
+  `authMode=provider_native_cli`; AIDO uses the Claude Code native login/session
+  by default instead of copying API keys.
+- `AIDO_CLAUDE_COMMAND=claude` is a deprecated bootstrap/CI override, mainly for
+  release smoke scripts.
 - `AIDO_ENABLE_CLI_RUNTIMES=false`
 
 Seeded profiles include Sonnet for normal development/QA and Opus only for planning, difficult debugging or architecture escalation.
@@ -38,6 +45,7 @@ Tests verify missing binary status returns `Claude Code CLI not detected`.
 Release validation is a real opt-in smoke, not part of the unit suite:
 
 ```powershell
+# Deprecated CI/bootstrap override; normal runtime config lives in SQLite.
 $env:AIDO_CLAUDE_COMMAND = "claude"
 $env:AIDO_ENABLE_CLI_RUNTIMES = "true"
 corepack pnpm@10.24.0 run smoke:claude:release

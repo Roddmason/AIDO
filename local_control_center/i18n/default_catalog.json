@@ -7016,12 +7016,12 @@
       "es": "Cómo configurar"
     },
     "app.runtime.instructions.codex_cli": {
-      "en": "Install the Codex CLI and set AIDO_CODEX_COMMAND to its path (or put codex on PATH), enable AIDO_ENABLE_CLI_RUNTIMES, then refresh health.",
-      "es": "Instala la CLI de Codex y define AIDO_CODEX_COMMAND con su ruta (o agrega codex al PATH), habilita AIDO_ENABLE_CLI_RUNTIMES y re-verifica el estado."
+      "en": "Install the Codex CLI, persist its executable path or put codex on PATH, enable AIDO_ENABLE_CLI_RUNTIMES, then refresh health. AIDO_CODEX_COMMAND is only a deprecated bootstrap/CI override.",
+      "es": "Instala la CLI de Codex, persiste la ruta del ejecutable o agrega codex al PATH, habilita AIDO_ENABLE_CLI_RUNTIMES y re-verifica el estado. AIDO_CODEX_COMMAND es solo un override de bootstrap/CI deprecado."
     },
     "app.runtime.instructions.claude_code_cli": {
-      "en": "Install Claude Code and set AIDO_CLAUDE_COMMAND to its path (or put claude on PATH), enable AIDO_ENABLE_CLI_RUNTIMES, then refresh health.",
-      "es": "Instala Claude Code y define AIDO_CLAUDE_COMMAND con su ruta (o agrega claude al PATH), habilita AIDO_ENABLE_CLI_RUNTIMES y re-verifica el estado."
+      "en": "Install Claude Code, persist its executable path or put claude on PATH, enable AIDO_ENABLE_CLI_RUNTIMES, then refresh health. AIDO_CLAUDE_COMMAND is only a deprecated bootstrap/CI override.",
+      "es": "Instala Claude Code, persiste la ruta del ejecutable o agrega claude al PATH, habilita AIDO_ENABLE_CLI_RUNTIMES y re-verifica el estado. AIDO_CLAUDE_COMMAND es solo un override de bootstrap/CI deprecado."
     },
     "app.runtime.instructions.ollama": {
       "en": "Start the Ollama daemon and set AIDO_OLLAMA_BASE_URL (default http://127.0.0.1:11434), then refresh health to detect local models.",

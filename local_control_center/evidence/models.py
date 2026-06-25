@@ -25,6 +25,8 @@ ArtifactKind = Literal[
     "devops_command_report",
     "devops_report",
     "security_report",
+    "research_source",
+    "research_report",
     "cli_stdout",
     "cli_stderr",
     "cli_runtime_log",

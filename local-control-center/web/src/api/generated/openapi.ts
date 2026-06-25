@@ -6,6 +6,7 @@ export type JsonValue = JsonPrimitive | JsonObject | JsonValue[];
 export type JsonObject = { [key: string]: JsonValue };
 
 export type ActionRequestRecord = { "actionType": string; "command": string; "commandArgv"?: Array<string>; "decidedAt"?: null | string; "decidedBy"?: null | string; "diffRefs"?: Array<JsonValue>; "evidenceRefs"?: Array<string>; "expiresAt"?: null | string; "id": string; "jobId": string; "payload": JsonObject; "projectId": string; "reason": string; "requestedAt": string; "riskLevel": "low" | "medium" | "high" | "critical"; "runtime"?: JsonObject; "runtimeId"?: null | string; "status": "pending" | "approved" | "denied" | "expired"; "workspace"?: JsonObject; "workspaceId"?: null | string; "workspacePath"?: null | string };
+export type AgentAssignmentRecord = { "agentId": string; "assignedAt": string; "assignedBy": string; "canonicalArtifactId": string; "createdAt": string; "handoffId": string; "id": string; "inputSchema": JsonObject; "metadata": JsonObject; "outputSchema": JsonObject; "projectId": string; "releasedAt"?: null | string; "reviewRequired": boolean; "role": string; "status": string; "taskId": string; "updatedAt": string };
 export type AgentProfileRecord = { "allowApi": boolean; "allowCli": boolean; "allowRemote": boolean; "allowedProviders": Array<string>; "allowedRuntimes": Array<string>; "allowedSkills": Array<string>; "allowedTools": Array<string>; "createdAt": string; "id": string; "maxCostPerRun": number; "maxRuntimeSeconds": number; "maxTokensPerRun": number; "memoryScope": string; "modelPolicyId"?: null | string; "name": string; "outputSchema": JsonObject; "permissionProfile": "plan" | "dev_safe" | "qa" | "release"; "qualityGates": Array<JsonValue>; "requiresApprovalOverUsd"?: null | number; "role": "analyst" | "product_owner" | "technical_lead" | "technical_lead_shadow" | "developer" | "backend_engineer" | "frontend_engineer" | "implementer" | "devops" | "qa" | "qa_reviewer" | "security_reviewer" | "release_manager"; "roleModelPolicyId"?: null | string; "routingProfileId"?: null | string; "runtimeMode": "api" | "cli" | "ollama" | "hybrid" | "manual"; "runtimeType": "api" | "cli" | "ollama" | "hybrid" | "manual"; "status": "active" | "disabled"; "updatedAt": string };
 export type AgentProfileResponse = { "agentProfile": AgentProfileRecord };
 export type AgentProfileUpsertRequest = { "allowApi"?: boolean; "allowCli"?: boolean; "allowRemote"?: boolean; "allowedProviders"?: Array<string>; "allowedRuntimes"?: Array<string>; "allowedSkills"?: Array<string>; "allowedTools"?: Array<string>; "id": string; "maxCostPerRun"?: number; "maxRuntimeSeconds"?: number; "maxTokensPerRun"?: number; "memoryScope"?: string; "modelPolicyId"?: null | string; "name"?: null | string; "outputSchema"?: JsonObject; "permissionProfile"?: "plan" | "dev_safe" | "qa" | "release"; "qualityGates"?: Array<JsonValue>; "requiresApprovalOverUsd"?: null | number; "role"?: "analyst" | "product_owner" | "technical_lead" | "technical_lead_shadow" | "developer" | "backend_engineer" | "frontend_engineer" | "implementer" | "devops" | "qa" | "qa_reviewer" | "security_reviewer" | "release_manager"; "roleModelPolicyId"?: null | string; "routingProfileId"?: null | string; "runtimeMode"?: "api" | "cli" | "ollama" | "hybrid" | "manual"; "runtimeType"?: "api" | "cli" | "ollama" | "hybrid" | "manual" | null; "status"?: "active" | "disabled" };
@@ -33,14 +34,17 @@ export type ArchitectureDecisionsListResponse = { "architectureDecisions": Array
 export type ArtifactCleanupRequest = { "dryRun"?: boolean };
 export type ArtifactCleanupResponse = { "artifactRoot": string; "deletedFiles": Array<ArtifactFileRecord>; "dryRun": boolean; "keptReferencedFiles": number; "orphanFiles": Array<ArtifactFileRecord> };
 export type ArtifactFileRecord = { "path": string; "sizeBytes": number };
-export type ArtifactIngestRequest = { "content"?: null | string; "contentBase64"?: null | string; "kind": "execution_log" | "screenshot" | "test_report" | "qa_report" | "generic_artifact" | "git_patch" | "git_status" | "security_findings" | "model_call" | "evidence_manifest" | "devops_command_report" | "devops_report" | "security_report" | "cli_stdout" | "cli_stderr" | "cli_runtime_log" | "workspace_patch_manifest"; "mimeType"?: null | string; "name"?: null | string };
-export type ArtifactRecord = { "createdAt": string; "evidencePackageId"?: null | string; "hash"?: null | string; "id": string; "kind": "execution_log" | "screenshot" | "test_report" | "qa_report" | "generic_artifact" | "git_patch" | "git_status" | "security_findings" | "model_call" | "evidence_manifest" | "devops_command_report" | "devops_report" | "security_report" | "cli_stdout" | "cli_stderr" | "cli_runtime_log" | "workspace_patch_manifest"; "metadata": JsonObject; "path": string; "projectId": string };
+export type ArtifactIngestRequest = { "content"?: null | string; "contentBase64"?: null | string; "kind": "execution_log" | "screenshot" | "test_report" | "qa_report" | "generic_artifact" | "git_patch" | "git_status" | "security_findings" | "model_call" | "evidence_manifest" | "devops_command_report" | "devops_report" | "security_report" | "research_source" | "research_report" | "cli_stdout" | "cli_stderr" | "cli_runtime_log" | "workspace_patch_manifest"; "mimeType"?: null | string; "name"?: null | string };
+export type ArtifactRecord = { "createdAt": string; "evidencePackageId"?: null | string; "hash"?: null | string; "id": string; "kind": "execution_log" | "screenshot" | "test_report" | "qa_report" | "generic_artifact" | "git_patch" | "git_status" | "security_findings" | "model_call" | "evidence_manifest" | "devops_command_report" | "devops_report" | "security_report" | "research_source" | "research_report" | "cli_stdout" | "cli_stderr" | "cli_runtime_log" | "workspace_patch_manifest"; "metadata": JsonObject; "path": string; "projectId": string };
 export type ArtifactResponse = { "artifact": ArtifactRecord };
 export type ArtifactRetentionActionRequest = { "action": string; "artifactIds": Array<string>; "now"?: null | string; "reason": string };
 export type ArtifactRetentionActionResponse = { "action": string; "artifacts": Array<ArtifactRetentionResultRecord> };
 export type ArtifactRetentionPlanRequest = { "dryRun"?: boolean; "now"?: null | string };
 export type ArtifactRetentionPlanResponse = { "dryRun": boolean; "expiredArtifacts": Array<ExpiredArtifactRecord>; "now": string; "riskIds": Array<string> };
-export type ArtifactRetentionResultRecord = { "createdAt": string; "evidencePackageId"?: null | string; "hash"?: null | string; "id": string; "kind": "execution_log" | "screenshot" | "test_report" | "qa_report" | "generic_artifact" | "git_patch" | "git_status" | "security_findings" | "model_call" | "evidence_manifest" | "devops_command_report" | "devops_report" | "security_report" | "cli_stdout" | "cli_stderr" | "cli_runtime_log" | "workspace_patch_manifest"; "metadata": JsonObject; "path": string; "projectId": string; "retentionAction": JsonObject };
+export type ArtifactRetentionResultRecord = { "createdAt": string; "evidencePackageId"?: null | string; "hash"?: null | string; "id": string; "kind": "execution_log" | "screenshot" | "test_report" | "qa_report" | "generic_artifact" | "git_patch" | "git_status" | "security_findings" | "model_call" | "evidence_manifest" | "devops_command_report" | "devops_report" | "security_report" | "research_source" | "research_report" | "cli_stdout" | "cli_stderr" | "cli_runtime_log" | "workspace_patch_manifest"; "metadata": JsonObject; "path": string; "projectId": string; "retentionAction": JsonObject };
+export type AssignmentConflictRecord = { "assignmentId": string; "createdAt": string; "disagreement": string; "finalResolution": string; "handoffId": string; "id": string; "metadata": JsonObject; "projectId": string; "raisedBy": string; "resolvedAt"?: null | string; "resolvedBy"?: null | string; "status": string; "updatedAt": string };
+export type AssignmentHandoffRecord = { "artifactId": string; "assignmentId": string; "blockedReason": string; "createdAt": string; "fromAgentId": string; "id": string; "metadata": JsonObject; "projectId": string; "reviewRequired": boolean; "status": string; "toAgentId": string; "updatedAt": string };
+export type AssignmentReviewRecord = { "assignmentId": string; "createdAt": string; "decision": string; "findings": Array<JsonValue>; "handoffId": string; "id": string; "policyRequired": boolean; "projectId": string; "resolvedAt"?: null | string; "reviewerAgentId": string; "status": string; "updatedAt": string };
 export type AssumptionRecord = { "briefId"?: null | string; "confidence"?: null | string; "createdAt": string; "id": string; "initiativeId"?: null | string; "metadata": JsonObject; "owner"?: null | string; "projectId": string; "sourceQuestionId"?: null | string; "statement": string; "status": string; "updatedAt": string; "validation"?: null | string };
 export type AuditEventRecord = { "action": string; "actor": string; "createdAt": string; "id": string; "payload": JsonObject; "projectId"?: null | string; "target": string };
 export type BudgetRulePatchRequest = { "actionOnExceed"?: string; "enabled"?: boolean; "id"?: null | string; "maxCostUsd"?: null | number; "maxTokens"?: null | number; "period"?: string; "scopeId"?: null | string; "scopeType"?: null | string };
@@ -58,10 +62,29 @@ export type CliAdaptersStatus = { "cli_claude": boolean; "cli_codex": boolean };
 export type CliRuntimeProviderStatus = { "adapters": CliAdaptersStatus; "available": boolean; "provider": string };
 export type CliRuntimeRecord = { "executable"?: null | string; "id"?: null | string; "message"?: string; "runtime": string; "status": string; "version"?: null | string };
 export type CliRuntimesListResponse = { "cliRuntimes": Array<CliRuntimeRecord> };
+export type CliSessionCancelResponse = { "cancelled": boolean };
+export type CliSessionEventRecord = { "artifactId"?: null | string; "cliSessionId": string; "createdAt": string; "id": string; "payload": JsonObject; "projectId"?: null | string; "seq": number; "type": string };
+export type CliSessionEventsResponse = { "events": Array<CliSessionEventRecord>; "latestSeq": number; "running": boolean };
 export type CliSessionRecord = { "agentId"?: null | string; "command": Array<JsonValue>; "createdAt": string; "envPolicy": JsonObject; "error"?: null | string; "executable": string; "finishedAt"?: null | string; "id": string; "logsArtifactId"?: null | string; "runtime": string; "startedAt"?: null | string; "status": string; "stderrArtifactId"?: null | string; "stdoutArtifactId"?: null | string; "usageLedgerId"?: null | string; "workflowRunId"?: null | string; "workflowStepId"?: null | string; "workspaceId": string };
 export type CliSessionResponse = { "cliSession": CliSessionRecord };
+export type CliSessionStartRequest = { "agentId"?: null | string; "argv": Array<string>; "envPolicy"?: JsonObject | null; "runtime"?: null | string; "workspaceId": string };
+export type CliSessionStartResponse = { "id": string; "startedAt": string; "status": string };
 export type CliSessionsListResponse = { "cliSessions": Array<CliSessionRecord> };
 export type CostUsageRecord = { "amountUsd": number; "createdAt": string; "id": string; "metadata": JsonObject; "projectId": string; "scope": string };
+export type CredentialAuditRecord = { "action": string; "actor": string; "backendKind": string; "createdAt": string; "credentialId": string; "detail": string; "id": string; "name": string; "outcome": string };
+export type CredentialAuditResponse = { "audit": Array<CredentialAuditRecord> };
+export type CredentialBackendStatus = { "configured": boolean; "default": boolean; "detail": string; "kind": string; "readOnly": boolean };
+export type CredentialCreateRequest = { "actor"?: string; "authMode"?: string; "backendKind"?: null | string; "locator": string; "metadata"?: JsonObject; "name": string; "value": string };
+export type CredentialDeleteResponse = { "deleted": CredentialDeletedRecord };
+export type CredentialDeletedRecord = { "deleted": boolean; "name": string };
+export type CredentialMigrateRequest = { "actor"?: string };
+export type CredentialMigrationResponse = { "report": JsonObject };
+export type CredentialRecord = { "authMode": string; "backendKind": string; "createdAt": string; "enabled": boolean; "fingerprintAlgo": string; "hasFingerprint": boolean; "id": string; "lastValidatedAt": null | string; "locator": string; "metadata": JsonObject; "name": string; "rotatedAt": null | string; "status": string; "updatedAt": string };
+export type CredentialResponse = { "credential": CredentialRecord };
+export type CredentialRotateRequest = { "actor"?: string; "value": string };
+export type CredentialValidationRecord = { "fingerprintMatches": boolean; "name": string; "present": boolean; "valid": boolean };
+export type CredentialValidationResponse = { "validation": CredentialValidationRecord };
+export type CredentialsListResponse = { "backends": Array<CredentialBackendStatus>; "credentials": Array<CredentialRecord> };
 export type DevOpsAgentContract = { "allowedTools": Array<string>; "id": string; "inputSchema": JsonObject; "outputSchema": JsonObject; "requiredEvidence": boolean; "requiredRuntimeCapabilities": Array<string>; "requiredWorkspace": boolean; "verdictSource": string };
 export type DevOpsAgentRunRequest = { "buildScripts"?: Array<string>; "dockerHealthcheck"?: boolean; "metadata"?: JsonObject; "projectId": string; "qualityScripts"?: Array<string> | null; "taskId"?: string; "workspaceId": string };
 export type DevOpsAgentRunResponse = { "agentRun": AgentRunRecord; "commands": Array<JsonObject>; "configArtifact": JsonObject; "configFindings": Array<JsonObject>; "contract": DevOpsAgentContract; "docker": JsonObject; "evidencePackage": JsonObject; "filesScanned": Array<JsonObject>; "job": JsonObject; "reason": string; "status": string; "verdict": string; "versions": JsonObject; "workspace": JsonObject };
@@ -84,7 +107,7 @@ export type EvidenceDetailResponse = { "artifacts": Array<ArtifactRecord>; "evid
 export type EvidenceListResponse = { "evidencePackages": Array<EvidencePackageRecord> };
 export type EvidencePackageRecord = { "acceptanceChecklist": Array<JsonValue>; "agentId"?: null | string; "agentRunId": null | string; "approvals": Array<JsonObject>; "artifactIds"?: Array<string>; "artifacts": Array<JsonObject>; "createdAt": string; "diffRefs": Array<JsonValue>; "diffSummary": JsonObject; "evidenceSource": "operator_attested" | "evidence_collected" | "qa_passed_by_command" | "verified_completion"; "hashes": JsonObject; "id": string; "jobId": null | string; "logs": Array<JsonValue>; "modelCalls": Array<JsonObject>; "policyDecisions": Array<JsonObject>; "projectId": string; "qaVerdict": "not_started" | "passed" | "failed" | "blocked" | "needs_human_review" | "evidence_collected" | "architecture_reviewed" | "devops_risk" | "devops_blocked" | "security_passed" | "security_blocked" | "skipped_with_reason"; "riskNotes": Array<JsonValue>; "runtimeHealth": JsonObject; "runtimeId": null | string; "screenshotRefs": Array<JsonValue>; "taskId": string; "testPlan": string; "testResults": Array<JsonValue>; "toolCalls": Array<JsonObject>; "workflowRunId": null | string; "workflowStepId"?: null | string; "workspaceId": null | string };
 export type EvidencePackageResponse = { "evidencePackage": EvidencePackageRecord };
-export type ExpiredArtifactRecord = { "createdAt": string; "evidencePackageId"?: null | string; "expiresAt": string; "hash"?: null | string; "id": string; "kind": "execution_log" | "screenshot" | "test_report" | "qa_report" | "generic_artifact" | "git_patch" | "git_status" | "security_findings" | "model_call" | "evidence_manifest" | "devops_command_report" | "devops_report" | "security_report" | "cli_stdout" | "cli_stderr" | "cli_runtime_log" | "workspace_patch_manifest"; "metadata": JsonObject; "path": string; "projectId": string; "retentionStatus": string };
+export type ExpiredArtifactRecord = { "createdAt": string; "evidencePackageId"?: null | string; "expiresAt": string; "hash"?: null | string; "id": string; "kind": "execution_log" | "screenshot" | "test_report" | "qa_report" | "generic_artifact" | "git_patch" | "git_status" | "security_findings" | "model_call" | "evidence_manifest" | "devops_command_report" | "devops_report" | "security_report" | "research_source" | "research_report" | "cli_stdout" | "cli_stderr" | "cli_runtime_log" | "workspace_patch_manifest"; "metadata": JsonObject; "path": string; "projectId": string; "retentionStatus": string };
 export type ExternalTelemetryStatus = { "available": boolean; "enabled": boolean; "metricsEnabled": boolean; "metricsEndpoint"?: null | string; "mode": string; "reason": string; "serviceName"?: null | string; "tracesEnabled": boolean; "tracesEndpoint"?: null | string };
 export type GovernanceResponse = { "architectureDecisions": Array<ArchitectureDecisionRecord>; "nextSteps": Array<NextStepRecord>; "risks": Array<RiskRecord> };
 export type HTTPValidationError = { "detail"?: Array<ValidationError> };
@@ -163,17 +186,22 @@ export type ProductBriefRecord = { "createdAt": string; "goals": Array<JsonValue
 export type ProductDecisionRecord = { "briefId"?: null | string; "consequences": Array<JsonValue>; "context"?: null | string; "createdAt": string; "decidedAt"?: null | string; "decidedBy"?: null | string; "decision"?: null | string; "id": string; "initiativeId"?: null | string; "linkedAssumptionIds": Array<JsonValue>; "linkedQuestionIds": Array<JsonValue>; "metadata": JsonObject; "projectId": string; "rationale"?: null | string; "status": string; "supersedesId"?: null | string; "title": string; "updatedAt": string; "version": number };
 export type ProductLoopRecord = { "context": JsonObject; "createdAt": string; "id": string; "initiativeId"?: null | string; "previousState"?: null | string; "projectId": string; "state": string; "status": string; "title": string; "updatedAt": string; "version": number };
 export type ProductLoopResumeResponse = { "allowedNextStates": Array<string>; "loop": ProductLoopRecord; "resumable": boolean; "transitions": Array<ProductLoopTransitionRecord> };
-export type ProductLoopStartRequest = { "context"?: JsonObject | null; "initiativeId"?: null | string; "title": string };
-export type ProductLoopStateResponse = { "assumptions": Array<AssumptionRecord>; "brief"?: ProductBriefRecord | null; "decisions": Array<ProductDecisionRecord>; "epics": Array<EpicRecord>; "iterations": Array<IterationRecord>; "loops": Array<ProductLoopRecord>; "questions": Array<ClarificationQuestionRecord>; "stories": Array<UserStoryRecord>; "tasks": Array<AgentTaskRecord>; "transitions": Array<ProductLoopTransitionRecord> };
+export type ProductLoopStartRequest = { "budget"?: JsonObject | null; "context"?: JsonObject | null; "correlationId"?: null | string; "deadline"?: null | string; "initiativeId"?: null | string; "maxReworkRounds"?: null | number; "timeouts"?: JsonObject | null; "title": string };
+export type ProductLoopStateResponse = { "assignmentConflicts": Array<AssignmentConflictRecord>; "assignmentHandoffs": Array<AssignmentHandoffRecord>; "assignmentReviews": Array<AssignmentReviewRecord>; "assignments": Array<AgentAssignmentRecord>; "assumptions": Array<AssumptionRecord>; "brief"?: ProductBriefRecord | null; "decisions": Array<ProductDecisionRecord>; "epics": Array<EpicRecord>; "iterations": Array<IterationRecord>; "loops": Array<ProductLoopRecord>; "questions": Array<ClarificationQuestionRecord>; "stories": Array<UserStoryRecord>; "tasks": Array<AgentTaskRecord>; "transitions": Array<ProductLoopTransitionRecord> };
 export type ProductLoopTransitionRecord = { "actor": string; "createdAt": string; "fromState": string; "id": string; "loopId": string; "metadata": JsonObject; "projectId": string; "reason": string; "toState": string; "trigger": string; "version": number };
-export type ProductLoopTransitionRequest = { "expectedVersion"?: null | number; "reason"?: null | string; "toState": string; "trigger"?: null | string };
+export type ProductLoopTransitionRequest = { "correlationId"?: null | string; "expectedVersion"?: null | number; "reason"?: null | string; "toState": string; "trigger"?: null | string };
 export type ProductOwnerAgentRunRequest = { "approvalGrantId"?: null | string; "autonomy"?: JsonObject | null; "completenessThreshold"?: null | number; "idea"?: null | string; "initiativeId"?: null | string; "metadata"?: JsonObject; "model"?: null | string; "preferredRuntime"?: null | string; "projectId": string; "taskId"?: string; "workflowContext"?: JsonObject; "workspaceId": string };
 export type ProductOwnerAgentRunResponse = { "agentRun": AgentRunRecord; "assumptions"?: Array<JsonObject>; "blockingDecisions"?: Array<JsonObject>; "brief"?: JsonObject | null; "completeness"?: JsonObject | null; "epics"?: Array<JsonObject>; "evidencePackage": JsonObject; "initiative"?: JsonObject | null; "job": JsonObject; "output"?: JsonObject | null; "productOwnerAgent": ProductOwnerAgentStatus; "questions"?: Array<JsonObject>; "reason": string; "runtime": JsonObject; "runtimeResult": JsonObject; "status": string; "workspace": JsonObject };
 export type ProductOwnerAgentStatus = { "candidateRuntimeIds"?: Array<string>; "contract": JsonObject; "executable": boolean; "id": string; "reason": string; "selectedRuntimeId"?: null | string; "status": string };
 export type ProductOwnerAgentStatusResponse = { "productOwnerAgent": ProductOwnerAgentStatus };
+export type ProjectAssessmentRecord = { "createdAt": string; "findingsCount": number; "gapCount": number; "id": string; "projectId": string; "riskCount": number; "rootPath": string; "source": string; "status": string; "summary": JsonObject; "updatedAt": string };
+export type ProjectAssessmentRunResponse = { "assessment"?: ProjectAssessmentRecord | null; "findings"?: Array<ProjectFindingRecord>; "reason": string; "status": string };
+export type ProjectAssessmentsListResponse = { "assessments": Array<ProjectAssessmentRecord> };
 export type ProjectCreateRequest = { "createDirectory"?: boolean; "metadata"?: JsonObject; "name"?: null | string; "path"?: null | string; "projectDirectoryName"?: null | string; "templateId"?: null | string; "workspaceBasePath"?: null | string };
 export type ProjectDiscoveryRequest = { "path": string };
 export type ProjectDiscoveryResponse = { "discovery": JsonObject };
+export type ProjectFindingRecord = { "assessmentId": string; "category": string; "confidence": string; "createdAt": string; "detail": string; "evidence": string; "id": string; "metadata": JsonObject; "projectId": string; "severity": string; "title": string };
+export type ProjectFindingsListResponse = { "findings": Array<ProjectFindingRecord> };
 export type ProjectRecord = { "createdAt": string; "id": string; "metadata": JsonObject; "name": string; "path": string; "source": string; "status": string; "templateId": string; "updatedAt": string };
 export type ProjectResponse = { "auditEvent"?: AuditEventRecord | null; "project": ProjectRecord };
 export type ProjectTemplateRecord = { "id": string; "kind": string; "name": string };
@@ -203,6 +231,14 @@ export type QAAgentContract = { "allowedTools": Array<string>; "id": string; "in
 export type QAAgentRunRequest = { "commands"?: Array<QAAgentCommandRequest>; "metadata"?: JsonObject; "projectId": string; "taskId"?: string; "workspaceId": string };
 export type QAAgentRunResponse = { "agentRun": AgentRunRecord; "contract": QAAgentContract; "evidencePackage": JsonObject; "job": JsonObject; "reason": string; "results": Array<JsonObject>; "status": string; "verdict": string; "workspace": JsonObject };
 export type RequiredReasonRequest = { "reason": string };
+export type ResearchAgentContract = { "allowedTools": Array<string>; "id": string; "inputSchema": JsonObject; "outputSchema": JsonObject; "requiredEvidence": boolean; "requiredRuntimeCapabilities": Array<string>; "requiredWorkspace": boolean; "sourcePolicy": JsonObject; "verdictSource": string };
+export type ResearchAgentRunRequest = { "claims"?: Array<ResearchClaimRequest>; "conclusions"?: Array<ResearchConclusionRequest>; "metadata"?: JsonObject; "projectId": string; "sources": Array<ResearchSourceRequest>; "taskId"?: string; "workspaceId": string };
+export type ResearchAgentRunResponse = { "agentRun": AgentRunRecord; "citationCheck": JsonObject; "conclusions": Array<JsonObject>; "conflictFindings": Array<JsonObject>; "contract": ResearchAgentContract; "evidencePackage": JsonObject; "job": JsonObject; "reason": string; "reportArtifact": JsonObject; "sources": Array<JsonObject>; "status": "completed" | "blocked" | "needs_human_review"; "verdict": "completed" | "blocked" | "needs_human_review"; "workspace": JsonObject };
+export type ResearchAgentStatus = { "contract": ResearchAgentContract; "executable": boolean; "id": string; "reason": string; "status": string };
+export type ResearchAgentStatusResponse = { "researchAgent": ResearchAgentStatus };
+export type ResearchClaimRequest = { "sourceUrl": string; "topic": string; "value": string };
+export type ResearchConclusionRequest = { "citations"?: Array<string>; "statement": string; "webBased"?: boolean };
+export type ResearchSourceRequest = { "content"?: null | string; "fetchedAt"?: null | string; "publisher": string; "relatedArtifact"?: null | string; "trustLevel"?: "official_documentation" | "official_repository" | "standard_rfc" | "primary_research" | "reputable_secondary" | "untrusted" | null; "url": string };
 export type RestrictedSubprocessStatus = { "available": boolean; "fallbackOnlyForLowRisk": boolean; "requiresArgv": boolean; "shell": boolean; "workspaceBound": boolean };
 export type RetrievalIndexSummary = { "backend": string; "degraded": boolean; "dimensions": number; "ids": Array<string>; "indexed": number; "projectId": string; "reason": string; "status": string };
 export type RetrievalReindexRequest = { "projectId": string };
@@ -238,7 +274,7 @@ export type RoutingSelection = { "effort"?: null | string; "model": string; "pro
 export type RuntimeDetectionResponse = { "detection": CliRuntimeRecord };
 export type RuntimeHealthRecord = { "message"?: string; "runtime": string; "status": string };
 export type RuntimeHealthResponse = { "health": RuntimeHealthRecord };
-export type RuntimeProviderConfigurationRecord = { "configured": boolean; "displayName": string; "id": string; "kind": "api" | "gateway" | "local" | "cli" | "manual"; "missing": Array<string>; "reason": string; "status": "configured" | "configuration_required"; "variables": Array<RuntimeProviderConfigurationVariable> };
+export type RuntimeProviderConfigurationRecord = { "configured": boolean; "displayName": string; "id": string; "kind": "api" | "gateway" | "local" | "cli" | "manual"; "missing": Array<string>; "reason": string; "status": "configured" | "configuration_required" | "override_unset"; "variables": Array<RuntimeProviderConfigurationVariable> };
 export type RuntimeProviderConfigurationResponse = { "providers": Array<RuntimeProviderConfigurationRecord> };
 export type RuntimeProviderConfigurationVariable = { "configured": boolean; "fingerprint"?: null | string; "key": string; "name": string; "required": boolean; "secret": boolean };
 export type RuntimeProviderSafety = { "network"?: "blocked_by_default" | "runtime_policy_gated" | "remote_calls_disabled_by_default" | "local_only"; "shell"?: boolean; "structuredArgv"?: boolean; "workspaceBound"?: boolean };
@@ -313,6 +349,8 @@ export const API_ENDPOINTS = [
 	{"method": "POST", "operationId": "run_product_owner_agent_api_v1_agents_product_owner_runs_post", "path": "/api/v1/agents/product-owner/runs", "summary": "Run Product Owner Agent"},
 	{"method": "GET", "operationId": "product_owner_agent_status_api_v1_agents_product_owner_status_get", "path": "/api/v1/agents/product-owner/status", "summary": "Product Owner Agent Status"},
 	{"method": "POST", "operationId": "run_qa_agent_api_v1_agents_qa_runs_post", "path": "/api/v1/agents/qa/runs", "summary": "Run Qa Agent"},
+	{"method": "POST", "operationId": "run_research_agent_api_v1_agents_research_runs_post", "path": "/api/v1/agents/research/runs", "summary": "Run Research Agent"},
+	{"method": "GET", "operationId": "research_agent_status_api_v1_agents_research_status_get", "path": "/api/v1/agents/research/status", "summary": "Research Agent Status"},
 	{"method": "POST", "operationId": "run_security_agent_api_v1_agents_security_runs_post", "path": "/api/v1/agents/security/runs", "summary": "Run Security Agent"},
 	{"method": "GET", "operationId": "security_agent_status_api_v1_agents_security_status_get", "path": "/api/v1/agents/security/status", "summary": "Security Agent Status"},
 	{"method": "GET", "operationId": "approvals_api_v1_approvals_get", "path": "/api/v1/approvals", "summary": "Approvals"},
@@ -320,6 +358,16 @@ export const API_ENDPOINTS = [
 	{"method": "POST", "operationId": "create_architecture_decision_api_v1_architecture_decisions_post", "path": "/api/v1/architecture-decisions", "summary": "Create Architecture Decision"},
 	{"method": "GET", "operationId": "list_chats_api_v1_chats_get", "path": "/api/v1/chats", "summary": "List Chats"},
 	{"method": "POST", "operationId": "create_chat_api_v1_chats_post", "path": "/api/v1/chats", "summary": "Create Chat"},
+	{"method": "POST", "operationId": "start_session_api_v1_cli_sessions_post", "path": "/api/v1/cli-sessions", "summary": "Start Session"},
+	{"method": "POST", "operationId": "cancel_session_api_v1_cli_sessions__session_id__cancel_post", "path": "/api/v1/cli-sessions/{session_id}/cancel", "summary": "Cancel Session"},
+	{"method": "GET", "operationId": "session_events_api_v1_cli_sessions__session_id__events_get", "path": "/api/v1/cli-sessions/{session_id}/events", "summary": "Session Events"},
+	{"method": "GET", "operationId": "list_credentials_api_v1_credentials_get", "path": "/api/v1/credentials", "summary": "List Credentials"},
+	{"method": "POST", "operationId": "create_credential_api_v1_credentials_post", "path": "/api/v1/credentials", "summary": "Create Credential"},
+	{"method": "GET", "operationId": "list_credential_audit_api_v1_credentials_audit_get", "path": "/api/v1/credentials/audit", "summary": "List Credential Audit"},
+	{"method": "POST", "operationId": "migrate_credentials_api_v1_credentials_migrate_post", "path": "/api/v1/credentials/migrate", "summary": "Migrate Credentials"},
+	{"method": "DELETE", "operationId": "delete_credential_api_v1_credentials__credential_id__delete", "path": "/api/v1/credentials/{credential_id}", "summary": "Delete Credential"},
+	{"method": "POST", "operationId": "rotate_credential_api_v1_credentials__credential_id__rotate_post", "path": "/api/v1/credentials/{credential_id}/rotate", "summary": "Rotate Credential"},
+	{"method": "POST", "operationId": "validate_credential_api_v1_credentials__credential_id__validate_post", "path": "/api/v1/credentials/{credential_id}/validate", "summary": "Validate Credential"},
 	{"method": "GET", "operationId": "events_api_v1_events_get", "path": "/api/v1/events", "summary": "Events"},
 	{"method": "GET", "operationId": "list_evidence_api_v1_evidence_get", "path": "/api/v1/evidence", "summary": "List Evidence"},
 	{"method": "POST", "operationId": "create_evidence_api_v1_evidence_post", "path": "/api/v1/evidence", "summary": "Create Evidence"},
@@ -398,6 +446,9 @@ export const API_ENDPOINTS = [
 	{"method": "GET", "operationId": "projects_api_v1_projects_get", "path": "/api/v1/projects", "summary": "Projects"},
 	{"method": "POST", "operationId": "create_project_api_v1_projects_post", "path": "/api/v1/projects", "summary": "Create Project"},
 	{"method": "POST", "operationId": "discover_project_api_v1_projects_discover_post", "path": "/api/v1/projects/discover", "summary": "Discover Project"},
+	{"method": "POST", "operationId": "run_assessment_api_v1_projects__project_id__assessment_post", "path": "/api/v1/projects/{project_id}/assessment", "summary": "Run Assessment"},
+	{"method": "GET", "operationId": "list_assessments_api_v1_projects__project_id__assessments_get", "path": "/api/v1/projects/{project_id}/assessments", "summary": "List Assessments"},
+	{"method": "GET", "operationId": "list_findings_api_v1_projects__project_id__findings_get", "path": "/api/v1/projects/{project_id}/findings", "summary": "List Findings"},
 	{"method": "GET", "operationId": "get_product_loop_state_api_v1_projects__project_id__product_loop_get", "path": "/api/v1/projects/{project_id}/product-loop", "summary": "Get Product Loop State"},
 	{"method": "POST", "operationId": "start_product_loop_api_v1_projects__project_id__product_loop_post", "path": "/api/v1/projects/{project_id}/product-loop", "summary": "Start Product Loop"},
 	{"method": "POST", "operationId": "transition_product_loop_api_v1_projects__project_id__product_loop__loop_id__transition_post", "path": "/api/v1/projects/{project_id}/product-loop/{loop_id}/transition", "summary": "Transition Product Loop"},
@@ -465,6 +516,7 @@ export type OperationRequestBodies = {
 	"architect_agent_status_api_v1_agents_architect_status_get": never,
 	"archive_workspace_api_v1_workspaces__workspace_id__archive_post": WorkspaceArchiveRequest,
 	"cancel_job_api_v1_jobs__job_id__cancel_post": OptionalReasonRequest,
+	"cancel_session_api_v1_cli_sessions__session_id__cancel_post": unknown,
 	"cancel_workflow_api_v1_workflows__workflow_id__cancel_post": WorkflowStatusChangeRequest,
 	"cleanup_artifacts_api_v1_evidence_artifacts_cleanup_post": ArtifactCleanupRequest,
 	"create_agent_run_api_v1_agent_runs_post": AgentRunCreateRequest,
@@ -472,6 +524,7 @@ export type OperationRequestBodies = {
 	"create_benchmark_outcome_api_v1_model_gateway_benchmark_outcomes_post": ModelBenchmarkOutcomeCreateRequest,
 	"create_budget_rule_api_v1_model_gateway_budget_rules_post": BudgetRuleUpsertRequest,
 	"create_chat_api_v1_chats_post": ChatCreateRequest,
+	"create_credential_api_v1_credentials_post": CredentialCreateRequest,
 	"create_evidence_api_v1_evidence_post": EvidenceCreateRequest,
 	"create_job_api_v1_jobs_post": JobCreateRequest,
 	"create_memory_api_v1_memory_post": MemoryCreateRequest,
@@ -488,6 +541,7 @@ export type OperationRequestBodies = {
 	"create_routing_profile_api_v1_model_gateway_routing_profiles_post": RoutingProfileUpsertRequest,
 	"create_session_api_v1_sessions_post": SessionCreateRequest,
 	"create_workflow_api_v1_workflows_post": WorkflowCreateRequest,
+	"delete_credential_api_v1_credentials__credential_id__delete": never,
 	"delete_memory_api_v1_memory__memory_id__delete": MemoryDeleteRequest,
 	"deny_action_api_v1_jobs__job_id__actions__action_id__deny_post": ApprovalReasonRequest,
 	"detect_cli_runtime_api_v1_model_gateway_cli_runtimes__runtime_id__detect_post": unknown,
@@ -513,13 +567,17 @@ export type OperationRequestBodies = {
 	"list_agent_profiles_api_v1_agent_profiles_get": never,
 	"list_agent_runs_api_v1_agent_runs_get": never,
 	"list_architecture_decisions_api_v1_architecture_decisions_get": never,
+	"list_assessments_api_v1_projects__project_id__assessments_get": never,
 	"list_benchmark_outcomes_api_v1_model_gateway_benchmark_outcomes_get": never,
 	"list_benchmarks_api_v1_model_gateway_benchmarks_get": never,
 	"list_budget_rules_api_v1_model_gateway_budget_rules_get": never,
 	"list_chats_api_v1_chats_get": never,
 	"list_cli_runtimes_api_v1_model_gateway_cli_runtimes_get": never,
 	"list_cli_sessions_api_v1_model_gateway_cli_sessions_get": never,
+	"list_credential_audit_api_v1_credentials_audit_get": never,
+	"list_credentials_api_v1_credentials_get": never,
 	"list_evidence_api_v1_evidence_get": never,
+	"list_findings_api_v1_projects__project_id__findings_get": never,
 	"list_ide_connections_api_v1_ide_connections_get": never,
 	"list_integrations_api_v1_integrations_get": never,
 	"list_jobs_api_v1_jobs_get": never,
@@ -543,6 +601,7 @@ export type OperationRequestBodies = {
 	"list_usage_ledger_api_v1_model_gateway_usage_ledger_get": never,
 	"list_workflows_api_v1_workflows_get": never,
 	"list_workspaces_api_v1_workspaces_get": never,
+	"migrate_credentials_api_v1_credentials_migrate_post": CredentialMigrateRequest | null,
 	"open_design_api_v1_open_design_get": never,
 	"overview_api_v1_model_gateway_overview_get": never,
 	"overview_api_v1_overview_get": never,
@@ -563,6 +622,7 @@ export type OperationRequestBodies = {
 	"providers_api_v1_providers_get": never,
 	"put_i18n_catalog_api_v1_i18n_catalog_put": I18nCatalog,
 	"register_mcp_server_api_v1_integrations_mcp_register_post": McpServerRegisterRequest,
+	"research_agent_status_api_v1_agents_research_status_get": never,
 	"resume_workflow_api_v1_workflows__workflow_id__resume_post": WorkflowStatusChangeRequest,
 	"retrieval_reindex_api_v1_retrieval_reindex_post": RetrievalReindexRequest,
 	"retrieval_search_api_v1_retrieval_search_post": RetrievalSearchRequest,
@@ -570,20 +630,25 @@ export type OperationRequestBodies = {
 	"retry_job_api_v1_jobs__job_id__retry_post": OptionalReasonRequest,
 	"revoke_permission_grant_api_v1_permissions_grants__grant_id__revoke_post": RequiredReasonRequest,
 	"revoke_sandbox_profile_api_v1_sandbox_profiles__profile_id__revoke_post": RequiredReasonRequest,
+	"rotate_credential_api_v1_credentials__credential_id__rotate_post": CredentialRotateRequest,
 	"route_execute_api_v1_model_gateway_route_execute_post": RoutingPreviewRequest,
 	"route_preview_api_v1_model_gateway_route_preview_post": RoutingPreviewRequest,
 	"run_architect_agent_api_v1_agents_architect_runs_post": ArchitectAgentRunRequest,
+	"run_assessment_api_v1_projects__project_id__assessment_post": unknown,
 	"run_developer_agent_api_v1_agents_developer_runs_post": DeveloperAgentRunRequest,
 	"run_devops_agent_api_v1_agents_devops_runs_post": DevOpsAgentRunRequest,
 	"run_issue_to_patch_api_v1_workflows_issue_to_patch_post": IssueToPatchRequest,
 	"run_issue_to_pr_api_v1_workflows_issue_to_pr_post": IssueToPrRequest,
 	"run_product_owner_agent_api_v1_agents_product_owner_runs_post": ProductOwnerAgentRunRequest,
 	"run_qa_agent_api_v1_agents_qa_runs_post": QAAgentRunRequest,
+	"run_research_agent_api_v1_agents_research_runs_post": ResearchAgentRunRequest,
 	"run_security_agent_api_v1_agents_security_runs_post": SecurityAgentRunRequest,
 	"sandbox_status_api_v1_sandbox_status_get": never,
 	"security_agent_status_api_v1_agents_security_status_get": never,
 	"select_directory_api_v1_local_paths_select_directory_post": DirectoryPickerRequest,
+	"session_events_api_v1_cli_sessions__session_id__events_get": never,
 	"start_product_loop_api_v1_projects__project_id__product_loop_post": ProductLoopStartRequest,
+	"start_session_api_v1_cli_sessions_post": CliSessionStartRequest,
 	"start_workflow_api_v1_workflows__workflow_id__start_post": WorkflowStatusChangeRequest,
 	"sync_skills_api_v1_skills_sync_post": SkillsSyncRequest,
 	"teams_api_v1_teams_get": never,
@@ -595,7 +660,8 @@ export type OperationRequestBodies = {
 	"upsert_agent_profile_api_v1_agent_profiles_post": AgentProfileUpsertRequest,
 	"upsert_ide_connection_api_v1_ide_connections_post": IdeConnectionUpsertRequest,
 	"upsert_prompt_api_v1_prompts_post": PromptUpsertRequest,
-	"usage_summary_api_v1_model_gateway_usage_ledger_summary_get": never
+	"usage_summary_api_v1_model_gateway_usage_ledger_summary_get": never,
+	"validate_credential_api_v1_credentials__credential_id__validate_post": unknown
 };
 
 export type OperationResponseBodies = {
@@ -611,6 +677,7 @@ export type OperationResponseBodies = {
 	"architect_agent_status_api_v1_agents_architect_status_get": ArchitectAgentStatusResponse,
 	"archive_workspace_api_v1_workspaces__workspace_id__archive_post": WorkspaceArchiveResponse,
 	"cancel_job_api_v1_jobs__job_id__cancel_post": JobMutationResponse,
+	"cancel_session_api_v1_cli_sessions__session_id__cancel_post": CliSessionCancelResponse,
 	"cancel_workflow_api_v1_workflows__workflow_id__cancel_post": WorkflowResponse,
 	"cleanup_artifacts_api_v1_evidence_artifacts_cleanup_post": ArtifactCleanupResponse,
 	"create_agent_run_api_v1_agent_runs_post": AgentRunResponse,
@@ -618,6 +685,7 @@ export type OperationResponseBodies = {
 	"create_benchmark_outcome_api_v1_model_gateway_benchmark_outcomes_post": ModelBenchmarkOutcomeResponse,
 	"create_budget_rule_api_v1_model_gateway_budget_rules_post": BudgetRuleResponse,
 	"create_chat_api_v1_chats_post": ChatResponse,
+	"create_credential_api_v1_credentials_post": CredentialResponse,
 	"create_evidence_api_v1_evidence_post": EvidencePackageResponse,
 	"create_job_api_v1_jobs_post": JobMutationResponse,
 	"create_memory_api_v1_memory_post": MemoryResponse,
@@ -634,6 +702,7 @@ export type OperationResponseBodies = {
 	"create_routing_profile_api_v1_model_gateway_routing_profiles_post": RoutingProfileResponse,
 	"create_session_api_v1_sessions_post": SessionResponse,
 	"create_workflow_api_v1_workflows_post": WorkflowResponse,
+	"delete_credential_api_v1_credentials__credential_id__delete": CredentialDeleteResponse,
 	"delete_memory_api_v1_memory__memory_id__delete": MemoryResponse,
 	"deny_action_api_v1_jobs__job_id__actions__action_id__deny_post": JobMutationResponse,
 	"detect_cli_runtime_api_v1_model_gateway_cli_runtimes__runtime_id__detect_post": RuntimeDetectionResponse,
@@ -659,13 +728,17 @@ export type OperationResponseBodies = {
 	"list_agent_profiles_api_v1_agent_profiles_get": AgentProfilesListResponse,
 	"list_agent_runs_api_v1_agent_runs_get": AgentRunsListResponse,
 	"list_architecture_decisions_api_v1_architecture_decisions_get": ArchitectureDecisionsListResponse,
+	"list_assessments_api_v1_projects__project_id__assessments_get": ProjectAssessmentsListResponse,
 	"list_benchmark_outcomes_api_v1_model_gateway_benchmark_outcomes_get": ModelBenchmarkOutcomesListResponse,
 	"list_benchmarks_api_v1_model_gateway_benchmarks_get": ModelBenchmarksListResponse,
 	"list_budget_rules_api_v1_model_gateway_budget_rules_get": BudgetRulesListResponse,
 	"list_chats_api_v1_chats_get": ChatsListResponse,
 	"list_cli_runtimes_api_v1_model_gateway_cli_runtimes_get": CliRuntimesListResponse,
 	"list_cli_sessions_api_v1_model_gateway_cli_sessions_get": CliSessionsListResponse,
+	"list_credential_audit_api_v1_credentials_audit_get": CredentialAuditResponse,
+	"list_credentials_api_v1_credentials_get": CredentialsListResponse,
 	"list_evidence_api_v1_evidence_get": EvidenceListResponse,
+	"list_findings_api_v1_projects__project_id__findings_get": ProjectFindingsListResponse,
 	"list_ide_connections_api_v1_ide_connections_get": IdeConnectionsListResponse,
 	"list_integrations_api_v1_integrations_get": IntegrationsListResponse,
 	"list_jobs_api_v1_jobs_get": JobsListResponse,
@@ -689,6 +762,7 @@ export type OperationResponseBodies = {
 	"list_usage_ledger_api_v1_model_gateway_usage_ledger_get": UsageLedgerListResponse,
 	"list_workflows_api_v1_workflows_get": WorkflowsListResponse,
 	"list_workspaces_api_v1_workspaces_get": WorkspacesListResponse,
+	"migrate_credentials_api_v1_credentials_migrate_post": CredentialMigrationResponse,
 	"open_design_api_v1_open_design_get": OpenDesignResponse,
 	"overview_api_v1_model_gateway_overview_get": ModelGatewayOverviewResponse,
 	"overview_api_v1_overview_get": OverviewResponse,
@@ -709,6 +783,7 @@ export type OperationResponseBodies = {
 	"providers_api_v1_providers_get": ProvidersListResponse,
 	"put_i18n_catalog_api_v1_i18n_catalog_put": I18nCatalogResponse,
 	"register_mcp_server_api_v1_integrations_mcp_register_post": McpServerResponse,
+	"research_agent_status_api_v1_agents_research_status_get": ResearchAgentStatusResponse,
 	"resume_workflow_api_v1_workflows__workflow_id__resume_post": WorkflowResponse,
 	"retrieval_reindex_api_v1_retrieval_reindex_post": RetrievalReindexResponse,
 	"retrieval_search_api_v1_retrieval_search_post": RetrievalSearchResponse,
@@ -716,20 +791,25 @@ export type OperationResponseBodies = {
 	"retry_job_api_v1_jobs__job_id__retry_post": JobMutationResponse,
 	"revoke_permission_grant_api_v1_permissions_grants__grant_id__revoke_post": PermissionGrantResponse,
 	"revoke_sandbox_profile_api_v1_sandbox_profiles__profile_id__revoke_post": SandboxProfileResponse,
+	"rotate_credential_api_v1_credentials__credential_id__rotate_post": CredentialResponse,
 	"route_execute_api_v1_model_gateway_route_execute_post": RouteExecuteResponse,
 	"route_preview_api_v1_model_gateway_route_preview_post": RoutingPreviewResponse,
 	"run_architect_agent_api_v1_agents_architect_runs_post": ArchitectAgentRunResponse,
+	"run_assessment_api_v1_projects__project_id__assessment_post": ProjectAssessmentRunResponse,
 	"run_developer_agent_api_v1_agents_developer_runs_post": DeveloperAgentRunResponse,
 	"run_devops_agent_api_v1_agents_devops_runs_post": DevOpsAgentRunResponse,
 	"run_issue_to_patch_api_v1_workflows_issue_to_patch_post": IssueToPatchResponse,
 	"run_issue_to_pr_api_v1_workflows_issue_to_pr_post": IssueToPrResponse,
 	"run_product_owner_agent_api_v1_agents_product_owner_runs_post": ProductOwnerAgentRunResponse,
 	"run_qa_agent_api_v1_agents_qa_runs_post": QAAgentRunResponse,
+	"run_research_agent_api_v1_agents_research_runs_post": ResearchAgentRunResponse,
 	"run_security_agent_api_v1_agents_security_runs_post": SecurityAgentRunResponse,
 	"sandbox_status_api_v1_sandbox_status_get": SandboxStatusResponse,
 	"security_agent_status_api_v1_agents_security_status_get": SecurityAgentStatusResponse,
 	"select_directory_api_v1_local_paths_select_directory_post": DirectoryPickerResponse,
+	"session_events_api_v1_cli_sessions__session_id__events_get": CliSessionEventsResponse,
 	"start_product_loop_api_v1_projects__project_id__product_loop_post": ProductLoopResumeResponse,
+	"start_session_api_v1_cli_sessions_post": CliSessionStartResponse,
 	"start_workflow_api_v1_workflows__workflow_id__start_post": WorkflowStartResponse,
 	"sync_skills_api_v1_skills_sync_post": SkillsSyncResponse,
 	"teams_api_v1_teams_get": TeamsListResponse,
@@ -741,7 +821,8 @@ export type OperationResponseBodies = {
 	"upsert_agent_profile_api_v1_agent_profiles_post": AgentProfileResponse,
 	"upsert_ide_connection_api_v1_ide_connections_post": IdeConnectionResponse,
 	"upsert_prompt_api_v1_prompts_post": PromptResponse,
-	"usage_summary_api_v1_model_gateway_usage_ledger_summary_get": UsageSummaryResponse
+	"usage_summary_api_v1_model_gateway_usage_ledger_summary_get": UsageSummaryResponse,
+	"validate_credential_api_v1_credentials__credential_id__validate_post": CredentialValidationResponse
 };
 
 export type OperationRequestBody<T extends ApiOperationId> = OperationRequestBodies[T];
@@ -762,6 +843,8 @@ export const OPERATIONS_BY_ID = {
 	"run_product_owner_agent_api_v1_agents_product_owner_runs_post": {"method": "POST", "operationId": "run_product_owner_agent_api_v1_agents_product_owner_runs_post", "path": "/api/v1/agents/product-owner/runs", "summary": "Run Product Owner Agent"},
 	"product_owner_agent_status_api_v1_agents_product_owner_status_get": {"method": "GET", "operationId": "product_owner_agent_status_api_v1_agents_product_owner_status_get", "path": "/api/v1/agents/product-owner/status", "summary": "Product Owner Agent Status"},
 	"run_qa_agent_api_v1_agents_qa_runs_post": {"method": "POST", "operationId": "run_qa_agent_api_v1_agents_qa_runs_post", "path": "/api/v1/agents/qa/runs", "summary": "Run Qa Agent"},
+	"run_research_agent_api_v1_agents_research_runs_post": {"method": "POST", "operationId": "run_research_agent_api_v1_agents_research_runs_post", "path": "/api/v1/agents/research/runs", "summary": "Run Research Agent"},
+	"research_agent_status_api_v1_agents_research_status_get": {"method": "GET", "operationId": "research_agent_status_api_v1_agents_research_status_get", "path": "/api/v1/agents/research/status", "summary": "Research Agent Status"},
 	"run_security_agent_api_v1_agents_security_runs_post": {"method": "POST", "operationId": "run_security_agent_api_v1_agents_security_runs_post", "path": "/api/v1/agents/security/runs", "summary": "Run Security Agent"},
 	"security_agent_status_api_v1_agents_security_status_get": {"method": "GET", "operationId": "security_agent_status_api_v1_agents_security_status_get", "path": "/api/v1/agents/security/status", "summary": "Security Agent Status"},
 	"approvals_api_v1_approvals_get": {"method": "GET", "operationId": "approvals_api_v1_approvals_get", "path": "/api/v1/approvals", "summary": "Approvals"},
@@ -769,6 +852,16 @@ export const OPERATIONS_BY_ID = {
 	"create_architecture_decision_api_v1_architecture_decisions_post": {"method": "POST", "operationId": "create_architecture_decision_api_v1_architecture_decisions_post", "path": "/api/v1/architecture-decisions", "summary": "Create Architecture Decision"},
 	"list_chats_api_v1_chats_get": {"method": "GET", "operationId": "list_chats_api_v1_chats_get", "path": "/api/v1/chats", "summary": "List Chats"},
 	"create_chat_api_v1_chats_post": {"method": "POST", "operationId": "create_chat_api_v1_chats_post", "path": "/api/v1/chats", "summary": "Create Chat"},
+	"start_session_api_v1_cli_sessions_post": {"method": "POST", "operationId": "start_session_api_v1_cli_sessions_post", "path": "/api/v1/cli-sessions", "summary": "Start Session"},
+	"cancel_session_api_v1_cli_sessions__session_id__cancel_post": {"method": "POST", "operationId": "cancel_session_api_v1_cli_sessions__session_id__cancel_post", "path": "/api/v1/cli-sessions/{session_id}/cancel", "summary": "Cancel Session"},
+	"session_events_api_v1_cli_sessions__session_id__events_get": {"method": "GET", "operationId": "session_events_api_v1_cli_sessions__session_id__events_get", "path": "/api/v1/cli-sessions/{session_id}/events", "summary": "Session Events"},
+	"list_credentials_api_v1_credentials_get": {"method": "GET", "operationId": "list_credentials_api_v1_credentials_get", "path": "/api/v1/credentials", "summary": "List Credentials"},
+	"create_credential_api_v1_credentials_post": {"method": "POST", "operationId": "create_credential_api_v1_credentials_post", "path": "/api/v1/credentials", "summary": "Create Credential"},
+	"list_credential_audit_api_v1_credentials_audit_get": {"method": "GET", "operationId": "list_credential_audit_api_v1_credentials_audit_get", "path": "/api/v1/credentials/audit", "summary": "List Credential Audit"},
+	"migrate_credentials_api_v1_credentials_migrate_post": {"method": "POST", "operationId": "migrate_credentials_api_v1_credentials_migrate_post", "path": "/api/v1/credentials/migrate", "summary": "Migrate Credentials"},
+	"delete_credential_api_v1_credentials__credential_id__delete": {"method": "DELETE", "operationId": "delete_credential_api_v1_credentials__credential_id__delete", "path": "/api/v1/credentials/{credential_id}", "summary": "Delete Credential"},
+	"rotate_credential_api_v1_credentials__credential_id__rotate_post": {"method": "POST", "operationId": "rotate_credential_api_v1_credentials__credential_id__rotate_post", "path": "/api/v1/credentials/{credential_id}/rotate", "summary": "Rotate Credential"},
+	"validate_credential_api_v1_credentials__credential_id__validate_post": {"method": "POST", "operationId": "validate_credential_api_v1_credentials__credential_id__validate_post", "path": "/api/v1/credentials/{credential_id}/validate", "summary": "Validate Credential"},
 	"events_api_v1_events_get": {"method": "GET", "operationId": "events_api_v1_events_get", "path": "/api/v1/events", "summary": "Events"},
 	"list_evidence_api_v1_evidence_get": {"method": "GET", "operationId": "list_evidence_api_v1_evidence_get", "path": "/api/v1/evidence", "summary": "List Evidence"},
 	"create_evidence_api_v1_evidence_post": {"method": "POST", "operationId": "create_evidence_api_v1_evidence_post", "path": "/api/v1/evidence", "summary": "Create Evidence"},
@@ -847,6 +940,9 @@ export const OPERATIONS_BY_ID = {
 	"projects_api_v1_projects_get": {"method": "GET", "operationId": "projects_api_v1_projects_get", "path": "/api/v1/projects", "summary": "Projects"},
 	"create_project_api_v1_projects_post": {"method": "POST", "operationId": "create_project_api_v1_projects_post", "path": "/api/v1/projects", "summary": "Create Project"},
 	"discover_project_api_v1_projects_discover_post": {"method": "POST", "operationId": "discover_project_api_v1_projects_discover_post", "path": "/api/v1/projects/discover", "summary": "Discover Project"},
+	"run_assessment_api_v1_projects__project_id__assessment_post": {"method": "POST", "operationId": "run_assessment_api_v1_projects__project_id__assessment_post", "path": "/api/v1/projects/{project_id}/assessment", "summary": "Run Assessment"},
+	"list_assessments_api_v1_projects__project_id__assessments_get": {"method": "GET", "operationId": "list_assessments_api_v1_projects__project_id__assessments_get", "path": "/api/v1/projects/{project_id}/assessments", "summary": "List Assessments"},
+	"list_findings_api_v1_projects__project_id__findings_get": {"method": "GET", "operationId": "list_findings_api_v1_projects__project_id__findings_get", "path": "/api/v1/projects/{project_id}/findings", "summary": "List Findings"},
 	"get_product_loop_state_api_v1_projects__project_id__product_loop_get": {"method": "GET", "operationId": "get_product_loop_state_api_v1_projects__project_id__product_loop_get", "path": "/api/v1/projects/{project_id}/product-loop", "summary": "Get Product Loop State"},
 	"start_product_loop_api_v1_projects__project_id__product_loop_post": {"method": "POST", "operationId": "start_product_loop_api_v1_projects__project_id__product_loop_post", "path": "/api/v1/projects/{project_id}/product-loop", "summary": "Start Product Loop"},
 	"transition_product_loop_api_v1_projects__project_id__product_loop__loop_id__transition_post": {"method": "POST", "operationId": "transition_product_loop_api_v1_projects__project_id__product_loop__loop_id__transition_post", "path": "/api/v1/projects/{project_id}/product-loop/{loop_id}/transition", "summary": "Transition Product Loop"},

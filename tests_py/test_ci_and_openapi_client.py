@@ -309,6 +309,9 @@ def test_generated_openapi_client_is_checked_in_and_v1_only() -> None:
     assert "export type SecurityAgentStatus" in content
     assert "export type SecurityAgentRunRequest" in content
     assert "export type SecurityAgentRunResponse" in content
+    assert "export type ResearchAgentStatus" in content
+    assert "export type ResearchAgentRunRequest" in content
+    assert "export type ResearchAgentRunResponse" in content
     assert "export type ArchitectAgentStatus" in content
     assert "export type ArchitectAgentRunRequest" in content
     assert "export type ArchitectAgentRunResponse" in content
@@ -329,6 +332,8 @@ def test_generated_openapi_client_is_checked_in_and_v1_only() -> None:
     assert '"run_qa_agent_api_v1_agents_qa_runs_post": QAAgentRunRequest' in content
     assert '"security_agent_status_api_v1_agents_security_status_get": SecurityAgentStatusResponse' in content
     assert '"run_security_agent_api_v1_agents_security_runs_post": SecurityAgentRunRequest' in content
+    assert '"research_agent_status_api_v1_agents_research_status_get": ResearchAgentStatusResponse' in content
+    assert '"run_research_agent_api_v1_agents_research_runs_post": ResearchAgentRunRequest' in content
     assert (
         '"architect_agent_status_api_v1_agents_architect_status_get": ArchitectAgentStatusResponse' in content
     )
@@ -363,6 +368,8 @@ def test_generated_openapi_client_is_checked_in_and_v1_only() -> None:
     assert "run_qa_agent_api_v1_agents_qa_runs_post" in api_client
     assert "getSecurityAgentStatus" in api_client
     assert "runSecurityAgent" in api_client
+    assert "getResearchAgentStatus" in api_client
+    assert "runResearchAgent" in api_client
     assert "getArchitectAgentStatus" in api_client
     assert "runArchitectAgent" in api_client
     assert '"/api/v1/overview"' not in api_client
@@ -493,6 +500,55 @@ def test_generated_core_runtime_workflow_evidence_contracts_are_strict() -> None
     assert (
         "apiRequest<{ providers: Dictionary[] }>('/api/v1/runtime/provider-configuration'" not in api_client
     )
+
+
+def test_generated_credential_contract_and_settings_ui_are_secret_safe() -> None:
+    generated = ROOT / "local-control-center" / "web" / "src" / "api" / "generated" / "openapi.ts"
+    content = generated.read_text(encoding="utf-8")
+
+    for operation in (
+        '"list_credentials_api_v1_credentials_get": CredentialsListResponse',
+        '"create_credential_api_v1_credentials_post": CredentialCreateRequest',
+        '"create_credential_api_v1_credentials_post": CredentialResponse',
+        '"list_credential_audit_api_v1_credentials_audit_get": CredentialAuditResponse',
+        '"migrate_credentials_api_v1_credentials_migrate_post": CredentialMigrationResponse',
+        '"validate_credential_api_v1_credentials__credential_id__validate_post": CredentialValidationResponse',
+        '"rotate_credential_api_v1_credentials__credential_id__rotate_post": CredentialRotateRequest',
+        '"delete_credential_api_v1_credentials__credential_id__delete": CredentialDeleteResponse',
+    ):
+        assert operation in content
+
+    credential_record = _generated_type_line(content, "CredentialRecord")
+    assert '"backendKind": string' in credential_record
+    assert '"hasFingerprint": boolean' in credential_record
+    assert '"value"' not in credential_record
+    assert '"salt"' not in credential_record
+    assert '"fingerprint":' not in credential_record
+
+    api_client = (ROOT / "local-control-center" / "web" / "src" / "api" / "client.ts").read_text(
+        encoding="utf-8"
+    )
+    for symbol in (
+        "getCredentials",
+        "createCredential",
+        "validateCredential",
+        "rotateCredential",
+        "deleteCredential",
+        "migrateCredentials",
+        "getCredentialAudit",
+    ):
+        assert symbol in api_client
+    assert "apiRequest<" not in api_client.split("export function getCredentials", 1)[1].split(
+        "export function", 1
+    )[0]
+
+    settings = (
+        ROOT / "local-control-center" / "web" / "src" / "features" / "settings" / "SettingsPage.tsx"
+    ).read_text(encoding="utf-8")
+    assert "CredentialManagerPanel" in settings
+    assert "value:" not in settings
+    assert "fingerprint" not in settings.lower()
+    assert "salt" not in settings.lower()
 
 
 def test_openapi_generation_script_documents_no_network_dependency() -> None:

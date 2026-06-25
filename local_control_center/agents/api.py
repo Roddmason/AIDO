@@ -1,6 +1,6 @@
 """Router HTTP de agentes: ejecuta runs por rol, perfiles, runtimes y skills con validación de entrada.
 
-Expone los endpoints de status/run de cada agente (developer/architect/qa/devops/security), el CRUD de
+Expone los endpoints de status/run de cada agente (developer/architect/qa/devops/security/research), el CRUD de
 perfiles, la creación de agent runs con brokering de tool calls, y los catálogos de runtimes y skills.
 Cada payload se valida estrictamente (ids compactos, argv estructurados, límites) antes de tocar dominio.
 """
@@ -39,6 +39,9 @@ from .contracts import (
     ProductOwnerAgentStatusResponse,
     QAAgentRunRequest,
     QAAgentRunResponse,
+    ResearchAgentRunRequest,
+    ResearchAgentRunResponse,
+    ResearchAgentStatusResponse,
     RuntimeProviderConfigurationResponse,
     RuntimeProvidersResponse,
     SecurityAgentRunRequest,
@@ -53,6 +56,7 @@ from .devops_agent import DevOpsAgentRunner
 from .product_owner_agent import ProductOwnerAgentRunner
 from .qa_agent import QAAgentRunner
 from .repository import AgentsRepository
+from .research_agent import ResearchAgentRunner
 from .runtime_provider_config import list_runtime_provider_configurations
 from .runtime_status import RUNTIME_MODES, RuntimeStatusService
 from .security_agent import SecurityAgentRunner
@@ -284,6 +288,57 @@ def validate_security_agent_run_body(body: SecurityAgentRunRequest) -> dict[str,
         raise HTTPException(
             status_code=422, detail=f"SecurityAgent runtime is not allowed: {preferred_runtime}"
         )
+    return payload
+
+
+def validate_research_agent_run_body(body: ResearchAgentRunRequest) -> dict[str, Any]:
+    """Valida un run de ResearchAgent: fuentes, conclusiones y claims acotados y referenciables.
+
+    Raises:
+        HTTPException: 422 si falta taskId, no hay fuentes, se exceden los límites o claims/citas no
+            tienen strings válidos.
+    """
+    payload = body.model_dump(by_alias=True)
+    task_id = str(payload.get("taskId") or "").strip()
+    if not task_id:
+        raise HTTPException(status_code=422, detail="ResearchAgent taskId is required.")
+    sources = payload.get("sources") or []
+    if not sources:
+        raise HTTPException(status_code=422, detail="ResearchAgent requires at least one source.")
+    if len(sources) > 50:
+        raise HTTPException(status_code=422, detail="ResearchAgent accepts at most 50 sources.")
+    for index, source in enumerate(sources):
+        if not isinstance(source, dict):
+            raise HTTPException(status_code=422, detail=f"sources[{index}] must be an object.")
+        if not str(source.get("url") or "").strip():
+            raise HTTPException(status_code=422, detail=f"sources[{index}].url is required.")
+        if not str(source.get("publisher") or "").strip():
+            raise HTTPException(status_code=422, detail=f"sources[{index}].publisher is required.")
+        content = source.get("content")
+        if content is not None and len(str(content).encode("utf-8")) > 1_000_000:
+            raise HTTPException(status_code=422, detail=f"sources[{index}].content exceeds 1000000 bytes.")
+    conclusions = payload.get("conclusions") or []
+    if len(conclusions) > 100:
+        raise HTTPException(status_code=422, detail="ResearchAgent accepts at most 100 conclusions.")
+    for index, conclusion in enumerate(conclusions):
+        if not isinstance(conclusion, dict):
+            raise HTTPException(status_code=422, detail=f"conclusions[{index}] must be an object.")
+        if not str(conclusion.get("statement") or "").strip():
+            raise HTTPException(status_code=422, detail=f"conclusions[{index}].statement is required.")
+        citations = conclusion.get("citations") or []
+        if not isinstance(citations, list) or not all(isinstance(item, str) and item for item in citations):
+            raise HTTPException(
+                status_code=422, detail=f"conclusions[{index}].citations must be a string list."
+            )
+    claims = payload.get("claims") or []
+    if len(claims) > 100:
+        raise HTTPException(status_code=422, detail="ResearchAgent accepts at most 100 claims.")
+    for index, claim in enumerate(claims):
+        if not isinstance(claim, dict):
+            raise HTTPException(status_code=422, detail=f"claims[{index}] must be an object.")
+        for field in ("topic", "value", "sourceUrl"):
+            if not str(claim.get(field) or "").strip():
+                raise HTTPException(status_code=422, detail=f"claims[{index}].{field} is required.")
     return payload
 
 
@@ -566,6 +621,35 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
                 "workspaceId": result["workspace"]["id"],
                 "evidencePackageId": result["evidencePackage"]["id"],
                 "findingsArtifactId": result["findingsArtifact"]["id"],
+            },
+        )
+        return result
+
+    @router.get("/api/v1/agents/research/status", response_model=ResearchAgentStatusResponse)
+    async def research_agent_status() -> dict[str, Any]:
+        """Devuelve el readiness del ResearchAgent."""
+        return {"researchAgent": ResearchAgentRunner(platform.connection, root=platform.cwd).status()}
+
+    @router.post("/api/v1/agents/research/runs", status_code=202, response_model=ResearchAgentRunResponse)
+    async def run_research_agent(body: ResearchAgentRunRequest, request: Request) -> dict[str, Any]:
+        """Ejecuta el ResearchAgent y emite un evento con el resultado de política de fuentes."""
+        require_write(request)
+        payload = validate_research_agent_run_body(body)
+        try:
+            result = ResearchAgentRunner(platform.connection, root=platform.cwd).run(payload)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        event_bus().record_event(
+            project_id=result["workspace"]["projectId"],
+            event_type=f"agent.research.{result['status']}",
+            payload={
+                "agentRunId": result["agentRun"]["id"],
+                "workspaceId": result["workspace"]["id"],
+                "evidencePackageId": result["evidencePackage"]["id"],
+                "reportArtifactId": result["reportArtifact"]["id"],
+                "sourceArtifactIds": [source["artifactId"] for source in result["sources"]],
             },
         )
         return result

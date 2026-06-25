@@ -76,7 +76,13 @@ class RuntimeProviderConfiguration:
 
     @property
     def configured(self) -> bool:
-        """True when every required variable has a value."""
+        """True when every required variable has a value.
+
+        CLI command env vars are deprecated overrides, so they are configured only when the override
+        itself is present; normal CLI readiness comes from runtime_installations/runtime_accounts.
+        """
+        if self.spec.kind == "cli":
+            return bool(self.value("command"))
         return not self.missing
 
     @property
@@ -91,13 +97,22 @@ class RuntimeProviderConfiguration:
     @property
     def status(self) -> str:
         """Either `configured` or `configuration_required` for status surfaces."""
+        if self.spec.kind == "cli" and not self.configured:
+            return "override_unset"
         return "configured" if self.configured else "configuration_required"
 
     @property
     def reason(self) -> str:
         """Human-readable explanation naming the missing variables when not configured."""
         if self.configured:
+            if self.spec.kind == "cli":
+                return "Deprecated CLI command environment override is present."
             return "Required runtime provider configuration is present."
+        if self.spec.kind == "cli":
+            return (
+                "No deprecated CLI command environment override is set; normal CLI configuration lives "
+                "in runtime_installations and runtime_accounts."
+            )
         return "Missing required runtime provider configuration or credential: " + ", ".join(self.missing)
 
     def value(self, key: str) -> str | None:
@@ -181,20 +196,22 @@ RUNTIME_PROVIDER_CONFIG_SPECS: tuple[RuntimeProviderConfigSpec, ...] = (
         provider_id="codex_cli",
         display_name="Codex CLI",
         kind="cli",
-        variables=(RuntimeConfigVariableSpec("command", "AIDO_CODEX_COMMAND", secret=False),),
+        variables=(RuntimeConfigVariableSpec("command", "AIDO_CODEX_COMMAND", secret=False, required=False),),
     ),
     RuntimeProviderConfigSpec(
         provider_id="claude_code_cli",
         display_name="Claude Code CLI",
         kind="cli",
-        variables=(RuntimeConfigVariableSpec("command", "AIDO_CLAUDE_COMMAND", secret=False),),
+        variables=(
+            RuntimeConfigVariableSpec("command", "AIDO_CLAUDE_COMMAND", secret=False, required=False),
+        ),
     ),
     RuntimeProviderConfigSpec(
         provider_id="openhands",
         display_name="OpenHands",
         kind="cli",
         variables=(
-            RuntimeConfigVariableSpec("command", "AIDO_OPENHANDS_COMMAND", secret=False),
+            RuntimeConfigVariableSpec("command", "AIDO_OPENHANDS_COMMAND", secret=False, required=False),
             RuntimeConfigVariableSpec(
                 "issueToPatchArgv",
                 "AIDO_OPENHANDS_ISSUE_TO_PATCH_ARGV_JSON",
@@ -208,7 +225,7 @@ RUNTIME_PROVIDER_CONFIG_SPECS: tuple[RuntimeProviderConfigSpec, ...] = (
         display_name="SWE-agent",
         kind="cli",
         variables=(
-            RuntimeConfigVariableSpec("command", "AIDO_SWE_AGENT_COMMAND", secret=False),
+            RuntimeConfigVariableSpec("command", "AIDO_SWE_AGENT_COMMAND", secret=False, required=False),
             RuntimeConfigVariableSpec(
                 "issueToPatchArgv",
                 "AIDO_SWE_AGENT_ISSUE_TO_PATCH_ARGV_JSON",

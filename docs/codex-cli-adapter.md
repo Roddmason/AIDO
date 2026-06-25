@@ -6,7 +6,13 @@
 
 ## Configuration
 
-- `AIDO_CODEX_COMMAND=codex`
+- `runtime_installations` stores the Codex executable path, version, capabilities,
+  preferred roles, health, last validation, and configuration source.
+- `runtime_accounts` seeds `Local Codex CLI` with
+  `authMode=provider_native_cli`; AIDO uses the Codex CLI native login/session
+  by default instead of copying API keys.
+- `AIDO_CODEX_COMMAND=codex` is a deprecated bootstrap/CI override, mainly for
+  release smoke scripts.
 - `AIDO_ENABLE_CLI_RUNTIMES=false`
 
 Profiles seeded in the catalog include `codex_gpt55_developer`, `codex_gpt55_reviewer` and `codex_gpt55_xhigh_architect`.
@@ -24,6 +30,7 @@ Tests verify missing binary status and dangerous flag rejection.
 Release validation is a real opt-in smoke, not part of the unit suite:
 
 ```powershell
+# Deprecated CI/bootstrap override; normal runtime config lives in SQLite.
 $env:AIDO_CODEX_COMMAND = "codex"
 $env:AIDO_ENABLE_CLI_RUNTIMES = "true"
 corepack pnpm@10.24.0 run smoke:codex:release

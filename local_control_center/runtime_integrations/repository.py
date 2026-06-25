@@ -1,7 +1,7 @@
-"""Persistencia SQLite de la configuración de runtimes: instalaciones, cuentas CLI y preferencias.
+"""Persistencia SQLite de la configuración de runtimes: instalaciones, cuentas y preferencias.
 
 Guarda la instalación de cada runtime (ruta del ejecutable, versión detectada, enabled, estado de
-salud), las cuentas de CLI (modo de auth y clase de almacén de credenciales — NUNCA el token) y las
+salud), las cuentas de runtime (modo de auth y clase de almacén de credenciales — NUNCA el token) y las
 preferencias (runtime predeterminado, orden y perfiles por defecto). Los mapeadores ``row_to_*``
 proyectan cada fila al dict camelCase del contrato; ninguno expone secretos.
 
@@ -30,17 +30,21 @@ def row_to_runtime_installation(row: sqlite3.Row) -> dict[str, Any]:
         "executablePath": row["executable_path"],
         "detectedVersion": row["detected_version"],
         "enabled": bool(row["enabled"]),
+        "capabilities": json_loads(row["capabilities"], []),
+        "preferredRoles": json_loads(row["preferred_roles"], []),
         "healthStatus": row["health_status"],
+        "lastValidationAt": row["last_validation_at"],
         "lastHealthCheckAt": row["last_health_check_at"],
         "lastError": row["last_error"],
+        "configurationSource": row["configuration_source"],
         "metadata": json_loads(row["metadata"]),
         "createdAt": row["created_at"],
         "updatedAt": row["updated_at"],
     }
 
 
-def row_to_cli_account(row: sqlite3.Row) -> dict[str, Any]:
-    """Mapea una fila de ``cli_accounts`` al dict camelCase del contrato (sin exponer secretos)."""
+def row_to_runtime_account(row: sqlite3.Row) -> dict[str, Any]:
+    """Mapea una fila de ``runtime_accounts`` al dict camelCase del contrato (sin exponer secretos)."""
     return {
         "id": row["id"],
         "runtimeId": row["runtime_id"],
@@ -50,11 +54,18 @@ def row_to_cli_account(row: sqlite3.Row) -> dict[str, Any]:
         "credentialRef": row["credential_ref"],
         "enabled": bool(row["enabled"]),
         "isDefault": bool(row["is_default"]),
+        "capabilities": json_loads(row["capabilities"], []),
+        "preferredRoles": json_loads(row["preferred_roles"], []),
         "healthStatus": row["health_status"],
+        "lastValidationAt": row["last_validation_at"],
+        "configurationSource": row["configuration_source"],
         "metadata": json_loads(row["metadata"]),
         "createdAt": row["created_at"],
         "updatedAt": row["updated_at"],
     }
+
+
+row_to_cli_account = row_to_runtime_account
 
 
 def row_to_runtime_preference(row: sqlite3.Row) -> dict[str, Any]:
@@ -84,32 +95,55 @@ class RuntimeConfigRepository:
     def upsert_installation(self, body: dict[str, Any]) -> dict[str, Any]:
         """Crea o actualiza la instalación de un runtime por ``runtimeId`` y la devuelve.
 
-        Guarda ruta del ejecutable, versión detectada, enabled y estado de salud. La lectura previa y
-        la escritura son dos sentencias: el caller las agrupa en ``immediate_transaction`` si necesita
-        atomicidad.
+        Guarda ruta del ejecutable, versión detectada, capacidades, roles preferidos, enabled y estado
+        de salud. La lectura previa y la escritura son dos sentencias: el caller las agrupa en
+        ``immediate_transaction`` si necesita atomicidad.
         """
         runtime_id = str(body["runtimeId"])
         timestamp = utc_now()
-        existing = self.connection.execute(
-            "SELECT id FROM runtime_installations WHERE runtime_id = ?", (runtime_id,)
+        existing_row = self.connection.execute(
+            "SELECT * FROM runtime_installations WHERE runtime_id = ?", (runtime_id,)
         ).fetchone()
-        if existing:
+        current = row_to_runtime_installation(existing_row) if existing_row else {}
+        metadata = body.get("metadata") if "metadata" in body else current.get("metadata", {})
+        configuration_source = str(
+            body.get("configurationSource")
+            or (metadata or {}).get("source")
+            or current.get("configurationSource")
+            or "manual"
+        )
+        last_validation_at = body.get("lastValidationAt")
+        if last_validation_at is None and "lastHealthCheckAt" in body:
+            last_validation_at = body.get("lastHealthCheckAt")
+        if last_validation_at is None:
+            last_validation_at = current.get("lastValidationAt")
+        last_health_check_at = (
+            body.get("lastHealthCheckAt")
+            if "lastHealthCheckAt" in body
+            else current.get("lastHealthCheckAt")
+        )
+        if existing_row:
             self.connection.execute(
                 """
                 UPDATE runtime_installations
-                SET kind = ?, executable_path = ?, detected_version = ?, enabled = ?, health_status = ?,
-                    last_health_check_at = ?, last_error = ?, metadata = ?, updated_at = ?
+                SET kind = ?, executable_path = ?, detected_version = ?, enabled = ?, capabilities = ?,
+                    preferred_roles = ?, health_status = ?, last_validation_at = ?, last_health_check_at = ?,
+                    last_error = ?, configuration_source = ?, metadata = ?, updated_at = ?
                 WHERE runtime_id = ?
                 """,
                 (
-                    body.get("kind", "cli"),
-                    body.get("executablePath"),
-                    body.get("detectedVersion"),
-                    int(bool(body.get("enabled", False))),
-                    body.get("healthStatus", "unknown"),
-                    body.get("lastHealthCheckAt"),
-                    body.get("lastError"),
-                    json_dumps(body.get("metadata") or {}),
+                    body.get("kind", current.get("kind", "cli")),
+                    body.get("executablePath", current.get("executablePath")),
+                    body.get("detectedVersion", current.get("detectedVersion")),
+                    int(bool(body.get("enabled", current.get("enabled", False)))),
+                    json_dumps(body.get("capabilities", current.get("capabilities", [])) or []),
+                    json_dumps(body.get("preferredRoles", current.get("preferredRoles", [])) or []),
+                    body.get("healthStatus", current.get("healthStatus", "unknown")),
+                    last_validation_at,
+                    last_health_check_at,
+                    body.get("lastError", current.get("lastError")),
+                    configuration_source,
+                    json_dumps(metadata or {}),
                     timestamp,
                     runtime_id,
                 ),
@@ -118,9 +152,10 @@ class RuntimeConfigRepository:
             self.connection.execute(
                 """
                 INSERT INTO runtime_installations
-                    (id, runtime_id, kind, executable_path, detected_version, enabled, health_status,
-                     last_health_check_at, last_error, metadata, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (id, runtime_id, kind, executable_path, detected_version, enabled, capabilities,
+                     preferred_roles, health_status, last_validation_at, last_health_check_at, last_error,
+                     configuration_source, metadata, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     f"runtime-installation-{runtime_id}",
@@ -129,10 +164,14 @@ class RuntimeConfigRepository:
                     body.get("executablePath"),
                     body.get("detectedVersion"),
                     int(bool(body.get("enabled", False))),
+                    json_dumps(body.get("capabilities") or []),
+                    json_dumps(body.get("preferredRoles") or []),
                     body.get("healthStatus", "unknown"),
-                    body.get("lastHealthCheckAt"),
+                    last_validation_at,
+                    last_health_check_at,
                     body.get("lastError"),
-                    json_dumps(body.get("metadata") or {}),
+                    configuration_source,
+                    json_dumps(metadata or {}),
                     timestamp,
                     timestamp,
                 ),
@@ -159,90 +198,139 @@ class RuntimeConfigRepository:
         ).fetchall()
         return [row_to_runtime_installation(row) for row in rows]
 
-    # -- Cuentas de CLI (sin tokens) ------------------------------------------------
+    # -- Cuentas de runtime (sin tokens) -------------------------------------------
 
-    def create_cli_account(self, body: dict[str, Any]) -> dict[str, Any]:
-        """Inserta una cuenta de CLI (id ``cli-account-<uuid>``) y la devuelve.
+    def create_runtime_account(self, body: dict[str, Any]) -> dict[str, Any]:
+        """Inserta una cuenta de runtime y la devuelve.
 
-        Solo persiste ``authMode`` y ``credentialStoreKind`` (más un ``credentialRef`` no secreto que
-        apunta al almacén); nunca el token ni el secreto.
+        El default de CLI es ``provider_native_cli``: AIDO usa el login/sesión nativo del CLI en vez
+        de copiar secretos. ``credentialRef`` es opcional y solo puede ser un puntero no secreto.
         """
-        account_id = f"cli-account-{uuid.uuid4()}"
+        account_id = str(body.get("id") or f"runtime-account-{uuid.uuid4()}")
+        runtime_id = str(body["runtimeId"])
         timestamp = utc_now()
         self.connection.execute(
             """
-            INSERT INTO cli_accounts
+            INSERT INTO runtime_accounts
                 (id, runtime_id, account_label, auth_mode, credential_store_kind, credential_ref,
-                 enabled, is_default, health_status, metadata, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 enabled, is_default, capabilities, preferred_roles, health_status, last_validation_at,
+                 configuration_source, metadata, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 account_id,
-                str(body["runtimeId"]),
+                runtime_id,
                 str(body["accountLabel"]),
-                str(body["authMode"]),
-                str(body["credentialStoreKind"]),
+                str(body.get("authMode") or "provider_native_cli"),
+                str(body.get("credentialStoreKind") or "provider_native_cli"),
                 body.get("credentialRef"),
                 int(bool(body.get("enabled", True))),
                 int(bool(body.get("isDefault", False))),
+                json_dumps(body.get("capabilities") or []),
+                json_dumps(body.get("preferredRoles") or []),
                 body.get("healthStatus", "unknown"),
+                body.get("lastValidationAt"),
+                body.get("configurationSource", "manual"),
                 json_dumps(body.get("metadata") or {}),
                 timestamp,
                 timestamp,
             ),
         )
-        return self.get_cli_account(account_id)
+        if body.get("isDefault"):
+            self.connection.execute(
+                "UPDATE runtime_accounts SET is_default = 0 WHERE runtime_id = ? AND id <> ?",
+                (runtime_id, account_id),
+            )
+        return self.get_runtime_account(account_id)
 
-    def get_cli_account(self, account_id: str) -> dict[str, Any]:
-        """Recupera una cuenta de CLI por id.
+    def get_runtime_account(self, account_id: str) -> dict[str, Any]:
+        """Recupera una cuenta de runtime por id.
 
         Raises:
             KeyError: si no existe ninguna cuenta con ese id.
         """
-        row = self.connection.execute("SELECT * FROM cli_accounts WHERE id = ?", (account_id,)).fetchone()
+        row = self.connection.execute(
+            "SELECT * FROM runtime_accounts WHERE id = ?", (account_id,)
+        ).fetchone()
         if not row:
-            raise KeyError(f"CLI account not found: {account_id}")
-        return row_to_cli_account(row)
+            raise KeyError(f"Runtime account not found: {account_id}")
+        return row_to_runtime_account(row)
 
-    def list_cli_accounts(self, runtime_id: str | None = None) -> list[dict[str, Any]]:
-        """Lista las cuentas de CLI (todas o por runtime), en orden de creación."""
+    def list_runtime_accounts(self, runtime_id: str | None = None) -> list[dict[str, Any]]:
+        """Lista las cuentas de runtime (todas o por runtime), priorizando la default."""
         if runtime_id:
             rows = self.connection.execute(
-                "SELECT * FROM cli_accounts WHERE runtime_id = ? ORDER BY created_at ASC",
+                """
+                SELECT * FROM runtime_accounts
+                WHERE runtime_id = ?
+                ORDER BY is_default DESC, created_at ASC
+                """,
                 (runtime_id,),
             ).fetchall()
         else:
-            rows = self.connection.execute("SELECT * FROM cli_accounts ORDER BY created_at ASC").fetchall()
-        return [row_to_cli_account(row) for row in rows]
+            rows = self.connection.execute(
+                "SELECT * FROM runtime_accounts ORDER BY runtime_id ASC, is_default DESC, created_at ASC"
+            ).fetchall()
+        return [row_to_runtime_account(row) for row in rows]
 
-    def update_cli_account(self, account_id: str, body: dict[str, Any]) -> dict[str, Any]:
-        """Aplica un patch sobre una cuenta de CLI (auth/almacén/enabled/default/salud); nunca toca tokens.
+    def update_runtime_account(self, account_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        """Aplica un patch sobre una cuenta de runtime; nunca toca ni persiste secretos.
 
         Raises:
             KeyError: si la cuenta no existe.
         """
-        current = self.get_cli_account(account_id)
+        current = self.get_runtime_account(account_id)
         next_value = {**current, **body}
         self.connection.execute(
             """
-            UPDATE cli_accounts
+            UPDATE runtime_accounts
             SET auth_mode = ?, credential_store_kind = ?, credential_ref = ?, enabled = ?,
-                is_default = ?, health_status = ?, metadata = ?, updated_at = ?
+                is_default = ?, capabilities = ?, preferred_roles = ?, health_status = ?,
+                last_validation_at = ?, configuration_source = ?, metadata = ?, updated_at = ?
             WHERE id = ?
             """,
             (
-                next_value["authMode"],
-                next_value["credentialStoreKind"],
+                next_value.get("authMode") or "provider_native_cli",
+                next_value.get("credentialStoreKind") or "provider_native_cli",
                 next_value.get("credentialRef"),
                 int(bool(next_value.get("enabled", True))),
                 int(bool(next_value.get("isDefault", False))),
+                json_dumps(next_value.get("capabilities") or []),
+                json_dumps(next_value.get("preferredRoles") or []),
                 next_value.get("healthStatus", "unknown"),
+                next_value.get("lastValidationAt"),
+                next_value.get("configurationSource", "manual"),
                 json_dumps(next_value.get("metadata") or {}),
                 utc_now(),
                 account_id,
             ),
         )
-        return self.get_cli_account(account_id)
+        if next_value.get("isDefault"):
+            self.connection.execute(
+                """
+                UPDATE runtime_accounts
+                SET is_default = 0
+                WHERE runtime_id = ? AND id <> ?
+                """,
+                (current["runtimeId"], account_id),
+            )
+        return self.get_runtime_account(account_id)
+
+    def create_cli_account(self, body: dict[str, Any]) -> dict[str, Any]:
+        """Alias compatible: usa ``create_runtime_account``."""
+        return self.create_runtime_account(body)
+
+    def get_cli_account(self, account_id: str) -> dict[str, Any]:
+        """Alias compatible: usa ``get_runtime_account``."""
+        return self.get_runtime_account(account_id)
+
+    def list_cli_accounts(self, runtime_id: str | None = None) -> list[dict[str, Any]]:
+        """Alias compatible: usa ``list_runtime_accounts``."""
+        return self.list_runtime_accounts(runtime_id)
+
+    def update_cli_account(self, account_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        """Alias compatible: usa ``update_runtime_account``."""
+        return self.update_runtime_account(account_id, body)
 
     # -- Preferencias de runtime ----------------------------------------------------
 

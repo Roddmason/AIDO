@@ -41,9 +41,10 @@ def test_migration_populates_tables_warns_and_never_copies_the_secret(tmp_path: 
         assert codex["enabled"] is False  # seed state preserved, not force-enabled
         assert runtime_repo.get_installation("claude_code_cli")["executablePath"] == "C:/tools/claude.exe"
 
-        # Secrets migrate to credential_refs as references (backend=env) with a fingerprint, NOT the value.
+        # Secrets migrate to credential_refs as references (backend=environment_override) with a
+        # fingerprint, NOT the value.
         github = credential_repo.get_credential_by_name("github/token")
-        assert github["backendKind"] == "env"
+        assert github["backendKind"] == "environment_override"
         assert github["locator"] == "AIDO_GITHUB_TOKEN"
         assert github["fingerprint"] and len(github["fingerprint"]) == 64
         assert github["metadata"]["source"] == "environment_override"
@@ -69,6 +70,9 @@ def test_migration_populates_tables_warns_and_never_copies_the_secret(tmp_path: 
         audit = connection.execute("SELECT * FROM credential_audit").fetchall()
         assert all(secret not in str(tuple(row)) for row in audit for secret in SECRET_VALUES)
         assert {entry["action"] for entry in credential_repo.list_audit()} == {"migrate"}
+        assert {entry["backendKind"] for entry in credential_repo.list_audit()} == {
+            "environment_override"
+        }
 
 
 def test_migration_falls_back_to_legacy_env_var_by_precedence(tmp_path: Path) -> None:

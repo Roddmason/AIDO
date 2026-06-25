@@ -23,25 +23,17 @@
       "en": "Refresh credentials",
       "es": "Actualizar credenciales"
     },
-    "app.shell.sidebar": {
-      "en": "Threads and loops",
-      "es": "Hilos y ciclos"
+    "app.shell.sectionProjects": {
+      "en": "Projects",
+      "es": "Proyectos"
     },
-    "app.shell.tabsLabel": {
-      "en": "Sidebar view",
-      "es": "Vista de la barra lateral"
-    },
-    "app.shell.tabThreads": {
-      "en": "Threads",
-      "es": "Hilos"
-    },
-    "app.shell.tabLoops": {
-      "en": "Loops",
-      "es": "Ciclos"
+    "app.shell.settings": {
+      "en": "Settings",
+      "es": "Configuración"
     },
     "app.shell.searchLabel": {
-      "en": "Search threads and loops",
-      "es": "Buscar hilos y ciclos"
+      "en": "Search projects and threads",
+      "es": "Buscar proyectos e hilos"
     },
     "app.shell.searchPlaceholder": {
       "en": "Search…",

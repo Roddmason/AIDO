@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from local_control_center.credentials.backends import CredentialBackendError, EnvBackend
+from local_control_center.credentials.backends import CredentialBackendError, EnvBackend, default_backends
 from local_control_center.credentials.manager import CredentialError, CredentialManager
 from local_control_center.credentials.repository import CredentialRepository
 from local_control_center.shared.db import open_sqlite_connection
@@ -270,9 +270,27 @@ def test_create_rolls_back_backend_secret_when_ref_persistence_fails(tmp_path: P
 
 def test_env_backend_is_read_only_bootstrap(tmp_path: Path) -> None:
     backend = EnvBackend({"BOOT_TOKEN": SECRET})
+    assert backend.backend_kind == "environment_override"
     assert backend.read("BOOT_TOKEN") == SECRET
     assert backend.read("MISSING") is None
     with pytest.raises(CredentialBackendError, match="read-only"):
         backend.write("BOOT_TOKEN", "x")
     with pytest.raises(CredentialBackendError, match="cannot delete"):
         backend.remove("BOOT_TOKEN")
+
+
+def test_default_backends_register_required_secret_adapters(tmp_path: Path) -> None:
+    backends = default_backends(
+        {
+            "AIDO_DPAPI_SQLITE_PATH": str(tmp_path / "dpapi.sqlite"),
+            "AIDO_VAULT_ADDR": "https://vault.example.test",
+            "AIDO_VAULT_TOKEN": "vault-bootstrap-token",
+            "AIDO_OPENBAO_ADDR": "https://openbao.example.test",
+            "AIDO_OPENBAO_TOKEN": "openbao-bootstrap-token",
+        }
+    )
+
+    assert {"keyring", "openbao", "vault", "dpapi_sqlite", "environment_override"} <= set(backends)
+    assert backends["keyring"].backend_kind == "keyring"
+    assert backends["environment_override"].backend_kind == "environment_override"
+    assert backends["dpapi_sqlite"].backend_kind == "dpapi_sqlite"

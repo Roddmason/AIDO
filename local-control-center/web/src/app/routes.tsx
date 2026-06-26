@@ -49,9 +49,13 @@ const SettingsPage = lazy(() => importSettings().then((m) => ({ default: m.Setti
 const importPages = () => import('../features/pages');
 const EvidencePage = lazy(() => importPages().then((m) => ({ default: m.EvidencePage })));
 const GovernancePage = lazy(() => importPages().then((m) => ({ default: m.GovernancePage })));
-const IntegrationsPage = lazy(() => importPages().then((m) => ({ default: m.IntegrationsPage })));
 const PolicySecurityPage = lazy(() =>
 	importPages().then((m) => ({ default: m.PolicySecurityPage })),
+);
+
+const importIntegrations = () => import('../features/integrations/IntegrationsPage');
+const IntegrationsPage = lazy(() =>
+	importIntegrations().then((m) => ({ default: m.IntegrationsPage })),
 );
 // Per-feature chunks (extracted from the barrel).
 const importAssessment = () => import('../features/assessment/AssessmentPage');
@@ -258,7 +262,7 @@ export const routeTable: Record<AppRoute, RouteEntry> = {
 	},
 	integrations: {
 		render: (ctx) => <IntegrationsPage overview={ctx.overview} mutate={ctx.mutate} />,
-		preload: importPages,
+		preload: importIntegrations,
 	},
 	'settings-project': settingsEntry,
 	'settings-runtime': settingsEntry,

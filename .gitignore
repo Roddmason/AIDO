@@ -27,6 +27,7 @@ test-results/
 .claude/
 .tmp/
 .codegraph/
+.superpowers/
 *.sqlite
 *.sqlite3
 *.db

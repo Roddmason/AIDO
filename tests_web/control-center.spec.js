@@ -560,7 +560,7 @@ async function routeIssueToPatchApprovalOverview(page, fixtures) {
 async function expectNavigationTargetsReachable(page) {
 	// Navigation is now via direct hash — verify each page resolves to a visible heading
 	// rather than inspecting the removed .ide-nav .nav-item elements.
-	const routes = ['#threads', '#workbench', '#settings-runtime'];
+	const routes = ['#threads', '#workbench', '#models'];
 	for (const hash of routes) {
 		await page.goto(`/${hash}`);
 		await expectControlPlaneLoaded(page);
@@ -718,13 +718,26 @@ test('Active Projects shows only active projects and ignores stale selected proj
 test('Settings owns selected project and persists it across reloads', async ({ page }) => {
 	const project = await createWebProject(page, { name: `Settings Selected ${Date.now()}` });
 
-	await page.goto('/#settings');
+	// Open the Settings modal via the sidebar footer button.
+	await page.goto('/#threads');
 	await expectControlPlaneLoaded(page);
-	await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
+	await page.locator('.shell-sidebar-footer').getByRole('button', { name: 'Settings' }).click();
+	const dialog = page.getByRole('dialog', { name: 'Settings' });
+	await expect(dialog).toBeVisible();
+	// Navigate to the Project section.
+	await dialog.getByRole('button', { name: 'Project' }).click();
 	await page.getByLabel('Operational project').selectOption(project.id);
+	// Close and reopen to confirm persistence.
+	await dialog.getByRole('button', { name: 'Close Settings' }).click();
+	await expect(dialog).toBeHidden();
 	await page.reload();
+	await expectControlPlaneLoaded(page);
+	await page.locator('.shell-sidebar-footer').getByRole('button', { name: 'Settings' }).click();
+	await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible();
+	await page.getByRole('dialog', { name: 'Settings' }).getByRole('button', { name: 'Project' }).click();
 
 	await expect(page.getByLabel('Operational project')).toHaveValue(project.id);
+	await page.getByRole('dialog', { name: 'Settings' }).getByRole('button', { name: 'Close Settings' }).click();
 	await page.goto('/#command');
 	await expect(page.getByText(project.name).first()).toBeVisible();
 });
@@ -735,7 +748,13 @@ test('New Project wizard validates input creates project and selects it', async 
 	const workspaceBasePath = '.tmp';
 	const projectDirectoryName = `wizard-project-${suffix}`;
 
-	await page.goto('/#settings');
+	// Open Settings modal and navigate to the Project section.
+	await page.goto('/#threads');
+	await expectControlPlaneLoaded(page);
+	await page.locator('.shell-sidebar-footer').getByRole('button', { name: 'Settings' }).click();
+	const dialog = page.getByRole('dialog', { name: 'Settings' });
+	await expect(dialog).toBeVisible();
+	await dialog.getByRole('button', { name: 'Project' }).click();
 	await page.getByRole('button', { name: 'New project' }).click();
 	await page.locator('.workspace-mode-card').filter({ hasText: 'Create workspace' }).click();
 
@@ -785,7 +804,13 @@ test('New Project wizard validates input creates project and selects it', async 
 });
 
 test('New Project wizard exposes attach existing mode and discovery controls', async ({ page }) => {
-	await page.goto('/#settings');
+	// Open Settings modal and navigate to the Project section.
+	await page.goto('/#threads');
+	await expectControlPlaneLoaded(page);
+	await page.locator('.shell-sidebar-footer').getByRole('button', { name: 'Settings' }).click();
+	const dialog = page.getByRole('dialog', { name: 'Settings' });
+	await expect(dialog).toBeVisible();
+	await dialog.getByRole('button', { name: 'Project' }).click();
 	await page.getByRole('button', { name: 'New project' }).click();
 
 	const openCard = page.locator('.workspace-mode-card').filter({ hasText: 'Open folder' });
@@ -822,17 +847,21 @@ test('Go menu exposes the primary destinations and explorer reflects the active 
 	// Close the menu.
 	await page.keyboard.press('Escape');
 
-	// Navigating to sub-pages via hash renders the correct heading.
-	// The per-area explorer is gone; the persistent shell-sidebar is always present.
+	// Settings hashes now open the modal instead of a dedicated route.
+	// Legacy hashes still resolve: #settings-runtime → modal at Providers & CLI section.
 	await page.goto('/#settings-runtime');
-	await expect(page.getByRole('heading', { name: 'Runtime & Models' })).toBeVisible();
-	await page.goto('/#settings-project');
-	await expect(page.getByRole('heading', { name: /Project/ })).toBeVisible();
+	await expectControlPlaneLoaded(page);
+	await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible();
+	// The persistent shell-sidebar is always present on every page.
+	await expect(page.locator('.shell-sidebar')).toBeVisible();
 });
 
 test('Go menu has primary destinations and explorer marks the active route', async ({ page }) => {
+	// #settings hash now opens the Settings modal on the home page.
 	await page.goto('/#settings');
 	await expectControlPlaneLoaded(page);
+	await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible();
+	await page.getByRole('dialog', { name: 'Settings' }).getByRole('button', { name: 'Close Settings' }).click();
 
 	// The Go menu exposes at least the core destinations.
 	await page.getByRole('menuitem', { name: 'Go' }).click();
@@ -841,13 +870,14 @@ test('Go menu has primary destinations and explorer marks the active route', asy
 	}
 	await page.keyboard.press('Escape');
 
-	// The per-area explorer is gone; navigate to sub-pages via hash and assert the heading.
-	await page.goto('/#settings-runtime');
-	await expect(page.getByRole('heading', { name: 'Runtime & Models' })).toBeVisible();
+	// Settings item in Go menu opens the modal.
+	await page.getByRole('menuitem', { name: 'Go' }).click();
+	await page.getByRole('menuitem', { name: 'Settings', exact: true }).click();
+	await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible();
 });
 
 test('IDE navigation keeps touch-safe targets across key destinations', async ({ page }) => {
-	for (const hash of ['#threads', '#home', '#workbench', '#workflows', '#review-board', '#settings']) {
+	for (const hash of ['#threads', '#home', '#workbench', '#workflows', '#review-board']) {
 		await page.goto(`/${hash}`);
 		await expectControlPlaneLoaded(page);
 		await expectNavigationTargetsReachable(page);
@@ -924,10 +954,12 @@ test('IDE Explorer exposes audit log and workspace settings from the shell', asy
 	await expectControlPlaneLoaded(page);
 	await expect(page.getByRole('heading', { name: 'Audit Log' })).toBeVisible();
 
+	// #settings-workspaces now opens the Settings modal at the Workspaces section.
 	await page.goto('/#settings-workspaces');
 	await expectControlPlaneLoaded(page);
-	await expect(page.getByRole('heading', { name: 'Workspaces', exact: true })).toBeVisible();
-	await expect(page.getByText('IDE-style workspace roots').first()).toBeVisible();
+	const dialog = page.getByRole('dialog', { name: 'Settings' });
+	await expect(dialog).toBeVisible();
+	await expect(dialog.getByRole('button', { name: 'Workspaces' })).toBeVisible();
 });
 
 test('Workbench chat creates a chat intake and linked pipeline', async ({ page }) => {
@@ -1010,11 +1042,21 @@ test('Go menu localizes primary destinations with the ES EN control', async ({ p
 });
 
 test('language control localizes Settings and New Project wizard chrome', async ({ page }) => {
-	await page.goto('/#settings');
-	await page.getByRole('button', { name: 'ES', exact: true }).click();
+	await page.goto('/#threads');
+	await expectControlPlaneLoaded(page);
 
+	// Switch to Spanish BEFORE opening the modal so the scrim does not block the language button.
+	await page.getByRole('button', { name: 'ES', exact: true }).click();
 	await expect(page.locator('html')).toHaveAttribute('lang', 'es');
-	await expect(page.getByRole('heading', { name: 'Configuraciones', exact: true })).toBeVisible();
+
+	// Open the Settings modal — the sidebar button is labeled "Configuración" in ES,
+	// and the resulting dialog title ("aria-label") is "Ajustes" (from app.settings.title).
+	await page.locator('.shell-sidebar-footer').getByRole('button', { name: 'Configuración' }).click();
+	const dialogEs = page.getByRole('dialog', { name: 'Ajustes' });
+	await expect(dialogEs).toBeVisible();
+
+	// The Project section "Nuevo proyecto" button should be localized.
+	await dialogEs.getByRole('button', { name: 'Proyecto' }).click();
 	await expect(page.getByRole('button', { name: 'Nuevo proyecto' })).toBeVisible();
 
 	await page.getByRole('button', { name: 'Nuevo proyecto' }).click();
@@ -1023,9 +1065,14 @@ test('language control localizes Settings and New Project wizard chrome', async 
 	await expect(page.getByRole('button', { name: 'Siguiente' })).toBeVisible();
 	await page.getByRole('button', { name: 'Cancelar' }).click();
 
+	// Close the modal, switch back to English, and reopen to confirm the title localizes back.
+	await dialogEs.getByRole('button', { name: 'Cerrar Ajustes' }).click();
+	await expect(dialogEs).toBeHidden();
 	await page.getByRole('button', { name: 'EN', exact: true }).click();
 	await expect(page.locator('html')).toHaveAttribute('lang', 'en');
-	await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
+
+	await page.locator('.shell-sidebar-footer').getByRole('button', { name: 'Settings' }).click();
+	await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible();
 });
 
 test('language control localizes catalog-backed operational surfaces', async ({ page }) => {
@@ -1050,7 +1097,13 @@ test('language control localizes catalog-backed operational surfaces', async ({ 
 test('New Project wizard uses IDE workspace import and blocks duplicate workspace names', async ({ page }) => {
 	const existing = await getActiveProject(page);
 
-	await page.goto('/#settings');
+	// Open Settings modal and navigate to the Project section.
+	await page.goto('/#threads');
+	await expectControlPlaneLoaded(page);
+	await page.locator('.shell-sidebar-footer').getByRole('button', { name: 'Settings' }).click();
+	const dialog = page.getByRole('dialog', { name: 'Settings' });
+	await expect(dialog).toBeVisible();
+	await dialog.getByRole('button', { name: 'Project' }).click();
 	await page.getByRole('button', { name: 'New project' }).click();
 
 	await expect(page.locator('.workspace-mode-card').filter({ hasText: 'Open folder' })).toHaveAttribute('aria-pressed', 'true');
@@ -1098,20 +1151,114 @@ test('project status navigation filters finished error and cancelled projects', 
 });
 
 test('settings separates configuration types and keeps defaults collapsed', async ({ page }) => {
+	// #settings-cli now opens the Settings modal at the Providers & CLI section.
 	await page.goto('/#settings-cli');
+	await expectControlPlaneLoaded(page);
 
-	await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
-	await expect(page.getByRole('heading', { name: 'Project', exact: true })).toBeVisible();
-	await expect(page.getByRole('heading', { name: 'Runtime & Models' })).toBeVisible();
-	await expect(page.getByRole('heading', { name: 'Agents', exact: true })).toBeVisible();
-	await expect(page.getByRole('heading', { name: 'Security', exact: true })).toBeVisible();
-	await expect(page.getByRole('heading', { name: 'Workspaces', exact: true })).toBeVisible();
-	await expect(page.getByRole('heading', { name: 'Integrations', exact: true })).toBeVisible();
-	await expect(page.getByRole('heading', { name: 'Advanced', exact: true })).toBeVisible();
+	const dialog = page.getByRole('dialog', { name: 'Settings' });
+	await expect(dialog).toBeVisible();
+
+	// The section nav groups General and Project sections. At least one button for each
+	// key configuration category must be present (some names appear in both groups).
+	const nav = dialog.locator('nav[aria-label="Settings sections"]');
+	await expect(nav.getByRole('button', { name: 'Project', exact: true })).toBeVisible();
+	await expect(nav.getByRole('button', { name: 'Providers & CLI', exact: true })).toBeVisible();
+	await expect(nav.getByRole('button', { name: 'Autonomy', exact: true })).toBeVisible();
+	// Security appears in both General and Project groups; assert at least one is present.
+	await expect(nav.getByRole('button', { name: 'Security', exact: true }).first()).toBeVisible();
+	await expect(nav.getByRole('button', { name: 'Workspaces', exact: true })).toBeVisible();
+
+	// The Advanced section in General keeps defaults collapsed by default.
+	// Use first() since "Advanced" appears in both General and Project nav groups.
+	await nav.getByRole('button', { name: 'Advanced', exact: true }).first().click();
 	await expect(page.getByText('Backend: FastAPI v1')).toBeHidden();
 
 	await page.getByRole('button', { name: 'Default configurations' }).click();
 	await expect(page.getByText('Backend: FastAPI v1')).toBeVisible();
+});
+
+test('Settings modal opens from sidebar and closes cleanly', async ({ page }) => {
+	await page.goto('/#threads');
+	await expectControlPlaneLoaded(page);
+
+	// Open via sidebar footer Settings button.
+	await page.locator('.shell-sidebar-footer').getByRole('button', { name: 'Settings' }).click();
+	const dialog = page.getByRole('dialog', { name: 'Settings' });
+	await expect(dialog).toBeVisible();
+
+	// Close via the X button.
+	await dialog.getByRole('button', { name: 'Close Settings' }).click();
+	await expect(dialog).toBeHidden();
+
+	// Re-open via Escape should not open (modal stays closed after Escape is pressed to close).
+	// Re-open via sidebar — confirm it opens again cleanly.
+	await page.locator('.shell-sidebar-footer').getByRole('button', { name: 'Settings' }).click();
+	await expect(dialog).toBeVisible();
+	// Escape key also closes the modal.
+	await page.keyboard.press('Escape');
+	await expect(dialog).toBeHidden();
+});
+
+test('Settings modal Autonomy section shows level control and inheritance chip', async ({ page }) => {
+	await page.goto('/#threads');
+	await expectControlPlaneLoaded(page);
+
+	await page.locator('.shell-sidebar-footer').getByRole('button', { name: 'Settings' }).click();
+	const dialog = page.getByRole('dialog', { name: 'Settings' });
+	await expect(dialog).toBeVisible();
+
+	// Navigate to the Autonomy section.
+	await dialog.getByRole('button', { name: 'Autonomy', exact: true }).click();
+
+	// The autonomy.level row renders a "Autonomy level" label and a chip.
+	const autonomyRow = page.locator('.setting-row').filter({ hasText: 'Autonomy level' });
+	await expect(autonomyRow).toBeVisible();
+	await expect(autonomyRow.locator('.setting-chip')).toBeVisible();
+});
+
+test('Settings modal Autonomy override and revert flow updates chip text', async ({ page }) => {
+	await page.goto('/#threads');
+	await expectControlPlaneLoaded(page);
+
+	await page.locator('.shell-sidebar-footer').getByRole('button', { name: 'Settings' }).click();
+	const dialog = page.getByRole('dialog', { name: 'Settings' });
+	await expect(dialog).toBeVisible();
+	await dialog.getByRole('button', { name: 'Autonomy', exact: true }).click();
+
+	const autonomyRow = page.locator('.setting-row').filter({ hasText: 'Autonomy level' });
+	await expect(autonomyRow).toBeVisible();
+
+	// In project scope, "Set for this project" reveals the control and marks the value as overridden.
+	const setButton = autonomyRow.getByRole('button', { name: 'Set for this project' });
+	if (await setButton.isVisible()) {
+		await setButton.click();
+		// Save the current value as-is to create the project-level override.
+		await autonomyRow.getByRole('button', { name: 'Save' }).click();
+		// Chip should now show "Overridden · Project".
+		await expect(autonomyRow.locator('.setting-chip')).toContainText('Overridden');
+		await expect(autonomyRow.locator('.setting-chip-source')).toContainText('Project');
+
+		// Revert clears the override; chip returns to "Inherited · General".
+		await autonomyRow.getByRole('button', { name: 'Revert to General' }).click();
+		await expect(autonomyRow.locator('.setting-chip')).toContainText('Inherited');
+		await expect(autonomyRow.locator('.setting-chip-source')).toContainText('General');
+	} else {
+		// General scope or already overridden — chip is always present.
+		await expect(autonomyRow.locator('.setting-chip')).toBeVisible();
+	}
+});
+
+test('legacy hash settings-security opens Settings modal at Security section', async ({ page }) => {
+	await page.goto('/#settings-security');
+	await expectControlPlaneLoaded(page);
+
+	// Modal must open automatically (intercept in hashchange + mount effect).
+	const dialog = page.getByRole('dialog', { name: 'Settings' });
+	await expect(dialog).toBeVisible();
+	// The Security nav button must be visible in the section nav.
+	// Security appears in both General and Project nav groups; use first().
+	const nav = dialog.locator('nav[aria-label="Settings sections"]');
+	await expect(nav.getByRole('button', { name: 'Security', exact: true }).first()).toBeVisible();
 });
 
 test('shell renders the editorial control plane', async ({ page }) => {
@@ -2089,9 +2236,13 @@ test('Runtime settings shows each provider card with the reason it cannot execut
 			]),
 		});
 	});
+	// #settings-runtime now opens the Settings modal at the Providers & CLI section.
 	await page.goto('/#settings-runtime');
 	await expectControlPlaneLoaded(page);
-	await expect(page.getByRole('heading', { name: 'Runtime & Models' })).toBeVisible();
+	const dialog = page.getByRole('dialog', { name: 'Settings' });
+	await expect(dialog).toBeVisible();
+	// Confirm the Providers & CLI section nav item is active/visible.
+	await expect(dialog.getByRole('button', { name: 'Providers & CLI', exact: true })).toBeVisible();
 
 	// The provider renders as a card stating exactly why it cannot execute.
 	const card = page.locator('.card').filter({ hasText: 'Codex CLI' });

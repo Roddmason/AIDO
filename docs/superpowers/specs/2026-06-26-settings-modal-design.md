@@ -44,10 +44,12 @@ subsystem.
 - **Generic store** — SQLite table `settings_value(key, scope, scope_id, value_json)`,
   unique on `(key, scope, scope_id)`; persists only explicitly-set values. `scope`
   ∈ `{general, project}`; `scope_id` is null for general, the project id for project.
-- **Adapters** — for settings that already have a home, an adapter exposes
-  `resolve(project_id) -> ResolvedSetting` and `set(scope, scope_id, value)` /
-  `clear(scope, scope_id)`. Phase 1 adapter: **budget** (delegates to `budget_rules`,
-  reusing its existing `scope_type` global-vs-project resolution).
+- **Adapters** — the registry leaves room for a setting to delegate to a subsystem
+  (`resolve(project_id)` / `set` / `clear`) instead of the generic store. **Phase 1 uses
+  no adapter**: grounding showed `budget_rules.scope_type` is `{agent, workflow, provider,
+  role, global}` with **no `project` scope**, so budget cannot be project-overridden by
+  reusing it. All three Phase-1 settings use the generic store; a real `budget_rules`
+  enforcement adapter (which requires adding a `project` scope there) is a follow-up.
 - **Resolver** — pure function `resolve_settings(project_id) -> list[ResolvedSetting]`.
   For each descriptor:
   - `store` binding: precedence **project override > general value > descriptor default**.
@@ -83,19 +85,21 @@ subsystem.
 |---|---|---|---|---|---|
 | `autonomy.level` | General→Autonomy / Project→(override) | enum `guided\|recommended\|autonomous` | `guided` | store | Project override → General → default |
 | `security.sandboxProfileId` | General→Security / Project→Security | enum (ids from `sandboxProfiles`) | unset (runtime default; no override) | store | Project override → General → default |
-| `budget.maxCostUsd` (+`maxTokens`,`period`,`actionOnExceed`) | General→Costs / Project→Budget | number / enum | unset | adapter:budget | `budget_rules` project scope → global scope |
+| `budget.maxCostUsd` (Phase 1: cap only) | General→Costs / Project→Budget | number | unset | store | Project override → General → default |
 
-The `budget.*` keys are a single set surfaced at two scopes: the **General default** is
-edited in the **Costs** section (writes a `global` `budget_rule`); the **Project override**
-is edited in the **Budget** section (writes a `project`-scoped rule). Same keys, different scope.
+The `budget.maxCostUsd` key is surfaced at two scopes: the **General default** in the
+**Costs** section, the **Project override** in the **Budget** section. Both persist to the
+generic two-tier store and resolve via the same precedence as the other settings. Wiring
+this cap into actual `budget_rules` enforcement (which needs a new `project` scope_type
+there) is a deliberate follow-up, not Phase 1.
 
 Notes:
 - **Autonomy**: the setting feeds the existing `AutonomyProfile` (`{level, overrides}`);
   Phase 1 wires the top-level `level`. Category overrides remain in the engine, surfaced later.
 - **Security**: `SecurityPosture` (`loopbackOnly`, `writeTokenRequired`) is shown as a
   read-only "runtime guarantees" panel next to the configurable sandbox-profile setting.
-- **Budget**: demonstrates inheritance with the **least new storage** — a `global`
-  `budget_rule` is the inherited default; a `project`-scoped rule is the override.
+- **Budget**: `budget.maxCostUsd` is a generic-store cap (general default, project override)
+  resolved like the others; it does not yet feed `budget_rules` enforcement (follow-up).
 
 ## 4. Section taxonomy & rendering
 

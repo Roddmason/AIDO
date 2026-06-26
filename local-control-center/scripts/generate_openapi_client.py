@@ -211,6 +211,25 @@ export function buildApiPath(
 \treturn queryString ? `${{resolvedPath}}?${{queryString}}` : resolvedPath;
 }}
 
+/**
+ * Resolves a human-readable detail from an error response body. Tries the JSON
+ * `detail`/`error` shape first and falls back to the raw text for non-JSON bodies
+ * (e.g. a plain-text "Internal Server Error"), so a 5xx never surfaces as an opaque
+ * `JSON.parse` SyntaxError ("Unexpected token 'I'...").
+ */
+export function extractErrorDetail(body: string, statusText: string): string {{
+\tif (!body) return statusText;
+\ttry {{
+\t\tconst parsed = JSON.parse(body) as {{ detail?: unknown; error?: unknown }};
+\t\tconst detail = parsed.detail ?? parsed.error;
+\t\tif (typeof detail === "string") return detail;
+\t\tif (detail !== undefined && detail !== null) return JSON.stringify(detail);
+\t\treturn statusText;
+\t}} catch {{
+\t\treturn body.slice(0, 500);
+\t}}
+}}
+
 export async function requestGeneratedOperation<
 \tTOperationId extends ApiOperationId,
 \tTResponse = OperationResponse<TOperationId>,
@@ -229,12 +248,16 @@ export async function requestGeneratedOperation<
 \t\tsignal: options.signal,
 \t}});
 \tconst text = await response.text();
-\tconst payload = text ? JSON.parse(text) : {{}};
 \tif (!response.ok) {{
-\t\tconst detail = payload.detail ?? payload.error ?? response.statusText;
-\t\tthrow new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
+\t\tthrow new Error(extractErrorDetail(text, response.statusText));
 \t}}
-\treturn payload as TResponse;
+\ttry {{
+\t\treturn (text ? JSON.parse(text) : {{}}) as TResponse;
+\t}} catch {{
+\t\tthrow new Error(
+\t\t\t`Malformed JSON response from ${{endpoint.method}} ${{endpoint.path}}.`,
+\t\t);
+\t}}
 }}
 """
 

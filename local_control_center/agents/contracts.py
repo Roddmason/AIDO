@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 AgentRole = Literal[
     "analyst",
+    "assessor",
     "product_owner",
     "technical_lead",
     "technical_lead_shadow",

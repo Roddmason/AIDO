@@ -9,13 +9,14 @@ de salud/handshake/overview/eventos y, si hay build web, sirve los estaticos con
 from __future__ import annotations
 
 import json
+import logging
 import threading
 from pathlib import Path
 from typing import Any
 
 import anyio
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from .agents.api import create_router as create_agents_router
@@ -51,6 +52,8 @@ from .shared.telemetry import (
 from .workflows.api import create_router as create_workflows_router
 from .workspaces_projects.api import create_router as create_workspaces_router
 
+logger = logging.getLogger(__name__)
+
 
 def create_app(
     *,
@@ -72,6 +75,30 @@ def create_app(
     app = FastAPI(title="Local Control Center", version="0.1.0")
     app.state.runtime = platform
     store_request_lock = threading.Lock()
+
+    @app.exception_handler(Exception)
+    async def handle_unexpected_error(request: Request, exc: Exception) -> JSONResponse:
+        # Sin esto, una excepción no controlada (p. ej. ResponseValidationError por una
+        # deriva entre lo persistido y el response_model) devolvía el texto plano
+        # "Internal Server Error" de Starlette: sin traza para diagnosticar y, al no ser
+        # JSON, el cliente fallaba al parsearla ("Unexpected token 'I'..."). Registramos la
+        # traza completa para seguimiento y respondemos un cuerpo JSON estable.
+        correlation_id = resolve_correlation_id(request.headers)
+        logger.exception(
+            "Unhandled error on %s %s (correlation_id=%s): %s",
+            request.method,
+            request.url.path,
+            correlation_id,
+            exc,
+        )
+        return JSONResponse(
+            status_code=500,
+            content={
+                "detail": "Internal server error. Check the control-plane logs for the traceback.",
+                "error": type(exc).__name__,
+            },
+            headers={"X-Correlation-ID": correlation_id},
+        )
 
     @app.middleware("http")
     async def serialize_runtime_access(request: Request, call_next):

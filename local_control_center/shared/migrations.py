@@ -42,6 +42,7 @@ def initialize_platform_schema(connection: sqlite3.Connection) -> None:
     init_phase23_schema(connection)
     init_phase24_schema(connection)
     init_phase25_schema(connection)
+    init_phase26_schema(connection)
     seed_platform_catalogs(connection)
 
 
@@ -3280,6 +3281,31 @@ def init_phase25_schema(connection: sqlite3.Connection) -> None:
     connection.execute(
         "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
         (25, utc_now()),
+    )
+
+
+def init_phase26_schema(connection: sqlite3.Connection) -> None:
+    """Fase 26: store de dos niveles para ajustes de plataforma (general y por proyecto).
+
+    Crea la tabla ``settings_value`` que persiste preferencias del operador con clave compuesta
+    ``(key, scope, scope_id)`` para soportar herencia ``proyecto > general > default`` sin
+    duplicar reglas de negocio entre tablas especializadas.
+    """
+    connection.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS settings_value (
+            key TEXT NOT NULL,
+            scope TEXT NOT NULL,
+            scope_id TEXT,
+            value_json TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (key, scope, scope_id)
+        );
+        """
+    )
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (26, utc_now()),
     )
 
 

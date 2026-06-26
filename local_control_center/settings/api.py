@@ -39,22 +39,39 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     async def put_setting(key: str, body: SetSettingRequest, request: Request) -> Response:
         """Persist a value for a registered setting key; validates descriptor and value.
 
-        Returns 404 if the key is not registered, 422 if the value fails validation,
-        and 403 if the write token is absent or incorrect.
+        Returns 403 if the write token is absent or incorrect, 404 if the key is not
+        registered, and 422 if the value or scope/scopeId combination is invalid.
         """
+        require_write(request)
+
         descriptor = descriptor_for(key)
         if descriptor is None:
             raise HTTPException(status_code=404, detail=f"Unknown setting key: {key!r}")
+
+        # scope/scope_id consistency: Literal["general","project"] is enforced by Pydantic;
+        # enforce the scope_id invariant here at the trust boundary.
+        if body.scope == "project":
+            if not body.scope_id:
+                raise HTTPException(
+                    status_code=422,
+                    detail="scopeId must be a non-empty string when scope is 'project'.",
+                )
+            effective_scope_id = body.scope_id
+        else:
+            if body.scope_id is not None:
+                raise HTTPException(
+                    status_code=422,
+                    detail="scopeId must be null/absent when scope is 'general'.",
+                )
+            effective_scope_id = None
 
         try:
             coerced = validate_value(descriptor, body.value)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-        require_write(request)
-
         repo = SettingsRepository(platform.connection)
-        repo.set_value(key, body.scope, body.scope_id, coerced)
+        repo.set_value(key, body.scope, effective_scope_id, coerced)
         return Response(status_code=204)
 
     @router.delete("/api/v1/settings/{key}", status_code=204)
@@ -64,10 +81,40 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         scope: str = "general",
         scopeId: str | None = None,
     ) -> Response:
-        """Clear a setting override so resolution falls back to the inherited value."""
+        """Clear a setting override so resolution falls back to the inherited value.
+
+        Returns 403 if the write token is absent or incorrect, 404 if the key is not
+        registered, and 422 if the scope/scopeId combination is invalid.
+        """
         require_write(request)
+
+        descriptor = descriptor_for(key)
+        if descriptor is None:
+            raise HTTPException(status_code=404, detail=f"Unknown setting key: {key!r}")
+
+        # scope/scope_id consistency for DELETE query params.
+        if scope == "project":
+            if not scopeId:
+                raise HTTPException(
+                    status_code=422,
+                    detail="scopeId must be a non-empty string when scope is 'project'.",
+                )
+            effective_scope_id = scopeId
+        elif scope == "general":
+            if scopeId is not None:
+                raise HTTPException(
+                    status_code=422,
+                    detail="scopeId must be absent when scope is 'general'.",
+                )
+            effective_scope_id = None
+        else:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Invalid scope {scope!r}; must be 'general' or 'project'.",
+            )
+
         repo = SettingsRepository(platform.connection)
-        repo.clear_value(key, scope, scopeId)
+        repo.clear_value(key, scope, effective_scope_id)
         return Response(status_code=204)
 
     return router

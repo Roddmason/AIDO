@@ -387,3 +387,85 @@ def test_api_put_unknown_key_returns_404(tmp_path: Path) -> None:
         assert resp.status_code == 404
     finally:
         runtime.close()
+
+
+# ---------------------------------------------------------------------------
+# Fix review: auth-first, DELETE 404, scope validation, string type guard
+# ---------------------------------------------------------------------------
+
+
+def test_api_delete_without_token_returns_403(tmp_path: Path) -> None:
+    runtime, client = _client(tmp_path)
+    try:
+        resp = client.delete("/api/v1/settings/autonomy.level?scope=general")
+        assert resp.status_code == 403
+    finally:
+        runtime.close()
+
+
+def test_api_delete_unknown_key_returns_404(tmp_path: Path) -> None:
+    runtime, client = _client(tmp_path)
+    try:
+        token = runtime.get_handshake()["token"]
+        resp = client.delete(
+            "/api/v1/settings/nope.key?scope=general",
+            headers={"X-Local-Control-Token": token},
+        )
+        assert resp.status_code == 404
+    finally:
+        runtime.close()
+
+
+def test_api_put_project_scope_missing_scope_id_returns_422(tmp_path: Path) -> None:
+    runtime, client = _client(tmp_path)
+    try:
+        token = runtime.get_handshake()["token"]
+        # scope="project" with no scopeId in body
+        resp = client.put(
+            "/api/v1/settings/autonomy.level",
+            json={"scope": "project", "value": "autonomous"},
+            headers={"X-Local-Control-Token": token},
+        )
+        assert resp.status_code == 422
+        # scope="project" with empty string scopeId
+        resp2 = client.put(
+            "/api/v1/settings/autonomy.level",
+            json={"scope": "project", "scopeId": "", "value": "autonomous"},
+            headers={"X-Local-Control-Token": token},
+        )
+        assert resp2.status_code == 422
+    finally:
+        runtime.close()
+
+
+def test_api_put_invalid_scope_returns_422(tmp_path: Path) -> None:
+    runtime, client = _client(tmp_path)
+    try:
+        token = runtime.get_handshake()["token"]
+        resp = client.put(
+            "/api/v1/settings/autonomy.level",
+            json={"scope": "workspace", "value": "guided"},
+            headers={"X-Local-Control-Token": token},
+        )
+        assert resp.status_code == 422
+    finally:
+        runtime.close()
+
+
+def test_validate_value_string_rejects_non_string(tmp_path: Path) -> None:
+    import pytest
+
+    from local_control_center.settings.registry import descriptor_for, validate_value
+
+    desc = descriptor_for("security.sandboxProfileId")
+    assert desc is not None
+    # valid: empty string is allowed
+    assert validate_value(desc, "") == ""
+    assert validate_value(desc, "my-profile") == "my-profile"
+    # invalid: dict, list, number
+    with pytest.raises(ValueError):
+        validate_value(desc, {"key": "val"})
+    with pytest.raises(ValueError):
+        validate_value(desc, ["a", "b"])
+    with pytest.raises(ValueError):
+        validate_value(desc, 42)

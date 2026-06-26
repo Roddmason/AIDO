@@ -2,8 +2,7 @@
  * Two-pane Settings modal: a section navigator on the left (search + General/Project
  * groups) and the active section's content on the right. Built on the Dialog primitive.
  * Sections are sourced from the GENERAL_SECTIONS and PROJECT_SECTIONS registry;
- * wired sections render SettingRow controls; display and placeholder sections reuse
- * existing panel bodies or the SectionPlaceholder component respectively.
+ * each section's render(ctx) produces its own content — no switch needed here.
  */
 
 import { useState } from 'react';
@@ -18,20 +17,12 @@ import { Dialog } from '../../components/ui/Dialog';
 import { ErrorState } from '../../components/ui/ErrorState';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { useI18n } from '../../i18n/I18nProvider';
-import { CredentialManagerPanel } from './CredentialManagerPanel';
-import { SectionPlaceholder } from './SectionPlaceholder';
-import { SettingRow } from './SettingRow';
 import {
-	AdvancedBody,
-	AgentsBody,
-	ConsoleLink,
-	IntegrationsBody,
-	ProjectBody,
-	RuntimeBody,
-	SecurityBody,
-	WorkspacesBody,
-} from './SettingsPage';
-import { GENERAL_SECTIONS, PROJECT_SECTIONS, SECTION_TO_SETTING_SECTION } from './sections';
+	GENERAL_SECTIONS,
+	PROJECT_SECTIONS,
+	SECTION_TO_SETTING_SECTION,
+	type SectionContext,
+} from './sections';
 import { useSettings } from './useSettings';
 
 export interface SettingsModalProps {
@@ -106,11 +97,26 @@ export function SettingsModal({
 	const currentSection = allSections.find((s) => s.id === activeSection) ?? GENERAL_SECTIONS[0];
 
 	const isProjectSection = PROJECT_SECTIONS.some((s) => s.id === activeSection);
+	const scope: 'general' | 'project' = isProjectSection ? 'project' : 'general';
+	const scopeId = isProjectSection ? (projectId ?? null) : null;
 	const resolvedForSection = settingsForSection(
 		isProjectSection ? project : general,
 		activeSection,
 		isProjectSection,
 	);
+
+	/** Builds the enum options for a given setting key (sandbox picker needs live data). */
+	function enumOptionsFor(key: string): Array<{ value: string; label: string }> | undefined {
+		if (key === 'security.sandboxProfileId') {
+			return [
+				{ value: '', label: t('app.settings.security.sandboxNone', 'None') },
+				...overview.sandboxProfiles
+					.filter((p) => p.status === 'active')
+					.map((p) => ({ value: p.id, label: p.name })),
+			];
+		}
+		return undefined;
+	}
 
 	function renderSectionContent() {
 		if (loading) {
@@ -131,113 +137,27 @@ export function SettingsModal({
 			);
 		}
 
-		const scope = isProjectSection ? 'project' : 'general';
-		const scopeId = isProjectSection ? (projectId ?? null) : null;
+		const ctx: SectionContext = {
+			resolved: resolvedForSection,
+			overview,
+			selectedProject,
+			runtimeProviders,
+			runtimeProviderConfiguration,
+			token,
+			setValue,
+			clearValue,
+			t,
+			onRefresh,
+			onCreateProject,
+			onSelectProject,
+			mutate,
+			language,
+			enumOptionsFor,
+			scope,
+			scopeId,
+		};
 
-		// Wired sections: render SettingRows for each resolved setting in this section
-		if (currentSection.kind === 'wired') {
-			if (resolvedForSection.length === 0) {
-				return (
-					<p className="muted">
-						{t('app.settings.section.noSettings', 'No settings found for this section.')}
-					</p>
-				);
-			}
-			return (
-				<div className="stack">
-					{resolvedForSection.map((setting) => {
-						const enumOptions =
-							setting.key === 'security.sandboxProfileId'
-								? [
-										{ value: '', label: t('app.settings.security.sandboxNone', 'None') },
-										...overview.sandboxProfiles
-											.filter((p) => p.status === 'active')
-											.map((p) => ({ value: p.id, label: p.name })),
-									]
-								: undefined;
-						return (
-							<SettingRow
-								key={setting.key}
-								setting={setting}
-								enumOptions={enumOptions}
-								onSet={(value) => setValue(setting.key, scope, scopeId, value)}
-								onRevert={() => clearValue(setting.key, scope, scopeId)}
-							/>
-						);
-					})}
-				</div>
-			);
-		}
-
-		// Placeholder sections
-		if (currentSection.kind === 'placeholder') {
-			return (
-				<SectionPlaceholder
-					titleKey={currentSection.titleKey}
-					titleFallback={currentSection.titleFallback}
-				/>
-			);
-		}
-
-		// Display sections: reuse existing body components
-		switch (activeSection) {
-			case 'providers-cli':
-				return (
-					<RuntimeBody
-						overview={overview}
-						runtimeProviders={runtimeProviders}
-						runtimeProviderConfiguration={runtimeProviderConfiguration}
-						token={token}
-						onRefresh={onRefresh}
-					/>
-				);
-			case 'credentials':
-			case 'project-credentials':
-				return <CredentialManagerPanel token={token} />;
-			case 'integrations':
-			case 'project-integrations':
-				return <IntegrationsBody overview={overview} />;
-			case 'advanced':
-			case 'project-advanced':
-				return (
-					<AdvancedBody
-						overview={overview}
-						selectedProject={selectedProject}
-						mutate={mutate}
-						language={language}
-					/>
-				);
-			case 'project':
-				return (
-					<ProjectBody
-						overview={overview}
-						activeProjects={overview.projects.filter((p) => p.status === 'active')}
-						selectedProject={selectedProject}
-						onSelectProject={onSelectProject}
-						onNewProject={onCreateProject}
-					/>
-				);
-			case 'workspaces':
-				return <WorkspacesBody overview={overview} />;
-			case 'team':
-			case 'quality':
-			case 'routing':
-				return (
-					<>
-						<AgentsBody overview={overview} selectedProject={selectedProject} />
-						<ConsoleLink page="agents" label={t('app.settings.openAgents', 'Open Agents')} />
-					</>
-				);
-			case 'appearance':
-				return <SecurityBody overview={overview} token={token} />;
-			default:
-				return (
-					<SectionPlaceholder
-						titleKey={currentSection.titleKey}
-						titleFallback={currentSection.titleFallback}
-					/>
-				);
-		}
+		return currentSection.render(ctx);
 	}
 
 	return (
@@ -271,7 +191,7 @@ export function SettingsModal({
 									key={section.id}
 									type="button"
 									className="settings-nav-item"
-									aria-current={activeSection === section.id ? 'true' : undefined}
+									aria-current={activeSection === section.id ? 'page' : undefined}
 									onClick={() => {
 										setActiveSection(section.id);
 										setSearchQuery('');
@@ -293,7 +213,7 @@ export function SettingsModal({
 									key={section.id}
 									type="button"
 									className="settings-nav-item"
-									aria-current={activeSection === section.id ? 'true' : undefined}
+									aria-current={activeSection === section.id ? 'page' : undefined}
 									onClick={() => {
 										setActiveSection(section.id);
 										setSearchQuery('');
@@ -306,10 +226,7 @@ export function SettingsModal({
 					)}
 
 					{filteredGeneral.length === 0 && filteredProject.length === 0 && (
-						<p
-							className="muted"
-							style={{ padding: 'var(--space-3)', fontSize: 'var(--font-size-sm)' }}
-						>
+						<p className="settings-nav-no-results">
 							{t('app.settings.nav.noResults', 'No sections match your search.')}
 						</p>
 					)}

@@ -1970,7 +1970,7 @@
 	box-shadow: var(--shadow-focus);
 }
 
-.settings-nav-item[aria-current="true"] {
+.settings-nav-item[aria-current="page"] {
 	background: var(--color-surface-card-hover);
 	color: var(--color-text-primary);
 	font-weight: var(--weight-semibold);
@@ -1992,6 +1992,18 @@
 	font-family: var(--font-display);
 	font-size: var(--font-size-xl);
 	line-height: var(--line-tight);
+}
+
+/* M-4: "No sections match" message in the settings nav search. */
+.settings-nav-no-results {
+	padding: var(--space-3);
+	font-size: var(--font-size-sm);
+}
+
+/* M-2: Loading skeleton rows inside the settings content pane. */
+.settings-skeleton {
+	height: 3rem;
+	border-radius: var(--radius-sm);
 }
 
 /* Section placeholder for not-yet-configured sections. */

@@ -5,9 +5,8 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
-
-import { deleteSetting, getSettings, putSetting } from '../../api/client';
 import type { ResolvedSetting, SettingsResponse } from '../../api/client';
+import { deleteSetting, getSettings, putSetting } from '../../api/client';
 import type { JsonValue } from '../../api/generated/openapi';
 import { useControlPlane } from '../../hooks/useControlPlane';
 
@@ -53,9 +52,7 @@ export function useSettings(projectId: string | undefined, enabled: boolean): Se
 			})
 			.catch((requestError: unknown) => {
 				if (aborted || controller.signal.aborted) return;
-				setError(
-					requestError instanceof Error ? requestError.message : 'settings_unavailable',
-				);
+				setError(requestError instanceof Error ? requestError.message : 'settings_unavailable');
 			})
 			.finally(() => {
 				if (!aborted) setLoading(false);

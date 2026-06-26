@@ -161,6 +161,7 @@ export function ExplorerPanel({
 	onOpenRun,
 	onSelectProject,
 	onCreateProject,
+	onOpenSettings,
 }: {
 	activeArea: AreaId;
 	page: PageId;
@@ -171,6 +172,8 @@ export function ExplorerPanel({
 	onOpenRun: (runId: string) => void;
 	onSelectProject: (projectId: string) => void;
 	onCreateProject: () => void;
+	/** Opens the Settings modal at an optional section. */
+	onOpenSettings?: (section?: string) => void;
 }) {
 	const { t } = useI18n();
 	const links = EXPLORER_LINKS[activeArea];
@@ -357,7 +360,7 @@ export function ExplorerPanel({
 							<button
 								className="button"
 								type="button"
-								onClick={() => onNavigate('settings-project')}
+								onClick={() => (onOpenSettings ? onOpenSettings() : onNavigate('home'))}
 							>
 								<SettingsIcon aria-hidden="true" size={15} />
 								{t('app.explorer.settings', 'Settings')}

@@ -29,6 +29,8 @@ type MenuBarProps = {
 	onToggleExplorer: () => void;
 	onToggleInspector: () => void;
 	onToggleBottom: () => void;
+	/** Opens the Settings modal at an optional section. */
+	onOpenSettings?: (section?: string) => void;
 };
 
 const MENU_ORDER: MenuId[] = MENUS.map((menu) => menu.id);
@@ -44,6 +46,7 @@ export function MenuBar({
 	onToggleExplorer,
 	onToggleInspector,
 	onToggleBottom,
+	onOpenSettings,
 }: MenuBarProps) {
 	const { t, setLanguage } = useI18n();
 	const { toggleTheme } = useTheme();
@@ -83,7 +86,7 @@ export function MenuBar({
 			'go-models': () => navigateTo('models'),
 			'go-integrations': () => navigateTo('integrations'),
 			'go-memory': () => navigateTo('memory'),
-			'go-settings': () => navigateTo('settings-project'),
+			'go-settings': () => (onOpenSettings ? onOpenSettings() : navigateTo('home')),
 			'keyboard-shortcuts': onOpenCommandPalette,
 			about: () =>
 				notify({
@@ -105,6 +108,7 @@ export function MenuBar({
 			onToggleExplorer,
 			onToggleInspector,
 			onToggleBottom,
+			onOpenSettings,
 			toggleTheme,
 			toggleDensity,
 			setLanguage,

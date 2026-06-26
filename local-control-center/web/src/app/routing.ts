@@ -2,6 +2,10 @@
  * Hash-based routing: maps `window.location.hash` to a canonical page, folding
  * legacy bookmarks and retired per-tab settings hashes onto their current
  * destination so old links keep resolving instead of 404-ing to home silently.
+ *
+ * Legacy `#settings` and `#settings-*` hashes are remapped to `home`; the App
+ * hashchange handler detects them first and opens the Settings modal at the
+ * mapped section before falling back to the page.
  */
 
 import type { PageId } from './navigation';
@@ -15,6 +19,8 @@ export type AppRoute = PageId;
 /**
  * Legacy and shorthand hashes that resolve to a current route, so old
  * bookmarks and the retired per-tab settings hashes keep working.
+ * Settings-related hashes resolve to 'home' here; App's hash handler
+ * intercepts them first to open the modal at the right section.
  */
 const routeAliases: Record<string, AppRoute> = {
 	active: 'projects',
@@ -24,22 +30,55 @@ const routeAliases: Record<string, AppRoute> = {
 	runs: 'workflows',
 	review: 'review-board',
 	jobs: 'review-board',
-	settings: 'settings-project',
+	// Settings hashes: resolve to home (App handler opens the modal).
+	settings: 'home',
+	'settings-project': 'home',
+	'settings-runtime': 'home',
+	'settings-agents': 'home',
+	'settings-security': 'home',
+	'settings-workspaces': 'home',
+	'settings-integrations': 'home',
+	'settings-advanced': 'home',
 	// Backward-compat: the four retired per-lane project hashes now resolve to the single
 	// Projects surface; ProjectsPage reads the hash suffix to open the matching lane.
 	'projects-active': 'projects',
 	'projects-finished': 'projects',
 	'projects-error': 'projects',
 	'projects-cancelled': 'projects',
-	// Backward-compat: resolve the retired per-tab settings hashes to their owning group.
-	'settings-projects': 'settings-project',
-	'settings-user': 'settings-advanced',
-	'settings-cli': 'settings-runtime',
-	'settings-api': 'settings-runtime',
-	'settings-parameters': 'settings-advanced',
-	'settings-maintainers': 'settings-advanced',
-	'settings-defaults': 'settings-advanced',
+	// Backward-compat: resolve the retired per-tab settings hashes to home (modal).
+	'settings-projects': 'home',
+	'settings-user': 'home',
+	'settings-cli': 'home',
+	'settings-api': 'home',
+	'settings-parameters': 'home',
+	'settings-maintainers': 'home',
+	'settings-defaults': 'home',
 };
+
+/**
+ * Maps a settings-related hash token to the Settings modal section id.
+ * Returns undefined for non-settings hashes.
+ */
+export function settingsHashToSection(token: string): string | undefined {
+	const map: Record<string, string> = {
+		settings: 'project',
+		'settings-project': 'project',
+		'settings-runtime': 'providers-cli',
+		'settings-agents': 'autonomy',
+		'settings-security': 'security',
+		'settings-workspaces': 'workspaces',
+		'settings-integrations': 'integrations',
+		'settings-advanced': 'advanced',
+		'settings-cli': 'providers-cli',
+		'settings-api': 'providers-cli',
+		'settings-user': 'appearance',
+		'settings-parameters': 'advanced',
+		'settings-maintainers': 'advanced',
+		'settings-defaults': 'advanced',
+		'settings-projects': 'project',
+	};
+	return map[token];
+}
 
 /**
  * Splits the URL hash into its page token and query params. The hash carries one PageId token,

@@ -10,7 +10,6 @@
 import { Plus, Search, Settings as SettingsIcon } from 'lucide-react';
 import { useState } from 'react';
 import type { Overview } from '../../api/types';
-import type { PageId } from '../../app/navigation';
 import { useI18n } from '../../i18n/I18nProvider';
 import { NEW_SESSION_ID } from '../workbench/useWorkbenchData';
 import { ThreadTree } from './ThreadTree';
@@ -22,7 +21,8 @@ type ShellSidebarProps = {
 	onSelectProject: (projectId: string) => void;
 	onSelectSession: (sessionId: string) => void;
 	onCreateProject: () => void;
-	navigateTo: (page: PageId) => void;
+	/** Opens the Settings modal at an optional section. */
+	onOpenSettings: (section?: string) => void;
 };
 
 /** Renders the Projects sidebar and owns only its filter text. */
@@ -33,7 +33,7 @@ export function ShellSidebar({
 	onSelectProject,
 	onSelectSession,
 	onCreateProject,
-	navigateTo,
+	onOpenSettings,
 }: ShellSidebarProps) {
 	const { t } = useI18n();
 	const [filter, setFilter] = useState('');
@@ -86,7 +86,8 @@ export function ShellSidebar({
 				<button
 					type="button"
 					className="shell-footer-item"
-					onClick={() => navigateTo('settings-project')}
+					onClick={() => onOpenSettings()}
+					aria-label={t('app.shell.settings.ariaLabel', 'Open settings')}
 				>
 					<SettingsIcon aria-hidden="true" size={15} />
 					{t('app.shell.settings', 'Settings')}

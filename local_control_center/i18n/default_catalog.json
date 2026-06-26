@@ -31,6 +31,10 @@
       "en": "Settings",
       "es": "Configuración"
     },
+    "app.shell.settings.ariaLabel": {
+      "en": "Open settings",
+      "es": "Abrir configuración"
+    },
     "app.shell.searchLabel": {
       "en": "Search projects and threads",
       "es": "Buscar proyectos e hilos"

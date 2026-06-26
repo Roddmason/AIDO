@@ -9,6 +9,7 @@ import { AnimatePresence } from 'motion/react';
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { EmptyState, ErrorState, useToast } from '../components/ui';
 import type { Language } from '../features/projects/ProjectsPage';
+import { SettingsModal } from '../features/settings/SettingsModal';
 import { NewWorkspaceDialog } from '../features/workspace/NewWorkspaceDialog';
 import type { WorkspaceMode } from '../features/workspace/useProjectDiscovery';
 import { useControlPlane } from '../hooks/useControlPlane';
@@ -27,7 +28,7 @@ import { RouteSkeleton } from './RouteSkeleton';
 import type { RouteContext } from './routes';
 import { renderRoute } from './routes';
 import type { AppRoute } from './routing';
-import { encodeHash, resolveHashState } from './routing';
+import { encodeHash, resolveHashState, settingsHashToSection, splitHash } from './routing';
 import { useShellShortcuts } from './useShellShortcuts';
 
 const SELECTED_PROJECT_STORAGE_KEY = 'aido:selectedProjectId';
@@ -75,6 +76,9 @@ export function App() {
 	const [approvalDrawerOpen, setApprovalDrawerOpen] = useState(false);
 	const [eventDrawerOpen, setEventDrawerOpen] = useState(false);
 	const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+	// Settings modal state: open flag + active section id.
+	const [settingsModalOpen, setSettingsModalOpen] = useState(false);
+	const [settingsSection, setSettingsSection] = useState('general');
 	const state = useControlPlane();
 	const commandActionsRef = useRef<CommandAction[]>([]);
 
@@ -93,6 +97,12 @@ export function App() {
 		setWorkspaceDialogOpen(true);
 	}, []);
 
+	/** Opens the Settings modal at a given section (defaults to 'general'). */
+	const openSettings = useCallback((section?: string) => {
+		setSettingsSection(section ?? 'general');
+		setSettingsModalOpen(true);
+	}, []);
+
 	const closeCommandPalette = useCallback(() => setCommandPaletteOpen(false), []);
 	const toggleCommandPalette = useCallback(() => setCommandPaletteOpen((open) => !open), []);
 	const openApprovals = useCallback(() => setApprovalDrawerOpen(true), []);
@@ -101,6 +111,7 @@ export function App() {
 		setApprovalDrawerOpen(false);
 		setEventDrawerOpen(false);
 		setCommandPaletteOpen(false);
+		setSettingsModalOpen(false);
 	}, []);
 
 	const changeLanguage = useCallback(
@@ -120,13 +131,36 @@ export function App() {
 
 	useEffect(() => {
 		const onHash = () => {
+			const { token } = splitHash();
+			// Intercept settings hashes: open the modal at the mapped section, stay on home.
+			const settingsSection = settingsHashToSection(token);
+			if (settingsSection !== undefined) {
+				openSettings(settingsSection);
+				// Clear the settings hash and land on home so history stays clean.
+				window.location.hash = 'home';
+				setPage('home');
+				setSelectedRunId(null);
+				return;
+			}
 			const next = resolveHashState();
 			setPage(next.page);
 			setSelectedRunId(next.runId);
 		};
 		window.addEventListener('hashchange', onHash);
 		return () => window.removeEventListener('hashchange', onHash);
-	}, []);
+	}, [openSettings]);
+
+	// On initial load, intercept settings hashes too (before the hashchange listener fires).
+	// openSettings is stable (useCallback with []) so including it does not cause extra runs.
+	useEffect(() => {
+		const { token } = splitHash();
+		const section = settingsHashToSection(token);
+		if (section !== undefined) {
+			openSettings(section);
+			window.location.hash = 'home';
+			setPage('home');
+		}
+	}, [openSettings]);
 
 	useShellShortcuts({
 		commandActionsRef,
@@ -167,6 +201,7 @@ export function App() {
 	const commandActions = useCommandActions({
 		navigateTo,
 		openWorkspaceDialog,
+		openSettings,
 		onOpenApprovals: openApprovals,
 		refresh: state.refresh,
 		selectedProject,
@@ -219,6 +254,7 @@ export function App() {
 		openRun,
 		onSelectProject: setOperationalProject,
 		openWorkspaceDialog,
+		openSettings,
 		selectedSessionId,
 		onSelectSession: setSelectedSessionId,
 	};
@@ -249,6 +285,7 @@ export function App() {
 				onOpenApprovals={() => setApprovalDrawerOpen(true)}
 				onOpenEvents={() => setEventDrawerOpen(true)}
 				onRefresh={() => void state.refresh()}
+				onOpenSettings={openSettings}
 			>
 				<AnimatePresence mode="wait">
 					<MotionPage key={page}>
@@ -307,6 +344,24 @@ export function App() {
 				open={commandPaletteOpen}
 				onClose={closeCommandPalette}
 				actions={commandActions}
+			/>
+
+			{/* Settings modal: global overlay, portaled via Dialog. */}
+			<SettingsModal
+				open={settingsModalOpen}
+				onClose={() => setSettingsModalOpen(false)}
+				projectId={selectedProject?.id}
+				initialSection={settingsSection}
+				overview={overview}
+				selectedProject={selectedProject}
+				runtimeProviders={state.runtimeProviders}
+				runtimeProviderConfiguration={state.runtimeProviderConfiguration}
+				token={state.token}
+				onRefresh={() => state.refresh(true)}
+				onCreateProject={() => openWorkspaceDialog('open_folder')}
+				onSelectProject={setOperationalProject}
+				mutate={state.mutate}
+				language={bilingualLanguage}
 			/>
 		</>
 	);

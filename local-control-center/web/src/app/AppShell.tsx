@@ -88,6 +88,7 @@ export function AppShell({
 	onOpenApprovals,
 	onOpenEvents,
 	onRefresh,
+	onOpenSettings,
 	children,
 }: {
 	area: AreaId;
@@ -115,6 +116,8 @@ export function AppShell({
 	onOpenApprovals: () => void;
 	onOpenEvents: () => void;
 	onRefresh: () => void;
+	/** Opens the Settings modal at an optional section. */
+	onOpenSettings: (section?: string) => void;
 	children: ReactNode;
 }) {
 	const isDesktop = useIsDesktopLayout();
@@ -234,7 +237,7 @@ export function AppShell({
 				navigateTo('threads');
 			}}
 			onCreateProject={onCreateProject}
-			navigateTo={navigateTo}
+			onOpenSettings={onOpenSettings}
 		/>
 	);
 
@@ -285,6 +288,7 @@ export function AppShell({
 			onToggleExplorer={toggleExplorer}
 			onToggleInspector={toggleInspector}
 			onToggleBottom={toggleBottom}
+			onOpenSettings={onOpenSettings}
 		/>
 	);
 

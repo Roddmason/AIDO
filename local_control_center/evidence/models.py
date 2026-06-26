@@ -31,6 +31,8 @@ ArtifactKind = Literal[
     "cli_stderr",
     "cli_runtime_log",
     "workspace_patch_manifest",
+    "project_assessment",
+    "product_owner_manifest",
 ]
 EvidenceSource = Literal[
     "operator_attested",

@@ -8,7 +8,7 @@
  */
 
 import type { ApiOperationId, OperationRequestBody, OperationResponse } from './generated/openapi';
-import { requestGeneratedOperation } from './generated/openapi';
+import { extractErrorDetail, requestGeneratedOperation } from './generated/openapi';
 import type { Overview, RetrievalStatus, RuntimeProviders } from './types';
 
 const WRITE_HEADER = 'X-Local-Control-Token';
@@ -147,15 +147,20 @@ export type I18nCatalogResponse = {
 /**
  * Parses a JSON response, raising the server-provided `detail`/`error` (or the
  * status text) as an Error on a non-2xx status so callers handle one failure shape.
+ * Checks the status before parsing so a non-JSON error body (e.g. a plain-text
+ * "Internal Server Error" from an unhandled 500) surfaces its real text instead of
+ * an opaque `JSON.parse` SyntaxError.
  */
 async function parseResponse<T>(response: Response): Promise<T> {
 	const text = await response.text();
-	const payload = text ? JSON.parse(text) : {};
 	if (!response.ok) {
-		const detail = payload.detail ?? payload.error ?? response.statusText;
-		throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail));
+		throw new Error(extractErrorDetail(text, response.statusText));
 	}
-	return payload as T;
+	try {
+		return (text ? JSON.parse(text) : {}) as T;
+	} catch {
+		throw new Error(`Malformed JSON response from ${response.url || 'the control plane'}.`);
+	}
 }
 
 /**

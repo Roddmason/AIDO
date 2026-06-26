@@ -7,9 +7,9 @@ export type JsonObject = { [key: string]: JsonValue };
 
 export type ActionRequestRecord = { "actionType": string; "command": string; "commandArgv"?: Array<string>; "decidedAt"?: null | string; "decidedBy"?: null | string; "diffRefs"?: Array<JsonValue>; "evidenceRefs"?: Array<string>; "expiresAt"?: null | string; "id": string; "jobId": string; "payload": JsonObject; "projectId": string; "reason": string; "requestedAt": string; "riskLevel": "low" | "medium" | "high" | "critical"; "runtime"?: JsonObject; "runtimeId"?: null | string; "status": "pending" | "approved" | "denied" | "expired"; "workspace"?: JsonObject; "workspaceId"?: null | string; "workspacePath"?: null | string };
 export type AgentAssignmentRecord = { "agentId": string; "assignedAt": string; "assignedBy": string; "canonicalArtifactId": string; "createdAt": string; "handoffId": string; "id": string; "inputSchema": JsonObject; "metadata": JsonObject; "outputSchema": JsonObject; "projectId": string; "releasedAt"?: null | string; "reviewRequired": boolean; "role": string; "status": string; "taskId": string; "updatedAt": string };
-export type AgentProfileRecord = { "allowApi": boolean; "allowCli": boolean; "allowRemote": boolean; "allowedProviders": Array<string>; "allowedRuntimes": Array<string>; "allowedSkills": Array<string>; "allowedTools": Array<string>; "createdAt": string; "id": string; "maxCostPerRun": number; "maxRuntimeSeconds": number; "maxTokensPerRun": number; "memoryScope": string; "modelPolicyId"?: null | string; "name": string; "outputSchema": JsonObject; "permissionProfile": "plan" | "dev_safe" | "qa" | "release"; "qualityGates": Array<JsonValue>; "requiresApprovalOverUsd"?: null | number; "role": "analyst" | "product_owner" | "technical_lead" | "technical_lead_shadow" | "developer" | "backend_engineer" | "frontend_engineer" | "implementer" | "devops" | "qa" | "qa_reviewer" | "security_reviewer" | "release_manager"; "roleModelPolicyId"?: null | string; "routingProfileId"?: null | string; "runtimeMode": "api" | "cli" | "ollama" | "hybrid" | "manual"; "runtimeType": "api" | "cli" | "ollama" | "hybrid" | "manual"; "status": "active" | "disabled"; "updatedAt": string };
+export type AgentProfileRecord = { "allowApi": boolean; "allowCli": boolean; "allowRemote": boolean; "allowedProviders": Array<string>; "allowedRuntimes": Array<string>; "allowedSkills": Array<string>; "allowedTools": Array<string>; "createdAt": string; "id": string; "maxCostPerRun": number; "maxRuntimeSeconds": number; "maxTokensPerRun": number; "memoryScope": string; "modelPolicyId"?: null | string; "name": string; "outputSchema": JsonObject; "permissionProfile": "plan" | "dev_safe" | "qa" | "release"; "qualityGates": Array<JsonValue>; "requiresApprovalOverUsd"?: null | number; "role": "analyst" | "assessor" | "product_owner" | "technical_lead" | "technical_lead_shadow" | "developer" | "backend_engineer" | "frontend_engineer" | "implementer" | "devops" | "qa" | "qa_reviewer" | "security_reviewer" | "release_manager"; "roleModelPolicyId"?: null | string; "routingProfileId"?: null | string; "runtimeMode": "api" | "cli" | "ollama" | "hybrid" | "manual"; "runtimeType": "api" | "cli" | "ollama" | "hybrid" | "manual"; "status": "active" | "disabled"; "updatedAt": string };
 export type AgentProfileResponse = { "agentProfile": AgentProfileRecord };
-export type AgentProfileUpsertRequest = { "allowApi"?: boolean; "allowCli"?: boolean; "allowRemote"?: boolean; "allowedProviders"?: Array<string>; "allowedRuntimes"?: Array<string>; "allowedSkills"?: Array<string>; "allowedTools"?: Array<string>; "id": string; "maxCostPerRun"?: number; "maxRuntimeSeconds"?: number; "maxTokensPerRun"?: number; "memoryScope"?: string; "modelPolicyId"?: null | string; "name"?: null | string; "outputSchema"?: JsonObject; "permissionProfile"?: "plan" | "dev_safe" | "qa" | "release"; "qualityGates"?: Array<JsonValue>; "requiresApprovalOverUsd"?: null | number; "role"?: "analyst" | "product_owner" | "technical_lead" | "technical_lead_shadow" | "developer" | "backend_engineer" | "frontend_engineer" | "implementer" | "devops" | "qa" | "qa_reviewer" | "security_reviewer" | "release_manager"; "roleModelPolicyId"?: null | string; "routingProfileId"?: null | string; "runtimeMode"?: "api" | "cli" | "ollama" | "hybrid" | "manual"; "runtimeType"?: "api" | "cli" | "ollama" | "hybrid" | "manual" | null; "status"?: "active" | "disabled" };
+export type AgentProfileUpsertRequest = { "allowApi"?: boolean; "allowCli"?: boolean; "allowRemote"?: boolean; "allowedProviders"?: Array<string>; "allowedRuntimes"?: Array<string>; "allowedSkills"?: Array<string>; "allowedTools"?: Array<string>; "id": string; "maxCostPerRun"?: number; "maxRuntimeSeconds"?: number; "maxTokensPerRun"?: number; "memoryScope"?: string; "modelPolicyId"?: null | string; "name"?: null | string; "outputSchema"?: JsonObject; "permissionProfile"?: "plan" | "dev_safe" | "qa" | "release"; "qualityGates"?: Array<JsonValue>; "requiresApprovalOverUsd"?: null | number; "role"?: "analyst" | "assessor" | "product_owner" | "technical_lead" | "technical_lead_shadow" | "developer" | "backend_engineer" | "frontend_engineer" | "implementer" | "devops" | "qa" | "qa_reviewer" | "security_reviewer" | "release_manager"; "roleModelPolicyId"?: null | string; "routingProfileId"?: null | string; "runtimeMode"?: "api" | "cli" | "ollama" | "hybrid" | "manual"; "runtimeType"?: "api" | "cli" | "ollama" | "hybrid" | "manual" | null; "status"?: "active" | "disabled" };
 export type AgentProfilesListResponse = { "agentProfiles": Array<AgentProfileRecord> };
 export type AgentRunCreateRequest = { "agentProfileId": string; "input"?: JsonObject; "jobId"?: null | string; "projectId": string; "taskId"?: string; "workflowRunId"?: null | string; "workflowStepId"?: null | string };
 export type AgentRunRecord = { "createdAt": string; "id": string; "input": JsonObject; "jobId"?: null | string; "metadata": JsonObject; "output": JsonObject; "projectId": string; "status": "queued" | "running" | "completed" | "approved" | "failed" | "blocked" | "runtime_unavailable" | "qa_failed" | "evidence_ready" | "approval_required" | "awaiting_permission" | "cancelled"; "updatedAt": string; "workflowRunId"?: null | string; "workflowStepId"?: null | string };
@@ -34,14 +34,14 @@ export type ArchitectureDecisionsListResponse = { "architectureDecisions": Array
 export type ArtifactCleanupRequest = { "dryRun"?: boolean };
 export type ArtifactCleanupResponse = { "artifactRoot": string; "deletedFiles": Array<ArtifactFileRecord>; "dryRun": boolean; "keptReferencedFiles": number; "orphanFiles": Array<ArtifactFileRecord> };
 export type ArtifactFileRecord = { "path": string; "sizeBytes": number };
-export type ArtifactIngestRequest = { "content"?: null | string; "contentBase64"?: null | string; "kind": "execution_log" | "screenshot" | "test_report" | "qa_report" | "generic_artifact" | "git_patch" | "git_status" | "security_findings" | "model_call" | "evidence_manifest" | "devops_command_report" | "devops_report" | "security_report" | "research_source" | "research_report" | "cli_stdout" | "cli_stderr" | "cli_runtime_log" | "workspace_patch_manifest"; "mimeType"?: null | string; "name"?: null | string };
-export type ArtifactRecord = { "createdAt": string; "evidencePackageId"?: null | string; "hash"?: null | string; "id": string; "kind": "execution_log" | "screenshot" | "test_report" | "qa_report" | "generic_artifact" | "git_patch" | "git_status" | "security_findings" | "model_call" | "evidence_manifest" | "devops_command_report" | "devops_report" | "security_report" | "research_source" | "research_report" | "cli_stdout" | "cli_stderr" | "cli_runtime_log" | "workspace_patch_manifest"; "metadata": JsonObject; "path": string; "projectId": string };
+export type ArtifactIngestRequest = { "content"?: null | string; "contentBase64"?: null | string; "kind": "execution_log" | "screenshot" | "test_report" | "qa_report" | "generic_artifact" | "git_patch" | "git_status" | "security_findings" | "model_call" | "evidence_manifest" | "devops_command_report" | "devops_report" | "security_report" | "research_source" | "research_report" | "cli_stdout" | "cli_stderr" | "cli_runtime_log" | "workspace_patch_manifest" | "project_assessment" | "product_owner_manifest"; "mimeType"?: null | string; "name"?: null | string };
+export type ArtifactRecord = { "createdAt": string; "evidencePackageId"?: null | string; "hash"?: null | string; "id": string; "kind": "execution_log" | "screenshot" | "test_report" | "qa_report" | "generic_artifact" | "git_patch" | "git_status" | "security_findings" | "model_call" | "evidence_manifest" | "devops_command_report" | "devops_report" | "security_report" | "research_source" | "research_report" | "cli_stdout" | "cli_stderr" | "cli_runtime_log" | "workspace_patch_manifest" | "project_assessment" | "product_owner_manifest"; "metadata": JsonObject; "path": string; "projectId": string };
 export type ArtifactResponse = { "artifact": ArtifactRecord };
 export type ArtifactRetentionActionRequest = { "action": string; "artifactIds": Array<string>; "now"?: null | string; "reason": string };
 export type ArtifactRetentionActionResponse = { "action": string; "artifacts": Array<ArtifactRetentionResultRecord> };
 export type ArtifactRetentionPlanRequest = { "dryRun"?: boolean; "now"?: null | string };
 export type ArtifactRetentionPlanResponse = { "dryRun": boolean; "expiredArtifacts": Array<ExpiredArtifactRecord>; "now": string; "riskIds": Array<string> };
-export type ArtifactRetentionResultRecord = { "createdAt": string; "evidencePackageId"?: null | string; "hash"?: null | string; "id": string; "kind": "execution_log" | "screenshot" | "test_report" | "qa_report" | "generic_artifact" | "git_patch" | "git_status" | "security_findings" | "model_call" | "evidence_manifest" | "devops_command_report" | "devops_report" | "security_report" | "research_source" | "research_report" | "cli_stdout" | "cli_stderr" | "cli_runtime_log" | "workspace_patch_manifest"; "metadata": JsonObject; "path": string; "projectId": string; "retentionAction": JsonObject };
+export type ArtifactRetentionResultRecord = { "createdAt": string; "evidencePackageId"?: null | string; "hash"?: null | string; "id": string; "kind": "execution_log" | "screenshot" | "test_report" | "qa_report" | "generic_artifact" | "git_patch" | "git_status" | "security_findings" | "model_call" | "evidence_manifest" | "devops_command_report" | "devops_report" | "security_report" | "research_source" | "research_report" | "cli_stdout" | "cli_stderr" | "cli_runtime_log" | "workspace_patch_manifest" | "project_assessment" | "product_owner_manifest"; "metadata": JsonObject; "path": string; "projectId": string; "retentionAction": JsonObject };
 export type AssignmentConflictRecord = { "assignmentId": string; "createdAt": string; "disagreement": string; "finalResolution": string; "handoffId": string; "id": string; "metadata": JsonObject; "projectId": string; "raisedBy": string; "resolvedAt"?: null | string; "resolvedBy"?: null | string; "status": string; "updatedAt": string };
 export type AssignmentHandoffRecord = { "artifactId": string; "assignmentId": string; "blockedReason": string; "createdAt": string; "fromAgentId": string; "id": string; "metadata": JsonObject; "projectId": string; "reviewRequired": boolean; "status": string; "toAgentId": string; "updatedAt": string };
 export type AssignmentReviewRecord = { "assignmentId": string; "createdAt": string; "decision": string; "findings": Array<JsonValue>; "handoffId": string; "id": string; "policyRequired": boolean; "projectId": string; "resolvedAt"?: null | string; "reviewerAgentId": string; "status": string; "updatedAt": string };
@@ -107,7 +107,7 @@ export type EvidenceDetailResponse = { "artifacts": Array<ArtifactRecord>; "evid
 export type EvidenceListResponse = { "evidencePackages": Array<EvidencePackageRecord> };
 export type EvidencePackageRecord = { "acceptanceChecklist": Array<JsonValue>; "agentId"?: null | string; "agentRunId": null | string; "approvals": Array<JsonObject>; "artifactIds"?: Array<string>; "artifacts": Array<JsonObject>; "createdAt": string; "diffRefs": Array<JsonValue>; "diffSummary": JsonObject; "evidenceSource": "operator_attested" | "evidence_collected" | "qa_passed_by_command" | "verified_completion"; "hashes": JsonObject; "id": string; "jobId": null | string; "logs": Array<JsonValue>; "modelCalls": Array<JsonObject>; "policyDecisions": Array<JsonObject>; "projectId": string; "qaVerdict": "not_started" | "passed" | "failed" | "blocked" | "needs_human_review" | "evidence_collected" | "architecture_reviewed" | "devops_risk" | "devops_blocked" | "security_passed" | "security_blocked" | "skipped_with_reason"; "riskNotes": Array<JsonValue>; "runtimeHealth": JsonObject; "runtimeId": null | string; "screenshotRefs": Array<JsonValue>; "taskId": string; "testPlan": string; "testResults": Array<JsonValue>; "toolCalls": Array<JsonObject>; "workflowRunId": null | string; "workflowStepId"?: null | string; "workspaceId": null | string };
 export type EvidencePackageResponse = { "evidencePackage": EvidencePackageRecord };
-export type ExpiredArtifactRecord = { "createdAt": string; "evidencePackageId"?: null | string; "expiresAt": string; "hash"?: null | string; "id": string; "kind": "execution_log" | "screenshot" | "test_report" | "qa_report" | "generic_artifact" | "git_patch" | "git_status" | "security_findings" | "model_call" | "evidence_manifest" | "devops_command_report" | "devops_report" | "security_report" | "research_source" | "research_report" | "cli_stdout" | "cli_stderr" | "cli_runtime_log" | "workspace_patch_manifest"; "metadata": JsonObject; "path": string; "projectId": string; "retentionStatus": string };
+export type ExpiredArtifactRecord = { "createdAt": string; "evidencePackageId"?: null | string; "expiresAt": string; "hash"?: null | string; "id": string; "kind": "execution_log" | "screenshot" | "test_report" | "qa_report" | "generic_artifact" | "git_patch" | "git_status" | "security_findings" | "model_call" | "evidence_manifest" | "devops_command_report" | "devops_report" | "security_report" | "research_source" | "research_report" | "cli_stdout" | "cli_stderr" | "cli_runtime_log" | "workspace_patch_manifest" | "project_assessment" | "product_owner_manifest"; "metadata": JsonObject; "path": string; "projectId": string; "retentionStatus": string };
 export type ExternalTelemetryStatus = { "available": boolean; "enabled": boolean; "metricsEnabled": boolean; "metricsEndpoint"?: null | string; "mode": string; "reason": string; "serviceName"?: null | string; "tracesEnabled": boolean; "tracesEndpoint"?: null | string };
 export type GovernanceResponse = { "architectureDecisions": Array<ArchitectureDecisionRecord>; "nextSteps": Array<NextStepRecord>; "risks": Array<RiskRecord> };
 export type HTTPValidationError = { "detail"?: Array<ValidationError> };
@@ -1021,6 +1021,25 @@ export function buildApiPath(
 	return queryString ? `${resolvedPath}?${queryString}` : resolvedPath;
 }
 
+/**
+ * Resolves a human-readable detail from an error response body. Tries the JSON
+ * `detail`/`error` shape first and falls back to the raw text for non-JSON bodies
+ * (e.g. a plain-text "Internal Server Error"), so a 5xx never surfaces as an opaque
+ * `JSON.parse` SyntaxError ("Unexpected token 'I'...").
+ */
+export function extractErrorDetail(body: string, statusText: string): string {
+	if (!body) return statusText;
+	try {
+		const parsed = JSON.parse(body) as { detail?: unknown; error?: unknown };
+		const detail = parsed.detail ?? parsed.error;
+		if (typeof detail === "string") return detail;
+		if (detail !== undefined && detail !== null) return JSON.stringify(detail);
+		return statusText;
+	} catch {
+		return body.slice(0, 500);
+	}
+}
+
 export async function requestGeneratedOperation<
 	TOperationId extends ApiOperationId,
 	TResponse = OperationResponse<TOperationId>,
@@ -1039,10 +1058,14 @@ export async function requestGeneratedOperation<
 		signal: options.signal,
 	});
 	const text = await response.text();
-	const payload = text ? JSON.parse(text) : {};
 	if (!response.ok) {
-		const detail = payload.detail ?? payload.error ?? response.statusText;
-		throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
+		throw new Error(extractErrorDetail(text, response.statusText));
 	}
-	return payload as TResponse;
+	try {
+		return (text ? JSON.parse(text) : {}) as TResponse;
+	} catch {
+		throw new Error(
+			`Malformed JSON response from ${endpoint.method} ${endpoint.path}.`,
+		);
+	}
 }

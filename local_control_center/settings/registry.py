@@ -81,5 +81,9 @@ def validate_value(descriptor: SettingDescriptor, value: Any) -> Any:
             raise ValueError(
                 f"Invalid numeric value {value!r} for {descriptor.key!r}."
             ) from exc
-    # string passthrough
+    # string: must be an actual str (reject dict/list/number)
+    if not isinstance(value, str):
+        raise ValueError(
+            f"Invalid value {value!r} for {descriptor.key!r}; expected a string."
+        )
     return value

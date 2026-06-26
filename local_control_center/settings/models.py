@@ -8,7 +8,7 @@ snake_case field access and camelCase wire serialization, mirroring the team_act
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -28,9 +28,9 @@ class ResolvedSetting(_Aliased):
     type: str
     enum: list[str] | None = None
     value: Any
-    origin: str  # 'default' | 'general' | 'project'
+    origin: Literal["default", "general", "project"]
     inherited: bool
-    source: str  # stable token: 'default' | 'general' | 'project'
+    source: Literal["default", "general", "project"]
     editable_scopes: list[str] = Field(alias="editableScopes")
 
 
@@ -44,6 +44,6 @@ class SettingsResponse(_Aliased):
 class SetSettingRequest(_Aliased):
     """Request body for PUT /api/v1/settings/{key}: the scope, optional project id, and new value."""
 
-    scope: str  # 'general' | 'project'
+    scope: Literal["general", "project"]
     scope_id: str | None = Field(default=None, alias="scopeId")
     value: Any

@@ -7894,6 +7894,186 @@
     "app.workbench.shell.emptyTranscriptBody": {
       "en": "Describe what you want to build. AIDO plans, implements and tests it in this workspace.",
       "es": "Describe lo que quieres construir. AIDO lo planifica, implementa y prueba en este workspace."
+    },
+    "app.settings.title": {
+      "en": "Settings",
+      "es": "Ajustes"
+    },
+    "app.settings.loading": {
+      "en": "Loading settings...",
+      "es": "Cargando ajustes..."
+    },
+    "app.settings.error.title": {
+      "en": "Failed to load settings",
+      "es": "Error al cargar ajustes"
+    },
+    "app.settings.section.noSettings": {
+      "en": "No settings found for this section.",
+      "es": "No se encontraron ajustes para esta sección."
+    },
+    "app.settings.section.general": {
+      "en": "General",
+      "es": "Configuración general"
+    },
+    "app.settings.section.appearance": {
+      "en": "Appearance",
+      "es": "Apariencia"
+    },
+    "app.settings.section.providersCli": {
+      "en": "Providers & CLI",
+      "es": "Proveedores y CLI"
+    },
+    "app.settings.section.credentials": {
+      "en": "Credentials",
+      "es": "Credenciales"
+    },
+    "app.settings.section.defaultTeam": {
+      "en": "Default Team",
+      "es": "Equipo por defecto"
+    },
+    "app.settings.section.autonomy": {
+      "en": "Autonomy",
+      "es": "Autonomía"
+    },
+    "app.settings.section.security": {
+      "en": "Security",
+      "es": "Seguridad"
+    },
+    "app.settings.section.research": {
+      "en": "Research",
+      "es": "Investigación"
+    },
+    "app.settings.section.costs": {
+      "en": "Costs",
+      "es": "Costos"
+    },
+    "app.settings.section.integrations": {
+      "en": "Integrations",
+      "es": "Integraciones"
+    },
+    "app.settings.section.advanced": {
+      "en": "Advanced",
+      "es": "Avanzado"
+    },
+    "app.settings.section.project": {
+      "en": "Project",
+      "es": "Proyecto"
+    },
+    "app.settings.section.goal": {
+      "en": "Goal",
+      "es": "Objetivo"
+    },
+    "app.settings.section.team": {
+      "en": "Team",
+      "es": "Equipo"
+    },
+    "app.settings.section.routing": {
+      "en": "Routing",
+      "es": "Enrutamiento"
+    },
+    "app.settings.section.quality": {
+      "en": "Quality",
+      "es": "Calidad"
+    },
+    "app.settings.section.workspaces": {
+      "en": "Workspaces",
+      "es": "Espacios de trabajo"
+    },
+    "app.settings.section.internet": {
+      "en": "Internet",
+      "es": "Acceso a Internet"
+    },
+    "app.settings.section.budget": {
+      "en": "Budget",
+      "es": "Presupuesto"
+    },
+    "app.settings.chip.inherited": {
+      "en": "Inherited",
+      "es": "Heredado"
+    },
+    "app.settings.chip.overridden": {
+      "en": "Overridden",
+      "es": "Reemplazado"
+    },
+    "app.settings.chip.default": {
+      "en": "Default",
+      "es": "Por defecto"
+    },
+    "app.settings.chip.custom": {
+      "en": "Custom",
+      "es": "Personalizado"
+    },
+    "app.settings.chip.source.general": {
+      "en": "General",
+      "es": "Ajuste general"
+    },
+    "app.settings.chip.source.project": {
+      "en": "Project",
+      "es": "Proyecto"
+    },
+    "app.settings.action.save": {
+      "en": "Save",
+      "es": "Guardar"
+    },
+    "app.settings.action.cancel": {
+      "en": "Cancel",
+      "es": "Cancelar"
+    },
+    "app.settings.action.setForProject": {
+      "en": "Set for this project",
+      "es": "Definir para este proyecto"
+    },
+    "app.settings.action.revertToGeneral": {
+      "en": "Revert to General",
+      "es": "Revertir a General"
+    },
+    "app.settings.action.revertToDefault": {
+      "en": "Revert to Default",
+      "es": "Revertir al valor por defecto"
+    },
+    "app.settings.nav.label": {
+      "en": "Settings sections",
+      "es": "Secciones de ajustes"
+    },
+    "app.settings.nav.searchPlaceholder": {
+      "en": "Search sections...",
+      "es": "Buscar secciones..."
+    },
+    "app.settings.nav.searchLabel": {
+      "en": "Search settings sections",
+      "es": "Buscar secciones de ajustes"
+    },
+    "app.settings.nav.groupGeneral": {
+      "en": "General",
+      "es": "Ajustes generales"
+    },
+    "app.settings.nav.groupProject": {
+      "en": "Project",
+      "es": "Ajustes del proyecto"
+    },
+    "app.settings.nav.noResults": {
+      "en": "No sections match your search.",
+      "es": "Ninguna sección coincide con tu búsqueda."
+    },
+    "app.settings.placeholder.notConfigured": {
+      "en": "This section is not yet configured. Settings will appear here in a future release.",
+      "es": "Esta sección aún no está configurada. Los ajustes aparecerán aquí en una versión futura."
+    },
+    "app.settings.security.sandboxNone": {
+      "en": "None",
+      "es": "Ninguno"
+    },
+    "app.settings.autonomy.level": {
+      "en": "Autonomy level",
+      "es": "Nivel de autonomía"
+    },
+    "app.settings.security.sandboxProfile": {
+      "en": "Sandbox profile",
+      "es": "Perfil de sandbox"
+    },
+    "app.settings.budget.maxCostUsd": {
+      "en": "Maximum cost (USD)",
+      "es": "Costo máximo (USD)"
     }
   }
 }

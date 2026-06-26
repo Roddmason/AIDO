@@ -278,7 +278,7 @@ const GROUP_COPY: Record<
 	},
 };
 
-function ConsoleLink({ page, label }: { page: string; label: string }) {
+export function ConsoleLink({ page, label }: { page: string; label: string }) {
 	return (
 		<a className="settings-console-link" href={`#${page}`}>
 			<ExternalLink aria-hidden="true" size={15} />
@@ -323,7 +323,7 @@ function workspacesStatus(
 	return { tone: 'ok', label: `${count} ${word}` };
 }
 
-function ProjectBody({
+export function ProjectBody({
 	overview,
 	activeProjects,
 	selectedProject,
@@ -430,7 +430,7 @@ function ProjectBody({
 	);
 }
 
-function RuntimeBody({
+export function RuntimeBody({
 	overview,
 	runtimeProviders,
 	runtimeProviderConfiguration,
@@ -490,7 +490,7 @@ function RuntimeBody({
 	);
 }
 
-function AgentsBody({
+export function AgentsBody({
 	overview,
 	selectedProject,
 }: {
@@ -547,7 +547,7 @@ function AgentsBody({
 	);
 }
 
-function SecurityBody({ overview, token }: { overview: Overview; token: string }) {
+export function SecurityBody({ overview, token }: { overview: Overview; token: string }) {
 	const { t } = useI18n();
 	const sandboxProfile = overview.sandboxProfiles[0];
 	return (
@@ -580,7 +580,7 @@ function SecurityBody({ overview, token }: { overview: Overview; token: string }
 	);
 }
 
-function WorkspacesBody({ overview }: { overview: Overview }) {
+export function WorkspacesBody({ overview }: { overview: Overview }) {
 	const { t } = useI18n();
 	const advLabel = t('app.settings.advWorkspaceRoots', 'Workspace roots');
 	const workspaceRoots = overview.runtimeWorkspaces.length
@@ -675,7 +675,7 @@ function WorkspacesBody({ overview }: { overview: Overview }) {
 	);
 }
 
-function IntegrationsBody({ overview }: { overview: Overview }) {
+export function IntegrationsBody({ overview }: { overview: Overview }) {
 	const { t } = useI18n();
 	return (
 		<>
@@ -696,7 +696,7 @@ function IntegrationsBody({ overview }: { overview: Overview }) {
 	);
 }
 
-function AdvancedBody({
+export function AdvancedBody({
 	overview,
 	selectedProject,
 	mutate,

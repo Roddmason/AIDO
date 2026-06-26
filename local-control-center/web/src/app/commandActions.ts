@@ -71,6 +71,8 @@ export function matchesShortcut(event: KeyboardEvent, shortcut: string[]): boole
 export interface CommandActionDeps {
 	navigateTo: (page: PageId) => void;
 	openWorkspaceDialog: (mode: WorkspaceMode) => void;
+	/** Opens the Settings modal at an optional section. */
+	openSettings: (section?: string) => void;
 	onOpenApprovals: () => void;
 	refresh: (silent?: boolean) => Promise<void> | void;
 	selectedProject: Project | null;
@@ -88,6 +90,7 @@ export function useCommandActions(deps: CommandActionDeps): CommandAction[] {
 	const {
 		navigateTo,
 		openWorkspaceDialog,
+		openSettings,
 		onOpenApprovals,
 		refresh,
 		selectedProject,
@@ -132,7 +135,7 @@ export function useCommandActions(deps: CommandActionDeps): CommandAction[] {
 				hint: 'Project, runtime, memory and preference settings',
 				keywords: ['preferences', 'configuration', 'options'],
 				icon: SettingsIcon,
-				run: withClose(() => navigateTo('settings-project')),
+				run: withClose(() => openSettings()),
 			},
 			{
 				id: 'open-folder',
@@ -197,6 +200,7 @@ export function useCommandActions(deps: CommandActionDeps): CommandAction[] {
 	}, [
 		navigateTo,
 		openWorkspaceDialog,
+		openSettings,
 		onOpenApprovals,
 		refresh,
 		selectedProject,

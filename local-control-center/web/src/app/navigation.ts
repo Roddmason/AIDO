@@ -23,7 +23,6 @@ import {
 	ScanSearch,
 	Settings as SettingsIcon,
 	ShieldCheck,
-	SlidersHorizontal,
 	Workflow,
 } from 'lucide-react';
 import type { ComponentType } from 'react';
@@ -49,13 +48,6 @@ export const pageIds = [
 	'audit',
 	'integrations',
 	'assessment',
-	'settings-project',
-	'settings-runtime',
-	'settings-agents',
-	'settings-security',
-	'settings-workspaces',
-	'settings-integrations',
-	'settings-advanced',
 ] as const;
 
 export type PageId = (typeof pageIds)[number];
@@ -89,51 +81,6 @@ export type ExplorerGroup = {
 	label: BilingualLabel;
 	links: NavigationItem[];
 };
-
-/** Settings is a grouped configuration hub: a "Setup" section with the six
- *  run-readiness groups, then an "Advanced" section for defaults, maintainers and
- *  preferences. Each link targets one group card in the hub. The flat
- *  EXPLORER_LINKS entry below derives from this so there is a single source of truth. */
-const SETTINGS_GROUPS: ExplorerGroup[] = [
-	{
-		label: { en: 'Setup', es: 'Configuración' },
-		links: [
-			{ page: 'settings-project', icon: FolderKanban, label: { en: 'Project', es: 'Proyecto' } },
-			{
-				page: 'settings-runtime',
-				icon: Network,
-				label: { en: 'Runtime & Models', es: 'Runtime y modelos' },
-			},
-			{ page: 'settings-agents', icon: Bot, label: { en: 'Agents', es: 'Agentes' } },
-			{ page: 'settings-security', icon: ShieldCheck, label: { en: 'Security', es: 'Seguridad' } },
-			{
-				page: 'settings-workspaces',
-				icon: GitBranch,
-				label: { en: 'Workspaces', es: 'Workspaces' },
-			},
-			{
-				page: 'settings-integrations',
-				icon: PlugZap,
-				label: { en: 'Integrations', es: 'Integraciones' },
-			},
-			{
-				page: 'models',
-				icon: LayoutGrid,
-				label: { en: 'Model Gateway', es: 'Pasarela de modelos' },
-			},
-		],
-	},
-	{
-		label: { en: 'Advanced', es: 'Avanzado' },
-		links: [
-			{
-				page: 'settings-advanced',
-				icon: SlidersHorizontal,
-				label: { en: 'Advanced', es: 'Avanzado' },
-			},
-		],
-	},
-];
 
 /** Top-level areas (in order). Each owns a set of pages; `areaForPage` resolves the
  *  owning area so the shell knows which sidebar to show and which tab title to set. */
@@ -175,21 +122,10 @@ export const AREAS: AreaDef[] = [
 	},
 	{
 		id: 'settings',
-		leadPage: 'settings-project',
+		leadPage: 'models',
 		icon: SettingsIcon,
 		label: { en: 'Settings', es: 'Configuración' },
-		pages: [
-			'settings-project',
-			'settings-runtime',
-			'settings-agents',
-			'settings-security',
-			'settings-workspaces',
-			'settings-integrations',
-			'settings-advanced',
-			'models',
-			'integrations',
-			'memory',
-		],
+		pages: ['models', 'integrations', 'memory'],
 	},
 ];
 
@@ -245,14 +181,28 @@ export const EXPLORER_LINKS: Record<AreaId, NavigationItem[]> = {
 			label: { en: 'Assessment', es: 'Evaluación' },
 		},
 	],
-	settings: SETTINGS_GROUPS.flatMap((group) => group.links),
+	settings: [
+		{
+			page: 'models',
+			icon: LayoutGrid,
+			label: { en: 'Model Gateway', es: 'Pasarela de modelos' },
+		},
+		{
+			page: 'integrations',
+			icon: PlugZap,
+			label: { en: 'Integrations', es: 'Integraciones' },
+		},
+		{
+			page: 'memory',
+			icon: Network,
+			label: { en: 'Memory & Retrieval', es: 'Memoria y recuperación' },
+		},
+	],
 };
 
 /** Areas whose ExplorerPanel renders grouped, progressive sections instead of
  *  a single flat list. Areas absent here fall back to the flat EXPLORER_LINKS. */
-export const EXPLORER_GROUPS: Partial<Record<AreaId, ExplorerGroup[]>> = {
-	settings: SETTINGS_GROUPS,
-};
+export const EXPLORER_GROUPS: Partial<Record<AreaId, ExplorerGroup[]>> = {};
 
 /** Short bilingual title for the ExplorerPanel header per area. */
 export const EXPLORER_TITLE: Record<AreaId, BilingualLabel> = {

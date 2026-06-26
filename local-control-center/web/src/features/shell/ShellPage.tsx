@@ -27,8 +27,8 @@ export function ShellPage({ ctx }: { ctx: RouteContext }) {
 			onCreateProject={() => ctx.openWorkspaceDialog('open_folder')}
 			onOpenJobs={() => ctx.navigateTo('review-board')}
 			onOpenEvidence={() => ctx.navigateTo('evidence')}
-			onOpenSettings={() => ctx.navigateTo('settings-project')}
-			onOpenRuntimeSetup={() => ctx.navigateTo('settings-runtime')}
+			onOpenSettings={() => ctx.openSettings('project')}
+			onOpenRuntimeSetup={() => ctx.openSettings('providers-cli')}
 			onRefresh={() => ctx.refresh(true)}
 		/>
 	);

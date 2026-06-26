@@ -17,7 +17,6 @@ import type {
 import { HomePage } from '../features/home/HomePage';
 import type { Language } from '../features/projects/ProjectsPage';
 import { ProjectsPage } from '../features/projects/ProjectsPage';
-import type { SettingsGroupId } from '../features/settings/SettingsPage';
 import type { WorkspaceMode } from '../features/workspace/useProjectDiscovery';
 import type { AppRoute } from './routing';
 
@@ -41,9 +40,6 @@ const ModelGatewayPage = lazy(() =>
 
 const importAgents = () => import('../features/agents/AgentsPage');
 const AgentsPage = lazy(() => importAgents().then((m) => ({ default: m.AgentsPage })));
-
-const importSettings = () => import('../features/settings/SettingsPage');
-const SettingsPage = lazy(() => importSettings().then((m) => ({ default: m.SettingsPage })));
 
 // Remaining shared-barrel pages (split incrementally into per-feature chunks).
 const importPages = () => import('../features/pages');
@@ -89,6 +85,8 @@ export interface RouteContext {
 	openRun: (runId: string) => void;
 	onSelectProject: (projectId: string) => void;
 	openWorkspaceDialog: (mode?: WorkspaceMode) => void;
+	/** Opens the Settings modal at the given section. */
+	openSettings: (section?: string) => void;
 	/** Shell-owned active session selection: drives the thread/loop shell center (the Workbench). */
 	selectedSessionId: string;
 	onSelectSession: (sessionId: string) => void;
@@ -99,35 +97,6 @@ interface RouteEntry {
 	/** Fetches the route's chunk ahead of navigation; absent for eager routes. */
 	preload?: () => Promise<unknown>;
 }
-
-const settingsGroupByPage: Partial<Record<AppRoute, SettingsGroupId>> = {
-	'settings-project': 'project',
-	'settings-runtime': 'runtime',
-	'settings-agents': 'agents',
-	'settings-security': 'security',
-	'settings-workspaces': 'workspaces',
-	'settings-integrations': 'integrations',
-	'settings-advanced': 'advanced',
-};
-
-const settingsEntry: RouteEntry = {
-	render: (ctx, route) => (
-		<SettingsPage
-			overview={ctx.overview}
-			selectedProject={ctx.selectedProject}
-			onSelectProject={ctx.onSelectProject}
-			onCreateProject={() => ctx.openWorkspaceDialog('open_folder')}
-			mutate={ctx.mutate}
-			section={settingsGroupByPage[route]}
-			runtimeProviders={ctx.runtimeProviders}
-			runtimeProviderConfiguration={ctx.runtimeProviderConfiguration}
-			token={ctx.token}
-			onRefresh={() => ctx.refresh(true)}
-			language={ctx.language}
-		/>
-	),
-	preload: importSettings,
-};
 
 /** The single source of truth mapping each route to its (possibly lazy) page. */
 export const routeTable: Record<AppRoute, RouteEntry> = {
@@ -166,8 +135,8 @@ export const routeTable: Record<AppRoute, RouteEntry> = {
 				onCreateProject={() => ctx.openWorkspaceDialog('open_folder')}
 				onOpenJobs={() => ctx.navigateTo('review-board')}
 				onOpenEvidence={() => ctx.navigateTo('evidence')}
-				onOpenSettings={() => ctx.navigateTo('settings-project')}
-				onOpenRuntimeSetup={() => ctx.navigateTo('settings-runtime')}
+				onOpenSettings={() => ctx.openSettings('project')}
+				onOpenRuntimeSetup={() => ctx.openSettings('providers-cli')}
 				onRefresh={() => ctx.refresh(true)}
 			/>
 		),
@@ -179,7 +148,7 @@ export const routeTable: Record<AppRoute, RouteEntry> = {
 				overview={ctx.overview}
 				selectedProject={ctx.selectedProject}
 				onSelectProject={ctx.onSelectProject}
-				onOpenSettings={() => ctx.navigateTo('settings-project')}
+				onOpenSettings={() => ctx.openSettings('project')}
 				onCreateProject={() => ctx.openWorkspaceDialog('open_folder')}
 			/>
 		),
@@ -264,13 +233,6 @@ export const routeTable: Record<AppRoute, RouteEntry> = {
 		render: (ctx) => <IntegrationsPage overview={ctx.overview} mutate={ctx.mutate} />,
 		preload: importIntegrations,
 	},
-	'settings-project': settingsEntry,
-	'settings-runtime': settingsEntry,
-	'settings-agents': settingsEntry,
-	'settings-security': settingsEntry,
-	'settings-workspaces': settingsEntry,
-	'settings-integrations': settingsEntry,
-	'settings-advanced': settingsEntry,
 };
 
 /** Renders the page for `route`, supplying it the shared context. */

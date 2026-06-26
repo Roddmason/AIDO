@@ -265,7 +265,6 @@ export const MENUS: MenuDef[] = [
 				command: 'go-settings',
 				labelKey: 'app.menu.goSettings',
 				label: 'Settings',
-				page: 'settings-project',
 			},
 		],
 	},

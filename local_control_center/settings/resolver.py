@@ -54,6 +54,7 @@ def _resolve_one(
 
     return {
         "key": descriptor.key,
+        "labelKey": descriptor.label_key,
         "section": descriptor.section,
         "projectSection": descriptor.project_section,
         "type": descriptor.type,

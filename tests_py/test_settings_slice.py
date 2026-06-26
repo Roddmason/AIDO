@@ -469,3 +469,49 @@ def test_validate_value_string_rejects_non_string(tmp_path: Path) -> None:
         validate_value(desc, ["a", "b"])
     with pytest.raises(ValueError):
         validate_value(desc, 42)
+
+
+# ---------------------------------------------------------------------------
+# C-1: resolver emits labelKey; Pydantic model round-trips it
+# ---------------------------------------------------------------------------
+
+
+def test_resolver_emits_label_key(tmp_path: Path) -> None:
+    runtime, _c = _client(tmp_path)
+    try:
+        from local_control_center.settings.resolver import resolve_settings
+
+        result = resolve_settings(connection=runtime.connection, project_id="proj-1")
+        general = {item["key"]: item for item in result["general"]}
+        assert general["autonomy.level"]["labelKey"] == "app.settings.autonomy.level"
+        assert general["security.sandboxProfileId"]["labelKey"] == "app.settings.security.sandboxProfile"
+        assert general["budget.maxCostUsd"]["labelKey"] == "app.settings.budget.maxCostUsd"
+    finally:
+        runtime.close()
+
+
+def test_models_resolved_setting_round_trips_label_key(tmp_path: Path) -> None:
+    runtime, _c = _client(tmp_path)
+    try:
+        from local_control_center.settings.models import SettingsResponse
+        from local_control_center.settings.resolver import resolve_settings
+
+        raw = resolve_settings(connection=runtime.connection, project_id="proj-1")
+        resp = SettingsResponse(**raw)
+        dumped = resp.model_dump(by_alias=True)
+        first = next(s for s in dumped["general"] if s["key"] == "autonomy.level")
+        assert first["labelKey"] == "app.settings.autonomy.level"
+    finally:
+        runtime.close()
+
+
+def test_api_get_settings_includes_label_key(tmp_path: Path) -> None:
+    runtime, client = _client(tmp_path)
+    try:
+        resp = client.get("/api/v1/settings?projectId=proj-abc")
+        assert resp.status_code == 200
+        body = resp.json()
+        entry = next(s for s in body["general"] if s["key"] == "autonomy.level")
+        assert entry["labelKey"] == "app.settings.autonomy.level"
+    finally:
+        runtime.close()

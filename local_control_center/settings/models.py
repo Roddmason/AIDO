@@ -23,6 +23,7 @@ class ResolvedSetting(_Aliased):
     """A single platform setting resolved with its effective value, origin, and inheritance state."""
 
     key: str
+    label_key: str = Field(default="", alias="labelKey")
     section: str
     project_section: str | None = Field(default=None, alias="projectSection")
     type: str

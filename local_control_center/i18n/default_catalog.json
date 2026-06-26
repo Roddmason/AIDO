@@ -5671,6 +5671,122 @@
       "en": "AI delivery team",
       "es": "Equipo IA de entrega"
     },
+    "app.teamActivity.drawerTitle": {
+      "en": "Team activity",
+      "es": "Actividad del equipo"
+    },
+    "app.teamActivity.noProjectTitle": {
+      "en": "No workspace selected",
+      "es": "Sin espacio de trabajo seleccionado"
+    },
+    "app.teamActivity.noProjectBody": {
+      "en": "Pick a workspace to see its team activity.",
+      "es": "Elige un espacio de trabajo para ver la actividad de su equipo."
+    },
+    "app.teamActivity.errorTitle": {
+      "en": "Could not load team activity",
+      "es": "No se pudo cargar la actividad del equipo"
+    },
+    "app.teamActivity.emptyTitle": {
+      "en": "No team activity yet",
+      "es": "Aún no hay actividad del equipo"
+    },
+    "app.teamActivity.emptyBody": {
+      "en": "Agent runs show up here with their assignment, runtime, duration and cost as work starts.",
+      "es": "Las ejecuciones de agentes aparecen aquí con su asignación, entorno, duración y costo cuando empieza el trabajo."
+    },
+    "app.teamActivity.activeCount": {
+      "en": "{n} active",
+      "es": "{n} activos"
+    },
+    "app.teamActivity.blockedCount": {
+      "en": "{n} blocked",
+      "es": "{n} bloqueados"
+    },
+    "app.teamActivity.totalCount": {
+      "en": "{n} total",
+      "es": "{n} en total"
+    },
+    "app.teamActivity.truncated": {
+      "en": "Older completed work is not shown.",
+      "es": "El trabajo completado más antiguo no se muestra."
+    },
+    "app.teamActivity.runtime": {
+      "en": "Runtime",
+      "es": "Entorno"
+    },
+    "app.teamActivity.assignment": {
+      "en": "Assignment",
+      "es": "Asignación"
+    },
+    "app.teamActivity.noAssignment": {
+      "en": "Unassigned",
+      "es": "Sin asignar"
+    },
+    "app.teamActivity.duration": {
+      "en": "Duration",
+      "es": "Duración"
+    },
+    "app.teamActivity.cost": {
+      "en": "Cost",
+      "es": "Costo"
+    },
+    "app.teamActivity.costUnknown": {
+      "en": "not recorded",
+      "es": "sin registrar"
+    },
+    "app.teamActivity.reviewer": {
+      "en": "Reviewer",
+      "es": "Revisor"
+    },
+    "app.teamActivity.artifact": {
+      "en": "Completed artifact",
+      "es": "Artefacto entregado"
+    },
+    "app.teamActivity.blocked": {
+      "en": "Blocked",
+      "es": "Bloqueado"
+    },
+    "app.teamActivity.lowLevel": {
+      "en": "Low-level events",
+      "es": "Eventos de bajo nivel"
+    },
+    "app.teamActivity.eventsSummary": {
+      "en": "{model} model · {tool} tool",
+      "es": "{model} modelo · {tool} herramienta"
+    },
+    "app.teamActivity.noEvents": {
+      "en": "No model or tool events recorded yet.",
+      "es": "Aún no hay eventos de modelo o herramienta registrados."
+    },
+    "app.teamActivity.tokenCount": {
+      "en": "{n} tokens",
+      "es": "{n} tokens usados"
+    },
+    "app.teamActivity.developerDetails": {
+      "en": "Developer details",
+      "es": "Detalles de desarrollador"
+    },
+    "app.teamActivity.redactedSummary": {
+      "en": "redacted",
+      "es": "redactado"
+    },
+    "app.teamActivity.output": {
+      "en": "Structured output",
+      "es": "Salida estructurada"
+    },
+    "app.teamActivity.input": {
+      "en": "Input",
+      "es": "Entrada"
+    },
+    "app.teamActivity.loading": {
+      "en": "Loading team activity…",
+      "es": "Cargando la actividad del equipo…"
+    },
+    "app.teamActivity.metadata": {
+      "en": "Metadata",
+      "es": "Metadatos"
+    },
     "app.workbench.team.notConnected": {
       "en": "not connected",
       "es": "no conectado"

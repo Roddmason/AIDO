@@ -24,6 +24,34 @@ export function redactVisibleSecret(value: unknown, fallback = 'n/a'): string {
 }
 
 /**
+ * Renders a millisecond duration as a compact, human label (`820ms`, `4.2s`, `3m 5s`,
+ * `1h 2m`). Returns an em dash for a null/negative input so an unknown duration reads as
+ * absent rather than `0`.
+ */
+export function formatDurationMs(ms?: number | null): string {
+	if (ms == null || ms < 0) return '—';
+	if (ms < 1000) return `${Math.round(ms)}ms`;
+	const totalSeconds = Math.round(ms / 1000);
+	if (totalSeconds < 60) return `${(ms / 1000).toFixed(1)}s`;
+	const minutes = Math.floor(totalSeconds / 60);
+	const seconds = totalSeconds % 60;
+	if (minutes < 60) return `${minutes}m ${seconds}s`;
+	const hours = Math.floor(minutes / 60);
+	return `${hours}h ${minutes % 60}m`;
+}
+
+/**
+ * Renders a USD cost with adaptive precision (sub-cent costs keep four decimals so a
+ * fraction-of-a-cent model call is not rounded to `$0.00`). Returns an em dash for a
+ * null input so an unknown cost reads as absent rather than free.
+ */
+export function formatCostUsd(usd?: number | null): string {
+	if (usd == null) return '—';
+	const decimals = usd !== 0 && Math.abs(usd) < 0.01 ? 4 : 2;
+	return `$${usd.toFixed(decimals)}`;
+}
+
+/**
  * Clasifica un estado de dominio (de cualquier etapa del pipeline) en el tono de la
  * paleta que lo representa. Estados desconocidos o ausentes caen a `'info'` (neutro).
  */

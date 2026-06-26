@@ -20,6 +20,7 @@ import type {
 	CredentialRecord,
 	EventRecord as GeneratedEventRecord,
 	RiskRecord as GeneratedRiskRecord,
+	TeamActivityEntry as GeneratedTeamActivityEntry,
 	JobRecord,
 	McpServerRegisterRequest,
 	ModelBenchmarkOutcomeRecord,
@@ -47,6 +48,7 @@ import type {
 	RuntimeProviderStatus,
 	RuntimeProvidersResponse,
 	SessionRecord,
+	TeamActivityResponse,
 	TeamRecord,
 	UsageLedgerRecord,
 	UsageSummaryRecord,
@@ -72,6 +74,8 @@ export type AgentProfile = AgentProfileRecord;
 export type ModelProvider = ModelProviderRecord;
 export type Session = SessionRecord;
 export type Chat = ChatRecord;
+export type TeamActivity = TeamActivityResponse;
+export type TeamActivityEntry = GeneratedTeamActivityEntry;
 export type Pipeline = PipelineRecord;
 export type Artifact = ArtifactRecord;
 export type PolicyRevision = PolicyRevisionRecord;

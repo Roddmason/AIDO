@@ -48,6 +48,7 @@ import { Badge, Drawer, EmptyState, PageHeader, Surface } from '../../components
 import { Button, SegmentedControl, TextArea, TextField, useToast } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { shortId, toneForStatus } from '../../lib/format';
+import { TeamActivityPanel } from '../team-activity/TeamActivityPanel';
 import type { ComposerDraft, ComposerMode } from './composerDraft';
 import { clearComposerDraft, persistComposerDraft, readComposerDraft } from './composerDraft';
 import {
@@ -233,7 +234,6 @@ export function WorkbenchPage({
 		latestEvidence,
 		latestRunStatus,
 		blockers,
-		teamRows,
 		deliveryTimeline,
 		runTimeline,
 		hasRun,
@@ -1336,36 +1336,11 @@ export function WorkbenchPage({
 			</div>
 
 			<Drawer
-				label={t('app.workbench.team.title', 'AI delivery team')}
+				label={t('app.teamActivity.drawerTitle', 'Team activity')}
 				open={teamOpen}
 				onClose={() => setTeamOpen(false)}
 			>
-				<div className="team-grid">
-					{teamRows.map((member) => {
-						const Icon = member.icon;
-						return (
-							<article className="team-card" key={member.role}>
-								<div className="team-card-header">
-									<span className="team-icon">
-										<Icon aria-hidden="true" size={15} />
-									</span>
-									<div>
-										<strong>{t(member.labelKey, member.label)}</strong>
-										<span>{t(member.laneKey, member.lane)}</span>
-									</div>
-									<Badge tone={member.configured ? toneForStatus(member.status) : 'warn'}>
-										{member.status}
-									</Badge>
-								</div>
-								<p>{t(member.responsibilityKey, member.responsibility)}</p>
-								<div className="team-card-meta">
-									<span className="mono">{member.runtime}</span>
-									{member.activity ? <span className="mono">{member.activity}</span> : null}
-								</div>
-							</article>
-						);
-					})}
-				</div>
+				<TeamActivityPanel projectId={selectedProject?.id} open={teamOpen} />
 			</Drawer>
 		</>
 	);

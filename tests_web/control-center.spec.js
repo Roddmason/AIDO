@@ -954,11 +954,12 @@ test('Workbench chat creates a chat intake and linked pipeline', async ({ page }
 		await expect(page.getByRole('tab', { name: new RegExp(`^${tabName}`) })).toBeVisible();
 	}
 
-	// The AI delivery team is reachable from the composer drawer.
+	// The Team activity board is reachable from the composer drawer.
 	await page.getByRole('button', { name: 'AI team' }).click();
-	await expect(page.getByRole('heading', { name: 'AI delivery team' })).toBeVisible();
-	await page.getByRole('dialog', { name: 'AI delivery team' }).getByRole('button', { name: 'Close AI delivery team' }).click();
-	await expect(page.getByRole('heading', { name: 'AI delivery team' })).toBeHidden();
+	const teamDialog = page.getByRole('dialog', { name: 'Team activity' });
+	await expect(teamDialog).toBeVisible();
+	await teamDialog.getByRole('button', { name: 'Close Team activity' }).click();
+	await expect(teamDialog).toBeHidden();
 
 	// The project delivery flow lives in the Iteration section.
 	await page.getByRole('tab', { name: /^Iteration/ }).click();

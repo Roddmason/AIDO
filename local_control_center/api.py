@@ -49,6 +49,7 @@ from .shared.telemetry import (
     record_http_request,
     resolve_correlation_id,
 )
+from .team_activity.api import create_router as create_team_activity_router
 from .workflows.api import create_router as create_workflows_router
 from .workspaces_projects.api import create_router as create_workspaces_router
 
@@ -145,6 +146,7 @@ def create_app(
     app.include_router(create_prompts_router(platform=platform, require_write=require_write))
     app.include_router(create_projects_router(platform=platform, require_write=require_write))
     app.include_router(create_product_loop_router(platform=platform, require_write=require_write))
+    app.include_router(create_team_activity_router(platform=platform, require_write=require_write))
     app.include_router(create_i18n_router(platform=platform, require_write=require_write))
     app.include_router(create_credentials_router(platform=platform, require_write=require_write))
 

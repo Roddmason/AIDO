@@ -46,6 +46,25 @@ class ProductLoopTransitionRecord(BaseModel):
     created_at: str = Field(alias="createdAt")
 
 
+class ProductLoopFeedbackRecord(BaseModel):
+    """Feedback del usuario clasificado por impacto y enlazado a sus efectos aplicados."""
+
+    id: str
+    loop_id: str = Field(alias="loopId")
+    project_id: str = Field(alias="projectId")
+    action: str
+    classification: str
+    feedback: str
+    actor: str
+    target_type: str = Field(alias="targetType")
+    target_id: str = Field(alias="targetId")
+    status: str
+    effects: list[Any]
+    metadata: dict[str, Any]
+    created_at: str = Field(alias="createdAt")
+    updated_at: str = Field(alias="updatedAt")
+
+
 class ClarificationQuestionRecord(BaseModel):
     """Pregunta de clarificación pendiente o respondida de la discovery."""
 
@@ -282,6 +301,7 @@ class ProductLoopStateResponse(BaseModel):
 
     loops: list[ProductLoopRecord]
     transitions: list[ProductLoopTransitionRecord]
+    feedback: list[ProductLoopFeedbackRecord]
     questions: list[ClarificationQuestionRecord]
     brief: ProductBriefRecord | None = None
     assumptions: list[AssumptionRecord]
@@ -319,6 +339,19 @@ class ProductLoopTransitionRequest(BaseModel):
     expected_version: int | None = Field(default=None, alias="expectedVersion")
 
 
+class ProductLoopFeedbackRequest(BaseModel):
+    """Comando de feedback del usuario aplicado por el coordinador del Product Loop."""
+
+    action: str
+    feedback: str
+    actor: str | None = None
+    target_type: str | None = Field(default=None, alias="targetType")
+    target_id: str | None = Field(default=None, alias="targetId")
+    payload: dict[str, Any] | None = None
+    correlation_id: str | None = Field(default=None, alias="correlationId")
+    expected_version: int | None = Field(default=None, alias="expectedVersion")
+
+
 class ProductLoopResumeResponse(BaseModel):
     """Estado del loop tras arrancar o transicionar, con las transiciones que admite ahora."""
 
@@ -326,3 +359,9 @@ class ProductLoopResumeResponse(BaseModel):
     resumable: bool
     allowed_next_states: list[str] = Field(alias="allowedNextStates")
     transitions: list[ProductLoopTransitionRecord]
+
+
+class ProductLoopFeedbackApplyResponse(ProductLoopResumeResponse):
+    """Respuesta de una acción de feedback aplicada, incluyendo su registro trazable."""
+
+    feedback: ProductLoopFeedbackRecord

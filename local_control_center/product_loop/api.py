@@ -24,6 +24,8 @@ from .coordinator import (
     ProductLoopTransitionError,
 )
 from .models import (
+    ProductLoopFeedbackApplyResponse,
+    ProductLoopFeedbackRequest,
     ProductLoopResumeResponse,
     ProductLoopStartRequest,
     ProductLoopStateResponse,
@@ -58,6 +60,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         return {
             "loops": loops,
             "transitions": loops_repo.list_transitions(loops[0]["id"]) if loops else [],
+            "feedback": loops_repo.list_feedback(project_id=project_id),
             "questions": discovery.list_clarification_questions(project_id=project_id),
             "brief": briefs[0] if briefs else None,
             "assumptions": discovery.list_assumptions(project_id=project_id),
@@ -122,5 +125,37 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         except (ProductLoopTransitionError, ProductLoopStopConditionError) as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
         return engine.resume(loop_id)
+
+    @router.post(
+        "/api/v1/projects/{project_id}/product-loop/{loop_id}/feedback",
+        response_model=ProductLoopFeedbackApplyResponse,
+    )
+    async def apply_product_loop_feedback(
+        project_id: str, loop_id: str, body: ProductLoopFeedbackRequest, request: Request
+    ) -> dict[str, Any]:
+        require_write(request)
+        engine = coordinator()
+        try:
+            loop = engine.get(loop_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        if loop["projectId"] != project_id:
+            raise HTTPException(status_code=404, detail=f"Product loop not found in project: {loop_id}")
+        try:
+            return engine.apply_feedback(
+                loop_id,
+                action=body.action,
+                feedback=body.feedback,
+                actor=body.actor or "operator",
+                target_type=body.target_type,
+                target_id=body.target_id,
+                payload=body.payload,
+                correlation_id=body.correlation_id,
+                expected_version=body.expected_version,
+            )
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        except (ProductLoopTransitionError, ProductLoopStopConditionError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
 
     return router

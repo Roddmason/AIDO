@@ -41,6 +41,7 @@ def initialize_platform_schema(connection: sqlite3.Connection) -> None:
     init_phase22_schema(connection)
     init_phase23_schema(connection)
     init_phase24_schema(connection)
+    init_phase25_schema(connection)
     seed_platform_catalogs(connection)
 
 
@@ -3240,6 +3241,45 @@ def init_phase24_schema(connection: sqlite3.Connection) -> None:
     connection.execute(
         "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
         (24, utc_now()),
+    )
+
+
+def init_phase25_schema(connection: sqlite3.Connection) -> None:
+    """Fase 25: registra feedback del usuario como comandos trazables del Product Loop.
+
+    Cada acción de feedback guarda acción, clasificación de impacto, target explícito, payload y efectos
+    aplicados. La tabla complementa la bitácora de transiciones: cuando un feedback mueve la FSM, el
+    ``feedbackId`` también queda enlazado en ``product_loop_transitions.metadata``.
+    """
+    connection.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS product_loop_feedback (
+            id TEXT PRIMARY KEY,
+            loop_id TEXT NOT NULL,
+            project_id TEXT NOT NULL,
+            action TEXT NOT NULL,
+            classification TEXT NOT NULL,
+            feedback TEXT NOT NULL,
+            actor TEXT NOT NULL,
+            target_type TEXT NOT NULL,
+            target_id TEXT NOT NULL,
+            status TEXT NOT NULL,
+            effects TEXT NOT NULL,
+            metadata TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_product_loop_feedback_loop
+            ON product_loop_feedback(loop_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_product_loop_feedback_project
+            ON product_loop_feedback(project_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_product_loop_feedback_action
+            ON product_loop_feedback(action, classification);
+        """
+    )
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (25, utc_now()),
     )
 
 

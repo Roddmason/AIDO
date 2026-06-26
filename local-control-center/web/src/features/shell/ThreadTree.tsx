@@ -1,5 +1,5 @@
 /**
- * Threads tab of the {@link ShellSidebar}: a workspace → thread tree.
+ * Threads tab of the shell sidebar: a workspace → thread tree.
  *
  * Top level is the workspace (project); its children are that workspace's work sessions ("threads").
  * Selecting a workspace makes it the operational project; selecting a thread sets the active session

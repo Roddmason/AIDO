@@ -1,5 +1,5 @@
 /**
- * Loops tab of the {@link ShellSidebar}: the selected workspace's product loops as a status list.
+ * Loops tab of the shell sidebar: the selected workspace's product loops as a status list.
  *
  * Each row shows the loop title, its current phase (humanized FSM state), a status badge and a compact
  * phase-progress bar over the happy-path phases — a product-lifecycle view that is AIDO's own, not a

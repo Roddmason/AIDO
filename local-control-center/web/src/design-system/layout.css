@@ -9,12 +9,44 @@
 	color: var(--color-text-primary);
 }
 
-/* Stacked fallback (narrow / touch viewports): the shell scrolls as one column
-   instead of holding fixed-height resizable panes. */
+/* Stacked fallback (narrow / touch viewports): chrome (menu bar, sidebar, status bar)
+   stacks in a single column, but the shell keeps the fixed-viewport height of the base
+   so the document itself never scrolls — only the main content area scrolls internally.
+   A scrolling document would drift the emulated mobile visual viewport away from the
+   layout viewport, which strands the pinned status bar's controls. */
 .app-shell-ide--stacked {
-	height: auto;
+	height: 100dvh;
 	min-height: 100dvh;
-	overflow: visible;
+	overflow: hidden;
+}
+
+/* The chrome rows keep their natural height; the main content area takes the remaining
+   space and owns the scroll. */
+.app-shell-ide--stacked > .menu-bar,
+.app-shell-ide--stacked > .shell-sidebar,
+.app-shell-ide--stacked > .bottom-panel,
+.app-shell-ide--stacked > .inspector-panel,
+.app-shell-ide--stacked > .status-bar {
+	flex: 0 0 auto;
+}
+
+.app-shell-ide--stacked > .workbench,
+.app-shell-ide--stacked > .main-area {
+	flex: 1 1 auto;
+	min-height: 0;
+}
+
+.app-shell-ide--stacked > .workbench .content-frame,
+.app-shell-ide--stacked > .main-area .content-frame {
+	min-height: 0;
+	overflow: auto;
+}
+
+/* The sidebar must not consume the whole column on small screens; cap it and let it
+   scroll its own list so the content area always has room. */
+.app-shell-ide--stacked > .shell-sidebar {
+	max-height: 40dvh;
+	overflow: auto;
 }
 
 /* Desktop-style application menu bar: a thin top strip above the IDE body that
@@ -1612,7 +1644,6 @@
 	}
 
 	.app-shell-ide .status-bar {
-		position: static;
 		grid-row: auto;
 	}
 }

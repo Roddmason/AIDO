@@ -7,7 +7,12 @@
 import type { ReactNode } from 'react';
 
 import type { JsonValue } from '../../api/generated/openapi';
-import type { Overview, Project, RuntimeProviderConfiguration, RuntimeProviders } from '../../api/types';
+import type {
+	Overview,
+	Project,
+	RuntimeProviderConfiguration,
+	RuntimeProviders,
+} from '../../api/types';
 import type { ResolvedSetting } from './useSettings';
 
 /** Context available to every section render function. */

@@ -186,9 +186,7 @@ export function SettingRow({ setting, onSet, onRevert, enumOptions }: SettingRow
 				</div>
 			) : (
 				<div className="setting-control setting-control--readonly">
-					<span className="setting-value-display">
-						{String(setting.value ?? '')}
-					</span>
+					<span className="setting-value-display">{String(setting.value ?? '')}</span>
 				</div>
 			)}
 

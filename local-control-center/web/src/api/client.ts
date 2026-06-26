@@ -234,6 +234,21 @@ export function getProjectProductLoop(projectId: string, signal?: AbortSignal) {
 	});
 }
 
+export type TeamActivityResponse =
+	OperationResponse<'team_activity_api_v1_projects__project_id__team_activity_get'>;
+
+/** Project-scoped Team Activity board: active agents with role, runtime, current assignment, blocked
+ *  reason, completed artifact, reviewer, duration, cost and collapsed low-level events. A read, no token. */
+export function getProjectTeamActivity(projectId: string, signal?: AbortSignal) {
+	return requestGeneratedOperation<
+		'team_activity_api_v1_projects__project_id__team_activity_get',
+		TeamActivityResponse
+	>('team_activity_api_v1_projects__project_id__team_activity_get', {
+		pathParams: { project_id: projectId },
+		signal,
+	});
+}
+
 /** Starts a durable product loop (idea_received) for a project; a write, so the token is required. */
 export function startProductLoop(token: string, projectId: string, body: ProductLoopStartRequest) {
 	return requestGeneratedOperation(

@@ -42,9 +42,11 @@ export type ArtifactRetentionActionResponse = { "action": string; "artifacts": A
 export type ArtifactRetentionPlanRequest = { "dryRun"?: boolean; "now"?: null | string };
 export type ArtifactRetentionPlanResponse = { "dryRun": boolean; "expiredArtifacts": Array<ExpiredArtifactRecord>; "now": string; "riskIds": Array<string> };
 export type ArtifactRetentionResultRecord = { "createdAt": string; "evidencePackageId"?: null | string; "hash"?: null | string; "id": string; "kind": "execution_log" | "screenshot" | "test_report" | "qa_report" | "generic_artifact" | "git_patch" | "git_status" | "security_findings" | "model_call" | "evidence_manifest" | "devops_command_report" | "devops_report" | "security_report" | "research_source" | "research_report" | "cli_stdout" | "cli_stderr" | "cli_runtime_log" | "workspace_patch_manifest" | "project_assessment" | "product_owner_manifest"; "metadata": JsonObject; "path": string; "projectId": string; "retentionAction": JsonObject };
+export type ArtifactSummary = { "artifactId": string; "kind": string; "name"?: null | string; "path"?: null | string };
 export type AssignmentConflictRecord = { "assignmentId": string; "createdAt": string; "disagreement": string; "finalResolution": string; "handoffId": string; "id": string; "metadata": JsonObject; "projectId": string; "raisedBy": string; "resolvedAt"?: null | string; "resolvedBy"?: null | string; "status": string; "updatedAt": string };
 export type AssignmentHandoffRecord = { "artifactId": string; "assignmentId": string; "blockedReason": string; "createdAt": string; "fromAgentId": string; "id": string; "metadata": JsonObject; "projectId": string; "reviewRequired": boolean; "status": string; "toAgentId": string; "updatedAt": string };
 export type AssignmentReviewRecord = { "assignmentId": string; "createdAt": string; "decision": string; "findings": Array<JsonValue>; "handoffId": string; "id": string; "policyRequired": boolean; "projectId": string; "resolvedAt"?: null | string; "reviewerAgentId": string; "status": string; "updatedAt": string };
+export type AssignmentSummary = { "assignmentId": string; "assignmentStatus": string; "taskId": string; "taskTitle"?: null | string };
 export type AssumptionRecord = { "briefId"?: null | string; "confidence"?: null | string; "createdAt": string; "id": string; "initiativeId"?: null | string; "metadata": JsonObject; "owner"?: null | string; "projectId": string; "sourceQuestionId"?: null | string; "statement": string; "status": string; "updatedAt": string; "validation"?: null | string };
 export type AuditEventRecord = { "action": string; "actor": string; "createdAt": string; "id": string; "payload": JsonObject; "projectId"?: null | string; "target": string };
 export type BudgetRulePatchRequest = { "actionOnExceed"?: string; "enabled"?: boolean; "id"?: null | string; "maxCostUsd"?: null | number; "maxTokens"?: null | number; "period"?: string; "scopeId"?: null | string; "scopeType"?: null | string };
@@ -96,6 +98,7 @@ export type DeveloperAgentRunRequest = { "approvalGrantId"?: null | string; "ins
 export type DeveloperAgentRunResponse = { "agentRun": AgentRunRecord; "developerAgent": DeveloperAgentStatus; "diffSummary": JsonObject; "evidencePackage": JsonObject; "job": JsonObject; "qaResults": Array<JsonObject>; "reason": string; "runtime": JsonObject; "runtimeResult": JsonObject; "status": string; "workspace": JsonObject };
 export type DeveloperAgentStatus = { "candidateRuntimeIds"?: Array<string>; "contract": DeveloperAgentContract; "executable": boolean; "id": string; "reason": string; "selectedRuntimeId"?: null | string; "status": string };
 export type DeveloperAgentStatusResponse = { "developerAgent": DeveloperAgentStatus };
+export type DeveloperDetails = { "input"?: JsonObject; "metadata"?: JsonObject; "output"?: JsonObject };
 export type DirectoryPickerRequest = { "initialPath"?: null | string; "title"?: string };
 export type DirectoryPickerResponse = { "reason"?: null | string; "selectedPath"?: null | string; "status": string };
 export type DiscoverModelsResponse = { "models": Array<ModelCatalogRecord> };
@@ -132,6 +135,7 @@ export type JobMutationResponse = { "actionRequest"?: ActionRequestRecord | null
 export type JobRecord = { "createdAt": string; "id": string; "idempotencyKey"?: null | string; "kind": string; "leaseExpiresAt"?: null | string; "leaseOwner"?: null | string; "payload": JsonObject; "projectId": string; "status": "queued" | "running" | "approval_required" | "completed" | "approved" | "failed" | "cancelled"; "updatedAt": string; "workflowRunId"?: null | string; "workflowStepId"?: null | string };
 export type JobRunRecord = { "completedAt"?: null | string; "id": string; "jobId": string; "metadata": JsonObject; "providerId"?: null | string; "startedAt": string; "status": "queued" | "running" | "completed" | "failed" | "cancelled"; "summary": string };
 export type JobsListResponse = { "events"?: Array<EventRecord>; "jobs": Array<JobRecord> };
+export type LowLevelEvents = { "modelCalls"?: Array<ModelCallSummary>; "toolCalls"?: Array<ToolCallSummary> };
 export type McpServerRecord = { "command": string; "createdAt": string; "id": string; "metadata": JsonObject; "status": string; "transport": "stdio"; "updatedAt": string };
 export type McpServerRegisterRequest = { "command": string; "id": string; "metadata"?: JsonObject; "transport"?: "stdio" };
 export type McpServerResponse = { "mcpServer": McpServerRecord };
@@ -147,6 +151,7 @@ export type ModelBenchmarkOutcomesListResponse = { "outcomes": Array<ModelBenchm
 export type ModelBenchmarkRecord = { "automatedRunTasks": number; "avgCost"?: null | number; "avgLatencyMs"?: null | number; "createdAt": string; "id": string; "insufficientData": boolean; "lastUsedAt"?: null | string; "metadata": JsonObject; "model": string; "objectiveTasksAttempted": number; "operatorReportedTasks": number; "provenanceCounts": JsonObject; "providerId": string; "qaPassRate"?: null | number; "releaseValidationTasks": number; "reworkRate"?: null | number; "role"?: null | string; "successRate"?: null | number; "tasksAttempted": number; "updatedAt": string };
 export type ModelBenchmarksListResponse = { "benchmarks": Array<ModelBenchmarkRecord> };
 export type ModelCallRecord = { "agentRunId"?: null | string; "completionTokens": number; "costUsd": number; "createdAt": string; "id": string; "metadata": JsonObject; "model": string; "modelPolicyId"?: null | string; "projectId": string; "promptTokens": number; "provider": string; "status": "planned" | "completed" | "failed" | "blocked" | "unavailable" };
+export type ModelCallSummary = { "completionTokens": number; "costUsd"?: null | number; "createdAt": string; "id": string; "model": string; "promptTokens": number; "provider": string; "status": string };
 export type ModelCatalogListResponse = { "models": Array<ModelCatalogRecord> };
 export type ModelCatalogPatchRequest = { "cachedInputPricePerMtok"?: null | number; "contextWindow"?: null | number; "displayName"?: null | string; "effortLevels"?: Array<string> | null; "enabled"?: boolean | null; "freeTier"?: boolean | null; "freeTierNotes"?: null | string; "inputPricePerMtok"?: null | number; "maxOutputTokens"?: null | number; "modelFamily"?: null | string; "outputPricePerMtok"?: null | number; "reasoningPricePerMtok"?: null | number; "source"?: null | string; "supportsEmbeddings"?: boolean | null; "supportsJson"?: boolean | null; "supportsReasoning"?: boolean | null; "supportsRerank"?: boolean | null; "supportsStreaming"?: boolean | null; "supportsThinking"?: boolean | null; "supportsTools"?: boolean | null; "supportsVision"?: boolean | null };
 export type ModelCatalogRecord = { "cachedInputPricePerMtok"?: null | number; "contextWindow": number; "createdAt": string; "displayName": string; "effortLevels": Array<string>; "enabled": boolean; "freeTier": boolean; "freeTierNotes": string; "id": string; "inputPricePerMtok"?: null | number; "maxOutputTokens": number; "model": string; "modelFamily": string; "outputPricePerMtok"?: null | number; "providerId": string; "reasoningPricePerMtok"?: null | number; "source": string; "supportsEmbeddings": boolean; "supportsJson": boolean; "supportsReasoning": boolean; "supportsRerank": boolean; "supportsStreaming": boolean; "supportsThinking": boolean; "supportsTools": boolean; "supportsVision": boolean; "updatedAt": string };
@@ -184,10 +189,13 @@ export type PricingSnapshotResponse = { "pricingSnapshot": PricingSnapshotRecord
 export type PricingSnapshotsListResponse = { "pricingSnapshots": Array<PricingSnapshotRecord> };
 export type ProductBriefRecord = { "createdAt": string; "goals": Array<JsonValue>; "id": string; "initiativeId"?: null | string; "outOfScope"?: null | string; "problemStatement"?: null | string; "projectId": string; "scope"?: null | string; "status": string; "successMetrics": Array<JsonValue>; "summary"?: null | string; "targetUsers": Array<JsonValue>; "title": string; "updatedAt": string; "version": number };
 export type ProductDecisionRecord = { "briefId"?: null | string; "consequences": Array<JsonValue>; "context"?: null | string; "createdAt": string; "decidedAt"?: null | string; "decidedBy"?: null | string; "decision"?: null | string; "id": string; "initiativeId"?: null | string; "linkedAssumptionIds": Array<JsonValue>; "linkedQuestionIds": Array<JsonValue>; "metadata": JsonObject; "projectId": string; "rationale"?: null | string; "status": string; "supersedesId"?: null | string; "title": string; "updatedAt": string; "version": number };
+export type ProductLoopFeedbackApplyResponse = { "allowedNextStates": Array<string>; "feedback": ProductLoopFeedbackRecord; "loop": ProductLoopRecord; "resumable": boolean; "transitions": Array<ProductLoopTransitionRecord> };
+export type ProductLoopFeedbackRecord = { "action": string; "actor": string; "classification": string; "createdAt": string; "effects": Array<JsonValue>; "feedback": string; "id": string; "loopId": string; "metadata": JsonObject; "projectId": string; "status": string; "targetId": string; "targetType": string; "updatedAt": string };
+export type ProductLoopFeedbackRequest = { "action": string; "actor"?: null | string; "correlationId"?: null | string; "expectedVersion"?: null | number; "feedback": string; "payload"?: JsonObject | null; "targetId"?: null | string; "targetType"?: null | string };
 export type ProductLoopRecord = { "context": JsonObject; "createdAt": string; "id": string; "initiativeId"?: null | string; "previousState"?: null | string; "projectId": string; "state": string; "status": string; "title": string; "updatedAt": string; "version": number };
 export type ProductLoopResumeResponse = { "allowedNextStates": Array<string>; "loop": ProductLoopRecord; "resumable": boolean; "transitions": Array<ProductLoopTransitionRecord> };
 export type ProductLoopStartRequest = { "budget"?: JsonObject | null; "context"?: JsonObject | null; "correlationId"?: null | string; "deadline"?: null | string; "initiativeId"?: null | string; "maxReworkRounds"?: null | number; "timeouts"?: JsonObject | null; "title": string };
-export type ProductLoopStateResponse = { "assignmentConflicts": Array<AssignmentConflictRecord>; "assignmentHandoffs": Array<AssignmentHandoffRecord>; "assignmentReviews": Array<AssignmentReviewRecord>; "assignments": Array<AgentAssignmentRecord>; "assumptions": Array<AssumptionRecord>; "brief"?: ProductBriefRecord | null; "decisions": Array<ProductDecisionRecord>; "epics": Array<EpicRecord>; "iterations": Array<IterationRecord>; "loops": Array<ProductLoopRecord>; "questions": Array<ClarificationQuestionRecord>; "stories": Array<UserStoryRecord>; "tasks": Array<AgentTaskRecord>; "transitions": Array<ProductLoopTransitionRecord> };
+export type ProductLoopStateResponse = { "assignmentConflicts": Array<AssignmentConflictRecord>; "assignmentHandoffs": Array<AssignmentHandoffRecord>; "assignmentReviews": Array<AssignmentReviewRecord>; "assignments": Array<AgentAssignmentRecord>; "assumptions": Array<AssumptionRecord>; "brief"?: ProductBriefRecord | null; "decisions": Array<ProductDecisionRecord>; "epics": Array<EpicRecord>; "feedback": Array<ProductLoopFeedbackRecord>; "iterations": Array<IterationRecord>; "loops": Array<ProductLoopRecord>; "questions": Array<ClarificationQuestionRecord>; "stories": Array<UserStoryRecord>; "tasks": Array<AgentTaskRecord>; "transitions": Array<ProductLoopTransitionRecord> };
 export type ProductLoopTransitionRecord = { "actor": string; "createdAt": string; "fromState": string; "id": string; "loopId": string; "metadata": JsonObject; "projectId": string; "reason": string; "toState": string; "trigger": string; "version": number };
 export type ProductLoopTransitionRequest = { "correlationId"?: null | string; "expectedVersion"?: null | number; "reason"?: null | string; "toState": string; "trigger"?: null | string };
 export type ProductOwnerAgentRunRequest = { "approvalGrantId"?: null | string; "autonomy"?: JsonObject | null; "completenessThreshold"?: null | number; "idea"?: null | string; "initiativeId"?: null | string; "metadata"?: JsonObject; "model"?: null | string; "preferredRuntime"?: null | string; "projectId": string; "taskId"?: string; "workflowContext"?: JsonObject; "workspaceId": string };
@@ -247,6 +255,7 @@ export type RetrievalSearchRequest = { "limit"?: number; "projectId": string; "q
 export type RetrievalSearchResponse = { "reason": string; "results": Array<RetrievalSearchResultRecord>; "status": string };
 export type RetrievalSearchResultRecord = { "memoryItem": MemoryItemRecord; "score": number };
 export type RetrievalStatusResponse = { "available": boolean; "backend": string; "degraded": boolean; "dimensions": number; "faissAvailable": boolean; "indexDir": string; "indexed": number; "reason": string; "status": string };
+export type ReviewerSummary = { "decision"?: null | string; "reviewerAgentId": string; "status": string };
 export type RiskCreateRequest = { "description"?: string; "evidenceRefs"?: Array<string>; "metadata"?: JsonObject; "mitigation"?: string; "owner"?: string; "projectId": string; "severity"?: "low" | "medium" | "high" | "critical"; "status"?: "open" | "monitoring" | "mitigating" | "mitigated" | "accepted" | "closed"; "title": string };
 export type RiskRecord = { "createdAt": string; "description": string; "evidenceRefs": Array<string>; "id": string; "metadata": JsonObject; "mitigation": string; "owner": string; "projectId": string; "severity": "low" | "medium" | "high" | "critical"; "status": "open" | "monitoring" | "mitigating" | "mitigated" | "accepted" | "closed"; "title": string; "updatedAt": string };
 export type RiskResponse = { "risk": RiskRecord };
@@ -300,10 +309,13 @@ export type SkillRecord = { "compatibility": string; "createdAt": string; "descr
 export type SkillsListResponse = { "skills": Array<SkillRecord> };
 export type SkillsSyncRequest = { "skillsPath"?: string };
 export type SkillsSyncResponse = { "skills": Array<SkillRecord>; "synced": number };
+export type TeamActivityEntry = { "agentId": string; "agentName": string; "blockedReason"?: null | string; "completedArtifact"?: ArtifactSummary | null; "costSource"?: "actual" | "estimated" | null; "costUsd"?: null | number; "currentAssignment"?: AssignmentSummary | null; "developerDetails": DeveloperDetails; "durationMs"?: null | number; "endedAt"?: null | string; "id": string; "lowLevelEvents": LowLevelEvents; "modelCallCount": number; "provider"?: null | string; "reviewer"?: ReviewerSummary | null; "role": string; "runtime": string; "startedAt"?: null | string; "state": "active" | "blocked" | "done"; "status": string; "toolCallCount": number };
+export type TeamActivityResponse = { "activeCount": number; "blockedCount": number; "entries"?: Array<TeamActivityEntry>; "generatedAt": string; "projectId": string; "totalCount": number; "truncated": boolean };
 export type TeamRecord = { "capabilities": Array<JsonValue>; "createdAt": string; "id": string; "metadata": JsonObject; "name": string; "projectId": string; "updatedAt": string; "version": string };
 export type TeamsListResponse = { "teams": Array<TeamRecord> };
 export type TelemetryStatusResponse = { "externalExporter": ExternalTelemetryStatus };
 export type TestResultRecord = { "command": string; "createdAt": string; "durationMs"?: null | number; "evidencePackageId": string; "id": string; "metadata": JsonObject; "outputRef"?: null | string; "projectId": string; "status": "passed" | "failed" | "completed" | "denied" | "allowed" | "requires_approval" | "approval_required" | "blocked" | "skipped" | "skipped_with_reason" | "error" | "timed_out" };
+export type ToolCallSummary = { "createdAt": string; "id": string; "status": string; "toolName": string };
 export type UsageLedgerListResponse = { "usageLedger": Array<UsageLedgerRecord> };
 export type UsageLedgerRecord = { "actualCostUsd"?: null | number; "agentId"?: null | string; "cachedInputTokens": number; "costStatus"?: string; "createdAt": string; "currency": string; "estimatedCostUsd"?: null | number; "id": string; "inputTokens": number; "jobId"?: null | string; "latencyMs"?: null | number; "model": string; "outputTokens": number; "providerId": string; "rawUsage": JsonObject; "reasoningTokens": number; "requestId"?: null | string; "role"?: null | string; "runtimeType": string; "sessionId"?: null | string; "taskId"?: null | string; "tokenStatus"?: string; "toolTokens": number; "totalTokens": number; "usageSource": string; "workflowRunId"?: null | string; "workflowStepId"?: null | string };
 export type UsageSummaryProvider = { "estimatedCostUsd": number; "providerId": string; "totalTokens": number };
@@ -451,7 +463,9 @@ export const API_ENDPOINTS = [
 	{"method": "GET", "operationId": "list_findings_api_v1_projects__project_id__findings_get", "path": "/api/v1/projects/{project_id}/findings", "summary": "List Findings"},
 	{"method": "GET", "operationId": "get_product_loop_state_api_v1_projects__project_id__product_loop_get", "path": "/api/v1/projects/{project_id}/product-loop", "summary": "Get Product Loop State"},
 	{"method": "POST", "operationId": "start_product_loop_api_v1_projects__project_id__product_loop_post", "path": "/api/v1/projects/{project_id}/product-loop", "summary": "Start Product Loop"},
+	{"method": "POST", "operationId": "apply_product_loop_feedback_api_v1_projects__project_id__product_loop__loop_id__feedback_post", "path": "/api/v1/projects/{project_id}/product-loop/{loop_id}/feedback", "summary": "Apply Product Loop Feedback"},
 	{"method": "POST", "operationId": "transition_product_loop_api_v1_projects__project_id__product_loop__loop_id__transition_post", "path": "/api/v1/projects/{project_id}/product-loop/{loop_id}/transition", "summary": "Transition Product Loop"},
+	{"method": "GET", "operationId": "team_activity_api_v1_projects__project_id__team_activity_get", "path": "/api/v1/projects/{project_id}/team-activity", "summary": "Team Activity"},
 	{"method": "GET", "operationId": "list_prompts_api_v1_prompts_get", "path": "/api/v1/prompts", "summary": "List Prompts"},
 	{"method": "POST", "operationId": "upsert_prompt_api_v1_prompts_post", "path": "/api/v1/prompts", "summary": "Upsert Prompt"},
 	{"method": "GET", "operationId": "providers_api_v1_providers_get", "path": "/api/v1/providers", "summary": "Providers"},
@@ -508,6 +522,7 @@ export type OperationRequestBodies = {
 	"agents_api_v1_agents_get": never,
 	"allocate_workspace_api_v1_workspaces_post": WorkspaceAllocateRequest,
 	"apply_artifact_retention_action_api_v1_evidence_artifacts_retention_actions_post": ArtifactRetentionActionRequest,
+	"apply_product_loop_feedback_api_v1_projects__project_id__product_loop__loop_id__feedback_post": ProductLoopFeedbackRequest,
 	"approvals_api_v1_approvals_get": never,
 	"approve_action_api_v1_jobs__job_id__actions__action_id__approve_post": ApprovalReasonRequest,
 	"approve_issue_to_patch_api_v1_workflows_issue_to_patch__run_id__approve_post": WorkflowStatusChangeRequest,
@@ -651,6 +666,7 @@ export type OperationRequestBodies = {
 	"start_session_api_v1_cli_sessions_post": CliSessionStartRequest,
 	"start_workflow_api_v1_workflows__workflow_id__start_post": WorkflowStatusChangeRequest,
 	"sync_skills_api_v1_skills_sync_post": SkillsSyncRequest,
+	"team_activity_api_v1_projects__project_id__team_activity_get": never,
 	"teams_api_v1_teams_get": never,
 	"telemetry_status_api_v1_telemetry_status_get": never,
 	"transition_product_loop_api_v1_projects__project_id__product_loop__loop_id__transition_post": ProductLoopTransitionRequest,
@@ -669,6 +685,7 @@ export type OperationResponseBodies = {
 	"agents_api_v1_agents_get": AgentsListResponse,
 	"allocate_workspace_api_v1_workspaces_post": WorkspaceResponse,
 	"apply_artifact_retention_action_api_v1_evidence_artifacts_retention_actions_post": ArtifactRetentionActionResponse,
+	"apply_product_loop_feedback_api_v1_projects__project_id__product_loop__loop_id__feedback_post": ProductLoopFeedbackApplyResponse,
 	"approvals_api_v1_approvals_get": ApprovalsListResponse,
 	"approve_action_api_v1_jobs__job_id__actions__action_id__approve_post": JobMutationResponse,
 	"approve_issue_to_patch_api_v1_workflows_issue_to_patch__run_id__approve_post": IssueToPatchResponse,
@@ -812,6 +829,7 @@ export type OperationResponseBodies = {
 	"start_session_api_v1_cli_sessions_post": CliSessionStartResponse,
 	"start_workflow_api_v1_workflows__workflow_id__start_post": WorkflowStartResponse,
 	"sync_skills_api_v1_skills_sync_post": SkillsSyncResponse,
+	"team_activity_api_v1_projects__project_id__team_activity_get": TeamActivityResponse,
 	"teams_api_v1_teams_get": TeamsListResponse,
 	"telemetry_status_api_v1_telemetry_status_get": TelemetryStatusResponse,
 	"transition_product_loop_api_v1_projects__project_id__product_loop__loop_id__transition_post": ProductLoopResumeResponse,
@@ -945,7 +963,9 @@ export const OPERATIONS_BY_ID = {
 	"list_findings_api_v1_projects__project_id__findings_get": {"method": "GET", "operationId": "list_findings_api_v1_projects__project_id__findings_get", "path": "/api/v1/projects/{project_id}/findings", "summary": "List Findings"},
 	"get_product_loop_state_api_v1_projects__project_id__product_loop_get": {"method": "GET", "operationId": "get_product_loop_state_api_v1_projects__project_id__product_loop_get", "path": "/api/v1/projects/{project_id}/product-loop", "summary": "Get Product Loop State"},
 	"start_product_loop_api_v1_projects__project_id__product_loop_post": {"method": "POST", "operationId": "start_product_loop_api_v1_projects__project_id__product_loop_post", "path": "/api/v1/projects/{project_id}/product-loop", "summary": "Start Product Loop"},
+	"apply_product_loop_feedback_api_v1_projects__project_id__product_loop__loop_id__feedback_post": {"method": "POST", "operationId": "apply_product_loop_feedback_api_v1_projects__project_id__product_loop__loop_id__feedback_post", "path": "/api/v1/projects/{project_id}/product-loop/{loop_id}/feedback", "summary": "Apply Product Loop Feedback"},
 	"transition_product_loop_api_v1_projects__project_id__product_loop__loop_id__transition_post": {"method": "POST", "operationId": "transition_product_loop_api_v1_projects__project_id__product_loop__loop_id__transition_post", "path": "/api/v1/projects/{project_id}/product-loop/{loop_id}/transition", "summary": "Transition Product Loop"},
+	"team_activity_api_v1_projects__project_id__team_activity_get": {"method": "GET", "operationId": "team_activity_api_v1_projects__project_id__team_activity_get", "path": "/api/v1/projects/{project_id}/team-activity", "summary": "Team Activity"},
 	"list_prompts_api_v1_prompts_get": {"method": "GET", "operationId": "list_prompts_api_v1_prompts_get", "path": "/api/v1/prompts", "summary": "List Prompts"},
 	"upsert_prompt_api_v1_prompts_post": {"method": "POST", "operationId": "upsert_prompt_api_v1_prompts_post", "path": "/api/v1/prompts", "summary": "Upsert Prompt"},
 	"providers_api_v1_providers_get": {"method": "GET", "operationId": "providers_api_v1_providers_get", "path": "/api/v1/providers", "summary": "Providers"},

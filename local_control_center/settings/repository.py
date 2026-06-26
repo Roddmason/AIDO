@@ -3,6 +3,8 @@
 Provides ``set_value`` (upsert), ``get_value`` (returns ``UNSET`` sentinel when no row exists),
 ``clear_value`` (returns True if a row was deleted) and ``list_values`` (full table snapshot).
 Values are stored as JSON so any JSON-serialisable type round-trips without information loss.
+All writes are atomic upserts via ``INSERT ... ON CONFLICT`` (single-statement transactions);
+no explicit transaction management is needed because callers control the connection lifecycle.
 """
 
 from __future__ import annotations

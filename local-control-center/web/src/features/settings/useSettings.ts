@@ -12,14 +12,21 @@ import { useControlPlane } from '../../hooks/useControlPlane';
 
 export type { ResolvedSetting };
 
+export type SettingScope = 'general' | 'project';
+
 export type SettingsState = {
 	general: ResolvedSetting[];
 	project: ResolvedSetting[];
 	loading: boolean;
 	error: string;
 	refresh: () => void;
-	setValue: (key: string, scope: string, scopeId: string | null, value: JsonValue) => Promise<void>;
-	clearValue: (key: string, scope: string, scopeId: string | null) => Promise<void>;
+	setValue: (
+		key: string,
+		scope: SettingScope,
+		scopeId: string | null,
+		value: JsonValue,
+	) => Promise<void>;
+	clearValue: (key: string, scope: SettingScope, scopeId: string | null) => Promise<void>;
 };
 
 /** Loads resolved settings for both scopes while `enabled`; disabled or missing id clears state. */
@@ -64,7 +71,7 @@ export function useSettings(projectId: string | undefined, enabled: boolean): Se
 	}, [projectId, enabled, reloadToken]);
 
 	const setValue = useCallback(
-		async (key: string, scope: string, scopeId: string | null, value: JsonValue) => {
+		async (key: string, scope: SettingScope, scopeId: string | null, value: JsonValue) => {
 			await putSetting(key, { scope, scopeId: scopeId ?? undefined, value }, token);
 			refresh();
 		},
@@ -72,7 +79,7 @@ export function useSettings(projectId: string | undefined, enabled: boolean): Se
 	);
 
 	const clearValue = useCallback(
-		async (key: string, scope: string, scopeId: string | null) => {
+		async (key: string, scope: SettingScope, scopeId: string | null) => {
 			const params: { scope: string; scopeId?: string } = { scope };
 			if (scopeId !== null) params.scopeId = scopeId;
 			await deleteSetting(key, params, token);

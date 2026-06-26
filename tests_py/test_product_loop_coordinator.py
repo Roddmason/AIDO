@@ -13,7 +13,7 @@ from local_control_center.projects.repository import ProjectsRepository
 from local_control_center.shared.db import open_sqlite_connection
 from local_control_center.shared.migrations import initialize_platform_schema
 
-LOOP_TABLES = {"product_loops", "product_loop_transitions"}
+LOOP_TABLES = {"product_loops", "product_loop_transitions", "product_loop_feedback"}
 # The canonical happy path: goal_received → … → delivered (delivery only via awaiting_approval).
 HAPPY_PATH = [
     "discovering",
@@ -337,3 +337,186 @@ def test_enforce_stop_conditions_is_idempotent_when_nothing_fires(tmp_path: Path
         assert result["fired"] == []
         assert result["loop"]["state"] == "goal_received"
         assert result["loop"]["version"] == 1  # no transition recorded
+
+
+def test_feedback_actions_are_classified_applied_and_traceable(tmp_path: Path) -> None:
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        project = _project(connection, tmp_path, "feedback")
+        project_id = project["id"]
+        coordinator = ProductLoopCoordinator(connection)
+        backlog = coordinator.backlog
+        discovery = coordinator.discovery
+
+        epic = backlog.create_epic({"projectId": project_id, "title": "Checkout"})
+        story = backlog.create_user_story(
+            {"projectId": project_id, "epicId": epic["id"], "title": "Guest checkout"}
+        )
+        task = backlog.create_agent_task(
+            {
+                "projectId": project_id,
+                "storyId": story["id"],
+                "title": "Fix checkout validation",
+                "role": "backend_engineer",
+                "status": "completed",
+            }
+        )
+        initiative = discovery.create_initiative(
+            {"projectId": project_id, "title": "Checkout initiative", "summary": "Improve checkout."}
+        )
+        decision = discovery.create_product_decision(
+            {
+                "projectId": project_id,
+                "initiativeId": initiative["id"],
+                "title": "Use synchronous payment capture",
+                "status": "accepted",
+                "context": "Initial architecture tradeoff.",
+                "decision": "Capture synchronously.",
+                "rationale": "Simpler rollout.",
+                "decidedBy": "architect_agent",
+            }
+        )
+
+        approval_loop = coordinator.start(project_id=project_id, title="Approval")
+        for state in HAPPY_PATH[:-1]:
+            approval_loop = coordinator.transition(approval_loop["id"], to_state=state)
+        accepted = coordinator.apply_feedback(
+            approval_loop["id"],
+            action="accept",
+            feedback="QA evidence accepted.",
+            actor="operator",
+            target_type="brief",
+            target_id=approval_loop["id"],
+        )
+        assert accepted["feedback"]["classification"] == "brief_revision"
+        assert accepted["loop"]["state"] == "delivered"
+        assert accepted["feedback"]["effects"][0]["type"] == "transition"
+
+        rework_loop = coordinator.start(project_id=project_id, title="Rework")
+        for state in HAPPY_PATH[:-1]:
+            rework_loop = coordinator.transition(rework_loop["id"], to_state=state)
+        reworked = coordinator.apply_feedback(
+            rework_loop["id"],
+            action="request_changes",
+            feedback="Validation needs another pass.",
+            actor="operator",
+            target_type="task",
+            target_id=task["id"],
+        )
+        assert reworked["feedback"]["classification"] == "rework_task"
+        assert reworked["loop"]["state"] == "reworking"
+        task_after_rework = backlog.get_agent_task(task["id"])
+        assert task_after_rework["status"] == "todo"
+        assert task_after_rework["metadata"]["feedbackIds"] == [reworked["feedback"]["id"]]
+
+        new_story = coordinator.apply_feedback(
+            rework_loop["id"],
+            action="change_scope",
+            feedback="Add guest email receipt as follow-up scope.",
+            actor="operator",
+            target_type="epic",
+            target_id=epic["id"],
+            payload={"story": {"title": "Guest email receipt", "asA": "shopper"}},
+        )
+        assert new_story["feedback"]["classification"] == "new_story"
+        assert new_story["feedback"]["effects"][0]["type"] == "create_user_story"
+        assert backlog.get_user_story(new_story["feedback"]["effects"][0]["id"])["metadata"][
+            "feedbackId"
+        ] == new_story["feedback"]["id"]
+
+        new_epic = coordinator.apply_feedback(
+            rework_loop["id"],
+            action="change_scope",
+            feedback="Add a post-purchase automation epic.",
+            actor="operator",
+            payload={"epic": {"title": "Post-purchase automation"}},
+        )
+        assert new_epic["feedback"]["classification"] == "new_epic"
+        assert new_epic["feedback"]["effects"][0]["type"] == "create_epic"
+
+        revised_priority = coordinator.apply_feedback(
+            rework_loop["id"],
+            action="reprioritize",
+            feedback="Escalate the checkout story.",
+            actor="operator",
+            target_type="story",
+            target_id=story["id"],
+            payload={"priority": "high"},
+        )
+        assert revised_priority["feedback"]["classification"] == "brief_revision"
+        assert backlog.get_user_story(story["id"])["priority"] == "high"
+
+        rejected_decision = coordinator.apply_feedback(
+            rework_loop["id"],
+            action="reject_decision",
+            feedback="Synchronous capture is too risky.",
+            actor="operator",
+            target_type="decision",
+            target_id=decision["id"],
+        )
+        assert rejected_decision["feedback"]["classification"] == "architecture_revision"
+        assert discovery.get_product_decision(decision["id"])["status"] == "rejected"
+
+        reopened = coordinator.apply_feedback(
+            rework_loop["id"],
+            action="reopen_story",
+            feedback="Story needs another implementation pass.",
+            actor="operator",
+            target_type="story",
+            target_id=story["id"],
+        )
+        assert reopened["feedback"]["classification"] == "rework_task"
+        assert backlog.get_user_story(story["id"])["status"] == "reopened"
+
+        pause_loop = coordinator.start(project_id=project_id, title="Pause")
+        paused = coordinator.apply_feedback(
+            pause_loop["id"],
+            action="pause_loop",
+            feedback="Pause while the brief is clarified.",
+            actor="operator",
+            target_type="brief",
+            target_id=pause_loop["id"],
+        )
+        assert paused["feedback"]["classification"] == "brief_revision"
+        assert paused["loop"]["state"] == "blocked"
+
+        cancel_loop = coordinator.start(project_id=project_id, title="Cancel")
+        cancelled = coordinator.apply_feedback(
+            cancel_loop["id"],
+            action="cancel_loop",
+            feedback="Cancel after architecture decision rejection.",
+            actor="operator",
+            target_type="decision",
+            target_id=decision["id"],
+        )
+        assert cancelled["feedback"]["classification"] == "architecture_revision"
+        assert cancelled["loop"]["state"] == "cancelled"
+
+        feedback_records = coordinator.list_feedback(project_id=project_id)
+        assert {item["action"] for item in feedback_records} >= {
+            "accept",
+            "request_changes",
+            "change_scope",
+            "reprioritize",
+            "reject_decision",
+            "reopen_story",
+            "pause_loop",
+            "cancel_loop",
+        }
+        transition = coordinator.list_transitions(rework_loop["id"])[-1]
+        assert transition["metadata"]["feedbackId"] == reworked["feedback"]["id"]
+        assert reworked["feedback"]["effects"][0]["transitionId"] == transition["id"]
+
+
+def test_feedback_rejects_unknown_actions_and_untraceable_targets(tmp_path: Path) -> None:
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        project = _project(connection, tmp_path, "feedback-invalid")
+        coordinator = ProductLoopCoordinator(connection)
+        loop = coordinator.start(project_id=project["id"], title="Invalid")
+
+        with pytest.raises(ProductLoopTransitionError, match="Unknown feedback action"):
+            coordinator.apply_feedback(loop["id"], action="defer", feedback="not supported")
+
+        with pytest.raises(ProductLoopTransitionError, match="requires a traceable target"):
+            coordinator.apply_feedback(loop["id"], action="request_changes", feedback="missing target")

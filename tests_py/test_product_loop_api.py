@@ -13,6 +13,7 @@ from local_control_center.projects.repository import ProjectsRepository
 EMPTY_LOOP_STATE = {
     "loops": [],
     "transitions": [],
+    "feedback": [],
     "questions": [],
     "brief": None,
     "assumptions": [],
@@ -195,6 +196,7 @@ def test_product_loop_endpoint_aggregates_real_loop_state_scoped_to_the_project(
         assert [item["id"] for item in body["loops"]] == [loop["id"]]
         assert body["loops"][0]["state"] == "goal_received"
         assert isinstance(body["transitions"], list)  # transitions of the active loop, if any
+        assert body["feedback"] == []
         assert [item["id"] for item in body["questions"]] == [question["id"]]
         assert body["brief"]["id"] == brief["id"]
         assert body["brief"]["goals"] == ["Reduce setup steps"]
@@ -299,6 +301,68 @@ def test_start_and_transition_product_loop_mutations(tmp_path: Path) -> None:
         state = client.get(f"/api/v1/projects/{project_id}/product-loop").json()
         assert [item["id"] for item in state["loops"]] == [loop_id]
         assert len(state["transitions"]) == 2
+    finally:
+        runtime.close()
+
+
+def test_feedback_action_endpoint_is_guarded_classifies_and_exposes_trace(tmp_path: Path) -> None:
+    runtime, client = _client(tmp_path)
+    try:
+        connection = runtime.connection
+        project = ProjectsRepository(connection).create_project(
+            name="Feedback", path=tmp_path / "feedback", template_id="other"
+        )
+        project_id = project["id"]
+        backlog = BacklogRepository(connection)
+        epic = backlog.create_epic({"projectId": project_id, "title": "Checkout"})
+        story = backlog.create_user_story(
+            {"projectId": project_id, "epicId": epic["id"], "title": "Guest checkout"}
+        )
+        task = backlog.create_agent_task(
+            {
+                "projectId": project_id,
+                "storyId": story["id"],
+                "title": "Fix checkout validation",
+                "role": "backend_engineer",
+                "status": "completed",
+            }
+        )
+        coordinator = ProductLoopCoordinator(connection)
+        loop = coordinator.start(project_id=project_id, title="Feedback loop")
+        for state in [
+            "discovering",
+            "brief_ready",
+            "architecture_review",
+            "backlog_ready",
+            "iteration_planning",
+            "executing",
+            "quality_review",
+            "awaiting_approval",
+        ]:
+            coordinator.transition(loop["id"], to_state=state)
+
+        token = client.get("/api/v1/security/handshake").json()["token"]
+        url = f"/api/v1/projects/{project_id}/product-loop/{loop['id']}/feedback"
+        payload = {
+            "action": "request_changes",
+            "feedback": "Validation needs another pass.",
+            "targetType": "task",
+            "targetId": task["id"],
+        }
+
+        assert client.post(url, json=payload).status_code == 403
+        applied = client.post(url, json=payload, headers={"X-Local-Control-Token": token})
+        assert applied.status_code == 200
+        body = applied.json()
+        assert body["feedback"]["action"] == "request_changes"
+        assert body["feedback"]["classification"] == "rework_task"
+        assert body["loop"]["state"] == "reworking"
+        assert body["feedback"]["effects"][0]["type"] == "transition"
+        assert body["feedback"]["effects"][0]["transitionId"].startswith("product-loop-transition-")
+
+        aggregate = client.get(f"/api/v1/projects/{project_id}/product-loop").json()
+        assert [item["id"] for item in aggregate["feedback"]] == [body["feedback"]["id"]]
+        assert aggregate["transitions"][-1]["metadata"]["feedbackId"] == body["feedback"]["id"]
     finally:
         runtime.close()
 

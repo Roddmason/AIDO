@@ -17,6 +17,7 @@ import sqlite3
 import uuid
 from typing import Any
 
+from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.serialization import json_dumps, json_loads
 from local_control_center.shared.time import utc_now
 
@@ -52,6 +53,26 @@ def row_to_product_loop_transition(row: sqlite3.Row) -> dict[str, Any]:
         "version": row["version"],
         "metadata": json_loads(row["metadata"]),
         "createdAt": row["created_at"],
+    }
+
+
+def row_to_product_loop_feedback(row: sqlite3.Row) -> dict[str, Any]:
+    """Mapea una fila de ``product_loop_feedback`` al dict camelCase del contrato."""
+    return {
+        "id": row["id"],
+        "loopId": row["loop_id"],
+        "projectId": row["project_id"],
+        "action": row["action"],
+        "classification": row["classification"],
+        "feedback": row["feedback"],
+        "actor": row["actor"],
+        "targetType": row["target_type"],
+        "targetId": row["target_id"],
+        "status": row["status"],
+        "effects": json_loads(row["effects"], []),
+        "metadata": json_loads(row["metadata"]),
+        "createdAt": row["created_at"],
+        "updatedAt": row["updated_at"],
     }
 
 
@@ -189,3 +210,91 @@ class ProductLoopRepository:
             (loop_id,),
         ).fetchall()
         return [row_to_product_loop_transition(row) for row in rows]
+
+    def create_feedback(self, body: dict[str, Any]) -> dict[str, Any]:
+        """Inserta un comando de feedback del usuario y devuelve el registro creado."""
+        feedback_id = f"product-loop-feedback-{uuid.uuid4()}"
+        timestamp = utc_now()
+        self.connection.execute(
+            """
+            INSERT INTO product_loop_feedback
+                (id, loop_id, project_id, action, classification, feedback, actor, target_type,
+                 target_id, status, effects, metadata, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                feedback_id,
+                body["loopId"],
+                body["projectId"],
+                body["action"],
+                body["classification"],
+                str(redact_secrets(body["feedback"])),
+                body.get("actor", "operator"),
+                body["targetType"],
+                body["targetId"],
+                body.get("status", "recorded"),
+                json_dumps(redact_secrets(body.get("effects") or [])),
+                json_dumps(redact_secrets(body.get("metadata") or {})),
+                timestamp,
+                timestamp,
+            ),
+        )
+        return self.get_feedback(feedback_id)
+
+    def get_feedback(self, feedback_id: str) -> dict[str, Any]:
+        """Recupera un feedback por id.
+
+        Raises:
+            KeyError: si no existe ningún registro de feedback con ese id.
+        """
+        row = self.connection.execute(
+            "SELECT * FROM product_loop_feedback WHERE id = ?", (feedback_id,)
+        ).fetchone()
+        if not row:
+            raise KeyError(f"Product loop feedback not found: {feedback_id}")
+        return row_to_product_loop_feedback(row)
+
+    def update_feedback_effects(
+        self,
+        feedback_id: str,
+        *,
+        effects: list[dict[str, Any]],
+        status: str = "applied",
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Actualiza efectos/status de un feedback tras aplicar sus cambios dentro de la transacción."""
+        current = self.get_feedback(feedback_id)
+        self.connection.execute(
+            """
+            UPDATE product_loop_feedback
+            SET status = ?, effects = ?, metadata = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                status,
+                json_dumps(redact_secrets(effects)),
+                json_dumps(redact_secrets(metadata if metadata is not None else current["metadata"])),
+                utc_now(),
+                feedback_id,
+            ),
+        )
+        return self.get_feedback(feedback_id)
+
+    def list_feedback(
+        self, *, loop_id: str | None = None, project_id: str | None = None
+    ) -> list[dict[str, Any]]:
+        """Lista feedback por loop o proyecto, en orden cronológico."""
+        conditions: list[str] = []
+        params: list[Any] = []
+        if loop_id:
+            conditions.append("loop_id = ?")
+            params.append(loop_id)
+        if project_id:
+            conditions.append("project_id = ?")
+            params.append(project_id)
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        rows = self.connection.execute(
+            f"SELECT * FROM product_loop_feedback {where} ORDER BY created_at ASC",
+            params,
+        ).fetchall()
+        return [row_to_product_loop_feedback(row) for row in rows]

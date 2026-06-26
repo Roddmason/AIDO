@@ -234,6 +234,40 @@ export function getProjectProductLoop(projectId: string, signal?: AbortSignal) {
 	});
 }
 
+export type SettingsResponse = OperationResponse<'get_settings_api_v1_settings_get'>;
+export type ResolvedSetting = SettingsResponse['general'][number];
+export type SetSettingBody = OperationRequestBody<'put_setting_api_v1_settings__key__put'>;
+
+/** Resolved settings for both general and project scopes; a read, so no token required. */
+export function getSettings(projectId: string, signal?: AbortSignal) {
+	return requestGeneratedOperation<'get_settings_api_v1_settings_get', SettingsResponse>(
+		'get_settings_api_v1_settings_get',
+		{ query: { projectId }, signal },
+	);
+}
+
+/** Persists a value for a registered setting key at the given scope; requires the write token. */
+export function putSetting(key: string, body: SetSettingBody, token: string) {
+	return requestGeneratedOperation('put_setting_api_v1_settings__key__put', {
+		token,
+		pathParams: { key },
+		body,
+	});
+}
+
+/** Clears a setting override so resolution falls back to the inherited value; requires token. */
+export function deleteSetting(
+	key: string,
+	params: { scope: string; scopeId?: string },
+	token: string,
+) {
+	return requestGeneratedOperation('delete_setting_api_v1_settings__key__delete', {
+		token,
+		pathParams: { key },
+		query: params,
+	});
+}
+
 export type TeamActivityResponse =
 	OperationResponse<'team_activity_api_v1_projects__project_id__team_activity_get'>;
 

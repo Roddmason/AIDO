@@ -247,6 +247,7 @@ export type ResearchAgentStatusResponse = { "researchAgent": ResearchAgentStatus
 export type ResearchClaimRequest = { "sourceUrl": string; "topic": string; "value": string };
 export type ResearchConclusionRequest = { "citations"?: Array<string>; "statement": string; "webBased"?: boolean };
 export type ResearchSourceRequest = { "content"?: null | string; "fetchedAt"?: null | string; "publisher": string; "relatedArtifact"?: null | string; "trustLevel"?: "official_documentation" | "official_repository" | "standard_rfc" | "primary_research" | "reputable_secondary" | "untrusted" | null; "url": string };
+export type ResolvedSetting = { "editableScopes": Array<string>; "enum"?: Array<string> | null; "inherited": boolean; "key": string; "origin": string; "projectSection"?: null | string; "section": string; "source": string; "type": string; "value": JsonValue };
 export type RestrictedSubprocessStatus = { "available": boolean; "fallbackOnlyForLowRisk": boolean; "requiresArgv": boolean; "shell": boolean; "workspaceBound": boolean };
 export type RetrievalIndexSummary = { "backend": string; "degraded": boolean; "dimensions": number; "ids": Array<string>; "indexed": number; "projectId": string; "reason": string; "status": string };
 export type RetrievalReindexRequest = { "projectId": string };
@@ -305,6 +306,8 @@ export type SessionCreateRequest = { "name"?: null | string; "projectId": string
 export type SessionRecord = { "createdAt": string; "id": string; "metadata": JsonObject; "name": string; "projectId": string; "status": string; "teamId"?: null | string; "updatedAt": string };
 export type SessionResponse = { "session": SessionRecord };
 export type SessionsListResponse = { "sessions": Array<SessionRecord> };
+export type SetSettingRequest = { "scope": string; "scopeId"?: null | string; "value": JsonValue };
+export type SettingsResponse = { "general": Array<ResolvedSetting>; "project": Array<ResolvedSetting> };
 export type SkillRecord = { "compatibility": string; "createdAt": string; "description": string; "id": string; "license": string; "metadata": JsonObject; "name": string; "path": string; "riskLevel": string; "updatedAt": string };
 export type SkillsListResponse = { "skills": Array<SkillRecord> };
 export type SkillsSyncRequest = { "skillsPath"?: string };
@@ -483,6 +486,9 @@ export const API_ENDPOINTS = [
 	{"method": "GET", "operationId": "handshake_api_v1_security_handshake_get", "path": "/api/v1/security/handshake", "summary": "Handshake"},
 	{"method": "GET", "operationId": "list_sessions_api_v1_sessions_get", "path": "/api/v1/sessions", "summary": "List Sessions"},
 	{"method": "POST", "operationId": "create_session_api_v1_sessions_post", "path": "/api/v1/sessions", "summary": "Create Session"},
+	{"method": "GET", "operationId": "get_settings_api_v1_settings_get", "path": "/api/v1/settings", "summary": "Get Settings"},
+	{"method": "DELETE", "operationId": "delete_setting_api_v1_settings__key__delete", "path": "/api/v1/settings/{key}", "summary": "Delete Setting"},
+	{"method": "PUT", "operationId": "put_setting_api_v1_settings__key__put", "path": "/api/v1/settings/{key}", "summary": "Put Setting"},
 	{"method": "GET", "operationId": "list_skills_api_v1_skills_get", "path": "/api/v1/skills", "summary": "List Skills"},
 	{"method": "POST", "operationId": "sync_skills_api_v1_skills_sync_post", "path": "/api/v1/skills/sync", "summary": "Sync Skills"},
 	{"method": "GET", "operationId": "teams_api_v1_teams_get", "path": "/api/v1/teams", "summary": "Teams"},
@@ -558,6 +564,7 @@ export type OperationRequestBodies = {
 	"create_workflow_api_v1_workflows_post": WorkflowCreateRequest,
 	"delete_credential_api_v1_credentials__credential_id__delete": never,
 	"delete_memory_api_v1_memory__memory_id__delete": MemoryDeleteRequest,
+	"delete_setting_api_v1_settings__key__delete": never,
 	"deny_action_api_v1_jobs__job_id__actions__action_id__deny_post": ApprovalReasonRequest,
 	"detect_cli_runtime_api_v1_model_gateway_cli_runtimes__runtime_id__detect_post": unknown,
 	"developer_agent_status_api_v1_agents_developer_status_get": never,
@@ -573,6 +580,7 @@ export type OperationRequestBodies = {
 	"get_i18n_catalog_api_v1_i18n_catalog_get": never,
 	"get_product_loop_state_api_v1_projects__project_id__product_loop_get": never,
 	"get_provider_api_v1_model_gateway_providers__provider_id__get": never,
+	"get_settings_api_v1_settings_get": never,
 	"get_workflow_api_v1_workflows__workflow_id__get": never,
 	"governance_api_v1_governance_get": never,
 	"handshake_api_v1_security_handshake_get": never,
@@ -636,6 +644,7 @@ export type OperationRequestBodies = {
 	"provider_health_check_api_v1_model_gateway_providers__provider_id__health_check_post": unknown,
 	"providers_api_v1_providers_get": never,
 	"put_i18n_catalog_api_v1_i18n_catalog_put": I18nCatalog,
+	"put_setting_api_v1_settings__key__put": SetSettingRequest,
 	"register_mcp_server_api_v1_integrations_mcp_register_post": McpServerRegisterRequest,
 	"research_agent_status_api_v1_agents_research_status_get": never,
 	"resume_workflow_api_v1_workflows__workflow_id__resume_post": WorkflowStatusChangeRequest,
@@ -721,6 +730,7 @@ export type OperationResponseBodies = {
 	"create_workflow_api_v1_workflows_post": WorkflowResponse,
 	"delete_credential_api_v1_credentials__credential_id__delete": CredentialDeleteResponse,
 	"delete_memory_api_v1_memory__memory_id__delete": MemoryResponse,
+	"delete_setting_api_v1_settings__key__delete": never,
 	"deny_action_api_v1_jobs__job_id__actions__action_id__deny_post": JobMutationResponse,
 	"detect_cli_runtime_api_v1_model_gateway_cli_runtimes__runtime_id__detect_post": RuntimeDetectionResponse,
 	"developer_agent_status_api_v1_agents_developer_status_get": DeveloperAgentStatusResponse,
@@ -736,6 +746,7 @@ export type OperationResponseBodies = {
 	"get_i18n_catalog_api_v1_i18n_catalog_get": I18nCatalogResponse,
 	"get_product_loop_state_api_v1_projects__project_id__product_loop_get": ProductLoopStateResponse,
 	"get_provider_api_v1_model_gateway_providers__provider_id__get": ProviderAccountResponse,
+	"get_settings_api_v1_settings_get": SettingsResponse,
 	"get_workflow_api_v1_workflows__workflow_id__get": WorkflowDetailResponse,
 	"governance_api_v1_governance_get": GovernanceResponse,
 	"handshake_api_v1_security_handshake_get": HandshakeResponse,
@@ -799,6 +810,7 @@ export type OperationResponseBodies = {
 	"provider_health_check_api_v1_model_gateway_providers__provider_id__health_check_post": ProviderHealthResponse,
 	"providers_api_v1_providers_get": ProvidersListResponse,
 	"put_i18n_catalog_api_v1_i18n_catalog_put": I18nCatalogResponse,
+	"put_setting_api_v1_settings__key__put": never,
 	"register_mcp_server_api_v1_integrations_mcp_register_post": McpServerResponse,
 	"research_agent_status_api_v1_agents_research_status_get": ResearchAgentStatusResponse,
 	"resume_workflow_api_v1_workflows__workflow_id__resume_post": WorkflowResponse,
@@ -983,6 +995,9 @@ export const OPERATIONS_BY_ID = {
 	"handshake_api_v1_security_handshake_get": {"method": "GET", "operationId": "handshake_api_v1_security_handshake_get", "path": "/api/v1/security/handshake", "summary": "Handshake"},
 	"list_sessions_api_v1_sessions_get": {"method": "GET", "operationId": "list_sessions_api_v1_sessions_get", "path": "/api/v1/sessions", "summary": "List Sessions"},
 	"create_session_api_v1_sessions_post": {"method": "POST", "operationId": "create_session_api_v1_sessions_post", "path": "/api/v1/sessions", "summary": "Create Session"},
+	"get_settings_api_v1_settings_get": {"method": "GET", "operationId": "get_settings_api_v1_settings_get", "path": "/api/v1/settings", "summary": "Get Settings"},
+	"delete_setting_api_v1_settings__key__delete": {"method": "DELETE", "operationId": "delete_setting_api_v1_settings__key__delete", "path": "/api/v1/settings/{key}", "summary": "Delete Setting"},
+	"put_setting_api_v1_settings__key__put": {"method": "PUT", "operationId": "put_setting_api_v1_settings__key__put", "path": "/api/v1/settings/{key}", "summary": "Put Setting"},
 	"list_skills_api_v1_skills_get": {"method": "GET", "operationId": "list_skills_api_v1_skills_get", "path": "/api/v1/skills", "summary": "List Skills"},
 	"sync_skills_api_v1_skills_sync_post": {"method": "POST", "operationId": "sync_skills_api_v1_skills_sync_post", "path": "/api/v1/skills/sync", "summary": "Sync Skills"},
 	"teams_api_v1_teams_get": {"method": "GET", "operationId": "teams_api_v1_teams_get", "path": "/api/v1/teams", "summary": "Teams"},

@@ -4,6 +4,7 @@
  * that computes these figures so the StatusBar (and tests) share one definition.
  */
 import type { Overview, Project, RuntimeProviders } from '../api/types';
+import { sumRecordedCostUsd } from '../lib/format';
 
 const BLOCKING_QA_VERDICTS = ['failed', 'blocked', 'security_blocked', 'devops_blocked'];
 
@@ -31,9 +32,6 @@ export function deriveShellStatus(
 	selectedProject: Project | null,
 ): ShellStatus {
 	const evidence = overview.evidencePackages;
-	const amounts = overview.costUsage
-		.map((row) => Number(row.amountUsd))
-		.filter((amount) => Number.isFinite(amount));
 	return {
 		connected,
 		executableRuntimes:
@@ -44,7 +42,7 @@ export function deriveShellStatus(
 		qaBlocking: evidence.filter((item) =>
 			BLOCKING_QA_VERDICTS.includes(String(item.qaVerdict ?? '')),
 		).length,
-		recordedCost: amounts.length ? amounts.reduce((sum, amount) => sum + amount, 0) : null,
+		recordedCost: sumRecordedCostUsd(overview.costUsage),
 		projectName: selectedProject?.name ?? null,
 	};
 }

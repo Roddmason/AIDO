@@ -1,7 +1,7 @@
 /**
  * Honest placeholder for settings sections that are not yet configured
  * in Phase 1. Displays the section title and a clear "not configured yet"
- * message with no fabricated controls or fake data.
+ * message without invented controls or sample values.
  */
 
 import { useI18n } from '../../i18n/I18nProvider';

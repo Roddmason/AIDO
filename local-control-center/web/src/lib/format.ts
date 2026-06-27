@@ -51,6 +51,14 @@ export function formatCostUsd(usd?: number | null): string {
 	return `$${usd.toFixed(decimals)}`;
 }
 
+/** Sums recorded USD cost rows, returning null when no finite amount exists. */
+export function sumRecordedCostUsd(rows: Array<{ amountUsd: unknown }>): number | null {
+	const amounts = rows
+		.map((row) => Number(row.amountUsd))
+		.filter((amount) => Number.isFinite(amount));
+	return amounts.length ? amounts.reduce((sum, amount) => sum + amount, 0) : null;
+}
+
 /**
  * Clasifica un estado de dominio (de cualquier etapa del pipeline) en el tono de la
  * paleta que lo representa. Estados desconocidos o ausentes caen a `'info'` (neutro).

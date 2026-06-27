@@ -31,7 +31,7 @@ import { resolveHashRoute, splitHash } from '../../app/routing';
 import { Badge, DataTable, EmptyState, PageHeader, Surface } from '../../components/primitives';
 import { ErrorState, Tabs } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
-import { toneForStatus } from '../../lib/format';
+import { sumRecordedCostUsd, toneForStatus } from '../../lib/format';
 import { BenchmarksPanel } from './BenchmarksPanel';
 import { BudgetsPanel } from './BudgetsPanel';
 import { CliSessionsPanel } from './CliSessionsPanel';
@@ -111,13 +111,6 @@ function benchmarkFromOutcome(outcome: ModelGatewayBenchmarkOutcome): ModelGatew
 
 function policyBudgetUsd(row: Overview['modelPolicies'][number] | ModelGatewayRolePolicy) {
 	return 'maxCostPerTaskUsd' in row ? row.maxCostPerTaskUsd : row.maxCostUsd;
-}
-
-function sumRecordedCost(rows: Overview['costUsage']) {
-	const amounts = rows
-		.map((row) => Number(row.amountUsd))
-		.filter((amount) => Number.isFinite(amount));
-	return amounts.length ? amounts.reduce((sum, amount) => sum + amount, 0) : null;
 }
 
 /** Reads the deep-linked tab from `#models?tab=<id>`, defaulting to the providers tab. */
@@ -247,7 +240,7 @@ export function ModelGatewayPage({
 		);
 	}, [decisionFilter, gateway.routingDecisions]);
 
-	const totalCost = sumRecordedCost(overview.costUsage);
+	const totalCost = sumRecordedCostUsd(overview.costUsage);
 	const providerCatalog = useMemo(() => {
 		const policyModels = gateway.models;
 		const modelsFor = (providerId: string) =>

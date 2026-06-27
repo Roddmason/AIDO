@@ -58,13 +58,6 @@ function money(value: unknown) {
 	return Number.isFinite(amount) ? `$${amount.toFixed(4)}` : 'unknown';
 }
 
-function sumRecordedCost(rows: Overview['costUsage']) {
-	const amounts = rows
-		.map((row) => Number(row.amountUsd))
-		.filter((amount) => Number.isFinite(amount));
-	return amounts.length ? amounts.reduce((sum, amount) => sum + amount, 0) : null;
-}
-
 function recordTimestamp(record: { updatedAt?: string; createdAt?: string }) {
 	const parsed = Date.parse(String(record.updatedAt ?? record.createdAt ?? ''));
 	return Number.isNaN(parsed) ? 0 : parsed;

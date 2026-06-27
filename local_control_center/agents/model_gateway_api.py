@@ -3,6 +3,8 @@
 Expone los endpoints REST que administran el catálogo de proveedores, modelos, precios, perfiles/políticas
 de ruteo, límites, presupuestos, ledger de uso, benchmarks y runtimes CLI, además de previsualizar y
 ejecutar rutas. La ejecución falla cerrada: exige aprobación, flags de habilitación y credenciales válidas.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

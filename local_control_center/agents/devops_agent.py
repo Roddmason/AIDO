@@ -3,6 +3,8 @@
 Corre los scripts de build/quality a través del broker/sandbox, inspecciona archivos de configuración
 (Dockerfile, compose, CI, manifiestos) en busca de hallazgos, y opcionalmente verifica el healthcheck de
 Docker. Su veredicto se funda solo en archivos, comandos y artefactos; deja todo en un paquete de evidencia.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

@@ -5,6 +5,8 @@ workspace, workflow, evidence and approval records by ID instead of duplicating 
 The caller owns the transaction boundary: repository methods reuse the supplied connection and do
 not commit or roll back.
 No method edits the running source tree or promotes lessons into global memory directly.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

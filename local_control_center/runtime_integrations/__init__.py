@@ -5,6 +5,8 @@ preferencias (qué runtime es el predeterminado y sus perfiles por defecto), má
 aplica las variables de entorno únicamente como override sobre la configuración persistida. La
 config normal vive en la base; el CLI queda como runtime predeterminado. No exporta símbolos: cada
 consumidor importa de los submódulos `repository` o `config`.
+
+@author Rodrigo Mason
 """
 
 __all__: list[str] = []

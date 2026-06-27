@@ -7,6 +7,8 @@ commit; confia en que el caller (capa HTTP) cierra la transaccion. La sensibilid
 guarda secretos en claro. Invariante de los grants: el consumo es atomico via
 ``UPDATE ... WHERE status='active'`` con chequeo de ``rowcount``, lo que impide doble consumo
 en condiciones de carrera; un grant inexistente hace que los getters lancen ``KeyError``.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

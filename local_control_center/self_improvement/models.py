@@ -1,4 +1,7 @@
-"""Pydantic contracts for AIDO self-improvement proposals, lessons and performance records."""
+"""Pydantic contracts for AIDO self-improvement proposals, lessons and performance records.
+
+@author Rodrigo Mason
+"""
 
 from __future__ import annotations
 

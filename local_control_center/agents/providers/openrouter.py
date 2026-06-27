@@ -3,6 +3,8 @@
 OpenRouter expone modelos de multiples proveedores tras un unico endpoint estilo
 OpenAI, asi que esta clase solo aporta su URL base y deja el resto del comportamiento
 (HTTP, descubrimiento, uso, costo) en `OpenAICompatibleProvider`.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

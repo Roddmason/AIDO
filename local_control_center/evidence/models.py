@@ -3,6 +3,8 @@
 Define el vocabulario tipado compartido por el API y el repositorio: tipos de artefacto, fuentes
 de evidencia, veredictos QA y estados de test, más los modelos de entrada/salida HTTP. Los alias
 camelCase fijan la forma del JSON expuesto frente al snake_case interno de Python.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

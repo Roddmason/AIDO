@@ -5,6 +5,8 @@ Concentra todo el acceso a las tablas `sessions` y `chats` del slice. Cada creac
 forma atómica por sentencia: no agrupa varias escrituras ni abre `BEGIN/COMMIT` propios. El
 caller que necesite atomicidad entre el `INSERT` y el evento de dominio debe envolverlos él
 mismo (p. ej. con `immediate_transaction`); este repositorio no lo hace.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

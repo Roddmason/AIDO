@@ -4,6 +4,8 @@ Declares the env-var contract for each runtime provider (CLI commands, API keys,
 URLs, models) and reads the current process environment into typed configuration
 objects. Secret values are never returned to clients: presence is reported as a
 truncated SHA-256 fingerprint instead of the raw value.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

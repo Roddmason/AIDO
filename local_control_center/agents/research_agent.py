@@ -4,6 +4,8 @@ El runner consume fuentes verificables, persiste cada una como artefacto `resear
 provenance completo, valida que las conclusiones técnicas basadas en web citen fuentes confiables y
 emite hallazgos explícitos para claims en conflicto. No sintetiza conclusiones ni reemplaza fuentes:
 si las citas o la confianza no alcanzan el contrato, falla cerrado.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

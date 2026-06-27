@@ -3,6 +3,8 @@
 Define el contrato de datos de la API del gateway de modelos: records persistidos, requests de
 upsert/patch (que aceptan campos extra vía GatewayFlexibleModel) y las respuestas envoltorio. Es solo
 esquema, sin lógica de negocio; los Field con alias fijan el camelCase con que viajan por HTTP.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

@@ -4,6 +4,8 @@ Una mutación arranca la sesión (corre el comando en un hilo de fondo y emite l
 una lectura incremental devuelve los eventos nuevos desde un ``seq`` dado para que la UI muestre actividad
 real sin spinner indefinido, y una mutación la cancela. Arranque y cancelación exigen el token de
 escritura; la lectura es libre. No contiene lógica de negocio: delega en el ejecutor y el recorder.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

@@ -3,6 +3,8 @@
 Expone `GET/POST /api/v1/pipelines`. La creación exige permiso de escritura, delega la persistencia
 en `PipelinesRepository` y emite `pipeline.created` en el `EventBus` para que el resto del sistema
 reaccione. La dependencia `platform` aporta la conexión SQLite por petición.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

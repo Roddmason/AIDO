@@ -6,6 +6,8 @@ historia, con dependencias por capas), asignaciones por rol, una estrategia de w
 gates, security gates basados en riesgo y un costo estimado SIEMPRE marcado como estimado. Materializa
 el DAG en las tablas del slice backlog (agent_tasks/task_dependencies/agent_assignments) y persiste la
 iteración de forma atómica; no ejecuta nada: solo planifica y persiste.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations
@@ -20,7 +22,6 @@ ITERATION_PLANNER_ID = "iteration_planner"
 APPROVED_BRIEF_STATUSES = {"approved", "published"}
 READY_STORY_STATUSES = {"ready"}
 DEFAULT_TASK_ROLES = ["backend_engineer", "frontend_engineer", "qa"]
-# Capa de cada rol en el DAG intra-historia: una tarea depende de todas las de capa estrictamente menor.
 ROLE_TIER = {
     "backend_engineer": 0,
     "developer": 0,
@@ -60,8 +61,6 @@ SECURITY_SENSITIVE_KEYWORDS = (
     "permission",
 )
 HIGH_RISK_SEVERITIES = {"high", "critical"}
-# Runtimes que pueden operar en un workspace aislado (git worktree). Sin uno ejecutable, los agentes
-# comparten un único workspace en vez de aislar por tarea/historia.
 WORKTREE_CAPABLE_RUNTIMES = {"codex_cli", "claude_code_cli", "openhands", "swe_agent"}
 DEFAULT_TOKENS_PER_TASK = 80_000
 DEFAULT_PRICE_PER_MTOK_USD = 3.0
@@ -130,7 +129,6 @@ def _build_dag_edges(
     for node in nodes:
         by_story.setdefault(node["storyId"], []).append(node)
     edges: list[dict[str, str]] = []
-    # Intra-historia: cada tarea depende de todas las de capa estrictamente menor de su misma historia.
     for story_nodes in by_story.values():
         for node in story_nodes:
             edges.extend(
@@ -138,13 +136,11 @@ def _build_dag_edges(
                 for other in story_nodes
                 if other["tier"] < node["tier"]
             )
-    # Inter-historia: una arista por dependencia declarada (la tarea de menor capa de la historia
-    # dependiente se enlaza con la de mayor capa de la prerequisito).
     for dependency in story_dependencies:
         story_id = str(dependency.get("storyId"))
         depends_on_id = str(dependency.get("dependsOnStoryId"))
         if story_id == depends_on_id:
-            continue  # una historia no depende de sí misma (evita ciclos en el DAG)
+            continue
         dependent = by_story.get(story_id)
         prerequisite = by_story.get(depends_on_id)
         if not dependent or not prerequisite:
@@ -153,7 +149,6 @@ def _build_dag_edges(
         last = max(prerequisite, key=lambda node: node["tier"])
         if first["key"] != last["key"]:
             edges.append({"taskKey": first["key"], "dependsOnKey": last["key"]})
-    # Deduplica aristas (las inter-historia pueden repetirse o coincidir con una intra-historia).
     seen: set[tuple[str, str]] = set()
     unique_edges: list[dict[str, str]] = []
     for edge in edges:
@@ -187,8 +182,6 @@ def _assign_by_role(
         if not candidates:
             unassigned.append({"taskKey": node["key"], "storyId": node["storyId"], "role": role})
             continue
-        # El cursor se indexa por el pool resuelto (rol o fallback) para repartir la carga aun cuando
-        # dos roles distintos caen en el mismo pool de fallback.
         index = cursor.get(pool_key, 0)
         agent_id = candidates[index % len(candidates)]
         cursor[pool_key] = index + 1

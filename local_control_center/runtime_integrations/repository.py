@@ -9,6 +9,8 @@ Transacciones: la conexión se abre en autocommit (``isolation_level=None``, ver
 estos métodos NO abren transacciones propias; cada ``execute`` se confirma de inmediato. Los upserts
 (``upsert_installation``/``upsert_preferences``) hacen lectura-luego-escritura (SELECT + INSERT/UPDATE),
 dos sentencias que solo son atómicas si el caller las agrupa en una única ``immediate_transaction``.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations
@@ -89,8 +91,6 @@ class RuntimeConfigRepository:
 
     def __init__(self, connection: sqlite3.Connection):
         self.connection = connection
-
-    # -- Instalaciones de runtime ---------------------------------------------------
 
     def upsert_installation(self, body: dict[str, Any]) -> dict[str, Any]:
         """Crea o actualiza la instalación de un runtime por ``runtimeId`` y la devuelve.
@@ -195,8 +195,6 @@ class RuntimeConfigRepository:
             "SELECT * FROM runtime_installations ORDER BY runtime_id ASC"
         ).fetchall()
         return [row_to_runtime_installation(row) for row in rows]
-
-    # -- Cuentas de runtime (sin tokens) -------------------------------------------
 
     def create_runtime_account(self, body: dict[str, Any]) -> dict[str, Any]:
         """Inserta una cuenta de runtime y la devuelve.
@@ -327,8 +325,6 @@ class RuntimeConfigRepository:
     def update_cli_account(self, account_id: str, body: dict[str, Any]) -> dict[str, Any]:
         """Alias compatible: usa ``update_runtime_account``."""
         return self.update_runtime_account(account_id, body)
-
-    # -- Preferencias de runtime ----------------------------------------------------
 
     def upsert_preferences(self, body: dict[str, Any]) -> dict[str, Any]:
         """Crea o actualiza las preferencias de un scope (global/role/agent) y las devuelve.

@@ -4,6 +4,8 @@ Reconstruye y consulta un índice de similitud (faiss si está instalado, numpy
 como respaldo) persistido por proyecto, y reporta su estado. Solo opera con
 embeddings reales: sin proveedor configurado o sin vectores persistidos
 devuelve estados degradados/bloqueados en vez de inventar resultados.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

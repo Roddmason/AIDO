@@ -4,6 +4,8 @@ Traduce filas de la tabla `pipelines` a/desde dicts con claves camelCase. La con
 opera en autocommit (`isolation_level=None`): cada `execute` confirma de forma independiente y el
 repositorio no abre transacciones. `create_pipeline` hace un `INSERT` y luego un `SELECT` (vía
 `get_pipeline`) en dos statements separados, por lo que no es una operación atómica.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

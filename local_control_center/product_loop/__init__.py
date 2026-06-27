@@ -4,6 +4,8 @@ Reúne el repositorio SQLite que persiste cada loop y su bitácora de transicion
 ``ProductLoopCoordinator`` que valida los cambios de estado. El estado vive en la base (no solo en
 memoria), de modo que el loop puede reanudarse tras reiniciar AIDO. No exporta símbolos: cada
 consumidor importa de los submódulos `coordinator` o `repository`.
+
+@author Rodrigo Mason
 """
 
 __all__: list[str] = []

@@ -5,6 +5,8 @@ approved tool call into a real side effect: workspace-bound subprocesses, CLI ve
 checks, Ollama/OpenAI-compatible chat calls, and guarded workspace file patches. Every
 adapter enforces structured argv, workspace containment, and bounded timeouts; output
 is redacted, persisted as artifacts, and packaged as evidence.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

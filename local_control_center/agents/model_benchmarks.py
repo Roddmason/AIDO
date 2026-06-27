@@ -3,6 +3,8 @@
 Persiste outcomes individuales y los agrega en tasas de éxito/QA/rework, costo y latencia. Solo computa
 métricas de calidad sobre provenance objetivo (automated_run/release_validation); lo operator_reported
 cuenta pero no alimenta las tasas. Si no hay benchmark explícito, deriva uno de outcomes y del usage_ledger.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

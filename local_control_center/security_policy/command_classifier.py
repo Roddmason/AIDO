@@ -4,6 +4,8 @@ Mapea un comando crudo a un nivel de riesgo (low/medium/critical) y a categorias
 que el motor de politicas consume para decidir. Invariante: cualquier patron critico
 (borrado destructivo, force-push, deploy a prod, escalada de privilegios, escritura de
 secretos) gana sobre el resto y fuerza riskLevel critical; no ejecuta nada, solo etiqueta.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

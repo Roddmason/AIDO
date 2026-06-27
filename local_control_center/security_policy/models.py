@@ -5,6 +5,8 @@ perfiles de sandbox. La validacion estructural (tipos, alias, choices normalizad
 de entrada: un payload que no cumpla el esquema hace que FastAPI lo rechace con 422 antes de
 tocar el motor (Pydantic lanza ValidationError), que es la primera barrera de seguridad de
 entrada. Estos modelos no ejecutan ni persisten nada.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

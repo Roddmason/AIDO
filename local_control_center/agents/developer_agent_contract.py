@@ -3,6 +3,8 @@
 Declara los esquemas de entrada/salida del agente desarrollador y sus runtimes elegibles —CLIs de
 código (codex_cli/claude_code_cli) y modelos (openai_compatible/ollama)— con su orden de preferencia,
 y calcula si hay un runtime ejecutable con capacidad de edición de código.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

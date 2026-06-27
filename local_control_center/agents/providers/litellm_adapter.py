@@ -3,6 +3,8 @@
 LiteLLM unifica muchos backends tras una API estilo OpenAI; este adaptador hereda toda
 la mecanica de `OpenAICompatibleProvider` y solo distingue el proveedor por su id y la
 deteccion opcional del paquete `litellm`.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

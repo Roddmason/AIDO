@@ -4,6 +4,8 @@ Define qué variable de entorno puede sobrescribir cada dato persistido y aplica
 env var existe gana como override puntual, si no se usa el valor guardado en ``runtime_installations`` /
 ``runtime_preferences``. Así la configuración normal vive en la base y las env vars no son la fuente de
 configuración, solo una excepción. No lee ni expone secretos: el override de CLI es la ruta del ejecutable.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations
@@ -11,7 +13,6 @@ from __future__ import annotations
 import os
 from typing import Any
 
-# Override de ejecutable por runtime (misma variable que el contrato heredado de runtime_provider_config).
 RUNTIME_COMMAND_ENV = {
     "codex_cli": "AIDO_CODEX_COMMAND",
     "claude_code_cli": "AIDO_CLAUDE_COMMAND",

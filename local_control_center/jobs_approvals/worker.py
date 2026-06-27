@@ -3,6 +3,8 @@
 `ConcurrentWorker` abre su propia conexión SQLite por operación, recupera leases vencidos y
 drena la cola con un pool de hilos. `execute_job` es hoy un placeholder: ningún kind tiene
 executor real, así que cada job termina en `failed` con el motivo en su metadata.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

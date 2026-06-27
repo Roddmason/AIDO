@@ -5,6 +5,8 @@ Provides ``set_value`` (upsert), ``get_value`` (returns ``UNSET`` sentinel when 
 Values are stored as JSON so any JSON-serialisable type round-trips without information loss.
 All writes are atomic upserts via ``INSERT ... ON CONFLICT`` (single-statement transactions);
 no explicit transaction management is needed because callers control the connection lifecycle.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations
@@ -15,7 +17,6 @@ from typing import Any
 
 from local_control_center.shared.time import utc_now
 
-# Sentinel that unambiguously signals "no stored value" even when the stored value is falsy.
 UNSET: object = object()
 
 
@@ -25,9 +26,6 @@ class SettingsRepository:
     def __init__(self, connection: sqlite3.Connection) -> None:
         self.connection = connection
 
-    # SQLite does not enforce uniqueness on NULL PK columns (NULLs compare unequal to each other
-    # even in a PRIMARY KEY). We normalise scope_id=None to '' on write/read so the PK constraint
-    # works correctly while the public API still accepts None as "no project scope".
     _NULL_SCOPE_ID = ""
 
     @staticmethod

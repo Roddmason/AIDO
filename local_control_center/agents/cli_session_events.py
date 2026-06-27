@@ -5,6 +5,8 @@ por sesión. Cada payload se redacta con ``redact_secrets`` y se acota: si seria
 inline se conserva solo una vista previa truncada en la fila y el contenido completo se promueve a un
 artifact (reutilizando el almacén de evidencia), referenciado por id. Un cap por sesión elimina los
 eventos más antiguos, de modo que la tabla nunca crece sin límite por mucho stdout/stderr que llegue.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations
@@ -20,7 +22,6 @@ from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.serialization import json_dumps, json_loads
 from local_control_center.shared.time import utc_now
 
-# El contrato de nueve tipos de evento de una sesión CLI en streaming.
 CLI_SESSION_EVENT_TYPES = frozenset(
     {
         "started",
@@ -36,8 +37,6 @@ CLI_SESSION_EVENT_TYPES = frozenset(
 )
 TERMINAL_EVENT_TYPES = frozenset({"completed", "failed", "cancelled"})
 
-# Acotado: se conservan solo los N eventos más recientes por sesión; cada payload inline se trunca a este
-# tamaño en bytes y, si excede el inline, su contenido completo se promueve a un artifact.
 MAX_EVENTS_PER_SESSION = 500
 MAX_EVENT_PAYLOAD_BYTES = 4_000
 
@@ -72,8 +71,6 @@ class CliSessionEventStore:
     ):
         self.connection = connection
         self.project_id = project_id
-        # Root de artifacts (ruta del workspace o dir de la base). Si es None, los payloads grandes solo
-        # se truncan (no se promueven a disco).
         self.artifact_root = artifact_root
 
     def record_event(
@@ -160,7 +157,6 @@ class CliSessionEventStore:
         return self.latest_seq(cli_session_id) + 1
 
     def _enforce_cap(self, cli_session_id: str) -> None:
-        # Mantiene solo los MAX_EVENTS_PER_SESSION con mayor seq; los terminales (seq más alto) nunca caen.
         threshold = self.latest_seq(cli_session_id) - MAX_EVENTS_PER_SESSION
         if threshold > 0:
             self.connection.execute(

@@ -3,6 +3,8 @@
 Implementa el contrato directamente contra los endpoints `/api/tags` y `/api/chat` de
 Ollama, sin requerir credencial ni el interruptor de llamadas reales (el servicio es
 local). Trata el costo como gratis y deriva el uso de los contadores `*_eval_count`.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

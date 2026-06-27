@@ -3,6 +3,8 @@
 Resuelve el binario por env vars (AIDO_SWE_AGENT_COMMAND / SWE_AGENT_CLI_PATH) y arma el comando
 pasando el repo y el enunciado del problema como parámetros nombrados, con aplicación local del
 parche. Exige que el workspace sea un worktree Git. Ejecución y registro se heredan de CliRuntime.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

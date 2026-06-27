@@ -5,6 +5,8 @@ ejecución a la policy y al sandbox de subprocesos, y persiste el resultado. Aqu
 los DTOs request/resultado y el parseo tolerante de uso de tokens desde stdout/stderr.
 Invariante: ninguna ejecución real ocurre sin gate (AIDO_ENABLE_CLI_RUNTIMES=true) y
 decisión 'allow' de la policy; los flags peligrosos se rechazan antes de construir el comando.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

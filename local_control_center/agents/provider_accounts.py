@@ -4,6 +4,8 @@ Backs the Model Gateway's provider configuration: who the providers are, which m
 they expose (capabilities and prices), point-in-time pricing snapshots, and the latest
 health-check result. Credential references are validated/normalized via the resolver and
 never stored raw; error text and metadata are redacted before persistence.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

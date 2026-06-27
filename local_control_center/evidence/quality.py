@@ -4,6 +4,8 @@ Concentra las reglas anti-falso-positivo del slice: un veredicto 'passed' solo e
 viene de una fuente real, sin tests fallidos, y con resultados trazados a ejecuciones de
 comando reales (modo de ejecución, exitCode 0, toolCall enlazado, hashes de artefacto y una
 decisión de política 'allow'). Devuelve listas de errores; no muta ni persiste evidencia.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

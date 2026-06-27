@@ -2,6 +2,8 @@
 
 Definen la forma de entrada y salida de la API de plantillas de prompts y traducen entre el
 camelCase del cliente (alias Pydantic) y el snake_case interno usado por el repositorio.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

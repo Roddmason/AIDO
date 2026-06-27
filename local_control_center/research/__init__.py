@@ -8,6 +8,8 @@ en conflicto produciendo un hallazgo explícito y una recomendación (resuelta p
 confianza, o marcada para revisión manual si las de máxima confianza discrepan). ``source_policy`` es
 lógica pura y determinista; ``source_log`` persiste cada fuente como artefacto de evidencia (sin tabla
 nueva). No exporta símbolos: los consumidores importan de los submódulos.
+
+@author Rodrigo Mason
 """
 
 __all__: list[str] = []

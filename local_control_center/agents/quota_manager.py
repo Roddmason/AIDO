@@ -4,6 +4,8 @@ Checks a request against `provider_limits` (TPM, daily/monthly request and token
 windows, active cooldown) before routing picks a provider, and persists a cooldown
 window when the provider returns a rate-limit error. Returns a quota-pressure signal
 so the router can prefer less-pressured providers.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

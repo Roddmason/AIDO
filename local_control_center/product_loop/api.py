@@ -6,6 +6,8 @@ decisiones (slice product_discovery) y el backlog —épicas, historias, tareas 
 backlog). Las mutaciones arrancan un loop y lo avanzan por su FSM durable vía el ``ProductLoopCoordinator``;
 exigen el token de escritura y validan la transición contra el mapa permitido. No contiene lógica de
 negocio: delega en los repositorios y el coordinador.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

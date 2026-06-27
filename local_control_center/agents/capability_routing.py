@@ -12,6 +12,8 @@ investigación se resuelve componiendo un modelo con razonamiento + ``mcp_tools`
 canónica de capacidades por provider y se alinea con las restricciones de runtime del ``model_router``
 (p. ej. ``code_edit`` solo en runtimes CLI); el ``model_router`` (DB-backed) sigue siendo el árbitro final
 del modelo concreto, su salud y el presupuesto.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations
@@ -32,10 +34,8 @@ CAPABILITIES = frozenset(
     }
 )
 
-# Capabilities only a tool bus can provide; a model alone never satisfies them.
 TOOL_ONLY_CAPABILITIES = frozenset({"web_research"})
 
-# Provider kind, so callers know how to execute the choice (CLI agent / local model / remote API / tools).
 PROVIDER_KINDS: dict[str, str] = {
     "codex_cli": "cli",
     "claude_code_cli": "cli",
@@ -50,10 +50,6 @@ PROVIDER_KINDS: dict[str, str] = {
     "mcp_tools": "tools",
 }
 
-# Canonical capability matrix. Model-provider capabilities are STRUCTURAL (e.g. code_edit only on CLI
-# runtimes, aligned with model_router); concrete model capabilities (which model has vision/tools) are the
-# model_router's job downstream. Aspirational capabilities are deliberately omitted (openhands/swe_agent do
-# not guarantee structured JSON; model providers do not themselves browse the web — web_research is a tool).
 PROVIDER_CAPABILITIES: dict[str, frozenset[str]] = {
     "codex_cli": frozenset({"reasoning", "code_edit", "code_review", "tool_use", "structured_output"}),
     "claude_code_cli": frozenset(
@@ -88,16 +84,13 @@ PROVIDER_CAPABILITIES: dict[str, frozenset[str]] = {
             "structured_output",
         }
     ),
-    # nvidia_nim is a REMOTE api (apiKey + baseUrl); it is NOT local_private despite being self-hostable.
     "nvidia_nim": frozenset({"reasoning", "structured_output"}),
-    # mcp_tools is the tool bus, not a model executor — it only supplies tool capabilities.
     "mcp_tools": frozenset({"tool_use", "web_research"}),
 }
 
 MODEL_PROVIDERS = tuple(name for name, kind in PROVIDER_KINDS.items() if kind != "tools")
 TOOL_PROVIDERS = tuple(name for name, kind in PROVIDER_KINDS.items() if kind == "tools")
 
-# Default quality/capability preference among model providers (earlier = preferred).
 PROVIDER_RANK = (
     "claude_code_cli",
     "anthropic_api",
@@ -112,8 +105,6 @@ PROVIDER_RANK = (
 )
 _RANK_INDEX = {provider: index for index, provider in enumerate(PROVIDER_RANK)}
 
-# Only ollama_local runs the model on the operator's machine (truly private); ollama_remote is a cheap
-# remote. nvidia_nim is excluded from local-private on purpose (see matrix note).
 LOCAL_EXEC_PROVIDERS = frozenset({"ollama_local"})
 LOW_COST_PROVIDERS = frozenset({"ollama_local", "ollama_remote"})
 
@@ -171,7 +162,6 @@ def _route(
     prefer_low_cost = prefer_low_cost or "low_cost" in required
 
     needs_web = "web_research" in required
-    # web_research is a tool capability; the model must support tool_use to invoke the web tool.
     model_required = (required - TOOL_ONLY_CAPABILITIES) | ({"tool_use"} if needs_web else set())
 
     qualifiers = [

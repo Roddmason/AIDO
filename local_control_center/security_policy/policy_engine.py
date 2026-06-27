@@ -6,6 +6,8 @@ ruta fuera del workspace asignado se permite sin aprobacion; los deploys a prod,
 acciones criticas escalan a revision humana; cada operacion de agente exige su propio agentId,
 tool, perfil y contexto (workspace + agent run) o se deniega. Funcion pura: no ejecuta ni
 persiste, solo devuelve la decision; no lanza.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

@@ -3,6 +3,8 @@
 Aplana el paquete, sus resultados de test y artefactos en secciones legibles (plan, checklist,
 resultados, diffs, artefactos y notas de riesgo) para descarga humana. Solo formatea: no consulta
 el repositorio ni altera el estado.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

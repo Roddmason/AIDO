@@ -3,6 +3,8 @@
 Resuelve el binario por env vars (AIDO_OPENHANDS_COMMAND / OPENHANDS_CLI_PATH) y arma el comando
 en modo --headless --json para captura estructurada de salida. Exige que el workspace sea un
 worktree Git porque el agente opera sobre el repositorio. Ejecución y registro se heredan de CliRuntime.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

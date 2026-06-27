@@ -13,6 +13,8 @@ rework, deadline global y condiciones de parada—. La política y su consumo vi
 camino propio (``record_usage``) que NO incrementa la versión de la FSM ni inserta una transición, para
 no ensuciar la bitácora con métricas. Las condiciones de parada se evalúan de forma determinista bajo
 demanda (no hay scheduler en segundo plano) e inyectando ``now`` para que los tests sean reproducibles.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations
@@ -52,7 +54,6 @@ CANCELLED_STATE = "cancelled"
 BLOCKED_STATE = "blocked"
 REWORK_STATE = "reworking"
 TERMINAL_STATES = {DELIVERED_STATE, CANCELLED_STATE}
-# Estados activos a los que un loop bloqueado puede regresar para reanudarse.
 _RESUMABLE_STATES = {state for state in PRODUCT_LOOP_STATES if state not in TERMINAL_STATES | {BLOCKED_STATE}}
 
 ALLOWED_TRANSITIONS: dict[str, set[str]] = {
@@ -65,13 +66,11 @@ ALLOWED_TRANSITIONS: dict[str, set[str]] = {
     "iteration_planning": {"executing", "blocked", "cancelled"},
     "executing": {"quality_review", "blocked", "cancelled"},
     "quality_review": {"awaiting_approval", "reworking", "blocked", "cancelled"},
-    # Delivery only after explicit approval; awaiting_feedback never short-circuits to delivered.
     "awaiting_approval": {"delivered", "reworking", "awaiting_feedback", "blocked", "cancelled"},
     "awaiting_feedback": {"reworking", "executing", "blocked", "cancelled"},
     "reworking": {"executing", "quality_review", "blocked", "cancelled"},
     "delivered": set(),
     "cancelled": set(),
-    # A blocked loop resumes to its pre-block work, or can be cancelled outright.
     "blocked": set(_RESUMABLE_STATES) | {CANCELLED_STATE},
 }
 
@@ -938,7 +937,6 @@ class ProductLoopCoordinator:
                 consumed[key] = float(consumed.get(key, 0)) + float(value)
             fsm["usage"]["consumed"] = consumed
             fsm["usage"]["usageSeq"] = current_seq + 1
-            # COMMIT runs on the with-exit (after the return value is computed), so this stays atomic.
             return self.repository.update_loop_context(loop_id, context={**loop["context"], "fsm": fsm})
 
     def evaluate_stop_conditions(self, loop_id: str, *, now: str | None = None) -> list[dict[str, Any]]:

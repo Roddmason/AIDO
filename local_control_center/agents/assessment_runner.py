@@ -7,6 +7,8 @@ deja una decisión de política y su fila de auditoría, sin ejecutar— y solo 
 ``allow`` corre ``run_project_assessment`` sobre la ruta exacta que autorizó la decisión. Persiste el
 assessment, sus hallazgos (ya redactados) y un artefacto JSON descargable dentro de una sola
 ``immediate_transaction``, y falla cerrado (status ``blocked``) si la política no concede el permiso.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

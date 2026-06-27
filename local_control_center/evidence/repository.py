@@ -4,6 +4,8 @@ Traduce filas a dicts con claves camelCase y agrupa las escrituras de cada paque
 mutaciones usan la `connection` recibida del caller y NO hacen commit: el caller delimita la
 transacción (típicamente un INSERT de paquete + sus test_results + su qa_verdict deben confirmarse
 o revertirse juntos). Toda entrada se pasa por `redact_secrets` antes de serializarse a JSON.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

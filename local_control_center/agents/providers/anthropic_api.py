@@ -5,6 +5,8 @@ Habla el protocolo propio de Anthropic: auth `x-api-key` + `anthropic-version`, 
 tokens de cacheo (creacion + lectura) en `cached_input_tokens` y, como no hay tarifa
 publicada aqui, deja el costo como desconocido. Las llamadas reales quedan tras el
 interruptor compartido `real_provider_calls_enabled()` y los payloads se redactan.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

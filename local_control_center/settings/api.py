@@ -10,6 +10,8 @@ Exposes three routes:
 
 Write routes call ``require_write(request)`` first and return 204 No Content on success so
 the client re-resolves rather than trying to interpret a partial response.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations
@@ -48,8 +50,6 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         if descriptor is None:
             raise HTTPException(status_code=404, detail=f"Unknown setting key: {key!r}")
 
-        # scope/scope_id consistency: Literal["general","project"] is enforced by Pydantic;
-        # enforce the scope_id invariant here at the trust boundary.
         if body.scope == "project":
             if not body.scope_id:
                 raise HTTPException(
@@ -92,7 +92,6 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         if descriptor is None:
             raise HTTPException(status_code=404, detail=f"Unknown setting key: {key!r}")
 
-        # scope/scope_id consistency for DELETE query params.
         if scope == "project":
             if not scopeId:
                 raise HTTPException(

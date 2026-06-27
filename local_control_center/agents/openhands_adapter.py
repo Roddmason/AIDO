@@ -4,6 +4,8 @@ Exposes the OpenHands runtime as an optional, policy-gated adapter: it advertise
 detection status and, when invoked, re-validates the tool call against the runtime
 contract before delegating execution to the restricted subprocess sandbox. The
 adapter never bypasses policy, workspace isolation, or evidence capture.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

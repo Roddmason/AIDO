@@ -4,6 +4,8 @@ La API acepta valores de secreto solo en operaciones mutantes (crear/rotar) y re
 metadatos seguros. SQLite conserva referencias, fingerprints internos, metadata y auditoría; los
 valores quedan exclusivamente en el backend configurado (keyring por defecto, OpenBao/Vault,
 dpapi_sqlite o environment_override para bootstrap).
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

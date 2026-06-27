@@ -3,6 +3,8 @@
 Construye el `APIRouter` cableando cada ruta a su comando, abriendo un repositorio/event-bus
 por request sobre `platform.connection`. Las rutas mutadoras pasan por `require_write` antes de
 ejecutar y devuelven 202, dejando la lógica de transacción y validación en `commands`/`repository`.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

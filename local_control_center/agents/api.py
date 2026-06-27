@@ -3,6 +3,8 @@
 Expone los endpoints de status/run de cada agente (developer/architect/qa/devops/security/research), el CRUD de
 perfiles, la creación de agent runs con brokering de tool calls, y los catálogos de runtimes y skills.
 Cada payload se valida estrictamente (ids compactos, argv estructurados, límites) antes de tocar dominio.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

@@ -4,6 +4,8 @@ Provee a un proyecto que es repositorio git un workspace independiente sobre una
 sin tocar el árbol original, y al archivar captura el diff resultante. Toda invocación a git
 pasa por el runner saneado (``security_policy.git_command_runner``); ante git ausente o repo
 inválido devuelve estados ``degraded_*`` en vez de lanzar, para que el aislamiento sea opcional.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

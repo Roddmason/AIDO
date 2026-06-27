@@ -4,6 +4,8 @@ Invariante de seguridad: ninguna ejecucion ocurre desde aqui. `assess` clasifica
 comando (Docker disponible vs. tokens peligrosos vs. bajo riesgo) y `run_low_risk`
 siempre lanza `PermissionError`, forzando la cadena ToolBroker -> PolicyEngine ->
 Approval/Grant -> RuntimeAdapter -> Evidence como unico camino de ejecucion.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

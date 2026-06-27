@@ -7,6 +7,8 @@ línea como un evento acotado (``stdout_chunk``/``stderr_chunk``) vía ``CliSess
 emite ``started``, ``tool_action``, ``file_changed`` (diff git de la sesión), y el terminal
 ``completed``/``failed``/``cancelled``. La fila de ``cli_sessions`` pasa de ``running`` al estado final
 con sus artifacts de stdout/stderr. La cancelación mata el proceso y marca la sesión como ``cancelled``.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations
@@ -31,8 +33,6 @@ from local_control_center.shared.serialization import json_dumps
 from local_control_center.shared.time import utc_now
 
 CLI_SESSION_RUNNING_STATUS = "running"
-# El artifact final de stdout/stderr se acota a este tamaño en bytes: más allá se marca truncado y no se
-# acumula más en memoria, para que un proceso muy verboso no crezca la RSS del hilo ni el archivo sin límite.
 _MAX_SESSION_LOG_BYTES = 1_000_000
 
 
@@ -155,8 +155,6 @@ def _run(
 ) -> None:
     connection = open_sqlite_connection(db_path)
     root = Path(workspace_path) if workspace_path else None
-    # Sin promoción por chunk: cada evento solo trunca inline (el contenido completo queda en el artifact
-    # final de stdout/stderr de _finish), de modo que el cap del store nunca deja artifacts huérfanos.
     events = CliSessionEventStore(connection, project_id=project_id, artifact_root=None)
     stdout_acc: list[str] = []
     stderr_acc: list[str] = []
@@ -269,8 +267,6 @@ def _terminate(process: subprocess.Popen[str]) -> None:
 
 
 def _changed_files(workspace_path: str | None) -> set[str]:
-    # Routes the porcelain status through the approved git boundary (run_git), never a raw subprocess,
-    # and best-effort returns the set of changed paths the session may have produced.
     if not workspace_path or not git_available():
         return set()
     result = run_git(["-C", str(workspace_path), "status", "--porcelain"])

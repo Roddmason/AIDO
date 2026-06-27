@@ -3,6 +3,8 @@
 Convierte cada informe entrante en filas con command/status/durationMs/metadata que el resto del
 slice trata por igual. Acota el tamaño aceptado y rechaza XML inseguro (DOCTYPE/ENTITY) para evitar
 ataques XXE/expansión de entidades al parsear JUnit.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

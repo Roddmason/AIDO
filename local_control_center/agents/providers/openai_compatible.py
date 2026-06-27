@@ -4,6 +4,8 @@ Habla el dialecto OpenAI (endpoints `/models` y `/chat/completions`, auth `Beare
 con `urllib`, y sirve de base reutilizable para todos los proveedores compatibles
 (OpenAI, OpenRouter, NVIDIA NIM, LiteLLM). Toda llamada de red real queda detras del
 interruptor `real_provider_calls_enabled()` y redacta secretos antes de exponer payloads.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

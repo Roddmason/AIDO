@@ -8,6 +8,8 @@ confianza, artefacto relacionado). Exige que toda conclusión técnica basada en
 fuente. Y detecta claims en conflicto sobre un mismo tópico: emite un hallazgo explícito y una
 recomendación basada en la fuente de mayor confianza, marcando para revisión manual cuando las fuentes
 de máxima confianza discrepan entre sí.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations
@@ -18,7 +20,6 @@ from urllib.parse import urlparse
 
 from local_control_center.shared.redaction import redact_secrets
 
-# Trust hierarchy, highest first. Anything that matches none of these is UNTRUSTED (outside policy).
 TRUST_LEVELS: tuple[str, ...] = (
     "official_documentation",
     "official_repository",
@@ -29,8 +30,6 @@ TRUST_LEVELS: tuple[str, ...] = (
 UNTRUSTED = "untrusted"
 
 _RFC_HOSTS = {"ietf.org", "rfc-editor.org", "w3.org", "iso.org", "ecma-international.org", "unicode.org"}
-# Official documentation is an ALLOWLIST of first-party doc hosts: a `docs.`/`developer.` prefix is not a
-# trust signal (anyone can register docs.attacker.com), so it must never auto-classify as official docs.
 _DOCS_HOSTS = {
     "docs.python.org",
     "docs.rs",
@@ -46,9 +45,6 @@ _DOCS_HOSTS = {
     "kubernetes.io",
     "nodejs.org",
 }
-# Official repositories/releases = CANONICAL package registries only. User-namespaced code hosting
-# (github.com/<anyone>, gitlab, …) is NOT an official-publisher signal by host, so it defaults to
-# reputable_secondary; the agent asserts official_repository for a known-org URL when it verifies it.
 _REPO_HOSTS = {"pypi.org", "npmjs.com", "registry.npmjs.org", "crates.io", "rubygems.org", "pkg.go.dev"}
 _RESEARCH_HOSTS = {
     "arxiv.org",
@@ -60,8 +56,6 @@ _RESEARCH_HOSTS = {
     "sciencedirect.com",
     "nature.com",
 }
-# Reputable secondary: well-known community/code-hosting hosts. github/gitlab/bitbucket live here by
-# default precisely because a host alone cannot prove an "official" publisher; everything else is UNTRUSTED.
 _SECONDARY_HOSTS = {
     "github.com",
     "gitlab.com",
@@ -235,7 +229,6 @@ def detect_conflicts(claims: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "value": winner.get("value"),
                 "basis": source.get("trustLevel", UNTRUSTED),
                 "sourceUrl": source.get("url"),
-                # The recommended (highest-trust) source is older than a conflicting one: it may be stale.
                 "staleWarning": bool(winner_fetched and newest_fetched and winner_fetched < newest_fetched),
             }
         findings.append(

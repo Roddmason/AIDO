@@ -7,6 +7,8 @@ consumed directly by Pydantic models and the API layer. Precedence rules are:
 - **project** override (scope='project', scope_id=project_id) → origin='project', inherited=False
 - **general** value (scope='general') → origin='general', inherited=True (project scope) / False (general scope)
 - **descriptor default** → origin='default', inherited=True (project scope) / False (general scope)
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations
@@ -41,7 +43,6 @@ def _resolve_one(
         else:
             value, origin, inherited = descriptor.default, "default", False
     else:
-        # project scope view
         project_val = repo.get_value(descriptor.key, "project", project_id)
         if project_val is not UNSET:
             value, origin, inherited = project_val, "project", False

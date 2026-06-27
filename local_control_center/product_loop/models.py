@@ -5,6 +5,8 @@ loop durable y su bitácora, las preguntas de clarificación, el brief vivo, los
 decisiones y el backlog (épicas, historias, tareas e iteraciones). Solo modelan datos: no contienen
 lógica de negocio ni acceso a la base; traducen ``snake_case`` de Python a ``camelCase`` del frontend
 vía alias de campo, reflejando exactamente las claves de los mapeadores ``row_to_*`` de cada slice.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

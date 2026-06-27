@@ -3,6 +3,8 @@
 Carga y valida el catálogo semilla empaquetado, garantiza el sembrado en la primera
 lectura y valida el cuerpo entrante antes de persistir un reemplazo. Aquí se aplica la
 validación Pydantic; la atomicidad de la escritura vive en el repositorio.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

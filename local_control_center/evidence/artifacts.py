@@ -4,6 +4,8 @@ Escribe artefactos bajo `<root>/.tmp/evidence-artifacts/` con su hash SHA-256, y
 ese almacén los logs, diffs y screenshots que exceden los límites inline para no inflar la fila
 del paquete. Todo contenido textual pasa por `redact_secrets`. También limpia artefactos
 huérfanos comparándolos contra el conjunto de rutas aún referenciadas.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

@@ -3,6 +3,8 @@
 Define los modelos Pydantic de idioma y catálogo, normaliza códigos BCP-47 y
 garantiza la invariante de completitud: cada clave debe tener un valor no vacío
 para todo idioma habilitado, evitando que se persista un catálogo con huecos.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

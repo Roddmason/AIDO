@@ -4,6 +4,8 @@ Expone el router FastAPI que valida cada paquete contra las reglas de QA real an
 persistirlo, promueve logs/diffs/screenshots grandes a artefactos en disco, emite eventos y
 auditoría, y abre riesgos de gobernanza ante veredictos fallidos o artefactos expirados. Las
 descargas de artefactos verifican el hash y confinan las rutas al root de artefactos.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

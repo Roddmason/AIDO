@@ -9,6 +9,8 @@ estos métodos NO abren transacciones propias; cada ``execute`` se confirma de i
 escribe en dos tablas (UPDATE del loop + INSERT de la transición), por lo que el caller —el
 ``ProductLoopCoordinator``— las agrupa en una única ``immediate_transaction`` para que el avance de
 estado y su registro se confirmen atómicamente y el loop nunca quede en un estado a medias.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

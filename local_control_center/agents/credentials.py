@@ -5,6 +5,8 @@ el valor resuelto solo viaja en `CredentialResolution.value` cuando `fetch=True`
 serializa por `to_public_dict()` ni por el `__repr__` (que imprime '[redacted]'). Invariantes de
 transporte Vault: dirección absoluta https (http solo en loopback con flag explícito), sin redirects,
 y refs de auth que no pueden referenciar recursivamente a otro vault.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

@@ -9,6 +9,8 @@ active sandbox profile. Every decision and tool call is persisted for audit and 
 execution result is redacted before storage. A denied/unsupported call is recorded but
 never executed. This module does not itself raise on policy violations — it returns a
 deny decision and a `denied`/`approval_required` status; downstream sandboxes raise.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

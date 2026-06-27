@@ -6,6 +6,8 @@ briefs de producto con su historial de versiones, supuestos y decisiones de prod
 concepto vive en su propia tabla (nunca embebido en metadata) y se enlaza por referencias
 explícitas para mantener la trazabilidad. No exporta símbolos: cada consumidor importa de los
 submódulos `repository` o (a futuro) `models`/`api`.
+
+@author Rodrigo Mason
 """
 
 __all__: list[str] = []

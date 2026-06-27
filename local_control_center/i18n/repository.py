@@ -3,6 +3,8 @@
 Reconstituye el catálogo desde las tres tablas y aplica sus escrituras dentro de una
 transacción inmediata, de modo que settings, idiomas y traducciones queden siempre
 consistentes entre sí (un reemplazo total o un sembrado parcial nunca se ven a medias).
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

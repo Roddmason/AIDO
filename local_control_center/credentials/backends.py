@@ -6,6 +6,8 @@ y openbao (KV v2 por HTTP) y dpapi_sqlite (opcional, cifra con DPAPI de Windows 
 cifrado en su propio SQLite). Las dependencias externas (keyring, win32crypt) se importan de forma
 perezosa y, si faltan o la operación no aplica, fallan cerrado con un error claro. Ningún adaptador
 imprime ni registra el valor.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations
@@ -74,7 +76,7 @@ class KeyringBackend:
         keyring = self._keyring()
         try:
             keyring.set_password(service, account, value)
-        except Exception as error:  # cualquier fallo del backend keyring -> fallar cerrado
+        except Exception as error:
             raise CredentialBackendError(f"keyring write failed: {error}") from error
 
     def read(self, locator: str) -> str | None:
@@ -93,7 +95,7 @@ class KeyringBackend:
         try:
             keyring.delete_password(service, account)
         except Exception as error:
-            if type(error).__name__ == "PasswordDeleteError":  # ya no existe -> idempotente
+            if type(error).__name__ == "PasswordDeleteError":
                 return
             raise CredentialBackendError(f"keyring delete failed: {error}") from error
 
@@ -221,7 +223,7 @@ class DpapiSqliteBackend:
         crypt = self._crypt()
         try:
             ciphertext = crypt.CryptProtectData(value.encode("utf-8"), None, None, None, None, 0)
-        except Exception as error:  # error de DPAPI -> fallar cerrado sin filtrar el valor
+        except Exception as error:
             raise CredentialBackendError("DPAPI encryption failed.") from error
         with self._connect() as connection:
             connection.execute(
@@ -240,7 +242,7 @@ class DpapiSqliteBackend:
             return None
         try:
             _description, plaintext = crypt.CryptUnprotectData(row[0], None, None, None, 0)
-        except Exception as error:  # blob corrupto/de otro usuario -> fallar cerrado
+        except Exception as error:
             raise CredentialBackendError("DPAPI decryption failed.") from error
         return bytes(plaintext).decode("utf-8")
 

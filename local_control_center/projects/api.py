@@ -3,6 +3,8 @@
 Cablea cada ruta a su comando de aplicación, construye el repositorio y el bus de eventos
 por petición desde la conexión de la plataforma, y aplica el guard de escritura en las
 mutaciones (descubrir, crear, seleccionar directorio). No contiene lógica de negocio.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations
@@ -93,7 +95,6 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     )
     async def run_assessment(project_id: str, request: Request) -> dict[str, Any]:
         require_write(request)
-        # Lazy import keeps the projects slice free of an import-time dependency on the agents slice.
         from local_control_center.agents.assessment_runner import ProjectAssessmentRunner
 
         try:

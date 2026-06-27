@@ -5,6 +5,8 @@ carrying the headline fields (agent, role, runtime, assignment, blocked reason, 
 artifact, reviewer, duration, cost) plus collapsible low-level model/tool events and a
 developer-details block with the run's already-redacted input/output/metadata. Python keeps
 snake_case while keys travel as camelCase via ``alias``; the service emits that camelCase.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

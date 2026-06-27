@@ -5,6 +5,8 @@ defaultDecision y confidence. El motor valida ese contrato estricto, descarta lo
 repositorio (para no repreguntar), ordena por impacto (bloqueo > menor confianza > peso de categoría)
 y agrupa como máximo cinco preguntas por turno; el resto queda diferido con su decisión por defecto
 para que el flujo pueda avanzar sin bloquearse.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations
@@ -39,7 +41,6 @@ CATEGORY_IMPACT = {
     "delivery": 15,
     "ux": 10,
 }
-# Campos del brief que, si ya están poblados, marcan su categoría como detectada en el repositorio.
 BRIEF_FIELD_CATEGORY = {"targetUsers": "users", "scope": "scope", "successMetrics": "delivery"}
 
 

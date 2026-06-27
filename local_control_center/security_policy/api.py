@@ -6,6 +6,8 @@ exige autorizacion de escritura (``require_write``) y una razon no vacia, y vali
 payload de edicion de sandbox; ante violacion lanza ``HTTPException`` (401/403 via require_write,
 422 por payload invalido, 404 si el recurso no existe). Tambien escala a riesgo de gobernanza
 toda decision deny/requires_approval/requires_human.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

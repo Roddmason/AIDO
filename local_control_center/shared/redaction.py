@@ -6,6 +6,8 @@ por patrón de valor (claves OpenAI, Bearer, tokens de GitHub/GitLab/Slack, AWS.
 preservando contadores de tokens y campos de estado que no son secretos. No lanza:
 ante valores no reconocidos los devuelve sin tocar, por lo que la cobertura del patrón
 es la última línea de defensa. Todo evento/auditoría debe redactarse antes de escribirse.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations
@@ -24,10 +26,7 @@ SECRET_VALUE_PATTERN = re.compile(
     r"xox[baprs]-[A-Za-z0-9-]{10,}|"
     r"AKIA[0-9A-Z]{16}|"
     r"password\s*=\s*[^&\s]+|"
-    # Connection strings that embed credentials (proto://user:password@host). The scheme/host runs are
-    # length-bounded so a long alphanumeric blob (e.g. a base64 artifact) cannot trigger O(n^2) backtracking.
     r"[a-z][a-z0-9+.\-]{0,30}://[^\s:@/]{1,256}:[^\s@/]{1,256}@[^\s]{1,256}|"
-    # PEM private key blocks (header to footer; bounded body to stay linear on large inputs).
     r"-----BEGIN[A-Z0-9 ]{0,40}PRIVATE KEY-----[\s\S]{1,10000}?-----END[A-Z0-9 ]{0,40}PRIVATE KEY-----"
     r")",
     re.I,

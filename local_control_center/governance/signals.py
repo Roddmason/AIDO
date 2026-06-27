@@ -3,6 +3,8 @@
 Expone un helper que, ante un evento de origen (su tipo e id), crea un riesgo en el
 registro anotando la procedencia en metadata, sin que el slice emisor conozca el
 repositorio. Es no-op si no hay proyecto asociado.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

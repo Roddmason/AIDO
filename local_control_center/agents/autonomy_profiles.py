@@ -5,6 +5,8 @@ Define tres niveles (guided/recommended/autonomous) con overrides por categoría
 decisión, una acción (auto/recommend/ask) según nivel efectivo, bloqueo, confianza y reversibilidad.
 Toda decisión automática produce un registro auditable con sus alternativas, razón, confianza y
 reversibilidad, de modo que nada irreversible o de baja confianza se ejecuta en silencio.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations
@@ -160,7 +162,6 @@ def resolve_action(level: str, *, blocking: bool, confidence: str, reversibility
         if reversibility == "reversible" and confidence == "high" and not blocking:
             return ACTION_AUTO
         return ACTION_ASK if blocking else ACTION_RECOMMEND
-    # autonomous
     if reversibility == "irreversible":
         return ACTION_ASK
     if confidence == "low":

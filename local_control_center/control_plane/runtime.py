@@ -4,6 +4,8 @@ Concentra el bootstrap del proceso FastAPI: resuelve cwd y ruta de la base, abre
 conexion SQLite perezosamente, inicializa el esquema de plataforma y emite el token de
 handshake loopback. Tambien garantiza que exista el proyecto que representa el cwd actual.
 Las lecturas/escrituras de dominio viven en los repositorios de cada slice, no aqui.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

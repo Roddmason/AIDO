@@ -4,6 +4,8 @@ Owns the SecurityAgent's stable identity, allowed tools, accepted verdicts, and 
 input/output JSON schema, plus the logic that decides whether an optional model runtime
 is eligible to assist. The deterministic controls are always executable; the model
 runtime only augments them and never overrides the deterministic verdict.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

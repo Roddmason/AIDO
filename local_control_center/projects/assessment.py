@@ -11,6 +11,8 @@ Seguridad: nunca sigue symlinks al leer archivos (evita exfiltrar rutas fuera de
 antes de persistirlos, de modo que un token incrustado en un mensaje de commit o un script no se
 guarde en claro. ``run_project_assessment`` persiste el assessment y un hallazgo por detección en
 ``project_assessments`` y ``project_findings``.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

@@ -7,6 +7,8 @@ duplica una HU por cada disciplina. El trabajo técnico se modela aparte como ag
 una con su rol) y se reparte con agent_assignments (qué agente ejecuta cada tarea). Cada concepto
 vive en su propia tabla (nunca embebido en metadata) y se enlaza por referencias explícitas. No
 exporta símbolos: cada consumidor importa de los submódulos `repository` o (a futuro) `models`/`api`.
+
+@author Rodrigo Mason
 """
 
 __all__: list[str] = []

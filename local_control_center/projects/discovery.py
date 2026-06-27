@@ -4,6 +4,8 @@ Cada parser por ecosistema extrae nombre, fuentes y runtimes detectados sin ejec
 ``discover_project_path`` los combina, deduplica runtimes y sugiere nombre y plantilla.
 Es solo lectura y acota el tamaño de cada manifiesto a ``MAX_MANIFEST_BYTES`` para no leer
 archivos arbitrariamente grandes.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations
@@ -191,7 +193,6 @@ def _parse_go_mod(root: Path) -> tuple[str | None, list[dict[str, Any]], list[di
 
 
 def _detect_git(root: Path) -> list[dict[str, Any]]:
-    # `.git` is a directory in normal clones but a file in linked worktrees and submodules.
     if (root / ".git").exists():
         return [_source(".git", kind="vcs")]
     return []

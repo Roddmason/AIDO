@@ -3,6 +3,8 @@
 Centraliza el formato de fecha-hora (ISO-8601 en UTC, milisegundos, sufijo ``Z``)
 para que columnas y eventos sean comparables como texto y ordenables lexicográficamente.
 Todo el backend debe obtener sus timestamps de aquí en vez de llamar a ``datetime`` directo.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

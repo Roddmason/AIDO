@@ -4,6 +4,8 @@ Expone el CRUD de memory items y las operaciones de índice (status, reindex,
 search) sobre /api/v1, cableando cada handler con repositorio, event bus e
 índice construidos por petición. Las mutaciones pasan por require_write; la
 lógica vive en commands, este módulo solo traduce HTTP a casos de uso.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

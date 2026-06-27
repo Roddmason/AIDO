@@ -3,6 +3,8 @@
 Definen el cuerpo aceptado al crear un pipeline y la representación serializada que devuelve
 la API. Usan alias camelCase para hablar JSON con el frontend mientras el backend usa snake_case;
 no contienen lógica de persistencia, solo validación y forma del payload.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

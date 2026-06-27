@@ -2035,10 +2035,11 @@ test('Model Gateway first load fetches only the active tab, not every endpoint',
 	// Default providers tab paints without touching the usage, decisions or benchmark endpoints.
 	await expect(page.getByRole('heading', { name: 'Provider Accounts' })).toBeVisible();
 	await expect(page.getByRole('heading', { name: 'Runtime Providers' })).toBeVisible();
-	// Negative assertion: give any on-load lazy fetch a bounded window to fire. `networkidle`
-	// is unreliable here because the control plane polls (overview/providers every ~5s), so the
-	// network never goes idle for 500ms and the wait times out.
-	await page.waitForTimeout(1000);
+	// Deterministic load signal: the active (providers) tab is fully loaded once its rows render
+	// (a seeded provider row appears). At that point any on-load lazy fetch would already have
+	// fired, so the negative assertions below are reliable — without `networkidle`, which never
+	// settles given the control plane's ~5s polling and 60s-times-out on Windows.
+	await expect(page.getByText('anthropic_api').first()).toBeVisible();
 	expect(usageRequested).toBe(false);
 	expect(decisionsRequested).toBe(false);
 	expect(benchmarksRequested).toBe(false);

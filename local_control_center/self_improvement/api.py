@@ -1,5 +1,11 @@
 """FastAPI router for AIDO self-improvement proposals, lessons and performance records.
 
+Expone un endpoint de lectura (``GET /api/v1/self-improvement``) que devuelve las
+propuestas, lecciones y registros de desempeño del proyecto fuente indicado, y cuatro
+endpoints de escritura: crear propuesta, registrar lección, promover lección y registrar
+desempeño. Cada escritura pasa por el guard ``require_write`` y la ejecuta un
+``SelfImprovementCoordinator`` resuelto de forma perezosa desde ``platform``.
+
 @author Rodrigo Mason
 """
 

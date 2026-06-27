@@ -197,7 +197,9 @@ class ResearchAgentRunner:
         self, *, project_id: str, artifact_id: str, report: dict[str, Any]
     ) -> dict[str, Any]:
         content = json_dumps(redact_secrets(report))
-        written = write_text_artifact(root=self.root, artifact_id=artifact_id, suffix=".research.json", content=content)
+        written = write_text_artifact(
+            root=self.root, artifact_id=artifact_id, suffix=".research.json", content=content
+        )
         return self.evidence.create_artifact(
             artifact_id=artifact_id,
             project_id=project_id,
@@ -219,7 +221,9 @@ class ResearchAgentRunner:
     ) -> tuple[str, str]:
         if not citation_check["valid"]:
             return "blocked", "Technical web conclusions must cite at least one trusted source."
-        if any((finding.get("recommendation") or {}).get("needsManualReview") for finding in conflict_findings):
+        if any(
+            (finding.get("recommendation") or {}).get("needsManualReview") for finding in conflict_findings
+        ):
             return "needs_human_review", "Highest-trust sources conflict and require human review."
         return "completed", "ResearchAgent completed source policy validation."
 

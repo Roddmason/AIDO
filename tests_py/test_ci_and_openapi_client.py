@@ -112,6 +112,17 @@ def test_generated_openapi_client_is_checked_in_and_v1_only() -> None:
         in content
     )
     assert '"create_project_api_v1_projects_post": ProjectCreateRequest' in content
+    assert (
+        '"create_self_improvement_proposal_api_v1_self_improvement_proposals_post": '
+        "SelfImprovementProposalRequest"
+    ) in content
+    assert (
+        '"record_self_improvement_lesson_api_v1_self_improvement_lessons_post": SelfImprovementLessonRequest'
+    ) in content
+    assert (
+        '"record_self_improvement_performance_api_v1_self_improvement_performance_records_post": '
+        "SelfImprovementPerformanceRequest"
+    ) in content
     assert '"create_session_api_v1_sessions_post": SessionCreateRequest' in content
     assert '"create_chat_api_v1_chats_post": ChatCreateRequest' in content
     assert '"create_pipeline_api_v1_pipelines_post": PipelineCreateRequest' in content
@@ -395,6 +406,21 @@ def test_generated_core_runtime_workflow_evidence_contracts_are_strict() -> None
     assert 'PermissionGrantResponse = { "permissionGrant": ApprovalGrantRecord }' in content
     assert '"permissionGrants": Array<ApprovalGrantRecord>' in content
 
+    feedback_request = _generated_type_line(content, "ProductLoopFeedbackRequest")
+    feedback_record = _generated_type_line(content, "ProductLoopFeedbackRecord")
+    expected_feedback_actions = (
+        '"accept" | "request_changes" | "change_scope" | "reprioritize" | '
+        '"reject_decision" | "reopen_story" | "pause_loop" | "cancel_loop"'
+    )
+    expected_feedback_classifications = (
+        '"rework_task" | "new_story" | "new_epic" | "brief_revision" | "architecture_revision"'
+    )
+    assert f'"action": {expected_feedback_actions}' in feedback_request
+    assert f'"action": {expected_feedback_actions}' in feedback_record
+    assert f'"classification": {expected_feedback_classifications}' in feedback_record
+    assert '"action": string' not in feedback_request
+    assert '"classification": string' not in feedback_record
+
     agent_run = _generated_type_line(content, "AgentRunRecord")
     assert (
         '"status": "queued" | "running" | "completed" | "approved" | "failed" | "blocked" | "runtime_unavailable"'
@@ -538,9 +564,10 @@ def test_generated_credential_contract_and_settings_ui_are_secret_safe() -> None
         "getCredentialAudit",
     ):
         assert symbol in api_client
-    assert "apiRequest<" not in api_client.split("export function getCredentials", 1)[1].split(
-        "export function", 1
-    )[0]
+    assert (
+        "apiRequest<"
+        not in api_client.split("export function getCredentials", 1)[1].split("export function", 1)[0]
+    )
 
     settings = (
         ROOT / "local-control-center" / "web" / "src" / "features" / "settings" / "SettingsPage.tsx"

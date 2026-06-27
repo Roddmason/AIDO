@@ -37,7 +37,9 @@ from .product_loop.api import create_router as create_product_loop_router
 from .projects.api import create_router as create_projects_router
 from .prompts.api import create_router as create_prompts_router
 from .security_policy.api import create_router as create_security_policy_router
+from .self_improvement.api import create_router as create_self_improvement_router
 from .sessions_chats.api import create_router as create_sessions_chats_router
+from .settings.api import create_router as create_settings_router
 from .shared.db import open_sqlite_connection
 from .shared.migrations import initialize_platform_schema
 from .shared.schemas import HandshakeResponse, HealthResponse, TelemetryStatusResponse
@@ -49,7 +51,6 @@ from .shared.telemetry import (
     record_http_request,
     resolve_correlation_id,
 )
-from .settings.api import create_router as create_settings_router
 from .team_activity.api import create_router as create_team_activity_router
 from .workflows.api import create_router as create_workflows_router
 from .workspaces_projects.api import create_router as create_workspaces_router
@@ -147,6 +148,7 @@ def create_app(
     app.include_router(create_prompts_router(platform=platform, require_write=require_write))
     app.include_router(create_projects_router(platform=platform, require_write=require_write))
     app.include_router(create_product_loop_router(platform=platform, require_write=require_write))
+    app.include_router(create_self_improvement_router(platform=platform, require_write=require_write))
     app.include_router(create_team_activity_router(platform=platform, require_write=require_write))
     app.include_router(create_settings_router(platform=platform, require_write=require_write))
     app.include_router(create_i18n_router(platform=platform, require_write=require_write))

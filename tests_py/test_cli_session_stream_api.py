@@ -81,9 +81,7 @@ def test_cancel_endpoint_is_write_guarded_and_reports_when_not_running(tmp_path:
         token = client.get("/api/v1/security/handshake").json()["token"]
 
         assert client.post("/api/v1/cli-sessions/sess-x/cancel").status_code == 403
-        response = client.post(
-            "/api/v1/cli-sessions/sess-x/cancel", headers={"X-Local-Control-Token": token}
-        )
+        response = client.post("/api/v1/cli-sessions/sess-x/cancel", headers={"X-Local-Control-Token": token})
         assert response.status_code == 200
         assert response.json()["cancelled"] is False  # nothing is running under that id
     finally:

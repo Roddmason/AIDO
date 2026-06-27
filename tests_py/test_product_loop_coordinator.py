@@ -420,9 +420,10 @@ def test_feedback_actions_are_classified_applied_and_traceable(tmp_path: Path) -
         )
         assert new_story["feedback"]["classification"] == "new_story"
         assert new_story["feedback"]["effects"][0]["type"] == "create_user_story"
-        assert backlog.get_user_story(new_story["feedback"]["effects"][0]["id"])["metadata"][
-            "feedbackId"
-        ] == new_story["feedback"]["id"]
+        assert (
+            backlog.get_user_story(new_story["feedback"]["effects"][0]["id"])["metadata"]["feedbackId"]
+            == new_story["feedback"]["id"]
+        )
 
         new_epic = coordinator.apply_feedback(
             rework_loop["id"],

@@ -118,9 +118,7 @@ class RuntimeConfigRepository:
         if last_validation_at is None:
             last_validation_at = current.get("lastValidationAt")
         last_health_check_at = (
-            body.get("lastHealthCheckAt")
-            if "lastHealthCheckAt" in body
-            else current.get("lastHealthCheckAt")
+            body.get("lastHealthCheckAt") if "lastHealthCheckAt" in body else current.get("lastHealthCheckAt")
         )
         if existing_row:
             self.connection.execute(
@@ -249,9 +247,7 @@ class RuntimeConfigRepository:
         Raises:
             KeyError: si no existe ninguna cuenta con ese id.
         """
-        row = self.connection.execute(
-            "SELECT * FROM runtime_accounts WHERE id = ?", (account_id,)
-        ).fetchone()
+        row = self.connection.execute("SELECT * FROM runtime_accounts WHERE id = ?", (account_id,)).fetchone()
         if not row:
             raise KeyError(f"Runtime account not found: {account_id}")
         return row_to_runtime_account(row)

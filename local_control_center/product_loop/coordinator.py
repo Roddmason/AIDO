@@ -26,6 +26,7 @@ from local_control_center.shared.db import immediate_transaction
 from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.time import iso_after_seconds, utc_now
 
+from .models import FEEDBACK_ACTION_VALUES, FEEDBACK_CLASSIFICATION_VALUES
 from .repository import ProductLoopRepository
 
 PRODUCT_LOOP_STATES = [
@@ -75,23 +76,8 @@ ALLOWED_TRANSITIONS: dict[str, set[str]] = {
 }
 
 STOP_CONDITIONS = ("budget_exhausted", "deadline_exceeded", "state_timeout", "max_rework_reached")
-FEEDBACK_ACTIONS = {
-    "accept",
-    "request_changes",
-    "change_scope",
-    "reprioritize",
-    "reject_decision",
-    "reopen_story",
-    "pause_loop",
-    "cancel_loop",
-}
-FEEDBACK_CLASSIFICATIONS = {
-    "rework_task",
-    "new_story",
-    "new_epic",
-    "brief_revision",
-    "architecture_revision",
-}
+FEEDBACK_ACTIONS = set(FEEDBACK_ACTION_VALUES)
+FEEDBACK_CLASSIFICATIONS = set(FEEDBACK_CLASSIFICATION_VALUES)
 TARGET_CLASSIFICATIONS = {
     "task": "rework_task",
     "story": "new_story",
@@ -539,7 +525,9 @@ class ProductLoopCoordinator:
 
         if action == "request_changes":
             if target_type != "task" or not target_id:
-                raise ProductLoopTransitionError("Feedback action request_changes requires a traceable target task.")
+                raise ProductLoopTransitionError(
+                    "Feedback action request_changes requires a traceable target task."
+                )
             loop, transition = self._transition_for_feedback(
                 loop_id=loop_id,
                 to_state=REWORK_STATE,
@@ -622,7 +610,9 @@ class ProductLoopCoordinator:
                 )
                 effects.append({"type": "create_user_story", "id": story["id"]})
                 return loop, effects
-            effects.append({"type": "record_brief_revision", "targetType": target_type, "targetId": target_id})
+            effects.append(
+                {"type": "record_brief_revision", "targetType": target_type, "targetId": target_id}
+            )
             return loop, effects
 
         if action == "reprioritize":
@@ -634,28 +624,46 @@ class ProductLoopCoordinator:
                 self._assert_project_scope(epic, project_id, label="Epic")
                 updated = self.backlog.update_epic(
                     target_id,
-                    {"priority": priority, "metadata": _append_feedback_id(epic.get("metadata"), feedback_id)},
+                    {
+                        "priority": priority,
+                        "metadata": _append_feedback_id(epic.get("metadata"), feedback_id),
+                    },
                 )
             elif target_type == "story":
                 story = self.backlog.get_user_story(target_id)
                 self._assert_project_scope(story, project_id, label="User story")
                 updated = self.backlog.update_user_story(
                     target_id,
-                    {"priority": priority, "metadata": _append_feedback_id(story.get("metadata"), feedback_id)},
+                    {
+                        "priority": priority,
+                        "metadata": _append_feedback_id(story.get("metadata"), feedback_id),
+                    },
                 )
             else:
                 task = self.backlog.get_agent_task(target_id)
                 self._assert_project_scope(task, project_id, label="Agent task")
                 updated = self.backlog.update_agent_task(
                     target_id,
-                    {"priority": priority, "metadata": _append_feedback_id(task.get("metadata"), feedback_id)},
+                    {
+                        "priority": priority,
+                        "metadata": _append_feedback_id(task.get("metadata"), feedback_id),
+                    },
                 )
-            effects.append({"type": "update_priority", "targetType": target_type, "id": updated["id"], "priority": priority})
+            effects.append(
+                {
+                    "type": "update_priority",
+                    "targetType": target_type,
+                    "id": updated["id"],
+                    "priority": priority,
+                }
+            )
             return loop, effects
 
         if action == "reject_decision":
             if target_type != "decision" or not target_id:
-                raise ProductLoopTransitionError("Feedback action reject_decision requires a traceable decision target.")
+                raise ProductLoopTransitionError(
+                    "Feedback action reject_decision requires a traceable decision target."
+                )
             decision = self.discovery.get_product_decision(target_id)
             self._assert_project_scope(decision, project_id, label="Product decision")
             updated = self.discovery.update_product_decision(
@@ -672,7 +680,9 @@ class ProductLoopCoordinator:
 
         if action == "reopen_story":
             if target_type != "story" or not target_id:
-                raise ProductLoopTransitionError("Feedback action reopen_story requires a traceable story target.")
+                raise ProductLoopTransitionError(
+                    "Feedback action reopen_story requires a traceable story target."
+                )
             story = self.backlog.get_user_story(target_id)
             self._assert_project_scope(story, project_id, label="User story")
             updated = self.backlog.update_user_story(

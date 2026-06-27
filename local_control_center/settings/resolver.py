@@ -81,8 +81,7 @@ def resolve_settings(
     repo = SettingsRepository(connection)
 
     general = [
-        _resolve_one(descriptor=d, repo=repo, project_id=project_id, scope_view="general")
-        for d in REGISTRY
+        _resolve_one(descriptor=d, repo=repo, project_id=project_id, scope_view="general") for d in REGISTRY
     ]
 
     project = [

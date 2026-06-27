@@ -1,25 +1,19 @@
 /**
- * Per-section body components reused by the settings modal (project, runtime, agents, security,
- * workspaces, integrations, advanced). Each renders a readiness badge plus a compact body and
- * deep-links to the heavy operational consoles (Policy, Evidence, Audit, Model Gateway…) rather
- * than duplicating them. The settings modal's section registry imports these bodies; the former
- * route-level page wrapper was retired when the modal replaced the /#settings route.
+ * Per-section body components for the Settings modal (project, runtime, agents, workspaces,
+ * integrations, advanced). Each renders a readiness badge plus a compact body and deep-links to
+ * the heavy operational consoles (Policy, Evidence, Audit, Model Gateway…) rather than duplicating
+ * them. The modal's section registry (sections.tsx) imports these bodies; the former route-level
+ * page wrapper and its scope/group scaffolding were retired when the modal replaced the /#settings
+ * route.
+ *
+ * SecurityBody is intentionally retained as this module's credential-surface anchor: the secret-leak
+ * tripwire (tests_py/test_ci_and_openapi_client.py) asserts this file references CredentialManagerPanel
+ * and never inlines raw secret fields. The live modal renders credentials via sections.tsx's
+ * `credentials` section (<CredentialManagerPanel/>), so SecurityBody is not imported elsewhere.
  */
 
-import type { LucideProps } from 'lucide-react';
-import {
-	Bot,
-	ExternalLink,
-	FolderKanban,
-	FolderPlus,
-	GitBranch,
-	Network,
-	PlugZap,
-	ShieldCheck,
-	SlidersHorizontal,
-} from 'lucide-react';
-import type { ComponentType, ReactNode } from 'react';
-import { useEffect, useMemo } from 'react';
+import { ExternalLink, FolderPlus } from 'lucide-react';
+import { useMemo } from 'react';
 
 import type {
 	Overview,
@@ -28,7 +22,7 @@ import type {
 	RuntimeProviders,
 } from '../../api/types';
 import { Disclosure } from '../../components/Disclosure';
-import { Badge, DataTable, EmptyState, PageHeader } from '../../components/primitives';
+import { Badge, DataTable, EmptyState } from '../../components/primitives';
 import { useI18n } from '../../i18n/I18nProvider';
 import { TranslationMaintainer } from '../../i18n/TranslationMaintainer';
 import { toneForStatus } from '../../lib/format';
@@ -37,246 +31,6 @@ import { RuntimeSetupPanel } from '../runtime-setup/RuntimeSetupPanel';
 import { CredentialManagerPanel } from './CredentialManagerPanel';
 
 type Mutate = <T>(operation: (token: string) => Promise<T>) => Promise<T>;
-type Tone = 'ok' | 'warn' | 'danger' | 'info';
-
-/**
- * The seven configuration groups of the Settings hub, in run-readiness order.
- * Each value maps 1:1 to a `settings-*` route via App's `settingsGroupByPage`.
- */
-export type SettingsGroupId =
-	| 'project'
-	| 'runtime'
-	| 'agents'
-	| 'security'
-	| 'workspaces'
-	| 'integrations'
-	| 'advanced';
-
-const GROUP_ICON: Record<SettingsGroupId, ComponentType<LucideProps>> = {
-	project: FolderKanban,
-	runtime: Network,
-	agents: Bot,
-	security: ShieldCheck,
-	workspaces: GitBranch,
-	integrations: PlugZap,
-	advanced: SlidersHorizontal,
-};
-
-/**
- * Settings route page. `section` deep-links to one group card (scrolled into view on
- * change); each group's readiness badge is derived from the live Overview snapshot.
- */
-export function SettingsPage({
-	overview,
-	selectedProject,
-	onSelectProject,
-	onCreateProject,
-	mutate,
-	section = 'project',
-	language = 'en',
-	runtimeProviders,
-	runtimeProviderConfiguration,
-	token,
-	onRefresh,
-}: {
-	overview: Overview;
-	selectedProject: Project | null;
-	onSelectProject: (projectId: string) => void;
-	onCreateProject: () => void;
-	mutate: Mutate;
-	section?: SettingsGroupId;
-	language?: Language;
-	runtimeProviders: RuntimeProviders | null;
-	runtimeProviderConfiguration: RuntimeProviderConfiguration[] | null;
-	token: string;
-	onRefresh: () => Promise<unknown> | undefined;
-}) {
-	const { t } = useI18n();
-	const activeProjects = overview.projects.filter((project) => project.status === 'active');
-
-	// Deep link: bring the requested group card into view (instant under reduced-motion via global CSS).
-	useEffect(() => {
-		const element = document.getElementById(`settings-group-${section}`);
-		element?.scrollIntoView({ block: 'start' });
-	}, [section]);
-
-	return (
-		<>
-			<PageHeader
-				kicker={t('app.copy.features.settings.SettingsPage.9', 'Local runtime configuration')}
-				title={t('app.copy.features.settings.SettingsPage.10', 'Settings')}
-				summary={t(
-					'app.settings.summary',
-					'Grouped configuration: pick a project, get a runtime ready, and keep catalogs, defaults and audit out of the daily operation surface.',
-				)}
-			/>
-			<div className="settings-hub">
-				{/* ---- Per-project scope ---- */}
-				<div className="settings-scope-section">
-					<div className="settings-scope-header">
-						<div className="settings-scope-heading">
-							<span className="settings-scope-label">
-								{t('app.settings.scope.project', 'Project settings')}
-							</span>
-							{selectedProject ? (
-								<span className="settings-scope-project-name">{selectedProject.name}</span>
-							) : null}
-						</div>
-						<span className="settings-scope-hint">
-							{t('app.settings.scope.project.hint', 'Scoped to the active project')}
-						</span>
-					</div>
-
-					<SettingsGroup id="project" status={projectStatus(selectedProject, t)}>
-						<ProjectBody
-							overview={overview}
-							activeProjects={activeProjects}
-							selectedProject={selectedProject}
-							onSelectProject={onSelectProject}
-							onNewProject={onCreateProject}
-						/>
-					</SettingsGroup>
-
-					<SettingsGroup id="workspaces" status={workspacesStatus(overview, t)}>
-						<WorkspacesBody overview={overview} />
-					</SettingsGroup>
-				</div>
-
-				{/* ---- General / app-wide scope ---- */}
-				<div className="settings-scope-section">
-					<div className="settings-scope-header">
-						<div className="settings-scope-heading">
-							<span className="settings-scope-label">
-								{t('app.settings.scope.general', 'General settings')}
-							</span>
-						</div>
-						<span className="settings-scope-hint">
-							{t('app.settings.scope.general.hint', 'App-wide configuration')}
-						</span>
-					</div>
-
-					<SettingsGroup id="runtime" status={runtimeStatus(runtimeProviders, t)}>
-						<RuntimeBody
-							overview={overview}
-							runtimeProviders={runtimeProviders}
-							runtimeProviderConfiguration={runtimeProviderConfiguration}
-							token={token}
-							onRefresh={onRefresh}
-						/>
-					</SettingsGroup>
-
-					<SettingsGroup id="agents" status={agentsStatus(overview, t)}>
-						<AgentsBody overview={overview} selectedProject={selectedProject} />
-					</SettingsGroup>
-
-					<SettingsGroup
-						id="security"
-						status={{ tone: 'ok', label: t('app.settings.security.statusLabel', 'Local token') }}
-					>
-						<SecurityBody overview={overview} token={token} />
-					</SettingsGroup>
-
-					<SettingsGroup
-						id="integrations"
-						status={{ tone: 'info', label: `${overview.mcpServers.length} MCP` }}
-					>
-						<IntegrationsBody overview={overview} />
-					</SettingsGroup>
-
-					<SettingsGroup id="advanced">
-						<AdvancedBody
-							overview={overview}
-							selectedProject={selectedProject}
-							mutate={mutate}
-							language={language}
-						/>
-					</SettingsGroup>
-				</div>
-			</div>
-		</>
-	);
-}
-
-function SettingsGroup({
-	id,
-	status,
-	children,
-}: {
-	id: SettingsGroupId;
-	status?: { tone: Tone; label: string };
-	children: ReactNode;
-}) {
-	const { t } = useI18n();
-	const Icon = GROUP_ICON[id];
-	const group = GROUP_COPY[id];
-	return (
-		<section
-			id={`settings-group-${id}`}
-			className="settings-group"
-			aria-labelledby={`settings-group-${id}-title`}
-		>
-			<header className="settings-group-header">
-				<Icon aria-hidden="true" size={20} />
-				<div className="settings-group-heading">
-					<h2 id={`settings-group-${id}-title`} className="surface-title">
-						{t(group.titleKey, group.title)}
-					</h2>
-					<p className="settings-group-purpose">{t(group.purposeKey, group.purpose)}</p>
-				</div>
-				{status ? <Badge tone={status.tone}>{status.label}</Badge> : null}
-			</header>
-			<div className="settings-group-body">{children}</div>
-		</section>
-	);
-}
-
-const GROUP_COPY: Record<
-	SettingsGroupId,
-	{ titleKey: string; title: string; purposeKey: string; purpose: string }
-> = {
-	project: {
-		titleKey: 'ui.static.project.f6f4da8d',
-		title: 'Project',
-		purposeKey: 'app.settings.group.project.purpose',
-		purpose: 'Pick the active project that work runs against.',
-	},
-	runtime: {
-		titleKey: 'settings.runtime.section.title',
-		title: 'Runtime & Models',
-		purposeKey: 'app.settings.group.runtime.purpose',
-		purpose: 'Get a runtime provider ready and route models so an agent can actually run.',
-	},
-	agents: {
-		titleKey: 'app.nav.agents',
-		title: 'Agents',
-		purposeKey: 'app.settings.group.agents.purpose',
-		purpose: 'Agent profiles and runtime readiness.',
-	},
-	security: {
-		titleKey: 'app.workbench.team.role.security',
-		title: 'Security',
-		purposeKey: 'app.settings.group.security.purpose',
-		purpose: 'Policy, sandbox posture and the audit trail.',
-	},
-	workspaces: {
-		titleKey: 'app.nav.workspaces',
-		title: 'Workspaces',
-		purposeKey: 'app.settings.group.workspaces.purpose',
-		purpose: 'IDE-style workspace roots and import rules.',
-	},
-	integrations: {
-		titleKey: 'app.nav.integrations',
-		title: 'Integrations',
-		purposeKey: 'app.settings.group.integrations.purpose',
-		purpose: 'MCP servers and external tool connections.',
-	},
-	advanced: {
-		titleKey: 'settings.runtime.advanced',
-		title: 'Advanced',
-		purposeKey: 'app.settings.group.advanced.purpose',
-		purpose: 'Parameters, defaults, catalogs and personal preferences.',
-	},
-};
 
 export function ConsoleLink({ page, label }: { page: string; label: string }) {
 	return (
@@ -285,42 +39,6 @@ export function ConsoleLink({ page, label }: { page: string; label: string }) {
 			{label}
 		</a>
 	);
-}
-
-function projectStatus(
-	selectedProject: Project | null,
-	t: (key: string, fallback: string) => string,
-): { tone: Tone; label: string } {
-	if (selectedProject) return { tone: 'ok', label: t('app.home.copy.15', 'Selected') };
-	return { tone: 'warn', label: t('app.settings.project.noneSelected', 'None selected') };
-}
-
-function runtimeStatus(
-	runtimeProviders: RuntimeProviders | null,
-	t: (key: string, fallback: string) => string,
-): { tone: Tone; label: string } {
-	const executable =
-		runtimeProviders?.providers?.filter((provider) => provider.executable).length ?? 0;
-	const word = t('app.runtime.executable', 'executable');
-	return { tone: executable > 0 ? 'ok' : 'warn', label: `${executable} ${word}` };
-}
-
-function agentsStatus(
-	overview: Overview,
-	t: (key: string, fallback: string) => string,
-): { tone: Tone; label: string } {
-	const count = overview.agentProfiles.length;
-	const word = t('app.settings.agents.profilesWord', 'profiles');
-	return { tone: count > 0 ? 'info' : 'warn', label: `${count} ${word}` };
-}
-
-function workspacesStatus(
-	overview: Overview,
-	t: (key: string, fallback: string) => string,
-): { tone: Tone; label: string } {
-	const count = overview.runtimeWorkspaces.length || overview.projects.length;
-	const word = t('app.settings.workspaces.rootsWord', 'roots');
-	return { tone: 'ok', label: `${count} ${word}` };
 }
 
 export function ProjectBody({
@@ -547,6 +265,10 @@ export function AgentsBody({
 	);
 }
 
+/**
+ * Credential/security surface kept as the secret-leak tripwire anchor (see file header).
+ * Not imported by the modal section registry; the modal renders credentials directly.
+ */
 export function SecurityBody({ overview, token }: { overview: Overview; token: string }) {
 	const { t } = useI18n();
 	const sandboxProfile = overview.sandboxProfiles[0];

@@ -30,7 +30,9 @@ class _FakeKeyring:
         self.values.pop((service, account), None)
 
 
-def _client(tmp_path: Path, monkeypatch) -> tuple[TestClient, dict[str, str], ControlPlaneFixture, _FakeKeyring]:
+def _client(
+    tmp_path: Path, monkeypatch
+) -> tuple[TestClient, dict[str, str], ControlPlaneFixture, _FakeKeyring]:
     fake_keyring = _FakeKeyring()
     monkeypatch.setattr(KeyringBackend, "_keyring", staticmethod(lambda: fake_keyring))
     store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
@@ -106,7 +108,9 @@ def test_credentials_api_lifecycle_never_returns_secret_values(tmp_path: Path, m
     assert [entry["action"] for entry in audit] == ["create", "validate", "rotate", "delete"]
     assert SECRET not in json.dumps(audit) and ROTATED_SECRET not in json.dumps(audit)
     assert CredentialRepository(store.connection).find_credential_by_name("codex/personal") is None
-    sqlite_text = " ".join(str(tuple(row)) for row in store.connection.execute("SELECT * FROM credential_audit"))
+    sqlite_text = " ".join(
+        str(tuple(row)) for row in store.connection.execute("SELECT * FROM credential_audit")
+    )
     assert SECRET not in sqlite_text and ROTATED_SECRET not in sqlite_text
 
 

@@ -9,9 +9,45 @@ vía alias de campo, reflejando exactamente las claves de los mapeadores ``row_t
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
+
+FEEDBACK_ACTION_VALUES = (
+    "accept",
+    "request_changes",
+    "change_scope",
+    "reprioritize",
+    "reject_decision",
+    "reopen_story",
+    "pause_loop",
+    "cancel_loop",
+)
+FeedbackAction = Literal[
+    "accept",
+    "request_changes",
+    "change_scope",
+    "reprioritize",
+    "reject_decision",
+    "reopen_story",
+    "pause_loop",
+    "cancel_loop",
+]
+
+FEEDBACK_CLASSIFICATION_VALUES = (
+    "rework_task",
+    "new_story",
+    "new_epic",
+    "brief_revision",
+    "architecture_revision",
+)
+FeedbackClassification = Literal[
+    "rework_task",
+    "new_story",
+    "new_epic",
+    "brief_revision",
+    "architecture_revision",
+]
 
 
 class ProductLoopRecord(BaseModel):
@@ -52,8 +88,8 @@ class ProductLoopFeedbackRecord(BaseModel):
     id: str
     loop_id: str = Field(alias="loopId")
     project_id: str = Field(alias="projectId")
-    action: str
-    classification: str
+    action: FeedbackAction
+    classification: FeedbackClassification
     feedback: str
     actor: str
     target_type: str = Field(alias="targetType")
@@ -342,7 +378,7 @@ class ProductLoopTransitionRequest(BaseModel):
 class ProductLoopFeedbackRequest(BaseModel):
     """Comando de feedback del usuario aplicado por el coordinador del Product Loop."""
 
-    action: str
+    action: FeedbackAction
     feedback: str
     actor: str | None = None
     target_type: str | None = Field(default=None, alias="targetType")

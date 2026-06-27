@@ -81,8 +81,6 @@ class SettingsRepository:
             "SELECT key, scope, scope_id, value_json FROM settings_value"
         ).fetchall()
         return {
-            (row["key"], row["scope"], self._decode_scope_id(row["scope_id"])): json.loads(
-                row["value_json"]
-            )
+            (row["key"], row["scope"], self._decode_scope_id(row["scope_id"])): json.loads(row["value_json"])
             for row in rows
         }

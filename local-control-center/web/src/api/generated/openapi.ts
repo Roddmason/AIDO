@@ -190,8 +190,8 @@ export type PricingSnapshotsListResponse = { "pricingSnapshots": Array<PricingSn
 export type ProductBriefRecord = { "createdAt": string; "goals": Array<JsonValue>; "id": string; "initiativeId"?: null | string; "outOfScope"?: null | string; "problemStatement"?: null | string; "projectId": string; "scope"?: null | string; "status": string; "successMetrics": Array<JsonValue>; "summary"?: null | string; "targetUsers": Array<JsonValue>; "title": string; "updatedAt": string; "version": number };
 export type ProductDecisionRecord = { "briefId"?: null | string; "consequences": Array<JsonValue>; "context"?: null | string; "createdAt": string; "decidedAt"?: null | string; "decidedBy"?: null | string; "decision"?: null | string; "id": string; "initiativeId"?: null | string; "linkedAssumptionIds": Array<JsonValue>; "linkedQuestionIds": Array<JsonValue>; "metadata": JsonObject; "projectId": string; "rationale"?: null | string; "status": string; "supersedesId"?: null | string; "title": string; "updatedAt": string; "version": number };
 export type ProductLoopFeedbackApplyResponse = { "allowedNextStates": Array<string>; "feedback": ProductLoopFeedbackRecord; "loop": ProductLoopRecord; "resumable": boolean; "transitions": Array<ProductLoopTransitionRecord> };
-export type ProductLoopFeedbackRecord = { "action": string; "actor": string; "classification": string; "createdAt": string; "effects": Array<JsonValue>; "feedback": string; "id": string; "loopId": string; "metadata": JsonObject; "projectId": string; "status": string; "targetId": string; "targetType": string; "updatedAt": string };
-export type ProductLoopFeedbackRequest = { "action": string; "actor"?: null | string; "correlationId"?: null | string; "expectedVersion"?: null | number; "feedback": string; "payload"?: JsonObject | null; "targetId"?: null | string; "targetType"?: null | string };
+export type ProductLoopFeedbackRecord = { "action": "accept" | "request_changes" | "change_scope" | "reprioritize" | "reject_decision" | "reopen_story" | "pause_loop" | "cancel_loop"; "actor": string; "classification": "rework_task" | "new_story" | "new_epic" | "brief_revision" | "architecture_revision"; "createdAt": string; "effects": Array<JsonValue>; "feedback": string; "id": string; "loopId": string; "metadata": JsonObject; "projectId": string; "status": string; "targetId": string; "targetType": string; "updatedAt": string };
+export type ProductLoopFeedbackRequest = { "action": "accept" | "request_changes" | "change_scope" | "reprioritize" | "reject_decision" | "reopen_story" | "pause_loop" | "cancel_loop"; "actor"?: null | string; "correlationId"?: null | string; "expectedVersion"?: null | number; "feedback": string; "payload"?: JsonObject | null; "targetId"?: null | string; "targetType"?: null | string };
 export type ProductLoopRecord = { "context": JsonObject; "createdAt": string; "id": string; "initiativeId"?: null | string; "previousState"?: null | string; "projectId": string; "state": string; "status": string; "title": string; "updatedAt": string; "version": number };
 export type ProductLoopResumeResponse = { "allowedNextStates": Array<string>; "loop": ProductLoopRecord; "resumable": boolean; "transitions": Array<ProductLoopTransitionRecord> };
 export type ProductLoopStartRequest = { "budget"?: JsonObject | null; "context"?: JsonObject | null; "correlationId"?: null | string; "deadline"?: null | string; "initiativeId"?: null | string; "maxReworkRounds"?: null | number; "timeouts"?: JsonObject | null; "title": string };
@@ -302,6 +302,17 @@ export type SecurityAgentRunResponse = { "agentRun": AgentRunRecord; "contract":
 export type SecurityAgentStatus = { "candidateRuntimeIds"?: Array<string>; "contract": SecurityAgentContract; "executable": boolean; "id": string; "reason": string; "selectedRuntimeId"?: null | string; "status": string };
 export type SecurityAgentStatusResponse = { "securityAgent": SecurityAgentStatus };
 export type SecurityPosture = { "loopbackOnly": boolean; "writeTokenRequired": boolean };
+export type SelfImprovementLessonRecord = { "approvedActionRequestId": string; "createdAt": string; "evidencePackageIds": Array<string>; "id": string; "lesson": string; "metadata": JsonObject; "promotedAt"?: null | string; "promotedBy": string; "promotionActionRequestId": string; "promotionJobId": string; "promotionStatus": string; "proposalId"?: null | string; "scope": "project" | "global"; "selfProjectId": string; "sourceProjectId": string; "status": string; "title": string; "updatedAt": string };
+export type SelfImprovementLessonRequest = { "evidencePackageIds"?: Array<string>; "lesson": string; "metadata"?: JsonObject; "proposalId"?: null | string; "proposedBy"?: string; "scope": "project" | "global"; "sourceProjectId": string; "title": string };
+export type SelfImprovementLessonResponse = { "auditEvent": AuditEventRecord; "lesson": SelfImprovementLessonRecord; "promotionActionRequest"?: ActionRequestRecord | null; "promotionJob"?: JobRecord | null };
+export type SelfImprovementPerformanceRecord = { "baselineValue"?: null | number; "createdAt": string; "evidencePackageId": string; "id": string; "metadata": JsonObject; "metricName": string; "proposalId"?: null | string; "recordedBy": string; "selfProjectId": string; "sourceProjectId": string; "targetValue"?: null | number; "unit": string; "value": number };
+export type SelfImprovementPerformanceRequest = { "baselineValue"?: null | number; "evidencePackageId": string; "metadata"?: JsonObject; "metricName": string; "proposalId"?: null | string; "recordedBy"?: string; "sourceProjectId": string; "targetValue"?: null | number; "unit": string; "value": number };
+export type SelfImprovementPerformanceResponse = { "auditEvent": AuditEventRecord; "performanceRecord": SelfImprovementPerformanceRecord };
+export type SelfImprovementPromoteLessonRequest = { "actor"?: string; "reason": string };
+export type SelfImprovementProposalRecord = { "createdAt": string; "epicId": string; "goalLoopId": string; "id": string; "metadata": JsonObject; "qaCommands": Array<Array<string>>; "selfProjectId": string; "sourceProjectId": string; "status": string; "storyId": string; "summary": string; "targetPaths": Array<string>; "taskId": string; "title": string; "updatedAt": string; "workflowId": string; "workspaceId": string };
+export type SelfImprovementProposalRequest = { "metadata"?: JsonObject; "proposedBy"?: string; "qaCommands"?: Array<Array<string>>; "sourceProjectId": string; "summary": string; "targetPaths"?: Array<string>; "title": string };
+export type SelfImprovementProposalResponse = { "auditEvent": AuditEventRecord; "epic": EpicRecord; "goal": ProductLoopRecord; "proposal": SelfImprovementProposalRecord; "selfImprovementProject": ProjectRecord; "sourceProject": ProjectRecord; "story": UserStoryRecord; "task": AgentTaskRecord; "workflow": WorkflowRecord; "workspace": WorkspaceRecord };
+export type SelfImprovementStateResponse = { "lessons": Array<SelfImprovementLessonRecord>; "performanceRecords": Array<SelfImprovementPerformanceRecord>; "proposals": Array<SelfImprovementProposalRecord>; "selfImprovementProject": ProjectRecord | null };
 export type SessionCreateRequest = { "name"?: null | string; "projectId": string; "teamId"?: null | string };
 export type SessionRecord = { "createdAt": string; "id": string; "metadata": JsonObject; "name": string; "projectId": string; "status": string; "teamId"?: null | string; "updatedAt": string };
 export type SessionResponse = { "session": SessionRecord };
@@ -484,6 +495,11 @@ export const API_ENDPOINTS = [
 	{"method": "POST", "operationId": "revoke_sandbox_profile_api_v1_sandbox_profiles__profile_id__revoke_post", "path": "/api/v1/sandbox/profiles/{profile_id}/revoke", "summary": "Revoke Sandbox Profile"},
 	{"method": "GET", "operationId": "sandbox_status_api_v1_sandbox_status_get", "path": "/api/v1/sandbox/status", "summary": "Sandbox Status"},
 	{"method": "GET", "operationId": "handshake_api_v1_security_handshake_get", "path": "/api/v1/security/handshake", "summary": "Handshake"},
+	{"method": "GET", "operationId": "get_self_improvement_state_api_v1_self_improvement_get", "path": "/api/v1/self-improvement", "summary": "Get Self Improvement State"},
+	{"method": "POST", "operationId": "record_self_improvement_lesson_api_v1_self_improvement_lessons_post", "path": "/api/v1/self-improvement/lessons", "summary": "Record Self Improvement Lesson"},
+	{"method": "POST", "operationId": "promote_self_improvement_lesson_api_v1_self_improvement_lessons__lesson_id__promote_post", "path": "/api/v1/self-improvement/lessons/{lesson_id}/promote", "summary": "Promote Self Improvement Lesson"},
+	{"method": "POST", "operationId": "record_self_improvement_performance_api_v1_self_improvement_performance_records_post", "path": "/api/v1/self-improvement/performance-records", "summary": "Record Self Improvement Performance"},
+	{"method": "POST", "operationId": "create_self_improvement_proposal_api_v1_self_improvement_proposals_post", "path": "/api/v1/self-improvement/proposals", "summary": "Create Self Improvement Proposal"},
 	{"method": "GET", "operationId": "list_sessions_api_v1_sessions_get", "path": "/api/v1/sessions", "summary": "List Sessions"},
 	{"method": "POST", "operationId": "create_session_api_v1_sessions_post", "path": "/api/v1/sessions", "summary": "Create Session"},
 	{"method": "GET", "operationId": "get_settings_api_v1_settings_get", "path": "/api/v1/settings", "summary": "Get Settings"},
@@ -560,6 +576,7 @@ export type OperationRequestBodies = {
 	"create_risk_api_v1_risks_post": RiskCreateRequest,
 	"create_role_policy_api_v1_model_gateway_role_policies_post": RolePolicyUpsertRequest,
 	"create_routing_profile_api_v1_model_gateway_routing_profiles_post": RoutingProfileUpsertRequest,
+	"create_self_improvement_proposal_api_v1_self_improvement_proposals_post": SelfImprovementProposalRequest,
 	"create_session_api_v1_sessions_post": SessionCreateRequest,
 	"create_workflow_api_v1_workflows_post": WorkflowCreateRequest,
 	"delete_credential_api_v1_credentials__credential_id__delete": never,
@@ -580,6 +597,7 @@ export type OperationRequestBodies = {
 	"get_i18n_catalog_api_v1_i18n_catalog_get": never,
 	"get_product_loop_state_api_v1_projects__project_id__product_loop_get": never,
 	"get_provider_api_v1_model_gateway_providers__provider_id__get": never,
+	"get_self_improvement_state_api_v1_self_improvement_get": never,
 	"get_settings_api_v1_settings_get": never,
 	"get_workflow_api_v1_workflows__workflow_id__get": never,
 	"governance_api_v1_governance_get": never,
@@ -641,10 +659,13 @@ export type OperationRequestBodies = {
 	"projects_api_v1_projects_get": never,
 	"promote_issue_to_pr_branch_api_v1_workflows_issue_to_pr__run_id__promote_post": PromotePatchToBranchRequest,
 	"promote_patch_to_branch_api_v1_workflows_issue_to_patch__run_id__promote_post": PromotePatchToBranchRequest,
+	"promote_self_improvement_lesson_api_v1_self_improvement_lessons__lesson_id__promote_post": SelfImprovementPromoteLessonRequest,
 	"provider_health_check_api_v1_model_gateway_providers__provider_id__health_check_post": unknown,
 	"providers_api_v1_providers_get": never,
 	"put_i18n_catalog_api_v1_i18n_catalog_put": I18nCatalog,
 	"put_setting_api_v1_settings__key__put": SetSettingRequest,
+	"record_self_improvement_lesson_api_v1_self_improvement_lessons_post": SelfImprovementLessonRequest,
+	"record_self_improvement_performance_api_v1_self_improvement_performance_records_post": SelfImprovementPerformanceRequest,
 	"register_mcp_server_api_v1_integrations_mcp_register_post": McpServerRegisterRequest,
 	"research_agent_status_api_v1_agents_research_status_get": never,
 	"resume_workflow_api_v1_workflows__workflow_id__resume_post": WorkflowStatusChangeRequest,
@@ -726,6 +747,7 @@ export type OperationResponseBodies = {
 	"create_risk_api_v1_risks_post": RiskResponse,
 	"create_role_policy_api_v1_model_gateway_role_policies_post": RolePolicyResponse,
 	"create_routing_profile_api_v1_model_gateway_routing_profiles_post": RoutingProfileResponse,
+	"create_self_improvement_proposal_api_v1_self_improvement_proposals_post": SelfImprovementProposalResponse,
 	"create_session_api_v1_sessions_post": SessionResponse,
 	"create_workflow_api_v1_workflows_post": WorkflowResponse,
 	"delete_credential_api_v1_credentials__credential_id__delete": CredentialDeleteResponse,
@@ -746,6 +768,7 @@ export type OperationResponseBodies = {
 	"get_i18n_catalog_api_v1_i18n_catalog_get": I18nCatalogResponse,
 	"get_product_loop_state_api_v1_projects__project_id__product_loop_get": ProductLoopStateResponse,
 	"get_provider_api_v1_model_gateway_providers__provider_id__get": ProviderAccountResponse,
+	"get_self_improvement_state_api_v1_self_improvement_get": SelfImprovementStateResponse,
 	"get_settings_api_v1_settings_get": SettingsResponse,
 	"get_workflow_api_v1_workflows__workflow_id__get": WorkflowDetailResponse,
 	"governance_api_v1_governance_get": GovernanceResponse,
@@ -807,10 +830,13 @@ export type OperationResponseBodies = {
 	"projects_api_v1_projects_get": ProjectsListResponse,
 	"promote_issue_to_pr_branch_api_v1_workflows_issue_to_pr__run_id__promote_post": IssueToPrResponse,
 	"promote_patch_to_branch_api_v1_workflows_issue_to_patch__run_id__promote_post": IssueToPatchResponse,
+	"promote_self_improvement_lesson_api_v1_self_improvement_lessons__lesson_id__promote_post": SelfImprovementLessonResponse,
 	"provider_health_check_api_v1_model_gateway_providers__provider_id__health_check_post": ProviderHealthResponse,
 	"providers_api_v1_providers_get": ProvidersListResponse,
 	"put_i18n_catalog_api_v1_i18n_catalog_put": I18nCatalogResponse,
 	"put_setting_api_v1_settings__key__put": never,
+	"record_self_improvement_lesson_api_v1_self_improvement_lessons_post": SelfImprovementLessonResponse,
+	"record_self_improvement_performance_api_v1_self_improvement_performance_records_post": SelfImprovementPerformanceResponse,
 	"register_mcp_server_api_v1_integrations_mcp_register_post": McpServerResponse,
 	"research_agent_status_api_v1_agents_research_status_get": ResearchAgentStatusResponse,
 	"resume_workflow_api_v1_workflows__workflow_id__resume_post": WorkflowResponse,
@@ -993,6 +1019,11 @@ export const OPERATIONS_BY_ID = {
 	"revoke_sandbox_profile_api_v1_sandbox_profiles__profile_id__revoke_post": {"method": "POST", "operationId": "revoke_sandbox_profile_api_v1_sandbox_profiles__profile_id__revoke_post", "path": "/api/v1/sandbox/profiles/{profile_id}/revoke", "summary": "Revoke Sandbox Profile"},
 	"sandbox_status_api_v1_sandbox_status_get": {"method": "GET", "operationId": "sandbox_status_api_v1_sandbox_status_get", "path": "/api/v1/sandbox/status", "summary": "Sandbox Status"},
 	"handshake_api_v1_security_handshake_get": {"method": "GET", "operationId": "handshake_api_v1_security_handshake_get", "path": "/api/v1/security/handshake", "summary": "Handshake"},
+	"get_self_improvement_state_api_v1_self_improvement_get": {"method": "GET", "operationId": "get_self_improvement_state_api_v1_self_improvement_get", "path": "/api/v1/self-improvement", "summary": "Get Self Improvement State"},
+	"record_self_improvement_lesson_api_v1_self_improvement_lessons_post": {"method": "POST", "operationId": "record_self_improvement_lesson_api_v1_self_improvement_lessons_post", "path": "/api/v1/self-improvement/lessons", "summary": "Record Self Improvement Lesson"},
+	"promote_self_improvement_lesson_api_v1_self_improvement_lessons__lesson_id__promote_post": {"method": "POST", "operationId": "promote_self_improvement_lesson_api_v1_self_improvement_lessons__lesson_id__promote_post", "path": "/api/v1/self-improvement/lessons/{lesson_id}/promote", "summary": "Promote Self Improvement Lesson"},
+	"record_self_improvement_performance_api_v1_self_improvement_performance_records_post": {"method": "POST", "operationId": "record_self_improvement_performance_api_v1_self_improvement_performance_records_post", "path": "/api/v1/self-improvement/performance-records", "summary": "Record Self Improvement Performance"},
+	"create_self_improvement_proposal_api_v1_self_improvement_proposals_post": {"method": "POST", "operationId": "create_self_improvement_proposal_api_v1_self_improvement_proposals_post", "path": "/api/v1/self-improvement/proposals", "summary": "Create Self Improvement Proposal"},
 	"list_sessions_api_v1_sessions_get": {"method": "GET", "operationId": "list_sessions_api_v1_sessions_get", "path": "/api/v1/sessions", "summary": "List Sessions"},
 	"create_session_api_v1_sessions_post": {"method": "POST", "operationId": "create_session_api_v1_sessions_post", "path": "/api/v1/sessions", "summary": "Create Session"},
 	"get_settings_api_v1_settings_get": {"method": "GET", "operationId": "get_settings_api_v1_settings_get", "path": "/api/v1/settings", "summary": "Get Settings"},

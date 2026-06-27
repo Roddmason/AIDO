@@ -7,7 +7,7 @@ helpers that enforce type constraints at trust boundaries before any persistence
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 
@@ -70,20 +70,15 @@ def validate_value(descriptor: SettingDescriptor, value: Any) -> Any:
     if descriptor.type == "enum":
         if value not in (descriptor.enum or ()):
             raise ValueError(
-                f"Invalid value {value!r} for {descriptor.key!r}; "
-                f"must be one of {descriptor.enum!r}."
+                f"Invalid value {value!r} for {descriptor.key!r}; must be one of {descriptor.enum!r}."
             )
         return value
     if descriptor.type == "number":
         try:
             return float(value)
         except (TypeError, ValueError) as exc:
-            raise ValueError(
-                f"Invalid numeric value {value!r} for {descriptor.key!r}."
-            ) from exc
+            raise ValueError(f"Invalid numeric value {value!r} for {descriptor.key!r}.") from exc
     # string: must be an actual str (reject dict/list/number)
     if not isinstance(value, str):
-        raise ValueError(
-            f"Invalid value {value!r} for {descriptor.key!r}; expected a string."
-        )
+        raise ValueError(f"Invalid value {value!r} for {descriptor.key!r}; expected a string.")
     return value

@@ -37,9 +37,7 @@ def test_phase26_creates_settings_value_table(tmp_path: Path) -> None:
         ).fetchone()
         assert row is not None, "settings_value table must exist after phase-26 migration"
 
-        version_row = conn.execute(
-            "SELECT version FROM schema_migrations WHERE version=26"
-        ).fetchone()
+        version_row = conn.execute("SELECT version FROM schema_migrations WHERE version=26").fetchone()
         assert version_row is not None
         assert version_row["version"] == 26
     finally:
@@ -52,7 +50,7 @@ def test_phase26_creates_settings_value_table(tmp_path: Path) -> None:
 
 
 def test_registry_descriptor_for_known_key(tmp_path: Path) -> None:
-    from local_control_center.settings.registry import REGISTRY, descriptor_for, validate_value
+    from local_control_center.settings.registry import REGISTRY, descriptor_for
 
     desc = descriptor_for("autonomy.level")
     assert desc is not None
@@ -112,7 +110,7 @@ def test_validate_value_number_rejects_non_numeric_string(tmp_path: Path) -> Non
 def test_repository_round_trip(tmp_path: Path) -> None:
     runtime, _c = _client(tmp_path)
     try:
-        from local_control_center.settings.repository import UNSET, SettingsRepository
+        from local_control_center.settings.repository import SettingsRepository
 
         repo = SettingsRepository(runtime.connection)
         repo.set_value("autonomy.level", "general", None, "recommended")
@@ -239,7 +237,7 @@ def test_resolver_project_override_wins(tmp_path: Path) -> None:
 def test_models_settings_response_round_trips(tmp_path: Path) -> None:
     runtime, _c = _client(tmp_path)
     try:
-        from local_control_center.settings.models import SetSettingRequest, SettingsResponse
+        from local_control_center.settings.models import SettingsResponse
         from local_control_center.settings.resolver import resolve_settings
 
         raw = resolve_settings(connection=runtime.connection, project_id="proj-1")

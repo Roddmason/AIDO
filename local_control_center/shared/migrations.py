@@ -43,6 +43,7 @@ def initialize_platform_schema(connection: sqlite3.Connection) -> None:
     init_phase24_schema(connection)
     init_phase25_schema(connection)
     init_phase26_schema(connection)
+    init_phase27_schema(connection)
     seed_platform_catalogs(connection)
 
 
@@ -3306,6 +3307,90 @@ def init_phase26_schema(connection: sqlite3.Connection) -> None:
     connection.execute(
         "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
         (26, utc_now()),
+    )
+
+
+def init_phase27_schema(connection: sqlite3.Connection) -> None:
+    """Fase 27: self-improvement durable para propuestas, lessons y performance records.
+
+    Las propuestas de mejora de AIDO quedan vinculadas a proyecto self-improvement, backlog,
+    workspace aislado y workflow PR. Las lessons globales no se promueven automáticamente: se guardan
+    como candidatas con evidencia y una action request de aprobación. Los performance records exigen
+    evidencia para que la mejora se mida con datos trazables, no por intuición.
+    """
+    connection.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS self_improvement_proposals (
+            id TEXT PRIMARY KEY,
+            self_project_id TEXT NOT NULL,
+            source_project_id TEXT NOT NULL,
+            title TEXT NOT NULL,
+            summary TEXT NOT NULL,
+            status TEXT NOT NULL,
+            goal_loop_id TEXT NOT NULL,
+            epic_id TEXT NOT NULL,
+            story_id TEXT NOT NULL,
+            task_id TEXT NOT NULL,
+            workspace_id TEXT NOT NULL,
+            workflow_id TEXT NOT NULL,
+            target_paths TEXT NOT NULL,
+            qa_commands TEXT NOT NULL,
+            metadata TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS self_improvement_lessons (
+            id TEXT PRIMARY KEY,
+            self_project_id TEXT NOT NULL,
+            source_project_id TEXT NOT NULL,
+            proposal_id TEXT,
+            scope TEXT NOT NULL,
+            title TEXT NOT NULL,
+            lesson TEXT NOT NULL,
+            status TEXT NOT NULL,
+            promotion_status TEXT NOT NULL,
+            evidence_package_ids TEXT NOT NULL,
+            promotion_job_id TEXT NOT NULL,
+            promotion_action_request_id TEXT NOT NULL,
+            approved_action_request_id TEXT NOT NULL,
+            promoted_by TEXT NOT NULL,
+            promoted_at TEXT,
+            metadata TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS self_improvement_performance_records (
+            id TEXT PRIMARY KEY,
+            self_project_id TEXT NOT NULL,
+            source_project_id TEXT NOT NULL,
+            proposal_id TEXT,
+            metric_name TEXT NOT NULL,
+            value REAL NOT NULL,
+            unit TEXT NOT NULL,
+            baseline_value REAL,
+            target_value REAL,
+            evidence_package_id TEXT NOT NULL,
+            recorded_by TEXT NOT NULL,
+            metadata TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_self_improvement_proposals_source
+            ON self_improvement_proposals(source_project_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_self_improvement_proposals_self_project
+            ON self_improvement_proposals(self_project_id, status, created_at);
+        CREATE INDEX IF NOT EXISTS idx_self_improvement_lessons_source
+            ON self_improvement_lessons(source_project_id, scope, created_at);
+        CREATE INDEX IF NOT EXISTS idx_self_improvement_lessons_promotion
+            ON self_improvement_lessons(scope, promotion_status, created_at);
+        CREATE INDEX IF NOT EXISTS idx_self_improvement_performance_source
+            ON self_improvement_performance_records(source_project_id, metric_name, created_at);
+        CREATE INDEX IF NOT EXISTS idx_self_improvement_performance_proposal
+            ON self_improvement_performance_records(proposal_id, metric_name);
+        """
+    )
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (27, utc_now()),
     )
 
 

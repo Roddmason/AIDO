@@ -221,9 +221,7 @@ def row_to_agent_assignment(row: sqlite3.Row) -> dict[str, Any]:
         "releasedAt": row["released_at"],
         "inputSchema": json_loads(row["input_schema"], {}) if "input_schema" in row.keys() else {},
         "outputSchema": json_loads(row["output_schema"], {}) if "output_schema" in row.keys() else {},
-        "canonicalArtifactId": row["canonical_artifact_id"]
-        if "canonical_artifact_id" in row.keys()
-        else "",
+        "canonicalArtifactId": row["canonical_artifact_id"] if "canonical_artifact_id" in row.keys() else "",
         "handoffId": row["handoff_id"] if "handoff_id" in row.keys() else "",
         "reviewRequired": _as_bool(row["review_required"]) if "review_required" in row.keys() else False,
         "metadata": json_loads(row["metadata"]),
@@ -918,10 +916,10 @@ class BacklogRepository:
         task = self.get_agent_task(body["taskId"])
         assignment_id = f"agent-assignment-{uuid.uuid4()}"
         role = str(body.get("role") or task["role"])
-        input_schema = _normalize_schema(body.get("inputSchema"), _default_assignment_input_schema(task, role))
-        output_schema = _normalize_schema(
-            body.get("outputSchema"), _default_assignment_output_schema(role)
+        input_schema = _normalize_schema(
+            body.get("inputSchema"), _default_assignment_input_schema(task, role)
         )
+        output_schema = _normalize_schema(body.get("outputSchema"), _default_assignment_output_schema(role))
         review_required = self._assignment_requires_review(body, role)
         timestamp = utc_now()
         with self._transaction():

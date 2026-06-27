@@ -70,9 +70,7 @@ def test_migration_populates_tables_warns_and_never_copies_the_secret(tmp_path: 
         audit = connection.execute("SELECT * FROM credential_audit").fetchall()
         assert all(secret not in str(tuple(row)) for row in audit for secret in SECRET_VALUES)
         assert {entry["action"] for entry in credential_repo.list_audit()} == {"migrate"}
-        assert {entry["backendKind"] for entry in credential_repo.list_audit()} == {
-            "environment_override"
-        }
+        assert {entry["backendKind"] for entry in credential_repo.list_audit()} == {"environment_override"}
 
 
 def test_migration_falls_back_to_legacy_env_var_by_precedence(tmp_path: Path) -> None:

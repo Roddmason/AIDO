@@ -15,6 +15,8 @@ paths = [
   '''^\.claude/''',
   '''^\.tmp/''',
   '''^test-results/''',
+  '''__pycache__/''',
+  '''\.pyc$''',
   # Redaction unit test: its fixtures are non-real credential look-alikes that exercise redact_secrets.
   '''^tests_py/test_redaction\.py$''',
 ]

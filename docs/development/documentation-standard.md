@@ -10,7 +10,12 @@
 - **Semántica, no boilerplate.** El header dice qué provee el módulo y por qué existe, no "source module".
 - **Sin redundancia.** No repetir el nombre del símbolo ni reescribir la firma. Documenta intención,
   contrato, efectos e invariantes — lo que el código no dice por sí solo.
-- **Sin `@author` repetido.** La autoría vive en git/`NOTICE`, no en cada archivo.
+- **Autoría por archivo.** Cada archivo productivo lleva `@author Rodrigo Mason` en su header de módulo
+  (docstring Python / bloque `/** */` TS). Lo verifica el scanner.
+- **Solo docstrings/JSDoc.** En código productivo no se conservan comentarios sueltos (`#`, `//`,
+  `/* */` no-JSDoc): la documentación vive en el header y en las docstrings/JSDoc de API pública. Se
+  preservan únicamente las directivas funcionales *load-bearing* (`noqa`, `type: ignore`, `pragma`,
+  `coding`, shebang; `biome-ignore`, `@ts-*`, `eslint-*`, `<reference`).
 - **No documentar lo obvio.** Variables triviales, getters de una línea evidentes, re-exports: sin ruido.
 - **No tocar artefactos generados.** `local-control-center/web/src/api/generated/openapi.ts` queda excluido.
 
@@ -64,6 +69,6 @@ o un summary < 30 caracteres / vacío.
 1. Todo archivo productivo tiene header de módulo semántico (Python: docstring; TS: bloque `/** */`).
 2. Rechaza los placeholders genéricos y los summaries vacíos/triviales (< 30 chars).
 3. `security_policy/**` y `**repository.py` mencionan invariantes/`Raises`/transacciones según §4.
-4. Excluye `generated/`. No exige `@author` ni copyright.
+4. Excluye `generated/`. Exige `@author Rodrigo Mason` en cada header productivo; no exige copyright.
 
 Las docstrings de API pública Python se enforcan vía Ruff (`D101/D102/D103` en `pyproject.toml`).

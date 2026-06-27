@@ -1,8 +1,8 @@
-"""Scanner de documentación: rechaza headers genéricos y exige descripción semántica.
+"""Scanner de documentación: rechaza headers genéricos y exige descripción semántica + autoría.
 
 Reemplaza el antiguo gate de banners idénticos por una verificación de que cada módulo
-productivo (backend Python + frontend TS/TSX, excl. ``generated/``) explica qué hace,
-sin exigir ``@author``. Las docstrings de API pública Python se enforcan vía Ruff
+productivo (backend Python + frontend TS/TSX, excl. ``generated/``) explica qué hace y lleva
+``@author Rodrigo Mason`` en su header. Las docstrings de API pública Python se enforcan vía Ruff
 (``D101/D102/D103``). Contrato completo en ``docs/development/documentation-standard.md``.
 """
 
@@ -22,6 +22,7 @@ GENERIC_MARKERS = (
     "AIDO frontend source module",
 )
 MIN_SUMMARY_CHARS = 30
+AUTHOR_TAG = "@author Rodrigo Mason"
 
 # Módulos con requisitos de dominio (ver §4 del estándar).
 SECURITY_KEYWORDS = ("invariant", "raises", "raise", "lanza")
@@ -104,13 +105,25 @@ def test_frontend_modules_have_semantic_block_comment() -> None:
 
 
 def test_no_generic_banner_remains_anywhere() -> None:
-    # El esquema nuevo no exige @author; basta con que no quede ningún placeholder genérico.
+    # Además del header semántico, no debe quedar ningún placeholder genérico del esquema viejo.
     leftovers = [
         _rel(path)
         for path in [*_backend_files(), *_frontend_files()]
         if any(marker in path.read_text(encoding="utf-8") for marker in GENERIC_MARKERS)
     ]
     assert leftovers == [], leftovers
+
+
+def test_productive_modules_declare_author() -> None:
+    offenders: list[str] = []
+    for path in _backend_files():
+        if AUTHOR_TAG not in (_module_docstring(path) or ""):
+            offenders.append(_rel(path))
+    for path in _frontend_files():
+        if AUTHOR_TAG not in (_leading_block_comment(path.read_text(encoding="utf-8")) or ""):
+            offenders.append(_rel(path))
+
+    assert offenders == [], offenders
 
 
 def test_security_modules_document_invariants_or_raises() -> None:

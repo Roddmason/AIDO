@@ -1,6 +1,7 @@
 /**
  * Home gallery card for a review awaiting a human decision, with risk-driven
  * badge tone so urgency reads at a glance. One of the four masonry card kinds.
+ * @author Rodrigo Mason
  */
 import { ArrowRight, ClipboardCheck } from 'lucide-react';
 

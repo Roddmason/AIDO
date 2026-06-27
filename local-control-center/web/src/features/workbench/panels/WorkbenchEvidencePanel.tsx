@@ -2,6 +2,7 @@
  * Workbench Evidence panel: inspects an evidence package without leaving the workbench —
  * QA results, deliverable artifacts (preview/download), security findings, model/tool
  * calls and hashes. All previewed text is redacted before display.
+ * @author Rodrigo Mason
  */
 import { useEffect, useMemo, useState } from 'react';
 

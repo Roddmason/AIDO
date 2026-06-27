@@ -4,6 +4,7 @@
  * presentational — all state (the controlled `advanced` values) and the run dispatch live on
  * WorkbenchPage, so toggling intake modes never unmounts and resets the user's choices. Only
  * rendered in governed modes, keeping the simple conversation flow free of governance controls.
+ * @author Rodrigo Mason
  */
 import { AlertTriangle, SlidersHorizontal } from 'lucide-react';
 

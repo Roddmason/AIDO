@@ -2,6 +2,7 @@
  * Conversiones entre nombres de proyecto, slugs y rutas locales en el cliente.
  * Tolera separadores Windows y POSIX, y preserva el estilo de separador de la base
  * al unir rutas, para que las sugerencias de path coincidan con el SO del usuario.
+ * @author Rodrigo Mason
  */
 
 /** Turn a directory-like token ("my-project") into a human label ("My Project"). */

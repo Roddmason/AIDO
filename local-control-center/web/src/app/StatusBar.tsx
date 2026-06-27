@@ -5,6 +5,7 @@
  * Those controls used to live in the cluttered top header; they were relocated here so the shell body
  * and header stay clean (Codex-style). Health numbers come pre-derived from {@link deriveShellStatus};
  * theme and density are owned by their hooks.
+ * @author Rodrigo Mason
  */
 import { Moon, Rows3, Sun } from 'lucide-react';
 import type { Overview, Project, RuntimeProviders } from '../api/types';

@@ -5,6 +5,7 @@
  * the in-flight HTTP requests — the generated client threads the signal into fetch). Shared
  * resources (models, providers) are fetched on cache-miss so a cold deep-link to any tab
  * populates its dependencies, and skipped when already loaded so revisiting a tab never refetches.
+ * @author Rodrigo Mason
  */
 import {
 	type Dispatch,
@@ -152,7 +153,6 @@ type ResourceKey =
 	| 'cliRuntimes'
 	| 'cliSessions';
 
-// Resources owned by each tab; the Overview tile bar fetches its own resources on mount.
 const OVERVIEW_RESOURCES: ResourceKey[] = ['overview', 'runtimeConfig'];
 const TAB_RESOURCES: Record<ModelGatewayTab, ResourceKey[]> = {
 	providers: ['providers', 'runtimeProviders', 'runtimeConfig'],
@@ -191,11 +191,8 @@ export function useModelGatewayTabData({
 	const [slices, setSlices] = useState<Record<string, TabSlice>>({});
 	const slicesRef = useRef(slices);
 	slicesRef.current = slices;
-	// Resources already fetched (so shared deps are not refetched across tabs).
 	const loadedRef = useRef<Set<ResourceKey>>(new Set());
-	// One controller per active group, so switching tabs aborts the previous group's fetches.
 	const controllersRef = useRef<Map<string, AbortController>>(new Map());
-	// t only formats rarely-shown errors; keep it in a ref so the loaders stay referentially stable.
 	const tRef = useRef(t);
 	tRef.current = t;
 	const setGatewayRef = useRef(setGateway);
@@ -353,13 +350,11 @@ export function useModelGatewayTabData({
 		[load, resourcesFor],
 	);
 
-	// Overview tiles load once on mount and are never cancelled by tab switches.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: ensure is stable; run once on mount.
 	useEffect(() => {
 		ensure('overview');
 	}, []);
 
-	// Load the active tab on activation; aborts the previous tab's in-flight requests on switch.
 	useEffect(() => {
 		ensure(activeTab);
 		return () => {

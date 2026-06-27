@@ -5,6 +5,7 @@
  * disclosures keep low-level model/tool events and the raw run payloads out of the way until a
  * developer asks for them. All free text is re-masked through `redactVisibleSecret` before it reaches
  * the DOM — the backend already redacts at write time, so this is a defensive second layer.
+ * @author Rodrigo Mason
  */
 
 import type { TeamActivityEntry } from '../../api/types';

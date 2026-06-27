@@ -1,6 +1,7 @@
 /**
  * Right rail of the Workbench: surfaces the at-a-glance governance state of the active workspace —
  * runtime health, pending approvals, QA verdict and recorded blockers — with deep-link buttons.
+ * @author Rodrigo Mason
  */
 import { ClipboardCheck, FileCheck2, SlidersHorizontal } from 'lucide-react';
 

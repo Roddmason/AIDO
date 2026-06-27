@@ -2,6 +2,7 @@
  * Presentation model for the workbench run timeline: turns the staged status from
  * buildIssueTimeline into operator-facing phases with icon, i18n label and a human
  * reason per (phase, status), plus the index of the stage to focus.
+ * @author Rodrigo Mason
  */
 
 import type { LucideIcon } from 'lucide-react';
@@ -169,8 +170,6 @@ const REASONS: Record<TimelinePhase, Partial<Record<TimelineStatus, string>>> = 
 		blocked: 'Delivery blocked',
 		pending: 'No terminal verdict yet',
 	},
-	// Delivery stages carry their own reason (the stage owner), set by the adapter in
-	// useWorkbenchData, so no per-status reason is resolved from this run-phase map.
 	delivery: {},
 };
 

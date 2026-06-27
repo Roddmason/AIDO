@@ -5,6 +5,7 @@
  * Secret values are accepted only by the create/rotate forms and are cleared immediately after a
  * request. The rendered tables use `CredentialRecord`/`CredentialAuditRecord`, which intentionally
  * do not carry raw values, salt or hash material.
+ * @author Rodrigo Mason
  */
 
 import {

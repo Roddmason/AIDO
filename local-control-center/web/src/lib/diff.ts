@@ -2,6 +2,7 @@
  * Inspecciona patches unificados y listas de artefactos para la vista de revisión.
  * Detecta si un diff trae cambios reales, ubica los artefactos de patch/seguridad
  * por nombre o `kind`, y extrae los archivos tocados sin depender de un parser externo.
+ * @author Rodrigo Mason
  */
 import type { Artifact } from '../api/types';
 import { artifactDisplayName } from './artifacts';

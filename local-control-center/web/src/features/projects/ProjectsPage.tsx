@@ -4,6 +4,7 @@
  * The lane is mirrored in the URL hash (`#projects-<lane>`) so old per-lane deep links keep
  * resolving and back/forward stays in sync. Only the active lane can select a project to run
  * work against; other lanes stay audit-only. Per-lane copy lives in `statusCopy`.
+ * @author Rodrigo Mason
  */
 import { FolderPlus, Settings } from 'lucide-react';
 import { useEffect, useState } from 'react';
@@ -129,7 +130,6 @@ export function ProjectsPage({
 	const { t } = useI18n();
 	const [statusView, setStatusView] = useState<ProjectStatusView>(statusViewFromHash);
 
-	// Keep the lane synced with the hash so old deep links and back/forward both work.
 	useEffect(() => {
 		const onHash = () => setStatusView(statusViewFromHash());
 		window.addEventListener('hashchange', onHash);
@@ -138,7 +138,6 @@ export function ProjectsPage({
 
 	const handleStatusChange = (next: ProjectStatusView) => {
 		setStatusView(next);
-		// Mirror the lane into the hash (resolves to `projects` via alias) for deep-linking.
 		window.location.hash = `${PROJECTS_HASH_PREFIX}${next}`;
 	};
 

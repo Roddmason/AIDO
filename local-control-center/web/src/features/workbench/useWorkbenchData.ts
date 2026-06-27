@@ -2,6 +2,7 @@
  * Data hook for the Workbench: scopes the global overview to the selected project and
  * session, builds the team/delivery/timeline rows and blockers, and keeps the session
  * selection valid as projects change. Holds all derivation so WorkbenchPage stays a thin shell.
+ * @author Rodrigo Mason
  */
 
 import type { LucideIcon } from 'lucide-react';
@@ -429,7 +430,6 @@ export function useWorkbenchData({
 		if (selectedSessionId && projectSessions.some((session) => session.id === selectedSessionId))
 			return;
 		onResetSession(projectSessions[0]?.id ?? '');
-		// onResetSession is a stable setState; project.id captures project identity.
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [project?.id, projectSessions, selectedSessionId]);
 
@@ -470,8 +470,6 @@ export function useWorkbenchData({
 
 	const latestPipeline = sessionPipelines[0] ?? projectPipelines[0] ?? null;
 	const ownerLabel = t('app.workbench.timeline.deliveryOwner', 'Owner');
-	// Governed delivery stages adapted into the canonical timeline shape so one component
-	// renders them (instead of a bespoke list); `delivery` phase keeps them visually distinct.
 	const deliveryTimeline: WorkflowTimelineStage[] = deliveryStageBlueprints.map((stage, index) => {
 		const pipelineStage = latestPipeline?.stages.map(asRecord).find((item) => {
 			const normalized = stageName(item).toLowerCase();
@@ -499,8 +497,6 @@ export function useWorkbenchData({
 	});
 
 	const runTimeline = buildWorkflowTimeline(taskRunResult, isSubmittingTask, hasExecutableRuntime);
-	// "Has a run" = a result exists or a submission is in flight; otherwise the timeline must show
-	// an empty state, not the always-populated 8-step skeleton. Delivery is gated on a real pipeline.
 	const hasRun = taskRunResult != null || isSubmittingTask;
 	const hasPipeline = latestPipeline != null;
 

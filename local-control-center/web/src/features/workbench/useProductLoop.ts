@@ -4,6 +4,7 @@
  * when `refresh()` is called (after a loop mutation), and aborts the in-flight request on change/unmount.
  * Decoupled from the 5s overview poll: the loop is detail-shaped and changes infrequently, so it is
  * loaded on demand rather than folded into /overview.
+ * @author Rodrigo Mason
  */
 
 import { useCallback, useEffect, useState } from 'react';

@@ -1,6 +1,7 @@
 /**
  * Workbench Timeline panel: the run-progress view. Combines signal counters, the
  * detailed run timeline, the project delivery flow and recent runs/pipelines/events.
+ * @author Rodrigo Mason
  */
 import type { Overview } from '../../../api/types';
 import { Badge, DataTable, EmptyState, Surface } from '../../../components/primitives';

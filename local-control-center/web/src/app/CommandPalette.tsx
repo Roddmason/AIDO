@@ -3,6 +3,7 @@
  *
  * Groups actions by intent (navigate/actions/runtime) and exposes them as an ARIA
  * combobox+listbox. Open/close and Escape are owned by the App shortcut layer.
+ * @author Rodrigo Mason
  */
 
 import { m } from 'motion/react';
@@ -74,17 +75,14 @@ export function CommandPalette({
 		[results, t],
 	);
 
-	// Reset the highlight whenever the filter changes or the palette reopens.
 	useEffect(() => {
 		setActiveIndex(0);
 	}, [query, open]);
 
-	// Clear the filter once closed so the next open starts fresh.
 	useEffect(() => {
 		if (!open) setQuery('');
 	}, [open]);
 
-	// Autofocus the input on open; restore focus to the trigger on close.
 	useLayoutEffect(() => {
 		if (!open) return undefined;
 		previouslyFocused.current = (document.activeElement as HTMLElement | null) ?? null;
@@ -95,7 +93,6 @@ export function CommandPalette({
 		};
 	}, [open]);
 
-	// Keep the highlighted action scrolled into view.
 	useEffect(() => {
 		if (!open) return;
 		listRef.current?.querySelector('[data-active="true"]')?.scrollIntoView({ block: 'nearest' });
@@ -135,7 +132,6 @@ export function CommandPalette({
 		}
 	};
 
-	// Minimal focus trap: keep keyboard focus on the search input.
 	const onPanelKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
 		if (event.key === 'Tab') {
 			event.preventDefault();
@@ -145,10 +141,6 @@ export function CommandPalette({
 
 	const resultCount = enabledResults.length;
 
-	// Close is a hard unmount (deliberately no AnimatePresence/exit): the palette must
-	// disappear the instant `open` flips false so the useLayoutEffect cleanup restores
-	// focus to the trigger synchronously. An exit animation keeps it mounted and strands
-	// focus (regressing the Escape-restores-focus behavior). Enter animation only.
 	if (!open) return null;
 
 	return (

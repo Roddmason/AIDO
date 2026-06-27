@@ -7,6 +7,7 @@
  * center, and per-loop selection is not wired yet, so the rows are an honest status display rather than
  * a no-op click target. Data is real (useProductLoop); loading/empty/error are rendered honestly and no
  * value is fabricated (a missing status reads `unknown`, never an implied `active`).
+ * @author Rodrigo Mason
  */
 import { Badge, EmptyState } from '../../components/primitives';
 import { ErrorState, Skeleton } from '../../components/ui';
@@ -15,7 +16,6 @@ import { toneForStatus } from '../../lib/format';
 import { PRODUCT_LOOP_PHASES } from '../workbench/productLoopModel';
 import { useProductLoop } from '../workbench/useProductLoop';
 
-// Index of each happy-path phase, used to fill the progress bar up to the loop's current phase.
 const PHASE_INDEX = new Map<string, number>(
 	PRODUCT_LOOP_PHASES.map((state, index) => [state, index]),
 );

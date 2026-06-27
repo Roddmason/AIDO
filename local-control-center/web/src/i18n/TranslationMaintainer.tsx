@@ -4,6 +4,7 @@
  * Edits a local draft clone so changes stay uncommitted until saved, then persists
  * the whole catalog through the control plane and refreshes the live i18n context.
  * Adding a language seeds each key from the default-language value as a placeholder.
+ * @author Rodrigo Mason
  */
 import { Languages, Plus, Save, Undo2 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';

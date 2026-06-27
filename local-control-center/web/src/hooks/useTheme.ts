@@ -3,6 +3,7 @@
  *
  * Centralizes theme reads/writes so the pre-paint bootstrap and the runtime toggle
  * share one storage key and one DOM attribute, keeping `color-scheme` consistent.
+ * @author Rodrigo Mason
  */
 import { useCallback, useEffect, useState } from 'react';
 
@@ -31,9 +32,7 @@ function applyTheme(theme: Theme) {
 function persistTheme(theme: Theme) {
 	try {
 		window.localStorage.setItem(THEME_STORAGE_KEY, theme);
-	} catch {
-		// localStorage is optional in restricted browser contexts.
-	}
+	} catch {}
 }
 
 /** Applies the persisted theme to <html> before React renders, avoiding a flash. */

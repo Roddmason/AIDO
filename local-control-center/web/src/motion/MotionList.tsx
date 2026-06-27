@@ -2,6 +2,7 @@
  * Lista con entrada escalonada declarativa: el contenedor (`listStagger`) secuencia la
  * entrada de cada `MotionListItem` (`cardTransition`). Sustituye el stagger imperativo por
  * `[data-motion-item]`; el fallback reduced-motion lo aporta `MotionConfig reducedMotion="user"`.
+ * @author Rodrigo Mason
  */
 
 import { m } from 'motion/react';

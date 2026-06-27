@@ -3,6 +3,7 @@
  * WAI-ARIA tab/tabpanel wiring. The caller owns the active tab id and renders the active
  * panel as children. (Workbench keeps its motion-rich WorkbenchTabs; this is the plain
  * primitive for everything else.)
+ * @author Rodrigo Mason
  */
 
 import type { KeyboardEvent, ReactNode } from 'react';

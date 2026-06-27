@@ -5,6 +5,7 @@
  * The library-equivalent primitives live in `components/ui` and are re-exported here so
  * existing `import { Badge, EmptyState, Skeleton, Drawer, Modal } from '../primitives'`
  * sites keep working against a single implementation while pages migrate to `ui` directly.
+ * @author Rodrigo Mason
  */
 import { m, useReducedMotion } from 'motion/react';
 import type { ReactNode } from 'react';

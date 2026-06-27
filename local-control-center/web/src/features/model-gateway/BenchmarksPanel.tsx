@@ -2,6 +2,7 @@
  * Panel de benchmarks del Model Gateway: captura outcomes manuales y muestra los agregados por modelo.
  * Distingue evidencia objetiva (corridas automatizadas / validación de release) de reportes manuales del
  * operador y marca como no probatorias las muestras solo-manuales o con datos insuficientes.
+ * @author Rodrigo Mason
  */
 import type {
 	ModelGatewayBenchmark,

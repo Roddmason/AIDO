@@ -2,6 +2,7 @@
  * Hook backing the reviewer's artifact preview/download UI: token-protected reads
  * of any linked artifact through the evidence endpoint, with generation guards so
  * stale responses cannot clobber newer state. State container, not a renderer.
+ * @author Rodrigo Mason
  */
 import { useRef, useState } from 'react';
 import type { ArtifactPayload } from '../../api/client';
@@ -35,11 +36,7 @@ export function useArtifactPreview(token: string): ArtifactPreview {
 	const [loadingId, setLoadingId] = useState('');
 	const [downloadingId, setDownloadingId] = useState('');
 	const [error, setError] = useState('');
-	// Invalidates an in-flight preview when the drawer closes or a different
-	// artifact is opened, so a slow response cannot overwrite newer state.
 	const requestRef = useRef(0);
-	// Separate generation for downloads so an abandoned download cannot bleed a
-	// stale error into a later drawer, without cancelling an in-flight preview.
 	const downloadRef = useRef(0);
 
 	const openPreview = async (next: Artifact) => {

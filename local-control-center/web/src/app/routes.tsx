@@ -3,6 +3,7 @@
  * chunk-preload hook. Heavy feature pages are declared with `React.lazy` at module scope
  * (never inside a component) so each becomes its own build chunk; Home, the projects views
  * and the shell stay eager. `preloadRoute` warms a lazy chunk on intent (Go-menu item hover).
+ * @author Rodrigo Mason
  */
 import type { ReactNode } from 'react';
 import { lazy } from 'react';
@@ -20,7 +21,6 @@ import { ProjectsPage } from '../features/projects/ProjectsPage';
 import type { WorkspaceMode } from '../features/workspace/useProjectDiscovery';
 import type { AppRoute } from './routing';
 
-// --- Lazy feature chunks (module-scope; one import() per chunk so preload reuses it). ---
 const importShell = () => import('../features/shell/ShellPage');
 const ShellPage = lazy(() => importShell().then((m) => ({ default: m.ShellPage })));
 
@@ -41,7 +41,6 @@ const ModelGatewayPage = lazy(() =>
 const importAgents = () => import('../features/agents/AgentsPage');
 const AgentsPage = lazy(() => importAgents().then((m) => ({ default: m.AgentsPage })));
 
-// Remaining shared-barrel pages (split incrementally into per-feature chunks).
 const importPages = () => import('../features/pages');
 const EvidencePage = lazy(() => importPages().then((m) => ({ default: m.EvidencePage })));
 const GovernancePage = lazy(() => importPages().then((m) => ({ default: m.GovernancePage })));
@@ -53,7 +52,6 @@ const importIntegrations = () => import('../features/integrations/IntegrationsPa
 const IntegrationsPage = lazy(() =>
 	importIntegrations().then((m) => ({ default: m.IntegrationsPage })),
 );
-// Per-feature chunks (extracted from the barrel).
 const importAssessment = () => import('../features/assessment/AssessmentPage');
 const AssessmentPage = lazy(() => importAssessment().then((m) => ({ default: m.AssessmentPage })));
 const importAudit = () => import('../features/audit/AuditPage');

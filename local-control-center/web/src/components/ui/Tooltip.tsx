@@ -5,6 +5,7 @@
  *
  * Note: the trigger's own hover/focus handlers are overridden, so wrap simple triggers
  * (a Button/IconButton/link) rather than elements that need their own pointer handlers.
+ * @author Rodrigo Mason
  */
 
 import type { ReactElement } from 'react';
@@ -27,8 +28,6 @@ export function Tooltip({ label, children, className }: TooltipProps) {
 	const hide = () => setOpen(false);
 
 	const triggerProps = children.props as { 'aria-label'?: string; 'aria-describedby'?: string };
-	// When the trigger is already named by the same text (e.g. an icon button echoing its
-	// aria-label), the bubble is a visual hint only — don't double-announce it via describedby.
 	const echoesLabel = triggerProps['aria-label'] === label;
 	const trigger = cloneElement(children, {
 		'aria-describedby': echoesLabel

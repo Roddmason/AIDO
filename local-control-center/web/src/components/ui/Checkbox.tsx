@@ -2,6 +2,7 @@
  * Labelled checkbox row (`.checkbox-row`). The native `<input type="checkbox">` is wrapped
  * by its `<label>` so the whole row toggles it; ref and native props (checked, onChange,
  * disabled) pass straight through.
+ * @author Rodrigo Mason
  */
 
 import type { InputHTMLAttributes, ReactNode } from 'react';

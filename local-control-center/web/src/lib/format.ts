@@ -2,6 +2,7 @@
  * Helpers de presentación que mapean datos crudos a texto/semántica para la UI.
  * Cubre el truncado de IDs largos, el enmascarado defensivo de secretos en texto
  * libre, y la traducción de estados de dominio al tono visual de la paleta.
+ * @author Rodrigo Mason
  */
 import { maskSecrets } from './redaction';
 
@@ -78,7 +79,6 @@ export function toneForStatus(status?: string): 'ok' | 'warn' | 'danger' | 'info
 		].includes(status)
 	)
 		return 'ok';
-	// Waiting on a human decision — use the distinct "pending" tone the palette defines.
 	if (['pending', 'awaiting_permission', 'awaiting_approval'].includes(status)) return 'pending';
 	if (
 		[

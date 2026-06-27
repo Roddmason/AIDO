@@ -5,6 +5,7 @@
  * timelineModel.ts. The `backed` flag records which sections render real, already-wired overview
  * data today versus the discovery/backlog/loop sections that show an honest shell until their
  * HTTP endpoint exists.
+ * @author Rodrigo Mason
  */
 
 /** The ten loop stages, identified in flow order. */

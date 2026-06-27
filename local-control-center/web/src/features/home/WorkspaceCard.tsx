@@ -2,6 +2,7 @@
  * Home gallery card for an active project — the primary "continue work" entry,
  * surfacing path plus in-progress and pending-review counts to signal where
  * attention is needed. The highest-priority of the four masonry card kinds.
+ * @author Rodrigo Mason
  */
 import { ArrowRight, FolderGit2 } from 'lucide-react';
 

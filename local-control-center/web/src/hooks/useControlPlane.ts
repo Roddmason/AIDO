@@ -4,6 +4,7 @@
  * Performs the authenticated handshake, polls overview/status every 5s, and exposes
  * a `mutate` runner that injects the write token and refreshes afterwards. Secondary
  * reads are wrapped in a timeout so a slow optional endpoint cannot stall the page.
+ * @author Rodrigo Mason
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
@@ -68,9 +69,6 @@ export function useControlPlane() {
 	const [state, setState] = useState(initialState);
 	const mountedRef = useRef(false);
 	const controllersRef = useRef<Set<AbortController>>(new Set());
-	// Latest t in a ref: refresh/mutate are stable useCallbacks created before the i18n catalog
-	// loads, so reading t directly would freeze the pre-catalog (English) value; the ref always
-	// holds the current translator without re-creating the callbacks (which would restart polling).
 	const { t } = useI18n();
 	const tRef = useRef(t);
 	tRef.current = t;
@@ -100,9 +98,6 @@ export function useControlPlane() {
 				runtimeProviderConfiguration: runtimeProviderConfigurationResponse?.providers ?? null,
 				loading: false,
 				error: '',
-				// A successful authenticated handshake + overview means the local control
-				// API is reachable. This is honest reachability (last fetch succeeded),
-				// not a live/SSE stream — the data layer still polls every 5s.
 				connected: true,
 				lastUpdatedAt: new Date().toISOString(),
 			}));
@@ -119,8 +114,6 @@ export function useControlPlane() {
 			setState((current) => ({
 				...current,
 				loading: false,
-				// The last fetch did not reach the API: drop back to the un-connected
-				// ("polling"/retrying) state. The 5s interval keeps trying.
 				connected: false,
 				error: silent && current.overview ? '' : message,
 			}));
@@ -170,9 +163,6 @@ export function useControlPlane() {
 				setState((current) => ({ ...current, busy: false }));
 				return result;
 			} catch (error) {
-				// A user-cancelled request (AbortController) must not pollute the global error
-				// channel — that would trip the shell's full-screen error guard. Clear busy, leave
-				// any existing error untouched, and re-throw so callers can detect the abort.
 				if ((error as { name?: string } | null)?.name === 'AbortError') {
 					setState((current) => ({ ...current, busy: false }));
 					throw error;

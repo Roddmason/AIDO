@@ -3,6 +3,7 @@
  * concrete run in the shell Inspector (deep-linkable as `#workflows?run=<id>`); the run's full
  * detail — timeline, agents, evidence, artifacts, policy — lives there (see RunDetail), not in a
  * page-local drawer or an artificial step graph.
+ * @author Rodrigo Mason
  */
 import { useMemo } from 'react';
 
@@ -24,7 +25,6 @@ export function WorkflowsPage({
 }) {
 	const { t } = useI18n();
 
-	// Newest run id per workflow, so the catalog's "Inspect" opens that workflow's latest run.
 	const latestRunByWorkflow = useMemo(() => {
 		const latest = new Map<string, string>();
 		const newestStartedAt = new Map<string, number>();
@@ -40,7 +40,6 @@ export function WorkflowsPage({
 		return latest;
 	}, [overview.workflowRuns]);
 
-	// Workflow title by id, to label each run in the ledger by its workflow rather than a raw id.
 	const workflowTitleById = useMemo(() => {
 		const map = new Map<string, string>();
 		for (const workflow of overview.workflows) map.set(workflow.id, workflow.title);

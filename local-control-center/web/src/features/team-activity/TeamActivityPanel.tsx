@@ -6,6 +6,7 @@
  * absent project, an empty board, a load error and a still-loading fetch each render their own state
  * rather than a fabricated roster. Mounted inside the workbench "AI team" drawer and fetches only
  * while `open`, so it adds no cost when the drawer is closed.
+ * @author Rodrigo Mason
  */
 import { Badge, EmptyState } from '../../components/primitives';
 import { ErrorState, Skeleton } from '../../components/ui';

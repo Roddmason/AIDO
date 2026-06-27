@@ -3,6 +3,7 @@
  *
  * Presentational surface only: a titled, closable frame with a Logs/Output tablist.
  * Live content is wired in by the caller; until then each tab shows an empty state.
+ * @author Rodrigo Mason
  */
 import { Terminal, X } from 'lucide-react';
 import { useState } from 'react';

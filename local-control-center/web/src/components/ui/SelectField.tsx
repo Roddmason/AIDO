@@ -1,6 +1,7 @@
 /**
  * Labelled native `<select>`. Pass `<option>`s as children. Same {@link Field} chrome,
  * ref forwarding and native passthrough as {@link TextField}.
+ * @author Rodrigo Mason
  */
 
 import type { ReactNode, SelectHTMLAttributes } from 'react';

@@ -4,6 +4,7 @@
  * Governance, Integrations, Audit) reading from the shared Overview snapshot and writing
  * through the gated `mutate` handshake; the local helpers merge optimistic write results
  * back into the snapshot so the UI stays consistent before the next refresh.
+ * @author Rodrigo Mason
  */
 import { useEffect, useMemo, useState } from 'react';
 import type { ArtifactPayload, EvidenceDetailResponse } from '../api/client';

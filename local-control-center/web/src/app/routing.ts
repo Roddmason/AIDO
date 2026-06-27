@@ -6,6 +6,7 @@
  * Legacy `#settings` and `#settings-*` hashes are remapped to `home`; the App
  * hashchange handler detects them first and opens the Settings modal at the
  * mapped section before falling back to the page.
+ * @author Rodrigo Mason
  */
 
 import type { PageId } from './navigation';
@@ -30,7 +31,6 @@ const routeAliases: Record<string, AppRoute> = {
 	runs: 'workflows',
 	review: 'review-board',
 	jobs: 'review-board',
-	// Settings hashes: resolve to home (App handler opens the modal).
 	settings: 'home',
 	'settings-project': 'home',
 	'settings-runtime': 'home',
@@ -39,13 +39,10 @@ const routeAliases: Record<string, AppRoute> = {
 	'settings-workspaces': 'home',
 	'settings-integrations': 'home',
 	'settings-advanced': 'home',
-	// Backward-compat: the four retired per-lane project hashes now resolve to the single
-	// Projects surface; ProjectsPage reads the hash suffix to open the matching lane.
 	'projects-active': 'projects',
 	'projects-finished': 'projects',
 	'projects-error': 'projects',
 	'projects-cancelled': 'projects',
-	// Backward-compat: resolve the retired per-tab settings hashes to home (modal).
 	'settings-projects': 'home',
 	'settings-user': 'home',
 	'settings-cli': 'home',

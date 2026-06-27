@@ -3,6 +3,7 @@
  * executable/total count and a one-line-per-provider status list, with refresh-health
  * and a deep link into the full runtime setup. Shares all derivation with the panel via
  * `runtimeSetup` so both surfaces stay consistent.
+ * @author Rodrigo Mason
  */
 
 import { ArrowRight, RefreshCw } from 'lucide-react';

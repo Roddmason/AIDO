@@ -5,10 +5,10 @@
  * reducedMotion="user"` el motor descarta el transform y deja solo el fundido (fallback
  * accesible). No contienen autoplay decorativo salvo `statusPulse`, que el consumidor
  * debe condicionar con `useReducedMotion`.
+ * @author Rodrigo Mason
  */
 import type { Variants } from 'motion/react';
 
-// Curva "emphasized" equivalente a --ease-emphasized del design-system.
 export const EASE_OUT: [number, number, number, number] = [0.22, 1, 0.36, 1];
 
 /** Entrada/salida de página al cambiar de ruta (dentro de AnimatePresence, keyed por ruta). */
@@ -74,12 +74,8 @@ export const skeletonShimmer: Variants = {
 	},
 };
 
-// Gestos compartidos: elevación de hover discreta y tap feedback contenido (sin scale exagerado).
-// Úsalos como whileHover/whileTap; el transform cae a no-op bajo reduced-motion (MotionConfig).
 export const HOVER_LIFT = { y: -2 } as const;
 export const TAP_SCALE = { scale: 0.98 } as const;
 export const HOVER_TAP_TRANSITION = { type: 'spring', stiffness: 400, damping: 30 } as const;
 
-// Spring del indicador de selección compartido (pill con layoutId) usado por ActivityBar y
-// Explorer; un único resorte mantiene ambos deslizamientos coherentes (no-op bajo reduced-motion).
 export const INDICATOR_TRANSITION = { type: 'spring', stiffness: 520, damping: 40 } as const;

@@ -3,6 +3,7 @@
  * same logic can back the dialog from Home, Workbench, the Command Palette or Settings.
  * Wraps the native directory picker, manifest/runtime discovery and project creation
  * APIs, and derives detection markers, runtime labels and name-conflict checks.
+ * @author Rodrigo Mason
  */
 import { useMemo, useState } from 'react';
 

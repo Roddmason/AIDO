@@ -4,6 +4,7 @@
  * Chip uses full border-color (no side-stripe). Chip semantics follow the plan:
  * project scope: Inherited·General / Overridden·Project;
  * general scope: Default / Custom.
+ * @author Rodrigo Mason
  */
 
 import { useCallback, useEffect, useId, useState } from 'react';
@@ -59,7 +60,6 @@ function ChipLabel({
 			</span>
 		);
 	}
-	// general scope
 	if (setting.origin === 'default') {
 		return (
 			<span className="setting-chip" data-origin="default">
@@ -77,7 +77,6 @@ function ChipLabel({
 /** Determines whether the revert affordance should be available for this setting+scope combo. */
 function canRevert(setting: ResolvedSetting, scope: ScopeCtx): boolean {
 	if (scope === 'project') return !setting.inherited;
-	// general scope: revert available when origin is 'general' (has a stored override)
 	return setting.origin === 'general';
 }
 
@@ -87,22 +86,18 @@ export function SettingRow({ setting, onSet, onRevert, enumOptions }: SettingRow
 	const scope = resolveScope(setting);
 	const showRevert = canRevert(setting, scope);
 
-	// For project scope, reveal the control inline only when the user clicks "Set for this project"
 	const [revealControl, setRevealControl] = useState(false);
 	const [pending, setPending] = useState(false);
 	const [localValue, setLocalValue] = useState<string>(String(setting.value ?? ''));
 
-	// I-1: re-sync when setting.value changes after a background refresh.
 	useEffect(() => {
 		setLocalValue(String(setting.value ?? ''));
 	}, [setting.value]);
 
-	// I-2: for number fields an empty string must not coerce to 0.
 	const isNumberEmpty = setting.type === 'number' && localValue.trim() === '';
 
 	const handleSet = useCallback(async () => {
 		if (setting.type === 'number' && localValue.trim() === '') {
-			// Empty number field: revert instead of sending 0.
 			setPending(true);
 			try {
 				await onRevert();

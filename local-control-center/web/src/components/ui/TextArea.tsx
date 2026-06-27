@@ -1,6 +1,7 @@
 /**
  * Labelled multi-line input. Same {@link Field} chrome and ref/native passthrough as
  * {@link TextField}; styled with the `.textarea` surface.
+ * @author Rodrigo Mason
  */
 
 import type { ReactNode, TextareaHTMLAttributes } from 'react';

@@ -2,6 +2,7 @@
  * Loading placeholder with a subtle opacity shimmer. The loop is gated by
  * `useReducedMotion`: under prefers-reduced-motion it stays on the static `idle` opacity.
  * Pass `label` to expose it as a `status` region; otherwise it is `aria-hidden`.
+ * @author Rodrigo Mason
  */
 import { m, useReducedMotion } from 'motion/react';
 

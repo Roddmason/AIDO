@@ -3,6 +3,7 @@
  * and surfaces the summary (stack, risk/gap counts, quality signals, debt markers) plus a
  * filterable findings table. Owns its own fetch lifecycle; does NOT touch client.ts or the
  * generated OpenAPI layer — consumes the three assessment endpoints via apiRequest directly.
+ * @author Rodrigo Mason
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 
@@ -12,11 +13,6 @@ import { DataTable, EmptyState, PageHeader, Surface } from '../../components/pri
 import { Button, ErrorState, Skeleton, StatusChip } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { shortId, toneForStatus } from '../../lib/format';
-
-// ---------------------------------------------------------------------------
-// Domain types (mirrors backend schema; not imported from openapi to avoid
-// touching the generated layer per constraint).
-// ---------------------------------------------------------------------------
 
 interface AssessmentSummary {
 	stack: string[];
@@ -74,10 +70,6 @@ interface ListFindingsResponse {
 	findings: FindingRecord[];
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 function severityTone(severity: string): 'ok' | 'warn' | 'danger' | 'info' | 'pending' {
 	const s = severity.toLowerCase();
 	if (s === 'critical' || s === 'high') return 'danger';
@@ -93,10 +85,6 @@ function formatDate(iso: string): string {
 		return iso;
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Sub-components
-// ---------------------------------------------------------------------------
 
 function SummaryGrid({
 	summary,
@@ -262,19 +250,11 @@ function FindingsTable({
 	);
 }
 
-// ---------------------------------------------------------------------------
-// Page props (mirrors RouteContext shape other feature pages accept)
-// ---------------------------------------------------------------------------
-
 export interface AssessmentPageProps {
 	overview: Overview;
 	selectedProject: Project | null;
 	token: string;
 }
-
-// ---------------------------------------------------------------------------
-// Page
-// ---------------------------------------------------------------------------
 
 export function AssessmentPage({
 	overview: _overview,
@@ -283,7 +263,6 @@ export function AssessmentPage({
 }: AssessmentPageProps) {
 	const { t } = useI18n();
 
-	// Latest assessment loaded on mount (or after a run).
 	const [assessment, setAssessment] = useState<AssessmentRecord | null>(null);
 	const [findings, setFindings] = useState<FindingRecord[]>([]);
 	const [loadError, setLoadError] = useState('');
@@ -294,7 +273,6 @@ export function AssessmentPage({
 
 	const projectId = selectedProject?.id ?? null;
 
-	// Load the most recent assessment for this project.
 	const loadLatest = useCallback(
 		async (signal?: AbortSignal) => {
 			if (!projectId) return;
@@ -329,7 +307,6 @@ export function AssessmentPage({
 		[projectId, t],
 	);
 
-	// Run a new assessment.
 	const runAssessment = useCallback(async () => {
 		if (!projectId) return;
 		setRunning(true);
@@ -352,7 +329,6 @@ export function AssessmentPage({
 		}
 	}, [projectId, token, t]);
 
-	// Load on mount and whenever the project changes.
 	useEffect(() => {
 		const controller = new AbortController();
 		abortRef.current?.abort();
@@ -362,10 +338,6 @@ export function AssessmentPage({
 			controller.abort();
 		};
 	}, [loadLatest]);
-
-	// ---------------------------------------------------------------------------
-	// Render
-	// ---------------------------------------------------------------------------
 
 	const noProject = !projectId;
 

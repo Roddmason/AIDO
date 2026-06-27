@@ -3,6 +3,7 @@
  * once so every field reports `aria-describedby`, `aria-invalid` and an `role="alert"`
  * error message uniformly. Field controls (TextField/TextArea/SelectField) render their
  * native element through the `children` render-prop using the supplied wiring.
+ * @author Rodrigo Mason
  */
 
 import type { ReactNode } from 'react';

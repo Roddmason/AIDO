@@ -3,6 +3,7 @@
  * derived/edited title, intake mode and the governed Advanced options alive across session
  * switches, mode switches, route-aways and reloads — so a task is never re-typed. Stored as one
  * versioned JSON map keyed by project id; the version suffix retires stale shapes on upgrade.
+ * @author Rodrigo Mason
  */
 
 /** Intake intent for the composer: the simple conversation flow, or one of the governed change types. */
@@ -32,7 +33,6 @@ function readStoredDrafts(): Record<string, ComposerDraft> {
 		const parsed = raw ? JSON.parse(raw) : null;
 		return parsed && typeof parsed === 'object' ? (parsed as Record<string, ComposerDraft>) : {};
 	} catch {
-		// localStorage is optional in restricted browser contexts.
 		return {};
 	}
 }
@@ -50,9 +50,7 @@ export function persistComposerDraft(projectId: string, draft: ComposerDraft) {
 		const all = readStoredDrafts();
 		all[projectId] = draft;
 		window.localStorage.setItem(COMPOSER_DRAFT_STORAGE_KEY, JSON.stringify(all));
-	} catch {
-		// localStorage is optional in restricted browser contexts.
-	}
+	} catch {}
 }
 
 /** Drops the draft for a project (called after a successful conversation intake). */
@@ -63,7 +61,5 @@ export function clearComposerDraft(projectId: string) {
 		if (!(projectId in all)) return;
 		delete all[projectId];
 		window.localStorage.setItem(COMPOSER_DRAFT_STORAGE_KEY, JSON.stringify(all));
-	} catch {
-		// localStorage is optional in restricted browser contexts.
-	}
+	} catch {}
 }

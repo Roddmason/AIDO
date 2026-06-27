@@ -3,6 +3,7 @@
  * linked evidence/artifacts, lazily loads the patch and security payloads, derives
  * the evidence gate, and submits the decision (chaining the workflow-approval call
  * when the action approves a patch/PR run). All decision state lives here.
+ * @author Rodrigo Mason
  */
 import { useEffect, useMemo, useState } from 'react';
 import type { ArtifactPayload } from '../../api/client';
@@ -59,7 +60,6 @@ export function useReviewDecision(
 	overview: Overview,
 	token: string,
 	mutate: Mutate,
-	// Single, page-owned reason shared with the ship flow (one reason state, inheritable + editable).
 	decisionReason: string,
 	setDecisionReason: (value: string) => void,
 ): ReviewDecision {
@@ -111,14 +111,11 @@ export function useReviewDecision(
 		],
 	);
 
-	// Clear any stale decide error when the reviewed action changes; the reason is page-owned
-	// (reset there per item) so it can carry from the decision into the ship flow.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: action?.id is the intended trigger (reset on action change).
 	useEffect(() => {
 		setDecisionError('');
 	}, [action?.id]);
 
-	// Lazily load the patch artifact through the protected evidence endpoint.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: t only formats a rarely-shown error; re-fetching the artifact on a language switch would be wasteful.
 	useEffect(() => {
 		setPatchPayload(null);
@@ -155,7 +152,6 @@ export function useReviewDecision(
 		};
 	}, [action, patchArtifact, token]);
 
-	// Lazily load the security findings artifact.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: t only formats a rarely-shown error; re-fetching the artifact on a language switch would be wasteful.
 	useEffect(() => {
 		setSecurityPayload(null);

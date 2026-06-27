@@ -6,6 +6,7 @@
  * (lazy-loaded features incl. layout/shared-layout for layoutId indicators and reveal/collapse;
  * forbids the heavy `motion.*` API) and `MotionConfig reducedMotion="user"` (declarative,
  * accessible reduced-motion fallback).
+ * @author Rodrigo Mason
  */
 import './design-system/tokens.css';
 import './design-system/base.css';
@@ -24,8 +25,6 @@ import { applyStoredDensity } from './hooks/useDensity';
 import { applyStoredTheme } from './hooks/useTheme';
 import { I18nProvider } from './i18n/I18nProvider';
 
-// Apply the persisted theme and density before the first paint so stored preferences
-// do not flash the defaults on reload.
 applyStoredTheme();
 applyStoredDensity();
 

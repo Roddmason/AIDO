@@ -3,6 +3,7 @@
  * scope, policy reason, linked evidence/artifacts, the patch/diff/security gate,
  * and the decision reason with the gated Approve/Reject buttons. Purely
  * presentational — all decision state and side effects come in via the page.
+ * @author Rodrigo Mason
  */
 import { CheckCircle2, XCircle } from 'lucide-react';
 import { AnimatePresence, m } from 'motion/react';
@@ -196,9 +197,6 @@ export function ApprovalDecisionPanel({
 								render: (row) => {
 									const loading = artifactPreview.loadingId === String(row.id ?? '');
 									const downloading = artifactPreview.downloadingId === String(row.id ?? '');
-									// Serialize downloads: while any artifact is downloading, every Download
-									// button is disabled so two concurrent downloads cannot race on the shared
-									// downloadingId/error slot. The active row keeps its "Downloading" label.
 									const downloadBusy = Boolean(artifactPreview.downloadingId);
 									return (
 										<div className="inline" aria-busy={loading || downloading}>

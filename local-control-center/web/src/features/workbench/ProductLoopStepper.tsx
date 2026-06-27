@@ -3,6 +3,7 @@
  * (done / current / upcoming) derived from the durable loop state, or a "start product loop" affordance
  * when none exists. Pure presentation: the page owns the fetch and the start mutation. The backend FSM
  * stays authoritative; the done/upcoming ranking here is only a visual hint.
+ * @author Rodrigo Mason
  */
 
 import type { ProjectProductLoopResponse } from '../../api/client';

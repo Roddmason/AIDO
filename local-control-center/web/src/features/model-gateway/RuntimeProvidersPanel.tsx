@@ -4,6 +4,7 @@
  * variables and the per-runtime healthcheck action. The primary view stays narrow; advanced
  * columns (capabilities, last error, version, detected command) are revealed on demand through the
  * column chooser. Secrets are always passed through `redactVisibleSecret`.
+ * @author Rodrigo Mason
  */
 import type { ReactNode } from 'react';
 
@@ -33,7 +34,6 @@ export function RuntimeProvidersPanel({
 		<Badge tone={enabled ? 'ok' : 'warn'}>{enabled ? positive : negative}</Badge>
 	);
 
-	// Primary columns stay visible; they include every state the QA suite anchors on.
 	const primaryLead: Column[] = [
 		{
 			key: 'id',
@@ -156,7 +156,6 @@ export function RuntimeProvidersPanel({
 		},
 	];
 
-	// Advanced columns are hidden until revealed through the column chooser.
 	const advanced: AdvancedColumn[] = [
 		{ key: 'capabilities', label: t('ui.static.capabilities.ca09c54b', 'Capabilities') },
 		{ key: 'lastError', label: t('ui.static.last.error.5e4df866', 'Last error') },

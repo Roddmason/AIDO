@@ -5,6 +5,7 @@
  * La animación es declarativa (Motion + `MotionConfig reducedMotion="user"` y las variantes de
  * `motion/variants.ts`). Aquí NO hay manipulación imperativa de estilos, ni `requestAnimationFrame`,
  * ni estado global en `window`: solo se publica un atributo de estado en `<html>`.
+ * @author Rodrigo Mason
  */
 import { useEffect } from 'react';
 

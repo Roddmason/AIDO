@@ -1,5 +1,6 @@
 /**
  * Slide-over that lists recent operational events with a free-text filter.
+ * @author Rodrigo Mason
  */
 import { useMemo, useState } from 'react';
 

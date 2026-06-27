@@ -3,6 +3,7 @@
  * explain, the left-join of live status with configuration, and the rule that collapses
  * the backend readiness booleans into one user-facing state plus its display metadata.
  * UI-agnostic so both the full panel and the compact inspector card render identically.
+ * @author Rodrigo Mason
  */
 
 import type { LucideProps } from 'lucide-react';
@@ -98,14 +99,9 @@ export function deriveRuntimeState(provider: MergedProvider): RuntimeSetupState 
 	const configured = status ? status.configured : config?.status === 'configured';
 
 	if (!configured) return 'not_configured';
-	// Configured by env/config but no live status record yet: awaiting verification.
 	if (!status) return 'configured';
 	if (status.executable) return 'executable';
-	// Reachable/detected but a gate stops execution (account disabled or an
-	// AIDO_ENABLE_* flag is off). The server `reason` names which gate.
 	if (status.available) return 'available';
-	// Configured but not reachable: a missing CLI binary / unreachable daemon is a
-	// hard block even when the backend reports no explicit error string.
 	if ((provider.kind === 'cli' || provider.kind === 'local') && status.detected === false)
 		return 'blocked';
 	if (

@@ -3,6 +3,7 @@
  * explorer links/labels. Drives `areaForPage` (which sidebar an area shows), the
  * ExplorerPanel and the browser tab title from one declarative source. The icon
  * rail was retired; the Go menu and command palette now carry page navigation.
+ * @author Rodrigo Mason
  */
 
 import type { LucideProps } from 'lucide-react';
@@ -146,8 +147,6 @@ export function areaForPage(page: PageId): AreaId {
 
 /** Static, contextual ExplorerPanel links per area (dynamic lists are added in the component). */
 export const EXPLORER_LINKS: Record<AreaId, NavigationItem[]> = {
-	// The threads area renders the ShellSidebar (Threads/Loops tabs) instead of the flat Explorer
-	// list, so this single entry is only a fallback for the navigation registry's exhaustiveness.
 	threads: [{ page: 'threads', icon: MessagesSquare, label: { en: 'Threads', es: 'Hilos' } }],
 	home: [
 		{ page: 'home', icon: LayoutGrid, label: { en: 'Home', es: 'Inicio' } },

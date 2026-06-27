@@ -2,6 +2,7 @@
  * Icon-only `<button>` (the design-system `.icon-button`). An accessible name is
  * REQUIRED via `aria-label`, since there is no visible text. Forwards its ref and
  * passes native button props through; `loading` mirrors {@link Button}.
+ * @author Rodrigo Mason
  */
 
 import type { ButtonHTMLAttributes, ReactNode } from 'react';

@@ -1,6 +1,7 @@
 /**
  * Audit log: read-only ledger of every recorded mutation — action, actor and target — so each
  * change is traceable to who made it and what it touched.
+ * @author Rodrigo Mason
  */
 import type { Overview } from '../../api/types';
 import { DataTable, EmptyState, PageHeader, Surface } from '../../components/primitives';

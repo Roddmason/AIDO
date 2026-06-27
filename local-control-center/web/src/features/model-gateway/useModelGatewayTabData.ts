@@ -296,7 +296,10 @@ export function useModelGatewayTabData({
 	const load = useCallback(
 		async (group: string, resources: ResourceKey[], force: boolean) => {
 			const current = slicesRef.current[group];
-			if (!force && (current?.status === 'ready' || current?.status === 'loading')) return;
+			const activeController = controllersRef.current.get(group);
+			if (!force && current?.status === 'ready') return;
+			if (!force && current?.status === 'loading' && activeController?.signal.aborted !== true)
+				return;
 			const needed = resources.filter((key) => force || !loadedRef.current.has(key));
 			if (!needed.length) {
 				setSlice(group, { status: 'ready', error: '' });

@@ -315,9 +315,7 @@ def test_self_improvement_state_read_does_not_create_project_or_workspace(tmp_pa
         assert body["lessons"] == []
         assert body["performanceRecords"] == []
         projects = ProjectsRepository(runtime.connection).list_projects()
-        assert not any(
-            project["metadata"].get("purpose") == "aido_self_improvement" for project in projects
-        )
+        assert not any(project["metadata"].get("purpose") == "aido_self_improvement" for project in projects)
         assert not (tmp_path / ".tmp" / "aido-self-improvement").exists()
     finally:
         runtime.close()

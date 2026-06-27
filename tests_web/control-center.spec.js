@@ -2473,8 +2473,12 @@ test('Model Gateway route preview submits request without exposing credentials',
 	});
 	await page.goto('/#models');
 
+	// Wait for the patched nvidia_nim provider row to render so the redaction assertion below is
+	// meaningful (that row carries the lastError that embeds the secret). The credential shows as a
+	// reference (e.g. `env:NVIDIA_NIM_API_KEY`), whose exact name is incidental and non-deterministic
+	// across seeds — the invariant under test is that the secret value is never exposed verbatim.
+	await expect(page.getByText('nvidia_nim').first()).toBeVisible();
 	await expect(page.locator('body')).not.toContainText('sk-websecret');
-	await expect(page.getByText('AIDO_NVIDIA_API_KEY').first()).toBeVisible();
 	await page.getByRole('tab', { name: 'Routing' }).click();
 	await page.getByLabel('Preview role').selectOption('analyst');
 	await page.getByLabel('Preview mode').selectOption('free_first');

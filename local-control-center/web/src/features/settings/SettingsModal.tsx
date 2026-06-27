@@ -5,7 +5,7 @@
  * each section's render(ctx) produces its own content — no switch needed here.
  */
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import type {
 	Overview,
@@ -79,6 +79,17 @@ export function SettingsModal({
 	const { t } = useI18n();
 	const [activeSection, setActiveSection] = useState(initialSection ?? DEFAULT_SECTION);
 	const [searchQuery, setSearchQuery] = useState('');
+
+	// The modal stays mounted (open=false) between opens, so re-seed the active section and clear
+	// the search each time it opens (or when the requested section changes while open). Without this,
+	// deep-links (#settings-security) and openSettings('project') would reopen at the last-viewed
+	// section instead of the requested one.
+	useEffect(() => {
+		if (open) {
+			setActiveSection(initialSection ?? DEFAULT_SECTION);
+			setSearchQuery('');
+		}
+	}, [open, initialSection]);
 
 	const { general, project, loading, error, setValue, clearValue } = useSettings(projectId, open);
 

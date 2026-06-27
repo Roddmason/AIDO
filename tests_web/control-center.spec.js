@@ -1261,6 +1261,38 @@ test('legacy hash settings-security opens Settings modal at Security section', a
 	await expect(nav.getByRole('button', { name: 'Security', exact: true }).first()).toBeVisible();
 });
 
+test('Settings modal re-seeds the active section on each open', async ({ page }) => {
+	await page.goto('/#threads');
+	await expectControlPlaneLoaded(page);
+
+	const sidebarSettings = page
+		.locator('.shell-sidebar-footer')
+		.getByRole('button', { name: 'Settings' });
+	await sidebarSettings.click();
+	const dialog = page.getByRole('dialog', { name: 'Settings' });
+	await expect(dialog).toBeVisible();
+	const nav = dialog.locator('nav[aria-label="Settings sections"]');
+
+	// Navigate to a non-default section.
+	await dialog.getByRole('button', { name: 'Autonomy', exact: true }).click();
+	await expect(nav.getByRole('button', { name: 'Autonomy', exact: true })).toHaveAttribute(
+		'aria-current',
+		'page',
+	);
+
+	// Close, then reopen via the sidebar (which opens at the default section).
+	await dialog.getByRole('button', { name: 'Close Settings' }).click();
+	await expect(dialog).toBeHidden();
+	await sidebarSettings.click();
+	await expect(dialog).toBeVisible();
+
+	// The reopened modal must re-seed to the default section, not stay on the last-viewed Autonomy.
+	await expect(nav.getByRole('button', { name: 'Autonomy', exact: true })).not.toHaveAttribute(
+		'aria-current',
+		'page',
+	);
+});
+
 test('shell renders the editorial control plane', async ({ page }) => {
 	await page.goto('/#workbench');
 	await expect(page.locator('.workbench-layout')).toBeVisible();

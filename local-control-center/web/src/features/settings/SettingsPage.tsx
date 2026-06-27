@@ -1,9 +1,9 @@
 /**
- * Settings hub: seven configuration groups in run-readiness order (project, runtime,
- * agents, security, workspaces, integrations, advanced).
- * Each group shows a readiness badge plus a compact body, and deep-links to the heavy
- * operational consoles (Policy, Evidence, Audit, Model Gateway…) rather than duplicating
- * them — keeping daily configuration separate from the operational surface.
+ * Per-section body components reused by the settings modal (project, runtime, agents, security,
+ * workspaces, integrations, advanced). Each renders a readiness badge plus a compact body and
+ * deep-links to the heavy operational consoles (Policy, Evidence, Audit, Model Gateway…) rather
+ * than duplicating them. The settings modal's section registry imports these bodies; the former
+ * route-level page wrapper was retired when the modal replaced the /#settings route.
  */
 
 import type { LucideProps } from 'lucide-react';

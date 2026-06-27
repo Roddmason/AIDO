@@ -3,6 +3,8 @@
 Parses each skill's required front-matter keys, upserts the skill record, and pins an
 immutable content-hashed version row so skill instructions are auditable over time.
 The registry is the source of truth for which skills an agent profile may invoke.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

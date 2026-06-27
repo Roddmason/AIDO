@@ -2,6 +2,8 @@
 
 Marca el directorio como paquete Python y expone `__version__` como unica fuente
 de verdad de la version, consumida por el ensamblado de la app FastAPI y el empaquetado.
+
+@author Rodrigo Mason
 """
 
 __all__ = ["__version__"]

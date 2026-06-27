@@ -16,6 +16,8 @@ operaciones de una sola sentencia (``create_*``, ``get_*``, ``list_*``, ``delete
 por sí mismas; las que calculan el siguiente ``sequence`` antes de insertar
 (``create_acceptance_criterion``) solo son atómicas si el caller las agrupa en una única
 ``immediate_transaction``, que además evita colisiones en ``UNIQUE(story_id, sequence)``.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations
@@ -399,8 +401,6 @@ class BacklogRepository:
         )
         return self.get_assignment_review(review_id)
 
-    # -- Epics ----------------------------------------------------------------------
-
     def create_epic(self, body: dict[str, Any]) -> dict[str, Any]:
         """Inserta un epic (id ``epic-<uuid>``, versión 1) y devuelve el registro creado."""
         epic_id = f"epic-{uuid.uuid4()}"
@@ -478,8 +478,6 @@ class BacklogRepository:
             ),
         )
         return self.get_epic(epic_id)
-
-    # -- User stories (valor de usuario, agnósticas al rol) -------------------------
 
     def create_user_story(self, body: dict[str, Any]) -> dict[str, Any]:
         """Inserta una user story (id ``user-story-<uuid>``, versión 1) y devuelve el registro.
@@ -583,8 +581,6 @@ class BacklogRepository:
         )
         return self.get_user_story(story_id)
 
-    # -- Criterios de aceptación ----------------------------------------------------
-
     def create_acceptance_criterion(self, body: dict[str, Any]) -> dict[str, Any]:
         """Inserta un criterio de aceptación asignándole el siguiente ``sequence`` de su historia.
 
@@ -666,8 +662,6 @@ class BacklogRepository:
         )
         return self.get_acceptance_criterion(criterion_id)
 
-    # -- Dependencias entre historias -----------------------------------------------
-
     def create_story_dependency(self, body: dict[str, Any]) -> dict[str, Any]:
         """Inserta una arista de dependencia entre dos historias y la devuelve.
 
@@ -733,8 +727,6 @@ class BacklogRepository:
     def delete_story_dependency(self, dependency_id: str) -> None:
         """Elimina una dependencia entre historias por id (idempotente: no falla si no existe)."""
         self.connection.execute("DELETE FROM story_dependencies WHERE id = ?", (dependency_id,))
-
-    # -- Agent tasks (trabajo técnico de los agentes) -------------------------------
 
     def create_agent_task(self, body: dict[str, Any]) -> dict[str, Any]:
         """Inserta una agent task (id ``agent-task-<uuid>``, versión 1) y devuelve el registro.
@@ -836,8 +828,6 @@ class BacklogRepository:
         )
         return self.get_agent_task(task_id)
 
-    # -- Dependencias entre tareas --------------------------------------------------
-
     def create_task_dependency(self, body: dict[str, Any]) -> dict[str, Any]:
         """Inserta una arista de dependencia entre dos tareas y la devuelve.
 
@@ -903,8 +893,6 @@ class BacklogRepository:
     def delete_task_dependency(self, dependency_id: str) -> None:
         """Elimina una dependencia entre tareas por id (idempotente: no falla si no existe)."""
         self.connection.execute("DELETE FROM task_dependencies WHERE id = ?", (dependency_id,))
-
-    # -- Asignaciones de agente -----------------------------------------------------
 
     def create_agent_assignment(self, body: dict[str, Any]) -> dict[str, Any]:
         """Inserta una asignación de un agente a una tarea (id ``agent-assignment-<uuid>``) y la devuelve.
@@ -1063,8 +1051,6 @@ class BacklogRepository:
             ),
         )
         return self.get_agent_assignment(assignment_id)
-
-    # -- Colaboración basada en artefactos -----------------------------------------
 
     def get_assignment_handoff(self, handoff_id: str) -> dict[str, Any]:
         """Recupera un handoff de asignación por id."""
@@ -1282,8 +1268,6 @@ class BacklogRepository:
         ]
         if unresolved_conflicts:
             raise ValueError(f"Assignment {assignment['id']} has unresolved conflict records.")
-
-    # -- Iteraciones (plan del IterationPlanner) ------------------------------------
 
     def create_iteration(self, body: dict[str, Any]) -> dict[str, Any]:
         """Inserta una iteración (id ``iteration-<uuid>``) con su plan y devuelve el registro creado."""

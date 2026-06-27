@@ -4,6 +4,8 @@ Habla JSON-RPC con un servidor MCP registrado (initialize -> notificación -> op
 a un conjunto de métodos permitidos. Invariantes de seguridad: el comando se valida contra el sandbox
 (``validate_restricted_process``) y se arranca con ``open_restricted_text_process``; cada llamada se
 persiste en ``mcp_tool_calls`` con secretos redactados (``redact_secrets``) y la salida se trunca.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

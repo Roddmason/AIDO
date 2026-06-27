@@ -5,6 +5,8 @@ issue-to-patch and issue-to-pr transitions (run, approve, promote, create PR) an
 governed gate-advance endpoint that enforces pr_review/release_gate/retro before a step may
 proceed. Request bodies are validated here (raising HTTP 422) and persistence/orchestration is
 delegated to the repositories and runner state machines; all write routes pass ``require_write``.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

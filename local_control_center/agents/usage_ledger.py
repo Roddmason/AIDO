@@ -4,6 +4,8 @@ Persists one `usage_ledger` row per model/runtime call and, when a cost is known
 paired `cost_usage` row, sanitizing raw usage payloads before storage. Also derives a
 trustworthy `usageSource`/`tokenStatus`/`costStatus` so downstream summaries can tell
 provider-reported usage from estimates.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

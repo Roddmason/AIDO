@@ -3,6 +3,8 @@
 Serializa con claves ordenadas y sin escapar Unicode para que el mismo objeto
 produzca siempre el mismo texto, condición necesaria para hashes reproducibles
 y para comparar payloads. La carga es tolerante a fallos: nunca propaga errores de parseo.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

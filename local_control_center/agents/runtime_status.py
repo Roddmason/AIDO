@@ -4,6 +4,8 @@ Joins provider accounts, model catalog, runtime detections, and env configuratio
 one status per provider (API, CLI, Ollama, manual), deciding detected/configured/
 available/executable and a human reason. Execution is gated by explicit env flags
 (`AIDO_ENABLE_REAL_PROVIDER_CALLS`, `AIDO_ENABLE_CLI_RUNTIMES`); error text is redacted.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

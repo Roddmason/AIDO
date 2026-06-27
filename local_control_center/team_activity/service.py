@@ -7,6 +7,8 @@ each run is enriched with its assignment (matched by agent identity, because the
 ``metadata.taskId`` is corrupted by secret redaction), the assignment's handoff (blocked reason,
 delivered artifact) and review (reviewer), its model/tool calls (cost, duration inputs, low-level
 events) and the agent profile (role, runtime). It only reads; no statement here writes or commits.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations
@@ -22,22 +24,14 @@ from local_control_center.evidence.repository import EvidenceRepository
 from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.time import utc_now
 
-# Run statuses that count as in-flight work shown at the top of the board.
 ACTIVE_RUN_STATUSES = frozenset({"queued", "running", "awaiting_permission", "approval_required"})
-# In-flight work that is stuck; surfaced with its blocked reason.
 BLOCKED_RUN_STATUSES = frozenset({"blocked", "runtime_unavailable", "qa_failed"})
-# Run statuses that mean the unit of work finished (its artifact can be considered delivered).
 DONE_RUN_STATUSES = frozenset({"completed", "approved", "evidence_ready"})
-# Assignment statuses that mean the agent is actively on that assignment (preferred as "current").
 ACTIVE_ASSIGNMENT_STATUSES = frozenset({"active", "in_progress", "running", "accepted", "proposed"})
-# Assignment statuses that mean the assignment delivered its canonical artifact.
 COMPLETED_ASSIGNMENT_STATUSES = frozenset({"released", "completed", "done"})
-# Handoff statuses that mean the handed-off artifact was accepted downstream.
 COMPLETED_HANDOFF_STATUSES = frozenset({"accepted", "resolved", "completed", "approved"})
-# Model-call cost statuses that mean the cost was actually measured (vs. "unknown"/"not_started").
 KNOWN_COST_STATUSES = frozenset({"actual", "free"})
 
-# Default cap on terminal entries returned alongside the in-flight ones, to bound the payload.
 DEFAULT_RECENT_LIMIT = 12
 
 
@@ -320,8 +314,6 @@ def build_team_activity(
             "modelCallCount": len(model_calls),
             "toolCallCount": len(tool_calls),
             "lowLevelEvents": {
-                # Sorted ascending so the disclosure reads in execution order; the repository
-                # returns calls newest-first, which the provider/cost reads above still rely on.
                 "modelCalls": [
                     _model_summary(call)
                     for call in sorted(model_calls, key=lambda call: call.get("createdAt") or "")

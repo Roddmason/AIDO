@@ -3,6 +3,8 @@
 Declara el id, las tools/runtimes elegibles del agente de producto y su orden de preferencia
 (CLIs reales codex_cli/claude_code_cli primero, luego modelos openai_compatible/ollama), y calcula
 si hay un runtime ejecutable para analizar una idea o assessment y emitir un brief y backlog en JSON.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

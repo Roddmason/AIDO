@@ -10,6 +10,8 @@ un update con su único UPDATE. No hay atomicidad entre statements: si el caller
 necesita agrupar una escritura con su auditoría/evento debe abrir él mismo una
 ``immediate_transaction``. Las lecturas de ``get_*`` tras la escritura ven el dato
 ya confirmado por estar en la misma conexión.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

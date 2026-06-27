@@ -4,6 +4,8 @@ Holds the immutable contract for each optional CLI runtime (supported operations
 required executable tokens, forbidden args, workspace requirement) and the validator
 the adapters call before execution. Centralizing the rules keeps every adapter's
 guardrails identical and audit-consistent.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

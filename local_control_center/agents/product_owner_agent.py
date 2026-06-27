@@ -5,6 +5,8 @@ le envía la idea o el assessment existente acotados, valida que la salida cumpl
 calcula la completitud de forma determinista y NO genera épicas/HU/criterios si quedan decisiones
 bloqueantes sin resolver. Solo persiste discovery y backlog tras validar; falla cerrado si falta runtime
 o la salida es inválida.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations
@@ -861,7 +863,6 @@ class ProductOwnerAgentRunner:
         threshold = int(threshold) if isinstance(threshold, (int, float)) else DEFAULT_COMPLETENESS_THRESHOLD
         workspace = self._workspace(project_id=project_id, workspace_id=str(payload["workspaceId"]))
         assessment = self._assessment(project_id=project_id, idea=idea, initiative_id=initiative_id)
-        # Ground the agent in the static project assessment before it asks the user for a direction.
         assessment["projectAssessment"] = self._project_assessment_signals(project_id)
 
         readiness = self.status(preferred_runtime=payload.get("preferredRuntime"))

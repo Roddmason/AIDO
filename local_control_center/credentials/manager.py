@@ -4,6 +4,8 @@ El valor del secreto entra solo como input (create/rotate), viaja al backend y s
 método lo devuelve. La base guarda solo la referencia al backend, un fingerprint (HMAC-SHA256 con sal
 por credencial) y la bitácora de auditoría. ``validate`` lee el secreto del backend internamente para
 comparar su fingerprint y lo descarta sin exponerlo. Toda operación queda registrada en la auditoría.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations
@@ -62,7 +64,6 @@ class CredentialManager:
 
     @staticmethod
     def _public(record: dict[str, Any]) -> dict[str, Any]:
-        # Proyecta solo metadatos no sensibles: nunca fingerprint ni sal (ni, por supuesto, el valor).
         backend_kind = record["backendKind"]
         if backend_kind == "env":
             backend_kind = "environment_override"
@@ -160,7 +161,6 @@ class CredentialManager:
                 }
             )
         except Exception as error:
-            # El secreto ya está en el backend pero no se pudo registrar: revierte el huérfano y audita.
             self._remove_quietly(store, locator)
             self._audit(
                 {"name": name, "backendKind": kind},
@@ -257,8 +257,6 @@ class CredentialManager:
             store.remove(record["locator"])
         except CredentialBackendError as error:
             if not getattr(store, "read_only", False):
-                # Un backend de escritura que no pudo borrar deja un secreto huérfano: audita el fallo,
-                # conserva la referencia para no perderle el rastro y propaga el error.
                 self._audit(
                     record,
                     action="delete",

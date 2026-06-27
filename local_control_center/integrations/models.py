@@ -2,6 +2,8 @@
 
 Define los request/response de conexiones IDE y servidores MCP, y los records que el
 repositorio serializa hacia la API. Los alias mapean snake_case interno a camelCase del JSON.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

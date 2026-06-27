@@ -2,6 +2,8 @@
 
 Reexporta el contrato base (CliRuntime) y los DTOs de request/resultado/detección/salud
 para que el resto del backend importe el slice sin acoplarse a la ruta de cada adaptador.
+
+@author Rodrigo Mason
 """
 
 from .base import CliRuntime, RuntimeDetection, RuntimeHealth, RuntimeRequest, RuntimeResult

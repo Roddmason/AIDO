@@ -4,6 +4,8 @@ Declara los DTO de intercambio (peticion/respuesta, uso de tokens, costo, salud 
 catalogo de modelos) y la clase base abstracta `ModelProvider`. Los DTO usan alias
 camelCase para serializar hacia el frontend; las implementaciones concretas viven en
 los demas modulos de este paquete y dependen solo de estos tipos, no entre si.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

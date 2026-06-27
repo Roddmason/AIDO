@@ -3,6 +3,8 @@
 Configura la conexión con los PRAGMA de durabilidad/concurrencia (WAL, foreign
 keys, busy_timeout) y autocommit, e implementa el límite transaccional explícito
 del backend: ``BEGIN IMMEDIATE`` con COMMIT al salir o ROLLBACK ante cualquier excepción.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

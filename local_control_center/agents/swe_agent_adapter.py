@@ -3,6 +3,8 @@
 Mirrors the OpenHands adapter for the SWE-agent runtime: advertises detection status
 and, on execution, re-validates the tool call against the SWE-agent runtime contract
 before delegating to the restricted subprocess sandbox in an isolated workspace.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

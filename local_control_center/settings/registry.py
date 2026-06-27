@@ -3,6 +3,8 @@
 Defines the ``SettingDescriptor`` dataclass, the Phase-1 ``REGISTRY`` of three wired settings
 (autonomy level, sandbox profile, budget cap), and ``validate_value`` / ``descriptor_for``
 helpers that enforce type constraints at trust boundaries before any persistence occurs.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations
@@ -18,7 +20,7 @@ class SettingDescriptor:
     key: str
     section: str
     project_section: str | None
-    type: str  # "enum" | "number" | "string"
+    type: str
     default: Any
     enum: tuple[str, ...] | None = None
     label_key: str = ""
@@ -78,7 +80,6 @@ def validate_value(descriptor: SettingDescriptor, value: Any) -> Any:
             return float(value)
         except (TypeError, ValueError) as exc:
             raise ValueError(f"Invalid numeric value {value!r} for {descriptor.key!r}.") from exc
-    # string: must be an actual str (reject dict/list/number)
     if not isinstance(value, str):
         raise ValueError(f"Invalid value {value!r} for {descriptor.key!r}; expected a string.")
     return value

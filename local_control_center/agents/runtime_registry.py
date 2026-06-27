@@ -4,6 +4,8 @@ Composes the safety-prefixed prompts and structured argv for issue-to-patch and
 DeveloperAgent runs (explicit configured argv first, otherwise the runtime's own
 builder), and exposes detection/health checks per CLI runtime. Every generated command
 stays inside the allocated workspace and never commits, pushes, or touches secrets.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

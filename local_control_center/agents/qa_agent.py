@@ -5,6 +5,8 @@ shell calls via the ToolBroker, never trusting model claims: a `passed` verdict 
 every command to exit 0 inside the allocated workspace with captured stdout/stderr and
 output artifact hashes. It assembles a contract-checked evidence package; if the package
 is incomplete it downgrades the run to `blocked`.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

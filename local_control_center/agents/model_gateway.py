@@ -3,6 +3,8 @@
 Resuelve el proveedor desde la política, bloquea si excede presupuesto o falta configuración, y solo
 ejecuta proveedores remotos cuando AIDO_ENABLE_REAL_PROVIDER_CALLS=true (CLI/manual se bloquean: van por
 sesiones de runtime aprobadas). Toda metadata/error se redacta y el consumo se asienta en el usage_ledger.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations
@@ -358,7 +360,7 @@ class ModelGateway:
                     maxTokens=request_payload.get("maxTokens"),
                 )
             )
-        except Exception as error:  # provider boundary: convert external failures into fail-closed state
+        except Exception as error:
             reason = f"provider_request_failed:{_public_error(error)}"
             model_call = self.record_model_usage(
                 project_id=project_id,

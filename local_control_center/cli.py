@@ -3,6 +3,8 @@
 Parsea flags (host/puerto, modos dashboard/worker, rutas de db y estaticos), inicializa
 el runtime del control plane y lanza uvicorn y el loop del worker segun la combinacion
 elegida. Tambien fija la politica de event loop en Windows para compatibilidad con asyncio.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

@@ -6,6 +6,8 @@ evidence package, then gate the manual transitions evidence_ready -> approved_fo
 -> promoted_to_branch -> pr_created. Each transition validates linked evidence/approvals and
 re-checks QA and security before mutating git, so no patch reaches a branch or PR unapproved;
 git operations refuse force-push and direct edits to main. Reused by the issue_to_pr runner.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

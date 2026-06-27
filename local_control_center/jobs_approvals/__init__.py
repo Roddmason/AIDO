@@ -4,6 +4,8 @@ Agrupa el modelo de datos, repositorio transaccional, comandos HTTP y worker con
 que orquestan el ciclo de vida de un job (queued -> running -> completed/failed) y las
 action requests que exigen aprobación humana antes de ejecutar acciones sensibles.
 No re-exporta símbolos: cada consumidor importa desde el submódulo concreto.
+
+@author Rodrigo Mason
 """
 
 __all__ = []

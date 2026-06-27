@@ -5,6 +5,8 @@ se escribe como archivo (hash de contenido) y su procedencia —URL, publisher, 
 ``trustLevel`` y artefacto relacionado— viaja en la metadata del artefacto, reutilizando la tabla
 ``artifacts`` existente. Así toda fuente queda trazable y verificable por hash sin introducir un nuevo
 esquema. ``list_research_sources`` reconstruye los registros de procedencia desde esos artefactos.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

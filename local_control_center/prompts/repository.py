@@ -4,6 +4,8 @@ Persiste plantillas en `prompt_templates` y anexa un snapshot inmutable a `promp
 cada upsert. Emite las sentencias sobre la conexión recibida y delega el commit/rollback al
 caller: un upsert escribe varias filas que solo son atómicas si la conexión las agrupa en una
 única transacción.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

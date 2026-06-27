@@ -4,6 +4,8 @@ Punto unico que el endpoint de overview usa para devolver, en una sola respuesta
 colecciones de todos los slices (proyectos, sesiones, pipelines, jobs, gobernanza, agentes,
 seguridad, etc.). Solo lee: instancia repositorios sobre la conexion recibida, garantiza el
 proyecto runtime y arma el diccionario alineado con ``OverviewResponse``.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

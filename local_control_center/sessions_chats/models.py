@@ -3,6 +3,8 @@
 Define la forma validada de cada request y la envoltura de cada response del slice.
 Las claves del API viajan en camelCase (`projectId`, `teamId`, `sessionId`) vía `alias`,
 mientras el código Python conserva snake_case; el repositorio ya emite ese camelCase.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

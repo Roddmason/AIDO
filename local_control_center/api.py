@@ -4,6 +4,8 @@ Punto unico de cableado HTTP: inicializa el runtime del control plane, monta los
 de dominio (jobs, memoria, workflows, seguridad, evidencia, agents, gateway, etc.), instala el
 middleware que serializa el acceso al runtime y registra correlacion/telemetria, expone las rutas
 de salud/handshake/overview/eventos y, si hay build web, sirve los estaticos con fallback al SPA.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations
@@ -81,11 +83,6 @@ def create_app(
 
     @app.exception_handler(Exception)
     async def handle_unexpected_error(request: Request, exc: Exception) -> JSONResponse:
-        # Sin esto, una excepción no controlada (p. ej. ResponseValidationError por una
-        # deriva entre lo persistido y el response_model) devolvía el texto plano
-        # "Internal Server Error" de Starlette: sin traza para diagnosticar y, al no ser
-        # JSON, el cliente fallaba al parsearla ("Unexpected token 'I'..."). Registramos la
-        # traza completa para seguimiento y respondemos un cuerpo JSON estable.
         correlation_id = resolve_correlation_id(request.headers)
         logger.exception(
             "Unhandled error on %s %s (correlation_id=%s): %s",

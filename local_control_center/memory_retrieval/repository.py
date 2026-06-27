@@ -5,6 +5,8 @@ INSERT/UPDATE del slice. La conexión recibida opera en autocommit
 (isolation_level=None): cada execute persiste de forma independiente, no hay
 transacción multi-statement aquí, y el caller es dueño de cualquier commit
 o BEGIN explícito si necesita atomicidad entre varias operaciones.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

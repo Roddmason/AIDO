@@ -3,6 +3,8 @@
 Define el esquema de salida que ``build_overview_from_connection`` produce: una coleccion por
 slice mas la postura de seguridad y el estado de Open Design. Los alias camelCase fijan el
 contrato JSON que consume el frontend; cada campo reusa el record tipado de su slice de origen.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

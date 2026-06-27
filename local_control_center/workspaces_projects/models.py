@@ -3,6 +3,8 @@
 Define la forma de los cuerpos de asignación/archivado y de los registros que el API
 devuelve al frontend. Los alias mapean snake_case interno a camelCase del JSON público;
 no contienen lógica de negocio salvo la normalización del tipo de aislamiento.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

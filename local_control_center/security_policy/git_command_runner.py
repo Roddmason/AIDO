@@ -4,6 +4,8 @@ Envuelve ``subprocess.run`` para los pocos comandos git del slice. Invariante: `
 y argv estructurado (sin interpolacion de strings, evitando inyeccion); si git no esta
 instalado no lanza, devuelve un ``CompletedProcess`` con returncode 127 para que el caller
 degrade de forma controlada.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

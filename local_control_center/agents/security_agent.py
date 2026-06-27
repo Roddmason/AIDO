@@ -6,6 +6,8 @@ gitleaks/semgrep through the broker when their CLIs are installed and locally co
 The verdict is deterministic: any critical finding blocks, otherwise risk/passed. Optional
 model analysis is advisory only and can never override the deterministic verdict; missing
 scanners are recorded as skipped_with_reason, never silently passed.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

@@ -3,6 +3,8 @@
 Exposes ``GET /api/v1/projects/{project_id}/team-activity`` which composes the activity
 entries from ``build_team_activity`` over ``platform.connection``. The route is a read, so it
 is open (no ``require_write`` gate), consistent with the other overview/aggregate reads.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

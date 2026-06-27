@@ -4,6 +4,8 @@ Expone las rutas `/api/v1/sessions` y `/api/v1/chats` sobre el repositorio del s
 Las mutaciones exigen permiso de escritura (`require_write`), validan el prompt y, tras
 persistir, publican un evento (`session.created` / `chat.created`) en el `EventBus` para
 que otros slices reaccionen. Las lecturas son abiertas (sin gate de escritura).
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

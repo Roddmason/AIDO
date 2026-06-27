@@ -16,6 +16,8 @@ y luego inserta) y ``upsert_product_brief`` (actualiza el brief y anexa su snaps
 ``product_brief_versions``)— solo son atómicas si el caller las agrupa en una única
 ``immediate_transaction``. Sin esa envoltura, una caída entre sentencias puede dejar el brief y
 su historial desincronizados o colisionar en ``UNIQUE(session_id, sequence)``.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations
@@ -211,8 +213,6 @@ class ProductDiscoveryRepository:
     def __init__(self, connection: sqlite3.Connection):
         self.connection = connection
 
-    # -- Iniciativas -----------------------------------------------------------------
-
     def create_initiative(self, body: dict[str, Any]) -> dict[str, Any]:
         """Inserta una iniciativa (id ``initiative-<uuid>``, versión 1) y devuelve el registro creado."""
         initiative_id = f"initiative-{uuid.uuid4()}"
@@ -293,8 +293,6 @@ class ProductDiscoveryRepository:
             ),
         )
         return self.get_initiative(initiative_id)
-
-    # -- Sesiones de descubrimiento -------------------------------------------------
 
     def create_discovery_session(self, body: dict[str, Any]) -> dict[str, Any]:
         """Inserta una sesión de descubrimiento (id ``discovery-session-<uuid>``) y la devuelve."""
@@ -380,8 +378,6 @@ class ProductDiscoveryRepository:
         )
         return self.get_discovery_session(session_id)
 
-    # -- Mensajes de conversación (append-only) -------------------------------------
-
     def append_conversation_message(self, body: dict[str, Any]) -> dict[str, Any]:
         """Anexa un mensaje a una sesión asignándole el siguiente ``sequence`` y lo devuelve.
 
@@ -438,8 +434,6 @@ class ProductDiscoveryRepository:
             (session_id,),
         ).fetchall()
         return [row_to_conversation_message(row) for row in rows]
-
-    # -- Preguntas de aclaración ----------------------------------------------------
 
     def create_clarification_question(self, body: dict[str, Any]) -> dict[str, Any]:
         """Inserta una pregunta de aclaración (id ``clarification-question-<uuid>``) y la devuelve.
@@ -542,8 +536,6 @@ class ProductDiscoveryRepository:
         )
         return self.get_clarification_question(question_id)
 
-    # -- Respuestas de aclaración ---------------------------------------------------
-
     def create_clarification_answer(self, body: dict[str, Any]) -> dict[str, Any]:
         """Inserta una respuesta de aclaración (id ``clarification-answer-<uuid>``) y la devuelve.
 
@@ -620,8 +612,6 @@ class ProductDiscoveryRepository:
             ),
         )
         return self.get_clarification_answer(answer_id)
-
-    # -- Briefs de producto (agregado versionado) -----------------------------------
 
     def upsert_product_brief(self, body: dict[str, Any]) -> dict[str, Any]:
         """Crea o actualiza un brief de producto y anexa su snapshot a ``product_brief_versions``.
@@ -784,8 +774,6 @@ class ProductDiscoveryRepository:
         ).fetchall()
         return [row_to_product_brief_version(row) for row in rows]
 
-    # -- Supuestos ------------------------------------------------------------------
-
     def create_assumption(self, body: dict[str, Any]) -> dict[str, Any]:
         """Inserta un supuesto (id ``assumption-<uuid>``) y devuelve el registro creado."""
         assumption_id = f"assumption-{uuid.uuid4()}"
@@ -870,8 +858,6 @@ class ProductDiscoveryRepository:
             ),
         )
         return self.get_assumption(assumption_id)
-
-    # -- Decisiones de producto -----------------------------------------------------
 
     def create_product_decision(self, body: dict[str, Any]) -> dict[str, Any]:
         """Inserta una decisión de producto (id ``product-decision-<uuid>``, versión 1) y la devuelve.

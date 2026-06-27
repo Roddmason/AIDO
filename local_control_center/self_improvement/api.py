@@ -1,4 +1,7 @@
-"""FastAPI router for AIDO self-improvement proposals, lessons and performance records."""
+"""FastAPI router for AIDO self-improvement proposals, lessons and performance records.
+
+@author Rodrigo Mason
+"""
 
 from __future__ import annotations
 

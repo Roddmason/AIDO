@@ -6,6 +6,8 @@ autocommit del wrapper). La excepción es `claim_next_job`, que abre `BEGIN IMME
 COMMIT/ROLLBACK propios para serializar el reclamo de la cola entre workers concurrentes.
 Invariante de seguridad: todo command/payload/reason se redacta con `redact_secrets` antes de
 persistir o registrar, de modo que ningún secreto llega a `jobs`, `action_requests` ni eventos.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

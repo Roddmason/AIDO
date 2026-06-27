@@ -8,6 +8,8 @@ del tamaño del equipo base). Por cada rol resuelve permission profile (de
 (tokens de tier, no ids de modelo concretos —el model gateway resuelve el modelo vigente), runtime,
 skills, tools, presupuesto, reviewer y quality gates. El reviewer nunca es ``self`` para roles o
 contextos sensibles a seguridad ni con riesgo alto, sin importar el modo.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations
@@ -42,7 +44,6 @@ MODES = ("economy", "balanced", "critical", "maximum")
 RISKS = ("low", "medium", "high", "critical")
 _RISK_ORDER = {risk: index for index, risk in enumerate(RISKS)}
 
-# Role kinds steer runtime/provider-kind and the budget weight.
 _BUILD_ROLES = {
     "backend_engineer",
     "frontend_engineer",
@@ -54,7 +55,6 @@ _BUILD_ROLES = {
 }
 _REVIEW_ROLES = {"qa_engineer", "security_engineer"}
 
-# Scope tag → the engineering role it pulls in.
 _SCOPE_ROLES = {
     "backend": "backend_engineer",
     "api": "backend_engineer",
@@ -76,12 +76,10 @@ _SCOPE_ROLES = {
     "spike": "researcher",
     "unknown": "researcher",
 }
-# Scopes that pull in security review, and the stricter subset that forbids self-review.
 _SECURITY_SCOPES = {"security", "auth", "data", "external", "payments", "compliance", "pii"}
 _SECURITY_SENSITIVE_SCOPES = {"payments", "auth", "security", "compliance", "pii"}
 _ARCHITECTURE_SCOPES = {"architecture", "new_system", "integration"}
 
-# Each role's default reviewer (None = top of the chain, e.g. the product owner).
 _ROLE_REVIEWERS = {
     "product_owner": None,
     "project_manager": "product_owner",
@@ -120,14 +118,11 @@ _ROLE_SKILLS = {
     "researcher": ["deep-research"],
 }
 
-# Tools are ToolBroker tool names; build roles touch the workspace, reviewers run shell scanners,
-# reasoning roles stay read-only.
 _BUILD_TOOLS = ["shell", "workspace_patch"]
 _REVIEW_TOOLS = ["shell"]
 _REASON_TOOLS: list[str] = []
 _ROLE_EXTRA_TOOLS = {"researcher": ["mcp"]}
 
-# Role-specific quality gates layered on top of the mode's base gates.
 _ROLE_EXTRA_GATES = {
     "security_engineer": ["gitleaks", "semgrep"],
     "pentester": ["pentest", "exploit_validation"],
@@ -136,7 +131,6 @@ _ROLE_EXTRA_GATES = {
     "qa_engineer": ["regression"],
     "devops_engineer": ["deploy_dry_run"],
 }
-# The base-gate subset that applies to review roles (they verify, they don't build).
 _REVIEW_GATES = {"test", "security_scan", "coverage", "e2e", "regression"}
 
 _BUDGET_WEIGHT = {"build": 1.0, "review": 0.75, "reason": 0.5}
@@ -178,8 +172,6 @@ MODE_TIERS: dict[str, dict[str, Any]] = {
     },
 }
 
-# provider-kind per (mode, role kind): a CLASS of provider, not a concrete provider id, so the gateway
-# can pick the healthiest/cheapest one in that class.
 _PROVIDER_KIND = {
     "economy": {"build": "local", "review": "local", "reason": "local"},
     "balanced": {"build": "openai_compatible", "review": "openai_compatible", "reason": "openai_compatible"},
@@ -233,7 +225,6 @@ def select_roles(*, scope: set[str], risk: str, mode: str) -> set[str]:
         base.add("pentester")
     if (scope & {"release", "deploy"}) or mode == "maximum":
         base.add("release_manager")
-    # Second pass: coordination roles depend on the base team size (never on themselves).
     if mode == "maximum" or (risk == "critical" and len(base) >= 5):
         base.add("project_manager")
         base.add("scrum_master")
@@ -249,7 +240,6 @@ def _reviewer(role: str, *, scope: set[str], risk: str, mode: str) -> str | None
         or _RISK_ORDER[risk] >= _RISK_ORDER["high"]
         or role in {"security_engineer", "pentester"}
     )
-    # Self-review is only acceptable for low-stakes economy work; security/high-risk always escalate.
     if mode == "economy" and risk == "low" and not security_sensitive:
         return None
     return base

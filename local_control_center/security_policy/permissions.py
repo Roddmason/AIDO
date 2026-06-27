@@ -5,6 +5,8 @@ contra allowlists explicitas de scripts pnpm/uv, gestores de paquetes y binarios
 lectura. Invariante: solo los scripts/ejecutables enumerados aqui obtienen una categoria de
 bajo riesgo; cualquier cosa fuera de la lista queda sin categoria y el motor la denegara o
 elevara. No lanza: ante un comando mal formado devuelve ``None`` o categoria vacia.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

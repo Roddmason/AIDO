@@ -3,6 +3,8 @@
 Traduce filas (``sqlite3.Row``) a dicts camelCase para la API y ejecuta los upsert/insert.
 Transacciones: cada método emite los ``INSERT/UPDATE`` sobre la conexión recibida pero NO
 hace ``commit``; el control de transacción queda en manos del caller dueño de la conexión.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

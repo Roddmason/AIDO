@@ -3,6 +3,8 @@
 Declara los esquemas de entrada/salida del agente arquitecto, los runtimes de modelo elegibles
 (openai_compatible/ollama) y su orden de preferencia, y calcula si hay un runtime ejecutable para
 emitir veredictos de arquitectura fundados en el diff y la evidencia.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

@@ -5,6 +5,8 @@ persistencia. El archivado, además de cerrar el workspace, captura manifiesto/d
 promueve patches grandes a artefactos, crea el paquete de evidencia y emite los eventos de
 dominio (``workspace.created/archived``, ``qa.evidence.created``). La escritura exige el guard
 ``require_write`` inyectado por la app.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

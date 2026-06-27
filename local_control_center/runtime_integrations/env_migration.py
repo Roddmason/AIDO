@@ -7,6 +7,8 @@ Vault) y las registra en ``runtime_installations`` (ruta del ejecutable) y ``cre
 el período de deprecación: cada variable usada emite un warning y queda marcada con
 ``source=environment_override``.
 La migración es idempotente (upsert por runtime/credencial) y no almacena ni registra ningún secreto.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations
@@ -24,12 +26,10 @@ logger = logging.getLogger(__name__)
 
 ENVIRONMENT_OVERRIDE_SOURCE = "environment_override"
 
-# Ejecutables de runtime: (runtime_id, kind, env vars en orden de precedencia) -> runtime_installations.
 RUNTIME_EXECUTABLE_MIGRATIONS = (
     ("codex_cli", "cli", ("AIDO_CODEX_COMMAND", "CODEX_CLI_PATH")),
     ("claude_code_cli", "cli", ("AIDO_CLAUDE_COMMAND",)),
 )
-# Secretos: (nombre de credencial, env var, auth_mode, provider_id a re-enlazar o None) -> credential_refs.
 CREDENTIAL_MIGRATIONS = (
     ("github/token", "AIDO_GITHUB_TOKEN", "token", None),
     ("provider/openai_compatible", "AIDO_OPENAI_COMPATIBLE_API_KEY", "api_key", "openai_compatible"),

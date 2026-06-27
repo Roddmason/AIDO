@@ -3,6 +3,8 @@
 Define el contrato de salida (con alias camelCase para el frontend) de health,
 handshake, estado de retrieval/telemetría y los registros de evento/auditoría.
 Son DTO de borde: validan y serializan; no contienen lógica de dominio.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

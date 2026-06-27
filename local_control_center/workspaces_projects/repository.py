@@ -5,6 +5,8 @@ manifiesto en disco y registra el estado en SQLite. Las escrituras se agrupan so
 ``connection`` del caller, que es quien hace commit: ``allocate_workspace`` inserta en
 ``workspaces`` (+ ``git_branches`` si aplica) y ``workspace_allocations``; ``archive_workspace``
 actualiza ``workspaces``, libera ``workspace_allocations`` y archiva la rama git asociada.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

@@ -3,6 +3,8 @@
 Aplica primero el saldo restante y luego la regla de mayor especificidad (agent > workflow > provider
 > role > global) que exceda costo o tokens estimados, traduciendo su acción (deny/fallback/require_approval/
 warn) a una decisión allow/deny con motivo. No persiste nada: solo lee la tabla budget_rules.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

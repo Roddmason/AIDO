@@ -2,6 +2,8 @@
 
 Da a los consumidores (cli, tests, despliegue) un punto de import estable
 (`local_control_center.app:create_app`) desacoplado del modulo de ensamblado real.
+
+@author Rodrigo Mason
 """
 
 from .api import create_app

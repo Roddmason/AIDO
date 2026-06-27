@@ -3,6 +3,8 @@
 Solo fija el `provider_id`, la URL por defecto de OpenAI (override via AIDO/OPENAI
 base url) y la referencia de credencial; toda la logica HTTP, de costo y de uso la
 hereda de `OpenAICompatibleProvider`.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

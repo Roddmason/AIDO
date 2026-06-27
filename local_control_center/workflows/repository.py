@@ -9,6 +9,8 @@ Transactions: every write uses the caller-supplied ``connection`` and never comm
 the caller owns the commit/rollback boundary. ``start_workflow`` performs a multi-statement
 unit of work (workflow status UPDATE + run INSERT + one INSERT per step + gate side effects)
 that is only durable if the caller commits, so a failed start leaves no partial run behind.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

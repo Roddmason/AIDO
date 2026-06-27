@@ -1,5 +1,10 @@
 /**
  * Right-hand context panel summarizing the selected project's key signals.
+ *
+ * Muestra un EmptyState mientras no hay proyecto seleccionado; cuando lo hay, deriva
+ * estadísticas resumidas con `useMemo` y expone tres vistas mediante un control `Tabs`
+ * —team, plan y artifacts (por defecto plan)— para inspeccionar el proyecto activo sin
+ * salir del workbench.
  * @author Rodrigo Mason
  */
 

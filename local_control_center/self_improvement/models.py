@@ -1,5 +1,11 @@
 """Pydantic contracts for AIDO self-improvement proposals, lessons and performance records.
 
+Define las formas de request/response que intercambia el router de self-improvement:
+propuesta, lección (con su scope y estado de promoción) y registro de desempeño, más la
+respuesta agregada de estado. Los campos usan alias camelCase (``Field(alias=...)``) para
+que el JSON enviado al frontend respete su contrato mientras los atributos Python siguen
+en snake_case.
+
 @author Rodrigo Mason
 """
 

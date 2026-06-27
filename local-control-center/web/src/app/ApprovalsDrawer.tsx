@@ -1,5 +1,6 @@
 /**
  * Slide-over that surfaces pending action requests awaiting a human approval.
+ * @author Rodrigo Mason
  */
 import type { Overview } from '../api/types';
 import { Badge, DataTable, Drawer, EmptyState } from '../components/primitives';

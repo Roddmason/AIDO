@@ -2,6 +2,7 @@
  * Envoltura declarativa de la página activa: funde/desliza la ruta al entrar y salir.
  * Úsala dentro de un `AnimatePresence` keyed por ruta; el fallback reduced-motion lo aporta
  * `MotionConfig reducedMotion="user"` (deja solo opacity). Reemplaza al antiguo `usePageMotion`.
+ * @author Rodrigo Mason
  */
 
 import { m } from 'motion/react';

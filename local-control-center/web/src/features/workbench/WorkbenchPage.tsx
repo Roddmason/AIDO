@@ -8,6 +8,7 @@
  *
  * When hideExplorer=true (shell mode) the center renders a clean chat-first layout: transcript
  * leads, composer is pinned at the bottom, auxiliary panels are hidden.
+ * @author Rodrigo Mason
  */
 import {
 	Bot,
@@ -175,8 +176,6 @@ export function WorkbenchPage({
 	const [advanced, setAdvanced] = useState<GovernedAdvanced>(() =>
 		defaultAdvanced(selectedProject),
 	);
-	// Session selection is optionally controlled: when the shell passes selectedSessionId/onSelectSession
-	// it owns the active session (so the ShellSidebar drives the center); otherwise the page owns it.
 	const [internalSessionId, setInternalSessionId] = useState('');
 	const selectedSessionId = controlledSessionId ?? internalSessionId;
 	const setSelectedSessionId = useCallback(
@@ -202,9 +201,6 @@ export function WorkbenchPage({
 	const [loopStarting, setLoopStarting] = useState(false);
 	const [discoveryBusy, setDiscoveryBusy] = useState(false);
 
-	// Draft-persistence refs: latest values for the synchronous unmount flush, the project the
-	// composer is currently hydrated for (so the debounced save never clobbers with pre-hydration
-	// state), and the in-flight conversation abort controller.
 	const latestDraftRef = useRef<{ projectId: string; draft: ComposerDraft } | null>(null);
 	const hydratedProjectIdRef = useRef('');
 	const abortRef = useRef<AbortController | null>(null);
@@ -249,11 +245,8 @@ export function WorkbenchPage({
 		onResetSession: setSelectedSessionId,
 	});
 
-	// Live product-loop data for the loop sections; re-fetched on project change, on demand
-	// (decoupled from the 5s overview poll since the loop is detail-shaped and changes rarely).
 	const loop = useProductLoop(project?.id);
 
-	// --- Runtime / QA derivation (single source on the page; lifted from the old TaskComposer). ---
 	const runtimeRows = runtimeProviders?.providers ?? [];
 	const executableRuntimes = useMemo(
 		() => runtimeRows.filter(runtimeIsExecutableIssueRuntime),
@@ -275,13 +268,10 @@ export function WorkbenchPage({
 			))
 		: t('app.workbench.task.runtimeDiscovery', 'Runtime provider discovery has not completed.');
 
-	// --- Title: auto-derived from the prompt until the user edits it, then their value wins. ---
 	const activeMode = COMPOSER_MODES.find((item) => item.id === composerMode) ?? COMPOSER_MODES[0];
 	const activeModeLabel = t(activeMode.labelKey, activeMode.label);
 	const derivedTitle = deriveTitle(prompt, composerMode, activeModeLabel);
 	const effectiveTitle = titleEdited ? title : derivedTitle;
-	// Unedited path stays byte-identical to the legacy derived title (no extra trim); only a
-	// user-typed title is trimmed. Both fall back to firstLine so the sent title is never empty.
 	const submitTitle = titleEdited
 		? title.trim() || firstLine(prompt)
 		: derivedTitle || firstLine(prompt);
@@ -289,14 +279,12 @@ export function WorkbenchPage({
 	const trimmedPrompt = prompt.trim();
 	const isGoverned = composerMode !== 'conversation';
 	const composerDisabled = busy || !project || !trimmedPrompt || (isGoverned && !selectedRuntime);
-	// "AIDO decide" runs the Product Owner agent over the typed idea, so it needs a project and a prompt.
 	const aidoDecideDisabled = busy || discoveryBusy || !project || !trimmedPrompt;
 	const effectiveQaCommands = advanced.runChecks ? selectedQaPreset.commands : [];
 
 	const updateAdvanced = (patch: Partial<GovernedAdvanced>) =>
 		setAdvanced((prev) => ({ ...prev, ...patch }));
 
-	// Keep one executable runtime selected; preserve a still-valid restored/manual override.
 	useEffect(() => {
 		setAdvanced((prev) => {
 			if (!executableRuntimes.length) {
@@ -309,8 +297,6 @@ export function WorkbenchPage({
 		});
 	}, [executableRuntimes]);
 
-	// Restore the per-project draft on project switch (or reset to defaults). This is the ONLY
-	// place that resets composer text — never on session or mode switch — so neither loses it.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: re-run only when the project id changes.
 	useEffect(() => {
 		const projectId = project?.id ?? '';
@@ -330,12 +316,10 @@ export function WorkbenchPage({
 		}
 	}, [project?.id]);
 
-	// Mirror the live draft into a ref so the unmount flush can persist the latest keystrokes.
 	latestDraftRef.current = project
 		? { projectId: project.id, draft: { prompt, title, titleEdited, mode: composerMode, advanced } }
 		: null;
 
-	// Debounced steady-state save; guarded so it never writes before the project is hydrated.
 	useEffect(() => {
 		const projectId = project?.id ?? '';
 		if (!projectId || hydratedProjectIdRef.current !== projectId) return;
@@ -345,14 +329,10 @@ export function WorkbenchPage({
 		return () => window.clearTimeout(handle);
 	}, [project?.id, prompt, title, titleEdited, composerMode, advanced]);
 
-	// Advance the hydration marker only AFTER the save effect's commit-pass run, so a save
-	// scheduled during a project switch (still holding the previous project's body) can never
-	// pass the guard and write stale state under the new project id.
 	useEffect(() => {
 		hydratedProjectIdRef.current = project?.id ?? '';
 	}, [project?.id]);
 
-	// Synchronous flush on unmount so a fast route-away never drops the last keystrokes.
 	useEffect(() => {
 		return () => {
 			const latest = latestDraftRef.current;
@@ -491,7 +471,6 @@ export function WorkbenchPage({
 
 	const cancelConversation = () => abortRef.current?.abort();
 
-	// Starts a durable product loop for the project (the loop-creation seam) and refreshes the view.
 	const startLoop = async () => {
 		if (!project || loopStarting) return;
 		setLoopStarting(true);
@@ -510,8 +489,6 @@ export function WorkbenchPage({
 		}
 	};
 
-	// Navigates to the section and, when a loop exists, attempts the FSM transition. The backend is
-	// authoritative: a step that is not allowed from the current state returns 422 and we just inform.
 	const advanceLoop = async (toState: string, section: ProductLoopSectionId) => {
 		setActiveSection(section);
 		if (!project) return;
@@ -528,8 +505,6 @@ export function WorkbenchPage({
 			loop.refresh();
 			notify({ title: t('app.workbench.loop.advanced', 'Loop advanced'), tone: 'ok' });
 		} catch (advanceError) {
-			// The backend FSM is authoritative; surface its real reason (an invalid transition, or a
-			// 404/5xx) instead of disguising every failure as a single benign "not available" outcome.
 			notify({
 				title: t('app.workbench.loop.advanceFailed', 'Could not advance the loop'),
 				body: advanceError instanceof Error ? advanceError.message : undefined,
@@ -538,9 +513,6 @@ export function WorkbenchPage({
 		}
 	};
 
-	// "AIDO decide": runs the Product Owner agent over the typed idea. The agent produces and persists
-	// the brief, clarification questions, assumptions, decisions and backlog; we then refresh the loop
-	// sections. Fail-closed: with no executable product-owner runtime it persists nothing and reports it.
 	const runDiscovery = async () => {
 		if (!project || discoveryBusy) return;
 		const idea = prompt.trim();
@@ -594,7 +566,6 @@ export function WorkbenchPage({
 		}
 	};
 
-	// Governed run-result detail (moved from the old TaskComposer; rendered under the composer).
 	const resultRuntime = objectRecord(taskRunResult?.runtime);
 	const resultQa = Array.isArray(taskRunResult?.qaResults)
 		? objectRecord(taskRunResult?.qaResults[0])
@@ -617,8 +588,6 @@ export function WorkbenchPage({
 		setActiveSection('iteration');
 	};
 
-	// Tab badges count only what is wired to live overview data today; the discovery and backlog
-	// sections stay at 0 (an honest empty shell) until their HTTP endpoints exist.
 	const loopSections = buildProductLoopSections({
 		conversation: sessionChats.length,
 		iteration: sessionPipelines.length,
@@ -663,13 +632,10 @@ export function WorkbenchPage({
 		);
 	}
 
-	// The architecture section reuses the already-available overview architecture decisions,
-	// scoped to this project; the other loop sections come from the product-loop endpoint.
 	const projectArchitectureDecisions = overview.architectureDecisions.filter(
 		(decision) => decision.projectId === project.id,
 	);
 
-	// Ctrl/Cmd+Enter → submit in the shell chat composer.
 	const onComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
 		if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
 			event.preventDefault();
@@ -677,7 +643,6 @@ export function WorkbenchPage({
 		}
 	};
 
-	// ---- Shell chat mode (hideExplorer=true): clean chat-first layout ----
 	if (hideExplorer) {
 		const runtimeLabel = selectedRuntime
 			? selectedRuntime.displayName
@@ -895,7 +860,6 @@ export function WorkbenchPage({
 		);
 	}
 
-	// ---- Standalone workbench layout (hideExplorer=false): unchanged ----
 	return (
 		<>
 			{header}

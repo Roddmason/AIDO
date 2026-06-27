@@ -3,6 +3,7 @@
  * overview, and owns the two drawers (approve/reject and ship-a-run) plus their
  * focus handling. Board state lives here; lanes, cards and the decision/ship UI
  * are delegated to child components and the review hooks.
+ * @author Rodrigo Mason
  */
 import { AnimatePresence, m } from 'motion/react';
 import { useMemo, useRef, useState } from 'react';
@@ -59,8 +60,6 @@ export function ReviewPage({
 
 	const [selectedActionId, setSelectedActionId] = useState('');
 	const triggerRef = useRef<HTMLElement | null>(null);
-	// One reason state shared by the decision and ship flows: it carries decide -> ship for the
-	// same item (inheritable) and is editable; it resets only when a different item is opened.
 	const [reason, setReason] = useState('');
 	const reasonItemKeyRef = useRef('');
 	const adoptReasonFor = (itemKey: string) => {
@@ -77,8 +76,6 @@ export function ReviewPage({
 		() => overview.actionRequests.find((action) => action.id === selectedActionId) ?? null,
 		[overview, selectedActionId],
 	);
-	// Item key behind the open approval drawer, used to pair the shared-layout
-	// accent with the card it expanded from.
 	const selectedItemKey = useMemo(
 		() =>
 			selectedActionId ? (items.find((item) => item.actionId === selectedActionId)?.key ?? '') : '',
@@ -87,9 +84,6 @@ export function ReviewPage({
 	const decision = useReviewDecision(selectedAction, overview, token, mutate, reason, setReason);
 	const artifactPreview = useArtifactPreview(token);
 
-	// Ship lifecycle (promote/PR) for a reviewed, approved run — additive to the
-	// decision flow. Keyed by item key so it re-resolves the live run after a
-	// refresh (promote → the same drawer then offers Create PR).
 	const ship = useShipOperations(token, refresh, reason, setReason);
 	const [shipItemKey, setShipItemKey] = useState('');
 	const shipTriggerRef = useRef<HTMLElement | null>(null);
@@ -112,8 +106,6 @@ export function ReviewPage({
 	const openReview = (item: ReviewItem, trigger: HTMLElement | null) => {
 		if (!item.actionId) return;
 		triggerRef.current = trigger;
-		// Only one drawer open at a time: close the ship detail so a single card↔drawer
-		// `layoutId` pair is matched and two drawers never stack.
 		setShipItemKey('');
 		ship.reset();
 		adoptReasonFor(item.key);
@@ -129,7 +121,6 @@ export function ReviewPage({
 	const openDetail = (item: ReviewItem, trigger: HTMLElement | null) => {
 		shipTriggerRef.current = trigger;
 		ship.reset();
-		// Only one drawer open at a time: close the review drawer (see openReview).
 		setSelectedActionId('');
 		artifactPreview.clear();
 		adoptReasonFor(item.key);

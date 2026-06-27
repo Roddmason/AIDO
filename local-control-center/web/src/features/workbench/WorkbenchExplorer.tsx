@@ -1,6 +1,7 @@
 /**
  * Left rail of the Workbench: picks the active workspace folder and lets the user switch between
  * its work sessions and recent runs, which drives what the rest of the page shows.
+ * @author Rodrigo Mason
  */
 import { Bot, FolderKanban, GitBranch, History, Workflow } from 'lucide-react';
 

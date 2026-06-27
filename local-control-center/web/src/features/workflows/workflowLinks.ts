@@ -3,6 +3,7 @@
  * (or a single run) from the overview, and derive the merged timeline, blockers, "what's missing
  * for completed" gap list and PR links. No React/JSX here — every export is deterministic and
  * unit-testable, shared by the Workflows launcher page and the run-detail Inspector.
+ * @author Rodrigo Mason
  */
 import type { Overview } from '../../api/types';
 import { findPatchArtifact } from '../../lib/diff';

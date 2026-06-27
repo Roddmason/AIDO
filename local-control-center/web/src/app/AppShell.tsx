@@ -9,6 +9,7 @@
  * Owns the panes' collapse state, the activity-rail / header toggles and the
  * Ctrl/Cmd+B (explorer), Ctrl/Cmd+Shift+B (inspector) and Ctrl/Cmd+J (bottom dock)
  * shortcuts. Everything else (routing, data, selection) arrives via props.
+ * @author Rodrigo Mason
  */
 
 import type { ReactNode } from 'react';
@@ -29,8 +30,6 @@ import { StatusBar } from './StatusBar';
 
 type LanguageOption = { code: string; name: string; nativeName: string; enabled: boolean };
 
-// Defensive localStorage adapter: persistence is best-effort and must never throw
-// in restricted browser contexts (private mode, disabled storage).
 const LAYOUT_STORAGE: LayoutStorage = {
 	getItem: (key) => {
 		try {
@@ -42,21 +41,15 @@ const LAYOUT_STORAGE: LayoutStorage = {
 	setItem: (key, value) => {
 		try {
 			window.localStorage.setItem(key, value);
-		} catch {
-			// localStorage is optional in restricted browser contexts.
-		}
+		} catch {}
 	},
 };
 
-// Versioned layout keys: bump the suffix when the pane structure changes so a stale
-// saved layout can never reference panels that no longer exist.
 const HORIZONTAL_LAYOUT_ID = 'aido:ide-shell:v1';
 const VERTICAL_LAYOUT_ID = 'aido:ide-center:v1';
 
-// A collapsible pane reports ~0% of its group while it sits at collapsedSize (0).
 const COLLAPSED_PERCENTAGE = 0.5;
 
-// Drag/hit target around each separator: larger for touch (coarse) than mouse (fine).
 const RESIZE_HIT_TARGET = { coarse: 24, fine: 10 } as const;
 
 /**
@@ -125,8 +118,6 @@ export function AppShell({
 	const explorerPanelRef = usePanelRef();
 	const inspectorPanelRef = usePanelRef();
 	const bottomPanelRef = usePanelRef();
-	// Toggle controls live outside the panes; focusing them on collapse keeps
-	// keyboard focus off a pane that has just shrunk to zero width/height.
 	const explorerToggleRef = useRef<HTMLButtonElement>(null);
 	const inspectorToggleRef = useRef<HTMLButtonElement>(null);
 	const bottomToggleRef = useRef<HTMLButtonElement>(null);
@@ -168,9 +159,6 @@ export function AppShell({
 		inspectorToggleRef.current?.focus();
 	}, [inspectorPanelRef]);
 
-	// Expand-only reveal for the Inspector: unlike toggleInspector it never collapses and never
-	// moves focus, so revealing the run detail can't fight the resize-driven collapse state or
-	// steal focus from the deep link / Explorer action that triggered it.
 	const expandInspector = useCallback(() => {
 		const handle = inspectorPanelRef.current;
 		if (handle) {
@@ -180,9 +168,6 @@ export function AppShell({
 		}
 	}, [inspectorPanelRef]);
 
-	// Reveal the Inspector whenever a run becomes selected — on a deep-link load and on every
-	// Explorer "open run". Keyed on selectedRunId only, so a manual collapse stays collapsed
-	// until the next selection change.
 	useEffect(() => {
 		if (selectedRunId) expandInspector();
 	}, [selectedRunId, expandInspector]);
@@ -223,9 +208,6 @@ export function AppShell({
 		return () => window.removeEventListener('keydown', onKeyDown);
 	}, [toggleExplorer, toggleInspector, toggleBottom]);
 
-	// One persistent Projects sidebar everywhere (Codex-style): the same workspace → thread navigator on
-	// every route, toggled only by Ctrl/Cmd+B — it never swaps per area. Selecting a thread (or starting
-	// a new one) navigates to the thread/loop shell so the chat opens in the center.
 	const explorer = (
 		<ShellSidebar
 			overview={overview}

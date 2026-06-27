@@ -3,6 +3,7 @@
  * `ReviewItem`s from the raw overview, classifies them into lanes, and owns the
  * single source of truth for the patch evidence gate (refs, QA, security).
  * No React here — every export is deterministic and unit-testable.
+ * @author Rodrigo Mason
  */
 import type { ArtifactPayload } from '../../api/client';
 import type { ActionRequest, Artifact, Overview } from '../../api/types';
@@ -60,11 +61,6 @@ export interface ReviewItem {
 const DONE_LIMIT = 25;
 
 const RISK_RANK: Record<string, number> = { critical: 4, high: 3, medium: 2, low: 1 };
-
-// ----------------------------------------------------------------------------
-// Pure helpers — the single source of truth for the evidence gate (the legacy
-// JobsApprovalsPage that once duplicated these was retired).
-// ----------------------------------------------------------------------------
 
 /** Narrows an unknown to a plain object record; arrays and non-objects become `{}`. */
 export function asRecord(value: unknown): Record<string, unknown> {
@@ -304,10 +300,6 @@ export function evidenceCompleteness({
 	return { required, complete: checks.every((check) => check.ok), checks };
 }
 
-// ----------------------------------------------------------------------------
-// Review-item derivation.
-// ----------------------------------------------------------------------------
-
 /** Risk → tone. `toneForStatus` only maps `critical`, so risk needs its own map. */
 export function riskTone(level: string | null | undefined): Tone {
 	if (level === 'critical' || level === 'high') return 'danger';
@@ -350,7 +342,6 @@ export function buildReviewItems(overview: Overview): ReviewItem[] {
 	const items: ReviewItem[] = [];
 	const claimed = new Set<string>();
 
-	// Pass 1 — patch-workflow runs.
 	for (const run of overview.workflowRuns) {
 		const workflow = workflowById.get(run.workflowId);
 		const kind = patchWorkflowKind(workflow?.kind);
@@ -405,7 +396,6 @@ export function buildReviewItems(overview: Overview): ReviewItem[] {
 		});
 	}
 
-	// Pass 2 — standalone pending actions not bound to a pass-1 run.
 	for (const action of overview.actionRequests) {
 		if (action.status !== 'pending' || claimed.has(action.id)) continue;
 		claimed.add(action.id);
@@ -438,7 +428,6 @@ export function buildReviewItems(overview: Overview): ReviewItem[] {
 		});
 	}
 
-	// Pass 3 — recent decisions (bounded).
 	const decided = overview.actionRequests
 		.filter((action) => action.status !== 'pending' && !claimed.has(action.id))
 		.sort(

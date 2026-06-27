@@ -1,6 +1,7 @@
 /**
  * Side-anchored modal dialog: portal + scrim + focus trap (WAI-ARIA dialog), closing on
  * Escape or scrim click. Same contract as {@link Dialog} but slides in from the edge.
+ * @author Rodrigo Mason
  */
 
 import type { ReactNode } from 'react';

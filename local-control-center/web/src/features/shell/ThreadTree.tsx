@@ -6,6 +6,7 @@
  * that drives the center. The data model has no deeper nesting than workspace → session, so the tree
  * is two levels — it does not fabricate sub-threads. Real overview data; collapsible per workspace
  * with honest empty states. Accessible via a disclosure pattern (button headers with aria-expanded).
+ * @author Rodrigo Mason
  */
 import { ChevronRight, FolderKanban, MessageSquare, Plus } from 'lucide-react';
 import { useState } from 'react';
@@ -38,7 +39,6 @@ export function ThreadTree({
 	onSelectSession,
 }: ThreadTreeProps) {
 	const { t } = useI18n();
-	// Expanded workspaces; the operational workspace starts open so its threads are visible.
 	const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
 	if (!projects.length) {
@@ -56,7 +56,6 @@ export function ThreadTree({
 		<div className="thread-tree">
 			{projects.map((project) => {
 				const projectSessions = sessions.filter((session) => session.projectId === project.id);
-				// Default: the operational workspace is open, others closed; a user toggle overrides.
 				const open =
 					project.id in collapsed ? !collapsed[project.id] : project.id === selectedProjectId;
 				const visibleSessions = needle

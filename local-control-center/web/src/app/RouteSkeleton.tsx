@@ -2,6 +2,7 @@
  * Suspense fallback for lazily-loaded routes: a low-chrome skeleton that fills the
  * content frame while a page chunk downloads, so navigation never flashes empty. The
  * container carries the `status`/`aria-busy` announcement; the bars are decorative.
+ * @author Rodrigo Mason
  */
 import { Skeleton } from '../components/ui';
 import { useI18n } from '../i18n/I18nProvider';

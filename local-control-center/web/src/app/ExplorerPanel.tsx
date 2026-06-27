@@ -3,6 +3,7 @@
  *
  * When a project is selected it lists that project's active runs, approvals,
  * workspaces and evidence in collapsible sections whose state persists in localStorage.
+ * @author Rodrigo Mason
  */
 import {
 	ChevronRight,
@@ -77,9 +78,7 @@ function readStoredSections(): Record<string, boolean> {
 function persistSections(sections: Record<string, boolean>) {
 	try {
 		window.localStorage.setItem(SECTION_STORAGE_KEY, JSON.stringify(sections));
-	} catch {
-		// localStorage is optional in restricted browser contexts.
-	}
+	} catch {}
 }
 
 /** Reads the detected tech stack from project discovery metadata, defensively.
@@ -247,8 +246,6 @@ export function ExplorerPanel({
 		[selectedProject],
 	);
 
-	// Newest run id per workflow, so a run row in the Explorer opens that concrete run in the
-	// shell Inspector (deep-linkable) instead of just navigating to the Workflows page.
 	const latestRunByWorkflow = useMemo(() => {
 		const latest = new Map<string, string>();
 		const newestStartedAt = new Map<string, number>();

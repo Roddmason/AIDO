@@ -5,6 +5,7 @@
  * current assignment, blocked reason, completed artifact, reviewer, duration and (when known) cost —
  * with the noisy low-level events folded into {@link TeamActivityEvents}. Every field renders an
  * honest fallback when its data is absent rather than implying activity that did not happen.
+ * @author Rodrigo Mason
  */
 import { Bot } from 'lucide-react';
 import type { TeamActivityEntry } from '../../api/types';

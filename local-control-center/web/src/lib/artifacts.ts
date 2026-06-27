@@ -2,6 +2,7 @@
  * Lee los campos de presentación de un artefacto desde su `metadata` heterogéneo.
  * Normaliza nombre, MIME y tamaño a valores seguros para la UI, con fallbacks
  * cuando el metadata viene ausente, malformado o sin el campo esperado.
+ * @author Rodrigo Mason
  */
 import type { ArtifactPayload } from '../api/client';
 import type { Artifact, Dictionary } from '../api/types';

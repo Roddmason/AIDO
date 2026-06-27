@@ -3,6 +3,7 @@
  * chunks → tool actions → file changes → completed/failed/cancelled) as it arrives, plus a running
  * indicator and a cancel control. Replaces the indefinite spinner with real, incremental activity; the
  * events come from useCliSessionStream (incremental poll) and large chunks are downloadable artifacts.
+ * @author Rodrigo Mason
  */
 
 import { useState } from 'react';

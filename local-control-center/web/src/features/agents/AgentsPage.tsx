@@ -4,6 +4,7 @@
  * runtime detection. Profile creation is blocked until the model-gateway catalogs
  * (providers, routing profiles, role policies) and runtime modes all load, so a profile
  * can never reference an option the backend hasn't confirmed exists.
+ * @author Rodrigo Mason
  */
 import { useEffect, useMemo, useState } from 'react';
 

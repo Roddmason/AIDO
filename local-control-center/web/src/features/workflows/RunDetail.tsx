@@ -4,6 +4,7 @@
  * and presents them across six tabs — Overview, Timeline, Agents, Evidence, Artifacts, Policy —
  * reusing the same primitives and evidence derivations the Workflows page uses, so a run is a
  * first-class, linkable object instead of a transient drawer selection.
+ * @author Rodrigo Mason
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 
@@ -78,13 +79,10 @@ export function RunDetail({
 	const patchArtifact = useMemo(() => findPatchArtifact(linked.artifacts), [linked.artifacts]);
 	const pullRequestUrls = useMemo(() => workflowPullRequestUrls(linked), [linked]);
 
-	// Move focus to the run heading whenever the inspected run changes, so the deep link and the
-	// Explorer "open run" action land keyboard focus on the new content rather than stranding it.
 	useEffect(() => {
 		headingRef.current?.focus();
 	}, []);
 
-	// Reset transient view state when the inspected run changes.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: runId is the intended reset trigger.
 	useEffect(() => {
 		setActiveTab('overview');
@@ -95,7 +93,6 @@ export function RunDetail({
 		setJobMutationError('');
 	}, [runId]);
 
-	// Escape closes the artifact preview overlay first (without clearing the run selection).
 	useEffect(() => {
 		if (!previewArtifact) return undefined;
 		const onKeyDown = (event: KeyboardEvent) => {
@@ -156,7 +153,6 @@ export function RunDetail({
 		}
 	};
 
-	// Queue recovery (retry/cancel) requires a non-empty human reason before it runs.
 	const runJobMutation = async (op: 'retry' | 'cancel', jobId: string, reason: string) => {
 		if (!reason.trim()) {
 			setJobMutationError(

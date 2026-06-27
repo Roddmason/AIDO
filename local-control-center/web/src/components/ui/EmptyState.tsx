@@ -1,6 +1,7 @@
 /**
  * Neutral empty-state block: title + body, with an optional call-to-action. Same
  * `{title, body}` contract as the legacy primitive so callers migrate by import swap.
+ * @author Rodrigo Mason
  */
 import type { ReactNode } from 'react';
 

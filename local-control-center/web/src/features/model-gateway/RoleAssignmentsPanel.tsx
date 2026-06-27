@@ -2,6 +2,7 @@
  * Tabla de políticas de ruteo por rol del Model Gateway: qué proveedor/modelo y límites aplican a cada rol de agente.
  * Sub-dominio de asignación rol→política: preferidos/fallbacks, topes de costo y tokens, transportes permitidos
  * (remote/CLI/API) y el trato del costo remoto desconocido. Solo lectura: las políticas se siembran al arranque.
+ * @author Rodrigo Mason
  */
 import type { ModelGatewayRolePolicy } from '../../api/types';
 import { Badge, DataTable, EmptyState } from '../../components/primitives';

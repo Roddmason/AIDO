@@ -1,6 +1,7 @@
 /**
  * Memory & Retrieval console: shows the canonical SQLite-backed memory count and the retrieval
  * backend posture (rebuildable vector indexes are not the source of truth). Read-only.
+ * @author Rodrigo Mason
  */
 import type { Overview, RetrievalStatus } from '../../api/types';
 import { PageHeader, Surface } from '../../components/primitives';

@@ -1,5 +1,6 @@
 /**
  * Right-hand context panel summarizing the selected project's key signals.
+ * @author Rodrigo Mason
  */
 
 import type { Variants } from 'motion/react';
@@ -56,9 +57,6 @@ export function InspectorPanel({
 }) {
 	const { t } = useI18n();
 	const [inspectorTab, setInspectorTab] = useState<'team' | 'plan' | 'artifacts'>('plan');
-	// Restore focus to whatever opened the inspector (the header toggle) when the panel
-	// closes. AppShell keeps the panel mounted during its exit animation, so without this
-	// the focused close button would unmount under the user and strand keyboard focus.
 	const previouslyFocused = useRef<HTMLElement | null>(null);
 	useLayoutEffect(() => {
 		previouslyFocused.current = (document.activeElement as HTMLElement | null) ?? null;

@@ -3,6 +3,7 @@
  * columns) while letting operators reveal advanced columns on demand. The chosen set persists
  * per table in localStorage (best-effort, like ExplorerPanel) so a workspace keeps its layout.
  * Advanced columns default to hidden.
+ * @author Rodrigo Mason
  */
 import { useCallback, useState } from 'react';
 
@@ -27,9 +28,7 @@ function readVisible(tableId: string): Set<string> {
 function persistVisible(tableId: string, visible: Set<string>) {
 	try {
 		window.localStorage.setItem(storageKey(tableId), JSON.stringify([...visible]));
-	} catch {
-		// localStorage is optional in restricted browser contexts.
-	}
+	} catch {}
 }
 
 /** Owns which advanced columns are revealed for one table (persisted, advanced-hidden by default). */

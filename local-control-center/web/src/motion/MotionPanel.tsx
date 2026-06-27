@@ -2,6 +2,7 @@
  * Envoltura declarativa de un panel: transición de montaje (opacity + leve desplazamiento).
  * Pensada para envolver una `Surface`/panel del IDE; el fallback reduced-motion lo da
  * `MotionConfig reducedMotion="user"`.
+ * @author Rodrigo Mason
  */
 
 import { m } from 'motion/react';

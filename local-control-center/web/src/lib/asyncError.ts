@@ -1,6 +1,7 @@
 /**
  * Descriptor de error async desacoplado de la traducción: captura en el efecto, traduce en render.
  * Evita el stale-closure de locale cuando el idioma cambia con una petición en vuelo.
+ * @author Rodrigo Mason
  */
 
 /**

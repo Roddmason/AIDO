@@ -6,6 +6,7 @@
  * `threads` area, and all selection flows up via callbacks so the center (the Workbench) stays in sync.
  * There are no tabs — the product-loop list lives in the inspector (Plan), keeping this a focused
  * project/thread navigator.
+ * @author Rodrigo Mason
  */
 import { Plus, Search, Settings as SettingsIcon } from 'lucide-react';
 import { useState } from 'react';
@@ -39,8 +40,6 @@ export function ShellSidebar({
 	const [filter, setFilter] = useState('');
 	const projects = overview.projects.filter((project) => project.status === 'active');
 
-	// "New thread" starts a fresh session in the active workspace; with no workspace yet it falls back
-	// to opening a folder so the action is never a dead end.
 	const startNewThread = () => {
 		if (selectedProjectId) onSelectSession(NEW_SESSION_ID);
 		else onCreateProject();

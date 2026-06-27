@@ -3,6 +3,7 @@
  * plus the `useToast` hook to push notifications from anywhere. Each toast auto-dismisses
  * after `durationMs` (default 5s; pass 0 to keep it until dismissed) and is announced via
  * an `aria-live` region.
+ * @author Rodrigo Mason
  */
 
 import type { ReactNode } from 'react';
@@ -75,8 +76,6 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 					className="toast-viewport"
 					role="region"
 					aria-label={t('app.global.notifications', 'Notifications')}
-					// The viewport persists across renders, so it is the live region: new toast text is
-					// injected into an already-mounted aria-live node (the reliable announcement pattern).
 					aria-live="polite"
 					aria-atomic="false"
 				>

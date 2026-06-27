@@ -3,6 +3,7 @@
  * iterations) from the live project-scoped product-loop endpoint, with loading, error and empty
  * states. Pure presentation: the page owns the fetch (useProductLoop) and passes the data down; the
  * architecture section reuses the already-available overview architecture decisions.
+ * @author Rodrigo Mason
  */
 
 import type { ReactNode } from 'react';
@@ -319,7 +320,6 @@ export function ProductLoopSection({
 		);
 	}
 
-	// section === 'iterations'
 	const iterations = data?.iterations ?? [];
 	if (!iterations.length) {
 		return (

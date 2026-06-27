@@ -6,6 +6,7 @@
  * I-4/B-3: each section's `render(ctx)` is fully implemented here, so SettingsModal
  * only calls `activeSection.render(ctx)` — no switch needed. Adding a new section
  * requires only this registry.
+ * @author Rodrigo Mason
  */
 
 import type { ReactNode } from 'react';
@@ -87,10 +88,6 @@ export type SectionDefinition = {
 	render: (ctx: SectionContext) => ReactNode;
 };
 
-// ---------------------------------------------------------------------------
-// Shared render helpers
-// ---------------------------------------------------------------------------
-
 function renderWired(ctx: SectionContext): ReactNode {
 	if (ctx.resolved.length === 0) {
 		return (
@@ -143,7 +140,6 @@ export const GENERAL_SECTIONS: SectionDefinition[] = [
 		titleKey: 'app.settings.section.appearance',
 		titleFallback: 'Appearance',
 		kind: 'display',
-		// B-2: Appearance reuses theme/density/language controls (AdvancedBody).
 		render: (ctx) => (
 			<AdvancedBody
 				overview={ctx.overview}

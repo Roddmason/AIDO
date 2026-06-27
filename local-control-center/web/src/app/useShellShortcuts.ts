@@ -2,6 +2,7 @@
  * Global keyboard layer for the shell: wires Escape, the command-palette toggle
  * and the Ctrl+Alt command-action shortcuts to a single window-level listener.
  * Keeps keyboard navigation working regardless of which page is mounted.
+ * @author Rodrigo Mason
  */
 
 import type { RefObject } from 'react';

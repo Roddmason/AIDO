@@ -4,6 +4,7 @@
  * to a retryable message instead of blanking the whole shell. Retry remounts the subtree
  * (via a changing key) so a previously-rejected `React.lazy` import is attempted again.
  * React logs the underlying error itself, so no extra logging is added here.
+ * @author Rodrigo Mason
  */
 
 import type { ReactNode } from 'react';

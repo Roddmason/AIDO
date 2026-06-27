@@ -4,6 +4,7 @@
  * Resolves the active page from the URL hash, owns selection/dialog/drawer/palette
  * flags, wires the control-plane data hook and global shortcuts, and dispatches each
  * route to its feature page. Every chrome piece lives in its own component here.
+ * @author Rodrigo Mason
  */
 import { AnimatePresence } from 'motion/react';
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -48,9 +49,7 @@ function persistSelectedProjectId(projectId: string) {
 		} else {
 			window.localStorage.removeItem(SELECTED_PROJECT_STORAGE_KEY);
 		}
-	} catch {
-		// localStorage is optional in restricted browser contexts.
-	}
+	} catch {}
 }
 
 /**
@@ -68,22 +67,17 @@ export function App() {
 	const [page, setPage] = useState<AppRoute>(() => resolveHashState().page);
 	const [selectedRunId, setSelectedRunId] = useState<string | null>(() => resolveHashState().runId);
 	const [selectedProjectId, setSelectedProjectId] = useState(readStoredSelectedProjectId);
-	// Active session for the thread/loop shell: owned here so the ShellSidebar and the shell center
-	// (the Workbench) stay in sync. Resets when the operational project changes.
 	const [selectedSessionId, setSelectedSessionId] = useState('');
 	const [workspaceDialogOpen, setWorkspaceDialogOpen] = useState(false);
 	const [workspaceDialogMode, setWorkspaceDialogMode] = useState<WorkspaceMode>('open_folder');
 	const [approvalDrawerOpen, setApprovalDrawerOpen] = useState(false);
 	const [eventDrawerOpen, setEventDrawerOpen] = useState(false);
 	const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
-	// Settings modal state: open flag + active section id.
 	const [settingsModalOpen, setSettingsModalOpen] = useState(false);
 	const [settingsSection, setSettingsSection] = useState('general');
 	const state = useControlPlane();
 	const commandActionsRef = useRef<CommandAction[]>([]);
 
-	// Navigation owns both the active page and the optional selected run (deep-linked as
-	// `#workflows?run=<id>`); navigating to any page without a run id clears the run selection.
 	const navigateTo = useCallback((nextPage: AppRoute, runId?: string) => {
 		window.location.hash = encodeHash(nextPage, runId);
 		setPage(nextPage);
@@ -132,11 +126,9 @@ export function App() {
 	useEffect(() => {
 		const onHash = () => {
 			const { token } = splitHash();
-			// Intercept settings hashes: open the modal at the mapped section, stay on home.
 			const settingsSection = settingsHashToSection(token);
 			if (settingsSection !== undefined) {
 				openSettings(settingsSection);
-				// Clear the settings hash and land on home so history stays clean.
 				window.location.hash = 'home';
 				setPage('home');
 				setSelectedRunId(null);
@@ -150,8 +142,6 @@ export function App() {
 		return () => window.removeEventListener('hashchange', onHash);
 	}, [openSettings]);
 
-	// On initial load, intercept settings hashes too (before the hashchange listener fires).
-	// openSettings is stable (useCallback with []) so including it does not cause extra runs.
 	useEffect(() => {
 		const { token } = splitHash();
 		const section = settingsHashToSection(token);
@@ -239,7 +229,6 @@ export function App() {
 		);
 	}
 
-	// Shared context handed to the active route's page (overview is non-null past the guard).
 	const routeContext: RouteContext = {
 		overview,
 		selectedProject,

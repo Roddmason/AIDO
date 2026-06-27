@@ -4,6 +4,7 @@
  * Wraps the design-system `.button` classes — it does NOT reinvent a button, so the
  * native type/disabled/onClick/form semantics pass straight through. `loading` shows a
  * busy spinner, sets `aria-busy`, and disables interaction without shifting layout.
+ * @author Rodrigo Mason
  */
 
 import type { ButtonHTMLAttributes, ReactNode } from 'react';
@@ -33,7 +34,6 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
 	return (
 		<button
 			ref={ref}
-			// Default to type="button" so a Button inside a form never submits by accident.
 			type={type ?? 'button'}
 			className={cn('button', VARIANT_CLASS[variant], className)}
 			disabled={disabled || loading}

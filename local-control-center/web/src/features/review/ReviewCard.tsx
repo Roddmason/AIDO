@@ -3,6 +3,7 @@
  * Renders project, run health, QA verdict, risk and diff/evidence refs, and picks
  * one contextual primary action (Review / Promote / Create PR / View evidence)
  * from the item's lifecycle state.
+ * @author Rodrigo Mason
  */
 
 import { AlertTriangle, FileCheck2, GitBranch, ShieldAlert } from 'lucide-react';

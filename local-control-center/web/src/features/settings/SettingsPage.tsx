@@ -10,6 +10,7 @@
  * tripwire (tests_py/test_ci_and_openapi_client.py) asserts this file references CredentialManagerPanel
  * and never inlines raw secret fields. The live modal renders credentials via sections.tsx's
  * `credentials` section (<CredentialManagerPanel/>), so SecurityBody is not imported elsewhere.
+ * @author Rodrigo Mason
  */
 
 import { ExternalLink, FolderPlus } from 'lucide-react';

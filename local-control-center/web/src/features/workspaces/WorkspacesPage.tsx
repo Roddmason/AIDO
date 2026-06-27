@@ -1,6 +1,7 @@
 /**
  * Read-only inventory of task-owned runtime workspaces (the isolated working trees agents run in).
  * Surfaces ownership and isolation type so two agents are never seen sharing one mutable tree.
+ * @author Rodrigo Mason
  */
 import type { Overview } from '../../api/types';
 import { Badge, DataTable, EmptyState, PageHeader, Surface } from '../../components/primitives';

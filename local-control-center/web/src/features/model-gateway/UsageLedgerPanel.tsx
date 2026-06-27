@@ -2,6 +2,7 @@
  * Libro de uso del Model Gateway: historial de consumo real reportado por cada llamada a proveedor/runtime.
  * Sub-dominio de contabilidad de uso: por entrada muestra desglose de tokens, costo estimado vs real, latencia
  * y la procedencia/estado del dato (reportado o estimado). El filtrado de texto es controlado por el padre.
+ * @author Rodrigo Mason
  */
 import type { ModelGatewayUsage } from '../../api/types';
 import { DataTable, EmptyState } from '../../components/primitives';

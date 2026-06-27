@@ -3,6 +3,7 @@
  * Concentra la carga de estado del gateway (overview, catálogos, ledger, decisiones) y las acciones de
  * mutación (toggle/health de proveedores, preview de ruta, alta de políticas y outcomes); cada panel
  * recibe sus datos por props y notifica de vuelta vía callbacks.
+ * @author Rodrigo Mason
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
@@ -190,8 +191,6 @@ export function ModelGatewayPage({
 		setActiveTab(tab);
 		window.location.hash = `models?tab=${encodeURIComponent(tab)}`;
 	}, []);
-	// Keep the active tab in sync with the URL (back/forward and external deep links). The tab
-	// param lives only in the hash query, so resolveHashRoute still resolves `#models` normally.
 	useEffect(() => {
 		const onHash = () => {
 			if (resolveHashRoute() !== 'models') return;

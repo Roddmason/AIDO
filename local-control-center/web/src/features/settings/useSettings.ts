@@ -2,6 +2,7 @@
  * Fetches resolved settings (general and project scopes) and exposes mutate helpers
  * for setting and clearing override values. Mirrors the useTeamActivity fetch pattern:
  * AbortController on enabled, refresh token, no polling (settings are set on demand).
+ * @author Rodrigo Mason
  */
 
 import { useCallback, useEffect, useState } from 'react';

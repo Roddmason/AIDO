@@ -4,6 +4,7 @@
  * Pure presentation/step orchestration: all detection and the create call live in the
  * `useProjectDiscovery` hook; this component only sequences the steps, gates Next on
  * validation, and reports the created project id back to the caller.
+ * @author Rodrigo Mason
  */
 
 import { FolderOpen, FolderPlus, Search } from 'lucide-react';
@@ -49,7 +50,6 @@ export function NewWorkspaceDialog({
 		workspace.reset();
 		workspace.setMode(initialMode);
 		setStep('source');
-		// Re-seed only when the dialog (re)opens; the hook owns the rest of the lifecycle.
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [open, initialMode]);
 

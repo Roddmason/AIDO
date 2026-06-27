@@ -1,6 +1,7 @@
 /**
  * Single-select segmented control (WAI-ARIA radiogroup): one option is checked at a time,
  * with roving-tabindex Arrow/Home/End navigation. Generic over the option value type.
+ * @author Rodrigo Mason
  */
 
 import type { KeyboardEvent, ReactNode } from 'react';

@@ -2,6 +2,7 @@
  * Quick-action registry shared by the command palette and the global keyboard
  * layer: one declarative list whose `shortcut` fields are the single source for
  * both the visible chips and the dispatch, so no binding can drift or go dead.
+ * @author Rodrigo Mason
  */
 
 import type { LucideProps } from 'lucide-react';

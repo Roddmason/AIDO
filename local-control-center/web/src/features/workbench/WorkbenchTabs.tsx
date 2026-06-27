@@ -1,6 +1,7 @@
 /**
  * Tablist + panel chrome for the Workbench center column, with ARIA roles and roving-tabindex
  * keyboard navigation (Arrow/Home/End). The caller owns the active tab and renders panel content.
+ * @author Rodrigo Mason
  */
 
 import { AnimatePresence, m } from 'motion/react';

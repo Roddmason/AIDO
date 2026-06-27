@@ -4,10 +4,9 @@
  *
  * Each component wraps the design-system classes with typed variants, forwardRef where a
  * ref is useful, and uniform label/help/error/loading/disabled handling.
+ * @author Rodrigo Mason
  */
 
-// Disclosure already exists as an accessible (h3-trigger + region) primitive; the library
-// re-exports it rather than duplicating the WAI-ARIA disclosure wiring.
 export { Disclosure } from '../Disclosure';
 export type { ButtonProps, ButtonVariant } from './Button';
 export { Button } from './Button';

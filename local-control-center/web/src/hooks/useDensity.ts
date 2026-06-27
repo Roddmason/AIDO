@@ -5,6 +5,7 @@
  * the `:root[data-density="compact"]` control-sizing overrides in tokens.css, so the
  * pre-paint bootstrap and the runtime toggle stay in sync. Comfortable is the default
  * (touch-safe); compact tightens controls for information-dense, mouse-first sessions.
+ * @author Rodrigo Mason
  */
 import { useCallback, useEffect, useState } from 'react';
 
@@ -29,9 +30,7 @@ function applyDensity(density: Density) {
 function persistDensity(density: Density) {
 	try {
 		window.localStorage.setItem(DENSITY_STORAGE_KEY, density);
-	} catch {
-		// localStorage is optional in restricted browser contexts.
-	}
+	} catch {}
 }
 
 /** Applies the persisted density to <html> before React renders, avoiding a flash. */

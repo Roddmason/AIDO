@@ -8,6 +8,7 @@
  * pointer-down outside closes. Theme, density and About are handled here via hooks;
  * every other command is delegated upward via props. Stateless beyond its own
  * open-menu/focus chrome.
+ * @author Rodrigo Mason
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useToast } from '../components/ui';
@@ -56,7 +57,6 @@ export function MenuBar({
 	const containerRef = useRef<HTMLDivElement>(null);
 	const buttonRefs = useRef(new Map<MenuId, HTMLButtonElement | null>());
 	const menuRef = useRef<HTMLDivElement>(null);
-	// Whether a freshly opened dropdown should land focus on its first or last item.
 	const focusEdgeRef = useRef<'first' | 'last'>('first');
 
 	const handlers = useMemo<Record<MenuCommandId, () => void>>(
@@ -137,7 +137,6 @@ export function MenuBar({
 		[closeMenu, handlers],
 	);
 
-	// Close on a pointer-down anywhere outside the bar (covers clicks on the workbench beneath).
 	useEffect(() => {
 		if (!openMenu) return;
 		const onPointerDown = (event: PointerEvent) => {
@@ -147,7 +146,6 @@ export function MenuBar({
 		return () => window.removeEventListener('pointerdown', onPointerDown);
 	}, [openMenu]);
 
-	// Land focus on the requested edge item whenever a dropdown opens (after it has mounted).
 	useEffect(() => {
 		if (!openMenu) return;
 		const items = menuItemEls();

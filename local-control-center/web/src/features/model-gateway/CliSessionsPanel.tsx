@@ -3,6 +3,7 @@
  * Muestra el estado de cada runtime CLI y el detalle de cada sesión (workspace, agente, comando,
  * artefactos), redactando ejecutables, comandos y errores que puedan contener secretos; al elegir una
  * sesión despliega su bitácora de eventos en streaming (actividad real, no spinner indefinido).
+ * @author Rodrigo Mason
  */
 import { useState } from 'react';
 

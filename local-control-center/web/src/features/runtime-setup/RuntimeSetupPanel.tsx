@@ -3,6 +3,7 @@
  * this execute?" — required env vars, detected command, health and configure steps.
  * Re-probes API/gateway providers on refresh (their health is stored, not live on GET)
  * and redacts secret values everywhere, showing only set/unset state and a fingerprint.
+ * @author Rodrigo Mason
  */
 
 import { CheckCircle2, RefreshCw, XCircle } from 'lucide-react';
@@ -52,8 +53,6 @@ export function RuntimeSetupPanel({
 		if (refreshing) return;
 		setRefreshing(true);
 		try {
-			// API/gateway providers expose only stored health on the status GET, so
-			// actively re-probe them; CLI and Ollama re-check live on the refresh.
 			const probeIds = token ? apiProviderIdsNeedingProbe(providers) : [];
 			if (probeIds.length) {
 				await Promise.allSettled(probeIds.map((id) => healthCheckModelGatewayProvider(token, id)));

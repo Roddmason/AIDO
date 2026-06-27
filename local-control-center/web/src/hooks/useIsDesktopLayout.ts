@@ -5,11 +5,10 @@
  *
  * The initial value is read synchronously from `matchMedia`, so the correct
  * layout renders on the first paint and the shell does not shift after mount.
+ * @author Rodrigo Mason
  */
 import { useEffect, useState } from 'react';
 
-// Mirrors the design-system `min-width: 981px` breakpoint that switches the
-// shell between the stacked layout and the resizable desktop layout.
 const DESKTOP_QUERY = '(min-width: 981px)';
 
 function readDesktopMatch(): boolean {

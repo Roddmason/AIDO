@@ -3,6 +3,7 @@
  * the session is running. Accumulates only the new events (seq > the last seen), so the channel shows
  * real activity instead of an indefinite spinner; stops polling once the backend reports the session is
  * no longer running. The accumulated list is capped so a long session never grows the UI without bound.
+ * @author Rodrigo Mason
  */
 
 import { useEffect, useRef, useState } from 'react';

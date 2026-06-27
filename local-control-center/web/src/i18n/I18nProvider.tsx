@@ -4,6 +4,7 @@
  * Fetches the catalog from the control plane, persists the chosen language in
  * localStorage, and falls back to the default language (then the key itself) when a
  * translation is missing, so the UI never renders an empty string.
+ * @author Rodrigo Mason
  */
 
 import type { ReactNode } from 'react';
@@ -38,9 +39,7 @@ function readStoredLanguage() {
 function persistLanguage(language: string) {
 	try {
 		window.localStorage.setItem(LANGUAGE_STORAGE_KEY, language);
-	} catch {
-		// localStorage is optional in restricted browser contexts.
-	}
+	} catch {}
 }
 
 /** Provides the i18n context: loads the catalog on mount, polls language changes onto `<html lang>`. */

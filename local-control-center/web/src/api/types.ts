@@ -4,6 +4,7 @@
  * Maps verbose generated names (e.g. `ProjectRecord`) to the short vocabulary the
  * UI uses (`Project`), and narrows a few enum-like unions from request shapes so
  * components depend on intent-named types instead of the raw generated surface.
+ * @author Rodrigo Mason
  */
 import type {
 	ActionRequestRecord,

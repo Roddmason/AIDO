@@ -2,6 +2,7 @@
  * Bitácora de decisiones de ruteo del Model Gateway: historial auditable de cada ruta resuelta (preview y ejecución).
  * Sub-dominio de auditoría/trazabilidad: por decisión muestra rol, tarea, modo, proveedor/modelo/runtime elegidos,
  * costo estimado y la razón. El filtrado de texto es controlado por el padre.
+ * @author Rodrigo Mason
  */
 import type { ModelGatewayRoutingDecision } from '../../api/types';
 import { DataTable, EmptyState } from '../../components/primitives';

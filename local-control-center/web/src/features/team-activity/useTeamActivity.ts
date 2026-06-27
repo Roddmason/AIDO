@@ -5,6 +5,7 @@
  * assignments, reviews, model/tool calls and artifacts) computed on demand by the backend, so it is
  * loaded only when `enabled` (the Team drawer is open) and re-polled on an interval while it stays
  * open. Re-fetches on project change and aborts the in-flight request on change/close/unmount.
+ * @author Rodrigo Mason
  */
 
 import { useCallback, useEffect, useState } from 'react';

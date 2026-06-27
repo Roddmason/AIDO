@@ -5,6 +5,7 @@
  * write token via `X-Local-Control-Token`. Request/response aliases here keep call
  * sites readable while staying anchored to the generated operation contracts, so a
  * server schema change surfaces as a type error rather than a silent drift.
+ * @author Rodrigo Mason
  */
 
 import type { ApiOperationId, OperationRequestBody, OperationResponse } from './generated/openapi';

@@ -2,6 +2,7 @@
  * Pure selectors that turn raw overview/runtime data into the workbench's derived
  * views: runtime capability checks, recency sorting, the staged issue_to_patch
  * timeline and the project blocker list. No React, no I/O — kept testable in isolation.
+ * @author Rodrigo Mason
  */
 import type { IssueToPatchResponse } from '../../api/client';
 import type { Overview, Project, RuntimeProvider } from '../../api/types';

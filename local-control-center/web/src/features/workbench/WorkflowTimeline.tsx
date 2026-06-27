@@ -2,6 +2,7 @@
  * Shared visualization of a run's stage progression, in two flavors: a compact 'rail' for the page
  * header and a 'detailed' list with per-stage reasons and evidence links. The current stage is the
  * first non-completed one (see currentStageIndex) and is marked with aria-current.
+ * @author Rodrigo Mason
  */
 import { ArrowUpRight } from 'lucide-react';
 

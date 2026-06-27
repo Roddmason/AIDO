@@ -2,6 +2,7 @@
  * Hook encapsulating the post-approval ship lifecycle (promote a patch run to a
  * branch, then open a PR). Holds the reason and optional branch/PR fields, runs
  * the kind-aware endpoint, surfaces the last operation, and refreshes on success.
+ * @author Rodrigo Mason
  */
 import { useState } from 'react';
 
@@ -51,7 +52,6 @@ export type ShipOperations = {
 export function useShipOperations(
 	token: string,
 	refresh: Refresh,
-	// Single, page-owned reason shared with the decision flow (inherited from the approval).
 	reason: string,
 	setReason: (value: string) => void,
 ): ShipOperations {
@@ -124,8 +124,6 @@ export function useShipOperations(
 		}
 	};
 
-	// Clears the ship form (branch/PR/error/result). The reason is page-owned (so it carries
-	// from the approval into the ship flow) and is reset there per item, not here.
 	const reset = () => {
 		setBranchName('');
 		setPullRequestTitle('');

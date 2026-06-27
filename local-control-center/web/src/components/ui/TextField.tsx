@@ -2,6 +2,7 @@
  * Labelled text input. Wraps the native `<input class="input">` in {@link Field} so the
  * label, help and error wiring is uniform; forwards its ref and passes every native input
  * prop through (type, value, onChange, placeholder, autoComplete, …).
+ * @author Rodrigo Mason
  */
 
 import type { InputHTMLAttributes, ReactNode } from 'react';

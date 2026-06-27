@@ -6,6 +6,7 @@
  * workspace/thread/loop navigation. Session selection is controlled by the shell
  * (`ctx.selectedSessionId`/`ctx.onSelectSession`) so the sidebar and the center stay in sync. This is a
  * reframe of existing, real components: no new data source and no fabricated timeline.
+ * @author Rodrigo Mason
  */
 import type { RouteContext } from '../../app/routes';
 import { WorkbenchPage } from '../workbench/WorkbenchPage';

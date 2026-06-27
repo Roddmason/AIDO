@@ -2,6 +2,7 @@
  * Tabla de cuentas de proveedor del Model Gateway: muestra config, credencial, salud y cuota por proveedor.
  * Sub-dominio de inventario de proveedores; expone acciones por fila (habilitar, health check, descubrir modelos)
  * que delega al contenedor vía onProviderAction. Enmascara secretos con SecretSafeValue.
+ * @author Rodrigo Mason
  */
 import type { ModelGatewayProviderAccount } from '../../api/types';
 import { Badge, DataTable, EmptyState } from '../../components/primitives';

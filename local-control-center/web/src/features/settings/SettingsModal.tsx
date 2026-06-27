@@ -3,6 +3,7 @@
  * groups) and the active section's content on the right. Built on the Dialog primitive.
  * Sections are sourced from the GENERAL_SECTIONS and PROJECT_SECTIONS registry;
  * each section's render(ctx) produces its own content — no switch needed here.
+ * @author Rodrigo Mason
  */
 
 import { useEffect, useState } from 'react';
@@ -80,10 +81,6 @@ export function SettingsModal({
 	const [activeSection, setActiveSection] = useState(initialSection ?? DEFAULT_SECTION);
 	const [searchQuery, setSearchQuery] = useState('');
 
-	// The modal stays mounted (open=false) between opens, so re-seed the active section and clear
-	// the search each time it opens (or when the requested section changes while open). Without this,
-	// deep-links (#settings-security) and openSettings('project') would reopen at the last-viewed
-	// section instead of the requested one.
 	useEffect(() => {
 		if (open) {
 			setActiveSection(initialSection ?? DEFAULT_SECTION);

@@ -173,4 +173,3 @@ class GitGitleaksScanResponse(BaseModel):
     gitleaks: GitGitleaksRecord
     tool_calls: list[GitCommandTraceRecord] = Field(default_factory=list, alias="toolCalls")
     policy_decision_ids: list[str] = Field(default_factory=list, alias="policyDecisionIds")
-

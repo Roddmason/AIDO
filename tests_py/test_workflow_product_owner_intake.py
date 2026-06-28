@@ -93,6 +93,5 @@ def test_idea_to_pr_start_runs_product_owner_and_blocks_with_evidence_when_runti
     assert any(item["id"] == intake["agentRunId"] for item in run_detail["agentRuns"])
     assert any(item["id"] == intake["evidencePackageId"] for item in run_detail["evidencePackages"])
     assert any(
-        item["type"] == "workflow.idea_intake.runtime_unavailable"
-        for item in detail["workflowEvents"]
+        item["type"] == "workflow.idea_intake.runtime_unavailable" for item in detail["workflowEvents"]
     )

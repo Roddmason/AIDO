@@ -229,12 +229,16 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
                 "detectedVersion": version or current.get("detectedVersion"),
                 "enabled": installed,
                 "healthStatus": health_status,
-                "lastValidationAt": timestamp if installed and version_checked else current.get("lastValidationAt"),
+                "lastValidationAt": timestamp
+                if installed and version_checked
+                else current.get("lastValidationAt"),
                 "lastHealthCheckAt": timestamp,
                 "lastError": last_error,
                 "capabilities": current.get("capabilities") or [],
                 "preferredRoles": current.get("preferredRoles") or [],
-                "configurationSource": "detected" if installed else current.get("configurationSource", "manual"),
+                "configurationSource": "detected"
+                if installed
+                else current.get("configurationSource", "manual"),
                 "metadata": redact_secrets(
                     {
                         **(current.get("metadata") or {}),

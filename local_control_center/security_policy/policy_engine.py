@@ -45,7 +45,19 @@ GIT_WORKSPACE_AGENT_ID = "git_workspace_agent"
 GIT_WORKSPACE_READ_COMMANDS = {"status", "diff", "remote", "log", "rev-parse"}
 GIT_WORKSPACE_WRITE_COMMANDS = {"branch", "checkout"}
 GIT_BRANCH_READ_FLAGS = {"--show-current", "--remotes", "-r", "--list"}
-GIT_BRANCH_MUTATION_FLAGS = {"-d", "-D", "--delete", "-f", "--force", "-m", "-M", "--move", "-c", "-C", "--copy"}
+GIT_BRANCH_MUTATION_FLAGS = {
+    "-d",
+    "-D",
+    "--delete",
+    "-f",
+    "--force",
+    "-m",
+    "-M",
+    "--move",
+    "-c",
+    "-C",
+    "--copy",
+}
 GIT_CHECKOUT_BLOCKED_FLAGS = {"-f", "--force", "--orphan", "--detach", "-B", "-b"}
 GIT_WORKTREE_LIST_FLAGS = {"--porcelain"}
 MODEL_RUNTIME_TOOLS = {"ollama", "openai_compatible", "openrouter", "nvidia_nim", "anthropic_api"}
@@ -155,7 +167,11 @@ def evaluate_git_workspace_command(
             "reason": "Git workspace execution requires the dev_safe permission profile.",
             "categories": categories,
         }
-    if not input_payload.get("workspaceId") or not input_payload.get("workspacePath") or not input_payload.get("agentRunId"):
+    if (
+        not input_payload.get("workspaceId")
+        or not input_payload.get("workspacePath")
+        or not input_payload.get("agentRunId")
+    ):
         categories.append("git_workspace_context_required")
         return {
             "decision": "deny",
@@ -172,7 +188,11 @@ def evaluate_git_workspace_command(
             "categories": categories,
         }
     argv = input_payload.get("commandArgv")
-    if not isinstance(argv, list) or len(argv) < 2 or not all(isinstance(item, str) and item for item in argv):
+    if (
+        not isinstance(argv, list)
+        or len(argv) < 2
+        or not all(isinstance(item, str) and item for item in argv)
+    ):
         categories.append("git_workspace_argv_required")
         return {
             "decision": "deny",
@@ -215,10 +235,7 @@ def evaluate_git_workspace_command(
                 "reason": "Git branch creation is allowlisted inside the allocated workspace.",
                 "categories": [*categories, "git_workspace_command", "git_branch_create"],
             }
-        if all(
-            arg in GIT_BRANCH_READ_FLAGS or arg.startswith("--format=")
-            for arg in args
-        ):
+        if all(arg in GIT_BRANCH_READ_FLAGS or arg.startswith("--format=") for arg in args):
             return {
                 "decision": "allow",
                 "riskLevel": "low",
@@ -274,7 +291,10 @@ def evaluate_git_workspace_command(
                     "categories": categories,
                 }
             branch, target_path, base_ref = args[2], args[3], args[4]
-            if any(not item or item.startswith("-") or "\n" in item or "\r" in item for item in (branch, target_path, base_ref)):
+            if any(
+                not item or item.startswith("-") or "\n" in item or "\r" in item
+                for item in (branch, target_path, base_ref)
+            ):
                 categories.append("git_workspace_worktree_add_arg_denied")
                 return {
                     "decision": "deny",
@@ -289,7 +309,13 @@ def evaluate_git_workspace_command(
                 "categories": [*categories, "git_workspace_command", "git_worktree_add"],
             }
         if git_operation == "worktree_remove":
-            if len(args) != 3 or args[0] != "remove" or args[1] != "--force" or not args[2] or args[2].startswith("-"):
+            if (
+                len(args) != 3
+                or args[0] != "remove"
+                or args[1] != "--force"
+                or not args[2]
+                or args[2].startswith("-")
+            ):
                 categories.append("git_workspace_worktree_remove_shape_denied")
                 return {
                     "decision": "deny",
@@ -311,7 +337,11 @@ def evaluate_git_workspace_command(
             "categories": categories,
         }
     if subcommand == "add":
-        if input_payload.get("gitOperation") == "diff_capture_intent_to_add" and args == ["--intent-to-add", "--", "."]:
+        if input_payload.get("gitOperation") == "diff_capture_intent_to_add" and args == [
+            "--intent-to-add",
+            "--",
+            ".",
+        ]:
             return {
                 "decision": "allow",
                 "riskLevel": "medium",

@@ -220,7 +220,9 @@ def test_git_workspace_policy_allows_only_contextual_patch_apply() -> None:
         }
     )
     missing_context = evaluate_action(base_payload)
-    wrong_agent = evaluate_action({**base_payload, "gitOperation": "apply_check", "agentId": "developer_agent"})
+    wrong_agent = evaluate_action(
+        {**base_payload, "gitOperation": "apply_check", "agentId": "developer_agent"}
+    )
 
     assert allowed_check["decision"] == "allow"
     assert "git_apply_check" in allowed_check["categories"]

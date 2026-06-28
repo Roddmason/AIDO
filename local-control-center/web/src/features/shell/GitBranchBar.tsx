@@ -190,17 +190,28 @@ export function GitBranchBar({
 			role="group"
 			aria-label={t('app.composer.gitControls', 'Git workspace')}
 		>
-			<span className="composer-git-item" title={gitError || gitStatus?.reason || ''}>
-				<StatusDot
-					tone={
-						gitError || gitStatus?.status === 'failed'
-							? 'danger'
-							: gitStatus?.status === 'configuration_required'
-								? 'warn'
-								: 'ok'
+			{/* Cluster (a): workspace — git connection status + branch picker + create form */}
+			<div className="composer-git-cluster composer-git-cluster--workspace">
+				<span
+					className="composer-git-item"
+					title={gitError || gitStatus?.reason || ''}
+					aria-label={
+						gitError
+							? t('app.statusBar.git.errorLabel', 'Git error')
+							: t('app.statusBar.git.connectedLabel', 'Git connected')
 					}
-				/>
-				<GitBranch aria-hidden="true" size={13} />
+				>
+					<StatusDot
+						tone={
+							gitError || gitStatus?.status === 'failed'
+								? 'danger'
+								: gitStatus?.status === 'configuration_required'
+									? 'warn'
+									: 'ok'
+						}
+					/>
+					<GitBranch aria-hidden="true" size={13} />
+				</span>
 				<select
 					className="status-branch-select"
 					aria-label={t('app.statusBar.git.branchSelect', 'Git branch')}
@@ -217,47 +228,55 @@ export function GitBranchBar({
 						</option>
 					))}
 				</select>
-			</span>
-			<form
-				className="status-branch-create"
-				onSubmit={(event) => {
-					event.preventDefault();
-					void createBranch();
-				}}
-			>
-				<input
-					value={branchName}
-					disabled={!selectedProject || gitBusy}
-					placeholder={t('app.statusBar.git.branchPlaceholder', 'new branch')}
-					aria-label={t('app.statusBar.git.branchName', 'New branch name')}
-					onChange={(event) => setBranchName(event.target.value)}
-				/>
-				<Tooltip label={t('app.statusBar.git.createBranch', 'Create branch')}>
-					<IconButton
-						type="submit"
-						aria-label={t('app.statusBar.git.createBranch', 'Create branch')}
-						disabled={!selectedProject || !branchName.trim()}
-						loading={gitBusy}
-					>
-						<Plus aria-hidden="true" size={15} />
-					</IconButton>
-				</Tooltip>
-			</form>
-			<span className="composer-git-item" title={gitStatus?.porcelain.join('\n') ?? ''}>
-				<StatusDot tone={dirty ? 'warn' : 'ok'} />
-				{dirty ? t('app.statusBar.git.dirty', 'dirty') : t('app.statusBar.git.clean', 'clean')}
-			</span>
-			<span className="composer-git-item" title={gitleaks?.reason ?? ''}>
-				<StatusDot
-					tone={
-						gitleaks?.status === 'completed'
-							? 'ok'
-							: gitleaks?.status === 'blocked' || gitleaks?.status === 'failed'
-								? 'danger'
-								: 'warn'
-					}
-				/>
-				gitleaks {gitleaksLabel}
+				<form
+					className="status-branch-create"
+					onSubmit={(event) => {
+						event.preventDefault();
+						void createBranch();
+					}}
+				>
+					<input
+						value={branchName}
+						disabled={!selectedProject || gitBusy}
+						placeholder={t('app.statusBar.git.branchPlaceholder', 'new branch')}
+						aria-label={t('app.statusBar.git.branchName', 'New branch name')}
+						onChange={(event) => setBranchName(event.target.value)}
+					/>
+					<Tooltip label={t('app.statusBar.git.createBranch', 'Create branch')}>
+						<IconButton
+							type="submit"
+							aria-label={t('app.statusBar.git.createBranch', 'Create branch')}
+							disabled={!selectedProject || !branchName.trim()}
+							loading={gitBusy}
+						>
+							<Plus aria-hidden="true" size={15} />
+						</IconButton>
+					</Tooltip>
+				</form>
+			</div>
+
+			{/* Cluster (b): status — read-only dirty/clean + gitleaks result (muted, informational) */}
+			<div className="composer-git-cluster composer-git-cluster--status">
+				<span className="composer-git-item" title={gitStatus?.porcelain.join('\n') ?? ''}>
+					<StatusDot tone={dirty ? 'warn' : 'ok'} />
+					{dirty ? t('app.statusBar.git.dirty', 'dirty') : t('app.statusBar.git.clean', 'clean')}
+				</span>
+				<span className="composer-git-item" title={gitleaks?.reason ?? ''}>
+					<StatusDot
+						tone={
+							gitleaks?.status === 'completed'
+								? 'ok'
+								: gitleaks?.status === 'blocked' || gitleaks?.status === 'failed'
+									? 'danger'
+									: 'warn'
+						}
+					/>
+					gitleaks {gitleaksLabel}
+				</span>
+			</div>
+
+			{/* Cluster (c): actions — scan + refresh, pushed to the right */}
+			<div className="composer-git-cluster composer-git-cluster--actions">
 				<Tooltip label={t('app.statusBar.git.runGitleaks', 'Run gitleaks scan')}>
 					<IconButton
 						aria-label={t('app.statusBar.git.runGitleaks', 'Run gitleaks scan')}
@@ -277,7 +296,7 @@ export function GitBranchBar({
 						<RefreshCw aria-hidden="true" size={14} />
 					</IconButton>
 				</Tooltip>
-			</span>
+			</div>
 		</div>
 	);
 }

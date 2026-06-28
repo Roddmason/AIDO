@@ -542,7 +542,7 @@ export function WorkbenchPage({
 						</div>
 					</div>
 
-					{/* Workspace controls: project + interactive git branch/gitleaks/refresh (Codex-style) */}
+					{/* Workspace toolbar: project label + clustered git controls (branch, status, actions) */}
 					<div className="shell-chat-context">
 						<span className="shell-chat-context-project">{project.name}</span>
 						<GitBranchBar selectedProject={project} token={token} onRefresh={onRefresh} />

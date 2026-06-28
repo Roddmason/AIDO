@@ -882,40 +882,105 @@
 	margin-left: auto;
 }
 
-/* Git workspace controls relocated from the footer into the composer (see GitBranchBar). */
+/* Git workspace controls relocated from the footer into the composer (see GitBranchBar).
+ *
+ * Three clusters separated by 1px dividers + padding:
+ *   (a) composer-git-cluster--workspace  — project + branch select + create form
+ *   (b) composer-git-cluster--status     — clean/dirty dot + gitleaks dot (read-only, muted)
+ *   (c) composer-git-cluster--actions    — scan + refresh icon buttons (pushed right)
+ *
+ * Within-cluster gap: --space-2 (0.5rem).
+ * Between-cluster gap: --space-4 (1rem) expressed as padding either side of the divider.
+ */
 .composer-git-bar {
 	display: flex;
 	flex-wrap: wrap;
 	align-items: center;
+	gap: 0;
+	padding-top: var(--space-2);
+	border-top: 1px solid var(--color-border-subtle);
+}
+
+/* Each cluster is a flex row with tight internal spacing. */
+.composer-git-cluster {
+	display: inline-flex;
+	align-items: center;
 	gap: var(--space-2);
 }
 
+/* Divider between clusters: a 1px vertical rule with inter-cluster padding. */
+.composer-git-cluster + .composer-git-cluster {
+	padding-left: var(--space-4);
+	margin-left: var(--space-4);
+	border-left: 1px solid var(--color-border-subtle);
+}
+
+/* Actions cluster is always pushed to the far right. */
+.composer-git-cluster--actions {
+	margin-left: auto;
+	padding-left: var(--space-4);
+	border-left: 1px solid var(--color-border-subtle);
+}
+
+/* When the first cluster immediately precedes actions (no status cluster), reset margin. */
+.composer-git-cluster--workspace + .composer-git-cluster--actions {
+	/* margin-left: auto already handles this correctly */
+}
+
+/* Icon buttons inside the bar use the small control height. */
 .composer-git-bar .icon-button {
 	min-width: var(--control-height-sm);
 	min-height: var(--control-height-sm);
 }
 
+/* Read-only status items (dot + label). */
 .composer-git-item {
 	display: inline-flex;
 	align-items: center;
 	gap: var(--space-1);
+	font-size: var(--font-size-xs);
+	color: var(--color-text-muted);
+	white-space: nowrap;
 }
 
-.status-branch-select,
-.status-branch-create input {
-	min-height: var(--control-height-sm);
-	border: 1px solid var(--color-border-subtle);
-	border-radius: var(--radius-sm);
-	background: var(--color-surface-default);
-	color: var(--color-text-primary);
-	font: inherit;
+/* A subtle divider between the two status items inside the status cluster. */
+.composer-git-item + .composer-git-item {
+	padding-left: var(--space-2);
+	margin-left: var(--space-2);
+	border-left: 1px solid var(--color-border-subtle);
 }
 
+/* Branch select: primary control, full control height. */
 .status-branch-select {
+	height: var(--control-height-sm);
 	width: clamp(8rem, 14vw, 13rem);
 	padding-inline: var(--space-2);
+	border: 1px solid var(--color-border-subtle);
+	border-radius: var(--radius-sm);
+	background: var(--color-surface-inset);
+	color: var(--color-text-primary);
+	font: inherit;
+	font-size: var(--font-size-xs);
+	cursor: pointer;
+	transition: border-color var(--duration-fast) var(--ease-standard);
 }
 
+.status-branch-select:hover:not(:disabled) {
+	border-color: var(--color-border-default);
+}
+
+.status-branch-select:focus-visible {
+	outline: none;
+	border-color: var(--color-border-selected);
+	box-shadow: var(--shadow-focus);
+}
+
+.status-branch-select:disabled {
+	opacity: 0.45;
+	cursor: not-allowed;
+}
+
+/* Branch create form: input + "+" button inline. */
 .status-branch-create {
 	display: inline-flex;
 	align-items: center;
@@ -924,8 +989,35 @@
 }
 
 .status-branch-create input {
+	height: var(--control-height-sm);
 	width: clamp(7rem, 12vw, 11rem);
 	padding-inline: var(--space-2);
+	border: 1px solid var(--color-border-subtle);
+	border-radius: var(--radius-sm);
+	background: var(--color-surface-inset);
+	color: var(--color-text-primary);
+	font: inherit;
+	font-size: var(--font-size-xs);
+	transition: border-color var(--duration-fast) var(--ease-standard);
+}
+
+.status-branch-create input::placeholder {
+	color: var(--color-text-disabled);
+}
+
+.status-branch-create input:hover:not(:disabled) {
+	border-color: var(--color-border-default);
+}
+
+.status-branch-create input:focus-visible {
+	outline: none;
+	border-color: var(--color-border-selected);
+	box-shadow: var(--shadow-focus);
+}
+
+.status-branch-create input:disabled {
+	opacity: 0.45;
+	cursor: not-allowed;
 }
 
 .status-bar .icon-button {
@@ -1323,21 +1415,36 @@
 	margin-left: auto;
 }
 
-/* Read-only context row: project · branch · runtime in muted data font. */
+/* Workspace toolbar row: project label + git bar that stretches to fill remaining width.
+ * The git bar owns the top border + padding-top separator from the submit row above.
+ * font-data + font-size-xs cascade into both the label and the bar. */
 .shell-chat-context {
 	display: flex;
-	flex-wrap: wrap;
+	flex-wrap: nowrap;
 	align-items: center;
-	gap: var(--space-3);
+	gap: 0;
 	font-family: var(--font-data);
 	font-size: var(--font-size-xs);
 	color: var(--color-text-muted);
-	padding-top: var(--space-1);
 }
 
+/* Project name: semibold secondary text, left-anchored workspace identity. */
 .shell-chat-context-project {
+	flex: 0 0 auto;
 	font-weight: var(--weight-semibold);
 	color: var(--color-text-secondary);
+	white-space: nowrap;
+	padding-top: var(--space-2);
+	border-top: 1px solid var(--color-border-subtle);
+	padding-right: var(--space-3);
+	margin-right: var(--space-1);
+}
+
+/* The git bar grows to fill remaining width so margin-left: auto on the actions
+ * cluster can push it to the far right of the full toolbar width. */
+.shell-chat-context > .composer-git-bar {
+	flex: 1 1 auto;
+	min-width: 0;
 }
 
 /* Secondary loop actions: a subdued row of ghost buttons for advanced loop commands. */

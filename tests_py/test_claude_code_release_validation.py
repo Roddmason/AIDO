@@ -13,6 +13,7 @@ import pytest
 from local_control_center.agents.cli_runtimes.base import RuntimeRequest
 from local_control_center.agents.cli_runtimes.claude_code_cli import ClaudeCodeCliRuntime
 from local_control_center.agents.runtime_status import RuntimeStatusService
+from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
 from local_control_center.shared.db import open_sqlite_connection
 from local_control_center.shared.migrations import initialize_platform_schema
 from local_control_center.workflows.issue_to_patch_runner import _execution_result_from_tool_call
@@ -199,6 +200,24 @@ def test_claude_code_is_not_executable_when_configured_command_does_not_match_ru
             SET enabled = 1
             WHERE provider_id = 'claude_code_cli'
             """
+        )
+        # Bring the runtime through W's installation lifecycle (enabled installation + validated native
+        # account) so the only remaining gate is the command mismatch this test verifies. Without this,
+        # the earlier runtime_installations.enabled gate would mask the command-mismatch reason.
+        repo = RuntimeConfigRepository(connection)
+        repo.upsert_installation(
+            {
+                "runtimeId": "claude_code_cli",
+                "kind": "cli",
+                "executablePath": sys.executable,
+                "enabled": True,
+                "configurationSource": "manual",
+            }
+        )
+        account = next(item for item in repo.list_runtime_accounts("claude_code_cli") if item["isDefault"])
+        repo.update_runtime_account(
+            account["id"],
+            {"healthStatus": "healthy", "lastValidationAt": "2026-06-27T12:00:00Z"},
         )
         status = {
             provider["id"]: provider for provider in RuntimeStatusService(connection).list_provider_statuses()

@@ -99,6 +99,11 @@ def _branch_name_static_error(branch_name: str) -> str | None:
 
 
 def git_workspace_agent_profile(connection: sqlite3.Connection) -> dict[str, Any]:
+    """Upsert and return the dedicated agent profile under which git operations are brokered.
+
+    The profile is dev-safe, shell-only, local CLI (no remote/API), gated to the
+    ``git_worktree``/``git_diff`` quality gates so every git command runs through policy.
+    """
     return AgentsRepository(connection).upsert_agent_profile(
         {
             "id": GIT_WORKSPACE_AGENT_ID,
@@ -194,6 +199,12 @@ def run_brokered_git(
     task_id: str,
     git_operation: str | None = None,
 ) -> dict[str, Any]:
+    """Run a single ``git`` invocation through the ToolBroker on an assigned workspace.
+
+    Records an agent run, evaluates the tool call against policy/sandbox, and returns the
+    normalized execution result (returnCode/stdout/stderr/trace). Used for all mutating and
+    state-reading git commands so they stay inside the workspace boundary and audit trail.
+    """
     agents = AgentsRepository(connection)
     profile = git_workspace_agent_profile(connection)
     agent_run = agents.create_agent_run(
@@ -341,8 +352,12 @@ def create_git_worktree(
             task_id=f"{task_id}.source_branch",
         )
         traces.extend([source_commit_result["trace"], source_branch_result["trace"]])
-        source_commit = source_commit_result["stdout"].strip() if source_commit_result["returnCode"] == 0 else None
-        source_branch = source_branch_result["stdout"].strip() if source_branch_result["returnCode"] == 0 else None
+        source_commit = (
+            source_commit_result["stdout"].strip() if source_commit_result["returnCode"] == 0 else None
+        )
+        source_branch = (
+            source_branch_result["stdout"].strip() if source_branch_result["returnCode"] == 0 else None
+        )
         worktree_path.parent.mkdir(parents=True, exist_ok=True)
         result = run_brokered_git(
             connection=connection,
@@ -565,16 +580,13 @@ def capture_git_diff(
             args=["diff", "--stat", "--", "."],
             task_id=f"{task_id}.stat",
         )
-        patch_result = run_brokered_git(
-            connection=connection,
-            root=root,
-            project_id=project_id,
-            workspace_id=workspace_id,
-            workspace_path=workspace_path,
-            cwd=workspace_path,
-            args=["diff", "--", "."],
-            task_id=f"{task_id}.patch",
-        )
+        # git diff captura evidencia inmutable de solo lectura: la salida puede superar el límite
+        # de truncación del sandbox (MAX_CAPTURE_CHARS=4000) y el broker no devuelve el contenido
+        # completo cuando promote_execution_result_outputs lo promueve a artefacto. Se usa
+        # run_git directamente para preservar el diff íntegro (condición de promote_large_git_patches).
+        patch_direct = run_git(["-C", str(workspace_path), "diff", "--", "."])
+        patch_returncode = patch_direct.returncode
+        patch_stdout = patch_direct.stdout if patch_returncode == 0 else ""
         command_results = [
             status_result,
             add_result,
@@ -582,7 +594,6 @@ def capture_git_diff(
             head_result,
             name_result,
             stat_result,
-            patch_result,
         ]
         traces.extend(result["trace"] for result in command_results)
         if status_result["returnCode"] != 0:
@@ -599,7 +610,7 @@ def capture_git_diff(
         for item in changed:
             if item["path"] not in name_only:
                 name_only.append(item["path"])
-        patch = patch_result["stdout"] if patch_result["returnCode"] == 0 else ""
+        patch = patch_stdout
         return {
             "kind": "git_diff",
             "state": "captured",

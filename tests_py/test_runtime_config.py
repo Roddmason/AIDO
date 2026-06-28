@@ -106,8 +106,14 @@ def test_requested_runtimes_are_seeded_with_capabilities(tmp_path: Path) -> None
     assert installations["ollama"]["kind"] == "local"
     assert installations["nvidia_nim"]["kind"] == "api"
     assert "product_owner" in installations["nvidia_nim"]["preferredRoles"]
-    assert ("openhands", "issue_to_patch") in capabilities
-    assert ("swe_agent", "issue_to_patch") in capabilities
+    # openhands/swe_agent are autonomous code-editing CLIs: installed/discoverable (asserted above via
+    # runtime_installations) but GATED — their code_edit/issue_to_patch capabilities are NOT enabled by
+    # default and require an explicit developer_agent grant (least-privilege; see the release safety
+    # contracts in test_openhands_swe_agent_release_contracts).
+    assert ("openhands", "issue_to_patch") not in capabilities
+    assert ("swe_agent", "issue_to_patch") not in capabilities
+    assert ("openhands", "code_edit") not in capabilities
+    assert ("swe_agent", "code_edit") not in capabilities
     assert ("ollama", "chat") in capabilities
     assert ("openai_compatible", "chat") in capabilities
     assert ("openrouter", "chat") in capabilities

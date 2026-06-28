@@ -19,6 +19,7 @@ from local_control_center.agents.runtime_registry import (
     build_issue_to_patch_argv,
 )
 from local_control_center.agents.runtime_status import RuntimeStatusService
+from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
 from local_control_center.shared.db import open_sqlite_connection
 from local_control_center.shared.migrations import initialize_platform_schema
 
@@ -245,6 +246,25 @@ def test_openhands_and_swe_agent_are_not_executable_without_developer_agent_capa
         connection.execute(
             "UPDATE provider_accounts SET enabled = 1 WHERE provider_id IN ('openhands', 'swe_agent')"
         )
+        # Bring both runtimes through W's installation lifecycle (enabled installation + validated native
+        # account) so the only remaining gate is the missing code_edit/developer_agent capability that
+        # this contract verifies — not the earlier installation/auth gates.
+        repo = RuntimeConfigRepository(connection)
+        for runtime_id in ("openhands", "swe_agent"):
+            repo.upsert_installation(
+                {
+                    "runtimeId": runtime_id,
+                    "kind": "cli",
+                    "executablePath": sys.executable,
+                    "enabled": True,
+                    "configurationSource": "manual",
+                }
+            )
+            account = next(item for item in repo.list_runtime_accounts(runtime_id) if item["isDefault"])
+            repo.update_runtime_account(
+                account["id"],
+                {"healthStatus": "healthy", "lastValidationAt": "2026-06-27T12:00:00Z"},
+            )
         statuses = {
             provider["id"]: provider
             for provider in RuntimeStatusService(connection).list_provider_statuses()

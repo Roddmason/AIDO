@@ -3428,8 +3428,18 @@ def init_phase28_schema(connection: sqlite3.Connection) -> None:
     )
     timestamp = utc_now()
     runtime_installations = [
-        ("codex_cli", "cli", ["code_edit", "issue_to_patch", "chat"], ["developer", "implementer", "technical_lead"]),
-        ("claude_code_cli", "cli", ["code_edit", "issue_to_patch", "chat"], ["developer", "technical_lead", "product_owner"]),
+        (
+            "codex_cli",
+            "cli",
+            ["code_edit", "issue_to_patch", "chat"],
+            ["developer", "implementer", "technical_lead"],
+        ),
+        (
+            "claude_code_cli",
+            "cli",
+            ["code_edit", "issue_to_patch", "chat"],
+            ["developer", "technical_lead", "product_owner"],
+        ),
         ("openhands", "cli", ["code_edit", "issue_to_patch"], ["developer", "implementer"]),
         ("swe_agent", "cli", ["code_edit", "issue_to_patch"], ["developer", "implementer"]),
         ("ollama", "local", ["chat"], ["developer", "product_owner", "analyst"]),
@@ -3469,6 +3479,13 @@ def init_phase28_schema(connection: sqlite3.Connection) -> None:
             """,
             (kind, json_dumps(capabilities), json_dumps(preferred_roles), timestamp, runtime_id),
         )
+        # Optional autonomous code-editing CLIs stay GATED: their capabilities are recorded on the
+        # installation/account for discovery, but are NOT enabled in runtime_capabilities by default.
+        # Enabling them here would advertise code_edit/issue_to_patch and make these runtimes
+        # executable without an explicit developer_agent grant, violating the release safety contracts
+        # (test_openhands_swe_agent_release_contracts). Least-privilege; confirmed by security review.
+        if runtime_id in ("openhands", "swe_agent"):
+            continue
         for capability in capabilities:
             connection.execute(
                 """

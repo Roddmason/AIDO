@@ -85,17 +85,23 @@ def test_chat_pipeline_intake_runs_product_owner_and_blocks_with_evidence_when_r
     assert pipeline["metadata"]["productOwnerIntake"]["agentRunId"].startswith("agent-run-")
     assert pipeline["metadata"]["productOwnerIntake"]["evidencePackageId"].startswith("evidence-")
     assert pipeline["metadata"]["productOwnerIntake"]["loopId"].startswith("product-loop-")
-    assert "No executable ProductOwnerAgent runtime is configured" in pipeline["metadata"][
-        "productOwnerIntake"
-    ]["reason"]
+    assert (
+        "No executable ProductOwnerAgent runtime is configured"
+        in pipeline["metadata"]["productOwnerIntake"]["reason"]
+    )
     assert pipeline["stages"][0]["id"] == "intake"
     assert pipeline["stages"][0]["status"] == "blocked"
-    assert pipeline["stages"][0]["evidencePackageId"] == pipeline["metadata"]["productOwnerIntake"][
-        "evidencePackageId"
-    ]
+    assert (
+        pipeline["stages"][0]["evidencePackageId"]
+        == pipeline["metadata"]["productOwnerIntake"]["evidencePackageId"]
+    )
 
     loop_state = client.get(f"/api/v1/projects/{project['id']}/product-loop").json()
-    loop = next(item for item in loop_state["loops"] if item["id"] == pipeline["metadata"]["productOwnerIntake"]["loopId"])
+    loop = next(
+        item
+        for item in loop_state["loops"]
+        if item["id"] == pipeline["metadata"]["productOwnerIntake"]["loopId"]
+    )
     assert loop["state"] == "blocked"
     assert loop["context"]["intake"]["pipelineId"] == pipeline["id"]
     assert loop["context"]["intake"]["chatId"] == chat["id"]

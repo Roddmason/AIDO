@@ -466,9 +466,7 @@ def _requested_skill_refs(input_payload: dict[str, Any]) -> list[str]:
     return list(dict.fromkeys(refs))
 
 
-def _blocked_skill_resolution_output(
-    *, profile: dict[str, Any], task_id: str, reason: str
-) -> dict[str, Any]:
+def _blocked_skill_resolution_output(*, profile: dict[str, Any], task_id: str, reason: str) -> dict[str, Any]:
     return {
         "agent_id": profile["id"],
         "task_id": task_id,

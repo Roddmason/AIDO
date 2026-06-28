@@ -91,4 +91,3 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             raise HTTPException(status_code=404, detail=str(error)) from error
 
     return router
-

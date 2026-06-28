@@ -461,9 +461,7 @@ class GitWorkspaceService:
                 return unavailable
             current = self._run_git(ctx=ctx, op=op, args=["branch", "--show-current"])
             local = self._run_git(ctx=ctx, op=op, args=["branch", "--format=%(refname:short)"])
-            remote = self._run_git(
-                ctx=ctx, op=op, args=["branch", "--remotes", "--format=%(refname:short)"]
-            )
+            remote = self._run_git(ctx=ctx, op=op, args=["branch", "--remotes", "--format=%(refname:short)"])
             remotes = self._run_git(ctx=ctx, op=op, args=["remote", "-v"])
             last_commit = self._run_git(
                 ctx=ctx,
@@ -471,7 +469,9 @@ class GitWorkspaceService:
                 args=["log", "-1", "--pretty=format:%H%x1f%h%x1f%an%x1f%aI%x1f%s"],
             )
             worktrees = self._run_git(ctx=ctx, op=op, args=["worktree", "list", "--porcelain"])
-            traces.extend([current.trace, local.trace, remote.trace, remotes.trace, last_commit.trace, worktrees.trace])
+            traces.extend(
+                [current.trace, local.trace, remote.trace, remotes.trace, last_commit.trace, worktrees.trace]
+            )
             parsed = _parse_porcelain(porcelain_result.stdout)
             response = {
                 "status": "completed",
@@ -486,11 +486,15 @@ class GitWorkspaceService:
                 "untrackedFiles": parsed["untrackedFiles"],
                 "stagedFiles": parsed["stagedFiles"],
                 "remotes": _parse_remotes(remotes.stdout) if remotes.return_code == 0 else [],
-                "lastCommit": _parse_last_commit(last_commit.stdout) if last_commit.return_code == 0 else None,
+                "lastCommit": _parse_last_commit(last_commit.stdout)
+                if last_commit.return_code == 0
+                else None,
                 "worktrees": _parse_worktrees(worktrees.stdout) if worktrees.return_code == 0 else [],
                 "toolCalls": traces,
                 "policyDecisionIds": [
-                    str(trace["permissionDecisionId"]) for trace in traces if trace.get("permissionDecisionId")
+                    str(trace["permissionDecisionId"])
+                    for trace in traces
+                    if trace.get("permissionDecisionId")
                 ],
             }
             self._finish_operation(op, status="completed", output=response)
@@ -513,14 +517,16 @@ class GitWorkspaceService:
             profile = self._git_profile()
             op = self._begin_operation(ctx=ctx, operation="branches", profile=profile, payload={})
             local = self._run_git(ctx=ctx, op=op, args=["branch", "--format=%(refname:short)"])
-            remote = self._run_git(
-                ctx=ctx, op=op, args=["branch", "--remotes", "--format=%(refname:short)"]
-            )
+            remote = self._run_git(ctx=ctx, op=op, args=["branch", "--remotes", "--format=%(refname:short)"])
             traces.extend([local.trace, remote.trace])
             local_branches = _split_lines(local.stdout) if local.return_code == 0 else []
             remote_branches = _split_lines(remote.stdout) if remote.return_code == 0 else []
             response_status = "completed" if local.return_code == 0 and remote.return_code == 0 else "failed"
-            reason = "Git branches collected through ToolBroker." if response_status == "completed" else "Git branch listing failed."
+            reason = (
+                "Git branches collected through ToolBroker."
+                if response_status == "completed"
+                else "Git branch listing failed."
+            )
             response = {
                 "status": response_status,
                 "reason": reason,
@@ -533,7 +539,9 @@ class GitWorkspaceService:
                 "remotes": status.get("remotes") or [],
                 "toolCalls": traces,
                 "policyDecisionIds": [
-                    str(trace["permissionDecisionId"]) for trace in traces if trace.get("permissionDecisionId")
+                    str(trace["permissionDecisionId"])
+                    for trace in traces
+                    if trace.get("permissionDecisionId")
                 ],
             }
             self._finish_operation(op, status=response_status, output=response)
@@ -591,7 +599,11 @@ class GitWorkspaceService:
         branch_status = self.branches(project_id)
         traces = [result.trace, *(branch_status.get("toolCalls") or [])]
         response_status = "completed" if result.return_code == 0 else result.status
-        reason = "Branch created from the requested base." if response_status == "completed" else result.stderr.strip() or result.reason
+        reason = (
+            "Branch created from the requested base."
+            if response_status == "completed"
+            else result.stderr.strip() or result.reason
+        )
         response = {
             "status": response_status,
             "reason": reason,
@@ -651,7 +663,10 @@ class GitWorkspaceService:
             }
         profile = self._git_profile()
         op = self._begin_operation(
-            ctx=ctx, operation="checkout", profile=profile, payload={"branch": branch, "allowDirty": allow_dirty}
+            ctx=ctx,
+            operation="checkout",
+            profile=profile,
+            payload={"branch": branch, "allowDirty": allow_dirty},
         )
         result = self._run_git(ctx=ctx, op=op, args=["checkout", branch], git_operation="checkout")
         after = self.status(project_id)
@@ -659,7 +674,9 @@ class GitWorkspaceService:
         response_status = "completed" if result.return_code == 0 else result.status
         response = {
             "status": response_status,
-            "reason": "Branch checkout completed." if response_status == "completed" else result.stderr.strip() or result.reason,
+            "reason": "Branch checkout completed."
+            if response_status == "completed"
+            else result.stderr.strip() or result.reason,
             "projectId": project_id,
             "workspaceId": ctx.workspace_id,
             "requestedBranch": branch,
@@ -683,10 +700,14 @@ class GitWorkspaceService:
         result = self._run_git(ctx=ctx, op=op, args=["diff", "--no-ext-diff", "HEAD", "--"])
         traces.append(result.trace)
         response_status = "completed" if result.return_code == 0 else result.status
-        changed_files = list(dict.fromkeys([*(status.get("changedFiles") or []), *(status.get("stagedFiles") or [])]))
+        changed_files = list(
+            dict.fromkeys([*(status.get("changedFiles") or []), *(status.get("stagedFiles") or [])])
+        )
         response = {
             "status": response_status,
-            "reason": "Git diff collected through ToolBroker." if response_status == "completed" else result.stderr.strip() or result.reason,
+            "reason": "Git diff collected through ToolBroker."
+            if response_status == "completed"
+            else result.stderr.strip() or result.reason,
             "projectId": project_id,
             "workspaceId": ctx.workspace_id,
             "root": str(ctx.root),

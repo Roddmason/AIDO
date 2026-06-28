@@ -330,17 +330,10 @@ def _cli_provider_status(
         _cli_command_matches_provider(str(account["providerId"]), detection) if can_code_edit else True
     )
     can_run_prompt = bool(
-        available
-        and installation_enabled
-        and account_enabled
-        and authenticated
-        and cli_enabled
+        available and installation_enabled and account_enabled and authenticated and cli_enabled
     )
     can_edit_workspace = bool(
-        can_run_prompt
-        and can_code_edit
-        and issue_to_patch_argv_error is None
-        and command_matches_provider
+        can_run_prompt and can_code_edit and issue_to_patch_argv_error is None and command_matches_provider
     )
     executable = can_edit_workspace
     if not configured and configuration is not None:
@@ -388,9 +381,7 @@ def _cli_provider_status(
         last_error="" if available else str(detection.get("message") or ""),
         capabilities=capabilities,
         required_configuration=["command", "authentication"],
-        configuration_warnings=_configuration_warnings(
-            configuration, executable_source=executable_source
-        ),
+        configuration_warnings=_configuration_warnings(configuration, executable_source=executable_source),
         requires_approval=True,
     )
     if issue_to_patch_argv is not None:

@@ -2258,9 +2258,7 @@ def test_skills_sync_reads_versionable_local_skills(tmp_path: Path, monkeypatch)
     assert listed.json()["skills"][0]["name"] == "backend-api-contract"
 
 
-def test_agent_run_blocks_unknown_requested_skill_before_tool_execution(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_agent_run_blocks_unknown_requested_skill_before_tool_execution(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
     store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
     store.init()
@@ -2404,9 +2402,7 @@ def test_agent_run_blocks_skill_not_allowed_by_profile_before_tool_execution(
     assert [call for call in overview["agentToolCalls"] if call["agentRunId"] == agent_run["id"]] == []
 
 
-def test_agent_run_records_allowed_skill_version_in_execution_evidence(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_agent_run_records_allowed_skill_version_in_execution_evidence(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
     skill_dir = tmp_path / "skills" / "backend-api-contract"
     skill_dir.mkdir(parents=True)
@@ -2481,14 +2477,13 @@ def test_agent_run_records_allowed_skill_version_in_execution_evidence(
     agent_run = response.json()["agentRun"]
     assert agent_run["status"] == "completed"
     assert agent_run["output"]["skills"][0]["id"] == skill["id"]
-    assert agent_run["output"]["skills"][0]["instructionsHash"] == hashlib.sha256(
-        skill_content.encode("utf-8")
-    ).hexdigest()
+    assert (
+        agent_run["output"]["skills"][0]["instructionsHash"]
+        == hashlib.sha256(skill_content.encode("utf-8")).hexdigest()
+    )
     evidence = client.get("/api/v1/evidence").json()["evidencePackages"]
     package = next(item for item in evidence if item["id"] == agent_run["output"]["evidence_refs"][0])
-    assert package["hashes"][f"skill:{skill['id']}"] == agent_run["output"]["skills"][0][
-        "instructionsHash"
-    ]
+    assert package["hashes"][f"skill:{skill['id']}"] == agent_run["output"]["skills"][0]["instructionsHash"]
     assert package["artifacts"][0]["kind"] == "skill_instruction"
     assert package["artifacts"][0]["skillId"] == skill["id"]
     binding = store.connection.execute(

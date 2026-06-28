@@ -44,9 +44,7 @@ def init_git_project(path: Path) -> None:
     assert run_git(["commit", "-m", "Initial commit"], cwd=path).returncode == 0
 
 
-def create_git_project(
-    store: ControlPlaneFixture, tmp_path: Path, *, name: str = "repo"
-) -> dict[str, Any]:
+def create_git_project(store: ControlPlaneFixture, tmp_path: Path, *, name: str = "repo") -> dict[str, Any]:
     project_path = tmp_path / name
     init_git_project(project_path)
     return store.create_project(name=name, path=project_path, template_id="other")
@@ -188,9 +186,7 @@ def write_fake_gitleaks(bin_dir: Path, script: str) -> None:
         command.chmod(0o755)
 
 
-def test_git_gitleaks_failure_blocks_delivery(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_git_gitleaks_failure_blocks_delivery(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     store, client, headers = create_client(tmp_path, monkeypatch)
     project = create_git_project(store, tmp_path)
     fake_bin = tmp_path / "fake-bin"

@@ -210,9 +210,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
                 loop_id=loop["id"],
                 to_state="blocked",
                 reason=reason,
-                context_patch={
-                    "productOwner": {"status": "configuration_required", "reason": reason}
-                },
+                context_patch={"productOwner": {"status": "configuration_required", "reason": reason}},
             )
             return block_pipeline(
                 pipeline,

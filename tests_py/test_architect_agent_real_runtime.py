@@ -10,8 +10,8 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from local_control_center.app import create_app
 from local_control_center.agents.architect_agent_contract import architect_agent_readiness
+from local_control_center.app import create_app
 from local_control_center.evidence.artifacts import write_text_artifact
 from tests_py.control_plane_fixture import ControlPlaneFixture
 

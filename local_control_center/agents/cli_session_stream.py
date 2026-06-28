@@ -294,7 +294,9 @@ def _changed_files(
     if not workspace_path or not workspace_id:
         return set()
     try:
-        row = connection.execute("SELECT path, status FROM workspaces WHERE id = ?", (workspace_id,)).fetchone()
+        row = connection.execute(
+            "SELECT path, status FROM workspaces WHERE id = ?", (workspace_id,)
+        ).fetchone()
     except sqlite3.Error:
         return set()
     if not row or row["status"] == "archived":

@@ -882,7 +882,7 @@
 	margin-left: auto;
 }
 
-/* Interactive git workspace controls relocated into the composer (see GitBranchBar). */
+/* Git workspace controls relocated from the footer into the composer (see GitBranchBar). */
 .composer-git-bar {
 	display: flex;
 	flex-wrap: wrap;

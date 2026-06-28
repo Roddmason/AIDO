@@ -756,11 +756,11 @@ class OpenAICompatibleAdapter:
             if not configuration.get(key)
         ]
         if missing:
-            return f"{self.display_name} provider is missing required configuration: " + ", ".join(missing) + "."
-        if configuration["enabled"] != "true":
             return (
-                f"{self.display_name} provider execution is disabled by AIDO_ENABLE_REAL_PROVIDER_CALLS=false."
+                f"{self.display_name} provider is missing required configuration: " + ", ".join(missing) + "."
             )
+        if configuration["enabled"] != "true":
+            return f"{self.display_name} provider execution is disabled by AIDO_ENABLE_REAL_PROVIDER_CALLS=false."
         return None
 
     def health_check(self) -> dict[str, Any]:
@@ -838,7 +838,9 @@ class OpenAICompatibleAdapter:
             return _result(
                 status="unavailable",
                 started_at=started_at,
-                reason=str(redact_secrets(f"{self.display_name} execution failed: {error.__class__.__name__}")),
+                reason=str(
+                    redact_secrets(f"{self.display_name} execution failed: {error.__class__.__name__}")
+                ),
                 redacted=True,
             )
         choices = raw.get("choices") if isinstance(raw, dict) else []
@@ -895,10 +897,7 @@ class AnthropicAdapter:
         runtime_configuration = runtime_provider_configuration(self.adapter_id, environ=source)
         return {
             "baseUrl": (
-                self.base_url
-                or source.get("AIDO_ANTHROPIC_BASE_URL")
-                or DEFAULT_ANTHROPIC_BASE_URL
-                or ""
+                self.base_url or source.get("AIDO_ANTHROPIC_BASE_URL") or DEFAULT_ANTHROPIC_BASE_URL or ""
             ).rstrip("/")
             or None,
             "apiKey": self.api_key
@@ -1010,7 +1009,12 @@ class AnthropicAdapter:
                 "available": False,
                 "reason": str(redact_secrets(f"Anthropic health check failed: {error.__class__.__name__}")),
             }
-        return {"status": "available", "available": True, "reason": "Anthropic /models responded."}
+        status = "available"
+        return {
+            "status": status,
+            "available": status == "available",
+            "reason": "Anthropic /models responded.",
+        }
 
     def execute(self, request: RuntimeExecutionRequest) -> RuntimeExecutionResult:
         """POST `input.messages` to Anthropic `/messages` and store the redacted text reply."""

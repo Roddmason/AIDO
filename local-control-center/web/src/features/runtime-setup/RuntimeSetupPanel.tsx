@@ -82,7 +82,9 @@ export function RuntimeSetupPanel({
 	const runSetupAction = async (providerId: RuntimeSetupProviderId) => {
 		if (busyAction) return;
 		if (!token) {
-			setActionMessage('configuration_required: write token is required to run runtime setup checks.');
+			setActionMessage(
+				'configuration_required: write token is required to run runtime setup checks.',
+			);
 			return;
 		}
 		setBusyAction(providerId);

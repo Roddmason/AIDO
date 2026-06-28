@@ -373,10 +373,7 @@ export function useWorkbenchData({
 	);
 	const runtimeBlockerReason = runtimeProviders
 		? (unavailableIssueRuntime?.reason ??
-			t(
-				'app.workbench.task.runtimeNoExecutable',
-				'No executable code-edit runtime is configured.',
-			))
+			t('app.workbench.task.runtimeNoExecutable', 'No executable code-edit runtime is configured.'))
 		: t('app.workbench.task.runtimeDiscovery', 'Runtime provider discovery has not completed.');
 
 	const detectedBranch = branchFromOverview(project, overview);

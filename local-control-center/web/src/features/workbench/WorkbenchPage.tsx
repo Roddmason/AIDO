@@ -10,13 +10,7 @@
  * leads, composer is pinned at the bottom, auxiliary panels are hidden.
  * @author Rodrigo Mason
  */
-import {
-	CheckCircle2,
-	FolderKanban,
-	GitBranch,
-	Rocket,
-	Users,
-} from 'lucide-react';
+import { CheckCircle2, FolderKanban, GitBranch, Rocket, Users } from 'lucide-react';
 import type { KeyboardEvent } from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
@@ -41,6 +35,7 @@ import { Badge, Drawer, EmptyState, PageHeader, Surface } from '../../components
 import { Button, TextArea, TextField, useToast } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { shortId, toneForStatus } from '../../lib/format';
+import { GitBranchBar } from '../shell/GitBranchBar';
 import { TeamActivityPanel } from '../team-activity/TeamActivityPanel';
 import type { ComposerDraft } from './composerDraft';
 import { clearComposerDraft, persistComposerDraft, readComposerDraft } from './composerDraft';
@@ -285,7 +280,12 @@ export function WorkbenchPage({
 					}
 					const chatResult: ChatCreateResponse = await createChat(
 						token,
-						{ projectId: activeProject.id, sessionId: session.id, prompt: text, title: submitTitle },
+						{
+							projectId: activeProject.id,
+							sessionId: session.id,
+							prompt: text,
+							title: submitTitle,
+						},
 						signal,
 					);
 					const pipelineResult: PipelineCreateResponse = await createPipeline(
@@ -297,7 +297,12 @@ export function WorkbenchPage({
 							title: submitTitle,
 							productOwnerIntake: true,
 							stages: [
-								{ id: 'intake', status: 'created', owner: 'product_owner', source: 'workbench_chat' },
+								{
+									id: 'intake',
+									status: 'created',
+									owner: 'product_owner',
+									source: 'workbench_chat',
+								},
 								{ id: 'planning', status: 'pending', owner: 'technical_lead' },
 								{ id: 'architecture', status: 'pending', owner: 'architect_agent' },
 								{ id: 'implementation', status: 'pending', owner: 'developer' },
@@ -483,7 +488,6 @@ export function WorkbenchPage({
 								: t('app.workbench.chat.viewFull', 'View full chat history')}
 						</Button>
 					) : null}
-
 				</div>
 
 				{/* --- Pinned bottom composer --- */}
@@ -538,20 +542,10 @@ export function WorkbenchPage({
 						</div>
 					</div>
 
-					{/* Context row: project · branch (read-only) */}
-					<div className="shell-chat-context" aria-hidden="true">
-						<span>{project.name}</span>
-						<span className="shell-chat-context-sep" aria-hidden="true">
-							·
-						</span>
-						<span>
-							<GitBranch
-								aria-hidden="true"
-								size={11}
-								style={{ display: 'inline', verticalAlign: 'middle' }}
-							/>{' '}
-							{displayBranch}
-						</span>
+					{/* Workspace controls: project + interactive git branch/gitleaks/refresh (Codex-style) */}
+					<div className="shell-chat-context">
+						<span className="shell-chat-context-project">{project.name}</span>
+						<GitBranchBar selectedProject={project} token={token} onRefresh={onRefresh} />
 					</div>
 				</div>
 			</section>
@@ -661,7 +655,6 @@ export function WorkbenchPage({
 									<span className="mono">{shortId(created.pipelineId)}</span>
 								</div>
 							) : null}
-
 						</div>
 					</Surface>
 

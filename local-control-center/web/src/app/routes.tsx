@@ -1,8 +1,8 @@
 /**
  * Typed route table: maps every {@link AppRoute} to a render function plus an optional
- * chunk-preload hook. Heavy feature pages are declared with `React.lazy` at module scope
- * (never inside a component) so each becomes its own build chunk; Home, the projects views
- * and the shell stay eager. `preloadRoute` warms a lazy chunk on intent (Go-menu item hover).
+ * chunk-preload hook. Most heavy feature pages are declared with `React.lazy` at module scope
+ * (never inside a component) so each becomes its own build chunk; Home, the projects views, the
+ * Workbench, review and the runtime gateway stay eager. `preloadRoute` warms a lazy chunk on intent.
  * @author Rodrigo Mason
  */
 import type { ReactNode } from 'react';
@@ -16,27 +16,25 @@ import type {
 	RuntimeProviders,
 } from '../api/types';
 import { HomePage } from '../features/home/HomePage';
+import { ModelGatewayPage } from '../features/model-gateway/ModelGatewayPage';
 import type { Language } from '../features/projects/ProjectsPage';
 import { ProjectsPage } from '../features/projects/ProjectsPage';
+import { ReviewPage } from '../features/review/ReviewPage';
+import { WorkbenchPage } from '../features/workbench/WorkbenchPage';
 import type { WorkspaceMode } from '../features/workspace/useProjectDiscovery';
 import type { AppRoute } from './routing';
 
 const importShell = () => import('../features/shell/ShellPage');
 const ShellPage = lazy(() => importShell().then((m) => ({ default: m.ShellPage })));
 
-const importWorkbench = () => import('../features/workbench/WorkbenchPage');
-const WorkbenchPage = lazy(() => importWorkbench().then((m) => ({ default: m.WorkbenchPage })));
+const importWorkbench = () => Promise.resolve({ WorkbenchPage });
 
 const importWorkflows = () => import('../features/workflows/WorkflowsPage');
 const WorkflowsPage = lazy(() => importWorkflows().then((m) => ({ default: m.WorkflowsPage })));
 
-const importReview = () => import('../features/review/ReviewPage');
-const ReviewPage = lazy(() => importReview().then((m) => ({ default: m.ReviewPage })));
+const importReview = () => Promise.resolve({ ReviewPage });
 
-const importModelGateway = () => import('../features/model-gateway/ModelGatewayPage');
-const ModelGatewayPage = lazy(() =>
-	importModelGateway().then((m) => ({ default: m.ModelGatewayPage })),
-);
+const importModelGateway = () => Promise.resolve({ ModelGatewayPage });
 
 const importAgents = () => import('../features/agents/AgentsPage');
 const AgentsPage = lazy(() => importAgents().then((m) => ({ default: m.AgentsPage })));

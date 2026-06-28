@@ -29,8 +29,8 @@ import {
 	activeProjects,
 	deriveBlockers,
 	objectRecord,
-	runtimeIsExecutableIssueRuntime,
-	runtimeSupportsIssueToPatch,
+	runtimeIsExecutableCodeEditRuntime,
+	runtimeSupportsCodeEdit,
 	sortByTimeDesc,
 } from './workbenchSelectors';
 
@@ -364,18 +364,18 @@ export function useWorkbenchData({
 
 	const runtimeRows = runtimeProviders?.providers ?? [];
 	const executableRuntimes = useMemo(
-		() => runtimeRows.filter(runtimeIsExecutableIssueRuntime),
+		() => runtimeRows.filter(runtimeIsExecutableCodeEditRuntime),
 		[runtimeRows],
 	);
 	const hasExecutableRuntime = executableRuntimes.length > 0;
 	const unavailableIssueRuntime = runtimeRows.find(
-		(runtime) => runtimeSupportsIssueToPatch(runtime) && runtime.executable !== true,
+		(runtime) => runtimeSupportsCodeEdit(runtime) && runtime.executable !== true,
 	);
 	const runtimeBlockerReason = runtimeProviders
 		? (unavailableIssueRuntime?.reason ??
 			t(
 				'app.workbench.task.runtimeNoExecutable',
-				'No executable issue_to_patch/code_edit runtime is configured.',
+				'No executable code-edit runtime is configured.',
 			))
 		: t('app.workbench.task.runtimeDiscovery', 'Runtime provider discovery has not completed.');
 

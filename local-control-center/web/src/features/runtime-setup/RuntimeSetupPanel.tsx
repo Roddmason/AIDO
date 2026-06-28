@@ -9,7 +9,7 @@
 import { CheckCircle2, RefreshCw, XCircle } from 'lucide-react';
 import { useId, useMemo, useState } from 'react';
 
-import { healthCheckModelGatewayProvider } from '../../api/client';
+import { detectModelGatewayCliRuntime, healthCheckModelGatewayProvider } from '../../api/client';
 import type { RuntimeProviderConfiguration, RuntimeProviders } from '../../api/types';
 import { Badge } from '../../components/primitives';
 import { useI18n } from '../../i18n/I18nProvider';
@@ -24,6 +24,20 @@ import {
 	type RuntimeSetupProviderId,
 	STATE_META,
 } from './runtimeSetup';
+
+const GUIDED_SETUP_ACTIONS = [
+	{ id: 'codex_cli', label: 'Configurar Codex CLI' },
+	{ id: 'claude_code_cli', label: 'Configurar Claude Code' },
+	{ id: 'ollama', label: 'Configurar Ollama' },
+	{ id: 'openai_compatible', label: 'Configurar API' },
+	{ id: 'nvidia_nim', label: 'Configurar NVIDIA NIM' },
+] as const;
+const CLI_SETUP_PROVIDER_IDS = new Set<RuntimeSetupProviderId>([
+	'codex_cli',
+	'claude_code_cli',
+	'openhands',
+	'swe_agent',
+]);
 
 type RuntimeSetupPanelProps = {
 	runtimeProviders: RuntimeProviders | null;
@@ -40,6 +54,8 @@ export function RuntimeSetupPanel({
 }: RuntimeSetupPanelProps) {
 	const { t } = useI18n();
 	const [refreshing, setRefreshing] = useState(false);
+	const [busyAction, setBusyAction] = useState<string | null>(null);
+	const [actionMessage, setActionMessage] = useState<string | null>(null);
 
 	const providers = useMemo(
 		() => mergeProviders(runtimeProviders?.providers, runtimeProviderConfiguration),
@@ -60,6 +76,30 @@ export function RuntimeSetupPanel({
 			await onRefresh();
 		} finally {
 			setRefreshing(false);
+		}
+	};
+
+	const runSetupAction = async (providerId: RuntimeSetupProviderId) => {
+		if (busyAction) return;
+		if (!token) {
+			setActionMessage('configuration_required: write token is required to run runtime setup checks.');
+			return;
+		}
+		setBusyAction(providerId);
+		setActionMessage(null);
+		try {
+			if (CLI_SETUP_PROVIDER_IDS.has(providerId)) {
+				await detectModelGatewayCliRuntime(token, providerId);
+			} else {
+				await healthCheckModelGatewayProvider(token, providerId);
+			}
+			await onRefresh();
+			setActionMessage(`completed: ${providerId}`);
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			setActionMessage(`blocked: ${redactVisibleSecret(message, 'runtime setup action failed')}`);
+		} finally {
+			setBusyAction(null);
 		}
 	};
 
@@ -89,16 +129,51 @@ export function RuntimeSetupPanel({
 					{t('app.runtime.refresh', 'Refresh health')}
 				</button>
 			</div>
+			{executableCount === 0 ? (
+				<section className="empty-state" aria-live="polite">
+					<strong>{t('app.runtime.setup.noneExecutable', 'No executable runtimes')}</strong>
+					<div className="inline">
+						{GUIDED_SETUP_ACTIONS.map((action) => (
+							<button
+								key={action.id}
+								className="button"
+								type="button"
+								disabled={busyAction !== null}
+								aria-busy={busyAction === action.id}
+								onClick={() => void runSetupAction(action.id)}
+							>
+								{busyAction === action.id
+									? t('app.runtime.setup.running', 'Running...')
+									: t(`app.runtime.setup.${action.id}`, action.label)}
+							</button>
+						))}
+					</div>
+					{actionMessage ? <span className="field-help">{actionMessage}</span> : null}
+				</section>
+			) : null}
 			<div className="masonry-grid">
 				{providers.map((provider) => (
-					<ProviderCard key={provider.id} provider={provider} />
+					<ProviderCard
+						key={provider.id}
+						provider={provider}
+						busy={busyAction === provider.id}
+						onSetupAction={() => void runSetupAction(provider.id as RuntimeSetupProviderId)}
+					/>
 				))}
 			</div>
 		</>
 	);
 }
 
-function ProviderCard({ provider }: { provider: MergedProvider }) {
+function ProviderCard({
+	provider,
+	busy,
+	onSetupAction,
+}: {
+	provider: MergedProvider;
+	busy: boolean;
+	onSetupAction: () => void;
+}) {
 	const { t } = useI18n();
 	const [open, setOpen] = useState(false);
 	const detailsId = useId();
@@ -117,6 +192,9 @@ function ProviderCard({ provider }: { provider: MergedProvider }) {
 	const variables = provider.config?.variables ?? [];
 	const isCli = provider.kind === 'cli';
 	const capabilities = status?.capabilities ?? [];
+	const actionLabel = isCli
+		? t('app.runtime.card.runHealthCheck', 'Run health check')
+		: t('app.runtime.card.configure', 'Configurar');
 
 	return (
 		<article className="card" data-tone={meta.tone}>
@@ -135,17 +213,28 @@ function ProviderCard({ provider }: { provider: MergedProvider }) {
 			</div>
 			<p className="card-body">{reason}</p>
 
-			<button
-				className="button"
-				type="button"
-				aria-expanded={open}
-				aria-controls={detailsId}
-				onClick={() => setOpen((value) => !value)}
-			>
-				{open
-					? t('app.runtime.card.hideDetails', 'Hide details')
-					: t('app.runtime.card.details', 'Configuration details')}
-			</button>
+			<div className="inline">
+				<button
+					className="button"
+					type="button"
+					disabled={busy}
+					aria-busy={busy}
+					onClick={onSetupAction}
+				>
+					{busy ? t('app.runtime.setup.running', 'Running...') : actionLabel}
+				</button>
+				<button
+					className="button"
+					type="button"
+					aria-expanded={open}
+					aria-controls={detailsId}
+					onClick={() => setOpen((value) => !value)}
+				>
+					{open
+						? t('app.runtime.card.hideDetails', 'Hide details')
+						: t('app.runtime.card.details', 'Configuration details')}
+				</button>
+			</div>
 
 			<div id={detailsId} className="stack" hidden={!open}>
 				<section className="stack compact">

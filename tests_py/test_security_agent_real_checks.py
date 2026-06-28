@@ -10,6 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from local_control_center.app import create_app
+from local_control_center.agents.security_agent_contract import security_agent_status
 from tests_py.control_plane_fixture import ControlPlaneFixture
 
 
@@ -94,6 +95,20 @@ def configure_external_scanners(
 
 def evidence_test_result(body: dict[str, Any], command: str) -> dict[str, Any]:
     return next(result for result in body["evidencePackage"]["testResults"] if result["command"] == command)
+
+
+def test_security_agent_status_lists_configured_remote_model_runtimes() -> None:
+    statuses = [
+        {"id": "openrouter", "executable": True, "configured": True, "capabilities": ["chat"]},
+        {"id": "nvidia_nim", "executable": True, "configured": True, "capabilities": ["chat"]},
+        {"id": "anthropic_api", "executable": True, "configured": True, "capabilities": ["chat"]},
+    ]
+
+    status = security_agent_status(statuses)
+
+    assert status["executable"] is True
+    assert status["selectedRuntimeId"] == "openrouter"
+    assert status["candidateRuntimeIds"] == ["openrouter", "nvidia_nim", "anthropic_api"]
 
 
 def test_security_agent_secret_like_key_in_workspace_blocks_with_evidence(

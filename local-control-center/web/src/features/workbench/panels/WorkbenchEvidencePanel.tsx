@@ -149,7 +149,7 @@ export function WorkbenchEvidencePanel({
 				title={t('app.workbench.evidence.noPackageTitle', 'No evidence yet')}
 				body={t(
 					'app.workbench.evidence.noPackageBody',
-					'Run a governed task to produce an evidence package; QA, hashes and findings appear here without leaving the workbench.',
+					'Run autonomous workspace work to produce an evidence package; QA, hashes and findings appear here without leaving the workbench.',
 				)}
 			/>
 		);

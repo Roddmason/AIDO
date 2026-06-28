@@ -50,12 +50,12 @@ def create_project_and_workspace(
     return project, workspace
 
 
-def executable_openai_runtime_status() -> list[dict[str, Any]]:
+def executable_model_runtime_status(runtime_id: str = "openai_compatible") -> list[dict[str, Any]]:
     return [
         {
-            "id": "openai_compatible",
-            "kind": "api",
-            "displayName": "Controlled OpenAI-compatible runtime",
+            "id": runtime_id,
+            "kind": "gateway" if runtime_id == "openrouter" else "api",
+            "displayName": f"Controlled {runtime_id} runtime",
             "detected": True,
             "configured": True,
             "available": True,
@@ -74,6 +74,10 @@ def executable_openai_runtime_status() -> list[dict[str, Any]]:
     ]
 
 
+def executable_openai_runtime_status() -> list[dict[str, Any]]:
+    return executable_model_runtime_status("openai_compatible")
+
+
 class ControlledProductOwnerProviderHandler(BaseHTTPRequestHandler):
     response_content = "{}"
 
@@ -82,7 +86,9 @@ class ControlledProductOwnerProviderHandler(BaseHTTPRequestHandler):
             self.send_response(404)
             self.end_headers()
             return
-        body = json.dumps({"data": [{"id": "controlled-product-owner-model"}]}).encode("utf-8")
+        body = json.dumps(
+            {"data": [{"id": "controlled-product-owner-model", "display_name": "Controlled PO Model"}]}
+        ).encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
@@ -90,6 +96,19 @@ class ControlledProductOwnerProviderHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_POST(self) -> None:
+        if self.path == "/messages":
+            self.rfile.read(int(self.headers.get("Content-Length") or "0"))
+            payload = {
+                "content": [{"type": "text", "text": self.response_content}],
+                "usage": {"input_tokens": 1, "output_tokens": 1},
+            }
+            body = json.dumps(payload).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         if self.path != "/chat/completions":
             self.send_response(404)
             self.end_headers()
@@ -235,17 +254,44 @@ def product_owner_request(project: dict[str, Any], workspace: dict[str, Any]) ->
 
 
 def run_with_controlled_provider(
-    client: TestClient, headers: dict[str, str], monkeypatch: pytest.MonkeyPatch, *, content: str, body: dict
+    client: TestClient,
+    headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    content: str,
+    body: dict,
+    runtime_id: str = "openai_compatible",
 ):
     server, base_url = start_controlled_provider(content)
     try:
         monkeypatch.setenv("AIDO_ENABLE_REAL_PROVIDER_CALLS", "true")
-        monkeypatch.setenv("AIDO_OPENAI_COMPATIBLE_BASE_URL", base_url)
-        monkeypatch.setenv("AIDO_OPENAI_COMPATIBLE_API_KEY", "unit-test-openai-compatible-key")
-        monkeypatch.setenv("AIDO_OPENAI_COMPATIBLE_MODEL", "controlled-product-owner-model")
+        env_by_runtime = {
+            "openai_compatible": {
+                "AIDO_OPENAI_COMPATIBLE_BASE_URL": base_url,
+                "AIDO_OPENAI_COMPATIBLE_API_KEY": "unit-test-openai-compatible-key",
+                "AIDO_OPENAI_COMPATIBLE_MODEL": "controlled-product-owner-model",
+            },
+            "openrouter": {
+                "AIDO_OPENROUTER_BASE_URL": base_url,
+                "AIDO_OPENROUTER_API_KEY": "unit-test-openrouter-key",
+                "AIDO_OPENROUTER_MODEL": "controlled-product-owner-model",
+            },
+            "nvidia_nim": {
+                "AIDO_NVIDIA_BASE_URL": base_url,
+                "AIDO_NVIDIA_API_KEY": "unit-test-nvidia-key",
+                "AIDO_NVIDIA_MODEL": "controlled-product-owner-model",
+            },
+            "anthropic_api": {
+                "AIDO_ANTHROPIC_BASE_URL": base_url,
+                "AIDO_ANTHROPIC_API_KEY": "unit-test-anthropic-key",
+                "AIDO_ANTHROPIC_MODEL": "controlled-product-owner-model",
+            },
+        }
+        for name, value in env_by_runtime[runtime_id].items():
+            monkeypatch.setenv(name, value)
         monkeypatch.setattr(
             "local_control_center.agents.runtime_status.RuntimeStatusService.list_provider_statuses",
-            lambda _service: executable_openai_runtime_status(),
+            lambda _service: executable_model_runtime_status(runtime_id),
         )
         return client.post("/api/v1/agents/product-owner/runs", headers=headers, json=body)
     finally:
@@ -270,12 +316,32 @@ def test_product_owner_readiness_prefers_cli_runtime() -> None:
     assert readiness["candidateRuntimeIds"][0] == "codex_cli"
 
 
+def test_product_owner_readiness_accepts_configured_remote_model_runtimes() -> None:
+    statuses = [
+        {"id": "openrouter", "executable": True, "configured": True, "capabilities": ["chat"]},
+        {"id": "nvidia_nim", "executable": True, "configured": True, "capabilities": ["chat"]},
+        {"id": "anthropic_api", "executable": True, "configured": True, "capabilities": ["chat"]},
+    ]
+
+    readiness = product_owner_agent_readiness(statuses, preferred_runtime="anthropic_api")
+
+    assert readiness["executable"] is True
+    assert readiness["selectedRuntimeId"] == "anthropic_api"
+    assert readiness["candidateRuntimeIds"] == ["openrouter", "nvidia_nim", "anthropic_api"]
+
+
 def test_product_owner_agent_without_real_runtime_returns_unavailable(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(
         "local_control_center.agents.runtime_status.RuntimeStatusService.list_provider_statuses",
         lambda _service: [],
+    )
+    monkeypatch.setattr(
+        "local_control_center.agents.product_owner_agent.ProjectAssessmentRunner.run",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("runtime_unavailable must not run project assessment")
+        ),
     )
     store, client, headers = create_client(tmp_path, monkeypatch)
     project, workspace = create_project_and_workspace(store, tmp_path, task_id="po-unavailable")
@@ -365,6 +431,56 @@ def test_product_owner_agent_valid_output_generates_brief_and_backlog(
         "Setup completes without manual config",
         "Progress is shown at each step",
     ]
+
+
+def test_product_owner_agent_runs_through_nvidia_nim_runtime_adapter(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store, client, headers = create_client(tmp_path, monkeypatch)
+    project, workspace = create_project_and_workspace(store, tmp_path, task_id="po-nvidia")
+    body = product_owner_request(project, workspace)
+    body["preferredRuntime"] = "nvidia_nim"
+
+    response = run_with_controlled_provider(
+        client,
+        headers,
+        monkeypatch,
+        content=json.dumps(product_owner_output(blocking=False)),
+        body=body,
+        runtime_id="nvidia_nim",
+    )
+
+    assert response.status_code == 202
+    result = response.json()
+    assert result["status"] == "completed"
+    assert result["runtimeResult"]["status"] == "completed"
+    assert result["runtime"]["id"] == "nvidia_nim"
+    assert result["output"]["brief"]["title"] == "Self-serve onboarding"
+
+
+def test_product_owner_agent_runs_through_anthropic_runtime_adapter(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store, client, headers = create_client(tmp_path, monkeypatch)
+    project, workspace = create_project_and_workspace(store, tmp_path, task_id="po-anthropic")
+    body = product_owner_request(project, workspace)
+    body["preferredRuntime"] = "anthropic_api"
+
+    response = run_with_controlled_provider(
+        client,
+        headers,
+        monkeypatch,
+        content=json.dumps(product_owner_output(blocking=False)),
+        body=body,
+        runtime_id="anthropic_api",
+    )
+
+    assert response.status_code == 202
+    result = response.json()
+    assert result["status"] == "completed"
+    assert result["runtimeResult"]["status"] == "completed"
+    assert result["runtime"]["id"] == "anthropic_api"
+    assert result["output"]["brief"]["title"] == "Self-serve onboarding"
 
 
 def test_product_owner_agent_blocking_decisions_withhold_backlog(

@@ -29,6 +29,7 @@ from .control_plane.overview import build_overview_from_connection
 from .control_plane.runtime import ControlCenterRuntime
 from .credentials.api import create_router as create_credentials_router
 from .evidence.api import create_router as create_evidence_router
+from .git_workspace.api import create_router as create_git_workspace_router
 from .governance.api import create_router as create_governance_router
 from .i18n.api import create_router as create_i18n_router
 from .integrations.api import create_router as create_integrations_router
@@ -144,6 +145,7 @@ def create_app(
     app.include_router(create_integrations_router(platform=platform, require_write=require_write))
     app.include_router(create_prompts_router(platform=platform, require_write=require_write))
     app.include_router(create_projects_router(platform=platform, require_write=require_write))
+    app.include_router(create_git_workspace_router(platform=platform, require_write=require_write))
     app.include_router(create_product_loop_router(platform=platform, require_write=require_write))
     app.include_router(create_self_improvement_router(platform=platform, require_write=require_write))
     app.include_router(create_team_activity_router(platform=platform, require_write=require_write))

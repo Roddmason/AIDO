@@ -56,6 +56,8 @@ class PipelinesRepository:
         session_id: str | None = None,
         chat_id: str | None = None,
         stages: list[dict[str, Any]] | None = None,
+        status: str = "queued",
+        metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Inserta un pipeline `queued` (etapas por defecto si no se pasan) y lo relee ya persistido.
 
@@ -68,7 +70,7 @@ class PipelinesRepository:
             """
             INSERT INTO pipelines
                 (id, project_id, session_id, chat_id, title, status, stages, metadata, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 pipeline_id,
@@ -76,11 +78,31 @@ class PipelinesRepository:
                 session_id,
                 chat_id,
                 title,
+                status,
                 json_dumps(stages or DEFAULT_STAGES),
-                json_dumps({}),
+                json_dumps(metadata or {}),
                 timestamp,
                 timestamp,
             ),
+        )
+        return self.get_pipeline(pipeline_id)
+
+    def update_pipeline(
+        self,
+        pipeline_id: str,
+        *,
+        status: str,
+        stages: list[dict[str, Any]],
+        metadata: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Actualiza estado, etapas y metadata de un pipeline existente."""
+        self.connection.execute(
+            """
+            UPDATE pipelines
+            SET status = ?, stages = ?, metadata = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (status, json_dumps(stages), json_dumps(metadata), utc_now(), pipeline_id),
         )
         return self.get_pipeline(pipeline_id)
 

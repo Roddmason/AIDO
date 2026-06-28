@@ -41,6 +41,7 @@ from .security_agent_contract import (
     SECURITY_AGENT_ALLOWED_TOOLS,
     SECURITY_AGENT_ID,
     SECURITY_AGENT_MODEL_RUNTIMES,
+    SECURITY_AGENT_REMOTE_API_RUNTIMES,
     security_agent_contract,
     security_agent_status,
 )
@@ -1017,7 +1018,7 @@ class SecurityAgentRunner:
                     ],
                     "temperature": 0.1,
                 },
-                "networkRequired": runtime_id == "openai_compatible",
+                "networkRequired": runtime_id in SECURITY_AGENT_REMOTE_API_RUNTIMES,
                 "secretsRequired": False,
                 "approvalGrantId": payload.get("approvalGrantId"),
                 "execute": True,

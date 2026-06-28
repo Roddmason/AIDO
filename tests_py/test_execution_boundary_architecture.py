@@ -195,6 +195,43 @@ def test_security_agent_scanner_policy_allows_only_local_scanner_executables() -
     assert "security_agent_scanner_executable_denied" in denied["categories"]
 
 
+def test_git_workspace_policy_allows_only_contextual_patch_apply() -> None:
+    base_payload = {
+        "tool": "shell",
+        "command": "git apply --check H:\\artifact.patch",
+        "commandArgv": ["git", "apply", "--check", "H:\\artifact.patch"],
+        "operation": "git_workspace_command",
+        "permissionProfile": "dev_safe",
+        "agentId": "git_workspace_agent",
+        "workspaceId": "workspace-test",
+        "workspacePath": "H:\\workspace",
+        "path": "H:\\workspace",
+        "agentRunId": "agent-run-test",
+        "networkRequired": False,
+        "secretsRequired": False,
+    }
+    allowed_check = evaluate_action({**base_payload, "gitOperation": "apply_check"})
+    allowed_apply = evaluate_action(
+        {
+            **base_payload,
+            "command": "git apply H:\\artifact.patch",
+            "commandArgv": ["git", "apply", "H:\\artifact.patch"],
+            "gitOperation": "apply_patch",
+        }
+    )
+    missing_context = evaluate_action(base_payload)
+    wrong_agent = evaluate_action({**base_payload, "gitOperation": "apply_check", "agentId": "developer_agent"})
+
+    assert allowed_check["decision"] == "allow"
+    assert "git_apply_check" in allowed_check["categories"]
+    assert allowed_apply["decision"] == "allow"
+    assert "git_apply_patch" in allowed_apply["categories"]
+    assert missing_context["decision"] == "deny"
+    assert "git_workspace_apply_denied" in missing_context["categories"]
+    assert wrong_agent["decision"] == "deny"
+    assert "git_workspace_agent_denied" in wrong_agent["categories"]
+
+
 def test_developer_agent_runtime_policy_operation_is_agent_scoped() -> None:
     decision = evaluate_action(
         {
@@ -442,6 +479,31 @@ def test_security_agent_model_call_policy_allows_only_scoped_model_runtime() -> 
     assert denied["decision"] == "deny"
 
 
+def test_model_agent_policies_allow_configured_remote_runtime_adapters() -> None:
+    cases = [
+        ("developer_agent_model_call", "developer_agent", "dev_safe"),
+        ("architect_agent_model_call", "architect_agent", "plan"),
+        ("security_agent_model_call", "security_agent", "qa"),
+    ]
+    for operation, agent_id, permission_profile in cases:
+        for runtime_id in ("openrouter", "nvidia_nim", "anthropic_api"):
+            decision = evaluate_action(
+                {
+                    "tool": runtime_id,
+                    "operation": operation,
+                    "permissionProfile": permission_profile,
+                    "agentId": agent_id,
+                    "workspaceId": "workspace-test",
+                    "workspacePath": "H:\\workspace",
+                    "path": "H:\\workspace",
+                    "runtimeId": runtime_id,
+                    "agentRunId": "agent-run-test",
+                    "networkRequired": True,
+                }
+            )
+            assert decision["decision"] == "allow", (operation, runtime_id, decision)
+
+
 def test_qa_agent_runner_uses_broker_not_direct_subprocess() -> None:
     source = (PRODUCT_ROOT / "agents" / "qa_agent.py").read_text(encoding="utf-8")
 
@@ -451,6 +513,13 @@ def test_qa_agent_runner_uses_broker_not_direct_subprocess() -> None:
     assert "os.system" not in source
     assert "RestrictedSubprocessSandbox" not in source
     assert ".chat_completion(" not in source
+
+
+def test_cli_session_stream_does_not_bypass_broker_for_git_state() -> None:
+    source = (PRODUCT_ROOT / "agents" / "cli_session_stream.py").read_text(encoding="utf-8")
+
+    assert "run_brokered_git" in source
+    assert "run_git(" not in source
 
 
 def test_architect_agent_runner_uses_broker_not_direct_model_execution() -> None:

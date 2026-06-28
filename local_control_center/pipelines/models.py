@@ -22,6 +22,7 @@ class PipelineCreateRequest(BaseModel):
     session_id: str | None = Field(default=None, alias="sessionId")
     chat_id: str | None = Field(default=None, alias="chatId")
     stages: list[dict[str, Any]] | None = None
+    product_owner_intake: bool = Field(default=False, alias="productOwnerIntake")
 
 
 class PipelineRecord(BaseModel):

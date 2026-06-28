@@ -1,6 +1,6 @@
 /**
  * Pure selectors that turn raw overview/runtime data into the workbench's derived
- * views: runtime capability checks, recency sorting, the staged issue_to_patch
+ * views: runtime capability checks, recency sorting, the staged code-edit
  * timeline and the project blocker list. No React, no I/O — kept testable in isolation.
  * @author Rodrigo Mason
  */
@@ -12,7 +12,7 @@ export type TimelineStatus = 'pending' | 'done' | 'active' | 'blocked' | 'failed
 export type IssueTimelineEntry = { id: string; status: TimelineStatus; detail: string };
 export type Blocker = { id: string; label: string; detail: string; tone: 'warn' | 'danger' };
 
-export const issueRuntimeCapabilities = new Set(['issue_to_patch', 'code_edit']);
+export const codeEditRuntimeCapabilities = new Set(['issue_to_patch', 'code_edit']);
 export const issueTimelineOrder = [
 	'created',
 	'workspace_allocated',
@@ -41,21 +41,21 @@ export function activeProjects(projects: Project[]) {
 }
 
 /**
- * True when a runtime can apply code changes: it advertises an issue_to_patch/code_edit
+ * True when a runtime can apply code changes: it advertises a code-edit
  * capability and is not a test/simulation stub (those never count as real runtimes).
  */
-export function runtimeSupportsIssueToPatch(runtime: RuntimeProvider) {
+export function runtimeSupportsCodeEdit(runtime: RuntimeProvider) {
 	const kind = String(runtime.kind ?? '').toLowerCase();
 	return (
 		kind !== 'test' &&
 		kind !== 'simulation' &&
-		(runtime.capabilities ?? []).some((capability) => issueRuntimeCapabilities.has(capability))
+		(runtime.capabilities ?? []).some((capability) => codeEditRuntimeCapabilities.has(capability))
 	);
 }
 
 /** Narrows to runtimes that both support patching and are currently executable (ready to run). */
-export function runtimeIsExecutableIssueRuntime(runtime: RuntimeProvider) {
-	return runtimeSupportsIssueToPatch(runtime) && runtime.executable === true;
+export function runtimeIsExecutableCodeEditRuntime(runtime: RuntimeProvider) {
+	return runtimeSupportsCodeEdit(runtime) && runtime.executable === true;
 }
 
 /**
@@ -87,7 +87,7 @@ export function sortByTimeDesc<
 }
 
 /**
- * Maps an issue_to_patch response (or its absence) to the staged run timeline.
+ * Maps a governed code-edit response (or its absence) to the staged run timeline.
  * Moved verbatim from the former CommandCenterPage so behavior is preserved.
  */
 export function buildIssueTimeline(

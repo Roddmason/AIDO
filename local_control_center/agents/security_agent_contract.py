@@ -13,9 +13,28 @@ from __future__ import annotations
 from typing import Any
 
 SECURITY_AGENT_ID = "security_agent"
-SECURITY_AGENT_ALLOWED_TOOLS = ["shell", "openai_compatible", "ollama"]
-SECURITY_AGENT_MODEL_RUNTIMES = {"openai_compatible", "ollama"}
-SECURITY_AGENT_RUNTIME_ORDER = ["openai_compatible", "ollama"]
+SECURITY_AGENT_ALLOWED_TOOLS = [
+    "shell",
+    "ollama",
+    "openai_compatible",
+    "openrouter",
+    "nvidia_nim",
+    "anthropic_api",
+]
+SECURITY_AGENT_REMOTE_API_RUNTIMES = {
+    "openai_compatible",
+    "openrouter",
+    "nvidia_nim",
+    "anthropic_api",
+}
+SECURITY_AGENT_MODEL_RUNTIMES = SECURITY_AGENT_REMOTE_API_RUNTIMES | {"ollama"}
+SECURITY_AGENT_RUNTIME_ORDER = [
+    "ollama",
+    "openai_compatible",
+    "openrouter",
+    "nvidia_nim",
+    "anthropic_api",
+]
 SECURITY_AGENT_VERDICTS = {"passed", "risk", "blocked"}
 
 
@@ -82,7 +101,7 @@ def is_security_model_runtime(runtime: dict[str, Any]) -> bool:
     if runtime_id not in SECURITY_AGENT_MODEL_RUNTIMES or not runtime.get("executable"):
         return False
     capabilities = set(runtime.get("capabilities") or [])
-    if runtime_id == "openai_compatible":
+    if runtime_id in SECURITY_AGENT_REMOTE_API_RUNTIMES:
         return "chat" in capabilities or not capabilities
     if runtime_id == "ollama":
         return "chat" in capabilities and bool(runtime.get("models"))

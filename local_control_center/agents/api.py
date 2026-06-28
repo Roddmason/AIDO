@@ -79,16 +79,27 @@ VALID_AGENT_ROLES = {
     "frontend_engineer",
     "implementer",
     "devops",
+    "devops_engineer",
     "qa",
     "qa_reviewer",
     "security_reviewer",
     "release_manager",
 }
 VALID_PERMISSION_PROFILES = {"plan", "dev_safe", "qa", "release"}
-DEVELOPER_AGENT_RUNTIMES = {"codex_cli", "claude_code_cli", "openai_compatible", "ollama"}
-ARCHITECT_AGENT_RUNTIMES = {"openai_compatible", "ollama"}
-SECURITY_AGENT_RUNTIMES = {"openai_compatible", "ollama"}
-PRODUCT_OWNER_AGENT_RUNTIMES = {"codex_cli", "claude_code_cli", "openai_compatible", "ollama"}
+REMOTE_API_RUNTIMES = {"openai_compatible", "openrouter", "nvidia_nim", "anthropic_api"}
+MODEL_AGENT_RUNTIMES = REMOTE_API_RUNTIMES | {"ollama"}
+DEVELOPER_AGENT_RUNTIMES = {"codex_cli", "claude_code_cli"} | MODEL_AGENT_RUNTIMES
+ARCHITECT_AGENT_RUNTIMES = MODEL_AGENT_RUNTIMES
+SECURITY_AGENT_RUNTIMES = MODEL_AGENT_RUNTIMES
+PRODUCT_OWNER_AGENT_RUNTIMES = {
+    "codex_cli",
+    "claude_code_cli",
+    "ollama",
+    "openai_compatible",
+    "openrouter",
+    "nvidia_nim",
+    "anthropic_api",
+}
 
 
 def _require_id(value: Any, *, label: str) -> str:
@@ -439,6 +450,43 @@ def _input_evidence_refs(input_payload: dict[str, Any]) -> list[str]:
     return []
 
 
+def _requested_skill_refs(input_payload: dict[str, Any]) -> list[str]:
+    refs: list[str] = []
+    for key in ("skillIds", "skills", "skillRefs"):
+        value = input_payload.get(key)
+        if not isinstance(value, list):
+            continue
+        for item in value:
+            if isinstance(item, str) and item.strip():
+                refs.append(item.strip())
+            elif isinstance(item, dict):
+                ref = item.get("id") or item.get("name") or item.get("skillId")
+                if isinstance(ref, str) and ref.strip():
+                    refs.append(ref.strip())
+    return list(dict.fromkeys(refs))
+
+
+def _blocked_skill_resolution_output(
+    *, profile: dict[str, Any], task_id: str, reason: str
+) -> dict[str, Any]:
+    return {
+        "agent_id": profile["id"],
+        "task_id": task_id,
+        "verdict": "blocked",
+        "summary": reason,
+        "evidence_refs": [],
+        "skills": [],
+        "risks": [
+            {
+                "severity": "high",
+                "description": "Agent run requested a skill that cannot be bound to an immutable catalog version.",
+                "mitigation": "Sync the skill catalog and add the skill id or name to the agent profile allowedSkills list.",
+            }
+        ],
+        "next_actions": ["Resolve skill configuration before executing tool calls."],
+    }
+
+
 def _is_technical_review_run(*, profile: dict[str, Any], task_id: str, input_payload: dict[str, Any]) -> bool:
     markers = {
         str(task_id),
@@ -475,6 +523,7 @@ def _create_execution_evidence(
     agent_id: str,
     task_id: str,
     tool_calls: list[dict[str, Any]],
+    skills: list[dict[str, Any]] | None = None,
 ) -> list[str]:
     executed_tool_calls = [
         tool_call
@@ -490,6 +539,23 @@ def _create_execution_evidence(
         or result["returnCode"] not in {0, None}
         for result in test_results
     )
+    skill_refs = [
+        {
+            "kind": "skill_instruction",
+            "skillId": skill["id"],
+            "name": skill["name"],
+            "version": skill.get("version"),
+            "instructionsHash": skill.get("instructionsHash"),
+            "path": skill.get("path"),
+            "riskLevel": skill.get("riskLevel"),
+        }
+        for skill in skills or []
+    ]
+    skill_hashes = {
+        f"skill:{skill['id']}": str(skill["instructionsHash"])
+        for skill in skills or []
+        if skill.get("instructionsHash")
+    }
     evidence_repo = EvidenceRepository(platform.connection)
     evidence = evidence_repo.create_evidence_package(
         project_id=project_id,
@@ -505,6 +571,8 @@ def _create_execution_evidence(
                 "mitigation": "Keep command stdout/stderr redacted and attach larger logs as artifacts in a later hardening pass.",
             }
         ],
+        artifacts=skill_refs,
+        hashes=skill_hashes,
         evidence_source="evidence_collected",
         qa_verdict="failed" if failed else "evidence_collected",
     )
@@ -804,13 +872,27 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         task_id = payload.get("taskId", "task")
         input_payload = payload.get("input") or {}
         tool_calls = input_payload.get("toolCalls") or []
-        if profile["runtimeMode"] not in RUNTIME_MODES:
+        requested_skill_refs = _requested_skill_refs(input_payload)
+        resolved_skills, skill_error = skill_registry().resolve_for_agent_run(
+            requested_refs=requested_skill_refs,
+            allowed_refs=profile.get("allowedSkills") or [],
+        )
+        if skill_error:
+            output = _blocked_skill_resolution_output(
+                profile=profile,
+                task_id=task_id,
+                reason=skill_error,
+            )
+            status = "failed"
+            tool_calls = []
+        elif profile["runtimeMode"] not in RUNTIME_MODES:
             output = {
                 "agent_id": profile["id"],
                 "task_id": task_id,
                 "verdict": "blocked",
                 "summary": f"Runtime {profile['runtimeMode']} is not a supported product runtime.",
                 "evidence_refs": [],
+                "skills": resolved_skills,
                 "risks": [
                     {
                         "severity": "high",
@@ -828,6 +910,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
                 "verdict": "evaluating_tools",
                 "summary": f"Runtime {profile['runtimeMode']} requested policy-gated tool calls.",
                 "evidence_refs": [],
+                "skills": resolved_skills,
                 "risks": [],
                 "next_actions": [],
             }
@@ -844,6 +927,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
                 "verdict": "blocked",
                 "summary": f"Runtime {profile['runtimeMode']} has no executable adapter configured for this run.",
                 "evidence_refs": [],
+                "skills": resolved_skills,
                 "risks": [
                     {
                         "severity": "medium",
@@ -865,6 +949,14 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             workflow_step_id=payload.get("workflowStepId"),
             status=status,
         )
+        if resolved_skills:
+            skill_registry().bind_skills_for_run(
+                skills=resolved_skills,
+                agent_profile_id=profile["id"],
+                workflow_id=payload.get("workflowRunId"),
+                agent_run_id=run["id"],
+                task_id=task_id,
+            )
         if tool_calls:
             broker_results = ToolBroker(platform.connection, artifact_root=platform.cwd).evaluate_tool_calls(
                 project_id=payload["projectId"],
@@ -887,6 +979,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
                 agent_id=profile["id"],
                 task_id=task_id,
                 tool_calls=tool_call_records,
+                skills=resolved_skills,
             )
             if any(decision == "deny" for decision in decisions) or any(
                 tool_status in {"denied", "failed", "blocked"} for tool_status in tool_statuses
@@ -918,6 +1011,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
                 "verdict": verdict,
                 "summary": summary,
                 "evidence_refs": evidence_refs,
+                "skills": resolved_skills,
                 "risks": [
                     {
                         "severity": "low",

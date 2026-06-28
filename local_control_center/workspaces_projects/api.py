@@ -91,7 +91,16 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         if workspace_manifest:
             diff_refs.append({"kind": "workspace_manifest", "status": "captured", **workspace_manifest})
         if pre_archive["isolationType"] == "git_worktree":
-            diff_refs.append(capture_git_diff(Path(pre_archive["path"])))
+            diff_refs.append(
+                capture_git_diff(
+                    Path(pre_archive["path"]),
+                    connection=platform.connection,
+                    root=platform.cwd,
+                    project_id=pre_archive["projectId"],
+                    workspace_id=pre_archive["id"],
+                    task_id=pre_archive["taskId"],
+                )
+            )
         diff_refs.append(capture_workspace_snapshot(pre_archive["path"]))
         workspace = repo.archive_workspace(workspace_id, reason=body.reason)
         diff_refs, artifact_specs = promote_large_git_patches(root=platform.cwd, diff_refs=diff_refs)

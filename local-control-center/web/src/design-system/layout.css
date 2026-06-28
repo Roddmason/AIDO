@@ -882,6 +882,42 @@
 	margin-left: auto;
 }
 
+.status-bar-git {
+	gap: var(--space-2);
+}
+
+.status-branch-select,
+.status-branch-create input {
+	min-height: var(--control-height-sm);
+	border: 1px solid var(--color-border-subtle);
+	border-radius: var(--radius-sm);
+	background: var(--color-surface-default);
+	color: var(--color-text-primary);
+	font: inherit;
+}
+
+.status-branch-select {
+	width: clamp(8rem, 14vw, 13rem);
+	padding-inline: var(--space-2);
+}
+
+.status-branch-create {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-1);
+	min-width: 0;
+}
+
+.status-branch-create input {
+	width: clamp(7rem, 12vw, 11rem);
+	padding-inline: var(--space-2);
+}
+
+.status-bar .icon-button {
+	min-width: var(--control-height-sm);
+	min-height: var(--control-height-sm);
+}
+
 .content-frame {
 	width: 100%;
 	display: grid;

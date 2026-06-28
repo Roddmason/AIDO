@@ -190,7 +190,7 @@ RUNTIME_PROVIDER_CONFIG_SPECS: tuple[RuntimeProviderConfigSpec, ...] = (
     ),
     RuntimeProviderConfigSpec(
         provider_id="ollama",
-        display_name="Ollama Local",
+        display_name="Ollama Local/Remote",
         kind="local",
         variables=(RuntimeConfigVariableSpec("baseUrl", "AIDO_OLLAMA_BASE_URL", secret=False),),
     ),

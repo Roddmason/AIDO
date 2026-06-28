@@ -1582,6 +1582,17 @@ def test_promote_patch_to_branch_creates_safe_branch_applies_verified_patch_and_
     assert body["evidencePackage"]["taskId"] == "promote_patch_to_branch"
     assert body["evidencePackage"]["qaVerdict"] == "passed"
     assert body["qaResults"] and all(result["status"] == "passed" for result in body["qaResults"])
+    apply_check = body["runtimeResult"]["gitApplyCheck"]
+    apply_result = body["runtimeResult"]["gitApply"]
+    assert apply_check["toolCallId"]
+    assert apply_check["permissionDecisionId"]
+    assert apply_check["execution"] == "restricted_subprocess"
+    assert apply_result["toolCallId"]
+    assert apply_result["permissionDecisionId"]
+    assert apply_result["execution"] == "restricted_subprocess"
+    evidence_tool_call_ids = {tool_call["id"] for tool_call in body["evidencePackage"]["toolCalls"]}
+    assert apply_check["toolCallId"] in evidence_tool_call_ids
+    assert apply_result["toolCallId"] in evidence_tool_call_ids
     promotion_workspace = Path(body["workspace"]["path"])
     assert (promotion_workspace / "patched.txt").read_text(encoding="utf-8") == "real runtime patch\n"
     assert run_git(["-C", str(promotion_workspace), "branch", "--show-current"]).stdout.strip() == branch_name

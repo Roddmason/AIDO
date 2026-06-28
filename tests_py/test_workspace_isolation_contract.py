@@ -115,6 +115,11 @@ def test_git_project_allocation_uses_real_worktree_and_preserves_main_tree(
     assert (workspace_path / ".git").exists()
     assert workspace["metadata"]["workspaceManifest"]["sourceCommit"] == source_commit
     assert workspace["metadata"]["workspaceManifest"]["branch"].startswith("aido/story-git/")
+    worktree_metadata = workspace["metadata"]["gitWorktree"]
+    assert worktree_metadata["toolCalls"]
+    assert worktree_metadata["policyDecisionIds"]
+    assert worktree_metadata["toolCalls"][0]["execution"] == "restricted_subprocess"
+    assert worktree_metadata["toolCalls"][0]["toolCallStatus"] == "completed"
 
     (workspace_path / "README.md").write_text("changed in workspace\n", encoding="utf-8")
     assert (repo / "README.md").read_text(encoding="utf-8") == "initial\n"
@@ -268,8 +273,14 @@ def test_workspace_archive_keeps_evidence_after_worktree_cleanup(
     git_diff = next(ref for ref in evidence["diffRefs"] if ref["kind"] == "git_diff")
     assert git_diff["state"] == "captured"
     assert "README.md" in git_diff["nameOnly"]
+    assert git_diff["toolCalls"]
+    assert git_diff["policyDecisionIds"]
     snapshot = next(ref for ref in evidence["diffRefs"] if ref["kind"] == "workspace_snapshot")
     assert any(item["path"] == "README.md" and item["sha256"] for item in snapshot["files"])
+    cleanup = archived.json()["workspace"]["metadata"]["gitWorktreeCleanup"]
+    assert cleanup["status"] == "removed"
+    assert cleanup["toolCalls"]
+    assert cleanup["policyDecisionIds"]
     persisted = store.evidence.get_evidence_package(evidence["id"])
     assert persisted["id"] == evidence["id"]
     assert any(ref["kind"] == "workspace_snapshot" for ref in persisted["diffRefs"])

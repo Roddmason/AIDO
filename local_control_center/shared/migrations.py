@@ -46,6 +46,7 @@ def initialize_platform_schema(connection: sqlite3.Connection) -> None:
     init_phase25_schema(connection)
     init_phase26_schema(connection)
     init_phase27_schema(connection)
+    init_phase28_schema(connection)
     seed_platform_catalogs(connection)
 
 
@@ -1411,7 +1412,7 @@ def init_phase12_schema(connection: sqlite3.Connection) -> None:
         (
             "ollama",
             "ollama",
-            "Ollama Local",
+            "Ollama Local/Remote",
             "local",
             "custom",
             "http://localhost:11434",
@@ -1507,6 +1508,14 @@ def init_phase12_schema(connection: sqlite3.Connection) -> None:
             """,
             (*row, timestamp, timestamp),
         )
+    connection.execute(
+        """
+        UPDATE provider_accounts
+        SET display_name = 'Ollama Local/Remote', updated_at = ?
+        WHERE provider_id = 'ollama' AND display_name = 'Ollama Local'
+        """,
+        (timestamp,),
+    )
 
     model_catalog = [
         (
@@ -3393,6 +3402,127 @@ def init_phase27_schema(connection: sqlite3.Connection) -> None:
     connection.execute(
         "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
         (27, utc_now()),
+    )
+
+
+def init_phase28_schema(connection: sqlite3.Connection) -> None:
+    """Fase 28: completa la configuración real de runtimes y sus health-checks persistidos.
+
+    ``runtime_health_checks`` guarda resultados sanitizados de detección/health por runtime. Las
+    instalaciones sembradas cubren los CLIs, Ollama y proveedores API/gateway conocidos; los secretos
+    siguen viviendo en credential/provider stores, no en estas tablas.
+    """
+    connection.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS runtime_health_checks (
+            id TEXT PRIMARY KEY,
+            runtime_id TEXT NOT NULL,
+            check_type TEXT NOT NULL,
+            status TEXT NOT NULL,
+            payload TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_runtime_health_checks_runtime_created
+            ON runtime_health_checks(runtime_id, created_at);
+        """
+    )
+    timestamp = utc_now()
+    runtime_installations = [
+        ("codex_cli", "cli", ["code_edit", "issue_to_patch", "chat"], ["developer", "implementer", "technical_lead"]),
+        ("claude_code_cli", "cli", ["code_edit", "issue_to_patch", "chat"], ["developer", "technical_lead", "product_owner"]),
+        ("openhands", "cli", ["code_edit", "issue_to_patch"], ["developer", "implementer"]),
+        ("swe_agent", "cli", ["code_edit", "issue_to_patch"], ["developer", "implementer"]),
+        ("ollama", "local", ["chat"], ["developer", "product_owner", "analyst"]),
+        ("openai_compatible", "api", ["chat"], ["developer", "product_owner", "analyst"]),
+        ("openrouter", "gateway", ["chat"], ["developer", "product_owner", "analyst"]),
+        ("nvidia_nim", "api", ["chat"], ["product_owner", "analyst", "technical_lead"]),
+        ("anthropic_api", "api", ["chat"], ["product_owner", "analyst"]),
+        ("openai_api", "api", ["chat"], ["product_owner", "analyst"]),
+    ]
+    for runtime_id, kind, capabilities, preferred_roles in runtime_installations:
+        connection.execute(
+            """
+            INSERT OR IGNORE INTO runtime_installations
+                (id, runtime_id, kind, executable_path, detected_version, enabled, capabilities,
+                 preferred_roles, health_status, last_validation_at, last_health_check_at, last_error,
+                 configuration_source, metadata, created_at, updated_at)
+            VALUES (?, ?, ?, NULL, NULL, 0, ?, ?, 'unknown', NULL, NULL, NULL, 'seed', '{}', ?, ?)
+            """,
+            (
+                f"runtime-installation-{runtime_id}",
+                runtime_id,
+                kind,
+                json_dumps(capabilities),
+                json_dumps(preferred_roles),
+                timestamp,
+                timestamp,
+            ),
+        )
+        connection.execute(
+            """
+            UPDATE runtime_installations
+            SET kind = ?,
+                capabilities = CASE WHEN capabilities = '[]' THEN ? ELSE capabilities END,
+                preferred_roles = CASE WHEN preferred_roles = '[]' THEN ? ELSE preferred_roles END,
+                updated_at = ?
+            WHERE runtime_id = ?
+            """,
+            (kind, json_dumps(capabilities), json_dumps(preferred_roles), timestamp, runtime_id),
+        )
+        for capability in capabilities:
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO runtime_capabilities
+                    (id, runtime, capability, enabled, metadata, created_at, updated_at)
+                VALUES (?, ?, ?, 1, ?, ?, ?)
+                """,
+                (
+                    f"{runtime_id}:{capability}",
+                    runtime_id,
+                    capability,
+                    json_dumps({"source": "runtime_installations"}),
+                    timestamp,
+                    timestamp,
+                ),
+            )
+    connection.execute(
+        """
+        UPDATE runtime_installations
+        SET preferred_roles = ?, updated_at = ?
+        WHERE runtime_id = 'nvidia_nim' AND preferred_roles = ?
+        """,
+        (
+            json_dumps(["product_owner", "analyst", "technical_lead"]),
+            timestamp,
+            json_dumps(["analyst", "technical_lead"]),
+        ),
+    )
+    for runtime_id, label, capabilities, preferred_roles in [
+        ("openhands", "Local OpenHands CLI", ["code_edit", "issue_to_patch"], ["developer", "implementer"]),
+        ("swe_agent", "Local SWE-agent CLI", ["code_edit", "issue_to_patch"], ["developer", "implementer"]),
+    ]:
+        connection.execute(
+            """
+            INSERT OR IGNORE INTO runtime_accounts
+                (id, runtime_id, account_label, auth_mode, credential_store_kind, credential_ref, enabled,
+                 is_default, capabilities, preferred_roles, health_status, last_validation_at,
+                 configuration_source, metadata, created_at, updated_at)
+            VALUES (?, ?, ?, 'provider_native_cli', 'provider_native_cli', NULL, 1, 1, ?, ?,
+                    'unknown', NULL, 'seed', '{}', ?, ?)
+            """,
+            (
+                f"runtime-account-{runtime_id}-native",
+                runtime_id,
+                label,
+                json_dumps(capabilities),
+                json_dumps(preferred_roles),
+                timestamp,
+                timestamp,
+            ),
+        )
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (28, utc_now()),
     )
 
 

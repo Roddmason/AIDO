@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import sqlite3
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -71,6 +72,20 @@ def row_to_skill(row: sqlite3.Row) -> dict[str, Any]:
         "metadata": json_loads(row["metadata"]),
         "createdAt": row["created_at"],
         "updatedAt": row["updated_at"],
+    }
+
+
+def _skill_version_row_to_record(skill: dict[str, Any], version: sqlite3.Row | None) -> dict[str, Any]:
+    metadata = skill.get("metadata") or {}
+    return {
+        "id": skill["id"],
+        "name": skill["name"],
+        "description": skill["description"],
+        "riskLevel": skill["riskLevel"],
+        "path": skill["path"],
+        "tools": metadata.get("tools"),
+        "version": version["version"] if version else None,
+        "instructionsHash": version["instructions_hash"] if version else None,
     }
 
 
@@ -137,3 +152,81 @@ class SkillRegistry:
         """Return all catalogued skills ordered by name."""
         rows = self.connection.execute("SELECT * FROM skills ORDER BY name ASC").fetchall()
         return [row_to_skill(row) for row in rows]
+
+    def resolve_for_agent_run(
+        self, *, requested_refs: list[str], allowed_refs: list[str]
+    ) -> tuple[list[dict[str, Any]], str | None]:
+        """Resolve requested skills to immutable versions and enforce the agent profile allowlist."""
+        if not requested_refs:
+            return [], None
+        allow_all = "*" in allowed_refs
+        allowed = {str(item) for item in allowed_refs if isinstance(item, str) and item}
+        resolved: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for requested_ref in requested_refs:
+            ref = str(requested_ref).strip()
+            if not ref:
+                continue
+            row = self.connection.execute(
+                "SELECT * FROM skills WHERE id = ? OR name = ?",
+                (ref, ref),
+            ).fetchone()
+            if not row:
+                return [], f"Skill is not cataloged: {ref}."
+            skill = row_to_skill(row)
+            if not allow_all and skill["id"] not in allowed and skill["name"] not in allowed:
+                return [], f"Skill '{skill['name']}' is not allowed by the agent profile."
+            if skill["id"] in seen:
+                continue
+            version = self.connection.execute(
+                """
+                SELECT * FROM skill_versions
+                WHERE skill_id = ?
+                ORDER BY created_at DESC, id DESC
+                LIMIT 1
+                """,
+                (skill["id"],),
+            ).fetchone()
+            if not version:
+                return [], f"Skill '{skill['name']}' has no immutable version record."
+            resolved.append(_skill_version_row_to_record(skill, version))
+            seen.add(skill["id"])
+        return resolved, None
+
+    def bind_skills_for_run(
+        self,
+        *,
+        skills: list[dict[str, Any]],
+        agent_profile_id: str,
+        workflow_id: str | None,
+        agent_run_id: str,
+        task_id: str,
+    ) -> None:
+        """Persist a per-run skill binding so skill use is queryable outside evidence packages."""
+        if not skills:
+            return
+        timestamp = utc_now()
+        for skill in skills:
+            self.connection.execute(
+                """
+                INSERT INTO skill_bindings
+                    (id, skill_id, agent_profile_id, workflow_id, status, metadata, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    f"skill-binding-{uuid.uuid4()}",
+                    skill["id"],
+                    agent_profile_id,
+                    workflow_id,
+                    "resolved",
+                    json_dumps(
+                        {
+                            "agentRunId": agent_run_id,
+                            "taskId": task_id,
+                            "instructionsHash": skill.get("instructionsHash"),
+                            "version": skill.get("version"),
+                        }
+                    ),
+                    timestamp,
+                ),
+            )

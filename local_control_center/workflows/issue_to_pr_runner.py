@@ -291,7 +291,14 @@ class IssueToPrRunner:
             gate["status"] == "passed" and gate.get("evidencePackageId") for gate in gate_results
         )
         blocked_gate = next((gate["name"] for gate in gate_results if gate["status"] != "passed"), None)
-        diff = capture_git_diff(Path(workspace["path"]))
+        diff = capture_git_diff(
+            Path(workspace["path"]),
+            connection=self.connection,
+            root=self.root,
+            project_id=workflow["projectId"],
+            workspace_id=workspace["id"],
+            task_id="issue_to_pr.evidence_aggregation",
+        )
         completion = {
             "allGatesPassed": all_gates_passed,
             "blockedGate": GATE_TO_STEP.get(blocked_gate or "", blocked_gate),

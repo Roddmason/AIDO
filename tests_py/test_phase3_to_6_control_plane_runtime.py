@@ -2258,6 +2258,246 @@ def test_skills_sync_reads_versionable_local_skills(tmp_path: Path, monkeypatch)
     assert listed.json()["skills"][0]["name"] == "backend-api-contract"
 
 
+def test_agent_run_blocks_unknown_requested_skill_before_tool_execution(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
+    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store.init()
+    project = store.create_project(name="Unknown Skill", path=tmp_path / "unknown-skill", template_id="other")
+    workspace = store.workspaces.allocate_workspace(
+        project_id=project["id"],
+        task_id="unknown-skill",
+        agent_id="skill_agent",
+    )
+    app = create_app(runtime=store, static_dir=None)
+    client = TestClient(app)
+    headers = auth_headers(client)
+    client.post(
+        "/api/v1/agent-profiles",
+        json={
+            "id": "skill_agent",
+            "name": "Skill Agent",
+            "role": "implementer",
+            "runtimeMode": "cli",
+            "permissionProfile": "dev_safe",
+            "allowedSkills": ["*"],
+            "allowedTools": ["shell"],
+        },
+        headers=headers,
+    )
+
+    response = client.post(
+        "/api/v1/agent-runs",
+        json={
+            "projectId": project["id"],
+            "agentProfileId": "skill_agent",
+            "taskId": "unknown-skill",
+            "input": {
+                "skillIds": ["skill-does-not-exist"],
+                "toolCalls": [
+                    {
+                        "tool": "shell",
+                        "command": "python --version",
+                        "argv": [sys.executable, "--version"],
+                        "workspaceId": workspace["id"],
+                        "workspacePath": str(workspace["path"]),
+                        "path": str(workspace["path"]),
+                        "execute": True,
+                    }
+                ],
+            },
+        },
+        headers=headers,
+    )
+
+    assert response.status_code == 202
+    agent_run = response.json()["agentRun"]
+    assert agent_run["status"] == "failed"
+    assert agent_run["output"]["verdict"] == "blocked"
+    assert "Skill is not cataloged" in agent_run["output"]["summary"]
+    overview = client.get("/api/v1/overview").json()
+    assert [call for call in overview["agentToolCalls"] if call["agentRunId"] == agent_run["id"]] == []
+
+
+def test_agent_run_blocks_skill_not_allowed_by_profile_before_tool_execution(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
+    skill_dir = tmp_path / "skills" / "backend-api-contract"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        "\n".join(
+            [
+                "name: backend-api-contract",
+                "description: Validate backend API contracts.",
+                "license: MIT",
+                "compatibility: AIDO",
+                "inputs: [openapi]",
+                "outputs: [contract-report]",
+                "tools: [pytest]",
+                "risk_level: low",
+                "instructions: Run API contract checks.",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store.init()
+    project = store.create_project(name="Denied Skill", path=tmp_path / "denied-skill", template_id="other")
+    workspace = store.workspaces.allocate_workspace(
+        project_id=project["id"],
+        task_id="denied-skill",
+        agent_id="skill_agent",
+    )
+    app = create_app(runtime=store, static_dir=None)
+    client = TestClient(app)
+    headers = auth_headers(client)
+    synced = client.post(
+        "/api/v1/skills/sync", json={"skillsPath": str(tmp_path / "skills")}, headers=headers
+    )
+    skill = synced.json()["skills"][0]
+    client.post(
+        "/api/v1/agent-profiles",
+        json={
+            "id": "skill_agent",
+            "name": "Skill Agent",
+            "role": "implementer",
+            "runtimeMode": "cli",
+            "permissionProfile": "dev_safe",
+            "allowedSkills": [],
+            "allowedTools": ["shell"],
+        },
+        headers=headers,
+    )
+
+    response = client.post(
+        "/api/v1/agent-runs",
+        json={
+            "projectId": project["id"],
+            "agentProfileId": "skill_agent",
+            "taskId": "denied-skill",
+            "input": {
+                "skillIds": [skill["id"]],
+                "toolCalls": [
+                    {
+                        "tool": "shell",
+                        "command": "python --version",
+                        "argv": [sys.executable, "--version"],
+                        "workspaceId": workspace["id"],
+                        "workspacePath": str(workspace["path"]),
+                        "path": str(workspace["path"]),
+                        "execute": True,
+                    }
+                ],
+            },
+        },
+        headers=headers,
+    )
+
+    assert response.status_code == 202
+    agent_run = response.json()["agentRun"]
+    assert agent_run["status"] == "failed"
+    assert agent_run["output"]["verdict"] == "blocked"
+    assert "not allowed by the agent profile" in agent_run["output"]["summary"]
+    overview = client.get("/api/v1/overview").json()
+    assert [call for call in overview["agentToolCalls"] if call["agentRunId"] == agent_run["id"]] == []
+
+
+def test_agent_run_records_allowed_skill_version_in_execution_evidence(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
+    skill_dir = tmp_path / "skills" / "backend-api-contract"
+    skill_dir.mkdir(parents=True)
+    skill_content = "\n".join(
+        [
+            "name: backend-api-contract",
+            "description: Validate backend API contracts.",
+            "license: MIT",
+            "compatibility: AIDO",
+            "inputs: [openapi]",
+            "outputs: [contract-report]",
+            "tools: [pytest]",
+            "risk_level: low",
+            "instructions: Run API contract checks.",
+        ]
+    )
+    (skill_dir / "SKILL.md").write_text(skill_content, encoding="utf-8")
+    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store.init()
+    project = store.create_project(name="Allowed Skill", path=tmp_path / "allowed-skill", template_id="other")
+    workspace = store.workspaces.allocate_workspace(
+        project_id=project["id"],
+        task_id="allowed-skill",
+        agent_id="skill_agent",
+    )
+    app = create_app(runtime=store, static_dir=None)
+    client = TestClient(app)
+    headers = auth_headers(client)
+    synced = client.post(
+        "/api/v1/skills/sync", json={"skillsPath": str(tmp_path / "skills")}, headers=headers
+    )
+    skill = synced.json()["skills"][0]
+    client.post(
+        "/api/v1/agent-profiles",
+        json={
+            "id": "skill_agent",
+            "name": "Skill Agent",
+            "role": "implementer",
+            "runtimeMode": "cli",
+            "permissionProfile": "dev_safe",
+            "allowedSkills": [skill["id"]],
+            "allowedTools": ["shell"],
+        },
+        headers=headers,
+    )
+
+    response = client.post(
+        "/api/v1/agent-runs",
+        json={
+            "projectId": project["id"],
+            "agentProfileId": "skill_agent",
+            "taskId": "allowed-skill",
+            "input": {
+                "skillIds": [skill["id"]],
+                "toolCalls": [
+                    {
+                        "tool": "shell",
+                        "command": "python --version",
+                        "argv": [sys.executable, "--version"],
+                        "workspaceId": workspace["id"],
+                        "workspacePath": str(workspace["path"]),
+                        "path": str(workspace["path"]),
+                        "execute": True,
+                    }
+                ],
+            },
+        },
+        headers=headers,
+    )
+
+    assert response.status_code == 202
+    agent_run = response.json()["agentRun"]
+    assert agent_run["status"] == "completed"
+    assert agent_run["output"]["skills"][0]["id"] == skill["id"]
+    assert agent_run["output"]["skills"][0]["instructionsHash"] == hashlib.sha256(
+        skill_content.encode("utf-8")
+    ).hexdigest()
+    evidence = client.get("/api/v1/evidence").json()["evidencePackages"]
+    package = next(item for item in evidence if item["id"] == agent_run["output"]["evidence_refs"][0])
+    assert package["hashes"][f"skill:{skill['id']}"] == agent_run["output"]["skills"][0][
+        "instructionsHash"
+    ]
+    assert package["artifacts"][0]["kind"] == "skill_instruction"
+    assert package["artifacts"][0]["skillId"] == skill["id"]
+    binding = store.connection.execute(
+        "SELECT * FROM skill_bindings WHERE skill_id = ? AND agent_profile_id = ?",
+        (skill["id"], "skill_agent"),
+    ).fetchone()
+    assert binding["status"] == "resolved"
+
+
 def test_qa_cannot_pass_without_real_command_evidence(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
     store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")

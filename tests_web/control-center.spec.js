@@ -969,6 +969,13 @@ test('Workbench chat creates a chat intake and linked pipeline', async ({ page }
 
 	await expect(page.locator('.workbench-layout')).toBeVisible();
 	await expect(page.getByRole('heading', { name: 'Work sessions' })).toBeVisible();
+	await expect(page.getByRole('radiogroup', { name: 'Task intake mode' })).toHaveCount(0);
+	for (const legacyMode of ['Fix bug', 'Add feature', 'Refactor', 'Write tests']) {
+		await expect(page.getByRole('radio', { name: legacyMode })).toHaveCount(0);
+	}
+	for (const legacyLoopAction of ['AIDO decides', 'Review brief', 'Approve backlog', 'Start iteration']) {
+		await expect(page.getByRole('button', { name: legacyLoopAction })).toHaveCount(0);
+	}
 
 	// The ten product-loop stages are exposed as accessible tabs.
 	for (const tabName of [
@@ -1017,6 +1024,19 @@ test('Workbench chat creates a chat intake and linked pipeline', async ({ page }
 			return Boolean(chat && session && pipeline && pipeline.projectId === project.id && pipeline.sessionId === session.id);
 		})
 		.toBe(true);
+});
+
+test('Workbench shows the Git branch detected by the policy-gated Git status endpoint', async ({ page }) => {
+	const project = await getActiveProject(page);
+	const gitResponse = await page.request.get(`/api/v1/projects/${project.id}/git/status`);
+	const gitStatus = await gitResponse.json();
+	test.skip(!gitStatus.currentBranch, 'Git status endpoint did not detect a branch for this workspace fixture.');
+
+	await page.goto('/#workbench');
+	const explorer = page.getByRole('complementary', { name: 'Workspace explorer' });
+	await expect(explorer).toBeVisible();
+	await expect(explorer.getByText(gitStatus.currentBranch, { exact: true })).toBeVisible();
+	await expect(explorer.getByText('not detected', { exact: true })).toHaveCount(0);
 });
 
 test('Go menu localizes primary destinations with the ES EN control', async ({ page }) => {
@@ -2292,81 +2312,73 @@ test('Runtime settings shows each provider card with the reason it cannot execut
 	await expect(card.getByText('Secret values are never shown — only whether they are set and a short fingerprint.')).toBeVisible();
 });
 
-test('Workbench governed patch blocks issue_to_patch when no executable runtime exists', async ({ page }) => {
-	const blockReason = 'No executable issue_to_patch/code_edit runtime is configured.';
+test('Runtime settings shows guided setup actions when no runtime is executable', async ({ page }) => {
+	const providers = [
+		['codex_cli', 'Codex CLI', 'cli', 'Codex CLI was not found on PATH.'],
+		['claude_code_cli', 'Claude Code', 'cli', 'Claude Code CLI was not found on PATH.'],
+		['ollama', 'Ollama', 'local', 'Ollama daemon is not reachable.'],
+		['openai_compatible', 'OpenAI-compatible API', 'api', 'API key is missing.'],
+		['openrouter', 'OpenRouter', 'gateway', 'OpenRouter API key is missing.'],
+		['nvidia_nim', 'NVIDIA NIM', 'api', 'NVIDIA NIM API key is missing.'],
+	].map(([id, displayName, kind, reason]) => ({
+		id,
+		displayName,
+		kind,
+		configured: false,
+		available: false,
+		executable: false,
+		detected: false,
+		reason,
+		healthStatus: 'unknown',
+		capabilities: [],
+		requiredConfiguration: ['configuration'],
+	}));
 	await page.route('/api/v1/runtime/providers', async (route) => {
+		await route.fulfill({ json: runtimeProvidersFixture(providers) });
+	});
+	await page.route('/api/v1/runtime/provider-configuration', async (route) => {
 		await route.fulfill({
-			json: runtimeProvidersFixture([
-				{
-					id: 'manual',
-					displayName: 'Manual operator',
-					kind: 'manual',
-					configured: true,
-					available: false,
-					executable: false,
-					detected: false,
-					reason: 'Manual operator path is configured but is not an automated available or executable runtime.',
-					capabilities: ['manual'],
-					requiredConfiguration: [],
-				},
-				{
-					id: 'codex_cli',
-					displayName: 'Codex CLI',
-					kind: 'cli',
+			json: runtimeProviderConfigurationFixture(
+				providers.map((provider) => ({
+					id: provider.id,
+					displayName: provider.displayName,
+					kind: provider.kind,
 					configured: false,
-					available: false,
-					executable: false,
-					detected: false,
-					reason: blockReason,
-					capabilities: ['issue_to_patch', 'code_edit'],
-					requiredConfiguration: ['AIDO_CODEX_COMMAND'],
-				},
-				{
-					id: 'internal_mock',
-					displayName: 'Internal mock',
-					kind: 'test',
-					configured: true,
-					available: true,
-					executable: true,
-					detected: true,
-					reason: 'Test runtime must not be product selectable.',
-					capabilities: ['issue_to_patch'],
-					requiredConfiguration: [],
-				},
-			]),
+					status: 'configuration_required',
+					missing: ['configuration'],
+					reason: provider.reason,
+					variables: [],
+				})),
+			),
 		});
 	});
-	await page.goto('/#command');
-	await expect(page.locator('.workbench-layout')).toBeVisible();
-	await page.getByRole('radio', { name: 'Fix bug' }).click();
 
-	await page.getByLabel('What should AIDO do?').fill('Change a small file through the real runtime slice.');
-	await expect(page.getByText('runtime_unavailable').first()).toBeVisible();
-	await expect(page.getByText(blockReason).first()).toBeVisible();
-	await expect(page.getByRole('button', { name: 'Configure runtime' })).toBeVisible();
-	await expect(page.getByRole('button', { name: 'Respond' })).toBeDisabled();
-	await page.getByRole('button', { name: 'Advanced' }).click();
-	await expect(page.getByLabel('Preferred runtime')).toBeDisabled();
-	await expect(page.getByLabel('Preferred runtime')).not.toContainText('manual');
-	await expect(page.getByLabel('Preferred runtime')).not.toContainText('internal_mock');
+	await page.goto('/#settings-runtime');
+	await expectControlPlaneLoaded(page);
+	const dialog = page.getByRole('dialog', { name: 'Settings' });
+	await expect(dialog).toBeVisible();
+
+	await expect(dialog.getByText('No executable runtimes')).toBeVisible();
+	for (const label of [
+		'Configurar Codex CLI',
+		'Configurar Claude Code',
+		'Configurar Ollama',
+		'Configurar API',
+		'Configurar NVIDIA NIM',
+	]) {
+		await expect(dialog.getByRole('button', { name: label })).toBeVisible();
+	}
+	for (const provider of providers) {
+		const card = dialog.locator('.card').filter({ hasText: provider.displayName });
+		await expect(card).toContainText(provider.reason);
+		await expect(card.getByRole('button', { name: /Configurar|Run health check/ })).toBeVisible();
+	}
 });
 
-test('Workbench governed patch enables issue_to_patch only with an executable runtime', async ({ page }) => {
+test('Workbench composer infers task type and hides direct issue_to_patch controls', async ({ page }) => {
 	await page.route('/api/v1/runtime/providers', async (route) => {
 		await route.fulfill({
 			json: runtimeProvidersFixture([
-				{
-					id: 'manual',
-					displayName: 'Manual operator',
-					kind: 'manual',
-					configured: true,
-					available: false,
-					executable: false,
-					detected: false,
-					reason: 'Manual operator path is configured but is not an automated available or executable runtime.',
-					capabilities: ['manual'],
-					requiredConfiguration: [],
-				},
 				{
 					id: 'codex_cli',
 					displayName: 'Codex CLI',
@@ -2379,122 +2391,31 @@ test('Workbench governed patch enables issue_to_patch only with an executable ru
 					capabilities: ['issue_to_patch', 'code_edit'],
 					requiredConfiguration: [],
 				},
-				{
-					id: 'internal_mock',
-					displayName: 'Internal mock',
-					kind: 'test',
-					configured: true,
-					available: true,
-					executable: true,
-					detected: true,
-					reason: 'Test runtime must not be product selectable.',
-					capabilities: ['issue_to_patch'],
-					requiredConfiguration: [],
-				},
 			]),
 		});
 	});
 	await page.goto('/#command');
 	await expect(page.locator('.workbench-layout')).toBeVisible();
-	await page.getByRole('radio', { name: 'Fix bug' }).click();
+	await expect(page.getByRole('radiogroup', { name: 'Task intake mode' })).toHaveCount(0);
+	for (const legacyMode of ['Fix bug', 'Add feature', 'Refactor', 'Write tests']) {
+		await expect(page.getByRole('radio', { name: legacyMode })).toHaveCount(0);
+	}
+	for (const legacyControl of [
+		'Advanced',
+		'AIDO decides',
+		'Review brief',
+		'Approve backlog',
+		'Start iteration',
+	]) {
+		await expect(page.getByRole('button', { name: legacyControl })).toHaveCount(0);
+	}
+	for (const hiddenKnob of ['Preferred runtime', 'QA preset', 'Maximum cost USD', 'Target path']) {
+		await expect(page.getByLabel(hiddenKnob, { exact: true })).toHaveCount(0);
+	}
 
 	await expect(page.getByRole('button', { name: 'Respond' })).toBeDisabled();
-	await page.getByRole('button', { name: 'Advanced' }).click();
-	await expect(page.getByLabel('Preferred runtime')).toBeEnabled();
-	await expect(page.getByLabel('Preferred runtime')).toContainText('codex_cli - executable');
-	await expect(page.getByLabel('Preferred runtime')).not.toContainText('manual');
-	await expect(page.getByLabel('Preferred runtime')).not.toContainText('internal_mock');
-	await page.getByLabel('What should AIDO do?').fill('Change a small file through the real runtime slice.');
+	await page.getByLabel('What should AIDO do?').fill('Change a small file through the autonomous Product Owner intake.');
 	await expect(page.getByRole('button', { name: 'Respond' })).toBeEnabled();
-});
-
-test('Workbench governed patch keeps runtime, QA preset and cost inside Advanced', async ({ page }) => {
-	await page.route('/api/v1/runtime/providers', async (route) => {
-		await route.fulfill({
-			json: runtimeProvidersFixture([
-				{
-					id: 'codex_cli',
-					displayName: 'Codex CLI',
-					kind: 'cli',
-					configured: true,
-					available: true,
-					executable: true,
-					detected: true,
-					reason: 'Codex CLI healthcheck passed.',
-					capabilities: ['issue_to_patch', 'code_edit'],
-					requiredConfiguration: [],
-				},
-			]),
-		});
-	});
-	await page.goto('/#command');
-	await expect(page.locator('.workbench-layout')).toBeVisible();
-	await page.getByRole('radio', { name: 'Fix bug' }).click();
-
-	// The technical knobs are tucked inside Advanced so the primary surface stays simple.
-	await page.getByRole('button', { name: 'Advanced' }).click();
-	await expect(page.getByLabel('Preferred runtime', { exact: true })).toBeVisible();
-	await expect(page.getByLabel('QA preset', { exact: true })).toBeVisible();
-	await expect(page.getByLabel('Maximum cost USD', { exact: true })).toBeVisible();
-	await expect(page.getByLabel('Target path', { exact: true })).toBeVisible();
-});
-
-test('Workbench governed patch surfaces runtime_unavailable status honestly', async ({ page }) => {
-	const runtimeUnavailableReason = 'Executable runtime failed its launch healthcheck.';
-	await page.route('/api/v1/runtime/providers', async (route) => {
-		await route.fulfill({
-			json: runtimeProvidersFixture([
-				{
-					id: 'codex_cli',
-					displayName: 'Codex CLI',
-					kind: 'cli',
-					configured: true,
-					available: true,
-					executable: true,
-					detected: true,
-					reason: 'Codex CLI healthcheck passed.',
-					capabilities: ['issue_to_patch', 'code_edit'],
-					requiredConfiguration: [],
-				},
-			]),
-		});
-	});
-	await page.route('/api/v1/workflows/issue-to-patch', async (route) => {
-		await route.fulfill({
-			json: {
-				status: 'runtime_unavailable',
-				reason: runtimeUnavailableReason,
-				workflow: { id: 'wf-web-runtime-unavailable', title: 'Runtime unavailable', kind: 'issue_to_patch', status: 'failed' },
-				workflowRun: { id: 'run-web-runtime-unavailable', status: 'failed' },
-				workflowSteps: [],
-				job: { id: 'job-web-runtime-unavailable', status: 'failed' },
-				workspace: { id: 'workspace-web-runtime-unavailable', status: 'allocated' },
-				runtime: { id: 'codex_cli', executable: false, reason: runtimeUnavailableReason },
-				runtimeResult: {},
-				agentRun: { id: 'agent-run-web-runtime-unavailable', status: 'failed' },
-				qaResults: [],
-				evidencePackage: { id: 'evidence-web-runtime-unavailable' },
-				diffSummary: { changedFiles: 0, artifacts: [] },
-			},
-		});
-	});
-	await page.goto('/#command');
-	await expect(page.locator('.workbench-layout')).toBeVisible();
-	await page.getByRole('radio', { name: 'Fix bug' }).click();
-
-	await page.getByLabel('What should AIDO do?').fill('Change a small file through the real runtime slice.');
-	await page.getByRole('button', { name: 'Respond' }).click();
-	await expect(page.getByRole('button', { name: 'Respond' })).toBeEnabled({ timeout: 60_000 });
-
-	const result = page.locator('div[aria-live="polite"]').filter({ hasText: runtimeUnavailableReason });
-	await expect(result).toBeVisible();
-	await expect(result).toContainText('runtime_unavailable');
-	await expect(result).toContainText(runtimeUnavailableReason);
-	await expect(result).toContainText(/Evidence .* changed files 0/);
-	// Assert the post-run failure state, not substrings that exist in the default timeline.
-	const timeline = page.getByLabel('Run timeline').first();
-	await expect(timeline.locator('.run-flow-step[data-phase="runtime"][data-status="failed"]')).toBeVisible();
-	await expect(timeline.locator('.run-flow-step[data-phase="terminal"][data-status="failed"]')).toBeVisible();
 });
 
 test('Model Gateway route preview submits request without exposing credentials', async ({ page }) => {
@@ -2587,19 +2508,18 @@ test('strict configuration forms prevent manual JSON edits', async ({ page }) =>
 test('strict operational forms cover workflows governance sandbox and MCP settings', async ({ page }) => {
 	await page.goto('/#command');
 	await expect(page.locator('.workbench-layout')).toBeVisible();
-	await page.getByRole('radio', { name: 'Fix bug' }).click();
 
 	await expect(page.getByLabel('Workspace folder', { exact: true })).toBeVisible();
 	await expect(page.getByLabel('What should AIDO do?')).toBeVisible();
-	// Runtime/QA/cost stay behind the Advanced disclosure by default.
-	await expect(page.getByLabel('Preferred runtime')).toBeHidden();
-	await expect(page.getByLabel('QA preset')).toBeHidden();
-	await expect(page.getByLabel('Maximum cost USD')).toBeHidden();
+	await expect(page.getByRole('radiogroup', { name: 'Task intake mode' })).toHaveCount(0);
+	await expect(page.getByRole('radio', { name: 'Fix bug' })).toHaveCount(0);
+	await expect(page.getByRole('button', { name: 'Advanced' })).toHaveCount(0);
+	// Runtime/QA/cost are not selected manually from Workbench; intake policy resolves them server-side.
+	await expect(page.getByLabel('Preferred runtime')).toHaveCount(0);
+	await expect(page.getByLabel('QA preset')).toHaveCount(0);
+	await expect(page.getByLabel('Maximum cost USD')).toHaveCount(0);
 	await expect(page.locator('textarea[data-json-editor="true"]')).toHaveCount(0);
 	await expect(page.getByRole('button', { name: 'Respond' })).toBeDisabled();
-	await page.getByRole('button', { name: 'Advanced' }).click();
-	await expect(page.getByLabel('Preferred runtime')).toBeVisible();
-	await expect(page.getByLabel('Preferred runtime')).not.toContainText('internal_mock');
 
 	const suffix = Date.now();
 

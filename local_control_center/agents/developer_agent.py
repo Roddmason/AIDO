@@ -38,6 +38,7 @@ from .developer_agent_contract import (
     DEVELOPER_AGENT_CLI_RUNTIMES,
     DEVELOPER_AGENT_ID,
     DEVELOPER_AGENT_MODEL_RUNTIMES,
+    DEVELOPER_AGENT_REMOTE_API_RUNTIMES,
     developer_agent_readiness,
 )
 from .qa_agent import QAAgentRunner, qa_verdict_allows_completion
@@ -312,7 +313,7 @@ class DeveloperAgentRunner:
                 "allowedTools": DEVELOPER_AGENT_ALLOWED_TOOLS,
                 "allowedProviders": [runtime_id] if runtime_id else [],
                 "allowedRuntimes": [runtime_id] if runtime_id else [],
-                "allowRemote": runtime_id == "openai_compatible",
+                "allowRemote": runtime_id in DEVELOPER_AGENT_REMOTE_API_RUNTIMES,
                 "allowCli": runtime_id in DEVELOPER_AGENT_CLI_RUNTIMES,
                 "allowApi": runtime_id in DEVELOPER_AGENT_MODEL_RUNTIMES,
                 "outputSchema": developer_agent_readiness([])["contract"]["outputSchema"],
@@ -402,7 +403,7 @@ class DeveloperAgentRunner:
                     ),
                     "temperature": 0.2,
                 },
-                "networkRequired": runtime_id == "openai_compatible",
+                "networkRequired": runtime_id in DEVELOPER_AGENT_REMOTE_API_RUNTIMES,
                 "secretsRequired": False,
                 "approvalGrantId": payload.get("approvalGrantId"),
                 "execute": True,
@@ -529,7 +530,14 @@ class DeveloperAgentRunner:
                 runtime_result = _runtime_unavailable_result(str(error))
                 runtime_status = RUNTIME_UNAVAILABLE_STATUS
 
-        diff = capture_git_diff(Path(workspace["path"]))
+        diff = capture_git_diff(
+            Path(workspace["path"]),
+            connection=self.connection,
+            root=self.root,
+            project_id=payload["projectId"],
+            workspace_id=workspace["id"],
+            task_id=payload["taskId"],
+        )
         if runtime_status == RUNTIME_UNAVAILABLE_STATUS:
             diff["blockerState"] = diff_blocker_state
 

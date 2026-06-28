@@ -66,7 +66,7 @@ def test_workflows_policy_evidence_agents_and_model_policy_routes_are_real(
         f"/api/v1/workflows/{workflow_id}/start", json={"reason": "phase2 test"}, headers=headers
     )
     assert started.status_code == 202
-    assert started.json()["workflowRun"]["status"] == "running"
+    assert started.json()["workflowRun"]["status"] == "runtime_unavailable"
     assert {step["name"] for step in started.json()["workflowSteps"]} >= {"idea_intake", "project_discovery"}
 
     paused = client.post(

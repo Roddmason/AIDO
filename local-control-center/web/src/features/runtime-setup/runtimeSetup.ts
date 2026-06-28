@@ -33,10 +33,13 @@ type IconComponent = ComponentType<LucideProps>;
 export const RUNTIME_SETUP_PROVIDER_IDS = [
 	'codex_cli',
 	'claude_code_cli',
+	'openhands',
+	'swe_agent',
 	'ollama',
 	'openai_compatible',
 	'openrouter',
 	'nvidia_nim',
+	'anthropic_api',
 ] as const;
 
 export type RuntimeSetupProviderId = (typeof RUNTIME_SETUP_PROVIDER_IDS)[number];
@@ -127,20 +130,26 @@ export const STATE_META: Record<
 export const PROVIDER_ICON: Record<RuntimeSetupProviderId, IconComponent> = {
 	codex_cli: SquareTerminal,
 	claude_code_cli: Bot,
+	openhands: SquareTerminal,
+	swe_agent: SquareTerminal,
 	ollama: Boxes,
 	openai_compatible: PlugZap,
 	openrouter: Network,
 	nvidia_nim: Cpu,
+	anthropic_api: Bot,
 };
 
 /** Catalog keys for the per-provider "how to configure" copy (resolved via t()). */
 export const INSTRUCTIONS_KEY: Record<RuntimeSetupProviderId, string> = {
 	codex_cli: 'app.runtime.instructions.codex_cli',
 	claude_code_cli: 'app.runtime.instructions.claude_code_cli',
+	openhands: 'app.runtime.instructions.openhands',
+	swe_agent: 'app.runtime.instructions.swe_agent',
 	ollama: 'app.runtime.instructions.ollama',
 	openai_compatible: 'app.runtime.instructions.openai_compatible',
 	openrouter: 'app.runtime.instructions.openrouter',
 	nvidia_nim: 'app.runtime.instructions.nvidia_nim',
+	anthropic_api: 'app.runtime.instructions.anthropic_api',
 };
 
 /** Ids of API/gateway providers whose health is stored (not live on GET) and so

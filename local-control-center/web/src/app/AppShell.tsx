@@ -252,6 +252,8 @@ export function AppShell({
 			runtimeProviders={runtimeProviders}
 			selectedProject={selectedProject}
 			connected={connected}
+			token={token}
+			onRefresh={onRefresh}
 			language={language}
 			languages={languages}
 			onChangeLanguage={onChangeLanguage}

@@ -11,6 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from local_control_center.app import create_app
+from local_control_center.agents.developer_agent_contract import developer_agent_readiness
 from local_control_center.security_policy.git_command_runner import git_available, run_git
 from tests_py.control_plane_fixture import ControlPlaneFixture
 
@@ -223,6 +224,20 @@ def test_developer_agent_status_reports_contract_and_no_executable_runtime(
     assert body["executable"] is False
     assert "runtime" in body["reason"].lower()
     assert "internal_mock" not in str(body)
+
+
+def test_developer_agent_readiness_accepts_configured_remote_model_runtimes() -> None:
+    statuses = [
+        {"id": "openrouter", "executable": True, "configured": True, "capabilities": ["chat"]},
+        {"id": "nvidia_nim", "executable": True, "configured": True, "capabilities": ["chat"]},
+        {"id": "anthropic_api", "executable": True, "configured": True, "capabilities": ["chat"]},
+    ]
+
+    readiness = developer_agent_readiness(statuses, preferred_runtime="nvidia_nim")
+
+    assert readiness["executable"] is True
+    assert readiness["selectedRuntimeId"] == "nvidia_nim"
+    assert readiness["candidateRuntimeIds"] == ["openrouter", "nvidia_nim", "anthropic_api"]
 
 
 def test_developer_agent_requires_workspace_before_execution(

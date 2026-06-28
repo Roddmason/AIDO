@@ -183,7 +183,7 @@ export function WorkbenchExplorer({
 							title={t('app.workbench.recentRuns.emptyTitle', 'No runs yet')}
 							body={t(
 								'app.workbench.recentRuns.emptyBody',
-								'Governed tasks create workflow runs you can inspect here.',
+								'Autonomous intake creates workflow runs you can inspect here.',
 							)}
 						/>
 					)}

@@ -506,6 +506,102 @@ export interface ProjectFilesResponse {
 	nodes: ProjectFileNode[];
 }
 
+export type GitWorkspaceStatus = 'completed' | 'blocked' | 'configuration_required' | 'failed';
+
+export interface ProjectGitRemote {
+	name: string;
+	url: string;
+	direction: 'fetch' | 'push';
+}
+
+export interface ProjectGitStatusResponse {
+	status: GitWorkspaceStatus;
+	reason: string;
+	projectId: string;
+	workspaceId: string;
+	root: string;
+	currentBranch: string;
+	dirty: boolean;
+	porcelain: string[];
+	changedFiles: string[];
+	untrackedFiles: string[];
+	stagedFiles: string[];
+	remotes: ProjectGitRemote[];
+	lastCommit: {
+		hash: string;
+		shortHash: string;
+		author: string;
+		authoredAt: string;
+		subject: string;
+	} | null;
+	worktrees: Array<{
+		path: string;
+		head: string;
+		branch: string;
+		detached: boolean;
+		bare: boolean;
+	}>;
+}
+
+export interface ProjectGitBranchesResponse {
+	status: GitWorkspaceStatus;
+	reason: string;
+	projectId: string;
+	workspaceId: string;
+	currentBranch: string;
+	dirty: boolean;
+	localBranches: string[];
+	remoteBranches: string[];
+	remotes: ProjectGitRemote[];
+}
+
+export interface ProjectGitBranchCreateRequest {
+	name: string;
+	base?: string | null;
+}
+
+export interface ProjectGitBranchMutationResponse {
+	status: GitWorkspaceStatus;
+	reason: string;
+	projectId: string;
+	workspaceId: string;
+	branch: string;
+	base?: string | null;
+	currentBranch: string;
+}
+
+export interface ProjectGitCheckoutRequest {
+	branch: string;
+	allowDirty?: boolean;
+}
+
+export interface ProjectGitCheckoutResponse {
+	status: GitWorkspaceStatus;
+	reason: string;
+	projectId: string;
+	workspaceId: string;
+	requestedBranch: string;
+	currentBranch: string;
+	dirty: boolean;
+}
+
+export interface ProjectGitGitleaksScanResponse {
+	status: GitWorkspaceStatus;
+	reason: string;
+	projectId: string;
+	workspaceId: string;
+	deliveryBlocked: boolean;
+	gitleaks: {
+		status: GitWorkspaceStatus;
+		reason: string;
+		executable: boolean;
+		configured: boolean;
+		exitCode: number | null;
+		findingCount: number;
+		reportPath: string | null;
+	};
+}
+
 export function getProjectFiles(
 	projectId: string,
 	signal?: AbortSignal,
@@ -513,6 +609,49 @@ export function getProjectFiles(
 	return apiRequest<ProjectFilesResponse>(
 		`/api/v1/projects/${encodeURIComponent(projectId)}/files`,
 		{ signal },
+	);
+}
+
+export function getProjectGitStatus(projectId: string, signal?: AbortSignal) {
+	return apiRequest<ProjectGitStatusResponse>(
+		`/api/v1/projects/${encodeURIComponent(projectId)}/git/status`,
+		{ signal },
+	);
+}
+
+export function getProjectGitBranches(projectId: string, signal?: AbortSignal) {
+	return apiRequest<ProjectGitBranchesResponse>(
+		`/api/v1/projects/${encodeURIComponent(projectId)}/git/branches`,
+		{ signal },
+	);
+}
+
+export function createProjectGitBranch(
+	token: string,
+	projectId: string,
+	body: ProjectGitBranchCreateRequest,
+) {
+	return apiRequest<ProjectGitBranchMutationResponse>(
+		`/api/v1/projects/${encodeURIComponent(projectId)}/git/branches`,
+		{ method: 'POST', token, body },
+	);
+}
+
+export function checkoutProjectGitBranch(
+	token: string,
+	projectId: string,
+	body: ProjectGitCheckoutRequest,
+) {
+	return apiRequest<ProjectGitCheckoutResponse>(
+		`/api/v1/projects/${encodeURIComponent(projectId)}/git/checkout`,
+		{ method: 'POST', token, body },
+	);
+}
+
+export function scanProjectGitleaks(token: string, projectId: string) {
+	return apiRequest<ProjectGitGitleaksScanResponse>(
+		`/api/v1/projects/${encodeURIComponent(projectId)}/git/gitleaks/scan`,
+		{ method: 'POST', token },
 	);
 }
 

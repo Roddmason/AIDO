@@ -182,7 +182,13 @@ export function ModelGatewayPage({
 	);
 
 	useEffect(() => {
-		setRuntimeProviderState(runtimeProviders);
+		if (!runtimeProviders) return;
+		setRuntimeProviderState((current) => {
+			const incomingCount = runtimeProviders.providers?.length ?? 0;
+			const currentCount = current?.providers?.length ?? 0;
+			if (incomingCount === 0 && currentCount > 0) return current;
+			return runtimeProviders;
+		});
 	}, [runtimeProviders]);
 
 	const [activeTab, setActiveTab] = useState<ModelGatewayTab>(initialModelGatewayTab);

@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from local_control_center.agents.runtime_provider_config import runtime_provider_configuration
+from local_control_center.agents.runtime_provider_config import (
+    list_runtime_provider_configurations,
+    runtime_provider_configuration,
+)
 from local_control_center.agents.runtime_registry import RuntimeRegistry
 from local_control_center.agents.runtime_status import RuntimeStatusService
 from local_control_center.runtime_integrations.config import (
@@ -14,8 +17,25 @@ from local_control_center.runtime_integrations.repository import RuntimeConfigRe
 from local_control_center.shared.db import open_sqlite_connection
 from local_control_center.shared.migrations import initialize_platform_schema
 
-CONFIG_TABLES = {"runtime_installations", "runtime_accounts", "runtime_preferences"}
+CONFIG_TABLES = {
+    "runtime_installations",
+    "runtime_accounts",
+    "runtime_health_checks",
+    "runtime_capabilities",
+    "runtime_preferences",
+}
 SECRET_TOKENS = ("token", "secret", "password", "api_key", "apikey")
+REQUESTED_RUNTIME_IDS = {
+    "codex_cli",
+    "claude_code_cli",
+    "openhands",
+    "swe_agent",
+    "ollama",
+    "openai_compatible",
+    "openrouter",
+    "nvidia_nim",
+    "anthropic_api",
+}
 
 
 def test_runtime_config_schema_adds_tables_without_secret_columns_and_is_idempotent(tmp_path: Path) -> None:
@@ -34,6 +54,9 @@ def test_runtime_config_schema_adds_tables_without_secret_columns_and_is_idempot
         }
         account_columns = {
             row["name"] for row in connection.execute("PRAGMA table_info(runtime_accounts)").fetchall()
+        }
+        health_columns = {
+            row["name"] for row in connection.execute("PRAGMA table_info(runtime_health_checks)").fetchall()
         }
 
     assert tables >= CONFIG_TABLES
@@ -54,8 +77,55 @@ def test_runtime_config_schema_adds_tables_without_secret_columns_and_is_idempot
         "last_validation_at",
         "configuration_source",
     } <= account_columns
+    assert {
+        "runtime_id",
+        "check_type",
+        "status",
+        "payload",
+        "created_at",
+    } <= health_columns
     # No tokens: runtime_accounts stores auth metadata and non-secret pointers, never secret values.
     assert not any(token in column.lower() for column in account_columns for token in SECRET_TOKENS)
+
+
+def test_requested_runtimes_are_seeded_with_capabilities(tmp_path: Path) -> None:
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        repo = RuntimeConfigRepository(connection)
+        installations = {item["runtimeId"]: item for item in repo.list_installations()}
+        capabilities = {
+            (row["runtime"], row["capability"])
+            for row in connection.execute(
+                "SELECT runtime, capability FROM runtime_capabilities WHERE enabled = 1"
+            ).fetchall()
+        }
+
+    assert set(installations) >= REQUESTED_RUNTIME_IDS
+    assert installations["openhands"]["kind"] == "cli"
+    assert installations["swe_agent"]["kind"] == "cli"
+    assert installations["ollama"]["kind"] == "local"
+    assert installations["nvidia_nim"]["kind"] == "api"
+    assert "product_owner" in installations["nvidia_nim"]["preferredRoles"]
+    assert ("openhands", "issue_to_patch") in capabilities
+    assert ("swe_agent", "issue_to_patch") in capabilities
+    assert ("ollama", "chat") in capabilities
+    assert ("openai_compatible", "chat") in capabilities
+    assert ("openrouter", "chat") in capabilities
+    assert ("nvidia_nim", "chat") in capabilities
+    assert ("anthropic_api", "chat") in capabilities
+
+
+def test_ollama_configuration_represents_local_or_remote_base_url() -> None:
+    providers = {
+        provider["id"]: provider
+        for provider in list_runtime_provider_configurations(
+            environ={"AIDO_OLLAMA_BASE_URL": "http://192.0.2.10:11434"}
+        )
+    }
+
+    assert providers["ollama"]["displayName"] == "Ollama Local/Remote"
+    assert providers["ollama"]["configured"] is True
+    assert providers["ollama"]["variables"][0]["name"] == "AIDO_OLLAMA_BASE_URL"
 
 
 def test_cli_is_the_seeded_default_runtime(tmp_path: Path) -> None:
@@ -264,6 +334,157 @@ def test_runtime_status_uses_persisted_cli_installation_without_env_command(
     assert codex["version"] == "1.2.3"
     assert codex["executable"] is False
     assert "AIDO_CODEX_COMMAND" not in codex["reason"]
+
+
+def test_cli_installed_version_ok_is_not_executable_until_native_auth_is_validated(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.delenv("AIDO_CODEX_COMMAND", raising=False)
+    monkeypatch.setenv("AIDO_ENABLE_CLI_RUNTIMES", "true")
+
+    def detect(self: RuntimeRegistry, runtime_id: str, *, executable: str | None = None):
+        return {
+            "runtime": runtime_id,
+            "status": "installed" if runtime_id == "codex_cli" else "not_installed",
+            "executable": executable if runtime_id == "codex_cli" else None,
+            "version": "codex-cli 1.2.3" if runtime_id == "codex_cli" else None,
+            "message": "" if runtime_id == "codex_cli" else "not installed in test",
+        }
+
+    monkeypatch.setattr(RuntimeRegistry, "detect", detect)
+
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        RuntimeConfigRepository(connection).upsert_installation(
+            {
+                "runtimeId": "codex_cli",
+                "kind": "cli",
+                "executablePath": "C:/tools/codex.exe",
+                "enabled": True,
+                "configurationSource": "manual",
+            }
+        )
+
+        codex = next(
+            item
+            for item in RuntimeStatusService(connection).list_provider_statuses()
+            if item["id"] == "codex_cli"
+        )
+
+    assert codex["detected"] is True
+    assert codex["version"] == "codex-cli 1.2.3"
+    assert codex["authenticated"] is False
+    assert codex["canRunVersionCheck"] is True
+    assert codex["canRunPrompt"] is False
+    assert codex["canEditWorkspace"] is False
+    assert codex["executable"] is False
+    assert "authentication" in codex["reason"].lower()
+
+
+def test_cli_version_ok_with_validated_native_account_can_run_prompt_and_edit_workspace(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.delenv("AIDO_CODEX_COMMAND", raising=False)
+    monkeypatch.setenv("AIDO_ENABLE_CLI_RUNTIMES", "true")
+
+    def detect(self: RuntimeRegistry, runtime_id: str, *, executable: str | None = None):
+        return {
+            "runtime": runtime_id,
+            "status": "installed" if runtime_id == "codex_cli" else "not_installed",
+            "executable": executable if runtime_id == "codex_cli" else None,
+            "version": "codex-cli 1.2.3" if runtime_id == "codex_cli" else None,
+            "message": "" if runtime_id == "codex_cli" else "not installed in test",
+        }
+
+    monkeypatch.setattr(RuntimeRegistry, "detect", detect)
+
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        repo = RuntimeConfigRepository(connection)
+        repo.upsert_installation(
+            {
+                "runtimeId": "codex_cli",
+                "kind": "cli",
+                "executablePath": "C:/tools/codex.exe",
+                "enabled": True,
+                "configurationSource": "manual",
+            }
+        )
+        account = next(item for item in repo.list_runtime_accounts("codex_cli") if item["isDefault"])
+        repo.update_runtime_account(
+            account["id"],
+            {"healthStatus": "healthy", "lastValidationAt": "2026-06-27T12:00:00Z"},
+        )
+
+        codex = next(
+            item
+            for item in RuntimeStatusService(connection).list_provider_statuses()
+            if item["id"] == "codex_cli"
+        )
+
+    assert codex["authenticated"] is True
+    assert codex["canRunVersionCheck"] is True
+    assert codex["canRunPrompt"] is True
+    assert codex["canEditWorkspace"] is True
+    assert codex["executable"] is True
+
+
+def test_ollama_ok_with_mocked_server_reports_prompt_capability(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "local_control_center.agents.runtime_status.ollama_status",
+        lambda **_kwargs: {
+            "provider": "ollama",
+            "available": True,
+            "models": ["llama3.1:8b"],
+            "reason": "Ollama test daemon is reachable.",
+        },
+    )
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        ollama = next(
+            item
+            for item in RuntimeStatusService(connection).list_provider_statuses()
+            if item["id"] == "ollama"
+        )
+
+    assert ollama["detected"] is True
+    assert ollama["available"] is True
+    assert ollama["executable"] is True
+    assert ollama["canRunPrompt"] is True
+    assert ollama["canEditWorkspace"] is False
+    assert ollama["models"] == ["llama3.1:8b"]
+
+
+def test_invalid_api_credential_ref_blocks_runtime_with_configuration_reason(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("AIDO_ENABLE_REAL_PROVIDER_CALLS", "true")
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        connection.execute(
+            """
+            UPDATE provider_accounts
+            SET enabled = 1,
+                base_url = ?,
+                credential_ref = ?,
+                health_status = 'healthy',
+                last_health_check_at = ?
+            WHERE provider_id = 'openai_compatible'
+            """,
+            ("https://example.invalid/v1", "env:missing-lowercase", "2026-06-27T12:00:00Z"),
+        )
+        provider = next(
+            item
+            for item in RuntimeStatusService(connection).list_provider_statuses()
+            if item["id"] == "openai_compatible"
+        )
+
+    assert provider["configured"] is False
+    assert provider["authenticated"] is False
+    assert provider["available"] is False
+    assert provider["executable"] is False
+    assert "credential" in provider["reason"].lower()
+    assert "invalid" in provider["reason"].lower()
 
 
 def test_cli_command_env_is_deprecated_optional_override() -> None:

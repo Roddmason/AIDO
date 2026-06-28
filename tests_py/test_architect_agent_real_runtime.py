@@ -11,6 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from local_control_center.app import create_app
+from local_control_center.agents.architect_agent_contract import architect_agent_readiness
 from local_control_center.evidence.artifacts import write_text_artifact
 from tests_py.control_plane_fixture import ControlPlaneFixture
 
@@ -181,6 +182,20 @@ def architect_request(
         "evidenceRefs": ["test-evidence-1"],
         "preferredRuntime": "openai_compatible",
     }
+
+
+def test_architect_agent_readiness_accepts_configured_remote_model_runtimes() -> None:
+    statuses = [
+        {"id": "openrouter", "executable": True, "configured": True, "capabilities": ["chat"]},
+        {"id": "nvidia_nim", "executable": True, "configured": True, "capabilities": ["chat"]},
+        {"id": "anthropic_api", "executable": True, "configured": True, "capabilities": ["chat"]},
+    ]
+
+    readiness = architect_agent_readiness(statuses, preferred_runtime="openrouter")
+
+    assert readiness["executable"] is True
+    assert readiness["selectedRuntimeId"] == "openrouter"
+    assert readiness["candidateRuntimeIds"] == ["openrouter", "nvidia_nim", "anthropic_api"]
 
 
 def test_architect_agent_without_real_runtime_returns_unavailable(

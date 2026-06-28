@@ -21,7 +21,7 @@ from local_control_center.shared.serialization import json_dumps, json_loads
 from local_control_center.shared.time import utc_now
 
 from .cleanup import capture_workspace_snapshot
-from .git_worktrees import create_git_worktree, is_git_repository, remove_git_worktree
+from .git_worktrees import create_git_worktree, git_available, remove_git_worktree
 
 ACTIVE_WORKSPACE_STATUSES = {"allocated", "preparing", "ready", "locked", "running", "dirty"}
 COPY_IGNORED_PARTS = {
@@ -158,7 +158,7 @@ class WorkspacesRepository:
         if devcontainer:
             metadata["devcontainer"] = {**devcontainer, "status": "metadata_only"}
         timestamp = utc_now()
-        if is_git_repository(project_path):
+        if git_available() and (project_path / ".git").exists():
             result = create_git_worktree(
                 repo_path=project_path,
                 worktree_path=workspace_path,
@@ -166,11 +166,19 @@ class WorkspacesRepository:
                 workspace_id=workspace_id,
                 base_branch=base_branch,
                 branch_name=branch_name,
+                connection=self.connection,
+                root=self.root,
+                project_id=project_id,
             )
-            metadata["gitWorktree"] = result
-            if result["status"] != "created":
+            if result["status"] == "created":
+                metadata["gitWorktree"] = result
+                resolved_isolation = "git_worktree"
+            elif isolation_type == "git_worktree":
+                metadata["gitWorktree"] = result
                 raise WorkspaceIsolationError(f"Git worktree creation failed: {result['status']}")
-            resolved_isolation = "git_worktree"
+            else:
+                metadata["gitWorktree"] = result
+                metadata["sourceCopy"] = _copy_project_source(project_path, workspace_path)
         else:
             if isolation_type == "git_worktree":
                 metadata["gitWorktree"] = {"status": "degraded_not_git_repo"}
@@ -348,6 +356,10 @@ class WorkspacesRepository:
             cleanup = remove_git_worktree(
                 repo_path=self._project_path(workspace["projectId"]),
                 worktree_path=Path(workspace["path"]),
+                connection=self.connection,
+                root=self.root,
+                project_id=workspace["projectId"],
+                workspace_id=workspace_id,
             )
             metadata["gitWorktreeCleanup"] = cleanup
             if cleanup["status"] == "removed":

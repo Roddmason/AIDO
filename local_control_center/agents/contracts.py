@@ -24,6 +24,7 @@ AgentRole = Literal[
     "frontend_engineer",
     "implementer",
     "devops",
+    "devops_engineer",
     "qa",
     "qa_reviewer",
     "security_reviewer",
@@ -338,10 +339,15 @@ class RuntimeProviderStatus(BaseModel):
     id: str
     kind: RuntimeProviderKind
     display_name: str = Field(alias="displayName")
+    installed: bool = False
     detected: bool = False
     configured: bool
+    authenticated: bool = False
     available: bool
     executable: bool
+    can_run_version_check: bool = Field(default=False, alias="canRunVersionCheck")
+    can_run_prompt: bool = Field(default=False, alias="canRunPrompt")
+    can_edit_workspace: bool = Field(default=False, alias="canEditWorkspace")
     requires_approval: bool = Field(default=True, alias="requiresApproval")
     reason: str
     version: str | None = None
@@ -351,6 +357,7 @@ class RuntimeProviderStatus(BaseModel):
     last_error: str = Field(default="", alias="lastError")
     capabilities: list[str] = Field(default_factory=list)
     required_configuration: list[str] = Field(default_factory=list, alias="requiredConfiguration")
+    configuration_warnings: list[str] = Field(default_factory=list, alias="configurationWarnings")
     safety: RuntimeProviderSafety = Field(default_factory=RuntimeProviderSafety)
 
 

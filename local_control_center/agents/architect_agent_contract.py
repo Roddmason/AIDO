@@ -12,9 +12,27 @@ from __future__ import annotations
 from typing import Any
 
 ARCHITECT_AGENT_ID = "architect_agent"
-ARCHITECT_AGENT_ALLOWED_TOOLS = ["openai_compatible", "ollama"]
-ARCHITECT_AGENT_MODEL_RUNTIMES = {"openai_compatible", "ollama"}
-ARCHITECT_AGENT_RUNTIME_ORDER = ["openai_compatible", "ollama"]
+ARCHITECT_AGENT_ALLOWED_TOOLS = [
+    "ollama",
+    "openai_compatible",
+    "openrouter",
+    "nvidia_nim",
+    "anthropic_api",
+]
+ARCHITECT_AGENT_REMOTE_API_RUNTIMES = {
+    "openai_compatible",
+    "openrouter",
+    "nvidia_nim",
+    "anthropic_api",
+}
+ARCHITECT_AGENT_MODEL_RUNTIMES = ARCHITECT_AGENT_REMOTE_API_RUNTIMES | {"ollama"}
+ARCHITECT_AGENT_RUNTIME_ORDER = [
+    "ollama",
+    "openai_compatible",
+    "openrouter",
+    "nvidia_nim",
+    "anthropic_api",
+]
 ARCHITECT_AGENT_VERDICTS = {"approved", "approved_with_risks", "changes_required", "rejected", "blocked"}
 
 
@@ -81,7 +99,7 @@ def is_architect_runtime(runtime: dict[str, Any]) -> bool:
     if runtime_id not in ARCHITECT_AGENT_MODEL_RUNTIMES or not runtime.get("executable"):
         return False
     capabilities = set(runtime.get("capabilities") or [])
-    if runtime_id == "openai_compatible":
+    if runtime_id in ARCHITECT_AGENT_REMOTE_API_RUNTIMES:
         return "chat" in capabilities or not capabilities
     if runtime_id == "ollama":
         return "chat" in capabilities and bool(runtime.get("models"))

@@ -17,6 +17,8 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 
 from ..agents.model_router import ModelRouter, RoutingRequest
+from ..agents.product_owner_agent import ProductOwnerAgentRunner
+from ..agents.product_owner_agent_contract import PRODUCT_OWNER_AGENT_ID
 from ..agents.repository import AgentsRepository
 from ..agents.routing_profiles import RoutingProfileStore
 from ..evidence.quality import qa_passed_without_failed_results
@@ -24,10 +26,20 @@ from ..evidence.repository import EvidenceRepository
 from ..governance.repository import GovernanceRepository
 from ..governance.signals import record_governance_risk
 from ..jobs_approvals.repository import JobsRepository
+from ..product_loop.coordinator import (
+    ProductLoopCoordinator,
+    ProductLoopStopConditionError,
+    ProductLoopTransitionError,
+)
 from ..security_policy.repository import SecurityPolicyRepository
 from ..shared.event_bus import EventBus
+from ..shared.redaction import redact_secrets
 from ..shared.time import utc_now
-from ..workspaces_projects.repository import WorkspacesRepository
+from ..workspaces_projects.repository import (
+    WorkspaceConflictError,
+    WorkspaceIsolationError,
+    WorkspacesRepository,
+)
 from .issue_to_patch_runner import IssueToPatchRunner
 from .issue_to_pr_runner import IssueToPrRunner
 from .models import (
@@ -79,6 +91,32 @@ REASONING_STEPS = {
     "release_gate",
     "retro",
 }
+
+
+def _product_owner_intake_step_status(status: str) -> str:
+    if status in {"completed", "blocked"}:
+        return "completed"
+    if status == "runtime_unavailable":
+        return "blocked"
+    return "failed"
+
+
+def _product_owner_backlog_step_status(status: str) -> str:
+    if status == "completed":
+        return "completed"
+    if status in {"blocked", "runtime_unavailable"}:
+        return "blocked"
+    return "failed"
+
+
+def _workflow_status_from_product_owner(status: str) -> str:
+    if status == "completed":
+        return "running"
+    if status == "runtime_unavailable":
+        return "runtime_unavailable"
+    if status == "blocked":
+        return "blocked"
+    return "failed"
 
 
 def _manual_override(step: dict[str, Any]) -> dict[str, str]:
@@ -187,6 +225,267 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
 
     def event_bus() -> EventBus:
         return EventBus(platform.connection)
+
+    def product_loop() -> ProductLoopCoordinator:
+        return ProductLoopCoordinator(platform.connection)
+
+    def product_owner_runner() -> ProductOwnerAgentRunner:
+        return ProductOwnerAgentRunner(platform.connection, root=platform.cwd)
+
+    def transition_product_loop(
+        *, loop_id: str, to_state: str, reason: str, context_patch: dict[str, Any]
+    ) -> None:
+        try:
+            product_loop().transition(
+                loop_id,
+                to_state=to_state,
+                reason=reason,
+                trigger="workflow_product_owner_intake",
+                context_patch=context_patch,
+            )
+        except (ProductLoopTransitionError, ProductLoopStopConditionError, KeyError):
+            return
+
+    def apply_product_owner_loop_result(
+        *, loop_id: str, result_status: str, reason: str, metadata: dict[str, Any]
+    ) -> None:
+        if result_status == "completed":
+            transition_product_loop(
+                loop_id=loop_id,
+                to_state="brief_ready",
+                reason=reason,
+                context_patch={"productOwner": metadata},
+            )
+            transition_product_loop(
+                loop_id=loop_id,
+                to_state="backlog_ready",
+                reason=reason,
+                context_patch={"productOwner": metadata},
+            )
+            return
+        if result_status == "blocked":
+            transition_product_loop(
+                loop_id=loop_id,
+                to_state="awaiting_user",
+                reason=reason,
+                context_patch={"productOwner": metadata},
+            )
+            return
+        transition_product_loop(
+            loop_id=loop_id,
+            to_state="blocked",
+            reason=reason,
+            context_patch={"productOwner": metadata},
+        )
+
+    def workflow_product_owner_metadata(
+        *, result: dict[str, Any], loop_id: str, workspace_id: str | None
+    ) -> dict[str, Any]:
+        return redact_secrets(
+            {
+                "status": result["status"],
+                "reason": result["reason"],
+                "loopId": loop_id,
+                "workspaceId": workspace_id,
+                "jobId": (result.get("job") or {}).get("id"),
+                "agentRunId": (result.get("agentRun") or {}).get("id"),
+                "evidencePackageId": (result.get("evidencePackage") or {}).get("id"),
+                "runtimeId": (result.get("runtime") or {}).get("id"),
+            }
+        )
+
+    def block_workflow_product_owner_intake(
+        result: dict[str, Any],
+        *,
+        idea_step: dict[str, Any],
+        loop_id: str | None,
+        reason: str,
+        status: str = "configuration_required",
+    ) -> dict[str, Any]:
+        repo = repository()
+        metadata = redact_secrets(
+            {
+                "status": status,
+                "reason": reason,
+                "loopId": loop_id,
+                "execution": "not_executed",
+            }
+        )
+        if loop_id:
+            transition_product_loop(
+                loop_id=loop_id,
+                to_state="blocked",
+                reason=reason,
+                context_patch={"productOwner": metadata},
+            )
+        repo.update_workflow_step(
+            idea_step["id"],
+            status="blocked",
+            metadata={**idea_step["metadata"], "productOwnerIntake": metadata},
+            output={**idea_step["output"], "productOwnerIntake": metadata},
+        )
+        run_metadata = {
+            **result["workflowRun"]["metadata"],
+            "productOwnerIntake": metadata,
+        }
+        workflow_status = "runtime_unavailable" if status == "runtime_unavailable" else "blocked"
+        run = repo.update_workflow_run_status(
+            result["workflowRun"]["id"],
+            status=workflow_status,
+            metadata=run_metadata,
+            completed=True,
+        )
+        workflow = repo.update_workflow_status(
+            result["workflow"]["id"], status=workflow_status, reason=reason
+        )
+        repo.record_workflow_event(
+            workflow_id=result["workflow"]["id"],
+            workflow_run_id=run["id"],
+            step_id=idea_step["id"],
+            project_id=result["workflow"]["projectId"],
+            event_type=f"workflow.idea_intake.{workflow_status}",
+            payload=metadata,
+            severity="warning",
+        )
+        return {
+            **result,
+            "workflow": workflow,
+            "workflowRun": run,
+            "workflowSteps": repo.list_workflow_steps(workflow_run_id=run["id"]),
+        }
+
+    def execute_product_owner_intake_for_workflow(result: dict[str, Any]) -> dict[str, Any]:
+        workflow = result["workflow"]
+        if workflow["kind"] != "idea_to_pr":
+            return result
+        steps = result["workflowSteps"]
+        idea_step = next((step for step in steps if step["name"] == "idea_intake"), None)
+        if not idea_step:
+            return result
+        run = result["workflowRun"]
+        loop = product_loop().start(
+            project_id=workflow["projectId"],
+            title=workflow["title"],
+            context={
+                "intake": {
+                    "source": "workflow_start",
+                    "workflowId": workflow["id"],
+                    "workflowRunId": run["id"],
+                    "workflowStepId": idea_step["id"],
+                }
+            },
+            correlation_id=run["id"],
+            actor="workflow",
+            reason="Product loop started from idea_to_pr workflow intake.",
+        )
+        transition_product_loop(
+            loop_id=loop["id"],
+            to_state="discovering",
+            reason="ProductOwnerAgent workflow intake started.",
+            context_patch={"productOwner": {"status": "running", "workflowRunId": run["id"]}},
+        )
+        task_id = f"workflow-product-owner-{run['id']}"
+        try:
+            workspace = workspaces().allocate_workspace(
+                project_id=workflow["projectId"],
+                task_id=task_id,
+                agent_id=PRODUCT_OWNER_AGENT_ID,
+                reason="idea_to_pr workflow ProductOwnerAgent workspace",
+                workflow_run_id=run["id"],
+                workflow_step_id=idea_step["id"],
+            )
+        except (WorkspaceConflictError, WorkspaceIsolationError, ValueError) as error:
+            return block_workflow_product_owner_intake(
+                result,
+                idea_step=idea_step,
+                loop_id=loop["id"],
+                reason=str(error),
+            )
+
+        owner_result = product_owner_runner().run(
+            {
+                "projectId": workflow["projectId"],
+                "workspaceId": workspace["id"],
+                "taskId": task_id,
+                "idea": str((workflow.get("metadata") or {}).get("idea") or workflow["title"]),
+                "workflowContext": {
+                    "workflowRunId": run["id"],
+                    "workflowStepId": idea_step["id"],
+                    "title": workflow["title"],
+                },
+                "metadata": {
+                    "source": "workflow_start",
+                    "workflowId": workflow["id"],
+                    "workflowRunId": run["id"],
+                    "workflowStepId": idea_step["id"],
+                    "loopId": loop["id"],
+                },
+            }
+        )
+        metadata = workflow_product_owner_metadata(
+            result=owner_result, loop_id=loop["id"], workspace_id=workspace["id"]
+        )
+        owner_status = str(owner_result["status"])
+        apply_product_owner_loop_result(
+            loop_id=loop["id"],
+            result_status=owner_status,
+            reason=owner_result["reason"],
+            metadata=metadata,
+        )
+
+        repo = repository()
+        repo.update_workflow_step(
+            idea_step["id"],
+            status=_product_owner_intake_step_status(owner_status),
+            metadata={**idea_step["metadata"], "productOwnerIntake": metadata},
+            output={**idea_step["output"], "productOwnerIntake": metadata},
+        )
+        backlog_step = next((step for step in steps if step["name"] == "backlog_generation"), None)
+        if backlog_step and owner_status in {"completed", "blocked"}:
+            repo.update_workflow_step(
+                backlog_step["id"],
+                status=_product_owner_backlog_step_status(owner_status),
+                metadata={**backlog_step["metadata"], "productOwnerIntake": metadata},
+                output={
+                    **backlog_step["output"],
+                    "productOwnerIntake": metadata,
+                    "epicIds": [
+                        item["epic"]["id"]
+                        for item in (owner_result.get("epics") or [])
+                        if isinstance(item, dict) and isinstance(item.get("epic"), dict)
+                    ],
+                },
+            )
+        next_status = _workflow_status_from_product_owner(owner_status)
+        run_metadata = {
+            **run["metadata"],
+            "productOwnerIntake": metadata,
+        }
+        updated_run = repo.update_workflow_run_status(
+            run["id"],
+            status=next_status,
+            metadata=run_metadata,
+            completed=next_status != "running",
+            clear_completed=next_status == "running",
+        )
+        updated_workflow = repo.update_workflow_status(
+            workflow["id"], status=next_status, reason=owner_result["reason"]
+        )
+        repo.record_workflow_event(
+            workflow_id=workflow["id"],
+            workflow_run_id=run["id"],
+            step_id=idea_step["id"],
+            project_id=workflow["projectId"],
+            event_type=f"workflow.idea_intake.{next_status}",
+            payload=metadata,
+            severity="warning" if next_status != "running" else "info",
+        )
+        return {
+            **result,
+            "workflow": updated_workflow,
+            "workflowRun": updated_run,
+            "workflowSteps": repo.list_workflow_steps(workflow_run_id=run["id"]),
+        }
 
     def permission_decision_ids_from_tool_calls(tool_calls: list[dict[str, Any]]) -> set[str]:
         decision_ids: set[str] = set()
@@ -721,6 +1020,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         require_write(request)
         result = repository().start_workflow(workflow_id, reason=body.reason)
         route_started_workflow_steps(result)
+        result = execute_product_owner_intake_for_workflow(result)
         event_bus().record_event(
             project_id=result["workflow"]["projectId"],
             event_type="workflow.started",

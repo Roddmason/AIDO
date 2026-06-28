@@ -107,6 +107,21 @@ def default_runtime_adapters(
             connection=connection,
             artifact_root=artifact_root,
         ),
+        "openrouter": RuntimeAdapterBrokerAdapter(
+            adapter_id="openrouter",
+            connection=connection,
+            artifact_root=artifact_root,
+        ),
+        "nvidia_nim": RuntimeAdapterBrokerAdapter(
+            adapter_id="nvidia_nim",
+            connection=connection,
+            artifact_root=artifact_root,
+        ),
+        "anthropic_api": RuntimeAdapterBrokerAdapter(
+            adapter_id="anthropic_api",
+            connection=connection,
+            artifact_root=artifact_root,
+        ),
         "workspace_patch": WorkspacePatchBrokerAdapter(connection=connection, artifact_root=artifact_root),
     }
 

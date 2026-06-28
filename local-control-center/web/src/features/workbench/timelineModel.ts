@@ -230,7 +230,7 @@ function toStage(entry: IssueTimelineEntry, index: number): WorkflowTimelineStag
 }
 
 /**
- * Builds the operator-facing run timeline from an issue_to_patch response.
+ * Builds the operator-facing run timeline from a governed code-edit response.
  * Delegates the staged status derivation to `buildIssueTimeline` so behavior
  * stays in a single, already-tested place.
  */

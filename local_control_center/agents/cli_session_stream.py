@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import contextlib
 import queue
+import sqlite3
 import subprocess
 import threading
 import uuid
@@ -25,12 +26,12 @@ from typing import Any, Protocol
 from local_control_center.agents.cli_session_events import CliSessionEventStore
 from local_control_center.evidence.artifacts import write_text_artifact
 from local_control_center.evidence.repository import EvidenceRepository
-from local_control_center.security_policy.git_command_runner import git_available, run_git
 from local_control_center.security_policy.sandbox import open_restricted_text_process
 from local_control_center.shared.db import open_sqlite_connection
 from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.serialization import json_dumps
 from local_control_center.shared.time import utc_now
+from local_control_center.workspaces_projects.git_worktrees import run_brokered_git
 
 CLI_SESSION_RUNNING_STATUS = "running"
 _MAX_SESSION_LOG_BYTES = 1_000_000
@@ -166,7 +167,14 @@ def _run(
             "started",
             {"runtime": runtime, "workspaceId": workspace_id, "command": list(argv), "agentId": agent_id},
         )
-        before = _changed_files(workspace_path)
+        before = _changed_files(
+            connection,
+            project_id=project_id,
+            workspace_id=workspace_id,
+            workspace_path=workspace_path,
+            root=root,
+            session_id=session_id,
+        )
         try:
             process = process_opener(argv=argv, cwd=workspace_path, workspace_path=workspace_path)
         except (PermissionError, OSError) as error:
@@ -217,7 +225,15 @@ def _run(
         else:
             status, error = "failed", f"CLI process exited with code {return_code}."
 
-        for path in sorted(_changed_files(workspace_path) - before):
+        after = _changed_files(
+            connection,
+            project_id=project_id,
+            workspace_id=workspace_id,
+            workspace_path=workspace_path,
+            root=root,
+            session_id=session_id,
+        )
+        for path in sorted(after - before):
             events.record_event(session_id, "file_changed", {"path": path})
         payload: dict[str, Any] = {"returnCode": return_code}
         if error:
@@ -266,13 +282,39 @@ def _terminate(process: subprocess.Popen[str]) -> None:
         pass
 
 
-def _changed_files(workspace_path: str | None) -> set[str]:
-    if not workspace_path or not git_available():
+def _changed_files(
+    connection: sqlite3.Connection,
+    *,
+    project_id: str,
+    workspace_id: str,
+    workspace_path: str | None,
+    root: Path | None,
+    session_id: str,
+) -> set[str]:
+    if not workspace_path or not workspace_id:
         return set()
-    result = run_git(["-C", str(workspace_path), "status", "--porcelain"])
-    if getattr(result, "returncode", 1) != 0:
+    try:
+        row = connection.execute("SELECT path, status FROM workspaces WHERE id = ?", (workspace_id,)).fetchone()
+    except sqlite3.Error:
         return set()
-    return {line[3:].strip() for line in (result.stdout or "").splitlines() if line.strip()}
+    if not row or row["status"] == "archived":
+        return set()
+    registered_path = Path(row["path"]).resolve(strict=False)
+    if Path(workspace_path).resolve(strict=False) != registered_path:
+        return set()
+    result = run_brokered_git(
+        connection=connection,
+        root=root or registered_path,
+        project_id=project_id,
+        workspace_id=workspace_id,
+        workspace_path=registered_path,
+        cwd=registered_path,
+        args=["status", "--porcelain"],
+        task_id=f"cli_session.{session_id}.changed_files",
+    )
+    if result["returnCode"] != 0:
+        return set()
+    return {line[3:].strip() for line in result["stdout"].splitlines() if line.strip()}
 
 
 def _finish(

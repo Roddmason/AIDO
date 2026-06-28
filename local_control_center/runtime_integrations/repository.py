@@ -19,6 +19,7 @@ import sqlite3
 import uuid
 from typing import Any
 
+from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.serialization import json_dumps, json_loads
 from local_control_center.shared.time import utc_now
 
@@ -325,6 +326,29 @@ class RuntimeConfigRepository:
     def update_cli_account(self, account_id: str, body: dict[str, Any]) -> dict[str, Any]:
         """Alias compatible: usa ``update_runtime_account``."""
         return self.update_runtime_account(account_id, body)
+
+    def record_health_check(
+        self, *, runtime_id: str, check_type: str, status: str, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Persist a runtime health-check without exposing secrets in the payload."""
+        now = utc_now()
+        check_id = f"runtime-health-{uuid.uuid4()}"
+        sanitized_payload = redact_secrets(payload)
+        self.connection.execute(
+            """
+            INSERT INTO runtime_health_checks (id, runtime_id, check_type, status, payload, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (check_id, runtime_id, check_type, status, json_dumps(sanitized_payload), now),
+        )
+        return {
+            "id": check_id,
+            "runtimeId": runtime_id,
+            "checkType": check_type,
+            "status": status,
+            "payload": sanitized_payload,
+            "createdAt": now,
+        }
 
     def upsert_preferences(self, body: dict[str, Any]) -> dict[str, Any]:
         """Crea o actualiza las preferencias de un scope (global/role/agent) y las devuelve.

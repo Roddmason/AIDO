@@ -16,8 +16,11 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 
 from local_control_center.jobs_approvals.repository import JobsRepository
+from local_control_center.runtime_integrations.config import resolve_executable
+from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
 from local_control_center.shared.event_bus import EventBus
 from local_control_center.shared.redaction import redact_secrets
+from local_control_center.shared.time import utc_now
 
 from .credentials import CredentialResolver
 from .model_benchmarks import ModelBenchmarkStore
@@ -190,8 +193,63 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
     def benchmarks() -> ModelBenchmarkStore:
         return ModelBenchmarkStore(platform.connection)
 
+    def runtimes() -> RuntimeConfigRepository:
+        return RuntimeConfigRepository(platform.connection)
+
     def audit(action: str, target: str, payload: dict[str, Any] | None = None) -> None:
         EventBus(platform.connection).record_audit(action=action, target=target, payload=payload or {})
+
+    def cli_runtime_command(runtime_id: str) -> str | None:
+        try:
+            installation = runtimes().get_installation(runtime_id)
+        except KeyError:
+            installation = {"runtimeId": runtime_id, "executablePath": None}
+        return resolve_executable(installation).get("path")
+
+    def persist_cli_probe(
+        runtime_id: str, *, check_type: str, payload: dict[str, Any], executable_hint: str | None = None
+    ) -> None:
+        status = str(payload.get("status") or "unknown")
+        version = payload.get("version")
+        detected_executable = payload.get("executable") or executable_hint
+        installed = status in {"installed", "healthy"}
+        version_checked = bool(version)
+        health_status = "healthy" if installed and (version_checked or check_type == "health") else "offline"
+        last_error = "" if health_status == "healthy" else str(payload.get("message") or status)
+        timestamp = utc_now()
+        try:
+            current = runtimes().get_installation(runtime_id)
+        except KeyError:
+            current = {}
+        runtimes().upsert_installation(
+            {
+                "runtimeId": runtime_id,
+                "kind": "cli",
+                "executablePath": detected_executable or current.get("executablePath"),
+                "detectedVersion": version or current.get("detectedVersion"),
+                "enabled": installed,
+                "healthStatus": health_status,
+                "lastValidationAt": timestamp if installed and version_checked else current.get("lastValidationAt"),
+                "lastHealthCheckAt": timestamp,
+                "lastError": last_error,
+                "capabilities": current.get("capabilities") or [],
+                "preferredRoles": current.get("preferredRoles") or [],
+                "configurationSource": "detected" if installed else current.get("configurationSource", "manual"),
+                "metadata": redact_secrets(
+                    {
+                        **(current.get("metadata") or {}),
+                        "lastProbeType": check_type,
+                        "lastProbeStatus": status,
+                    }
+                ),
+            }
+        )
+        runtimes().record_health_check(
+            runtime_id=runtime_id,
+            check_type=check_type,
+            status=health_status,
+            payload=payload,
+        )
 
     @router.get("/overview", response_model=ModelGatewayOverviewResponse)
     async def overview() -> dict[str, Any]:
@@ -614,18 +672,32 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
         """Detecta el ejecutable y versión de un runtime CLI."""
         require_write(request)
         try:
-            return {"detection": RuntimeRegistry().detect(runtime_id)}
+            command = cli_runtime_command(runtime_id)
+            detection = RuntimeRegistry().detect(runtime_id, executable=command)
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
+        persist_cli_probe(runtime_id, check_type="detect", payload=detection, executable_hint=command)
+        audit("model_gateway.cli_runtime.detected", runtime_id, detection)
+        return {"detection": detection}
 
     @router.post("/cli-runtimes/{runtime_id}/health-check", response_model=RuntimeHealthResponse)
     async def health_cli_runtime(runtime_id: str, request: Request) -> dict[str, Any]:
         """Ejecuta un health-check de un runtime CLI."""
         require_write(request)
         try:
-            return {"health": RuntimeRegistry().health_check(runtime_id)}
+            command = cli_runtime_command(runtime_id)
+            health = RuntimeRegistry().health_check(runtime_id, executable=command)
+            detection = RuntimeRegistry().detect(runtime_id, executable=command)
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
+        persist_cli_probe(
+            runtime_id,
+            check_type="health",
+            payload={**detection, **health},
+            executable_hint=command,
+        )
+        audit("model_gateway.cli_runtime.health_checked", runtime_id, health)
+        return {"health": health}
 
     @router.get("/cli-sessions", response_model=CliSessionsListResponse)
     async def list_cli_sessions() -> dict[str, Any]:

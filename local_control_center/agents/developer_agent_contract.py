@@ -12,10 +12,32 @@ from __future__ import annotations
 from typing import Any
 
 DEVELOPER_AGENT_ID = "developer_agent"
-DEVELOPER_AGENT_ALLOWED_TOOLS = ["shell", "openai_compatible", "ollama", "workspace_patch"]
+DEVELOPER_AGENT_ALLOWED_TOOLS = [
+    "shell",
+    "ollama",
+    "openai_compatible",
+    "openrouter",
+    "nvidia_nim",
+    "anthropic_api",
+    "workspace_patch",
+]
 DEVELOPER_AGENT_CLI_RUNTIMES = {"codex_cli", "claude_code_cli"}
-DEVELOPER_AGENT_MODEL_RUNTIMES = {"openai_compatible", "ollama"}
-DEVELOPER_AGENT_RUNTIME_ORDER = ["codex_cli", "claude_code_cli", "openai_compatible", "ollama"]
+DEVELOPER_AGENT_REMOTE_API_RUNTIMES = {
+    "openai_compatible",
+    "openrouter",
+    "nvidia_nim",
+    "anthropic_api",
+}
+DEVELOPER_AGENT_MODEL_RUNTIMES = DEVELOPER_AGENT_REMOTE_API_RUNTIMES | {"ollama"}
+DEVELOPER_AGENT_RUNTIME_ORDER = [
+    "codex_cli",
+    "claude_code_cli",
+    "ollama",
+    "openai_compatible",
+    "openrouter",
+    "nvidia_nim",
+    "anthropic_api",
+]
 
 
 def developer_agent_contract() -> dict[str, Any]:
@@ -74,7 +96,7 @@ def is_developer_runtime(runtime: dict[str, Any]) -> bool:
     capabilities = set(runtime.get("capabilities") or [])
     if runtime_id in DEVELOPER_AGENT_CLI_RUNTIMES:
         return "code_edit" in capabilities
-    if runtime_id == "openai_compatible":
+    if runtime_id in DEVELOPER_AGENT_REMOTE_API_RUNTIMES:
         return "chat" in capabilities or not capabilities
     if runtime_id == "ollama":
         return bool("chat" in capabilities and runtime.get("models"))

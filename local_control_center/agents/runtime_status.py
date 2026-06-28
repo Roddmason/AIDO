@@ -21,6 +21,7 @@ from local_control_center.runtime_integrations.repository import RuntimeConfigRe
 from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.time import utc_now
 
+from .credentials import CredentialResolver
 from .developer_agent_contract import developer_agent_readiness
 from .model_gateway import ollama_status
 from .provider_accounts import ProviderAccountStore
@@ -89,15 +90,35 @@ def _base_safety(kind: str) -> dict[str, Any]:
     return {"workspaceBound": True, "shell": False, "structuredArgv": True, "network": "local_only"}
 
 
+def _configuration_warnings(
+    configuration: RuntimeProviderConfiguration | None, *, executable_source: str | None = None
+) -> list[str]:
+    warnings: list[str] = []
+    if executable_source == "environment_override":
+        warnings.append(
+            "Deprecated CLI command environment override is active; persist the executable in runtime_installations."
+        )
+    if configuration and configuration.spec.kind == "cli" and configuration.configured:
+        warnings.append(
+            "Deprecated CLI command environment override is present; SQLite runtime configuration is authoritative."
+        )
+    return warnings
+
+
 def _status_payload(
     *,
     provider_id: str,
     kind: str,
     display_name: str,
+    installed: bool | None = None,
     detected: bool,
     configured: bool,
+    authenticated: bool = False,
     available: bool,
     executable: bool,
+    can_run_version_check: bool = False,
+    can_run_prompt: bool = False,
+    can_edit_workspace: bool = False,
     reason: str,
     version: str | None,
     detected_command: str | None,
@@ -107,16 +128,22 @@ def _status_payload(
     requires_approval: bool,
     health_status: str = "unknown",
     last_error: str = "",
+    configuration_warnings: list[str] | None = None,
 ) -> dict[str, Any]:
     sanitized_last_error = str(redact_secrets(last_error or ""))
     return {
         "id": provider_id,
         "kind": kind,
         "displayName": display_name,
+        "installed": detected if installed is None else installed,
         "detected": detected,
         "configured": configured,
+        "authenticated": authenticated,
         "available": available,
         "executable": executable,
+        "canRunVersionCheck": can_run_version_check,
+        "canRunPrompt": can_run_prompt,
+        "canEditWorkspace": can_edit_workspace,
         "requiresApproval": requires_approval,
         "reason": reason,
         "version": version,
@@ -126,6 +153,7 @@ def _status_payload(
         "lastError": sanitized_last_error,
         "capabilities": capabilities,
         "requiredConfiguration": required_configuration,
+        "configurationWarnings": configuration_warnings or [],
         "safety": _base_safety(kind),
     }
 
@@ -142,6 +170,7 @@ def _api_required_configuration(account: dict[str, Any]) -> list[str]:
 def _api_account_configuration(connection: sqlite3.Connection, account: dict[str, Any]) -> dict[str, Any]:
     required_configuration = _api_required_configuration(account)
     credential_status = str(account.get("credentialStatus") or "unknown")
+    credential_resolution = CredentialResolver().resolve(str(account.get("credentialRef") or ""), fetch=False)
     base_url = str(account.get("baseUrl") or "").strip()
     return {
         "requiredConfiguration": required_configuration,
@@ -150,6 +179,7 @@ def _api_account_configuration(connection: sqlite3.Connection, account: dict[str
         "hasBaseUrl": "baseUrl" not in required_configuration or bool(base_url),
         "hasCredential": "apiKey" not in required_configuration or credential_status == "configured",
         "credentialStatus": credential_status,
+        "credentialMessage": credential_resolution.message,
     }
 
 
@@ -206,20 +236,30 @@ def _api_provider_status(
     has_base_url = bool(
         account_configuration["hasBaseUrl"] or _runtime_configuration_present(configuration, "baseUrl")
     )
+    remote_calls_enabled = _env_flag("AIDO_ENABLE_REAL_PROVIDER_CALLS")
+    healthy = health_status == "healthy" and bool(health_checked_at)
+    credential_status = str(account_configuration["credentialStatus"])
     has_credential = bool(
-        account_configuration["hasCredential"] or _runtime_configuration_present(configuration, "apiKey")
+        account_configuration["hasCredential"]
+        or _runtime_configuration_present(configuration, "apiKey")
+        or (credential_status == "unverified" and healthy)
     )
     configured = bool(
         (configuration and configuration.configured) or (has_base_url and has_credential and has_model)
     )
-    remote_calls_enabled = _env_flag("AIDO_ENABLE_REAL_PROVIDER_CALLS")
-    healthy = health_status == "healthy" and bool(health_checked_at)
+    authenticated = bool(has_credential or (credential_status == "unverified" and healthy))
     available = configured and healthy
     executable = available and enabled and remote_calls_enabled
-    if not configured and configuration is not None and not configuration.configured:
+    can_run_prompt = executable
+    if not has_credential:
+        credential_message = str(account_configuration.get("credentialMessage") or "").strip()
+        message_suffix = f" ({credential_message})" if credential_message else ""
+        reason = (
+            f"Provider credential is {account_configuration['credentialStatus']}; "
+            f"configure the required API key.{message_suffix}"
+        )
+    elif not configured and configuration is not None and not configuration.configured:
         reason = configuration.reason
-    elif not has_credential:
-        reason = f"Provider credential is {account_configuration['credentialStatus']}; configure the required API key."
     elif not has_base_url:
         reason = "Provider base URL is not configured."
     elif not has_model:
@@ -241,8 +281,12 @@ def _api_provider_status(
         display_name=str(account["displayName"]),
         detected=available,
         configured=configured,
+        authenticated=authenticated,
         available=available,
         executable=executable,
+        can_run_version_check=False,
+        can_run_prompt=can_run_prompt,
+        can_edit_workspace=False,
         reason=reason,
         version=None,
         detected_command=None,
@@ -251,18 +295,23 @@ def _api_provider_status(
         last_error=last_error,
         capabilities=capabilities or ["chat"],
         required_configuration=required_configuration,
+        configuration_warnings=[],
         requires_approval=True,
     )
 
 
 def _cli_provider_status(
     account: dict[str, Any],
+    runtime_installation: dict[str, Any] | None,
+    runtime_account: dict[str, Any] | None,
     detection: dict[str, Any],
     capabilities: list[str],
     configuration: RuntimeProviderConfiguration | None = None,
+    executable_source: str | None = None,
 ) -> dict[str, Any]:
     detected = detection.get("status") == "installed"
-    enabled = bool(account.get("enabled"))
+    installation_enabled = bool((runtime_installation or {}).get("enabled"))
+    account_enabled = bool((runtime_account or {}).get("enabled", False))
     cli_enabled = _env_flag("AIDO_ENABLE_CLI_RUNTIMES")
     can_code_edit = "code_edit" in set(capabilities)
     issue_to_patch_argv, issue_to_patch_argv_error = _configured_argv(configuration, "issueToPatchArgv")
@@ -270,17 +319,30 @@ def _cli_provider_status(
     command_configured = bool(detection.get("executable"))
     configured = bool(command_configured or (configuration and configuration.configured) or detected)
     available = configured and detected and bool(version)
+    authenticated = bool(
+        account_enabled
+        and runtime_account
+        and runtime_account.get("healthStatus") == "healthy"
+        and runtime_account.get("lastValidationAt")
+    )
+    can_run_version_check = bool(detected and version)
     command_matches_provider = (
         _cli_command_matches_provider(str(account["providerId"]), detection) if can_code_edit else True
     )
-    executable = (
+    can_run_prompt = bool(
         available
-        and enabled
+        and installation_enabled
+        and account_enabled
+        and authenticated
         and cli_enabled
-        and can_code_edit
-        and command_matches_provider
-        and issue_to_patch_argv_error is None
     )
+    can_edit_workspace = bool(
+        can_run_prompt
+        and can_code_edit
+        and issue_to_patch_argv_error is None
+        and command_matches_provider
+    )
+    executable = can_edit_workspace
     if not configured and configuration is not None:
         reason = (
             f"{configuration.reason}; CLI runtime was not detected because command configuration is missing."
@@ -289,8 +351,12 @@ def _cli_provider_status(
         reason = str(detection.get("message") or "CLI runtime was not detected.")
     elif not version:
         reason = "CLI runtime was detected but the safe version health check did not return a usable version."
-    elif not enabled:
-        reason = "CLI runtime is available but the provider account is disabled for execution."
+    elif not installation_enabled:
+        reason = "CLI runtime is available but runtime_installations.enabled is false."
+    elif not account_enabled:
+        reason = "CLI runtime is available but no enabled runtime_accounts row is selected for execution."
+    elif not authenticated:
+        reason = "CLI runtime version check passed but native CLI authentication has not been validated."
     elif not cli_enabled:
         reason = "CLI runtime is available but execution is disabled by AIDO_ENABLE_CLI_RUNTIMES=false."
     elif issue_to_patch_argv_error:
@@ -300,23 +366,31 @@ def _cli_provider_status(
     elif not command_matches_provider:
         reason = "Runtime detected executable does not match the declared runtime command."
     else:
-        reason = "CLI runtime is detected, enabled, and executable."
+        reason = "CLI runtime is detected, authenticated, policy enabled, and executable."
     payload = _status_payload(
         provider_id=str(account["providerId"]),
         kind="cli",
         display_name=str(account["displayName"]),
+        installed=detected,
         detected=detected,
         configured=configured,
+        authenticated=authenticated,
         available=available,
         executable=executable,
+        can_run_version_check=can_run_version_check,
+        can_run_prompt=can_run_prompt,
+        can_edit_workspace=can_edit_workspace,
         reason=reason,
         version=version,
         detected_command=detection.get("executable") if detected else None,
-        health_status="healthy" if available else "offline",
+        health_status="healthy" if authenticated else ("degraded" if available else "offline"),
         health_checked_at=utc_now(),
         last_error="" if available else str(detection.get("message") or ""),
         capabilities=capabilities,
-        required_configuration=["command"],
+        required_configuration=["command", "authentication"],
+        configuration_warnings=_configuration_warnings(
+            configuration, executable_source=executable_source
+        ),
         requires_approval=True,
     )
     if issue_to_patch_argv is not None:
@@ -349,27 +423,31 @@ def _ollama_provider_status(
         }
     )
     daemon_available = bool(status.get("available"))
-    enabled = bool(account.get("enabled"))
     configured = bool((configuration and configuration.configured) or base_url)
-    executable = daemon_available and enabled
+    authenticated = daemon_available
+    can_run_prompt = daemon_available and configured
+    executable = can_run_prompt
     if not configured and configuration is not None:
         reason = configuration.reason
     elif not configured:
         reason = "Ollama base URL is not configured."
     elif not daemon_available:
         reason = str(status.get("reason") or "Ollama daemon did not respond to /api/tags.")
-    elif not enabled:
-        reason = "Ollama daemon is reachable but the provider account is disabled for execution."
     else:
         reason = "Ollama daemon is reachable and executable."
     payload = _status_payload(
         provider_id="ollama",
         kind="local",
         display_name=str(account.get("displayName") or "Ollama"),
+        installed=daemon_available,
         detected=daemon_available,
         configured=configured,
+        authenticated=authenticated,
         available=daemon_available,
         executable=executable,
+        can_run_version_check=False,
+        can_run_prompt=can_run_prompt,
+        can_edit_workspace=False,
         reason=reason,
         version=None,
         detected_command=None,
@@ -378,6 +456,7 @@ def _ollama_provider_status(
         last_error="" if daemon_available else reason,
         capabilities=capabilities or ["chat"],
         required_configuration=["baseUrl"],
+        configuration_warnings=[],
         requires_approval=False,
     )
     payload["models"] = status.get("models") or []
@@ -426,17 +505,24 @@ class RuntimeStatusService:
             for provider_id in CLI_RUNTIME_IDS
             | {"openai_compatible", "openrouter", "nvidia_nim", "anthropic_api", "ollama"}
         }
+        runtime_repo = RuntimeConfigRepository(self.connection)
         runtime_installations = {
-            installation["runtimeId"]: installation
-            for installation in RuntimeConfigRepository(self.connection).list_installations()
+            installation["runtimeId"]: installation for installation in runtime_repo.list_installations()
         }
+        runtime_accounts: dict[str, dict[str, Any]] = {}
+        for account in runtime_repo.list_runtime_accounts():
+            if account.get("isDefault") or account.get("enabled"):
+                runtime_accounts.setdefault(str(account["runtimeId"]), account)
         detections: dict[str, dict[str, Any]] = {}
+        executable_sources: dict[str, str] = {}
         for runtime_id in sorted(CLI_RUNTIME_IDS):
             configuration = configurations.get(runtime_id)
             installation = runtime_installations.get(
                 runtime_id, {"runtimeId": runtime_id, "executablePath": None}
             )
-            command = resolve_executable(installation).get("path")
+            resolved_executable = resolve_executable(installation)
+            executable_sources[runtime_id] = str(resolved_executable.get("source") or "unset")
+            command = resolved_executable.get("path")
             detections[runtime_id] = (
                 self.registry.detect(runtime_id, executable=command)
                 if command
@@ -463,9 +549,12 @@ class RuntimeStatusService:
                 statuses.append(
                     _cli_provider_status(
                         account,
+                        runtime_installations.get(provider_id),
+                        runtime_accounts.get(provider_id),
                         detections.get(provider_id, {}),
                         provider_capabilities,
                         configurations.get(provider_id),
+                        executable_sources.get(provider_id),
                     )
                 )
             elif provider_type in API_RUNTIME_KINDS:

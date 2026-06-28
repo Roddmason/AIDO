@@ -34,7 +34,7 @@ from local_control_center.evidence.artifacts import (
 from local_control_center.evidence.quality import evidence_package_contract_errors
 from local_control_center.evidence.repository import EvidenceRepository
 from local_control_center.jobs_approvals.repository import JobsRepository
-from local_control_center.security_policy.git_command_runner import git_available, run_git
+from local_control_center.security_policy.git_command_runner import git_available
 from local_control_center.security_policy.repository import SecurityPolicyRepository
 from local_control_center.shared.event_bus import EventBus
 from local_control_center.shared.redaction import redact_secrets
@@ -47,7 +47,11 @@ from local_control_center.workflows.github_pull_requests import (
 )
 from local_control_center.workflows.repository import ISSUE_TO_PATCH_STEPS, WorkflowsRepository
 from local_control_center.workspaces_projects.cleanup import capture_workspace_snapshot
-from local_control_center.workspaces_projects.git_worktrees import capture_git_diff, slugify_branch_segment
+from local_control_center.workspaces_projects.git_worktrees import (
+    capture_git_diff,
+    run_brokered_git,
+    slugify_branch_segment,
+)
 from local_control_center.workspaces_projects.repository import WorkspacesRepository
 
 CLI_RUNTIME_IDS = {"codex_cli", "claude_code_cli", "openhands", "swe_agent"}
@@ -407,14 +411,6 @@ def _approved_evidence_base_commit(evidence: dict[str, Any], workspace: dict[str
     raise ValueError("promote_patch_to_branch requires a base commit captured in approved evidence.")
 
 
-def _verify_base_commit(repo_path: Path, base_commit: str) -> None:
-    if not git_available():
-        raise ValueError("promote_patch_to_branch requires the git CLI.")
-    result = run_git(["-C", str(repo_path), "cat-file", "-e", f"{base_commit}^{{commit}}"])
-    if result.returncode != 0:
-        raise ValueError("promote_patch_to_branch base commit is not present in the project repository.")
-
-
 def _promotion_branch_name(*, requested: str | None, workflow: dict[str, Any], run_id: str) -> str:
     if requested and requested.strip():
         return requested.strip()
@@ -436,17 +432,45 @@ def _promotion_qa_commands(
     return commands
 
 
-def _git_operation_result(args: list[str], *, cwd: Path) -> dict[str, Any]:
+def _git_operation_result(
+    args: list[str],
+    *,
+    cwd: Path,
+    connection: sqlite3.Connection,
+    root: Path,
+    project_id: str,
+    workspace_id: str,
+    task_id: str,
+    git_operation: str,
+) -> dict[str, Any]:
     display = subprocess.list2cmdline(["git", *args])
-    result = run_git(args, cwd=cwd)
+    result = run_brokered_git(
+        connection=connection,
+        root=root,
+        project_id=project_id,
+        workspace_id=workspace_id,
+        workspace_path=cwd,
+        cwd=cwd,
+        args=args,
+        task_id=task_id,
+        git_operation=git_operation,
+    )
+    return_code = result["returnCode"]
+    trace = result.get("trace") or {}
     return {
         "command": display,
         "argv": ["git", *args],
         "cwd": str(cwd),
-        "returnCode": result.returncode,
-        "stdout": (result.stdout or "")[:4000],
-        "stderr": (result.stderr or "")[:4000],
-        "status": "passed" if result.returncode == 0 else "failed",
+        "returnCode": return_code,
+        "stdout": (result.get("stdout") or "")[:4000],
+        "stderr": (result.get("stderr") or "")[:4000],
+        "status": "passed" if return_code == 0 else str(result.get("status") or "failed"),
+        "reason": str(result.get("reason") or ""),
+        "toolCallId": trace.get("toolCallId"),
+        "toolCallStatus": trace.get("toolCallStatus"),
+        "permissionDecisionId": trace.get("permissionDecisionId"),
+        "execution": trace.get("execution"),
+        "agentRunId": trace.get("agentRunId") or result.get("agentRunId"),
     }
 
 
@@ -1046,9 +1070,7 @@ class IssueToPatchRunner:
         _validate_security_findings(approved_evidence, approved_artifacts)
 
         project_id = workflow["projectId"]
-        project_path = _project_path(self.connection, project_id)
         base_commit = _approved_evidence_base_commit(approved_evidence, original_workspace)
-        _verify_base_commit(project_path, base_commit)
         target_branch = _promotion_branch_name(requested=branch_name, workflow=workflow, run_id=run_id)
         steps = {step["name"]: step for step in self.workflows.list_workflow_steps(workflow_run_id=run_id)}
 
@@ -1116,11 +1138,29 @@ class IssueToPatchRunner:
         )
         workspace_path = Path(workspace["path"])
         patch_path = Path(str(patch_artifact["path"])).resolve(strict=False)
-        apply_check = _git_operation_result(["apply", "--check", str(patch_path)], cwd=workspace_path)
+        apply_check = _git_operation_result(
+            ["apply", "--check", str(patch_path)],
+            cwd=workspace_path,
+            connection=self.connection,
+            root=self.root,
+            project_id=project_id,
+            workspace_id=workspace["id"],
+            task_id="promote_patch_to_branch.apply_check",
+            git_operation="apply_check",
+        )
         apply_result: dict[str, Any] | None = None
         qa_summary: dict[str, Any] | None = None
         if apply_check["returnCode"] == 0:
-            apply_result = _git_operation_result(["apply", str(patch_path)], cwd=workspace_path)
+            apply_result = _git_operation_result(
+                ["apply", str(patch_path)],
+                cwd=workspace_path,
+                connection=self.connection,
+                root=self.root,
+                project_id=project_id,
+                workspace_id=workspace["id"],
+                task_id="promote_patch_to_branch.apply_patch",
+                git_operation="apply_patch",
+            )
             if apply_result["returnCode"] == 0:
                 qa_summary = QAAgentRunner(self.connection, root=self.root).run_for_context(
                     project_id=project_id,
@@ -1139,7 +1179,14 @@ class IssueToPatchRunner:
                 )
         qa_results = (qa_summary or {}).get("results") or []
         qa_artifact_ids = (qa_summary or {}).get("artifactIds") or []
-        diff = capture_git_diff(workspace_path)
+        diff = capture_git_diff(
+            workspace_path,
+            connection=self.connection,
+            root=self.root,
+            project_id=project_id,
+            workspace_id=workspace["id"],
+            task_id="promote_patch_to_branch",
+        )
         final_status, qa_verdict, final_reason = _promotion_status_from_results(
             apply_check=apply_check,
             apply_result=apply_result,
@@ -1291,6 +1338,12 @@ class IssueToPatchRunner:
         diff_summary["qaResultsArtifactId"] = qa_results_artifact["id"]
         diff_summary["manifestArtifactId"] = manifest_artifact["id"]
         related_agent_run_ids = {promoter_run["id"]}
+        for git_result in [apply_check, apply_result]:
+            if git_result and git_result.get("agentRunId"):
+                related_agent_run_ids.add(str(git_result["agentRunId"]))
+        for git_trace in diff.get("toolCalls") or []:
+            if isinstance(git_trace, dict) and git_trace.get("agentRunId"):
+                related_agent_run_ids.add(str(git_trace["agentRunId"]))
         if qa_summary and (qa_summary.get("agentRun") or {}).get("id"):
             related_agent_run_ids.add(str(qa_summary["agentRun"]["id"]))
         tool_calls = [

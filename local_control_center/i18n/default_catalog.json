@@ -1803,22 +1803,6 @@
       "en": "This run did not record evidence package references.",
       "es": "Esta ejecución no registró referencias a paquetes de evidencia."
     },
-    "app.workbench.task.modeFix": {
-      "en": "Fix bug",
-      "es": "Corregir error"
-    },
-    "app.workbench.task.modeFeature": {
-      "en": "Add feature",
-      "es": "Agregar funcionalidad"
-    },
-    "app.workbench.task.modeRefactor": {
-      "en": "Refactor",
-      "es": "Refactorizar"
-    },
-    "app.workbench.task.modeTests": {
-      "en": "Write tests",
-      "es": "Escribir pruebas"
-    },
     "app.workbench.task.runChecks": {
       "en": "Run project checks",
       "es": "Ejecutar verificaciones del proyecto"
@@ -6136,8 +6120,8 @@
       "es": "llamadas de modelo"
     },
     "app.workbench.evidence.noPackageBody": {
-      "en": "Run a governed task to produce an evidence package; QA, hashes and findings appear here without leaving the workbench.",
-      "es": "Ejecuta una tarea gobernada para producir un paquete de evidencia; QA, hashes y hallazgos aparecen aquí sin salir del workbench."
+      "en": "Run autonomous workspace work to produce an evidence package; QA, hashes and findings appear here without leaving the workbench.",
+      "es": "Ejecuta trabajo autónomo del workspace para producir un paquete de evidencia; QA, hashes y hallazgos aparecen aquí sin salir del workbench."
     },
     "app.workbench.evidence.noPackageTitle": {
       "en": "No evidence yet",
@@ -6340,8 +6324,8 @@
       "es": "Filtrar logs"
     },
     "app.workbench.recentRuns.emptyBody": {
-      "en": "Governed tasks create workflow runs you can inspect here.",
-      "es": "Las tareas gobernadas crean ejecuciones de workflow que puedes inspeccionar aquí."
+      "en": "Autonomous intake creates workflow runs you can inspect here.",
+      "es": "El intake autónomo crea ejecuciones de workflow que puedes inspeccionar aquí."
     },
     "app.workbench.recentRuns.emptyTitle": {
       "en": "No runs yet",
@@ -6483,22 +6467,6 @@
       "en": "Respond",
       "es": "Responder"
     },
-    "app.workbench.loop.aidoDecide": {
-      "en": "AIDO decides",
-      "es": "AIDO decide"
-    },
-    "app.workbench.loop.reviewBrief": {
-      "en": "Review brief",
-      "es": "Revisar brief"
-    },
-    "app.workbench.loop.approveBacklog": {
-      "en": "Approve backlog",
-      "es": "Aprobar backlog"
-    },
-    "app.workbench.loop.startIteration": {
-      "en": "Start iteration",
-      "es": "Iniciar iteración"
-    },
     "app.workbench.loop.loading": {
       "en": "Loading the product loop",
       "es": "Cargando el ciclo de producto"
@@ -6628,8 +6596,8 @@
       "es": "No hay workspace disponible para la discovery"
     },
     "app.workbench.loop.noWorkspaceBody": {
-      "en": "Run a governed task first to allocate a workspace for this project.",
-      "es": "Ejecuta primero una tarea gobernada para asignar un workspace a este proyecto."
+      "en": "Run autonomous workspace work first to allocate a workspace for this project.",
+      "es": "Ejecuta primero trabajo autónomo del workspace para asignar un workspace a este proyecto."
     },
     "app.workbench.loop.questions.emptyTitle": {
       "en": "No pending questions",
@@ -6719,14 +6687,6 @@
       "en": "Evidence",
       "es": "Evidencia"
     },
-    "app.workbench.task.modeConversation": {
-      "en": "Conversation",
-      "es": "Conversación"
-    },
-    "app.workbench.task.modeLabel": {
-      "en": "Task intake mode",
-      "es": "Modo de ingreso de tarea"
-    },
     "app.workbench.task.noReason": {
       "en": "No runtime reason recorded.",
       "es": "No se registró motivo del runtime."
@@ -6756,8 +6716,8 @@
       "es": "El descubrimiento de proveedores de runtime no ha finalizado."
     },
     "app.workbench.task.runtimeNoExecutable": {
-      "en": "No executable issue_to_patch/code_edit runtime is configured.",
-      "es": "No hay un runtime issue_to_patch/code_edit ejecutable configurado."
+      "en": "No executable code-edit runtime is configured.",
+      "es": "No hay un runtime de edicion de codigo ejecutable configurado."
     },
     "app.workbench.task.runtimeNone": {
       "en": "No executable runtime",
@@ -6828,8 +6788,8 @@
       "es": "Aún no hay ejecución"
     },
     "app.workbench.timeline.runEmptyBody": {
-      "en": "Submit a governed task to see its run progress here.",
-      "es": "Envía una tarea gobernada para ver aquí su progreso de ejecución."
+      "en": "Submit an autonomous intake to see its run progress here.",
+      "es": "Envía un intake autónomo para ver aquí su progreso de ejecución."
     },
     "app.workbench.timeline.deliveryEmptyTitle": {
       "en": "No delivery pipeline yet",
@@ -6844,8 +6804,8 @@
       "es": "Aún no hay ejecución"
     },
     "app.workbench.runTimeline.emptyBody": {
-      "en": "Submit a governed task to track its run here.",
-      "es": "Envía una tarea gobernada para seguir aquí su ejecución."
+      "en": "Submit an intake to track its autonomous run here.",
+      "es": "Envía un intake para seguir aquí su ejecución autónoma."
     },
     "app.workbench.chat.viewFull": {
       "en": "View full chat history",
@@ -6892,8 +6852,8 @@
       "es": "Línea de tiempo detallada de la ejecución"
     },
     "app.workbench.timeline.runsEmptyBody": {
-      "en": "Runs are recorded once a governed task executes in this workspace.",
-      "es": "Las ejecuciones se registran una vez que una tarea gobernada se ejecuta en este workspace."
+      "en": "Runs are recorded once autonomous workspace work executes.",
+      "es": "Las ejecuciones se registran cuando el trabajo autónomo del workspace se ejecuta."
     },
     "app.workbench.timeline.runsEmptyTitle": {
       "en": "No workflow runs",
@@ -7287,6 +7247,26 @@
       "en": "executable",
       "es": "ejecutables"
     },
+    "app.runtime.setup.configureCodexCli": {
+      "en": "Configure Codex CLI",
+      "es": "Configurar Codex CLI"
+    },
+    "app.runtime.setup.configureClaudeCode": {
+      "en": "Configure Claude Code",
+      "es": "Configurar Claude Code"
+    },
+    "app.runtime.setup.configureOllama": {
+      "en": "Configure Ollama",
+      "es": "Configurar Ollama"
+    },
+    "app.runtime.setup.configureApi": {
+      "en": "Configure API",
+      "es": "Configurar API"
+    },
+    "app.runtime.setup.configureNvidiaNim": {
+      "en": "Configure NVIDIA NIM",
+      "es": "Configurar NVIDIA NIM"
+    },
     "app.runtime.refresh": {
       "en": "Refresh health",
       "es": "Re-verificar estado"
@@ -7404,8 +7384,8 @@
       "es": "Instala Claude Code, persiste la ruta del ejecutable o agrega claude al PATH, habilita AIDO_ENABLE_CLI_RUNTIMES y re-verifica el estado. AIDO_CLAUDE_COMMAND es solo un override de bootstrap/CI deprecado."
     },
     "app.runtime.instructions.ollama": {
-      "en": "Start the Ollama daemon and set AIDO_OLLAMA_BASE_URL (default http://127.0.0.1:11434), then refresh health to detect local models.",
-      "es": "Inicia el daemon de Ollama y define AIDO_OLLAMA_BASE_URL (por defecto http://127.0.0.1:11434), luego re-verifica para detectar modelos locales."
+      "en": "Start a local Ollama daemon or point AIDO_OLLAMA_BASE_URL to a reachable remote Ollama server (default http://127.0.0.1:11434), then refresh health to detect models.",
+      "es": "Inicia un daemon local de Ollama o apunta AIDO_OLLAMA_BASE_URL a un servidor Ollama remoto alcanzable (por defecto http://127.0.0.1:11434), luego re-verifica para detectar modelos."
     },
     "app.runtime.instructions.openai_compatible": {
       "en": "Set AIDO_OPENAI_COMPATIBLE_BASE_URL, AIDO_OPENAI_COMPATIBLE_API_KEY and AIDO_OPENAI_COMPATIBLE_MODEL, enable AIDO_ENABLE_REAL_PROVIDER_CALLS, then run a health check.",

@@ -82,7 +82,7 @@ export function TimelinePanel({
 						title={t('app.workbench.timeline.runEmptyTitle', 'No run yet')}
 						body={t(
 							'app.workbench.timeline.runEmptyBody',
-							'Submit a governed task to see its run progress here.',
+							'Submit an autonomous intake to see its run progress here.',
 						)}
 					/>
 				)}
@@ -114,7 +114,7 @@ export function TimelinePanel({
 							title={t('app.workbench.timeline.runsEmptyTitle', 'No workflow runs')}
 							body={t(
 								'app.workbench.timeline.runsEmptyBody',
-								'Runs are recorded once a governed task executes in this workspace.',
+								'Runs are recorded once autonomous workspace work executes.',
 							)}
 						/>
 					}

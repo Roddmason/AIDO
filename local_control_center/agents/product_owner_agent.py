@@ -46,6 +46,7 @@ from .product_owner_agent_contract import (
     PRODUCT_OWNER_AGENT_CLI_RUNTIMES,
     PRODUCT_OWNER_AGENT_ID,
     PRODUCT_OWNER_AGENT_MODEL_RUNTIMES,
+    PRODUCT_OWNER_AGENT_REMOTE_API_RUNTIMES,
     product_owner_agent_contract,
     product_owner_agent_readiness,
 )
@@ -450,7 +451,7 @@ class ProductOwnerAgentRunner:
                 "allowedTools": PRODUCT_OWNER_AGENT_ALLOWED_TOOLS,
                 "allowedProviders": [runtime_id] if runtime_id else [],
                 "allowedRuntimes": [runtime_id] if runtime_id else [],
-                "allowRemote": runtime_id == "openai_compatible",
+                "allowRemote": runtime_id in PRODUCT_OWNER_AGENT_REMOTE_API_RUNTIMES,
                 "allowCli": runtime_id in PRODUCT_OWNER_AGENT_CLI_RUNTIMES,
                 "allowApi": runtime_id in PRODUCT_OWNER_AGENT_MODEL_RUNTIMES,
                 "outputSchema": product_owner_agent_contract()["outputSchema"],
@@ -574,7 +575,7 @@ class ProductOwnerAgentRunner:
                 "runtimeId": runtime_id,
                 "capability": "chat",
                 "input": {"model": model, "messages": messages, "temperature": 0.1},
-                "networkRequired": runtime_id == "openai_compatible",
+                "networkRequired": runtime_id in PRODUCT_OWNER_AGENT_REMOTE_API_RUNTIMES,
                 "secretsRequired": False,
                 "approvalGrantId": payload.get("approvalGrantId"),
                 "execute": True,
@@ -863,9 +864,10 @@ class ProductOwnerAgentRunner:
         threshold = int(threshold) if isinstance(threshold, (int, float)) else DEFAULT_COMPLETENESS_THRESHOLD
         workspace = self._workspace(project_id=project_id, workspace_id=str(payload["workspaceId"]))
         assessment = self._assessment(project_id=project_id, idea=idea, initiative_id=initiative_id)
-        assessment["projectAssessment"] = self._project_assessment_signals(project_id)
-
         readiness = self.status(preferred_runtime=payload.get("preferredRuntime"))
+        assessment["projectAssessment"] = (
+            self._project_assessment_signals(project_id) if readiness["executable"] else None
+        )
         runtime = self._runtime_by_id(readiness.get("selectedRuntimeId")) or {
             "id": readiness.get("selectedRuntimeId") or "unresolved",
             "kind": "unknown",

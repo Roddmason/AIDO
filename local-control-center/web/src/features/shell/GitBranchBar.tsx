@@ -184,34 +184,29 @@ export function GitBranchBar({
 	const gitleaksLabel =
 		gitleaks?.gitleaks.status ?? t('app.statusBar.git.gitleaksNotRun', 'not run');
 
+	// Derived tones for non-OK coloring of status label text.
+	const dirtyTone = dirty ? 'warn' : 'ok';
+	const gitConnTone =
+		gitError || gitStatus?.status === 'failed'
+			? 'danger'
+			: gitStatus?.status === 'configuration_required'
+				? 'warn'
+				: 'ok';
+	const gitleaksTone =
+		gitleaks?.status === 'completed'
+			? 'ok'
+			: gitleaks?.status === 'blocked' || gitleaks?.status === 'failed'
+				? 'danger'
+				: 'ok'; // 'not run' and 'configuration_required' are informational, not problems
+
 	return (
 		<div
 			className="composer-git-bar"
 			role="group"
 			aria-label={t('app.composer.gitControls', 'Git workspace')}
 		>
-			{/* Cluster (a): workspace — git connection status + branch picker + create form */}
+			{/* Cluster (a): workspace — branch picker + create form (pure interactive) */}
 			<div className="composer-git-cluster composer-git-cluster--workspace">
-				<span
-					className="composer-git-item"
-					title={gitError || gitStatus?.reason || ''}
-					aria-label={
-						gitError
-							? t('app.statusBar.git.errorLabel', 'Git error')
-							: t('app.statusBar.git.connectedLabel', 'Git connected')
-					}
-				>
-					<StatusDot
-						tone={
-							gitError || gitStatus?.status === 'failed'
-								? 'danger'
-								: gitStatus?.status === 'configuration_required'
-									? 'warn'
-									: 'ok'
-						}
-					/>
-					<GitBranch aria-hidden="true" size={13} />
-				</span>
 				<select
 					className="status-branch-select"
 					aria-label={t('app.statusBar.git.branchSelect', 'Git branch')}
@@ -249,29 +244,44 @@ export function GitBranchBar({
 							disabled={!selectedProject || !branchName.trim()}
 							loading={gitBusy}
 						>
-							<Plus aria-hidden="true" size={15} />
+							<Plus aria-hidden="true" size={14} />
 						</IconButton>
 					</Tooltip>
 				</form>
 			</div>
 
-			{/* Cluster (b): status — read-only dirty/clean + gitleaks result (muted, informational) */}
+			{/* Cluster (b): status — git connection + dirty/clean + gitleaks (read-only) */}
 			<div className="composer-git-cluster composer-git-cluster--status">
-				<span className="composer-git-item" title={gitStatus?.porcelain.join('\n') ?? ''}>
-					<StatusDot tone={dirty ? 'warn' : 'ok'} />
+				{/* role="img" makes aria-label valid on this non-interactive span */}
+				<span
+					role="img"
+					className="composer-git-item"
+					aria-label={
+						gitError
+							? t('app.statusBar.git.errorLabel', 'Git error')
+							: t('app.statusBar.git.connectedLabel', 'Git connected')
+					}
+					data-tone={gitConnTone !== 'ok' ? gitConnTone : undefined}
+					title={gitError || gitStatus?.reason || ''}
+				>
+					<StatusDot tone={gitConnTone} />
+					<GitBranch aria-hidden="true" size={14} />
+				</span>
+				<span
+					className="composer-git-item"
+					data-tone={dirtyTone !== 'ok' ? dirtyTone : undefined}
+					title={gitStatus?.porcelain.join('\n') ?? ''}
+				>
+					<StatusDot tone={dirtyTone} />
 					{dirty ? t('app.statusBar.git.dirty', 'dirty') : t('app.statusBar.git.clean', 'clean')}
 				</span>
-				<span className="composer-git-item" title={gitleaks?.reason ?? ''}>
-					<StatusDot
-						tone={
-							gitleaks?.status === 'completed'
-								? 'ok'
-								: gitleaks?.status === 'blocked' || gitleaks?.status === 'failed'
-									? 'danger'
-									: 'warn'
-						}
-					/>
-					gitleaks {gitleaksLabel}
+				<span
+					className="composer-git-item"
+					data-tone={gitleaksTone !== 'ok' ? gitleaksTone : undefined}
+					title={gitleaks?.reason ?? ''}
+				>
+					<StatusDot tone={gitleaksTone} />
+					{t('app.statusBar.git.gitleaksPrefix', 'gitleaks')} {gitleaksLabel}
 				</span>
 			</div>
 
@@ -284,7 +294,7 @@ export function GitBranchBar({
 						loading={gitleaksBusy}
 						onClick={() => void runGitleaks()}
 					>
-						<ShieldCheck aria-hidden="true" size={15} />
+						<ShieldCheck aria-hidden="true" size={14} />
 					</IconButton>
 				</Tooltip>
 				<Tooltip label={t('app.statusBar.git.refresh', 'Refresh Git status')}>

@@ -884,13 +884,13 @@
 
 /* Git workspace controls relocated from the footer into the composer (see GitBranchBar).
  *
- * Three clusters separated by 1px dividers + padding:
- *   (a) composer-git-cluster--workspace  — project + branch select + create form
- *   (b) composer-git-cluster--status     — clean/dirty dot + gitleaks dot (read-only, muted)
+ * Three clusters separated by 1px dividers + inset padding:
+ *   (a) composer-git-cluster--workspace  — branch select + create form
+ *   (b) composer-git-cluster--status     — git connection + clean/dirty + gitleaks (read-only)
  *   (c) composer-git-cluster--actions    — scan + refresh icon buttons (pushed right)
  *
  * Within-cluster gap: --space-2 (0.5rem).
- * Between-cluster gap: --space-4 (1rem) expressed as padding either side of the divider.
+ * Between-cluster gap: --space-4 inset on the leading edge of each non-first cluster.
  */
 .composer-git-bar {
 	display: flex;
@@ -908,23 +908,16 @@
 	gap: var(--space-2);
 }
 
-/* Divider between clusters: a 1px vertical rule with inter-cluster padding. */
+/* Divider between clusters: 1px rule on the leading edge + inset padding (no margin). */
 .composer-git-cluster + .composer-git-cluster {
 	padding-left: var(--space-4);
-	margin-left: var(--space-4);
 	border-left: 1px solid var(--color-border-subtle);
 }
 
-/* Actions cluster is always pushed to the far right. */
+/* Actions cluster is always pushed to the far right via auto-margin;
+ * the leading divider is inherited from the adjacent-sibling rule above. */
 .composer-git-cluster--actions {
 	margin-left: auto;
-	padding-left: var(--space-4);
-	border-left: 1px solid var(--color-border-subtle);
-}
-
-/* When the first cluster immediately precedes actions (no status cluster), reset margin. */
-.composer-git-cluster--workspace + .composer-git-cluster--actions {
-	/* margin-left: auto already handles this correctly */
 }
 
 /* Icon buttons inside the bar use the small control height. */
@@ -933,21 +926,24 @@
 	min-height: var(--control-height-sm);
 }
 
-/* Read-only status items (dot + label). */
+/* Read-only status items (dot + label); gap increased to clear the StatusDot halo. */
 .composer-git-item {
 	display: inline-flex;
 	align-items: center;
-	gap: var(--space-1);
+	gap: var(--space-2);
 	font-size: var(--font-size-xs);
 	color: var(--color-text-muted);
 	white-space: nowrap;
 }
 
-/* A subtle divider between the two status items inside the status cluster. */
-.composer-git-item + .composer-git-item {
-	padding-left: var(--space-2);
-	margin-left: var(--space-2);
-	border-left: 1px solid var(--color-border-subtle);
+/* Non-OK state: color the label to be scannable without relying on the dot alone.
+ * Uses data-tone to mirror the existing badge/dot pattern. */
+.composer-git-item[data-tone="warn"] {
+	color: var(--color-status-warning);
+}
+
+.composer-git-item[data-tone="danger"] {
+	color: var(--color-status-danger);
 }
 
 /* Branch select: primary control, full control height. */
@@ -1417,10 +1413,10 @@
 
 /* Workspace toolbar row: project label + git bar that stretches to fill remaining width.
  * The git bar owns the top border + padding-top separator from the submit row above.
- * font-data + font-size-xs cascade into both the label and the bar. */
+ * Allows wrap so the bar itself can reflow its clusters on narrow panes (≤720px). */
 .shell-chat-context {
 	display: flex;
-	flex-wrap: nowrap;
+	flex-wrap: wrap;
 	align-items: center;
 	gap: 0;
 	font-family: var(--font-data);
@@ -1428,7 +1424,8 @@
 	color: var(--color-text-muted);
 }
 
-/* Project name: semibold secondary text, left-anchored workspace identity. */
+/* Project name: semibold secondary text, left-anchored workspace identity.
+ * Shares the top border + padding with the git bar to form one unified toolbar line. */
 .shell-chat-context-project {
 	flex: 0 0 auto;
 	font-weight: var(--weight-semibold);
@@ -1437,7 +1434,6 @@
 	padding-top: var(--space-2);
 	border-top: 1px solid var(--color-border-subtle);
 	padding-right: var(--space-3);
-	margin-right: var(--space-1);
 }
 
 /* The git bar grows to fill remaining width so margin-left: auto on the actions
@@ -1445,6 +1441,39 @@
 .shell-chat-context > .composer-git-bar {
 	flex: 1 1 auto;
 	min-width: 0;
+}
+
+/* Narrow pane / 720px breakpoint: allow clusters to stack into rows.
+ * The git bar switches to full-width so each cluster takes its own row.
+ * The actions cluster drops the auto-margin (it's at the start of a new row)
+ * and sits flush left, mirroring the other clusters. The create-branch input
+ * uses a narrower clamp so it fits on 375px without overflow. */
+@media (max-width: 720px) {
+	.shell-chat-context {
+		flex-direction: column;
+		align-items: stretch;
+	}
+
+	.shell-chat-context-project {
+		padding-bottom: var(--space-1);
+	}
+
+	.shell-chat-context > .composer-git-bar {
+		flex-wrap: wrap;
+		row-gap: var(--space-2);
+	}
+
+	.composer-git-cluster--actions {
+		margin-left: 0;
+	}
+
+	.status-branch-select {
+		width: clamp(6rem, 40vw, 13rem);
+	}
+
+	.status-branch-create input {
+		width: clamp(5rem, 34vw, 11rem);
+	}
 }
 
 /* Secondary loop actions: a subdued row of ghost buttons for advanced loop commands. */

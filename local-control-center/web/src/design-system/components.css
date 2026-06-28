@@ -58,6 +58,11 @@
 		color var(--duration-normal) var(--ease-standard);
 }
 
+.icon-button:focus-visible {
+	outline: none;
+	box-shadow: var(--shadow-focus);
+}
+
 .badge {
 	min-height: 1.75rem;
 	display: inline-flex;

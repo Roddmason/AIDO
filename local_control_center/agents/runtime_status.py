@@ -403,8 +403,9 @@ def _ollama_provider_status(
         or os.environ.get("OLLAMA_HOST")
         or ""
     )
+    credential_ref = str(account.get("credentialRef") or "").strip() or None
     status = (
-        ollama_status(base_url=base_url)
+        ollama_status(base_url=base_url, credential_ref=credential_ref)
         if base_url
         else {
             "provider": "ollama",

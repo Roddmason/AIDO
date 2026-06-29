@@ -98,7 +98,7 @@ def provider_instance(provider_id: str, *, connection: sqlite3.Connection):
             connection=connection, base_url=base_url or "", credential_ref=credential_ref or ""
         )
     if provider_id in {"ollama", "local_ollama"}:
-        return OllamaProvider(base_url=base_url)
+        return OllamaProvider(base_url=base_url, credential_ref=credential_ref or None)
     if provider_id in {"openai", "openai_api"}:
         return OpenAIAPIProvider(base_url=base_url, credential_ref=credential_ref or "")
     if provider_id == "anthropic_api":
@@ -669,11 +669,49 @@ class ModelGateway:
         }
 
 
-def ollama_status(*, base_url: str | None = None) -> dict[str, Any]:
-    """Sondea el endpoint local de Ollama y devuelve su disponibilidad y los modelos detectados."""
+LOCAL_CREDENTIAL_SOURCES = {"env", "keyring"}
+
+
+def _ollama_status_auth(credential_ref: str | None) -> tuple[dict[str, str], str | None]:
+    """Devuelve (cabecera Bearer, motivo de bloqueo) para el sondeo de estado de alta frecuencia.
+
+    No obtiene secretos remotos en cada poll: valida presencia con ``fetch=False``, falla cerrado si
+    el ``credentialRef`` esta missing/invalid, y solo resuelve el valor para fuentes locales
+    (env/keyring). Las fuentes de secreto remoto (vault/openbao) se difieren a un health-check
+    explicito para no contactar el almacen de secretos en cada refresco de UI.
+    """
+    if not credential_ref:
+        return {}, None
+    from .credentials import CredentialResolver
+
+    resolver = CredentialResolver()
+    presence = resolver.resolve(credential_ref, fetch=False)
+    if presence.status in {"missing", "invalid", "unsupported", "unavailable"}:
+        return {}, f"Ollama credentialRef is {presence.status}; configure the remote access token."
+    if presence.source not in LOCAL_CREDENTIAL_SOURCES:
+        return {}, (
+            "Ollama remote credentialRef uses a remote secret store; "
+            "run an explicit health-check to validate reachability."
+        )
+    resolved = resolver.resolve(credential_ref)
+    if not resolved.configured:
+        return {}, f"Ollama credentialRef is {resolved.status}; configure the remote access token."
+    return {"Authorization": f"Bearer {resolved.value}"}, None
+
+
+def ollama_status(*, base_url: str | None = None, credential_ref: str | None = None) -> dict[str, Any]:
+    """Sondea el endpoint de Ollama (local o remoto) y devuelve disponibilidad y modelos detectados.
+
+    Adjunta auth Bearer cuando hay ``credential_ref`` local resoluble (env/keyring). Falla cerrado
+    (available=False con motivo) si el credentialRef esta configurado pero no resuelve, y difiere las
+    fuentes de secreto remoto a un health-check explicito. Por defecto (local) no envia credencial.
+    """
     resolved_base_url = (base_url or "http://127.0.0.1:11434").rstrip("/")
+    headers, blocking_reason = _ollama_status_auth(credential_ref)
+    if blocking_reason:
+        return {"provider": "ollama", "available": False, "models": [], "reason": blocking_reason}
     try:
-        request = Request(f"{resolved_base_url}/api/tags", method="GET")
+        request = Request(f"{resolved_base_url}/api/tags", headers=headers, method="GET")
         with urlopen(request, timeout=2) as response:
             payload = json.loads(response.read().decode("utf-8"))
     except (OSError, TimeoutError, URLError, json.JSONDecodeError) as error:

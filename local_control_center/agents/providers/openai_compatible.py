@@ -30,10 +30,26 @@ from .base import (
     UsageRecord,
 )
 
+USAGE_TOKEN_KEYS = (
+    "prompt_tokens",
+    "completion_tokens",
+    "total_tokens",
+    "input_tokens",
+    "output_tokens",
+    "reasoning_tokens",
+    "cached_input_tokens",
+    "tool_tokens",
+)
+
 
 def real_provider_calls_enabled() -> bool:
     """Indica si las llamadas de red reales estan habilitadas; por defecto desactivadas (fail-closed)."""
     return os.environ.get("AIDO_ENABLE_REAL_PROVIDER_CALLS", "false").lower() == "true"
+
+
+def _provider_reported_usage(usage: Any) -> bool:
+    """Indica si el bloque `usage` trae al menos un contador de tokens reportado por el proveedor."""
+    return isinstance(usage, dict) and any(usage.get(key) is not None for key in USAGE_TOKEN_KEYS)
 
 
 class OpenAICompatibleProvider(ModelProvider):
@@ -186,8 +202,16 @@ class OpenAICompatibleProvider(ModelProvider):
         )
 
     def parse_usage(self, raw_response: Any) -> UsageRecord:
-        """Mapea el bloque `usage` de OpenAI (prompt/completion + detalles cacheo/reasoning) a UsageRecord."""
+        """Mapea el bloque `usage` de OpenAI (prompt/completion + detalles cacheo/reasoning) a UsageRecord.
+
+        Si el proveedor no reporta uso, marca el origen como ``unknown`` en vez de inventar ceros,
+        para no fabricar tokens ni costo aguas abajo.
+        """
         usage = raw_response.get("usage", {}) if isinstance(raw_response, dict) else {}
+        if not _provider_reported_usage(usage):
+            return UsageRecord(
+                rawUsage={"usage_source": "unknown", "reason": "provider_response_missing_usage"}
+            )
         input_tokens = int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0)
         output_tokens = int(usage.get("completion_tokens") or usage.get("output_tokens") or 0)
         reasoning_tokens = int(
@@ -211,5 +235,5 @@ class OpenAICompatibleProvider(ModelProvider):
             reasoningTokens=reasoning_tokens,
             toolTokens=tool_tokens,
             totalTokens=total,
-            rawUsage=redact_secrets(usage),
+            rawUsage=redact_secrets({**usage, "usage_source": "provider"}),
         )

@@ -75,6 +75,33 @@ def test_git_status_detects_current_branch_and_records_broker_evidence(
     )
 
 
+def test_git_status_rejects_project_nested_inside_another_repo(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A project folder nested inside a PARENT repo must report 'not connected', not leak its branches.
+
+    Regression: git walks up to the nearest `.git`, so without an own-repo check the control plane
+    listed the parent repository's branches (e.g. AIDO's) for a project that owns no repo of its own.
+    """
+    store, client, _headers = create_client(tmp_path, monkeypatch)
+    parent = tmp_path / "parent_repo"
+    init_git_project(parent)
+    assert run_git(["branch", "leaked-parent-branch"], cwd=parent).returncode == 0
+    nested = parent / "nested_project"
+    nested.mkdir(parents=True, exist_ok=True)
+    project = store.create_project(name="nested", path=nested, template_id="other")
+
+    status = client.get(f"/api/v1/projects/{project['id']}/git/status").json()
+    branches = client.get(f"/api/v1/projects/{project['id']}/git/branches").json()
+
+    assert status["status"] == "configuration_required"
+    assert status["reason"] == "Project path is not a Git repository."
+    assert status["currentBranch"] == ""
+    assert branches["localBranches"] == []
+    assert "leaked-parent-branch" not in branches["localBranches"]
+    assert "main" not in branches["localBranches"]
+
+
 def test_git_status_categorizes_changed_untracked_and_staged_files(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

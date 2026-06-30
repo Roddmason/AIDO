@@ -9,6 +9,10 @@ from fastapi.testclient import TestClient
 
 from local_control_center.agents_runtime import GatedAgentsPlanner
 from local_control_center.app import create_app
+from local_control_center.control_plane.overview import (
+    OVERVIEW_AUDIT_EVENT_LIMIT,
+    OVERVIEW_EVENT_LIMIT,
+)
 from local_control_center.control_plane.runtime import ControlCenterRuntime
 from local_control_center.jobs_approvals.repository import JobsRepository
 from local_control_center.memory_retrieval.index import RetrievalIndex
@@ -18,6 +22,7 @@ from local_control_center.sandbox import WindowsSandbox
 from local_control_center.shared.db import open_sqlite_connection
 from local_control_center.shared.event_bus import EventBus
 from local_control_center.shared.migrations import initialize_platform_schema
+from local_control_center.threads.repository import ThreadsRepository
 from local_control_center.worker import ConcurrentWorker
 from tests_py.control_plane_fixture import ControlPlaneFixture
 
@@ -233,6 +238,46 @@ def test_overview_routes_do_not_use_store_read_model_facade(tmp_path: Path, monk
     assert any(job["id"] for job in overview.json()["jobs"])
     assert events.status_code == 200
     assert "event: snapshot" in events.text
+
+
+def test_overview_returns_bounded_recent_event_snapshot(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
+    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store.init()
+    project = store.create_project(
+        name="Overview Events",
+        path=tmp_path / "overview-events",
+        template_id="other",
+    )
+    for index in range(OVERVIEW_EVENT_LIMIT + 25):
+        store.events.record_event(
+            project_id=project["id"],
+            event_type="telemetry.http.request",
+            payload={"sequence": index},
+        )
+    for index in range(OVERVIEW_AUDIT_EVENT_LIMIT + 10):
+        store.events.record_audit(
+            project_id=project["id"],
+            action="audit.test",
+            target=f"target-{index}",
+            payload={"sequence": index},
+        )
+    assert len(store.events.list_events(project_id=project["id"])) == OVERVIEW_EVENT_LIMIT + 25
+    assert len(store.events.list_audit_events(project_id=project["id"])) >= OVERVIEW_AUDIT_EVENT_LIMIT + 10
+
+    response = TestClient(create_app(runtime=store, static_dir=None)).get("/api/v1/overview")
+
+    assert response.status_code == 200
+    overview = response.json()
+    assert len(overview["events"]) == OVERVIEW_EVENT_LIMIT
+    assert len(overview["auditEvents"]) == OVERVIEW_AUDIT_EVENT_LIMIT
+    assert overview["events"][0]["payload"]["sequence"] == OVERVIEW_EVENT_LIMIT + 24
+    audit_sequences = [
+        item["payload"].get("sequence")
+        for item in overview["auditEvents"]
+        if item["action"] == "audit.test"
+    ]
+    assert max(audit_sequences) == OVERVIEW_AUDIT_EVENT_LIMIT + 9
 
 
 def test_api_requests_serialize_shared_store_access(tmp_path: Path, monkeypatch) -> None:
@@ -518,6 +563,67 @@ def test_worker_fails_unknown_job_kind_instead_of_simulating_success(tmp_path: P
     assert run["status"] == "failed"
     assert run["metadata"]["status"] == "unsupported_job_kind"
     assert "Unsupported job kind" in run["summary"]
+
+
+def test_worker_executes_thread_product_loop_job_and_updates_thread(monkeypatch, tmp_path: Path) -> None:
+    db_path = tmp_path / "platform.sqlite"
+    captured: dict[str, str] = {}
+
+    def fake_run_user_message(self, **kwargs):
+        captured["thread_id"] = kwargs["thread_id"]
+        captured["project_id"] = kwargs["project_id"]
+        return {
+            "status": "awaiting_approval",
+            "reason": "Evidence-backed Product Loop result awaits operator approval.",
+            "loop": {"id": "product-loop-controlled", "state": "awaiting_approval"},
+            "evidencePackage": {"id": "evidence-controlled"},
+        }
+
+    monkeypatch.setattr(
+        "local_control_center.product_loop.coordinator.ProductLoopCoordinator.run_user_message",
+        fake_run_user_message,
+    )
+
+    with open_sqlite_connection(db_path) as connection:
+        initialize_platform_schema(connection)
+        project = ProjectsRepository(connection).create_project(
+            name="Thread Worker",
+            path=tmp_path / "thread-worker",
+            template_id="other",
+        )
+        thread = ThreadsRepository(connection).create_thread(
+            project_id=project["id"],
+            owner_type="workspace",
+            owner_id="workspace-1",
+            title="Thread worker",
+        )
+        job = JobsRepository(connection).create_job(
+            project_id=project["id"],
+            kind="thread.product_loop.run",
+            payload={
+                "threadId": thread["id"],
+                "message": "Implement the thread console.",
+                "title": "Thread console",
+                "root": str(tmp_path),
+            },
+        )["job"]
+
+    result = ConcurrentWorker(db_path=db_path).run_once(worker_id="worker-thread")
+
+    with open_sqlite_connection(db_path) as connection:
+        initialize_platform_schema(connection)
+        repo = ThreadsRepository(connection)
+        refreshed = repo.get_thread(thread["id"])
+        events = repo.list_events(thread["id"])
+        messages = repo.list_messages(thread["id"])
+
+    assert result["job"]["id"] == job["id"]
+    assert result["job"]["status"] == "completed"
+    assert captured == {"thread_id": thread["id"], "project_id": project["id"]}
+    assert refreshed["status"] == "awaiting_approval"
+    assert "worker_claimed" in [event["type"] for event in events]
+    assert "approval_required" in [event["type"] for event in events]
+    assert messages[-1]["kind"] == "aido_lead"
 
 
 def test_retrieval_index_uses_persisted_real_embeddings_per_project_and_is_rebuildable(

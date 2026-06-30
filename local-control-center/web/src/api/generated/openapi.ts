@@ -180,6 +180,7 @@ export type ModelGatewayOverviewResponse = { "overview": ModelGatewayOverviewRec
 export type ModelPolicyRecord = { "allowLocal": boolean; "allowRemote": boolean; "createdAt": string; "fallback": Array<ModelProviderCandidate>; "id": string; "maxCostUsd": number; "maxTokens": number; "name": string; "preferred": Array<ModelProviderCandidate>; "status": "active" | "disabled"; "temperature": number; "updatedAt": string };
 export type ModelProviderCandidate = { "model": string; "provider": string };
 export type ModelProviderRecord = { "allowRemote": boolean; "createdAt": string; "id": string; "label": string; "metadata": JsonObject; "provider": string; "status": string; "updatedAt": string };
+export type NextStep = { "handoffTo"?: null | string; "source": "agent" | "handoff"; "text"?: null | string };
 export type NextStepCreateRequest = { "dueAt"?: null | string; "metadata"?: JsonObject; "owner"?: string; "priority"?: "low" | "medium" | "high" | "urgent"; "projectId": string; "sourceDecisionId"?: null | string; "sourceRiskId"?: null | string; "status"?: "planned" | "in_progress" | "blocked" | "completed" | "cancelled"; "title": string };
 export type NextStepRecord = { "createdAt": string; "dueAt"?: null | string; "id": string; "metadata": JsonObject; "owner": string; "priority": "low" | "medium" | "high" | "urgent"; "projectId": string; "sourceDecisionId"?: null | string; "sourceRiskId"?: null | string; "status": "planned" | "in_progress" | "blocked" | "completed" | "cancelled"; "title": string; "updatedAt": string };
 export type NextStepResponse = { "nextStep": NextStepRecord };
@@ -260,13 +261,14 @@ export type QAAgentRunRequest = { "commands"?: Array<QAAgentCommandRequest>; "me
 export type QAAgentRunResponse = { "agentRun": AgentRunRecord; "contract": QAAgentContract; "evidencePackage": JsonObject; "job": JsonObject; "reason": string; "results": Array<JsonObject>; "status": string; "verdict": string; "workspace": JsonObject };
 export type RequiredReasonRequest = { "reason": string };
 export type ResearchAgentContract = { "allowedTools": Array<string>; "id": string; "inputSchema": JsonObject; "outputSchema": JsonObject; "requiredEvidence": boolean; "requiredRuntimeCapabilities": Array<string>; "requiredWorkspace": boolean; "sourcePolicy": JsonObject; "verdictSource": string };
-export type ResearchAgentRunRequest = { "claims"?: Array<ResearchClaimRequest>; "conclusions"?: Array<ResearchConclusionRequest>; "metadata"?: JsonObject; "projectId": string; "sources": Array<ResearchSourceRequest>; "taskId"?: string; "workspaceId": string };
-export type ResearchAgentRunResponse = { "agentRun": AgentRunRecord; "citationCheck": JsonObject; "conclusions": Array<JsonObject>; "conflictFindings": Array<JsonObject>; "contract": ResearchAgentContract; "evidencePackage": JsonObject; "job": JsonObject; "reason": string; "reportArtifact": JsonObject; "sources": Array<JsonObject>; "status": "completed" | "blocked" | "needs_human_review"; "verdict": "completed" | "blocked" | "needs_human_review"; "workspace": JsonObject };
+export type ResearchAgentRunRequest = { "claims"?: Array<ResearchClaimRequest>; "conclusions"?: Array<ResearchConclusionRequest>; "metadata"?: JsonObject; "projectId": string; "sources": Array<ResearchSourceRequest>; "taskId"?: string; "technicalDecisions"?: Array<ResearchTechnicalDecisionRequest>; "workspaceId": string };
+export type ResearchAgentRunResponse = { "agentRun": AgentRunRecord; "citationCheck": JsonObject; "conclusions": Array<JsonObject>; "conflictFindings": Array<JsonObject>; "contract": ResearchAgentContract; "discrepancies"?: Array<JsonObject>; "evidencePackage": JsonObject; "job": JsonObject; "reason": string; "recommendation"?: JsonObject; "reportArtifact": JsonObject; "sources": Array<JsonObject>; "status": "research_required" | "research_running" | "research_ready" | "research_blocked"; "technicalDecisions"?: Array<JsonObject>; "verdict": "research_required" | "research_running" | "research_ready" | "research_blocked"; "workspace": JsonObject };
 export type ResearchAgentStatus = { "contract": ResearchAgentContract; "executable": boolean; "id": string; "reason": string; "status": string };
 export type ResearchAgentStatusResponse = { "researchAgent": ResearchAgentStatus };
 export type ResearchClaimRequest = { "sourceUrl": string; "topic": string; "value": string };
 export type ResearchConclusionRequest = { "citations"?: Array<string>; "statement": string; "webBased"?: boolean };
 export type ResearchSourceRequest = { "content"?: null | string; "fetchedAt"?: null | string; "publisher": string; "relatedArtifact"?: null | string; "trustLevel"?: "official_documentation" | "official_repository" | "standard_rfc" | "primary_research" | "reputable_secondary" | "untrusted" | null; "url": string };
+export type ResearchTechnicalDecisionRequest = { "decision": string; "sourceUrls"?: Array<string>; "title": string };
 export type ResolvedSetting = { "editableScopes": Array<string>; "enum"?: Array<string> | null; "inherited": boolean; "key": string; "labelKey"?: string; "origin": "default" | "general" | "project"; "projectSection"?: null | string; "section": string; "source": "default" | "general" | "project"; "type": string; "value": JsonValue };
 export type RestrictedSubprocessStatus = { "available": boolean; "fallbackOnlyForLowRisk": boolean; "requiresArgv": boolean; "shell": boolean; "workspaceBound": boolean };
 export type RetrievalIndexSummary = { "backend": string; "degraded": boolean; "dimensions": number; "ids": Array<string>; "indexed": number; "projectId": string; "reason": string; "status": string };
@@ -345,7 +347,7 @@ export type SkillsSyncRequest = { "skillsPath"?: string };
 export type SkillsSyncResponse = { "skills": Array<SkillRecord>; "synced": number };
 export type StoryDependencyRecord = { "createdAt": string; "dependsOnStoryId": string; "id": string; "metadata": JsonObject; "projectId": string; "reason": string; "storyId": string; "type": string };
 export type TaskDependencyRecord = { "createdAt": string; "dependsOnTaskId": string; "id": string; "metadata": JsonObject; "projectId": string; "reason": string; "taskId": string; "type": string };
-export type TeamActivityEntry = { "agentId": string; "agentName": string; "blockedReason"?: null | string; "completedArtifact"?: ArtifactSummary | null; "costSource"?: "actual" | "estimated" | null; "costUsd"?: null | number; "currentAssignment"?: AssignmentSummary | null; "developerDetails": DeveloperDetails; "durationMs"?: null | number; "endedAt"?: null | string; "id": string; "lowLevelEvents": LowLevelEvents; "modelCallCount": number; "provider"?: null | string; "reviewer"?: ReviewerSummary | null; "role": string; "runtime": string; "startedAt"?: null | string; "state": "active" | "blocked" | "done"; "status": string; "toolCallCount": number };
+export type TeamActivityEntry = { "agentId": string; "agentName": string; "blockedReason"?: null | string; "completedArtifact"?: ArtifactSummary | null; "costSource"?: "actual" | "estimated" | null; "costUsd"?: null | number; "currentAssignment"?: AssignmentSummary | null; "developerDetails": DeveloperDetails; "durationMs"?: null | number; "endedAt"?: null | string; "id": string; "lowLevelEvents": LowLevelEvents; "modelCallCount": number; "nextStep"?: NextStep | null; "provider"?: null | string; "reviewer"?: ReviewerSummary | null; "role": string; "runtime": string; "startedAt"?: null | string; "state": "active" | "blocked" | "done"; "status": string; "toolCallCount": number };
 export type TeamActivityResponse = { "activeCount": number; "blockedCount": number; "entries"?: Array<TeamActivityEntry>; "generatedAt": string; "projectId": string; "totalCount": number; "truncated": boolean };
 export type TeamRecord = { "capabilities": Array<JsonValue>; "createdAt": string; "id": string; "metadata": JsonObject; "name": string; "projectId": string; "updatedAt": string; "version": string };
 export type TeamsListResponse = { "teams": Array<TeamRecord> };
@@ -358,11 +360,13 @@ export type ThreadDecisionRecord = { "createdAt": string; "decidedAt"?: null | s
 export type ThreadDecisionResolveRequest = { "decidedBy"?: null | string; "resolution": string };
 export type ThreadDecisionResolveResponse = { "decision": ThreadDecisionRecord; "thread": ThreadRecord };
 export type ThreadDetailResponse = { "artifacts": Array<ThreadArtifactRecord>; "decisions": Array<ThreadDecisionRecord>; "events": Array<ThreadAgentEventRecord>; "messages": Array<ThreadMessageRecord>; "thread": ThreadRecord };
+export type ThreadEventsResponse = { "events": Array<ThreadAgentEventRecord>; "lastSeq": number; "running": boolean; "threadStatus": "open" | "queued" | "running" | "waiting_decision" | "awaiting_approval" | "blocked" | "resolved" | "archived" };
 export type ThreadListResponse = { "threads": Array<ThreadRecord> };
 export type ThreadMessageRecord = { "author": string; "content": string; "createdAt": string; "id": string; "kind": "user" | "aido_lead" | "agent_summary" | "decision_request" | "artifact" | "error" | "system_event"; "metadata": JsonObject; "projectId": string; "sequence": number; "threadId": string };
 export type ThreadMessageRequest = { "author"?: null | string; "content": string };
-export type ThreadMessageResultResponse = { "artifacts": Array<ThreadArtifactRecord>; "blocked": boolean; "decision"?: ThreadDecisionRecord | null; "events": Array<ThreadAgentEventRecord>; "messages": Array<ThreadMessageRecord>; "thread": ThreadRecord };
-export type ThreadRecord = { "createdAt": string; "id": string; "metadata": JsonObject; "ownerId": string; "ownerType": "workspace" | "loop" | "story" | "agent_task" | "review"; "projectId": string; "status": "open" | "waiting_decision" | "blocked" | "resolved" | "archived"; "summary": string; "title": string; "updatedAt": string };
+export type ThreadMessageResultResponse = { "artifacts": Array<ThreadArtifactRecord>; "blocked": boolean; "decision"?: ThreadDecisionRecord | null; "events": Array<ThreadAgentEventRecord>; "messages": Array<ThreadMessageRecord>; "run": ThreadRunSummary; "thread": ThreadRecord };
+export type ThreadRecord = { "createdAt": string; "id": string; "metadata": JsonObject; "ownerId": string; "ownerType": "workspace" | "loop" | "story" | "agent_task" | "review"; "projectId": string; "status": "open" | "queued" | "running" | "waiting_decision" | "awaiting_approval" | "blocked" | "resolved" | "archived"; "summary": string; "title": string; "updatedAt": string };
+export type ThreadRunSummary = { "jobId"?: null | string; "loopId"?: null | string; "reason"?: null | string; "status": "queued" | "running" | "blocked" | "awaiting_approval" | "completed" | "failed" };
 export type ToolCallSummary = { "createdAt": string; "id": string; "status": string; "toolName": string };
 export type UsageLedgerListResponse = { "usageLedger": Array<UsageLedgerRecord> };
 export type UsageLedgerRecord = { "actualCostUsd"?: null | number; "agentId"?: null | string; "cachedInputTokens": number; "costStatus"?: string; "createdAt": string; "currency": string; "estimatedCostUsd"?: null | number; "id": string; "inputTokens": number; "jobId"?: null | string; "latencyMs"?: null | number; "model": string; "outputTokens": number; "providerId": string; "rawUsage": JsonObject; "reasoningTokens": number; "requestId"?: null | string; "role"?: null | string; "runtimeType": string; "sessionId"?: null | string; "taskId"?: null | string; "tokenStatus"?: string; "toolTokens": number; "totalTokens": number; "usageSource": string; "workflowRunId"?: null | string; "workflowStepId"?: null | string };
@@ -557,6 +561,7 @@ export const API_ENDPOINTS = [
 	{"method": "POST", "operationId": "create_thread_api_v1_threads_post", "path": "/api/v1/threads", "summary": "Create Thread"},
 	{"method": "GET", "operationId": "get_thread_api_v1_threads__thread_id__get", "path": "/api/v1/threads/{thread_id}", "summary": "Get Thread"},
 	{"method": "POST", "operationId": "resolve_decision_api_v1_threads__thread_id__decisions__decision_id__resolve_post", "path": "/api/v1/threads/{thread_id}/decisions/{decision_id}/resolve", "summary": "Resolve Decision"},
+	{"method": "GET", "operationId": "thread_events_api_v1_threads__thread_id__events_get", "path": "/api/v1/threads/{thread_id}/events", "summary": "Thread Events"},
 	{"method": "POST", "operationId": "post_message_api_v1_threads__thread_id__messages_post", "path": "/api/v1/threads/{thread_id}/messages", "summary": "Post Message"},
 	{"method": "GET", "operationId": "list_workflows_api_v1_workflows_get", "path": "/api/v1/workflows", "summary": "List Workflows"},
 	{"method": "POST", "operationId": "create_workflow_api_v1_workflows_post", "path": "/api/v1/workflows", "summary": "Create Workflow"},
@@ -763,6 +768,7 @@ export type OperationRequestBodies = {
 	"team_activity_api_v1_projects__project_id__team_activity_get": never,
 	"teams_api_v1_teams_get": never,
 	"telemetry_status_api_v1_telemetry_status_get": never,
+	"thread_events_api_v1_threads__thread_id__events_get": never,
 	"transition_product_loop_api_v1_projects__project_id__product_loop__loop_id__transition_post": ProductLoopTransitionRequest,
 	"update_next_step_api_v1_next_steps__step_id__patch": NextStepUpdateRequest,
 	"update_risk_api_v1_risks__risk_id__patch": RiskUpdateRequest,
@@ -949,6 +955,7 @@ export type OperationResponseBodies = {
 	"team_activity_api_v1_projects__project_id__team_activity_get": TeamActivityResponse,
 	"teams_api_v1_teams_get": TeamsListResponse,
 	"telemetry_status_api_v1_telemetry_status_get": TelemetryStatusResponse,
+	"thread_events_api_v1_threads__thread_id__events_get": ThreadEventsResponse,
 	"transition_product_loop_api_v1_projects__project_id__product_loop__loop_id__transition_post": ProductLoopResumeResponse,
 	"update_next_step_api_v1_next_steps__step_id__patch": NextStepResponse,
 	"update_risk_api_v1_risks__risk_id__patch": RiskResponse,
@@ -1126,6 +1133,7 @@ export const OPERATIONS_BY_ID = {
 	"create_thread_api_v1_threads_post": {"method": "POST", "operationId": "create_thread_api_v1_threads_post", "path": "/api/v1/threads", "summary": "Create Thread"},
 	"get_thread_api_v1_threads__thread_id__get": {"method": "GET", "operationId": "get_thread_api_v1_threads__thread_id__get", "path": "/api/v1/threads/{thread_id}", "summary": "Get Thread"},
 	"resolve_decision_api_v1_threads__thread_id__decisions__decision_id__resolve_post": {"method": "POST", "operationId": "resolve_decision_api_v1_threads__thread_id__decisions__decision_id__resolve_post", "path": "/api/v1/threads/{thread_id}/decisions/{decision_id}/resolve", "summary": "Resolve Decision"},
+	"thread_events_api_v1_threads__thread_id__events_get": {"method": "GET", "operationId": "thread_events_api_v1_threads__thread_id__events_get", "path": "/api/v1/threads/{thread_id}/events", "summary": "Thread Events"},
 	"post_message_api_v1_threads__thread_id__messages_post": {"method": "POST", "operationId": "post_message_api_v1_threads__thread_id__messages_post", "path": "/api/v1/threads/{thread_id}/messages", "summary": "Post Message"},
 	"list_workflows_api_v1_workflows_get": {"method": "GET", "operationId": "list_workflows_api_v1_workflows_get", "path": "/api/v1/workflows", "summary": "List Workflows"},
 	"create_workflow_api_v1_workflows_post": {"method": "POST", "operationId": "create_workflow_api_v1_workflows_post", "path": "/api/v1/workflows", "summary": "Create Workflow"},

@@ -73,15 +73,34 @@ class EventBus:
         row = self.connection.execute("SELECT * FROM events WHERE id = ?", (event_id,)).fetchone()
         return row_to_event(row)
 
-    def list_events(self, project_id: str | None = None) -> list[dict[str, Any]]:
+    def list_events(
+        self,
+        project_id: str | None = None,
+        *,
+        limit: int | None = None,
+    ) -> list[dict[str, Any]]:
         """Lista eventos (todos o por proyecto) ordenados del más reciente al más antiguo."""
+        limit_sql = ""
+        params: list[Any] = []
+        if limit is not None:
+            if limit < 1:
+                raise ValueError("Event list limit must be positive.")
+            limit_sql = " LIMIT ?"
         if project_id:
+            params.append(project_id)
+            if limit is not None:
+                params.append(limit)
             rows = self.connection.execute(
-                "SELECT * FROM events WHERE project_id = ? ORDER BY created_at DESC",
-                (project_id,),
+                f"SELECT * FROM events WHERE project_id = ? ORDER BY created_at DESC, rowid DESC{limit_sql}",
+                params,
             ).fetchall()
         else:
-            rows = self.connection.execute("SELECT * FROM events ORDER BY created_at DESC").fetchall()
+            if limit is not None:
+                params.append(limit)
+            rows = self.connection.execute(
+                f"SELECT * FROM events ORDER BY created_at DESC, rowid DESC{limit_sql}",
+                params,
+            ).fetchall()
         return [row_to_event(row) for row in rows]
 
     def record_audit(
@@ -106,13 +125,32 @@ class EventBus:
         row = self.connection.execute("SELECT * FROM audit_events WHERE id = ?", (audit_id,)).fetchone()
         return row_to_audit(row)
 
-    def list_audit_events(self, project_id: str | None = None) -> list[dict[str, Any]]:
+    def list_audit_events(
+        self,
+        project_id: str | None = None,
+        *,
+        limit: int | None = None,
+    ) -> list[dict[str, Any]]:
         """Lista eventos de auditoría (todos o por proyecto) del más reciente al más antiguo."""
+        limit_sql = ""
+        params: list[Any] = []
+        if limit is not None:
+            if limit < 1:
+                raise ValueError("Audit event list limit must be positive.")
+            limit_sql = " LIMIT ?"
         if project_id:
+            params.append(project_id)
+            if limit is not None:
+                params.append(limit)
             rows = self.connection.execute(
-                "SELECT * FROM audit_events WHERE project_id = ? ORDER BY created_at DESC",
-                (project_id,),
+                f"SELECT * FROM audit_events WHERE project_id = ? ORDER BY created_at DESC, rowid DESC{limit_sql}",
+                params,
             ).fetchall()
         else:
-            rows = self.connection.execute("SELECT * FROM audit_events ORDER BY created_at DESC").fetchall()
+            if limit is not None:
+                params.append(limit)
+            rows = self.connection.execute(
+                f"SELECT * FROM audit_events ORDER BY created_at DESC, rowid DESC{limit_sql}",
+                params,
+            ).fetchall()
         return [row_to_audit(row) for row in rows]

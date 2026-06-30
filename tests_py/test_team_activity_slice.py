@@ -394,3 +394,93 @@ def test_team_activity_is_scoped_to_its_project(tmp_path: Path) -> None:
         assert [entry["id"] for entry in populated["entries"]] == [other_run["id"]]
     finally:
         runtime.close()
+
+
+def test_team_activity_surfaces_the_agent_stated_next_step_over_a_pending_handoff(tmp_path: Path) -> None:
+    runtime, client = _client(tmp_path)
+    try:
+        connection = runtime.connection
+        projects = ProjectsRepository(connection)
+        agents = AgentsRepository(connection)
+        backlog = BacklogRepository(connection)
+
+        project = projects.create_project(name="Team", path=tmp_path / "team", template_id="other")
+        project_id = project["id"]
+        story_id = _seed_story(backlog, project_id)
+        task = backlog.create_agent_task(
+            {"projectId": project_id, "storyId": story_id, "title": "T", "role": "developer"}
+        )
+        agents.upsert_agent_profile(
+            {"id": "agent-dev", "name": "Dev", "role": "developer", "runtimeMode": "api"}
+        )
+        # The assignment auto-creates a pending handoff; the agent's own stated next step wins over it.
+        backlog.create_agent_assignment(
+            {
+                "projectId": project_id,
+                "taskId": task["id"],
+                "agentId": "agent-dev",
+                "role": "developer",
+                "assignedBy": "iteration_planner",
+                "reviewRequired": False,
+            }
+        )
+        agents.create_agent_run(
+            project_id=project_id,
+            agent_profile_id="agent-dev",
+            task_id=task["id"],
+            input_payload={"prompt": "x"},
+            output_payload={"nextStep": "Open a PR once the suite is green."},
+            status="running",
+        )
+
+        entry = client.get(f"/api/v1/projects/{project_id}/team-activity").json()["entries"][0]
+        assert entry["nextStep"]["source"] == "agent"
+        assert entry["nextStep"]["text"] == "Open a PR once the suite is green."
+        assert entry["nextStep"]["handoffTo"] is None
+    finally:
+        runtime.close()
+
+
+def test_team_activity_falls_back_to_the_pending_handoff_destination_for_next_step(tmp_path: Path) -> None:
+    runtime, client = _client(tmp_path)
+    try:
+        connection = runtime.connection
+        projects = ProjectsRepository(connection)
+        agents = AgentsRepository(connection)
+        backlog = BacklogRepository(connection)
+
+        project = projects.create_project(name="Team", path=tmp_path / "team", template_id="other")
+        project_id = project["id"]
+        story_id = _seed_story(backlog, project_id)
+        task = backlog.create_agent_task(
+            {"projectId": project_id, "storyId": story_id, "title": "T", "role": "developer"}
+        )
+        agents.upsert_agent_profile(
+            {"id": "agent-dev", "name": "Dev", "role": "developer", "runtimeMode": "api"}
+        )
+        # The freshly created assignment auto-creates a pending handoff to the assignee.
+        backlog.create_agent_assignment(
+            {
+                "projectId": project_id,
+                "taskId": task["id"],
+                "agentId": "agent-dev",
+                "role": "developer",
+                "assignedBy": "iteration_planner",
+                "reviewRequired": False,
+            }
+        )
+        agents.create_agent_run(
+            project_id=project_id,
+            agent_profile_id="agent-dev",
+            task_id=task["id"],
+            input_payload={"prompt": "x"},
+            output_payload={},
+            status="running",
+        )
+
+        entry = client.get(f"/api/v1/projects/{project_id}/team-activity").json()["entries"][0]
+        assert entry["nextStep"]["source"] == "handoff"
+        assert entry["nextStep"]["handoffTo"] == "agent-dev"
+        assert entry["nextStep"]["text"] is None
+    finally:
+        runtime.close()

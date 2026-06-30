@@ -2,7 +2,7 @@
 
 Defines the validated shape the shell consumes: a list of per-run activity entries, each
 carrying the headline fields (agent, role, runtime, assignment, blocked reason, completed
-artifact, reviewer, duration, cost) plus collapsible low-level model/tool events and a
+artifact, reviewer, next step, duration, cost) plus collapsible low-level model/tool events and a
 developer-details block with the run's already-redacted input/output/metadata. Python keeps
 snake_case while keys travel as camelCase via ``alias``; the service emits that camelCase.
 
@@ -17,6 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 EntryState = Literal["active", "blocked", "done"]
 CostSource = Literal["actual", "estimated"]
+NextStepSource = Literal["agent", "handoff"]
 
 
 class _Aliased(BaseModel):
@@ -49,6 +50,18 @@ class ReviewerSummary(_Aliased):
     reviewer_agent_id: str = Field(alias="reviewerAgentId")
     status: str
     decision: str | None = None
+
+
+class NextStep(_Aliased):
+    """The work's next action: the agent's own stated step, or a pending handoff's destination.
+
+    ``source`` says which: ``agent`` carries the agent-stated ``text``; ``handoff`` carries the
+    ``handoff_to`` agent expected to act next. Exactly one of the two payloads is populated.
+    """
+
+    source: NextStepSource
+    text: str | None = None
+    handoff_to: str | None = Field(default=None, alias="handoffTo")
 
 
 class ModelCallSummary(_Aliased):
@@ -103,6 +116,7 @@ class TeamActivityEntry(_Aliased):
     blocked_reason: str | None = Field(default=None, alias="blockedReason")
     completed_artifact: ArtifactSummary | None = Field(default=None, alias="completedArtifact")
     reviewer: ReviewerSummary | None = None
+    next_step: NextStep | None = Field(default=None, alias="nextStep")
     started_at: str | None = Field(default=None, alias="startedAt")
     ended_at: str | None = Field(default=None, alias="endedAt")
     duration_ms: int | None = Field(default=None, alias="durationMs")

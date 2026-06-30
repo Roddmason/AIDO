@@ -182,6 +182,24 @@ def test_agents_page_does_not_fallback_to_unverified_provider_catalogs() -> None
     assert "configuration_required" in source
 
 
+def test_agents_page_exposes_team_panel_runtime_blockers_and_project_overrides() -> None:
+    source = read(SRC / "features" / "agents" / "AgentsPage.tsx")
+    api_client = read(SRC / "api" / "client.ts")
+    generated = read(SRC / "api" / "generated" / "openapi.ts")
+
+    assert "Team panel" in source
+    assert "runtimeAvailability" in source
+    assert "blockedReason" in source
+    assert "projectOverride" in source
+    assert "selectedProjectId" in source
+    assert "upsertAgentProfileProjectOverride" in source
+    assert (
+        "agent_profile_override_api_v1_projects__project_id__agent_profile_overrides__profile_id__put"
+        in generated
+    )
+    assert "upsertAgentProfileProjectOverride" in api_client
+
+
 def test_control_plane_optional_state_does_not_reuse_stale_health_snapshots() -> None:
     source = read(SRC / "hooks" / "useControlPlane.ts")
 

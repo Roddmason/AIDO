@@ -96,6 +96,7 @@ export function Tabs({
 				role="tabpanel"
 				id={`${idBase}-panel-${activeTab}`}
 				aria-labelledby={`${idBase}-tab-${activeTab}`}
+				// biome-ignore lint/a11y/noNoninteractiveTabindex: WAI-ARIA APG tabpanel pattern — a tabpanel with no focusable children must be focusable (tabindex=0) so keyboard users can reach and scroll its content
 				tabIndex={0}
 			>
 				{children}

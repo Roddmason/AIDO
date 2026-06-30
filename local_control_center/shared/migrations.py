@@ -47,6 +47,10 @@ def initialize_platform_schema(connection: sqlite3.Connection) -> None:
     init_phase26_schema(connection)
     init_phase27_schema(connection)
     init_phase28_schema(connection)
+    init_phase29_schema(connection)
+    init_phase30_schema(connection)
+    init_phase31_schema(connection)
+    init_phase32_schema(connection)
     seed_platform_catalogs(connection)
 
 
@@ -3514,6 +3518,11 @@ def init_phase28_schema(connection: sqlite3.Connection) -> None:
             json_dumps(["analyst", "technical_lead"]),
         ),
     )
+    # openhands/swe_agent native accounts are seeded DISABLED (enabled=0): defense-in-depth so that
+    # neither the capability gate nor the account gate is open by default for these autonomous
+    # code-editing runtimes. Enabling requires explicit operator action (and, per security review, an
+    # audit event once an enable/disable API exists — see update_runtime_account). is_default stays 1
+    # so operator tooling can still resolve the account.
     for runtime_id, label, capabilities, preferred_roles in [
         ("openhands", "Local OpenHands CLI", ["code_edit", "issue_to_patch"], ["developer", "implementer"]),
         ("swe_agent", "Local SWE-agent CLI", ["code_edit", "issue_to_patch"], ["developer", "implementer"]),
@@ -3524,7 +3533,7 @@ def init_phase28_schema(connection: sqlite3.Connection) -> None:
                 (id, runtime_id, account_label, auth_mode, credential_store_kind, credential_ref, enabled,
                  is_default, capabilities, preferred_roles, health_status, last_validation_at,
                  configuration_source, metadata, created_at, updated_at)
-            VALUES (?, ?, ?, 'provider_native_cli', 'provider_native_cli', NULL, 1, 1, ?, ?,
+            VALUES (?, ?, ?, 'provider_native_cli', 'provider_native_cli', NULL, 0, 1, ?, ?,
                     'unknown', NULL, 'seed', '{}', ?, ?)
             """,
             (
@@ -3540,6 +3549,224 @@ def init_phase28_schema(connection: sqlite3.Connection) -> None:
     connection.execute(
         "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
         (28, utc_now()),
+    )
+
+
+def init_phase29_schema(connection: sqlite3.Connection) -> None:
+    """Fase 29: políticas explícitas de perfiles de equipo y overrides por proyecto."""
+    _add_column_if_missing(
+        connection,
+        "agent_profiles",
+        "default_runtime_policy",
+        "default_runtime_policy TEXT NOT NULL DEFAULT '{}'",
+    )
+    _add_column_if_missing(
+        connection,
+        "agent_profiles",
+        "reviewer_policy",
+        "reviewer_policy TEXT NOT NULL DEFAULT '{}'",
+    )
+    connection.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS agent_profile_project_overrides (
+            project_id TEXT NOT NULL,
+            agent_profile_id TEXT NOT NULL,
+            runtime_type TEXT,
+            allowed_providers TEXT,
+            allowed_runtimes TEXT,
+            allowed_skills TEXT,
+            allowed_tools TEXT,
+            default_runtime_policy TEXT,
+            reviewer_policy TEXT,
+            max_cost_per_run REAL,
+            max_tokens_per_run INTEGER,
+            max_runtime_seconds INTEGER,
+            requires_approval_over_usd REAL,
+            quality_gates TEXT,
+            reason TEXT NOT NULL,
+            status TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY(project_id, agent_profile_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_agent_profile_overrides_profile
+            ON agent_profile_project_overrides(agent_profile_id, status);
+        """
+    )
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (29, utc_now()),
+    )
+
+
+def init_phase30_schema(connection: sqlite3.Connection) -> None:
+    """Fase 30: vista segura ``credentials`` con los nombres del contrato de producto.
+
+    La tabla fuente sigue siendo ``credential_refs`` para no duplicar metadatos ni alterar clientes
+    existentes. La vista muestra id/label/credentialRef/source/fingerprint/status/timestamps y nunca
+    contiene el valor del secreto.
+    """
+    connection.executescript(
+        """
+        DROP VIEW IF EXISTS credentials;
+        CREATE VIEW credentials AS
+        SELECT
+            id,
+            name AS label,
+            CASE
+                WHEN backend_kind IN ('env', 'environment_override') THEN 'env:' || locator
+                ELSE backend_kind || ':' || locator
+            END AS credentialRef,
+            CASE
+                WHEN backend_kind = 'env' THEN 'environment_override'
+                ELSE backend_kind
+            END AS source,
+            fingerprint,
+            status,
+            created_at AS createdAt,
+            updated_at AS updatedAt,
+            last_validated_at AS lastValidatedAt,
+            rotated_at AS lastRotatedAt
+        FROM credential_refs;
+        """
+    )
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (30, utc_now()),
+    )
+
+
+def init_phase31_schema(connection: sqlite3.Connection) -> None:
+    """Fase 31: outputs validados del ProductOwnerAgent para aprobaciones trazables."""
+    connection.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS product_owner_outputs (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            initiative_id TEXT NOT NULL,
+            brief_id TEXT NOT NULL,
+            status TEXT NOT NULL,
+            summary TEXT NOT NULL,
+            confidence TEXT NOT NULL,
+            questions TEXT NOT NULL,
+            assumptions TEXT NOT NULL,
+            decisions TEXT NOT NULL,
+            product_brief_patch TEXT NOT NULL,
+            epics TEXT NOT NULL,
+            user_stories TEXT NOT NULL,
+            risks TEXT NOT NULL,
+            recommended_next_action TEXT NOT NULL,
+            runtime_id TEXT NOT NULL,
+            output_artifact_id TEXT NOT NULL,
+            metadata TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_product_owner_outputs_project
+            ON product_owner_outputs(project_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_product_owner_outputs_initiative
+            ON product_owner_outputs(initiative_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_product_owner_outputs_brief
+            ON product_owner_outputs(brief_id, created_at);
+        """
+    )
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (31, utc_now()),
+    )
+
+
+def init_phase32_schema(connection: sqlite3.Connection) -> None:
+    """Fase 32: threads reales que reemplazan el chat decorativo del shell.
+
+    ``project_threads`` es el header con ownership polimórfico (workspace/loop/story/agent_task/review).
+    ``thread_messages`` y ``thread_agent_events`` son append-only con secuencia monótona por thread
+    (``UNIQUE(thread_id, sequence)``), por lo que el orden no depende del id aleatorio. ``thread_artifacts``
+    enlaza artifacts surgidos en el hilo y ``thread_decisions`` registra las solicitudes de decisión que el
+    coordinator levanta al bloquear. No hay FK físicas (mismo desacople que el resto del esquema).
+    """
+    connection.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS project_threads (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            owner_type TEXT NOT NULL,
+            owner_id TEXT NOT NULL,
+            title TEXT NOT NULL,
+            status TEXT NOT NULL,
+            summary TEXT NOT NULL DEFAULT '',
+            metadata TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS thread_messages (
+            id TEXT PRIMARY KEY,
+            thread_id TEXT NOT NULL,
+            project_id TEXT NOT NULL,
+            sequence INTEGER NOT NULL,
+            kind TEXT NOT NULL,
+            author TEXT NOT NULL,
+            content TEXT NOT NULL,
+            metadata TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE(thread_id, sequence)
+        );
+        CREATE TABLE IF NOT EXISTS thread_artifacts (
+            id TEXT PRIMARY KEY,
+            thread_id TEXT NOT NULL,
+            project_id TEXT NOT NULL,
+            message_id TEXT,
+            artifact_id TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            title TEXT NOT NULL,
+            metadata TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS thread_agent_events (
+            id TEXT PRIMARY KEY,
+            thread_id TEXT NOT NULL,
+            project_id TEXT NOT NULL,
+            sequence INTEGER NOT NULL,
+            type TEXT NOT NULL,
+            agent_role TEXT,
+            payload TEXT NOT NULL,
+            metadata TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE(thread_id, sequence)
+        );
+        CREATE TABLE IF NOT EXISTS thread_decisions (
+            id TEXT PRIMARY KEY,
+            thread_id TEXT NOT NULL,
+            project_id TEXT NOT NULL,
+            message_id TEXT,
+            title TEXT NOT NULL,
+            status TEXT NOT NULL,
+            prompt TEXT NOT NULL,
+            options TEXT NOT NULL,
+            resolution TEXT,
+            decided_by TEXT,
+            decided_at TEXT,
+            metadata TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_project_threads_owner
+            ON project_threads(project_id, owner_type, owner_id);
+        CREATE INDEX IF NOT EXISTS idx_project_threads_project
+            ON project_threads(project_id, updated_at);
+        CREATE INDEX IF NOT EXISTS idx_thread_messages_thread_seq
+            ON thread_messages(thread_id, sequence);
+        CREATE INDEX IF NOT EXISTS idx_thread_artifacts_thread
+            ON thread_artifacts(thread_id, kind);
+        CREATE INDEX IF NOT EXISTS idx_thread_agent_events_thread_seq
+            ON thread_agent_events(thread_id, sequence);
+        CREATE INDEX IF NOT EXISTS idx_thread_decisions_thread
+            ON thread_decisions(thread_id, status);
+        """
+    )
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (32, utc_now()),
     )
 
 

@@ -49,8 +49,14 @@ const initialState: ControlPlaneState = {
 	busy: false,
 };
 
+const OPTIONAL_ENDPOINT_TIMEOUT_MS = 4000;
+const RUNTIME_ENDPOINT_TIMEOUT_MS = 15000;
+
 /** Resolves to `null` instead of rejecting/hanging if the promise fails or exceeds the timeout. */
-function optionalWithTimeout<T>(promise: Promise<T>, timeoutMs = 4000): Promise<T | null> {
+function optionalWithTimeout<T>(
+	promise: Promise<T>,
+	timeoutMs = OPTIONAL_ENDPOINT_TIMEOUT_MS,
+): Promise<T | null> {
 	return new Promise((resolve) => {
 		const timeoutId = window.setTimeout(() => resolve(null), timeoutMs);
 		promise
@@ -85,8 +91,11 @@ export function useControlPlane() {
 			const [retrievalStatus, runtimeProviders, runtimeProviderConfigurationResponse] =
 				await Promise.all([
 					optionalWithTimeout(getRetrievalStatus(controller.signal)),
-					optionalWithTimeout(getRuntimeProviders(controller.signal)),
-					optionalWithTimeout(getRuntimeProviderConfiguration(controller.signal)),
+					optionalWithTimeout(getRuntimeProviders(controller.signal), RUNTIME_ENDPOINT_TIMEOUT_MS),
+					optionalWithTimeout(
+						getRuntimeProviderConfiguration(controller.signal),
+						RUNTIME_ENDPOINT_TIMEOUT_MS,
+					),
 				]);
 			if (!mountedRef.current) return;
 			setState((current) => ({
@@ -95,7 +104,8 @@ export function useControlPlane() {
 				overview,
 				retrievalStatus,
 				runtimeProviders,
-				runtimeProviderConfiguration: runtimeProviderConfigurationResponse?.providers ?? null,
+				runtimeProviderConfiguration:
+					runtimeProviderConfigurationResponse?.providers ?? current.runtimeProviderConfiguration,
 				loading: false,
 				error: '',
 				connected: true,

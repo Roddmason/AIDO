@@ -2,9 +2,7 @@
  * Pure presentation model for the Workbench product loop: the ordered sections the operator
  * navigates (conversation → review) and a per-section view (label key + tab count). Holds no
  * React and no I/O so the page stays a thin shell and this stays unit-testable, mirroring
- * timelineModel.ts. The `backed` flag records which sections render real, already-wired overview
- * data today versus the discovery/backlog/loop sections that show an honest shell until their
- * HTTP endpoint exists.
+ * timelineModel.ts. The `backed` flag records which sections render live project data.
  * @author Rodrigo Mason
  */
 
@@ -26,12 +24,11 @@ export type ProductLoopSectionBlueprint = {
 	/** i18n key + English fallback for the tab label (registered in the bilingual catalog). */
 	labelKey: string;
 	label: string;
-	/** True when the section renders live overview data; false = honest shell until its
-	 *  product-discovery / backlog / product-loop endpoint exists. */
+	/** True when the section renders live project data instead of a placeholder shell. */
 	backed: boolean;
 };
 
-/** The ten loop sections, in flow order. `backed` marks the four wired to live overview data. */
+/** The ten loop sections, in flow order. `backed` marks views wired to live project data. */
 export const PRODUCT_LOOP_SECTIONS: ProductLoopSectionBlueprint[] = [
 	{
 		id: 'conversation',
@@ -39,22 +36,22 @@ export const PRODUCT_LOOP_SECTIONS: ProductLoopSectionBlueprint[] = [
 		label: 'Conversation',
 		backed: true,
 	},
-	{ id: 'questions', labelKey: 'app.workbench.loop.questions', label: 'Questions', backed: false },
-	{ id: 'brief', labelKey: 'app.workbench.loop.brief', label: 'Product brief', backed: false },
+	{ id: 'questions', labelKey: 'app.workbench.loop.questions', label: 'Questions', backed: true },
+	{ id: 'brief', labelKey: 'app.workbench.loop.brief', label: 'Product brief', backed: true },
 	{
 		id: 'assumptions',
 		labelKey: 'app.workbench.loop.assumptions',
 		label: 'Assumptions',
-		backed: false,
+		backed: true,
 	},
-	{ id: 'decisions', labelKey: 'app.workbench.loop.decisions', label: 'Decisions', backed: false },
+	{ id: 'decisions', labelKey: 'app.workbench.loop.decisions', label: 'Decisions', backed: true },
 	{
 		id: 'architecture',
 		labelKey: 'app.workbench.loop.architecture',
 		label: 'Architecture',
 		backed: false,
 	},
-	{ id: 'backlog', labelKey: 'app.workbench.loop.backlog', label: 'Backlog', backed: false },
+	{ id: 'backlog', labelKey: 'app.workbench.loop.backlog', label: 'Backlog', backed: true },
 	{ id: 'iteration', labelKey: 'app.workbench.loop.iteration', label: 'Iteration', backed: true },
 	{ id: 'execution', labelKey: 'app.workbench.loop.execution', label: 'Execution', backed: true },
 	{ id: 'review', labelKey: 'app.workbench.loop.review', label: 'Review', backed: true },

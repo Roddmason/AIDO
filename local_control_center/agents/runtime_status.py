@@ -396,6 +396,7 @@ def _ollama_provider_status(
     capabilities: list[str],
     configuration: RuntimeProviderConfiguration | None = None,
 ) -> dict[str, Any]:
+    enabled = bool(account.get("enabled"))
     base_url = (
         (configuration.value("baseUrl") if configuration else None)
         or str(account.get("baseUrl") or "").strip()
@@ -417,7 +418,7 @@ def _ollama_provider_status(
     daemon_available = bool(status.get("available"))
     configured = bool((configuration and configuration.configured) or base_url)
     authenticated = daemon_available
-    can_run_prompt = daemon_available and configured
+    can_run_prompt = daemon_available and configured and enabled
     executable = can_run_prompt
     if not configured and configuration is not None:
         reason = configuration.reason
@@ -425,6 +426,8 @@ def _ollama_provider_status(
         reason = "Ollama base URL is not configured."
     elif not daemon_available:
         reason = str(status.get("reason") or "Ollama daemon did not respond to /api/tags.")
+    elif not enabled:
+        reason = "Ollama daemon is reachable but provider_accounts.enabled is false."
     else:
         reason = "Ollama daemon is reachable and executable."
     payload = _status_payload(

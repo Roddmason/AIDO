@@ -51,6 +51,13 @@ import type {
 	SessionRecord,
 	TeamActivityResponse,
 	TeamRecord,
+	ThreadAgentEventRecord,
+	ThreadArtifactRecord,
+	ThreadDecisionRecord,
+	ThreadDetailResponse,
+	ThreadMessageRecord,
+	ThreadMessageResultResponse,
+	ThreadRecord,
 	UsageLedgerRecord,
 	UsageSummaryRecord,
 	WorkflowCreateRequest,
@@ -75,6 +82,13 @@ export type AgentProfile = AgentProfileRecord;
 export type ModelProvider = ModelProviderRecord;
 export type Session = SessionRecord;
 export type Chat = ChatRecord;
+export type Thread = ThreadRecord;
+export type ThreadMessage = ThreadMessageRecord;
+export type ThreadArtifact = ThreadArtifactRecord;
+export type ThreadAgentEvent = ThreadAgentEventRecord;
+export type ThreadDecision = ThreadDecisionRecord;
+export type ThreadDetail = ThreadDetailResponse;
+export type ThreadMessageResult = ThreadMessageResultResponse;
 export type TeamActivity = TeamActivityResponse;
 export type TeamActivityEntry = GeneratedTeamActivityEntry;
 export type Pipeline = PipelineRecord;

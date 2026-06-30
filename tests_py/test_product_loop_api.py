@@ -20,7 +20,10 @@ EMPTY_LOOP_STATE = {
     "decisions": [],
     "epics": [],
     "stories": [],
+    "acceptanceCriteria": [],
+    "storyDependencies": [],
     "tasks": [],
+    "taskDependencies": [],
     "assignments": [],
     "assignmentHandoffs": [],
     "assignmentReviews": [],
@@ -154,6 +157,23 @@ def test_product_loop_endpoint_aggregates_real_loop_state_scoped_to_the_project(
                 "soThat": "I can buy faster",
                 "businessValue": "high",
                 "storyPoints": 5,
+                "acceptanceCriteria": ["Guest checkout completes without an account."],
+            }
+        )
+        criterion = backlog.list_acceptance_criteria(story["id"])[0]
+        sibling_story = backlog.create_user_story(
+            {
+                "projectId": project_id,
+                "epicId": epic["id"],
+                "title": "Guest email receipt",
+                "acceptanceCriteria": ["Receipt is sent after checkout."],
+            }
+        )
+        story_dependency = backlog.create_story_dependency(
+            {
+                "projectId": project_id,
+                "storyId": sibling_story["id"],
+                "dependsOnStoryId": story["id"],
             }
         )
         task = backlog.create_agent_task(
@@ -163,6 +183,22 @@ def test_product_loop_endpoint_aggregates_real_loop_state_scoped_to_the_project(
                 "title": "frontend work for guest checkout",
                 "role": "frontend",
                 "estimateHours": 4.0,
+            }
+        )
+        qa_task = backlog.create_agent_task(
+            {
+                "projectId": project_id,
+                "storyId": story["id"],
+                "title": "QA work for guest checkout",
+                "role": "qa",
+                "estimateHours": 2.0,
+            }
+        )
+        task_dependency = backlog.create_task_dependency(
+            {
+                "projectId": project_id,
+                "taskId": qa_task["id"],
+                "dependsOnTaskId": task["id"],
             }
         )
         assignment = backlog.create_agent_assignment(
@@ -206,11 +242,25 @@ def test_product_loop_endpoint_aggregates_real_loop_state_scoped_to_the_project(
         assert body["decisions"][0]["status"] == "accepted"
         assert body["decisions"][0]["linkedQuestionIds"] == [question["id"]]
         assert [item["id"] for item in body["epics"]] == [epic["id"]]
-        assert [item["id"] for item in body["stories"]] == [story["id"]]
-        assert body["stories"][0]["asA"] == "shopper"
-        assert body["stories"][0]["storyPoints"] == 5
-        assert len(body["tasks"]) == 1
-        assert body["tasks"][0]["role"] == "frontend"
+        assert {item["id"] for item in body["stories"]} == {story["id"], sibling_story["id"]}
+        guest_story = next(item for item in body["stories"] if item["id"] == story["id"])
+        assert guest_story["asA"] == "shopper"
+        assert guest_story["storyPoints"] == 5
+        assert {item["storyId"] for item in body["acceptanceCriteria"]} == {
+            story["id"],
+            sibling_story["id"],
+        }
+        guest_criterion = next(
+            item for item in body["acceptanceCriteria"] if item["id"] == criterion["id"]
+        )
+        assert guest_criterion["storyId"] == story["id"]
+        assert guest_criterion["criterion"] == "Guest checkout completes without an account."
+        assert [item["id"] for item in body["storyDependencies"]] == [story_dependency["id"]]
+        assert body["storyDependencies"][0]["dependsOnStoryId"] == story["id"]
+        assert len(body["tasks"]) == 2
+        assert {item["role"] for item in body["tasks"]} == {"frontend", "qa"}
+        assert [item["id"] for item in body["taskDependencies"]] == [task_dependency["id"]]
+        assert body["taskDependencies"][0]["dependsOnTaskId"] == task["id"]
         assert [item["id"] for item in body["assignments"]] == [assignment["id"]]
         assert body["assignments"][0]["canonicalArtifactId"] == assignment["canonicalArtifactId"]
         assert body["assignments"][0]["inputSchema"]["type"] == "object"
@@ -230,6 +280,9 @@ def test_product_loop_endpoint_aggregates_real_loop_state_scoped_to_the_project(
         assert other_body["questions"] == []
         assert other_body["brief"] is None
         assert other_body["epics"] == []
+        assert other_body["acceptanceCriteria"] == []
+        assert other_body["storyDependencies"] == []
+        assert other_body["taskDependencies"] == []
         assert other_body["assignments"] == []
         assert other_body["assignmentHandoffs"] == []
         assert other_body["assignmentReviews"] == []
@@ -316,7 +369,12 @@ def test_feedback_action_endpoint_is_guarded_classifies_and_exposes_trace(tmp_pa
         backlog = BacklogRepository(connection)
         epic = backlog.create_epic({"projectId": project_id, "title": "Checkout"})
         story = backlog.create_user_story(
-            {"projectId": project_id, "epicId": epic["id"], "title": "Guest checkout"}
+            {
+                "projectId": project_id,
+                "epicId": epic["id"],
+                "title": "Guest checkout",
+                "acceptanceCriteria": ["Guest checkout validates payment fields."],
+            }
         )
         task = backlog.create_agent_task(
             {
@@ -363,6 +421,59 @@ def test_feedback_action_endpoint_is_guarded_classifies_and_exposes_trace(tmp_pa
         aggregate = client.get(f"/api/v1/projects/{project_id}/product-loop").json()
         assert [item["id"] for item in aggregate["feedback"]] == [body["feedback"]["id"]]
         assert aggregate["transitions"][-1]["metadata"]["feedbackId"] == body["feedback"]["id"]
+    finally:
+        runtime.close()
+
+
+def test_aido_decide_answers_questions_and_records_product_decisions(tmp_path: Path) -> None:
+    runtime, client = _client(tmp_path)
+    try:
+        connection = runtime.connection
+        project = ProjectsRepository(connection).create_project(
+            name="AIDO decide", path=tmp_path / "aido-decide", template_id="other"
+        )
+        project_id = project["id"]
+        discovery = ProductDiscoveryRepository(connection)
+        initiative = discovery.create_initiative(
+            {"projectId": project_id, "title": "Creator payments", "summary": "Enable paid content."}
+        )
+        loop = ProductLoopCoordinator(connection).start(
+            project_id=project_id,
+            title="Creator payments",
+            initiative_id=initiative["id"],
+        )
+        question = discovery.create_clarification_question(
+            {
+                "projectId": project_id,
+                "initiativeId": initiative["id"],
+                "question": "Which creator segment launches first?",
+                "askedBy": "product_owner_agent",
+                "metadata": {
+                    "category": "users",
+                    "whyItMatters": "It changes onboarding and compliance scope.",
+                    "blocking": True,
+                    "options": ["Solo creators", "Teams"],
+                    "recommendation": "Solo creators",
+                    "defaultDecision": "Solo creators",
+                    "confidence": "medium",
+                },
+            }
+        )
+        token = client.get("/api/v1/security/handshake").json()["token"]
+        url = f"/api/v1/projects/{project_id}/product-loop/{loop['id']}/aido-decide"
+
+        assert client.post(url, json={"reason": "Use defaults."}).status_code == 403
+        response = client.post(url, json={"reason": "Use high-confidence defaults."}, headers={"X-Local-Control-Token": token})
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["questions"][0]["status"] == "answered"
+        assert body["decisions"][0]["status"] == "accepted"
+        assert body["decisions"][0]["decision"] == "Solo creators"
+        assert body["decisions"][0]["metadata"]["sourceQuestionId"] == question["id"]
+        answers = discovery.list_clarification_answers(question["id"])
+        assert answers[0]["answer"] == "Solo creators"
+        assert answers[0]["answeredBy"] == "aido_decide"
     finally:
         runtime.close()
 

@@ -43,7 +43,7 @@ type RuntimeSetupPanelProps = {
 	runtimeProviders: RuntimeProviders | null;
 	runtimeProviderConfiguration: RuntimeProviderConfiguration[] | null;
 	token: string;
-	onRefresh: () => Promise<unknown> | void;
+	onRefresh: () => Promise<unknown> | undefined;
 };
 
 export function RuntimeSetupPanel({

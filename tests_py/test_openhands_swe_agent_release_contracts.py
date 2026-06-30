@@ -234,6 +234,26 @@ def test_seed_does_not_enable_openhands_or_swe_agent_issue_to_patch_capabilities
     assert rows == []
 
 
+def test_seed_openhands_and_swe_agent_accounts_are_disabled_by_default(tmp_path: Path) -> None:
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        rows = connection.execute(
+            """
+            SELECT runtime_id, enabled
+            FROM runtime_accounts
+            WHERE runtime_id IN ('openhands', 'swe_agent')
+            ORDER BY runtime_id
+            """
+        ).fetchall()
+
+    assert len(rows) == 2, "Expected one seeded native account per gated runtime"
+    for row in rows:
+        assert row["enabled"] == 0, (
+            f"runtime_accounts.enabled must be 0 for gated runtime '{row['runtime_id']}' at seed: "
+            "explicit operator action is required to enable autonomous code-editing runtimes"
+        )
+
+
 def test_openhands_and_swe_agent_are_not_executable_without_developer_agent_capability(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -246,9 +266,11 @@ def test_openhands_and_swe_agent_are_not_executable_without_developer_agent_capa
         connection.execute(
             "UPDATE provider_accounts SET enabled = 1 WHERE provider_id IN ('openhands', 'swe_agent')"
         )
-        # Bring both runtimes through W's installation lifecycle (enabled installation + validated native
-        # account) so the only remaining gate is the missing code_edit/developer_agent capability that
-        # this contract verifies — not the earlier installation/auth gates.
+        # Bring both runtimes fully through the lifecycle (installation enabled + native account
+        # explicitly enabled + validated) so the ONLY remaining gate is the missing code_edit/
+        # developer_agent capability that this contract verifies. The native accounts are seeded
+        # disabled (defense-in-depth), so the test enables them explicitly to simulate the operator
+        # grant and reach the capability gate rather than the earlier installation/account gates.
         repo = RuntimeConfigRepository(connection)
         for runtime_id in ("openhands", "swe_agent"):
             repo.upsert_installation(
@@ -263,7 +285,7 @@ def test_openhands_and_swe_agent_are_not_executable_without_developer_agent_capa
             account = next(item for item in repo.list_runtime_accounts(runtime_id) if item["isDefault"])
             repo.update_runtime_account(
                 account["id"],
-                {"healthStatus": "healthy", "lastValidationAt": "2026-06-27T12:00:00Z"},
+                {"enabled": True, "healthStatus": "healthy", "lastValidationAt": "2026-06-27T12:00:00Z"},
             )
         statuses = {
             provider["id"]: provider

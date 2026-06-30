@@ -19,6 +19,7 @@ html {
 body {
 	min-width: 320px;
 	min-height: 100vh;
+	/* biome-ignore lint/suspicious/noDuplicateProperties: progressive-enhancement fallback — 100vh for browsers without dynamic-viewport support, 100dvh overrides on modern browsers */
 	min-height: 100dvh;
 	margin: 0;
 	background: var(--color-surface-canvas);
@@ -87,6 +88,7 @@ samp {
 
 #root {
 	min-height: 100vh;
+	/* biome-ignore lint/suspicious/noDuplicateProperties: progressive-enhancement fallback — 100vh for browsers without dynamic-viewport support, 100dvh overrides on modern browsers */
 	min-height: 100dvh;
 }
 

@@ -39,9 +39,13 @@
 	*,
 	*::before,
 	*::after {
+		/* biome-ignore lint/complexity/noImportantStyles: universal selector (specificity 0) must override every class-level animation/transition for prefers-reduced-motion accessibility; without !important rules like .panel-enter/.card win the cascade and the reduced-motion override silently fails */
 		animation-duration: 0.01ms !important;
+		/* biome-ignore lint/complexity/noImportantStyles: universal selector (specificity 0) must override every class-level animation/transition for prefers-reduced-motion accessibility; without !important rules like .panel-enter/.card win the cascade and the reduced-motion override silently fails */
 		animation-iteration-count: 1 !important;
+		/* biome-ignore lint/complexity/noImportantStyles: universal selector (specificity 0) must override class-level scroll-behavior for prefers-reduced-motion accessibility; without !important higher-specificity rules win the cascade and the reduced-motion override silently fails */
 		scroll-behavior: auto !important;
+		/* biome-ignore lint/complexity/noImportantStyles: universal selector (specificity 0) must override every class-level animation/transition for prefers-reduced-motion accessibility; without !important rules like .panel-enter/.card win the cascade and the reduced-motion override silently fails */
 		transition-duration: 0.01ms !important;
 	}
 

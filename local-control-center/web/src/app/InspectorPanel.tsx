@@ -67,7 +67,7 @@ export function InspectorPanel({
 		previouslyFocused.current = (document.activeElement as HTMLElement | null) ?? null;
 		return () => {
 			const previous = previouslyFocused.current;
-			if (previous && previous.isConnected) previous.focus();
+			if (previous?.isConnected) previous.focus();
 		};
 	}, []);
 	const stats = useMemo(() => {

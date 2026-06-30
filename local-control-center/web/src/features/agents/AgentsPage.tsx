@@ -9,13 +9,17 @@
 import { useEffect, useMemo, useState } from 'react';
 
 import {
+	type AgentProfileProjectOverrideRequest,
 	createAgentProfile,
+	getAgentProfiles,
 	getModelGatewayProviders,
 	getModelGatewayRolePolicies,
 	getModelGatewayRoutingProfiles,
 	getRuntimeProviders,
+	upsertAgentProfileProjectOverride,
 } from '../../api/client';
 import type {
+	AgentProfile,
 	AgentRole,
 	AgentRuntimeMode,
 	Overview,
@@ -30,16 +34,26 @@ import { toneForStatus } from '../../lib/format';
 const runtimeModeOptions: AgentRuntimeMode[] = ['api', 'cli', 'ollama', 'hybrid', 'manual'];
 const agentRoles: AgentRole[] = [
 	'analyst',
+	'assessor',
+	'aido_lead',
 	'product_owner',
+	'project_manager',
+	'scrum_master',
+	'architect',
 	'technical_lead',
 	'technical_lead_shadow',
 	'developer',
 	'backend_engineer',
 	'frontend_engineer',
 	'implementer',
+	'devops',
+	'devops_engineer',
 	'qa',
+	'qa_engineer',
 	'qa_reviewer',
+	'security_engineer',
 	'security_reviewer',
+	'researcher',
 	'release_manager',
 ];
 
@@ -78,6 +92,22 @@ function moneyLabel(value: unknown, fallback: string) {
 	return Number.isFinite(number) ? `$${number.toFixed(2)}` : fallback;
 }
 
+function stringArray(value: unknown) {
+	return Array.isArray(value)
+		? value.filter((item): item is string => typeof item === 'string')
+		: [];
+}
+
+function runtimePolicyForOverride(profile: AgentProfile) {
+	const policy = profile.defaultRuntimePolicy as Record<string, unknown>;
+	const requiredCapabilities = stringArray(policy.requiredCapabilities);
+	return {
+		...profile.defaultRuntimePolicy,
+		providerCandidates: ['ollama'],
+		requiredCapabilities: requiredCapabilities.length ? requiredCapabilities : ['chat'],
+	};
+}
+
 /**
  * Agents route page. Loads runtime providers and the model-gateway catalogs on mount,
  * gates the create form on their availability (`catalogAvailable`), and validates token
@@ -97,6 +127,7 @@ export function AgentsPage({
 }) {
 	const { t } = useI18n();
 	const [agentProfiles, setAgentProfiles] = useState(overview.agentProfiles);
+	const [selectedProjectId, setSelectedProjectId] = useState(overview.projects[0]?.id ?? '');
 	const [profileId, setProfileId] = useState('agent-hybrid');
 	const [name, setName] = useState('Hybrid Implementer');
 	const [role, setRole] = useState<AgentRole>('developer');
@@ -126,6 +157,7 @@ export function AgentsPage({
 	const runtimeProviderErrorText = resolveAsyncError(runtimeProviderError, t);
 	const gatewayCatalogErrorText = resolveAsyncError(gatewayCatalogError, t);
 	const [profileBusy, setProfileBusy] = useState(false);
+	const [overrideBusyProfileId, setOverrideBusyProfileId] = useState('');
 	const modes =
 		runtimeProviderState?.runtimeModes.filter((mode): mode is AgentRuntimeMode =>
 			runtimeModeOptions.includes(mode as AgentRuntimeMode),
@@ -142,8 +174,44 @@ export function AgentsPage({
 		runtimeOptions.length > 0;
 
 	useEffect(() => {
-		setAgentProfiles((current) => mergeNewestById(current, overview.agentProfiles));
-	}, [overview.agentProfiles]);
+		if (!selectedProjectId) {
+			setAgentProfiles((current) => mergeNewestById(current, overview.agentProfiles));
+		}
+	}, [overview.agentProfiles, selectedProjectId]);
+
+	useEffect(() => {
+		const firstProjectId = overview.projects[0]?.id ?? '';
+		if (!selectedProjectId && firstProjectId) {
+			setSelectedProjectId(firstProjectId);
+			return;
+		}
+		if (
+			selectedProjectId &&
+			!overview.projects.some((project) => project.id === selectedProjectId)
+		) {
+			setSelectedProjectId(firstProjectId);
+		}
+	}, [overview.projects, selectedProjectId]);
+
+	useEffect(() => {
+		const controller = new AbortController();
+		getAgentProfiles(selectedProjectId || undefined, controller.signal)
+			.then((result) => {
+				setAgentProfiles(result.agentProfiles);
+			})
+			.catch((loadError) => {
+				if (!controller.signal.aborted) {
+					setError(
+						loadError instanceof Error
+							? loadError.message
+							: t('app.agents.errProfilesLoad', 'Agent profiles load failed.'),
+					);
+				}
+			});
+		return () => {
+			controller.abort();
+		};
+	}, [selectedProjectId, t]);
 
 	useEffect(() => {
 		if (runtimeProviders) setRuntimeProviderState(runtimeProviders);
@@ -303,6 +371,40 @@ export function AgentsPage({
 			);
 		} finally {
 			setProfileBusy(false);
+		}
+	};
+
+	const saveProjectOverride = async (profile: AgentProfile) => {
+		if (!selectedProjectId) {
+			setError(
+				t('app.agents.selectProjectForOverride', 'Select a project before saving an override.'),
+			);
+			return;
+		}
+		setError('');
+		setOverrideBusyProfileId(profile.id);
+		const body: AgentProfileProjectOverrideRequest = {
+			runtimeMode: 'ollama',
+			allowedProviders: ['ollama'],
+			allowedRuntimes: ['ollama'],
+			defaultRuntimePolicy: runtimePolicyForOverride(profile),
+			reason: 'Use local runtime for this project when available.',
+			status: 'active',
+		};
+		try {
+			const result = await mutate(
+				(token) => upsertAgentProfileProjectOverride(token, selectedProjectId, profile.id, body),
+				{ awaitRefresh: false },
+			);
+			setAgentProfiles((current) => upsertNewestById(current, result.agentProfile));
+		} catch (saveError) {
+			setError(
+				saveError instanceof Error
+					? saveError.message
+					: t('app.agents.errProjectOverrideSave', 'Agent project override save failed.'),
+			);
+		} finally {
+			setOverrideBusyProfileId('');
 		}
 	};
 
@@ -553,6 +655,7 @@ export function AgentsPage({
 					) : null}
 					<button
 						className="button primary"
+						type="button"
 						disabled={profileBusy || !catalogAvailable}
 						onClick={() => {
 							void createProfile();
@@ -662,6 +765,111 @@ export function AgentsPage({
 					/>
 				</Surface>
 			</div>
+			<Surface title={t('app.agents.teamPanel', 'Team panel')}>
+				<div className="toolbar-row">
+					<label className="field compact" htmlFor="team-project">
+						<span>{t('ui.static.project.f6f4da8d', 'Project')}</span>
+						<select
+							id="team-project"
+							className="select"
+							value={selectedProjectId}
+							onChange={(event) => setSelectedProjectId(event.target.value)}
+						>
+							<option value="">{t('app.settings.scope.general', 'General')}</option>
+							{overview.projects.map((project) => (
+								<option key={project.id} value={project.id}>
+									{project.name}
+								</option>
+							))}
+						</select>
+					</label>
+				</div>
+				<DataTable
+					rows={agentProfiles}
+					empty={
+						<EmptyState
+							title={t('ui.static.no.agent.profiles.056f31a8', 'No agent profiles')}
+							body={t('app.agents.noTeamProfiles', 'No active team profiles.')}
+						/>
+					}
+					columns={[
+						{
+							key: 'role',
+							label: t('ui.static.role.c3f104d1', 'Role'),
+							render: (row) => <span className="mono">{row.role}</span>,
+						},
+						{
+							key: 'agent',
+							label: t('ui.static.agent.90e8dbb1', 'Agent'),
+							render: (row) => row.name,
+						},
+						{
+							key: 'runtime',
+							label: t('ui.static.runtime.c4740e4c', 'Runtime'),
+							render: (row) => (
+								<div className="stack compact">
+									<Badge>{row.runtimeMode}</Badge>
+									<span className="mono">{row.allowedProviders.join(', ') || 'policy'}</span>
+								</div>
+							),
+						},
+						{
+							key: 'runtimeAvailability',
+							label: t('app.agents.runtimeAvailability', 'Runtime availability'),
+							render: (row) => {
+								const runtimeAvailability = row.runtimeAvailability;
+								return (
+									<div className="inline">
+										<Badge tone={runtimeAvailability?.available ? 'ok' : 'warn'}>
+											{runtimeAvailability?.status ?? 'unknown'}
+										</Badge>
+										{runtimeAvailability?.selectedProviderId ? (
+											<Badge>{runtimeAvailability.selectedProviderId}</Badge>
+										) : null}
+									</div>
+								);
+							},
+						},
+						{
+							key: 'blockedReason',
+							label: t('app.agents.blockedReason', 'Blocked reason'),
+							render: (row) =>
+								row.runtimeAvailability?.blockedReason || t('app.runtime.card.none', 'none'),
+						},
+						{
+							key: 'projectOverride',
+							label: t('app.agents.projectOverride', 'Project override'),
+							render: (row) =>
+								row.projectOverride ? (
+									<div className="stack compact">
+										<Badge tone="info">{row.projectOverride.status}</Badge>
+										<span>{row.projectOverride.reason}</span>
+									</div>
+								) : (
+									t('app.settings.chip.source.inherited', 'Inherited')
+								),
+						},
+						{
+							key: 'override',
+							label: t('ui.static.override.3dca7cca', 'Override'),
+							render: (row) => (
+								<button
+									className="button"
+									type="button"
+									disabled={!selectedProjectId || overrideBusyProfileId === row.id}
+									onClick={() => {
+										void saveProjectOverride(row);
+									}}
+								>
+									{overrideBusyProfileId === row.id
+										? t('app.status.saving', 'Saving')
+										: t('app.settings.action.setForProject', 'Set for this project')}
+								</button>
+							),
+						},
+					]}
+				/>
+			</Surface>
 			<Surface title={t('ui.static.agent.profiles.307157c5', 'Agent profiles')}>
 				<DataTable
 					rows={agentProfiles}

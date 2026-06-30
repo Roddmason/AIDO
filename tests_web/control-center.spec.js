@@ -993,8 +993,12 @@ test('Workbench chat creates a chat intake and linked pipeline', async ({ page }
 		await expect(page.getByRole('tab', { name: new RegExp(`^${tabName}`) })).toBeVisible();
 	}
 
+	await expect(page.getByRole('radiogroup', { name: 'Workbench mode' })).toBeVisible();
+	await expect(page.getByRole('radio', { name: 'Consultation' })).toBeVisible();
+	await expect(page.getByRole('radio', { name: 'Agents / Loop' })).toBeVisible();
+
 	// The Team activity board is reachable from the composer drawer.
-	await page.getByRole('button', { name: 'AI team' }).click();
+	await page.getByRole('button', { name: 'Open Agents / Loop' }).click();
 	const teamDialog = page.getByRole('dialog', { name: 'Team activity' });
 	await expect(teamDialog).toBeVisible();
 	await teamDialog.getByRole('button', { name: 'Close Team activity' }).click();
@@ -1008,7 +1012,7 @@ test('Workbench chat creates a chat intake and linked pipeline', async ({ page }
 	await page.getByLabel('Workspace folder', { exact: true }).selectOption(project.id);
 	await page.getByRole('button', { name: 'New work session' }).click();
 	await page.getByLabel('What should AIDO do?').fill(prompt);
-	await page.getByRole('button', { name: 'Respond' }).click();
+	await page.getByRole('button', { name: 'Agents / Loop', exact: true }).click();
 
 	await expect(page.getByText('Chat intake created')).toBeVisible({ timeout: 30_000 });
 	// The new chat appears in the Conversation section transcript.
@@ -1035,8 +1039,9 @@ test('Workbench shows the Git branch detected by the policy-gated Git status end
 	await page.goto('/#workbench');
 	const explorer = page.getByRole('complementary', { name: 'Workspace explorer' });
 	await expect(explorer).toBeVisible();
-	await expect(explorer.getByText(gitStatus.currentBranch, { exact: true })).toBeVisible();
-	await expect(explorer.getByText('not detected', { exact: true })).toHaveCount(0);
+	const gitWorkspace = page.getByRole('group', { name: 'Git workspace' });
+	await expect(gitWorkspace.getByLabel('Git branch')).toHaveValue(gitStatus.currentBranch);
+	await expect(gitWorkspace.getByRole('option', { name: 'not detected' })).toHaveCount(0);
 });
 
 test('Go menu localizes primary destinations with the ES EN control', async ({ page }) => {
@@ -2413,9 +2418,12 @@ test('Workbench composer infers task type and hides direct issue_to_patch contro
 		await expect(page.getByLabel(hiddenKnob, { exact: true })).toHaveCount(0);
 	}
 
-	await expect(page.getByRole('button', { name: 'Respond' })).toBeDisabled();
+	await expect(page.getByRole('radiogroup', { name: 'Workbench mode' })).toBeVisible();
+	await expect(page.getByRole('radio', { name: 'Consultation' })).toBeVisible();
+	await expect(page.getByRole('radio', { name: 'Agents / Loop' })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Agents / Loop', exact: true })).toBeDisabled();
 	await page.getByLabel('What should AIDO do?').fill('Change a small file through the autonomous Product Owner intake.');
-	await expect(page.getByRole('button', { name: 'Respond' })).toBeEnabled();
+	await expect(page.getByRole('button', { name: 'Agents / Loop', exact: true })).toBeEnabled();
 });
 
 test('Model Gateway route preview submits request without exposing credentials', async ({ page }) => {
@@ -2474,7 +2482,7 @@ test('strict configuration forms prevent manual JSON edits', async ({ page }) =>
 	await page.getByLabel('Approval threshold USD').fill('1.25');
 	await page.getByLabel('Allow API').uncheck();
 	await page.getByRole('button', { name: 'Save agent profile' }).click();
-	await expect(page.getByRole('cell', { name: profileName })).toBeVisible();
+	await expect(page.locator('td[data-label="Name"]').filter({ hasText: profileName })).toBeVisible();
 	const profilesResponse = await page.request.get('/api/v1/agent-profiles');
 	const profile = (await profilesResponse.json()).agentProfiles.find((item) => item.id === profileId);
 	expect(profile.routingProfileId).toBe('balanced_best_value');
@@ -2514,12 +2522,15 @@ test('strict operational forms cover workflows governance sandbox and MCP settin
 	await expect(page.getByRole('radiogroup', { name: 'Task intake mode' })).toHaveCount(0);
 	await expect(page.getByRole('radio', { name: 'Fix bug' })).toHaveCount(0);
 	await expect(page.getByRole('button', { name: 'Advanced' })).toHaveCount(0);
+	await expect(page.getByRole('radiogroup', { name: 'Workbench mode' })).toBeVisible();
+	await expect(page.getByRole('radio', { name: 'Consultation' })).toBeVisible();
+	await expect(page.getByRole('radio', { name: 'Agents / Loop' })).toBeVisible();
 	// Runtime/QA/cost are not selected manually from Workbench; intake policy resolves them server-side.
 	await expect(page.getByLabel('Preferred runtime')).toHaveCount(0);
 	await expect(page.getByLabel('QA preset')).toHaveCount(0);
 	await expect(page.getByLabel('Maximum cost USD')).toHaveCount(0);
 	await expect(page.locator('textarea[data-json-editor="true"]')).toHaveCount(0);
-	await expect(page.getByRole('button', { name: 'Respond' })).toBeDisabled();
+	await expect(page.getByRole('button', { name: 'Agents / Loop', exact: true })).toBeDisabled();
 
 	const suffix = Date.now();
 

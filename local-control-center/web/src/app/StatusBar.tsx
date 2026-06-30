@@ -54,7 +54,11 @@ export function StatusBar({
 			];
 
 	return (
-		<footer className="status-bar" aria-label={t('app.global.globalStatus', 'Global status')}>
+		<footer
+			className="status-bar"
+			role="contentinfo"
+			aria-label={t('app.global.globalStatus', 'Global status')}
+		>
 			<span className="status-bar-item">
 				<StatusDot tone={status.connected ? 'ok' : 'warn'} />
 				{status.connected
@@ -86,6 +90,7 @@ export function StatusBar({
 				</strong>
 			</span>
 			<div className="status-bar-controls">
+				{/* biome-ignore lint/a11y/useSemanticElements: swapping to <fieldset> regresses layout — fieldset's UA margin-inline:2px and min-inline-size:min-content are not reset by .language-switch (a class shared only by this element) and inline-flex relies on content sizing; role="group"+aria-label keeps the labeled grouping semantics intact */}
 				<div
 					className="language-switch"
 					role="group"

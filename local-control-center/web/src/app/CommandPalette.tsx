@@ -75,6 +75,7 @@ export function CommandPalette({
 		[results, t],
 	);
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: query/open are intentional triggers — re-highlight the first result whenever the filter changes or the palette (re)opens.
 	useEffect(() => {
 		setActiveIndex(0);
 	}, [query, open]);
@@ -89,10 +90,11 @@ export function CommandPalette({
 		inputRef.current?.focus();
 		return () => {
 			const previous = previouslyFocused.current;
-			if (previous && previous.isConnected) previous.focus();
+			if (previous?.isConnected) previous.focus();
 		};
 	}, [open]);
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: activeIndex/results.length are intentional triggers — re-scroll the active option into view when the selection moves or the result set changes.
 	useEffect(() => {
 		if (!open) return;
 		listRef.current?.querySelector('[data-active="true"]')?.scrollIntoView({ block: 'nearest' });
@@ -201,6 +203,7 @@ export function CommandPalette({
 						/>
 					) : (
 						groups.map((entry) => (
+							// biome-ignore lint/a11y/useSemanticElements: role="group" is the WAI-ARIA listbox-grouping pattern; <fieldset> carries form-control semantics and UA chrome that breaks the grid layout.
 							<div
 								key={entry.group}
 								className="command-palette-group"

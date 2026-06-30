@@ -53,12 +53,6 @@ type Mutate = <T>(
 	options?: { awaitRefresh?: boolean },
 ) => Promise<T>;
 
-function money(value: unknown) {
-	if (value === null || value === undefined || value === '') return 'unknown';
-	const amount = Number(value);
-	return Number.isFinite(amount) ? `$${amount.toFixed(4)}` : 'unknown';
-}
-
 function recordTimestamp(record: { updatedAt?: string; createdAt?: string }) {
 	const parsed = Date.parse(String(record.updatedAt ?? record.createdAt ?? ''));
 	return Number.isNaN(parsed) ? 0 : parsed;
@@ -581,6 +575,7 @@ export function PolicySecurityPage({ overview, mutate }: { overview: Overview; m
 								<h3 className="artifact-title">{String(selectedRevision.subjectId ?? '')}</h3>
 								<div className="muted">{String(selectedRevision.reason ?? '')}</div>
 							</div>
+							{/* biome-ignore lint/a11y/useSemanticElements: role="table" preserves the tabular semantics the CSS grid layout (.diff-grid display:grid) depends on; a native <table> resets display:table and breaks the grid columns. */}
 							<div
 								className="diff-grid"
 								role="table"
@@ -589,9 +584,17 @@ export function PolicySecurityPage({ overview, mutate }: { overview: Overview; m
 									'Policy revision changed fields',
 								)}
 							>
+								{/* biome-ignore lint/a11y/useSemanticElements: paired with the role="table" grid container above; a native <tr> resets display:table-row and breaks the grid-template-columns layout. */}
+								{/* biome-ignore lint/a11y/useFocusableInteractive: header row is presentational within the ARIA table; adding tabIndex would create a spurious keyboard tab stop with no interactive behavior. */}
 								<div className="diff-row diff-head" role="row">
+									{/* biome-ignore lint/a11y/useSemanticElements: role="columnheader" preserves table-header semantics; a native <th> carries table-cell display that breaks the grid layout. */}
+									{/* biome-ignore lint/a11y/useFocusableInteractive: static column header within the ARIA table is not interactive; adding tabIndex would create a spurious keyboard tab stop. */}
 									<div role="columnheader">{t('ui.static.field.c326a466', 'Field')}</div>
+									{/* biome-ignore lint/a11y/useSemanticElements: role="columnheader" preserves table-header semantics; a native <th> carries table-cell display that breaks the grid layout. */}
+									{/* biome-ignore lint/a11y/useFocusableInteractive: static column header within the ARIA table is not interactive; adding tabIndex would create a spurious keyboard tab stop. */}
 									<div role="columnheader">{t('ui.static.before.74f39697', 'Before')}</div>
+									{/* biome-ignore lint/a11y/useSemanticElements: role="columnheader" preserves table-header semantics; a native <th> carries table-cell display that breaks the grid layout. */}
+									{/* biome-ignore lint/a11y/useFocusableInteractive: static column header within the ARIA table is not interactive; adding tabIndex would create a spurious keyboard tab stop. */}
 									<div role="columnheader">{t('ui.static.after.79ba5e1b', 'After')}</div>
 								</div>
 								{(Array.isArray(selectedRevision.changedFields)
@@ -601,13 +604,18 @@ export function PolicySecurityPage({ overview, mutate }: { overview: Overview; m
 									const previous = selectedRevision.previous as Record<string, unknown> | undefined;
 									const updated = selectedRevision.updated as Record<string, unknown> | undefined;
 									return (
+										// biome-ignore lint/a11y/useSemanticElements: role="row" preserves the table-row semantics the CSS grid layout depends on; a native <tr> resets display:table-row and breaks grid-template-columns.
+										// biome-ignore lint/a11y/useFocusableInteractive: data row within the ARIA table is not interactive; adding tabIndex would create a spurious keyboard tab stop.
 										<div className="diff-row" role="row" key={String(field)}>
+											{/* biome-ignore lint/a11y/useSemanticElements: role="cell" preserves table-cell semantics; a native <td> carries table-cell display that breaks the grid layout and the .diff-row > div CSS selectors. */}
 											<div role="cell" className="mono">
 												{String(field)}
 											</div>
+											{/* biome-ignore lint/a11y/useSemanticElements: role="cell" preserves table-cell semantics; a native <td> carries table-cell display that breaks the grid layout and the .diff-row > div CSS selectors. */}
 											<div role="cell" className="diff-before">
 												{JSON.stringify(previous?.[String(field)] ?? null)}
 											</div>
+											{/* biome-ignore lint/a11y/useSemanticElements: role="cell" preserves table-cell semantics; a native <td> carries table-cell display that breaks the grid layout and the .diff-row > div CSS selectors. */}
 											<div role="cell" className="diff-after">
 												{JSON.stringify(updated?.[String(field)] ?? null)}
 											</div>

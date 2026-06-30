@@ -65,6 +65,34 @@ def test_credential_schema_has_no_secret_column_and_is_idempotent(tmp_path: Path
     assert not any(token in column.lower() for column in ref_columns for token in SECRET_COLUMN_TOKENS)
 
 
+def test_credentials_sqlite_contract_view_exposes_safe_metadata_names(tmp_path: Path) -> None:
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        manager, _repository, _backend = _manager(connection)
+
+        created = manager.create_credential(name="codex/personal", value=SECRET, locator="AIDO/codex")
+        row = connection.execute(
+            """
+            SELECT id, label, credentialRef, source, fingerprint, status,
+                   createdAt, updatedAt, lastValidatedAt, lastRotatedAt
+            FROM credentials
+            WHERE id = ?
+            """,
+            (created["id"],),
+        ).fetchone()
+
+    assert row["label"] == "codex/personal"
+    assert row["credentialRef"] == "memory:AIDO/codex"
+    assert row["source"] == "memory"
+    assert row["fingerprint"]
+    assert row["status"] == "active"
+    assert row["createdAt"]
+    assert row["updatedAt"]
+    assert row["lastValidatedAt"] is None
+    assert row["lastRotatedAt"] is None
+    assert SECRET not in str(tuple(row))
+
+
 def test_create_persists_ref_and_fingerprint_without_returning_or_storing_value(tmp_path: Path) -> None:
     with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
         initialize_platform_schema(connection)

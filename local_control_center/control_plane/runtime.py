@@ -53,6 +53,9 @@ class ControlCenterRuntime:
         """Crea el directorio de la base y aplica el esquema de plataforma sobre la conexion."""
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         initialize_platform_schema(self.connection)
+        from local_control_center.agents.team_bootstrap import bootstrap_base_team_if_needed
+
+        bootstrap_base_team_if_needed(self.connection)
 
     def get_handshake(self) -> dict[str, Any]:
         """Devuelve el token de escritura por sesion y la marca de acceso solo-loopback."""

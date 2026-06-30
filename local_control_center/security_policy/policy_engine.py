@@ -679,12 +679,20 @@ def evaluate_action(input_payload: dict[str, Any]) -> dict[str, Any]:
                 "categories": categories,
             }
         if operation == "developer_agent_runtime":
-            if tool != "shell" or input_payload.get("runtimeId") not in {"codex_cli", "claude_code_cli"}:
+            if tool != "shell" or input_payload.get("runtimeId") not in {
+                "codex_cli",
+                "claude_code_cli",
+                "openhands",
+                "swe_agent",
+            }:
                 categories.append("developer_agent_cli_runtime_denied")
                 return {
                     "decision": "deny",
                     "riskLevel": "high",
-                    "reason": "DeveloperAgent CLI execution is limited to configured Codex or Claude CLI runtimes.",
+                    "reason": (
+                        "DeveloperAgent CLI execution is limited to configured Codex, Claude, "
+                        "OpenHands, or SWE-agent CLI runtimes."
+                    ),
                     "categories": categories,
                 }
             if input_payload.get("networkRequired") or input_payload.get("secretsRequired"):

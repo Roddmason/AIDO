@@ -123,7 +123,12 @@ function ProjectSection({
 }) {
 	const bodyId = `explorer-section-${id}`;
 	return (
-		<div className="explorer-section" role="group" aria-label={title}>
+		<fieldset
+			className="explorer-section"
+			aria-label={title}
+			// Reset the <fieldset> user-agent chrome so the grid box matches the prior <div>.
+			style={{ margin: 0, padding: 0, border: 0, minInlineSize: 0 }}
+		>
 			<button
 				type="button"
 				className="nav-group-trigger"
@@ -141,7 +146,7 @@ function ProjectSection({
 			<div id={bodyId} className={open ? 'nav-sublist' : 'nav-sublist nav-sublist--collapsed'}>
 				{count ? children : <EmptyState title={emptyLabel} body="" />}
 			</div>
-		</div>
+		</fieldset>
 	);
 }
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -26,6 +27,92 @@ HAPPY_PATH = [
     "awaiting_approval",
     "delivered",
 ]
+
+
+class _RuntimeUnavailable:
+    def __init__(self) -> None:
+        self.run_payloads: list[dict[str, Any]] = []
+
+    def status(self, *, preferred_runtime: str | None = None) -> dict[str, Any]:
+        return {
+            "executable": False,
+            "selectedRuntimeId": preferred_runtime or "codex_cli",
+            "reason": "No executable runtime is configured.",
+        }
+
+    def run(self, payload: dict[str, Any]) -> dict[str, Any]:
+        self.run_payloads.append(payload)
+        raise AssertionError("runtime must not execute when readiness is unavailable")
+
+
+class _ControlledRuntime:
+    def __init__(self, *, status: str = "completed") -> None:
+        self.status_value = status
+        self.run_payloads: list[dict[str, Any]] = []
+
+    def status(self, *, preferred_runtime: str | None = None) -> dict[str, Any]:
+        return {
+            "executable": True,
+            "selectedRuntimeId": preferred_runtime or "controlled_test_runtime",
+            "reason": "Controlled test runtime is executable.",
+        }
+
+    def run(self, payload: dict[str, Any]) -> dict[str, Any]:
+        self.run_payloads.append(payload)
+        return {
+            "status": self.status_value,
+            "reason": f"controlled runtime returned {self.status_value}",
+            "runtime": {"id": "controlled_test_runtime", "executable": True},
+            "runtimeResult": {"status": "completed"},
+            "agentRun": {"id": "agent-run-controlled"},
+            "job": {"id": "job-controlled"},
+            "evidencePackage": {"id": "evidence-controlled", "qaVerdict": "passed"},
+            "qaResults": [{"command": "controlled qa", "status": "passed"}],
+            "diffSummary": {"changedFiles": ["src/app.py"]},
+        }
+
+
+class _GitGate:
+    def __init__(self, *, dirty: bool = False, gitleaks_status: str = "completed") -> None:
+        self.dirty = dirty
+        self.gitleaks_status = gitleaks_status
+        self.status_calls = 0
+        self.gitleaks_calls = 0
+
+    def status(self, project_id: str) -> dict[str, Any]:
+        self.status_calls += 1
+        return {
+            "status": "completed",
+            "reason": "git status collected",
+            "projectId": project_id,
+            "dirty": self.dirty,
+            "changedFiles": ["README.md"] if self.dirty else [],
+            "untrackedFiles": [],
+            "stagedFiles": [],
+            "toolCalls": [],
+            "policyDecisionIds": [],
+        }
+
+    def gitleaks_scan(self, project_id: str) -> dict[str, Any]:
+        self.gitleaks_calls += 1
+        blocked = self.gitleaks_status != "completed"
+        return {
+            "status": self.gitleaks_status,
+            "reason": "gitleaks blocked delivery" if blocked else "gitleaks passed",
+            "projectId": project_id,
+            "deliveryBlocked": blocked,
+            "gitleaks": {
+                "status": "blocked" if blocked else "passed",
+                "findingCount": 1 if blocked else 0,
+            },
+        }
+
+
+def _workspace_project(connection, tmp_path: Path, name: str) -> dict:
+    project_path = tmp_path / name
+    project_path.mkdir(parents=True, exist_ok=True)
+    (project_path / "README.md").write_text(f"# {name}\n", encoding="utf-8")
+    return ProjectsRepository(connection).create_project(name=name, path=project_path, template_id="other")
 
 
 def _project(connection, tmp_path: Path, name: str) -> dict:
@@ -122,6 +209,179 @@ def test_product_loop_is_durable_and_resumes_after_restart(tmp_path: Path) -> No
             "brief_ready",
         ]
         assert coordinator.list_loops(project_id)[0]["id"] == loop_id
+
+
+def test_run_user_message_blocks_new_loop_when_runtime_is_not_executable(tmp_path: Path) -> None:
+    runtime = _RuntimeUnavailable()
+    git = _GitGate()
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        project = _workspace_project(connection, tmp_path, "no-runtime")
+        coordinator = ProductLoopCoordinator(connection, root=tmp_path)
+
+        result = coordinator.run_user_message(
+            project_id=project["id"],
+            message="Implement the onboarding dashboard.",
+            runtime_runner=runtime,
+            git_service=git,
+        )
+
+        assert result["status"] == "blocked"
+        assert "runtime" in result["reason"].lower()
+        assert result["loop"]["state"] == "blocked"
+        assert result["loop"]["context"]["durableRun"]["blockedReason"] == result["reason"]
+        assert result["loop"]["context"]["durableRun"]["thread"]["sessionId"].startswith("session-")
+        assert result["loop"]["context"]["durableRun"]["evidencePackageIds"]
+        assert runtime.run_payloads == []
+        assert [item["toState"] for item in result["transitions"]] == [
+            "goal_received",
+            "workspace_check",
+            "runtime_check",
+            "blocked",
+        ]
+
+
+def test_run_user_message_with_controlled_runtime_executes_and_awaits_approval(tmp_path: Path) -> None:
+    runtime = _ControlledRuntime()
+    git = _GitGate()
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        project = _workspace_project(connection, tmp_path, "controlled-runtime")
+        coordinator = ProductLoopCoordinator(connection, root=tmp_path)
+
+        result = coordinator.run_user_message(
+            project_id=project["id"],
+            message="Implement an auditable onboarding dashboard.",
+            preferred_runtime="controlled_test_runtime",
+            qa_commands=[["python", "--version"]],
+            runtime_runner=runtime,
+            git_service=git,
+        )
+
+        assert result["status"] == "awaiting_approval"
+        assert result["loop"]["state"] == "awaiting_approval"
+        assert result["loop"]["context"]["durableRun"]["workspaceId"].startswith("workspace-")
+        assert result["loop"]["context"]["durableRun"]["agentAssignments"]
+        assert runtime.run_payloads[0]["projectId"] == project["id"]
+        assert runtime.run_payloads[0]["workspaceId"].startswith("workspace-")
+        assert runtime.run_payloads[0]["instruction"] == "Implement an auditable onboarding dashboard."
+        assert git.gitleaks_calls == 1
+        assert [item["toState"] for item in result["transitions"]] == [
+            "goal_received",
+            "workspace_check",
+            "runtime_check",
+            "git_check",
+            "discovery",
+            "planning",
+            "backlog_ready",
+            "branch_ready",
+            "executing",
+            "qa_running",
+            "security_running",
+            "review_ready",
+            "awaiting_approval",
+        ]
+
+
+def test_run_user_message_blocks_dirty_git_before_runtime_execution(tmp_path: Path) -> None:
+    runtime = _ControlledRuntime()
+    git = _GitGate(dirty=True)
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        project = _workspace_project(connection, tmp_path, "dirty")
+        coordinator = ProductLoopCoordinator(connection, root=tmp_path)
+
+        result = coordinator.run_user_message(
+            project_id=project["id"],
+            message="Implement on a dirty repository.",
+            runtime_runner=runtime,
+            git_service=git,
+        )
+
+        assert result["status"] == "blocked"
+        assert "dirty" in result["reason"].lower()
+        assert result["loop"]["state"] == "blocked"
+        assert runtime.run_payloads == []
+        assert [item["toState"] for item in result["transitions"]] == [
+            "goal_received",
+            "workspace_check",
+            "runtime_check",
+            "git_check",
+            "blocked",
+        ]
+
+
+def test_run_user_message_blocks_when_gitleaks_fails(tmp_path: Path) -> None:
+    runtime = _ControlledRuntime()
+    git = _GitGate(gitleaks_status="blocked")
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        project = _workspace_project(connection, tmp_path, "gitleaks")
+        coordinator = ProductLoopCoordinator(connection, root=tmp_path)
+
+        result = coordinator.run_user_message(
+            project_id=project["id"],
+            message="Implement with a secret leak.",
+            runtime_runner=runtime,
+            git_service=git,
+        )
+
+        assert result["status"] == "blocked"
+        assert "gitleaks" in result["reason"].lower()
+        assert result["loop"]["state"] == "blocked"
+        assert runtime.run_payloads
+        assert git.gitleaks_calls == 1
+        assert result["loop"]["context"]["durableRun"]["gitleaks"]["deliveryBlocked"] is True
+
+
+def test_run_user_message_opens_rework_when_qa_fails(tmp_path: Path) -> None:
+    runtime = _ControlledRuntime(status="qa_failed")
+    git = _GitGate()
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        project = _workspace_project(connection, tmp_path, "qa-fail")
+        coordinator = ProductLoopCoordinator(connection, root=tmp_path)
+
+        result = coordinator.run_user_message(
+            project_id=project["id"],
+            message="Implement but QA fails.",
+            runtime_runner=runtime,
+            git_service=git,
+        )
+
+        assert result["status"] == "reworking"
+        assert result["loop"]["state"] == "reworking"
+        assert result["loop"]["context"]["durableRun"]["rework"]["source"] == "qa"
+        assert result["loop"]["context"]["durableRun"]["rework"]["reason"] == result["reason"]
+        assert "reworking" in [item["toState"] for item in result["transitions"]]
+
+
+def test_run_user_message_recovers_persisted_state_after_restart(tmp_path: Path) -> None:
+    db_path = tmp_path / "platform.sqlite"
+    runtime = _ControlledRuntime()
+    git = _GitGate()
+    with open_sqlite_connection(db_path) as connection:
+        initialize_platform_schema(connection)
+        project = _workspace_project(connection, tmp_path, "restart")
+        project_id = project["id"]
+        coordinator = ProductLoopCoordinator(connection, root=tmp_path)
+        result = coordinator.run_user_message(
+            project_id=project_id,
+            message="Implement and persist state.",
+            runtime_runner=runtime,
+            git_service=git,
+        )
+        loop_id = result["loop"]["id"]
+        expected_context = result["loop"]["context"]["durableRun"]
+
+    with open_sqlite_connection(db_path) as connection:
+        resumed = ProductLoopCoordinator(connection, root=tmp_path).resume(loop_id)
+
+    assert resumed["loop"]["state"] == "awaiting_approval"
+    assert resumed["loop"]["context"]["durableRun"]["thread"] == expected_context["thread"]
+    assert resumed["loop"]["context"]["durableRun"]["workspaceId"] == expected_context["workspaceId"]
+    assert resumed["loop"]["context"]["durableRun"]["evidencePackageIds"]
+    assert resumed["transitions"][-1]["toState"] == "awaiting_approval"
 
 
 def test_invalid_and_unknown_transitions_are_rejected(tmp_path: Path) -> None:
@@ -350,7 +610,12 @@ def test_feedback_actions_are_classified_applied_and_traceable(tmp_path: Path) -
 
         epic = backlog.create_epic({"projectId": project_id, "title": "Checkout"})
         story = backlog.create_user_story(
-            {"projectId": project_id, "epicId": epic["id"], "title": "Guest checkout"}
+            {
+                "projectId": project_id,
+                "epicId": epic["id"],
+                "title": "Guest checkout",
+                "acceptanceCriteria": ["Guest checkout validates payment fields."],
+            }
         )
         task = backlog.create_agent_task(
             {
@@ -416,7 +681,13 @@ def test_feedback_actions_are_classified_applied_and_traceable(tmp_path: Path) -
             actor="operator",
             target_type="epic",
             target_id=epic["id"],
-            payload={"story": {"title": "Guest email receipt", "asA": "shopper"}},
+            payload={
+                "story": {
+                    "title": "Guest email receipt",
+                    "asA": "shopper",
+                    "acceptanceCriteria": ["The shopper receives an email receipt after checkout."],
+                }
+            },
         )
         assert new_story["feedback"]["classification"] == "new_story"
         assert new_story["feedback"]["effects"][0]["type"] == "create_user_story"

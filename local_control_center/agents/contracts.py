@@ -16,7 +16,11 @@ from pydantic import BaseModel, ConfigDict, Field
 AgentRole = Literal[
     "analyst",
     "assessor",
+    "aido_lead",
     "product_owner",
+    "project_manager",
+    "scrum_master",
+    "architect",
     "technical_lead",
     "technical_lead_shadow",
     "developer",
@@ -26,8 +30,11 @@ AgentRole = Literal[
     "devops",
     "devops_engineer",
     "qa",
+    "qa_engineer",
     "qa_reviewer",
+    "security_engineer",
     "security_reviewer",
+    "researcher",
     "release_manager",
 ]
 PermissionProfile = Literal["plan", "dev_safe", "qa", "release"]
@@ -48,6 +55,8 @@ AgentRunStatus = Literal[
     "failed",
     "blocked",
     "runtime_unavailable",
+    "runtime_failed",
+    "timed_out",
     "qa_failed",
     "evidence_ready",
     "approval_required",
@@ -91,6 +100,7 @@ class AgentProfileUpsertRequest(BaseModel):
     allowed_runtimes: list[str] = Field(default_factory=list, alias="allowedRuntimes")
     allowed_skills: list[str] = Field(default_factory=list, alias="allowedSkills")
     allowed_tools: list[str] = Field(default_factory=list, alias="allowedTools")
+    default_runtime_policy: dict[str, Any] = Field(default_factory=dict, alias="defaultRuntimePolicy")
     permission_profile: PermissionProfile = Field(default="plan", alias="permissionProfile")
     memory_scope: str = Field(default="project", alias="memoryScope")
     max_cost_per_run: float = Field(default=0, alias="maxCostPerRun")
@@ -102,7 +112,30 @@ class AgentProfileUpsertRequest(BaseModel):
     requires_approval_over_usd: float | None = Field(default=None, alias="requiresApprovalOverUsd")
     output_schema: dict[str, Any] = Field(default_factory=dict, alias="outputSchema")
     quality_gates: list[Any] = Field(default_factory=list, alias="qualityGates")
+    reviewer_policy: dict[str, Any] = Field(default_factory=dict, alias="reviewerPolicy")
     status: PolicyStatus = "active"
+
+
+class AgentRuntimeAvailability(BaseModel):
+    """Readiness efectivo de un perfil contra los runtimes reales detectados."""
+
+    status: Literal["available", "blocked", "disabled", "configuration_required", "unknown"] = "unknown"
+    available: bool = False
+    selected_provider_id: str | None = Field(default=None, alias="selectedProviderId")
+    candidate_provider_ids: list[str] = Field(default_factory=list, alias="candidateProviderIds")
+    blocked_reason: str = Field(default="", alias="blockedReason")
+    required_capabilities: list[str] = Field(default_factory=list, alias="requiredCapabilities")
+
+
+class AgentProfileProjectOverrideRecord(BaseModel):
+    """Override de perfil aplicado a un proyecto especifico."""
+
+    project_id: str = Field(alias="projectId")
+    agent_profile_id: str = Field(alias="agentProfileId")
+    reason: str
+    status: PolicyStatus
+    created_at: str = Field(alias="createdAt")
+    updated_at: str = Field(alias="updatedAt")
 
 
 class AgentProfileRecord(BaseModel):
@@ -120,6 +153,7 @@ class AgentProfileRecord(BaseModel):
     allowed_runtimes: list[str] = Field(alias="allowedRuntimes")
     allowed_skills: list[str] = Field(alias="allowedSkills")
     allowed_tools: list[str] = Field(alias="allowedTools")
+    default_runtime_policy: dict[str, Any] = Field(alias="defaultRuntimePolicy")
     permission_profile: PermissionProfile = Field(alias="permissionProfile")
     memory_scope: str = Field(alias="memoryScope")
     max_cost_per_run: float = Field(alias="maxCostPerRun")
@@ -131,6 +165,12 @@ class AgentProfileRecord(BaseModel):
     requires_approval_over_usd: float | None = Field(default=None, alias="requiresApprovalOverUsd")
     output_schema: dict[str, Any] = Field(alias="outputSchema")
     quality_gates: list[Any] = Field(alias="qualityGates")
+    reviewer_policy: dict[str, Any] = Field(alias="reviewerPolicy")
+    cost_limits: dict[str, Any] = Field(alias="costLimits")
+    runtime_availability: AgentRuntimeAvailability = Field(
+        default_factory=AgentRuntimeAvailability, alias="runtimeAvailability"
+    )
+    project_override: AgentProfileProjectOverrideRecord | None = Field(default=None, alias="projectOverride")
     status: PolicyStatus
     created_at: str = Field(alias="createdAt")
     updated_at: str = Field(alias="updatedAt")
@@ -146,6 +186,25 @@ class AgentProfilesListResponse(BaseModel):
     """Respuesta con el listado de perfiles de agente."""
 
     agent_profiles: list[AgentProfileRecord] = Field(alias="agentProfiles")
+
+
+class AgentProfileProjectOverrideRequest(BaseModel):
+    """Payload para sobreescribir runtime/politicas de un perfil en un proyecto."""
+
+    runtime_mode: RuntimeMode | None = Field(default=None, alias="runtimeMode")
+    allowed_providers: list[str] | None = Field(default=None, alias="allowedProviders")
+    allowed_runtimes: list[str] | None = Field(default=None, alias="allowedRuntimes")
+    allowed_skills: list[str] | None = Field(default=None, alias="allowedSkills")
+    allowed_tools: list[str] | None = Field(default=None, alias="allowedTools")
+    default_runtime_policy: dict[str, Any] | None = Field(default=None, alias="defaultRuntimePolicy")
+    reviewer_policy: dict[str, Any] | None = Field(default=None, alias="reviewerPolicy")
+    max_cost_per_run: float | None = Field(default=None, alias="maxCostPerRun")
+    max_tokens_per_run: int | None = Field(default=None, alias="maxTokensPerRun")
+    max_runtime_seconds: int | None = Field(default=None, alias="maxRuntimeSeconds")
+    requires_approval_over_usd: float | None = Field(default=None, alias="requiresApprovalOverUsd")
+    quality_gates: list[Any] | None = Field(default=None, alias="qualityGates")
+    reason: str
+    status: PolicyStatus = "active"
 
 
 class AgentRunCreateRequest(BaseModel):
@@ -830,6 +889,8 @@ class ProductOwnerAgentRunResponse(BaseModel):
 
     status: str
     reason: str
+    summary: str = ""
+    confidence: str = "low"
     product_owner_agent: ProductOwnerAgentStatus = Field(alias="productOwnerAgent")
     workspace: dict[str, Any]
     job: dict[str, Any]
@@ -842,8 +903,14 @@ class ProductOwnerAgentRunResponse(BaseModel):
     initiative: dict[str, Any] | None = None
     questions: list[dict[str, Any]] = Field(default_factory=list)
     assumptions: list[dict[str, Any]] = Field(default_factory=list)
+    decisions: list[dict[str, Any]] = Field(default_factory=list)
     brief: dict[str, Any] | None = None
+    product_brief_patch: dict[str, Any] | None = Field(default=None, alias="productBriefPatch")
     blocking_decisions: list[dict[str, Any]] = Field(default_factory=list, alias="blockingDecisions")
+    user_stories: list[dict[str, Any]] = Field(default_factory=list, alias="userStories")
+    risks: list[dict[str, Any]] = Field(default_factory=list)
+    recommended_next_action: str = Field(default="", alias="recommendedNextAction")
+    product_owner_output: dict[str, Any] | None = Field(default=None, alias="productOwnerOutput")
     epics: list[dict[str, Any]] = Field(default_factory=list)
 
 

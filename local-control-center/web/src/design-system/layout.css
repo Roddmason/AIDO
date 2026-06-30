@@ -51,6 +51,7 @@
 
 /* Desktop-style application menu bar: a thin top strip above the IDE body that
    hosts the File/Edit/View/Help menus. Sits in normal flow as the shell's first row. */
+/* biome-ignore lint/style/noDescendingSpecificity: base component rule; the earlier `.app-shell-ide--stacked > .menu-bar` scoped override is more specific by design and wins regardless of source order */
 .menu-bar {
 	display: flex;
 	align-items: stretch;
@@ -161,6 +162,7 @@
 }
 
 /* Thread/loop ShellSidebar: the Codex-style left navigator (Threads/Loops tabs + search). */
+/* biome-ignore lint/style/noDescendingSpecificity: base component rule; the earlier `.app-shell-ide--stacked > .shell-sidebar` scoped override is more specific by design and wins regardless of source order */
 .shell-sidebar {
 	display: flex;
 	flex-direction: column;
@@ -563,6 +565,7 @@
 	min-height: 0;
 }
 
+/* biome-ignore lint/style/noDescendingSpecificity: the earlier `.app-shell-ide--stacked > .workbench .content-frame` scoped override is more specific by design and wins regardless of source order */
 .ide-pane .content-frame {
 	min-height: 0;
 	overflow: auto;
@@ -592,6 +595,7 @@
 }
 
 /* Collapsible bottom dock (logs / terminal). */
+/* biome-ignore lint/style/noDescendingSpecificity: base component rule; the earlier `.app-shell-ide--stacked > .bottom-panel` scoped override is more specific by design and wins regardless of source order */
 .bottom-panel {
 	display: grid;
 	grid-template-rows: auto minmax(0, 1fr);
@@ -623,11 +627,13 @@
 	padding: var(--space-4);
 }
 
+/* biome-ignore lint/style/noDescendingSpecificity: base component rule; the earlier `.ide-body > .activity-bar` scoped override is more specific by design and wins regardless of source order */
 .activity-bar {
 	position: sticky;
 	top: 0;
 	z-index: var(--z-sticky);
 	height: 100vh;
+	/* biome-ignore lint/suspicious/noDuplicateProperties: 100vh fallback then 100dvh progressive enhancement for browsers without dvh support */
 	height: 100dvh;
 	display: grid;
 	grid-template-rows: auto 1fr auto;
@@ -657,11 +663,13 @@
 	color: var(--color-text-primary);
 }
 
+/* biome-ignore lint/style/noDescendingSpecificity: base component rule; the earlier `.ide-pane > .explorer-panel` scoped override is more specific by design and wins regardless of source order */
 .explorer-panel {
 	position: sticky;
 	top: 0;
 	z-index: var(--z-raised);
 	height: 100vh;
+	/* biome-ignore lint/suspicious/noDuplicateProperties: 100vh fallback then 100dvh progressive enhancement for browsers without dvh support */
 	height: 100dvh;
 	min-width: 0;
 	display: grid;
@@ -780,18 +788,22 @@
 	box-shadow: inset 3px 0 0 var(--color-accent);
 }
 
+/* biome-ignore lint/style/noDescendingSpecificity: base component rule; the earlier `.app-shell-ide--stacked > .main-area` scoped override is more specific by design and wins regardless of source order */
 .main-area,
+/* biome-ignore lint/style/noDescendingSpecificity: base component rule; the earlier `.app-shell-ide--stacked > .workbench` scoped override is more specific by design and wins regardless of source order */
 .workbench {
 	position: relative;
 	z-index: var(--z-raised);
 	min-width: 0;
 	min-height: 100vh;
+	/* biome-ignore lint/suspicious/noDuplicateProperties: 100vh fallback then 100dvh progressive enhancement for browsers without dvh support */
 	min-height: 100dvh;
 	display: grid;
 	grid-template-rows: auto auto minmax(0, 1fr);
 	background: var(--color-surface-workbench);
 }
 
+/* biome-ignore lint/style/noDescendingSpecificity: the earlier `.app-shell-ide--stacked > .workbench` scoped override is more specific by design and wins regardless of source order */
 .workbench {
 	grid-template-rows: auto minmax(0, 1fr);
 }
@@ -855,6 +867,7 @@
 }
 
 .status-strip,
+/* biome-ignore lint/style/noDescendingSpecificity: base component rule; the earlier `.app-shell-ide--stacked > .status-bar` scoped override is more specific by design and wins regardless of source order */
 .status-bar {
 	min-height: var(--size-status-bar);
 	padding: var(--space-2) var(--space-6);
@@ -1021,6 +1034,7 @@
 	min-height: var(--control-height-sm);
 }
 
+/* biome-ignore lint/style/noDescendingSpecificity: base component rule; the earlier `.app-shell-ide--stacked > .workbench .content-frame` scoped override is more specific by design and wins regardless of source order */
 .content-frame {
 	width: 100%;
 	display: grid;
@@ -1049,6 +1063,7 @@
 	z-index: 1;
 	width: min(35rem, 100vw);
 	height: 100vh;
+	/* biome-ignore lint/suspicious/noDuplicateProperties: 100vh fallback then 100dvh progressive enhancement for browsers without dvh support */
 	height: 100dvh;
 	overflow: auto;
 	padding: var(--space-5);
@@ -1183,6 +1198,7 @@
 	align-items: start;
 }
 
+/* biome-ignore lint/style/noDescendingSpecificity: base component rule; the earlier `.app-shell-ide--stacked > .inspector-panel` scoped override is more specific by design and wins regardless of source order */
 .inspector-panel {
 	min-width: 0;
 	display: grid;
@@ -1317,6 +1333,208 @@
 
 .chat-textarea {
 	min-height: 8.5rem;
+}
+
+/* ---- Real thread conversation (threads route center) ---- */
+.thread-conversation-head {
+	flex: 0 0 auto;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--space-3);
+	padding: var(--space-3) var(--space-6);
+	border-bottom: 1px solid var(--color-border-subtle);
+	background: var(--color-surface-panel);
+}
+
+.thread-conversation-title {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-2);
+	min-width: 0;
+	color: var(--color-text-muted);
+}
+
+.thread-conversation-title h2 {
+	margin: 0;
+	font-size: var(--font-size-md);
+	font-weight: var(--weight-semibold);
+	color: var(--color-text-primary);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+/* Tone is carried by the full border colour, never a side stripe. */
+.thread-message[data-kind="aido_lead"] {
+	border-color: color-mix(in oklch, var(--color-status-success) 36%, var(--color-border-subtle));
+}
+
+.thread-message[data-kind="decision_request"] {
+	border-color: color-mix(in oklch, var(--color-status-warning) 42%, var(--color-border-subtle));
+}
+
+.thread-message[data-kind="error"] {
+	border-color: color-mix(in oklch, var(--color-status-danger) 42%, var(--color-border-subtle));
+}
+
+.thread-message[data-kind="system_event"] {
+	background: var(--color-surface-inset);
+}
+
+.thread-message-seq {
+	margin-left: auto;
+	font-size: var(--font-size-xs);
+	color: var(--color-text-muted);
+}
+
+.thread-decision {
+	display: grid;
+	gap: var(--space-2);
+	padding: var(--space-3);
+	border: 1px solid color-mix(in oklch, var(--color-status-warning) 42%, var(--color-border-subtle));
+	border-radius: var(--radius-md);
+	background: color-mix(in oklch, var(--color-status-warning) 8%, var(--color-surface-card));
+}
+
+.thread-decision-head {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-2);
+	color: var(--color-text-primary);
+}
+
+.thread-decision p {
+	margin: 0;
+	color: var(--color-text-secondary);
+}
+
+.thread-decision-options {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-2);
+}
+
+/* New-thread intake: a single centered Codex-style composer (no manual title field). */
+.thread-intake {
+	flex: 1 1 auto;
+	display: flex;
+	flex-direction: column;
+	justify-content: center;
+	align-items: center;
+	gap: var(--space-5);
+	padding: var(--space-6);
+	overflow-y: auto;
+}
+
+.thread-intake-heading {
+	margin: 0;
+	max-width: 40rem;
+	text-align: center;
+	font-family: var(--font-display);
+	font-size: var(--font-size-xl);
+	font-weight: var(--weight-semibold);
+	color: var(--color-text-primary);
+}
+
+/* Span the full intake width (only the .thread-intake padding sets the side margin, so it hugs the
+ * edges), with a high cap so it never becomes an unreadable full-bleed line on ultra-wide screens. */
+.thread-intake-form {
+	width: 100%;
+	max-width: 110rem;
+}
+
+/* ---- Codex-style composer box (shared by the new-thread intake and the active conversation) ---- */
+
+/* Active-thread placement: pinned at the bottom of the chat layout, never scrolls. */
+.thread-composer-dock {
+	flex: 0 0 auto;
+	padding: var(--space-3) var(--space-6) var(--space-4);
+	background: var(--color-surface-panel);
+	border-top: 1px solid var(--color-border-subtle);
+}
+
+/* The box: one rounded surface holding the prompt, the controls row and the workspace context row. */
+.thread-composer-box {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-2);
+	padding: var(--space-3);
+	border: 1px solid var(--color-border-subtle);
+	border-radius: var(--radius-lg);
+	background: var(--color-surface-card);
+}
+
+.thread-composer-box:focus-within {
+	border-color: color-mix(in oklch, var(--color-accent) 50%, var(--color-border-subtle));
+	box-shadow: var(--shadow-focus);
+}
+
+/* The inner TextArea blends into the box: no chrome, label hidden (placeholder carries intent). */
+.thread-composer-box .field {
+	margin: 0;
+}
+
+.thread-composer-box .field-label {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	padding: 0;
+	margin: -1px;
+	overflow: hidden;
+	clip: rect(0, 0, 0, 0);
+	clip-path: inset(50%);
+	white-space: nowrap;
+	border: 0;
+}
+
+.thread-composer-box .textarea {
+	border: none;
+	background: transparent;
+	padding: 0;
+	resize: none;
+	min-height: 2.5rem;
+}
+
+.thread-composer-box .textarea:focus,
+.thread-composer-box .textarea:focus-visible {
+	outline: none;
+	box-shadow: none;
+}
+
+/* Action-approval (autonomy) control: icon + compact select on the left of the controls row. */
+.composer-perms {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-2);
+	color: var(--color-text-muted);
+}
+
+/* Highest autonomy tints only the icon (a graphic) with a warning tone, the way Codex flags "Full
+ * access"; the select text keeps --color-text-primary so the readable label stays high-contrast. */
+.composer-perms[data-level="autonomous"] svg {
+	color: var(--color-status-warning);
+}
+
+.composer-perms-select {
+	min-width: 9rem;
+}
+
+/* Environment indicator: AIDO executes on this machine; there is no remote runtime to choose, so it
+ * is a static fact, not a dropdown. Shares the context-row top border to read as one toolbar line. */
+.composer-env {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-1);
+	white-space: nowrap;
+	padding-top: var(--space-2);
+	padding-right: var(--space-3);
+	border-top: 1px solid var(--color-border-subtle);
+	color: var(--color-text-muted);
+}
+
+.thread-skeleton-row {
+	height: 3.5rem;
 }
 
 /* ---- Shell chat mode: full-height chat-first layout (hideExplorer=true) ---- */
@@ -1717,6 +1935,47 @@
 	gap: var(--space-1);
 }
 
+.activity-artifacts,
+.activity-files {
+	list-style: none;
+	margin: var(--space-2) 0 0;
+	padding: 0;
+	display: grid;
+	gap: var(--space-1);
+}
+
+.activity-artifact {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-2);
+	color: var(--color-text-muted);
+}
+
+.activity-file {
+	padding: var(--space-1) var(--space-2);
+	border: 1px solid var(--color-border-subtle);
+	border-radius: var(--radius-sm);
+	background: var(--color-surface-inset);
+	overflow-wrap: anywhere;
+}
+
+.cli-session-activity {
+	display: grid;
+	gap: var(--space-2);
+}
+
+.cli-session-log {
+	max-height: 14rem;
+	overflow: auto;
+	display: grid;
+	gap: var(--space-2);
+	padding: var(--space-2);
+	border: 1px solid var(--color-border-subtle);
+	border-radius: var(--radius-md);
+	background: var(--color-surface-inset);
+}
+
 .activity-event {
 	display: flex;
 	align-items: center;
@@ -1926,7 +2185,9 @@
 }
 
 @media (max-width: 980px) {
+	/* biome-ignore lint/style/noDescendingSpecificity: the earlier `.ide-body > .activity-bar` scoped override is more specific by design and wins regardless of source order */
 	.activity-bar,
+	/* biome-ignore lint/style/noDescendingSpecificity: the earlier `.ide-pane > .explorer-panel` scoped override is more specific by design and wins regardless of source order */
 	.explorer-panel {
 		position: relative;
 		height: auto;
@@ -1934,6 +2195,7 @@
 		padding: var(--space-4);
 	}
 
+	/* biome-ignore lint/style/noDescendingSpecificity: the earlier `.ide-body > .activity-bar` scoped override is more specific by design and wins regardless of source order */
 	.activity-bar {
 		display: flex;
 		align-items: center;
@@ -1978,6 +2240,7 @@
 		overflow: visible;
 	}
 
+	/* biome-ignore lint/style/noDescendingSpecificity: the earlier `.app-shell-ide--stacked > .inspector-panel` scoped override is more specific by design and wins regardless of source order */
 	.inspector-panel {
 		border-left: 0;
 		border-top: 1px solid var(--color-border-subtle);
@@ -1989,6 +2252,7 @@
 }
 
 @media (max-width: 560px) {
+	/* biome-ignore lint/style/noDescendingSpecificity: the earlier `.ide-pane > .explorer-panel` scoped override is more specific by design and wins regardless of source order */
 	.explorer-panel {
 		padding-inline: var(--space-3);
 	}
@@ -2025,9 +2289,11 @@
 		flex-direction: column;
 	}
 
+	/* biome-ignore lint/style/noDescendingSpecificity: the earlier `.app-shell-ide--stacked > .workbench .content-frame` scoped override is more specific by design and wins regardless of source order */
 	.content-frame,
 	.topbar,
 	.status-strip,
+	/* biome-ignore lint/style/noDescendingSpecificity: the earlier `.app-shell-ide--stacked > .status-bar` scoped override is more specific by design and wins regardless of source order */
 	.status-bar {
 		padding-inline: var(--space-3);
 	}

@@ -37,9 +37,9 @@ import { toneForStatus } from '../../lib/format';
 type PendingAction = 'load' | 'create' | 'validate' | 'rotate' | 'delete' | 'migrate' | null;
 
 const DEFAULT_FORM = {
-	name: '',
-	backendKind: 'keyring',
-	locator: '',
+	label: '',
+	source: 'keyring',
+	credentialRef: '',
 	authMode: 'token',
 	value: '',
 };
@@ -89,8 +89,8 @@ export function CredentialManagerPanel({ token }: { token: string }) {
 			);
 			setForm((current) => ({
 				...current,
-				backendKind: nextWritableBackends.some((backend) => backend.kind === current.backendKind)
-					? current.backendKind
+				source: nextWritableBackends.some((backend) => backend.kind === current.source)
+					? current.source
 					: fallbackBackendKind,
 			}));
 		} catch (err) {
@@ -119,9 +119,9 @@ export function CredentialManagerPanel({ token }: { token: string }) {
 		setPending('create');
 		try {
 			await createCredential(token, {
-				name: form.name.trim(),
-				backendKind: form.backendKind,
-				locator: form.locator.trim(),
+				label: form.label.trim(),
+				source: form.source,
+				credentialRef: form.credentialRef.trim(),
 				authMode: form.authMode.trim() || 'token',
 				value: form.value,
 			});
@@ -203,11 +203,9 @@ export function CredentialManagerPanel({ token }: { token: string }) {
 	};
 
 	const disabled = !token || pending !== null;
-	const selectedBackendWritable = writableBackends.some(
-		(backend) => backend.kind === form.backendKind,
-	);
+	const selectedBackendWritable = writableBackends.some((backend) => backend.kind === form.source);
 	const canCreate = Boolean(
-		form.name.trim() && form.locator.trim() && form.value && selectedBackendWritable,
+		form.label.trim() && form.credentialRef.trim() && form.value && selectedBackendWritable,
 	);
 	const canRotate = Boolean(selectedCredential && rotateValue);
 
@@ -248,17 +246,15 @@ export function CredentialManagerPanel({ token }: { token: string }) {
 
 			<form className="form-grid" onSubmit={(event) => void handleCreate(event)}>
 				<TextField
-					label={t('settings.credentials.name', 'Name')}
-					value={form.name}
-					onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
+					label={t('settings.credentials.label', 'Label')}
+					value={form.label}
+					onChange={(event) => setForm((current) => ({ ...current, label: event.target.value }))}
 					required
 				/>
 				<SelectField
-					label={t('settings.credentials.backend', 'Backend')}
-					value={form.backendKind}
-					onChange={(event) =>
-						setForm((current) => ({ ...current, backendKind: event.target.value }))
-					}
+					label={t('settings.credentials.source', 'Source')}
+					value={form.source}
+					onChange={(event) => setForm((current) => ({ ...current, source: event.target.value }))}
 					required
 				>
 					{backends.map((backend) => (
@@ -272,9 +268,11 @@ export function CredentialManagerPanel({ token }: { token: string }) {
 					))}
 				</SelectField>
 				<TextField
-					label={t('settings.credentials.locator', 'Locator')}
-					value={form.locator}
-					onChange={(event) => setForm((current) => ({ ...current, locator: event.target.value }))}
+					label={t('settings.credentials.credentialRef', 'Credential ref')}
+					value={form.credentialRef}
+					onChange={(event) =>
+						setForm((current) => ({ ...current, credentialRef: event.target.value }))
+					}
 					required
 				/>
 				<TextField
@@ -313,16 +311,36 @@ export function CredentialManagerPanel({ token }: { token: string }) {
 					/>
 				}
 				columns={[
-					{ key: 'name', label: t('ui.static.name.709a2322', 'Name'), render: (row) => row.name },
 					{
-						key: 'backend',
-						label: t('settings.credentials.backend', 'Backend'),
-						render: (row) => <span className="mono">{row.backendKind}</span>,
+						key: 'label',
+						label: t('settings.credentials.label', 'Label'),
+						render: (row) => row.label,
 					},
 					{
-						key: 'locator',
-						label: t('settings.credentials.locator', 'Locator'),
-						render: (row) => <span className="mono">{row.locator}</span>,
+						key: 'source',
+						label: t('settings.credentials.source', 'Source'),
+						render: (row) => <span className="mono">{row.source}</span>,
+					},
+					{
+						key: 'credentialRef',
+						label: t('settings.credentials.credentialRef', 'Credential ref'),
+						render: (row) => <span className="mono">{row.credentialRef}</span>,
+					},
+					{
+						key: 'providers',
+						label: t('settings.credentials.providers', 'Providers'),
+						render: (row) =>
+							row.providerUsages.length ? (
+								<div className="inline">
+									{row.providerUsages.map((usage) => (
+										<Badge key={usage.providerId} tone={usage.enabled ? 'ok' : 'warn'}>
+											{usage.displayName || usage.providerId}
+										</Badge>
+									))}
+								</div>
+							) : (
+								<span className="muted">{t('settings.credentials.noProviders', 'None')}</span>
+							),
 					},
 					{
 						key: 'status',
@@ -372,7 +390,7 @@ export function CredentialManagerPanel({ token }: { token: string }) {
 					)}
 					{credentials.map((credential) => (
 						<option key={credential.id} value={credential.id}>
-							{credential.name}
+							{credential.label}
 						</option>
 					))}
 				</SelectField>

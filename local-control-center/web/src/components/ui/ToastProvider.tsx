@@ -72,9 +72,8 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 		<ToastContext.Provider value={api}>
 			{children}
 			{createPortal(
-				<div
+				<section
 					className="toast-viewport"
-					role="region"
 					aria-label={t('app.global.notifications', 'Notifications')}
 					aria-live="polite"
 					aria-atomic="false"
@@ -92,7 +91,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 							</IconButton>
 						</div>
 					))}
-				</div>,
+				</section>,
 				document.body,
 			)}
 		</ToastContext.Provider>

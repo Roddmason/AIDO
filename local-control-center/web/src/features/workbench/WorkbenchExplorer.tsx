@@ -107,7 +107,7 @@ export function WorkbenchExplorer({
 			</Surface>
 
 			<Surface title={t('app.workbench.sessions.title', 'Work sessions')}>
-				<div className="session-list" role="list">
+				<div className="session-list">
 					<button
 						className="session-item new-session"
 						type="button"

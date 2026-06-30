@@ -190,11 +190,7 @@ export function ReviewPage({
 					'One inbox for every human decision: pending approvals, QA failures, security blockers, evidence-ready runs, approvals for integration and recent decisions. Cards reflect server state — open one to approve or reject with full evidence.',
 				)}
 			/>
-			<section
-				className="review-board"
-				role="region"
-				aria-label={t('app.review.copy.3', 'Review board')}
-			>
+			<section className="review-board" aria-label={t('app.review.copy.3', 'Review board')}>
 				{REVIEW_COLUMNS.map((column) => (
 					<ReviewColumn
 						key={column}

@@ -67,10 +67,11 @@ export function ColumnChooser({
 	return (
 		<details className="column-chooser">
 			<summary>{t('app.modelGateway.columns.chooser', 'Columns')}</summary>
-			<div
+			<fieldset
 				className="column-chooser-options"
-				role="group"
 				aria-label={t('app.modelGateway.columns.chooser', 'Columns')}
+				// Reset the <fieldset> user-agent chrome so the flex box matches the prior <div>.
+				style={{ margin: 0, padding: 0, border: 0, minInlineSize: 0 }}
 			>
 				{advanced.map((column) => {
 					const id = `col-${column.key}`;
@@ -86,7 +87,7 @@ export function ColumnChooser({
 						</label>
 					);
 				})}
-			</div>
+			</fieldset>
 		</details>
 	);
 }

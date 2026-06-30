@@ -59,9 +59,11 @@ RUNTIME_UNAVAILABLE_STATUS = "runtime_unavailable"
 FAILED_VALIDATION_STATUS = "failed_validation"
 COMPLETED_STATUS = "completed"
 BLOCKED_STATUS = "blocked"
+BRIEF_READY_STATUS = "brief_ready"
 CONFIDENCES = {"low", "medium", "high"}
 BUSINESS_VALUES = {"low", "medium", "high"}
-BLOCKING_DECISION_STATUSES = {"open", "resolved"}
+RUNTIME_OUTPUT_STATUSES = {"questions_required", "brief_ready", "backlog_ready", "completed", "blocked"}
+BLOCKING_DECISION_STATUSES = {"open", "proposed", "resolved", "accepted"}
 QUESTION_CONFIDENCE_PRIORITY = {"low": "high", "medium": "medium", "high": "low"}
 DEFAULT_COMPLETENESS_THRESHOLD = 70
 BLOCKED_COMPLETENESS_CAP = 60
@@ -72,6 +74,7 @@ ASSESSMENT_SIGNAL_LIMIT = 5
 
 REQUIRED_BRIEF_TEXT_FIELDS = ["title", "summary", "problemStatement", "scope", "outOfScope"]
 REQUIRED_BRIEF_LIST_FIELDS = ["goals", "targetUsers", "successMetrics"]
+TECHNICAL_STORY_KEYS = {"role", "agentRole", "taskRole", "technicalTask", "implementationTask"}
 
 
 class ProductOwnerOutputValidationError(ValueError):
@@ -193,6 +196,91 @@ def _codebase_signals(assessment: dict[str, Any], findings: list[dict[str, Any]]
     }
 
 
+def persist_product_owner_backlog(
+    backlog: BacklogRepository,
+    *,
+    project_id: str,
+    output: dict[str, Any],
+    product_owner_output_id: str | None = None,
+) -> list[dict[str, Any]]:
+    """Materializa épicas, historias y criterios desde un output PO validado."""
+    existing: list[dict[str, Any]] = []
+    if product_owner_output_id:
+        existing = [
+            epic
+            for epic in backlog.list_epics(project_id)
+            if (epic.get("metadata") or {}).get("productOwnerOutputId") == product_owner_output_id
+        ]
+    if existing:
+        return [{"epic": epic, "stories": []} for epic in existing]
+
+    epics_by_title: dict[str, dict[str, Any]] = {}
+    persisted: list[dict[str, Any]] = []
+    for epic in output["epics"]:
+        epic_record = backlog.create_epic(
+            {
+                "projectId": project_id,
+                "title": epic["title"],
+                "description": epic.get("description", ""),
+                "status": "active",
+                "owner": PRODUCT_OWNER_AGENT_ID,
+                "metadata": {
+                    "source": PRODUCT_OWNER_AGENT_ID,
+                    "productOwnerOutputId": product_owner_output_id,
+                },
+            }
+        )
+        epics_by_title[epic["title"]] = epic_record
+        persisted.append({"epic": epic_record, "stories": []})
+
+    persisted_by_epic_id = {item["epic"]["id"]: item for item in persisted}
+    for story in output["userStories"]:
+        epic_record = epics_by_title.get(story["epicTitle"])
+        if not epic_record:
+            epic_record = backlog.create_epic(
+                {
+                    "projectId": project_id,
+                    "title": story["epicTitle"],
+                    "description": "",
+                    "status": "active",
+                    "owner": PRODUCT_OWNER_AGENT_ID,
+                    "metadata": {
+                        "source": PRODUCT_OWNER_AGENT_ID,
+                        "productOwnerOutputId": product_owner_output_id,
+                    },
+                }
+            )
+            epics_by_title[story["epicTitle"]] = epic_record
+            persisted_by_epic_id[epic_record["id"]] = {"epic": epic_record, "stories": []}
+            persisted.append(persisted_by_epic_id[epic_record["id"]])
+        story_record = backlog.create_user_story(
+            {
+                "projectId": project_id,
+                "epicId": epic_record["id"],
+                "title": story["title"],
+                "asA": story["asA"],
+                "iWant": story["iWant"],
+                "soThat": story["soThat"],
+                "businessValue": story["businessValue"],
+                "owner": PRODUCT_OWNER_AGENT_ID,
+                "acceptanceCriteria": story["acceptanceCriteria"],
+                "acceptanceCriteriaMetadata": {
+                    "source": PRODUCT_OWNER_AGENT_ID,
+                    "productOwnerOutputId": product_owner_output_id,
+                },
+                "metadata": {
+                    "source": PRODUCT_OWNER_AGENT_ID,
+                    "productOwnerOutputId": product_owner_output_id,
+                },
+            }
+        )
+        criteria = backlog.list_acceptance_criteria(story_record["id"])
+        persisted_by_epic_id[epic_record["id"]]["stories"].append(
+            {"story": story_record, "acceptanceCriteria": criteria}
+        )
+    return persisted
+
+
 class ProductOwnerAgent:
     """Lógica pura del ProductOwnerAgent: arma el prompt, valida la salida y calcula la completitud.
 
@@ -242,10 +330,13 @@ class ProductOwnerAgent:
             "You are ProductOwnerAgent. Analyze the supplied idea or existing assessment and return ONLY "
             "valid JSON, without markdown fences, matching this schema: "
             + json_dumps(self.contract()["outputSchema"])
-            + " Rules: a user story represents user value (asA/iWant/soThat) and is never duplicated per "
-            "technical role; record any decision that must be made before building as a blockingDecision with "
-            "status open; do not invent acceptance criteria without a story; each generated story must include "
-            "at least one acceptance criterion. Every question is an impact-ranked object with category (one of "
+            + " Rules: status is questions_required when the idea lacks product facts needed for a backlog, "
+            "brief_ready when the brief can be reviewed, or backlog_ready when stories are ready for approval. "
+            "A user story represents user value (asA/iWant/soThat) and is never a technical task or duplicated "
+            "per technical role; technical implementation work belongs outside userStories. Record product "
+            "decisions in decisions with status open when a human/AIDO choice is still needed. Do not invent "
+            "acceptance criteria without a story; each generated story must include at least one acceptance "
+            "criterion. Every question is an impact-ranked object with category (one of "
             "scope/users/data/integration/compliance/nonfunctional/ux/risk/delivery), question, whyItMatters, "
             "blocking (boolean), options (>=2 strings), recommendation (one of options), defaultDecision (one of "
             "options) and confidence (low/medium/high); do not ask about facts already present in the assessment."
@@ -265,13 +356,55 @@ class ProductOwnerAgent:
             raise ProductOwnerOutputValidationError(
                 "ProductOwnerAgent output is missing required fields: " + ", ".join(missing)
             )
+        status = str(payload["status"]).strip()
+        if status not in RUNTIME_OUTPUT_STATUSES:
+            raise ProductOwnerOutputValidationError(
+                f"status must be one of {sorted(RUNTIME_OUTPUT_STATUSES)}."
+            )
+        brief = self._validate_brief(payload["productBriefPatch"], field="productBriefPatch")
+        epics = self._validate_epic_summaries(payload["epics"])
+        user_stories = self._validate_user_stories(payload["userStories"], epics=epics)
+        if not isinstance(payload["decisions"], list):
+            raise ProductOwnerOutputValidationError("decisions must be a list.")
+        decisions_payload = [*payload["decisions"]]
+        legacy_decisions = payload.get("blockingDecisions")
+        if isinstance(legacy_decisions, list):
+            decisions_payload.extend(legacy_decisions)
+        unique_decisions: list[dict[str, Any]] = []
+        seen_decisions: set[tuple[str, str, str]] = set()
+        for item in decisions_payload:
+            if not isinstance(item, dict):
+                unique_decisions.append(item)
+                continue
+            key = (
+                str(item.get("title") or "").strip(),
+                str(item.get("question") or "").strip(),
+                str(item.get("status") or "").strip(),
+            )
+            if key in seen_decisions:
+                continue
+            seen_decisions.add(key)
+            unique_decisions.append(item)
+        decisions = self._validate_blocking_decisions(unique_decisions)
         return {
+            "status": status,
+            "summary": _required_text(payload, "summary", field="output"),
+            "confidence": _enum_value(payload, "confidence", CONFIDENCES, "medium", field="output"),
             "questions": self._validate_questions(payload["questions"]),
             "assumptions": self._validate_assumptions(payload["assumptions"]),
-            "blockingDecisions": self._validate_blocking_decisions(payload["blockingDecisions"]),
-            "brief": self._validate_brief(payload["brief"]),
-            "epics": self._validate_epics(payload["epics"]),
-            "modelCompleteness": payload["completeness"] if isinstance(payload["completeness"], dict) else {},
+            "blockingDecisions": decisions,
+            "decisions": decisions,
+            "brief": brief,
+            "productBriefPatch": brief,
+            "epics": epics,
+            "userStories": user_stories,
+            "risks": self._validate_risks(payload["risks"]),
+            "recommendedNextAction": _required_text(
+                payload, "recommendedNextAction", field="output"
+            ),
+            "modelCompleteness": payload.get("completeness")
+            if isinstance(payload.get("completeness"), dict)
+            else {},
         }
 
     def _validate_questions(self, value: Any) -> list[dict[str, Any]]:
@@ -302,20 +435,20 @@ class ProductOwnerAgent:
 
     def _validate_blocking_decisions(self, value: Any) -> list[dict[str, Any]]:
         if not isinstance(value, list):
-            raise ProductOwnerOutputValidationError("blockingDecisions must be a list.")
+            raise ProductOwnerOutputValidationError("decisions must be a list.")
         decisions: list[dict[str, Any]] = []
         for index, item in enumerate(value):
             if not isinstance(item, dict):
-                raise ProductOwnerOutputValidationError(f"blockingDecisions[{index}] must be an object.")
+                raise ProductOwnerOutputValidationError(f"decisions[{index}] must be an object.")
             options_value = item.get("options")
             options = (
-                _string_list(options_value, field=f"blockingDecisions[{index}].options")
+                _string_list(options_value, field=f"decisions[{index}].options")
                 if options_value is not None
                 else []
             )
             decisions.append(
                 {
-                    "title": _required_text(item, "title", field=f"blockingDecisions[{index}]"),
+                    "title": _required_text(item, "title", field=f"decisions[{index}]"),
                     "question": str(item.get("question") or "").strip(),
                     "rationale": str(item.get("rationale") or "").strip(),
                     "status": _enum_value(
@@ -323,7 +456,7 @@ class ProductOwnerAgent:
                         "status",
                         BLOCKING_DECISION_STATUSES,
                         "open",
-                        field=f"blockingDecisions[{index}]",
+                        field=f"decisions[{index}]",
                     ),
                     "options": options,
                     "recommendation": str(item.get("recommendation") or "").strip(),
@@ -332,52 +465,71 @@ class ProductOwnerAgent:
                         "reversibility",
                         REVERSIBILITIES,
                         "irreversible",
-                        field=f"blockingDecisions[{index}]",
+                        field=f"decisions[{index}]",
                     ),
                     "confidence": _enum_value(
-                        item, "confidence", CONFIDENCES, "low", field=f"blockingDecisions[{index}]"
+                        item, "confidence", CONFIDENCES, "low", field=f"decisions[{index}]"
                     ),
                 }
             )
         return decisions
 
-    def _validate_brief(self, value: Any) -> dict[str, Any]:
+    def _validate_brief(self, value: Any, *, field: str = "brief") -> dict[str, Any]:
         if not isinstance(value, dict):
-            raise ProductOwnerOutputValidationError("brief must be an object.")
+            raise ProductOwnerOutputValidationError(f"{field} must be an object.")
         brief = {
-            "title": _required_text(value, "title", field="brief"),
+            "title": _required_text(value, "title", field=field),
             "summary": str(value.get("summary") or "").strip(),
             "problemStatement": str(value.get("problemStatement") or "").strip(),
             "scope": str(value.get("scope") or "").strip(),
             "outOfScope": str(value.get("outOfScope") or "").strip(),
         }
-        for field in REQUIRED_BRIEF_LIST_FIELDS:
-            brief[field] = _string_list(value.get(field, []), field=f"brief.{field}")
+        for list_field in REQUIRED_BRIEF_LIST_FIELDS:
+            brief[list_field] = _string_list(value.get(list_field, []), field=f"{field}.{list_field}")
         return brief
 
-    def _validate_epics(self, value: Any) -> list[dict[str, Any]]:
+    def _validate_epic_summaries(self, value: Any) -> list[dict[str, Any]]:
         if not isinstance(value, list):
             raise ProductOwnerOutputValidationError("epics must be a list.")
-        return [self._validate_epic(item, index=index) for index, item in enumerate(value)]
+        epics: list[dict[str, Any]] = []
+        for index, item in enumerate(value):
+            if not isinstance(item, dict):
+                raise ProductOwnerOutputValidationError(f"epics[{index}] must be an object.")
+            epics.append(
+                {
+                    "title": _required_text(item, "title", field=f"epics[{index}]"),
+                    "description": str(item.get("description") or "").strip(),
+                }
+            )
+        return epics
 
-    def _validate_epic(self, item: Any, *, index: int) -> dict[str, Any]:
-        if not isinstance(item, dict):
-            raise ProductOwnerOutputValidationError(f"epics[{index}] must be an object.")
-        stories_value = item.get("stories")
-        if not isinstance(stories_value, list):
-            raise ProductOwnerOutputValidationError(f"epics[{index}].stories must be a list.")
-        return {
-            "title": _required_text(item, "title", field=f"epics[{index}]"),
-            "description": str(item.get("description") or "").strip(),
-            "stories": [
-                self._validate_story(story, field=f"epics[{index}].stories[{story_index}]")
-                for story_index, story in enumerate(stories_value)
-            ],
-        }
+    def _validate_user_stories(
+        self, value: Any, *, epics: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        if not isinstance(value, list):
+            raise ProductOwnerOutputValidationError("userStories must be a list.")
+        epic_titles = {epic["title"] for epic in epics}
+        stories: list[dict[str, Any]] = []
+        for index, story in enumerate(value):
+            normalized = self._validate_story(story, field=f"userStories[{index}]")
+            epic_title = str(story.get("epicTitle") or "").strip() if isinstance(story, dict) else ""
+            if not epic_title:
+                raise ProductOwnerOutputValidationError(f"userStories[{index}].epicTitle is required.")
+            if epic_titles and epic_title not in epic_titles:
+                raise ProductOwnerOutputValidationError(
+                    f"userStories[{index}].epicTitle must match one of the generated epics."
+                )
+            stories.append({**normalized, "epicTitle": epic_title})
+        return stories
 
     def _validate_story(self, item: Any, *, field: str) -> dict[str, Any]:
         if not isinstance(item, dict):
             raise ProductOwnerOutputValidationError(f"{field} must be an object.")
+        forbidden = sorted(key for key in TECHNICAL_STORY_KEYS if key in item)
+        if forbidden:
+            raise ProductOwnerOutputValidationError(
+                f"{field} must be user value, not a technical task; remove {', '.join(forbidden)}."
+            )
         criteria = _string_list(item.get("acceptanceCriteria", []), field=f"{field}.acceptanceCriteria")
         if not criteria:
             raise ProductOwnerOutputValidationError(
@@ -391,6 +543,24 @@ class ProductOwnerAgent:
             "businessValue": _enum_value(item, "businessValue", BUSINESS_VALUES, "medium", field=field),
             "acceptanceCriteria": criteria,
         }
+
+    def _validate_risks(self, value: Any) -> list[dict[str, Any]]:
+        if not isinstance(value, list):
+            raise ProductOwnerOutputValidationError("risks must be a list.")
+        risks: list[dict[str, Any]] = []
+        for index, item in enumerate(value):
+            if not isinstance(item, dict):
+                raise ProductOwnerOutputValidationError(f"risks[{index}] must be an object.")
+            risks.append(
+                {
+                    "severity": _enum_value(
+                        item, "severity", {"low", "medium", "high", "critical"}, "medium", field=f"risks[{index}]"
+                    ),
+                    "description": _required_text(item, "description", field=f"risks[{index}]"),
+                    "mitigation": str(item.get("mitigation") or "").strip(),
+                }
+            )
+        return risks
 
     def calculate_completeness(
         self, *, brief: dict[str, Any], unresolved_blocking: int, open_questions: int
@@ -652,7 +822,7 @@ class ProductOwnerAgentRunner:
         automatic: list[dict[str, Any]] = []
         escalated: list[dict[str, Any]] = []
         for decision in blocking_decisions:
-            if decision["status"] == "resolved":
+            if decision["status"] in {"accepted", "resolved"}:
                 resolved.append({"decision": decision, "record": None})
                 continue
             candidate = _autonomy_candidate(decision)
@@ -683,9 +853,11 @@ class ProductOwnerAgentRunner:
                 "briefId": brief_id,
                 "title": decision["title"],
                 "status": status,
-                "context": decision["question"],
-                "decision": (audit or {}).get("chosen", ""),
-                "rationale": decision["rationale"],
+                "context": decision.get("question") or decision.get("title", ""),
+                "decision": (audit or {}).get("chosen")
+                or decision.get("decision")
+                or decision.get("recommendation", ""),
+                "rationale": decision.get("rationale", ""),
                 "decidedBy": PRODUCT_OWNER_AGENT_ID,
                 "metadata": {
                     "source": PRODUCT_OWNER_AGENT_ID,
@@ -788,45 +960,57 @@ class ProductOwnerAgentRunner:
         )
         return {"questions": questions, "assumptions": assumptions, "brief": brief, "decisions": decisions}
 
-    def _persist_backlog(self, *, project_id: str, output: dict[str, Any]) -> list[dict[str, Any]]:
-        epics: list[dict[str, Any]] = []
-        for epic in output["epics"]:
-            epic_record = self.backlog.create_epic(
-                {
-                    "projectId": project_id,
-                    "title": epic["title"],
-                    "description": epic["description"],
-                    "status": "active",
-                    "owner": PRODUCT_OWNER_AGENT_ID,
-                }
-            )
-            stories: list[dict[str, Any]] = []
-            for story in epic["stories"]:
-                story_record = self.backlog.create_user_story(
-                    {
-                        "projectId": project_id,
-                        "epicId": epic_record["id"],
-                        "title": story["title"],
-                        "asA": story["asA"],
-                        "iWant": story["iWant"],
-                        "soThat": story["soThat"],
-                        "businessValue": story["businessValue"],
-                        "owner": PRODUCT_OWNER_AGENT_ID,
-                    }
-                )
-                criteria = [
-                    self.backlog.create_acceptance_criterion(
-                        {
-                            "projectId": project_id,
-                            "storyId": story_record["id"],
-                            "criterion": criterion,
-                        }
-                    )
-                    for criterion in story["acceptanceCriteria"]
-                ]
-                stories.append({"story": story_record, "acceptanceCriteria": criteria})
-            epics.append({"epic": epic_record, "stories": stories})
-        return epics
+    def _persist_product_owner_output(
+        self,
+        *,
+        project_id: str,
+        initiative_id: str,
+        brief_id: str,
+        output: dict[str, Any],
+        runtime_id: str,
+        output_artifact_id: str | None,
+        task_id: str,
+    ) -> dict[str, Any]:
+        return self.discovery.create_product_owner_output(
+            {
+                "projectId": project_id,
+                "initiativeId": initiative_id,
+                "briefId": brief_id,
+                "status": output["status"],
+                "summary": output["summary"],
+                "confidence": output["confidence"],
+                "questions": output["questions"],
+                "assumptions": output["assumptions"],
+                "decisions": output["decisions"],
+                "productBriefPatch": output["productBriefPatch"],
+                "epics": output["epics"],
+                "userStories": output["userStories"],
+                "risks": output["risks"],
+                "recommendedNextAction": output["recommendedNextAction"],
+                "runtimeId": runtime_id,
+                "outputArtifactId": output_artifact_id or "",
+                "metadata": {
+                    "source": PRODUCT_OWNER_AGENT_ID,
+                    "taskId": task_id,
+                    "questionSelection": output.get("questionSelection") or {},
+                    "autonomy": output.get("autonomy") or {},
+                },
+            }
+        )
+
+    def _persist_backlog(
+        self,
+        *,
+        project_id: str,
+        output: dict[str, Any],
+        product_owner_output_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        return persist_product_owner_backlog(
+            self.backlog,
+            project_id=project_id,
+            output=output,
+            product_owner_output_id=product_owner_output_id,
+        )
 
     def _write_manifest_artifact(self, *, project_id: str, manifest: dict[str, Any]) -> dict[str, Any]:
         artifact_id = f"artifact-{uuid.uuid4()}"
@@ -945,6 +1129,7 @@ class ProductOwnerAgentRunner:
             "initiative": None,
             "discovery": None,
             "backlog": [],
+            "outputRecord": None,
             "outputArtifactId": None,
         }
         if not readiness["executable"]:
@@ -1044,6 +1229,24 @@ class ProductOwnerAgentRunner:
             task_id=task_id,
             routing=routing,
         )
+        output_record = self._persist_product_owner_output(
+            project_id=project_id,
+            initiative_id=initiative["id"],
+            brief_id=result["discovery"]["brief"]["id"],
+            output=output,
+            runtime_id=runtime_id,
+            output_artifact_id=result.get("outputArtifactId"),
+            task_id=task_id,
+        )
+        result["outputRecord"] = output_record
+        if output["status"] == "questions_required":
+            result["status"] = BLOCKED_STATUS
+            result["reason"] = (
+                output["recommendedNextAction"]
+                or output["summary"]
+                or "ProductOwnerAgent requires product clarification before backlog generation."
+            )
+            return result
         if unresolved_count:
             result["status"] = BLOCKED_STATUS
             result["reason"] = (
@@ -1051,7 +1254,15 @@ class ProductOwnerAgentRunner:
                 "decision(s) remain unresolved."
             )
             return result
-        result["backlog"] = self._persist_backlog(project_id=project_id, output=output)
+        if (payload.get("metadata") or {}).get("requireBriefApproval"):
+            result["status"] = BRIEF_READY_STATUS
+            result["reason"] = "ProductOwnerAgent produced a brief awaiting approval before backlog generation."
+            return result
+        result["backlog"] = self._persist_backlog(
+            project_id=project_id,
+            output=output,
+            product_owner_output_id=output_record["id"],
+        )
         result["status"] = COMPLETED_STATUS
         result["reason"] = "ProductOwnerAgent completed real analysis and generated a validated backlog."
         return result
@@ -1071,6 +1282,8 @@ class ProductOwnerAgentRunner:
     ) -> dict[str, Any]:
         final_status = result["status"]
         runtime_id = str(runtime.get("id") or "unresolved")
+        output = result.get("output") or {}
+        output_record = result.get("outputRecord")
         manifest = self._write_manifest_artifact(
             project_id=project_id,
             manifest={
@@ -1078,6 +1291,7 @@ class ProductOwnerAgentRunner:
                 "reason": result["reason"],
                 "completeness": result["completeness"],
                 "initiativeId": (result.get("initiative") or {}).get("id"),
+                "productOwnerOutputId": (output_record or {}).get("id"),
                 "epicIds": [item["epic"]["id"] for item in result["backlog"]],
                 "runtimeResult": result["runtimeResult"],
             },
@@ -1093,11 +1307,12 @@ class ProductOwnerAgentRunner:
         ]
         qa_verdict = {
             COMPLETED_STATUS: "backlog_generated",
+            BRIEF_READY_STATUS: "brief_ready",
             BLOCKED_STATUS: "blocked_pending_decisions",
             RUNTIME_UNAVAILABLE_STATUS: "blocked",
             FAILED_VALIDATION_STATUS: "failed",
         }.get(final_status, "failed")
-        runtime_links_required = final_status in {COMPLETED_STATUS, BLOCKED_STATUS}
+        runtime_links_required = final_status in {COMPLETED_STATUS, BRIEF_READY_STATUS, BLOCKED_STATUS}
         evidence = self.evidence.create_evidence_package(
             project_id=project_id,
             workflow_run_id=workflow_context.get("workflowRunId"),
@@ -1176,7 +1391,9 @@ class ProductOwnerAgentRunner:
 
         agent_run = self.agents.update_agent_run_status(
             agent_run["id"],
-            status="completed" if final_status in {COMPLETED_STATUS, BLOCKED_STATUS} else "failed",
+            status="completed"
+            if final_status in {COMPLETED_STATUS, BRIEF_READY_STATUS, BLOCKED_STATUS}
+            else "failed",
             output_payload={
                 "status": final_status,
                 "reason": result["reason"],
@@ -1184,6 +1401,7 @@ class ProductOwnerAgentRunner:
                 "runtime": runtime,
                 "runtimeResult": result["runtimeResult"],
                 "initiativeId": (result.get("initiative") or {}).get("id"),
+                "productOwnerOutputId": (output_record or {}).get("id"),
                 "epicIds": [item["epic"]["id"] for item in result["backlog"]],
                 "evidence_refs": [evidence["id"], *artifact_ids],
                 "output": result["output"],
@@ -1191,17 +1409,22 @@ class ProductOwnerAgentRunner:
         )
         job = self.jobs.update_job_status(
             job["id"],
-            status="completed" if final_status in {COMPLETED_STATUS, BLOCKED_STATUS} else "failed",
+            status="completed"
+            if final_status in {COMPLETED_STATUS, BRIEF_READY_STATUS, BLOCKED_STATUS}
+            else "failed",
             metadata={
                 "status": final_status,
                 "reason": result["reason"],
                 "evidencePackageId": evidence["id"],
                 "initiativeId": (result.get("initiative") or {}).get("id"),
+                "productOwnerOutputId": (output_record or {}).get("id"),
             },
         )
         return {
             "status": final_status,
             "reason": result["reason"],
+            "summary": output.get("summary", ""),
+            "confidence": output.get("confidence", "low"),
             "productOwnerAgent": readiness,
             "workspace": workspace,
             "job": job,
@@ -1214,7 +1437,13 @@ class ProductOwnerAgentRunner:
             "initiative": result.get("initiative"),
             "questions": (result.get("discovery") or {}).get("questions", []),
             "assumptions": (result.get("discovery") or {}).get("assumptions", []),
+            "decisions": output.get("decisions", []),
             "brief": (result.get("discovery") or {}).get("brief"),
+            "productBriefPatch": output.get("productBriefPatch") or output.get("brief"),
             "blockingDecisions": (result.get("discovery") or {}).get("decisions", []),
+            "userStories": output.get("userStories", []),
+            "risks": output.get("risks", []),
+            "recommendedNextAction": output.get("recommendedNextAction", ""),
+            "productOwnerOutput": output_record,
             "epics": result["backlog"],
         }

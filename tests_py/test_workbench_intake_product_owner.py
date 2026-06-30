@@ -85,6 +85,10 @@ def test_chat_pipeline_intake_runs_product_owner_and_blocks_with_evidence_when_r
     assert pipeline["metadata"]["productOwnerIntake"]["agentRunId"].startswith("agent-run-")
     assert pipeline["metadata"]["productOwnerIntake"]["evidencePackageId"].startswith("evidence-")
     assert pipeline["metadata"]["productOwnerIntake"]["loopId"].startswith("product-loop-")
+    assert pipeline["metadata"]["intentDecision"]["userMode"] == "aido_decide"
+    assert "feature" in pipeline["metadata"]["intentDecision"]["intents"]
+    assert pipeline["metadata"]["intentDecision"]["planMode"] == "blocked"
+    assert "runtime_configuration" in pipeline["metadata"]["intentDecision"]["requiredGates"]
     assert (
         "No executable ProductOwnerAgent runtime is configured"
         in pipeline["metadata"]["productOwnerIntake"]["reason"]
@@ -105,6 +109,8 @@ def test_chat_pipeline_intake_runs_product_owner_and_blocks_with_evidence_when_r
     assert loop["state"] == "blocked"
     assert loop["context"]["intake"]["pipelineId"] == pipeline["id"]
     assert loop["context"]["intake"]["chatId"] == chat["id"]
+    assert loop["context"]["intake"]["intentDecision"]["userMode"] == "aido_decide"
+    assert loop["context"]["intake"]["intentDecision"]["suggestedBranchName"].startswith("codex/")
     assert loop["context"]["productOwner"]["status"] == "runtime_unavailable"
 
     overview = client.get("/api/v1/overview").json()

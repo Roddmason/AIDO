@@ -12,6 +12,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from local_control_center.agents.team_bootstrap import bootstrap_base_team_if_needed
 from local_control_center.shared.event_bus import EventBus
 from local_control_center.shared.telemetry import redact_telemetry
 
@@ -90,6 +91,7 @@ def create_project(
         source="api",
         metadata=metadata,
     )
+    bootstrap_base_team_if_needed(projects.connection)
     created = bool(project.pop("_created", False))
     audit = events.record_audit(
         project_id=project["id"],

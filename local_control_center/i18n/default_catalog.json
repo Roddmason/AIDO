@@ -63,6 +63,206 @@
       "en": "Open folder",
       "es": "Abrir carpeta"
     },
+    "app.threads.emptyTitle": {
+      "en": "No thread selected",
+      "es": "Ningún hilo seleccionado"
+    },
+    "app.threads.emptyBody": {
+      "en": "Pick a thread on the left or start a new one.",
+      "es": "Elige un hilo a la izquierda o crea uno nuevo."
+    },
+    "app.threads.transcriptEmpty": {
+      "en": "No messages yet. Send the first one below.",
+      "es": "Aún no hay mensajes. Envía el primero abajo."
+    },
+    "app.threads.loadErrorTitle": {
+      "en": "Could not load this thread",
+      "es": "No se pudo cargar este hilo"
+    },
+    "app.threads.retry": {
+      "en": "Retry",
+      "es": "Reintentar"
+    },
+    "app.threads.composerLabel": {
+      "en": "Message AIDO",
+      "es": "Mensaje para AIDO"
+    },
+    "app.threads.composerPlaceholder": {
+      "en": "Describe the work or ask a question…",
+      "es": "Describe el trabajo o haz una pregunta…"
+    },
+    "app.threads.send": {
+      "en": "Send",
+      "es": "Enviar"
+    },
+    "app.threads.sending": {
+      "en": "Sending…",
+      "es": "Enviando…"
+    },
+    "app.threads.create": {
+      "en": "Create thread",
+      "es": "Crear hilo"
+    },
+    "app.threads.creating": {
+      "en": "Creating…",
+      "es": "Creando…"
+    },
+    "app.threads.newHeading": {
+      "en": "What will we work on in {project}?",
+      "es": "¿En qué trabajaremos sobre {project}?"
+    },
+    "app.threads.decisionTitle": {
+      "en": "Decision needed",
+      "es": "Decisión requerida"
+    },
+    "app.threads.decisionResolved": {
+      "en": "Resolved",
+      "es": "Resuelta"
+    },
+    "app.threads.authorUser": {
+      "en": "You",
+      "es": "Tú"
+    },
+    "app.threads.authorLead": {
+      "en": "AIDO Lead",
+      "es": "Líder AIDO"
+    },
+    "app.threads.authorAgent": {
+      "en": "Agent",
+      "es": "Agente"
+    },
+    "app.threads.authorSystem": {
+      "en": "System",
+      "es": "Sistema"
+    },
+    "app.threads.authorError": {
+      "en": "Error",
+      "es": "Fallo"
+    },
+    "app.threads.authorArtifact": {
+      "en": "Artifact",
+      "es": "Artefacto"
+    },
+    "app.threads.errorSend": {
+      "en": "Could not send the message. Try again.",
+      "es": "No se pudo enviar el mensaje. Intenta de nuevo."
+    },
+    "app.composer.permissions": {
+      "en": "Action approval",
+      "es": "Aprobación de acciones"
+    },
+    "app.composer.permissions.guided": {
+      "en": "Ask for approval",
+      "es": "Pedir aprobación"
+    },
+    "app.composer.permissions.recommended": {
+      "en": "Approve for me",
+      "es": "Aprobar por mí"
+    },
+    "app.composer.permissions.autonomous": {
+      "en": "Full access",
+      "es": "Acceso total"
+    },
+    "app.composer.local": {
+      "en": "Local",
+      "es": "En local"
+    },
+    "app.composer.localHint": {
+      "en": "AIDO runs on this machine",
+      "es": "AIDO se ejecuta en esta máquina"
+    },
+    "app.composer.gitControls": {
+      "en": "Git workspace",
+      "es": "Espacio de trabajo Git"
+    },
+    "app.statusBar.git.branchSelect": {
+      "en": "Git branch",
+      "es": "Rama de Git"
+    },
+    "app.statusBar.git.branchUnavailable": {
+      "en": "not detected",
+      "es": "no detectada"
+    },
+    "app.statusBar.git.branchPlaceholder": {
+      "en": "new branch",
+      "es": "rama nueva"
+    },
+    "app.statusBar.git.branchName": {
+      "en": "New branch name",
+      "es": "Nombre de la rama nueva"
+    },
+    "app.statusBar.git.createBranch": {
+      "en": "Create branch",
+      "es": "Crear rama"
+    },
+    "app.statusBar.git.checkoutDone": {
+      "en": "Branch checked out",
+      "es": "Rama activada"
+    },
+    "app.statusBar.git.checkoutBlocked": {
+      "en": "Checkout blocked",
+      "es": "Cambio de rama bloqueado"
+    },
+    "app.statusBar.git.checkoutFailed": {
+      "en": "Checkout failed",
+      "es": "Falló el cambio de rama"
+    },
+    "app.statusBar.git.branchCreated": {
+      "en": "Branch created",
+      "es": "Rama creada"
+    },
+    "app.statusBar.git.branchBlocked": {
+      "en": "Branch not created",
+      "es": "Rama no creada"
+    },
+    "app.statusBar.git.branchFailed": {
+      "en": "Branch creation failed",
+      "es": "Falló la creación de la rama"
+    },
+    "app.statusBar.git.errorLabel": {
+      "en": "Git error",
+      "es": "Error de Git"
+    },
+    "app.statusBar.git.connectedLabel": {
+      "en": "Git connected",
+      "es": "Git conectado"
+    },
+    "app.statusBar.git.dirty": {
+      "en": "dirty",
+      "es": "con cambios"
+    },
+    "app.statusBar.git.clean": {
+      "en": "clean",
+      "es": "limpio"
+    },
+    "app.statusBar.git.gitleaksPrefix": {
+      "en": "gitleaks",
+      "es": "Gitleaks"
+    },
+    "app.statusBar.git.gitleaksNotRun": {
+      "en": "not run",
+      "es": "sin ejecutar"
+    },
+    "app.statusBar.git.gitleaksPassed": {
+      "en": "Gitleaks passed",
+      "es": "Gitleaks aprobado"
+    },
+    "app.statusBar.git.gitleaksBlocked": {
+      "en": "Gitleaks blocked delivery",
+      "es": "Gitleaks bloqueó la entrega"
+    },
+    "app.statusBar.git.gitleaksFailed": {
+      "en": "Gitleaks scan failed",
+      "es": "Falló el escaneo de gitleaks"
+    },
+    "app.statusBar.git.runGitleaks": {
+      "en": "Run gitleaks scan",
+      "es": "Ejecutar escaneo gitleaks"
+    },
+    "app.statusBar.git.refresh": {
+      "en": "Refresh Git status",
+      "es": "Actualizar estado de Git"
+    },
     "app.shell.loops.noProjectTitle": {
       "en": "No workspace selected",
       "es": "Ningún workspace seleccionado"
@@ -494,6 +694,38 @@
     "app.agents.errProfileSave": {
       "en": "Agent profile save failed.",
       "es": "Falló el guardado del perfil de agente."
+    },
+    "app.agents.errProfilesLoad": {
+      "en": "Agent profiles load failed.",
+      "es": "Falló la carga de perfiles de agente."
+    },
+    "app.agents.errProjectOverrideSave": {
+      "en": "Agent project override save failed.",
+      "es": "Falló el guardado del override de agente para el proyecto."
+    },
+    "app.agents.selectProjectForOverride": {
+      "en": "Select a project before saving an override.",
+      "es": "Selecciona un proyecto antes de guardar un override."
+    },
+    "app.agents.teamPanel": {
+      "en": "Team panel",
+      "es": "Panel de equipo"
+    },
+    "app.agents.noTeamProfiles": {
+      "en": "No active team profiles.",
+      "es": "No hay perfiles de equipo activos."
+    },
+    "app.agents.runtimeAvailability": {
+      "en": "Runtime availability",
+      "es": "Disponibilidad de runtime"
+    },
+    "app.agents.blockedReason": {
+      "en": "Blocked reason",
+      "es": "Motivo de bloqueo"
+    },
+    "app.agents.projectOverride": {
+      "en": "Project override",
+      "es": "Override de proyecto"
     },
     "app.agents.runtimeProvidersDiscoveryPending": {
       "en": "Runtime providers are not executable until provider discovery returns status.",
@@ -1515,6 +1747,10 @@
       "en": "unavailable",
       "es": "no disponible"
     },
+    "app.status.saving": {
+      "en": "Saving",
+      "es": "Guardando"
+    },
     "app.commandPalette.groupNavigate": {
       "en": "Navigate",
       "es": "Navegar"
@@ -2436,6 +2672,10 @@
       "es": "Después"
     },
     "ui.static.agent.5ce2e6f4": {
+      "en": "Agent",
+      "es": "Agente"
+    },
+    "ui.static.agent.90e8dbb1": {
       "en": "Agent",
       "es": "Agente"
     },
@@ -3734,6 +3974,10 @@
     "ui.static.output.tokens.b879f52d": {
       "en": "Output tokens",
       "es": "Fichas de salida"
+    },
+    "ui.static.override.3dca7cca": {
+      "en": "Override",
+      "es": "Sobrescritura"
     },
     "ui.static.overview.0efc2e6b": {
       "en": "Overview",
@@ -5544,8 +5788,20 @@
       "es": "¿Qué debe hacer AIDO?"
     },
     "app.workbench.composer.promptPlaceholder": {
-      "en": "Describe the task in plain language. The AI team plans, implements and tests it inside this workspace.",
-      "es": "Describe la tarea en lenguaje natural. El equipo de IA la planifica, implementa y prueba en este workspace."
+      "en": "Describe the work in plain language.",
+      "es": "Describe el trabajo en lenguaje natural."
+    },
+    "app.workbench.composer.modeLabel": {
+      "en": "Workbench mode",
+      "es": "Modo de Workbench"
+    },
+    "app.workbench.mode.consulta": {
+      "en": "Consultation",
+      "es": "Consulta"
+    },
+    "app.workbench.mode.loop": {
+      "en": "Agents / Loop",
+      "es": "Agentes / Loop"
     },
     "app.workbench.composer.titleLabel": {
       "en": "Title",
@@ -5734,6 +5990,46 @@
     "app.teamActivity.blocked": {
       "en": "Blocked",
       "es": "Bloqueado"
+    },
+    "app.teamActivity.executionLogs": {
+      "en": "Execution logs",
+      "es": "Logs de ejecución"
+    },
+    "app.teamActivity.logArtifacts": {
+      "en": "Log artifacts",
+      "es": "Artefactos de log"
+    },
+    "app.teamActivity.runtimeLogArtifact": {
+      "en": "Runtime log",
+      "es": "Log de runtime"
+    },
+    "app.teamActivity.stdoutArtifact": {
+      "en": "Standard output",
+      "es": "Salida estándar"
+    },
+    "app.teamActivity.stderrArtifact": {
+      "en": "Standard error",
+      "es": "Error estándar"
+    },
+    "app.teamActivity.diffArtifact": {
+      "en": "Diff patch",
+      "es": "Patch de diff"
+    },
+    "app.teamActivity.evidencePackage": {
+      "en": "Evidence package",
+      "es": "Paquete de evidencia"
+    },
+    "app.teamActivity.modifiedFiles": {
+      "en": "Modified files",
+      "es": "Archivos modificados"
+    },
+    "app.teamActivity.fileCount": {
+      "en": "{n} files",
+      "es": "{n} archivos"
+    },
+    "app.teamActivity.noModifiedFiles": {
+      "en": "No modified files recorded yet.",
+      "es": "Aún no hay archivos modificados registrados."
     },
     "app.teamActivity.lowLevel": {
       "en": "Low-level events",
@@ -6742,6 +7038,10 @@
     "app.workbench.team.open": {
       "en": "AI team",
       "es": "Equipo IA"
+    },
+    "app.workbench.team.openLoop": {
+      "en": "Open Agents / Loop",
+      "es": "Abrir Agentes / Loop"
     },
     "app.workbench.timeline.colPipeline": {
       "en": "Pipeline",
@@ -7994,6 +8294,10 @@
     "app.settings.chip.source.project": {
       "en": "Project",
       "es": "Proyecto"
+    },
+    "app.settings.chip.source.inherited": {
+      "en": "Inherited",
+      "es": "Heredado"
     },
     "app.settings.action.save": {
       "en": "Save",

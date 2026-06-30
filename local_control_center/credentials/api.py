@@ -11,6 +11,7 @@ dpapi_sqlite o environment_override para bootstrap).
 from __future__ import annotations
 
 import os
+import re
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
@@ -29,6 +30,10 @@ SUPPORTED_BACKENDS: tuple[str, ...] = (
     "dpapi_sqlite",
     "environment_override",
 )
+PUBLIC_REF_SOURCES = {*SUPPORTED_BACKENDS, "env"}
+RAW_SECRET_PATTERN = re.compile(
+    r"(?i)(^bearer\s+|^sk-[A-Za-z0-9_-]{8,}|api[_-]?key\s*=|secret\s*=|token\s*=)"
+)
 
 
 class CredentialApiModel(BaseModel):
@@ -37,20 +42,34 @@ class CredentialApiModel(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
 
+class CredentialProviderUsageRecord(CredentialApiModel):
+    """Proveedor que referencia una credencial gestionada; no incluye secretos ni headers."""
+
+    provider_id: str = Field(alias="providerId")
+    display_name: str = Field(alias="displayName")
+    credential_ref: str = Field(alias="credentialRef")
+    enabled: bool
+
+
 class CredentialRecord(CredentialApiModel):
     """Metadato público de una credencial; no contiene valor, fingerprint ni sal."""
 
     id: str
     name: str
+    label: str
     backend_kind: str = Field(alias="backendKind")
+    source: str
     locator: str
+    credential_ref: str = Field(alias="credentialRef")
     auth_mode: str = Field(alias="authMode")
     status: str
     enabled: bool
     fingerprint_algo: str = Field(alias="fingerprintAlgo")
     has_fingerprint: bool = Field(alias="hasFingerprint")
     rotated_at: str | None = Field(alias="rotatedAt")
+    last_rotated_at: str | None = Field(alias="lastRotatedAt")
     last_validated_at: str | None = Field(alias="lastValidatedAt")
+    provider_usages: list[CredentialProviderUsageRecord] = Field(alias="providerUsages")
     metadata: dict[str, Any]
     created_at: str = Field(alias="createdAt")
     updated_at: str = Field(alias="updatedAt")
@@ -94,12 +113,19 @@ class CredentialResponse(CredentialApiModel):
 
 
 class CredentialCreateRequest(CredentialApiModel):
-    """Payload para crear una credencial; ``value`` entra solo hacia el backend."""
+    """Payload para crear una credencial; ``value`` entra solo hacia el backend.
 
-    name: str
+    Acepta tanto el contrato original (``name/backendKind/locator``) como el contrato de
+    producto (``label/source/credentialRef``). La respuesta siempre devuelve ambos nombres seguros.
+    """
+
+    name: str | None = None
+    label: str | None = None
     value: str
-    locator: str
+    locator: str | None = None
+    credential_ref: str | None = Field(default=None, alias="credentialRef")
     backend_kind: str | None = Field(default=None, alias="backendKind")
+    source: str | None = None
     auth_mode: str = Field(default="token", alias="authMode")
     actor: str = "operator"
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -179,6 +205,39 @@ def _manager(platform: Any) -> CredentialManager:
     )
 
 
+def _normalize_source(source: str | None) -> str | None:
+    if source is None:
+        return None
+    normalized = source.strip()
+    if normalized == "env":
+        return "environment_override"
+    return normalized
+
+
+def _is_raw_secret_reference(value: str) -> bool:
+    return bool(RAW_SECRET_PATTERN.search(value.strip()))
+
+
+def _resolve_create_fields(body: CredentialCreateRequest) -> tuple[str, str | None, str]:
+    label = str(body.name or body.label or "").strip()
+    source = _normalize_source(body.backend_kind or body.source)
+    raw_ref = str(body.locator or body.credential_ref or "").strip()
+    if _is_raw_secret_reference(raw_ref):
+        raise CredentialError("credentialRef must point to a supported credential reference, never a raw secret.")
+    parsed_source = source
+    locator = raw_ref
+    if body.credential_ref and ":" in raw_ref:
+        prefix, rest = raw_ref.split(":", 1)
+        if prefix in PUBLIC_REF_SOURCES:
+            parsed_source = _normalize_source(prefix)
+            locator = rest.strip()
+            if source is not None and parsed_source != source:
+                raise CredentialError("credentialRef source does not match source/backendKind.")
+    if parsed_source and parsed_source not in SUPPORTED_BACKENDS:
+        raise CredentialError(f"Unsupported credential source: {parsed_source}")
+    return label, parsed_source, locator
+
+
 def _keyring_detail(backends: dict[str, CredentialBackend]) -> tuple[bool, str]:
     backend = backends.get("keyring")
     if not isinstance(backend, KeyringBackend):
@@ -228,6 +287,32 @@ def _credential_error(error: Exception) -> HTTPException:
     return HTTPException(status_code=400, detail=str(error))
 
 
+def _provider_usages(platform: Any, credential_ref: str) -> list[dict[str, Any]]:
+    rows = platform.connection.execute(
+        """
+        SELECT provider_id, display_name, credential_ref, enabled
+        FROM provider_accounts
+        WHERE credential_ref = ?
+        ORDER BY provider_id ASC
+        """,
+        (credential_ref,),
+    ).fetchall()
+    return [
+        {
+            "providerId": row["provider_id"],
+            "displayName": row["display_name"],
+            "credentialRef": row["credential_ref"],
+            "enabled": bool(row["enabled"]),
+        }
+        for row in rows
+    ]
+
+
+def _with_provider_usages(platform: Any, credential: dict[str, Any]) -> dict[str, Any]:
+    credential_ref = str(credential.get("credentialRef") or "")
+    return {**credential, "providerUsages": _provider_usages(platform, credential_ref)}
+
+
 def create_router(*, platform: Any, require_write: Any) -> APIRouter:
     """Construye el APIRouter de credenciales, cableado al runtime y al guard de escritura."""
     router = APIRouter(prefix="/api/v1/credentials", tags=["credentials"])
@@ -237,7 +322,10 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
         """Lista credenciales seguras y adapters soportados."""
         backends = _registry(platform)
         return {
-            "credentials": _manager(platform).list_metadata(),
+            "credentials": [
+                _with_provider_usages(platform, credential)
+                for credential in _manager(platform).list_metadata()
+            ],
             "backends": _backend_statuses(backends, _default_backend(platform)),
         }
 
@@ -246,11 +334,12 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
         """Crea una credencial escribiendo el valor solo en el backend configurado."""
         require_write(request)
         try:
+            label, source, locator = _resolve_create_fields(body)
             credential = _manager(platform).create_credential(
-                name=body.name,
+                name=label,
                 value=body.value,
-                locator=body.locator,
-                backend=body.backend_kind,
+                locator=locator,
+                backend=source,
                 auth_mode=body.auth_mode,
                 actor=body.actor,
                 metadata=body.metadata,
@@ -299,7 +388,7 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
             credential = _manager(platform).rotate(record["name"], body.value, actor=body.actor)
         except (CredentialError, KeyError) as error:
             raise _credential_error(error) from error
-        return {"credential": credential}
+        return {"credential": _with_provider_usages(platform, credential)}
 
     @router.delete("/{credential_id}", response_model=CredentialDeleteResponse)
     async def delete_credential(credential_id: str, request: Request) -> dict[str, Any]:

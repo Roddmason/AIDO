@@ -16,11 +16,15 @@ from fastapi import APIRouter, Request
 
 from local_control_center.agents.product_owner_agent import ProductOwnerAgentRunner
 from local_control_center.agents.product_owner_agent_contract import PRODUCT_OWNER_AGENT_ID
+from local_control_center.agents.runtime_status import RuntimeStatusService
+from local_control_center.git_workspace.service import GitWorkspaceService
 from local_control_center.product_loop.coordinator import (
     ProductLoopCoordinator,
     ProductLoopStopConditionError,
     ProductLoopTransitionError,
 )
+from local_control_center.product_loop.intent_classifier import IntentClassificationInput, IntentClassifier
+from local_control_center.projects.repository import ProjectsRepository
 from local_control_center.sessions_chats.repository import SessionsChatsRepository
 from local_control_center.shared.event_bus import EventBus
 from local_control_center.shared.redaction import redact_secrets
@@ -96,6 +100,9 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     def sessions_chats() -> SessionsChatsRepository:
         return SessionsChatsRepository(platform.connection)
 
+    def projects_repository() -> ProjectsRepository:
+        return ProjectsRepository(platform.connection)
+
     def workspaces() -> WorkspacesRepository:
         return WorkspacesRepository(platform.connection, root=platform.cwd)
 
@@ -104,6 +111,47 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
 
     def product_owner_runner() -> ProductOwnerAgentRunner:
         return ProductOwnerAgentRunner(platform.connection, root=platform.cwd)
+
+    def project_assessment(project_id: str) -> dict[str, Any]:
+        assessments = projects_repository().list_project_assessments(project_id)
+        latest = dict(assessments[0]) if assessments else {"summary": {}, "findingsCount": 0}
+        latest["runtimeStatus"] = RuntimeStatusService(platform.connection).runtime_provider_status()
+        return latest
+
+    def git_state(project_id: str) -> dict[str, Any]:
+        try:
+            return GitWorkspaceService(platform.connection, root=platform.cwd).status(project_id)
+        except Exception as error:
+            return {
+                "status": "failed",
+                "reason": str(redact_secrets(str(error))),
+                "changedFiles": [],
+                "untrackedFiles": [],
+                "stagedFiles": [],
+                "dirty": False,
+            }
+
+    def classify_intent(*, body: PipelineCreateRequest, prompt: str) -> dict[str, Any]:
+        state = git_state(body.project_id)
+        changed_files = list(
+            dict.fromkeys(
+                [
+                    *[str(item) for item in state.get("changedFiles", [])],
+                    *[str(item) for item in state.get("stagedFiles", [])],
+                    *[str(item) for item in state.get("untrackedFiles", [])],
+                ]
+            )
+        )
+        decision = IntentClassifier().classify(
+            IntentClassificationInput(
+                prompt=prompt,
+                project_assessment=project_assessment(body.project_id),
+                changed_files=changed_files,
+                git_state=state,
+                user_mode=body.user_mode,
+            )
+        )
+        return redact_secrets(decision.to_dict())
 
     def block_pipeline(
         pipeline: dict[str, Any],
@@ -174,6 +222,13 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
                 reason="productOwnerIntake chat does not belong to the pipeline project.",
             )
 
+        intent_decision = classify_intent(body=body, prompt=chat["prompt"])
+        pipeline = repository().update_pipeline(
+            pipeline["id"],
+            status=pipeline["status"],
+            stages=pipeline["stages"],
+            metadata={**pipeline["metadata"], "intentDecision": intent_decision},
+        )
         loop = loop_coordinator().start(
             project_id=body.project_id,
             title=body.title or chat["title"] or pipeline["title"],
@@ -183,12 +238,39 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
                     "pipelineId": pipeline["id"],
                     "sessionId": body.session_id,
                     "chatId": body.chat_id,
+                    "intentDecision": intent_decision,
                 }
             },
             correlation_id=pipeline["id"],
             actor="workbench",
             reason="Product loop started from Workbench chat intake.",
         )
+        if intent_decision.get("planMode") == "ask":
+            transition_loop_best_effort(
+                loop_id=loop["id"],
+                to_state="discovering",
+                reason="Intent classification requires clarification.",
+                context_patch={"intentDecision": intent_decision},
+            )
+            transition_loop_best_effort(
+                loop_id=loop["id"],
+                to_state="awaiting_user",
+                reason="Intent classification confidence is below the execution threshold.",
+                context_patch={
+                    "productOwner": {
+                        "status": "awaiting_user",
+                        "reason": "Intent classification confidence is below the execution threshold.",
+                        "questions": list(intent_decision.get("questions") or []),
+                    }
+                },
+            )
+            return block_pipeline(
+                pipeline,
+                stages=stages,
+                loop_id=loop["id"],
+                reason="Intent classification confidence is below the execution threshold.",
+                status="blocked",
+            )
         transition_loop_best_effort(
             loop_id=loop["id"],
             to_state="discovering",
@@ -260,7 +342,11 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             pipeline["id"],
             status=_pipeline_status(str(result["status"])),
             stages=_stages_with_product_owner_result(stages, metadata),
-            metadata={**pipeline["metadata"], "productOwnerIntake": redact_secrets(metadata)},
+            metadata={
+                **pipeline["metadata"],
+                "intentDecision": intent_decision,
+                "productOwnerIntake": redact_secrets(metadata),
+            },
         )
 
     @router.get("/api/v1/pipelines", response_model=PipelinesListResponse)

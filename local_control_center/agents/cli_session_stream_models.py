@@ -22,6 +22,9 @@ class CliSessionStartRequest(BaseModel):
     runtime: str | None = None
     agent_id: str | None = Field(default=None, alias="agentId")
     env_policy: dict[str, Any] | None = Field(default=None, alias="envPolicy")
+    timeout_seconds: int | None = Field(default=None, alias="timeoutSeconds")
+    branch_name: str | None = Field(default=None, alias="branchName")
+    worktree_id: str | None = Field(default=None, alias="worktreeId")
 
 
 class CliSessionStartResponse(BaseModel):

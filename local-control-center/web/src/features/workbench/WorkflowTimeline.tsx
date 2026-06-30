@@ -38,7 +38,7 @@ export function WorkflowTimeline({
 				return (
 					<li
 						className="run-flow-step"
-						key={`${stage.id}-${index}`}
+						key={stage.id}
 						data-status={stage.status}
 						data-phase={stage.phase}
 						aria-current={index === current ? 'step' : undefined}

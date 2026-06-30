@@ -38,7 +38,7 @@ export function WorkbenchInspector({
 	onOpenEvidence: () => void;
 	onOpenSettings: () => void;
 	onOpenRuntimeSetup: () => void;
-	onRefresh: () => Promise<unknown> | void;
+	onRefresh: () => Promise<unknown> | undefined;
 }) {
 	const { t } = useI18n();
 	const passedTests = testResults.filter((result) => result.status === 'passed').length;

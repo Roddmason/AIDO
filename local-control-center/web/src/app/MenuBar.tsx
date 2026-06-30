@@ -146,18 +146,20 @@ export function MenuBar({
 		return () => window.removeEventListener('pointerdown', onPointerDown);
 	}, [openMenu]);
 
+	const menuItemEls = useCallback(
+		(): HTMLButtonElement[] =>
+			Array.from(
+				menuRef.current?.querySelectorAll<HTMLButtonElement>('button[role="menuitem"]') ?? [],
+			),
+		[],
+	);
+
 	useEffect(() => {
 		if (!openMenu) return;
 		const items = menuItemEls();
 		const target = focusEdgeRef.current === 'last' ? items[items.length - 1] : items[0];
 		target?.focus();
-	}, [openMenu]);
-
-	function menuItemEls(): HTMLButtonElement[] {
-		return Array.from(
-			menuRef.current?.querySelectorAll<HTMLButtonElement>('button[role="menuitem"]') ?? [],
-		);
-	}
+	}, [openMenu, menuItemEls]);
 
 	const adjacentMenu = (id: MenuId, delta: 1 | -1): MenuId => {
 		const index = MENU_ORDER.indexOf(id);

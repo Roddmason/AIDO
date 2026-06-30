@@ -8,7 +8,7 @@
  */
 import { AnimatePresence } from 'motion/react';
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { EmptyState, ErrorState, useToast } from '../components/ui';
+import { ErrorState, useToast } from '../components/ui';
 import type { Language } from '../features/projects/ProjectsPage';
 import { SettingsModal } from '../features/settings/SettingsModal';
 import { NewWorkspaceDialog } from '../features/workspace/NewWorkspaceDialog';
@@ -19,6 +19,7 @@ import { MotionPage } from '../motion/MotionPage';
 import { useMotionPreference } from '../motion/useControlMotion';
 import { ApprovalsDrawer } from './ApprovalsDrawer';
 import { AppShell } from './AppShell';
+import { BootScreen } from './BootScreen';
 import { CommandPalette } from './CommandPalette';
 import type { CommandAction } from './commandActions';
 import { useCommandActions } from './commandActions';
@@ -204,25 +205,11 @@ export function App() {
 	commandActionsRef.current = commandActions;
 
 	if (state.loading || !overview) {
-		const failed = Boolean(state.error);
 		return (
 			<div className="app-shell-ide">
 				<main className="workbench main-area">
 					<section className="content-frame">
-						{failed ? (
-							<ErrorState
-								title={t('app.boot.controlPlaneUnavailable', 'Control plane unavailable')}
-								body={state.error ?? ''}
-							/>
-						) : (
-							<EmptyState
-								title={t('app.boot.loading', 'Loading control plane')}
-								body={t(
-									'app.boot.loadingBody',
-									'Waiting for FastAPI v1, SQLite and runtime providers.',
-								)}
-							/>
-						)}
+						<BootScreen error={state.error ?? ''} />
 					</section>
 				</main>
 			</div>

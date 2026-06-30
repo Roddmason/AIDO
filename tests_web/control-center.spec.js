@@ -638,6 +638,46 @@ async function expectControlPlaneLoaded(page) {
 	await expect(page.getByText('Loading control plane')).toBeHidden({ timeout: 30_000 });
 }
 
+test('Control plane shell renders before optional runtime endpoints finish', async ({ page }) => {
+	let releaseOptional = () => {};
+	const optionalHold = new Promise((resolve) => {
+		releaseOptional = resolve;
+	});
+	await page.route('/api/v1/retrieval/status', async (route) => {
+		await optionalHold;
+		await route.fulfill({
+			json: {
+				status: 'configuration_required',
+				available: false,
+				reason: 'Retrieval is still loading.',
+				backend: 'unavailable',
+				degraded: false,
+				faissAvailable: false,
+				indexDir: '',
+				indexed: 0,
+				dimensions: 0,
+			},
+		});
+	});
+	await page.route('/api/v1/runtime/providers', async (route) => {
+		await optionalHold;
+		await route.fulfill({ json: runtimeProvidersFixture([]) });
+	});
+	await page.route('/api/v1/runtime/provider-configuration', async (route) => {
+		await optionalHold;
+		await route.fulfill({ json: runtimeProviderConfigurationFixture([]) });
+	});
+
+	try {
+		await page.goto('/#home');
+
+		await expect(page.getByText('Loading control plane')).toBeHidden({ timeout: 5000 });
+		await expect(page.getByRole('heading', { name: 'Open or continue a project' })).toBeVisible();
+	} finally {
+		releaseOptional();
+	}
+});
+
 async function createModelGatewayTrace(page) {
 	const handshake = await page.request.get('/api/v1/security/handshake');
 	const { token } = await handshake.json();

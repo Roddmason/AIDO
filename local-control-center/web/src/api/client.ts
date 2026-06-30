@@ -44,6 +44,8 @@ export type PipelineCreateRequest = MutationBody<'create_pipeline_api_v1_pipelin
 export type PipelineCreateResponse = OperationResponse<'create_pipeline_api_v1_pipelines_post'>;
 export type ThreadCreateRequest = MutationBody<'create_thread_api_v1_threads_post'>;
 export type ThreadDetailResponse = OperationResponse<'get_thread_api_v1_threads__thread_id__get'>;
+export type ThreadEventsResponse =
+	OperationResponse<'thread_events_api_v1_threads__thread_id__events_get'>;
 export type ThreadMessageRequest =
 	MutationBody<'post_message_api_v1_threads__thread_id__messages_post'>;
 export type ThreadMessageResultResponse =
@@ -944,7 +946,19 @@ export function getThread(threadId: string, signal?: AbortSignal) {
 	});
 }
 
-/** Posts a user message and runs the coordinator (responds or blocks); requires the write token. */
+/** Reads the thread execution console incrementally (events with sequence > afterSeq); a read. */
+export function getThreadEvents(threadId: string, afterSeq = 0, limit = 300, signal?: AbortSignal) {
+	return requestGeneratedOperation<
+		'thread_events_api_v1_threads__thread_id__events_get',
+		ThreadEventsResponse
+	>('thread_events_api_v1_threads__thread_id__events_get', {
+		pathParams: { thread_id: threadId },
+		query: { afterSeq, limit },
+		signal,
+	});
+}
+
+/** Posts a user message and enqueues the real Product Loop run when intake is executable. */
 export function postThreadMessage(
 	token: string,
 	threadId: string,

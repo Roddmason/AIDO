@@ -449,6 +449,16 @@ class GitWorkspaceService:
         ctx = self._project_context(project_id)
         if not shutil.which("git"):
             return self._base_unavailable_response(ctx=ctx, reason="Git executable was not found on PATH.")
+        if not ctx.workspace_id:
+            return self._base_unavailable_response(
+                ctx=ctx, reason="Project path does not exist or is not a directory."
+            )
+        # The project must own its OWN repository: require a `.git` at the project root. Without this,
+        # a project folder nested inside another repo (e.g. inside AIDO's checkout) would make every git
+        # command walk UP to the parent repo and report the WRONG project's branches. `.git` is a dir for
+        # a normal clone and a file for a worktree/submodule, so `.exists()` accepts both.
+        if not (ctx.root / ".git").exists():
+            return self._base_unavailable_response(ctx=ctx, reason="Project path is not a Git repository.")
         profile = self._git_profile()
         op = self._begin_operation(ctx=ctx, operation="status", profile=profile, payload={})
         traces: list[dict[str, Any]] = []
@@ -744,9 +754,22 @@ class GitWorkspaceService:
         except json.JSONDecodeError as exc:
             return {"parseError": str(exc), "rawPreview": raw[:1000]}
 
-    def gitleaks_scan(self, project_id: str) -> dict[str, Any]:
+    def gitleaks_scan(
+        self,
+        project_id: str,
+        *,
+        workspace_id: str | None = None,
+        workspace_path: str | Path | None = None,
+    ) -> dict[str, Any]:
         """Ejecuta gitleaks por ToolBroker y devuelve gate de entrega."""
         ctx = self._project_context(project_id)
+        scan_ctx = ctx
+        if workspace_path is not None:
+            scan_ctx = GitWorkspaceContext(
+                project=ctx.project,
+                root=Path(workspace_path).resolve(strict=False),
+                workspace_id=workspace_id or ctx.workspace_id,
+            )
         executable = self._gitleaks_executable()
         if not executable:
             gitleaks = {
@@ -765,19 +788,19 @@ class GitWorkspaceService:
                 "status": "configuration_required",
                 "reason": gitleaks["reason"],
                 "projectId": project_id,
-                "workspaceId": ctx.workspace_id,
+                "workspaceId": scan_ctx.workspace_id,
                 "deliveryBlocked": True,
                 "gitleaks": gitleaks,
                 "toolCalls": [],
                 "policyDecisionIds": [],
             }
         profile = self._security_profile()
-        op = self._begin_operation(ctx=ctx, operation="gitleaks_scan", profile=profile, payload={})
+        op = self._begin_operation(ctx=scan_ctx, operation="gitleaks_scan", profile=profile, payload={})
         report_path = self._gitleaks_report_path()
         argv = [
             executable,
             "dir",
-            str(ctx.root),
+            str(scan_ctx.root),
             "--redact",
             "--report-format",
             "json",
@@ -785,7 +808,7 @@ class GitWorkspaceService:
             str(report_path),
         ]
         result = self._run_brokered_command(
-            ctx=ctx,
+            ctx=scan_ctx,
             op=op,
             argv=argv,
             operation="security_agent_scanner",
@@ -827,7 +850,7 @@ class GitWorkspaceService:
             "status": response_status,
             "reason": reason,
             "projectId": project_id,
-            "workspaceId": ctx.workspace_id,
+            "workspaceId": scan_ctx.workspace_id,
             "deliveryBlocked": response_status != "completed",
             "gitleaks": gitleaks,
             "toolCalls": [result.trace],

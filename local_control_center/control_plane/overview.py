@@ -31,6 +31,9 @@ from local_control_center.threads.repository import ThreadsRepository
 from local_control_center.workflows.repository import WorkflowsRepository
 from local_control_center.workspaces_projects.repository import WorkspacesRepository
 
+OVERVIEW_EVENT_LIMIT = 250
+OVERVIEW_AUDIT_EVENT_LIMIT = 100
+
 
 def ensure_runtime_project(connection: sqlite3.Connection, cwd: str | Path) -> dict[str, Any]:
     """Devuelve el proyecto del cwd, creandolo si falta; no audita (variante para overview)."""
@@ -85,8 +88,8 @@ def build_overview_from_connection(*, connection: sqlite3.Connection, cwd: str |
         "pipelines": pipelines.list_pipelines(),
         "jobs": jobs.list_jobs(),
         "jobRuns": jobs.list_job_runs(),
-        "events": events.list_events(),
-        "auditEvents": events.list_audit_events(),
+        "events": events.list_events(limit=OVERVIEW_EVENT_LIMIT),
+        "auditEvents": events.list_audit_events(limit=OVERVIEW_AUDIT_EVENT_LIMIT),
         "memoryItems": memory.list_memory_items(),
         "promptTemplates": prompts.list_prompt_templates(),
         "actionRequests": jobs.list_action_requests(),

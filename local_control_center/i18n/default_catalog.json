@@ -147,6 +147,126 @@
       "en": "Could not send the message. Try again.",
       "es": "No se pudo enviar el mensaje. Intenta de nuevo."
     },
+    "app.threads.chatRegion": {
+      "en": "Thread chat",
+      "es": "Chat del hilo"
+    },
+    "app.threads.consoleRegion": {
+      "en": "Execution console",
+      "es": "Consola de ejecución"
+    },
+    "app.threads.consoleTitle": {
+      "en": "Execution",
+      "es": "Ejecución"
+    },
+    "app.threads.consoleLoading": {
+      "en": "syncing",
+      "es": "sincronizando"
+    },
+    "app.threads.waitingWorker": {
+      "en": "Queued: waiting for a worker to claim this run.",
+      "es": "En cola: esperando que un worker tome este run."
+    },
+    "app.threads.consoleEmpty": {
+      "en": "No execution events yet.",
+      "es": "Aún no hay eventos de ejecución."
+    },
+    "app.threads.event.message_received": {
+      "en": "Message received",
+      "es": "Mensaje recibido"
+    },
+    "app.threads.event.classification_completed": {
+      "en": "Classification ready",
+      "es": "Clasificación lista"
+    },
+    "app.threads.event.team_planned": {
+      "en": "Team planned",
+      "es": "Equipo planificado"
+    },
+    "app.threads.event.run_queued": {
+      "en": "Run queued",
+      "es": "Run encolado"
+    },
+    "app.threads.event.worker_claimed": {
+      "en": "Worker assigned",
+      "es": "Worker asignado"
+    },
+    "app.threads.event.runtime_selected": {
+      "en": "Runtime selected",
+      "es": "Runtime seleccionado"
+    },
+    "app.threads.event.agent_running": {
+      "en": "Agent working",
+      "es": "Agente trabajando"
+    },
+    "app.threads.event.workspace_check": {
+      "en": "Workspace",
+      "es": "Espacio de trabajo"
+    },
+    "app.threads.event.runtime_check": {
+      "en": "Runtime",
+      "es": "Entorno de ejecución"
+    },
+    "app.threads.event.git_check": {
+      "en": "Git",
+      "es": "Repositorio Git"
+    },
+    "app.threads.event.discovery": {
+      "en": "Discovery",
+      "es": "Descubrimiento"
+    },
+    "app.threads.event.planning": {
+      "en": "Planning",
+      "es": "Planificación"
+    },
+    "app.threads.event.backlog_ready": {
+      "en": "Backlog ready",
+      "es": "Backlog listo"
+    },
+    "app.threads.event.branch_ready": {
+      "en": "Branch ready",
+      "es": "Rama lista"
+    },
+    "app.threads.event.executing": {
+      "en": "Execution",
+      "es": "Ejecución"
+    },
+    "app.threads.event.qa_running": {
+      "en": "QA",
+      "es": "Control de calidad"
+    },
+    "app.threads.event.security_running": {
+      "en": "Security",
+      "es": "Seguridad"
+    },
+    "app.threads.event.review_ready": {
+      "en": "Review",
+      "es": "Revisión"
+    },
+    "app.threads.event.awaiting_approval": {
+      "en": "Approval required",
+      "es": "Aprobación requerida"
+    },
+    "app.threads.event.approval_required": {
+      "en": "Approval required",
+      "es": "Aprobación requerida"
+    },
+    "app.threads.event.blocked": {
+      "en": "Blocked",
+      "es": "Bloqueado"
+    },
+    "app.threads.event.completed": {
+      "en": "Completed",
+      "es": "Completado"
+    },
+    "app.threads.event.decision_required": {
+      "en": "Decision required",
+      "es": "Decisión requerida"
+    },
+    "app.threads.event.decision_resolved": {
+      "en": "Decision resolved",
+      "es": "Decisión resuelta"
+    },
     "app.composer.permissions": {
       "en": "Action approval",
       "es": "Aprobación de acciones"
@@ -226,6 +346,10 @@
     "app.statusBar.git.connectedLabel": {
       "en": "Git connected",
       "es": "Git conectado"
+    },
+    "app.statusBar.git.notConnected": {
+      "en": "git not connected",
+      "es": "git no conectado"
     },
     "app.statusBar.git.dirty": {
       "en": "dirty",
@@ -468,8 +592,36 @@
       "es": "Cargando plano de control"
     },
     "app.boot.loadingBody": {
-      "en": "Waiting for FastAPI v1, SQLite and runtime providers.",
-      "es": "Esperando FastAPI v1, SQLite y proveedores de runtime."
+      "en": "Bringing the local control plane online.",
+      "es": "Poniendo en línea el plano de control local."
+    },
+    "app.boot.reconnecting": {
+      "en": "Lost contact with the control plane — reconnecting automatically…",
+      "es": "Se perdió contacto con el plano de control — reconectando automáticamente…"
+    },
+    "app.boot.statusConnecting": {
+      "en": "Establishing connection…",
+      "es": "Estableciendo conexión…"
+    },
+    "app.boot.progressLabel": {
+      "en": "Control plane startup",
+      "es": "Arranque del plano de control"
+    },
+    "app.boot.componentsLabel": {
+      "en": "Components coming online",
+      "es": "Componentes poniéndose en línea"
+    },
+    "app.boot.componentApi": {
+      "en": "FastAPI v1 session",
+      "es": "Sesión FastAPI v1"
+    },
+    "app.boot.componentDb": {
+      "en": "SQLite control state",
+      "es": "Estado de control SQLite"
+    },
+    "app.boot.componentRuntimes": {
+      "en": "Runtime providers",
+      "es": "Proveedores de runtime"
     },
     "app.route.loading": {
       "en": "Loading view",
@@ -5962,6 +6114,14 @@
     "app.teamActivity.assignment": {
       "en": "Assignment",
       "es": "Asignación"
+    },
+    "app.teamActivity.nextStep": {
+      "en": "Next step",
+      "es": "Próximo paso"
+    },
+    "app.teamActivity.nextStepHandoff": {
+      "en": "Hand off to {agent}",
+      "es": "Entregar a {agent}"
     },
     "app.teamActivity.noAssignment": {
       "en": "Unassigned",

@@ -81,36 +81,53 @@ export function useControlPlane() {
 
 	const refresh = useCallback(async (silent = false) => {
 		const controller = new AbortController();
+		let secondaryStarted = false;
 		controllersRef.current.add(controller);
 		if (!silent) setState((current) => ({ ...current, loading: true, error: '' }));
+		const refreshSecondaryState = async () => {
+			try {
+				const [retrievalStatus, runtimeProviders, runtimeProviderConfigurationResponse] =
+					await Promise.all([
+						optionalWithTimeout(getRetrievalStatus(controller.signal)),
+						optionalWithTimeout(
+							getRuntimeProviders(controller.signal),
+							RUNTIME_ENDPOINT_TIMEOUT_MS,
+						),
+						optionalWithTimeout(
+							getRuntimeProviderConfiguration(controller.signal),
+							RUNTIME_ENDPOINT_TIMEOUT_MS,
+						),
+					]);
+				if (!mountedRef.current || controller.signal.aborted) return;
+				setState((current) => ({
+					...current,
+					retrievalStatus,
+					runtimeProviders,
+					runtimeProviderConfiguration:
+						runtimeProviderConfigurationResponse?.providers ?? current.runtimeProviderConfiguration,
+					lastUpdatedAt: new Date().toISOString(),
+				}));
+			} finally {
+				controllersRef.current.delete(controller);
+			}
+		};
 		try {
 			const [handshake, overview] = await Promise.all([
 				getHandshake(controller.signal),
 				getOverview(controller.signal),
 			]);
-			const [retrievalStatus, runtimeProviders, runtimeProviderConfigurationResponse] =
-				await Promise.all([
-					optionalWithTimeout(getRetrievalStatus(controller.signal)),
-					optionalWithTimeout(getRuntimeProviders(controller.signal), RUNTIME_ENDPOINT_TIMEOUT_MS),
-					optionalWithTimeout(
-						getRuntimeProviderConfiguration(controller.signal),
-						RUNTIME_ENDPOINT_TIMEOUT_MS,
-					),
-				]);
 			if (!mountedRef.current) return;
 			setState((current) => ({
 				...current,
 				token: handshake.token,
 				overview,
-				retrievalStatus,
-				runtimeProviders,
-				runtimeProviderConfiguration:
-					runtimeProviderConfigurationResponse?.providers ?? current.runtimeProviderConfiguration,
 				loading: false,
 				error: '',
 				connected: true,
 				lastUpdatedAt: new Date().toISOString(),
 			}));
+			secondaryStarted = true;
+			void refreshSecondaryState();
 		} catch (error) {
 			if (controller.signal.aborted) return;
 			if (!mountedRef.current) return;
@@ -128,7 +145,7 @@ export function useControlPlane() {
 				error: silent && current.overview ? '' : message,
 			}));
 		} finally {
-			controllersRef.current.delete(controller);
+			if (!secondaryStarted) controllersRef.current.delete(controller);
 		}
 	}, []);
 

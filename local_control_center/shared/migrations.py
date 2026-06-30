@@ -51,6 +51,8 @@ def initialize_platform_schema(connection: sqlite3.Connection) -> None:
     init_phase30_schema(connection)
     init_phase31_schema(connection)
     init_phase32_schema(connection)
+    init_phase33_schema(connection)
+    init_phase34_schema(connection)
     seed_platform_catalogs(connection)
 
 
@@ -3767,6 +3769,57 @@ def init_phase32_schema(connection: sqlite3.Connection) -> None:
     connection.execute(
         "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
         (32, utc_now()),
+    )
+
+
+def init_phase33_schema(connection: sqlite3.Connection) -> None:
+    """Fase 33: índices globales para snapshots recientes de eventos y auditoría."""
+    connection.executescript(
+        """
+        CREATE INDEX IF NOT EXISTS idx_events_created
+            ON events(created_at);
+        CREATE INDEX IF NOT EXISTS idx_audit_events_created
+            ON audit_events(created_at);
+        """
+    )
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (33, utc_now()),
+    )
+
+
+def init_phase34_schema(connection: sqlite3.Connection) -> None:
+    """Fase 34: fuentes de research como entidad canónica, no solo metadata de artifacts."""
+    connection.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS research_sources (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            thread_id TEXT,
+            agent_run_id TEXT,
+            evidence_package_id TEXT,
+            artifact_id TEXT NOT NULL,
+            source_url TEXT NOT NULL,
+            publisher TEXT NOT NULL,
+            trust_level TEXT NOT NULL,
+            fetched_at TEXT NOT NULL,
+            content_hash TEXT NOT NULL,
+            related_artifact_id TEXT,
+            status TEXT NOT NULL,
+            metadata TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_research_sources_project_created
+            ON research_sources(project_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_research_sources_thread_created
+            ON research_sources(thread_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_research_sources_artifact
+            ON research_sources(artifact_id);
+        """
+    )
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (34, utc_now()),
     )
 
 

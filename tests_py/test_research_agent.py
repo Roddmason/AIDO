@@ -3,10 +3,12 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 from typing import Any
+from urllib.error import URLError
 
 import pytest
 from fastapi.testclient import TestClient
 
+from local_control_center.agents import research_agent as research_agent_module
 from local_control_center.app import create_app
 from local_control_center.research.source_log import list_research_sources
 from tests_py.control_plane_fixture import ControlPlaneFixture
@@ -56,6 +58,27 @@ def research_request(project: dict[str, Any], workspace: dict[str, Any], **extra
     }
 
 
+class _Headers:
+    def get_content_charset(self) -> str:
+        return "utf-8"
+
+
+class _FetchedResponse:
+    headers = _Headers()
+
+    def __init__(self, content: str):
+        self.content = content.encode("utf-8")
+
+    def __enter__(self) -> _FetchedResponse:
+        return self
+
+    def __exit__(self, *_args: object) -> None:
+        return None
+
+    def read(self, _limit: int) -> bytes:
+        return self.content
+
+
 def test_research_agent_status_exposes_source_policy_contract(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -74,6 +97,140 @@ def test_research_agent_status_exposes_source_policy_contract(
         "reputable_secondary",
     ]
     assert body["contract"]["requiredEvidence"] is True
+
+
+def test_research_agent_blocks_when_internet_source_cannot_be_fetched(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def offline_urlopen(*_args: object, **_kwargs: object) -> _FetchedResponse:
+        raise URLError("network unreachable")
+
+    monkeypatch.setattr(research_agent_module, "urlopen", offline_urlopen)
+    store, client, headers = create_client(tmp_path, monkeypatch)
+    project, workspace = create_project_and_workspace(store, tmp_path, task_id="research-offline")
+
+    response = client.post(
+        "/api/v1/agents/research/runs",
+        headers=headers,
+        json=research_request(
+            project,
+            workspace,
+            sources=[
+                {
+                    "url": "https://docs.python.org/3/library/asyncio-task.html",
+                    "publisher": "Python Software Foundation",
+                }
+            ],
+            conclusions=[
+                {
+                    "statement": "Python asyncio TaskGroup is available.",
+                    "citations": ["https://docs.python.org/3/library/asyncio-task.html"],
+                    "webBased": True,
+                }
+            ],
+        ),
+    )
+
+    assert response.status_code == 202, response.text
+    body = response.json()
+    assert body["status"] == "research_blocked"
+    assert body["reason"] == "ResearchAgent source fetch failed: <urlopen error network unreachable>"
+    assert body["sources"] == []
+    assert body["agentRun"]["status"] == "blocked"
+    assert body["evidencePackage"]["qaVerdict"] == "blocked"
+
+
+def test_research_agent_fetches_official_source_and_persists_research_sources(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    docs_content = "Official Python asyncio documentation says TaskGroup is available."
+
+    def mocked_urlopen(*_args: object, **_kwargs: object) -> _FetchedResponse:
+        return _FetchedResponse(docs_content)
+
+    monkeypatch.setattr(research_agent_module, "urlopen", mocked_urlopen)
+    store, client, headers = create_client(tmp_path, monkeypatch)
+    project, workspace = create_project_and_workspace(store, tmp_path, task_id="research-fetch")
+    docs_url = "https://docs.python.org/3/library/asyncio-task.html"
+
+    response = client.post(
+        "/api/v1/agents/research/runs",
+        headers=headers,
+        json=research_request(
+            project,
+            workspace,
+            sources=[{"url": docs_url, "publisher": "Python Software Foundation"}],
+            conclusions=[
+                {
+                    "statement": "Python asyncio TaskGroup is available.",
+                    "citations": [docs_url],
+                    "webBased": True,
+                }
+            ],
+        ),
+    )
+
+    assert response.status_code == 202, response.text
+    body = response.json()
+    assert body["status"] == "research_ready"
+    persisted = store.connection.execute(
+        "SELECT * FROM research_sources WHERE project_id = ?", (project["id"],)
+    ).fetchall()
+    assert len(persisted) == 1
+    assert persisted[0]["source_url"] == docs_url
+    assert persisted[0]["trust_level"] == "official_documentation"
+    assert persisted[0]["content_hash"] == hashlib.sha256(docs_content.encode("utf-8")).hexdigest()
+    assert body["sources"][0]["id"] == persisted[0]["id"]
+    assert body["sources"][0]["artifactId"] == persisted[0]["artifact_id"]
+
+
+def test_research_agent_technical_decision_cites_persisted_source(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store, client, headers = create_client(tmp_path, monkeypatch)
+    project, workspace = create_project_and_workspace(store, tmp_path, task_id="research-decision")
+    docs_url = "https://docs.python.org/3/library/asyncio-task.html"
+
+    response = client.post(
+        "/api/v1/agents/research/runs",
+        headers=headers,
+        json=research_request(
+            project,
+            workspace,
+            sources=[
+                {
+                    "url": docs_url,
+                    "publisher": "Python Software Foundation",
+                    "content": "TaskGroup is the official structured concurrency API.",
+                    "fetchedAt": "2026-06-25T10:00:00.000Z",
+                }
+            ],
+            conclusions=[
+                {
+                    "statement": "Use TaskGroup for structured concurrency.",
+                    "citations": [docs_url],
+                    "webBased": True,
+                }
+            ],
+            technicalDecisions=[
+                {
+                    "title": "Structured concurrency API",
+                    "decision": "Use asyncio.TaskGroup for concurrent subtasks.",
+                    "sourceUrls": [docs_url],
+                }
+            ],
+        ),
+    )
+
+    assert response.status_code == 202, response.text
+    body = response.json()
+    decision = body["technicalDecisions"][0]
+    assert decision["decision"] == "Use asyncio.TaskGroup for concurrent subtasks."
+    citation = decision["sourceCitations"][0]
+    assert citation["sourceId"] == body["sources"][0]["id"]
+    assert citation["url"] == docs_url
+    assert citation["hash"] == body["sources"][0]["hash"]
+    assert body["recommendation"]["sourceCitations"] == decision["sourceCitations"]
 
 
 def test_research_agent_persists_sources_and_recommends_highest_trust_conflict(
@@ -126,7 +283,7 @@ def test_research_agent_persists_sources_and_recommends_highest_trust_conflict(
 
     assert response.status_code == 202
     body = response.json()
-    assert body["status"] == "completed"
+    assert body["status"] == "research_ready"
     assert body["citationCheck"]["valid"] is True
     assert body["evidencePackage"]["qaVerdict"] == "passed"
     assert body["reportArtifact"]["id"].startswith("artifact-")
@@ -186,7 +343,7 @@ def test_research_agent_blocks_uncited_or_untrusted_web_conclusions(
 
     assert response.status_code == 202
     body = response.json()
-    assert body["status"] == "blocked"
+    assert body["status"] == "research_blocked"
     assert body["citationCheck"]["uncited"] == ["No citation is present."]
     assert body["citationCheck"]["untrustedOnly"] == ["Only an untrusted source is cited."]
     assert body["agentRun"]["status"] == "blocked"
@@ -237,9 +394,9 @@ def test_research_agent_highest_trust_conflict_requires_human_review(
 
     assert response.status_code == 202
     body = response.json()
-    assert body["status"] == "needs_human_review"
+    assert body["status"] == "research_blocked"
     assert body["agentRun"]["status"] == "blocked"
-    assert body["evidencePackage"]["qaVerdict"] == "needs_human_review"
+    assert body["evidencePackage"]["qaVerdict"] == "blocked"
     assert body["conflictFindings"][0]["recommendation"] == {
         "needsManualReview": True,
         "reason": "The highest-trust sources disagree; a human must resolve the conflict.",

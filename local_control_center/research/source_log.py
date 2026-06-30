@@ -1,10 +1,10 @@
-"""Persistencia de fuentes de research como artefactos de evidencia (sin tabla ni migración nuevas).
+"""Persistencia de fuentes de research como entidad canónica y artifact de evidencia.
 
 Cada fuente investigada se guarda como un artefacto (``kind="research_source"``): su contenido textual
 se escribe como archivo (hash de contenido) y su procedencia —URL, publisher, ``fetchedAt``,
-``trustLevel`` y artefacto relacionado— viaja en la metadata del artefacto, reutilizando la tabla
-``artifacts`` existente. Así toda fuente queda trazable y verificable por hash sin introducir un nuevo
-esquema. ``list_research_sources`` reconstruye los registros de procedencia desde esos artefactos.
+``trustLevel`` y artefacto relacionado— viaja en la metadata del artefacto. Además inserta una fila
+``research_sources`` para que Research Source sea una entidad durable del producto y no metadata suelta.
+``list_research_sources`` lee esa tabla canónica y mantiene la forma expuesta por el agente.
 
 @author Rodrigo Mason
 """
@@ -18,7 +18,9 @@ from typing import Any
 
 from local_control_center.evidence.artifacts import write_text_artifact
 from local_control_center.evidence.repository import EvidenceRepository
-from local_control_center.shared.serialization import json_loads
+from local_control_center.shared.redaction import redact_secrets
+from local_control_center.shared.serialization import json_dumps, json_loads
+from local_control_center.shared.time import utc_now
 
 RESEARCH_SOURCE_KIND = "research_source"
 
@@ -30,8 +32,12 @@ def persist_source(
     project_id: str,
     record: dict[str, Any],
     content: str,
+    thread_id: str | None = None,
+    agent_run_id: str | None = None,
+    evidence_package_id: str | None = None,
+    status: str = "research_ready",
 ) -> dict[str, Any]:
-    """Crea un artefacto ``research_source`` con la fuente (contenido + procedencia) y lo devuelve.
+    """Crea una fila ``research_sources`` y su artifact ``research_source`` asociado.
 
     Escribe el contenido como archivo de artefacto y guarda la procedencia (``url``, ``publisher``,
     ``fetchedAt``, ``trustLevel``, ``relatedArtifact``) en la metadata, con ``content_hash`` igual al
@@ -39,10 +45,10 @@ def persist_source(
     """
     artifact_id = f"artifact-{uuid.uuid4()}"
     written = write_text_artifact(root=Path(root), artifact_id=artifact_id, suffix=".txt", content=content)
-    return evidence.create_artifact(
+    artifact = evidence.create_artifact(
         artifact_id=artifact_id,
         project_id=project_id,
-        evidence_package_id=None,
+        evidence_package_id=evidence_package_id,
         kind=RESEARCH_SOURCE_KIND,
         path=written["path"],
         content_hash=record["hash"],
@@ -55,10 +61,81 @@ def persist_source(
             "hashAlgorithm": "sha256",
         },
     )
+    source_id = f"research-source-{uuid.uuid4()}"
+    timestamp = utc_now()
+    evidence.connection.execute(
+        """
+        INSERT INTO research_sources
+            (id, project_id, thread_id, agent_run_id, evidence_package_id, artifact_id, source_url,
+             publisher, trust_level, fetched_at, content_hash, related_artifact_id, status, metadata,
+             created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            source_id,
+            project_id,
+            thread_id,
+            agent_run_id,
+            evidence_package_id,
+            artifact["id"],
+            record["url"],
+            record["publisher"],
+            record["trustLevel"],
+            record["fetchedAt"],
+            record["hash"],
+            record.get("relatedArtifact"),
+            status,
+            json_dumps(redact_secrets({"artifactPath": artifact["path"], "hashAlgorithm": "sha256"})),
+            timestamp,
+        ),
+    )
+    return {
+        "id": source_id,
+        "artifactId": artifact["id"],
+        "kind": artifact["kind"],
+        "path": artifact["path"],
+        "url": record["url"],
+        "publisher": record["publisher"],
+        "fetchedAt": record["fetchedAt"],
+        "hash": record["hash"],
+        "trustLevel": record["trustLevel"],
+        "relatedArtifact": record.get("relatedArtifact"),
+        "status": status,
+        "createdAt": timestamp,
+        "artifact": artifact,
+    }
 
 
 def list_research_sources(connection: sqlite3.Connection, project_id: str) -> list[dict[str, Any]]:
     """Lista los registros de procedencia de las fuentes persistidas de un proyecto, recientes primero."""
+    if _has_table(connection, "research_sources"):
+        rows = connection.execute(
+            """
+            SELECT * FROM research_sources
+            WHERE project_id = ?
+            ORDER BY created_at DESC, rowid DESC
+            """,
+            (project_id,),
+        ).fetchall()
+        return [
+            {
+                "id": row["id"],
+                "artifactId": row["artifact_id"],
+                "url": row["source_url"],
+                "publisher": row["publisher"],
+                "fetchedAt": row["fetched_at"],
+                "hash": row["content_hash"],
+                "trustLevel": row["trust_level"],
+                "relatedArtifact": row["related_artifact_id"],
+                "status": row["status"],
+                "threadId": row["thread_id"],
+                "agentRunId": row["agent_run_id"],
+                "evidencePackageId": row["evidence_package_id"],
+                "createdAt": row["created_at"],
+            }
+            for row in rows
+        ]
+
     rows = connection.execute(
         "SELECT * FROM artifacts WHERE project_id = ? AND kind = ? ORDER BY created_at DESC, rowid DESC",
         (project_id, RESEARCH_SOURCE_KIND),
@@ -78,3 +155,10 @@ def list_research_sources(connection: sqlite3.Connection, project_id: str) -> li
             }
         )
     return sources
+
+
+def _has_table(connection: sqlite3.Connection, table: str) -> bool:
+    row = connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (table,)
+    ).fetchone()
+    return row is not None

@@ -13,6 +13,7 @@ from local_control_center.product_loop.coordinator import (
 from local_control_center.projects.repository import ProjectsRepository
 from local_control_center.shared.db import open_sqlite_connection
 from local_control_center.shared.migrations import initialize_platform_schema
+from local_control_center.threads.repository import ThreadsRepository
 
 LOOP_TABLES = {"product_loops", "product_loop_transitions", "product_loop_feedback"}
 # The canonical happy path: goal_received → … → delivered (delivery only via awaiting_approval).
@@ -281,6 +282,40 @@ def test_run_user_message_with_controlled_runtime_executes_and_awaits_approval(t
             "review_ready",
             "awaiting_approval",
         ]
+
+
+def test_run_user_message_records_thread_events_when_thread_id_is_provided(tmp_path: Path) -> None:
+    runtime = _ControlledRuntime()
+    git = _GitGate()
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        project = _workspace_project(connection, tmp_path, "thread-events")
+        thread = ThreadsRepository(connection).create_thread(
+            project_id=project["id"],
+            owner_type="workspace",
+            owner_id="workspace-1",
+            title="Thread events",
+        )
+        coordinator = ProductLoopCoordinator(connection, root=tmp_path)
+
+        result = coordinator.run_user_message(
+            project_id=project["id"],
+            message="Implement an auditable onboarding dashboard.",
+            runtime_runner=runtime,
+            git_service=git,
+            thread_id=thread["id"],
+        )
+
+        assert result["status"] == "awaiting_approval"
+        events = ThreadsRepository(connection).list_events(thread["id"])
+        event_types = [event["type"] for event in events]
+        assert "workspace_check" in event_types
+        assert "runtime_selected" in event_types
+        assert "agent_running" in event_types
+        assert "qa_running" in event_types
+        assert "security_running" in event_types
+        assert "approval_required" in event_types
+        assert events[-1]["payload"]["loopId"] == result["loop"]["id"]
 
 
 def test_run_user_message_blocks_dirty_git_before_runtime_execution(tmp_path: Path) -> None:

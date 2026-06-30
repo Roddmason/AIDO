@@ -15,7 +15,7 @@ from local_control_center.research.source_policy import TRUST_LEVELS
 
 RESEARCH_AGENT_ID = "research_agent"
 RESEARCH_AGENT_ALLOWED_TOOLS: list[str] = []
-RESEARCH_AGENT_VERDICTS = {"completed", "blocked", "needs_human_review"}
+RESEARCH_AGENT_STATES = {"research_required", "research_running", "research_ready", "research_blocked"}
 
 
 def research_agent_contract() -> dict[str, Any]:
@@ -32,6 +32,7 @@ def research_agent_contract() -> dict[str, Any]:
                 "sources": {"type": "array", "items": {"type": "object"}},
                 "conclusions": {"type": "array", "items": {"type": "object"}},
                 "claims": {"type": "array", "items": {"type": "object"}},
+                "technicalDecisions": {"type": "array", "items": {"type": "object"}},
                 "metadata": {"type": "object"},
             },
         },
@@ -41,18 +42,22 @@ def research_agent_contract() -> dict[str, Any]:
                 "status",
                 "verdict",
                 "sources",
+                "recommendation",
                 "citationCheck",
                 "conflictFindings",
                 "reportArtifact",
                 "evidencePackage",
             ],
             "properties": {
-                "status": {"type": "string", "enum": sorted(RESEARCH_AGENT_VERDICTS)},
-                "verdict": {"type": "string", "enum": sorted(RESEARCH_AGENT_VERDICTS)},
+                "status": {"type": "string", "enum": sorted(RESEARCH_AGENT_STATES)},
+                "verdict": {"type": "string", "enum": sorted(RESEARCH_AGENT_STATES)},
                 "sources": {"type": "array", "items": {"type": "object"}},
                 "conclusions": {"type": "array", "items": {"type": "object"}},
+                "technicalDecisions": {"type": "array", "items": {"type": "object"}},
+                "recommendation": {"type": "object"},
                 "citationCheck": {"type": "object"},
                 "conflictFindings": {"type": "array", "items": {"type": "object"}},
+                "discrepancies": {"type": "array", "items": {"type": "object"}},
                 "reportArtifact": {"type": "object"},
                 "evidencePackage": {"type": "object"},
             },
@@ -63,6 +68,7 @@ def research_agent_contract() -> dict[str, Any]:
             "source_provenance_persistence",
             "technical_citation_validation",
             "conflict_detection",
+            "downloaded_code_execution_denied",
         ],
         "requiredWorkspace": True,
         "requiredEvidence": True,
@@ -71,6 +77,7 @@ def research_agent_contract() -> dict[str, Any]:
             "trustLevels": list(TRUST_LEVELS),
             "untrustedBehavior": "persist_for_audit_but_not_valid_for_web_conclusion_citations",
             "conflictBehavior": "recommend_highest_trust_source_or_require_human_review_on_top_tier_disagreement",
+            "downloadedCodeExecution": "denied",
         },
     }
 
@@ -80,7 +87,7 @@ def research_agent_status() -> dict[str, Any]:
     return {
         "id": RESEARCH_AGENT_ID,
         "executable": True,
-        "status": "executable",
+        "status": "research_required",
         "reason": (
             "ResearchAgent deterministic source policy, citation validation and artifact persistence are "
             "available without a model runtime."

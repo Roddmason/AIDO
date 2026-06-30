@@ -29,6 +29,7 @@ from local_control_center.jobs_approvals.repository import JobsRepository
 from local_control_center.research.source_log import persist_source
 from local_control_center.research.source_policy import (
     UNTRUSTED,
+    ResearchPolicyError,
     build_source_record,
     detect_conflicts,
     require_citations,
@@ -36,6 +37,7 @@ from local_control_center.research.source_policy import (
 from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.serialization import json_dumps
 from local_control_center.shared.time import utc_now
+from local_control_center.threads.repository import ThreadsRepository
 from local_control_center.workspaces_projects.repository import WorkspacesRepository
 
 from .repository import AgentsRepository
@@ -130,6 +132,8 @@ class ResearchAgentRunner:
         self,
         *,
         project_id: str,
+        thread_id: str | None,
+        agent_run_id: str | None,
         sources: list[dict[str, Any]],
         report_artifact_id: str,
     ) -> tuple[list[dict[str, Any]], list[str]]:
@@ -151,10 +155,16 @@ class ResearchAgentRunner:
                 trust_level=source.get("trustLevel"),
             )
             artifact = persist_source(
-                self.evidence, root=self.root, project_id=project_id, record=record, content=content
+                self.evidence,
+                root=self.root,
+                project_id=project_id,
+                thread_id=thread_id,
+                agent_run_id=agent_run_id,
+                record=record,
+                content=content,
             )
-            records.append({"artifactId": artifact["id"], **record})
-            artifact_ids.append(artifact["id"])
+            records.append(artifact)
+            artifact_ids.append(artifact["artifactId"])
         return records, artifact_ids
 
     def _normalize_conclusions(self, conclusions: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -195,6 +205,97 @@ class ResearchAgentRunner:
             )
         return normalized
 
+    def _normalize_technical_decisions(
+        self, *, decisions: list[dict[str, Any]], sources: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        by_url = {str(source["url"]): source for source in sources}
+        normalized: list[dict[str, Any]] = []
+        for index, decision in enumerate(decisions):
+            if not isinstance(decision, dict):
+                raise ResearchAgentValidationError(f"technicalDecisions[{index}] must be an object.")
+            source_urls = decision.get("sourceUrls") or []
+            if not source_urls:
+                raise ResearchAgentValidationError(
+                    f"technicalDecisions[{index}].sourceUrls must cite at least one source."
+                )
+            citations = []
+            for source_url in source_urls:
+                source = by_url.get(str(source_url))
+                if not source:
+                    raise ResearchAgentValidationError(
+                        f"technicalDecisions[{index}].sourceUrls must reference persisted sources."
+                    )
+                citations.append(self._source_citation(source))
+            if all(citation["trustLevel"] == UNTRUSTED for citation in citations):
+                raise ResearchAgentValidationError(
+                    f"technicalDecisions[{index}] must cite at least one trusted source."
+                )
+            normalized.append(
+                {
+                    "title": _required_text(decision, "title", field=f"technicalDecisions[{index}]"),
+                    "decision": _required_text(
+                        decision, "decision", field=f"technicalDecisions[{index}]"
+                    ),
+                    "sourceCitations": citations,
+                }
+            )
+        return normalized
+
+    @staticmethod
+    def _source_citation(source: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "sourceId": source.get("id"),
+            "artifactId": source.get("artifactId"),
+            "url": source.get("url"),
+            "publisher": source.get("publisher"),
+            "trustLevel": source.get("trustLevel"),
+            "fetchedAt": source.get("fetchedAt"),
+            "hash": source.get("hash"),
+        }
+
+    def _recommendation(
+        self,
+        *,
+        technical_decisions: list[dict[str, Any]],
+        conflict_findings: list[dict[str, Any]],
+        status: str,
+        reason: str,
+    ) -> dict[str, Any]:
+        if technical_decisions:
+            first = technical_decisions[0]
+            return {
+                "title": first["title"],
+                "decision": first["decision"],
+                "sourceCitations": first["sourceCitations"],
+            }
+        for finding in conflict_findings:
+            recommendation = finding.get("recommendation") or {}
+            if recommendation.get("needsManualReview"):
+                return {
+                    "title": f"Manual review required: {finding.get('topic')}",
+                    "decision": recommendation.get("reason", reason),
+                    "sourceCitations": [
+                        {
+                            "url": claim.get("sourceUrl"),
+                            "trustLevel": claim.get("trustLevel"),
+                            "fetchedAt": claim.get("fetchedAt"),
+                        }
+                        for claim in finding.get("claims") or []
+                    ],
+                }
+            if recommendation.get("sourceUrl"):
+                return {
+                    "title": f"Prefer highest-trust source for {finding.get('topic')}",
+                    "decision": str(recommendation.get("value") or ""),
+                    "sourceCitations": [
+                        {
+                            "url": recommendation.get("sourceUrl"),
+                            "trustLevel": recommendation.get("basis"),
+                        }
+                    ],
+                }
+        return {"title": status.replace("_", " "), "decision": reason, "sourceCitations": []}
+
     def _write_report_artifact(
         self, *, project_id: str, artifact_id: str, report: dict[str, Any]
     ) -> dict[str, Any]:
@@ -222,12 +323,50 @@ class ResearchAgentRunner:
         self, *, citation_check: dict[str, Any], conflict_findings: list[dict[str, Any]]
     ) -> tuple[str, str]:
         if not citation_check["valid"]:
-            return "blocked", "Technical web conclusions must cite at least one trusted source."
+            return "research_blocked", "Technical web conclusions must cite at least one trusted source."
         if any(
             (finding.get("recommendation") or {}).get("needsManualReview") for finding in conflict_findings
         ):
-            return "needs_human_review", "Highest-trust sources conflict and require human review."
-        return "completed", "ResearchAgent completed source policy validation."
+            return "research_blocked", "Highest-trust sources conflict and require human review."
+        return "research_ready", "ResearchAgent completed source policy validation."
+
+    def _link_sources_to_evidence(self, *, artifact_ids: list[str], evidence_id: str) -> None:
+        if not artifact_ids:
+            return
+        placeholders = ",".join("?" for _ in artifact_ids)
+        self.connection.execute(
+            f"UPDATE research_sources SET evidence_package_id = ? WHERE artifact_id IN ({placeholders})",
+            (evidence_id, *artifact_ids),
+        )
+
+    def _attach_report_to_thread(
+        self,
+        *,
+        thread_id: str | None,
+        project_id: str,
+        report_artifact_id: str,
+        report: dict[str, Any],
+    ) -> None:
+        if not thread_id:
+            return
+        threads = ThreadsRepository(self.connection)
+        thread = threads.get_thread(thread_id)
+        if thread["projectId"] != project_id:
+            raise ValueError("ResearchAgent thread does not belong to the project.")
+        threads.attach_artifact(
+            thread_id=thread_id,
+            kind="research_report",
+            title="Research",
+            artifact_id=report_artifact_id,
+            payload={
+                "status": report["status"],
+                "reason": report["reason"],
+                "recommendation": report["recommendation"],
+                "sources": report["sources"],
+                "technicalDecisions": report["technicalDecisions"],
+                "discrepancies": report["discrepancies"],
+            },
+        )
 
     def run(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Ejecuta la validación de research y devuelve estado, fuentes, hallazgos y evidencia."""
@@ -236,6 +375,8 @@ class ResearchAgentRunner:
         task_id = str(payload.get("taskId") or "research_agent")
         workflow_run_id = str(payload.get("workflowRunId") or "").strip() or None
         workflow_step_id = str(payload.get("workflowStepId") or "").strip() or None
+        metadata = payload.get("metadata") or {}
+        thread_id = str(metadata.get("threadId") or "").strip() or None
         profile = self._ensure_profile()
         job = self.jobs.create_job(
             project_id=project_id,
@@ -258,17 +399,45 @@ class ResearchAgentRunner:
         )
 
         report_artifact_id = f"artifact-{uuid.uuid4()}"
-        sources, source_artifact_ids = self._persist_sources(
-            project_id=project_id,
-            sources=payload.get("sources") or [],
-            report_artifact_id=report_artifact_id,
-        )
-        conclusions = self._normalize_conclusions(payload.get("conclusions") or [])
-        citation_check = require_citations(conclusions, sources=sources)
-        claims = self._claims_with_sources(claims=payload.get("claims") or [], sources=sources)
-        conflict_findings = detect_conflicts(claims)
-        status, reason = self._status_from_policy(
-            citation_check=citation_check, conflict_findings=conflict_findings
+        sources: list[dict[str, Any]] = []
+        source_artifact_ids: list[str] = []
+        conclusions: list[dict[str, Any]] = []
+        technical_decisions: list[dict[str, Any]] = []
+        citation_check: dict[str, Any] = {"valid": False, "uncited": [], "untrustedOnly": []}
+        conflict_findings: list[dict[str, Any]] = []
+        status = "research_running"
+        reason = "ResearchAgent is validating official sources."
+        try:
+            sources, source_artifact_ids = self._persist_sources(
+                project_id=project_id,
+                thread_id=thread_id,
+                agent_run_id=agent_run["id"],
+                sources=payload.get("sources") or [],
+                report_artifact_id=report_artifact_id,
+            )
+            conclusions = self._normalize_conclusions(payload.get("conclusions") or [])
+            citation_check = require_citations(conclusions, sources=sources)
+            claims = self._claims_with_sources(claims=payload.get("claims") or [], sources=sources)
+            conflict_findings = detect_conflicts(claims)
+            technical_decisions = self._normalize_technical_decisions(
+                decisions=payload.get("technicalDecisions") or [], sources=sources
+            )
+            status, reason = self._status_from_policy(
+                citation_check=citation_check, conflict_findings=conflict_findings
+            )
+        except (ResearchAgentValidationError, ResearchPolicyError) as error:
+            status = "research_blocked"
+            reason = str(error)
+            citation_check = {
+                "valid": False,
+                "uncited": citation_check.get("uncited", []),
+                "untrustedOnly": citation_check.get("untrustedOnly", []),
+            }
+        recommendation = self._recommendation(
+            technical_decisions=technical_decisions,
+            conflict_findings=conflict_findings,
+            status=status,
+            reason=reason,
         )
         report_payload = {
             "status": status,
@@ -276,19 +445,18 @@ class ResearchAgentRunner:
             "reason": reason,
             "sources": sources,
             "conclusions": conclusions,
+            "technicalDecisions": technical_decisions,
+            "recommendation": recommendation,
             "citationCheck": citation_check,
             "conflictFindings": conflict_findings,
+            "discrepancies": conflict_findings,
         }
         report_artifact = self._write_report_artifact(
             project_id=project_id, artifact_id=report_artifact_id, report=report_payload
         )
         artifact_ids = [*source_artifact_ids, report_artifact["id"]]
         artifact_records = artifact_records_from_ids(self.evidence, artifact_ids)
-        qa_verdict = {
-            "completed": "passed",
-            "blocked": "blocked",
-            "needs_human_review": "needs_human_review",
-        }[status]
+        qa_verdict = "passed" if status == "research_ready" else "blocked"
         evidence = self.evidence.create_evidence_package(
             project_id=project_id,
             workflow_run_id=workflow_run_id,
@@ -305,11 +473,12 @@ class ResearchAgentRunner:
                 "Technical web conclusions cite at least one trusted source.",
                 "Conflicting claims emit explicit findings and recommendations.",
                 "Sources and report are persisted as evidence artifacts with hashes.",
+                "Downloaded code is never executed by ResearchAgent.",
             ],
             test_results=[
                 {
                     "command": "research_agent.source_policy",
-                    "status": "passed" if status == "completed" else "blocked",
+                    "status": "passed" if status == "research_ready" else "blocked",
                     "outputRef": report_artifact["id"],
                     "metadata": {
                         "sourceCount": len(sources),
@@ -323,16 +492,14 @@ class ResearchAgentRunner:
             risk_notes=[
                 {
                     "severity": "low"
-                    if status == "completed"
+                    if status == "research_ready"
                     else "high"
-                    if status == "blocked"
+                    if status == "research_blocked"
                     else "medium",
                     "description": reason,
                     "mitigation": (
                         "Add trusted citations for every web-based conclusion."
-                        if status == "blocked"
-                        else "Resolve highest-trust source disagreement before using the conclusion."
-                        if status == "needs_human_review"
+                        if status == "research_blocked"
                         else "No mitigation required."
                     ),
                 }
@@ -347,6 +514,7 @@ class ResearchAgentRunner:
                 "status": status,
                 "available": True,
                 "executable": True,
+                "downloadedCodeExecution": "denied",
                 "sourceCount": len(sources),
                 "trustedSourceCount": sum(1 for source in sources if source["trustLevel"] != UNTRUSTED),
             },
@@ -363,7 +531,14 @@ class ResearchAgentRunner:
             self.evidence.attach_artifact_to_evidence(
                 artifact_id=artifact_id, evidence_package_id=evidence["id"]
             )
-        agent_status = "completed" if status == "completed" else "blocked"
+        self._link_sources_to_evidence(artifact_ids=source_artifact_ids, evidence_id=evidence["id"])
+        self._attach_report_to_thread(
+            thread_id=thread_id,
+            project_id=project_id,
+            report_artifact_id=report_artifact["id"],
+            report=report_payload,
+        )
+        agent_status = "completed" if status == "research_ready" else "blocked"
         agent_run = self.agents.update_agent_run_status(
             agent_run["id"],
             status=agent_status,
@@ -375,7 +550,7 @@ class ResearchAgentRunner:
         )
         job = self.jobs.update_job_status(
             job["id"],
-            status="completed" if status == "completed" else "failed",
+            status="completed" if status == "research_ready" else "failed",
             metadata={
                 "status": status,
                 "reason": reason,
@@ -394,7 +569,10 @@ class ResearchAgentRunner:
             "evidencePackage": evidence,
             "sources": sources,
             "conclusions": conclusions,
+            "technicalDecisions": technical_decisions,
+            "recommendation": recommendation,
             "citationCheck": citation_check,
             "conflictFindings": conflict_findings,
+            "discrepancies": conflict_findings,
             "reportArtifact": report_artifact,
         }

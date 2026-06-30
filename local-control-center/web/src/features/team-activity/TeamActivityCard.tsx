@@ -64,6 +64,7 @@ export function TeamActivityCard({ entry, token }: { entry: TeamActivityEntry; t
 	const assignment = entry.currentAssignment;
 	const artifact = entry.completedArtifact;
 	const reviewer = entry.reviewer;
+	const nextStep = entry.nextStep;
 	const output = structuredOutput(entry);
 	const cliSessionId = stringField(output, 'cliSessionId');
 	const changedFiles = stringListField(output, 'changedFiles');
@@ -110,6 +111,19 @@ export function TeamActivityCard({ entry, token }: { entry: TeamActivityEntry; t
 						)}
 					</dd>
 				</div>
+				{nextStep ? (
+					<div className="activity-field">
+						<dt>{t('app.teamActivity.nextStep', 'Next step')}</dt>
+						<dd>
+							{nextStep.source === 'handoff'
+								? t('app.teamActivity.nextStepHandoff', 'Hand off to {agent}').replace(
+										'{agent}',
+										nextStep.handoffTo ?? '',
+									)
+								: redactVisibleSecret(nextStep.text)}
+						</dd>
+					</div>
+				) : null}
 				<div className="activity-field">
 					<dt>{t('app.teamActivity.duration', 'Duration')}</dt>
 					<dd className="mono">{formatDurationMs(entry.durationMs)}</dd>

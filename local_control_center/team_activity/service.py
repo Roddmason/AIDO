@@ -30,7 +30,9 @@ DONE_RUN_STATUSES = frozenset({"cancelled", "completed", "approved", "evidence_r
 ACTIVE_ASSIGNMENT_STATUSES = frozenset({"active", "in_progress", "running", "accepted", "proposed"})
 COMPLETED_ASSIGNMENT_STATUSES = frozenset({"released", "completed", "done"})
 COMPLETED_HANDOFF_STATUSES = frozenset({"accepted", "resolved", "completed", "approved"})
+PENDING_HANDOFF_STATUSES = frozenset({"pending"})
 KNOWN_COST_STATUSES = frozenset({"actual", "free"})
+NEXT_STEP_OUTPUT_KEYS = ("nextStep", "next_step", "nextAction")
 
 DEFAULT_RECENT_LIMIT = 12
 
@@ -163,6 +165,26 @@ def _reviewer(reviews: list[dict[str, Any]]) -> dict[str, Any] | None:
                 "status": review.get("status") or "pending",
                 "decision": decision or None,
             }
+    return None
+
+
+def _next_step(output: dict[str, Any], handoffs: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Resolve the work's next action: the agent-stated step, else a pending handoff's destination.
+
+    Prefers an explicit next step the agent emitted in its (already-redacted) output, re-redacting it
+    defensively before it travels; otherwise falls back to the most recent pending handoff's target
+    agent. Returns None when the agent stated nothing and no handoff is pending, so an unknown next
+    step reads as honestly absent rather than fabricated.
+    """
+    for key in NEXT_STEP_OUTPUT_KEYS:
+        value = output.get(key)
+        if isinstance(value, str) and value.strip():
+            return {"source": "agent", "text": redact_secrets(value.strip()), "handoffTo": None}
+    for handoff in reversed(handoffs):
+        if handoff.get("status") in PENDING_HANDOFF_STATUSES:
+            target = (handoff.get("toAgentId") or "").strip()
+            if target:
+                return {"source": "handoff", "text": None, "handoffTo": target}
     return None
 
 
@@ -306,6 +328,7 @@ def build_team_activity(
             "blockedReason": _blocked_reason(state, handoffs, output),
             "completedArtifact": _completed_artifact(assignment, handoffs, status, artifacts_by_id),
             "reviewer": _reviewer(reviews),
+            "nextStep": _next_step(output, handoffs),
             "startedAt": run.get("createdAt"),
             "endedAt": run.get("updatedAt"),
             "durationMs": _duration_ms(run.get("createdAt"), run.get("updatedAt")),

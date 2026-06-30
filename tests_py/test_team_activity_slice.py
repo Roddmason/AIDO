@@ -25,7 +25,12 @@ def _client(tmp_path: Path):
 def _seed_story(backlog: BacklogRepository, project_id: str) -> str:
     epic = backlog.create_epic({"projectId": project_id, "title": "Activity board"})
     story = backlog.create_user_story(
-        {"projectId": project_id, "epicId": epic["id"], "title": "Show team activity"}
+        {
+            "projectId": project_id,
+            "epicId": epic["id"],
+            "title": "Show team activity",
+            "acceptanceCriteria": ["The operator can see active agent work."],
+        }
     )
     return story["id"]
 
@@ -258,6 +263,51 @@ def test_team_activity_reports_unmeasured_cost_as_not_recorded(tmp_path: Path) -
         entry = client.get(f"/api/v1/projects/{project_id}/team-activity").json()["entries"][0]
         assert entry["costUsd"] is None
         assert entry["costSource"] is None
+    finally:
+        runtime.close()
+
+
+def test_team_activity_classifies_cli_runtime_failures_as_blocked(tmp_path: Path) -> None:
+    runtime, client = _client(tmp_path)
+    try:
+        connection = runtime.connection
+        projects = ProjectsRepository(connection)
+        agents = AgentsRepository(connection)
+
+        project = projects.create_project(name="Team", path=tmp_path / "team", template_id="other")
+        project_id = project["id"]
+        agents.upsert_agent_profile(
+            {
+                "id": "developer_agent",
+                "name": "Developer Agent",
+                "role": "implementer",
+                "runtimeMode": "cli",
+            }
+        )
+        run = agents.create_agent_run(
+            project_id=project_id,
+            agent_profile_id="developer_agent",
+            task_id="cli_session.codex_cli",
+            input_payload={"runtime": "codex_cli", "argv": ["codex", "exec"]},
+            output_payload={
+                "cliSessionId": "cli-session-1",
+                "status": "runtime_failed",
+                "reason": "CLI process exited with code 1.",
+                "logsArtifactId": "artifact-logs",
+                "changedFiles": ["src/app.tsx"],
+            },
+            status="runtime_failed",
+        )
+
+        body = client.get(f"/api/v1/projects/{project_id}/team-activity").json()
+        entry = body["entries"][0]
+
+        assert body["blockedCount"] == 1
+        assert entry["id"] == run["id"]
+        assert entry["state"] == "blocked"
+        assert entry["blockedReason"] == "CLI process exited with code 1."
+        assert entry["developerDetails"]["output"]["cliSessionId"] == "cli-session-1"
+        assert entry["developerDetails"]["output"]["changedFiles"] == ["src/app.tsx"]
     finally:
         runtime.close()
 

@@ -27,12 +27,14 @@ export function ProjectDiscoverySummary({
 
 	return (
 		<>
-			<div
+			<ul
 				className="detection-grid"
 				aria-label={t('app.workspace.detection.aria', 'Detected project markers')}
+				// Reset the <ul> user-agent chrome so the grid box matches the prior <div>.
+				style={{ margin: 0, padding: 0, listStyle: 'none' }}
 			>
 				{markers.map((marker) => (
-					<div
+					<li
 						key={marker.file}
 						className="card detection-card"
 						data-detected={marker.detected ? 'true' : 'false'}
@@ -51,9 +53,9 @@ export function ProjectDiscoverySummary({
 								</span>
 							)}
 						</span>
-					</div>
+					</li>
 				))}
-			</div>
+			</ul>
 
 			<div className="field">
 				<span className="field-label">
@@ -62,6 +64,7 @@ export function ProjectDiscoverySummary({
 				<div className="detection-runtimes">
 					{runtimeLabels.length ? (
 						runtimeLabels.map((label, index) => (
+							// biome-ignore lint/suspicious/noArrayIndexKey: render-once, never-reordered list; index disambiguates duplicate runtime labels.
 							<Badge key={`${label}-${index}`} tone="info">
 								{label}
 							</Badge>

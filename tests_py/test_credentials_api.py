@@ -5,6 +5,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from local_control_center.agents.provider_accounts import ProviderAccountStore
 from local_control_center.app import create_app
 from local_control_center.credentials.backends import KeyringBackend
 from local_control_center.credentials.repository import CredentialRepository
@@ -112,6 +113,84 @@ def test_credentials_api_lifecycle_never_returns_secret_values(tmp_path: Path, m
         str(tuple(row)) for row in store.connection.execute("SELECT * FROM credential_audit")
     )
     assert SECRET not in sqlite_text and ROTATED_SECRET not in sqlite_text
+
+
+def test_credentials_api_accepts_product_contract_aliases_and_reports_provider_usage(
+    tmp_path: Path, monkeypatch
+) -> None:
+    client, headers, store, fake_keyring = _client(tmp_path, monkeypatch)
+
+    rejected = client.post(
+        "/api/v1/credentials",
+        json={
+            "label": "bad raw ref",
+            "credentialRef": "sk-aaaaaaaa",
+            "value": SECRET,
+        },
+        headers=headers,
+    )
+    assert rejected.status_code == 400
+    assert "raw secret" in rejected.json()["detail"]
+    assert "sk-aaaa" not in rejected.json()["detail"]
+
+    created_response = client.post(
+        "/api/v1/credentials",
+        json={
+            "label": "Codex personal",
+            "source": "keyring",
+            "credentialRef": "AIDO/codex-personal",
+            "value": SECRET,
+        },
+        headers=headers,
+    )
+
+    assert created_response.status_code == 201
+    created = created_response.json()["credential"]
+    assert created["label"] == "Codex personal"
+    assert created["name"] == "Codex personal"
+    assert created["source"] == "keyring"
+    assert created["backendKind"] == "keyring"
+    assert created["credentialRef"] == "keyring:AIDO/codex-personal"
+    assert created["locator"] == "AIDO/codex-personal"
+    assert created["lastRotatedAt"] is None
+    assert created["providerUsages"] == []
+    assert fake_keyring.get_password("AIDO", "codex-personal") == SECRET
+    assert SECRET not in json.dumps(created_response.json())
+
+    ProviderAccountStore(store.connection).patch_provider_account(
+        "openai_compatible",
+        {
+            "displayName": "OpenAI Compatible",
+            "providerType": "api",
+            "apiFormat": "openai_compatible",
+            "baseUrl": "https://example.invalid/v1",
+            "credentialRef": "keyring:AIDO/codex-personal",
+            "enabled": True,
+        },
+    )
+
+    listed = client.get("/api/v1/credentials").json()["credentials"]
+    credential = next(item for item in listed if item["id"] == created["id"])
+    assert credential["providerUsages"] == [
+        {
+            "providerId": "openai_compatible",
+            "displayName": "OpenAI Compatible",
+            "credentialRef": "keyring:AIDO/codex-personal",
+            "enabled": True,
+        }
+    ]
+    assert SECRET not in json.dumps(credential)
+
+    rotated_response = client.post(
+        f"/api/v1/credentials/{created['id']}/rotate",
+        json={"value": ROTATED_SECRET},
+        headers=headers,
+    )
+    assert rotated_response.status_code == 200
+    rotated = rotated_response.json()["credential"]
+    assert rotated["lastRotatedAt"]
+    assert rotated["rotatedAt"] == rotated["lastRotatedAt"]
+    assert ROTATED_SECRET not in json.dumps(rotated_response.json())
 
 
 def test_credentials_api_migrates_environment_overrides_without_copying_values(

@@ -45,12 +45,12 @@ export function NewWorkspaceDialog({
 	const workspace = useProjectDiscovery(overview, mutate);
 	const [step, setStep] = useState<DialogStep>('source');
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: re-seed once per open; `workspace.reset`/`setMode` are re-created every render, so depending on them would reset the form on every keystroke.
 	useEffect(() => {
 		if (!open) return;
 		workspace.reset();
 		workspace.setMode(initialMode);
 		setStep('source');
-		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [open, initialMode]);
 
 	if (!open) return null;
@@ -94,10 +94,11 @@ export function NewWorkspaceDialog({
 
 				{step === 'source' ? (
 					<>
-						<div
+						<fieldset
 							className="workspace-mode-grid"
-							role="group"
 							aria-label={t('app.workspace.mode.aria', 'Workspace source')}
+							// Reset the <fieldset> user-agent chrome so the grid box matches the prior <div>.
+							style={{ margin: 0, padding: 0, border: 0, minInlineSize: 0 }}
 						>
 							<button
 								type="button"
@@ -139,7 +140,7 @@ export function NewWorkspaceDialog({
 									)}
 								</span>
 							</button>
-						</div>
+						</fieldset>
 
 						{workspace.mode === 'open_folder' ? (
 							<div className="field">

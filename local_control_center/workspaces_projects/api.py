@@ -17,6 +17,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 
+from local_control_center.agents.team_bootstrap import bootstrap_base_team_if_needed
 from local_control_center.evidence.artifacts import promote_large_git_patches
 from local_control_center.evidence.repository import EvidenceRepository
 from local_control_center.shared.event_bus import EventBus
@@ -62,6 +63,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
                 base_branch=body.base_branch,
                 devcontainer=body.devcontainer.model_dump(by_alias=True) if body.devcontainer else None,
             )
+            bootstrap_base_team_if_needed(platform.connection)
         except WorkspaceConflictError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
         except WorkspaceIsolationError as error:

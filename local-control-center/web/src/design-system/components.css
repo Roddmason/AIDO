@@ -602,20 +602,12 @@ kbd.command-kbd {
 	font-weight: var(--weight-semibold);
 }
 
-.diff-before {
-	border-color: color-mix(
-		in oklch,
-		var(--color-status-danger) 34%,
-		var(--color-border-default)
-	) !important;
+.diff-row > .diff-before {
+	border-color: color-mix(in oklch, var(--color-status-danger) 34%, var(--color-border-default));
 }
 
-.diff-after {
-	border-color: color-mix(
-		in oklch,
-		var(--color-status-success) 34%,
-		var(--color-border-default)
-	) !important;
+.diff-row > .diff-after {
+	border-color: color-mix(in oklch, var(--color-status-success) 34%, var(--color-border-default));
 }
 
 .form-grid {

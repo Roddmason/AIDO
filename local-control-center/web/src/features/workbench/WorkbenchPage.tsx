@@ -10,7 +10,7 @@
  * leads, composer is pinned at the bottom, auxiliary panels are hidden.
  * @author Rodrigo Mason
  */
-import { CheckCircle2, FolderKanban, GitBranch, Rocket, Users } from 'lucide-react';
+import { CheckCircle2, FolderKanban, Rocket, Users } from 'lucide-react';
 import type { KeyboardEvent } from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
@@ -19,11 +19,15 @@ import type {
 	SessionCreateResponse,
 } from '../../api/client';
 import {
+	aidoDecideProductLoop,
+	approveProductBrief,
+	approveProductLoopBacklog,
 	createChat,
 	createPipeline,
 	createSession,
 	getProjectGitStatus,
 	startProductLoop,
+	transitionProductLoop,
 } from '../../api/client';
 import type {
 	Overview,
@@ -32,7 +36,7 @@ import type {
 	RuntimeProviders,
 } from '../../api/types';
 import { Badge, Drawer, EmptyState, PageHeader, Surface } from '../../components/primitives';
-import { Button, TextArea, TextField, useToast } from '../../components/ui';
+import { Button, SegmentedControl, TextArea, TextField, useToast } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { shortId, toneForStatus } from '../../lib/format';
 import { GitBranchBar } from '../shell/GitBranchBar';
@@ -58,6 +62,8 @@ type Mutate = <T>(
 	options?: { awaitRefresh?: boolean },
 ) => Promise<T>;
 
+type WorkbenchUserMode = 'consulta' | 'aido_decide';
+
 /** Chats shown before the "View full chat history" toggle reveals the rest. */
 const CHAT_PREVIEW_COUNT = 8;
 
@@ -74,7 +80,7 @@ type WorkbenchPageProps = {
 	onOpenEvidence: () => void;
 	onOpenSettings: () => void;
 	onOpenRuntimeSetup: () => void;
-	onRefresh: () => Promise<unknown> | void;
+	onRefresh: () => Promise<unknown> | undefined;
 	/** Hide the in-page workspace/session explorer when an outer shell already provides one
 	 *  (the thread/loop ShellSidebar). Defaults to false so the standalone Workbench is unchanged. */
 	hideExplorer?: boolean;
@@ -125,6 +131,7 @@ export function WorkbenchPage({
 	const [prompt, setPrompt] = useState('');
 	const [title, setTitle] = useState('');
 	const [titleEdited, setTitleEdited] = useState(false);
+	const [userMode, setUserMode] = useState<WorkbenchUserMode>('aido_decide');
 	const [internalSessionId, setInternalSessionId] = useState('');
 	const selectedSessionId = controlledSessionId ?? internalSessionId;
 	const setSelectedSessionId = useCallback(
@@ -146,6 +153,7 @@ export function WorkbenchPage({
 	const [teamOpen, setTeamOpen] = useState(false);
 	const [showAllChats, setShowAllChats] = useState(false);
 	const [loopStarting, setLoopStarting] = useState(false);
+	const [loopActionBusy, setLoopActionBusy] = useState('');
 	const [detectedGitBranch, setDetectedGitBranch] = useState('');
 
 	const latestDraftRef = useRef<{ projectId: string; draft: ComposerDraft } | null>(null);
@@ -192,6 +200,7 @@ export function WorkbenchPage({
 	});
 
 	const loop = useProductLoop(project?.id);
+	const activeProductLoop = loop.data?.loops[0] ?? null;
 
 	const derivedTitle = deriveTitle(prompt);
 	const effectiveTitle = titleEdited ? title : derivedTitle;
@@ -221,7 +230,6 @@ export function WorkbenchPage({
 		return () => controller.abort();
 	}, [project?.id]);
 
-	// biome-ignore lint/correctness/useExhaustiveDependencies: re-run only when the project id changes.
 	useEffect(() => {
 		const projectId = project?.id ?? '';
 		const draft = projectId ? readComposerDraft(projectId) : null;
@@ -229,25 +237,27 @@ export function WorkbenchPage({
 			setPrompt(draft.prompt);
 			setTitle(draft.title);
 			setTitleEdited(draft.titleEdited);
+			setUserMode(draft.userMode ?? 'aido_decide');
 		} else {
 			setPrompt('');
 			setTitle('');
 			setTitleEdited(false);
+			setUserMode('aido_decide');
 		}
 	}, [project?.id]);
 
 	latestDraftRef.current = project
-		? { projectId: project.id, draft: { prompt, title, titleEdited } }
+		? { projectId: project.id, draft: { prompt, title, titleEdited, userMode } }
 		: null;
 
 	useEffect(() => {
 		const projectId = project?.id ?? '';
 		if (!projectId || hydratedProjectIdRef.current !== projectId) return;
 		const handle = window.setTimeout(() => {
-			persistComposerDraft(projectId, { prompt, title, titleEdited });
+			persistComposerDraft(projectId, { prompt, title, titleEdited, userMode });
 		}, 400);
 		return () => window.clearTimeout(handle);
-	}, [project?.id, prompt, title, titleEdited]);
+	}, [project?.id, prompt, title, titleEdited, userMode]);
 
 	useEffect(() => {
 		hydratedProjectIdRef.current = project?.id ?? '';
@@ -295,7 +305,8 @@ export function WorkbenchPage({
 							sessionId: session.id,
 							chatId: chatResult.chat.id,
 							title: submitTitle,
-							productOwnerIntake: true,
+							productOwnerIntake: userMode === 'aido_decide',
+							userMode,
 							stages: [
 								{
 									id: 'intake',
@@ -377,6 +388,93 @@ export function WorkbenchPage({
 		}
 	};
 
+	const runLoopAction = async (
+		action: string,
+		operation: () => Promise<unknown>,
+		successTitle: string,
+		failureTitle: string,
+	) => {
+		if (!project || loopActionBusy) return;
+		setLoopActionBusy(action);
+		try {
+			await operation();
+			loop.refresh();
+			notify({ title: successTitle, tone: 'ok' });
+		} catch (actionError) {
+			notify({
+				title: failureTitle,
+				body: actionError instanceof Error ? actionError.message : undefined,
+				tone: 'danger',
+			});
+		} finally {
+			setLoopActionBusy('');
+		}
+	};
+
+	const handleAidoDecide = () => {
+		if (!project || !activeProductLoop) return;
+		void runLoopAction(
+			'aido_decide',
+			() =>
+				aidoDecideProductLoop(token, project.id, activeProductLoop.id, {
+					reason: 'AIDO selected the recommended product decisions.',
+				}),
+			t('app.workbench.loop.aidoDecideDone', 'AIDO decisions recorded'),
+			t('app.workbench.loop.aidoDecideFailed', 'Could not record AIDO decisions'),
+		);
+	};
+
+	const handleApproveBrief = () => {
+		const brief = loop.data?.brief;
+		if (!project || !brief) return;
+		void runLoopAction(
+			'approve_brief',
+			() =>
+				approveProductBrief(token, project.id, brief.id, {
+					reason: 'Product brief approved from the Workbench.',
+				}),
+			t('app.workbench.loop.briefApproved', 'Product brief approved'),
+			t('app.workbench.loop.briefApproveFailed', 'Could not approve the product brief'),
+		);
+	};
+
+	const handleApproveBacklog = () => {
+		if (!project || !activeProductLoop) return;
+		void runLoopAction(
+			'approve_backlog',
+			() =>
+				approveProductLoopBacklog(token, project.id, activeProductLoop.id, {
+					reason: 'Product backlog approved from the Workbench.',
+				}),
+			t('app.workbench.loop.backlogApproved', 'Product backlog approved'),
+			t('app.workbench.loop.backlogApproveFailed', 'Could not approve the product backlog'),
+		);
+	};
+
+	const handleStartIteration = () => {
+		if (!project || !activeProductLoop) return;
+		void runLoopAction(
+			'start_iteration',
+			() =>
+				transitionProductLoop(token, project.id, activeProductLoop.id, {
+					toState: 'iteration_planning',
+					reason: 'Iteration started from the Workbench backlog.',
+					trigger: 'operator_start_iteration',
+				}),
+			t('app.workbench.loop.iterationStarted', 'Iteration started'),
+			t('app.workbench.loop.iterationStartFailed', 'Could not start the iteration'),
+		);
+	};
+
+	const productLoopActions = {
+		busy: Boolean(loopActionBusy),
+		onAidoDecide: activeProductLoop ? handleAidoDecide : undefined,
+		onApproveBrief: loop.data?.brief ? handleApproveBrief : undefined,
+		onApproveBacklog: activeProductLoop ? handleApproveBacklog : undefined,
+		onStartIteration:
+			activeProductLoop?.state === 'backlog_ready' ? handleStartIteration : undefined,
+	};
+
 	const onSelectRun = (runId: string) => {
 		setSelectedRunId(runId);
 		setActiveSection('iteration');
@@ -384,6 +482,14 @@ export function WorkbenchPage({
 
 	const loopSections = buildProductLoopSections({
 		conversation: sessionChats.length,
+		questions: loop.data?.questions.length ?? 0,
+		brief: loop.data?.brief ? 1 : 0,
+		assumptions: loop.data?.assumptions.length ?? 0,
+		decisions: loop.data?.decisions.length ?? 0,
+		backlog:
+			(loop.data?.epics.length ?? 0) +
+			(loop.data?.stories.length ?? 0) +
+			(loop.data?.tasks.length ?? 0),
 		iteration: sessionPipelines.length,
 		execution: projectWorkflowRuns.length,
 		review: projectEvidence.length,
@@ -436,6 +542,23 @@ export function WorkbenchPage({
 			if (!composerDisabled) submitComposer();
 		}
 	};
+
+	const modeControl = (
+		<SegmentedControl<WorkbenchUserMode>
+			label={t('app.workbench.composer.modeLabel', 'Workbench mode')}
+			value={userMode}
+			disabled={!project || busy}
+			onChange={setUserMode}
+			options={[
+				{ value: 'consulta', label: t('app.workbench.mode.consulta', 'Consultation') },
+				{ value: 'aido_decide', label: t('app.workbench.mode.loop', 'Agents / Loop') },
+			]}
+		/>
+	);
+	const submitLabel =
+		userMode === 'consulta'
+			? t('app.workbench.mode.consulta', 'Consultation')
+			: t('app.workbench.mode.loop', 'Agents / Loop');
 
 	if (hideExplorer) {
 		return (
@@ -514,11 +637,12 @@ export function WorkbenchPage({
 						disabled={!project || busy}
 						placeholder={t(
 							'app.workbench.composer.promptPlaceholder',
-							'Describe the task in plain language. The AI team plans, implements and tests it inside this workspace.',
+							'Describe the work in plain language.',
 						)}
 						onChange={(event) => setPrompt(event.target.value)}
 						onKeyDown={onComposerKeyDown}
 					/>
+					{modeControl}
 
 					{/* Inline submit row */}
 					<div className="shell-chat-options">
@@ -534,9 +658,7 @@ export function WorkbenchPage({
 									disabled={composerDisabled}
 									onClick={submitComposer}
 								>
-									{busy
-										? t('app.workbench.chat.creating', 'Creating work session')
-										: t('app.workbench.loop.respond', 'Respond')}
+									{busy ? t('app.workbench.chat.creating', 'Creating work session') : submitLabel}
 								</Button>
 							)}
 						</div>
@@ -585,14 +707,16 @@ export function WorkbenchPage({
 									: t('app.workbench.chat.title', 'New work session')}
 							</strong>
 							<div className="inline">
-								<Badge>
-									<GitBranch aria-hidden="true" size={13} /> {displayBranch}
-								</Badge>
 								<Badge tone={toneForStatus(latestRunStatus)}>{latestRunStatus}</Badge>
 							</div>
 						</div>
-						<button className="button" type="button" onClick={() => setTeamOpen(true)}>
-							<Users aria-hidden="true" size={15} /> {t('app.workbench.team.open', 'AI team')}
+						<button
+							aria-label={t('app.workbench.team.openLoop', 'Open Agents / Loop')}
+							className="button"
+							type="button"
+							onClick={() => setTeamOpen(true)}
+						>
+							<Users aria-hidden="true" size={15} /> {t('app.workbench.mode.loop', 'Agents / Loop')}
 						</button>
 					</div>
 
@@ -606,10 +730,11 @@ export function WorkbenchPage({
 								disabled={!project || busy}
 								placeholder={t(
 									'app.workbench.composer.promptPlaceholder',
-									'Describe the task in plain language. The AI team plans, implements and tests it inside this workspace.',
+									'Describe the work in plain language.',
 								)}
 								onChange={(event) => setPrompt(event.target.value)}
 							/>
+							{modeControl}
 							<TextField
 								label={t('app.workbench.composer.titleLabel', 'Title')}
 								help={t(
@@ -630,9 +755,7 @@ export function WorkbenchPage({
 									disabled={composerDisabled}
 									onClick={submitComposer}
 								>
-									{busy
-										? t('app.workbench.chat.creating', 'Creating work session')
-										: t('app.workbench.loop.respond', 'Respond')}
+									{busy ? t('app.workbench.chat.creating', 'Creating work session') : submitLabel}
 								</Button>
 								{busy ? (
 									<Button onClick={cancelConversation}>
@@ -655,6 +778,12 @@ export function WorkbenchPage({
 									<span className="mono">{shortId(created.pipelineId)}</span>
 								</div>
 							) : null}
+
+							{/* Workspace toolbar: mirrors the shell-chat composer toolbar for consistency */}
+							<div className="shell-chat-context">
+								<span className="shell-chat-context-project">{project.name}</span>
+								<GitBranchBar selectedProject={project} token={token} onRefresh={onRefresh} />
+							</div>
 						</div>
 					</Surface>
 
@@ -691,6 +820,7 @@ export function WorkbenchPage({
 									id="workbench-chat-transcript"
 									className="chat-transcript"
 									aria-label={t('app.workbench.chat.history', 'Session chat history')}
+									role="log"
 								>
 									{sessionChats.length ? (
 										(showAllChats ? sessionChats : sessionChats.slice(0, CHAT_PREVIEW_COUNT)).map(
@@ -739,6 +869,7 @@ export function WorkbenchPage({
 								architectureDecisions={projectArchitectureDecisions}
 								loading={loop.loading}
 								error={loop.error}
+								actions={productLoopActions}
 							/>
 						) : null}
 						{activeSection === 'brief' ? (
@@ -748,6 +879,7 @@ export function WorkbenchPage({
 								architectureDecisions={projectArchitectureDecisions}
 								loading={loop.loading}
 								error={loop.error}
+								actions={productLoopActions}
 							/>
 						) : null}
 						{activeSection === 'assumptions' ? (
@@ -757,6 +889,7 @@ export function WorkbenchPage({
 								architectureDecisions={projectArchitectureDecisions}
 								loading={loop.loading}
 								error={loop.error}
+								actions={productLoopActions}
 							/>
 						) : null}
 						{activeSection === 'decisions' ? (
@@ -766,6 +899,7 @@ export function WorkbenchPage({
 								architectureDecisions={projectArchitectureDecisions}
 								loading={loop.loading}
 								error={loop.error}
+								actions={productLoopActions}
 							/>
 						) : null}
 						{activeSection === 'architecture' ? (
@@ -775,6 +909,7 @@ export function WorkbenchPage({
 								architectureDecisions={projectArchitectureDecisions}
 								loading={loop.loading}
 								error={loop.error}
+								actions={productLoopActions}
 							/>
 						) : null}
 						{activeSection === 'backlog' ? (
@@ -784,6 +919,7 @@ export function WorkbenchPage({
 								architectureDecisions={projectArchitectureDecisions}
 								loading={loop.loading}
 								error={loop.error}
+								actions={productLoopActions}
 							/>
 						) : null}
 
@@ -795,6 +931,7 @@ export function WorkbenchPage({
 									architectureDecisions={projectArchitectureDecisions}
 									loading={loop.loading}
 									error={loop.error}
+									actions={productLoopActions}
 								/>
 								<TimelinePanel
 									runTimeline={runTimeline}
@@ -861,7 +998,7 @@ export function WorkbenchPage({
 				open={teamOpen}
 				onClose={() => setTeamOpen(false)}
 			>
-				<TeamActivityPanel projectId={selectedProject?.id} open={teamOpen} />
+				<TeamActivityPanel projectId={selectedProject?.id} open={teamOpen} token={token} />
 			</Drawer>
 		</>
 	);

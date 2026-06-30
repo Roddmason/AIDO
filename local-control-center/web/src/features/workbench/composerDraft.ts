@@ -11,9 +11,10 @@ export interface ComposerDraft {
 	prompt: string;
 	title: string;
 	titleEdited: boolean;
+	userMode?: 'consulta' | 'aido_decide';
 }
 
-const COMPOSER_DRAFT_STORAGE_KEY = 'aido:workbench:composer-drafts:v2';
+const COMPOSER_DRAFT_STORAGE_KEY = 'aido:workbench:composer-drafts:v3';
 
 function readStoredDrafts(): Record<string, ComposerDraft> {
 	try {

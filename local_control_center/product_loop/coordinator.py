@@ -20,26 +20,51 @@ demanda (no hay scheduler en segundo plano) e inyectando ``now`` para que los te
 from __future__ import annotations
 
 import sqlite3
+from pathlib import Path
 from typing import Any
 
+from local_control_center.agents.developer_agent import DeveloperAgentRunner
+from local_control_center.agents.developer_agent_contract import DEVELOPER_AGENT_ID
+from local_control_center.agents.product_owner_agent_contract import PRODUCT_OWNER_AGENT_ID
+from local_control_center.agents.qa_agent import QA_AGENT_ID
+from local_control_center.agents.repository import AgentsRepository
+from local_control_center.agents.security_agent_contract import SECURITY_AGENT_ID
 from local_control_center.backlog.repository import BacklogRepository
+from local_control_center.evidence.repository import EvidenceRepository
+from local_control_center.git_workspace.service import GitWorkspaceService
 from local_control_center.product_discovery.repository import ProductDiscoveryRepository
+from local_control_center.sessions_chats.repository import SessionsChatsRepository
 from local_control_center.shared.db import immediate_transaction
+from local_control_center.shared.event_bus import EventBus
 from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.time import iso_after_seconds, utc_now
+from local_control_center.workspaces_projects.repository import (
+    WorkspaceConflictError,
+    WorkspaceIsolationError,
+    WorkspacesRepository,
+)
 
 from .models import FEEDBACK_ACTION_VALUES, FEEDBACK_CLASSIFICATION_VALUES
 from .repository import ProductLoopRepository
 
 PRODUCT_LOOP_STATES = [
     "goal_received",
+    "workspace_check",
+    "runtime_check",
+    "git_check",
+    "discovery",
     "discovering",
     "awaiting_user",
+    "planning",
     "brief_ready",
     "architecture_review",
     "backlog_ready",
-    "iteration_planning",
+    "branch_ready",
     "executing",
+    "qa_running",
+    "security_running",
+    "review_ready",
+    "iteration_planning",
     "quality_review",
     "awaiting_approval",
     "awaiting_feedback",
@@ -57,14 +82,23 @@ TERMINAL_STATES = {DELIVERED_STATE, CANCELLED_STATE}
 _RESUMABLE_STATES = {state for state in PRODUCT_LOOP_STATES if state not in TERMINAL_STATES | {BLOCKED_STATE}}
 
 ALLOWED_TRANSITIONS: dict[str, set[str]] = {
-    "goal_received": {"discovering", "blocked", "cancelled"},
+    "goal_received": {"workspace_check", "discovery", "discovering", "blocked", "cancelled"},
+    "workspace_check": {"runtime_check", "blocked", "cancelled"},
+    "runtime_check": {"git_check", "blocked", "cancelled"},
+    "git_check": {"discovery", "blocked", "cancelled"},
+    "discovery": {"awaiting_user", "planning", "backlog_ready", "blocked", "cancelled"},
     "discovering": {"awaiting_user", "brief_ready", "blocked", "cancelled"},
     "awaiting_user": {"discovering", "brief_ready", "blocked", "cancelled"},
+    "planning": {"backlog_ready", "blocked", "cancelled"},
     "brief_ready": {"architecture_review", "backlog_ready", "blocked", "cancelled"},
     "architecture_review": {"backlog_ready", "brief_ready", "blocked", "cancelled"},
-    "backlog_ready": {"iteration_planning", "blocked", "cancelled"},
+    "backlog_ready": {"branch_ready", "iteration_planning", "blocked", "cancelled"},
+    "branch_ready": {"executing", "blocked", "cancelled"},
     "iteration_planning": {"executing", "blocked", "cancelled"},
-    "executing": {"quality_review", "blocked", "cancelled"},
+    "executing": {"qa_running", "quality_review", "blocked", "cancelled"},
+    "qa_running": {"security_running", "reworking", "blocked", "cancelled"},
+    "security_running": {"review_ready", "blocked", "cancelled"},
+    "review_ready": {"awaiting_approval", "reworking", "blocked", "cancelled"},
     "quality_review": {"awaiting_approval", "reworking", "blocked", "cancelled"},
     "awaiting_approval": {"delivered", "reworking", "awaiting_feedback", "blocked", "cancelled"},
     "awaiting_feedback": {"reworking", "executing", "blocked", "cancelled"},
@@ -207,11 +241,16 @@ class ProductLoopCoordinator:
     de la lógica determinista, evaluándolas bajo demanda con un ``now`` inyectable.
     """
 
-    def __init__(self, connection: sqlite3.Connection):
+    def __init__(self, connection: sqlite3.Connection, *, root: str | Path | None = None):
         self.connection = connection
         self.repository = ProductLoopRepository(connection)
         self.backlog = BacklogRepository(connection)
         self.discovery = ProductDiscoveryRepository(connection)
+        self.root = Path(root).resolve(strict=False) if root is not None else None
+        self.agents = AgentsRepository(connection)
+        self.evidence = EvidenceRepository(connection)
+        self.events = EventBus(connection)
+        self.sessions_chats = SessionsChatsRepository(connection)
 
     @staticmethod
     def _state_deadline(state: str, timeouts: dict[str, Any] | None, now: str) -> str | None:
@@ -219,6 +258,516 @@ class ProductLoopCoordinator:
         if seconds is None:
             return None
         return iso_after_seconds(now, float(seconds))
+
+    def _durable_run_context(self, loop: dict[str, Any]) -> dict[str, Any]:
+        return dict((loop.get("context") or {}).get("durableRun") or {})
+
+    def _durable_run_patch(
+        self,
+        loop: dict[str, Any],
+        updates: dict[str, Any],
+        *,
+        evidence_package_ids: list[str] | None = None,
+    ) -> dict[str, Any]:
+        durable = {**self._durable_run_context(loop), **redact_secrets(updates)}
+        ids = [str(item) for item in durable.get("evidencePackageIds", []) if str(item).strip()]
+        for evidence_id in evidence_package_ids or []:
+            if evidence_id and evidence_id not in ids:
+                ids.append(evidence_id)
+        durable["evidencePackageIds"] = ids
+        durable["updatedAt"] = utc_now()
+        return {"durableRun": durable}
+
+    def _record_loop_event(
+        self, *, project_id: str, event_type: str, loop_id: str, payload: dict[str, Any] | None = None
+    ) -> None:
+        self.events.record_event(
+            project_id=project_id,
+            event_type=event_type,
+            payload={"loopId": loop_id, **redact_secrets(payload or {})},
+        )
+
+    def _transition_run_state(
+        self,
+        loop: dict[str, Any],
+        *,
+        to_state: str,
+        reason: str,
+        trigger: str,
+        actor: str,
+        context_patch: dict[str, Any] | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        updated = self.transition(
+            loop["id"],
+            to_state=to_state,
+            reason=reason,
+            actor=actor,
+            trigger=trigger,
+            context_patch=context_patch,
+            metadata=metadata,
+        )
+        self._record_loop_event(
+            project_id=updated["projectId"],
+            event_type="product_loop.state_changed",
+            loop_id=updated["id"],
+            payload={
+                "fromState": loop["state"],
+                "toState": to_state,
+                "reason": reason,
+                "trigger": trigger,
+            },
+        )
+        return updated
+
+    def _record_run_evidence(
+        self,
+        *,
+        project_id: str,
+        loop_id: str,
+        stage: str,
+        status: str,
+        reason: str,
+        details: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        verdict = "passed" if status in {"completed", "awaiting_approval", "reworking"} else "blocked"
+        severity = "low" if verdict == "passed" else "high"
+        return self.evidence.create_evidence_package(
+            project_id=project_id,
+            workflow_run_id=None,
+            agent_id="product_loop_coordinator",
+            task_id=f"product_loop.{stage}",
+            test_plan="ProductLoopCoordinator durable gate evidence.",
+            acceptance_checklist=[
+                "User message produced a concrete loop outcome.",
+                "State transition is persisted.",
+                "Evidence package captures the gate result.",
+            ],
+            test_results=[
+                {
+                    "command": f"product_loop.{stage}",
+                    "status": verdict,
+                    "metadata": redact_secrets(details or {}),
+                }
+            ],
+            logs=[redact_secrets({"stage": stage, "status": status, "reason": reason, "loopId": loop_id})],
+            risk_notes=[
+                {
+                    "severity": severity,
+                    "description": reason,
+                    "mitigation": "Address the blocked gate and rerun the Product Loop message.",
+                }
+            ],
+            runtime_health={"id": "product_loop_coordinator", "status": status, "reason": reason},
+            evidence_source="evidence_collected",
+            qa_verdict=verdict,
+        )
+
+    def _run_result(
+        self,
+        loop: dict[str, Any],
+        *,
+        status: str,
+        reason: str,
+        evidence_package: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        result = {
+            "status": status,
+            "reason": reason,
+            "loop": loop,
+            "resumable": not is_terminal(loop["state"]),
+            "allowedNextStates": sorted(ALLOWED_TRANSITIONS[loop["state"]]),
+            "transitions": self.repository.list_transitions(loop["id"]),
+        }
+        if evidence_package:
+            result["evidencePackage"] = evidence_package
+        return result
+
+    def _block_run(
+        self,
+        loop: dict[str, Any],
+        *,
+        stage: str,
+        reason: str,
+        actor: str,
+        details: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        evidence = self._record_run_evidence(
+            project_id=loop["projectId"],
+            loop_id=loop["id"],
+            stage=stage,
+            status="blocked",
+            reason=reason,
+            details=details,
+        )
+        context_patch = self._durable_run_patch(
+            loop,
+            {
+                "status": "blocked",
+                "blockedStage": stage,
+                "blockedReason": reason,
+                stage: redact_secrets(details or {}),
+            },
+            evidence_package_ids=[evidence["id"]],
+        )
+        blocked = self._transition_run_state(
+            loop,
+            to_state=BLOCKED_STATE,
+            reason=reason,
+            trigger=f"{stage}_blocked",
+            actor=actor,
+            context_patch=context_patch,
+            metadata={"blockedStage": stage, "evidencePackageId": evidence["id"]},
+        )
+        return self._run_result(blocked, status="blocked", reason=reason, evidence_package=evidence)
+
+    def _ensure_delivery_agents(self, project_id: str) -> list[dict[str, str]]:
+        profiles = [
+            {
+                "id": PRODUCT_OWNER_AGENT_ID,
+                "name": "ProductOwnerAgent",
+                "role": "product_owner",
+                "runtimeMode": "manual",
+                "permissionProfile": "plan",
+                "allowedTools": [],
+            },
+            {
+                "id": DEVELOPER_AGENT_ID,
+                "name": "DeveloperAgent",
+                "role": "developer",
+                "runtimeMode": "hybrid",
+                "permissionProfile": "dev_safe",
+                "allowedTools": ["shell", "workspace_patch"],
+                "qualityGates": ["qa", "gitleaks"],
+            },
+            {
+                "id": QA_AGENT_ID,
+                "name": "QAAgent",
+                "role": "qa_reviewer",
+                "runtimeMode": "manual",
+                "permissionProfile": "qa",
+                "allowedTools": ["shell"],
+                "qualityGates": ["qa"],
+            },
+            {
+                "id": SECURITY_AGENT_ID,
+                "name": "SecurityAgent",
+                "role": "security_reviewer",
+                "runtimeMode": "manual",
+                "permissionProfile": "qa",
+                "allowedTools": ["shell"],
+                "qualityGates": ["gitleaks"],
+            },
+        ]
+        assignments: list[dict[str, str]] = []
+        for body in profiles:
+            profile = self.agents.upsert_agent_profile(body)
+            assignments.append({"agentId": profile["id"], "role": profile["role"], "projectId": project_id})
+        return assignments
+
+    def _create_thread(
+        self, *, project_id: str, message: str, title: str | None, session_id: str | None
+    ) -> dict[str, Any]:
+        session = (
+            self.sessions_chats.get_session(session_id)
+            if session_id
+            else self.sessions_chats.create_session(project_id=project_id, name=title or "Product Loop")
+        )
+        chat = self.sessions_chats.create_chat(
+            project_id=project_id,
+            session_id=session["id"],
+            prompt=message,
+            title=title,
+        )
+        return {"sessionId": session["id"], "chatId": chat["id"], "title": chat["title"]}
+
+    def _external_evidence_ids(self, payload: dict[str, Any]) -> list[str]:
+        ids: list[str] = []
+        evidence = payload.get("evidencePackage")
+        if isinstance(evidence, dict) and isinstance(evidence.get("id"), str):
+            ids.append(evidence["id"])
+        ids.extend(
+            str(payload[key])
+            for key in ("evidencePackageId", "evidenceId")
+            if isinstance(payload.get(key), str)
+        )
+        return ids
+
+    def run_user_message(
+        self,
+        *,
+        project_id: str,
+        message: str,
+        root: str | Path | None = None,
+        title: str | None = None,
+        preferred_runtime: str | None = None,
+        qa_commands: list[Any] | None = None,
+        actor: str = "operator",
+        session_id: str | None = None,
+        runtime_runner: Any | None = None,
+        git_service: Any | None = None,
+    ) -> dict[str, Any]:
+        """Run one user message through the durable Product Loop control plane.
+
+        This is intentionally synchronous and fail-closed: every message creates a persisted thread/chat
+        and then ends in a real question/plan/execution/rework/block/approval result. Runtime and git
+        dependencies can be injected by tests; production defaults use the real DeveloperAgentRunner and
+        GitWorkspaceService.
+        """
+        message_text = str(message or "").strip()
+        if not message_text:
+            raise ProductLoopTransitionError("Product Loop user message is required.")
+        effective_root = Path(root).resolve(strict=False) if root is not None else self.root
+        resolved_title = title or message_text.splitlines()[0][:80] or "Product Loop"
+        thread = self._create_thread(
+            project_id=project_id, message=message_text, title=resolved_title, session_id=session_id
+        )
+        loop = self.start(
+            project_id=project_id,
+            title=resolved_title,
+            context={
+                "durableRun": {
+                    "status": INITIAL_STATE,
+                    "thread": thread,
+                    "message": message_text,
+                    "evidencePackageIds": [],
+                }
+            },
+            correlation_id=thread["chatId"],
+            actor=actor,
+            reason="Product Loop started from a user message.",
+        )
+        self._record_loop_event(
+            project_id=project_id,
+            event_type="product_loop.message_received",
+            loop_id=loop["id"],
+            payload={"thread": thread},
+        )
+
+        assignments = self._ensure_delivery_agents(project_id)
+        loop = self._transition_run_state(
+            loop,
+            to_state="workspace_check",
+            reason="User message thread and delivery agents are registered.",
+            trigger="workspace_check",
+            actor=actor,
+            context_patch=self._durable_run_patch(
+                loop, {"status": "workspace_check", "thread": thread, "agentAssignments": assignments}
+            ),
+        )
+        if effective_root is None:
+            return self._block_run(
+                loop,
+                stage="workspace_check",
+                reason="ProductLoopCoordinator root is required to create an isolated workspace.",
+                actor=actor,
+            )
+
+        runtime = runtime_runner or DeveloperAgentRunner(self.connection, root=effective_root)
+        git = git_service or GitWorkspaceService(self.connection, root=effective_root)
+
+        loop = self._transition_run_state(
+            loop,
+            to_state="runtime_check",
+            reason="Checking executable DeveloperAgent runtime.",
+            trigger="runtime_check",
+            actor=actor,
+            context_patch=self._durable_run_patch(loop, {"status": "runtime_check"}),
+        )
+        readiness = runtime.status(preferred_runtime=preferred_runtime)
+        if not bool(readiness.get("executable")):
+            reason = str(readiness.get("reason") or "No executable DeveloperAgent runtime is configured.")
+            return self._block_run(loop, stage="runtime", reason=reason, actor=actor, details=readiness)
+
+        loop = self._transition_run_state(
+            loop,
+            to_state="git_check",
+            reason="Checking git workspace cleanliness before worktree allocation.",
+            trigger="git_check",
+            actor=actor,
+            context_patch=self._durable_run_patch(
+                loop, {"status": "git_check", "runtimeReadiness": readiness}
+            ),
+        )
+        git_state = git.status(project_id)
+        if git_state.get("status") != "completed":
+            reason = str(git_state.get("reason") or "Git status did not complete.")
+            return self._block_run(loop, stage="git", reason=reason, actor=actor, details=git_state)
+        if bool(git_state.get("dirty")):
+            reason = "Project git tree is dirty; Product Loop execution requires a clean base."
+            return self._block_run(loop, stage="git", reason=reason, actor=actor, details=git_state)
+
+        for state, reason in [
+            ("discovery", "User message classified for execution."),
+            ("planning", "Delivery plan prepared from the user message."),
+            ("backlog_ready", "Backlog handoff is ready for implementation."),
+        ]:
+            loop = self._transition_run_state(
+                loop,
+                to_state=state,
+                reason=reason,
+                trigger=state,
+                actor=actor,
+                context_patch=self._durable_run_patch(loop, {"status": state}),
+            )
+
+        task_id = f"product-loop-{loop['id'].replace('product-loop-', '')[:12]}"
+        try:
+            workspace = WorkspacesRepository(self.connection, root=effective_root).allocate_workspace(
+                project_id=project_id,
+                task_id=task_id,
+                agent_id=DEVELOPER_AGENT_ID,
+                reason="ProductLoopCoordinator durable execution workspace",
+                branch_name=f"codex/product-loop-{loop['id'][-12:]}",
+            )
+        except (WorkspaceConflictError, WorkspaceIsolationError, ValueError, KeyError) as error:
+            return self._block_run(
+                loop,
+                stage="workspace",
+                reason=str(error),
+                actor=actor,
+                details={"taskId": task_id},
+            )
+
+        loop = self._transition_run_state(
+            loop,
+            to_state="branch_ready",
+            reason="Isolated workspace/worktree is ready for runtime execution.",
+            trigger="branch_ready",
+            actor=actor,
+            context_patch=self._durable_run_patch(
+                loop,
+                {
+                    "status": "branch_ready",
+                    "workspaceId": workspace["id"],
+                    "workspacePath": workspace["path"],
+                    "workspaceIsolationType": workspace["isolationType"],
+                },
+            ),
+        )
+        loop = self._transition_run_state(
+            loop,
+            to_state="executing",
+            reason="Executing DeveloperAgent runtime in the isolated workspace.",
+            trigger="runtime_execution",
+            actor=actor,
+            context_patch=self._durable_run_patch(loop, {"status": "executing"}),
+        )
+        try:
+            runtime_result = runtime.run(
+                {
+                    "projectId": project_id,
+                    "workspaceId": workspace["id"],
+                    "taskId": task_id,
+                    "instruction": message_text,
+                    "preferredRuntime": preferred_runtime,
+                    "qaCommands": qa_commands or [],
+                    "requireApproval": True,
+                    "metadata": {"loopId": loop["id"], "thread": thread},
+                }
+            )
+        except Exception as error:
+            return self._block_run(
+                loop,
+                stage="runtime",
+                reason=str(redact_secrets(str(error))),
+                actor=actor,
+                details={"workspaceId": workspace["id"]},
+            )
+
+        runtime_status = str(runtime_result.get("status") or "failed")
+        evidence_ids = self._external_evidence_ids(runtime_result)
+        loop = self._transition_run_state(
+            loop,
+            to_state="qa_running",
+            reason="Runtime finished; QA evidence is being evaluated.",
+            trigger="qa_running",
+            actor=actor,
+            context_patch=self._durable_run_patch(
+                loop,
+                {"status": "qa_running", "runtimeResult": runtime_result},
+                evidence_package_ids=evidence_ids,
+            ),
+        )
+        qa_verdict = str((runtime_result.get("evidencePackage") or {}).get("qaVerdict") or "")
+        if runtime_status == "qa_failed" or qa_verdict == "failed":
+            reason = str(runtime_result.get("reason") or "QA failed and requires rework.")
+            evidence = self._record_run_evidence(
+                project_id=project_id,
+                loop_id=loop["id"],
+                stage="qa",
+                status="reworking",
+                reason=reason,
+                details=runtime_result,
+            )
+            reworked = self._transition_run_state(
+                loop,
+                to_state=REWORK_STATE,
+                reason=reason,
+                trigger="qa_failed",
+                actor=actor,
+                context_patch=self._durable_run_patch(
+                    loop,
+                    {
+                        "status": REWORK_STATE,
+                        "rework": {"source": "qa", "reason": reason, "runtimeStatus": runtime_status},
+                    },
+                    evidence_package_ids=[*evidence_ids, evidence["id"]],
+                ),
+                metadata={"evidencePackageId": evidence["id"]},
+            )
+            return self._run_result(reworked, status=REWORK_STATE, reason=reason, evidence_package=evidence)
+        if runtime_status not in {"completed", "evidence_ready"}:
+            reason = str(runtime_result.get("reason") or f"Runtime ended with status {runtime_status}.")
+            return self._block_run(loop, stage="runtime", reason=reason, actor=actor, details=runtime_result)
+
+        loop = self._transition_run_state(
+            loop,
+            to_state="security_running",
+            reason="Running gitleaks delivery gate.",
+            trigger="gitleaks",
+            actor=actor,
+            context_patch=self._durable_run_patch(loop, {"status": "security_running"}),
+        )
+        gitleaks = git.gitleaks_scan(project_id)
+        if gitleaks.get("status") != "completed" or bool(gitleaks.get("deliveryBlocked")):
+            reason = str(gitleaks.get("reason") or "gitleaks blocked delivery.")
+            return self._block_run(loop, stage="gitleaks", reason=reason, actor=actor, details=gitleaks)
+
+        security_evidence = self._record_run_evidence(
+            project_id=project_id,
+            loop_id=loop["id"],
+            stage="gitleaks",
+            status="completed",
+            reason=str(gitleaks.get("reason") or "gitleaks passed."),
+            details=gitleaks,
+        )
+        loop = self._transition_run_state(
+            loop,
+            to_state="review_ready",
+            reason="Runtime, QA and gitleaks evidence are ready for review.",
+            trigger="review_ready",
+            actor=actor,
+            context_patch=self._durable_run_patch(
+                loop,
+                {"status": "review_ready", "gitleaks": gitleaks},
+                evidence_package_ids=[security_evidence["id"]],
+            ),
+        )
+        loop = self._transition_run_state(
+            loop,
+            to_state="awaiting_approval",
+            reason="Evidence-backed Product Loop result awaits operator approval.",
+            trigger="awaiting_approval",
+            actor=actor,
+            context_patch=self._durable_run_patch(loop, {"status": "awaiting_approval"}),
+        )
+        return self._run_result(
+            loop,
+            status="awaiting_approval",
+            reason="Evidence-backed Product Loop result awaits operator approval.",
+            evidence_package=security_evidence,
+        )
 
     def start(
         self,
@@ -590,6 +1139,15 @@ class ProductLoopCoordinator:
                 if not str(story_payload.get("title") or "").strip():
                     raise ProductLoopTransitionError("Feedback action change_scope requires story.title.")
                 metadata = {**dict(story_payload.get("metadata") or {}), "feedbackId": feedback_id}
+                acceptance_criteria = [
+                    str(item).strip()
+                    for item in story_payload.get("acceptanceCriteria") or []
+                    if str(item).strip()
+                ]
+                if not acceptance_criteria:
+                    raise ProductLoopTransitionError(
+                        "Feedback action change_scope requires story.acceptanceCriteria."
+                    )
                 story = self.backlog.create_user_story(
                     {
                         "projectId": project_id,
@@ -604,6 +1162,8 @@ class ProductLoopCoordinator:
                         "businessValue": story_payload.get("businessValue", "medium"),
                         "storyPoints": story_payload.get("storyPoints"),
                         "owner": story_payload.get("owner", ""),
+                        "acceptanceCriteria": acceptance_criteria,
+                        "acceptanceCriteriaMetadata": {"feedbackId": feedback_id},
                         "metadata": metadata,
                     }
                 )

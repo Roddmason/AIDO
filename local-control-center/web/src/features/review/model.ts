@@ -363,8 +363,7 @@ export function buildReviewItems(overview: Overview): ReviewItem[] {
 		const pending = runActions.find((action) => action.status === 'pending') ?? null;
 
 		const projectId = pending?.projectId || run.projectId;
-		const runLabel =
-			(workflow.title && workflow.title.trim()) || `${workflow.kind} · ${shortId(run.id)}`;
+		const runLabel = workflow.title?.trim() || `${workflow.kind} · ${shortId(run.id)}`;
 
 		items.push({
 			key: `run:${run.id}`,
@@ -492,8 +491,6 @@ export function classifyReviewItem(item: ReviewItem): ReviewColumn {
 		case 'approved_for_integration':
 		case 'promoted_to_branch':
 			return 'ready';
-		case 'evidence_ready':
-		case 'running':
 		default:
 			return 'needs_review';
 	}

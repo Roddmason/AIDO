@@ -202,6 +202,32 @@ def row_to_product_decision(row: sqlite3.Row) -> dict[str, Any]:
     }
 
 
+def row_to_product_owner_output(row: sqlite3.Row) -> dict[str, Any]:
+    """Mapea una salida validada del ProductOwnerAgent al dict camelCase del contrato."""
+    return {
+        "id": row["id"],
+        "projectId": row["project_id"],
+        "initiativeId": row["initiative_id"],
+        "briefId": row["brief_id"],
+        "status": row["status"],
+        "summary": row["summary"],
+        "confidence": row["confidence"],
+        "questions": json_loads(row["questions"], []),
+        "assumptions": json_loads(row["assumptions"], []),
+        "decisions": json_loads(row["decisions"], []),
+        "productBriefPatch": json_loads(row["product_brief_patch"], {}),
+        "epics": json_loads(row["epics"], []),
+        "userStories": json_loads(row["user_stories"], []),
+        "risks": json_loads(row["risks"], []),
+        "recommendedNextAction": row["recommended_next_action"],
+        "runtimeId": row["runtime_id"],
+        "outputArtifactId": row["output_artifact_id"],
+        "metadata": json_loads(row["metadata"], {}),
+        "createdAt": row["created_at"],
+        "updatedAt": row["updated_at"],
+    }
+
+
 class ProductDiscoveryRepository:
     """Acceso a datos del slice de product discovery sobre la conexión SQLite del caller.
 
@@ -966,3 +992,74 @@ class ProductDiscoveryRepository:
             ),
         )
         return self.get_product_decision(decision_id)
+
+    def create_product_owner_output(self, body: dict[str, Any]) -> dict[str, Any]:
+        """Persist validated ProductOwnerAgent JSON for later approvals."""
+        output_id = f"product-owner-output-{uuid.uuid4()}"
+        timestamp = utc_now()
+        self.connection.execute(
+            """
+            INSERT INTO product_owner_outputs
+                (id, project_id, initiative_id, brief_id, status, summary, confidence, questions,
+                 assumptions, decisions, product_brief_patch, epics, user_stories, risks,
+                 recommended_next_action, runtime_id, output_artifact_id, metadata, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                output_id,
+                body["projectId"],
+                body["initiativeId"],
+                body["briefId"],
+                body["status"],
+                body["summary"],
+                body["confidence"],
+                json_dumps(body.get("questions") or []),
+                json_dumps(body.get("assumptions") or []),
+                json_dumps(body.get("decisions") or []),
+                json_dumps(body.get("productBriefPatch") or {}),
+                json_dumps(body.get("epics") or []),
+                json_dumps(body.get("userStories") or []),
+                json_dumps(body.get("risks") or []),
+                body.get("recommendedNextAction", ""),
+                body.get("runtimeId", ""),
+                body.get("outputArtifactId", ""),
+                json_dumps(body.get("metadata") or {}),
+                timestamp,
+                timestamp,
+            ),
+        )
+        return self.get_product_owner_output(output_id)
+
+    def get_product_owner_output(self, output_id: str) -> dict[str, Any]:
+        """Recupera una salida validada del ProductOwnerAgent por id."""
+        row = self.connection.execute(
+            "SELECT * FROM product_owner_outputs WHERE id = ?", (output_id,)
+        ).fetchone()
+        if not row:
+            raise KeyError(f"Product owner output not found: {output_id}")
+        return row_to_product_owner_output(row)
+
+    def list_product_owner_outputs(
+        self,
+        *,
+        project_id: str | None = None,
+        initiative_id: str | None = None,
+        brief_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Lista outputs PO filtrados por proyecto, iniciativa o brief, más recientes primero."""
+        conditions: list[str] = []
+        params: list[Any] = []
+        if project_id:
+            conditions.append("project_id = ?")
+            params.append(project_id)
+        if initiative_id:
+            conditions.append("initiative_id = ?")
+            params.append(initiative_id)
+        if brief_id:
+            conditions.append("brief_id = ?")
+            params.append(brief_id)
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        rows = self.connection.execute(
+            f"SELECT * FROM product_owner_outputs {where} ORDER BY created_at DESC", params
+        ).fetchall()
+        return [row_to_product_owner_output(row) for row in rows]

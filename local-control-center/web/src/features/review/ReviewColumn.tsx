@@ -37,7 +37,6 @@ export function ReviewColumn({
 			className="review-column"
 			data-focal={column === 'needs_review' ? 'true' : undefined}
 			data-motion-item
-			role="group"
 			aria-labelledby={headerId}
 		>
 			<header className="review-column-header">

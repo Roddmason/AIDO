@@ -418,8 +418,9 @@ export function useWorkbenchData({
 		],
 	);
 
+	const projectId = project?.id;
 	useEffect(() => {
-		if (!project) {
+		if (!projectId) {
 			onResetSession('');
 			return;
 		}
@@ -427,8 +428,7 @@ export function useWorkbenchData({
 		if (selectedSessionId && projectSessions.some((session) => session.id === selectedSessionId))
 			return;
 		onResetSession(projectSessions[0]?.id ?? '');
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [project?.id, projectSessions, selectedSessionId]);
+	}, [projectId, projectSessions, selectedSessionId, onResetSession]);
 
 	const teamRows = expertBlueprints.map((blueprint) => {
 		const matchingProfiles = overview.agentProfiles.filter((profile) =>

@@ -22,6 +22,7 @@ def _ready_stories(backlog: BacklogRepository, project_id: str, epic_id: str) ->
             "iWant": "to complete payment without creating an account",  # 'payment' -> security-sensitive
             "soThat": "I buy faster",
             "storyPoints": 3,
+            "acceptanceCriteria": ["Payment completes without requiring account creation."],
         }
     )
     first = backlog.update_user_story(first["id"], {"status": "ready"})
@@ -34,6 +35,7 @@ def _ready_stories(backlog: BacklogRepository, project_id: str, epic_id: str) ->
             "iWant": "to see my past orders",
             "soThat": "I can reorder",
             "storyPoints": 2,
+            "acceptanceCriteria": ["Past orders are visible to the shopper."],
         }
     )
     second = backlog.update_user_story(second["id"], {"status": "ready"})

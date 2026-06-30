@@ -379,7 +379,22 @@ class ToolBroker:
 
         execution = "not_executed"
         execution_result = None
-        if decision["decision"] == "allow" and tool_name == "shell" and tool_call.get("execute") is True:
+        authorize_only = tool_call.get("authorizeOnly") is True
+        if (
+            decision["decision"] == "allow"
+            and tool_name == "shell"
+            and tool_call.get("execute") is True
+            and authorize_only
+        ):
+            execution = "authorized"
+            execution_result = {
+                "executed": False,
+                "authorized": True,
+                "blocked": False,
+                "reason": "ToolBroker authorized streaming execution; caller owns live process drainage.",
+            }
+            status = "allowed"
+        elif decision["decision"] == "allow" and tool_name == "shell" and tool_call.get("execute") is True:
             requested_sandbox = str(tool_call.get("sandbox") or "restricted_subprocess")
             if requested_sandbox == "docker":
                 execution = "docker"

@@ -44,6 +44,16 @@ IMPLEMENTATION_REVIEW_ROLES = {
 }
 ACCEPTED_HANDOFF_STATUSES = {"accepted", "resolved", "completed"}
 APPROVED_REVIEW_STATUSES = {"approved", "accepted"}
+TECHNICAL_USER_STORY_KEYS = {
+    "agentId",
+    "agentIds",
+    "agentRole",
+    "agentTask",
+    "implementationTask",
+    "role",
+    "taskRole",
+    "technicalTask",
+}
 
 
 def _as_bool(value: Any) -> bool:
@@ -104,6 +114,32 @@ def _reject_free_form_prompt(body: dict[str, Any]) -> None:
             "Agent assignments cannot collaborate through a shared free-form prompt; "
             "use inputSchema, outputSchema and canonical artifacts."
         )
+
+
+def _reject_technical_user_story_fields(body: dict[str, Any]) -> None:
+    forbidden = sorted(key for key in TECHNICAL_USER_STORY_KEYS if key in body)
+    if forbidden:
+        raise ValueError(
+            "User stories must describe user value, not agent work; "
+            f"move {', '.join(forbidden)} to agent_tasks."
+        )
+
+
+def _criteria_from_body(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValueError("acceptanceCriteria must be a list.")
+    criteria: list[str] = []
+    for index, item in enumerate(value):
+        if isinstance(item, dict):
+            criterion = str(item.get("criterion") or "").strip()
+        else:
+            criterion = str(item or "").strip()
+        if not criterion:
+            raise ValueError(f"acceptanceCriteria[{index}] must be a non-empty string.")
+        criteria.append(criterion)
+    return criteria
 
 
 def row_to_epic(row: sqlite3.Row) -> dict[str, Any]:
@@ -485,35 +521,49 @@ class BacklogRepository:
         Modela valor de usuario con ``asA``/``iWant``/``soThat``; no lleva rol técnico: el trabajo
         por disciplina se descompone en ``agent_tasks``, evitando duplicar la HU por cada rol.
         """
+        _reject_technical_user_story_fields(body)
+        criteria = _criteria_from_body(body.get("acceptanceCriteria"))
+        if not criteria:
+            raise ValueError("User story requires at least one acceptance criterion.")
         story_id = f"user-story-{uuid.uuid4()}"
         timestamp = utc_now()
-        self.connection.execute(
-            """
-            INSERT INTO user_stories
-                (id, project_id, epic_id, title, as_a, i_want, so_that, description, status,
-                 priority, business_value, story_points, owner, version, metadata,
-                 created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
-            """,
-            (
-                story_id,
-                body["projectId"],
-                body["epicId"],
-                body["title"],
-                body.get("asA", ""),
-                body.get("iWant", ""),
-                body.get("soThat", ""),
-                body.get("description", ""),
-                body.get("status", "draft"),
-                body.get("priority", "medium"),
-                body.get("businessValue", "medium"),
-                body.get("storyPoints"),
-                body.get("owner", ""),
-                json_dumps(body.get("metadata") or {}),
-                timestamp,
-                timestamp,
-            ),
-        )
+        with self._transaction():
+            self.connection.execute(
+                """
+                INSERT INTO user_stories
+                    (id, project_id, epic_id, title, as_a, i_want, so_that, description, status,
+                     priority, business_value, story_points, owner, version, metadata,
+                     created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
+                """,
+                (
+                    story_id,
+                    body["projectId"],
+                    body["epicId"],
+                    body["title"],
+                    body.get("asA", ""),
+                    body.get("iWant", ""),
+                    body.get("soThat", ""),
+                    body.get("description", ""),
+                    body.get("status", "draft"),
+                    body.get("priority", "medium"),
+                    body.get("businessValue", "medium"),
+                    body.get("storyPoints"),
+                    body.get("owner", ""),
+                    json_dumps(body.get("metadata") or {}),
+                    timestamp,
+                    timestamp,
+                ),
+            )
+            for criterion in criteria:
+                self.create_acceptance_criterion(
+                    {
+                        "projectId": body["projectId"],
+                        "storyId": story_id,
+                        "criterion": criterion,
+                        "metadata": body.get("acceptanceCriteriaMetadata") or {},
+                    }
+                )
         return self.get_user_story(story_id)
 
     def get_user_story(self, story_id: str) -> dict[str, Any]:
@@ -551,6 +601,7 @@ class BacklogRepository:
         Raises:
             KeyError: si la user story no existe.
         """
+        _reject_technical_user_story_fields(body)
         current = self.get_user_story(story_id)
         next_value = {**current, **body}
         timestamp = utc_now()
@@ -591,6 +642,12 @@ class BacklogRepository:
         criterion_id = f"acceptance-criterion-{uuid.uuid4()}"
         timestamp = utc_now()
         story_id = body["storyId"]
+        story = self.get_user_story(story_id)
+        if story["projectId"] != body["projectId"]:
+            raise ValueError("Acceptance criterion projectId must match its user story.")
+        criterion = str(body["criterion"]).strip()
+        if not criterion:
+            raise ValueError("Acceptance criterion requires a non-empty criterion.")
         next_sequence = self.connection.execute(
             "SELECT COALESCE(MAX(sequence), 0) + 1 AS next FROM acceptance_criteria WHERE story_id = ?",
             (story_id,),
@@ -607,7 +664,7 @@ class BacklogRepository:
                 body["projectId"],
                 story_id,
                 next_sequence,
-                body["criterion"],
+                criterion,
                 body.get("status", "pending"),
                 json_dumps(body.get("metadata") or {}),
                 timestamp,
@@ -629,11 +686,22 @@ class BacklogRepository:
             raise KeyError(f"Acceptance criterion not found: {criterion_id}")
         return row_to_acceptance_criterion(row)
 
-    def list_acceptance_criteria(self, story_id: str) -> list[dict[str, Any]]:
-        """Lista los criterios de aceptación de una historia en orden estable (por ``sequence``)."""
+    def list_acceptance_criteria(
+        self, story_id: str | None = None, project_id: str | None = None
+    ) -> list[dict[str, Any]]:
+        """Lista criterios de aceptación por historia y/o proyecto en orden estable."""
+        conditions: list[str] = []
+        params: list[Any] = []
+        if story_id:
+            conditions.append("story_id = ?")
+            params.append(story_id)
+        if project_id:
+            conditions.append("project_id = ?")
+            params.append(project_id)
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         rows = self.connection.execute(
-            "SELECT * FROM acceptance_criteria WHERE story_id = ? ORDER BY sequence ASC",
-            (story_id,),
+            f"SELECT * FROM acceptance_criteria {where} ORDER BY story_id ASC, sequence ASC",
+            params,
         ).fetchall()
         return [row_to_acceptance_criterion(row) for row in rows]
 
@@ -672,6 +740,10 @@ class BacklogRepository:
         depends_on_story_id = body["dependsOnStoryId"]
         if story_id == depends_on_story_id:
             raise ValueError(f"Story cannot depend on itself: {story_id}")
+        story = self.get_user_story(story_id)
+        depends_on = self.get_user_story(depends_on_story_id)
+        if story["projectId"] != body["projectId"] or depends_on["projectId"] != body["projectId"]:
+            raise ValueError("Story dependency projectId must match both stories.")
         dependency_id = f"story-dependency-{uuid.uuid4()}"
         timestamp = utc_now()
         self.connection.execute(
@@ -734,6 +806,9 @@ class BacklogRepository:
         ``role`` captura la disciplina del trabajo técnico (frontend, backend, qa, …) a nivel de
         tarea; descomponer una historia en varias tareas con distinto rol sustituye a duplicar la HU.
         """
+        story = self.get_user_story(body["storyId"])
+        if story["projectId"] != body["projectId"]:
+            raise ValueError("Agent task projectId must match its user story.")
         task_id = f"agent-task-{uuid.uuid4()}"
         timestamp = utc_now()
         self.connection.execute(
@@ -838,6 +913,10 @@ class BacklogRepository:
         depends_on_task_id = body["dependsOnTaskId"]
         if task_id == depends_on_task_id:
             raise ValueError(f"Task cannot depend on itself: {task_id}")
+        task = self.get_agent_task(task_id)
+        depends_on = self.get_agent_task(depends_on_task_id)
+        if task["projectId"] != body["projectId"] or depends_on["projectId"] != body["projectId"]:
+            raise ValueError("Task dependency projectId must match both tasks.")
         dependency_id = f"task-dependency-{uuid.uuid4()}"
         timestamp = utc_now()
         self.connection.execute(

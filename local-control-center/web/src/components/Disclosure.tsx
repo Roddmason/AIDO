@@ -50,15 +50,14 @@ export function Disclosure({
 					{summary ? <span className="disclosure-summary">{summary}</span> : null}
 				</button>
 			</h3>
-			<div
+			<section
 				id={regionId}
-				role="region"
 				aria-labelledby={triggerId}
 				className="disclosure-region"
 				hidden={!open}
 			>
 				<div className="disclosure-inner">{children}</div>
-			</div>
+			</section>
 		</div>
 	);
 }

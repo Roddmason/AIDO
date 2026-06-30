@@ -16,7 +16,13 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 
 from .cli_session_events import CliSessionEventStore
-from .cli_session_stream import cancel_cli_session, is_running, start_cli_session
+from .cli_session_stream import (
+    DEFAULT_SESSION_TIMEOUT_SECONDS,
+    MAX_SESSION_TIMEOUT_SECONDS,
+    cancel_cli_session,
+    is_running,
+    start_cli_session,
+)
 from .cli_session_stream_models import (
     CliSessionCancelResponse,
     CliSessionEventsResponse,
@@ -35,6 +41,12 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         argv = list(body.argv)
         if not argv or not all(isinstance(item, str) and item for item in argv):
             raise HTTPException(status_code=422, detail="argv must be a non-empty list of non-empty strings.")
+        timeout_seconds = body.timeout_seconds or DEFAULT_SESSION_TIMEOUT_SECONDS
+        if timeout_seconds < 1 or timeout_seconds > MAX_SESSION_TIMEOUT_SECONDS:
+            raise HTTPException(
+                status_code=422,
+                detail=f"timeoutSeconds must be between 1 and {MAX_SESSION_TIMEOUT_SECONDS}.",
+            )
         workspace = platform.connection.execute(
             "SELECT project_id, path FROM workspaces WHERE id = ?", (body.workspace_id,)
         ).fetchone()
@@ -51,6 +63,9 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             argv=argv,
             env_policy=body.env_policy,
             agent_id=body.agent_id,
+            timeout_seconds=timeout_seconds,
+            branch_name=body.branch_name,
+            worktree_id=body.worktree_id,
         )
 
     @router.get("/api/v1/cli-sessions/{session_id}/events", response_model=CliSessionEventsResponse)

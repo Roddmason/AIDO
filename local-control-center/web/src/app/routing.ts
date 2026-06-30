@@ -105,7 +105,7 @@ export type HashState = { page: AppRoute; runId: string | null };
 export function resolveHashState(): HashState {
 	const { params } = splitHash();
 	const runId = params.get('run');
-	return { page: resolveHashRoute(), runId: runId && runId.trim() ? runId : null };
+	return { page: resolveHashRoute(), runId: runId?.trim() ? runId : null };
 }
 
 /** Encodes a page (and optional selected run) into a URL hash value. */

@@ -8,7 +8,7 @@
 
 import { AlertTriangle, FileCheck2, GitBranch, ShieldAlert } from 'lucide-react';
 import { m } from 'motion/react';
-import type { CSSProperties, KeyboardEvent } from 'react';
+import type { CSSProperties } from 'react';
 import { useRef } from 'react';
 
 import { Badge, StatusDot } from '../../components/primitives';
@@ -99,15 +99,6 @@ export function ReviewCard({
 	const shipOp = shipOperationFor(item);
 	const open = () => onOpenReview(item, triggerRef.current);
 
-	const handleCardKeyDown = (event: KeyboardEvent<HTMLElement>) => {
-		if (!item.canDecide) return;
-		if (event.target !== event.currentTarget) return;
-		if (event.key === 'Enter' || event.key === ' ') {
-			event.preventDefault();
-			open();
-		}
-	};
-
 	const riskBadge = item.riskLevel ? (
 		<Badge tone={riskTone(item.riskLevel)}>
 			{item.riskLevel === 'critical' || item.riskLevel === 'high' ? (
@@ -124,9 +115,7 @@ export function ReviewCard({
 			className="card review-card"
 			data-risk={item.riskLevel ?? undefined}
 			data-selected={selected ? 'true' : undefined}
-			tabIndex={0}
 			aria-labelledby={titleId}
-			onKeyDown={handleCardKeyDown}
 		>
 			<ReviewSharedAccent itemKey={item.key} active={selected || activeDetail} />
 			<div className="card-header">

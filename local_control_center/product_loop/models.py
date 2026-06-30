@@ -220,6 +220,33 @@ class UserStoryRecord(BaseModel):
     updated_at: str = Field(alias="updatedAt")
 
 
+class AcceptanceCriterionRecord(BaseModel):
+    """Criterio de aceptación story-scoped que hace verificable una historia."""
+
+    id: str
+    project_id: str = Field(alias="projectId")
+    story_id: str = Field(alias="storyId")
+    sequence: int
+    criterion: str
+    status: str
+    metadata: dict[str, Any]
+    created_at: str = Field(alias="createdAt")
+    updated_at: str = Field(alias="updatedAt")
+
+
+class StoryDependencyRecord(BaseModel):
+    """Dependencia explícita entre historias de usuario."""
+
+    id: str
+    project_id: str = Field(alias="projectId")
+    story_id: str = Field(alias="storyId")
+    depends_on_story_id: str = Field(alias="dependsOnStoryId")
+    type: str
+    reason: str
+    metadata: dict[str, Any]
+    created_at: str = Field(alias="createdAt")
+
+
 class AgentTaskRecord(BaseModel):
     """Tarea técnica de un agente derivada de una historia."""
 
@@ -237,6 +264,19 @@ class AgentTaskRecord(BaseModel):
     metadata: dict[str, Any]
     created_at: str = Field(alias="createdAt")
     updated_at: str = Field(alias="updatedAt")
+
+
+class TaskDependencyRecord(BaseModel):
+    """Dependencia explícita entre tareas técnicas de agentes."""
+
+    id: str
+    project_id: str = Field(alias="projectId")
+    task_id: str = Field(alias="taskId")
+    depends_on_task_id: str = Field(alias="dependsOnTaskId")
+    type: str
+    reason: str
+    metadata: dict[str, Any]
+    created_at: str = Field(alias="createdAt")
 
 
 class AgentAssignmentRecord(BaseModel):
@@ -346,7 +386,10 @@ class ProductLoopStateResponse(BaseModel):
     decisions: list[ProductDecisionRecord]
     epics: list[EpicRecord]
     stories: list[UserStoryRecord]
+    acceptance_criteria: list[AcceptanceCriterionRecord] = Field(alias="acceptanceCriteria")
+    story_dependencies: list[StoryDependencyRecord] = Field(alias="storyDependencies")
     tasks: list[AgentTaskRecord]
+    task_dependencies: list[TaskDependencyRecord] = Field(alias="taskDependencies")
     assignments: list[AgentAssignmentRecord]
     assignment_handoffs: list[AssignmentHandoffRecord] = Field(alias="assignmentHandoffs")
     assignment_reviews: list[AssignmentReviewRecord] = Field(alias="assignmentReviews")
@@ -375,6 +418,20 @@ class ProductLoopTransitionRequest(BaseModel):
     trigger: str | None = None
     correlation_id: str | None = Field(default=None, alias="correlationId")
     expected_version: int | None = Field(default=None, alias="expectedVersion")
+
+
+class ProductLoopAidoDecideRequest(BaseModel):
+    """Comando para aceptar automáticamente opciones recomendadas por AIDO en preguntas abiertas."""
+
+    reason: str | None = None
+    actor: str | None = None
+
+
+class ProductLoopApprovalRequest(BaseModel):
+    """Comando de aprobación explícita de brief o backlog dentro del product loop."""
+
+    reason: str | None = None
+    actor: str | None = None
 
 
 class ProductLoopFeedbackRequest(BaseModel):

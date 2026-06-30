@@ -10,6 +10,18 @@ export default defineConfig({
 		emptyOutDir: true,
 		assetsDir: 'assets',
 		sourcemap: false,
+		rollupOptions: {
+			output: {
+				// Split heavy vendor libraries into their own chunks so the app chunk stays small and
+				// vendor code caches independently across deploys (also clears Vite's chunk-size advisory).
+				manualChunks(id) {
+					if (!id.includes('node_modules')) return undefined;
+					if (id.includes('react')) return 'react';
+					if (id.includes('motion')) return 'motion';
+					return 'vendor';
+				},
+			},
+		},
 	},
 	server: {
 		host: '127.0.0.1',

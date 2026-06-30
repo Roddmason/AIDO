@@ -43,6 +43,7 @@ from local_control_center.security_policy.models import (
 )
 from local_control_center.sessions_chats.models import ChatRecord, SessionRecord
 from local_control_center.shared.schemas import AuditEventRecord, EventRecord
+from local_control_center.threads.contracts import ThreadRecord
 from local_control_center.workflows.models import (
     WorkflowEventRecord,
     WorkflowRecord,
@@ -75,6 +76,7 @@ class OverviewResponse(BaseModel):
     agents: list[CatalogAgentRecord]
     sessions: list[SessionRecord]
     chats: list[ChatRecord]
+    threads: list[ThreadRecord]
     pipelines: list[PipelineRecord]
     jobs: list[JobRecord]
     job_runs: list[JobRunRecord] = Field(alias="jobRuns")

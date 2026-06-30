@@ -157,10 +157,7 @@ export function WorkbenchDiffPanel({
 					<div className="metric-label">
 						{t('app.workbench.diff.changedFilesLabel', 'Changed files')}
 					</div>
-					<div
-						className="stack compact"
-						aria-label={t('app.workbench.diff.changedFilesLabel', 'Changed files')}
-					>
+					<div className="stack compact">
 						{changedFiles.map((file) => (
 							<span className="mono" key={file}>
 								{file}

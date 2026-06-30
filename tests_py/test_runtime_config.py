@@ -447,6 +447,7 @@ def test_ollama_ok_with_mocked_server_reports_prompt_capability(tmp_path: Path, 
     )
     with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
         initialize_platform_schema(connection)
+        connection.execute("UPDATE provider_accounts SET enabled = 1 WHERE provider_id = 'ollama'")
         ollama = next(
             item
             for item in RuntimeStatusService(connection).list_provider_statuses()

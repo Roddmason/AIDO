@@ -546,10 +546,20 @@ def test_generated_credential_contract_and_settings_ui_are_secret_safe() -> None
 
     credential_record = _generated_type_line(content, "CredentialRecord")
     assert '"backendKind": string' in credential_record
+    assert '"credentialRef": string' in credential_record
     assert '"hasFingerprint": boolean' in credential_record
+    assert '"label": string' in credential_record
+    assert '"lastRotatedAt": null | string' in credential_record
+    assert '"providerUsages": Array<CredentialProviderUsageRecord>' in credential_record
+    assert '"source": string' in credential_record
     assert '"value"' not in credential_record
     assert '"salt"' not in credential_record
     assert '"fingerprint":' not in credential_record
+
+    create_request = _generated_type_line(content, "CredentialCreateRequest")
+    assert '"credentialRef"?: null | string' in create_request
+    assert '"label"?: null | string' in create_request
+    assert '"source"?: null | string' in create_request
 
     api_client = (ROOT / "local-control-center" / "web" / "src" / "api" / "client.ts").read_text(
         encoding="utf-8"
@@ -572,10 +582,21 @@ def test_generated_credential_contract_and_settings_ui_are_secret_safe() -> None
     settings = (
         ROOT / "local-control-center" / "web" / "src" / "features" / "settings" / "SettingsPage.tsx"
     ).read_text(encoding="utf-8")
+    credential_panel = (
+        ROOT
+        / "local-control-center"
+        / "web"
+        / "src"
+        / "features"
+        / "settings"
+        / "CredentialManagerPanel.tsx"
+    ).read_text(encoding="utf-8")
     assert "CredentialManagerPanel" in settings
     assert "value:" not in settings
     assert "fingerprint" not in settings.lower()
     assert "salt" not in settings.lower()
+    assert "providerUsages" in credential_panel
+    assert "settings.credentials.providers" in credential_panel
 
 
 def test_openapi_generation_script_documents_no_network_dependency() -> None:

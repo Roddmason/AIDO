@@ -107,10 +107,7 @@ export function deriveRuntimeState(provider: MergedProvider): RuntimeSetupState 
 	if (status.available) return 'available';
 	if ((provider.kind === 'cli' || provider.kind === 'local') && status.detected === false)
 		return 'blocked';
-	if (
-		(status.healthStatus && FAILED_HEALTH.has(status.healthStatus)) ||
-		(status.lastError && status.lastError.trim())
-	) {
+	if ((status.healthStatus && FAILED_HEALTH.has(status.healthStatus)) || status.lastError?.trim()) {
 		return 'blocked';
 	}
 	return 'configured';

@@ -69,6 +69,7 @@ export function SegmentedControl<T extends string>({
 			{options.map((option) => {
 				const checked = option.value === value;
 				return (
+					// biome-ignore lint/a11y/useSemanticElements: WAI-ARIA radiogroup pattern needs button children for ReactNode labels (input is void) and aria-checked styling; roving tabindex keyboard nav is custom
 					<button
 						key={option.value}
 						ref={(node) => {

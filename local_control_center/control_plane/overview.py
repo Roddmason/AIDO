@@ -27,6 +27,7 @@ from local_control_center.prompts.repository import PromptsRepository
 from local_control_center.security_policy.repository import SecurityPolicyRepository
 from local_control_center.sessions_chats.repository import SessionsChatsRepository
 from local_control_center.shared.event_bus import EventBus
+from local_control_center.threads.repository import ThreadsRepository
 from local_control_center.workflows.repository import WorkflowsRepository
 from local_control_center.workspaces_projects.repository import WorkspacesRepository
 
@@ -70,6 +71,7 @@ def build_overview_from_connection(*, connection: sqlite3.Connection, cwd: str |
     workspaces = WorkspacesRepository(connection, root=Path(cwd))
     skills = SkillRegistry(connection)
     governance = GovernanceRepository(connection)
+    threads = ThreadsRepository(connection)
 
     return {
         "projectTemplates": projects.list_project_templates(),
@@ -79,6 +81,7 @@ def build_overview_from_connection(*, connection: sqlite3.Connection, cwd: str |
         "agents": projects.list_agents(),
         "sessions": sessions_chats.list_sessions(),
         "chats": sessions_chats.list_chats(),
+        "threads": threads.list_threads(),
         "pipelines": pipelines.list_pipelines(),
         "jobs": jobs.list_jobs(),
         "jobRuns": jobs.list_job_runs(),

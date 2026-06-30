@@ -1,11 +1,11 @@
 /**
- * Threads tab of the shell sidebar: a workspace → thread tree.
+ * Threads tab of the shell sidebar: a workspace → thread tree backed by real `project_threads`.
  *
- * Top level is the workspace (project); its children are that workspace's work sessions ("threads").
- * Selecting a workspace makes it the operational project; selecting a thread sets the active session
- * that drives the center. The data model has no deeper nesting than workspace → session, so the tree
- * is two levels — it does not fabricate sub-threads. Real overview data; collapsible per workspace
- * with honest empty states. Accessible via a disclosure pattern (button headers with aria-expanded).
+ * Top level is the workspace (project); its children are that project's real threads. Selecting a
+ * workspace makes it the operational project; selecting a thread sets the active thread that drives the
+ * center conversation. Real overview data (`overview.threads`) — no sessions/chats stand-ins and no
+ * fabricated sub-threads. Collapsible per workspace with honest empty states; accessible via a
+ * disclosure pattern (button headers with aria-expanded).
  * @author Rodrigo Mason
  */
 import { ChevronRight, FolderKanban, MessageSquare, Plus } from 'lucide-react';
@@ -18,20 +18,18 @@ import { NEW_SESSION_ID } from '../workbench/useWorkbenchData';
 
 type ThreadTreeProps = {
 	projects: Project[];
-	sessions: Overview['sessions'];
-	chats: Overview['chats'];
+	threads: Overview['threads'];
 	selectedProjectId: string;
 	selectedSessionId: string;
 	filter: string;
 	onSelectProject: (projectId: string) => void;
-	onSelectSession: (sessionId: string) => void;
+	onSelectSession: (threadId: string) => void;
 };
 
-/** The Projects tree body: workspaces with their nested threads, or an honest empty state. */
+/** The Projects tree body: workspaces with their nested real threads, or an honest empty state. */
 export function ThreadTree({
 	projects,
-	sessions,
-	chats,
+	threads,
 	selectedProjectId,
 	selectedSessionId,
 	filter,
@@ -55,17 +53,17 @@ export function ThreadTree({
 	return (
 		<div className="thread-tree">
 			{projects.map((project) => {
-				const projectSessions = sessions.filter((session) => session.projectId === project.id);
+				const projectThreads = threads.filter((thread) => thread.projectId === project.id);
 				const open =
 					project.id in collapsed ? !collapsed[project.id] : project.id === selectedProjectId;
-				const visibleSessions = needle
-					? projectSessions.filter((session) =>
-							String(session.name ?? '')
+				const visibleThreads = needle
+					? projectThreads.filter((thread) =>
+							String(thread.title ?? '')
 								.toLowerCase()
 								.includes(needle),
 						)
-					: projectSessions;
-				if (needle && !visibleSessions.length && !project.name.toLowerCase().includes(needle)) {
+					: projectThreads;
+				if (needle && !visibleThreads.length && !project.name.toLowerCase().includes(needle)) {
 					return null;
 				}
 				return (
@@ -87,9 +85,10 @@ export function ThreadTree({
 							/>
 							<FolderKanban aria-hidden="true" size={15} />
 							<span className="thread-workspace-name">{project.name}</span>
-							<span className="thread-count">{projectSessions.length}</span>
+							<span className="thread-count">{projectThreads.length}</span>
 						</button>
 						{open ? (
+							// biome-ignore lint/a11y/useSemanticElements: <fieldset> carries form-control semantics plus UA chrome (border, margin-inline:2px, min-inline-size:min-content) that .thread-children — a single-use flex column — does not reset, regressing the disclosure layout; role="group" keeps the aria-controls grouping target intact.
 							<div className="thread-children" role="group" id={`thread-children-${project.id}`}>
 								<button
 									type="button"
@@ -107,32 +106,30 @@ export function ThreadTree({
 									<Plus aria-hidden="true" size={14} />
 									<span>{t('app.shell.threads.newThread', 'New thread')}</span>
 								</button>
-								{visibleSessions.map((session) => {
-									const chatCount = chats.filter((chat) => chat.sessionId === session.id).length;
+								{visibleThreads.map((thread) => {
 									const active =
-										selectedProjectId === project.id && selectedSessionId === session.id;
+										selectedProjectId === project.id && selectedSessionId === thread.id;
 									return (
 										<button
 											type="button"
-											key={session.id}
+											key={thread.id}
 											className="thread-row"
 											aria-current={active ? 'true' : undefined}
 											onClick={() => {
 												onSelectProject(project.id);
-												onSelectSession(session.id);
+												onSelectSession(thread.id);
 											}}
 										>
 											<span
-												className={`thread-dot tone-${toneForStatus(String(session.status ?? 'unknown'))}`}
+												className={`thread-dot tone-${toneForStatus(String(thread.status ?? 'unknown'))}`}
 												aria-hidden="true"
 											/>
 											<MessageSquare aria-hidden="true" size={14} />
-											<span className="thread-row-name">{session.name}</span>
-											{chatCount > 0 ? <span className="thread-count">{chatCount}</span> : null}
+											<span className="thread-row-name">{thread.title}</span>
 										</button>
 									);
 								})}
-								{projectSessions.length ? null : (
+								{projectThreads.length ? null : (
 									<p className="thread-empty">
 										{t('app.shell.threads.workspaceEmpty', 'No threads yet — start one above.')}
 									</p>

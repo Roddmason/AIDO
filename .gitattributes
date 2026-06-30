@@ -1,0 +1,4 @@
+# Normalize line endings repo-wide: store text as LF in git and check out as LF on every
+# platform, so mixed Windows/Unix tooling (Codex/Claude/biome) stops producing CRLF<->LF churn.
+# `text=auto` lets git detect binary files and leave them untouched.
+* text=auto eol=lf

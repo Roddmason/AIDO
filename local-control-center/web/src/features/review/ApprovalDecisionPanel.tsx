@@ -27,10 +27,14 @@ type ArtifactPreview = ReturnType<typeof useArtifactPreview>;
 function DetailRow({ label, value }: { label: string; value: string }) {
 	const { t } = useI18n();
 	return (
+		// biome-ignore lint/a11y/useSemanticElements: role="row" preserves the table-row semantics the .diff-grid CSS grid depends on; a native <tr> resets display:table-row and breaks grid-template-columns.
+		// biome-ignore lint/a11y/useFocusableInteractive: data row within the ARIA table is not interactive; adding tabIndex would create a spurious keyboard tab stop.
 		<div className="diff-row" role="row">
+			{/* biome-ignore lint/a11y/useSemanticElements: role="cell" preserves table-cell semantics; a native <td> carries table-cell display that breaks the grid layout. */}
 			<div role="cell" className="mono">
 				{label}
 			</div>
+			{/* biome-ignore lint/a11y/useSemanticElements: role="cell" preserves table-cell semantics; a native <td> carries table-cell display that breaks the grid layout. */}
 			<div role="cell">{value || t('app.review.notRecorded', 'not recorded')}</div>
 		</div>
 	);
@@ -77,6 +81,7 @@ export function ApprovalDecisionPanel({
 							: t('app.review.noExpiration', 'no expiration recorded')}
 					</Badge>
 				</div>
+				{/* biome-ignore lint/a11y/useSemanticElements: role="table" preserves the tabular semantics the CSS grid layout (.diff-grid display:grid) depends on; a native <table> resets display:table and breaks the grid columns. */}
 				<div
 					className="diff-grid"
 					role="table"

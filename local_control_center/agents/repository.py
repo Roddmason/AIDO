@@ -29,6 +29,12 @@ PRODUCT_RUNTIME_MODES = {"api", "cli", "ollama", "hybrid", "manual"}
 def row_to_agent_profile(row: sqlite3.Row) -> dict[str, Any]:
     """Map an `agent_profiles` row to its camelCase dict, tolerating older schema columns."""
     runtime_mode = row["runtime_type"]
+    max_cost_per_run = row["max_cost_per_run"]
+    max_tokens_per_run = row["max_tokens_per_run"] if "max_tokens_per_run" in row.keys() else 0
+    max_runtime_seconds = row["max_runtime_seconds"]
+    requires_approval_over_usd = (
+        row["requires_approval_over_usd"] if "requires_approval_over_usd" in row.keys() else None
+    )
     return {
         "id": row["id"],
         "name": row["name"],
@@ -46,19 +52,27 @@ def row_to_agent_profile(row: sqlite3.Row) -> dict[str, Any]:
         ),
         "allowedSkills": json_loads(row["allowed_skills"], []),
         "allowedTools": json_loads(row["allowed_tools"], []),
+        "defaultRuntimePolicy": json_loads(
+            row["default_runtime_policy"] if "default_runtime_policy" in row.keys() else "{}"
+        ),
         "permissionProfile": row["permission_profile"],
         "memoryScope": row["memory_scope"],
-        "maxCostPerRun": row["max_cost_per_run"],
-        "maxTokensPerRun": row["max_tokens_per_run"] if "max_tokens_per_run" in row.keys() else 0,
-        "maxRuntimeSeconds": row["max_runtime_seconds"],
+        "maxCostPerRun": max_cost_per_run,
+        "maxTokensPerRun": max_tokens_per_run,
+        "maxRuntimeSeconds": max_runtime_seconds,
         "allowRemote": bool(row["allow_remote"]) if "allow_remote" in row.keys() else True,
         "allowCli": bool(row["allow_cli"]) if "allow_cli" in row.keys() else True,
         "allowApi": bool(row["allow_api"]) if "allow_api" in row.keys() else True,
-        "requiresApprovalOverUsd": row["requires_approval_over_usd"]
-        if "requires_approval_over_usd" in row.keys()
-        else None,
+        "requiresApprovalOverUsd": requires_approval_over_usd,
         "outputSchema": json_loads(row["output_schema"]),
         "qualityGates": json_loads(row["quality_gates"], []),
+        "reviewerPolicy": json_loads(row["reviewer_policy"] if "reviewer_policy" in row.keys() else "{}"),
+        "costLimits": {
+            "maxCostPerRun": max_cost_per_run,
+            "maxTokensPerRun": max_tokens_per_run,
+            "maxRuntimeSeconds": max_runtime_seconds,
+            "requiresApprovalOverUsd": requires_approval_over_usd,
+        },
         "status": row["status"],
         "createdAt": row["created_at"],
         "updatedAt": row["updated_at"],
@@ -81,6 +95,65 @@ def row_to_model_policy(row: sqlite3.Row) -> dict[str, Any]:
         "createdAt": row["created_at"],
         "updatedAt": row["updated_at"],
     }
+
+
+def row_to_agent_profile_project_override(row: sqlite3.Row) -> dict[str, Any]:
+    """Map a project override row to its public metadata record."""
+    return {
+        "projectId": row["project_id"],
+        "agentProfileId": row["agent_profile_id"],
+        "reason": row["reason"],
+        "status": row["status"],
+        "createdAt": row["created_at"],
+        "updatedAt": row["updated_at"],
+    }
+
+
+def _override_json_field(row: sqlite3.Row, field: str) -> Any:
+    value = row[field]
+    if value is None:
+        return None
+    default: Any = {} if field in {"default_runtime_policy", "reviewer_policy"} else []
+    return json_loads(value, default)
+
+
+def _apply_project_override(profile: dict[str, Any], row: sqlite3.Row) -> dict[str, Any]:
+    overridden = dict(profile)
+    scalar_fields = {
+        "runtime_type": ("runtimeType", "runtimeMode"),
+        "max_cost_per_run": ("maxCostPerRun",),
+        "max_tokens_per_run": ("maxTokensPerRun",),
+        "max_runtime_seconds": ("maxRuntimeSeconds",),
+        "requires_approval_over_usd": ("requiresApprovalOverUsd",),
+        "quality_gates": ("qualityGates",),
+    }
+    for column, keys in scalar_fields.items():
+        value = row[column]
+        if value is None:
+            continue
+        decoded = json_loads(value, []) if column == "quality_gates" else value
+        for key in keys:
+            overridden[key] = decoded
+    json_fields = {
+        "allowed_providers": "allowedProviders",
+        "allowed_runtimes": "allowedRuntimes",
+        "allowed_skills": "allowedSkills",
+        "allowed_tools": "allowedTools",
+        "default_runtime_policy": "defaultRuntimePolicy",
+        "reviewer_policy": "reviewerPolicy",
+    }
+    for column, key in json_fields.items():
+        decoded = _override_json_field(row, column)
+        if decoded is not None:
+            overridden[key] = decoded
+    overridden["costLimits"] = {
+        "maxCostPerRun": overridden["maxCostPerRun"],
+        "maxTokensPerRun": overridden["maxTokensPerRun"],
+        "maxRuntimeSeconds": overridden["maxRuntimeSeconds"],
+        "requiresApprovalOverUsd": overridden.get("requiresApprovalOverUsd"),
+    }
+    overridden["projectOverride"] = row_to_agent_profile_project_override(row)
+    return overridden
 
 
 def row_to_agent_run(row: sqlite3.Row) -> dict[str, Any]:
@@ -178,11 +251,11 @@ class AgentsRepository:
             """
             INSERT INTO agent_profiles
                 (id, name, role, runtime_type, model_policy_id, allowed_skills, allowed_tools,
-                 permission_profile, memory_scope, max_cost_per_run, max_runtime_seconds,
+                 default_runtime_policy, permission_profile, memory_scope, max_cost_per_run, max_runtime_seconds,
                  output_schema, quality_gates, status, routing_profile_id, role_model_policy_id,
                  allowed_providers, allowed_runtimes, max_tokens_per_run, allow_remote, allow_cli,
-                 allow_api, requires_approval_over_usd, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 allow_api, requires_approval_over_usd, reviewer_policy, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 name = excluded.name,
                 role = excluded.role,
@@ -190,6 +263,7 @@ class AgentsRepository:
                 model_policy_id = excluded.model_policy_id,
                 allowed_skills = excluded.allowed_skills,
                 allowed_tools = excluded.allowed_tools,
+                default_runtime_policy = excluded.default_runtime_policy,
                 permission_profile = excluded.permission_profile,
                 memory_scope = excluded.memory_scope,
                 max_cost_per_run = excluded.max_cost_per_run,
@@ -206,6 +280,7 @@ class AgentsRepository:
                 allow_cli = excluded.allow_cli,
                 allow_api = excluded.allow_api,
                 requires_approval_over_usd = excluded.requires_approval_over_usd,
+                reviewer_policy = excluded.reviewer_policy,
                 updated_at = excluded.updated_at
             """,
             (
@@ -216,6 +291,7 @@ class AgentsRepository:
                 body.get("modelPolicyId"),
                 json_dumps(body.get("allowedSkills") or []),
                 json_dumps(body.get("allowedTools") or []),
+                json_dumps(body.get("defaultRuntimePolicy") or {}),
                 body.get("permissionProfile", "plan"),
                 body.get("memoryScope", "project"),
                 body.get("maxCostPerRun", 0),
@@ -232,6 +308,7 @@ class AgentsRepository:
                 1 if body.get("allowCli", True) else 0,
                 1 if body.get("allowApi", True) else 0,
                 body.get("requiresApprovalOverUsd"),
+                json_dumps(body.get("reviewerPolicy") or {}),
                 timestamp,
                 timestamp,
             ),
@@ -251,15 +328,115 @@ class AgentsRepository:
             raise KeyError(f"Agent profile runtime is no longer in the product catalog: {profile_id}")
         return row_to_agent_profile(row)
 
-    def list_agent_profiles(self) -> list[dict[str, Any]]:
-        """List profiles whose runtime mode is still in the product catalog, ordered by id."""
+    def list_agent_profiles(self, project_id: str | None = None) -> list[dict[str, Any]]:
+        """List profiles whose runtime mode is still in the product catalog, applying project overrides."""
         runtime_modes = sorted(PRODUCT_RUNTIME_MODES)
         placeholders = ",".join("?" for _ in runtime_modes)
         rows = self.connection.execute(
             f"SELECT * FROM agent_profiles WHERE runtime_type IN ({placeholders}) ORDER BY id ASC",
             tuple(runtime_modes),
         ).fetchall()
-        return [row_to_agent_profile(row) for row in rows]
+        profiles = [row_to_agent_profile(row) for row in rows]
+        if not project_id:
+            return profiles
+        override_rows = self.connection.execute(
+            """
+            SELECT * FROM agent_profile_project_overrides
+            WHERE project_id = ? AND status = 'active'
+            """,
+            (project_id,),
+        ).fetchall()
+        overrides = {row["agent_profile_id"]: row for row in override_rows}
+        return [
+            _apply_project_override(profile, overrides[profile["id"]])
+            if profile["id"] in overrides
+            else profile
+            for profile in profiles
+        ]
+
+    def upsert_agent_profile_project_override(
+        self, *, project_id: str, profile_id: str, body: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Persist project-scoped profile overrides and return the effective profile."""
+        self.get_agent_profile(profile_id)
+        runtime_type = body.get("runtimeMode") or body.get("runtimeType")
+        if runtime_type is not None and runtime_type not in PRODUCT_RUNTIME_MODES:
+            raise ValueError(f"Agent profile runtime is not in the product catalog: {runtime_type}")
+        timestamp = utc_now()
+        existing = self.connection.execute(
+            """
+            SELECT created_at
+            FROM agent_profile_project_overrides
+            WHERE project_id = ? AND agent_profile_id = ?
+            """,
+            (project_id, profile_id),
+        ).fetchone()
+        created_at = existing["created_at"] if existing else timestamp
+        self.connection.execute(
+            """
+            INSERT INTO agent_profile_project_overrides
+                (project_id, agent_profile_id, runtime_type, allowed_providers, allowed_runtimes,
+                 allowed_skills, allowed_tools, default_runtime_policy, reviewer_policy,
+                 max_cost_per_run, max_tokens_per_run, max_runtime_seconds, requires_approval_over_usd,
+                 quality_gates, reason, status, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(project_id, agent_profile_id) DO UPDATE SET
+                runtime_type = excluded.runtime_type,
+                allowed_providers = excluded.allowed_providers,
+                allowed_runtimes = excluded.allowed_runtimes,
+                allowed_skills = excluded.allowed_skills,
+                allowed_tools = excluded.allowed_tools,
+                default_runtime_policy = excluded.default_runtime_policy,
+                reviewer_policy = excluded.reviewer_policy,
+                max_cost_per_run = excluded.max_cost_per_run,
+                max_tokens_per_run = excluded.max_tokens_per_run,
+                max_runtime_seconds = excluded.max_runtime_seconds,
+                requires_approval_over_usd = excluded.requires_approval_over_usd,
+                quality_gates = excluded.quality_gates,
+                reason = excluded.reason,
+                status = excluded.status,
+                updated_at = excluded.updated_at
+            """,
+            (
+                project_id,
+                profile_id,
+                runtime_type,
+                json_dumps(body["allowedProviders"]) if body.get("allowedProviders") is not None else None,
+                json_dumps(body["allowedRuntimes"]) if body.get("allowedRuntimes") is not None else None,
+                json_dumps(body["allowedSkills"]) if body.get("allowedSkills") is not None else None,
+                json_dumps(body["allowedTools"]) if body.get("allowedTools") is not None else None,
+                json_dumps(body["defaultRuntimePolicy"])
+                if body.get("defaultRuntimePolicy") is not None
+                else None,
+                json_dumps(body["reviewerPolicy"]) if body.get("reviewerPolicy") is not None else None,
+                body.get("maxCostPerRun"),
+                body.get("maxTokensPerRun"),
+                body.get("maxRuntimeSeconds"),
+                body.get("requiresApprovalOverUsd"),
+                json_dumps(body["qualityGates"]) if body.get("qualityGates") is not None else None,
+                str(body.get("reason") or "").strip(),
+                body.get("status", "active"),
+                created_at,
+                timestamp,
+            ),
+        )
+        return self.get_effective_agent_profile(profile_id=profile_id, project_id=project_id)
+
+    def get_effective_agent_profile(
+        self, *, profile_id: str, project_id: str | None = None
+    ) -> dict[str, Any]:
+        """Fetch one base profile, applying the active project override when requested."""
+        profile = self.get_agent_profile(profile_id)
+        if not project_id:
+            return profile
+        row = self.connection.execute(
+            """
+            SELECT * FROM agent_profile_project_overrides
+            WHERE project_id = ? AND agent_profile_id = ? AND status = 'active'
+            """,
+            (project_id, profile_id),
+        ).fetchone()
+        return _apply_project_override(profile, row) if row else profile
 
     def upsert_model_policy(self, body: dict[str, Any]) -> dict[str, Any]:
         """Insert or update a model policy keyed by id and return the stored row."""

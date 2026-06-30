@@ -22,6 +22,7 @@ SCHEDULER_VERSION = 1
 
 CORE_ROLES = ("product_owner", "technical_lead")
 ALL_ROLES = (
+    "aido_lead",
     "product_owner",
     "project_manager",
     "scrum_master",
@@ -79,8 +80,10 @@ _SCOPE_ROLES = {
 _SECURITY_SCOPES = {"security", "auth", "data", "external", "payments", "compliance", "pii"}
 _SECURITY_SENSITIVE_SCOPES = {"payments", "auth", "security", "compliance", "pii"}
 _ARCHITECTURE_SCOPES = {"architecture", "new_system", "integration"}
+_COORDINATION_SCOPES = {"coordination", "program", "portfolio", "roadmap", "planning", "release"}
 
 _ROLE_REVIEWERS = {
+    "aido_lead": None,
     "product_owner": None,
     "project_manager": "product_owner",
     "scrum_master": "product_owner",
@@ -100,6 +103,7 @@ _ROLE_REVIEWERS = {
 }
 
 _ROLE_SKILLS = {
+    "aido_lead": ["engineering-standards", "planning"],
     "product_owner": ["brainstorming", "product-spec"],
     "project_manager": ["planning"],
     "scrum_master": ["planning"],
@@ -225,6 +229,13 @@ def select_roles(*, scope: set[str], risk: str, mode: str) -> set[str]:
         base.add("pentester")
     if (scope & {"release", "deploy"}) or mode == "maximum":
         base.add("release_manager")
+    if (
+        (scope & _COORDINATION_SCOPES)
+        or risk_level >= high
+        or mode in {"critical", "maximum"}
+        or len(base) >= 5
+    ):
+        base.add("aido_lead")
     if mode == "maximum" or (risk == "critical" and len(base) >= 5):
         base.add("project_manager")
         base.add("scrum_master")

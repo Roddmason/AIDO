@@ -192,12 +192,55 @@ def autonomous_blocking_decision() -> dict[str, Any]:
 
 
 def product_owner_output(*, blocking: bool) -> dict[str, Any]:
+    brief = {
+        "title": "Self-serve onboarding",
+        "summary": "Reduce time-to-value for new SMB users.",
+        "problemStatement": "New users stall at manual setup.",
+        "goals": ["Cut setup steps", "Raise day-1 activation"],
+        "targetUsers": ["SMB admins"],
+        "successMetrics": ["activation_rate"],
+        "scope": "Guided setup wizard.",
+        "outOfScope": "Enterprise SSO.",
+    }
+    user_stories = [
+        {
+            "epicTitle": "Guided onboarding",
+            "title": "Guided account setup",
+            "asA": "new SMB admin",
+            "iWant": "to complete setup through a guided wizard",
+            "soThat": "I reach first value without manual configuration",
+            "businessValue": "high",
+            "acceptanceCriteria": [
+                "Setup completes without manual config",
+                "Progress is shown at each step",
+            ],
+        }
+    ]
     return {
+        "status": "brief_ready",
+        "summary": "A guided onboarding brief and backlog are ready for approval.",
+        "confidence": "high",
         "completeness": {"score": 90, "missing": [], "rationale": "Brief covers the core."},
         "questions": discovery_questions(),
         "assumptions": [
             {"statement": "Users already have email accounts.", "confidence": "high", "validation": "survey"}
         ],
+        "decisions": (
+            [
+                {
+                    "title": "Choose the payment provider",
+                    "question": "Stripe or a local processor?",
+                    "status": "open",
+                    "rationale": "It changes scope and compliance.",
+                    "options": ["Stripe", "Local processor"],
+                    "recommendation": "Stripe",
+                    "reversibility": "irreversible",
+                    "confidence": "medium",
+                }
+            ]
+            if blocking
+            else []
+        ),
         "blockingDecisions": (
             [
                 {
@@ -210,35 +253,79 @@ def product_owner_output(*, blocking: bool) -> dict[str, Any]:
             if blocking
             else []
         ),
-        "brief": {
-            "title": "Self-serve onboarding",
-            "summary": "Reduce time-to-value for new SMB users.",
-            "problemStatement": "New users stall at manual setup.",
-            "goals": ["Cut setup steps", "Raise day-1 activation"],
-            "targetUsers": ["SMB admins"],
-            "successMetrics": ["activation_rate"],
-            "scope": "Guided setup wizard.",
-            "outOfScope": "Enterprise SSO.",
-        },
+        "productBriefPatch": brief,
+        "brief": brief,
         "epics": [
             {
                 "title": "Guided onboarding",
                 "description": "A wizard that walks users through setup.",
-                "stories": [
-                    {
-                        "title": "Guided account setup",
-                        "asA": "new SMB admin",
-                        "iWant": "to complete setup through a guided wizard",
-                        "soThat": "I reach first value without manual configuration",
-                        "businessValue": "high",
-                        "acceptanceCriteria": [
-                            "Setup completes without manual config",
-                            "Progress is shown at each step",
-                        ],
-                    }
-                ],
+                "stories": user_stories,
             }
         ],
+        "userStories": user_stories,
+        "risks": [
+            {
+                "severity": "medium",
+                "description": "Activation improvements depend on accurate funnel instrumentation.",
+                "mitigation": "Confirm event tracking before implementation planning.",
+            }
+        ],
+        "recommendedNextAction": "Approve the product brief before generating the backlog.",
+    }
+
+
+def incomplete_product_owner_output() -> dict[str, Any]:
+    brief = {
+        "title": "Payments workspace",
+        "summary": "A payments idea needs buyer, compliance and scope choices before backlog.",
+        "problemStatement": "",
+        "goals": [],
+        "targetUsers": [],
+        "successMetrics": [],
+        "scope": "",
+        "outOfScope": "",
+    }
+    questions = [
+        impact_question(
+            category="users",
+            text="Who is the primary buyer or operator persona?",
+            blocking=True,
+            confidence="low",
+        ),
+        impact_question(
+            category="compliance",
+            text="Which payment jurisdictions must launch first?",
+            blocking=True,
+            confidence="low",
+        ),
+    ]
+    return {
+        "status": "questions_required",
+        "summary": "The idea is too underspecified to produce a buildable backlog.",
+        "confidence": "low",
+        "completeness": {"score": 25, "missing": ["targetUsers", "scope"]},
+        "questions": questions,
+        "assumptions": [
+            {
+                "statement": "The product handles payment data.",
+                "confidence": "medium",
+                "validation": "Stated in the idea.",
+            }
+        ],
+        "decisions": [],
+        "blockingDecisions": [],
+        "productBriefPatch": brief,
+        "brief": brief,
+        "epics": [],
+        "userStories": [],
+        "risks": [
+            {
+                "severity": "high",
+                "description": "Payment scope is unclear.",
+                "mitigation": "Answer the compliance and persona questions first.",
+            }
+        ],
+        "recommendedNextAction": "Answer the blocking product questions.",
     }
 
 
@@ -383,6 +470,15 @@ def test_product_owner_agent_valid_output_generates_brief_and_backlog(
     body = response.json()
     assert body["status"] == "completed"
     assert body["runtimeResult"]["status"] == "completed"
+    assert body["summary"] == "A guided onboarding brief and backlog are ready for approval."
+    assert body["confidence"] == "high"
+    assert body["productBriefPatch"]["title"] == "Self-serve onboarding"
+    assert body["userStories"][0]["acceptanceCriteria"] == [
+        "Setup completes without manual config",
+        "Progress is shown at each step",
+    ]
+    assert body["risks"][0]["severity"] == "medium"
+    assert body["recommendedNextAction"] == "Approve the product brief before generating the backlog."
     assert body["output"]["brief"]["title"] == "Self-serve onboarding"
     assert body["completeness"]["score"] == 100
     assert body["completeness"]["meetsThreshold"] is True
@@ -431,6 +527,74 @@ def test_product_owner_agent_valid_output_generates_brief_and_backlog(
         "Setup completes without manual config",
         "Progress is shown at each step",
     ]
+
+
+def test_product_owner_agent_incomplete_idea_returns_relevant_questions_without_backlog(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store, client, headers = create_client(tmp_path, monkeypatch)
+    project, workspace = create_project_and_workspace(store, tmp_path, task_id="po-incomplete")
+    request = product_owner_request(project, workspace)
+    request["idea"] = "Payments for creators."
+
+    response = run_with_controlled_provider(
+        client,
+        headers,
+        monkeypatch,
+        content=json.dumps(incomplete_product_owner_output()),
+        body=request,
+    )
+
+    assert response.status_code == 202
+    body = response.json()
+    assert body["status"] == "blocked"
+    assert body["summary"] == "The idea is too underspecified to produce a buildable backlog."
+    assert body["confidence"] == "low"
+    assert body["questions"]
+    assert {question["metadata"]["category"] for question in body["questions"]} == {"users", "compliance"}
+    assert body["productBriefPatch"]["title"] == "Payments workspace"
+    assert body["epics"] == []
+    assert body["userStories"] == []
+    assert body["recommendedNextAction"] == "Answer the blocking product questions."
+    assert BacklogRepository(store.connection).list_epics(project["id"]) == []
+
+
+def test_product_owner_brief_approval_generates_backlog(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store, client, headers = create_client(tmp_path, monkeypatch)
+    project, workspace = create_project_and_workspace(store, tmp_path, task_id="po-approval")
+    request = product_owner_request(project, workspace)
+    request["metadata"] = {"requireBriefApproval": True}
+
+    response = run_with_controlled_provider(
+        client,
+        headers,
+        monkeypatch,
+        content=json.dumps(product_owner_output(blocking=False)),
+        body=request,
+    )
+
+    assert response.status_code == 202
+    body = response.json()
+    assert body["status"] == "brief_ready"
+    assert body["brief"]["status"] == "in_review"
+    assert body["epics"] == []
+    assert BacklogRepository(store.connection).list_epics(project["id"]) == []
+
+    approved = client.post(
+        f"/api/v1/projects/{project['id']}/product-loop/brief/{body['brief']['id']}/approve",
+        headers=headers,
+        json={"reason": "Brief is accurate enough to generate the backlog."},
+    )
+
+    assert approved.status_code == 200
+    approved_body = approved.json()
+    assert approved_body["brief"]["status"] == "approved"
+    assert [epic["title"] for epic in approved_body["epics"]] == ["Guided onboarding"]
+    assert [story["title"] for story in approved_body["stories"]] == ["Guided account setup"]
+    stories = BacklogRepository(store.connection).list_user_stories(project_id=project["id"])
+    assert stories and "role" not in stories[0]
 
 
 def test_product_owner_agent_runs_through_nvidia_nim_runtime_adapter(

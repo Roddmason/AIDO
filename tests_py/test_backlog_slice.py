@@ -73,6 +73,7 @@ def test_user_story_is_role_agnostic_and_work_decomposes_into_agent_tasks(tmp_pa
                 "soThat": "I can buy faster",
                 "businessValue": "high",
                 "storyPoints": 5,
+                "acceptanceCriteria": ["Order completes without login."],
             }
         )
         # The story expresses USER VALUE and carries no technical role: it must not be split per role.
@@ -81,9 +82,7 @@ def test_user_story_is_role_agnostic_and_work_decomposes_into_agent_tasks(tmp_pa
         assert story["version"] == 1
 
         # Acceptance criteria are an ordered, story-scoped checklist.
-        first_ac = repo.create_acceptance_criterion(
-            {"projectId": project_id, "storyId": story["id"], "criterion": "Order completes without login."}
-        )
+        first_ac = repo.list_acceptance_criteria(story["id"])[0]
         second_ac = repo.create_acceptance_criterion(
             {"projectId": project_id, "storyId": story["id"], "criterion": "Email receipt is sent."}
         )
@@ -113,6 +112,34 @@ def test_user_story_is_role_agnostic_and_work_decomposes_into_agent_tasks(tmp_pa
         assert {task["storyId"] for task in story_tasks} == {story["id"]}
         assert len(repo.list_user_stories(epic_id=epic["id"])) == 1  # no HU duplicated per role
         assert len(repo.list_agent_tasks(project_id=project_id, role="backend")) == 1
+
+        with pytest.raises(ValueError, match="User stories must describe user value"):
+            repo.create_user_story(
+                {
+                    "projectId": project_id,
+                    "epicId": epic["id"],
+                    "title": "Backend story",
+                    "role": "backend_engineer",
+                    "acceptanceCriteria": ["A technical role is rejected."],
+                }
+            )
+        with pytest.raises(ValueError, match="requires at least one acceptance criterion"):
+            repo.create_user_story(
+                {
+                    "projectId": project_id,
+                    "epicId": epic["id"],
+                    "title": "Underspecified story",
+                }
+            )
+        with pytest.raises(KeyError, match="User story not found"):
+            repo.create_agent_task(
+                {
+                    "projectId": project_id,
+                    "storyId": "user-story-missing",
+                    "title": "Orphan task",
+                    "role": "backend_engineer",
+                }
+            )
 
         # Agent tasks are versionable work items.
         assert repo.update_agent_task(tasks[0]["id"], {"status": "in_progress"})["version"] == 2
@@ -156,7 +183,12 @@ def test_user_story_is_role_agnostic_and_work_decomposes_into_agent_tasks(tmp_pa
 
         # Story dependency graph + project scoping.
         sibling = repo.create_user_story(
-            {"projectId": project_id, "epicId": epic["id"], "title": "Saved payment methods"}
+            {
+                "projectId": project_id,
+                "epicId": epic["id"],
+                "title": "Saved payment methods",
+                "acceptanceCriteria": ["Saved payment methods are visible to returning shoppers."],
+            }
         )
         repo.create_story_dependency(
             {"projectId": project_id, "storyId": sibling["id"], "dependsOnStoryId": story["id"]}
@@ -186,7 +218,14 @@ def test_agent_assignment_creates_structured_artifact_handoff_and_review_contrac
         project = projects.create_project(name="Collab", path=tmp_path / "collab", template_id="other")
         project_id = project["id"]
         epic = repo.create_epic({"projectId": project_id, "title": "Checkout"})
-        story = repo.create_user_story({"projectId": project_id, "epicId": epic["id"], "title": "Pay"})
+        story = repo.create_user_story(
+            {
+                "projectId": project_id,
+                "epicId": epic["id"],
+                "title": "Pay",
+                "acceptanceCriteria": ["The payment flow can be completed."],
+            }
+        )
         task = repo.create_agent_task(
             {
                 "projectId": project_id,
@@ -263,7 +302,14 @@ def test_downstream_assignment_cannot_begin_until_upstream_collaboration_is_reso
         project = projects.create_project(name="Gate", path=tmp_path / "gate", template_id="other")
         project_id = project["id"]
         epic = repo.create_epic({"projectId": project_id, "title": "Checkout"})
-        story = repo.create_user_story({"projectId": project_id, "epicId": epic["id"], "title": "Pay"})
+        story = repo.create_user_story(
+            {
+                "projectId": project_id,
+                "epicId": epic["id"],
+                "title": "Pay",
+                "acceptanceCriteria": ["The payment flow can be completed."],
+            }
+        )
         backend_task = repo.create_agent_task(
             {
                 "projectId": project_id,

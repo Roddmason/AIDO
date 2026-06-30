@@ -18,9 +18,11 @@ import { useTeamActivity } from './useTeamActivity';
 export function TeamActivityPanel({
 	projectId,
 	open,
+	token,
 }: {
 	projectId: string | undefined;
 	open: boolean;
+	token?: string;
 }) {
 	const { t } = useI18n();
 	const activity = useTeamActivity(projectId, open);
@@ -92,7 +94,7 @@ export function TeamActivityPanel({
 			</header>
 			<div className="team-activity-list">
 				{entries.map((entry) => (
-					<TeamActivityCard entry={entry} key={entry.id} />
+					<TeamActivityCard entry={entry} key={entry.id} token={token} />
 				))}
 			</div>
 			{data?.truncated ? (

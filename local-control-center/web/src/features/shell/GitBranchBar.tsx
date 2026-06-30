@@ -200,6 +200,7 @@ export function GitBranchBar({
 				: 'ok'; // 'not run' and 'configuration_required' are informational, not problems
 
 	return (
+		// biome-ignore lint/a11y/useSemanticElements: <fieldset> only groups form controls, but this bar mixes a branch form with read-only status items and action buttons; it also carries UA chrome (border, margin-inline:2px, min-inline-size:min-content) that the flex-based .composer-git-bar does not reset, regressing the layout. role="group"+aria-label keeps the labeled grouping without breaking layout.
 		<div
 			className="composer-git-bar"
 			role="group"

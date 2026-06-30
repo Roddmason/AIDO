@@ -159,6 +159,11 @@ class SelfImprovementCoordinator:
                 "priority": "high",
                 "businessValue": "high",
                 "owner": proposed_by,
+                "acceptanceCriteria": [
+                    "The proposed change is implemented in an isolated workspace.",
+                    "The requested QA commands complete before promotion.",
+                    "The proposal keeps audit links to the source project and generated workflow.",
+                ],
                 "metadata": shared_metadata,
             }
         )

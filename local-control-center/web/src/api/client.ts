@@ -42,6 +42,16 @@ export type SessionCreateRequest = MutationBody<'create_session_api_v1_sessions_
 export type SessionCreateResponse = OperationResponse<'create_session_api_v1_sessions_post'>;
 export type PipelineCreateRequest = MutationBody<'create_pipeline_api_v1_pipelines_post'>;
 export type PipelineCreateResponse = OperationResponse<'create_pipeline_api_v1_pipelines_post'>;
+export type ThreadCreateRequest = MutationBody<'create_thread_api_v1_threads_post'>;
+export type ThreadDetailResponse = OperationResponse<'get_thread_api_v1_threads__thread_id__get'>;
+export type ThreadMessageRequest =
+	MutationBody<'post_message_api_v1_threads__thread_id__messages_post'>;
+export type ThreadMessageResultResponse =
+	OperationResponse<'post_message_api_v1_threads__thread_id__messages_post'>;
+export type ThreadDecisionResolveRequest =
+	MutationBody<'resolve_decision_api_v1_threads__thread_id__decisions__decision_id__resolve_post'>;
+export type ThreadDecisionResolveResponse =
+	OperationResponse<'resolve_decision_api_v1_threads__thread_id__decisions__decision_id__resolve_post'>;
 export type IssueToPatchRequest =
 	MutationBody<'run_issue_to_patch_api_v1_workflows_issue_to_patch_post'>;
 export type IssueToPatchResponse =
@@ -77,6 +87,10 @@ export type ProductLoopStartRequest =
 	MutationBody<'start_product_loop_api_v1_projects__project_id__product_loop_post'>;
 export type ProductLoopTransitionRequest =
 	MutationBody<'transition_product_loop_api_v1_projects__project_id__product_loop__loop_id__transition_post'>;
+export type ProductLoopAidoDecideRequest =
+	MutationBody<'aido_decide_product_loop_api_v1_projects__project_id__product_loop__loop_id__aido_decide_post'>;
+export type ProductLoopApprovalRequest =
+	MutationBody<'approve_product_brief_api_v1_projects__project_id__product_loop_brief__brief_id__approve_post'>;
 export type ProductLoopResumeResponse =
 	OperationResponse<'start_product_loop_api_v1_projects__project_id__product_loop_post'>;
 export type ProductOwnerAgentRunRequest =
@@ -114,6 +128,12 @@ export type ArchitectAgentRunResponse =
 	OperationResponse<'run_architect_agent_api_v1_agents_architect_runs_post'>;
 export type ArchitectAgentStatusResponse =
 	OperationResponse<'architect_agent_status_api_v1_agents_architect_status_get'>;
+export type AgentProfilesResponse =
+	OperationResponse<'list_agent_profiles_api_v1_agent_profiles_get'>;
+export type AgentProfileProjectOverrideRequest =
+	MutationBody<'agent_profile_override_api_v1_projects__project_id__agent_profile_overrides__profile_id__put'>;
+export type AgentProfileProjectOverrideResponse =
+	OperationResponse<'agent_profile_override_api_v1_projects__project_id__agent_profile_overrides__profile_id__put'>;
 export type CredentialsResponse = OperationResponse<'list_credentials_api_v1_credentials_get'>;
 export type CredentialCreateRequest = MutationBody<'create_credential_api_v1_credentials_post'>;
 export type CredentialCreateResponse =
@@ -305,6 +325,45 @@ export function transitionProductLoop(
 ) {
 	return requestGeneratedOperation(
 		'transition_product_loop_api_v1_projects__project_id__product_loop__loop_id__transition_post',
+		{ token, pathParams: { project_id: projectId, loop_id: loopId }, body },
+	);
+}
+
+/** Accepts AIDO-selected answers for open product-loop questions and records product decisions. */
+export function aidoDecideProductLoop(
+	token: string,
+	projectId: string,
+	loopId: string,
+	body: ProductLoopAidoDecideRequest,
+) {
+	return requestGeneratedOperation(
+		'aido_decide_product_loop_api_v1_projects__project_id__product_loop__loop_id__aido_decide_post',
+		{ token, pathParams: { project_id: projectId, loop_id: loopId }, body },
+	);
+}
+
+/** Approves a ProductOwnerAgent brief and materializes its validated backlog payload. */
+export function approveProductBrief(
+	token: string,
+	projectId: string,
+	briefId: string,
+	body: ProductLoopApprovalRequest,
+) {
+	return requestGeneratedOperation(
+		'approve_product_brief_api_v1_projects__project_id__product_loop_brief__brief_id__approve_post',
+		{ token, pathParams: { project_id: projectId, brief_id: briefId }, body },
+	);
+}
+
+/** Records backlog approval and advances the loop when the FSM allows iteration planning. */
+export function approveProductLoopBacklog(
+	token: string,
+	projectId: string,
+	loopId: string,
+	body: ProductLoopApprovalRequest,
+) {
+	return requestGeneratedOperation(
+		'approve_product_loop_backlog_api_v1_projects__project_id__product_loop__loop_id__backlog_approve_post',
 		{ token, pathParams: { project_id: projectId, loop_id: loopId }, body },
 	);
 }
@@ -866,6 +925,62 @@ export function createPipeline(token: string, body: PipelineCreateRequest, signa
 	);
 }
 
+/** Creates a real project thread bound to an owner entity; requires the write token. */
+export function createThread(token: string, body: ThreadCreateRequest, signal?: AbortSignal) {
+	return requestGeneratedOperation<'create_thread_api_v1_threads_post', ThreadDetailResponse>(
+		'create_thread_api_v1_threads_post',
+		{ token, body, signal },
+	);
+}
+
+/** Reads one thread with its full timeline (messages, artifacts, decisions, events); a read. */
+export function getThread(threadId: string, signal?: AbortSignal) {
+	return requestGeneratedOperation<
+		'get_thread_api_v1_threads__thread_id__get',
+		ThreadDetailResponse
+	>('get_thread_api_v1_threads__thread_id__get', {
+		pathParams: { thread_id: threadId },
+		signal,
+	});
+}
+
+/** Posts a user message and runs the coordinator (responds or blocks); requires the write token. */
+export function postThreadMessage(
+	token: string,
+	threadId: string,
+	body: ThreadMessageRequest,
+	signal?: AbortSignal,
+) {
+	return requestGeneratedOperation<
+		'post_message_api_v1_threads__thread_id__messages_post',
+		ThreadMessageResultResponse
+	>('post_message_api_v1_threads__thread_id__messages_post', {
+		token,
+		pathParams: { thread_id: threadId },
+		body,
+		signal,
+	});
+}
+
+/** Resolves a pending decision request and reopens the thread; requires the write token. */
+export function resolveThreadDecision(
+	token: string,
+	threadId: string,
+	decisionId: string,
+	body: ThreadDecisionResolveRequest,
+	signal?: AbortSignal,
+) {
+	return requestGeneratedOperation<
+		'resolve_decision_api_v1_threads__thread_id__decisions__decision_id__resolve_post',
+		ThreadDecisionResolveResponse
+	>('resolve_decision_api_v1_threads__thread_id__decisions__decision_id__resolve_post', {
+		token,
+		pathParams: { thread_id: threadId, decision_id: decisionId },
+		body,
+		signal,
+	});
+}
+
 export function runIssueToPatch(token: string, body: IssueToPatchRequest) {
 	return requestGeneratedOperation('run_issue_to_patch_api_v1_workflows_issue_to_patch_post', {
 		token,
@@ -1011,6 +1126,35 @@ export function createAgentProfile(
 		token,
 		body,
 	});
+}
+
+export function getAgentProfiles(projectId?: string, signal?: AbortSignal) {
+	return requestGeneratedOperation<
+		'list_agent_profiles_api_v1_agent_profiles_get',
+		AgentProfilesResponse
+	>('list_agent_profiles_api_v1_agent_profiles_get', {
+		query: projectId ? { projectId } : undefined,
+		signal,
+	});
+}
+
+export function upsertAgentProfileProjectOverride(
+	token: string,
+	projectId: string,
+	profileId: string,
+	body: AgentProfileProjectOverrideRequest,
+) {
+	return requestGeneratedOperation<
+		'agent_profile_override_api_v1_projects__project_id__agent_profile_overrides__profile_id__put',
+		AgentProfileProjectOverrideResponse
+	>(
+		'agent_profile_override_api_v1_projects__project_id__agent_profile_overrides__profile_id__put',
+		{
+			token,
+			pathParams: { project_id: projectId, profile_id: profileId },
+			body,
+		},
+	);
 }
 
 export function createModelGatewayRolePolicy(

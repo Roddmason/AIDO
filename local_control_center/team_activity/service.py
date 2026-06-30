@@ -25,8 +25,8 @@ from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.time import utc_now
 
 ACTIVE_RUN_STATUSES = frozenset({"queued", "running", "awaiting_permission", "approval_required"})
-BLOCKED_RUN_STATUSES = frozenset({"blocked", "runtime_unavailable", "qa_failed"})
-DONE_RUN_STATUSES = frozenset({"completed", "approved", "evidence_ready"})
+BLOCKED_RUN_STATUSES = frozenset({"blocked", "runtime_unavailable", "qa_failed", "runtime_failed", "timed_out"})
+DONE_RUN_STATUSES = frozenset({"cancelled", "completed", "approved", "evidence_ready"})
 ACTIVE_ASSIGNMENT_STATUSES = frozenset({"active", "in_progress", "running", "accepted", "proposed"})
 COMPLETED_ASSIGNMENT_STATUSES = frozenset({"released", "completed", "done"})
 COMPLETED_HANDOFF_STATUSES = frozenset({"accepted", "resolved", "completed", "approved"})

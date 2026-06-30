@@ -21,6 +21,7 @@ from local_control_center.shared.event_bus import EventBus
 from .architect_agent import ArchitectAgentRunner
 from .autonomy_profiles import AutonomyProfile, AutonomyValidationError
 from .contracts import (
+    AgentProfileProjectOverrideRequest,
     AgentProfileResponse,
     AgentProfilesListResponse,
     AgentProfileUpsertRequest,
@@ -63,6 +64,7 @@ from .runtime_provider_config import list_runtime_provider_configurations
 from .runtime_status import RUNTIME_MODES, RuntimeStatusService
 from .security_agent import SecurityAgentRunner
 from .skills import SkillRegistry
+from .team_availability import attach_runtime_availability
 from .tool_broker import ToolBroker
 
 EXECUTION_MODES_WITH_EVIDENCE = {"restricted_subprocess", "docker", "runtime_adapter:mcp"}
@@ -71,7 +73,12 @@ TOOL_ID_RE = re.compile(r"^[a-z0-9_.:-]{2,80}$")
 CATALOG_ID_RE = re.compile(r"^[a-z0-9_.:-]{2,96}$")
 VALID_AGENT_ROLES = {
     "analyst",
+    "assessor",
+    "aido_lead",
     "product_owner",
+    "project_manager",
+    "scrum_master",
+    "architect",
     "technical_lead",
     "technical_lead_shadow",
     "developer",
@@ -81,8 +88,11 @@ VALID_AGENT_ROLES = {
     "devops",
     "devops_engineer",
     "qa",
+    "qa_engineer",
     "qa_reviewer",
+    "security_engineer",
     "security_reviewer",
+    "researcher",
     "release_manager",
 }
 VALID_PERMISSION_PROFILES = {"plan", "dev_safe", "qa", "release"}
@@ -160,6 +170,63 @@ def validate_agent_profile_body(body: dict[str, Any]) -> dict[str, Any]:
     for field in ("allowRemote", "allowCli", "allowApi"):
         if field in body and not isinstance(body[field], bool):
             raise HTTPException(status_code=422, detail=f"{field} must be a boolean.")
+    for field in ("defaultRuntimePolicy", "reviewerPolicy"):
+        if field in body and not isinstance(body[field], dict):
+            raise HTTPException(status_code=422, detail=f"{field} must be an object.")
+    return body
+
+
+def validate_agent_profile_override_body(body: dict[str, Any]) -> dict[str, Any]:
+    """Valida overrides de proyecto sin permitir ids libres ni límites fuera de rango."""
+    runtime_mode = body.get("runtimeMode") or body.get("runtimeType")
+    if runtime_mode is not None and runtime_mode not in RUNTIME_MODES:
+        raise HTTPException(status_code=422, detail="Runtime mode is not in the allowed catalog.")
+    reason = str(body.get("reason") or "").strip()
+    if not reason:
+        raise HTTPException(status_code=422, detail="Project override reason is required.")
+    status = str(body.get("status") or "active")
+    if status not in {"active", "disabled"}:
+        raise HTTPException(status_code=422, detail="Project override status is not allowed.")
+    list_fields = {
+        "allowedProviders": CATALOG_ID_RE,
+        "allowedRuntimes": CATALOG_ID_RE,
+        "allowedSkills": CATALOG_ID_RE,
+        "allowedTools": TOOL_ID_RE,
+    }
+    for field, pattern in list_fields.items():
+        values = body.get(field)
+        if values is None:
+            continue
+        if not isinstance(values, list) or not all(
+            isinstance(item, str) and pattern.match(item) for item in values
+        ):
+            raise HTTPException(status_code=422, detail=f"{field} must contain compact catalog ids.")
+    for field in ("defaultRuntimePolicy", "reviewerPolicy"):
+        if field in body and body[field] is not None and not isinstance(body[field], dict):
+            raise HTTPException(status_code=422, detail=f"{field} must be an object.")
+    try:
+        max_tokens = body.get("maxTokensPerRun")
+        max_runtime = body.get("maxRuntimeSeconds")
+        max_cost = body.get("maxCostPerRun")
+        approval = body.get("requiresApprovalOverUsd")
+        if max_tokens is not None:
+            max_tokens = int(max_tokens)
+        if max_runtime is not None:
+            max_runtime = int(max_runtime)
+        if max_cost is not None:
+            max_cost = float(max_cost)
+        if approval is not None:
+            approval = float(approval)
+    except (TypeError, ValueError) as error:
+        raise HTTPException(status_code=422, detail="Project override numeric fields are invalid.") from error
+    if max_tokens is not None and (max_tokens < 0 or max_tokens > 200000):
+        raise HTTPException(status_code=422, detail="maxTokensPerRun must be between 0 and 200000.")
+    if max_runtime is not None and (max_runtime < 0 or max_runtime > 86400):
+        raise HTTPException(status_code=422, detail="maxRuntimeSeconds must be between 0 and 86400.")
+    if max_cost is not None and max_cost < 0:
+        raise HTTPException(status_code=422, detail="maxCostPerRun must be zero or positive.")
+    if approval is not None and approval < 0:
+        raise HTTPException(status_code=422, detail="requiresApprovalOverUsd must be zero or positive.")
     return body
 
 
@@ -637,6 +704,10 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     def event_bus() -> EventBus:
         return EventBus(platform.connection)
 
+    def profiles_with_runtime_availability(profiles: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        provider_statuses = RuntimeStatusService(platform.connection).list_provider_statuses()
+        return attach_runtime_availability(profiles, provider_statuses)
+
     @router.get("/api/v1/agents/devops/status", response_model=DevOpsAgentStatusResponse)
     async def devops_agent_status() -> dict[str, Any]:
         """Devuelve el readiness del DevOpsAgent."""
@@ -836,9 +907,10 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         return result
 
     @router.get("/api/v1/agent-profiles", response_model=AgentProfilesListResponse)
-    async def list_agent_profiles() -> dict[str, Any]:
-        """Lista todos los perfiles de agente."""
-        return {"agentProfiles": repository().list_agent_profiles()}
+    async def list_agent_profiles(projectId: str | None = None) -> dict[str, Any]:
+        """Lista perfiles de agente con overrides de proyecto y disponibilidad real de runtime."""
+        profiles = repository().list_agent_profiles(projectId)
+        return {"agentProfiles": profiles_with_runtime_availability(profiles)}
 
     @router.post("/api/v1/agent-profiles", status_code=201, response_model=AgentProfileResponse)
     async def upsert_agent_profile(body: AgentProfileUpsertRequest, request: Request) -> dict[str, Any]:
@@ -849,7 +921,39 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         event_bus().record_event(
             event_type="agent.profile.upserted", payload={"agentProfileId": profile["id"]}
         )
-        return {"agentProfile": profile}
+        return {"agentProfile": profiles_with_runtime_availability([profile])[0]}
+
+    @router.put(
+        "/api/v1/projects/{project_id}/agent-profile-overrides/{profile_id}",
+        response_model=AgentProfileResponse,
+    )
+    async def agent_profile_override(
+        project_id: str,
+        profile_id: str,
+        body: AgentProfileProjectOverrideRequest,
+        request: Request,
+    ) -> dict[str, Any]:
+        """Crea o actualiza un override de perfil para un proyecto y devuelve el perfil efectivo."""
+        require_write(request)
+        _require_id(project_id, label="Project id")
+        _require_id(profile_id, label="Agent profile id")
+        payload = validate_agent_profile_override_body(body.model_dump(by_alias=True, exclude_none=True))
+        try:
+            profile = repository().upsert_agent_profile_project_override(
+                project_id=project_id,
+                profile_id=profile_id,
+                body=payload,
+            )
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        event_bus().record_event(
+            project_id=project_id,
+            event_type="agent.profile.override.upserted",
+            payload={"agentProfileId": profile_id, "status": payload.get("status", "active")},
+        )
+        return {"agentProfile": profiles_with_runtime_availability([profile])[0]}
 
     @router.get("/api/v1/agent-runs", response_model=AgentRunsListResponse)
     async def list_agent_runs() -> dict[str, Any]:

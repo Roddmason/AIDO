@@ -68,8 +68,7 @@ export function ShellSidebar({
 				<p className="shell-section-label">{t('app.shell.sectionProjects', 'Projects')}</p>
 				<ThreadTree
 					projects={projects}
-					sessions={overview.sessions}
-					chats={overview.chats}
+					threads={overview.threads}
 					selectedProjectId={selectedProjectId}
 					selectedSessionId={selectedSessionId}
 					filter={filter}

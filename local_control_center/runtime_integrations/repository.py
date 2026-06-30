@@ -271,6 +271,11 @@ class RuntimeConfigRepository:
     def update_runtime_account(self, account_id: str, body: dict[str, Any]) -> dict[str, Any]:
         """Aplica un patch sobre una cuenta de runtime; nunca toca ni persiste secretos.
 
+        Security: habilitar/deshabilitar una cuenta de runtime de edición de código (openhands/
+        swe_agent y similares) es una acción de privilegio. Esta capa es libre de efectos; cuando se
+        exponga un endpoint que cambie ``enabled``, la capa de API DEBE emitir un evento de auditoría
+        (``EventBus.record_audit``) con el estado previo/nuevo, igual que evidence/governance.
+
         Raises:
             KeyError: si la cuenta no existe.
         """

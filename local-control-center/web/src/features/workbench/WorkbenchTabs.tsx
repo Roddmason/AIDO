@@ -118,6 +118,7 @@ export function WorkbenchTabs<Id extends string = string>({
 				role="tabpanel"
 				id={`wb-panel-${activeTab}`}
 				aria-labelledby={`wb-tab-${activeTab}`}
+				// biome-ignore lint/a11y/noNoninteractiveTabindex: WAI-ARIA APG tabs pattern — a tabpanel must be keyboard-focusable (tabindex=0) so users can reach panel content that has no focusable elements; Biome does not special-case role="tabpanel".
 				tabIndex={0}
 				className="workbench-tabpanel"
 			>

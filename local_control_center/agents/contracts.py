@@ -681,7 +681,7 @@ ResearchTrustLevel = Literal[
     "reputable_secondary",
     "untrusted",
 ]
-ResearchAgentVerdict = Literal["completed", "blocked", "needs_human_review"]
+ResearchAgentState = Literal["research_required", "research_running", "research_ready", "research_blocked"]
 
 
 class ResearchSourceRequest(BaseModel):
@@ -715,6 +715,16 @@ class ResearchClaimRequest(BaseModel):
     topic: str
     value: str
     source_url: str = Field(alias="sourceUrl")
+
+
+class ResearchTechnicalDecisionRequest(BaseModel):
+    """Decisión técnica que debe citar fuentes persistidas por URL."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    title: str
+    decision: str
+    source_urls: list[str] = Field(default_factory=list, alias="sourceUrls")
 
 
 class ResearchAgentContract(BaseModel):
@@ -758,14 +768,17 @@ class ResearchAgentRunRequest(BaseModel):
     sources: list[ResearchSourceRequest]
     conclusions: list[ResearchConclusionRequest] = Field(default_factory=list)
     claims: list[ResearchClaimRequest] = Field(default_factory=list)
+    technical_decisions: list[ResearchTechnicalDecisionRequest] = Field(
+        default_factory=list, alias="technicalDecisions"
+    )
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class ResearchAgentRunResponse(BaseModel):
     """Resultado del ResearchAgent: fuentes persistidas, citas, conflictos y evidencia."""
 
-    status: ResearchAgentVerdict
-    verdict: ResearchAgentVerdict
+    status: ResearchAgentState
+    verdict: ResearchAgentState
     reason: str
     contract: ResearchAgentContract
     workspace: dict[str, Any]
@@ -774,8 +787,11 @@ class ResearchAgentRunResponse(BaseModel):
     evidence_package: dict[str, Any] = Field(alias="evidencePackage")
     sources: list[dict[str, Any]]
     conclusions: list[dict[str, Any]]
+    technical_decisions: list[dict[str, Any]] = Field(default_factory=list, alias="technicalDecisions")
+    recommendation: dict[str, Any] = Field(default_factory=dict)
     citation_check: dict[str, Any] = Field(alias="citationCheck")
     conflict_findings: list[dict[str, Any]] = Field(alias="conflictFindings")
+    discrepancies: list[dict[str, Any]] = Field(default_factory=list)
     report_artifact: dict[str, Any] = Field(alias="reportArtifact")
 
 

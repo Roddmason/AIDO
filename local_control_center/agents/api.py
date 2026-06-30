@@ -419,6 +419,25 @@ def validate_research_agent_run_body(body: ResearchAgentRunRequest) -> dict[str,
         for field in ("topic", "value", "sourceUrl"):
             if not str(claim.get(field) or "").strip():
                 raise HTTPException(status_code=422, detail=f"claims[{index}].{field} is required.")
+    technical_decisions = payload.get("technicalDecisions") or []
+    if len(technical_decisions) > 50:
+        raise HTTPException(status_code=422, detail="ResearchAgent accepts at most 50 technical decisions.")
+    for index, decision in enumerate(technical_decisions):
+        if not isinstance(decision, dict):
+            raise HTTPException(status_code=422, detail=f"technicalDecisions[{index}] must be an object.")
+        for field in ("title", "decision"):
+            if not str(decision.get(field) or "").strip():
+                raise HTTPException(
+                    status_code=422, detail=f"technicalDecisions[{index}].{field} is required."
+                )
+        source_urls = decision.get("sourceUrls") or []
+        if not isinstance(source_urls, list) or not all(
+            isinstance(item, str) and item for item in source_urls
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail=f"technicalDecisions[{index}].sourceUrls must be a string list.",
+            )
     return payload
 
 
@@ -789,6 +808,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
                 "evidencePackageId": result["evidencePackage"]["id"],
                 "reportArtifactId": result["reportArtifact"]["id"],
                 "sourceArtifactIds": [source["artifactId"] for source in result["sources"]],
+                "researchSourceIds": [source["id"] for source in result["sources"] if source.get("id")],
             },
         )
         return result

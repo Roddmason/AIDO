@@ -28,6 +28,7 @@ import {
 	type ReactNode,
 	useCallback,
 	useEffect,
+	useMemo,
 	useRef,
 	useState,
 } from 'react';
@@ -188,7 +189,13 @@ export function ThreadConversation({
 	// right after leaving the new-thread intake. Switching between two already-created threads never
 	// changes `phase` (both are 'live'), and recovering from loading/error uses a plain fade.
 	const previousPhaseRef = useRef(phase);
-	const handoffFromIntake = previousPhaseRef.current === 'new' && phase === 'live';
+	// Frozen for the whole 'live' mount via useMemo(deps=[phase]) — a plain derived const would flip
+	// to false on the next re-render (the ref updates in an effect that runs almost immediately), which
+	// would retarget the console's delayed fade-in mid-flight and defeat the delay entirely.
+	const handoffFromIntake = useMemo(
+		() => phase === 'live' && previousPhaseRef.current === 'new',
+		[phase],
+	);
 	useEffect(() => {
 		previousPhaseRef.current = phase;
 	}, [phase]);

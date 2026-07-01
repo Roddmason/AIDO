@@ -225,7 +225,10 @@ export function AppShell({
 
 	const workbench = (
 		<main className="workbench main-area">
-			<section className="content-frame" aria-live="polite">
+			<section
+				className={area === 'threads' ? 'content-frame content-frame--full-bleed' : 'content-frame'}
+				aria-live="polite"
+			>
 				{children}
 			</section>
 		</main>

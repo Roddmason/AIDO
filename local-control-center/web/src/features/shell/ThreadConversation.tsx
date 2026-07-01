@@ -185,19 +185,23 @@ export function ThreadConversation({
 	// narrowing of `selectedProject`/`detail` keeps working exactly as before this refactor.
 	const phase = deriveConversationPhase(selectedProject, isNew, loading, error, detail);
 
-	// Remembers the previous phase so the live layout only plays the 3D "depth dissolve" entrance
-	// right after leaving the new-thread intake. Switching between two already-created threads never
-	// changes `phase` (both are 'live'), and recovering from loading/error uses a plain fade.
-	const previousPhaseRef = useRef(phase);
+	// Remembers that the user is mid-handoff from the new-thread intake, surviving the transient
+	// 'loading' tick that always intervenes between 'new' and 'live' (the thread-detail fetch is at
+	// least one async tick, so 'loading' reliably shows up in between — confirmed visually, not just
+	// in theory). Switching between two already-created threads still passes through 'loading' but
+	// never through 'new', so it never sets this flag and gets the plain fade, as intended.
+	const awaitingHandoffRef = useRef(false);
+	if (phase === 'new') {
+		awaitingHandoffRef.current = true;
+	}
 	// Frozen for the whole 'live' mount via useMemo(deps=[phase]) — a plain derived const would flip
-	// to false on the next re-render (the ref updates in an effect that runs almost immediately), which
-	// would retarget the console's delayed fade-in mid-flight and defeat the delay entirely.
-	const handoffFromIntake = useMemo(
-		() => phase === 'live' && previousPhaseRef.current === 'new',
-		[phase],
-	);
+	// before the console's delayed fade-in ever fires (the reset effect below runs almost immediately
+	// after the 'live' render commits), retargeting Motion's `animate` prop and defeating the delay.
+	const handoffFromIntake = useMemo(() => phase === 'live' && awaitingHandoffRef.current, [phase]);
 	useEffect(() => {
-		previousPhaseRef.current = phase;
+		if (phase === 'live' || phase === 'no-project') {
+			awaitingHandoffRef.current = false;
+		}
 	}, [phase]);
 
 	let content: ReactNode;
@@ -267,20 +271,17 @@ export function ThreadConversation({
 
 		content = (
 			<div className="shell-chat-layout thread-live-layout">
-				<section
-					className="thread-chat-sticky"
-					aria-label={t('app.threads.chatRegion', 'Thread chat')}
-				>
-					<header className="thread-conversation-head">
-						<div className="thread-conversation-title">
-							<MessageSquare aria-hidden="true" size={16} />
-							<h2>{detail.thread.title}</h2>
-						</div>
-						<StatusChip tone={toneForStatus(threadStatus)}>
-							{threadStatus.replace(/_/g, ' ')}
-						</StatusChip>
-					</header>
+				<header className="thread-conversation-head">
+					<div className="thread-conversation-title">
+						<MessageSquare aria-hidden="true" size={16} />
+						<h2>{detail.thread.title}</h2>
+					</div>
+					<StatusChip tone={toneForStatus(threadStatus)}>
+						{threadStatus.replace(/_/g, ' ')}
+					</StatusChip>
+				</header>
 
+				<div className="thread-live-scroll" aria-label={t('app.threads.chatRegion', 'Thread chat')}>
 					<div className="thread-chat-transcript" aria-live="polite">
 						{detail.messages.length === 0 ? (
 							<p className="thread-chat-empty">
@@ -321,6 +322,49 @@ export function ThreadConversation({
 						</m.section>
 					) : null}
 
+					<m.section
+						className="thread-execution-console"
+						role="log"
+						aria-live="polite"
+						aria-relevant="additions"
+						aria-label={t('app.threads.consoleRegion', 'Execution console')}
+						initial={{ opacity: 0, y: 6 }}
+						animate={{
+							opacity: 1,
+							y: 0,
+							transition: { duration: 0.2, ease: EASE_OUT, delay: handoffFromIntake ? 0.55 : 0 },
+						}}
+					>
+						<div className="thread-console-title">
+							<span>{t('app.threads.consoleTitle', 'Execution')}</span>
+							{eventStream.loading ? (
+								<StatusChip tone="pending">{t('app.threads.consoleLoading', 'syncing')}</StatusChip>
+							) : null}
+						</div>
+						{eventStream.error ? (
+							<div className="thread-console-status" data-tone="danger">
+								{eventStream.error}
+							</div>
+						) : null}
+						{waitingForWorker ? (
+							<div className="thread-console-status" data-tone="pending">
+								{t('app.threads.waitingWorker', 'Queued: waiting for a worker to claim this run.')}
+							</div>
+						) : null}
+						{consoleEvents.length ? (
+							consoleEvents.map((event) => <ThreadConsoleRow key={event.id} event={event} />)
+						) : (
+							<div className="thread-console-status" data-tone="muted">
+								{t('app.threads.consoleEmpty', 'No execution events yet.')}
+							</div>
+						)}
+						{researchArtifacts.map((artifact) => (
+							<ThreadResearchCard key={artifact.id} artifact={artifact} />
+						))}
+					</m.section>
+				</div>
+
+				<div className="thread-composer-dock">
 					<ThreadComposerBox
 						project={selectedProject}
 						token={token}
@@ -332,48 +376,7 @@ export function ThreadConversation({
 						submitBusyLabel={t('app.threads.sending', 'Sending…')}
 						onSendMessage={sendMessage}
 					/>
-				</section>
-
-				<m.section
-					className="thread-execution-console"
-					role="log"
-					aria-live="polite"
-					aria-relevant="additions"
-					aria-label={t('app.threads.consoleRegion', 'Execution console')}
-					initial={{ opacity: 0, y: 6 }}
-					animate={{
-						opacity: 1,
-						y: 0,
-						transition: { duration: 0.2, ease: EASE_OUT, delay: handoffFromIntake ? 0.55 : 0 },
-					}}
-				>
-					<div className="thread-console-title">
-						<span>{t('app.threads.consoleTitle', 'Execution')}</span>
-						{eventStream.loading ? (
-							<StatusChip tone="pending">{t('app.threads.consoleLoading', 'syncing')}</StatusChip>
-						) : null}
-					</div>
-					{eventStream.error ? (
-						<div className="thread-console-status" data-tone="danger">
-							{eventStream.error}
-						</div>
-					) : null}
-					{waitingForWorker ? (
-						<div className="thread-console-status" data-tone="pending">
-							{t('app.threads.waitingWorker', 'Queued: waiting for a worker to claim this run.')}
-						</div>
-					) : null}
-					{consoleEvents.length ? (
-						consoleEvents.map((event) => <ThreadConsoleRow key={event.id} event={event} />)
-					) : (
-						<div className="thread-console-status" data-tone="muted">
-							{t('app.threads.consoleEmpty', 'No execution events yet.')}
-						</div>
-					)}
-					{researchArtifacts.map((artifact) => (
-						<ThreadResearchCard key={artifact.id} artifact={artifact} />
-					))}
-				</m.section>
+				</div>
 			</div>
 		);
 	}

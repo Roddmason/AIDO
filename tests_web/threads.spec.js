@@ -99,7 +99,7 @@ test('Threads: an existing blocked thread can send another message and refresh c
 	await expect(page.getByText(/Run queued|Run encolado/).first()).toBeVisible({ timeout: 20_000 });
 });
 
-test('Threads: the whole chat block stays pinned while the execution console scrolls', async ({
+test('Threads: the composer stays fixed at the bottom in a single scroll region while the execution console scrolls', async ({
 	page,
 }) => {
 	await page.setViewportSize({ width: 1280, height: 560 });
@@ -130,26 +130,31 @@ test('Threads: the whole chat block stays pinned while the execution console scr
 		expect(response.ok()).toBe(true);
 	}
 
-	const scrollRegion = page.locator('.content-frame').first();
-	const stickyHeader = page.locator('.thread-conversation-head').first();
-	const stickyChat = page.locator('.thread-chat-sticky').first();
+	const outerFrame = page.locator('.content-frame').first();
+	const scrollRegion = page.locator('.thread-live-scroll').first();
+	const header = page.locator('.thread-conversation-head').first();
+	const composerDock = page.locator('.thread-composer-dock').first();
 
-	// Precondition: the thread surface must actually overflow the viewport, otherwise the assertions
-	// below would pass vacuously.
+	// Precondition: the console must actually overflow its own scroll region, otherwise the
+	// assertions below would pass vacuously.
 	await expect
 		.poll(() => scrollRegion.evaluate((node) => node.scrollHeight - node.clientHeight), {
 			timeout: 20_000,
 		})
 		.toBeGreaterThan(260);
 
+	// The outer frame never scrolls — `.thread-live-scroll` is the only scroll region, so the
+	// page never shows a double scrollbar.
+	expect(await outerFrame.evaluate((node) => node.scrollHeight - node.clientHeight)).toBe(0);
+
 	await scrollRegion.evaluate((node) => {
 		node.scrollTop = 120;
 	});
 	await page.waitForTimeout(150);
-	const headerBefore = await stickyHeader.boundingBox();
-	const chatBefore = await stickyChat.boundingBox();
+	const headerBefore = await header.boundingBox();
+	const composerBefore = await composerDock.boundingBox();
 	expect(headerBefore).not.toBeNull();
-	expect(chatBefore).not.toBeNull();
+	expect(composerBefore).not.toBeNull();
 
 	await scrollRegion.evaluate((node) => {
 		node.scrollTop = 240;
@@ -159,14 +164,14 @@ test('Threads: the whole chat block stays pinned while the execution console scr
 	const scrollTop = await scrollRegion.evaluate((node) => node.scrollTop);
 	expect(scrollTop).toBeGreaterThan(0);
 
-	const headerAfter = await stickyHeader.boundingBox();
-	const chatAfter = await stickyChat.boundingBox();
+	const headerAfter = await header.boundingBox();
+	const composerAfter = await composerDock.boundingBox();
 	expect(headerAfter).not.toBeNull();
-	expect(chatAfter).not.toBeNull();
+	expect(composerAfter).not.toBeNull();
 	expect(Math.round(headerAfter.y)).toBe(Math.round(headerBefore.y));
-	// The whole chat block (title + transcript + composer) stays pinned, not just the title — before
-	// this task only the header had `position: sticky`.
-	expect(Math.round(chatAfter.y)).toBe(Math.round(chatBefore.y));
+	// The composer dock stays pinned at the bottom of the layout (above the global status bar)
+	// while only the execution console underneath it scrolls.
+	expect(Math.round(composerAfter.y)).toBe(Math.round(composerBefore.y));
 });
 
 test('Threads: creating a thread still renders the live layout under reduced motion', async ({
@@ -187,7 +192,8 @@ test('Threads: creating a thread still renders the live layout under reduced mot
 	await page.getByRole('button', { name: 'Create thread' }).click();
 
 	await expect(page.getByText(firstMessage).first()).toBeVisible({ timeout: 20_000 });
-	await expect(page.locator('.thread-chat-sticky').first()).toBeVisible();
+	await expect(page.locator('.thread-conversation-head').first()).toBeVisible();
+	await expect(page.locator('.thread-composer-dock').first()).toBeVisible();
 	await expect(page.locator('.thread-execution-console').first()).toBeVisible();
 
 	await context.close();
@@ -206,7 +212,8 @@ test('Threads: the new-thread to live-thread handoff renders the full layout', a
 	await page.getByRole('button', { name: 'Create thread' }).click();
 
 	await expect(page.getByText(firstMessage).first()).toBeVisible({ timeout: 20_000 });
-	await expect(page.locator('.thread-chat-sticky').first()).toBeVisible();
+	await expect(page.locator('.thread-conversation-head').first()).toBeVisible();
+	await expect(page.locator('.thread-composer-dock').first()).toBeVisible();
 	await expect(page.locator('.thread-execution-console').first()).toBeVisible();
 	// The intake heading is gone once the live layout has taken over.
 	await expect(page.getByRole('heading', { name: /What will we work on/ })).toBeHidden();

@@ -42,6 +42,13 @@
 	overflow: auto;
 }
 
+/* Threads route owns its own internal scroll region (see `.thread-live-scroll`); the frame
+   itself must not add a second one, in the stacked layout either. */
+.app-shell-ide--stacked > .workbench .content-frame.content-frame--full-bleed,
+.app-shell-ide--stacked > .main-area .content-frame.content-frame--full-bleed {
+	overflow: hidden;
+}
+
 /* The sidebar must not consume the whole column on small screens; cap it and let it
    scroll its own list so the content area always has room. */
 .app-shell-ide--stacked > .shell-sidebar {
@@ -1042,6 +1049,16 @@
 	padding: var(--space-6);
 }
 
+/* Threads route: the chat/execution surface owns its own internal scroll and fixed composer
+   dock (see `.thread-live-layout`), so the frame must span full width (no padding) and never
+   scroll itself (single scroll region, no double scrollbar). */
+.content-frame.content-frame--full-bleed {
+	grid-template-rows: minmax(0, 1fr);
+	gap: 0;
+	padding: 0;
+	overflow: hidden;
+}
+
 .drawer-layer {
 	position: fixed;
 	inset: 0;
@@ -1366,33 +1383,29 @@
 }
 
 .thread-live-layout {
-	gap: var(--space-4);
-	padding: var(--space-4) var(--space-6) var(--space-6);
+	gap: 0;
 }
 
-.thread-chat-sticky {
-	position: sticky;
-	top: 0;
-	z-index: 4;
+.thread-live-layout .thread-conversation-head {
+	flex: 0 0 auto;
+}
+
+/* The single scroll region for the live thread: transcript, pending decision and the execution
+   console scroll together here so the page never shows two independent scrollbars. The composer
+   (`.thread-composer-dock`) sits outside it, fixed at the bottom of `.thread-live-layout`. */
+.thread-live-scroll {
+	flex: 1 1 auto;
+	min-height: 0;
+	overflow-y: auto;
 	display: grid;
+	align-content: start;
 	gap: var(--space-3);
-	padding: 0 0 var(--space-3);
-	background: var(--color-surface-workbench);
-	border-bottom: 1px solid var(--color-border-subtle);
-}
-
-.thread-chat-sticky .thread-conversation-head {
-	padding: var(--space-2) 0;
-	border-bottom: none;
-	background: transparent;
+	padding: var(--space-3) var(--space-6);
 }
 
 .thread-chat-transcript {
 	display: grid;
 	gap: var(--space-1);
-	max-height: 14rem;
-	overflow-y: auto;
-	padding: var(--space-2) 0;
 }
 
 .thread-chat-empty {
@@ -1507,8 +1520,11 @@
 }
 
 @media (max-width: 720px) {
-	.thread-live-layout {
-		padding: var(--space-3);
+	.thread-live-layout .thread-conversation-head,
+	.thread-live-scroll,
+	.thread-composer-dock {
+		padding-left: var(--space-3);
+		padding-right: var(--space-3);
 	}
 
 	.thread-chat-row,

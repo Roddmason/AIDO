@@ -1371,6 +1371,9 @@
 }
 
 .thread-chat-sticky {
+	position: sticky;
+	top: 0;
+	z-index: 4;
 	display: grid;
 	gap: var(--space-3);
 	padding: 0 0 var(--space-3);
@@ -1379,12 +1382,9 @@
 }
 
 .thread-chat-sticky .thread-conversation-head {
-	position: sticky;
-	top: 0;
-	z-index: 4;
 	padding: var(--space-2) 0;
 	border-bottom: none;
-	background: var(--color-surface-workbench);
+	background: transparent;
 }
 
 .thread-chat-transcript {

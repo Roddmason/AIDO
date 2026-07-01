@@ -99,7 +99,7 @@ test('Threads: an existing blocked thread can send another message and refresh c
 	await expect(page.getByText(/Run queued|Run encolado/).first()).toBeVisible({ timeout: 20_000 });
 });
 
-test('Threads: the chat header stays pinned while the execution console scrolls', async ({
+test('Threads: the whole chat block stays pinned while the execution console scrolls', async ({
 	page,
 }) => {
 	await page.setViewportSize({ width: 1280, height: 560 });
@@ -131,7 +131,8 @@ test('Threads: the chat header stays pinned while the execution console scrolls'
 	}
 
 	const scrollRegion = page.locator('.content-frame').first();
-	const sticky = page.locator('.thread-conversation-head').first();
+	const stickyHeader = page.locator('.thread-conversation-head').first();
+	const stickyChat = page.locator('.thread-chat-sticky').first();
 
 	// Precondition: the thread surface must actually overflow the viewport, otherwise the assertions
 	// below would pass vacuously.
@@ -145,8 +146,10 @@ test('Threads: the chat header stays pinned while the execution console scrolls'
 		node.scrollTop = 120;
 	});
 	await page.waitForTimeout(150);
-	const before = await sticky.boundingBox();
-	expect(before).not.toBeNull();
+	const headerBefore = await stickyHeader.boundingBox();
+	const chatBefore = await stickyChat.boundingBox();
+	expect(headerBefore).not.toBeNull();
+	expect(chatBefore).not.toBeNull();
 
 	await scrollRegion.evaluate((node) => {
 		node.scrollTop = 240;
@@ -156,7 +159,12 @@ test('Threads: the chat header stays pinned while the execution console scrolls'
 	const scrollTop = await scrollRegion.evaluate((node) => node.scrollTop);
 	expect(scrollTop).toBeGreaterThan(0);
 
-	const after = await sticky.boundingBox();
-	expect(after).not.toBeNull();
-	expect(Math.round(after.y)).toBe(Math.round(before.y));
+	const headerAfter = await stickyHeader.boundingBox();
+	const chatAfter = await stickyChat.boundingBox();
+	expect(headerAfter).not.toBeNull();
+	expect(chatAfter).not.toBeNull();
+	expect(Math.round(headerAfter.y)).toBe(Math.round(headerBefore.y));
+	// The whole chat block (title + transcript + composer) stays pinned, not just the title — before
+	// this task only the header had `position: sticky`.
+	expect(Math.round(chatAfter.y)).toBe(Math.round(chatBefore.y));
 });

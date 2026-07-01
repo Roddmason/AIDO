@@ -21,15 +21,37 @@ import {
 	Send,
 	ShieldCheck,
 } from 'lucide-react';
-import { m } from 'motion/react';
-import { type FormEvent, type KeyboardEvent, useCallback, useEffect, useState } from 'react';
+import { AnimatePresence, m } from 'motion/react';
+import {
+	type FormEvent,
+	type KeyboardEvent,
+	type ReactNode,
+	useCallback,
+	useEffect,
+	useRef,
+	useState,
+} from 'react';
 import { createThread, postThreadMessage } from '../../api/client';
-import type { Overview, Project, ThreadAgentEvent, ThreadArtifact, ThreadMessage } from '../../api/types';
+import type {
+	Overview,
+	Project,
+	ThreadAgentEvent,
+	ThreadArtifact,
+	ThreadDetail,
+	ThreadMessage,
+} from '../../api/types';
 import type { Mutate } from '../../app/routes';
 import { Button, EmptyState, Skeleton, StatusChip, TextArea } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { toneForStatus } from '../../lib/format';
-import { cardTransition, listStagger, panelTransition } from '../../motion/variants';
+import {
+	cardTransition,
+	EASE_OUT,
+	listStagger,
+	panelTransition,
+	threadIntakeExit,
+	threadLiveEnter,
+} from '../../motion/variants';
 import { useSettings } from '../settings/useSettings';
 import { NEW_SESSION_ID } from '../workbench/useWorkbenchData';
 import { GitBranchBar } from './GitBranchBar';
@@ -85,6 +107,32 @@ function ownerIdForProject(overview: Overview, project: Project): string {
 	return workspace?.id ?? project.id;
 }
 
+type ConversationPhase = 'no-project' | 'new' | 'loading' | 'error' | 'live';
+
+/** Derives the AnimatePresence phase id from the same conditions the render branches check below. */
+function deriveConversationPhase(
+	selectedProject: Project | null,
+	isNew: boolean,
+	loading: boolean,
+	error: boolean,
+	detail: ThreadDetail | null,
+): ConversationPhase {
+	if (!selectedProject) return 'no-project';
+	if (isNew) return 'new';
+	if (loading && !detail) return 'loading';
+	if (error || !detail) return 'error';
+	return 'live';
+}
+
+/** Picks the 3D depth-dissolve variant only for the intake exit and the live entrance that follows
+ *  it; every other phase change (loading, error, switching between already-created threads) gets
+ *  the existing plain `panelTransition` fade. */
+function variantsForPhase(phase: ConversationPhase, handoffFromIntake: boolean) {
+	if (phase === 'new') return threadIntakeExit;
+	if (phase === 'live' && handoffFromIntake) return threadLiveEnter;
+	return panelTransition;
+}
+
 /** The threads shell center: create form or live conversation, depending on the selection. */
 export function ThreadConversation({
 	overview,
@@ -131,8 +179,24 @@ export function ThreadConversation({
 		[resolve],
 	);
 
+	// One phase id per render, used only to pick the AnimatePresence key/variant below; the
+	// if/else-if chain further down re-checks the same conditions directly so TypeScript's
+	// narrowing of `selectedProject`/`detail` keeps working exactly as before this refactor.
+	const phase = deriveConversationPhase(selectedProject, isNew, loading, error, detail);
+
+	// Remembers the previous phase so the live layout only plays the 3D "depth dissolve" entrance
+	// right after leaving the new-thread intake. Switching between two already-created threads never
+	// changes `phase` (both are 'live'), and recovering from loading/error uses a plain fade.
+	const previousPhaseRef = useRef(phase);
+	const handoffFromIntake = previousPhaseRef.current === 'new' && phase === 'live';
+	useEffect(() => {
+		previousPhaseRef.current = phase;
+	}, [phase]);
+
+	let content: ReactNode;
+
 	if (!selectedProject) {
-		return (
+		content = (
 			<div className="shell-chat-layout">
 				<div className="shell-chat-transcript-empty">
 					<EmptyState
@@ -147,10 +211,8 @@ export function ThreadConversation({
 				</div>
 			</div>
 		);
-	}
-
-	if (isNew) {
-		return (
+	} else if (isNew) {
+		content = (
 			<NewThreadComposer
 				overview={overview}
 				project={selectedProject}
@@ -160,10 +222,8 @@ export function ThreadConversation({
 				onCreated={onSelectThread}
 			/>
 		);
-	}
-
-	if (loading && !detail) {
-		return (
+	} else if (loading && !detail) {
+		content = (
 			<div className="shell-chat-layout">
 				<div className="shell-chat-transcript">
 					<Skeleton className="thread-skeleton-row" />
@@ -172,10 +232,8 @@ export function ThreadConversation({
 				</div>
 			</div>
 		);
-	}
-
-	if (error || !detail) {
-		return (
+	} else if (error || !detail) {
+		content = (
 			<div className="shell-chat-layout">
 				<div className="shell-chat-transcript-empty">
 					<EmptyState
@@ -190,111 +248,145 @@ export function ThreadConversation({
 				</div>
 			</div>
 		);
+	} else {
+		const pendingDecision = detail.decisions.find((decision) => decision.status === 'pending');
+		const researchArtifacts = detail.artifacts.filter(
+			(artifact) => artifact.kind === 'research_report',
+		);
+		const consoleEvents = mergeConsoleEvents(detail.events, eventStream.events);
+		const threadStatus = eventStream.threadStatus ?? detail.thread.status;
+		const waitingForWorker =
+			threadStatus === 'queued' && !consoleEvents.some((event) => event.type === 'worker_claimed');
+
+		content = (
+			<div className="shell-chat-layout thread-live-layout">
+				<section
+					className="thread-chat-sticky"
+					aria-label={t('app.threads.chatRegion', 'Thread chat')}
+				>
+					<header className="thread-conversation-head">
+						<div className="thread-conversation-title">
+							<MessageSquare aria-hidden="true" size={16} />
+							<h2>{detail.thread.title}</h2>
+						</div>
+						<StatusChip tone={toneForStatus(threadStatus)}>
+							{threadStatus.replace(/_/g, ' ')}
+						</StatusChip>
+					</header>
+
+					<div className="thread-chat-transcript" aria-live="polite">
+						{detail.messages.length === 0 ? (
+							<p className="thread-chat-empty">
+								{t('app.threads.transcriptEmpty', 'No messages yet. Send the first one below.')}
+							</p>
+						) : (
+							detail.messages.map((message) => (
+								<ThreadMessageRow key={message.id} message={message} />
+							))
+						)}
+					</div>
+
+					{pendingDecision ? (
+						<m.section
+							className="thread-decision-console"
+							aria-label={t('app.threads.decisionTitle', 'Decision needed')}
+							variants={panelTransition}
+							initial="initial"
+							animate="animate"
+						>
+							<div className="thread-decision-head">
+								<AlertTriangle aria-hidden="true" size={15} />
+								<strong>{t('app.threads.decisionTitle', 'Decision needed')}</strong>
+							</div>
+							<p>{pendingDecision.prompt}</p>
+							<div className="thread-decision-options">
+								{pendingDecision.options.map((option) => (
+									<Button
+										key={option}
+										variant="secondary"
+										disabled={busy}
+										onClick={() => resolveDecision(pendingDecision.id, option)}
+									>
+										{option}
+									</Button>
+								))}
+							</div>
+						</m.section>
+					) : null}
+
+					<ThreadComposerBox
+						project={selectedProject}
+						token={token}
+						onGitRefresh={refreshOverview}
+						value=""
+						busy={busy}
+						rows={3}
+						submitLabel={t('app.threads.send', 'Send')}
+						submitBusyLabel={t('app.threads.sending', 'Sending…')}
+						onSendMessage={sendMessage}
+					/>
+				</section>
+
+				<m.section
+					className="thread-execution-console"
+					role="log"
+					aria-live="polite"
+					aria-relevant="additions"
+					aria-label={t('app.threads.consoleRegion', 'Execution console')}
+					initial={{ opacity: 0, y: 6 }}
+					animate={{
+						opacity: 1,
+						y: 0,
+						transition: { duration: 0.2, ease: EASE_OUT, delay: handoffFromIntake ? 0.55 : 0 },
+					}}
+				>
+					<div className="thread-console-title">
+						<span>{t('app.threads.consoleTitle', 'Execution')}</span>
+						{eventStream.loading ? (
+							<StatusChip tone="pending">{t('app.threads.consoleLoading', 'syncing')}</StatusChip>
+						) : null}
+					</div>
+					{eventStream.error ? (
+						<div className="thread-console-status" data-tone="danger">
+							{eventStream.error}
+						</div>
+					) : null}
+					{waitingForWorker ? (
+						<div className="thread-console-status" data-tone="pending">
+							{t('app.threads.waitingWorker', 'Queued: waiting for a worker to claim this run.')}
+						</div>
+					) : null}
+					{consoleEvents.length ? (
+						consoleEvents.map((event) => <ThreadConsoleRow key={event.id} event={event} />)
+					) : (
+						<div className="thread-console-status" data-tone="muted">
+							{t('app.threads.consoleEmpty', 'No execution events yet.')}
+						</div>
+					)}
+					{researchArtifacts.map((artifact) => (
+						<ThreadResearchCard key={artifact.id} artifact={artifact} />
+					))}
+				</m.section>
+			</div>
+		);
 	}
 
-	const pendingDecision = detail.decisions.find((decision) => decision.status === 'pending');
-	const researchArtifacts = detail.artifacts.filter((artifact) => artifact.kind === 'research_report');
-	const consoleEvents = mergeConsoleEvents(detail.events, eventStream.events);
-	const threadStatus = eventStream.threadStatus ?? detail.thread.status;
-	const waitingForWorker =
-		threadStatus === 'queued' && !consoleEvents.some((event) => event.type === 'worker_claimed');
+	const stageVariants = variantsForPhase(phase, handoffFromIntake);
 
 	return (
-		<div className="shell-chat-layout thread-live-layout">
-			<section className="thread-chat-sticky" aria-label={t('app.threads.chatRegion', 'Thread chat')}>
-				<header className="thread-conversation-head">
-					<div className="thread-conversation-title">
-						<MessageSquare aria-hidden="true" size={16} />
-						<h2>{detail.thread.title}</h2>
-					</div>
-					<StatusChip tone={toneForStatus(threadStatus)}>{threadStatus.replace(/_/g, ' ')}</StatusChip>
-				</header>
-
-				<div className="thread-chat-transcript" aria-live="polite">
-					{detail.messages.length === 0 ? (
-						<p className="thread-chat-empty">
-							{t('app.threads.transcriptEmpty', 'No messages yet. Send the first one below.')}
-						</p>
-					) : (
-						detail.messages.map((message) => <ThreadMessageRow key={message.id} message={message} />)
-					)}
-				</div>
-
-				{pendingDecision ? (
-					<m.section
-						className="thread-decision-console"
-						aria-label={t('app.threads.decisionTitle', 'Decision needed')}
-						variants={panelTransition}
-						initial="initial"
-						animate="animate"
-					>
-						<div className="thread-decision-head">
-							<AlertTriangle aria-hidden="true" size={15} />
-							<strong>{t('app.threads.decisionTitle', 'Decision needed')}</strong>
-						</div>
-						<p>{pendingDecision.prompt}</p>
-						<div className="thread-decision-options">
-							{pendingDecision.options.map((option) => (
-								<Button
-									key={option}
-									variant="secondary"
-									disabled={busy}
-									onClick={() => resolveDecision(pendingDecision.id, option)}
-								>
-									{option}
-								</Button>
-							))}
-						</div>
-					</m.section>
-				) : null}
-
-				<ThreadComposerBox
-					project={selectedProject}
-					token={token}
-					onGitRefresh={refreshOverview}
-					value=""
-					busy={busy}
-					rows={3}
-					submitLabel={t('app.threads.send', 'Send')}
-					submitBusyLabel={t('app.threads.sending', 'Sending…')}
-					onSendMessage={sendMessage}
-				/>
-			</section>
-
-			<section
-				className="thread-execution-console"
-				role="log"
-				aria-live="polite"
-				aria-relevant="additions"
-				aria-label={t('app.threads.consoleRegion', 'Execution console')}
-			>
-				<div className="thread-console-title">
-					<span>{t('app.threads.consoleTitle', 'Execution')}</span>
-					{eventStream.loading ? (
-						<StatusChip tone="pending">{t('app.threads.consoleLoading', 'syncing')}</StatusChip>
-					) : null}
-				</div>
-				{eventStream.error ? (
-					<div className="thread-console-status" data-tone="danger">
-						{eventStream.error}
-					</div>
-				) : null}
-				{waitingForWorker ? (
-					<div className="thread-console-status" data-tone="pending">
-						{t('app.threads.waitingWorker', 'Queued: waiting for a worker to claim this run.')}
-					</div>
-				) : null}
-				{consoleEvents.length ? (
-					consoleEvents.map((event) => <ThreadConsoleRow key={event.id} event={event} />)
-				) : (
-					<div className="thread-console-status" data-tone="muted">
-						{t('app.threads.consoleEmpty', 'No execution events yet.')}
-					</div>
-				)}
-				{researchArtifacts.map((artifact) => (
-					<ThreadResearchCard key={artifact.id} artifact={artifact} />
-				))}
-			</section>
+		<div className="thread-conversation-stage">
+			<AnimatePresence mode="popLayout" initial={false}>
+				<m.div
+					className="thread-conversation-phase"
+					key={phase}
+					variants={stageVariants}
+					initial="initial"
+					animate="animate"
+					exit="exit"
+				>
+					{content}
+				</m.div>
+			</AnimatePresence>
 		</div>
 	);
 }
@@ -463,7 +555,8 @@ function ThreadMessageRow({ message }: { message: ThreadMessage }) {
 function ThreadConsoleRow({ event }: { event: ThreadAgentEvent }) {
 	const { t } = useI18n();
 	const payload = safeRecord(event.payload);
-	const actor = event.agentRole || textValue(payload.role) || textValue(payload.agentName) || 'aido';
+	const actor =
+		event.agentRole || textValue(payload.role) || textValue(payload.agentName) || 'aido';
 	const title = t(`app.threads.event.${event.type}`, eventTitle(event.type));
 	const detail = eventDetail(event, payload);
 	const chips = [
@@ -744,7 +837,8 @@ function NewThreadComposer({
 			);
 			onCreated(created.thread.id);
 			await mutate(
-				(mutateToken) => postThreadMessage(mutateToken, created.thread.id, { content: firstMessage }),
+				(mutateToken) =>
+					postThreadMessage(mutateToken, created.thread.id, { content: firstMessage }),
 				{ awaitRefresh: false },
 			);
 		} catch (creationError) {

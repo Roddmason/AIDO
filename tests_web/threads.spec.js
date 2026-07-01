@@ -168,3 +168,46 @@ test('Threads: the whole chat block stays pinned while the execution console scr
 	// this task only the header had `position: sticky`.
 	expect(Math.round(chatAfter.y)).toBe(Math.round(chatBefore.y));
 });
+
+test('Threads: creating a thread still renders the live layout under reduced motion', async ({
+	browser,
+}) => {
+	const context = await browser.newContext({ reducedMotion: 'reduce' });
+	const page = await context.newPage();
+	await page.goto('/#threads');
+	await expectControlPlaneLoaded(page);
+	await expect(page.locator('html')).toHaveAttribute('data-motion', 'reduced');
+
+	await page.locator('.thread-workspace-head').first().click();
+	await page.locator('.shell-new-thread').click();
+	await expect(page.getByRole('heading', { name: /What will we work on/ })).toBeVisible();
+
+	const firstMessage = `Reduced motion check ${Date.now()}`;
+	await page.getByLabel('Message AIDO').fill(firstMessage);
+	await page.getByRole('button', { name: 'Create thread' }).click();
+
+	await expect(page.getByText(firstMessage).first()).toBeVisible({ timeout: 20_000 });
+	await expect(page.locator('.thread-chat-sticky').first()).toBeVisible();
+	await expect(page.locator('.thread-execution-console').first()).toBeVisible();
+
+	await context.close();
+});
+
+test('Threads: the new-thread to live-thread handoff renders the full layout', async ({ page }) => {
+	await page.goto('/#threads');
+	await expectControlPlaneLoaded(page);
+
+	await page.locator('.thread-workspace-head').first().click();
+	await page.locator('.shell-new-thread').click();
+	await expect(page.getByRole('heading', { name: /What will we work on/ })).toBeVisible();
+
+	const firstMessage = `Handoff check ${Date.now()}`;
+	await page.getByLabel('Message AIDO').fill(firstMessage);
+	await page.getByRole('button', { name: 'Create thread' }).click();
+
+	await expect(page.getByText(firstMessage).first()).toBeVisible({ timeout: 20_000 });
+	await expect(page.locator('.thread-chat-sticky').first()).toBeVisible();
+	await expect(page.locator('.thread-execution-console').first()).toBeVisible();
+	// The intake heading is gone once the live layout has taken over.
+	await expect(page.getByRole('heading', { name: /What will we work on/ })).toBeHidden();
+});

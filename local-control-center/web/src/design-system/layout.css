@@ -1489,6 +1489,21 @@
 	padding: 0 var(--space-1);
 }
 
+.thread-conversation-stage {
+	height: 100%;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
+	perspective: 1200px;
+}
+
+.thread-conversation-phase {
+	height: 100%;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
+}
+
 @media (max-width: 720px) {
 	.thread-live-layout {
 		padding: var(--space-3);

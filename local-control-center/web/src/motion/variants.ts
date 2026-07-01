@@ -65,6 +65,32 @@ export const crossfade: Variants = {
 	exit: { opacity: 0, transition: { duration: 0.12 } },
 };
 
+/** Salida del intake al crear el hilo: se hunde con una leve rotación 3D antes de desvanecerse. */
+export const threadIntakeExit: Variants = {
+	initial: { opacity: 0, y: 6 },
+	animate: { opacity: 1, y: 0, transition: { duration: 0.2, ease: EASE_OUT } },
+	exit: {
+		opacity: 0,
+		scale: 0.94,
+		y: -14,
+		rotateX: 8,
+		transition: { duration: 0.4, ease: EASE_OUT },
+	},
+};
+
+/** Entrada del hilo activo justo después de crearlo: se asienta desde una leve inclinación 3D. */
+export const threadLiveEnter: Variants = {
+	initial: { opacity: 0, scale: 0.98, y: 14, rotateX: -6 },
+	animate: {
+		opacity: 1,
+		scale: 1,
+		y: 0,
+		rotateX: 0,
+		transition: { type: 'spring', stiffness: 170, damping: 22, delay: 0.12 },
+	},
+	exit: { opacity: 0, transition: { duration: 0.12 } },
+};
+
 /** Shimmer de skeleton (solo opacity). El consumidor DEBE condicionar el loop con `useReducedMotion`. */
 export const skeletonShimmer: Variants = {
 	idle: { opacity: 0.6 },

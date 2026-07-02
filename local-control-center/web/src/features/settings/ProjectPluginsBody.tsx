@@ -72,24 +72,26 @@ export function ProjectPluginsBody() {
 					'Plugins enabled for this workspace. Enablement is managed in General settings.',
 				)}
 			</p>
-			{enabled.map((plugin) => (
-				<div key={plugin.id} className="settings-plugin-row">
-					<div className="settings-plugin-main">
-						<strong>{plugin.name}</strong>
-						<span className="muted">{plugin.publisher}</span>
-						<div className="settings-plugin-tags">
-							<Badge tone="ok">{plugin.status}</Badge>
-							<Badge tone="info">{plugin.trustLevel}</Badge>
-							{plugin.capabilities.map((capability) => (
-								<span key={capability} className="setting-list-chip mono">
-									{capability}
-								</span>
-							))}
+			<div className="settings-list">
+				{enabled.map((plugin) => (
+					<div key={plugin.id} className="settings-plugin-row">
+						<div className="settings-plugin-main">
+							<strong>{plugin.name}</strong>
+							<span className="muted">{plugin.publisher}</span>
+							<div className="settings-plugin-tags">
+								<Badge tone="ok">{plugin.status}</Badge>
+								<Badge tone="info">{plugin.trustLevel}</Badge>
+								{plugin.capabilities.map((capability) => (
+									<span key={capability} className="setting-list-chip mono">
+										{capability}
+									</span>
+								))}
+							</div>
 						</div>
+						<span className="mono muted">{plugin.activeVersion?.version ?? ''}</span>
 					</div>
-					<span className="mono muted">{plugin.activeVersion?.version ?? ''}</span>
-				</div>
-			))}
+				))}
+			</div>
 		</div>
 	);
 }

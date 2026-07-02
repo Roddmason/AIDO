@@ -1241,9 +1241,11 @@ test('settings separates configuration types and keeps defaults collapsed', asyn
 	await catalogs.click();
 	await expect(catalogs).toHaveAttribute('aria-expanded', 'true');
 
-	// Platform defaults now live in General, visible without a disclosure.
+	// Platform defaults now live in General as key/value readouts, visible without a disclosure.
 	await nav.getByRole('button', { name: 'General', exact: true }).click();
-	await expect(page.getByText('Backend: FastAPI v1')).toBeVisible();
+	const readouts = dialog.locator('.settings-readouts');
+	await expect(readouts.getByText('Backend', { exact: true })).toBeVisible();
+	await expect(readouts.getByText('FastAPI v1', { exact: true })).toBeVisible();
 });
 
 test('Settings modal opens from sidebar and closes cleanly', async ({ page }) => {
@@ -1319,6 +1321,67 @@ test('Settings modal Autonomy override and revert flow updates chip text', async
 		// General scope or already overridden — chip is always present.
 		await expect(autonomyRow.locator('.setting-chip')).toBeVisible();
 	}
+});
+
+test('Settings modal Autonomy arrow keys move focus without committing a level', async ({ page }) => {
+	await page.goto('/#threads');
+	await expectControlPlaneLoaded(page);
+
+	await page.locator('.shell-sidebar-footer').getByRole('button', { name: 'Settings' }).click();
+	const dialog = page.getByRole('dialog', { name: 'Settings' });
+	await expect(dialog).toBeVisible();
+	await dialog.getByRole('button', { name: 'Autonomy', exact: true }).click();
+
+	const group = dialog.getByRole('radiogroup', { name: 'Autonomy' });
+	const checked = group.locator('[aria-checked="true"]');
+	await expect(checked).toHaveCount(1);
+	const initialTitle = await checked.locator('.settings-choice-title').textContent();
+
+	// Each autonomy commit is an audited PUT; browsing with arrows must never fire one.
+	let settingWrites = 0;
+	page.on('request', (request) => {
+		if (request.method() === 'PUT' && request.url().includes('/settings')) settingWrites += 1;
+	});
+
+	await checked.focus();
+	await page.keyboard.press('ArrowRight');
+	// Focus moved to a not-yet-committed card; the checked level is unchanged.
+	const focused = group.locator('.settings-choice-card:focus');
+	await expect(focused).toHaveCount(1);
+	await expect(focused).toHaveAttribute('aria-checked', 'false');
+	await page.keyboard.press('End');
+	await page.keyboard.press('Home');
+	await expect(group.locator('[aria-checked="true"] .settings-choice-title')).toHaveText(
+		initialTitle,
+	);
+	expect(settingWrites).toBe(0);
+});
+
+test('Settings modal numeric setting keeps the empty-value revert flow intact', async ({ page }) => {
+	await page.goto('/#threads');
+	await expectControlPlaneLoaded(page);
+
+	await page.locator('.shell-sidebar-footer').getByRole('button', { name: 'Settings' }).click();
+	const dialog = page.getByRole('dialog', { name: 'Settings' });
+	await expect(dialog).toBeVisible();
+	await dialog.getByRole('button', { name: 'Costs', exact: true }).click();
+
+	const row = dialog
+		.locator('.setting-row')
+		.filter({ has: page.locator('input[type="number"]') })
+		.first();
+	await expect(row).toBeVisible();
+	const input = row.locator('input[type="number"]');
+
+	// Clearing a numeric value flips the primary action to the revert affordance.
+	await input.fill('');
+	await expect(row.getByRole('button', { name: 'Revert to Default' })).toBeVisible();
+
+	// A concrete number restores an enabled Save (nothing is committed here).
+	await input.fill('42');
+	const save = row.getByRole('button', { name: 'Save', exact: true });
+	await expect(save).toBeVisible();
+	await expect(save).toBeEnabled();
 });
 
 test('legacy hash settings-security opens Settings modal at Security section', async ({ page }) => {

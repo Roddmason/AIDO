@@ -3450,12 +3450,24 @@
 	text-transform: uppercase;
 }
 
+/* Nav item list: semantic <ul> per group, reset to the plain button column. */
+.settings-nav-list {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+	display: grid;
+	gap: 2px;
+}
+
+/* Border is always present (transparent at rest) so the active state never
+ * reflows siblings; selection reads as tint + weight, not color alone. */
 .settings-nav-item {
 	display: flex;
 	align-items: center;
+	gap: var(--space-2);
 	width: 100%;
 	padding: var(--space-2) var(--space-3);
-	border: 0;
+	border: 1px solid transparent;
 	background: transparent;
 	color: var(--color-text-secondary);
 	font: inherit;
@@ -3463,6 +3475,12 @@
 	text-align: left;
 	border-radius: var(--radius-sm);
 	cursor: pointer;
+	transition: background-color var(--duration-fast) var(--ease-standard);
+}
+
+.settings-nav-item svg {
+	flex: 0 0 auto;
+	color: var(--color-text-muted);
 }
 
 .settings-nav-item:hover {
@@ -3476,13 +3494,18 @@
 }
 
 .settings-nav-item[aria-current="true"] {
-	background: var(--color-surface-card-hover);
+	background: color-mix(in oklch, var(--color-accent) 10%, var(--color-surface-panel));
+	border-color: color-mix(in oklch, var(--color-accent) 32%, var(--color-border-subtle));
 	color: var(--color-text-primary);
 	font-weight: var(--weight-semibold);
-	border: 1px solid var(--color-border-default);
 }
 
-/* Right content area. */
+.settings-nav-item[aria-current="true"] svg {
+	color: var(--color-accent-strong);
+}
+
+/* Right content area: recessed canvas so framed lists and cards carry the
+ * single elevation step (inset canvas -> framed surface -> control). */
 .settings-content {
 	min-height: 0;
 	overflow-y: auto;
@@ -3490,13 +3513,26 @@
 	display: grid;
 	gap: var(--space-4);
 	align-content: start;
+	background: var(--color-surface-inset);
+}
+
+/* Ruled section header: separates "where am I" from the section's controls. */
+.settings-content-head {
+	padding-bottom: var(--space-3);
+	border-bottom: 1px solid var(--color-border-subtle);
 }
 
 .settings-content-title {
 	margin: 0;
 	font-family: var(--font-display);
-	font-size: var(--font-size-xl);
+	font-size: var(--font-size-lg);
 	line-height: var(--line-tight);
+}
+
+.settings-content-title:focus-visible {
+	outline: none;
+	border-radius: var(--radius-sm);
+	box-shadow: var(--shadow-focus);
 }
 
 /* M-4: "No sections match" message in the settings nav search. */
@@ -3505,9 +3541,10 @@
 	font-size: var(--font-size-sm);
 }
 
-/* M-2: Loading skeleton rows inside the settings content pane. */
+/* M-2: Loading skeleton rows sized to the real list rows so the loaded
+ * layout does not jump when data arrives. */
 .settings-skeleton {
-	height: 3rem;
+	height: var(--control-height);
 	border-radius: var(--radius-sm);
 }
 
@@ -3525,26 +3562,40 @@
 	gap: var(--space-3);
 }
 
+/* Eyebrow aligned with the nav/context/dev group labels: one label voice. */
 .settings-group-title {
 	margin: 0;
-	color: var(--color-text-secondary);
-	font-size: var(--font-size-xs);
+	color: var(--color-text-muted);
+	font-size: var(--font-size-2xs);
 	font-weight: var(--weight-semibold);
 	letter-spacing: 0.06em;
 	text-transform: uppercase;
 }
 
-/* Immediate-effect preference row: copy on the left, segmented control on the right. */
+/* Framed list surface: the ONE box wired rows and preference rows live in,
+ * replacing the legacy card-per-row treatment. */
+.settings-list {
+	display: grid;
+	padding: var(--space-1) var(--space-4);
+	border: 1px solid var(--color-border-subtle);
+	border-radius: var(--radius-md);
+	background: var(--color-surface-card);
+}
+
+/* Immediate-effect preference row: copy on the left, segmented control on the
+ * right. Divided row inside .settings-list, not a standalone card. */
 .settings-preference-row {
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
 	gap: var(--space-4);
 	flex-wrap: wrap;
-	padding: var(--space-3);
-	border: 1px solid var(--color-border-subtle);
-	border-radius: var(--radius-md);
-	background: var(--color-surface-card);
+	padding: var(--space-3) 0;
+	border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.settings-preference-row:last-child {
+	border-bottom: 0;
 }
 
 .settings-preference-copy {
@@ -3570,7 +3621,7 @@
 	gap: var(--space-2);
 	align-content: start;
 	padding: var(--space-3);
-	border: 1px solid var(--color-border-subtle);
+	border: 1px solid var(--color-border-default);
 	border-radius: var(--radius-md);
 	background: var(--color-surface-card);
 }
@@ -3635,7 +3686,7 @@
 	gap: var(--space-2);
 	align-content: start;
 	padding: var(--space-3);
-	border: 1px solid var(--color-border-subtle);
+	border: 1px solid var(--color-border-default);
 	border-radius: var(--radius-md);
 	background: var(--color-surface-card);
 	color: inherit;
@@ -3691,16 +3742,19 @@
 	font-size: var(--font-size-sm);
 }
 
-/* Plugin rows: identity + trust/status tags on the left, row action on the right. */
+/* Plugin rows: identity + trust/status tags on the left, version on the right.
+ * Divided rows inside .settings-list, not standalone cards. */
 .settings-plugin-row {
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
 	gap: var(--space-4);
-	padding: var(--space-3);
-	border: 1px solid var(--color-border-subtle);
-	border-radius: var(--radius-md);
-	background: var(--color-surface-card);
+	padding: var(--space-3) 0;
+	border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.settings-plugin-row:last-child {
+	border-bottom: 0;
 }
 
 .settings-plugin-main {
@@ -3716,16 +3770,17 @@
 	gap: var(--space-2);
 }
 
-/* Project context bar above project-scope sections: which project is being edited. */
+/* Project context bar above project-scope sections: which project is being
+ * edited. Raised above the inset canvas so scope stays the visual anchor. */
 .settings-context-bar {
 	display: flex;
 	align-items: center;
 	gap: var(--space-3);
 	flex-wrap: wrap;
 	padding: var(--space-2) var(--space-3);
-	border: 1px solid var(--color-border-subtle);
+	border: 1px solid var(--color-border-default);
 	border-radius: var(--radius-md);
-	background: var(--color-surface-inset);
+	background: var(--color-surface-panel-raised);
 }
 
 .settings-context-label {
@@ -3760,7 +3815,7 @@
 	gap: var(--space-2);
 	align-content: start;
 	padding: var(--space-3);
-	border: 1px solid var(--color-border-subtle);
+	border: 1px solid var(--color-border-default);
 	border-radius: var(--radius-md);
 	background: var(--color-surface-card);
 }
@@ -3779,21 +3834,40 @@
 	text-transform: uppercase;
 }
 
-/* Individual setting row: label + chip + control + actions. */
+/* Individual setting row: divided list row inside .settings-list — metadata on
+ * the left, control right-aligned into a scannable value column, actions under. */
 .setting-row {
 	display: grid;
-	gap: var(--space-2);
-	padding: var(--space-3);
-	border: 1px solid var(--color-border-subtle);
-	border-radius: var(--radius-md);
-	background: var(--color-surface-card);
+	grid-template-columns: minmax(0, 1fr) auto;
+	grid-template-areas:
+		"meta control"
+		"help control"
+		"actions actions";
+	align-items: center;
+	column-gap: var(--space-5);
+	row-gap: var(--space-1);
+	padding: var(--space-3) 0;
+	border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.setting-row:last-child {
+	border-bottom: 0;
 }
 
 .setting-row-meta {
+	grid-area: meta;
 	display: flex;
 	align-items: center;
 	gap: var(--space-3);
 	flex-wrap: wrap;
+}
+
+.setting-row-help {
+	grid-area: help;
+	margin: 0;
+	color: var(--color-text-muted);
+	font-size: var(--font-size-xs);
+	max-width: 52ch;
 }
 
 .setting-row-label {
@@ -3801,22 +3875,28 @@
 	color: var(--color-text-primary);
 }
 
-/* Chip: full border-color (no left/right side-stripe). */
+/* Chip: full border-color (no left/right side-stripe). Baseline states
+ * (Default / Inherited) stay quiet; only real overrides earn the tinted pill. */
 .setting-chip {
 	display: inline-flex;
 	align-items: center;
 	gap: var(--space-1);
 	padding: 0.125rem var(--space-2);
 	border-radius: var(--radius-pill);
-	font-size: var(--font-size-xs);
+	font-size: var(--font-size-2xs);
 	font-weight: var(--weight-medium);
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
 	border: 1px solid var(--color-border-subtle);
 	background: var(--color-surface-inset);
 	color: var(--color-text-muted);
 }
 
-.setting-chip[data-origin="inherited"] {
-	border-color: var(--color-border-default);
+.setting-chip[data-origin="inherited"],
+.setting-chip[data-origin="default"] {
+	border-color: transparent;
+	background: transparent;
+	padding-inline: 0;
 	color: var(--color-text-muted);
 }
 
@@ -3826,11 +3906,6 @@
 	color: var(--color-text-secondary);
 }
 
-.setting-chip[data-origin="default"] {
-	border-color: var(--color-border-subtle);
-	color: var(--color-text-muted);
-}
-
 .setting-chip[data-origin="custom"] {
 	border-color: color-mix(in oklch, var(--color-accent-secondary) 55%, var(--color-border-subtle));
 	background: color-mix(in oklch, var(--color-accent-secondary) 8%, var(--color-surface-inset));
@@ -3838,14 +3913,24 @@
 }
 
 .setting-chip-source {
-	opacity: 0.75;
+	color: var(--color-text-secondary);
 }
 
 .setting-control {
+	grid-area: control;
 	display: flex;
 	align-items: center;
+	justify-content: flex-end;
 	gap: var(--space-2);
 	flex-wrap: wrap;
+}
+
+/* Project-scope editing reveals the control in place: span the full row so
+ * inputs and Save/Cancel are not squeezed into the value column. */
+.setting-control[data-editing="true"] {
+	grid-column: 1 / -1;
+	justify-content: flex-start;
+	padding-top: var(--space-2);
 }
 
 .setting-control--readonly {
@@ -3857,7 +3942,46 @@
 	font-size: var(--font-size-sm);
 }
 
+/* String-list value display: each entry as a small mono token chip. */
+.setting-list-chips {
+	display: inline-flex;
+	flex-wrap: wrap;
+	justify-content: flex-end;
+	gap: var(--space-1);
+}
+
+.setting-list-chip {
+	display: inline-flex;
+	align-items: center;
+	padding: 0.125rem var(--space-2);
+	border: 1px solid var(--color-border-subtle);
+	border-radius: var(--radius-sm);
+	background: var(--color-surface-inset);
+	font-size: var(--font-size-xs);
+	color: var(--color-text-secondary);
+}
+
+/* Inline validation message for numeric settings: text + role=alert, never a
+ * stripe. The error track only exists while the message renders (:has), so
+ * valid rows never pay an empty-track gap; the message lands between the
+ * control and the actions, adjacent to the field it describes. */
+.setting-row:has(> .setting-row-error) {
+	grid-template-areas:
+		"meta control"
+		"help control"
+		"error error"
+		"actions actions";
+}
+
+.setting-row-error {
+	grid-area: error;
+	margin: 0;
+	color: var(--color-status-danger);
+	font-size: var(--font-size-xs);
+}
+
 .setting-row-actions {
+	grid-area: actions;
 	display: flex;
 	align-items: center;
 	gap: var(--space-2);
@@ -3891,7 +4015,8 @@
 	box-shadow: var(--shadow-focus);
 }
 
-/* Settings modal collapses to stacked layout on mobile. */
+/* Settings modal collapses to stacked layout on mobile; setting rows drop the
+ * two-column value alignment and stack meta -> control -> actions. */
 @media (max-width: 640px) {
 	.settings-modal-body {
 		grid-template-columns: 1fr;
@@ -3903,6 +4028,29 @@
 		border-bottom: 1px solid var(--color-border-subtle);
 		max-height: 12rem;
 		overflow-y: auto;
+	}
+
+	.setting-row {
+		grid-template-columns: 1fr;
+		grid-template-areas:
+			"meta"
+			"help"
+			"control"
+			"actions";
+	}
+
+	.setting-row:has(> .setting-row-error) {
+		grid-template-areas:
+			"meta"
+			"help"
+			"control"
+			"error"
+			"actions";
+	}
+
+	.setting-row .setting-control,
+	.setting-row .setting-list-chips {
+		justify-content: flex-start;
 	}
 }
 

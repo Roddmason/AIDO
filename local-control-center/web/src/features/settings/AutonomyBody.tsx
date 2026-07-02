@@ -1,8 +1,10 @@
 /**
  * Autonomy section body: the three action-approval levels (guided / recommended /
  * autonomous) as an accessible radio-card group wired to the real `autonomy.level`
- * setting. Selection commits immediately; the selected card is marked by full
- * border + tint + check flag (never color alone). Mirrors the composer's
+ * setting. Arrow keys move focus only; selection commits on activation (click /
+ * Enter / Space) because each commit is an audited PUT — selection-follows-focus
+ * would write transient levels to the audit log. The selected card is marked by
+ * full border + tint + check flag (never color alone). Mirrors the composer's
  * PERMISSION_OPTIONS semantics so both surfaces speak the same language.
  * @author Rodrigo Mason
  */
@@ -87,27 +89,31 @@ export function AutonomyBody({
 		}
 	};
 
-	const moveTo = (index: number) => {
+	/** Moves focus only: committing happens on activation (button click), so
+	 *  arrow-key browsing never fires transient audited PUTs. */
+	const moveFocusTo = (index: number) => {
 		const target = LEVELS[(index + LEVELS.length) % LEVELS.length];
 		cardRefs.current[target.level]?.focus();
-		void commit(target.level);
 	};
 
 	const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
 		if (pending) return;
-		const index = LEVELS.findIndex((entry) => entry.level === current);
+		const focused = LEVELS.findIndex(
+			(entry) => cardRefs.current[entry.level] === document.activeElement,
+		);
+		const index = focused >= 0 ? focused : LEVELS.findIndex((entry) => entry.level === current);
 		if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
 			event.preventDefault();
-			moveTo(index + 1);
+			moveFocusTo(index + 1);
 		} else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
 			event.preventDefault();
-			moveTo(index - 1);
+			moveFocusTo(index - 1);
 		} else if (event.key === 'Home') {
 			event.preventDefault();
-			moveTo(0);
+			moveFocusTo(0);
 		} else if (event.key === 'End') {
 			event.preventDefault();
-			moveTo(LEVELS.length - 1);
+			moveFocusTo(LEVELS.length - 1);
 		}
 	};
 

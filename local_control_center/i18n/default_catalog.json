@@ -9978,6 +9978,30 @@
     "app.threads.inspector.memory.performanceEmpty": {
       "en": "No performance passes recorded for this work.",
       "es": "No hay revisiones de rendimiento registradas para este trabajo."
+    },
+    "app.settings.general.backendLabel": {
+      "en": "Backend",
+      "es": "Servidor"
+    },
+    "app.settings.general.frontendLabel": {
+      "en": "Frontend",
+      "es": "Interfaz"
+    },
+    "app.settings.general.autostartLabel": {
+      "en": "Autostart",
+      "es": "Autoarranque"
+    },
+    "app.settings.general.autostartValue": {
+      "en": "User-scoped Task Scheduler",
+      "es": "Programador de tareas del usuario"
+    },
+    "app.settings.error.invalidNumber": {
+      "en": "Enter a valid number.",
+      "es": "Ingresa un número válido."
+    },
+    "app.settings.status.saving": {
+      "en": "Saving...",
+      "es": "Guardando..."
     }
   }
 }

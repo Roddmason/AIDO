@@ -48,6 +48,11 @@ function dashboardServerCommand(port, sqlitePath) {
 		'--workspace',
 		'.',
 	];
+	// A concurrent `vite build` empties dist/web mid-run and every chunk starts 500ing on GET /;
+	// pointing the dashboard at a frozen snapshot of the build isolates the run from that race.
+	if (process.env.PLAYWRIGHT_STATIC_DIR) {
+		dashboardArgs.push('--static-dir', process.env.PLAYWRIGHT_STATIC_DIR);
+	}
 	if (existsSync(pythonPath)) {
 		return { command: pythonPath, args: dashboardArgs };
 	}

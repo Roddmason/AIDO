@@ -113,8 +113,8 @@ export const routeTable: Record<AppRoute, RouteEntry> = {
 				onOpenWorkbench={() => ctx.navigateTo('workbench')}
 				onOpenProjects={() => ctx.navigateTo('projects')}
 				onOpenReview={() => ctx.navigateTo('review-board')}
-				onOpenRuns={() => ctx.navigateTo('workflows')}
-				onOpenRuntimes={() => ctx.navigateTo('models')}
+				onOpenRuns={() => ctx.openSettings('advanced')}
+				onOpenRuntimes={() => ctx.openSettings('providers-cli')}
 			/>
 		),
 	},
@@ -131,7 +131,7 @@ export const routeTable: Record<AppRoute, RouteEntry> = {
 				onCreateProject={() => ctx.openWorkspaceDialog('open_folder')}
 				onOpenJobs={() => ctx.navigateTo('review-board')}
 				onOpenEvidence={() => ctx.navigateTo('evidence')}
-				onOpenSettings={() => ctx.openSettings('project')}
+				onOpenSettings={() => ctx.openSettings('goal')}
 				onOpenRuntimeSetup={() => ctx.openSettings('providers-cli')}
 				onRefresh={() => ctx.refresh(true)}
 			/>
@@ -144,7 +144,7 @@ export const routeTable: Record<AppRoute, RouteEntry> = {
 				overview={ctx.overview}
 				selectedProject={ctx.selectedProject}
 				onSelectProject={ctx.onSelectProject}
-				onOpenSettings={() => ctx.openSettings('project')}
+				onOpenSettings={() => ctx.openSettings('goal')}
 				onCreateProject={() => ctx.openWorkspaceDialog('open_folder')}
 			/>
 		),

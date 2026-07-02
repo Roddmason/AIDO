@@ -15,6 +15,7 @@ import {
 	Plus,
 	RefreshCw,
 	Settings as SettingsIcon,
+	Wrench,
 } from 'lucide-react';
 import type { ComponentType } from 'react';
 import { useMemo } from 'react';
@@ -137,6 +138,28 @@ export function useCommandActions(deps: CommandActionDeps): CommandAction[] {
 				keywords: ['preferences', 'configuration', 'options'],
 				icon: SettingsIcon,
 				run: withClose(() => openSettings()),
+			},
+			{
+				id: 'open-developer-details',
+				group: 'navigate',
+				label: 'Open developer details',
+				hint: 'Technical consoles demoted from primary navigation',
+				keywords: [
+					'developer',
+					'details',
+					'consoles',
+					'agents',
+					'models',
+					'policy',
+					'evidence',
+					'workflows',
+					'governance',
+					'audit',
+					'assessment',
+					'advanced',
+				],
+				icon: Wrench,
+				run: withClose(() => openSettings('advanced')),
 			},
 			{
 				id: 'open-folder',

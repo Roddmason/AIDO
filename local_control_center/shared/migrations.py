@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import sqlite3
 
-from .serialization import json_dumps
+from .serialization import json_dumps, json_loads
 from .time import utc_now
 
 
@@ -53,7 +53,13 @@ def initialize_platform_schema(connection: sqlite3.Connection) -> None:
     init_phase32_schema(connection)
     init_phase33_schema(connection)
     init_phase34_schema(connection)
+    init_phase35_schema(connection)
+    init_phase36_schema(connection)
+    init_phase37_schema(connection)
+    init_phase38_schema(connection)
     init_phase39_schema(connection)
+    init_phase40_schema(connection)
+    init_phase41_schema(connection)
     seed_platform_catalogs(connection)
 
 
@@ -3699,6 +3705,11 @@ def init_phase32_schema(connection: sqlite3.Connection) -> None:
             status TEXT NOT NULL,
             summary TEXT NOT NULL DEFAULT '',
             metadata TEXT NOT NULL,
+            archived_at TEXT,
+            archived_by TEXT,
+            deleted_at TEXT,
+            deleted_by TEXT,
+            lifecycle_reason TEXT,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         );
@@ -3824,6 +3835,259 @@ def init_phase34_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+def init_phase35_schema(connection: sqlite3.Connection) -> None:
+    """Fase 35: lifecycle real de threads e índice lexical de similitud."""
+    _add_column_if_missing(connection, "project_threads", "archived_at", "archived_at TEXT")
+    _add_column_if_missing(connection, "project_threads", "archived_by", "archived_by TEXT")
+    _add_column_if_missing(connection, "project_threads", "deleted_at", "deleted_at TEXT")
+    _add_column_if_missing(connection, "project_threads", "deleted_by", "deleted_by TEXT")
+    _add_column_if_missing(connection, "project_threads", "lifecycle_reason", "lifecycle_reason TEXT")
+    connection.executescript(
+        """
+        CREATE INDEX IF NOT EXISTS idx_project_threads_lifecycle
+            ON project_threads(project_id, archived_at, deleted_at, updated_at);
+        CREATE TABLE IF NOT EXISTS thread_memory_index (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            thread_id TEXT NOT NULL,
+            title TEXT NOT NULL,
+            summary TEXT NOT NULL,
+            normalized_goal TEXT NOT NULL,
+            fingerprint TEXT NOT NULL,
+            keywords_json TEXT NOT NULL,
+            artifact_refs_json TEXT NOT NULL,
+            status TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_thread_memory_index_thread
+            ON thread_memory_index(thread_id);
+        CREATE INDEX IF NOT EXISTS idx_thread_memory_index_project_status
+            ON thread_memory_index(project_id, status, updated_at);
+        CREATE INDEX IF NOT EXISTS idx_thread_memory_index_fingerprint
+            ON thread_memory_index(project_id, fingerprint);
+        CREATE TABLE IF NOT EXISTS thread_similarity_events (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            source_thread_id TEXT NOT NULL,
+            candidate_thread_id TEXT NOT NULL,
+            score REAL NOT NULL,
+            reason TEXT NOT NULL,
+            action TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_thread_similarity_events_source
+            ON thread_similarity_events(project_id, source_thread_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_thread_similarity_events_candidate
+            ON thread_similarity_events(project_id, candidate_thread_id, created_at);
+        """
+    )
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (35, utc_now()),
+    )
+
+
+def init_phase36_schema(connection: sqlite3.Connection) -> None:
+    """Fase 36: habilita instalaciones API/local catalogadas; CLI permanece gated por detección."""
+    if connection.execute("SELECT 1 FROM schema_migrations WHERE version = 36").fetchone():
+        return
+    timestamp = utc_now()
+    connection.execute(
+        """
+        UPDATE runtime_installations
+        SET enabled = 1,
+            updated_at = ?
+        WHERE kind IN ('api', 'gateway', 'local')
+          AND enabled = 0
+        """,
+        (timestamp,),
+    )
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (36, utc_now()),
+    )
+
+
+def init_phase37_schema(connection: sqlite3.Connection) -> None:
+    """Fase 37: contrato canónico de fuentes de ResearchAgent."""
+    _add_column_if_missing(connection, "research_sources", "url", "url TEXT")
+    _add_column_if_missing(connection, "research_sources", "title", "title TEXT NOT NULL DEFAULT ''")
+    _add_column_if_missing(
+        connection, "research_sources", "source_type", "source_type TEXT NOT NULL DEFAULT 'web'"
+    )
+    _add_column_if_missing(connection, "research_sources", "related_thread_id", "related_thread_id TEXT")
+    _add_column_if_missing(connection, "research_sources", "related_task_id", "related_task_id TEXT")
+    connection.executescript(
+        """
+        UPDATE research_sources
+        SET url = source_url
+        WHERE (url IS NULL OR url = '') AND source_url IS NOT NULL;
+        UPDATE research_sources
+        SET related_thread_id = thread_id
+        WHERE (related_thread_id IS NULL OR related_thread_id = '') AND thread_id IS NOT NULL;
+        UPDATE research_sources
+        SET title = publisher
+        WHERE title = '' AND publisher IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_research_sources_related_thread
+            ON research_sources(related_thread_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_research_sources_related_task
+            ON research_sources(related_task_id, created_at);
+        """
+    )
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (37, utc_now()),
+    )
+
+
+def init_phase38_schema(connection: sqlite3.Connection) -> None:
+    """Fase 38: catálogo durable de TeamScheduler v2 y handoffs por agente."""
+    connection.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS team_profiles (
+            id TEXT PRIMARY KEY,
+            role TEXT NOT NULL UNIQUE,
+            name TEXT NOT NULL,
+            capabilities TEXT NOT NULL,
+            runtime_preference TEXT NOT NULL,
+            provider_preference TEXT NOT NULL,
+            tools_allowed TEXT NOT NULL,
+            required_input_artifacts TEXT NOT NULL,
+            output_artifact_schema TEXT NOT NULL,
+            reviewer_policy TEXT NOT NULL,
+            quality_gates TEXT NOT NULL,
+            metadata TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS team_member_defaults (
+            id TEXT PRIMARY KEY,
+            role TEXT NOT NULL UNIQUE,
+            profile_id TEXT NOT NULL,
+            capabilities TEXT NOT NULL,
+            runtime_preference TEXT NOT NULL,
+            provider_preference TEXT NOT NULL,
+            tools_allowed TEXT NOT NULL,
+            required_input_artifacts TEXT NOT NULL,
+            output_artifact_schema TEXT NOT NULL,
+            reviewer_policy TEXT NOT NULL,
+            quality_gates TEXT NOT NULL,
+            enabled INTEGER NOT NULL DEFAULT 1,
+            metadata TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS agent_handoffs (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            assignment_id TEXT NOT NULL,
+            artifact_id TEXT NOT NULL,
+            from_agent_id TEXT NOT NULL,
+            to_agent_id TEXT NOT NULL,
+            status TEXT NOT NULL,
+            review_required INTEGER NOT NULL,
+            blocked_reason TEXT NOT NULL,
+            metadata TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_team_profiles_role
+            ON team_profiles(role);
+        CREATE INDEX IF NOT EXISTS idx_team_member_defaults_role
+            ON team_member_defaults(role, enabled);
+        CREATE INDEX IF NOT EXISTS idx_agent_handoffs_assignment
+            ON agent_handoffs(assignment_id, status);
+        CREATE INDEX IF NOT EXISTS idx_agent_handoffs_project
+            ON agent_handoffs(project_id, status);
+        """
+    )
+    from local_control_center.team_scheduler.scheduler import team_member_defaults, team_profiles
+
+    timestamp = utc_now()
+    for profile in team_profiles():
+        connection.execute(
+            """
+            INSERT INTO team_profiles
+                (id, role, name, capabilities, runtime_preference, provider_preference, tools_allowed,
+                 required_input_artifacts, output_artifact_schema, reviewer_policy, quality_gates,
+                 metadata, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(role) DO UPDATE SET
+                name = excluded.name,
+                capabilities = excluded.capabilities,
+                runtime_preference = excluded.runtime_preference,
+                provider_preference = excluded.provider_preference,
+                tools_allowed = excluded.tools_allowed,
+                required_input_artifacts = excluded.required_input_artifacts,
+                output_artifact_schema = excluded.output_artifact_schema,
+                reviewer_policy = excluded.reviewer_policy,
+                quality_gates = excluded.quality_gates,
+                metadata = excluded.metadata,
+                updated_at = excluded.updated_at
+            """,
+            (
+                profile["id"],
+                profile["role"],
+                profile["name"],
+                json_dumps(profile["capabilities"]),
+                json_dumps(profile["runtimePreference"]),
+                json_dumps(profile["providerPreference"]),
+                json_dumps(profile["toolsAllowed"]),
+                json_dumps(profile["requiredInputArtifacts"]),
+                json_dumps(profile["outputArtifactSchema"]),
+                json_dumps(profile["reviewerPolicy"]),
+                json_dumps(profile["qualityGates"]),
+                json_dumps(profile["metadata"]),
+                timestamp,
+                timestamp,
+            ),
+        )
+    for member in team_member_defaults():
+        metadata = dict(member.get("metadata") or {})
+        connection.execute(
+            """
+            INSERT INTO team_member_defaults
+                (id, role, profile_id, capabilities, runtime_preference, provider_preference,
+                 tools_allowed, required_input_artifacts, output_artifact_schema, reviewer_policy,
+                 quality_gates, enabled, metadata, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
+            ON CONFLICT(role) DO UPDATE SET
+                profile_id = excluded.profile_id,
+                capabilities = excluded.capabilities,
+                runtime_preference = excluded.runtime_preference,
+                provider_preference = excluded.provider_preference,
+                tools_allowed = excluded.tools_allowed,
+                required_input_artifacts = excluded.required_input_artifacts,
+                output_artifact_schema = excluded.output_artifact_schema,
+                reviewer_policy = excluded.reviewer_policy,
+                quality_gates = excluded.quality_gates,
+                enabled = excluded.enabled,
+                metadata = excluded.metadata,
+                updated_at = excluded.updated_at
+            """,
+            (
+                f"team-member-default-{member['role'].replace('_', '-')}",
+                member["role"],
+                member["id"],
+                json_dumps(metadata.get("capabilities") or []),
+                json_dumps(metadata.get("runtimePreference") or []),
+                json_dumps(metadata.get("providerPreference") or []),
+                json_dumps(member.get("allowedTools") or []),
+                json_dumps(metadata.get("requiredInputArtifacts") or []),
+                json_dumps(member.get("outputSchema") or {}),
+                json_dumps(member.get("reviewerPolicy") or {}),
+                json_dumps(member.get("qualityGates") or []),
+                json_dumps(metadata),
+                timestamp,
+                timestamp,
+            ),
+        )
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (38, utc_now()),
+    )
+
+
 def init_phase39_schema(connection: sqlite3.Connection) -> None:
     """Fase 39: sistema formal de plugins, versiones, permisos, skills, agentes, tools y audit."""
     connection.executescript(
@@ -3928,6 +4192,341 @@ def init_phase39_schema(connection: sqlite3.Connection) -> None:
     connection.execute(
         "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
         (39, utc_now()),
+    )
+
+
+def init_phase40_schema(connection: sqlite3.Connection) -> None:
+    """Fase 40: targets y entregas n8n como automatización externa project-scoped."""
+    connection.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS n8n_webhook_targets (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            url TEXT NOT NULL,
+            credential_ref TEXT NOT NULL,
+            enabled INTEGER NOT NULL,
+            allowed_event_types TEXT NOT NULL,
+            metadata TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_n8n_webhook_targets_project_url
+            ON n8n_webhook_targets(project_id, url);
+        CREATE INDEX IF NOT EXISTS idx_n8n_webhook_targets_project_enabled
+            ON n8n_webhook_targets(project_id, enabled, updated_at);
+        CREATE TABLE IF NOT EXISTS n8n_event_deliveries (
+            id TEXT PRIMARY KEY,
+            target_id TEXT NOT NULL,
+            project_id TEXT NOT NULL,
+            event_type TEXT NOT NULL,
+            subject_id TEXT,
+            status TEXT NOT NULL,
+            status_code INTEGER,
+            request_payload TEXT NOT NULL,
+            response_body TEXT NOT NULL,
+            error TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_n8n_event_deliveries_target_created
+            ON n8n_event_deliveries(target_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_n8n_event_deliveries_project_event
+            ON n8n_event_deliveries(project_id, event_type, created_at);
+        """
+    )
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (40, utc_now()),
+    )
+
+
+def init_phase41_schema(connection: sqlite3.Connection) -> None:
+    """Fase 41: migra intake legacy de sessions/chats/pipelines a threads reales.
+
+    Las tablas legacy quedan como historial read-only. La migracion es idempotente y deterministica:
+    cada session/chat/pipeline recibe un thread/message estable con id derivado del registro legacy,
+    y la metadata legacy queda marcada con ``legacyReadOnly`` y el destino migrado.
+    """
+    session_threads: dict[str, str] = {}
+    chat_threads: dict[str, str] = {}
+
+    sessions = connection.execute("SELECT * FROM sessions ORDER BY created_at ASC, rowid ASC").fetchall()
+    for session in sessions:
+        thread_id = _legacy_thread_id(str(session["id"]))
+        session_threads[str(session["id"])] = thread_id
+        metadata = _legacy_metadata(
+            session["metadata"],
+            source="sessions",
+            migrated_to_thread_id=thread_id,
+            legacy_payload={
+                "sessionId": session["id"],
+                "teamId": session["team_id"],
+                "status": session["status"],
+            },
+        )
+        connection.execute(
+            """
+            INSERT OR IGNORE INTO project_threads
+                (id, project_id, owner_type, owner_id, title, status, summary, metadata,
+                 created_at, updated_at)
+            VALUES (?, ?, 'workspace', ?, ?, 'open', '', ?, ?, ?)
+            """,
+            (
+                thread_id,
+                session["project_id"],
+                session["id"],
+                session["name"],
+                json_dumps(metadata),
+                session["created_at"],
+                session["updated_at"],
+            ),
+        )
+        _mark_legacy_metadata(
+            connection,
+            table="sessions",
+            row_id=str(session["id"]),
+            metadata=metadata,
+        )
+
+    chats = connection.execute("SELECT * FROM chats ORDER BY created_at ASC, rowid ASC").fetchall()
+    for chat in chats:
+        session_id = str(chat["session_id"] or "")
+        thread_id = session_threads.get(session_id) if session_id else None
+        if thread_id is None:
+            thread_id = _legacy_thread_id(str(chat["id"]))
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO project_threads
+                    (id, project_id, owner_type, owner_id, title, status, summary, metadata,
+                     created_at, updated_at)
+                VALUES (?, ?, 'workspace', ?, ?, 'open', ?, ?, ?, ?)
+                """,
+                (
+                    thread_id,
+                    chat["project_id"],
+                    chat["id"],
+                    chat["title"],
+                    _legacy_summary(str(chat["prompt"] or "")),
+                    json_dumps(
+                        {
+                            "legacyReadOnly": True,
+                            "legacy": {
+                                "source": "chats",
+                                "chatId": chat["id"],
+                                "sessionId": chat["session_id"],
+                                "status": chat["status"],
+                            },
+                        }
+                    ),
+                    chat["created_at"],
+                    chat["updated_at"],
+                ),
+            )
+        chat_threads[str(chat["id"])] = thread_id
+        message_id = _legacy_message_id(str(chat["id"]))
+        _insert_legacy_message(
+            connection,
+            message_id=message_id,
+            thread_id=thread_id,
+            project_id=str(chat["project_id"]),
+            kind="user",
+            author="legacy_chat",
+            content=str(chat["prompt"] or ""),
+            metadata={
+                "legacyReadOnly": True,
+                "legacy": {
+                    "source": "chats",
+                    "chatId": chat["id"],
+                    "sessionId": chat["session_id"],
+                    "status": chat["status"],
+                },
+            },
+            created_at=str(chat["created_at"]),
+        )
+        metadata = _legacy_metadata(
+            chat["metadata"],
+            source="chats",
+            migrated_to_thread_id=thread_id,
+            migrated_to_message_id=message_id,
+            legacy_payload={
+                "chatId": chat["id"],
+                "sessionId": chat["session_id"],
+                "status": chat["status"],
+            },
+        )
+        _mark_legacy_metadata(connection, table="chats", row_id=str(chat["id"]), metadata=metadata)
+
+    pipelines = connection.execute(
+        "SELECT * FROM pipelines ORDER BY created_at ASC, rowid ASC"
+    ).fetchall()
+    for pipeline in pipelines:
+        chat_id = str(pipeline["chat_id"] or "")
+        session_id = str(pipeline["session_id"] or "")
+        thread_id = chat_threads.get(chat_id) or session_threads.get(session_id)
+        if thread_id is None:
+            thread_id = _legacy_thread_id(str(pipeline["id"]))
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO project_threads
+                    (id, project_id, owner_type, owner_id, title, status, summary, metadata,
+                     created_at, updated_at)
+                VALUES (?, ?, 'workspace', ?, ?, 'open', '', ?, ?, ?)
+                """,
+                (
+                    thread_id,
+                    pipeline["project_id"],
+                    pipeline["id"],
+                    pipeline["title"],
+                    json_dumps(
+                        {
+                            "legacyReadOnly": True,
+                            "legacy": {
+                                "source": "pipelines",
+                                "pipelineId": pipeline["id"],
+                                "sessionId": pipeline["session_id"],
+                                "chatId": pipeline["chat_id"],
+                                "status": pipeline["status"],
+                            },
+                        }
+                    ),
+                    pipeline["created_at"],
+                    pipeline["updated_at"],
+                ),
+            )
+        message_id = _legacy_message_id(str(pipeline["id"]))
+        _insert_legacy_message(
+            connection,
+            message_id=message_id,
+            thread_id=thread_id,
+            project_id=str(pipeline["project_id"]),
+            kind="system_event",
+            author="legacy_pipeline",
+            content=f"Legacy pipeline imported: {pipeline['title']} ({pipeline['status']})",
+            metadata={
+                "legacyReadOnly": True,
+                "legacy": {
+                    "source": "pipelines",
+                    "pipelineId": pipeline["id"],
+                    "sessionId": pipeline["session_id"],
+                    "chatId": pipeline["chat_id"],
+                    "status": pipeline["status"],
+                    "stagesJson": pipeline["stages"],
+                },
+            },
+            created_at=str(pipeline["created_at"]),
+        )
+        metadata = _legacy_metadata(
+            pipeline["metadata"],
+            source="pipelines",
+            migrated_to_thread_id=thread_id,
+            migrated_to_message_id=message_id,
+            legacy_payload={
+                "pipelineId": pipeline["id"],
+                "sessionId": pipeline["session_id"],
+                "chatId": pipeline["chat_id"],
+                "status": pipeline["status"],
+            },
+        )
+        _mark_legacy_metadata(
+            connection,
+            table="pipelines",
+            row_id=str(pipeline["id"]),
+            metadata=metadata,
+        )
+
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (41, utc_now()),
+    )
+
+
+def _legacy_thread_id(record_id: str) -> str:
+    return f"thread-legacy-{record_id}"
+
+
+def _legacy_message_id(record_id: str) -> str:
+    return f"thread-msg-legacy-{record_id}"
+
+
+def _legacy_summary(content: str) -> str:
+    return content.strip().replace("\n", " ")[:140]
+
+
+def _legacy_metadata(
+    raw_metadata: str,
+    *,
+    source: str,
+    migrated_to_thread_id: str,
+    legacy_payload: dict[str, object],
+    migrated_to_message_id: str | None = None,
+) -> dict[str, object]:
+    metadata = json_loads(raw_metadata, {})
+    if not isinstance(metadata, dict):
+        metadata = {}
+    legacy: dict[str, object] = {
+        "source": source,
+        "migratedToThreadId": migrated_to_thread_id,
+        **legacy_payload,
+    }
+    if migrated_to_message_id:
+        legacy["migratedToMessageId"] = migrated_to_message_id
+    return {**metadata, "legacyReadOnly": True, "legacy": legacy}
+
+
+def _mark_legacy_metadata(
+    connection: sqlite3.Connection,
+    *,
+    table: str,
+    row_id: str,
+    metadata: dict[str, object],
+) -> None:
+    if table not in {"sessions", "chats", "pipelines"}:
+        raise ValueError(f"Unknown legacy table: {table}")
+    update_sql = {
+        "sessions": "UPDATE sessions SET metadata = ?, updated_at = ? WHERE id = ?",
+        "chats": "UPDATE chats SET metadata = ?, updated_at = ? WHERE id = ?",
+        "pipelines": "UPDATE pipelines SET metadata = ?, updated_at = ? WHERE id = ?",
+    }[table]
+    connection.execute(
+        update_sql,
+        (json_dumps(metadata), utc_now(), row_id),
+    )
+
+
+def _insert_legacy_message(
+    connection: sqlite3.Connection,
+    *,
+    message_id: str,
+    thread_id: str,
+    project_id: str,
+    kind: str,
+    author: str,
+    content: str,
+    metadata: dict[str, object],
+    created_at: str,
+) -> None:
+    if connection.execute("SELECT 1 FROM thread_messages WHERE id = ?", (message_id,)).fetchone():
+        return
+    row = connection.execute(
+        "SELECT COALESCE(MAX(sequence), 0) + 1 AS next FROM thread_messages WHERE thread_id = ?",
+        (thread_id,),
+    ).fetchone()
+    connection.execute(
+        """
+        INSERT INTO thread_messages
+            (id, thread_id, project_id, sequence, kind, author, content, metadata, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            message_id,
+            thread_id,
+            project_id,
+            int(row["next"]),
+            kind,
+            author,
+            content,
+            json_dumps(metadata),
+            created_at,
+        ),
     )
 
 

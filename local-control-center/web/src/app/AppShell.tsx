@@ -19,6 +19,7 @@ import { Group, Panel, Separator, useDefaultLayout, usePanelRef } from 'react-re
 
 import type { Overview, Project, RuntimeProviders } from '../api/types';
 import { ShellSidebar } from '../features/shell/ShellSidebar';
+import { NEW_SESSION_ID } from '../features/workbench/useWorkbenchData';
 import type { WorkspaceMode } from '../features/workspace/useProjectDiscovery';
 import { useIsDesktopLayout } from '../hooks/useIsDesktopLayout';
 import { BottomPanel } from './BottomPanel';
@@ -172,6 +173,16 @@ export function AppShell({
 		if (selectedRunId) expandInspector();
 	}, [selectedRunId, expandInspector]);
 
+	// Threads area: surface the manager console whenever a live thread is selected, mirroring
+	// the run-detail behavior above (the user can still collapse it afterwards). Desktop only:
+	// in the stacked mobile layout the inspector overlays the composer and blocks its clicks.
+	useEffect(() => {
+		if (!isDesktop) return;
+		if (area === 'threads' && selectedSessionId && selectedSessionId !== NEW_SESSION_ID) {
+			expandInspector();
+		}
+	}, [area, isDesktop, selectedSessionId, expandInspector]);
+
 	const toggleBottom = useCallback(() => {
 		const handle = bottomPanelRef.current;
 		if (handle) {
@@ -213,6 +224,7 @@ export function AppShell({
 			overview={overview}
 			selectedProjectId={selectedProject?.id ?? ''}
 			selectedSessionId={selectedSessionId}
+			mutate={mutate}
 			onSelectProject={onSelectProject}
 			onSelectSession={(sessionId) => {
 				onSelectSession(sessionId);
@@ -244,6 +256,7 @@ export function AppShell({
 			onClose={toggleInspector}
 			onClearRun={onClearRun}
 			showLoops={area === 'threads'}
+			selectedThreadId={selectedSessionId}
 		/>
 	);
 

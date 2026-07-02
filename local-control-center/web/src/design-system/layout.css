@@ -400,8 +400,9 @@
 	padding-left: var(--space-4);
 }
 
+/* Wrapper row: the select button inside carries the padding; the menu trigger sits at the right. */
 .thread-row {
-	padding-block: var(--space-1);
+	padding: 0 var(--space-1) 0 0;
 }
 
 .thread-row[aria-current="true"] {
@@ -410,8 +411,35 @@
 	box-shadow: inset 0 0 0 1px var(--color-border-selected);
 }
 
+/* The "New thread" affordance stays a plain button (no menu), so it keeps its own padding. */
 .thread-row.is-new {
+	padding: var(--space-1) var(--space-2);
 	color: var(--color-text-secondary);
+}
+
+.thread-row-select {
+	flex: 1 1 auto;
+	min-width: 0;
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	padding: var(--space-1) var(--space-2);
+	border: 0;
+	background: transparent;
+	color: inherit;
+	font: inherit;
+	text-align: left;
+	border-radius: var(--radius-sm);
+	cursor: pointer;
+}
+
+.thread-row-select:focus-visible {
+	outline: none;
+	box-shadow: var(--shadow-focus);
+}
+
+.thread-row.is-archived .thread-row-name {
+	color: var(--color-text-muted);
 }
 
 .thread-dot {
@@ -446,6 +474,265 @@
 	padding: var(--space-2) var(--space-3);
 	color: var(--color-text-muted);
 	font-size: var(--font-size-sm);
+}
+
+/* Per-row actions trigger: revealed on hover/focus (always visible on touch and the active row). */
+.thread-row .thread-menu-trigger {
+	flex: 0 0 auto;
+	width: 1.6rem;
+	height: 1.6rem;
+	border: 0;
+	background: transparent;
+	color: var(--color-text-muted);
+	border-radius: var(--radius-sm);
+	opacity: 0;
+}
+
+.thread-row:hover .thread-menu-trigger,
+.thread-row:focus-within .thread-menu-trigger,
+.thread-row[aria-current="true"] .thread-menu-trigger,
+.thread-row .thread-menu-trigger[aria-expanded="true"] {
+	opacity: 1;
+}
+
+.thread-row .thread-menu-trigger:hover {
+	background: var(--color-surface-inset);
+	color: var(--color-text-primary);
+}
+
+@media (hover: none) {
+	.thread-row .thread-menu-trigger {
+		width: 2.25rem;
+		height: 2.25rem;
+		opacity: 1;
+	}
+}
+
+/* Contextual menu popover (portalled; positioned via inline top/left). */
+.thread-menu {
+	position: fixed;
+	z-index: var(--z-command);
+	display: flex;
+	flex-direction: column;
+	min-width: 13.5rem;
+	max-width: 18rem;
+	padding: var(--space-1);
+	background: var(--color-surface-panel-raised);
+	border: 1px solid var(--color-border-default);
+	border-radius: var(--radius-md);
+	box-shadow: var(--shadow-lg);
+}
+
+.thread-menu:focus {
+	outline: none;
+}
+
+.thread-menu-item {
+	display: flex;
+	align-items: flex-start;
+	gap: var(--space-2);
+	width: 100%;
+	padding: var(--space-2);
+	border: 0;
+	background: transparent;
+	color: var(--color-text-secondary);
+	font: inherit;
+	font-size: var(--font-size-sm);
+	text-align: left;
+	border-radius: var(--radius-sm);
+	cursor: pointer;
+}
+
+.thread-menu-item svg {
+	flex: 0 0 auto;
+	margin-top: 2px;
+}
+
+.thread-menu-item:hover,
+.thread-menu-item:focus-visible {
+	background: var(--color-surface-card-hover);
+	color: var(--color-text-primary);
+	outline: none;
+}
+
+.thread-menu-item:focus-visible {
+	box-shadow: var(--shadow-focus);
+}
+
+.thread-menu-item-body {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	min-width: 0;
+}
+
+.thread-menu-item-label {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.thread-menu-item[data-tone="danger"] {
+	color: var(--color-status-danger);
+}
+
+.thread-menu-item[aria-disabled="true"] {
+	cursor: not-allowed;
+}
+
+.thread-menu-item[aria-disabled="true"] .thread-menu-item-label {
+	opacity: 0.5;
+}
+
+.thread-menu-note {
+	font-size: var(--font-size-2xs);
+	color: var(--color-text-muted);
+	white-space: normal;
+}
+
+.thread-menu-separator {
+	height: 1px;
+	margin: var(--space-1) var(--space-2);
+	border: 0;
+	background: var(--color-border-subtle);
+}
+
+/* Inline rename editor: replaces the row label in place. */
+.thread-rename-input {
+	flex: 1 1 auto;
+	min-width: 0;
+	margin: 2px 0;
+	padding: 2px var(--space-2);
+	font: inherit;
+	font-size: var(--font-size-sm);
+	color: var(--color-text-primary);
+	background: var(--color-surface-inset);
+	border: 1px solid var(--color-border-selected);
+	border-radius: var(--radius-sm);
+	outline: none;
+}
+
+/* Archived threads: section label inside each workspace plus the sidebar-level toggle. */
+.thread-archived-head {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	margin: var(--space-2) 0 0;
+	padding: var(--space-1) var(--space-2);
+	font-size: var(--font-size-2xs);
+	font-weight: var(--weight-semibold);
+	text-transform: uppercase;
+	letter-spacing: 0.06em;
+	color: var(--color-text-muted);
+}
+
+.thread-archived-toggle {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	width: 100%;
+	margin-top: var(--space-3);
+	padding: var(--space-2);
+	border: 0;
+	background: transparent;
+	color: var(--color-text-muted);
+	font: inherit;
+	font-size: var(--font-size-sm);
+	text-align: left;
+	border-radius: var(--radius-sm);
+	cursor: pointer;
+}
+
+.thread-archived-toggle:hover {
+	background: var(--color-surface-card-hover);
+	color: var(--color-text-secondary);
+}
+
+.thread-archived-toggle:focus-visible {
+	outline: none;
+	box-shadow: var(--shadow-focus);
+}
+
+.thread-archived-toggle[aria-pressed="true"] {
+	color: var(--color-text-secondary);
+}
+
+/* Confirm-delete dialog body. */
+.thread-delete-dialog {
+	width: min(28rem, 92vw);
+}
+
+.thread-delete-body {
+	display: grid;
+	gap: var(--space-3);
+}
+
+.thread-delete-body p {
+	margin: 0;
+	color: var(--color-text-secondary);
+}
+
+.thread-delete-body .thread-delete-name {
+	font-weight: var(--weight-semibold);
+	color: var(--color-text-primary);
+	overflow-wrap: anywhere;
+}
+
+.thread-delete-actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: var(--space-3);
+	margin-top: var(--space-2);
+}
+
+/* Thread artifacts dialog. */
+.thread-artifacts-dialog {
+	width: min(34rem, 92vw);
+}
+
+.thread-artifacts-body {
+	display: grid;
+	gap: var(--space-3);
+}
+
+.thread-artifacts-thread {
+	margin: 0;
+	color: var(--color-text-secondary);
+	font-size: var(--font-size-sm);
+	overflow-wrap: anywhere;
+}
+
+.thread-artifacts-list {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+	display: grid;
+	gap: var(--space-1);
+}
+
+.thread-artifacts-row {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	padding: var(--space-2);
+	border: 1px solid var(--color-border-subtle);
+	border-radius: var(--radius-sm);
+}
+
+.thread-artifacts-name {
+	flex: 1 1 auto;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: var(--color-text-primary);
+}
+
+.thread-artifacts-time {
+	flex: 0 0 auto;
+	color: var(--color-text-muted);
+	font-size: var(--font-size-2xs);
+	font-family: var(--font-data);
 }
 
 .thread-add-workspace {
@@ -1390,9 +1677,26 @@
 	flex: 0 0 auto;
 }
 
-/* The single scroll region for the live thread: transcript, pending decision and the execution
-   console scroll together here so the page never shows two independent scrollbars. The composer
-   (`.thread-composer-dock`) sits outside it, fixed at the bottom of `.thread-live-layout`. */
+/* Two work regions under the header: the transcript pane (chat + composer) and the execution
+   panel, side by side on wide screens. Each pane owns its own vertical scroll — separate surfaces,
+   not the double scrollbar in one column that the transcript pane still forbids. */
+.thread-live-body {
+	display: flex;
+	flex: 1 1 auto;
+	min-height: 0;
+}
+
+.thread-transcript-pane {
+	display: flex;
+	flex-direction: column;
+	flex: 1 1 auto;
+	min-width: 0;
+	min-height: 0;
+}
+
+/* The transcript scroll region: messages, pending decision and artifacts scroll together here so
+   the pane never shows two scrollbars. The composer (`.thread-composer-dock`) sits under it, fixed
+   at the bottom of `.thread-transcript-pane`. */
 .thread-live-scroll {
 	flex: 1 1 auto;
 	min-height: 0;
@@ -1441,23 +1745,176 @@
 		color-mix(in oklch, var(--color-status-warning) 45%, var(--color-border-subtle));
 }
 
-.thread-execution-console {
+/* The execution panel: its own scrollable surface next to the transcript. Mono by default (it is
+   a console); the human-facing blocks inside (banner, blockers, stepper) opt back into sans. */
+.thread-execution-pane {
+	flex: 0 0 clamp(18rem, 30vw, 24rem);
+	min-height: 0;
+	overflow-y: auto;
 	display: grid;
-	gap: var(--space-1);
+	align-content: start;
+	gap: var(--space-3);
+	padding: var(--space-3) var(--space-4);
+	border-left: 1px solid var(--color-border-subtle);
+	background: var(--color-surface-inset);
 	font-family: var(--font-mono);
 	font-size: var(--font-size-sm);
 }
 
-.thread-console-title {
+.thread-execution-head {
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
 	gap: var(--space-3);
+	flex-wrap: wrap;
 	min-height: 2.5rem;
 	font-family: var(--font-sans);
 	font-weight: var(--weight-semibold);
 	color: var(--color-text-primary);
 	border-bottom: 1px solid var(--color-border-subtle);
+}
+
+/* Tone is carried by the full border colour, never a side stripe. */
+.thread-queued-banner {
+	display: grid;
+	gap: var(--space-2);
+	justify-items: start;
+	padding: var(--space-3);
+	font-family: var(--font-sans);
+	border: 1px solid color-mix(in oklch, var(--color-status-warning) 45%, var(--color-border-subtle));
+	border-radius: var(--radius-md);
+	background: var(--color-surface-panel);
+}
+
+.thread-queued-banner p {
+	margin: 0;
+	color: var(--color-text-secondary);
+}
+
+.thread-queued-hint {
+	font-size: var(--font-size-sm);
+	color: var(--color-text-muted);
+}
+
+.thread-blocker-list {
+	display: grid;
+	gap: var(--space-2);
+}
+
+/* Tone is carried by the full border colour, never a side stripe. */
+.thread-blocker-card {
+	display: grid;
+	gap: var(--space-2);
+	justify-items: start;
+	padding: var(--space-3);
+	font-family: var(--font-sans);
+	border: 1px solid color-mix(in oklch, var(--color-status-danger) 40%, var(--color-border-subtle));
+	border-radius: var(--radius-md);
+	background: var(--color-surface-panel);
+}
+
+.thread-blocker-card p {
+	margin: 0;
+	color: var(--color-text-secondary);
+	overflow-wrap: anywhere;
+}
+
+.thread-blocker-title {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-2);
+	color: var(--color-status-danger);
+}
+
+.thread-blocker-hint {
+	font-size: var(--font-size-sm);
+	color: var(--color-text-muted);
+}
+
+.thread-pipeline {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+	display: grid;
+	gap: var(--space-1);
+	font-family: var(--font-sans);
+}
+
+.thread-pipeline-step {
+	display: grid;
+	grid-template-columns: auto minmax(0, 1fr) auto;
+	align-items: center;
+	gap: var(--space-2);
+	padding: var(--space-1) 0;
+	color: var(--color-text-muted);
+}
+
+.thread-pipeline-dot {
+	width: 0.5rem;
+	height: 0.5rem;
+	border-radius: 50%;
+	background: var(--color-border-strong);
+}
+
+.thread-pipeline-state {
+	font-size: var(--font-size-xs);
+	text-transform: lowercase;
+}
+
+.thread-pipeline-step[data-state="active"] {
+	color: var(--color-text-primary);
+}
+
+.thread-pipeline-step[data-state="active"] .thread-pipeline-dot {
+	background: var(--color-status-info);
+}
+
+.thread-pipeline-step[data-state="done"] {
+	color: var(--color-text-secondary);
+}
+
+.thread-pipeline-step[data-state="done"] .thread-pipeline-dot {
+	background: var(--color-status-success);
+}
+
+.thread-pipeline-step[data-state="blocked"] {
+	color: var(--color-status-danger);
+}
+
+.thread-pipeline-step[data-state="blocked"] .thread-pipeline-dot {
+	background: var(--color-status-danger);
+}
+
+.thread-execution-log {
+	display: grid;
+	gap: var(--space-1);
+}
+
+.thread-console-payload summary {
+	cursor: pointer;
+	font-size: var(--font-size-xs);
+	color: var(--color-text-muted);
+}
+
+.thread-console-payload pre {
+	margin: var(--space-1) 0 0;
+	padding: var(--space-2);
+	max-height: 16rem;
+	overflow: auto;
+	font-size: var(--font-size-xs);
+	border: 1px solid var(--color-border-subtle);
+	border-radius: var(--radius-sm);
+	background: var(--color-surface-canvas);
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+
+.thread-console-actions {
+	display: inline-flex;
+	align-items: center;
+	justify-content: flex-end;
+	gap: var(--space-2);
+	flex-wrap: wrap;
 }
 
 .thread-console-status {
@@ -1519,10 +1976,33 @@
 	flex-direction: column;
 }
 
+/* Narrow screens: the execution panel becomes a bounded console drawer under the composer (the
+   IDE bottom-console pattern) instead of a side column. */
+@media (max-width: 960px) {
+	.thread-live-body {
+		flex-direction: column;
+	}
+
+	/* The stacked shell scrolls the document instead of giving this column a real height, so the
+	   transcript pane must size to its content — `flex: 1` here collapses it to 0px and the console
+	   drawer paints over the composer, swallowing its clicks. */
+	.thread-transcript-pane {
+		flex: 0 0 auto;
+	}
+
+	.thread-execution-pane {
+		flex: 0 0 auto;
+		max-height: 40dvh;
+		border-left: none;
+		border-top: 1px solid var(--color-border-subtle);
+	}
+}
+
 @media (max-width: 720px) {
 	.thread-live-layout .thread-conversation-head,
 	.thread-live-scroll,
-	.thread-composer-dock {
+	.thread-composer-dock,
+	.thread-execution-pane {
 		padding-left: var(--space-3);
 		padding-right: var(--space-3);
 	}
@@ -1716,6 +2196,65 @@
 .thread-intake-form {
 	width: 100%;
 	max-width: 110rem;
+}
+
+/* ---- Similar-work suggestion (debounced lookup under the new-thread composer) ---- */
+
+.thread-similarity-slot {
+	width: 100%;
+}
+
+.thread-similarity-card {
+	display: grid;
+	gap: var(--space-2);
+	margin-top: var(--space-3);
+	padding: var(--space-3);
+	border: 1px solid color-mix(in oklch, var(--color-status-info) 40%, var(--color-border-subtle));
+	border-radius: var(--radius-lg);
+	background: color-mix(in oklch, var(--color-status-info) 6%, var(--color-surface-card));
+}
+
+.thread-similarity-head {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	color: var(--color-text-primary);
+	font-size: var(--font-size-sm);
+}
+
+.thread-similarity-head h3 {
+	margin: 0;
+	font-size: inherit;
+	font-weight: 600;
+}
+
+.thread-similarity-candidate {
+	display: grid;
+	gap: var(--space-1);
+	margin: 0;
+	font-size: var(--font-size-sm);
+	color: var(--color-text-primary);
+}
+
+.thread-similarity-candidate span {
+	color: var(--color-text-secondary);
+}
+
+/* A real fieldset (semantic group for the four dedup decisions): reset the UA chrome. */
+.thread-similarity-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-2);
+	margin: 0;
+	padding: 0;
+	border: 0;
+	min-inline-size: auto;
+}
+
+.thread-similarity-error {
+	margin: 0;
+	font-size: var(--font-size-sm);
+	color: var(--color-status-danger);
 }
 
 /* ---- Codex-style composer box (shared by the new-thread intake and the active conversation) ---- */

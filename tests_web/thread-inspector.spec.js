@@ -1,0 +1,119 @@
+/**
+ * Thread Inspector (threads area): the 8-tab "AI manager" console in the right pane.
+ *
+ * Verifies against the real control plane that the inspector opens with the live thread,
+ * pins the loop vitals above the tabs, exposes the eight manager views as real ARIA tabs,
+ * renders the Goal view from actual thread data, and never strands a view on its loading
+ * skeleton after rapid tab switching (regression: the in-flight dedup marker must reset
+ * synchronously when a tab unmounts mid-fetch).
+ * @author Rodrigo Mason
+ */
+import { expect, test } from '@playwright/test';
+
+async function expectControlPlaneLoaded(page) {
+	await expect(page.getByRole('heading', { name: 'AIDO Control Center' })).toBeVisible({
+		timeout: 30_000,
+	});
+	await expect(page.getByText('Loading control plane')).toBeHidden({ timeout: 30_000 });
+}
+
+/** Creates a real thread through the composer and waits for the live layout. */
+async function createLiveThread(page, firstMessage) {
+	await page.locator('.thread-workspace-head').first().click();
+	await page.locator('.shell-new-thread').click();
+	await expect(page.getByRole('heading', { name: /What will we work on/ })).toBeVisible();
+	await page.getByLabel('Message AIDO').fill(firstMessage);
+	await page.getByRole('button', { name: 'Create thread' }).click();
+	await expect(page.getByText(firstMessage).first()).toBeVisible({ timeout: 20_000 });
+}
+
+test('Threads: the inspector opens as the AI-manager console with pinned loop vitals', async ({
+	page,
+}) => {
+	await page.goto('/#threads');
+	await expectControlPlaneLoaded(page);
+
+	const firstMessage = `Show the AI manager console over this goal ${Date.now()}`;
+	await createLiveThread(page, firstMessage);
+
+	// Selecting a live thread auto-expands the inspector with the manager console inside.
+	const inspector = page.locator('.inspector-panel');
+	await expect(inspector.locator('.thread-inspector')).toBeVisible({ timeout: 20_000 });
+
+	// The eight manager views exist as real tabs in one tablist.
+	const tablist = inspector.getByRole('tablist');
+	const tabNames = [
+		/Goal|Objetivo/,
+		/Team|Equipo/,
+		/Plan/,
+		/Backlog/,
+		/Memory|Memoria/,
+		/Research|Investigaci/,
+		/Artifacts|Artefactos/,
+		/Settings|Configuraci/,
+	];
+	for (const name of tabNames) {
+		await expect(tablist.getByRole('tab', { name })).toBeAttached();
+	}
+
+	// Loop vitals stay pinned above the tabs: the chip mirrors the thread's real status
+	// (queued or waiting_decision depending on how the coordinator classified the goal).
+	const vitals = inspector.locator('.thread-inspector-summary');
+	await expect(vitals).toBeVisible({ timeout: 20_000 });
+	const projectsResponse = await page.request.get('/api/v1/projects');
+	const { projects } = await projectsResponse.json();
+	const project = projects.find((item) => item.status === 'active');
+	expect(project).toBeTruthy();
+	const listed = await page.request.get(`/api/v1/threads?projectId=${project.id}`);
+	const { threads } = await listed.json();
+	const created = threads.find((thread) => thread.title === firstMessage.slice(0, 80));
+	expect(created).toBeTruthy();
+	const statusText = created.status.replace(/_/g, ' ');
+	await expect(vitals.getByText(new RegExp(statusText, 'i')).first()).toBeVisible({
+		timeout: 20_000,
+	});
+
+	// Goal (default view) renders the real objective plus its metadata, no placeholders.
+	await expect(inspector.locator('.thread-inspector-goal-text')).toContainText(firstMessage, {
+		timeout: 20_000,
+	});
+	await expect(inspector.getByText(/Owner|Responsable/).first()).toBeVisible();
+});
+
+test('Threads: inspector views survive rapid tab switching without a stuck skeleton', async ({
+	page,
+}) => {
+	await page.goto('/#threads');
+	await expectControlPlaneLoaded(page);
+
+	const firstMessage = `Exercise inspector tab switching ${Date.now()}`;
+	await createLiveThread(page, firstMessage);
+
+	const inspector = page.locator('.inspector-panel');
+	await expect(inspector.locator('.thread-inspector')).toBeVisible({ timeout: 20_000 });
+	const tablist = inspector.getByRole('tablist');
+
+	// Rapid away-and-back while fetches are in flight: each view must settle on real
+	// content or its honest empty state, never a permanent loading skeleton.
+	await tablist.getByRole('tab', { name: /Team|Equipo/ }).click();
+	await tablist.getByRole('tab', { name: /Plan/ }).click();
+	await tablist.getByRole('tab', { name: /Team|Equipo/ }).click();
+	await tablist.getByRole('tab', { name: /Plan/ }).click();
+	await expect(inspector.locator('.thread-inspector-loading')).toBeHidden({ timeout: 20_000 });
+	await expect(
+		inspector.locator('.thread-inspector-stack, .thread-inspector-list, .empty-state').first(),
+	).toBeVisible({ timeout: 20_000 });
+
+	// Team view: agent roster rows or the honest "no agents" empty state.
+	await tablist.getByRole('tab', { name: /Team|Equipo/ }).click();
+	await expect(inspector.locator('.thread-inspector-loading')).toBeHidden({ timeout: 20_000 });
+	await expect(
+		inspector.locator('.thread-inspector-row, .empty-state').first(),
+	).toBeVisible({ timeout: 20_000 });
+
+	// Settings view: resolved read-only configuration or its empty state.
+	await tablist.getByRole('tab', { name: /Settings|Configuraci/ }).click();
+	await expect(
+		inspector.locator('.thread-inspector-row, .empty-state').first(),
+	).toBeVisible({ timeout: 20_000 });
+});

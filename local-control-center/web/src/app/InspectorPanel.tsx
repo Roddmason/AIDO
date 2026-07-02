@@ -1,24 +1,27 @@
 /**
  * Right-hand context panel summarizing the selected project's key signals.
  *
- * Muestra un EmptyState mientras no hay proyecto seleccionado; cuando lo hay, deriva
- * estadísticas resumidas con `useMemo` y expone tres vistas mediante un control `Tabs`
- * —team, plan y artifacts (por defecto plan)— para inspeccionar el proyecto activo sin
- * salir del workbench.
+ * Muestra un EmptyState mientras no hay proyecto seleccionado. En el área de threads el panel
+ * se convierte en el {@link ThreadInspector}: la consola de "manager de IAs" con ocho vistas
+ * (Goal, Team, Plan, Backlog, Memory, Research, Artifacts, Settings) sobre el hilo activo. En
+ * el resto de áreas conserva el resumen del proyecto (aprobaciones, evidencia, workspaces,
+ * workflows), y cuando hay un run seleccionado muestra su detalle.
  * @author Rodrigo Mason
  */
 
 import type { Variants } from 'motion/react';
 import { m } from 'motion/react';
-import { useLayoutEffect, useMemo, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
+import { useLayoutEffect, useMemo, useRef } from 'react';
 
 import type { Overview, Project } from '../api/types';
 import { Badge, EmptyState } from '../components/primitives';
-import { IconButton, Tabs } from '../components/ui';
-import { LoopList } from '../features/shell/LoopList';
+import { IconButton } from '../components/ui';
+import { ThreadInspector } from '../features/shell/ThreadInspector';
+import { NEW_SESSION_ID } from '../features/workbench/useWorkbenchData';
 import { RunDetail } from '../features/workflows/RunDetail';
 import { useI18n } from '../i18n/I18nProvider';
-import { shortId, toneForStatus } from '../lib/format';
+import { toneForStatus } from '../lib/format';
 import { EASE_OUT } from '../motion/variants';
 import type { Mutate } from './routes';
 
@@ -37,6 +40,7 @@ const inspectorReveal: Variants = {
 /**
  * Shows the selected project's path, status and counts (approvals, evidence,
  * workspaces, workflows) scoped to that project, or an empty state when none is set.
+ * In the threads area the body is the {@link ThreadInspector} manager console instead.
  */
 export function InspectorPanel({
 	overview,
@@ -47,6 +51,7 @@ export function InspectorPanel({
 	onClose,
 	onClearRun,
 	showLoops = false,
+	selectedThreadId = '',
 }: {
 	overview: Overview;
 	selectedProject: Project | null;
@@ -56,12 +61,12 @@ export function InspectorPanel({
 	mutate: Mutate;
 	onClose: () => void;
 	onClearRun: () => void;
-	/** Show the project's product-loop list (phase + status) under the summary — the thread/loop shell's
-	 *  Plan surface, since the sidebar no longer carries a Loops tab. */
+	/** Threads area: replace the project summary with the thread manager console. */
 	showLoops?: boolean;
+	/** Active thread id from the shell selection ('' or the new-thread sentinel when none). */
+	selectedThreadId?: string;
 }) {
 	const { t } = useI18n();
-	const [inspectorTab, setInspectorTab] = useState<'team' | 'plan' | 'artifacts'>('plan');
 	const previouslyFocused = useRef<HTMLElement | null>(null);
 	useLayoutEffect(() => {
 		previouslyFocused.current = (document.activeElement as HTMLElement | null) ?? null;
@@ -88,9 +93,58 @@ export function InspectorPanel({
 		overview.workflows,
 		selectedProject,
 	]);
-	const projectArtifacts = selectedProject
-		? overview.artifacts.filter((artifact) => artifact.projectId === selectedProject.id)
-		: [];
+
+	const liveThreadId =
+		selectedThreadId && selectedThreadId !== NEW_SESSION_ID ? selectedThreadId : null;
+
+	let body: ReactNode;
+	if (selectedRunId) {
+		body = <RunDetail overview={overview} runId={selectedRunId} token={token} mutate={mutate} />;
+	} else if (showLoops && selectedProject) {
+		body = (
+			<ThreadInspector overview={overview} project={selectedProject} threadId={liveThreadId} />
+		);
+	} else if (selectedProject && stats) {
+		body = (
+			<>
+				<div className="workspace-root-card">
+					<span>{t('app.inspector.project', 'Project')}</span>
+					<strong>{selectedProject.name}</strong>
+					<strong className="mono">{String(selectedProject.path ?? selectedProject.id)}</strong>
+					<div className="workspace-root-meta">
+						<Badge tone={toneForStatus(String(selectedProject.status ?? 'active'))}>
+							{String(selectedProject.status ?? 'active')}
+						</Badge>
+					</div>
+				</div>
+				<div className="signal-grid">
+					<div className="signal-card">
+						<span>{t('app.inspector.pendingApprovals', 'Pending approvals')}</span>
+						<strong>{stats.approvals}</strong>
+					</div>
+					<div className="signal-card">
+						<span>{t('app.inspector.evidence', 'Evidence')}</span>
+						<strong>{stats.evidence}</strong>
+					</div>
+					<div className="signal-card">
+						<span>{t('app.nav.workspaces', 'Workspaces')}</span>
+						<strong>{stats.workspaces}</strong>
+					</div>
+					<div className="signal-card">
+						<span>{t('app.inspector.workflows', 'Workflows')}</span>
+						<strong>{stats.workflows}</strong>
+					</div>
+				</div>
+			</>
+		);
+	} else {
+		body = (
+			<EmptyState
+				title={t('app.inspector.noProjectSelected', 'No project selected')}
+				body={t('app.inspector.pickWorkspaceContext', 'Pick a workspace to see its context here.')}
+			/>
+		);
+	}
 
 	return (
 		<m.aside
@@ -120,103 +174,7 @@ export function InspectorPanel({
 				</IconButton>
 			</div>
 
-			{selectedRunId ? (
-				<RunDetail overview={overview} runId={selectedRunId} token={token} mutate={mutate} />
-			) : selectedProject && stats ? (
-				<>
-					<div className="workspace-root-card">
-						<span>{t('app.inspector.project', 'Project')}</span>
-						<strong>{selectedProject.name}</strong>
-						<strong className="mono">{String(selectedProject.path ?? selectedProject.id)}</strong>
-						<div className="workspace-root-meta">
-							<Badge tone={toneForStatus(String(selectedProject.status ?? 'active'))}>
-								{String(selectedProject.status ?? 'active')}
-							</Badge>
-						</div>
-					</div>
-					<div className="signal-grid">
-						<div className="signal-card">
-							<span>{t('app.inspector.pendingApprovals', 'Pending approvals')}</span>
-							<strong>{stats.approvals}</strong>
-						</div>
-						<div className="signal-card">
-							<span>{t('app.inspector.evidence', 'Evidence')}</span>
-							<strong>{stats.evidence}</strong>
-						</div>
-						<div className="signal-card">
-							<span>{t('app.nav.workspaces', 'Workspaces')}</span>
-							<strong>{stats.workspaces}</strong>
-						</div>
-						<div className="signal-card">
-							<span>{t('app.inspector.workflows', 'Workflows')}</span>
-							<strong>{stats.workflows}</strong>
-						</div>
-					</div>
-				</>
-			) : (
-				<EmptyState
-					title={t('app.inspector.noProjectSelected', 'No project selected')}
-					body={t(
-						'app.inspector.pickWorkspaceContext',
-						'Pick a workspace to see its context here.',
-					)}
-				/>
-			)}
-			{showLoops && !selectedRunId ? (
-				<div className="inspector-plan">
-					<Tabs
-						label={t('app.inspector.tabsLabel', 'Inspector views')}
-						activeTab={inspectorTab}
-						onChange={(id) => setInspectorTab(id as 'team' | 'plan' | 'artifacts')}
-						idBase="inspector"
-						tabs={[
-							{ id: 'team', label: t('app.inspector.team', 'Team') },
-							{ id: 'plan', label: t('app.inspector.plan', 'Plan') },
-							{ id: 'artifacts', label: t('app.inspector.artifacts', 'Artifacts') },
-						]}
-					>
-						{inspectorTab === 'plan' ? (
-							<LoopList projectId={selectedProject?.id} filter="" />
-						) : inspectorTab === 'team' ? (
-							overview.agentProfiles.length ? (
-								<ul className="inspector-list">
-									{overview.agentProfiles.map((profile) => (
-										<li key={profile.id} className="inspector-row">
-											<strong>{profile.name}</strong>
-											<Badge>{String(profile.role)}</Badge>
-										</li>
-									))}
-								</ul>
-							) : (
-								<EmptyState
-									title={t('app.inspector.teamEmpty', 'No agents configured')}
-									body={t(
-										'app.inspector.teamEmptyBody',
-										'Configure the AI team in Settings → Agents.',
-									)}
-								/>
-							)
-						) : projectArtifacts.length ? (
-							<ul className="inspector-list">
-								{projectArtifacts.slice(0, 20).map((artifact) => (
-									<li key={artifact.id} className="inspector-row">
-										<span className="mono">{shortId(artifact.id)}</span>
-										<Badge>{String(artifact.kind)}</Badge>
-									</li>
-								))}
-							</ul>
-						) : (
-							<EmptyState
-								title={t('app.inspector.artifactsEmpty', 'No artifacts yet')}
-								body={t(
-									'app.inspector.artifactsEmptyBody',
-									'Artifacts produced by runs appear here.',
-								)}
-							/>
-						)}
-					</Tabs>
-				</div>
-			) : null}
+			{body}
 		</m.aside>
 	);
 }

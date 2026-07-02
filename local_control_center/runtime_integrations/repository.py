@@ -15,13 +15,32 @@ dos sentencias que solo son atómicas si el caller las agrupa en una única ``im
 
 from __future__ import annotations
 
+import os
 import sqlite3
 import uuid
 from typing import Any
 
+from local_control_center.settings.registry import descriptor_for, validate_value
+from local_control_center.settings.repository import UNSET, SettingsRepository
 from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.serialization import json_dumps, json_loads
 from local_control_center.shared.time import utc_now
+
+GLOBAL_RUNTIME_SETTINGS = (
+    "runtime.cli.enabled",
+    "runtime.remote.enabled",
+    "runtime.ollama.enabled",
+    "runtime.nvidia.enabled",
+)
+PROJECT_RUNTIME_SETTINGS = (
+    "project.runtime.cli.enabled",
+    "project.runtime.remote.enabled",
+    "project.runtime.allowedProviders",
+    "project.runtime.defaultMode",
+)
+ENVIRONMENT_OVERRIDE_FLAGS = ("AIDO_ENABLE_CLI_RUNTIMES", "AIDO_ENABLE_REAL_PROVIDER_CALLS")
+REMOTE_RUNTIME_KINDS = {"api", "gateway"}
+OLLAMA_RUNTIME_IDS = {"ollama", "local_ollama"}
 
 
 def row_to_runtime_installation(row: sqlite3.Row) -> dict[str, Any]:
@@ -92,6 +111,168 @@ class RuntimeConfigRepository:
 
     def __init__(self, connection: sqlite3.Connection):
         self.connection = connection
+
+    def set_runtime_setting(
+        self, key: str, value: Any, *, scope: str = "general", scope_id: str | None = None
+    ) -> None:
+        """Persist a registered runtime setting after validating the value against the settings registry."""
+        if key not in {*GLOBAL_RUNTIME_SETTINGS, *PROJECT_RUNTIME_SETTINGS}:
+            raise KeyError(f"Unknown runtime setting: {key}")
+        descriptor = descriptor_for(key)
+        if descriptor is None:
+            raise KeyError(f"Runtime setting is not registered: {key}")
+        if scope not in {"general", "project"}:
+            raise ValueError("Runtime settings scope must be 'general' or 'project'.")
+        if scope == "project" and not scope_id:
+            raise ValueError("Project runtime settings require scope_id.")
+        if scope == "general" and scope_id is not None:
+            raise ValueError("General runtime settings must not include scope_id.")
+        SettingsRepository(self.connection).set_value(
+            key, scope, scope_id, validate_value(descriptor, value)
+        )
+
+    def runtime_execution_policy(self, *, project_id: str | None = None) -> dict[str, Any]:
+        """Resolve global and project runtime policy from SQLite settings.
+
+        Environment enable flags are reported only as temporary environment overrides; they do not
+        decide executability. This keeps the UI/persistent configuration authoritative while still
+        surfacing operator-local env drift.
+        """
+        settings = SettingsRepository(self.connection)
+        resolved_project_id = str(project_id or "").strip() or None
+        global_policy = {
+            "cliEnabled": self._resolved_setting(settings, "runtime.cli.enabled"),
+            "remoteEnabled": self._resolved_setting(settings, "runtime.remote.enabled"),
+            "ollamaEnabled": self._resolved_setting(settings, "runtime.ollama.enabled"),
+            "nvidiaEnabled": self._resolved_setting(settings, "runtime.nvidia.enabled"),
+        }
+        project_policy = {
+            "cliEnabled": self._resolved_setting(
+                settings, "project.runtime.cli.enabled", project_id=resolved_project_id
+            ),
+            "remoteEnabled": self._resolved_setting(
+                settings, "project.runtime.remote.enabled", project_id=resolved_project_id
+            ),
+            "allowedProviders": self._resolved_setting(
+                settings, "project.runtime.allowedProviders", project_id=resolved_project_id
+            ),
+            "defaultMode": self._resolved_setting(
+                settings, "project.runtime.defaultMode", project_id=resolved_project_id
+            ),
+        }
+        environment_overrides = {
+            name: {
+                "source": "environment_override",
+                "value": os.environ.get(name),
+            }
+            for name in ENVIRONMENT_OVERRIDE_FLAGS
+            if name in os.environ
+        }
+        configuration_warnings = [
+            (
+                f"{name} is set as environment_override; SQLite runtime settings remain "
+                "authoritative for execution."
+            )
+            for name in environment_overrides
+        ]
+        return {
+            "global": global_policy,
+            "project": project_policy,
+            "environmentOverrides": environment_overrides,
+            "configurationWarnings": configuration_warnings,
+        }
+
+    def runtime_policy_decision(
+        self, *, provider_id: str, kind: str, project_id: str | None = None
+    ) -> dict[str, Any]:
+        """Return whether SQLite runtime policy allows a provider kind for the project."""
+        policy = self.runtime_execution_policy(project_id=project_id)
+        provider = str(provider_id)
+        runtime_kind = str(kind)
+        project_policy = policy["project"]
+        allowed_providers = {
+            str(item).strip() for item in project_policy.get("allowedProviders") or [] if str(item).strip()
+        }
+        if allowed_providers and provider not in allowed_providers:
+            return {
+                "allowed": False,
+                "reason": f"project.runtime.allowedProviders does not include {provider}.",
+                "policy": policy,
+            }
+        mode = str(project_policy.get("defaultMode") or "hybrid")
+        mode_reason = self._mode_block_reason(provider_id=provider, kind=runtime_kind, mode=mode)
+        if mode_reason:
+            return {"allowed": False, "reason": mode_reason, "policy": policy}
+
+        global_policy = policy["global"]
+        if runtime_kind == "cli":
+            if not global_policy.get("cliEnabled"):
+                return {
+                    "allowed": False,
+                    "reason": "runtime.cli.enabled is false.",
+                    "policy": policy,
+                }
+            if not project_policy.get("cliEnabled"):
+                return {
+                    "allowed": False,
+                    "reason": "project.runtime.cli.enabled is false for this project.",
+                    "policy": policy,
+                }
+        elif runtime_kind in REMOTE_RUNTIME_KINDS:
+            if not global_policy.get("remoteEnabled"):
+                return {
+                    "allowed": False,
+                    "reason": "runtime.remote.enabled is false.",
+                    "policy": policy,
+                }
+            if provider == "nvidia_nim" and not global_policy.get("nvidiaEnabled"):
+                return {
+                    "allowed": False,
+                    "reason": "runtime.nvidia.enabled is false.",
+                    "policy": policy,
+                }
+            if not project_policy.get("remoteEnabled"):
+                return {
+                    "allowed": False,
+                    "reason": "project.runtime.remote.enabled is false for this project.",
+                    "policy": policy,
+                }
+        elif provider in OLLAMA_RUNTIME_IDS and not global_policy.get("ollamaEnabled"):
+            return {"allowed": False, "reason": "runtime.ollama.enabled is false.", "policy": policy}
+        return {"allowed": True, "reason": "", "policy": policy}
+
+    def _resolved_setting(
+        self,
+        settings: SettingsRepository,
+        key: str,
+        *,
+        project_id: str | None = None,
+    ) -> Any:
+        descriptor = descriptor_for(key)
+        if descriptor is None:
+            raise KeyError(f"Runtime setting is not registered: {key}")
+        if project_id:
+            project_value = settings.get_value(key, "project", project_id)
+            if project_value is not UNSET:
+                return project_value
+        general_value = settings.get_value(key, "general", None)
+        if general_value is not UNSET:
+            return general_value
+        return descriptor.default
+
+    @staticmethod
+    def _mode_block_reason(*, provider_id: str, kind: str, mode: str) -> str:
+        if mode == "hybrid":
+            return ""
+        if mode == "cli" and kind != "cli":
+            return f"project.runtime.defaultMode=cli blocks provider {provider_id}."
+        if mode == "api" and kind not in REMOTE_RUNTIME_KINDS:
+            return f"project.runtime.defaultMode=api blocks provider {provider_id}."
+        if mode == "ollama" and provider_id != "ollama":
+            return f"project.runtime.defaultMode=ollama blocks provider {provider_id}."
+        if mode == "manual" and kind != "manual":
+            return f"project.runtime.defaultMode=manual blocks provider {provider_id}."
+        return ""
 
     def upsert_installation(self, body: dict[str, Any]) -> dict[str, Any]:
         """Crea o actualiza la instalación de un runtime por ``runtimeId`` y la devuelve.

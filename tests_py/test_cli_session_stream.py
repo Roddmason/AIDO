@@ -124,6 +124,7 @@ def _runtime(
 ) -> None:
     now = utc_now()
     repo = RuntimeConfigRepository(connection)
+    repo.set_runtime_setting("runtime.cli.enabled", True)
     repo.upsert_installation(
         {
             "runtimeId": runtime_id,

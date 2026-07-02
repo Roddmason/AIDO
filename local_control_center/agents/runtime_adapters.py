@@ -25,6 +25,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from local_control_center.evidence.artifacts import INLINE_LOG_LIMIT_BYTES, write_text_artifact
 from local_control_center.evidence.repository import EvidenceRepository
+from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
 from local_control_center.security_policy.sandbox import (
     ALLOWED_EXECUTABLES,
     DANGEROUS_ARG_PREFIXES,
@@ -691,7 +692,7 @@ class OllamaAdapter:
 
 
 class OpenAICompatibleAdapter:
-    """Calls an OpenAI-compatible chat-completions endpoint, gated by an explicit enable flag."""
+    """Calls an OpenAI-compatible chat-completions endpoint under SQLite runtime policy."""
 
     adapter_id = "openai_compatible"
 
@@ -742,7 +743,6 @@ class OpenAICompatibleAdapter:
             "apiKey": self.api_key
             or (runtime_configuration.value("apiKey") if runtime_configuration else None),
             "model": self.model or (runtime_configuration.value("model") if runtime_configuration else None),
-            "enabled": source.get("AIDO_ENABLE_REAL_PROVIDER_CALLS", "false").strip().lower(),
         }
 
     def _configuration_gap(self, configuration: dict[str, str | None]) -> str | None:
@@ -759,9 +759,19 @@ class OpenAICompatibleAdapter:
             return (
                 f"{self.display_name} provider is missing required configuration: " + ", ".join(missing) + "."
             )
-        if configuration["enabled"] != "true":
-            return f"{self.display_name} provider execution is disabled by AIDO_ENABLE_REAL_PROVIDER_CALLS=false."
         return None
+
+    def _runtime_policy_gap(self, project_id: str | None) -> str | None:
+        if self.recorder.connection is None:
+            return f"SQLite runtime policy is required for {self.display_name} execution."
+        decision = RuntimeConfigRepository(self.recorder.connection).runtime_policy_decision(
+            provider_id=self.adapter_id,
+            kind="gateway" if self.adapter_id == "openrouter" else "api",
+            project_id=project_id,
+        )
+        if decision.get("allowed"):
+            return None
+        return str(decision.get("reason") or f"{self.display_name} execution is disabled by runtime policy.")
 
     def health_check(self) -> dict[str, Any]:
         """Probe `/models` to confirm the endpoint and credentials respond, gap-checking config first."""
@@ -770,6 +780,9 @@ class OpenAICompatibleAdapter:
         if gap:
             status = "configuration_required" if "missing required configuration" in gap else "unavailable"
             return {"status": status, "available": False, "reason": gap}
+        policy_gap = self._runtime_policy_gap(project_id=None)
+        if policy_gap:
+            return {"status": "unavailable", "available": False, "reason": policy_gap}
         request = Request(
             f"{configuration['baseUrl']}/models",
             headers={"Authorization": f"Bearer {configuration['apiKey']}", "Accept": "application/json"},
@@ -805,6 +818,9 @@ class OpenAICompatibleAdapter:
         if gap:
             status = "configuration_required" if "missing required configuration" in gap else "unavailable"
             return _result(status=status, started_at=started_at, reason=gap)
+        policy_gap = self._runtime_policy_gap(project_id=request.project_id)
+        if policy_gap:
+            return _result(status="blocked", started_at=started_at, reason=policy_gap)
         messages = request.input.get("messages")
         if not isinstance(messages, list) or not messages:
             return _result(
@@ -870,7 +886,7 @@ class OpenAICompatibleAdapter:
 
 
 class AnthropicAdapter:
-    """Calls Anthropic Messages API, gated by the shared real-provider execution flag."""
+    """Calls Anthropic Messages API under SQLite runtime policy."""
 
     adapter_id = "anthropic_api"
 
@@ -903,11 +919,9 @@ class AnthropicAdapter:
             "apiKey": self.api_key
             or (runtime_configuration.value("apiKey") if runtime_configuration else None),
             "model": self.model or (runtime_configuration.value("model") if runtime_configuration else None),
-            "enabled": source.get("AIDO_ENABLE_REAL_PROVIDER_CALLS", "false").strip().lower(),
         }
 
-    @staticmethod
-    def _configuration_gap(configuration: dict[str, str | None]) -> str | None:
+    def _configuration_gap(self, configuration: dict[str, str | None]) -> str | None:
         missing = [
             name
             for key, name in (
@@ -919,9 +933,19 @@ class AnthropicAdapter:
         ]
         if missing:
             return "Anthropic provider is missing required configuration: " + ", ".join(missing) + "."
-        if configuration["enabled"] != "true":
-            return "Anthropic provider execution is disabled by AIDO_ENABLE_REAL_PROVIDER_CALLS=false."
         return None
+
+    def _runtime_policy_gap(self, project_id: str | None) -> str | None:
+        if self.recorder.connection is None:
+            return "SQLite runtime policy is required for Anthropic execution."
+        decision = RuntimeConfigRepository(self.recorder.connection).runtime_policy_decision(
+            provider_id=self.adapter_id,
+            kind="api",
+            project_id=project_id,
+        )
+        if decision.get("allowed"):
+            return None
+        return str(decision.get("reason") or "Anthropic execution is disabled by runtime policy.")
 
     @staticmethod
     def _text_content(content: Any) -> str:
@@ -995,6 +1019,9 @@ class AnthropicAdapter:
         if gap:
             status = "configuration_required" if "missing required configuration" in gap else "unavailable"
             return {"status": status, "available": False, "reason": gap}
+        policy_gap = self._runtime_policy_gap(project_id=None)
+        if policy_gap:
+            return {"status": "unavailable", "available": False, "reason": policy_gap}
         request = Request(
             f"{configuration['baseUrl']}/models",
             headers=self._headers(configuration),
@@ -1024,6 +1051,9 @@ class AnthropicAdapter:
         if gap:
             status = "configuration_required" if "missing required configuration" in gap else "unavailable"
             return _result(status=status, started_at=started_at, reason=gap)
+        policy_gap = self._runtime_policy_gap(project_id=request.project_id)
+        if policy_gap:
+            return _result(status="blocked", started_at=started_at, reason=policy_gap)
         messages = request.input.get("messages")
         if not isinstance(messages, list) or not messages:
             return _result(

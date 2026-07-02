@@ -1,8 +1,9 @@
 """Ejecuta llamadas de modelo fail-closed: planifica, valida política/presupuesto y registra uso.
 
 Resuelve el proveedor desde la política, bloquea si excede presupuesto o falta configuración, y solo
-ejecuta proveedores remotos cuando AIDO_ENABLE_REAL_PROVIDER_CALLS=true (CLI/manual se bloquean: van por
-sesiones de runtime aprobadas). Toda metadata/error se redacta y el consumo se asienta en el usage_ledger.
+ejecuta proveedores remotos cuando la política SQLite de runtime lo permite (CLI/manual se bloquean:
+van por sesiones de runtime aprobadas). Toda metadata/error se redacta y el consumo se asienta en el
+usage_ledger.
 
 @author Rodrigo Mason
 """
@@ -10,13 +11,13 @@ sesiones de runtime aprobadas). Toda metadata/error se redacta y el consumo se a
 from __future__ import annotations
 
 import json
-import os
 import sqlite3
 import time
 from typing import Any
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 
+from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
 from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.telemetry import record_model_call
 
@@ -26,11 +27,6 @@ LOCAL_MODEL_PROVIDERS = {"ollama", "local_ollama"}
 REMOTE_MODEL_PROVIDERS = {"openai", "openai_compatible", "openai_agents", "openrouter"}
 REMOTE_PROVIDER_TYPES = {"api", "gateway"}
 LOCAL_PROVIDER_TYPES = {"local"}
-
-
-def real_provider_calls_enabled() -> bool:
-    """Indica si AIDO_ENABLE_REAL_PROVIDER_CALLS habilita llamadas reales a proveedores remotos."""
-    return os.environ.get("AIDO_ENABLE_REAL_PROVIDER_CALLS", "false").lower() == "true"
 
 
 def _is_allowed_provider(candidate: dict[str, Any], policy: dict[str, Any]) -> bool:
@@ -328,7 +324,9 @@ class ModelGateway:
         provider_id = str(candidate["provider"])
         model = str(candidate["model"])
         runtime_type = str(planned_call.get("runtimeType") or "")
-        configuration = self._provider_configuration(provider_id, runtime_type=runtime_type)
+        configuration = self._provider_configuration(
+            provider_id, runtime_type=runtime_type, project_id=project_id
+        )
         if configuration["status"] != "configured":
             status = configuration["status"]
             model_call = self.record_model_usage(
@@ -452,6 +450,7 @@ class ModelGateway:
         provider_id: str,
         *,
         runtime_type: str | None,
+        project_id: str | None = None,
         for_health: bool = False,
     ) -> dict[str, Any]:
         from .credentials import CredentialResolver
@@ -506,11 +505,18 @@ class ModelGateway:
             provider = provider_instance(provider_id, connection=self.repository.connection)
             if not getattr(provider, "base_url", ""):
                 return {"status": "configuration_required", "reason": "Provider base URL is not configured."}
-            if not real_provider_calls_enabled():
-                return {
-                    "status": "blocked",
-                    "reason": "Real provider calls are disabled by AIDO_ENABLE_REAL_PROVIDER_CALLS=false.",
-                }
+            if not for_health:
+                policy_decision = RuntimeConfigRepository(
+                    self.repository.connection
+                ).runtime_policy_decision(
+                    provider_id=provider_id, kind=provider_type, project_id=project_id
+                )
+                if not policy_decision.get("allowed"):
+                    return {
+                        "status": "blocked",
+                        "reason": str(policy_decision.get("reason") or "Runtime execution is blocked by policy."),
+                        "runtimeType": resolved_runtime,
+                    }
         if provider_type in LOCAL_PROVIDER_TYPES and provider_id not in {"ollama", "local_ollama"}:
             return {
                 "status": "configuration_required",

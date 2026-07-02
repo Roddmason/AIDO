@@ -38,87 +38,46 @@ def create_project(store: ControlPlaneFixture, tmp_path: Path) -> dict[str, str]
     return store.create_project(name="Workbench intake", path=project_path, template_id="other")
 
 
-def test_chat_pipeline_intake_runs_product_owner_and_blocks_with_evidence_when_runtime_missing(
+def test_thread_intake_queues_product_loop_without_legacy_records(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     store, client, headers = create_client(tmp_path, monkeypatch)
     project = create_project(store, tmp_path)
 
-    session_response = client.post(
-        "/api/v1/sessions",
-        headers=headers,
-        json={"projectId": project["id"], "name": "Real intake session"},
-    )
-    assert session_response.status_code == 201
-    session = session_response.json()["session"]
-
-    chat_response = client.post(
-        "/api/v1/chats",
+    thread_response = client.post(
+        "/api/v1/threads",
         headers=headers,
         json={
             "projectId": project["id"],
-            "sessionId": session["id"],
-            "prompt": "Build a customer onboarding dashboard with audit-ready delivery.",
+            "ownerType": "workspace",
+            "ownerId": project["id"],
             "title": "Onboarding dashboard",
         },
     )
-    assert chat_response.status_code == 201
-    chat = chat_response.json()["chat"]
+    assert thread_response.status_code == 201
+    thread_id = thread_response.json()["thread"]["id"]
 
-    pipeline_response = client.post(
-        "/api/v1/pipelines",
+    message_response = client.post(
+        f"/api/v1/threads/{thread_id}/messages",
         headers=headers,
-        json={
-            "projectId": project["id"],
-            "sessionId": session["id"],
-            "chatId": chat["id"],
-            "title": "Onboarding dashboard",
-            "productOwnerIntake": True,
-        },
+        json={"content": "Build a customer onboarding dashboard with audit-ready delivery."},
     )
 
-    assert pipeline_response.status_code == 201
-    pipeline = pipeline_response.json()["pipeline"]
-    assert pipeline["status"] == "blocked"
-    assert pipeline["metadata"]["productOwnerIntake"]["status"] == "runtime_unavailable"
-    assert pipeline["metadata"]["productOwnerIntake"]["workspaceId"].startswith("workspace-")
-    assert pipeline["metadata"]["productOwnerIntake"]["agentRunId"].startswith("agent-run-")
-    assert pipeline["metadata"]["productOwnerIntake"]["evidencePackageId"].startswith("evidence-")
-    assert pipeline["metadata"]["productOwnerIntake"]["loopId"].startswith("product-loop-")
-    assert pipeline["metadata"]["intentDecision"]["userMode"] == "aido_decide"
-    assert "feature" in pipeline["metadata"]["intentDecision"]["intents"]
-    assert pipeline["metadata"]["intentDecision"]["planMode"] == "blocked"
-    assert "runtime_configuration" in pipeline["metadata"]["intentDecision"]["requiredGates"]
-    assert (
-        "No executable ProductOwnerAgent runtime is configured"
-        in pipeline["metadata"]["productOwnerIntake"]["reason"]
-    )
-    assert pipeline["stages"][0]["id"] == "intake"
-    assert pipeline["stages"][0]["status"] == "blocked"
-    assert (
-        pipeline["stages"][0]["evidencePackageId"]
-        == pipeline["metadata"]["productOwnerIntake"]["evidencePackageId"]
-    )
+    assert message_response.status_code == 200
+    result = message_response.json()
+    assert result["thread"]["id"] == thread_id
+    assert result["run"]["status"] in {"queued", "blocked"}
+    assert result["messages"][0]["threadId"] == thread_id
 
-    loop_state = client.get(f"/api/v1/projects/{project['id']}/product-loop").json()
-    loop = next(
-        item
-        for item in loop_state["loops"]
-        if item["id"] == pipeline["metadata"]["productOwnerIntake"]["loopId"]
-    )
-    assert loop["state"] == "blocked"
-    assert loop["context"]["intake"]["pipelineId"] == pipeline["id"]
-    assert loop["context"]["intake"]["chatId"] == chat["id"]
-    assert loop["context"]["intake"]["intentDecision"]["userMode"] == "aido_decide"
-    assert loop["context"]["intake"]["intentDecision"]["suggestedBranchName"].startswith("codex/")
-    assert loop["context"]["productOwner"]["status"] == "runtime_unavailable"
+    jobs = store.jobs.list_jobs(project_id=project["id"])
+    assert any(job["kind"] == "thread.product_loop.run" for job in jobs)
 
     overview = client.get("/api/v1/overview").json()
-    assert any(
-        item["id"] == pipeline["metadata"]["productOwnerIntake"]["agentRunId"]
-        for item in overview["agentRuns"]
-    )
-    assert any(
-        item["id"] == pipeline["metadata"]["productOwnerIntake"]["evidencePackageId"]
-        for item in overview["evidencePackages"]
-    )
+    assert "sessions" not in overview
+    assert "chats" not in overview
+    assert "pipelines" not in overview
+    assert any(item["id"] == thread_id for item in overview["threads"])
+
+    assert store.connection.execute("SELECT COUNT(*) AS total FROM sessions").fetchone()["total"] == 0
+    assert store.connection.execute("SELECT COUNT(*) AS total FROM chats").fetchone()["total"] == 0
+    assert store.connection.execute("SELECT COUNT(*) AS total FROM pipelines").fetchone()["total"] == 0

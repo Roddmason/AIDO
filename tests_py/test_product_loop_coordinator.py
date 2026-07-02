@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+from local_control_center.backlog.repository import BacklogRepository
+from local_control_center.evidence.repository import EvidenceRepository
+from local_control_center.product_discovery.repository import ProductDiscoveryRepository
 from local_control_center.product_loop.coordinator import (
     ProductLoopCoordinator,
     ProductLoopStopConditionError,
@@ -107,6 +111,162 @@ class _GitGate:
                 "findingCount": 1 if blocked else 0,
             },
         }
+
+
+class _AssessmentRunner:
+    def __init__(self) -> None:
+        self.project_ids: list[str] = []
+
+    def run(self, project_id: str) -> dict[str, Any]:
+        self.project_ids.append(project_id)
+        return {
+            "status": "completed",
+            "reason": "assessment completed",
+            "assessment": {"id": "assessment-controlled", "summary": {"languages": ["python"]}},
+            "findings": [{"category": "architecture", "title": "Existing Python service"}],
+            "artifact": {"id": "artifact-assessment-controlled"},
+        }
+
+
+class _ProductOwnerRunner:
+    def __init__(self, result: dict[str, Any]) -> None:
+        self.result = result
+        self.status_calls = 0
+        self.run_payloads: list[dict[str, Any]] = []
+
+    def status(self, *, preferred_runtime: str | None = None) -> dict[str, Any]:
+        self.status_calls += 1
+        return {
+            "executable": True,
+            "selectedRuntimeId": preferred_runtime or "controlled_product_owner_runtime",
+            "reason": "controlled ProductOwnerAgent runtime is executable",
+        }
+
+    def run(self, payload: dict[str, Any]) -> dict[str, Any]:
+        self.run_payloads.append(payload)
+        return deepcopy(self.result)
+
+
+class _TechnicalLeadPlanner:
+    def __init__(self, *, generate_tasks: bool = True) -> None:
+        self.generate_tasks = generate_tasks
+        self.payloads: list[dict[str, Any]] = []
+
+    def generate_agent_tasks(self, payload: dict[str, Any]) -> list[dict[str, Any]]:
+        self.payloads.append(payload)
+        if not self.generate_tasks:
+            return []
+        tasks: list[dict[str, Any]] = []
+        for story in payload["userStories"]:
+            tasks.append(
+                {
+                    "storyId": story["id"],
+                    "title": f"Implement {story['title']}",
+                    "description": "TechnicalLead implementation task generated from persisted HU.",
+                    "role": "developer",
+                    "category": "implementation",
+                    "priority": story["priority"],
+                    "estimateHours": 4.0,
+                }
+            )
+        return tasks
+
+
+class _RoleTaskPlanner:
+    def __init__(self, roles: list[str]) -> None:
+        self.roles = roles
+        self.payloads: list[dict[str, Any]] = []
+
+    def generate_agent_tasks(self, payload: dict[str, Any]) -> list[dict[str, Any]]:
+        self.payloads.append(payload)
+        story = payload["userStories"][0]
+        tasks: list[dict[str, Any]] = []
+        for role in self.roles:
+            tasks.append(
+                {
+                    "storyId": story["id"],
+                    "title": f"{role} task for {story['title']}",
+                    "description": "Role-specific task generated for TeamScheduler v2.",
+                    "role": role,
+                    "category": "implementation",
+                    "priority": story["priority"],
+                    "estimateHours": 3.0,
+                }
+            )
+        return tasks
+
+
+def _brief_patch() -> dict[str, Any]:
+    return {
+        "title": "Guided onboarding",
+        "summary": "Help operators configure onboarding with auditable progress.",
+        "problemStatement": "Operators cannot see what remains before onboarding is usable.",
+        "goals": ["Show onboarding progress", "Surface missing setup"],
+        "targetUsers": ["operations lead"],
+        "successMetrics": ["80% of setups finish without support"],
+        "scope": "Workbench onboarding guidance",
+        "outOfScope": "Billing automation",
+    }
+
+
+def _backlog_payload() -> dict[str, Any]:
+    return {
+        "epics": [{"title": "Onboarding readiness", "description": "Make onboarding progress visible."}],
+        "userStories": [
+            {
+                "epicTitle": "Onboarding readiness",
+                "title": "Readiness checklist",
+                "asA": "operations lead",
+                "iWant": "to see missing onboarding steps",
+                "soThat": "I can finish setup without support",
+                "businessValue": "high",
+                "acceptanceCriteria": [
+                    "Given an incomplete project, when the checklist loads, then missing setup is visible."
+                ],
+            }
+        ],
+    }
+
+
+def _product_owner_result(
+    status: str,
+    *,
+    questions: list[dict[str, Any]] | None = None,
+    decisions: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    backlog = _backlog_payload()
+    output = {
+        "status": status,
+        "summary": "ProductOwnerAgent controlled output",
+        "confidence": "medium",
+        "questions": questions or [],
+        "assumptions": [],
+        "decisions": decisions or [],
+        "productBriefPatch": _brief_patch(),
+        "epics": backlog["epics"],
+        "userStories": backlog["userStories"],
+        "risks": [],
+        "recommendedNextAction": "Continue with the next explicit product gate.",
+    }
+    return {
+        "status": status,
+        "reason": f"controlled product owner returned {status}",
+        "summary": output["summary"],
+        "confidence": output["confidence"],
+        "questions": output["questions"],
+        "decisions": output["decisions"],
+        "brief": _brief_patch(),
+        "productBriefPatch": _brief_patch(),
+        "output": output,
+        "epics": backlog["epics"],
+        "userStories": backlog["userStories"],
+        "productOwnerOutput": {"id": "product-owner-output-controlled"},
+        "evidencePackage": {"id": "evidence-product-owner-controlled"},
+    }
+
+
+def _backlog_ready_po() -> _ProductOwnerRunner:
+    return _ProductOwnerRunner(_product_owner_result("backlog_ready"))
 
 
 def _workspace_project(connection, tmp_path: Path, name: str) -> dict:
@@ -215,6 +375,9 @@ def test_product_loop_is_durable_and_resumes_after_restart(tmp_path: Path) -> No
 def test_run_user_message_blocks_new_loop_when_runtime_is_not_executable(tmp_path: Path) -> None:
     runtime = _RuntimeUnavailable()
     git = _GitGate()
+    product_owner = _backlog_ready_po()
+    assessment = _AssessmentRunner()
+    technical_lead = _TechnicalLeadPlanner()
     with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
         initialize_platform_schema(connection)
         project = _workspace_project(connection, tmp_path, "no-runtime")
@@ -225,26 +388,334 @@ def test_run_user_message_blocks_new_loop_when_runtime_is_not_executable(tmp_pat
             message="Implement the onboarding dashboard.",
             runtime_runner=runtime,
             git_service=git,
+            product_owner_runner=product_owner,
+            assessment_runner=assessment,
+            technical_lead_runner=technical_lead,
         )
 
         assert result["status"] == "blocked"
         assert "runtime" in result["reason"].lower()
         assert result["loop"]["state"] == "blocked"
         assert result["loop"]["context"]["durableRun"]["blockedReason"] == result["reason"]
-        assert result["loop"]["context"]["durableRun"]["thread"]["sessionId"].startswith("session-")
+        durable_thread = result["loop"]["context"]["durableRun"]["thread"]
+        assert durable_thread["projectThreadId"].startswith("thread-")
+        assert durable_thread["messageId"].startswith("thread-msg-")
+        assert connection.execute("SELECT COUNT(*) AS total FROM sessions").fetchone()["total"] == 0
+        assert connection.execute("SELECT COUNT(*) AS total FROM chats").fetchone()["total"] == 0
         assert result["loop"]["context"]["durableRun"]["evidencePackageIds"]
         assert runtime.run_payloads == []
         assert [item["toState"] for item in result["transitions"]] == [
             "goal_received",
             "workspace_check",
+            "git_check",
             "runtime_check",
+            "discovery",
+            "planning",
+            "backlog_ready",
             "blocked",
         ]
+        assert product_owner.run_payloads
+        assert technical_lead.payloads
+
+
+def test_run_user_message_incomplete_idea_awaits_user_without_developer_execution(
+    tmp_path: Path,
+) -> None:
+    runtime = _ControlledRuntime()
+    git = _GitGate()
+    product_owner = _ProductOwnerRunner(
+        _product_owner_result(
+            "needs_input",
+            questions=[
+                {
+                    "id": "target-user",
+                    "question": "Who is the primary operator for this workflow?",
+                    "category": "target_user",
+                    "whyItMatters": "The backlog depends on the actor.",
+                    "blocking": True,
+                    "options": ["operations lead", "support lead"],
+                    "recommendation": "operations lead",
+                    "defaultDecision": "operations lead",
+                    "confidence": "medium",
+                    "priority": "high",
+                }
+            ],
+        )
+    )
+    assessment = _AssessmentRunner()
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        project = _workspace_project(connection, tmp_path, "needs-input")
+        thread = ThreadsRepository(connection).create_thread(
+            project_id=project["id"],
+            owner_type="workspace",
+            owner_id="workspace-1",
+            title="Needs input",
+        )
+        coordinator = ProductLoopCoordinator(connection, root=tmp_path)
+
+        result = coordinator.run_user_message(
+            project_id=project["id"],
+            message="Build something useful.",
+            runtime_runner=runtime,
+            git_service=git,
+            product_owner_runner=product_owner,
+            assessment_runner=assessment,
+            thread_id=thread["id"],
+        )
+
+        assert result["status"] == "awaiting_user"
+        assert result["loop"]["state"] == "awaiting_user"
+        assert result["loop"]["context"]["durableRun"]["thread"]["projectThreadId"] == thread["id"]
+        assert connection.execute("SELECT COUNT(*) AS total FROM sessions").fetchone()["total"] == 0
+        assert connection.execute("SELECT COUNT(*) AS total FROM chats").fetchone()["total"] == 0
+        assert runtime.run_payloads == []
+        assert product_owner.run_payloads[0]["assessment"]["assessment"]["id"] == "assessment-controlled"
+        questions = ProductDiscoveryRepository(connection).list_clarification_questions(
+            project_id=project["id"]
+        )
+        assert [question["question"] for question in questions] == [
+            "Who is the primary operator for this workflow?"
+        ]
+        thread_decisions = ThreadsRepository(connection).list_decisions(thread["id"])
+        assert len(thread_decisions) == 1
+        assert thread_decisions[0]["options"] == ["operations lead", "support lead"]
+        transitions = [item["toState"] for item in result["transitions"]]
+        assert transitions[-2:] == ["discovery", "awaiting_user"]
+        assert "backlog_ready" not in transitions
+
+
+def test_run_user_message_aido_decide_records_product_decisions(tmp_path: Path) -> None:
+    runtime = _ControlledRuntime()
+    git = _GitGate()
+    product_owner = _ProductOwnerRunner(
+        _product_owner_result(
+            "needs_input",
+            decisions=[
+                {
+                    "title": "Choose onboarding path",
+                    "question": "Which onboarding path should AIDO use?",
+                    "decision": "Use guided onboarding",
+                    "rationale": "AIDO decide selected the lowest-risk product path.",
+                    "consequences": ["Guided setup becomes the default."],
+                    "status": "accepted",
+                    "blocking": False,
+                    "options": ["Use guided onboarding", "Use blank setup"],
+                    "confidence": "high",
+                }
+            ],
+        )
+    )
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        project = _workspace_project(connection, tmp_path, "aido-decide")
+        thread = ThreadsRepository(connection).create_thread(
+            project_id=project["id"],
+            owner_type="workspace",
+            owner_id="workspace-1",
+            title="AIDO decide",
+        )
+        coordinator = ProductLoopCoordinator(connection, root=tmp_path)
+
+        result = coordinator.run_user_message(
+            project_id=project["id"],
+            message="AIDO decide the onboarding path.",
+            runtime_runner=runtime,
+            git_service=git,
+            product_owner_runner=product_owner,
+            assessment_runner=_AssessmentRunner(),
+            thread_id=thread["id"],
+        )
+
+        assert result["loop"]["state"] == "awaiting_user"
+        decisions = ProductDiscoveryRepository(connection).list_product_decisions(project_id=project["id"])
+        assert len(decisions) == 1
+        assert decisions[0]["title"] == "Choose onboarding path"
+        assert decisions[0]["decision"] == "Use guided onboarding"
+        assert decisions[0]["status"] == "accepted"
+        assert decisions[0]["metadata"]["source"] == "product_owner_agent"
+
+
+def test_run_user_message_brief_ready_persists_brief_and_artifacts(tmp_path: Path) -> None:
+    runtime = _ControlledRuntime()
+    git = _GitGate()
+    product_owner = _ProductOwnerRunner(_product_owner_result("brief_ready"))
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        project = _workspace_project(connection, tmp_path, "brief-ready")
+        coordinator = ProductLoopCoordinator(connection, root=tmp_path)
+
+        result = coordinator.run_user_message(
+            project_id=project["id"],
+            message="Prepare a brief for onboarding readiness.",
+            runtime_runner=runtime,
+            git_service=git,
+            product_owner_runner=product_owner,
+            assessment_runner=_AssessmentRunner(),
+            run_metadata={"autonomy": "guided"},
+        )
+
+        assert result["status"] == "brief_ready"
+        assert result["loop"]["state"] == "brief_ready"
+        assert runtime.run_payloads == []
+        briefs = ProductDiscoveryRepository(connection).list_product_briefs(project_id=project["id"])
+        assert len(briefs) == 1
+        assert briefs[0]["title"] == "Guided onboarding"
+        assert result["loop"]["context"]["durableRun"]["briefApproval"]["status"] == "approval_required"
+        artifact_names = {
+            artifact["metadata"].get("name") for artifact in EvidenceRepository(connection).list_all_artifacts()
+        }
+        assert {"product_owner_output.json", "product_brief.json"} <= artifact_names
+        transitions = [item["toState"] for item in result["transitions"]]
+        assert transitions[-2:] == ["discovery", "brief_ready"]
+        assert "backlog_ready" not in transitions
+
+
+def test_run_user_message_backlog_ready_persists_backlog_and_generates_agent_tasks(
+    tmp_path: Path,
+) -> None:
+    runtime = _ControlledRuntime()
+    git = _GitGate()
+    product_owner = _backlog_ready_po()
+    technical_lead = _TechnicalLeadPlanner()
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        project = _workspace_project(connection, tmp_path, "backlog-ready")
+        coordinator = ProductLoopCoordinator(connection, root=tmp_path)
+
+        result = coordinator.run_user_message(
+            project_id=project["id"],
+            message="Implement onboarding readiness.",
+            runtime_runner=runtime,
+            git_service=git,
+            product_owner_runner=product_owner,
+            assessment_runner=_AssessmentRunner(),
+            technical_lead_runner=technical_lead,
+        )
+
+        assert "backlog_ready" in [item["toState"] for item in result["transitions"]]
+        backlog = BacklogRepository(connection)
+        epics = backlog.list_epics(project["id"])
+        stories = backlog.list_user_stories(project_id=project["id"])
+        criteria = backlog.list_acceptance_criteria(stories[0]["id"])
+        tasks = backlog.list_agent_tasks(project_id=project["id"])
+        assert [epic["title"] for epic in epics] == ["Onboarding readiness"]
+        assert [story["title"] for story in stories] == ["Readiness checklist"]
+        assert [criterion["criterion"] for criterion in criteria] == [
+            "Given an incomplete project, when the checklist loads, then missing setup is visible."
+        ]
+        assert tasks
+        assert tasks[0]["metadata"]["source"] == "technical_lead"
+        assert technical_lead.payloads[0]["userStories"][0]["id"] == stories[0]["id"]
+        assert runtime.run_payloads[0]["agentTasks"][0]["id"] == tasks[0]["id"]
+        artifact_names = {
+            artifact["metadata"].get("name") for artifact in EvidenceRepository(connection).list_all_artifacts()
+        }
+        assert {"product_owner_output.json", "product_brief.json", "backlog.json"} <= artifact_names
+
+
+def test_run_user_message_refactor_frontend_backend_creates_targeted_team_assignments(
+    tmp_path: Path,
+) -> None:
+    runtime = _ControlledRuntime()
+    planner = _RoleTaskPlanner(["backend_engineer", "frontend_engineer"])
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        project = _workspace_project(connection, tmp_path, "refactor-team")
+        coordinator = ProductLoopCoordinator(connection, root=tmp_path)
+
+        result = coordinator.run_user_message(
+            project_id=project["id"],
+            message="Refactor backend and frontend navigation flow.",
+            runtime_runner=runtime,
+            git_service=_GitGate(),
+            product_owner_runner=_backlog_ready_po(),
+            assessment_runner=_AssessmentRunner(),
+            technical_lead_runner=planner,
+            run_metadata={"teamMode": "balanced", "risk": "medium"},
+        )
+
+        assert result["status"] == "awaiting_approval"
+        assignments = BacklogRepository(connection).list_agent_assignments(project_id=project["id"])
+        assignment_roles = {assignment["role"] for assignment in assignments}
+        assert {"technical_lead", "backend_engineer", "frontend_engineer", "qa_engineer"} <= assignment_roles
+        assert {"mobile_engineer", "data_engineer", "security_engineer", "pentester"}.isdisjoint(
+            assignment_roles
+        )
+        assert all(assignment["handoffId"] for assignment in assignments)
+        assert (
+            connection.execute(
+                "SELECT COUNT(*) AS total FROM agent_handoffs WHERE project_id = ?",
+                (project["id"],),
+            ).fetchone()["total"]
+            == len(assignments)
+        )
+        team_schedule = result["loop"]["context"]["durableRun"]["teamSchedule"]
+        assert team_schedule["mode"] == "balanced"
+        assert "backend_engineer" in team_schedule["summary"]["roles"]
+        assert runtime.run_payloads[0]["teamSchedule"]["schedulerVersion"] == 2
+
+
+def test_run_user_message_security_intent_creates_security_and_pentester_assignments(
+    tmp_path: Path,
+) -> None:
+    runtime = _RuntimeUnavailable()
+    planner = _RoleTaskPlanner(["backend_engineer"])
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        project = _workspace_project(connection, tmp_path, "security-team")
+        coordinator = ProductLoopCoordinator(connection, root=tmp_path)
+
+        result = coordinator.run_user_message(
+            project_id=project["id"],
+            message="Review authentication security and try to break the login flow.",
+            runtime_runner=runtime,
+            git_service=_GitGate(),
+            product_owner_runner=_backlog_ready_po(),
+            assessment_runner=_AssessmentRunner(),
+            technical_lead_runner=planner,
+            run_metadata={"teamMode": "balanced", "risk": "medium"},
+        )
+
+        assert result["status"] == "blocked"
+        assignments = BacklogRepository(connection).list_agent_assignments(project_id=project["id"])
+        assignment_roles = {assignment["role"] for assignment in assignments}
+        assert {"security_engineer", "pentester"} <= assignment_roles
+        assert "mobile_engineer" not in assignment_roles
+        assert runtime.run_payloads == []
+
+
+def test_run_user_message_does_not_execute_developer_without_backlog_tasks(tmp_path: Path) -> None:
+    runtime = _ControlledRuntime()
+    git = _GitGate()
+    technical_lead = _TechnicalLeadPlanner(generate_tasks=False)
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        project = _workspace_project(connection, tmp_path, "no-agent-tasks")
+        coordinator = ProductLoopCoordinator(connection, root=tmp_path)
+
+        result = coordinator.run_user_message(
+            project_id=project["id"],
+            message="Implement onboarding readiness without task decomposition.",
+            runtime_runner=runtime,
+            git_service=git,
+            product_owner_runner=_backlog_ready_po(),
+            assessment_runner=_AssessmentRunner(),
+            technical_lead_runner=technical_lead,
+        )
+
+        assert result["status"] == "blocked"
+        assert "agent_tasks" in result["reason"]
+        assert runtime.run_payloads == []
+        assert technical_lead.payloads
 
 
 def test_run_user_message_with_controlled_runtime_executes_and_awaits_approval(tmp_path: Path) -> None:
     runtime = _ControlledRuntime()
     git = _GitGate()
+    product_owner = _backlog_ready_po()
+    assessment = _AssessmentRunner()
+    technical_lead = _TechnicalLeadPlanner()
     with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
         initialize_platform_schema(connection)
         project = _workspace_project(connection, tmp_path, "controlled-runtime")
@@ -257,21 +728,29 @@ def test_run_user_message_with_controlled_runtime_executes_and_awaits_approval(t
             qa_commands=[["python", "--version"]],
             runtime_runner=runtime,
             git_service=git,
+            product_owner_runner=product_owner,
+            assessment_runner=assessment,
+            technical_lead_runner=technical_lead,
         )
 
         assert result["status"] == "awaiting_approval"
         assert result["loop"]["state"] == "awaiting_approval"
         assert result["loop"]["context"]["durableRun"]["workspaceId"].startswith("workspace-")
+        assert result["loop"]["context"]["durableRun"]["productOwner"]["status"] == "backlog_ready"
+        assert result["loop"]["context"]["durableRun"]["agentTasks"]
         assert result["loop"]["context"]["durableRun"]["agentAssignments"]
+        assert product_owner.run_payloads[0]["assessment"]["assessment"]["id"] == "assessment-controlled"
+        assert technical_lead.payloads
         assert runtime.run_payloads[0]["projectId"] == project["id"]
         assert runtime.run_payloads[0]["workspaceId"].startswith("workspace-")
         assert runtime.run_payloads[0]["instruction"] == "Implement an auditable onboarding dashboard."
+        assert runtime.run_payloads[0]["agentTasks"]
         assert git.gitleaks_calls == 1
         assert [item["toState"] for item in result["transitions"]] == [
             "goal_received",
             "workspace_check",
-            "runtime_check",
             "git_check",
+            "runtime_check",
             "discovery",
             "planning",
             "backlog_ready",
@@ -287,6 +766,8 @@ def test_run_user_message_with_controlled_runtime_executes_and_awaits_approval(t
 def test_run_user_message_records_thread_events_when_thread_id_is_provided(tmp_path: Path) -> None:
     runtime = _ControlledRuntime()
     git = _GitGate()
+    product_owner = _backlog_ready_po()
+    technical_lead = _TechnicalLeadPlanner()
     with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
         initialize_platform_schema(connection)
         project = _workspace_project(connection, tmp_path, "thread-events")
@@ -303,6 +784,9 @@ def test_run_user_message_records_thread_events_when_thread_id_is_provided(tmp_p
             message="Implement an auditable onboarding dashboard.",
             runtime_runner=runtime,
             git_service=git,
+            product_owner_runner=product_owner,
+            assessment_runner=_AssessmentRunner(),
+            technical_lead_runner=technical_lead,
             thread_id=thread["id"],
         )
 
@@ -311,6 +795,8 @@ def test_run_user_message_records_thread_events_when_thread_id_is_provided(tmp_p
         event_types = [event["type"] for event in events]
         assert "workspace_check" in event_types
         assert "runtime_selected" in event_types
+        assert "product_owner_completed" in event_types
+        assert "agent_tasks_ready" in event_types
         assert "agent_running" in event_types
         assert "qa_running" in event_types
         assert "security_running" in event_types
@@ -340,7 +826,6 @@ def test_run_user_message_blocks_dirty_git_before_runtime_execution(tmp_path: Pa
         assert [item["toState"] for item in result["transitions"]] == [
             "goal_received",
             "workspace_check",
-            "runtime_check",
             "git_check",
             "blocked",
         ]
@@ -349,6 +834,8 @@ def test_run_user_message_blocks_dirty_git_before_runtime_execution(tmp_path: Pa
 def test_run_user_message_blocks_when_gitleaks_fails(tmp_path: Path) -> None:
     runtime = _ControlledRuntime()
     git = _GitGate(gitleaks_status="blocked")
+    product_owner = _backlog_ready_po()
+    technical_lead = _TechnicalLeadPlanner()
     with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
         initialize_platform_schema(connection)
         project = _workspace_project(connection, tmp_path, "gitleaks")
@@ -359,6 +846,9 @@ def test_run_user_message_blocks_when_gitleaks_fails(tmp_path: Path) -> None:
             message="Implement with a secret leak.",
             runtime_runner=runtime,
             git_service=git,
+            product_owner_runner=product_owner,
+            assessment_runner=_AssessmentRunner(),
+            technical_lead_runner=technical_lead,
         )
 
         assert result["status"] == "blocked"
@@ -372,6 +862,8 @@ def test_run_user_message_blocks_when_gitleaks_fails(tmp_path: Path) -> None:
 def test_run_user_message_opens_rework_when_qa_fails(tmp_path: Path) -> None:
     runtime = _ControlledRuntime(status="qa_failed")
     git = _GitGate()
+    product_owner = _backlog_ready_po()
+    technical_lead = _TechnicalLeadPlanner()
     with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
         initialize_platform_schema(connection)
         project = _workspace_project(connection, tmp_path, "qa-fail")
@@ -382,6 +874,9 @@ def test_run_user_message_opens_rework_when_qa_fails(tmp_path: Path) -> None:
             message="Implement but QA fails.",
             runtime_runner=runtime,
             git_service=git,
+            product_owner_runner=product_owner,
+            assessment_runner=_AssessmentRunner(),
+            technical_lead_runner=technical_lead,
         )
 
         assert result["status"] == "reworking"
@@ -395,6 +890,8 @@ def test_run_user_message_recovers_persisted_state_after_restart(tmp_path: Path)
     db_path = tmp_path / "platform.sqlite"
     runtime = _ControlledRuntime()
     git = _GitGate()
+    product_owner = _backlog_ready_po()
+    technical_lead = _TechnicalLeadPlanner()
     with open_sqlite_connection(db_path) as connection:
         initialize_platform_schema(connection)
         project = _workspace_project(connection, tmp_path, "restart")
@@ -405,6 +902,9 @@ def test_run_user_message_recovers_persisted_state_after_restart(tmp_path: Path)
             message="Implement and persist state.",
             runtime_runner=runtime,
             git_service=git,
+            product_owner_runner=product_owner,
+            assessment_runner=_AssessmentRunner(),
+            technical_lead_runner=technical_lead,
         )
         loop_id = result["loop"]["id"]
         expected_context = result["loop"]["context"]["durableRun"]
@@ -415,6 +915,8 @@ def test_run_user_message_recovers_persisted_state_after_restart(tmp_path: Path)
     assert resumed["loop"]["state"] == "awaiting_approval"
     assert resumed["loop"]["context"]["durableRun"]["thread"] == expected_context["thread"]
     assert resumed["loop"]["context"]["durableRun"]["workspaceId"] == expected_context["workspaceId"]
+    assert resumed["loop"]["context"]["durableRun"]["productOwner"]["status"] == "backlog_ready"
+    assert resumed["loop"]["context"]["durableRun"]["agentTasks"]
     assert resumed["loop"]["context"]["durableRun"]["evidencePackageIds"]
     assert resumed["transitions"][-1]["toState"] == "awaiting_approval"
 

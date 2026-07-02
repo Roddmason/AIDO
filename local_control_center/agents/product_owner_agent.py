@@ -1049,8 +1049,13 @@ class ProductOwnerAgentRunner:
         workspace = self._workspace(project_id=project_id, workspace_id=str(payload["workspaceId"]))
         assessment = self._assessment(project_id=project_id, idea=idea, initiative_id=initiative_id)
         readiness = self.status(preferred_runtime=payload.get("preferredRuntime"))
+        supplied_assessment = payload.get("assessment")
         assessment["projectAssessment"] = (
-            self._project_assessment_signals(project_id) if readiness["executable"] else None
+            redact_secrets(supplied_assessment)
+            if isinstance(supplied_assessment, dict) and supplied_assessment
+            else self._project_assessment_signals(project_id)
+            if readiness["executable"]
+            else None
         )
         runtime = self._runtime_by_id(readiness.get("selectedRuntimeId")) or {
             "id": readiness.get("selectedRuntimeId") or "unresolved",

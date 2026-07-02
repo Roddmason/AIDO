@@ -375,7 +375,7 @@ test.describe('Threads lifecycle (real pipeline)', () => {
 
 	test('a real Git project runs goal -> queued -> worker -> diff -> QA/gitleaks -> approval -> archive -> rename -> similarity', async ({
 		page,
-	}) => {
+	}, testInfo) => {
 		test.setTimeout(600_000);
 		await page.setViewportSize({ width: 1280, height: 800 });
 		const handshake = await page.request.get(`${baseUrl}/api/v1/security/handshake`);
@@ -548,6 +548,12 @@ test.describe('Threads lifecycle (real pipeline)', () => {
 				hasText: /Approval required|Aprobación requerida/,
 			});
 			await expect(approvalCard).toBeVisible({ timeout: 30_000 });
+
+			// Visual evidence artifact: the execution panel with pipeline, console and approval card.
+			await testInfo.attach('execution-panel-awaiting-approval', {
+				body: await page.screenshot({ fullPage: false }),
+				contentType: 'image/png',
+			});
 			await approvalCard
 				.getByRole('button', { name: /Open approvals|Abrir aprobaciones/ })
 				.click();

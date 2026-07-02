@@ -58,7 +58,7 @@ import type { Mutate } from '../../app/routes';
 import { StatusDot } from '../../components/primitives';
 import { Button, EmptyState, Skeleton, StatusChip, TextArea } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
-import { toneForStatus } from '../../lib/format';
+import { threadStatusTone } from '../../lib/format';
 import {
 	cardTransition,
 	EASE_OUT,
@@ -343,7 +343,7 @@ export function ThreadConversation({
 						<MessageSquare aria-hidden="true" size={16} />
 						<h2>{detail.thread.title}</h2>
 					</div>
-					<StatusChip tone={toneForStatus(threadStatus)}>
+					<StatusChip tone={threadStatusTone(threadStatus)}>
 						{threadStatus.replace(/_/g, ' ')}
 					</StatusChip>
 				</header>

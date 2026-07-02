@@ -56,7 +56,7 @@ import {
 	Tabs,
 } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
-import { formatCostUsd, shortId, toneForStatus } from '../../lib/format';
+import { formatCostUsd, shortId, threadStatusTone, toneForStatus } from '../../lib/format';
 import { cardTransition, crossfade, listStagger } from '../../motion/variants';
 import { PRODUCT_LOOP_PHASES, PRODUCT_LOOP_STATE_ORDER } from '../workbench/productLoopModel';
 import {
@@ -324,16 +324,6 @@ function formatWhen(value: string | null | undefined, language: string): string 
 
 function humanize(value: string): string {
 	return value.replace(/_/g, ' ');
-}
-
-const THREAD_TONE_OVERRIDES: Record<string, StatusTone> = {
-	resolved: 'ok',
-	waiting_decision: 'pending',
-	open: 'info',
-};
-
-function threadStatusTone(status: string): StatusTone {
-	return THREAD_TONE_OVERRIDES[status] ?? toneForStatus(status);
 }
 
 function loopStateTone(state: string): StatusTone {

@@ -63,6 +63,146 @@
       "en": "Open folder",
       "es": "Abrir carpeta"
     },
+    "app.shell.threads.menu.label": {
+      "en": "Thread actions",
+      "es": "Acciones del hilo"
+    },
+    "app.shell.threads.menu.rename": {
+      "en": "Rename",
+      "es": "Renombrar"
+    },
+    "app.shell.threads.menu.archive": {
+      "en": "Archive",
+      "es": "Archivar"
+    },
+    "app.shell.threads.menu.unarchive": {
+      "en": "Unarchive",
+      "es": "Desarchivar"
+    },
+    "app.shell.threads.menu.duplicate": {
+      "en": "Duplicate as new loop",
+      "es": "Duplicar como nuevo loop"
+    },
+    "app.shell.threads.menu.copyId": {
+      "en": "Copy thread id",
+      "es": "Copiar id del hilo"
+    },
+    "app.shell.threads.menu.openArtifacts": {
+      "en": "Open artifacts",
+      "es": "Abrir artifacts"
+    },
+    "app.shell.threads.menu.delete": {
+      "en": "Delete",
+      "es": "Eliminar"
+    },
+    "app.shell.threads.menu.deleteBlocked": {
+      "en": "Running thread — stop the run first.",
+      "es": "Hilo en ejecución — detén el run primero."
+    },
+    "app.shell.threads.renameLabel": {
+      "en": "New thread title",
+      "es": "Nuevo título del hilo"
+    },
+    "app.shell.threads.renameError": {
+      "en": "Could not rename the thread.",
+      "es": "No se pudo renombrar el hilo."
+    },
+    "app.shell.threads.archivedSection": {
+      "en": "Archived",
+      "es": "Archivados"
+    },
+    "app.shell.threads.showArchived": {
+      "en": "Show archived",
+      "es": "Mostrar archivados"
+    },
+    "app.shell.threads.hideArchived": {
+      "en": "Hide archived",
+      "es": "Ocultar archivados"
+    },
+    "app.shell.threads.archivedEmpty": {
+      "en": "No archived threads yet.",
+      "es": "Aún no hay hilos archivados."
+    },
+    "app.shell.threads.archivedLoadError": {
+      "en": "Could not load archived threads.",
+      "es": "No se pudieron cargar los hilos archivados."
+    },
+    "app.shell.threads.archived": {
+      "en": "Thread archived",
+      "es": "Hilo archivado"
+    },
+    "app.shell.threads.undo": {
+      "en": "Undo",
+      "es": "Deshacer"
+    },
+    "app.shell.threads.archiveError": {
+      "en": "Could not archive the thread.",
+      "es": "No se pudo archivar el hilo."
+    },
+    "app.shell.threads.restored": {
+      "en": "Thread restored",
+      "es": "Hilo restaurado"
+    },
+    "app.shell.threads.restoreError": {
+      "en": "Could not restore the thread.",
+      "es": "No se pudo restaurar el hilo."
+    },
+    "app.shell.threads.duplicated": {
+      "en": "New loop created from thread",
+      "es": "Nuevo loop creado desde el hilo"
+    },
+    "app.shell.threads.duplicateError": {
+      "en": "Could not duplicate the thread.",
+      "es": "No se pudo duplicar el hilo."
+    },
+    "app.shell.threads.idCopied": {
+      "en": "Thread id copied",
+      "es": "Id del hilo copiado"
+    },
+    "app.shell.threads.idCopyError": {
+      "en": "Could not copy the thread id.",
+      "es": "No se pudo copiar el id del hilo."
+    },
+    "app.shell.threads.deleted": {
+      "en": "Thread deleted",
+      "es": "Hilo eliminado"
+    },
+    "app.shell.threads.deleteError": {
+      "en": "Could not delete the thread.",
+      "es": "No se pudo eliminar el hilo."
+    },
+    "app.shell.threads.deleteTitle": {
+      "en": "Delete thread",
+      "es": "Eliminar hilo"
+    },
+    "app.shell.threads.deleteBody": {
+      "en": "The thread is hidden everywhere; its messages and artifacts stay stored for audit.",
+      "es": "El hilo se oculta en todas partes; sus mensajes y artifacts quedan almacenados para auditoría."
+    },
+    "app.shell.threads.deleteConfirm": {
+      "en": "Delete thread",
+      "es": "Eliminar hilo"
+    },
+    "app.shell.threads.deleteCancel": {
+      "en": "Cancel",
+      "es": "Cancelar"
+    },
+    "app.shell.threads.artifactsTitle": {
+      "en": "Thread artifacts",
+      "es": "Artifacts del hilo"
+    },
+    "app.shell.threads.artifactsError": {
+      "en": "Could not load the artifacts",
+      "es": "No se pudieron cargar los artifacts"
+    },
+    "app.shell.threads.artifactsEmpty": {
+      "en": "No artifacts yet",
+      "es": "Aún no hay artifacts"
+    },
+    "app.shell.threads.artifactsEmptyBody": {
+      "en": "Artifacts appear here as the loop produces them.",
+      "es": "Los artifacts aparecen aquí a medida que el loop los produce."
+    },
     "app.threads.emptyTitle": {
       "en": "No thread selected",
       "es": "Ningún hilo seleccionado"
@@ -147,6 +287,202 @@
       "en": "Could not send the message. Try again.",
       "es": "No se pudo enviar el mensaje. Intenta de nuevo."
     },
+    "app.threads.eventRoles": {
+      "en": "Roles",
+      "es": "Roles del equipo"
+    },
+    "app.threads.eventAssignment": {
+      "en": "Assignment",
+      "es": "Asignación"
+    },
+    "app.threads.research.title": {
+      "en": "Research",
+      "es": "Investigación"
+    },
+    "app.threads.research.recommendation": {
+      "en": "Recommendation",
+      "es": "Recomendación"
+    },
+    "app.threads.research.sources": {
+      "en": "Sources",
+      "es": "Fuentes"
+    },
+    "app.threads.research.noSources": {
+      "en": "No sources persisted yet.",
+      "es": "Aún no hay fuentes persistidas."
+    },
+    "app.threads.research.noDate": {
+      "en": "No date",
+      "es": "Sin fecha"
+    },
+    "app.threads.research.discrepancies": {
+      "en": "Discrepancies",
+      "es": "Discrepancias"
+    },
+    "app.threads.similar.title": {
+      "en": "This was already worked on in “{thread}”",
+      "es": "Esto ya se trabajó en «{thread}»"
+    },
+    "app.threads.similar.match": {
+      "en": "{score}% match",
+      "es": "{score}% de coincidencia"
+    },
+    "app.threads.similar.continue": {
+      "en": "Continue existing thread",
+      "es": "Continuar hilo existente"
+    },
+    "app.threads.similar.improve": {
+      "en": "Refactor existing work",
+      "es": "Refactorizar lo existente"
+    },
+    "app.threads.similar.performance": {
+      "en": "Improve performance",
+      "es": "Mejorar performance"
+    },
+    "app.threads.similar.actionsLabel": {
+      "en": "Choose what to do with this match",
+      "es": "Elige qué hacer con esta coincidencia"
+    },
+    "app.threads.similar.createNew": {
+      "en": "Create new thread anyway",
+      "es": "Crear hilo nuevo igualmente"
+    },
+    "app.threads.similar.error": {
+      "en": "Could not reuse the existing thread. Try again.",
+      "es": "No se pudo reutilizar el hilo existente. Intenta de nuevo."
+    },
+    "app.threads.waitingWorkerTitle": {
+      "en": "Waiting for worker",
+      "es": "Esperando worker"
+    },
+    "app.threads.runNow": {
+      "en": "Run now",
+      "es": "Ejecutar ahora"
+    },
+    "app.threads.workerNotRunningHint": {
+      "en": "The worker loop is not running; start this queued run manually.",
+      "es": "El loop del worker no está corriendo; inicia esta ejecución en cola manualmente."
+    },
+    "app.threads.pipelineTitle": {
+      "en": "Pipeline steps",
+      "es": "Pasos del pipeline"
+    },
+    "app.threads.step.runtime_check": {
+      "en": "Runtime check",
+      "es": "Verificación de runtime"
+    },
+    "app.threads.step.git_check": {
+      "en": "Git check",
+      "es": "Verificación de Git"
+    },
+    "app.threads.step.branch_ready": {
+      "en": "Branch ready",
+      "es": "Rama lista"
+    },
+    "app.threads.step.executing": {
+      "en": "Executing",
+      "es": "Ejecutando"
+    },
+    "app.threads.step.qa_running": {
+      "en": "QA checks",
+      "es": "Pruebas de QA"
+    },
+    "app.threads.step.security_running": {
+      "en": "Security scan",
+      "es": "Escaneo de seguridad"
+    },
+    "app.threads.step.awaiting_approval": {
+      "en": "Awaiting approval",
+      "es": "Esperando aprobación"
+    },
+    "app.threads.stepState.pending": {
+      "en": "pending",
+      "es": "pendiente"
+    },
+    "app.threads.stepState.active": {
+      "en": "active",
+      "es": "en curso"
+    },
+    "app.threads.stepState.done": {
+      "en": "done",
+      "es": "hecho"
+    },
+    "app.threads.stepState.blocked": {
+      "en": "blocked",
+      "es": "bloqueado"
+    },
+    "app.threads.blockersTitle": {
+      "en": "Blockers",
+      "es": "Bloqueos"
+    },
+    "app.threads.blocker.decisionTitle": {
+      "en": "Decision pending",
+      "es": "Decisión pendiente"
+    },
+    "app.threads.blocker.answerDecision": {
+      "en": "Answer decision",
+      "es": "Responder decisión"
+    },
+    "app.threads.blocker.approvalTitle": {
+      "en": "Approval required",
+      "es": "Aprobación requerida"
+    },
+    "app.threads.blocker.approvalHint": {
+      "en": "This run pauses until you approve it on the review board.",
+      "es": "Esta ejecución queda en pausa hasta que la apruebes en el tablero de revisión."
+    },
+    "app.threads.blocker.openApprovals": {
+      "en": "Open approvals",
+      "es": "Abrir aprobaciones"
+    },
+    "app.threads.blocker.runtimeTitle": {
+      "en": "Runtime unavailable",
+      "es": "Runtime no disponible"
+    },
+    "app.threads.blocker.configureRuntime": {
+      "en": "Configure runtime",
+      "es": "Configurar runtime"
+    },
+    "app.threads.blocker.gitleaksTitle": {
+      "en": "Gitleaks blocked delivery",
+      "es": "Gitleaks bloqueó la entrega"
+    },
+    "app.threads.blocker.gitleaksHint": {
+      "en": "Install gitleaks, then run the scan again.",
+      "es": "Instala gitleaks y vuelve a ejecutar el escaneo."
+    },
+    "app.threads.blocker.gitTitle": {
+      "en": "Git workspace blocked",
+      "es": "Git del proyecto bloqueado"
+    },
+    "app.threads.blocker.gitHint": {
+      "en": "Clean the project working tree, then retry.",
+      "es": "Limpia el working tree del proyecto y reintenta."
+    },
+    "app.threads.blocker.openGitControls": {
+      "en": "Open Git controls",
+      "es": "Abrir controles Git"
+    },
+    "app.threads.blocker.branchTitle": {
+      "en": "Working branch required",
+      "es": "Falta la rama de trabajo"
+    },
+    "app.threads.blocker.branchHint": {
+      "en": "Create a working branch from the Git bar in the composer.",
+      "es": "Crea una rama de trabajo desde la barra Git del redactor."
+    },
+    "app.threads.blocker.workerTitle": {
+      "en": "Worker error",
+      "es": "Error del worker"
+    },
+    "app.threads.blocker.genericTitle": {
+      "en": "Run blocked",
+      "es": "Ejecución bloqueada"
+    },
+    "app.threads.eventDetails": {
+      "en": "Technical details",
+      "es": "Detalles técnicos"
+    },
     "app.threads.chatRegion": {
       "en": "Thread chat",
       "es": "Chat del hilo"
@@ -162,6 +498,26 @@
     "app.threads.consoleLoading": {
       "en": "syncing",
       "es": "sincronizando"
+    },
+    "app.threads.workerRunning": {
+      "en": "Worker running",
+      "es": "Worker activo"
+    },
+    "app.threads.workerPaused": {
+      "en": "Worker paused",
+      "es": "Worker pausado"
+    },
+    "app.threads.workerStopped": {
+      "en": "Worker stopped",
+      "es": "Worker detenido"
+    },
+    "app.threads.runQueuedNow": {
+      "en": "Run queued jobs now",
+      "es": "Ejecutar cola ahora"
+    },
+    "app.threads.workerRunningNow": {
+      "en": "Running queued jobs",
+      "es": "Ejecutando cola"
     },
     "app.threads.waitingWorker": {
       "en": "Queued: waiting for a worker to claim this run.",
@@ -187,9 +543,25 @@
       "en": "Run queued",
       "es": "Run encolado"
     },
+    "app.threads.event.worker_started": {
+      "en": "Worker started",
+      "es": "Worker iniciado"
+    },
     "app.threads.event.worker_claimed": {
       "en": "Worker assigned",
       "es": "Worker asignado"
+    },
+    "app.threads.event.worker_idle": {
+      "en": "Worker idle",
+      "es": "Worker sin jobs"
+    },
+    "app.threads.event.worker_failed": {
+      "en": "Worker failed",
+      "es": "Worker falló"
+    },
+    "app.threads.event.worker_paused": {
+      "en": "Worker paused",
+      "es": "Worker pausado"
     },
     "app.threads.event.runtime_selected": {
       "en": "Runtime selected",
@@ -1462,6 +1834,18 @@
     "app.settings.runtime.pythonRunnerLabel": {
       "en": "Python runner",
       "es": "Corredor de Python"
+    },
+    "app.settings.worker.autostart": {
+      "en": "Autostart local worker",
+      "es": "Iniciar worker local automáticamente"
+    },
+    "app.settings.worker.pollIntervalSeconds": {
+      "en": "Worker poll interval",
+      "es": "Intervalo de sondeo del worker"
+    },
+    "app.settings.worker.maxConcurrentJobs": {
+      "en": "Worker concurrency limit",
+      "es": "Límite de concurrencia del worker"
     },
     "app.settings.agents.modesNote": {
       "en": "agent profiles. Runtime modes (CLI / API / Ollama / hybrid) sit behind the same governance layer.",
@@ -5840,12 +6224,12 @@
       "es": "Workbench de workspace"
     },
     "app.workbench.summary": {
-      "en": "Select a folder workspace, open a work session and coordinate the AI team from intake to evidence-backed delivery.",
-      "es": "Selecciona una carpeta workspace, abre una sesión de trabajo y coordina el equipo IA desde intake hasta entrega con evidencia."
+      "en": "Select a folder workspace, open a project thread and coordinate the AI team from intake to evidence-backed delivery.",
+      "es": "Selecciona una carpeta workspace, abre un thread de proyecto y coordina el equipo IA desde intake hasta entrega con evidencia."
     },
     "app.workbench.primaryRegion": {
-      "en": "Chat and progress",
-      "es": "Chat y avance"
+      "en": "Thread and progress",
+      "es": "Thread y avance"
     },
     "app.workbench.sideRegion": {
       "en": "AI team and deliverables",
@@ -5904,36 +6288,36 @@
       "es": "Flujos de trabajo"
     },
     "app.workbench.chat.title": {
-      "en": "Start from chat",
-      "es": "Iniciar desde chat"
+      "en": "Start from thread",
+      "es": "Iniciar desde thread"
     },
     "app.workbench.chat.history": {
-      "en": "Session chat history",
-      "es": "Historial de chat de la sesión"
+      "en": "Thread history",
+      "es": "Historial del thread"
     },
     "app.workbench.chat.emptyTitle": {
-      "en": "No chat in this session",
-      "es": "Sin chat en esta sesión"
+      "en": "No messages in this thread",
+      "es": "Sin mensajes en este thread"
     },
     "app.workbench.chat.emptyBody": {
       "en": "Use the composer to start coordinated project work for this workspace.",
       "es": "Usa el compositor para iniciar trabajo coordinado de proyecto en este workspace."
     },
     "app.workbench.chat.creating": {
-      "en": "Creating work session",
-      "es": "Creando sesión de trabajo"
+      "en": "Creating thread intake",
+      "es": "Creando intake de thread"
     },
     "app.workbench.chat.submit": {
       "en": "Start intake",
       "es": "Iniciar intake"
     },
     "app.workbench.chat.created": {
-      "en": "Chat intake created",
-      "es": "Intake de chat creado"
+      "en": "Thread intake created",
+      "es": "Intake de thread creado"
     },
     "app.workbench.chat.pipelineLinked": {
-      "en": "pipeline",
-      "es": "flujo"
+      "en": "message",
+      "es": "mensaje"
     },
     "app.workbench.composer.promptLabel": {
       "en": "What should AIDO do?",
@@ -5972,28 +6356,28 @@
       "es": "Sesiones del workspace"
     },
     "app.workbench.sessions.title": {
-      "en": "Work sessions",
-      "es": "Sesiones de trabajo"
+      "en": "Project threads",
+      "es": "Threads de proyecto"
     },
     "app.workbench.sessions.new": {
-      "en": "New work session",
-      "es": "Nueva sesión de trabajo"
+      "en": "New project thread",
+      "es": "Nuevo thread de proyecto"
     },
     "app.workbench.sessions.newHint": {
-      "en": "Starts a chat, session and intake pipeline",
-      "es": "Inicia chat, sesión y pipeline de intake"
+      "en": "Starts a real project thread",
+      "es": "Inicia un thread real de proyecto"
     },
     "app.workbench.sessions.chatCount": {
-      "en": "chats",
-      "es": "conversaciones"
+      "en": "threads",
+      "es": "hilos"
     },
     "app.workbench.sessions.emptyTitle": {
-      "en": "No work sessions",
-      "es": "Sin sesiones de trabajo"
+      "en": "No project threads",
+      "es": "Sin threads de proyecto"
     },
     "app.workbench.sessions.emptyBody": {
-      "en": "Your first prompt will create a session for this workspace folder.",
-      "es": "Tu primer prompt creará una sesión para esta carpeta workspace."
+      "en": "Your first prompt will create a project thread for this workspace folder.",
+      "es": "Tu primer prompt creará un thread de proyecto para esta carpeta workspace."
     },
     "app.workbench.signals.title": {
       "en": "Operational signals",
@@ -6382,26 +6766,6 @@
     "app.workbench.deliverables.columnPath": {
       "en": "Path",
       "es": "Ruta"
-    },
-    "app.workbench.pipelines.title": {
-      "en": "Session pipelines",
-      "es": "Pipelines de sesión"
-    },
-    "app.workbench.pipelines.emptyTitle": {
-      "en": "No intake pipelines",
-      "es": "Sin pipelines de intake"
-    },
-    "app.workbench.pipelines.emptyBody": {
-      "en": "Chat intake creates the first pipeline record for the selected work session.",
-      "es": "El intake de chat crea el primer registro de pipeline para la sesión de trabajo seleccionada."
-    },
-    "app.workbench.pipelines.columnTitle": {
-      "en": "Pipeline",
-      "es": "Flujo"
-    },
-    "app.workbench.pipelines.columnStatus": {
-      "en": "Status",
-      "es": "Estado"
     },
     "app.workbench.workspaces.title": {
       "en": "Allocated runtime workspaces",
@@ -7252,12 +7616,12 @@
       "es": "Envía un intake autónomo para ver aquí su progreso de ejecución."
     },
     "app.workbench.timeline.deliveryEmptyTitle": {
-      "en": "No delivery pipeline yet",
-      "es": "Aún no hay pipeline de entrega"
+      "en": "No delivery flow yet",
+      "es": "Aún no hay flujo de entrega"
     },
     "app.workbench.timeline.deliveryEmptyBody": {
-      "en": "Start a conversation intake to create the delivery pipeline.",
-      "es": "Inicia un ingreso por conversación para crear el pipeline de entrega."
+      "en": "Start a thread intake to create the delivery flow.",
+      "es": "Inicia un intake de thread para crear el flujo de entrega."
     },
     "app.workbench.runTimeline.emptyTitle": {
       "en": "No run yet",
@@ -7268,8 +7632,8 @@
       "es": "Envía un intake para seguir aquí su ejecución autónoma."
     },
     "app.workbench.chat.viewFull": {
-      "en": "View full chat history",
-      "es": "Ver historial completo del chat"
+      "en": "View full thread history",
+      "es": "Ver historial completo del thread"
     },
     "app.workbench.chat.showFewer": {
       "en": "Show fewer",
@@ -7294,18 +7658,6 @@
     "app.workbench.timeline.eventsTitle": {
       "en": "Workflow events",
       "es": "Eventos de workflow"
-    },
-    "app.workbench.timeline.pipelinesEmptyBody": {
-      "en": "Chat intake creates the first pipeline record for the selected work session.",
-      "es": "El intake por chat crea el primer registro de pipeline para la sesión de trabajo seleccionada."
-    },
-    "app.workbench.timeline.pipelinesEmptyTitle": {
-      "en": "No intake pipelines",
-      "es": "Sin pipelines de intake"
-    },
-    "app.workbench.timeline.pipelinesTitle": {
-      "en": "Session pipelines",
-      "es": "Pipelines de la sesión"
     },
     "app.workbench.timeline.runLabel": {
       "en": "Detailed run timeline",
@@ -7727,6 +8079,54 @@
       "en": "Configure NVIDIA NIM",
       "es": "Configurar NVIDIA NIM"
     },
+    "app.runtime.setup.configureOpenRouter": {
+      "en": "Configure OpenRouter",
+      "es": "Configurar OpenRouter"
+    },
+    "app.runtime.setup.configureOpenHands": {
+      "en": "Configure OpenHands",
+      "es": "Configurar OpenHands"
+    },
+    "app.runtime.setup.configureSweAgent": {
+      "en": "Configure SWE-agent",
+      "es": "Configurar SWE-agent"
+    },
+    "app.runtime.setup.tokenRequired": {
+      "en": "A local write token is required to run runtime setup checks.",
+      "es": "Se requiere un token local de escritura para ejecutar las verificaciones de configuración de runtimes."
+    },
+    "app.runtime.action.setup": {
+      "en": "Detect & check",
+      "es": "Detectar y verificar"
+    },
+    "app.runtime.action.validate": {
+      "en": "Validate",
+      "es": "Validar"
+    },
+    "app.runtime.action.use": {
+      "en": "Use in a thread",
+      "es": "Usar en un hilo"
+    },
+    "app.runtime.fact.installed": {
+      "en": "installed",
+      "es": "instalado"
+    },
+    "app.runtime.fact.authenticated": {
+      "en": "authenticated",
+      "es": "autenticado"
+    },
+    "app.runtime.fact.canRunPrompt": {
+      "en": "runs prompts",
+      "es": "ejecuta prompts"
+    },
+    "app.runtime.fact.canEditWorkspace": {
+      "en": "edits workspace",
+      "es": "edita el workspace"
+    },
+    "app.statusBar.configureRuntimes": {
+      "en": "Set up runtimes",
+      "es": "Configurar runtimes"
+    },
     "app.runtime.refresh": {
       "en": "Refresh health",
       "es": "Re-verificar estado"
@@ -7836,28 +8236,28 @@
       "es": "Cómo configurar"
     },
     "app.runtime.instructions.codex_cli": {
-      "en": "Install the Codex CLI, persist its executable path or put codex on PATH, enable AIDO_ENABLE_CLI_RUNTIMES, then refresh health. AIDO_CODEX_COMMAND is only a deprecated bootstrap/CI override.",
-      "es": "Instala la CLI de Codex, persiste la ruta del ejecutable o agrega codex al PATH, habilita AIDO_ENABLE_CLI_RUNTIMES y re-verifica el estado. AIDO_CODEX_COMMAND es solo un override de bootstrap/CI deprecado."
+      "en": "Install the Codex CLI, persist its executable path or put codex on PATH, enable the Codex runtime in Settings, then refresh health. AIDO_CODEX_COMMAND is only a deprecated bootstrap/CI override.",
+      "es": "Instala la CLI de Codex, persiste la ruta del ejecutable o agrega codex al PATH, habilita el runtime Codex en Configuración y re-verifica el estado. AIDO_CODEX_COMMAND es solo un override de bootstrap/CI deprecado."
     },
     "app.runtime.instructions.claude_code_cli": {
-      "en": "Install Claude Code, persist its executable path or put claude on PATH, enable AIDO_ENABLE_CLI_RUNTIMES, then refresh health. AIDO_CLAUDE_COMMAND is only a deprecated bootstrap/CI override.",
-      "es": "Instala Claude Code, persiste la ruta del ejecutable o agrega claude al PATH, habilita AIDO_ENABLE_CLI_RUNTIMES y re-verifica el estado. AIDO_CLAUDE_COMMAND es solo un override de bootstrap/CI deprecado."
+      "en": "Install Claude Code, persist its executable path or put claude on PATH, enable the Claude runtime in Settings, then refresh health. AIDO_CLAUDE_COMMAND is only a deprecated bootstrap/CI override.",
+      "es": "Instala Claude Code, persiste la ruta del ejecutable o agrega claude al PATH, habilita el runtime Claude en Configuración y re-verifica el estado. AIDO_CLAUDE_COMMAND es solo un override de bootstrap/CI deprecado."
     },
     "app.runtime.instructions.ollama": {
       "en": "Start a local Ollama daemon or point AIDO_OLLAMA_BASE_URL to a reachable remote Ollama server (default http://127.0.0.1:11434), then refresh health to detect models.",
       "es": "Inicia un daemon local de Ollama o apunta AIDO_OLLAMA_BASE_URL a un servidor Ollama remoto alcanzable (por defecto http://127.0.0.1:11434), luego re-verifica para detectar modelos."
     },
     "app.runtime.instructions.openai_compatible": {
-      "en": "Set AIDO_OPENAI_COMPATIBLE_BASE_URL, AIDO_OPENAI_COMPATIBLE_API_KEY and AIDO_OPENAI_COMPATIBLE_MODEL, enable AIDO_ENABLE_REAL_PROVIDER_CALLS, then run a health check.",
-      "es": "Define AIDO_OPENAI_COMPATIBLE_BASE_URL, AIDO_OPENAI_COMPATIBLE_API_KEY y AIDO_OPENAI_COMPATIBLE_MODEL, habilita AIDO_ENABLE_REAL_PROVIDER_CALLS y ejecuta un chequeo de salud."
+      "en": "Set AIDO_OPENAI_COMPATIBLE_BASE_URL, AIDO_OPENAI_COMPATIBLE_API_KEY and AIDO_OPENAI_COMPATIBLE_MODEL, enable the provider in Settings, then run a health check.",
+      "es": "Define AIDO_OPENAI_COMPATIBLE_BASE_URL, AIDO_OPENAI_COMPATIBLE_API_KEY y AIDO_OPENAI_COMPATIBLE_MODEL, habilita el proveedor en Configuración y ejecuta un chequeo de salud."
     },
     "app.runtime.instructions.openrouter": {
-      "en": "Set AIDO_OPENROUTER_API_KEY and AIDO_OPENROUTER_MODEL, enable AIDO_ENABLE_REAL_PROVIDER_CALLS, then run a health check.",
-      "es": "Define AIDO_OPENROUTER_API_KEY y AIDO_OPENROUTER_MODEL, habilita AIDO_ENABLE_REAL_PROVIDER_CALLS y ejecuta un chequeo de salud."
+      "en": "Set AIDO_OPENROUTER_API_KEY and AIDO_OPENROUTER_MODEL, enable the provider in Settings, then run a health check.",
+      "es": "Define AIDO_OPENROUTER_API_KEY y AIDO_OPENROUTER_MODEL, habilita el proveedor en Configuración y ejecuta un chequeo de salud."
     },
     "app.runtime.instructions.nvidia_nim": {
-      "en": "Set AIDO_NVIDIA_API_KEY, AIDO_NVIDIA_BASE_URL and AIDO_NVIDIA_MODEL, enable AIDO_ENABLE_REAL_PROVIDER_CALLS, then run a health check.",
-      "es": "Define AIDO_NVIDIA_API_KEY, AIDO_NVIDIA_BASE_URL y AIDO_NVIDIA_MODEL, habilita AIDO_ENABLE_REAL_PROVIDER_CALLS y ejecuta un chequeo de salud."
+      "en": "Set AIDO_NVIDIA_API_KEY, AIDO_NVIDIA_BASE_URL and AIDO_NVIDIA_MODEL, enable the provider in Settings, then run a health check.",
+      "es": "Define AIDO_NVIDIA_API_KEY, AIDO_NVIDIA_BASE_URL y AIDO_NVIDIA_MODEL, habilita el proveedor en Configuración y ejecuta un chequeo de salud."
     },
     "app.runtime.inspector.pending": {
       "en": "Runtime discovery pending",
@@ -8503,10 +8903,6 @@
       "en": "No sections match your search.",
       "es": "Ninguna sección coincide con tu búsqueda."
     },
-    "app.settings.placeholder.notConfigured": {
-      "en": "This section is not yet configured. Settings will appear here in a future release.",
-      "es": "Esta sección aún no está configurada. Los ajustes aparecerán aquí en una versión futura."
-    },
     "app.settings.security.sandboxNone": {
       "en": "None",
       "es": "Ninguno"
@@ -8522,6 +8918,290 @@
     "app.settings.budget.maxCostUsd": {
       "en": "Maximum cost (USD)",
       "es": "Costo máximo (USD)"
+    },
+    "app.threads.inspector.tab.goal": {
+      "en": "Goal",
+      "es": "Objetivo"
+    },
+    "app.threads.inspector.tab.team": {
+      "en": "Team",
+      "es": "Equipo"
+    },
+    "app.threads.inspector.tab.plan": {
+      "en": "Plan",
+      "es": "Planificación"
+    },
+    "app.threads.inspector.tab.backlog": {
+      "en": "Backlog",
+      "es": "Backlog del producto"
+    },
+    "app.threads.inspector.tab.memory": {
+      "en": "Memory",
+      "es": "Memoria"
+    },
+    "app.threads.inspector.tab.research": {
+      "en": "Research",
+      "es": "Investigación"
+    },
+    "app.threads.inspector.tab.artifacts": {
+      "en": "Artifacts",
+      "es": "Artefactos"
+    },
+    "app.threads.inspector.tab.settings": {
+      "en": "Settings",
+      "es": "Configuración"
+    },
+    "app.threads.inspector.tabsLabel": {
+      "en": "Thread inspector views",
+      "es": "Vistas del inspector del hilo"
+    },
+    "app.threads.inspector.loading": {
+      "en": "Loading inspector data",
+      "es": "Cargando datos del inspector"
+    },
+    "app.threads.inspector.errorTitle": {
+      "en": "Could not load this view",
+      "es": "No se pudo cargar esta vista"
+    },
+    "app.threads.inspector.errorBody": {
+      "en": "The request failed. Retry to fetch it again.",
+      "es": "La solicitud falló. Reintenta para volver a cargarla."
+    },
+    "app.threads.inspector.noThreadTitle": {
+      "en": "No live thread",
+      "es": "Sin hilo activo"
+    },
+    "app.threads.inspector.noThreadBody": {
+      "en": "Create or select a thread to inspect it.",
+      "es": "Crea o selecciona un hilo para inspeccionarlo."
+    },
+    "app.threads.inspector.goal.empty": {
+      "en": "No goal captured yet — the first message sets the objective.",
+      "es": "Aún no hay objetivo registrado — el primer mensaje define el objetivo."
+    },
+    "app.threads.inspector.goal.owner": {
+      "en": "Owner",
+      "es": "Responsable"
+    },
+    "app.threads.inspector.goal.created": {
+      "en": "Created",
+      "es": "Creado"
+    },
+    "app.threads.inspector.goal.updated": {
+      "en": "Updated",
+      "es": "Actualizado"
+    },
+    "app.threads.inspector.goal.decisions": {
+      "en": "Pending decisions",
+      "es": "Decisiones pendientes"
+    },
+    "app.threads.inspector.goal.summary": {
+      "en": "Summary",
+      "es": "Resumen"
+    },
+    "app.threads.inspector.team.empty": {
+      "en": "No agents configured yet",
+      "es": "Aún no hay agentes configurados"
+    },
+    "app.threads.inspector.team.emptyBody": {
+      "en": "Configure the AI team from Settings to staff the loop.",
+      "es": "Configura el equipo de IA desde Configuración para dotar el loop."
+    },
+    "app.threads.inspector.team.summaryLabel": {
+      "en": "Team overview",
+      "es": "Resumen del equipo"
+    },
+    "app.threads.inspector.team.total": {
+      "en": "Agents",
+      "es": "Agentes"
+    },
+    "app.threads.inspector.team.working": {
+      "en": "Working",
+      "es": "En curso"
+    },
+    "app.threads.inspector.team.spend": {
+      "en": "Spend",
+      "es": "Gasto"
+    },
+    "app.threads.inspector.team.blockedCount": {
+      "en": "Blocked",
+      "es": "Bloqueados"
+    },
+    "app.threads.inspector.team.assignment": {
+      "en": "Assignment",
+      "es": "Asignación"
+    },
+    "app.threads.inspector.team.noAssignment": {
+      "en": "No active assignment",
+      "es": "Sin asignación activa"
+    },
+    "app.threads.inspector.team.disabledForProject": {
+      "en": "Disabled for this project",
+      "es": "Deshabilitado para este proyecto"
+    },
+    "app.threads.inspector.team.details": {
+      "en": "Details",
+      "es": "Detalles"
+    },
+    "app.threads.inspector.team.provider": {
+      "en": "Provider",
+      "es": "Proveedor"
+    },
+    "app.threads.inspector.team.reviewer": {
+      "en": "Reviewer",
+      "es": "Revisor"
+    },
+    "app.threads.inspector.team.costCap": {
+      "en": "Cost cap per run",
+      "es": "Tope de costo por ejecución"
+    },
+    "app.threads.inspector.team.calls": {
+      "en": "Model calls",
+      "es": "Llamadas al modelo"
+    },
+    "app.threads.inspector.plan.emptyTitle": {
+      "en": "No product loop yet",
+      "es": "Aún no hay loop de producto"
+    },
+    "app.threads.inspector.plan.empty": {
+      "en": "Planning has not started — the loop begins when a goal arrives.",
+      "es": "La planificación no ha comenzado — el loop parte cuando llega un objetivo."
+    },
+    "app.threads.inspector.plan.phases": {
+      "en": "Phases",
+      "es": "Fases"
+    },
+    "app.threads.inspector.plan.next": {
+      "en": "Next expected phases",
+      "es": "Próximas fases esperadas"
+    },
+    "app.threads.inspector.plan.noNext": {
+      "en": "No further phases",
+      "es": "No quedan fases posteriores"
+    },
+    "app.threads.inspector.plan.blockers": {
+      "en": "Blockers",
+      "es": "Bloqueos"
+    },
+    "app.threads.inspector.plan.noBlockers": {
+      "en": "No blockers recorded.",
+      "es": "No hay bloqueos registrados."
+    },
+    "app.threads.inspector.plan.transitions": {
+      "en": "Recent transitions",
+      "es": "Transiciones recientes"
+    },
+    "app.threads.inspector.plan.criteria": {
+      "en": "Acceptance criteria",
+      "es": "Criterios de aceptación"
+    },
+    "app.threads.inspector.plan.noCriteria": {
+      "en": "No acceptance criteria yet.",
+      "es": "Aún no hay criterios de aceptación."
+    },
+    "app.threads.inspector.plan.gates": {
+      "en": "Quality gates",
+      "es": "Puertas de calidad"
+    },
+    "app.threads.inspector.plan.noGates": {
+      "en": "No quality-gate reviews yet.",
+      "es": "Aún no hay revisiones de puertas de calidad."
+    },
+    "app.threads.inspector.backlog.emptyTitle": {
+      "en": "Backlog is empty",
+      "es": "El backlog está vacío"
+    },
+    "app.threads.inspector.backlog.empty": {
+      "en": "Stories appear here once planning breaks the goal down.",
+      "es": "Las historias aparecen aquí cuando la planificación descompone el objetivo."
+    },
+    "app.threads.inspector.backlog.epics": {
+      "en": "Epics",
+      "es": "Épicas"
+    },
+    "app.threads.inspector.backlog.stories": {
+      "en": "Stories",
+      "es": "Historias"
+    },
+    "app.threads.inspector.backlog.tasks": {
+      "en": "Agent tasks",
+      "es": "Tareas de agentes"
+    },
+    "app.threads.inspector.backlog.unassigned": {
+      "en": "Without epic",
+      "es": "Sin épica"
+    },
+    "app.threads.inspector.memory.similar": {
+      "en": "Similar threads",
+      "es": "Hilos similares"
+    },
+    "app.threads.inspector.memory.similarEmpty": {
+      "en": "No similar threads found.",
+      "es": "No se encontraron hilos similares."
+    },
+    "app.threads.inspector.memory.decisions": {
+      "en": "Previous decisions",
+      "es": "Decisiones previas"
+    },
+    "app.threads.inspector.memory.decisionsEmpty": {
+      "en": "No decisions from similar work yet.",
+      "es": "Aún no hay decisiones de trabajos similares."
+    },
+    "app.threads.inspector.memory.resolution": {
+      "en": "Resolution",
+      "es": "Resolución"
+    },
+    "app.threads.inspector.memory.lessons": {
+      "en": "Lessons learned",
+      "es": "Lecciones aprendidas"
+    },
+    "app.threads.inspector.memory.lessonsEmpty": {
+      "en": "No lessons recorded for this project yet.",
+      "es": "Aún no hay lecciones registradas para este proyecto."
+    },
+    "app.threads.inspector.research.emptyTitle": {
+      "en": "No research yet",
+      "es": "Aún no hay investigación"
+    },
+    "app.threads.inspector.research.empty": {
+      "en": "No research requested for this thread.",
+      "es": "No se ha solicitado investigación para este hilo."
+    },
+    "app.threads.inspector.artifacts.emptyTitle": {
+      "en": "No artifacts yet",
+      "es": "Aún no hay artefactos"
+    },
+    "app.threads.inspector.artifacts.empty": {
+      "en": "Evidence produced by the loop appears here.",
+      "es": "La evidencia producida por el loop aparece aquí."
+    },
+    "app.threads.inspector.artifacts.more": {
+      "en": "{count} older artifacts not shown",
+      "es": "{count} artefactos más antiguos no mostrados"
+    },
+    "app.threads.inspector.settings.emptyTitle": {
+      "en": "No settings resolved",
+      "es": "Sin configuraciones resueltas"
+    },
+    "app.threads.inspector.settings.empty": {
+      "en": "No settings resolved for this project.",
+      "es": "No hay configuraciones resueltas para este proyecto."
+    },
+    "app.threads.inspector.settings.project": {
+      "en": "Project",
+      "es": "Proyecto"
+    },
+    "app.threads.inspector.settings.general": {
+      "en": "General",
+      "es": "Generales"
+    },
+    "app.threads.inspector.settings.inherited": {
+      "en": "inherited",
+      "es": "heredado"
+    },
+    "app.threads.inspector.settings.hint": {
+      "en": "Read-only view — change values from Settings or the composer.",
+      "es": "Vista de solo lectura — cambia los valores desde Configuración o el cuadro de mensaje."
     },
     "app.settings.section.plugins": {
       "en": "Plugins",
@@ -8699,10 +9379,6 @@
       "en": "Install first-party and third-party plugins from local folders. Manifests are validated fail-closed before anything is persisted, and every install decision is audited.",
       "es": "Instala complementos propios y de terceros desde carpetas locales. Los manifiestos se validan de forma fail-closed antes de persistir nada y cada decisión de instalación queda auditada."
     },
-    "settings.plugins.loadFailed": {
-      "en": "Plugin registry unavailable",
-      "es": "Registro de complementos no disponible"
-    },
     "settings.plugins.manifestDialog": {
       "en": "Plugin manifest",
       "es": "Manifiesto del complemento"
@@ -8750,10 +9426,6 @@
     "settings.plugins.refresh": {
       "en": "Refresh plugins",
       "es": "Actualizar complementos"
-    },
-    "settings.plugins.retry": {
-      "en": "Retry",
-      "es": "Reintentar"
     },
     "settings.plugins.scan": {
       "en": "Scan folder",
@@ -8838,6 +9510,102 @@
     "settings.plugins.viewPermissions": {
       "en": "View permissions",
       "es": "Ver permisos"
+    },
+    "app.threads.inspector.team.blocked": {
+      "en": "Blocked",
+      "es": "Bloqueado"
+    },
+    "app.threads.inspector.summaryLabel": {
+      "en": "Loop vitals",
+      "es": "Signos del loop"
+    },
+    "app.threads.inspector.summary.decisions": {
+      "en": "{count} decisions pending",
+      "es": "{count} decisiones pendientes"
+    },
+    "app.threads.inspector.research.newTab": {
+      "en": "opens in a new tab",
+      "es": "se abre en una pestaña nueva"
+    },
+    "app.runtime.setup.detectClis": {
+      "en": "Detect installed CLIs",
+      "es": "Detectar CLIs instaladas"
+    },
+    "app.runtime.setup.detectClisHint": {
+      "en": "One check finds Codex, Claude Code, OpenHands and SWE-agent on this machine.",
+      "es": "Una sola verificación encuentra Codex, Claude Code, OpenHands y SWE-agent en este equipo."
+    },
+    "app.runtime.setup.detectDone": {
+      "en": "CLI detection finished",
+      "es": "Detección de CLIs completada"
+    },
+    "app.runtime.setup.checkDone": {
+      "en": "Runtime check finished",
+      "es": "Verificación de runtime completada"
+    },
+    "app.runtime.setup.checkBlocked": {
+      "en": "Runtime check failed",
+      "es": "La verificación de runtime falló"
+    },
+    "app.runtime.refreshDone": {
+      "en": "Runtime health refreshed",
+      "es": "Salud de runtimes actualizada"
+    },
+    "app.runtime.readyLabel": {
+      "en": "Runtimes ready",
+      "es": "Runtimes listos"
+    },
+    "app.runtime.card.noStatusYet": {
+      "en": "Not checked yet — run the setup check to fill in readiness.",
+      "es": "Aún sin verificar — ejecuta la verificación para completar el estado."
+    },
+    "app.runtime.kind.cli": {
+      "en": "Local CLI",
+      "es": "CLI local"
+    },
+    "app.runtime.kind.api": {
+      "en": "API key",
+      "es": "Clave API"
+    },
+    "app.runtime.kind.gateway": {
+      "en": "API gateway",
+      "es": "Pasarela API"
+    },
+    "app.runtime.kind.local": {
+      "en": "Local daemon",
+      "es": "Demonio local"
+    },
+    "app.runtime.kind.manual": {
+      "en": "Manual operator",
+      "es": "Operador manual"
+    },
+    "app.statusBar.git.gitleaksPassedShort": {
+      "en": "passed",
+      "es": "aprobado"
+    },
+    "app.statusBar.git.gitleaksBlockedShort": {
+      "en": "blocked",
+      "es": "bloqueado"
+    },
+    "app.statusBar.git.gitleaksFailedShort": {
+      "en": "failed",
+      "es": "fallido"
+    },
+    "app.statusBar.git.gitleaksMissing": {
+      "en": "not installed",
+      "es": "no instalado"
+    },
+    "app.statusBar.git.confirmCheckout": {
+      "en": "Checkout selected branch",
+      "es": "Cambiar a la rama seleccionada"
+    },
+    "settings.plugins.loadFailed": {
+      "en": "Plugin registry unavailable",
+      "es": "Registro de complementos no disponible"
+    },
+    "settings.plugins.retry": {
+      "en": "Retry",
+      "es": "Reintentar"
     },
     "app.settings.context.editing": {
       "en": "Editing project",
@@ -9174,6 +9942,38 @@
     "app.settings.enum.mode.manual": {
       "en": "Manual",
       "es": "Modo manual"
+    },
+    "app.threads.inspector.summary.decision": {
+      "en": "1 decision pending",
+      "es": "1 decisión pendiente"
+    },
+    "app.threads.inspector.memory.summary": {
+      "en": "What AIDO remembers about work like this",
+      "es": "Lo que AIDO recuerda de trabajos como este"
+    },
+    "app.threads.inspector.memory.evidence": {
+      "en": "Related evidence",
+      "es": "Evidencia relacionada"
+    },
+    "app.threads.inspector.memory.evidenceEmpty": {
+      "en": "No evidence linked from similar work yet.",
+      "es": "Aún no hay evidencia vinculada de trabajos similares."
+    },
+    "app.threads.inspector.memory.implemented": {
+      "en": "Functionality already implemented",
+      "es": "Funcionalidad ya implementada"
+    },
+    "app.threads.inspector.memory.implementedEmpty": {
+      "en": "No resolved similar threads yet.",
+      "es": "Aún no hay hilos similares resueltos."
+    },
+    "app.threads.inspector.memory.performance": {
+      "en": "Prior performance issues",
+      "es": "Problemas de rendimiento previos"
+    },
+    "app.threads.inspector.memory.performanceEmpty": {
+      "en": "No performance passes recorded for this work.",
+      "es": "No hay revisiones de rendimiento registradas para este trabajo."
     }
   }
 }

@@ -20,25 +20,34 @@ demanda (no hay scheduler en segundo plano) e inyectando ``now`` para que los te
 from __future__ import annotations
 
 import sqlite3
+import uuid
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
+from local_control_center.agents.assessment_runner import ProjectAssessmentRunner
 from local_control_center.agents.developer_agent import DeveloperAgentRunner
 from local_control_center.agents.developer_agent_contract import DEVELOPER_AGENT_ID
+from local_control_center.agents.product_owner_agent import (
+    ProductOwnerAgentRunner,
+    persist_product_owner_backlog,
+)
 from local_control_center.agents.product_owner_agent_contract import PRODUCT_OWNER_AGENT_ID
-from local_control_center.agents.qa_agent import QA_AGENT_ID
 from local_control_center.agents.repository import AgentsRepository
-from local_control_center.agents.security_agent_contract import SECURITY_AGENT_ID
 from local_control_center.backlog.repository import BacklogRepository
+from local_control_center.evidence.artifacts import write_text_artifact
 from local_control_center.evidence.repository import EvidenceRepository
 from local_control_center.git_workspace.service import GitWorkspaceService
 from local_control_center.jobs_approvals.repository import JobsRepository
 from local_control_center.product_discovery.repository import ProductDiscoveryRepository
-from local_control_center.sessions_chats.repository import SessionsChatsRepository
+from local_control_center.product_loop.intent_classifier import IntentClassificationInput, IntentClassifier
+from local_control_center.projects.repository import ProjectsRepository
 from local_control_center.shared.db import immediate_transaction
 from local_control_center.shared.event_bus import EventBus
 from local_control_center.shared.redaction import redact_secrets
+from local_control_center.shared.serialization import json_dumps
 from local_control_center.shared.time import iso_after_seconds, utc_now
+from local_control_center.team_scheduler.scheduler import MODES, RISKS, schedule_team
 from local_control_center.threads.repository import ThreadsRepository
 from local_control_center.workspaces_projects.git_worktrees import capture_git_diff
 from local_control_center.workspaces_projects.repository import (
@@ -86,10 +95,10 @@ _RESUMABLE_STATES = {state for state in PRODUCT_LOOP_STATES if state not in TERM
 
 ALLOWED_TRANSITIONS: dict[str, set[str]] = {
     "goal_received": {"workspace_check", "discovery", "discovering", "blocked", "cancelled"},
-    "workspace_check": {"runtime_check", "blocked", "cancelled"},
-    "runtime_check": {"git_check", "blocked", "cancelled"},
-    "git_check": {"discovery", "blocked", "cancelled"},
-    "discovery": {"awaiting_user", "planning", "backlog_ready", "blocked", "cancelled"},
+    "workspace_check": {"runtime_check", "git_check", "blocked", "cancelled"},
+    "runtime_check": {"git_check", "discovery", "blocked", "cancelled"},
+    "git_check": {"runtime_check", "discovery", "blocked", "cancelled"},
+    "discovery": {"awaiting_user", "planning", "brief_ready", "backlog_ready", "blocked", "cancelled"},
     "discovering": {"awaiting_user", "brief_ready", "blocked", "cancelled"},
     "awaiting_user": {"discovering", "brief_ready", "blocked", "cancelled"},
     "planning": {"backlog_ready", "blocked", "cancelled"},
@@ -122,6 +131,28 @@ TARGET_CLASSIFICATIONS = {
     "loop": "brief_revision",
     "decision": "architecture_revision",
     "architecture": "architecture_revision",
+}
+
+_ROLE_TO_SCOPE = {
+    "developer": "backend",
+    "implementer": "backend",
+    "backend_engineer": "backend",
+    "frontend_engineer": "frontend",
+    "mobile_engineer": "mobile",
+    "database_engineer": "database",
+    "data_engineer": "data",
+    "devops": "infra",
+    "devops_engineer": "infra",
+    "security_reviewer": "security",
+    "security_engineer": "security",
+    "pentester": "security",
+    "qa": "tests",
+    "qa_reviewer": "tests",
+    "qa_engineer": "tests",
+    "researcher": "research",
+    "release_manager": "release",
+    "architect": "architecture",
+    "software_architect": "architecture",
 }
 TARGET_REQUIRED_ACTIONS = {"request_changes", "reprioritize", "reject_decision", "reopen_story"}
 
@@ -337,7 +368,6 @@ class ProductLoopCoordinator:
         self.evidence = EvidenceRepository(connection)
         self.events = EventBus(connection)
         self.jobs = JobsRepository(connection)
-        self.sessions_chats = SessionsChatsRepository(connection)
 
     @staticmethod
     def _state_deadline(state: str, timeouts: dict[str, Any] | None, now: str) -> str | None:
@@ -467,8 +497,22 @@ class ProductLoopCoordinator:
         test_results: list[Any] | None = None,
         tool_calls: list[dict[str, Any]] | None = None,
         policy_decisions: list[dict[str, Any]] | None = None,
+        artifact_ids: list[str] | None = None,
     ) -> dict[str, Any]:
-        verdict = "passed" if status in {"completed", "awaiting_approval", "reworking"} else "blocked"
+        verdict = (
+            "passed"
+            if status
+            in {
+                "completed",
+                "awaiting_approval",
+                "reworking",
+                "awaiting_user",
+                "needs_input",
+                "brief_ready",
+                "backlog_ready",
+            }
+            else "blocked"
+        )
         severity = "low" if verdict == "passed" else "high"
         gate_result = {
             "command": f"product_loop.{stage}",
@@ -490,6 +534,7 @@ class ProductLoopCoordinator:
             test_results=[gate_result, *(test_results or [])],
             logs=[redact_secrets({"stage": stage, "status": status, "reason": reason, "loopId": loop_id})],
             diff_refs=diff_refs,
+            artifact_ids=artifact_ids,
             risk_notes=[
                 {
                     "severity": severity,
@@ -577,64 +622,69 @@ class ProductLoopCoordinator:
         return self._run_result(blocked, status="blocked", reason=reason, evidence_package=evidence)
 
     def _ensure_delivery_agents(self, project_id: str) -> list[dict[str, str]]:
-        profiles = [
-            {
-                "id": PRODUCT_OWNER_AGENT_ID,
-                "name": "ProductOwnerAgent",
-                "role": "product_owner",
-                "runtimeMode": "manual",
-                "permissionProfile": "plan",
-                "allowedTools": [],
-            },
-            {
-                "id": DEVELOPER_AGENT_ID,
-                "name": "DeveloperAgent",
-                "role": "developer",
-                "runtimeMode": "hybrid",
-                "permissionProfile": "dev_safe",
-                "allowedTools": ["shell", "workspace_patch"],
-                "qualityGates": ["qa", "gitleaks"],
-            },
-            {
-                "id": QA_AGENT_ID,
-                "name": "QAAgent",
-                "role": "qa_reviewer",
-                "runtimeMode": "manual",
-                "permissionProfile": "qa",
-                "allowedTools": ["shell"],
-                "qualityGates": ["qa"],
-            },
-            {
-                "id": SECURITY_AGENT_ID,
-                "name": "SecurityAgent",
-                "role": "security_reviewer",
-                "runtimeMode": "manual",
-                "permissionProfile": "qa",
-                "allowedTools": ["shell"],
-                "qualityGates": ["gitleaks"],
-            },
+        from local_control_center.agents.team_bootstrap import bootstrap_base_team_if_needed
+
+        bootstrap_base_team_if_needed(self.connection)
+        return [
+            {"agentId": profile["id"], "role": profile["role"], "projectId": project_id}
+            for profile in self.agents.list_agent_profiles()
         ]
-        assignments: list[dict[str, str]] = []
-        for body in profiles:
-            profile = self.agents.upsert_agent_profile(body)
-            assignments.append({"agentId": profile["id"], "role": profile["role"], "projectId": project_id})
-        return assignments
 
     def _create_thread(
-        self, *, project_id: str, message: str, title: str | None, session_id: str | None
+        self,
+        *,
+        project_id: str,
+        message: str,
+        title: str | None,
+        session_id: str | None,
+        thread_id: str | None = None,
+        message_id: str | None = None,
+        actor: str = "operator",
     ) -> dict[str, Any]:
-        session = (
-            self.sessions_chats.get_session(session_id)
-            if session_id
-            else self.sessions_chats.create_session(project_id=project_id, name=title or "Product Loop")
-        )
-        chat = self.sessions_chats.create_chat(
+        threads = ThreadsRepository(self.connection)
+        clean_title = title or message.strip().splitlines()[0][:80] or "Product Loop"
+        if thread_id:
+            thread = threads.get_thread(thread_id)
+            if thread["projectId"] != project_id:
+                raise ProductLoopTransitionError("Thread project does not match the Product Loop project.")
+            resolved_message_id = message_id
+            if not resolved_message_id:
+                created_message = threads.append_message(
+                    thread_id=thread_id,
+                    kind="user",
+                    author=actor,
+                    content=message,
+                    metadata={"source": "product_loop"},
+                )
+                resolved_message_id = created_message["id"]
+            return {
+                "projectThreadId": thread["id"],
+                "messageId": resolved_message_id,
+                "title": thread["title"],
+            }
+
+        thread = threads.create_thread(
             project_id=project_id,
-            session_id=session["id"],
-            prompt=message,
-            title=title,
+            owner_type="workspace",
+            owner_id=session_id or project_id,
+            title=clean_title,
+            metadata={
+                "source": "product_loop",
+                "legacySessionId": session_id,
+            },
         )
-        return {"sessionId": session["id"], "chatId": chat["id"], "title": chat["title"]}
+        created_message = threads.append_message(
+            thread_id=thread["id"],
+            kind="user",
+            author=actor,
+            content=message,
+            metadata={"source": "product_loop", "legacySessionId": session_id},
+        )
+        return {
+            "projectThreadId": thread["id"],
+            "messageId": created_message["id"],
+            "title": thread["title"],
+        }
 
     def _external_evidence_ids(self, payload: dict[str, Any]) -> list[str]:
         ids: list[str] = []
@@ -647,6 +697,651 @@ class ProductLoopCoordinator:
             if isinstance(payload.get(key), str)
         )
         return ids
+
+    def _write_json_artifact(
+        self,
+        *,
+        root: Path,
+        project_id: str,
+        name: str,
+        kind: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        artifact_id = f"artifact-{uuid.uuid4()}"
+        content = json_dumps(redact_secrets(payload))
+        written = write_text_artifact(root=root, artifact_id=artifact_id, suffix=".json", content=content)
+        return self.evidence.create_artifact(
+            artifact_id=artifact_id,
+            project_id=project_id,
+            evidence_package_id=None,
+            kind=kind,
+            path=written["path"],
+            content_hash=written["hash"],
+            metadata={
+                "name": name,
+                "source": "product_loop_coordinator",
+                "mimeType": "application/json",
+                "hashAlgorithm": "sha256",
+                "sizeBytes": written["sizeBytes"],
+            },
+        )
+
+    def _attach_thread_artifacts(
+        self, *, thread_id: str | None, artifacts: list[dict[str, Any]]
+    ) -> None:
+        if not thread_id:
+            return
+        threads = ThreadsRepository(self.connection)
+        for artifact in artifacts:
+            metadata = artifact.get("metadata") if isinstance(artifact.get("metadata"), dict) else {}
+            try:
+                threads.attach_artifact(
+                    thread_id=thread_id,
+                    kind=str(artifact.get("kind") or "generic_artifact"),
+                    title=str(metadata.get("name") or artifact.get("id") or "artifact"),
+                    artifact_id=str(artifact["id"]),
+                    payload={"artifact": artifact},
+                )
+            except (KeyError, ValueError):
+                return
+
+    def _project_is_existing(self, project_id: str) -> bool:
+        project = ProjectsRepository(self.connection).get_project(project_id)
+        path = str(project.get("path") or "").strip()
+        return bool(path and Path(path).exists())
+
+    def _product_owner_output(self, result: dict[str, Any]) -> dict[str, Any]:
+        output = dict(result.get("output") or {})
+        for key in (
+            "summary",
+            "confidence",
+            "questions",
+            "assumptions",
+            "decisions",
+            "productBriefPatch",
+            "epics",
+            "userStories",
+            "risks",
+            "recommendedNextAction",
+        ):
+            if key not in output and key in result:
+                output[key] = result[key]
+        if "productBriefPatch" not in output:
+            output["productBriefPatch"] = result.get("brief") or {}
+        if "status" not in output:
+            output["status"] = result.get("status") or "blocked"
+        output.setdefault("summary", result.get("summary") or "")
+        output.setdefault("confidence", result.get("confidence") or "low")
+        output.setdefault("questions", result.get("questions") or [])
+        output.setdefault("assumptions", result.get("assumptions") or [])
+        output.setdefault("decisions", result.get("decisions") or [])
+        output.setdefault("epics", result.get("epics") or [])
+        output.setdefault("userStories", result.get("userStories") or [])
+        output.setdefault("risks", result.get("risks") or [])
+        output.setdefault("recommendedNextAction", result.get("recommendedNextAction") or "")
+        return output
+
+    def _product_owner_flow_status(self, result: dict[str, Any]) -> str:
+        output = self._product_owner_output(result)
+        status = str(result.get("status") or "").strip().lower()
+        output_status = str(output.get("status") or "").strip().lower()
+        questions = output.get("questions") or result.get("questions") or []
+        decisions = output.get("decisions") or result.get("blockingDecisions") or result.get("decisions") or []
+        if status in {"runtime_unavailable", "failed_validation"}:
+            return "blocked"
+        if status in {"needs_input", "questions_required"} or output_status == "questions_required":
+            return "needs_input"
+        if status == "blocked" and (questions or decisions):
+            return "needs_input"
+        if status == "brief_ready" or output_status == "brief_ready":
+            return "brief_ready"
+        if status in {"backlog_ready", "completed"} or output_status in {"backlog_ready", "completed"}:
+            return "backlog_ready"
+        return "blocked"
+
+    def _ensure_product_initiative(
+        self,
+        *,
+        project_id: str,
+        message: str,
+        title: str,
+        result: dict[str, Any],
+        output: dict[str, Any],
+    ) -> dict[str, Any]:
+        initiative = result.get("initiative")
+        if isinstance(initiative, dict) and initiative.get("id"):
+            try:
+                return self.discovery.get_initiative(str(initiative["id"]))
+            except KeyError:
+                pass
+        initiative_id = result.get("initiativeId") or output.get("initiativeId")
+        if initiative_id:
+            try:
+                return self.discovery.get_initiative(str(initiative_id))
+            except KeyError:
+                pass
+        return self.discovery.create_initiative(
+            {
+                "projectId": project_id,
+                "title": title,
+                "summary": output.get("summary") or message,
+                "status": "discovery",
+                "priority": "medium",
+                "owner": PRODUCT_OWNER_AGENT_ID,
+                "metadata": {"source": "product_loop_coordinator"},
+            }
+        )
+
+    def _brief_payload(self, *, title: str, result: dict[str, Any], output: dict[str, Any]) -> dict[str, Any]:
+        brief = dict(result.get("brief") or output.get("productBriefPatch") or {})
+        return {
+            "title": str(brief.get("title") or title),
+            "summary": str(brief.get("summary") or output.get("summary") or ""),
+            "problemStatement": str(brief.get("problemStatement") or ""),
+            "goals": list(brief.get("goals") or []),
+            "targetUsers": list(brief.get("targetUsers") or []),
+            "successMetrics": list(brief.get("successMetrics") or []),
+            "scope": str(brief.get("scope") or ""),
+            "outOfScope": str(brief.get("outOfScope") or ""),
+        }
+
+    def _persist_product_brief(
+        self,
+        *,
+        project_id: str,
+        initiative_id: str,
+        title: str,
+        result: dict[str, Any],
+        output: dict[str, Any],
+    ) -> dict[str, Any]:
+        brief = result.get("brief")
+        if isinstance(brief, dict) and brief.get("id"):
+            try:
+                return self.discovery.get_product_brief(str(brief["id"]))
+            except KeyError:
+                pass
+        payload = self._brief_payload(title=title, result=result, output=output)
+        return self.discovery.upsert_product_brief(
+            {
+                "projectId": project_id,
+                "initiativeId": initiative_id,
+                "title": payload["title"],
+                "status": "in_review",
+                "summary": payload["summary"],
+                "problemStatement": payload["problemStatement"],
+                "goals": payload["goals"],
+                "targetUsers": payload["targetUsers"],
+                "successMetrics": payload["successMetrics"],
+                "scope": payload["scope"],
+                "outOfScope": payload["outOfScope"],
+                "changeSummary": "ProductLoopCoordinator persisted ProductOwnerAgent brief.",
+                "authoredBy": PRODUCT_OWNER_AGENT_ID,
+            }
+        )
+
+    def _persist_product_owner_output_record(
+        self,
+        *,
+        project_id: str,
+        initiative_id: str,
+        brief_id: str,
+        output: dict[str, Any],
+        result: dict[str, Any],
+        artifact_id: str | None,
+    ) -> dict[str, Any]:
+        existing = result.get("productOwnerOutput")
+        if isinstance(existing, dict) and existing.get("id"):
+            try:
+                return self.discovery.get_product_owner_output(str(existing["id"]))
+            except KeyError:
+                pass
+        return self.discovery.create_product_owner_output(
+            {
+                "projectId": project_id,
+                "initiativeId": initiative_id,
+                "briefId": brief_id,
+                "status": str(output.get("status") or result.get("status") or "blocked"),
+                "summary": str(output.get("summary") or ""),
+                "confidence": str(output.get("confidence") or "low"),
+                "questions": output.get("questions") or [],
+                "assumptions": output.get("assumptions") or [],
+                "decisions": output.get("decisions") or [],
+                "productBriefPatch": output.get("productBriefPatch") or {},
+                "epics": output.get("epics") or [],
+                "userStories": output.get("userStories") or [],
+                "risks": output.get("risks") or [],
+                "recommendedNextAction": str(output.get("recommendedNextAction") or ""),
+                "runtimeId": str((result.get("runtime") or {}).get("id") or ""),
+                "outputArtifactId": artifact_id or str(result.get("outputArtifactId") or ""),
+                "metadata": {"source": "product_loop_coordinator"},
+            }
+        )
+
+    def _question_options(self, question: dict[str, Any]) -> list[str]:
+        metadata = question.get("metadata") if isinstance(question.get("metadata"), dict) else {}
+        options = question.get("options") or metadata.get("options") or []
+        return [str(item) for item in options if str(item).strip()]
+
+    def _persist_clarification_questions(
+        self,
+        *,
+        project_id: str,
+        initiative_id: str,
+        output: dict[str, Any],
+        thread_id: str | None,
+    ) -> list[dict[str, Any]]:
+        records: list[dict[str, Any]] = []
+        threads = ThreadsRepository(self.connection) if thread_id else None
+        for item in output.get("questions") or []:
+            if not isinstance(item, dict):
+                continue
+            if str(item.get("id") or "").startswith("clarification-question-"):
+                try:
+                    record = self.discovery.get_clarification_question(str(item["id"]))
+                    records.append(record)
+                    continue
+                except KeyError:
+                    pass
+            question_text = str(item.get("question") or item.get("prompt") or "").strip()
+            if not question_text:
+                continue
+            record = self.discovery.create_clarification_question(
+                {
+                    "projectId": project_id,
+                    "initiativeId": initiative_id,
+                    "question": question_text,
+                    "priority": item.get("priority") or "high" if item.get("blocking", True) else "medium",
+                    "askedBy": PRODUCT_OWNER_AGENT_ID,
+                    "metadata": {
+                        "source": PRODUCT_OWNER_AGENT_ID,
+                        "category": item.get("category") or "product",
+                        "whyItMatters": item.get("whyItMatters") or "",
+                        "blocking": bool(item.get("blocking", True)),
+                        "options": self._question_options(item),
+                        "recommendation": item.get("recommendation") or "",
+                        "defaultDecision": item.get("defaultDecision") or "",
+                        "confidence": item.get("confidence") or "low",
+                    },
+                }
+            )
+            records.append(record)
+            if threads and thread_id:
+                threads.create_decision(
+                    thread_id=thread_id,
+                    title=question_text[:120],
+                    prompt=question_text,
+                    options=self._question_options(item),
+                    metadata={
+                        "source": PRODUCT_OWNER_AGENT_ID,
+                        "clarificationQuestionId": record["id"],
+                    },
+                )
+        return records
+
+    def _persist_product_decisions(
+        self,
+        *,
+        project_id: str,
+        initiative_id: str,
+        brief_id: str,
+        output: dict[str, Any],
+        thread_id: str | None,
+    ) -> list[dict[str, Any]]:
+        records: list[dict[str, Any]] = []
+        threads = ThreadsRepository(self.connection) if thread_id else None
+        for item in output.get("decisions") or []:
+            if not isinstance(item, dict):
+                continue
+            if str(item.get("id") or "").startswith("product-decision-"):
+                try:
+                    records.append(self.discovery.get_product_decision(str(item["id"])))
+                    continue
+                except KeyError:
+                    pass
+            title = str(item.get("title") or item.get("decision") or "").strip()
+            if not title:
+                continue
+            blocking = bool(item.get("blocking", False))
+            raw_status = str(item.get("status") or "").strip().lower()
+            status = raw_status or ("proposed" if blocking else "accepted")
+            record = self.discovery.create_product_decision(
+                {
+                    "projectId": project_id,
+                    "initiativeId": initiative_id,
+                    "briefId": brief_id,
+                    "title": title,
+                    "status": status,
+                    "context": item.get("question") or title,
+                    "decision": item.get("decision") or item.get("recommendation") or "",
+                    "rationale": item.get("rationale") or "",
+                    "consequences": item.get("consequences") or [],
+                    "decidedBy": PRODUCT_OWNER_AGENT_ID if status in {"accepted", "resolved"} else "",
+                    "decidedAt": utc_now() if status in {"accepted", "resolved"} else None,
+                    "metadata": {
+                        "source": PRODUCT_OWNER_AGENT_ID,
+                        "blocking": blocking,
+                        "confidence": item.get("confidence") or "low",
+                    },
+                }
+            )
+            records.append(record)
+            if threads and thread_id and status not in {"accepted", "resolved"}:
+                threads.create_decision(
+                    thread_id=thread_id,
+                    title=title[:120],
+                    prompt=str(item.get("question") or title),
+                    options=self._question_options(item),
+                    metadata={"source": PRODUCT_OWNER_AGENT_ID, "productDecisionId": record["id"]},
+                )
+        return records
+
+    def _persist_product_owner_backlog(
+        self,
+        *,
+        project_id: str,
+        output: dict[str, Any],
+        result: dict[str, Any],
+        product_owner_output_id: str | None,
+    ) -> list[dict[str, Any]]:
+        persisted = result.get("epics")
+        if isinstance(persisted, list) and persisted and isinstance(persisted[0], dict) and "epic" in persisted[0]:
+            return persisted
+        if not output.get("epics") or not output.get("userStories"):
+            return []
+        return persist_product_owner_backlog(
+            self.backlog,
+            project_id=project_id,
+            output=output,
+            product_owner_output_id=product_owner_output_id,
+        )
+
+    def _stories_from_backlog(self, backlog: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        stories: list[dict[str, Any]] = []
+        for epic_group in backlog:
+            for item in epic_group.get("stories") or []:
+                story = item.get("story") if isinstance(item, dict) else None
+                if isinstance(story, dict):
+                    stories.append(story)
+        return stories
+
+    def _generate_agent_tasks(
+        self,
+        *,
+        project_id: str,
+        loop_id: str,
+        backlog: list[dict[str, Any]],
+        product_owner_output_id: str | None,
+        technical_lead_runner: Any | None,
+        team_schedule: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        stories = self._stories_from_backlog(backlog)
+        existing = [
+            task
+            for story in stories
+            for task in self.backlog.list_agent_tasks(story_id=story["id"])
+        ]
+        if existing:
+            return existing
+        payload = {
+            "projectId": project_id,
+            "loopId": loop_id,
+            "productOwnerOutputId": product_owner_output_id,
+            "backlog": backlog,
+            "userStories": stories,
+            "teamSchedule": team_schedule or {},
+        }
+        if technical_lead_runner is not None and hasattr(technical_lead_runner, "generate_agent_tasks"):
+            specs = technical_lead_runner.generate_agent_tasks(payload)
+        else:
+            specs = [
+                {
+                    "storyId": story["id"],
+                    "title": f"Implement {story['title']}",
+                    "description": "Implement the user story against its acceptance criteria.",
+                    "role": "developer",
+                    "category": "implementation",
+                    "priority": story.get("priority", "medium"),
+                }
+                for story in stories
+            ]
+        tasks: list[dict[str, Any]] = []
+        for spec in specs or []:
+            if not isinstance(spec, dict):
+                continue
+            story_id = str(spec.get("storyId") or "").strip()
+            if not story_id:
+                continue
+            task = self.backlog.create_agent_task(
+                {
+                    "projectId": project_id,
+                    "storyId": story_id,
+                    "title": spec.get("title") or "Implement user story",
+                    "description": spec.get("description") or "",
+                    "role": spec.get("role") or "developer",
+                    "category": spec.get("category") or "implementation",
+                    "status": spec.get("status") or "todo",
+                    "priority": spec.get("priority") or "medium",
+                    "estimateHours": spec.get("estimateHours"),
+                    "metadata": {
+                        **dict(spec.get("metadata") or {}),
+                        "source": "technical_lead",
+                        "loopId": loop_id,
+                        "productOwnerOutputId": product_owner_output_id,
+                    },
+                }
+            )
+            tasks.append(task)
+        return tasks
+
+    def _team_mode(self, request_meta: dict[str, Any]) -> str:
+        mode = str(
+            request_meta.get("teamMode") or request_meta.get("team_mode") or request_meta.get("mode") or "balanced"
+        ).strip().lower()
+        return mode if mode in MODES else "balanced"
+
+    def _team_risk(
+        self,
+        *,
+        request_meta: dict[str, Any],
+        intent: dict[str, Any],
+        output: dict[str, Any],
+        message: str,
+    ) -> str:
+        risk = str(request_meta.get("risk") or intent.get("risk") or "").strip().lower()
+        if risk in RISKS:
+            return risk
+        text = " ".join(
+            [
+                message,
+                str(output.get("summary") or ""),
+                " ".join(str(item) for item in output.get("risks") or []),
+            ]
+        ).lower()
+        if any(marker in text for marker in ("critical", "prod", "production", "payment", "pii")):
+            return "high"
+        return "medium"
+
+    def _team_scope(
+        self,
+        *,
+        message: str,
+        intent: dict[str, Any],
+        output: dict[str, Any],
+        agent_tasks: list[dict[str, Any]],
+    ) -> list[str]:
+        scope: dict[str, None] = {}
+        for intent_name in intent.get("intents") or []:
+            value = str(intent_name).strip().lower()
+            if value:
+                scope.setdefault(value, None)
+        for role in intent.get("requiredRoles") or []:
+            mapped = _ROLE_TO_SCOPE.get(str(role).strip().lower())
+            if mapped:
+                scope.setdefault(mapped, None)
+        text = " ".join(
+            [
+                message,
+                str(output.get("summary") or ""),
+                str((output.get("productBriefPatch") or {}).get("scope") or ""),
+                " ".join(str(item) for item in output.get("risks") or []),
+            ]
+        ).lower()
+        keyword_scope = {
+            "backend": ("backend", "api", "server", "fastapi", "service"),
+            "frontend": ("frontend", "ui", "web", "react", "screen"),
+            "mobile": ("mobile", "ios", "android", "react native"),
+            "database": ("database", "schema", "migration", "sqlite", "sql"),
+            "data": ("data", "analytics", "pipeline", "ml"),
+            "infra": ("infra", "devops", "deploy", "ci", "kubernetes", "docker"),
+            "security": ("security", "auth", "login", "token", "secret", "pentest", "exploit"),
+            "research": ("research", "investigate", "source", "benchmark"),
+            "release": ("release", "publish", "rollback"),
+            "refactor": ("refactor", "restructure", "decouple"),
+        }
+        for scope_name, markers in keyword_scope.items():
+            if any(marker in text for marker in markers):
+                scope.setdefault(scope_name, None)
+        for task in agent_tasks:
+            role = str(task.get("role") or "").strip().lower()
+            mapped = _ROLE_TO_SCOPE.get(role)
+            if mapped:
+                scope.setdefault(mapped, None)
+        if not scope:
+            scope["backend"] = None
+        return list(scope)
+
+    def _team_schedule(
+        self,
+        *,
+        message: str,
+        request_meta: dict[str, Any],
+        output: dict[str, Any],
+        assessment_result: dict[str, Any] | None,
+        git_state: dict[str, Any] | None,
+        agent_tasks: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        classifier = IntentClassifier()
+        intent = classifier.classify(
+            IntentClassificationInput(
+                prompt=message,
+                project_assessment=assessment_result or {},
+                changed_files=(git_state or {}).get("changedFiles") or [],
+                git_state=git_state or {},
+                user_mode=str(request_meta.get("userMode") or request_meta.get("user_mode") or "aido_decide"),
+            )
+        ).to_dict()
+        tasks = agent_tasks or []
+        mode = self._team_mode(request_meta)
+        risk = self._team_risk(request_meta=request_meta, intent=intent, output=output, message=message)
+        scope = self._team_scope(message=message, intent=intent, output=output, agent_tasks=tasks)
+        plan = schedule_team(scope=scope, risk=risk, mode=mode)
+        return {**plan, "intent": intent}
+
+    def _profile_by_role(self) -> dict[str, dict[str, Any]]:
+        profiles = self.agents.list_agent_profiles()
+        by_role: dict[str, dict[str, Any]] = {}
+        for profile in profiles:
+            by_role.setdefault(str(profile["role"]), profile)
+        return by_role
+
+    def _task_for_assignment(self, role: str, agent_tasks: list[dict[str, Any]]) -> dict[str, Any]:
+        for task in agent_tasks:
+            if task["role"] == role:
+                return task
+        return agent_tasks[0]
+
+    def _create_team_assignments(
+        self,
+        *,
+        project_id: str,
+        loop_id: str,
+        agent_tasks: list[dict[str, Any]],
+        team_schedule: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        profiles_by_role = self._profile_by_role()
+        assignments: list[dict[str, Any]] = []
+        for role_plan in team_schedule["roles"]:
+            role = str(role_plan["role"])
+            profile = profiles_by_role.get(role)
+            if profile is None:
+                continue
+            task = self._task_for_assignment(role, agent_tasks)
+            reviewer_role = str((role_plan.get("reviewerPolicy") or {}).get("reviewerRole") or "")
+            reviewer = profiles_by_role.get(reviewer_role)
+            assignments.append(
+                self.backlog.create_agent_assignment(
+                    {
+                        "projectId": project_id,
+                        "taskId": task["id"],
+                        "agentId": profile["id"],
+                        "role": role,
+                        "status": "proposed",
+                        "assignedBy": "team_scheduler",
+                        "inputSchema": {
+                            "type": "object",
+                            "required": role_plan["requiredInputArtifacts"],
+                            "properties": {
+                                artifact: {"type": "string"}
+                                for artifact in role_plan["requiredInputArtifacts"]
+                            },
+                            "additionalProperties": True,
+                        },
+                        "outputSchema": role_plan["outputArtifactSchema"],
+                        "reviewRequired": role_plan["reviewer"] is not None,
+                        "reviewerAgentId": reviewer["id"] if reviewer else "",
+                        "metadata": {
+                            "source": "team_scheduler",
+                            "loopId": loop_id,
+                            "schedulerVersion": team_schedule["schedulerVersion"],
+                            "teamMode": team_schedule["mode"],
+                            "providerPreference": role_plan["providerPreference"],
+                            "runtimePreference": role_plan["runtimePreference"],
+                            "qualityGates": role_plan["qualityGates"],
+                            "reviewerPolicy": role_plan["reviewerPolicy"],
+                        },
+                    }
+                )
+            )
+        return assignments
+
+    def _requires_brief_approval(
+        self, *, request_meta: dict[str, Any], result: dict[str, Any], output: dict[str, Any]
+    ) -> bool:
+        autonomy = request_meta.get("autonomy")
+        if autonomy is None:
+            autonomy = (result.get("autonomy") or output.get("autonomy") or {})
+        if isinstance(autonomy, str):
+            return autonomy.strip().lower() in {"guided", "recommended"}
+        if isinstance(autonomy, dict):
+            level = str(autonomy.get("level") or autonomy.get("mode") or "").strip().lower()
+            return level in {"guided", "recommended"}
+        return False
+
+    def _create_brief_approval(
+        self, *, project_id: str, loop_id: str, brief: dict[str, Any], artifact_ids: list[str]
+    ) -> dict[str, Any]:
+        job = self.jobs.create_job(
+            project_id=project_id,
+            kind="product_loop_brief_approval",
+            status="approval_required",
+            payload={"loopId": loop_id, "briefId": brief["id"], "evidenceRefs": artifact_ids},
+        )["job"]
+        action = self.jobs.create_action_request(
+            job_id=job["id"],
+            project_id=project_id,
+            action_type="product_loop.approve_brief",
+            risk_level="medium",
+            command="approve product brief",
+            payload={"loopId": loop_id, "briefId": brief["id"], "evidenceRefs": artifact_ids},
+            reason="Review ProductOwnerAgent brief before backlog generation.",
+        )
+        return {
+            "status": "approval_required",
+            "jobId": job["id"],
+            "actionRequestId": action["id"],
+            "briefId": brief["id"],
+            "evidenceRefs": artifact_ids,
+        }
 
     def run_user_message(
         self,
@@ -663,13 +1358,16 @@ class ProductLoopCoordinator:
         thread_id: str | None = None,
         runtime_runner: Any | None = None,
         git_service: Any | None = None,
+        product_owner_runner: Any | None = None,
+        assessment_runner: Any | None = None,
+        technical_lead_runner: Any | None = None,
     ) -> dict[str, Any]:
         """Run one user message through the durable Product Loop control plane.
 
-        This is intentionally synchronous and fail-closed: every message creates a persisted thread/chat
-        and then ends in a real question/plan/execution/rework/block/approval result. Runtime and git
-        dependencies can be injected by tests; production defaults use the real DeveloperAgentRunner and
-        GitWorkspaceService.
+        This is intentionally synchronous and fail-closed: every message creates or reuses a persisted
+        project thread/message
+        and then ends in a real question/brief/backlog/execution/rework/block/approval result. Agent,
+        runtime and git dependencies can be injected by tests; production defaults use the real runners.
         """
         message_text = str(message or "").strip()
         if not message_text:
@@ -677,17 +1375,16 @@ class ProductLoopCoordinator:
         effective_root = Path(root).resolve(strict=False) if root is not None else self.root
         resolved_title = title or message_text.splitlines()[0][:80] or "Product Loop"
         request_meta = redact_secrets(run_metadata or {})
-        thread = (
-            {
-                "projectThreadId": thread_id,
-                "title": resolved_title,
-                "messageId": request_meta.get("messageId"),
-            }
-            if thread_id
-            else self._create_thread(
-                project_id=project_id, message=message_text, title=resolved_title, session_id=session_id
-            )
+        thread = self._create_thread(
+            project_id=project_id,
+            message=message_text,
+            title=resolved_title,
+            session_id=session_id,
+            thread_id=thread_id,
+            message_id=request_meta.get("messageId") if isinstance(request_meta.get("messageId"), str) else None,
+            actor=actor,
         )
+        thread_id = thread["projectThreadId"]
         loop = self.start(
             project_id=project_id,
             title=resolved_title,
@@ -700,7 +1397,7 @@ class ProductLoopCoordinator:
                     "evidencePackageIds": [],
                 }
             },
-            correlation_id=thread_id or thread["chatId"],
+            correlation_id=thread_id,
             actor=actor,
             reason="Product Loop started from a user message.",
         )
@@ -739,18 +1436,447 @@ class ProductLoopCoordinator:
                 thread_id=thread_id,
             )
 
-        runtime = runtime_runner or DeveloperAgentRunner(self.connection, root=effective_root)
         git = git_service or GitWorkspaceService(self.connection, root=effective_root)
+        product_owner = product_owner_runner or ProductOwnerAgentRunner(self.connection, root=effective_root)
+
+        loop = self._transition_run_state(
+            loop,
+            to_state="git_check",
+            reason="Checking git workspace cleanliness before worktree allocation.",
+            trigger="git_check",
+            actor=actor,
+            context_patch=self._durable_run_patch(loop, {"status": "git_check"}),
+            thread_id=thread_id,
+        )
+        git_state = git.status(project_id)
+        if git_state.get("status") != "completed":
+            reason = str(git_state.get("reason") or "Git status did not complete.")
+            return self._block_run(
+                loop, stage="git", reason=reason, actor=actor, details=git_state, thread_id=thread_id
+            )
+        if bool(git_state.get("dirty")):
+            reason = "Project git tree is dirty; Product Loop execution requires a clean base."
+            return self._block_run(
+                loop, stage="git", reason=reason, actor=actor, details=git_state, thread_id=thread_id
+            )
 
         loop = self._transition_run_state(
             loop,
             to_state="runtime_check",
-            reason="Checking executable DeveloperAgent runtime.",
-            trigger="runtime_check",
+            reason="Checking executable ProductOwnerAgent runtime after git_check.",
+            trigger="product_owner_runtime_check",
             actor=actor,
             context_patch=self._durable_run_patch(loop, {"status": "runtime_check"}),
             thread_id=thread_id,
         )
+        if hasattr(product_owner, "status"):
+            product_owner_readiness = product_owner.status(preferred_runtime=preferred_runtime)
+        else:
+            product_owner_readiness = {
+                "executable": True,
+                "selectedRuntimeId": preferred_runtime or "injected_product_owner_runner",
+                "reason": "Injected ProductOwnerAgent runner has no readiness hook.",
+            }
+        self._record_thread_event(
+            thread_id=thread_id,
+            event_type="runtime_selected",
+            agent_role="product_owner",
+            payload={
+                "loopId": loop["id"],
+                "runtimeId": product_owner_readiness.get("selectedRuntimeId") or preferred_runtime,
+                "executable": bool(product_owner_readiness.get("executable")),
+                "reason": product_owner_readiness.get("reason"),
+            },
+        )
+        if not bool(product_owner_readiness.get("executable")):
+            reason = str(
+                product_owner_readiness.get("reason")
+                or "No executable ProductOwnerAgent runtime is configured."
+            )
+            return self._block_run(
+                loop,
+                stage="product_owner_runtime",
+                reason=reason,
+                actor=actor,
+                details=product_owner_readiness,
+                thread_id=thread_id,
+            )
+
+        assessment_result: dict[str, Any] | None = None
+        if self._project_is_existing(project_id):
+            assessment = assessment_runner or ProjectAssessmentRunner(self.connection, root=effective_root)
+            try:
+                assessment_result = assessment.run(project_id)
+            except Exception as error:
+                return self._block_run(
+                    loop,
+                    stage="project_assessment",
+                    reason=str(redact_secrets(str(error))),
+                    actor=actor,
+                    details={"projectId": project_id},
+                    thread_id=thread_id,
+                )
+            if assessment_result.get("status") != "completed":
+                reason = str(assessment_result.get("reason") or "Project assessment did not complete.")
+                return self._block_run(
+                    loop,
+                    stage="project_assessment",
+                    reason=reason,
+                    actor=actor,
+                    details=assessment_result,
+                    thread_id=thread_id,
+                )
+
+        loop = self._transition_run_state(
+            loop,
+            to_state="discovery",
+            reason="ProductOwnerAgent discovery started after git and assessment gates.",
+            trigger="product_owner_discovery",
+            actor=actor,
+            context_patch=self._durable_run_patch(
+                loop,
+                {
+                    "status": "discovery",
+                    "assessment": redact_secrets(assessment_result or {}),
+                    "productOwner": {"status": "running"},
+                },
+            ),
+            thread_id=thread_id,
+        )
+
+        product_owner_task_id = f"product-owner-{loop['id'].replace('product-loop-', '')[:12]}"
+        try:
+            product_owner_workspace = WorkspacesRepository(
+                self.connection, root=effective_root
+            ).allocate_workspace(
+                project_id=project_id,
+                task_id=product_owner_task_id,
+                agent_id=PRODUCT_OWNER_AGENT_ID,
+                reason="ProductLoopCoordinator ProductOwnerAgent workspace",
+                branch_name=f"codex/product-owner-{loop['id'][-12:]}",
+            )
+        except (WorkspaceConflictError, WorkspaceIsolationError, ValueError, KeyError) as error:
+            return self._block_run(
+                loop,
+                stage="product_owner_workspace",
+                reason=str(error),
+                actor=actor,
+                details={"taskId": product_owner_task_id},
+                thread_id=thread_id,
+            )
+
+        product_owner_payload = {
+            "projectId": project_id,
+            "workspaceId": product_owner_workspace["id"],
+            "taskId": product_owner_task_id,
+            "idea": message_text,
+            "preferredRuntime": preferred_runtime,
+            "assessment": redact_secrets(assessment_result or {}),
+            "metadata": {
+                "loopId": loop["id"],
+                "thread": thread,
+                "source": "product_loop_coordinator",
+            },
+        }
+        try:
+            product_owner_result = product_owner.run(product_owner_payload)
+        except Exception as error:
+            return self._block_run(
+                loop,
+                stage="product_owner",
+                reason=str(redact_secrets(str(error))),
+                actor=actor,
+                details={"workspaceId": product_owner_workspace["id"]},
+                thread_id=thread_id,
+            )
+
+        output = self._product_owner_output(product_owner_result)
+        product_owner_status = self._product_owner_flow_status(product_owner_result)
+        product_owner_artifact = self._write_json_artifact(
+            root=effective_root,
+            project_id=project_id,
+            name="product_owner_output.json",
+            kind="product_owner_output",
+            payload={"status": product_owner_status, "result": product_owner_result, "output": output},
+        )
+        initiative = self._ensure_product_initiative(
+            project_id=project_id,
+            message=message_text,
+            title=resolved_title,
+            result=product_owner_result,
+            output=output,
+        )
+        brief = self._persist_product_brief(
+            project_id=project_id,
+            initiative_id=initiative["id"],
+            title=resolved_title,
+            result=product_owner_result,
+            output=output,
+        )
+        brief_artifact = self._write_json_artifact(
+            root=effective_root,
+            project_id=project_id,
+            name="product_brief.json",
+            kind="product_brief",
+            payload={"brief": brief, "productBriefPatch": output.get("productBriefPatch") or {}},
+        )
+        product_owner_output_record = self._persist_product_owner_output_record(
+            project_id=project_id,
+            initiative_id=initiative["id"],
+            brief_id=brief["id"],
+            output=output,
+            result=product_owner_result,
+            artifact_id=product_owner_artifact["id"],
+        )
+        clarification_questions = self._persist_clarification_questions(
+            project_id=project_id,
+            initiative_id=initiative["id"],
+            output=output,
+            thread_id=thread_id,
+        )
+        product_decisions = self._persist_product_decisions(
+            project_id=project_id,
+            initiative_id=initiative["id"],
+            brief_id=brief["id"],
+            output=output,
+            thread_id=thread_id,
+        )
+        po_artifacts = [product_owner_artifact, brief_artifact]
+        self._attach_thread_artifacts(thread_id=thread_id, artifacts=po_artifacts)
+        po_artifact_ids = [artifact["id"] for artifact in po_artifacts]
+        po_evidence = self._record_run_evidence(
+            project_id=project_id,
+            loop_id=loop["id"],
+            stage="product_owner",
+            status=product_owner_status,
+            reason=str(product_owner_result.get("reason") or output.get("recommendedNextAction") or ""),
+            details={
+                "status": product_owner_status,
+                "productOwnerOutputId": product_owner_output_record["id"],
+                "clarificationQuestionIds": [item["id"] for item in clarification_questions],
+                "productDecisionIds": [item["id"] for item in product_decisions],
+            },
+            workspace_id=product_owner_workspace["id"],
+            artifact_ids=po_artifact_ids,
+        )
+        for artifact_id in po_artifact_ids:
+            self.evidence.attach_artifact_to_evidence(
+                artifact_id=artifact_id, evidence_package_id=po_evidence["id"]
+            )
+        product_owner_context = {
+            "status": product_owner_status,
+            "reason": product_owner_result.get("reason") or output.get("recommendedNextAction") or "",
+            "workspaceId": product_owner_workspace["id"],
+            "productOwnerOutputId": product_owner_output_record["id"],
+            "briefId": brief["id"],
+            "artifactIds": po_artifact_ids,
+            "evidencePackageId": po_evidence["id"],
+            "clarificationQuestionIds": [item["id"] for item in clarification_questions],
+            "productDecisionIds": [item["id"] for item in product_decisions],
+        }
+        evidence_ids = [*self._external_evidence_ids(product_owner_result), po_evidence["id"]]
+        self._record_thread_event(
+            thread_id=thread_id,
+            event_type="product_owner_completed",
+            agent_role="product_owner",
+            payload={"loopId": loop["id"], **product_owner_context},
+        )
+
+        if product_owner_status == "needs_input":
+            if thread_id:
+                with suppress(KeyError, ValueError):
+                    ThreadsRepository(self.connection).set_status(thread_id, "waiting_decision")
+            awaiting = self._transition_run_state(
+                loop,
+                to_state="awaiting_user",
+                reason=product_owner_context["reason"]
+                or "ProductOwnerAgent requires product clarification before development.",
+                trigger="product_owner_needs_input",
+                actor=actor,
+                context_patch=self._durable_run_patch(
+                    loop,
+                    {
+                        "status": "awaiting_user",
+                        "productOwner": product_owner_context,
+                    },
+                    evidence_package_ids=evidence_ids,
+                ),
+                thread_id=thread_id,
+            )
+            return self._run_result(
+                awaiting,
+                status="awaiting_user",
+                reason=product_owner_context["reason"]
+                or "ProductOwnerAgent requires product clarification before development.",
+                evidence_package=po_evidence,
+            )
+
+        if product_owner_status == "blocked":
+            return self._block_run(
+                loop,
+                stage="product_owner",
+                reason=str(product_owner_result.get("reason") or "ProductOwnerAgent did not produce a usable output."),
+                actor=actor,
+                details=product_owner_result,
+                thread_id=thread_id,
+            )
+
+        if product_owner_status == "brief_ready":
+            approval = None
+            if self._requires_brief_approval(
+                request_meta=request_meta, result=product_owner_result, output=output
+            ):
+                approval = self._create_brief_approval(
+                    project_id=project_id,
+                    loop_id=loop["id"],
+                    brief=brief,
+                    artifact_ids=po_artifact_ids,
+                )
+                product_owner_context["briefApproval"] = approval
+            brief_ready = self._transition_run_state(
+                loop,
+                to_state="brief_ready",
+                reason=product_owner_context["reason"] or "ProductOwnerAgent produced a product brief.",
+                trigger="product_owner_brief_ready",
+                actor=actor,
+                context_patch=self._durable_run_patch(
+                    loop,
+                    {
+                        "status": "brief_ready",
+                        "productOwner": product_owner_context,
+                        "briefApproval": approval,
+                    },
+                    evidence_package_ids=evidence_ids,
+                ),
+                thread_id=thread_id,
+            )
+            return self._run_result(
+                brief_ready,
+                status="brief_ready",
+                reason=product_owner_context["reason"] or "ProductOwnerAgent produced a product brief.",
+                evidence_package=po_evidence,
+            )
+
+        backlog = self._persist_product_owner_backlog(
+            project_id=project_id,
+            output=output,
+            result=product_owner_result,
+            product_owner_output_id=product_owner_output_record["id"],
+        )
+        if not backlog:
+            return self._block_run(
+                loop,
+                stage="backlog",
+                reason="ProductOwnerAgent returned backlog_ready without epics/user_stories/acceptance_criteria.",
+                actor=actor,
+                details={"productOwnerOutputId": product_owner_output_record["id"]},
+                thread_id=thread_id,
+            )
+        backlog_artifact = self._write_json_artifact(
+            root=effective_root,
+            project_id=project_id,
+            name="backlog.json",
+            kind="product_backlog",
+            payload={"backlog": backlog, "productOwnerOutputId": product_owner_output_record["id"]},
+        )
+        self._attach_thread_artifacts(thread_id=thread_id, artifacts=[backlog_artifact])
+        self.evidence.attach_artifact_to_evidence(
+            artifact_id=backlog_artifact["id"], evidence_package_id=po_evidence["id"]
+        )
+        product_owner_context["artifactIds"] = [*po_artifact_ids, backlog_artifact["id"]]
+        preliminary_team_schedule = self._team_schedule(
+            message=message_text,
+            request_meta=request_meta,
+            output=output,
+            assessment_result=assessment_result,
+            git_state=git_state,
+        )
+        agent_tasks = self._generate_agent_tasks(
+            project_id=project_id,
+            loop_id=loop["id"],
+            backlog=backlog,
+            product_owner_output_id=product_owner_output_record["id"],
+            technical_lead_runner=technical_lead_runner,
+            team_schedule=preliminary_team_schedule,
+        )
+        if not agent_tasks:
+            return self._block_run(
+                loop,
+                stage="technical_lead",
+                reason="TechnicalLead did not generate agent_tasks; DeveloperAgent execution is not allowed.",
+                actor=actor,
+                details={"productOwnerOutputId": product_owner_output_record["id"]},
+                thread_id=thread_id,
+            )
+        team_schedule = self._team_schedule(
+            message=message_text,
+            request_meta=request_meta,
+            output=output,
+            assessment_result=assessment_result,
+            git_state=git_state,
+            agent_tasks=agent_tasks,
+        )
+        team_assignments = self._create_team_assignments(
+            project_id=project_id,
+            loop_id=loop["id"],
+            agent_tasks=agent_tasks,
+            team_schedule=team_schedule,
+        )
+
+        loop = self._transition_run_state(
+            loop,
+            to_state="planning",
+            reason="TechnicalLead generated agent_tasks from the ProductOwnerAgent backlog.",
+            trigger="technical_lead_planning",
+            actor=actor,
+            context_patch=self._durable_run_patch(
+                loop,
+                {
+                    "status": "planning",
+                    "productOwner": product_owner_context,
+                    "backlog": {"artifactId": backlog_artifact["id"]},
+                    "agentTasks": agent_tasks,
+                    "teamSchedule": team_schedule,
+                    "agentAssignments": team_assignments,
+                },
+                evidence_package_ids=evidence_ids,
+            ),
+            thread_id=thread_id,
+        )
+        self._record_thread_event(
+            thread_id=thread_id,
+            event_type="agent_tasks_ready",
+            agent_role="technical_lead",
+            payload={
+                "loopId": loop["id"],
+                "agentTaskIds": [task["id"] for task in agent_tasks],
+                "productOwnerOutputId": product_owner_output_record["id"],
+                "teamSchedule": team_schedule["summary"],
+                "agentAssignmentIds": [assignment["id"] for assignment in team_assignments],
+            },
+        )
+        loop = self._transition_run_state(
+            loop,
+            to_state="backlog_ready",
+            reason="ProductOwnerAgent backlog and TechnicalLead agent_tasks are persisted.",
+            trigger="product_owner_backlog_ready",
+            actor=actor,
+            context_patch=self._durable_run_patch(
+                loop,
+                {
+                    "status": "backlog_ready",
+                    "productOwner": product_owner_context,
+                    "backlog": {"artifactId": backlog_artifact["id"]},
+                    "agentTasks": agent_tasks,
+                    "teamSchedule": team_schedule,
+                    "agentAssignments": team_assignments,
+                },
+                evidence_package_ids=evidence_ids,
+            ),
+            thread_id=thread_id,
+        )
+
+        runtime = runtime_runner or DeveloperAgentRunner(self.connection, root=effective_root)
         readiness = runtime.status(preferred_runtime=preferred_runtime)
         self._record_thread_event(
             thread_id=thread_id,
@@ -767,44 +1893,6 @@ class ProductLoopCoordinator:
             reason = str(readiness.get("reason") or "No executable DeveloperAgent runtime is configured.")
             return self._block_run(
                 loop, stage="runtime", reason=reason, actor=actor, details=readiness, thread_id=thread_id
-            )
-
-        loop = self._transition_run_state(
-            loop,
-            to_state="git_check",
-            reason="Checking git workspace cleanliness before worktree allocation.",
-            trigger="git_check",
-            actor=actor,
-            context_patch=self._durable_run_patch(
-                loop, {"status": "git_check", "runtimeReadiness": readiness}
-            ),
-            thread_id=thread_id,
-        )
-        git_state = git.status(project_id)
-        if git_state.get("status") != "completed":
-            reason = str(git_state.get("reason") or "Git status did not complete.")
-            return self._block_run(
-                loop, stage="git", reason=reason, actor=actor, details=git_state, thread_id=thread_id
-            )
-        if bool(git_state.get("dirty")):
-            reason = "Project git tree is dirty; Product Loop execution requires a clean base."
-            return self._block_run(
-                loop, stage="git", reason=reason, actor=actor, details=git_state, thread_id=thread_id
-            )
-
-        for state, reason in [
-            ("discovery", "User message classified for execution."),
-            ("planning", "Delivery plan prepared from the user message."),
-            ("backlog_ready", "Backlog handoff is ready for implementation."),
-        ]:
-            loop = self._transition_run_state(
-                loop,
-                to_state=state,
-                reason=reason,
-                trigger=state,
-                actor=actor,
-                context_patch=self._durable_run_patch(loop, {"status": state}),
-                thread_id=thread_id,
             )
 
         task_id = f"product-loop-{loop['id'].replace('product-loop-', '')[:12]}"
@@ -872,6 +1960,11 @@ class ProductLoopCoordinator:
                     "workspaceId": workspace["id"],
                     "taskId": task_id,
                     "instruction": message_text,
+                    "agentTasks": agent_tasks,
+                    "teamSchedule": team_schedule,
+                    "agentAssignments": team_assignments,
+                    "productOwnerOutputId": product_owner_output_record["id"],
+                    "backlogArtifactId": backlog_artifact["id"],
                     "preferredRuntime": preferred_runtime,
                     "qaCommands": qa_commands or [],
                     "requireApproval": True,

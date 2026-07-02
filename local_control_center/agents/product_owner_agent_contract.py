@@ -55,6 +55,7 @@ def product_owner_agent_contract() -> dict[str, Any]:
                 "initiativeId": {"type": ["string", "null"]},
                 "completenessThreshold": {"type": ["number", "null"]},
                 "workflowContext": {"type": "object"},
+                "assessment": {"type": "object"},
                 "preferredRuntime": {"type": ["string", "null"]},
                 "approvalGrantId": {"type": ["string", "null"]},
                 "model": {"type": ["string", "null"]},

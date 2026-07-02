@@ -13,7 +13,6 @@ import type {
 	ArchitectureDecisionCreateRequest,
 	ArtifactRecord,
 	BudgetRuleRecord,
-	ChatRecord,
 	CliRuntimeRecord,
 	CliSessionRecord,
 	CredentialAuditRecord,
@@ -31,7 +30,6 @@ import type {
 	ModelProviderRecord,
 	NextStepCreateRequest,
 	OverviewResponse,
-	PipelineRecord,
 	PolicyRevisionRecord,
 	ProjectCreateRequest,
 	ProjectRecord,
@@ -48,7 +46,6 @@ import type {
 	RuntimeProviderConfigurationRecord,
 	RuntimeProviderStatus,
 	RuntimeProvidersResponse,
-	SessionRecord,
 	TeamActivityResponse,
 	TeamRecord,
 	ThreadAgentEventRecord,
@@ -59,6 +56,7 @@ import type {
 	ThreadMessageRecord,
 	ThreadMessageResultResponse,
 	ThreadRecord,
+	ThreadSimilarityCandidateRecord,
 	UsageLedgerRecord,
 	UsageSummaryRecord,
 	WorkflowCreateRequest,
@@ -81,8 +79,6 @@ export type Workflow = WorkflowRecord;
 export type WorkflowStep = WorkflowStepRecord;
 export type AgentProfile = AgentProfileRecord;
 export type ModelProvider = ModelProviderRecord;
-export type Session = SessionRecord;
-export type Chat = ChatRecord;
 export type Thread = ThreadRecord;
 export type ThreadMessage = ThreadMessageRecord;
 export type ThreadArtifact = ThreadArtifactRecord;
@@ -91,9 +87,9 @@ export type ThreadDecision = ThreadDecisionRecord;
 export type ThreadDetail = ThreadDetailResponse;
 export type ThreadEvents = ThreadEventsResponse;
 export type ThreadMessageResult = ThreadMessageResultResponse;
+export type ThreadSimilarityCandidate = ThreadSimilarityCandidateRecord;
 export type TeamActivity = TeamActivityResponse;
 export type TeamActivityEntry = GeneratedTeamActivityEntry;
-export type Pipeline = PipelineRecord;
 export type Artifact = ArtifactRecord;
 export type PolicyRevision = PolicyRevisionRecord;
 export type Overview = OverviewResponse;

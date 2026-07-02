@@ -8522,6 +8522,322 @@
     "app.settings.budget.maxCostUsd": {
       "en": "Maximum cost (USD)",
       "es": "Costo máximo (USD)"
+    },
+    "app.settings.section.plugins": {
+      "en": "Plugins",
+      "es": "Complementos"
+    },
+    "settings.plugins.alreadyInstalled": {
+      "en": "installed",
+      "es": "instalado"
+    },
+    "settings.plugins.candidateBlocked": {
+      "en": "blocked",
+      "es": "bloqueado"
+    },
+    "settings.plugins.candidateValid": {
+      "en": "valid",
+      "es": "válido"
+    },
+    "settings.plugins.col.action": {
+      "en": "Action",
+      "es": "Acción"
+    },
+    "settings.plugins.col.actions": {
+      "en": "Actions",
+      "es": "Acciones"
+    },
+    "settings.plugins.col.broker": {
+      "en": "Broker tool",
+      "es": "Herramienta broker"
+    },
+    "settings.plugins.col.candidate": {
+      "en": "Candidate",
+      "es": "Candidato"
+    },
+    "settings.plugins.col.contract": {
+      "en": "Contract hash",
+      "es": "Hash del contrato"
+    },
+    "settings.plugins.col.entrypoints": {
+      "en": "Entrypoints",
+      "es": "Puntos de entrada"
+    },
+    "settings.plugins.col.permission": {
+      "en": "Permission",
+      "es": "Permiso"
+    },
+    "settings.plugins.col.plugin": {
+      "en": "Plugin",
+      "es": "Complemento"
+    },
+    "settings.plugins.col.policy": {
+      "en": "Policy",
+      "es": "Política"
+    },
+    "settings.plugins.col.reason": {
+      "en": "Reason",
+      "es": "Motivo"
+    },
+    "settings.plugins.col.recorded": {
+      "en": "Recorded",
+      "es": "Registrado"
+    },
+    "settings.plugins.col.risk": {
+      "en": "Risk",
+      "es": "Riesgo"
+    },
+    "settings.plugins.col.tool": {
+      "en": "Tool",
+      "es": "Herramienta"
+    },
+    "settings.plugins.col.trust": {
+      "en": "Trust",
+      "es": "Confianza"
+    },
+    "settings.plugins.col.validity": {
+      "en": "Validity",
+      "es": "Validez"
+    },
+    "settings.plugins.col.version": {
+      "en": "Version",
+      "es": "Versión"
+    },
+    "settings.plugins.disable": {
+      "en": "Disable",
+      "es": "Deshabilitar"
+    },
+    "settings.plugins.disabledToast": {
+      "en": "Plugin disabled",
+      "es": "Complemento deshabilitado"
+    },
+    "settings.plugins.emptyAgentsTitle": {
+      "en": "No plugin agents",
+      "es": "Sin agentes de complementos"
+    },
+    "settings.plugins.emptyBlockedBody": {
+      "en": "Rejected manifests and failed validations appear here with the exact validator reason.",
+      "es": "Los manifiestos rechazados y las validaciones fallidas aparecen aquí con el motivo exacto del validador."
+    },
+    "settings.plugins.emptyBlockedTitle": {
+      "en": "No blocked installs",
+      "es": "No hay instalaciones bloqueadas"
+    },
+    "settings.plugins.emptyCandidatesBody": {
+      "en": "Neither this folder nor its direct children contain an aido.plugin.json manifest.",
+      "es": "Ni esta carpeta ni sus subcarpetas directas contienen un manifiesto aido.plugin.json."
+    },
+    "settings.plugins.emptyCandidatesTitle": {
+      "en": "No candidates found",
+      "es": "No se encontraron candidatos"
+    },
+    "settings.plugins.emptyDisabledBody": {
+      "en": "Disabled plugins stay installed but none of their entrypoints can run.",
+      "es": "Los complementos deshabilitados siguen instalados pero ninguno de sus puntos de entrada puede ejecutarse."
+    },
+    "settings.plugins.emptyDisabledTitle": {
+      "en": "No disabled plugins",
+      "es": "No hay complementos deshabilitados"
+    },
+    "settings.plugins.emptyEntrypointsBody": {
+      "en": "Install a plugin to inspect its declared contract.",
+      "es": "Instala un complemento para inspeccionar su contrato declarado."
+    },
+    "settings.plugins.emptyInstalledBody": {
+      "en": "Scan a local folder and install a validated plugin to extend AIDO.",
+      "es": "Escanea una carpeta local e instala un complemento validado para extender AIDO."
+    },
+    "settings.plugins.emptyInstalledTitle": {
+      "en": "No plugins installed",
+      "es": "No hay complementos instalados"
+    },
+    "settings.plugins.emptyPermissionsTitle": {
+      "en": "No declared permissions",
+      "es": "No hay permisos declarados"
+    },
+    "settings.plugins.emptyPluginPermissionsBody": {
+      "en": "This plugin manifest declares no permissions, so it gets none.",
+      "es": "Este manifiesto no declara permisos, por lo que no recibe ninguno."
+    },
+    "settings.plugins.emptyScanBody": {
+      "en": "Point to a folder holding aido.plugin.json manifests to list installable candidates.",
+      "es": "Apunta a una carpeta con manifiestos aido.plugin.json para listar candidatos instalables."
+    },
+    "settings.plugins.emptyScanTitle": {
+      "en": "No scan yet",
+      "es": "Aún sin escaneo"
+    },
+    "settings.plugins.emptySkillsTitle": {
+      "en": "No plugin skills",
+      "es": "Sin habilidades de complementos"
+    },
+    "settings.plugins.emptyToolsTitle": {
+      "en": "No plugin tools",
+      "es": "Sin herramientas de complementos"
+    },
+    "settings.plugins.enable": {
+      "en": "Enable",
+      "es": "Habilitar"
+    },
+    "settings.plugins.enabledToast": {
+      "en": "Plugin enabled",
+      "es": "Complemento habilitado"
+    },
+    "settings.plugins.install": {
+      "en": "Install",
+      "es": "Instalar"
+    },
+    "settings.plugins.installFromFolder": {
+      "en": "Install from folder",
+      "es": "Instalar desde carpeta"
+    },
+    "settings.plugins.installedToast": {
+      "en": "Plugin installed",
+      "es": "Complemento instalado"
+    },
+    "settings.plugins.intro": {
+      "en": "Install first-party and third-party plugins from local folders. Manifests are validated fail-closed before anything is persisted, and every install decision is audited.",
+      "es": "Instala complementos propios y de terceros desde carpetas locales. Los manifiestos se validan de forma fail-closed antes de persistir nada y cada decisión de instalación queda auditada."
+    },
+    "settings.plugins.loadFailed": {
+      "en": "Plugin registry unavailable",
+      "es": "Registro de complementos no disponible"
+    },
+    "settings.plugins.manifestDialog": {
+      "en": "Plugin manifest",
+      "es": "Manifiesto del complemento"
+    },
+    "settings.plugins.manifestHash": {
+      "en": "Manifest hash",
+      "es": "Hash del manifiesto"
+    },
+    "settings.plugins.manifestInvalid": {
+      "en": "Manifest invalid",
+      "es": "Manifiesto inválido"
+    },
+    "settings.plugins.manifestPath": {
+      "en": "Manifest path",
+      "es": "Ruta del manifiesto"
+    },
+    "settings.plugins.manifestValid": {
+      "en": "Manifest valid",
+      "es": "Manifiesto válido"
+    },
+    "settings.plugins.minAido": {
+      "en": "Min AIDO version",
+      "es": "Versión mínima de AIDO"
+    },
+    "settings.plugins.operationFailed": {
+      "en": "Plugin operation failed",
+      "es": "Falló la operación del complemento"
+    },
+    "settings.plugins.packageHash": {
+      "en": "Package hash",
+      "es": "Hash del paquete"
+    },
+    "settings.plugins.permissionsDialog": {
+      "en": "Plugin permissions",
+      "es": "Permisos del complemento"
+    },
+    "settings.plugins.policyMissing": {
+      "en": "policy missing",
+      "es": "política faltante"
+    },
+    "settings.plugins.policyRequired": {
+      "en": "policy required",
+      "es": "política requerida"
+    },
+    "settings.plugins.refresh": {
+      "en": "Refresh plugins",
+      "es": "Actualizar complementos"
+    },
+    "settings.plugins.retry": {
+      "en": "Retry",
+      "es": "Reintentar"
+    },
+    "settings.plugins.scan": {
+      "en": "Scan folder",
+      "es": "Escanear carpeta"
+    },
+    "settings.plugins.scanPath": {
+      "en": "Local plugin folder",
+      "es": "Carpeta local de complementos"
+    },
+    "settings.plugins.scanPathHelp": {
+      "en": "The folder is scanned read-only: nothing is executed, copied, or installed during a scan.",
+      "es": "La carpeta se escanea en solo lectura: nada se ejecuta, copia ni instala durante el escaneo."
+    },
+    "settings.plugins.scanned": {
+      "en": "Scan complete",
+      "es": "Escaneo completado"
+    },
+    "settings.plugins.summaryBlocked": {
+      "en": "blocked events",
+      "es": "eventos bloqueados"
+    },
+    "settings.plugins.summaryEnabled": {
+      "en": "enabled",
+      "es": "habilitados"
+    },
+    "settings.plugins.summaryInstalled": {
+      "en": "installed",
+      "es": "instalados"
+    },
+    "settings.plugins.tab.agents": {
+      "en": "Agents",
+      "es": "Agentes"
+    },
+    "settings.plugins.tab.available": {
+      "en": "Available (local folder)",
+      "es": "Disponibles (carpeta local)"
+    },
+    "settings.plugins.tab.blocked": {
+      "en": "Blocked",
+      "es": "Bloqueados"
+    },
+    "settings.plugins.tab.disabled": {
+      "en": "Disabled",
+      "es": "Deshabilitados"
+    },
+    "settings.plugins.tab.installed": {
+      "en": "Installed",
+      "es": "Instalados"
+    },
+    "settings.plugins.tab.permissions": {
+      "en": "Permissions",
+      "es": "Permisos"
+    },
+    "settings.plugins.tab.skills": {
+      "en": "Skills",
+      "es": "Habilidades"
+    },
+    "settings.plugins.tab.tools": {
+      "en": "Tools",
+      "es": "Herramientas"
+    },
+    "settings.plugins.tablist": {
+      "en": "Plugin views",
+      "es": "Vistas de complementos"
+    },
+    "settings.plugins.title": {
+      "en": "Plugin registry",
+      "es": "Registro de complementos"
+    },
+    "settings.plugins.validate": {
+      "en": "Validate",
+      "es": "Validar"
+    },
+    "settings.plugins.validatedAt": {
+      "en": "Validated",
+      "es": "Validado"
+    },
+    "settings.plugins.viewManifest": {
+      "en": "View manifest",
+      "es": "Ver manifiesto"
+    },
+    "settings.plugins.viewPermissions": {
+      "en": "View permissions",
+      "es": "Ver permisos"
     }
   }
 }

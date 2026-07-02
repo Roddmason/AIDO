@@ -19,6 +19,7 @@ import type {
 	RuntimeProviders,
 } from '../../api/types';
 import { CredentialManagerPanel } from './CredentialManagerPanel';
+import { PluginsPanel } from './PluginsPanel';
 import { SectionPlaceholder } from './SectionPlaceholder';
 import { SettingRow } from './SettingRow';
 import {
@@ -123,7 +124,8 @@ function renderAgentsWithLink(ctx: SectionContext): ReactNode {
 /**
  * General scope sections in display order.
  * General, Appearance, Providers & CLI, Credentials, Default Team,
- * Autonomy (wired), Security (wired), Research, Costs (wired), Integrations, Advanced.
+ * Autonomy (wired), Security (wired), Research, Costs (wired), Integrations,
+ * Plugins, Advanced.
  */
 export const GENERAL_SECTIONS: SectionDefinition[] = [
 	{
@@ -219,6 +221,13 @@ export const GENERAL_SECTIONS: SectionDefinition[] = [
 		titleFallback: 'Integrations',
 		kind: 'display',
 		render: (ctx) => <IntegrationsBody overview={ctx.overview} />,
+	},
+	{
+		id: 'plugins',
+		titleKey: 'app.settings.section.plugins',
+		titleFallback: 'Plugins',
+		kind: 'display',
+		render: (ctx) => <PluginsPanel token={ctx.token} />,
 	},
 	{
 		id: 'advanced',

@@ -36,6 +36,7 @@ from .integrations.api import create_router as create_integrations_router
 from .jobs_approvals.api import create_router as create_jobs_approvals_router
 from .memory_retrieval.api import create_router as create_memory_retrieval_router
 from .pipelines.api import create_router as create_pipelines_router
+from .plugins.api import create_router as create_plugins_router
 from .product_loop.api import create_router as create_product_loop_router
 from .projects.api import create_router as create_projects_router
 from .prompts.api import create_router as create_prompts_router
@@ -143,6 +144,7 @@ def create_app(
     app.include_router(create_governance_router(platform=platform, require_write=require_write))
     app.include_router(create_sessions_chats_router(platform=platform, require_write=require_write))
     app.include_router(create_pipelines_router(platform=platform, require_write=require_write))
+    app.include_router(create_plugins_router(platform=platform, require_write=require_write))
     app.include_router(create_integrations_router(platform=platform, require_write=require_write))
     app.include_router(create_prompts_router(platform=platform, require_write=require_write))
     app.include_router(create_projects_router(platform=platform, require_write=require_write))

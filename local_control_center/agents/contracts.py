@@ -26,6 +26,9 @@ AgentRole = Literal[
     "developer",
     "backend_engineer",
     "frontend_engineer",
+    "mobile_engineer",
+    "database_engineer",
+    "data_engineer",
     "implementer",
     "devops",
     "devops_engineer",
@@ -34,6 +37,7 @@ AgentRole = Literal[
     "qa_reviewer",
     "security_engineer",
     "security_reviewer",
+    "pentester",
     "researcher",
     "release_manager",
 ]
@@ -690,7 +694,9 @@ class ResearchSourceRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     url: str
+    title: str | None = None
     publisher: str
+    source_type: str | None = Field(default=None, alias="sourceType")
     content: str | None = None
     fetched_at: str | None = Field(default=None, alias="fetchedAt")
     trust_level: ResearchTrustLevel | None = Field(default=None, alias="trustLevel")
@@ -765,7 +771,9 @@ class ResearchAgentRunRequest(BaseModel):
     project_id: str = Field(alias="projectId")
     workspace_id: str = Field(alias="workspaceId")
     task_id: str = Field(default="research_agent", alias="taskId")
-    sources: list[ResearchSourceRequest]
+    query: str | None = None
+    max_sources: int | None = Field(default=None, alias="maxSources")
+    sources: list[ResearchSourceRequest] = Field(default_factory=list)
     conclusions: list[ResearchConclusionRequest] = Field(default_factory=list)
     claims: list[ResearchClaimRequest] = Field(default_factory=list)
     technical_decisions: list[ResearchTechnicalDecisionRequest] = Field(
@@ -968,4 +976,5 @@ class RuntimeProvidersResponse(BaseModel):
     cli: CliRuntimeProviderStatus
     api: ApiRuntimeProviderStatus
     developer_agent: DeveloperAgentStatus = Field(alias="developerAgent")
+    configuration_warnings: list[str] = Field(default_factory=list, alias="configurationWarnings")
     providers: list[RuntimeProviderStatus]

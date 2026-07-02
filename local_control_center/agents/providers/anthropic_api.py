@@ -3,8 +3,8 @@
 Habla el protocolo propio de Anthropic: auth `x-api-key` + `anthropic-version`, endpoint
 `/messages`, mensajes `system` extraidos aparte y `max_tokens` obligatorio. Suma los
 tokens de cacheo (creacion + lectura) en `cached_input_tokens` y, como no hay tarifa
-publicada aqui, deja el costo como desconocido. Las llamadas reales quedan tras el
-interruptor compartido `real_provider_calls_enabled()` y los payloads se redactan.
+publicada aqui, deja el costo como desconocido. La autoridad de ejecución vive en la
+política SQLite de runtime; este proveedor valida config/credencial y redacta payloads.
 
 @author Rodrigo Mason
 """
@@ -30,7 +30,6 @@ from .base import (
     ProviderHealth,
     UsageRecord,
 )
-from .openai_compatible import real_provider_calls_enabled
 
 DEFAULT_ANTHROPIC_BASE_URL = "https://api.anthropic.com/v1"
 ANTHROPIC_VERSION = "2023-06-01"
@@ -86,7 +85,7 @@ class AnthropicAPIProvider(ModelProvider):
         return payload if isinstance(payload, dict) else {}
 
     def health_check(self) -> ProviderHealth:
-        """Valida credencial y URL sin red; solo toca `/models` si las llamadas reales estan activas."""
+        """Valida credencial/URL y prueba `/models`; la política runtime se aplica aguas arriba."""
         credential = self.credential_resolver.resolve(self.credential_ref, fetch=False)
         if credential.status == "invalid":
             return ProviderHealth(
@@ -109,13 +108,6 @@ class AnthropicAPIProvider(ModelProvider):
                 healthStatus="misconfigured",
                 message="Anthropic base URL is not configured.",
             )
-        if not real_provider_calls_enabled():
-            return ProviderHealth(
-                providerId=self.provider_id,
-                status="disabled",
-                healthStatus="unknown",
-                message="Real provider calls are disabled",
-            )
         try:
             self._get_json("/models")
         except (OSError, urllib.error.URLError, json.JSONDecodeError, UnicodeDecodeError) as error:
@@ -133,9 +125,7 @@ class AnthropicAPIProvider(ModelProvider):
         )
 
     def list_models(self) -> list[ModelInfo]:
-        """Descubre modelos via `/models`. Raises si las llamadas reales estan deshabilitadas."""
-        if not real_provider_calls_enabled():
-            raise RuntimeError("Real provider discovery is disabled by AIDO_ENABLE_REAL_PROVIDER_CALLS=false")
+        """Descubre modelos via `/models`."""
         payload = self._get_json("/models")
         models = payload.get("data", []) if isinstance(payload, dict) else []
         return [
@@ -150,9 +140,7 @@ class AnthropicAPIProvider(ModelProvider):
         ]
 
     def chat_completion(self, request: ModelRequest) -> ModelResponse:
-        """Postea a `/messages` con el payload nativo de Anthropic y normaliza la respuesta. Raises si falta config o las llamadas reales estan off."""
-        if not real_provider_calls_enabled():
-            raise RuntimeError("Real provider calls are disabled by AIDO_ENABLE_REAL_PROVIDER_CALLS=false")
+        """Postea a `/messages` con el payload nativo de Anthropic y normaliza la respuesta."""
         if not self.base_url or not self._credential():
             raise RuntimeError("Anthropic provider is missing base_url or credential_ref")
         payload = json.dumps(self._messages_payload(request)).encode("utf-8")

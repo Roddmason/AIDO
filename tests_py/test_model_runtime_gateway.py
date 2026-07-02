@@ -31,6 +31,7 @@ from local_control_center.agents.quota_manager import QuotaManager
 from local_control_center.agents.repository import AgentsRepository
 from local_control_center.agents.usage_ledger import UsageLedger
 from local_control_center.app import create_app
+from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
 from local_control_center.shared.db import open_sqlite_connection
 from local_control_center.shared.migrations import initialize_platform_schema
 from local_control_center.shared.redaction import redact_secrets
@@ -41,6 +42,22 @@ from tests_py.evidence_helpers import real_qa_evidence_fields
 def auth_headers(client: TestClient) -> dict[str, str]:
     token = client.get("/api/v1/security/handshake").json()["token"]
     return {"X-Local-Control-Token": token, "Origin": "http://127.0.0.1"}
+
+
+def enable_runtime_policy(
+    connection,
+    *,
+    cli: bool = False,
+    remote: bool = False,
+    nvidia: bool = False,
+) -> None:
+    repo = RuntimeConfigRepository(connection)
+    if cli:
+        repo.set_runtime_setting("runtime.cli.enabled", True)
+    if remote:
+        repo.set_runtime_setting("runtime.remote.enabled", True)
+    if nvidia:
+        repo.set_runtime_setting("runtime.nvidia.enabled", True)
 
 
 def create_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
@@ -64,6 +81,7 @@ def enable_provider(client: TestClient, headers: dict[str, str], provider_id: st
     )
     assert response.status_code == 200
     with open_sqlite_connection(Path(os.environ["LOCAL_CONTROL_CENTER_DB"])) as connection:
+        enable_runtime_policy(connection, remote=True, nvidia=provider_id == "nvidia_nim")
         ProviderAccountStore(connection).record_health_check(
             provider_id=provider_id,
             status="available" if health_status == "healthy" else health_status,
@@ -72,6 +90,7 @@ def enable_provider(client: TestClient, headers: dict[str, str], provider_id: st
 
 
 def register_workspace(connection, workspace_id: str, path: Path) -> None:
+    enable_runtime_policy(connection, cli=True)
     connection.execute(
         """
         INSERT INTO workspaces
@@ -743,10 +762,11 @@ def test_openai_compatible_provider_uses_credential_resolver(monkeypatch: pytest
         base_url="https://example.invalid/v1",
         credential_ref="env:AIDO_PROVIDER_SECRET",
     )
+    provider.base_url = ""
 
     assert provider._credential() == "sk-testsecret123456"
     health = provider.health_check()
-    assert health.status == "disabled"
+    assert health.status == "misconfigured"
     assert "sk-testsecret" not in health.message
 
 
@@ -760,6 +780,7 @@ def test_model_gateway_blocks_unconfigured_openai_compatible_before_http_call(
     try:
         with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
             initialize_platform_schema(connection)
+            enable_runtime_policy(connection, remote=True)
             ProviderAccountStore(connection).upsert_provider_account(
                 {
                     "providerId": "openai_compatible",
@@ -798,6 +819,7 @@ def test_model_gateway_redacts_secrets_from_unavailable_provider_errors(
     monkeypatch.setenv("AIDO_ENABLE_REAL_PROVIDER_CALLS", "true")
     with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
         initialize_platform_schema(connection)
+        enable_runtime_policy(connection, remote=True)
         ProviderAccountStore(connection).upsert_provider_account(
             {
                 "providerId": "openai_compatible",
@@ -916,6 +938,7 @@ def test_model_gateway_openai_compatible_executes_real_http_and_records_actual_u
     try:
         with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
             initialize_platform_schema(connection)
+            enable_runtime_policy(connection, remote=True)
             store = ProviderAccountStore(connection)
             store.upsert_provider_account(
                 {
@@ -1026,6 +1049,7 @@ def test_model_gateway_anthropic_executes_real_http_and_records_actual_usage(
     try:
         with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
             initialize_platform_schema(connection)
+            enable_runtime_policy(connection, remote=True)
             ProviderAccountStore(connection).upsert_provider_account(
                 {
                     "providerId": "anthropic_api",
@@ -1112,6 +1136,7 @@ def test_nvidia_nim_without_provider_usage_does_not_invent_cost_or_tokens(
     try:
         with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
             initialize_platform_schema(connection)
+            enable_runtime_policy(connection, remote=True, nvidia=True)
             store = ProviderAccountStore(connection)
             store.upsert_provider_account(
                 {
@@ -1706,7 +1731,7 @@ def test_route_preview_exposes_pricing_metadata_and_penalizes_unknown_price(
     assert codex["pricingSource"]
 
 
-def test_discover_models_blocks_when_real_calls_are_disabled(
+def test_discover_models_uses_sqlite_policy_when_env_flag_is_absent(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client = create_client(tmp_path, monkeypatch)
@@ -1717,8 +1742,8 @@ def test_discover_models_blocks_when_real_calls_are_disabled(
 
     response = client.post("/api/v1/model-gateway/providers/nvidia_nim/discover-models", headers=headers)
 
-    assert response.status_code == 403
-    assert "disabled" in response.json()["detail"].lower()
+    assert response.status_code == 200
+    assert "models" in response.json()
 
 
 def test_router_rejects_enabled_seed_provider_without_real_healthcheck(
@@ -2913,9 +2938,10 @@ def test_route_execute_real_is_blocked_by_default_and_requires_approval_when_cos
         },
     )
     assert disabled.status_code == 403
-    assert "disabled" in disabled.json()["detail"].lower()
+    assert "runtime.cli.enabled is false" in disabled.json()["detail"].lower()
 
-    monkeypatch.setenv("AIDO_ENABLE_REAL_PROVIDER_CALLS", "true")
+    with open_sqlite_connection(Path(os.environ["LOCAL_CONTROL_CENTER_DB"])) as connection:
+        enable_runtime_policy(connection, cli=True)
     approval = client.post(
         "/api/v1/model-gateway/route/execute",
         headers=headers,

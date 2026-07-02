@@ -14,7 +14,6 @@ con sus artifacts de stdout/stderr. La cancelación mata el proceso y marca la s
 from __future__ import annotations
 
 import contextlib
-import os
 import queue
 import sqlite3
 import subprocess
@@ -295,7 +294,9 @@ def _run(
             )
             return
 
-        runtime_error = _runtime_readiness_error(connection, runtime=runtime, argv=argv)
+        runtime_error = _runtime_readiness_error(
+            connection, project_id=project_id, runtime=runtime, argv=argv
+        )
         if runtime_error:
             finish = _finish(
                 connection,
@@ -852,13 +853,18 @@ def _developer_agent_profile_error(profile: dict[str, Any], *, runtime: str) -> 
     return None
 
 
-def _runtime_readiness_error(connection: sqlite3.Connection, *, runtime: str, argv: list[str]) -> str | None:
+def _runtime_readiness_error(
+    connection: sqlite3.Connection, *, project_id: str | None, runtime: str, argv: list[str]
+) -> str | None:
     if runtime not in _SUPPORTED_STREAMING_CLI_RUNTIMES:
         return f"Runtime {runtime} is not supported for streaming CLI execution."
-    if os.environ.get("AIDO_ENABLE_CLI_RUNTIMES", "false").lower() != "true":
-        return "CLI runtime execution is disabled by AIDO_ENABLE_CLI_RUNTIMES=false."
 
     repository = RuntimeConfigRepository(connection)
+    policy_decision = repository.runtime_policy_decision(
+        provider_id=runtime, kind="cli", project_id=project_id
+    )
+    if not policy_decision.get("allowed"):
+        return str(policy_decision.get("reason") or "CLI runtime execution is blocked by policy.")
     try:
         installation = repository.get_installation(runtime)
     except KeyError:

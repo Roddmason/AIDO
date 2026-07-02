@@ -2,14 +2,13 @@
 
 Expone los endpoints REST que administran el catálogo de proveedores, modelos, precios, perfiles/políticas
 de ruteo, límites, presupuestos, ledger de uso, benchmarks y runtimes CLI, además de previsualizar y
-ejecutar rutas. La ejecución falla cerrada: exige aprobación, flags de habilitación y credenciales válidas.
+ejecutar rutas. La ejecución falla cerrada: exige aprobación, policy SQLite y credenciales válidas.
 
 @author Rodrigo Mason
 """
 
 from __future__ import annotations
 
-import os
 import re
 from typing import Any
 
@@ -24,7 +23,7 @@ from local_control_center.shared.time import utc_now
 
 from .credentials import CredentialResolver
 from .model_benchmarks import ModelBenchmarkStore
-from .model_gateway import ModelGateway, provider_instance, real_provider_calls_enabled
+from .model_gateway import ModelGateway, provider_instance
 from .model_gateway_models import (
     BudgetRulePatchRequest,
     BudgetRuleResponse,
@@ -365,11 +364,15 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
                 status_code=403,
                 detail=f"Provider {provider_id} is disabled; discovery requires explicit enablement.",
             )
-        if _requires_remote_provider_call(account) and not real_provider_calls_enabled():
-            raise HTTPException(
-                status_code=403,
-                detail="Real provider discovery is disabled by AIDO_ENABLE_REAL_PROVIDER_CALLS=false.",
+        if _requires_remote_provider_call(account):
+            policy_decision = runtimes().runtime_policy_decision(
+                provider_id=provider_id, kind=str(account.get("providerType") or "")
             )
+            if not policy_decision.get("allowed"):
+                raise HTTPException(
+                    status_code=403,
+                    detail=str(policy_decision.get("reason") or "Remote provider discovery is disabled."),
+                )
         _validate_real_discovery_credentials(account)
         discovered = [
             item.model_dump(by_alias=True)
@@ -547,11 +550,16 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
                 detail="Route execution requires approval before calling a provider or runtime.",
             )
         runtime_type = str(selected.get("runtime") or "")
-        if runtime_type == "cli" and os.environ.get("AIDO_ENABLE_CLI_RUNTIMES", "false").lower() != "true":
-            raise HTTPException(
-                status_code=403, detail="CLI route execution is disabled by AIDO_ENABLE_CLI_RUNTIMES=false."
-            )
         if runtime_type == "cli":
+            project_id = str(body_payload.get("projectId") or "model-gateway")
+            policy_decision = runtimes().runtime_policy_decision(
+                provider_id=str(selected.get("provider") or ""), kind="cli", project_id=project_id
+            )
+            if not policy_decision.get("allowed"):
+                raise HTTPException(
+                    status_code=403,
+                    detail=str(policy_decision.get("reason") or "CLI route execution is blocked by policy."),
+                )
             raise HTTPException(
                 status_code=501,
                 detail="Real CLI execution must be launched through policy-approved agent runtime sessions.",

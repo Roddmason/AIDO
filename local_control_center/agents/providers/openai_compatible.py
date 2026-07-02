@@ -2,8 +2,9 @@
 
 Habla el dialecto OpenAI (endpoints `/models` y `/chat/completions`, auth `Bearer`)
 con `urllib`, y sirve de base reutilizable para todos los proveedores compatibles
-(OpenAI, OpenRouter, NVIDIA NIM, LiteLLM). Toda llamada de red real queda detras del
-interruptor `real_provider_calls_enabled()` y redacta secretos antes de exponer payloads.
+(OpenAI, OpenRouter, NVIDIA NIM, LiteLLM). La autoridad de ejecución vive en la
+política SQLite de runtime; este proveedor valida configuración/credenciales y redacta
+secretos antes de exponer payloads.
 
 @author Rodrigo Mason
 """
@@ -42,11 +43,6 @@ USAGE_TOKEN_KEYS = (
 )
 
 
-def real_provider_calls_enabled() -> bool:
-    """Indica si las llamadas de red reales estan habilitadas; por defecto desactivadas (fail-closed)."""
-    return os.environ.get("AIDO_ENABLE_REAL_PROVIDER_CALLS", "false").lower() == "true"
-
-
 def _provider_reported_usage(usage: Any) -> bool:
     """Indica si el bloque `usage` trae al menos un contador de tokens reportado por el proveedor."""
     return isinstance(usage, dict) and any(usage.get(key) is not None for key in USAGE_TOKEN_KEYS)
@@ -82,7 +78,7 @@ class OpenAICompatibleProvider(ModelProvider):
         return self.credential_resolver.resolve(self.credential_ref).value or ""
 
     def health_check(self) -> ProviderHealth:
-        """Valida config y credencial sin gastar red; solo toca `/models` si las llamadas reales estan activas."""
+        """Valida config/credencial y prueba `/models`; la política runtime se aplica aguas arriba."""
         if not self.base_url:
             return ProviderHealth(
                 providerId=self.provider_id,
@@ -104,13 +100,6 @@ class OpenAICompatibleProvider(ModelProvider):
                 status="misconfigured",
                 healthStatus="misconfigured",
                 message=f"Credential ref {self.credential_ref} is {credential.status}",
-            )
-        if not real_provider_calls_enabled():
-            return ProviderHealth(
-                providerId=self.provider_id,
-                status="disabled",
-                healthStatus="unknown",
-                message="Real provider calls are disabled",
             )
         request = urllib.request.Request(
             f"{self.base_url}/models",
@@ -135,9 +124,7 @@ class OpenAICompatibleProvider(ModelProvider):
         )
 
     def list_models(self) -> list[ModelInfo]:
-        """Lee `/models`; devuelve [] si no hay URL o la peticion falla. Raises si las llamadas reales estan off."""
-        if not real_provider_calls_enabled():
-            raise RuntimeError("Real provider discovery is disabled by AIDO_ENABLE_REAL_PROVIDER_CALLS=false")
+        """Lee `/models`; devuelve [] si no hay URL o la peticion falla."""
         if not self.base_url:
             return []
         request = urllib.request.Request(
@@ -163,9 +150,7 @@ class OpenAICompatibleProvider(ModelProvider):
         ]
 
     def chat_completion(self, request: ModelRequest) -> ModelResponse:
-        """Postea a `/chat/completions` y normaliza la respuesta. Raises si faltan credencial/URL o las llamadas reales estan off."""
-        if not real_provider_calls_enabled():
-            raise RuntimeError("Real provider calls are disabled by AIDO_ENABLE_REAL_PROVIDER_CALLS=false")
+        """Postea a `/chat/completions` y normaliza la respuesta. Raises si falta credencial/URL."""
         if not self.base_url or not self._credential():
             raise RuntimeError("Provider is missing base_url or credential_ref")
         payload = json.dumps(request.model_dump(by_alias=True, exclude_none=True)).encode("utf-8")

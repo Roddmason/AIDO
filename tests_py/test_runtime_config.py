@@ -6,6 +6,7 @@ from local_control_center.agents.runtime_provider_config import (
     list_runtime_provider_configurations,
     runtime_provider_configuration,
 )
+from local_control_center.agents.model_gateway import ModelGateway
 from local_control_center.agents.runtime_registry import RuntimeRegistry
 from local_control_center.agents.runtime_status import RuntimeStatusService
 from local_control_center.runtime_integrations.config import (
@@ -288,6 +289,188 @@ def test_runtime_preferences_round_trip_with_default_profiles(tmp_path: Path) ->
         assert len([p for p in repo.list_preferences() if p["scope"] == "role"]) == 1
 
 
+def test_runtime_settings_are_registered_for_global_and_project_policy(tmp_path: Path) -> None:
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        repo = RuntimeConfigRepository(connection)
+
+        policy = repo.runtime_execution_policy(project_id="project-runtime")
+
+    assert policy["global"]["cliEnabled"] is False
+    assert policy["global"]["remoteEnabled"] is False
+    assert policy["global"]["ollamaEnabled"] is True
+    assert policy["global"]["nvidiaEnabled"] is False
+    assert policy["project"]["cliEnabled"] is True
+    assert policy["project"]["remoteEnabled"] is True
+    assert policy["project"]["allowedProviders"] == []
+    assert policy["project"]["defaultMode"] == "hybrid"
+
+
+def test_sqlite_enabled_healthy_cli_is_executable_even_when_env_false(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.delenv("AIDO_CODEX_COMMAND", raising=False)
+    monkeypatch.setenv("AIDO_ENABLE_CLI_RUNTIMES", "false")
+
+    def detect(self: RuntimeRegistry, runtime_id: str, *, executable: str | None = None):
+        return {
+            "runtime": runtime_id,
+            "status": "installed" if runtime_id == "codex_cli" else "not_installed",
+            "executable": executable if runtime_id == "codex_cli" else None,
+            "version": "codex-cli 1.2.3" if runtime_id == "codex_cli" else None,
+            "message": "" if runtime_id == "codex_cli" else "not installed in test",
+        }
+
+    monkeypatch.setattr(RuntimeRegistry, "detect", detect)
+
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        repo = RuntimeConfigRepository(connection)
+        repo.set_runtime_setting("runtime.cli.enabled", True)
+        repo.set_runtime_setting("project.runtime.cli.enabled", True, scope="project", scope_id="project-a")
+        repo.upsert_installation(
+            {
+                "runtimeId": "codex_cli",
+                "kind": "cli",
+                "executablePath": "C:/tools/codex.exe",
+                "enabled": True,
+                "configurationSource": "manual",
+            }
+        )
+        account = next(item for item in repo.list_runtime_accounts("codex_cli") if item["isDefault"])
+        repo.update_runtime_account(
+            account["id"],
+            {"healthStatus": "healthy", "lastValidationAt": "2026-06-27T12:00:00Z"},
+        )
+
+        status = RuntimeStatusService(connection).runtime_provider_status(project_id="project-a")
+        codex = next(item for item in status["providers"] if item["id"] == "codex_cli")
+
+    assert codex["available"] is True
+    assert codex["authenticated"] is True
+    assert codex["canRunPrompt"] is True
+    assert codex["canEditWorkspace"] is True
+    assert codex["executable"] is True
+    assert "AIDO_ENABLE_CLI_RUNTIMES" not in codex["reason"]
+    assert any("AIDO_ENABLE_CLI_RUNTIMES" in warning for warning in status["configurationWarnings"])
+    assert any("environment_override" in warning for warning in codex["configurationWarnings"])
+
+
+def test_env_override_warning_is_reported_without_becoming_execution_authority(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "unit-test-openai-key")
+    monkeypatch.setenv("AIDO_ENABLE_REAL_PROVIDER_CALLS", "true")
+
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        repo = RuntimeConfigRepository(connection)
+        repo.set_runtime_setting("runtime.remote.enabled", False)
+        repo.upsert_installation(
+            {
+                "runtimeId": "openai_compatible",
+                "kind": "api",
+                "enabled": True,
+                "configurationSource": "manual",
+            }
+        )
+        connection.execute(
+            """
+            UPDATE provider_accounts
+            SET enabled = 1,
+                base_url = ?,
+                credential_ref = ?,
+                health_status = 'healthy',
+                last_health_check_at = ?
+            WHERE provider_id = 'openai_compatible'
+            """,
+            ("https://example.invalid/v1", "env:OPENAI_API_KEY", "2026-06-27T12:00:00Z"),
+        )
+        connection.execute(
+            """
+            UPDATE model_catalog
+            SET enabled = 1
+            WHERE provider_id = 'openai_compatible' AND model = 'configured_model'
+            """
+        )
+
+        status = RuntimeStatusService(connection).runtime_provider_status(project_id="project-a")
+        provider = next(item for item in status["providers"] if item["id"] == "openai_compatible")
+
+    assert provider["executable"] is False
+    assert "runtime.remote.enabled" in provider["reason"]
+    assert any("AIDO_ENABLE_REAL_PROVIDER_CALLS" in warning for warning in status["configurationWarnings"])
+
+
+def test_project_remote_disabled_blocks_api_execution(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "unit-test-openai-key")
+    monkeypatch.setenv("AIDO_ENABLE_REAL_PROVIDER_CALLS", "true")
+
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        repo = RuntimeConfigRepository(connection)
+        repo.set_runtime_setting("runtime.remote.enabled", True)
+        repo.set_runtime_setting("project.runtime.remote.enabled", False, scope="project", scope_id="project-a")
+        repo.upsert_installation(
+            {
+                "runtimeId": "openai_compatible",
+                "kind": "api",
+                "enabled": True,
+                "configurationSource": "manual",
+            }
+        )
+        connection.execute(
+            """
+            UPDATE provider_accounts
+            SET enabled = 1,
+                base_url = ?,
+                credential_ref = ?,
+                health_status = 'healthy',
+                last_health_check_at = ?
+            WHERE provider_id = 'openai_compatible'
+            """,
+            ("https://example.invalid/v1", "env:OPENAI_API_KEY", "2026-06-27T12:00:00Z"),
+        )
+        connection.execute(
+            """
+            UPDATE model_catalog
+            SET enabled = 1
+            WHERE provider_id = 'openai_compatible' AND model = 'configured_model'
+            """
+        )
+
+        status = RuntimeStatusService(connection).runtime_provider_status(project_id="project-a")
+        provider = next(item for item in status["providers"] if item["id"] == "openai_compatible")
+        planned = ModelGateway(connection).plan_model_call(
+            project_id="project-a",
+            provider="openai_compatible",
+            model="configured_model",
+            runtime_type="api",
+            messages=[{"role": "user", "content": "smoke"}],
+        )
+        execution = ModelGateway(connection).execute_model_call(planned)
+
+    assert provider["available"] is True
+    assert provider["executable"] is False
+    assert "project.runtime.remote.enabled" in provider["reason"]
+    assert execution["status"] == "blocked"
+    assert "project.runtime.remote.enabled" in execution["reason"]
+
+
+def test_ollama_alias_respects_global_ollama_setting(tmp_path: Path) -> None:
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        repo = RuntimeConfigRepository(connection)
+        repo.set_runtime_setting("runtime.ollama.enabled", False)
+
+        decision = repo.runtime_policy_decision(
+            provider_id="local_ollama", kind="local", project_id="project-a"
+        )
+
+    assert decision["allowed"] is False
+    assert decision["reason"] == "runtime.ollama.enabled is false."
+
+
 def test_runtime_status_uses_persisted_cli_installation_without_env_command(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -416,6 +599,7 @@ def test_cli_version_ok_with_validated_native_account_can_run_prompt_and_edit_wo
                 "configurationSource": "manual",
             }
         )
+        repo.set_runtime_setting("runtime.cli.enabled", True)
         account = next(item for item in repo.list_runtime_accounts("codex_cli") if item["isDefault"])
         repo.update_runtime_account(
             account["id"],

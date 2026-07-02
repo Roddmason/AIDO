@@ -3,7 +3,7 @@
 Define el ABC CliRuntime que detecta el binario, valida workspace/flags, somete cada
 ejecución a la policy y al sandbox de subprocesos, y persiste el resultado. Aquí viven
 los DTOs request/resultado y el parseo tolerante de uso de tokens desde stdout/stderr.
-Invariante: ninguna ejecución real ocurre sin gate (AIDO_ENABLE_CLI_RUNTIMES=true) y
+Invariante: ninguna ejecución real ocurre sin política SQLite que habilite el runtime y
 decisión 'allow' de la policy; los flags peligrosos se rechazan antes de construir el comando.
 
 @author Rodrigo Mason
@@ -12,7 +12,6 @@ decisión 'allow' de la policy; los flags peligrosos se rechazan antes de constr
 from __future__ import annotations
 
 import json
-import os
 import sqlite3
 from abc import ABC, abstractmethod
 from pathlib import Path
@@ -22,6 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from local_control_center.agents.cli_sessions import CliSessionStore
 from local_control_center.agents.providers.base import UsageRecord
+from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
 from local_control_center.security_policy import sandbox as subprocess_sandbox
 from local_control_center.security_policy.policy_engine import evaluate_action
 from local_control_center.shared.redaction import redact_secrets
@@ -182,9 +182,9 @@ class CliRuntime(ABC):
         raise NotImplementedError
 
     def run(self, request: RuntimeRequest) -> RuntimeResult:
-        """Ejecuta el CLI bajo el sandbox tras pasar validación, gate y policy; persiste el resultado.
+        """Ejecuta el CLI bajo el sandbox tras pasar validación, política runtime y security policy.
 
-        Invariante: solo se invoca el sandbox si el feature flag AIDO_ENABLE_CLI_RUNTIMES=true
+        Invariante: solo se invoca el sandbox si la configuración SQLite habilita este runtime
         y la policy decide 'allow'; en cualquier otro caso devuelve un resultado 'blocked' con el
         motivo. No propaga ValueError de build_command: lo captura y lo materializa como bloqueo.
         Cada decisión (deny o ejecución) queda registrada vía _record_result.
@@ -212,17 +212,21 @@ class CliRuntime(ABC):
             self._record_result(validation_request, blocked)
             return blocked
         workspace = Path(request.workspace_path).resolve(strict=False)
-        if os.environ.get("AIDO_ENABLE_CLI_RUNTIMES", "false").lower() != "true":
+        runtime_policy = self._runtime_policy_decision(request)
+        if not runtime_policy.get("allowed"):
             blocked = RuntimeResult(
-                runtime=self.runtime_id, status="blocked", command=command, error="CLI runtimes are disabled"
+                runtime=self.runtime_id,
+                status="blocked",
+                command=command,
+                error=str(runtime_policy.get("reason") or "CLI runtime is disabled by runtime policy"),
             )
             gated_request = request.model_copy(
                 update={
                     "env_policy": {
                         **request.env_policy,
-                        "runtimeGate": {
+                        "runtimePolicy": {
                             "decision": "deny",
-                            "reason": "AIDO_ENABLE_CLI_RUNTIMES=false",
+                            "reason": blocked.error,
                         },
                     }
                 }
@@ -289,6 +293,27 @@ class CliRuntime(ABC):
                 ),
             }
         )
+
+    def _runtime_policy_decision(self, request: RuntimeRequest) -> dict[str, Any]:
+        if self.connection is None:
+            return {
+                "allowed": False,
+                "reason": "SQLite runtime policy is required for CLI execution.",
+            }
+        project_id = self._project_id_for_workspace(request)
+        return RuntimeConfigRepository(self.connection).runtime_policy_decision(
+            provider_id=self.runtime_id,
+            kind="cli",
+            project_id=project_id,
+        )
+
+    def _project_id_for_workspace(self, request: RuntimeRequest) -> str | None:
+        if self.connection is None:
+            return None
+        row = self.connection.execute(
+            "SELECT project_id FROM workspaces WHERE id = ?", (request.workspace_id,)
+        ).fetchone()
+        return str(row["project_id"]) if row else None
 
     def _record_result(self, request: RuntimeRequest, result: RuntimeResult) -> None:
         if self.connection is None:

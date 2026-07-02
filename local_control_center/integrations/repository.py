@@ -59,6 +59,38 @@ def row_to_integration(row: sqlite3.Row) -> dict[str, Any]:
     }
 
 
+def row_to_n8n_webhook_target(row: sqlite3.Row) -> dict[str, Any]:
+    """Proyecta un target n8n al contrato público sin exponer valores de credencial."""
+    return {
+        "id": row["id"],
+        "projectId": row["project_id"],
+        "url": row["url"],
+        "credentialRef": row["credential_ref"],
+        "enabled": bool(row["enabled"]),
+        "allowedEventTypes": json_loads(row["allowed_event_types"], []),
+        "metadata": json_loads(row["metadata"], {}),
+        "createdAt": row["created_at"],
+        "updatedAt": row["updated_at"],
+    }
+
+
+def row_to_n8n_event_delivery(row: sqlite3.Row) -> dict[str, Any]:
+    """Proyecta una entrega n8n al contrato público, con payload y response ya saneados."""
+    return {
+        "id": row["id"],
+        "targetId": row["target_id"],
+        "projectId": row["project_id"],
+        "eventType": row["event_type"],
+        "subjectId": row["subject_id"],
+        "status": row["status"],
+        "statusCode": row["status_code"],
+        "requestPayload": json_loads(row["request_payload"], {}),
+        "responseBody": json_loads(row["response_body"], {}),
+        "error": row["error"],
+        "createdAt": row["created_at"],
+    }
+
+
 class IntegrationsRepository:
     """Acceso a datos del slice de integraciones sobre una conexión SQLite del caller.
 
@@ -208,3 +240,137 @@ class IntegrationsRepository:
         """Lista los servidores MCP registrados ordenados por actualización descendente."""
         rows = self.connection.execute("SELECT * FROM mcp_servers ORDER BY updated_at DESC").fetchall()
         return [row_to_mcp_server(row) for row in rows]
+
+    def upsert_n8n_webhook_target(
+        self,
+        *,
+        project_id: str,
+        url: str,
+        credential_ref: str,
+        enabled: bool,
+        allowed_event_types: list[str],
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Crea o actualiza el target n8n único por proyecto+URL.
+
+        La tabla guarda solo ``credential_ref``; el token real vive en el CredentialResolver/secret
+        backend. ``allowed_event_types`` es la allowlist efectiva usada por ``emit-event``.
+        """
+        timestamp = utc_now()
+        row = self.connection.execute(
+            "SELECT id FROM n8n_webhook_targets WHERE project_id = ? AND url = ?",
+            (project_id, url),
+        ).fetchone()
+        target_id = row["id"] if row else f"n8n-target-{uuid.uuid4()}"
+        if row:
+            self.connection.execute(
+                """
+                UPDATE n8n_webhook_targets
+                SET credential_ref = ?, enabled = ?, allowed_event_types = ?, metadata = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    credential_ref,
+                    int(enabled),
+                    json_dumps(allowed_event_types),
+                    json_dumps(metadata or {}),
+                    timestamp,
+                    target_id,
+                ),
+            )
+        else:
+            self.connection.execute(
+                """
+                INSERT INTO n8n_webhook_targets
+                    (id, project_id, url, credential_ref, enabled, allowed_event_types, metadata,
+                     created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    target_id,
+                    project_id,
+                    url,
+                    credential_ref,
+                    int(enabled),
+                    json_dumps(allowed_event_types),
+                    json_dumps(metadata or {}),
+                    timestamp,
+                    timestamp,
+                ),
+            )
+        return self.get_n8n_webhook_target(target_id)
+
+    def get_n8n_webhook_target(self, target_id: str) -> dict[str, Any]:
+        """Devuelve un target n8n por id.
+
+        Raises:
+            KeyError: si no existe.
+        """
+        row = self.connection.execute(
+            "SELECT * FROM n8n_webhook_targets WHERE id = ?", (target_id,)
+        ).fetchone()
+        if not row:
+            raise KeyError(f"n8n webhook target not found: {target_id}")
+        return row_to_n8n_webhook_target(row)
+
+    def list_n8n_webhook_targets(
+        self,
+        *,
+        project_id: str | None = None,
+        enabled_only: bool = False,
+    ) -> list[dict[str, Any]]:
+        """Lista targets n8n, opcionalmente por proyecto y solo habilitados."""
+        clauses: list[str] = []
+        params: list[Any] = []
+        if project_id:
+            clauses.append("project_id = ?")
+            params.append(project_id)
+        if enabled_only:
+            clauses.append("enabled = 1")
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        rows = self.connection.execute(
+            f"SELECT * FROM n8n_webhook_targets {where} ORDER BY updated_at DESC, rowid DESC",
+            params,
+        ).fetchall()
+        return [row_to_n8n_webhook_target(row) for row in rows]
+
+    def record_n8n_event_delivery(
+        self,
+        *,
+        target_id: str,
+        project_id: str,
+        event_type: str,
+        subject_id: str | None,
+        status: str,
+        status_code: int | None,
+        request_payload: dict[str, Any],
+        response_body: dict[str, Any] | None = None,
+        error: str = "",
+    ) -> dict[str, Any]:
+        """Registra una entrega outbound hacia n8n con request/response ya seguros para persistencia."""
+        delivery_id = f"n8n-delivery-{uuid.uuid4()}"
+        self.connection.execute(
+            """
+            INSERT INTO n8n_event_deliveries
+                (id, target_id, project_id, event_type, subject_id, status, status_code,
+                 request_payload, response_body, error, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                delivery_id,
+                target_id,
+                project_id,
+                event_type,
+                subject_id,
+                status,
+                status_code,
+                json_dumps(request_payload),
+                json_dumps(response_body or {}),
+                error,
+                utc_now(),
+            ),
+        )
+        row = self.connection.execute(
+            "SELECT * FROM n8n_event_deliveries WHERE id = ?", (delivery_id,)
+        ).fetchone()
+        return row_to_n8n_event_delivery(row)

@@ -10,9 +10,33 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 McpTransport = Literal["stdio"]
+N8N_EVENT_TYPES = (
+    "thread.created",
+    "loop.blocked",
+    "approval.required",
+    "delivery.ready",
+    "gitleaks.failed",
+    "qa.failed",
+    "research.completed",
+)
+N8nEventType = Literal[
+    "thread.created",
+    "loop.blocked",
+    "approval.required",
+    "delivery.ready",
+    "gitleaks.failed",
+    "qa.failed",
+    "research.completed",
+]
+
+
+class IntegrationApiModel(BaseModel):
+    """Base para contratos del slice de integraciones con aliases camelCase estables."""
+
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
 
 class McpServerRegisterRequest(BaseModel):
@@ -114,3 +138,92 @@ class IdeConnectionsListResponse(BaseModel):
     """Listado de conexiones IDE conocidas por el control center."""
 
     ide_connections: list[IdeConnectionRecord] = Field(alias="ideConnections")
+
+
+class N8nWebhookTargetCreateRequest(IntegrationApiModel):
+    """Configura un target outbound n8n acotado a proyecto y event allowlist."""
+
+    project_id: str = Field(alias="projectId")
+    url: str
+    credential_ref: str = Field(alias="credentialRef")
+    enabled: bool = True
+    allowed_event_types: list[N8nEventType] = Field(alias="allowedEventTypes")
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class N8nWebhookTargetRecord(IntegrationApiModel):
+    """Target n8n persistido; expone solo referencia de credencial, nunca el token."""
+
+    id: str
+    project_id: str = Field(alias="projectId")
+    url: str
+    credential_ref: str = Field(alias="credentialRef")
+    enabled: bool
+    allowed_event_types: list[N8nEventType] = Field(alias="allowedEventTypes")
+    metadata: dict[str, Any]
+    created_at: str = Field(alias="createdAt")
+    updated_at: str = Field(alias="updatedAt")
+
+
+class N8nWebhookTargetResponse(IntegrationApiModel):
+    """Respuesta de configuración de target n8n."""
+
+    target: N8nWebhookTargetRecord
+
+
+class N8nEventEmitRequest(IntegrationApiModel):
+    """Emite un evento soportado hacia n8n usando un target project-scoped."""
+
+    project_id: str = Field(alias="projectId")
+    event_type: N8nEventType = Field(alias="eventType")
+    target_id: str | None = Field(default=None, alias="targetId")
+    subject_id: str | None = Field(default=None, alias="subjectId")
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class N8nEventTestRequest(IntegrationApiModel):
+    """Envía un evento de prueba por un target n8n configurado."""
+
+    project_id: str = Field(alias="projectId")
+    target_id: str | None = Field(default=None, alias="targetId")
+    event_type: N8nEventType = Field(default="thread.created", alias="eventType")
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class N8nEventDeliveryRecord(IntegrationApiModel):
+    """Resultado persistido de una entrega outbound hacia n8n, con payloads redactados."""
+
+    id: str
+    target_id: str = Field(alias="targetId")
+    project_id: str = Field(alias="projectId")
+    event_type: N8nEventType = Field(alias="eventType")
+    subject_id: str | None = Field(default=None, alias="subjectId")
+    status: Literal["delivered", "failed"]
+    status_code: int | None = Field(default=None, alias="statusCode")
+    request_payload: dict[str, Any] = Field(alias="requestPayload")
+    response_body: dict[str, Any] = Field(alias="responseBody")
+    error: str
+    created_at: str = Field(alias="createdAt")
+
+
+class N8nEventDeliveryResponse(IntegrationApiModel):
+    """Respuesta de emisión/test outbound hacia n8n."""
+
+    delivery: N8nEventDeliveryRecord
+
+
+class N8nInboundWebhookRequest(IntegrationApiModel):
+    """Webhook inbound desde n8n: solo permite crear thread o loop mediante token scoped."""
+
+    project_id: str = Field(alias="projectId")
+    action: str
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class N8nInboundWebhookResponse(IntegrationApiModel):
+    """Resultado de un comando inbound permitido desde n8n."""
+
+    accepted: bool
+    action: Literal["create_thread", "create_loop"]
+    thread: dict[str, Any] | None = None
+    loop: dict[str, Any] | None = None

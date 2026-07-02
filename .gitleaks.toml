@@ -19,4 +19,7 @@ paths = [
   '''\.pyc$''',
   # Redaction unit test: its fixtures are non-real credential look-alikes that exercise redact_secrets.
   '''^tests_py/test_redaction\.py$''',
+  # n8n integration test: its fixture token is a non-real credential look-alike that exercises
+  # secret redaction on outbound/inbound n8n webhook payloads.
+  '''^tests_py/test_n8n_integration\.py$''',
 ]

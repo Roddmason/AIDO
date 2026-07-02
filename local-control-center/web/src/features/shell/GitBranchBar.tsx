@@ -7,7 +7,7 @@
  * describing the work, not global chrome. All writes go through the token-guarded git API.
  * @author Rodrigo Mason
  */
-import { GitBranch, Plus, RefreshCw, ShieldCheck } from 'lucide-react';
+import { Check, GitBranch, GitCommitHorizontal, Plus, RefreshCw, ShieldCheck } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import {
@@ -24,6 +24,22 @@ import type { Project } from '../../api/types';
 import { StatusDot } from '../../components/primitives';
 import { IconButton, Tooltip, useToast } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
+
+/** Keeps the composer bar single-line; the full subject stays available in the title tooltip. */
+function truncateSubject(subject: string): string {
+	return subject.length > 42 ? `${subject.slice(0, 41)}…` : subject;
+}
+
+/** Human-readable labels for the raw gitleaks scan status enum (service.py contract). */
+const GITLEAKS_STATUS_LABEL: Record<string, { labelKey: string; fallback: string }> = {
+	completed: { labelKey: 'app.statusBar.git.gitleaksPassedShort', fallback: 'passed' },
+	blocked: { labelKey: 'app.statusBar.git.gitleaksBlockedShort', fallback: 'blocked' },
+	failed: { labelKey: 'app.statusBar.git.gitleaksFailedShort', fallback: 'failed' },
+	configuration_required: {
+		labelKey: 'app.statusBar.git.gitleaksMissing',
+		fallback: 'not installed',
+	},
+};
 
 /**
  * Interactive git workspace bar for the composer: branch picker + create, dirty/gitleaks status and
@@ -46,6 +62,9 @@ export function GitBranchBar({
 	const [gitError, setGitError] = useState('');
 	const [gitBusy, setGitBusy] = useState(false);
 	const [branchName, setBranchName] = useState('');
+	/** Branch picked in the select but not yet checked out — checkout needs the explicit
+	 *  confirm button, so keyboard browsing of the list never triggers a checkout. */
+	const [pendingBranch, setPendingBranch] = useState('');
 	const [gitleaks, setGitleaks] = useState<ProjectGitGitleaksScanResponse | null>(null);
 	const [gitleaksBusy, setGitleaksBusy] = useState(false);
 	const projectId = selectedProject?.id ?? '';
@@ -80,6 +99,7 @@ export function GitBranchBar({
 		void refreshGit(controller.signal);
 		setGitleaks(null);
 		setBranchName('');
+		setPendingBranch('');
 		return () => controller.abort();
 	}, [refreshGit]);
 
@@ -94,6 +114,7 @@ export function GitBranchBar({
 	const checkoutBranch = async (nextBranch: string) => {
 		if (!projectId || !nextBranch || nextBranch === currentBranch || gitBusy) return;
 		setGitBusy(true);
+		setPendingBranch('');
 		try {
 			const result = await checkoutProjectGitBranch(token, projectId, { branch: nextBranch });
 			if (result.status === 'completed') {
@@ -180,12 +201,18 @@ export function GitBranchBar({
 	};
 
 	const dirty = gitStatus?.dirty === true;
+	const lastCommit = gitStatus?.lastCommit?.shortHash ? gitStatus.lastCommit : null;
 	const gitReady = gitStatus?.status === 'completed' && gitBranches?.status === 'completed';
 	// The project owns no repo of its own (e.g. a folder nested inside another repo): show
 	// "not connected" and hide the branch controls instead of another repository's branches.
 	const notConnected = gitStatus?.status === 'configuration_required';
-	const gitleaksLabel =
-		gitleaks?.gitleaks.status ?? t('app.statusBar.git.gitleaksNotRun', 'not run');
+	const rawGitleaksStatus = gitleaks?.gitleaks.status;
+	const gitleaksLabelDef = rawGitleaksStatus ? GITLEAKS_STATUS_LABEL[rawGitleaksStatus] : null;
+	const gitleaksLabel = rawGitleaksStatus
+		? gitleaksLabelDef
+			? t(gitleaksLabelDef.labelKey, gitleaksLabelDef.fallback)
+			: rawGitleaksStatus
+		: t('app.statusBar.git.gitleaksNotRun', 'not run');
 
 	// Derived tones for non-OK coloring of status label text.
 	const dirtyTone = dirty ? 'warn' : 'ok';
@@ -213,12 +240,16 @@ export function GitBranchBar({
 			    its own repo, so we never surface another repository's branches. */}
 			{gitReady ? (
 				<div className="composer-git-cluster composer-git-cluster--workspace">
+					{/* Selecting only stages the branch (WCAG 3.2.2 On Input): browsing the list with
+					    arrow keys must never fire a checkout. The Check button commits it. */}
 					<select
 						className="status-branch-select"
 						aria-label={t('app.statusBar.git.branchSelect', 'Git branch')}
-						value={currentBranch}
+						value={pendingBranch || currentBranch}
 						disabled={!selectedProject || gitBusy}
-						onChange={(event) => void checkoutBranch(event.target.value)}
+						onChange={(event) =>
+							setPendingBranch(event.target.value === currentBranch ? '' : event.target.value)
+						}
 					>
 						{branchOptions.length ? null : (
 							<option value="">{t('app.statusBar.git.branchUnavailable', 'not detected')}</option>
@@ -229,6 +260,18 @@ export function GitBranchBar({
 							</option>
 						))}
 					</select>
+					{pendingBranch ? (
+						<Tooltip label={t('app.statusBar.git.confirmCheckout', 'Checkout selected branch')}>
+							<IconButton
+								aria-label={t('app.statusBar.git.confirmCheckout', 'Checkout selected branch')}
+								disabled={!selectedProject}
+								loading={gitBusy}
+								onClick={() => void checkoutBranch(pendingBranch)}
+							>
+								<Check aria-hidden="true" size={14} />
+							</IconButton>
+						</Tooltip>
+					) : null}
 					<form
 						className="status-branch-create"
 						onSubmit={(event) => {
@@ -260,30 +303,42 @@ export function GitBranchBar({
 			{/* Cluster (b): status — git connection (+ dirty/gitleaks when connected), read-only */}
 			<div className="composer-git-cluster composer-git-cluster--status">
 				{/* role="img" makes aria-label valid on this non-interactive span; the visible label (shown
-				    only when not connected/error) is presentational and matches the aria-label. */}
-				<span
-					role="img"
-					className="composer-git-item"
-					aria-label={
-						gitError
-							? t('app.statusBar.git.errorLabel', 'Git error')
-							: gitReady
-								? t('app.statusBar.git.connectedLabel', 'Git connected')
-								: t('app.statusBar.git.notConnected', 'git not connected')
-					}
-					data-tone={gitConnTone !== 'ok' ? gitConnTone : undefined}
-					title={gitError || gitStatus?.reason || ''}
-				>
-					<StatusDot tone={gitConnTone} />
-					<GitBranch aria-hidden="true" size={14} />
-					{!gitReady && (gitError || notConnected) ? (
-						<span>
-							{gitError
-								? t('app.statusBar.git.errorLabel', 'Git error')
-								: t('app.statusBar.git.notConnected', 'git not connected')}
+				    only when not connected/error) is presentational and matches the aria-label. The reason
+				    detail travels in a Tooltip on a focusable span (not title=), so keyboard and screen
+				    reader users can reach the "why" too. */}
+				{(() => {
+					const connectionDetail = gitError || gitStatus?.reason || '';
+					const connectionItem = (
+						<span
+							role="img"
+							className="composer-git-item"
+							aria-label={
+								gitError
+									? t('app.statusBar.git.errorLabel', 'Git error')
+									: gitReady
+										? t('app.statusBar.git.connectedLabel', 'Git connected')
+										: t('app.statusBar.git.notConnected', 'git not connected')
+							}
+							data-tone={gitConnTone !== 'ok' ? gitConnTone : undefined}
+							tabIndex={connectionDetail ? 0 : undefined}
+						>
+							<StatusDot tone={gitConnTone} />
+							<GitBranch aria-hidden="true" size={14} />
+							{!gitReady && (gitError || notConnected) ? (
+								<span>
+									{gitError
+										? t('app.statusBar.git.errorLabel', 'Git error')
+										: t('app.statusBar.git.notConnected', 'git not connected')}
+								</span>
+							) : null}
 						</span>
-					) : null}
-				</span>
+					);
+					return connectionDetail ? (
+						<Tooltip label={connectionDetail}>{connectionItem}</Tooltip>
+					) : (
+						connectionItem
+					);
+				})()}
 				{gitReady ? (
 					<>
 						<span
@@ -296,14 +351,34 @@ export function GitBranchBar({
 								? t('app.statusBar.git.dirty', 'dirty')
 								: t('app.statusBar.git.clean', 'clean')}
 						</span>
-						<span
-							className="composer-git-item"
-							data-tone={gitleaksTone !== 'ok' ? gitleaksTone : undefined}
-							title={gitleaks?.reason ?? ''}
-						>
-							<StatusDot tone={gitleaksTone} />
-							{t('app.statusBar.git.gitleaksPrefix', 'gitleaks')} {gitleaksLabel}
-						</span>
+						{(() => {
+							const gitleaksDetail = gitleaks?.reason ?? '';
+							const gitleaksItem = (
+								<span
+									className="composer-git-item"
+									data-tone={gitleaksTone !== 'ok' ? gitleaksTone : undefined}
+									tabIndex={gitleaksDetail ? 0 : undefined}
+								>
+									<StatusDot tone={gitleaksTone} />
+									{t('app.statusBar.git.gitleaksPrefix', 'gitleaks')} {gitleaksLabel}
+								</span>
+							);
+							return gitleaksDetail ? (
+								<Tooltip label={gitleaksDetail}>{gitleaksItem}</Tooltip>
+							) : (
+								gitleaksItem
+							);
+						})()}
+						{lastCommit ? (
+							<span
+								className="composer-git-item"
+								title={`${lastCommit.subject} — ${lastCommit.author} · ${lastCommit.authoredAt}`}
+							>
+								<GitCommitHorizontal aria-hidden="true" size={14} />
+								<span className="mono">{lastCommit.shortHash}</span>
+								<span>{truncateSubject(lastCommit.subject)}</span>
+							</span>
+						) : null}
 					</>
 				) : null}
 			</div>

@@ -2,8 +2,8 @@
  * Workbench IDE shell: a single composer drives the product loop (conversation → questions →
  * brief → assumptions → decisions → architecture → backlog → iteration → execution → review),
  * laid out with the explorer and inspector. Owns the page-level UI state (prompt, active loop
- * section, selected session/run) and wires intake (session + chat + pipeline) to the
- * API; the derived data comes from useWorkbenchData. Sections wired to live overview data render
+ * section, selected thread/run) and wires intake to project threads; the derived data comes from
+ * useWorkbenchData. Sections wired to live overview data render
  * real content; the discovery/backlog sections render an honest shell until their endpoint exists.
  *
  * When hideExplorer=true (shell mode) the center renders a clean chat-first layout: transcript
@@ -13,19 +13,13 @@
 import { CheckCircle2, FolderKanban, Rocket, Users } from 'lucide-react';
 import type { KeyboardEvent } from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type {
-	ChatCreateResponse,
-	PipelineCreateResponse,
-	SessionCreateResponse,
-} from '../../api/client';
 import {
 	aidoDecideProductLoop,
 	approveProductBrief,
 	approveProductLoopBacklog,
-	createChat,
-	createPipeline,
-	createSession,
+	createThread,
 	getProjectGitStatus,
+	postThreadMessage,
 	startProductLoop,
 	transitionProductLoop,
 } from '../../api/client';
@@ -64,7 +58,7 @@ type Mutate = <T>(
 
 type WorkbenchUserMode = 'consulta' | 'aido_decide';
 
-/** Chats shown before the "View full chat history" toggle reveals the rest. */
+/** Thread records shown before the "view full history" toggle reveals the rest. */
 const CHAT_PREVIEW_COUNT = 8;
 
 type WorkbenchPageProps = {
@@ -101,6 +95,11 @@ function deriveTitle(prompt: string): string {
 	const head = prompt.trim().split(/\r?\n/)[0] ?? '';
 	if (!head) return '';
 	return head.slice(0, 96);
+}
+
+function ownerIdForProject(overview: Overview, project: Project): string {
+	const workspace = overview.runtimeWorkspaces.find((entry) => entry.projectId === project.id);
+	return workspace?.id ?? project.id;
 }
 
 /**
@@ -144,9 +143,8 @@ export function WorkbenchPage({
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState('');
 	const [created, setCreated] = useState<{
-		sessionId: string;
-		chatId: string;
-		pipelineId: string;
+		threadId: string;
+		messageId: string;
 	} | null>(null);
 	const [activeSection, setActiveSection] = useState<ProductLoopSectionId>('conversation');
 	const [selectedRunId, setSelectedRunId] = useState('');
@@ -163,12 +161,9 @@ export function WorkbenchPage({
 	const {
 		projects,
 		project,
-		primaryTeam,
 		projectSessions,
 		activeSession,
-		projectChats,
 		sessionChats,
-		sessionPipelines,
 		projectWorkflows,
 		projectWorkflowRuns,
 		projectWorkflowEvents,
@@ -279,60 +274,38 @@ export function WorkbenchPage({
 		try {
 			const result = await mutate(
 				async (token) => {
-					let session = activeSession;
-					if (!session) {
-						const sessionResult: SessionCreateResponse = await createSession(
+					let threadId = activeSession?.id ?? '';
+					if (!threadId) {
+						const createdThread = await createThread(
 							token,
-							{ projectId: activeProject.id, teamId: primaryTeam?.id, name: submitTitle },
+							{
+								projectId: activeProject.id,
+								ownerType: 'workspace',
+								ownerId: ownerIdForProject(overview, activeProject),
+								title: submitTitle,
+							},
 							signal,
 						);
-						session = sessionResult.session;
+						threadId = createdThread.thread.id;
 					}
-					const chatResult: ChatCreateResponse = await createChat(
+					const messageResult = await postThreadMessage(
 						token,
-						{
-							projectId: activeProject.id,
-							sessionId: session.id,
-							prompt: text,
-							title: submitTitle,
-						},
+						threadId,
+						{ content: text, author: userMode === 'consulta' ? 'operator' : 'user' },
 						signal,
 					);
-					const pipelineResult: PipelineCreateResponse = await createPipeline(
-						token,
-						{
-							projectId: activeProject.id,
-							sessionId: session.id,
-							chatId: chatResult.chat.id,
-							title: submitTitle,
-							productOwnerIntake: userMode === 'aido_decide',
-							userMode,
-							stages: [
-								{
-									id: 'intake',
-									status: 'created',
-									owner: 'product_owner',
-									source: 'workbench_chat',
-								},
-								{ id: 'planning', status: 'pending', owner: 'technical_lead' },
-								{ id: 'architecture', status: 'pending', owner: 'architect_agent' },
-								{ id: 'implementation', status: 'pending', owner: 'developer' },
-								{ id: 'validation', status: 'pending', owner: 'qa_reviewer' },
-								{ id: 'delivery', status: 'pending', owner: 'release_manager' },
-							],
-						},
-						signal,
-					);
-					return { session, chat: chatResult.chat, pipeline: pipelineResult.pipeline };
+					return {
+						thread: messageResult.thread,
+						message: messageResult.messages[0],
+					};
 				},
 				{ awaitRefresh: false },
 			);
 			setCreated({
-				sessionId: result.session.id,
-				chatId: result.chat.id,
-				pipelineId: result.pipeline.id,
+				threadId: result.thread.id,
+				messageId: result.message?.id ?? '',
 			});
-			setSelectedSessionId(result.session.id);
+			setSelectedSessionId(result.thread.id);
 			setPrompt('');
 			setTitle('');
 			setTitleEdited(false);
@@ -490,7 +463,7 @@ export function WorkbenchPage({
 			(loop.data?.epics.length ?? 0) +
 			(loop.data?.stories.length ?? 0) +
 			(loop.data?.tasks.length ?? 0),
-		iteration: sessionPipelines.length,
+		iteration: projectWorkflowRuns.length,
 		execution: projectWorkflowRuns.length,
 		review: projectEvidence.length,
 	});
@@ -564,13 +537,13 @@ export function WorkbenchPage({
 		return (
 			<section
 				className="shell-chat-layout"
-				aria-label={t('app.workbench.primaryRegion', 'Task and progress')}
+				aria-label={t('app.workbench.primaryRegion', 'Thread and progress')}
 			>
 				{/* --- Transcript: leads, fills available height, scrolls --- */}
 				<div
 					id="shell-chat-transcript"
 					className="shell-chat-transcript"
-					aria-label={t('app.workbench.shell.transcriptRegion', 'Session transcript')}
+					aria-label={t('app.workbench.shell.transcriptRegion', 'Thread transcript')}
 					role="log"
 				>
 					{sessionChats.length ? (
@@ -585,7 +558,7 @@ export function WorkbenchPage({
 										<span className="muted">{formatTime(chat.createdAt)}</span>
 									</div>
 									<strong>{chat.title}</strong>
-									<p>{chat.prompt}</p>
+									<p>{chat.summary}</p>
 								</article>
 							),
 						)
@@ -608,7 +581,7 @@ export function WorkbenchPage({
 						>
 							{showAllChats
 								? t('app.workbench.chat.showFewer', 'Show fewer')
-								: t('app.workbench.chat.viewFull', 'View full chat history')}
+								: t('app.workbench.chat.viewFull', 'View full thread history')}
 						</Button>
 					) : null}
 				</div>
@@ -623,10 +596,10 @@ export function WorkbenchPage({
 					{created ? (
 						<div className="form-success" role="status">
 							<CheckCircle2 aria-hidden="true" size={16} />
-							<span>{t('app.workbench.chat.created', 'Chat intake created')}</span>
-							<span className="mono">{shortId(created.sessionId)}</span>
-							<span>{t('app.workbench.chat.pipelineLinked', 'pipeline')}</span>
-							<span className="mono">{shortId(created.pipelineId)}</span>
+							<span>{t('app.workbench.chat.created', 'Thread intake created')}</span>
+							<span className="mono">{shortId(created.threadId)}</span>
+							<span>{t('app.workbench.chat.pipelineLinked', 'message')}</span>
+							<span className="mono">{shortId(created.messageId)}</span>
 						</div>
 					) : null}
 
@@ -658,7 +631,7 @@ export function WorkbenchPage({
 									disabled={composerDisabled}
 									onClick={submitComposer}
 								>
-									{busy ? t('app.workbench.chat.creating', 'Creating work session') : submitLabel}
+									{busy ? t('app.workbench.chat.creating', 'Creating thread intake') : submitLabel}
 								</Button>
 							)}
 						</div>
@@ -683,7 +656,6 @@ export function WorkbenchPage({
 					project={project}
 					branch={displayBranch}
 					sessions={projectSessions}
-					chats={projectChats}
 					recentRuns={projectWorkflowRuns}
 					workflows={projectWorkflows}
 					selectedSessionId={selectedSessionId}
@@ -703,8 +675,8 @@ export function WorkbenchPage({
 						<div className="workbench-composer-meta">
 							<strong>
 								{activeSession
-									? activeSession.name
-									: t('app.workbench.chat.title', 'New work session')}
+									? activeSession.title
+									: t('app.workbench.chat.title', 'New project thread')}
 							</strong>
 							<div className="inline">
 								<Badge tone={toneForStatus(latestRunStatus)}>{latestRunStatus}</Badge>
@@ -755,7 +727,7 @@ export function WorkbenchPage({
 									disabled={composerDisabled}
 									onClick={submitComposer}
 								>
-									{busy ? t('app.workbench.chat.creating', 'Creating work session') : submitLabel}
+									{busy ? t('app.workbench.chat.creating', 'Creating thread intake') : submitLabel}
 								</Button>
 								{busy ? (
 									<Button onClick={cancelConversation}>
@@ -772,10 +744,10 @@ export function WorkbenchPage({
 							{created ? (
 								<div className="form-success" role="status">
 									<CheckCircle2 aria-hidden="true" size={16} />
-									<span>{t('app.workbench.chat.created', 'Chat intake created')}</span>
-									<span className="mono">{shortId(created.sessionId)}</span>
-									<span>{t('app.workbench.chat.pipelineLinked', 'pipeline')}</span>
-									<span className="mono">{shortId(created.pipelineId)}</span>
+									<span>{t('app.workbench.chat.created', 'Thread intake created')}</span>
+									<span className="mono">{shortId(created.threadId)}</span>
+									<span>{t('app.workbench.chat.pipelineLinked', 'message')}</span>
+									<span className="mono">{shortId(created.messageId)}</span>
 								</div>
 							) : null}
 
@@ -819,7 +791,7 @@ export function WorkbenchPage({
 								<div
 									id="workbench-chat-transcript"
 									className="chat-transcript"
-									aria-label={t('app.workbench.chat.history', 'Session chat history')}
+									aria-label={t('app.workbench.chat.history', 'Thread history')}
 									role="log"
 								>
 									{sessionChats.length ? (
@@ -834,13 +806,13 @@ export function WorkbenchPage({
 														<span className="muted">{formatTime(chat.createdAt)}</span>
 													</div>
 													<strong>{chat.title}</strong>
-													<p>{chat.prompt}</p>
+													<p>{chat.summary}</p>
 												</article>
 											),
 										)
 									) : (
 										<EmptyState
-											title={t('app.workbench.chat.emptyTitle', 'No chat in this session')}
+											title={t('app.workbench.chat.emptyTitle', 'No messages in this thread')}
 											body={t(
 												'app.workbench.chat.emptyBody',
 												'Use the composer to start coordinated project work for this workspace.',
@@ -856,7 +828,7 @@ export function WorkbenchPage({
 									>
 										{showAllChats
 											? t('app.workbench.chat.showFewer', 'Show fewer')
-											: t('app.workbench.chat.viewFull', 'View full chat history')}
+											: t('app.workbench.chat.viewFull', 'View full thread history')}
 									</Button>
 								) : null}
 							</div>
@@ -947,7 +919,6 @@ export function WorkbenchPage({
 									workflows={projectWorkflows}
 									workflowRuns={projectWorkflowRuns}
 									workflowEvents={projectWorkflowEvents}
-									pipelines={sessionPipelines}
 									onOpenArtifact={() => setActiveSection('review')}
 								/>
 							</div>

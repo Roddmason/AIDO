@@ -22,7 +22,6 @@ export function WorkbenchExplorer({
 	project,
 	branch,
 	sessions,
-	chats,
 	recentRuns,
 	workflows,
 	selectedSessionId,
@@ -36,8 +35,7 @@ export function WorkbenchExplorer({
 	projects: Project[];
 	project: Project | null;
 	branch: string;
-	sessions: Overview['sessions'];
-	chats: Overview['chats'];
+	sessions: Overview['threads'];
 	recentRuns: Overview['workflowRuns'];
 	workflows: Overview['workflows'];
 	selectedSessionId: string;
@@ -106,7 +104,7 @@ export function WorkbenchExplorer({
 				</div>
 			</Surface>
 
-			<Surface title={t('app.workbench.sessions.title', 'Work sessions')}>
+			<Surface title={t('app.workbench.sessions.title', 'Project threads')}>
 				<div className="session-list">
 					<button
 						className="session-item new-session"
@@ -118,14 +116,11 @@ export function WorkbenchExplorer({
 					>
 						<span>
 							<Bot aria-hidden="true" size={15} />{' '}
-							{t('app.workbench.sessions.new', 'New work session')}
+							{t('app.workbench.sessions.new', 'New project thread')}
 						</span>
-						<small>
-							{t('app.workbench.sessions.newHint', 'Starts a chat, session and intake pipeline')}
-						</small>
+						<small>{t('app.workbench.sessions.newHint', 'Starts a real project thread')}</small>
 					</button>
 					{sessions.map((session) => {
-						const sessionChatCount = chats.filter((chat) => chat.sessionId === session.id).length;
 						return (
 							<button
 								key={session.id}
@@ -135,10 +130,10 @@ export function WorkbenchExplorer({
 								onClick={() => onSelectSession(session.id)}
 							>
 								<span>
-									<History aria-hidden="true" size={15} /> {session.name}
+									<History aria-hidden="true" size={15} /> {session.title}
 								</span>
 								<small>
-									{sessionChatCount} {t('app.workbench.sessions.chatCount', 'chats')} -{' '}
+									{String(session.status)} -{' '}
 									{formatTime(
 										session.updatedAt,
 										t('app.workbenchEvidence.notRecorded', 'not recorded'),
@@ -149,10 +144,10 @@ export function WorkbenchExplorer({
 					})}
 					{sessions.length ? null : (
 						<EmptyState
-							title={t('app.workbench.sessions.emptyTitle', 'No work sessions')}
+							title={t('app.workbench.sessions.emptyTitle', 'No project threads')}
 							body={t(
 								'app.workbench.sessions.emptyBody',
-								'Your first prompt will create a session for this workspace folder.',
+								'Your first prompt will create a real thread for this workspace folder.',
 							)}
 						/>
 					)}

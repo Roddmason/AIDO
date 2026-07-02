@@ -71,15 +71,25 @@ export function StatusBar({
 			</span>
 			<span className="status-bar-item">
 				<StatusDot tone={status.executableRuntimes ? 'ok' : 'warn'} />
-				{status.executableRuntimes} {t('app.statusBar.executableRuntimes', 'executable runtimes')}
+				<span className="tnum">{status.executableRuntimes}</span>{' '}
+				{t('app.statusBar.executableRuntimes', 'executable runtimes')}
+				{status.executableRuntimes === 0 ? (
+					<a className="settings-console-link" href="#settings-runtime">
+						{t('app.statusBar.configureRuntimes', 'Set up runtimes')}
+					</a>
+				) : null}
 			</span>
 			<span className="status-bar-item">
 				<StatusDot tone={status.pendingApprovals ? 'warn' : 'ok'} />
-				{status.pendingApprovals} {t('app.statusBar.approvals', 'approvals')}
+				<span className="tnum">{status.pendingApprovals}</span>{' '}
+				{t('app.statusBar.approvals', 'approvals')}
 			</span>
 			<span className="status-bar-item">
 				<StatusDot tone={status.qaBlocking ? 'danger' : 'ok'} />
-				QA {status.qaPassed}/{status.qaTotal}
+				QA{' '}
+				<span className="tnum">
+					{status.qaPassed}/{status.qaTotal}
+				</span>
 			</span>
 			<span className="status-bar-item">
 				<span className="status-bar-label">{t('app.statusBar.cost', 'Cost')}</span>

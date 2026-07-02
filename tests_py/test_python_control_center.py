@@ -309,7 +309,7 @@ def test_api_requests_serialize_shared_store_access(tmp_path: Path, monkeypatch)
     def request(path: str) -> int:
         return client.get(path).status_code
 
-    paths = ["/api/v1/overview", "/api/v1/sessions", "/api/v1/projects", "/api/v1/retrieval/status"] * 4
+    paths = ["/api/v1/overview", "/api/v1/legacy/sessions", "/api/v1/projects", "/api/v1/retrieval/status"] * 4
     with ThreadPoolExecutor(max_workers=4) as executor:
         statuses = list(executor.map(request, paths))
 
@@ -413,7 +413,7 @@ def test_fastapi_covers_platform_v1_catalog_routes(tmp_path: Path, monkeypatch) 
     )
 
 
-def test_fastapi_covers_v1_sessions_chats_and_pipelines(tmp_path: Path, monkeypatch) -> None:
+def test_fastapi_covers_threads_and_legacy_read_only_cutover(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
     store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
     store.init()
@@ -426,37 +426,38 @@ def test_fastapi_covers_v1_sessions_chats_and_pipelines(tmp_path: Path, monkeypa
     removed_state_path = "/api/" + "state"
     assert client.get(removed_state_path).status_code == 404
 
-    session_response = client.post(
-        "/api/v1/sessions", json={"projectId": project["id"], "name": "Python Session"}, headers=headers
-    )
-    assert session_response.status_code == 201
-    session = session_response.json()["session"]
-    assert session["name"] == "Python Session"
-
-    chat = client.post(
-        "/api/v1/chats",
-        json={"projectId": project["id"], "sessionId": session["id"], "prompt": "Route this prompt"},
+    assert client.post(
+        "/api/v1/sessions",
+        json={"projectId": project["id"], "name": "Python Session"},
         headers=headers,
-    )
-    assert chat.status_code == 201
-    chat_id = chat.json()["chat"]["id"]
+    ).status_code == 404
+    assert client.get("/api/v1/legacy/sessions").status_code == 200
 
-    pipeline = client.post(
-        "/api/v1/pipelines",
+    thread_response = client.post(
+        "/api/v1/threads",
         json={
             "projectId": project["id"],
-            "sessionId": session["id"],
-            "chatId": chat_id,
-            "title": "Python route",
+            "ownerType": "workspace",
+            "ownerId": project["id"],
+            "title": "Python route thread",
         },
         headers=headers,
     )
-    assert pipeline.status_code == 201
+    assert thread_response.status_code == 201
+    thread_id = thread_response.json()["thread"]["id"]
+
+    message = client.post(
+        f"/api/v1/threads/{thread_id}/messages",
+        json={"content": "Route this prompt"},
+        headers=headers,
+    )
+    assert message.status_code == 200
 
     overview = client.get("/api/v1/overview").json()
-    assert any(item["id"] == session["id"] for item in overview["sessions"])
-    assert any(item["id"] == chat_id for item in overview["chats"])
-    assert any(item["id"] == pipeline.json()["pipeline"]["id"] for item in overview["pipelines"])
+    assert "sessions" not in overview
+    assert "chats" not in overview
+    assert "pipelines" not in overview
+    assert any(item["id"] == thread_id for item in overview["threads"])
 
 
 def test_retrieval_status_reports_configuration_required_without_real_embeddings(

@@ -1,87 +1,43 @@
-"""Endpoints HTTP de sesiones y chats: listar, crear y emitir su evento de dominio.
+"""Endpoints HTTP legacy de sesiones y chats: solo lectura bajo `/api/v1/legacy`.
 
-Expone las rutas `/api/v1/sessions` y `/api/v1/chats` sobre el repositorio del slice.
-Las mutaciones exigen permiso de escritura (`require_write`), validan el prompt y, tras
-persistir, publican un evento (`session.created` / `chat.created`) en el `EventBus` para
-que otros slices reaccionen. Las lecturas son abiertas (sin gate de escritura).
+`sessions` y `chats` fueron reemplazados por `project_threads`/`thread_messages`.
+Este router existe solo para consultar historial migrado; no monta rutas POST ni rutas activas
+sin el prefijo legacy.
 
 @author Rodrigo Mason
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request
-
-from local_control_center.shared.event_bus import EventBus
+from fastapi import APIRouter
 
 from .models import (
-    ChatCreateRequest,
-    ChatResponse,
     ChatsListResponse,
-    SessionCreateRequest,
-    SessionResponse,
     SessionsListResponse,
 )
 from .repository import SessionsChatsRepository
 
 
-def create_router(*, platform: Any, require_write: Callable[[Request], None]) -> APIRouter:
-    """Construye el router de sesiones y chats enlazado a la conexión de `platform`.
+def create_router(*, platform: Any, require_write: Any) -> APIRouter:
+    """Construye el router legacy de sesiones/chats enlazado a la conexión de `platform`.
 
-    Inyecta `require_write` como gate de escritura en las rutas POST y abre el repositorio
-    y el `EventBus` por petición sobre `platform.connection`.
+    `require_write` se acepta para mantener la firma de composición uniforme, pero no se usa:
+    las rutas legacy son read-only.
     """
+    _ = require_write
     router = APIRouter()
 
     def repository() -> SessionsChatsRepository:
         return SessionsChatsRepository(platform.connection)
 
-    def event_bus() -> EventBus:
-        return EventBus(platform.connection)
-
-    @router.get("/api/v1/sessions", response_model=SessionsListResponse)
+    @router.get("/api/v1/legacy/sessions", response_model=SessionsListResponse)
     async def list_sessions() -> dict[str, Any]:
         return {"sessions": repository().list_sessions()}
 
-    @router.post("/api/v1/sessions", status_code=201, response_model=SessionResponse)
-    async def create_session(body: SessionCreateRequest, request: Request) -> SessionResponse:
-        require_write(request)
-        session = repository().create_session(
-            project_id=body.project_id,
-            name=body.name or "Session",
-            team_id=body.team_id,
-        )
-        event_bus().record_event(
-            project_id=session["projectId"],
-            event_type="session.created",
-            payload={"sessionId": session["id"]},
-        )
-        return SessionResponse(session=session)
-
-    @router.get("/api/v1/chats", response_model=ChatsListResponse)
+    @router.get("/api/v1/legacy/chats", response_model=ChatsListResponse)
     async def list_chats() -> dict[str, Any]:
         return {"chats": repository().list_chats()}
-
-    @router.post("/api/v1/chats", status_code=201, response_model=ChatResponse)
-    async def create_chat(body: ChatCreateRequest, request: Request) -> ChatResponse:
-        require_write(request)
-        prompt = body.prompt
-        if not isinstance(prompt, str) or not prompt.strip():
-            raise HTTPException(status_code=400, detail="prompt is required.")
-        chat = repository().create_chat(
-            project_id=body.project_id,
-            session_id=body.session_id,
-            prompt=prompt,
-            title=body.title,
-        )
-        event_bus().record_event(
-            project_id=chat["projectId"],
-            event_type="chat.created",
-            payload={"chatId": chat["id"], "sessionId": chat["sessionId"]},
-        )
-        return ChatResponse(chat=chat)
 
     return router

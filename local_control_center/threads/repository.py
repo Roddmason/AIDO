@@ -18,6 +18,7 @@ from contextlib import nullcontext
 from typing import Any
 
 from local_control_center.shared.db import immediate_transaction
+from local_control_center.shared.event_bus import EventBus
 from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.serialization import json_dumps, json_loads
 from local_control_center.shared.time import utc_now
@@ -31,6 +32,11 @@ from local_control_center.threads.contracts import (
 # Append-only tables whose per-thread ``sequence`` is computed by ``_next_sequence``. The set is an
 # allowlist so the table name can never reach the SQL string from anywhere but this module.
 _SEQUENCE_TABLES = frozenset({"thread_messages", "thread_agent_events"})
+_ACTIVE_DELETE_BLOCKING_STATUSES = frozenset({"queued", "running"})
+
+
+class ThreadLifecycleError(ValueError):
+    """Error de lifecycle que debe mapearse a conflicto HTTP cuando bloquea una mutacion valida."""
 
 
 def row_to_thread(row: sqlite3.Row) -> dict[str, Any]:
@@ -44,9 +50,19 @@ def row_to_thread(row: sqlite3.Row) -> dict[str, Any]:
         "status": row["status"],
         "summary": row["summary"],
         "metadata": json_loads(row["metadata"], {}),
+        "archivedAt": _row_value(row, "archived_at"),
+        "archivedBy": _row_value(row, "archived_by"),
+        "deletedAt": _row_value(row, "deleted_at"),
+        "deletedBy": _row_value(row, "deleted_by"),
+        "lifecycleReason": _row_value(row, "lifecycle_reason"),
         "createdAt": row["created_at"],
         "updatedAt": row["updated_at"],
     }
+
+
+def _row_value(row: sqlite3.Row, column: str, default: Any = None) -> Any:
+    """Lee una columna opcional de SQLite sin romper bases previas a la migracion."""
+    return row[column] if column in row.keys() else default
 
 
 def row_to_message(row: sqlite3.Row) -> dict[str, Any]:
@@ -148,7 +164,9 @@ class ThreadsRepository:
         """Crea un hilo (id ``thread-<uuid>``, estado ``open``) y devuelve el registro creado."""
         if owner_type not in THREAD_OWNER_TYPES:
             raise ValueError(f"Unknown thread owner type: {owner_type}")
-        if not title.strip():
+        clean_title = str(redact_secrets(title or "")).strip()
+        clean_summary = str(redact_secrets(summary or "")).strip()
+        if not clean_title:
             raise ValueError("Thread title is required")
         thread_id = f"thread-{uuid.uuid4()}"
         timestamp = utc_now()
@@ -164,13 +182,14 @@ class ThreadsRepository:
                 project_id,
                 owner_type,
                 owner_id,
-                title.strip(),
-                summary,
+                clean_title,
+                clean_summary,
                 json_dumps(redact_secrets(metadata or {})),
                 timestamp,
                 timestamp,
             ),
         )
+        self._index_thread(thread_id)
         return self.get_thread(thread_id)
 
     def get_thread(self, thread_id: str) -> dict[str, Any]:
@@ -186,6 +205,8 @@ class ThreadsRepository:
         project_id: str | None = None,
         owner_type: str | None = None,
         owner_id: str | None = None,
+        include_archived: bool = False,
+        include_deleted: bool = False,
     ) -> list[dict[str, Any]]:
         """Lista hilos (más recientes primero) con filtro opcional por proyecto y entidad dueña."""
         clauses: list[str] = []
@@ -199,12 +220,150 @@ class ThreadsRepository:
         if owner_id is not None:
             clauses.append("owner_id = ?")
             params.append(owner_id)
+        if not include_deleted:
+            clauses.append("(deleted_at IS NULL AND status <> 'deleted')")
+        if not include_archived:
+            archived_clause = "(archived_at IS NULL AND status <> 'archived')"
+            if include_deleted:
+                archived_clause = f"({archived_clause} OR deleted_at IS NOT NULL OR status = 'deleted')"
+            clauses.append(archived_clause)
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         rows = self.connection.execute(
             f"SELECT * FROM project_threads {where} ORDER BY updated_at DESC, rowid DESC",
             params,
         ).fetchall()
         return [row_to_thread(row) for row in rows]
+
+    def rename_thread(
+        self,
+        thread_id: str,
+        title: str,
+        *,
+        actor: str = "system",
+        reason: str | None = None,
+    ) -> dict[str, Any]:
+        """Renombra el hilo y registra ``thread.renamed`` en la auditoria compartida."""
+        clean_title = str(redact_secrets(title or "")).strip()
+        if not clean_title:
+            raise ValueError("Thread title is required")
+        actor_name = _required_text(actor, "Lifecycle actor is required")
+        timestamp = utc_now()
+        with self._transaction():
+            current = self.get_thread(thread_id)
+            updated = self.connection.execute(
+                "UPDATE project_threads SET title = ?, updated_at = ? WHERE id = ?",
+                (clean_title, timestamp, thread_id),
+            )
+            if updated.rowcount == 0:
+                raise KeyError(f"Thread not found: {thread_id}")
+            EventBus(self.connection).record_audit(
+                action="thread.renamed",
+                target=thread_id,
+                project_id=current["projectId"],
+                actor=actor_name,
+                payload={
+                    "previousTitle": current["title"],
+                    "title": clean_title,
+                    "reason": reason.strip() if isinstance(reason, str) and reason.strip() else None,
+                },
+            )
+            self._index_thread(thread_id)
+        return self.get_thread(thread_id)
+
+    def archive_thread(self, thread_id: str, reason: str, actor: str) -> dict[str, Any]:
+        """Archiva el hilo sin tocar mensajes/artifacts y registra ``thread.archived``."""
+        reason_text = _required_text(reason, "Lifecycle reason is required")
+        actor_name = _required_text(actor, "Lifecycle actor is required")
+        timestamp = utc_now()
+        with self._transaction():
+            current = self.get_thread(thread_id)
+            if current["deletedAt"] or current["status"] == "deleted":
+                raise ValueError("Deleted thread cannot be archived")
+            self.connection.execute(
+                """
+                UPDATE project_threads
+                SET status = 'archived',
+                    archived_at = ?,
+                    archived_by = ?,
+                    lifecycle_reason = ?,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (timestamp, actor_name, reason_text, timestamp, thread_id),
+            )
+            EventBus(self.connection).record_audit(
+                action="thread.archived",
+                target=thread_id,
+                project_id=current["projectId"],
+                actor=actor_name,
+                payload={"reason": reason_text, "previousStatus": current["status"]},
+            )
+            self._index_thread(thread_id)
+        return self.get_thread(thread_id)
+
+    def unarchive_thread(self, thread_id: str, reason: str, actor: str) -> dict[str, Any]:
+        """Reabre un hilo archivado y registra ``thread.unarchived``."""
+        reason_text = _required_text(reason, "Lifecycle reason is required")
+        actor_name = _required_text(actor, "Lifecycle actor is required")
+        timestamp = utc_now()
+        with self._transaction():
+            current = self.get_thread(thread_id)
+            if current["deletedAt"] or current["status"] == "deleted":
+                raise ValueError("Deleted thread cannot be unarchived")
+            self.connection.execute(
+                """
+                UPDATE project_threads
+                SET status = 'open',
+                    archived_at = NULL,
+                    archived_by = NULL,
+                    lifecycle_reason = ?,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (reason_text, timestamp, thread_id),
+            )
+            EventBus(self.connection).record_audit(
+                action="thread.unarchived",
+                target=thread_id,
+                project_id=current["projectId"],
+                actor=actor_name,
+                payload={"reason": reason_text, "previousStatus": current["status"]},
+            )
+            self._index_thread(thread_id)
+        return self.get_thread(thread_id)
+
+    def soft_delete_thread(self, thread_id: str, reason: str, actor: str) -> dict[str, Any]:
+        """Marca el hilo como eliminado sin borrar mensajes ni artifacts fisicamente."""
+        reason_text = _required_text(reason, "Lifecycle reason is required")
+        actor_name = _required_text(actor, "Lifecycle actor is required")
+        timestamp = utc_now()
+        with self._transaction():
+            current = self.get_thread(thread_id)
+            if current["status"] in _ACTIVE_DELETE_BLOCKING_STATUSES:
+                raise ThreadLifecycleError(
+                    f"Thread {thread_id} is {current['status']} and cannot be deleted until it stops."
+                )
+            self.connection.execute(
+                """
+                UPDATE project_threads
+                SET status = 'deleted',
+                    deleted_at = ?,
+                    deleted_by = ?,
+                    lifecycle_reason = ?,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (timestamp, actor_name, reason_text, timestamp, thread_id),
+            )
+            EventBus(self.connection).record_audit(
+                action="thread.deleted",
+                target=thread_id,
+                project_id=current["projectId"],
+                actor=actor_name,
+                payload={"reason": reason_text, "previousStatus": current["status"]},
+            )
+            self._index_thread(thread_id)
+        return self.get_thread(thread_id)
 
     def set_status(self, thread_id: str, status: str) -> dict[str, Any]:
         """Cambia el estado del hilo (valida contra ``THREAD_STATUSES``) y refresca ``updated_at``."""
@@ -216,6 +375,7 @@ class ThreadsRepository:
         )
         if updated.rowcount == 0:
             raise KeyError(f"Thread not found: {thread_id}")
+        self._index_thread(thread_id)
         return self.get_thread(thread_id)
 
     # -- messages --------------------------------------------------------------
@@ -254,6 +414,7 @@ class ThreadsRepository:
                     timestamp,
                 ),
             )
+            self._index_thread(thread_id)
         return self.get_message(message_id)
 
     def get_message(self, message_id: str) -> dict[str, Any]:
@@ -285,24 +446,26 @@ class ThreadsRepository:
         """Enlaza un artifact al hilo (su contenido va en ``metadata``, saneado)."""
         project_id = self._project_id_for(thread_id)
         row_id = f"thread-artifact-{uuid.uuid4()}"
-        self.connection.execute(
-            """
-            INSERT INTO thread_artifacts
-                (id, thread_id, project_id, message_id, artifact_id, kind, title, metadata, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                row_id,
-                thread_id,
-                project_id,
-                message_id,
-                artifact_id,
-                kind,
-                title,
-                json_dumps(redact_secrets(payload or {})),
-                utc_now(),
-            ),
-        )
+        with self._transaction():
+            self.connection.execute(
+                """
+                INSERT INTO thread_artifacts
+                    (id, thread_id, project_id, message_id, artifact_id, kind, title, metadata, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    row_id,
+                    thread_id,
+                    project_id,
+                    message_id,
+                    artifact_id,
+                    kind,
+                    str(redact_secrets(title or "")).strip(),
+                    json_dumps(redact_secrets(payload or {})),
+                    utc_now(),
+                ),
+            )
+            self._index_thread(thread_id)
         row = self.connection.execute("SELECT * FROM thread_artifacts WHERE id = ?", (row_id,)).fetchone()
         return row_to_artifact(row)
 
@@ -348,6 +511,7 @@ class ThreadsRepository:
                     timestamp,
                 ),
             )
+            self._index_thread(thread_id)
         row = self.connection.execute(
             "SELECT * FROM thread_agent_events WHERE id = ?", (event_id,)
         ).fetchone()
@@ -462,6 +626,11 @@ class ThreadsRepository:
         return [row_to_decision(row) for row in rows]
 
     # -- helpers ---------------------------------------------------------------
+    def _index_thread(self, thread_id: str) -> None:
+        from local_control_center.threads.similarity import ThreadSimilarityService
+
+        ThreadSimilarityService(self.connection).index_thread(thread_id)
+
     def _next_sequence(self, table: str, thread_id: str) -> int:
         if table not in _SEQUENCE_TABLES:
             raise ValueError(f"Unknown sequence table: {table}")
@@ -470,3 +639,10 @@ class ThreadsRepository:
             (thread_id,),
         ).fetchone()
         return int(row["next"])
+
+
+def _required_text(value: str, message: str) -> str:
+    text = str(value or "").strip()
+    if not text:
+        raise ValueError(message)
+    return text

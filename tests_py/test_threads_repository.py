@@ -12,6 +12,7 @@ import pytest
 
 from local_control_center.projects.repository import ProjectsRepository
 from local_control_center.shared.db import open_sqlite_connection
+from local_control_center.shared.event_bus import EventBus
 from local_control_center.shared.migrations import initialize_platform_schema
 from local_control_center.threads.repository import ThreadsRepository
 
@@ -41,6 +42,17 @@ def test_migration_creates_thread_tables(tmp_path: Path) -> None:
         rows = connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()
         names = {row["name"] for row in rows}
         assert names >= THREAD_TABLES
+        columns = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(project_threads)").fetchall()
+        }
+        assert {
+            "archived_at",
+            "archived_by",
+            "deleted_at",
+            "deleted_by",
+            "lifecycle_reason",
+        } <= columns
 
 
 def test_create_and_list_threads_filters_by_owner(tmp_path: Path) -> None:
@@ -73,6 +85,104 @@ def test_create_and_list_threads_filters_by_owner(tmp_path: Path) -> None:
             project_id=project_id, owner_type="workspace", owner_id="workspace-1"
         )
         assert [thread["id"] for thread in only_workspace] == [workspace_thread["id"]]
+
+
+def test_rename_thread_updates_title_and_audits(tmp_path: Path) -> None:
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        project_id = _project(connection, tmp_path)
+        repo = ThreadsRepository(connection)
+        thread = repo.create_thread(
+            project_id=project_id,
+            owner_type="workspace",
+            owner_id="workspace-1",
+            title="Original title",
+        )
+
+        renamed = repo.rename_thread(thread["id"], "Renamed thread", actor="operator")
+
+        assert renamed["title"] == "Renamed thread"
+        assert repo.get_thread(thread["id"])["title"] == "Renamed thread"
+        audits = EventBus(connection).list_audit_events(project_id)
+        assert audits[0]["action"] == "thread.renamed"
+        assert audits[0]["target"] == thread["id"]
+        assert audits[0]["actor"] == "operator"
+
+
+def test_archive_hides_thread_by_default_and_include_archived_restores_it(tmp_path: Path) -> None:
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        project_id = _project(connection, tmp_path)
+        repo = ThreadsRepository(connection)
+        thread = repo.create_thread(
+            project_id=project_id,
+            owner_type="workspace",
+            owner_id="workspace-1",
+            title="Archive me",
+        )
+
+        archived = repo.archive_thread(thread["id"], reason="Work completed", actor="operator")
+
+        assert archived["status"] == "archived"
+        assert archived["archivedAt"]
+        assert archived["archivedBy"] == "operator"
+        assert archived["lifecycleReason"] == "Work completed"
+        assert [item["id"] for item in repo.list_threads(project_id=project_id)] == []
+        assert [item["id"] for item in repo.list_threads(project_id=project_id, include_archived=True)] == [
+            thread["id"]
+        ]
+        assert EventBus(connection).list_audit_events(project_id)[0]["action"] == "thread.archived"
+
+
+def test_soft_delete_hides_thread_but_keeps_messages_and_artifacts(tmp_path: Path) -> None:
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        project_id = _project(connection, tmp_path)
+        repo = ThreadsRepository(connection)
+        thread = repo.create_thread(
+            project_id=project_id,
+            owner_type="workspace",
+            owner_id="workspace-1",
+            title="Delete me",
+        )
+        message = repo.append_message(thread_id=thread["id"], kind="user", author="user", content="keep me")
+        artifact = repo.attach_artifact(
+            thread_id=thread["id"],
+            kind="result",
+            title="Kept artifact",
+            artifact_id="artifact-1",
+            message_id=message["id"],
+        )
+
+        deleted = repo.soft_delete_thread(thread["id"], reason="No longer needed", actor="operator")
+
+        assert deleted["status"] == "deleted"
+        assert deleted["deletedAt"]
+        assert deleted["deletedBy"] == "operator"
+        assert [item["id"] for item in repo.list_threads(project_id=project_id)] == []
+        assert [item["id"] for item in repo.list_threads(project_id=project_id, include_deleted=True)] == [
+            thread["id"]
+        ]
+        assert repo.list_messages(thread["id"])[0]["id"] == message["id"]
+        assert repo.list_artifacts(thread["id"])[0]["id"] == artifact["id"]
+        assert EventBus(connection).list_audit_events(project_id)[0]["action"] == "thread.deleted"
+
+
+def test_running_thread_cannot_be_soft_deleted(tmp_path: Path) -> None:
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        project_id = _project(connection, tmp_path)
+        repo = ThreadsRepository(connection)
+        thread = repo.create_thread(
+            project_id=project_id,
+            owner_type="workspace",
+            owner_id="workspace-1",
+            title="Running thread",
+        )
+        repo.set_status(thread["id"], "running")
+
+        with pytest.raises(ValueError, match="running"):
+            repo.soft_delete_thread(thread["id"], reason="cleanup", actor="operator")
 
 
 def test_owner_type_must_be_known(tmp_path: Path) -> None:

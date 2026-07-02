@@ -123,9 +123,12 @@ def test_generated_openapi_client_is_checked_in_and_v1_only() -> None:
         '"record_self_improvement_performance_api_v1_self_improvement_performance_records_post": '
         "SelfImprovementPerformanceRequest"
     ) in content
-    assert '"create_session_api_v1_sessions_post": SessionCreateRequest' in content
-    assert '"create_chat_api_v1_chats_post": ChatCreateRequest' in content
-    assert '"create_pipeline_api_v1_pipelines_post": PipelineCreateRequest' in content
+    assert '"list_sessions_api_v1_legacy_sessions_get": SessionsListResponse' in content
+    assert '"list_chats_api_v1_legacy_chats_get": ChatsListResponse' in content
+    assert '"list_pipelines_api_v1_legacy_pipelines_get": PipelinesListResponse' in content
+    assert "create_session_api_v1_sessions_post" not in content
+    assert "create_chat_api_v1_chats_post" not in content
+    assert "create_pipeline_api_v1_pipelines_post" not in content
     assert '"create_memory_api_v1_memory_post": MemoryCreateRequest' in content
     assert '"retrieval_search_api_v1_retrieval_search_post": RetrievalSearchRequest' in content
     assert '"retrieval_reindex_api_v1_retrieval_reindex_post": RetrievalReindexRequest' in content
@@ -189,9 +192,10 @@ def test_generated_openapi_client_is_checked_in_and_v1_only() -> None:
     assert '"runtimeWorkspaces": Array<WorkspaceRecord>' in overview_line
     assert '"evidencePackages": Array<EvidencePackageRecord>' in overview_line
     assert '"architectureDecisions": Array<ArchitectureDecisionRecord>' in overview_line
-    assert '"sessions": Array<SessionRecord>' in overview_line
-    assert '"chats": Array<ChatRecord>' in overview_line
-    assert '"pipelines": Array<PipelineRecord>' in overview_line
+    assert '"threads": Array<ThreadRecord>' in overview_line
+    assert '"sessions": Array<SessionRecord>' not in overview_line
+    assert '"chats": Array<ChatRecord>' not in overview_line
+    assert '"pipelines": Array<PipelineRecord>' not in overview_line
     assert '"memoryItems": Array<MemoryItemRecord>' in overview_line
     assert '"workflows": Array<WorkflowRecord>' in overview_line
     assert '"workflowRuns": Array<WorkflowRunRecord>' in overview_line
@@ -284,12 +288,49 @@ def test_generated_openapi_client_is_checked_in_and_v1_only() -> None:
     assert '"list_workspaces_api_v1_workspaces_get": WorkspacesListResponse' in content
     assert "export type PromptTemplateRecord" in content
     assert 'PromptTemplatesListResponse = { "promptTemplates": Array<PromptTemplateRecord> }' in content
+    assert "export type PluginRecord" in content
+    assert "export type PluginVersionRecord" in content
+    assert "export type PluginInstallLocalRequest" in content
+    assert 'PluginsListResponse = { "plugins": Array<PluginRecord> }' in content
+    assert '"list_plugins_api_v1_plugins_get": PluginsListResponse' in content
+    assert '"install_local_plugin_api_v1_plugins_install_local_post": PluginInstallLocalRequest' in content
+    assert '"install_local_plugin_api_v1_plugins_install_local_post": PluginResponse' in content
+    assert '"enable_plugin_api_v1_plugins__plugin_id__enable_post": PluginResponse' in content
+    assert '"disable_plugin_api_v1_plugins__plugin_id__disable_post": PluginResponse' in content
+    assert '"validate_plugin_api_v1_plugins__plugin_id__validate_post": PluginValidationResponse' in content
     assert "export type McpServerRecord" in content
     assert 'McpServerResponse = { "mcpServer": McpServerRecord }' in content
     assert (
         'IntegrationsListResponse = { "integrations": Array<IntegrationRecord>; "mcpServers": Array<McpServerRecord>'
         in content
     )
+    for operation in (
+        '"upsert_n8n_webhook_target_api_v1_integrations_n8n_webhook_targets_post": '
+        "N8nWebhookTargetCreateRequest",
+        '"upsert_n8n_webhook_target_api_v1_integrations_n8n_webhook_targets_post": N8nWebhookTargetResponse',
+        '"test_n8n_target_api_v1_integrations_n8n_test_post": N8nEventTestRequest',
+        '"test_n8n_target_api_v1_integrations_n8n_test_post": N8nEventDeliveryResponse',
+        '"emit_n8n_event_api_v1_integrations_n8n_emit_event_post": N8nEventEmitRequest',
+        '"emit_n8n_event_api_v1_integrations_n8n_emit_event_post": N8nEventDeliveryResponse',
+        '"receive_n8n_webhook_api_v1_integrations_n8n_webhook_post": N8nInboundWebhookRequest',
+        '"receive_n8n_webhook_api_v1_integrations_n8n_webhook_post": N8nInboundWebhookResponse',
+    ):
+        assert operation in content
+    n8n_target = _generated_type_line(content, "N8nWebhookTargetCreateRequest")
+    n8n_emit = _generated_type_line(content, "N8nEventEmitRequest")
+    for event_type in (
+        '"thread.created"',
+        '"loop.blocked"',
+        '"approval.required"',
+        '"delivery.ready"',
+        '"gitleaks.failed"',
+        '"qa.failed"',
+        '"research.completed"',
+    ):
+        assert event_type in n8n_target
+        assert event_type in n8n_emit
+    assert '"credentialRef": string' in n8n_target
+    assert '"allowedEventTypes": Array<' in n8n_target
     assert "export type IdeConnectionRecord" in content
     assert 'IdeConnectionsListResponse = { "ideConnections": Array<IdeConnectionRecord> }' in content
     assert "export type RetrievalSearchResultRecord" in content
@@ -326,12 +367,17 @@ def test_generated_openapi_client_is_checked_in_and_v1_only() -> None:
     assert "export type ArchitectAgentStatus" in content
     assert "export type ArchitectAgentRunRequest" in content
     assert "export type ArchitectAgentRunResponse" in content
-    assert (
-        'RuntimeProvidersResponse = { "api": ApiRuntimeProviderStatus; '
-        '"cli": CliRuntimeProviderStatus; "developerAgent": DeveloperAgentStatus; '
-        '"ollama": OllamaRuntimeProviderStatus; '
-        '"providers": Array<RuntimeProviderStatus>;'
-    ) in content
+    runtime_providers_line = _generated_type_line(content, "RuntimeProvidersResponse")
+    for required_field in (
+        '"api": ApiRuntimeProviderStatus',
+        '"cli": CliRuntimeProviderStatus',
+        '"configurationWarnings"?: Array<string>',
+        '"developerAgent": DeveloperAgentStatus',
+        '"ollama": OllamaRuntimeProviderStatus',
+        '"providers": Array<RuntimeProviderStatus>',
+        '"runtimeModes": Array<"api" | "cli" | "ollama" | "hybrid" | "manual">',
+    ):
+        assert required_field in runtime_providers_line
     assert "export type IssueToPatchRequest" in content
     assert "export type IssueToPatchResponse" in content
     assert (
@@ -583,13 +629,7 @@ def test_generated_credential_contract_and_settings_ui_are_secret_safe() -> None
         ROOT / "local-control-center" / "web" / "src" / "features" / "settings" / "SettingsPage.tsx"
     ).read_text(encoding="utf-8")
     credential_panel = (
-        ROOT
-        / "local-control-center"
-        / "web"
-        / "src"
-        / "features"
-        / "settings"
-        / "CredentialManagerPanel.tsx"
+        ROOT / "local-control-center" / "web" / "src" / "features" / "settings" / "CredentialManagerPanel.tsx"
     ).read_text(encoding="utf-8")
     assert "CredentialManagerPanel" in settings
     assert "value:" not in settings

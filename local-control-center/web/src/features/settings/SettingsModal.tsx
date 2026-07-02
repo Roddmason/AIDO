@@ -216,20 +216,24 @@ export function SettingsModal({
 							<p className="settings-nav-group-label">
 								{t('app.settings.nav.groupGeneral', 'General')}
 							</p>
-							{filteredGeneral.map((section) => (
-								<button
-									key={section.id}
-									type="button"
-									className="settings-nav-item"
-									aria-current={activeSection === section.id ? 'true' : undefined}
-									onClick={() => {
-										setActiveSection(section.id);
-										setSearchQuery('');
-									}}
-								>
-									{t(section.titleKey, section.titleFallback)}
-								</button>
-							))}
+							<ul className="settings-nav-list">
+								{filteredGeneral.map((section) => (
+									<li key={section.id}>
+										<button
+											type="button"
+											className="settings-nav-item"
+											aria-current={activeSection === section.id ? 'true' : undefined}
+											onClick={() => {
+												setActiveSection(section.id);
+												setSearchQuery('');
+											}}
+										>
+											<section.icon aria-hidden="true" size={15} />
+											{t(section.titleKey, section.titleFallback)}
+										</button>
+									</li>
+								))}
+							</ul>
 						</>
 					)}
 
@@ -238,25 +242,29 @@ export function SettingsModal({
 							<p className="settings-nav-group-label">
 								{t('app.settings.nav.groupProject', 'Project')}
 							</p>
-							{filteredProject.map((section) => (
-								<button
-									key={section.id}
-									type="button"
-									className="settings-nav-item"
-									aria-current={activeSection === section.id ? 'true' : undefined}
-									onClick={() => {
-										setActiveSection(section.id);
-										setSearchQuery('');
-									}}
-								>
-									{t(section.titleKey, section.titleFallback)}
-								</button>
-							))}
+							<ul className="settings-nav-list">
+								{filteredProject.map((section) => (
+									<li key={section.id}>
+										<button
+											type="button"
+											className="settings-nav-item"
+											aria-current={activeSection === section.id ? 'true' : undefined}
+											onClick={() => {
+												setActiveSection(section.id);
+												setSearchQuery('');
+											}}
+										>
+											<section.icon aria-hidden="true" size={15} />
+											{t(section.titleKey, section.titleFallback)}
+										</button>
+									</li>
+								))}
+							</ul>
 						</>
 					)}
 
 					{filteredGeneral.length === 0 && filteredProject.length === 0 && (
-						<p className="settings-nav-no-results">
+						<p className="settings-nav-no-results" role="status">
 							{t('app.settings.nav.noResults', 'No sections match your search.')}
 						</p>
 					)}
@@ -297,9 +305,11 @@ export function SettingsModal({
 							</button>
 						</div>
 					) : null}
-					<h3 className="settings-content-title" ref={titleRef} tabIndex={-1}>
-						{t(currentSection.titleKey, currentSection.titleFallback)}
-					</h3>
+					<header className="settings-content-head">
+						<h3 className="settings-content-title" ref={titleRef} tabIndex={-1}>
+							{t(currentSection.titleKey, currentSection.titleFallback)}
+						</h3>
+					</header>
 					{renderSectionContent()}
 				</div>
 			</div>

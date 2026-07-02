@@ -42,7 +42,7 @@ export function AppearanceBody() {
 	const { motion, setMotion } = useMotionSetting();
 
 	return (
-		<div className="stack">
+		<div className="settings-list">
 			<PreferenceRow
 				title={t('app.settings.appearance.theme', 'Theme')}
 				help={t(

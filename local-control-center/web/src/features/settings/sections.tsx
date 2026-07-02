@@ -10,6 +10,25 @@
  * @author Rodrigo Mason
  */
 
+import type { LucideIcon } from 'lucide-react';
+import {
+	CheckCircle2,
+	CircleDollarSign,
+	Cpu,
+	FlaskConical,
+	FolderTree,
+	Globe,
+	KeyRound,
+	Lock,
+	Palette,
+	Puzzle,
+	Route,
+	ShieldCheck,
+	SlidersHorizontal,
+	Target,
+	Users,
+	Wrench,
+} from 'lucide-react';
 import type { ReactNode } from 'react';
 
 import type { JsonValue } from '../../api/generated/openapi';
@@ -83,6 +102,8 @@ export type SectionDefinition = {
 	titleKey: string;
 	/** English fallback for the section title. */
 	titleFallback: string;
+	/** Navigator icon: anchors scanning; rendered aria-hidden next to the title. */
+	icon: LucideIcon;
 	/** Whether this section edits wired settings or renders a display body. */
 	kind: 'wired' | 'display';
 	/** Renders the section's content given the shared context. */
@@ -164,7 +185,7 @@ function renderWired(ctx: SectionContext): ReactNode {
 		);
 	}
 	return (
-		<div className="stack">
+		<div className="settings-list">
 			{ctx.resolved.map((setting) => (
 				<SettingRow
 					key={setting.key}
@@ -198,6 +219,7 @@ export const GENERAL_SECTIONS: SectionDefinition[] = [
 		id: 'general',
 		titleKey: 'app.settings.section.general',
 		titleFallback: 'General',
+		icon: SlidersHorizontal,
 		kind: 'display',
 		render: (ctx) => <GeneralBody workerSettings={renderWired(ctx)} />,
 	},
@@ -205,6 +227,7 @@ export const GENERAL_SECTIONS: SectionDefinition[] = [
 		id: 'appearance',
 		titleKey: 'app.settings.section.appearance',
 		titleFallback: 'Appearance',
+		icon: Palette,
 		kind: 'display',
 		render: () => <AppearanceBody />,
 	},
@@ -212,6 +235,7 @@ export const GENERAL_SECTIONS: SectionDefinition[] = [
 		id: 'providers-cli',
 		titleKey: 'app.settings.section.providersCli',
 		titleFallback: 'Providers & CLI',
+		icon: Cpu,
 		kind: 'display',
 		render: (ctx) => (
 			<RuntimeBody
@@ -228,6 +252,7 @@ export const GENERAL_SECTIONS: SectionDefinition[] = [
 		id: 'credentials',
 		titleKey: 'app.settings.section.credentials',
 		titleFallback: 'Credentials',
+		icon: KeyRound,
 		kind: 'display',
 		render: (ctx) => <CredentialManagerPanel token={ctx.token} />,
 	},
@@ -235,6 +260,7 @@ export const GENERAL_SECTIONS: SectionDefinition[] = [
 		id: 'default-team',
 		titleKey: 'app.settings.section.defaultTeam',
 		titleFallback: 'Default Team',
+		icon: Users,
 		kind: 'display',
 		render: (ctx) => <DefaultTeamBody overview={ctx.overview} onNavigate={ctx.closeSettings} />,
 	},
@@ -242,6 +268,7 @@ export const GENERAL_SECTIONS: SectionDefinition[] = [
 		id: 'autonomy',
 		titleKey: 'app.settings.section.autonomy',
 		titleFallback: 'Autonomy',
+		icon: ShieldCheck,
 		kind: 'wired',
 		render: (ctx) => {
 			const setting = ctx.resolved.find((entry) => entry.key === 'autonomy.level');
@@ -258,6 +285,7 @@ export const GENERAL_SECTIONS: SectionDefinition[] = [
 		id: 'security',
 		titleKey: 'app.settings.section.security',
 		titleFallback: 'Security',
+		icon: Lock,
 		kind: 'wired',
 		render: wiredSection(
 			'app.settings.intro.security',
@@ -268,6 +296,7 @@ export const GENERAL_SECTIONS: SectionDefinition[] = [
 		id: 'research',
 		titleKey: 'app.settings.section.research',
 		titleFallback: 'Research',
+		icon: FlaskConical,
 		kind: 'wired',
 		render: wiredSection(
 			'app.settings.intro.research',
@@ -278,6 +307,7 @@ export const GENERAL_SECTIONS: SectionDefinition[] = [
 		id: 'costs',
 		titleKey: 'app.settings.section.costs',
 		titleFallback: 'Costs',
+		icon: CircleDollarSign,
 		kind: 'wired',
 		render: wiredSection('app.settings.intro.costs', 'Spending ceilings for runs and jobs.'),
 	},
@@ -285,6 +315,7 @@ export const GENERAL_SECTIONS: SectionDefinition[] = [
 		id: 'plugins',
 		titleKey: 'app.settings.section.plugins',
 		titleFallback: 'Plugins',
+		icon: Puzzle,
 		kind: 'display',
 		render: (ctx) => <PluginsPanel token={ctx.token} />,
 	},
@@ -292,6 +323,7 @@ export const GENERAL_SECTIONS: SectionDefinition[] = [
 		id: 'advanced',
 		titleKey: 'app.settings.section.advanced',
 		titleFallback: 'Advanced',
+		icon: Wrench,
 		kind: 'display',
 		render: (ctx) => (
 			<AdvancedBody
@@ -316,6 +348,7 @@ export const PROJECT_SECTIONS: SectionDefinition[] = [
 		id: 'goal',
 		titleKey: 'app.settings.section.goal',
 		titleFallback: 'Goal',
+		icon: Target,
 		kind: 'wired',
 		render: wiredSection(
 			'app.settings.intro.goal',
@@ -326,6 +359,7 @@ export const PROJECT_SECTIONS: SectionDefinition[] = [
 		id: 'team',
 		titleKey: 'app.settings.section.team',
 		titleFallback: 'Team',
+		icon: Users,
 		kind: 'display',
 		render: (ctx) => <ProjectTeamPanel projectId={ctx.scopeId} onNavigate={ctx.closeSettings} />,
 	},
@@ -333,6 +367,7 @@ export const PROJECT_SECTIONS: SectionDefinition[] = [
 		id: 'routing',
 		titleKey: 'app.settings.section.routing',
 		titleFallback: 'Routing',
+		icon: Route,
 		kind: 'wired',
 		render: wiredSection(
 			'app.settings.intro.routing',
@@ -343,6 +378,7 @@ export const PROJECT_SECTIONS: SectionDefinition[] = [
 		id: 'quality',
 		titleKey: 'app.settings.section.quality',
 		titleFallback: 'Quality',
+		icon: CheckCircle2,
 		kind: 'wired',
 		render: wiredSection(
 			'app.settings.intro.quality',
@@ -353,6 +389,7 @@ export const PROJECT_SECTIONS: SectionDefinition[] = [
 		id: 'project-security',
 		titleKey: 'app.settings.section.security',
 		titleFallback: 'Security',
+		icon: Lock,
 		kind: 'wired',
 		render: wiredSection(
 			'app.settings.intro.projectSecurity',
@@ -363,6 +400,7 @@ export const PROJECT_SECTIONS: SectionDefinition[] = [
 		id: 'workspaces',
 		titleKey: 'app.settings.section.workspaces',
 		titleFallback: 'Workspaces',
+		icon: FolderTree,
 		kind: 'display',
 		render: (ctx) => <WorkspacesBody overview={ctx.overview} />,
 	},
@@ -370,6 +408,7 @@ export const PROJECT_SECTIONS: SectionDefinition[] = [
 		id: 'internet',
 		titleKey: 'app.settings.section.internet',
 		titleFallback: 'Internet',
+		icon: Globe,
 		kind: 'wired',
 		render: wiredSection('app.settings.intro.internet', 'Web access policy for this project.'),
 	},
@@ -377,6 +416,7 @@ export const PROJECT_SECTIONS: SectionDefinition[] = [
 		id: 'budget',
 		titleKey: 'app.settings.section.budget',
 		titleFallback: 'Budget',
+		icon: CircleDollarSign,
 		kind: 'wired',
 		render: wiredSection('app.settings.intro.budget', 'Spending limits for this project.'),
 	},
@@ -384,6 +424,7 @@ export const PROJECT_SECTIONS: SectionDefinition[] = [
 		id: 'project-credentials',
 		titleKey: 'app.settings.section.credentials',
 		titleFallback: 'Credentials',
+		icon: KeyRound,
 		kind: 'display',
 		render: (ctx) => <CredentialManagerPanel token={ctx.token} />,
 	},
@@ -391,6 +432,7 @@ export const PROJECT_SECTIONS: SectionDefinition[] = [
 		id: 'project-plugins',
 		titleKey: 'app.settings.section.plugins',
 		titleFallback: 'Plugins',
+		icon: Puzzle,
 		kind: 'display',
 		render: () => <ProjectPluginsBody />,
 	},

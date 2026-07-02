@@ -162,6 +162,10 @@ export function SettingRow({ setting, onSet, onRevert, enumOptions, help }: Sett
 	}, [setting]);
 
 	const isNumberEmpty = setting.type === 'number' && localValue.trim() === '';
+	// Belt-and-suspenders: type="number" inputs sanitize most malformed text to '',
+	// so this guard mainly covers paste and programmatic values, not keystrokes.
+	const isNumberInvalid =
+		setting.type === 'number' && localValue.trim() !== '' && !Number.isFinite(Number(localValue));
 
 	const handleSet = useCallback(async () => {
 		if (setting.type === 'number' && localValue.trim() === '') {
@@ -174,6 +178,8 @@ export function SettingRow({ setting, onSet, onRevert, enumOptions, help }: Sett
 			}
 			return;
 		}
+		// Never PUT a non-numeric string into a number-typed setting.
+		if (setting.type === 'number' && !Number.isFinite(Number(localValue))) return;
 		let coerced: JsonValue = localValue;
 		if (setting.type === 'number') {
 			const n = Number(localValue);
@@ -228,7 +234,11 @@ export function SettingRow({ setting, onSet, onRevert, enumOptions, help }: Sett
 			{help ? <p className="setting-row-help">{help}</p> : null}
 
 			{showControl ? (
-				<div className="setting-control" data-type={setting.type}>
+				<div
+					className="setting-control"
+					data-type={setting.type}
+					data-editing={scope === 'project' ? 'true' : undefined}
+				>
 					{setting.type === 'boolean' ? (
 						<label className="setting-switch" data-disabled={pending ? 'true' : undefined}>
 							<input
@@ -245,7 +255,8 @@ export function SettingRow({ setting, onSet, onRevert, enumOptions, help }: Sett
 							<span className="setting-switch-track" aria-hidden="true">
 								<span className="setting-switch-thumb" />
 							</span>
-							<span className="setting-switch-state">
+							{/* aria-hidden: the checkbox already announces its checked state. */}
+							<span className="setting-switch-state" aria-hidden="true">
 								{(booleanImmediate ? Boolean(setting.value) : localChecked)
 									? t('app.settings.boolean.on', 'On')
 									: t('app.settings.boolean.off', 'Off')}
@@ -284,6 +295,8 @@ export function SettingRow({ setting, onSet, onRevert, enumOptions, help }: Sett
 							className="input"
 							value={localValue}
 							disabled={pending}
+							aria-invalid={isNumberInvalid || undefined}
+							aria-describedby={isNumberInvalid ? `${controlId}-error` : undefined}
 							onChange={(e) => setLocalValue(e.target.value)}
 						/>
 					) : (
@@ -300,7 +313,7 @@ export function SettingRow({ setting, onSet, onRevert, enumOptions, help }: Sett
 						<button
 							type="button"
 							className="button primary setting-action"
-							disabled={pending}
+							disabled={pending || isNumberInvalid}
 							onClick={handleSet}
 						>
 							{isNumberEmpty
@@ -324,6 +337,11 @@ export function SettingRow({ setting, onSet, onRevert, enumOptions, help }: Sett
 					<ValueDisplay setting={setting} t={t} />
 				</div>
 			)}
+			{isNumberInvalid && showControl ? (
+				<p className="setting-row-error" id={`${controlId}-error`} role="alert">
+					{t('app.settings.error.invalidNumber', 'Enter a valid number.')}
+				</p>
+			) : null}
 
 			<div className="setting-row-actions">
 				{scope === 'project' && !revealControl && (
@@ -331,6 +349,7 @@ export function SettingRow({ setting, onSet, onRevert, enumOptions, help }: Sett
 						type="button"
 						className="button setting-action"
 						disabled={pending}
+						aria-expanded={revealControl}
 						onClick={() => {
 							setLocalValue(toLocalValue(setting));
 							setLocalChecked(Boolean(setting.value));
@@ -353,6 +372,10 @@ export function SettingRow({ setting, onSet, onRevert, enumOptions, help }: Sett
 					</button>
 				)}
 			</div>
+			{/* Save/revert progress announced to screen readers; visual state is the disabled control. */}
+			<span className="sr-only" role="status">
+				{pending ? t('app.settings.status.saving', 'Saving...') : ''}
+			</span>
 		</div>
 	);
 }

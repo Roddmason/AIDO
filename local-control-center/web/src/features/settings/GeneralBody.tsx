@@ -20,23 +20,25 @@ export function GeneralBody({ workerSettings }: { workerSettings: ReactNode }) {
 
 	return (
 		<div className="stack">
-			<PreferenceRow
-				title={t('ui.static.interface.language.9407e9ca', 'Interface language')}
-				help={t('app.settings.general.languageHelp', 'Applies immediately across the interface.')}
-			>
-				{languageOptions.length > 0 ? (
-					<SegmentedControl
-						label={t('ui.static.interface.language.9407e9ca', 'Interface language')}
-						value={language}
-						onChange={setLanguage}
-						options={languageOptions}
-					/>
-				) : (
-					<span className="muted">
-						{t('app.settings.general.languagesUnavailable', 'Language catalog unavailable')}
-					</span>
-				)}
-			</PreferenceRow>
+			<div className="settings-list">
+				<PreferenceRow
+					title={t('ui.static.interface.language.9407e9ca', 'Interface language')}
+					help={t('app.settings.general.languageHelp', 'Applies immediately across the interface.')}
+				>
+					{languageOptions.length > 0 ? (
+						<SegmentedControl
+							label={t('ui.static.interface.language.9407e9ca', 'Interface language')}
+							value={language}
+							onChange={setLanguage}
+							options={languageOptions}
+						/>
+					) : (
+						<span className="muted">
+							{t('app.settings.general.languagesUnavailable', 'Language catalog unavailable')}
+						</span>
+					)}
+				</PreferenceRow>
+			</div>
 
 			<section className="settings-group">
 				<h4 className="settings-group-title">
@@ -55,27 +57,27 @@ export function GeneralBody({ workerSettings }: { workerSettings: ReactNode }) {
 				<h4 className="settings-group-title">
 					{t('app.settings.general.platform', 'Platform defaults')}
 				</h4>
-				<div className="stack">
-					<span>{t('ui.static.backend.fastapi.v1.aac8dc1e', 'Backend: FastAPI v1')}</span>
-					<span>
-						{t(
-							'ui.static.frontend.vite.react.typescript.b3d4c705',
-							'Frontend: Vite + React + TypeScript',
-						)}
-					</span>
-					<span>
-						{t(
-							'ui.static.autostart.user.scoped.task.scheduler.9d01bf00',
-							'Autostart: user-scoped Task Scheduler',
-						)}
-					</span>
-					<span>
-						{t(
-							'ui.static.package.manager.corepack.pnpm.10.24.0.2e9f3ce1',
-							'Package manager: corepack pnpm@10.24.0',
-						)}
-					</span>
-					<span>{t('ui.static.python.runner.uv.8c1511e8', 'Python runner: uv')}</span>
+				<div className="settings-readouts">
+					<div>
+						<strong>{t('app.settings.general.backendLabel', 'Backend')}</strong>
+						<span className="mono">{'FastAPI v1'}</span>
+					</div>
+					<div>
+						<strong>{t('app.settings.general.frontendLabel', 'Frontend')}</strong>
+						<span className="mono">{'Vite + React + TypeScript'}</span>
+					</div>
+					<div>
+						<strong>{t('app.settings.general.autostartLabel', 'Autostart')}</strong>
+						<span>{t('app.settings.general.autostartValue', 'User-scoped Task Scheduler')}</span>
+					</div>
+					<div>
+						<strong>{t('settings.runtime.packageManager', 'Package manager')}</strong>
+						<span className="mono">corepack pnpm@10.24.0</span>
+					</div>
+					<div>
+						<strong>{t('app.settings.runtime.pythonRunnerLabel', 'Python runner')}</strong>
+						<span className="mono">uv run</span>
+					</div>
 				</div>
 			</section>
 		</div>

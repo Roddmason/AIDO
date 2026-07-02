@@ -21,8 +21,12 @@ BASE_TEAM_ROLES = {
     "technical_lead",
     "backend_engineer",
     "frontend_engineer",
+    "mobile_engineer",
+    "database_engineer",
+    "data_engineer",
     "qa_engineer",
     "security_engineer",
+    "pentester",
     "devops_engineer",
     "researcher",
     "release_manager",
@@ -78,6 +82,7 @@ def test_new_database_bootstraps_base_team_profiles(tmp_path: Path) -> None:
         assert len(profiles) == len(BASE_TEAM_ROLES)
         for profile in profiles:
             assert profile["status"] == "active"
+            assert profile["outputSchema"]["type"] == "object"
             assert profile["defaultRuntimePolicy"]["providerCandidates"]
             assert isinstance(profile["allowedTools"], list) and profile["allowedTools"]
             assert isinstance(profile["allowedSkills"], list) and profile["allowedSkills"]
@@ -85,6 +90,41 @@ def test_new_database_bootstraps_base_team_profiles(tmp_path: Path) -> None:
             assert profile["costLimits"]["maxTokensPerRun"] == profile["maxTokensPerRun"]
             assert profile["qualityGates"]
             assert profile["reviewerPolicy"]["mode"] in {"none", "peer", "gated", "panel"}
+    finally:
+        runtime.close()
+
+
+def test_phase36_materializes_team_profiles_and_member_defaults(tmp_path: Path) -> None:
+    runtime = _runtime(tmp_path)
+    try:
+        runtime.init()
+        tables = {
+            row["name"]
+            for row in runtime.connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            ).fetchall()
+        }
+        assert {"team_profiles", "team_member_defaults", "agent_handoffs"} <= tables
+
+        profile_roles = {
+            row["role"]
+            for row in runtime.connection.execute("SELECT role FROM team_profiles").fetchall()
+        }
+        default_roles = {
+            row["role"]
+            for row in runtime.connection.execute("SELECT role FROM team_member_defaults").fetchall()
+        }
+        assert profile_roles == BASE_TEAM_ROLES
+        assert default_roles == BASE_TEAM_ROLES
+
+        backend = runtime.connection.execute(
+            "SELECT * FROM team_member_defaults WHERE role = 'backend_engineer'"
+        ).fetchone()
+        assert backend is not None
+        assert "code_edit" in backend["capabilities"]
+        assert "codex_cli" in backend["provider_preference"]
+        assert "agent_task" in backend["required_input_artifacts"]
+        assert "quality_gates" in backend["output_artifact_schema"]
     finally:
         runtime.close()
 

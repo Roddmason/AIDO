@@ -404,6 +404,26 @@ class BacklogRepository:
                 timestamp,
             ),
         )
+        self.connection.execute(
+            """
+            INSERT OR REPLACE INTO agent_handoffs
+                (id, project_id, assignment_id, artifact_id, from_agent_id, to_agent_id, status,
+                 review_required, blocked_reason, metadata, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, '', ?, ?, ?)
+            """,
+            (
+                handoff_id,
+                project_id,
+                assignment_id,
+                artifact_id,
+                from_agent_id,
+                to_agent_id,
+                1 if review_required else 0,
+                json_dumps(metadata or {}),
+                timestamp,
+                timestamp,
+            ),
+        )
         return self.get_assignment_handoff(handoff_id)
 
     def _insert_assignment_review(

@@ -178,10 +178,196 @@ def test_research_agent_fetches_official_source_and_persists_research_sources(
     ).fetchall()
     assert len(persisted) == 1
     assert persisted[0]["source_url"] == docs_url
+    assert persisted[0]["url"] == docs_url
+    assert persisted[0]["title"] == "Python Software Foundation"
+    assert persisted[0]["source_type"] == "web"
     assert persisted[0]["trust_level"] == "official_documentation"
     assert persisted[0]["content_hash"] == hashlib.sha256(docs_content.encode("utf-8")).hexdigest()
     assert body["sources"][0]["id"] == persisted[0]["id"]
     assert body["sources"][0]["artifactId"] == persisted[0]["artifact_id"]
+
+
+def test_research_agent_recommendation_cites_trusted_source_without_manual_decision(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store, client, headers = create_client(tmp_path, monkeypatch)
+    project, workspace = create_project_and_workspace(store, tmp_path, task_id="research-recommendation")
+    docs_url = "https://docs.python.org/3/library/asyncio-task.html"
+
+    response = client.post(
+        "/api/v1/agents/research/runs",
+        headers=headers,
+        json=research_request(
+            project,
+            workspace,
+            sources=[
+                {
+                    "url": docs_url,
+                    "title": "asyncio Task documentation",
+                    "publisher": "Python Software Foundation",
+                    "content": "TaskGroup is the official structured concurrency API.",
+                    "fetchedAt": "2026-06-25T10:00:00.000Z",
+                }
+            ],
+            conclusions=[
+                {
+                    "statement": "Use TaskGroup for structured concurrency.",
+                    "citations": [docs_url],
+                    "webBased": True,
+                }
+            ],
+        ),
+    )
+
+    assert response.status_code == 202, response.text
+    body = response.json()
+    assert body["status"] == "research_ready"
+    citations = body["recommendation"]["sourceCitations"]
+    assert citations
+    assert citations[0]["url"] == docs_url
+    assert citations[0]["title"] == "asyncio Task documentation"
+    assert citations[0]["sourceId"] == body["sources"][0]["id"]
+
+
+def test_research_agent_uses_policy_allowed_web_search_and_prefers_official_sources(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store, _client, _headers = create_client(tmp_path, monkeypatch)
+    project, workspace = create_project_and_workspace(store, tmp_path, task_id="research-search")
+    docs_url = "https://docs.python.org/3/library/asyncio-task.html"
+    calls: list[tuple[str, int]] = []
+
+    def search_provider(query: str, max_sources: int) -> list[dict[str, Any]]:
+        calls.append((query, max_sources))
+        return [
+            {
+                "url": "https://unknown.example/asyncio",
+                "title": "Untrusted asyncio note",
+                "publisher": "Unknown",
+                "content": "Untrusted note.",
+            },
+            {
+                "url": docs_url,
+                "title": "asyncio Task documentation",
+                "publisher": "Python Software Foundation",
+                "content": "TaskGroup is the official structured concurrency API.",
+            },
+        ]
+
+    result = research_agent_module.ResearchAgentRunner(
+        store.connection,
+        root=tmp_path,
+        web_search_provider=search_provider,
+    ).run(
+        research_request(
+            project,
+            workspace,
+            query="Python asyncio TaskGroup official docs",
+            maxSources=1,
+            sources=[],
+            conclusions=[
+                {
+                    "statement": "Use TaskGroup for structured concurrency.",
+                    "citations": [docs_url],
+                    "webBased": True,
+                }
+            ],
+            metadata={"allowWebSearch": True},
+        )
+    )
+
+    assert calls == [("Python asyncio TaskGroup official docs", 1)]
+    assert result["status"] == "research_ready"
+    assert [source["url"] for source in result["sources"]] == [docs_url]
+    assert result["sources"][0]["trustLevel"] == "official_documentation"
+
+
+def test_research_agent_default_web_search_provider_fetches_and_prioritizes_official_sources(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store, _client, _headers = create_client(tmp_path, monkeypatch)
+    project, workspace = create_project_and_workspace(store, tmp_path, task_id="research-default-search")
+    docs_url = "https://docs.python.org/3/library/asyncio-task.html"
+    unknown_url = "https://unknown.example/asyncio"
+    calls: list[str] = []
+
+    search_html = """
+    <html><body>
+      <a class="result__a" href="/l/?uddg=https%3A%2F%2Funknown.example%2Fasyncio">Untrusted asyncio note</a>
+      <a class="result__a" href="/l/?uddg=https%3A%2F%2Fdocs.python.org%2F3%2Flibrary%2Fasyncio-task.html">
+        asyncio Task documentation
+      </a>
+    </body></html>
+    """
+
+    def mocked_urlopen(request: object, **_kwargs: object) -> _FetchedResponse:
+        url = str(getattr(request, "full_url", request))
+        calls.append(url)
+        if "duckduckgo.com/html" in url:
+            return _FetchedResponse(search_html)
+        if url == docs_url:
+            return _FetchedResponse("TaskGroup is the official structured concurrency API.")
+        if url == unknown_url:
+            return _FetchedResponse("Untrusted note.")
+        raise AssertionError(f"unexpected fetch: {url}")
+
+    monkeypatch.setattr(research_agent_module, "urlopen", mocked_urlopen)
+
+    result = research_agent_module.ResearchAgentRunner(store.connection, root=tmp_path).run(
+        research_request(
+            project,
+            workspace,
+            query="Python asyncio TaskGroup official docs",
+            maxSources=1,
+            sources=[],
+            conclusions=[
+                {
+                    "statement": "Use TaskGroup for structured concurrency.",
+                    "citations": [docs_url],
+                    "webBased": True,
+                }
+            ],
+            metadata={"allowWebSearch": True},
+        )
+    )
+
+    assert result["status"] == "research_ready"
+    assert [source["url"] for source in result["sources"]] == [docs_url]
+    assert result["sources"][0]["title"] == "asyncio Task documentation"
+    assert result["sources"][0]["sourceType"] == "web_search"
+    assert result["sources"][0]["trustLevel"] == "official_documentation"
+    assert len(calls) == 2
+
+
+def test_research_agent_web_search_blocks_with_reason_when_internet_is_unavailable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def offline_urlopen(*_args: object, **_kwargs: object) -> _FetchedResponse:
+        raise URLError("network unreachable")
+
+    monkeypatch.setattr(research_agent_module, "urlopen", offline_urlopen)
+    store, client, headers = create_client(tmp_path, monkeypatch)
+    project, workspace = create_project_and_workspace(store, tmp_path, task_id="research-search-offline")
+
+    response = client.post(
+        "/api/v1/agents/research/runs",
+        headers=headers,
+        json=research_request(
+            project,
+            workspace,
+            query="Python asyncio TaskGroup official docs",
+            maxSources=1,
+            sources=[],
+            metadata={"allowWebSearch": True},
+        ),
+    )
+
+    assert response.status_code == 202, response.text
+    body = response.json()
+    assert body["status"] == "research_blocked"
+    assert body["reason"] == "ResearchAgent web search failed: <urlopen error network unreachable>"
+    assert body["sources"] == []
+    assert body["agentRun"]["status"] == "blocked"
 
 
 def test_research_agent_technical_decision_cites_persisted_source(

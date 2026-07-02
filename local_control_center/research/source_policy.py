@@ -125,7 +125,11 @@ def build_source_record(
     publisher: str,
     content: str,
     fetched_at: str,
+    title: str | None = None,
+    source_type: str | None = None,
     related_artifact: str | None = None,
+    related_thread_id: str | None = None,
+    related_task_id: str | None = None,
     trust_level: str | None = None,
 ) -> dict[str, Any]:
     """Construye el registro de procedencia de una fuente, con su hash y nivel de confianza.
@@ -147,11 +151,15 @@ def build_source_record(
     level = trust_level or classify_source(url)
     return {
         "url": redact_secrets(url),
+        "title": title.strip() if isinstance(title, str) and title.strip() else publisher,
         "publisher": publisher,
+        "sourceType": source_type.strip() if isinstance(source_type, str) and source_type.strip() else "web",
         "fetchedAt": fetched_at,
         "hash": content_hash(content),
         "trustLevel": level,
         "relatedArtifact": related_artifact,
+        "relatedThreadId": related_thread_id,
+        "relatedTaskId": related_task_id,
     }
 
 

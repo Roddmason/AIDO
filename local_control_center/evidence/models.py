@@ -21,6 +21,7 @@ ArtifactKind = Literal[
     "generic_artifact",
     "git_patch",
     "git_status",
+    "git_diff",
     "security_findings",
     "model_call",
     "evidence_manifest",
@@ -37,6 +38,7 @@ ArtifactKind = Literal[
     "product_owner_manifest",
     "product_owner_output",
     "product_brief",
+    "product_backlog",
 ]
 EvidenceSource = Literal[
     "operator_attested",
@@ -57,6 +59,9 @@ QAVerdict = Literal[
     "security_passed",
     "security_blocked",
     "skipped_with_reason",
+    "backlog_generated",
+    "brief_ready",
+    "blocked_pending_decisions",
 ]
 TestResultStatus = Literal[
     "passed",

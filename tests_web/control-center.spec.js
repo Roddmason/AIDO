@@ -1080,7 +1080,15 @@ test('Workbench shows the Git branch detected by the policy-gated Git status end
 	const explorer = page.getByRole('complementary', { name: 'Workspace explorer' });
 	await expect(explorer).toBeVisible();
 	const gitWorkspace = page.getByRole('group', { name: 'Git workspace' });
-	await expect(gitWorkspace.getByLabel('Git branch')).toHaveValue(gitStatus.currentBranch);
+	// The composer resolves the branch through the policy-gated git endpoints, which run ~16
+	// brokered git subprocesses over a single sqlite connection and take several seconds; the
+	// branch <select> only renders once that fetch resolves, so under full-suite load it can
+	// appear past the default 10s expect window (measured ~9s even lightly loaded). Wait for the
+	// control to attach before asserting so the check tracks the fetch instead of a fixed window.
+	// The assertion is unchanged: exact current branch and no "not detected" placeholder.
+	const gitBranch = gitWorkspace.getByLabel('Git branch');
+	await expect(gitBranch).toBeVisible({ timeout: 30_000 });
+	await expect(gitBranch).toHaveValue(gitStatus.currentBranch);
 	await expect(gitWorkspace.getByRole('option', { name: 'not detected' })).toHaveCount(0);
 });
 

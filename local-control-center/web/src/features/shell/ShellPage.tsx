@@ -22,6 +22,8 @@ export function ShellPage({ ctx }: { ctx: RouteContext }) {
 			token={ctx.token}
 			onSelectThread={ctx.onSelectSession}
 			onCreateProject={() => ctx.openWorkspaceDialog('open_folder')}
+			onOpenRuntimeSetup={() => ctx.openSettings('providers-cli')}
+			onOpenApprovals={() => ctx.navigateTo('review-board')}
 		/>
 	);
 }

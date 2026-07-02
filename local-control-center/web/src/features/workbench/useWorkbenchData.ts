@@ -204,14 +204,6 @@ function roleMatches(blueprintRole: string, roleValue: string, idOrName = '') {
 	return normalizedRole === blueprintRole;
 }
 
-function stageName(stage: JsonRecord) {
-	return textValue(stage.name ?? stage.id ?? stage.stage, 'stage');
-}
-
-function stageStatus(stage: JsonRecord) {
-	return textValue(stage.status, 'pending');
-}
-
 type UseWorkbenchDataParams = {
 	overview: Overview;
 	selectedProject: Project | null;
@@ -257,9 +249,9 @@ export function useWorkbenchData({
 	const projectSessions = useMemo(
 		() =>
 			sortByTimeDesc(
-				project ? overview.sessions.filter((session) => session.projectId === project.id) : [],
+				project ? overview.threads.filter((thread) => thread.projectId === project.id) : [],
 			),
-		[overview.sessions, project],
+		[overview.threads, project],
 	);
 	const activeSession =
 		selectedSessionId === NEW_SESSION_ID
@@ -267,26 +259,8 @@ export function useWorkbenchData({
 			: (projectSessions.find((session) => session.id === selectedSessionId) ??
 				projectSessions[0] ??
 				null);
-	const projectChats = useMemo(
-		() =>
-			sortByTimeDesc(project ? overview.chats.filter((chat) => chat.projectId === project.id) : []),
-		[overview.chats, project],
-	);
-	const sessionChats = activeSession
-		? projectChats.filter((chat) => chat.sessionId === activeSession.id)
-		: projectChats;
-	const projectPipelines = useMemo(
-		() =>
-			sortByTimeDesc(
-				project ? overview.pipelines.filter((pipeline) => pipeline.projectId === project.id) : [],
-			),
-		[overview.pipelines, project],
-	);
-	const sessionPipelines = activeSession
-		? projectPipelines.filter(
-				(pipeline) => pipeline.sessionId === activeSession.id || !pipeline.sessionId,
-			)
-		: projectPipelines;
+	const projectChats = projectSessions;
+	const sessionChats = activeSession ? [activeSession] : projectChats;
 	const projectWorkflows = useMemo(
 		() =>
 			sortByTimeDesc(
@@ -465,21 +439,9 @@ export function useWorkbenchData({
 		};
 	});
 
-	const latestPipeline = sessionPipelines[0] ?? projectPipelines[0] ?? null;
 	const ownerLabel = t('app.workbench.timeline.deliveryOwner', 'Owner');
 	const deliveryTimeline: WorkflowTimelineStage[] = deliveryStageBlueprints.map((stage, index) => {
-		const pipelineStage = latestPipeline?.stages.map(asRecord).find((item) => {
-			const normalized = stageName(item).toLowerCase();
-			return (
-				normalized.includes(stage.id) ||
-				normalized.includes(stage.label.toLowerCase().split(' ')[0])
-			);
-		});
-		const rawStatus = pipelineStage
-			? stageStatus(pipelineStage)
-			: index === 0 && latestPipeline
-				? latestPipeline.status
-				: 'pending';
+		const rawStatus = index === 0 && activeSession ? activeSession.status : 'pending';
 		const reason = `${ownerLabel}: ${stage.owner}`;
 		return {
 			id: `delivery:${stage.id}`,
@@ -495,7 +457,7 @@ export function useWorkbenchData({
 
 	const runTimeline = buildWorkflowTimeline(taskRunResult, isSubmittingTask, hasExecutableRuntime);
 	const hasRun = taskRunResult != null || isSubmittingTask;
-	const hasPipeline = latestPipeline != null;
+	const hasPipeline = activeSession != null;
 
 	return {
 		projects,
@@ -505,7 +467,6 @@ export function useWorkbenchData({
 		activeSession,
 		projectChats,
 		sessionChats,
-		sessionPipelines,
 		projectWorkflows,
 		projectWorkflowRuns,
 		projectWorkflowEvents,

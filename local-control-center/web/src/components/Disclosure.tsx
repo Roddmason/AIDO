@@ -14,29 +14,34 @@ import { useId, useState } from 'react';
  * advanced options behind progressive disclosure inside the Settings group cards.
  *
  * Each instance owns its open state (independent — several can be open at once).
- * The trigger lives inside an <h3> so heading order stays h1 (page) → h2 (group)
- * → h3 (section). The panel uses `hidden` when collapsed so it leaves the tab
- * order and the accessibility tree; the open transition is handled in CSS and is
- * neutralised under prefers-reduced-motion.
+ * The trigger lives inside a heading whose level matches the surrounding outline
+ * (`headingLevel`, default <h3> for Settings: h1 page → h2 group → h3 section;
+ * panels whose sections already sit under an h4 pass 4). The panel uses `hidden`
+ * when collapsed so it leaves the tab order and the accessibility tree; the open
+ * transition is handled in CSS and is neutralised under prefers-reduced-motion.
  */
 export function Disclosure({
 	title,
 	children,
 	summary,
 	defaultOpen = false,
+	headingLevel = 3,
 }: {
 	title: string;
 	children: ReactNode;
 	summary?: ReactNode;
 	defaultOpen?: boolean;
+	/** Heading level for the trigger, matching the host panel's outline. */
+	headingLevel?: 3 | 4;
 }) {
 	const reactId = useId();
 	const triggerId = `disclosure-trigger-${reactId}`;
 	const regionId = `disclosure-region-${reactId}`;
 	const [open, setOpen] = useState(defaultOpen);
+	const Heading = headingLevel === 4 ? 'h4' : 'h3';
 	return (
 		<div className="disclosure" data-open={open}>
-			<h3 className="disclosure-heading">
+			<Heading className="disclosure-heading">
 				<button
 					id={triggerId}
 					className="disclosure-trigger"
@@ -49,7 +54,7 @@ export function Disclosure({
 					<span className="disclosure-title">{title}</span>
 					{summary ? <span className="disclosure-summary">{summary}</span> : null}
 				</button>
-			</h3>
+			</Heading>
 			<section
 				id={regionId}
 				aria-labelledby={triggerId}

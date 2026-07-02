@@ -881,7 +881,7 @@ test('Go menu exposes the primary destinations and explorer reflects the active 
 
 	// The Go menu lists all primary destinations.
 	await page.getByRole('menuitem', { name: 'Go' }).click();
-	for (const name of ['Home', 'Workbench', 'Runs', 'Review board', 'Settings']) {
+	for (const name of ['Threads', 'Home', 'Workbench', 'Review board', 'Memory', 'Settings']) {
 		await expect(page.getByRole('menuitem', { name, exact: true })).toBeVisible();
 	}
 	// Close the menu.
@@ -905,7 +905,7 @@ test('Go menu has primary destinations and explorer marks the active route', asy
 
 	// The Go menu exposes at least the core destinations.
 	await page.getByRole('menuitem', { name: 'Go' }).click();
-	for (const name of ['Home', 'Workbench', 'Runs', 'Review board', 'Settings']) {
+	for (const name of ['Threads', 'Home', 'Workbench', 'Review board', 'Memory', 'Settings']) {
 		await expect(page.getByRole('menuitem', { name, exact: true })).toBeVisible();
 	}
 	await page.keyboard.press('Escape');
@@ -1002,13 +1002,13 @@ test('IDE Explorer exposes audit log and workspace settings from the shell', asy
 	await expect(dialog.getByRole('button', { name: 'Workspaces' })).toBeVisible();
 });
 
-test('Workbench chat creates a chat intake and linked pipeline', async ({ page }) => {
+test('Workbench intake creates a thread and posts the first message', async ({ page }) => {
 	const project = await getActiveProject(page);
 	const prompt = `Workbench intake ${Date.now()}`;
 	await page.goto('/#workbench');
 
 	await expect(page.locator('.workbench-layout')).toBeVisible();
-	await expect(page.getByRole('heading', { name: 'Work sessions' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Project threads' })).toBeVisible();
 	await expect(page.getByRole('radiogroup', { name: 'Task intake mode' })).toHaveCount(0);
 	for (const legacyMode of ['Fix bug', 'Add feature', 'Refactor', 'Write tests']) {
 		await expect(page.getByRole('radio', { name: legacyMode })).toHaveCount(0);
@@ -1050,22 +1050,22 @@ test('Workbench chat creates a chat intake and linked pipeline', async ({ page }
 
 	// The single composer is always visible: compose the intake directly, no tab switch needed.
 	await page.getByLabel('Workspace folder', { exact: true }).selectOption(project.id);
-	await page.getByRole('button', { name: 'New work session' }).click();
+	await page.getByRole('button', { name: 'New project thread' }).click();
 	await page.getByLabel('What should AIDO do?').fill(prompt);
 	await page.getByRole('button', { name: 'Agents / Loop', exact: true }).click();
 
-	await expect(page.getByText('Chat intake created')).toBeVisible({ timeout: 30_000 });
-	// The new chat appears in the Conversation section transcript.
+	await expect(page.getByText('Thread intake created')).toBeVisible({ timeout: 30_000 });
+	// The new thread appears in the Conversation section transcript.
 	await page.getByRole('tab', { name: /^Conversation/ }).click();
 	await expect(page.getByText(prompt).first()).toBeVisible();
 	await expect
 		.poll(async () => {
 			const overviewResponse = await page.request.get('/api/v1/overview');
 			const overview = await overviewResponse.json();
-			const chat = overview.chats.find((item) => item.prompt === prompt);
-			const pipeline = overview.pipelines.find((item) => item.chatId === chat?.id);
-			const session = overview.sessions.find((item) => item.id === chat?.sessionId);
-			return Boolean(chat && session && pipeline && pipeline.projectId === project.id && pipeline.sessionId === session.id);
+			const thread = overview.threads.find(
+				(item) => item.projectId === project.id && item.title === prompt.slice(0, 96),
+			);
+			return Boolean(thread && !('sessions' in overview) && !('chats' in overview) && !('pipelines' in overview));
 		})
 		.toBe(true);
 });
@@ -1090,7 +1090,7 @@ test('Go menu localizes primary destinations with the ES EN control', async ({ p
 
 	// Verify EN destinations in the Go menu.
 	await page.getByRole('menuitem', { name: 'Go' }).click();
-	for (const name of ['Home', 'Workbench', 'Runs', 'Review board', 'Settings']) {
+	for (const name of ['Threads', 'Home', 'Workbench', 'Review board', 'Memory', 'Settings']) {
 		await expect(page.getByRole('menuitem', { name, exact: true })).toBeVisible();
 	}
 	await page.keyboard.press('Escape');
@@ -1100,7 +1100,7 @@ test('Go menu localizes primary destinations with the ES EN control', async ({ p
 	await expect(page.locator('html')).toHaveAttribute('lang', 'es');
 
 	await page.getByRole('menuitem', { name: 'Ir' }).click();
-	for (const name of ['Inicio', 'Ejecuciones', 'Tablero de revisión', 'Configuración']) {
+	for (const name of ['Hilos', 'Inicio', 'Banco de trabajo', 'Tablero de revisión', 'Memoria', 'Configuración']) {
 		await expect(page.getByRole('menuitem', { name, exact: true })).toBeVisible();
 	}
 	await page.keyboard.press('Escape');
@@ -1144,19 +1144,19 @@ test('language control localizes catalog-backed operational surfaces', async ({ 
 	await page.goto('/#workbench');
 	await expectControlPlaneLoaded(page);
 	await expect(page.locator('.workbench-layout')).toBeVisible();
-	await expect(page.getByRole('heading', { name: 'Work sessions' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Project threads' })).toBeVisible();
 	await expect(page.getByText('AI project workbench')).toBeVisible();
 
 	await page.getByRole('button', { name: 'ES', exact: true }).click();
 
 	await expect(page.locator('html')).toHaveAttribute('lang', 'es');
-	await expect(page.getByRole('heading', { name: 'Sesiones de trabajo' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Threads de proyecto' })).toBeVisible();
 	await expect(page.getByText('Workbench de proyecto IA')).toBeVisible();
-	await expect(page.getByRole('heading', { name: 'Work sessions' })).toHaveCount(0);
+	await expect(page.getByRole('heading', { name: 'Project threads' })).toHaveCount(0);
 
 	await page.getByRole('button', { name: 'EN', exact: true }).click();
 	await expect(page.locator('html')).toHaveAttribute('lang', 'en');
-	await expect(page.getByRole('heading', { name: 'Work sessions' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Project threads' })).toBeVisible();
 });
 
 test('New Project wizard uses IDE workspace import and blocks duplicate workspace names', async ({ page }) => {

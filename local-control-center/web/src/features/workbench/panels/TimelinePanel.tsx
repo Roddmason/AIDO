@@ -28,7 +28,6 @@ export function TimelinePanel({
 	workflows,
 	workflowRuns,
 	workflowEvents,
-	pipelines,
 	onOpenArtifact,
 }: {
 	runTimeline: WorkflowTimelineStage[];
@@ -39,7 +38,6 @@ export function TimelinePanel({
 	workflows: Overview['workflows'];
 	workflowRuns: Overview['workflowRuns'];
 	workflowEvents: Overview['workflowEvents'];
-	pipelines: Overview['pipelines'];
 	onOpenArtifact?: (artifact: TimelineArtifactRef) => void;
 }) {
 	const { t } = useI18n();
@@ -97,10 +95,10 @@ export function TimelinePanel({
 					/>
 				) : (
 					<EmptyState
-						title={t('app.workbench.timeline.deliveryEmptyTitle', 'No delivery pipeline yet')}
+						title={t('app.workbench.timeline.deliveryEmptyTitle', 'No delivery flow yet')}
 						body={t(
 							'app.workbench.timeline.deliveryEmptyBody',
-							'Start a conversation intake to create the delivery pipeline.',
+							'Start a thread intake to create the delivery flow.',
 						)}
 					/>
 				)}
@@ -139,37 +137,6 @@ export function TimelinePanel({
 										t('app.workbenchEvidence.notRecorded', 'not recorded'),
 									)}
 								</span>
-							),
-						},
-					]}
-				/>
-			</Surface>
-
-			<Surface title={t('app.workbench.timeline.pipelinesTitle', 'Session pipelines')} flat>
-				<DataTable
-					rows={pipelines.slice(0, 5)}
-					empty={
-						<EmptyState
-							title={t('app.workbench.timeline.pipelinesEmptyTitle', 'No intake pipelines')}
-							body={t(
-								'app.workbench.timeline.pipelinesEmptyBody',
-								'Chat intake creates the first pipeline record for the selected work session.',
-							)}
-						/>
-					}
-					columns={[
-						{
-							key: 'title',
-							label: t('app.workbench.timeline.colPipeline', 'Pipeline'),
-							render: (row) => String(row.title ?? ''),
-						},
-						{
-							key: 'status',
-							label: t('app.workbench.timeline.colStatus', 'Status'),
-							render: (row) => (
-								<Badge tone={toneForStatus(String(row.status ?? ''))}>
-									{String(row.status ?? '')}
-								</Badge>
 							),
 						},
 					]}

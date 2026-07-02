@@ -39,7 +39,7 @@ export type { TextAreaProps } from './TextArea';
 export { TextArea } from './TextArea';
 export type { TextFieldProps } from './TextField';
 export { TextField } from './TextField';
-export type { ToastOptions, ToastTone } from './ToastProvider';
+export type { ToastAction, ToastOptions, ToastTone } from './ToastProvider';
 export { ToastProvider, useToast } from './ToastProvider';
 export type { TooltipProps } from './Tooltip';
 export { Tooltip } from './Tooltip';

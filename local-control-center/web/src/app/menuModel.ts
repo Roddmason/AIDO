@@ -28,13 +28,7 @@ export type MenuCommandId =
 	| 'go-threads'
 	| 'go-home'
 	| 'go-workbench'
-	| 'go-runs'
 	| 'go-review'
-	| 'go-evidence'
-	| 'go-governance'
-	| 'go-audit'
-	| 'go-models'
-	| 'go-integrations'
 	| 'go-memory'
 	| 'go-settings'
 	| 'keyboard-shortcuts'
@@ -203,13 +197,6 @@ export const MENUS: MenuDef[] = [
 				label: 'Workbench',
 				page: 'workbench',
 			},
-			{
-				kind: 'command',
-				command: 'go-runs',
-				labelKey: 'app.menu.goRuns',
-				label: 'Runs',
-				page: 'workflows',
-			},
 			separator,
 			{
 				kind: 'command',
@@ -220,47 +207,12 @@ export const MENUS: MenuDef[] = [
 			},
 			{
 				kind: 'command',
-				command: 'go-evidence',
-				labelKey: 'app.menu.goEvidence',
-				label: 'Evidence',
-				page: 'evidence',
-			},
-			{
-				kind: 'command',
-				command: 'go-governance',
-				labelKey: 'app.menu.goGovernance',
-				label: 'Governance',
-				page: 'governance',
-			},
-			{
-				kind: 'command',
-				command: 'go-audit',
-				labelKey: 'app.menu.goAudit',
-				label: 'Audit',
-				page: 'audit',
-			},
-			separator,
-			{
-				kind: 'command',
-				command: 'go-models',
-				labelKey: 'app.menu.goModels',
-				label: 'Model gateway',
-				page: 'models',
-			},
-			{
-				kind: 'command',
-				command: 'go-integrations',
-				labelKey: 'app.menu.goIntegrations',
-				label: 'Integrations',
-				page: 'integrations',
-			},
-			{
-				kind: 'command',
 				command: 'go-memory',
 				labelKey: 'app.menu.goMemory',
 				label: 'Memory',
 				page: 'memory',
 			},
+			separator,
 			{
 				kind: 'command',
 				command: 'go-settings',

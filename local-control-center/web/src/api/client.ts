@@ -36,14 +36,17 @@ export type ModelGatewayBenchmarkOutcomeRequest =
 	MutationBody<'create_benchmark_outcome_api_v1_model_gateway_benchmark_outcomes_post'>;
 export type ModelGatewayProviderPatchRequest =
 	MutationBody<'patch_provider_api_v1_model_gateway_providers__provider_id__patch'>;
-export type ChatCreateRequest = MutationBody<'create_chat_api_v1_chats_post'>;
-export type ChatCreateResponse = OperationResponse<'create_chat_api_v1_chats_post'>;
-export type SessionCreateRequest = MutationBody<'create_session_api_v1_sessions_post'>;
-export type SessionCreateResponse = OperationResponse<'create_session_api_v1_sessions_post'>;
-export type PipelineCreateRequest = MutationBody<'create_pipeline_api_v1_pipelines_post'>;
-export type PipelineCreateResponse = OperationResponse<'create_pipeline_api_v1_pipelines_post'>;
 export type ThreadCreateRequest = MutationBody<'create_thread_api_v1_threads_post'>;
 export type ThreadDetailResponse = OperationResponse<'get_thread_api_v1_threads__thread_id__get'>;
+export type ThreadListResponse = OperationResponse<'list_threads_api_v1_threads_get'>;
+export type ThreadUpdateRequest = MutationBody<'update_thread_api_v1_threads__thread_id__patch'>;
+export type ThreadArchiveRequest =
+	MutationBody<'archive_thread_api_v1_threads__thread_id__archive_post'>;
+export type ThreadArchiveResponse =
+	OperationResponse<'archive_thread_api_v1_threads__thread_id__archive_post'>;
+export type ThreadDeleteRequest = MutationBody<'delete_thread_api_v1_threads__thread_id__delete'>;
+export type ThreadDeleteResponse =
+	OperationResponse<'delete_thread_api_v1_threads__thread_id__delete'>;
 export type ThreadEventsResponse =
 	OperationResponse<'thread_events_api_v1_threads__thread_id__events_get'>;
 export type ThreadMessageRequest =
@@ -54,6 +57,17 @@ export type ThreadDecisionResolveRequest =
 	MutationBody<'resolve_decision_api_v1_threads__thread_id__decisions__decision_id__resolve_post'>;
 export type ThreadDecisionResolveResponse =
 	OperationResponse<'resolve_decision_api_v1_threads__thread_id__decisions__decision_id__resolve_post'>;
+export type ThreadSimilarityResponse =
+	OperationResponse<'find_similar_threads_api_v1_threads_similar_get'>;
+export type ThreadSimilarityMarkRequest =
+	MutationBody<'mark_similar_thread_api_v1_threads__thread_id__similar__candidate_id__mark_post'>;
+export type ThreadSimilarityMarkResponse =
+	OperationResponse<'mark_similar_thread_api_v1_threads__thread_id__similar__candidate_id__mark_post'>;
+export type ThreadMemoryRecallResponse =
+	OperationResponse<'thread_memory_api_v1_threads__thread_id__memory_get'>;
+export type WorkerStatusResponse = OperationResponse<'worker_status_api_v1_workers_status_get'>;
+export type WorkerRunOnceResponse =
+	OperationResponse<'worker_run_once_api_v1_workers_run_once_post'>;
 export type IssueToPatchRequest =
 	MutationBody<'run_issue_to_patch_api_v1_workflows_issue_to_patch_post'>;
 export type IssueToPatchResponse =
@@ -894,45 +908,98 @@ export function createWorkflowWithBody(
 	});
 }
 
-export function createChat(token: string, body: ChatCreateRequest, signal?: AbortSignal) {
-	return requestGeneratedOperation<'create_chat_api_v1_chats_post', ChatCreateResponse>(
-		'create_chat_api_v1_chats_post',
-		{
-			token,
-			body,
-			signal,
-		},
-	);
-}
-
-export function createSession(token: string, body: SessionCreateRequest, signal?: AbortSignal) {
-	return requestGeneratedOperation<'create_session_api_v1_sessions_post', SessionCreateResponse>(
-		'create_session_api_v1_sessions_post',
-		{
-			token,
-			body,
-			signal,
-		},
-	);
-}
-
-export function createPipeline(token: string, body: PipelineCreateRequest, signal?: AbortSignal) {
-	return requestGeneratedOperation<'create_pipeline_api_v1_pipelines_post', PipelineCreateResponse>(
-		'create_pipeline_api_v1_pipelines_post',
-		{
-			token,
-			body,
-			signal,
-		},
-	);
-}
-
 /** Creates a real project thread bound to an owner entity; requires the write token. */
 export function createThread(token: string, body: ThreadCreateRequest, signal?: AbortSignal) {
 	return requestGeneratedOperation<'create_thread_api_v1_threads_post', ThreadDetailResponse>(
 		'create_thread_api_v1_threads_post',
 		{ token, body, signal },
 	);
+}
+
+/** Lists thread headers; `includeArchived` opts archived rows in (deleted stay hidden); a read. */
+export function listThreads(
+	options: { projectId?: string; includeArchived?: boolean } = {},
+	signal?: AbortSignal,
+) {
+	return requestGeneratedOperation<'list_threads_api_v1_threads_get', ThreadListResponse>(
+		'list_threads_api_v1_threads_get',
+		{
+			query: { projectId: options.projectId, includeArchived: options.includeArchived },
+			signal,
+		},
+	);
+}
+
+/** Renames a thread through the header PATCH; requires the write token. */
+export function renameThread(
+	token: string,
+	threadId: string,
+	body: ThreadUpdateRequest,
+	signal?: AbortSignal,
+) {
+	return requestGeneratedOperation<
+		'update_thread_api_v1_threads__thread_id__patch',
+		ThreadDetailResponse
+	>('update_thread_api_v1_threads__thread_id__patch', {
+		token,
+		pathParams: { thread_id: threadId },
+		body,
+		signal,
+	});
+}
+
+/** Archives a thread logically (messages/artifacts untouched); requires the write token. */
+export function archiveThread(
+	token: string,
+	threadId: string,
+	body: ThreadArchiveRequest,
+	signal?: AbortSignal,
+) {
+	return requestGeneratedOperation<
+		'archive_thread_api_v1_threads__thread_id__archive_post',
+		ThreadArchiveResponse
+	>('archive_thread_api_v1_threads__thread_id__archive_post', {
+		token,
+		pathParams: { thread_id: threadId },
+		body,
+		signal,
+	});
+}
+
+/** Reopens an archived thread; requires the write token. */
+export function unarchiveThread(
+	token: string,
+	threadId: string,
+	body: ThreadArchiveRequest,
+	signal?: AbortSignal,
+) {
+	return requestGeneratedOperation<
+		'unarchive_thread_api_v1_threads__thread_id__unarchive_post',
+		ThreadArchiveResponse
+	>('unarchive_thread_api_v1_threads__thread_id__unarchive_post', {
+		token,
+		pathParams: { thread_id: threadId },
+		body,
+		signal,
+	});
+}
+
+/** Soft-deletes a thread (server rejects queued/running with 409); requires the write token. */
+export function deleteThread(
+	token: string,
+	threadId: string,
+	body: ThreadDeleteRequest,
+	signal?: AbortSignal,
+) {
+	return requestGeneratedOperation<
+		'delete_thread_api_v1_threads__thread_id__delete',
+		ThreadDeleteResponse
+	>('delete_thread_api_v1_threads__thread_id__delete', {
+		token,
+		pathParams: { thread_id: threadId },
+		body,
+		signal,
+	});
 }
 
 /** Reads one thread with its full timeline (messages, artifacts, decisions, events); a read. */
@@ -954,6 +1021,52 @@ export function getThreadEvents(threadId: string, afterSeq = 0, limit = 300, sig
 	>('thread_events_api_v1_threads__thread_id__events_get', {
 		pathParams: { thread_id: threadId },
 		query: { afterSeq, limit },
+		signal,
+	});
+}
+
+/** Finds threads similar to free text within a project (lexical index); a read, no token needed. */
+export function findSimilarThreads(
+	projectId: string,
+	query: string,
+	limit = 3,
+	signal?: AbortSignal,
+) {
+	return requestGeneratedOperation<
+		'find_similar_threads_api_v1_threads_similar_get',
+		ThreadSimilarityResponse
+	>('find_similar_threads_api_v1_threads_similar_get', {
+		query: { projectId, query, limit },
+		signal,
+	});
+}
+
+/** Recalls what AIDO remembers about work similar to this thread (six categories); a read, no token needed. */
+export function getThreadMemory(threadId: string, signal?: AbortSignal) {
+	return requestGeneratedOperation<
+		'thread_memory_api_v1_threads__thread_id__memory_get',
+		ThreadMemoryRecallResponse
+	>('thread_memory_api_v1_threads__thread_id__memory_get', {
+		pathParams: { thread_id: threadId },
+		signal,
+	});
+}
+
+/** Records the operator's decision about a similar-thread candidate; requires the write token. */
+export function markSimilarThread(
+	token: string,
+	threadId: string,
+	candidateId: string,
+	body: ThreadSimilarityMarkRequest,
+	signal?: AbortSignal,
+) {
+	return requestGeneratedOperation<
+		'mark_similar_thread_api_v1_threads__thread_id__similar__candidate_id__mark_post',
+		ThreadSimilarityMarkResponse
+	>('mark_similar_thread_api_v1_threads__thread_id__similar__candidate_id__mark_post', {
+		token,
+		pathParams: { thread_id: threadId, candidate_id: candidateId },
+		body,
 		signal,
 	});
 }
@@ -992,6 +1105,24 @@ export function resolveThreadDecision(
 		pathParams: { thread_id: threadId, decision_id: decisionId },
 		body,
 		signal,
+	});
+}
+
+/** Reads the local worker runtime state; a read, so no write token is required. */
+export function getWorkerStatus(signal?: AbortSignal) {
+	return requestGeneratedOperation<'worker_status_api_v1_workers_status_get', WorkerStatusResponse>(
+		'worker_status_api_v1_workers_status_get',
+		{ signal },
+	);
+}
+
+/** Runs one bounded batch of queued local jobs now; requires the write token. */
+export function runWorkerOnce(token: string) {
+	return requestGeneratedOperation<
+		'worker_run_once_api_v1_workers_run_once_post',
+		WorkerRunOnceResponse
+	>('worker_run_once_api_v1_workers_run_once_post', {
+		token,
 	});
 }
 

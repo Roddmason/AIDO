@@ -11,6 +11,8 @@ stays inside the allocated workspace and never commits, pushes, or touches secre
 from __future__ import annotations
 
 import sqlite3
+import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -340,6 +342,22 @@ def runtime_for(
     return runtimes[runtime_id]
 
 
+# La detección de un runtime CLI ejecuta `<binario> --version` por subprocess (~4 s en frío para
+# el set completo en Windows) y su resultado —presencia y versión de un binario— es estable en
+# ventanas cortas. Se cachea por `(runtime_id, executable)` con TTL para que el polling del shell
+# (~cada 5 s) no repita el probe en cada request ni lo retenga bajo el lock global que serializa el
+# acceso al runtime del control-plane. El costo real vive aquí; el rollup de estado se deriva de la BD.
+_DETECTION_CACHE_TTL_SECONDS = 30.0
+_detection_cache: dict[tuple[str, str | None], tuple[float, dict[str, Any]]] = {}
+_detection_cache_lock = threading.Lock()
+
+
+def reset_detection_cache() -> None:
+    """Vacía el caché de detección de runtimes; usar entre tests para evitar fugas de estado global."""
+    with _detection_cache_lock:
+        _detection_cache.clear()
+
+
 class RuntimeRegistry:
     """Detection facade over the known CLI runtimes."""
 
@@ -353,8 +371,21 @@ class RuntimeRegistry:
         return result
 
     def detect(self, runtime_id: str, *, executable: str | None = None) -> dict[str, Any]:
-        """Detect a single runtime, optionally probing a specific executable path."""
-        return runtime_for(runtime_id, executable=executable).detect().model_dump(by_alias=True)
+        """Detect a single runtime, optionally probing a specific executable path.
+
+        Sirve la detección cacheada dentro del TTL; ante fallo de caché ejecuta el probe FUERA del
+        candado del caché (no serializa los probes entre sí) y guarda el resultado.
+        """
+        key = (runtime_id, executable)
+        now = time.monotonic()
+        with _detection_cache_lock:
+            cached = _detection_cache.get(key)
+            if cached is not None and now - cached[0] < _DETECTION_CACHE_TTL_SECONDS:
+                return dict(cached[1])
+        detection = runtime_for(runtime_id, executable=executable).detect().model_dump(by_alias=True)
+        with _detection_cache_lock:
+            _detection_cache[key] = (time.monotonic(), detection)
+        return dict(detection)
 
     def health_check(self, runtime_id: str, *, executable: str | None = None) -> dict[str, Any]:
         """Run a runtime's safe version/health check and return its result."""

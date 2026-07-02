@@ -24,7 +24,7 @@ from local_control_center.shared.time import utc_now
 
 from .credentials import CredentialResolver
 from .developer_agent_contract import developer_agent_readiness
-from .model_gateway import ollama_status
+from .model_gateway import cached_ollama_status
 from .provider_accounts import ProviderAccountStore
 from .runtime_provider_config import RuntimeProviderConfiguration, runtime_provider_configuration
 from .runtime_registry import RuntimeRegistry
@@ -441,7 +441,7 @@ def _ollama_provider_status(
     )
     credential_ref = str(account.get("credentialRef") or "").strip() or None
     status = (
-        ollama_status(base_url=base_url, credential_ref=credential_ref)
+        cached_ollama_status(base_url=base_url, credential_ref=credential_ref)
         if base_url
         else {
             "provider": "ollama",

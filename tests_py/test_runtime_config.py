@@ -621,7 +621,7 @@ def test_cli_version_ok_with_validated_native_account_can_run_prompt_and_edit_wo
 
 def test_ollama_ok_with_mocked_server_reports_prompt_capability(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(
-        "local_control_center.agents.runtime_status.ollama_status",
+        "local_control_center.agents.runtime_status.cached_ollama_status",
         lambda **_kwargs: {
             "provider": "ollama",
             "available": True,

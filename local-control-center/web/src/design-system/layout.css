@@ -2346,6 +2346,58 @@
 	color: var(--color-text-muted);
 }
 
+/* Runtime readiness chip: same context-row fact styling as .composer-env but interactive — it
+ * deep-links into Settings → Runtime. With zero executable runtimes it becomes the setup CTA
+ * (warn tone), so the composer never states "0 runtimes" without offering the next step. */
+.composer-runtimes {
+	position: relative;
+	border: 0;
+	border-top: 1px solid var(--color-border-subtle);
+	border-radius: 0;
+	background: none;
+	font: inherit;
+	cursor: pointer;
+	transition: color var(--duration-fast) var(--ease-standard);
+}
+
+/* Invisible hit-area extension: the visible chip stays on the shared toolbar border line while the
+ * pointer target reaches ≥24px tall (WCAG 2.5.8) without shifting the row layout. */
+.composer-runtimes::after {
+	content: "";
+	position: absolute;
+	inset: calc(-1 * var(--space-1)) 0;
+}
+
+/* The underline lives on the label span (not the flex button — decorations don't propagate
+ * across flex items), giving the chip a persistent link affordance next to the static "Local"
+ * fact that shares its base styling. */
+.composer-runtimes-label {
+	text-decoration: underline;
+	text-decoration-color: var(--color-border-strong);
+	text-underline-offset: 0.2em;
+	transition: text-decoration-color var(--duration-fast) var(--ease-standard);
+}
+
+.composer-runtimes:hover {
+	color: var(--color-text-secondary);
+}
+
+.composer-runtimes:hover .composer-runtimes-label {
+	text-decoration-color: currentcolor;
+}
+
+.composer-runtimes:focus-visible {
+	outline: none;
+	border-radius: var(--radius-sm);
+	box-shadow: var(--shadow-focus);
+}
+
+/* Warn text mixes toward primary text (same recipe as the badge/icon-button warn tones) so the
+ * label keeps ≥4.5:1 contrast on light surfaces where the raw warning token falls short. */
+.composer-runtimes[data-tone="warn"] {
+	color: color-mix(in oklch, var(--color-status-warning) 78%, var(--color-text-primary));
+}
+
 /* ---- Control-plane boot screen: animated signal mark + honest indeterminate loading bar ---- */
 .boot-screen {
 	flex: 1 1 auto;

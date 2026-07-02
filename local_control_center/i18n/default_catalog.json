@@ -667,6 +667,10 @@
       "en": "Git workspace",
       "es": "Espacio de trabajo Git"
     },
+    "app.composer.executableRuntime": {
+      "en": "executable runtime",
+      "es": "runtime ejecutable"
+    },
     "app.statusBar.git.branchSelect": {
       "en": "Git branch",
       "es": "Rama de Git"

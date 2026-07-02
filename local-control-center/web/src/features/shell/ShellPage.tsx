@@ -20,6 +20,7 @@ export function ShellPage({ ctx }: { ctx: RouteContext }) {
 			selectedThreadId={ctx.selectedSessionId}
 			mutate={ctx.mutate}
 			token={ctx.token}
+			runtimeProviders={ctx.runtimeProviders}
 			onSelectThread={ctx.onSelectSession}
 			onCreateProject={() => ctx.openWorkspaceDialog('open_folder')}
 			onOpenRuntimeSetup={() => ctx.openSettings('providers-cli')}

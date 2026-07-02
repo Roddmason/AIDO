@@ -222,3 +222,22 @@ def test_persisting_a_source_records_full_provenance_as_an_artifact(tmp_path: Pa
         assert source["trustLevel"] == "standard_rfc"
         assert source["hash"] == record["hash"]
         assert source["relatedArtifact"] == "artifact-conclusion-1"
+
+
+def test_research_sources_table_exposes_canonical_source_contract_columns(tmp_path: Path) -> None:
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+
+        columns = {row["name"] for row in connection.execute("PRAGMA table_info(research_sources)")}
+
+        assert {
+            "url",
+            "title",
+            "publisher",
+            "source_type",
+            "fetched_at",
+            "content_hash",
+            "trust_level",
+            "related_thread_id",
+            "related_task_id",
+        } <= columns

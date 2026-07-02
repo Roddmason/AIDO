@@ -14,7 +14,7 @@ from typing import Any
 from local_control_center.research.source_policy import TRUST_LEVELS
 
 RESEARCH_AGENT_ID = "research_agent"
-RESEARCH_AGENT_ALLOWED_TOOLS: list[str] = []
+RESEARCH_AGENT_ALLOWED_TOOLS: list[str] = ["web_search"]
 RESEARCH_AGENT_STATES = {"research_required", "research_running", "research_ready", "research_blocked"}
 
 
@@ -24,11 +24,13 @@ def research_agent_contract() -> dict[str, Any]:
         "id": RESEARCH_AGENT_ID,
         "inputSchema": {
             "type": "object",
-            "required": ["projectId", "workspaceId", "taskId", "sources"],
+            "required": ["projectId", "workspaceId", "taskId"],
             "properties": {
                 "projectId": {"type": "string"},
                 "workspaceId": {"type": "string"},
                 "taskId": {"type": "string"},
+                "query": {"type": "string"},
+                "maxSources": {"type": "integer", "minimum": 1, "maximum": 50},
                 "sources": {"type": "array", "items": {"type": "object"}},
                 "conclusions": {"type": "array", "items": {"type": "object"}},
                 "claims": {"type": "array", "items": {"type": "object"}},
@@ -68,6 +70,7 @@ def research_agent_contract() -> dict[str, Any]:
             "source_provenance_persistence",
             "technical_citation_validation",
             "conflict_detection",
+            "policy_gated_web_search",
             "downloaded_code_execution_denied",
         ],
         "requiredWorkspace": True,

@@ -12,10 +12,13 @@ from __future__ import annotations
 
 import sqlite3
 import uuid
+from collections.abc import Callable
+from html import unescape
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlencode, urljoin, urlparse
 from urllib.request import Request, urlopen
 
 from local_control_center.evidence.artifacts import (
@@ -31,8 +34,10 @@ from local_control_center.research.source_policy import (
     UNTRUSTED,
     ResearchPolicyError,
     build_source_record,
+    classify_source,
     detect_conflicts,
     require_citations,
+    trust_rank,
 )
 from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.serialization import json_dumps
@@ -45,6 +50,124 @@ from .research_agent_contract import RESEARCH_AGENT_ID, research_agent_contract,
 
 MAX_SOURCE_BYTES = 1_000_000
 FETCH_TIMEOUT_SECONDS = 20
+MAX_RESEARCH_SOURCES = 50
+DEFAULT_WEB_SEARCH_MAX_SOURCES = 5
+WEB_SEARCH_TIMEOUT_SECONDS = 10
+MAX_WEB_SEARCH_BYTES = 512_000
+WEB_SEARCH_RESULT_BUFFER_MULTIPLIER = 4
+DUCKDUCKGO_HTML_ENDPOINT = "https://duckduckgo.com/html/"
+WebSearchProvider = Callable[[str, int], list[dict[str, Any]]]
+
+
+def _source_policy_rank(source: dict[str, Any]) -> int:
+    level = str(source.get("trustLevel") or classify_source(str(source.get("url") or "")))
+    return trust_rank(level)
+
+
+class _DuckDuckGoResultParser(HTMLParser):
+    """Extrae resultados orgánicos del HTML simple de DuckDuckGo sin ejecutar scripts."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.results: list[dict[str, str]] = []
+        self._current_href: str | None = None
+        self._current_title: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag.lower() != "a":
+            return
+        attributes = {key.lower(): value or "" for key, value in attrs}
+        css_class = attributes.get("class", "")
+        href = attributes.get("href", "")
+        if not href:
+            return
+        if "result__a" not in css_class and "/l/?" not in href:
+            return
+        self._current_href = href
+        self._current_title = []
+
+    def handle_data(self, data: str) -> None:
+        if self._current_href is not None:
+            self._current_title.append(data)
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag.lower() != "a" or self._current_href is None:
+            return
+        title = " ".join("".join(self._current_title).split())
+        self.results.append({"url": self._current_href, "title": title})
+        self._current_href = None
+        self._current_title = []
+
+
+def _normalize_search_result_url(raw_url: str) -> str | None:
+    url = unescape(raw_url).strip()
+    if not url:
+        return None
+    if url.startswith("//"):
+        url = f"https:{url}"
+    elif url.startswith("/"):
+        url = urljoin(DUCKDUCKGO_HTML_ENDPOINT, url)
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").lower()
+    if host.endswith("duckduckgo.com") and parsed.path.startswith("/l/"):
+        target = (parse_qs(parsed.query).get("uddg") or [""])[0].strip()
+        if not target:
+            return None
+        url = target
+        parsed = urlparse(url)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return None
+    return url
+
+
+def _publisher_from_url(url: str) -> str:
+    parsed = urlparse(url)
+    host = (parsed.hostname or parsed.netloc or "").lower()
+    return host[4:] if host.startswith("www.") else host
+
+
+def _duckduckgo_web_search_provider(query: str, max_sources: int) -> list[dict[str, Any]]:
+    safe_query = str(redact_secrets(query)).strip()
+    if not safe_query or safe_query == "[redacted]":
+        raise ResearchAgentValidationError("ResearchAgent web search query is empty after secret redaction.")
+    candidate_limit = min(MAX_RESEARCH_SOURCES, max(max_sources * WEB_SEARCH_RESULT_BUFFER_MULTIPLIER, 10))
+    request_url = f"{DUCKDUCKGO_HTML_ENDPOINT}?{urlencode({'q': safe_query})}"
+    request = Request(
+        request_url,
+        headers={
+            "User-Agent": "AIDO-ResearchAgent/1.0",
+            "Accept": "text/html",
+        },
+    )
+    try:
+        with urlopen(request, timeout=WEB_SEARCH_TIMEOUT_SECONDS) as response:
+            content = response.read(MAX_WEB_SEARCH_BYTES + 1)
+            if len(content) > MAX_WEB_SEARCH_BYTES:
+                raise ResearchAgentValidationError("ResearchAgent web search response exceeds the fetch limit.")
+            content_type = response.headers.get_content_charset() or "utf-8"
+    except (HTTPError, URLError, TimeoutError) as error:
+        raise ResearchAgentValidationError(f"ResearchAgent web search failed: {error}") from error
+
+    parser = _DuckDuckGoResultParser()
+    parser.feed(content.decode(content_type, errors="replace"))
+    sources: list[dict[str, Any]] = []
+    seen_urls: set[str] = set()
+    for result in parser.results:
+        url = _normalize_search_result_url(result["url"])
+        if not url or url in seen_urls:
+            continue
+        seen_urls.add(url)
+        sources.append(
+            {
+                "url": url,
+                "title": result.get("title") or _publisher_from_url(url),
+                "publisher": _publisher_from_url(url),
+                "sourceType": "web_search",
+            }
+        )
+        if len(sources) >= candidate_limit:
+            break
+    return sources
 
 
 class ResearchAgentValidationError(ValueError):
@@ -90,9 +213,16 @@ def _required_text(payload: dict[str, Any], key: str, *, field: str) -> str:
 class ResearchAgentRunner:
     """Orquesta el ResearchAgent sobre la base, workspace y evidencia existentes."""
 
-    def __init__(self, connection: sqlite3.Connection, *, root: Path):
+    def __init__(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        root: Path,
+        web_search_provider: WebSearchProvider | None = None,
+    ):
         self.connection = connection
         self.root = root
+        self.web_search_provider = web_search_provider or _duckduckgo_web_search_provider
         self.agents = AgentsRepository(connection)
         self.jobs = JobsRepository(connection)
         self.evidence = EvidenceRepository(connection)
@@ -128,17 +258,78 @@ class ResearchAgentRunner:
             raise ValueError("ResearchAgent cannot run on an archived workspace.")
         return workspace
 
+    def _max_sources(self, payload: dict[str, Any]) -> int:
+        requested = payload.get("maxSources") or (payload.get("metadata") or {}).get("maxSources")
+        if requested is None:
+            return DEFAULT_WEB_SEARCH_MAX_SOURCES
+        try:
+            value = int(requested)
+        except (TypeError, ValueError) as error:
+            raise ResearchAgentValidationError("ResearchAgent maxSources must be an integer.") from error
+        if value < 1 or value > MAX_RESEARCH_SOURCES:
+            raise ResearchAgentValidationError(
+                f"ResearchAgent maxSources must be between 1 and {MAX_RESEARCH_SOURCES}."
+            )
+        return value
+
+    @staticmethod
+    def _web_search_allowed(metadata: dict[str, Any]) -> bool:
+        policy = metadata.get("policy") if isinstance(metadata.get("policy"), dict) else {}
+        research_policy = (
+            metadata.get("researchPolicy") if isinstance(metadata.get("researchPolicy"), dict) else {}
+        )
+        return bool(
+            metadata.get("allowWebSearch")
+            or metadata.get("webSearchAllowed")
+            or policy.get("allowWebSearch")
+            or policy.get("webSearchAllowed")
+            or research_policy.get("allowWebSearch")
+            or research_policy.get("webSearchAllowed")
+        )
+
+    def _sources_for_payload(self, payload: dict[str, Any]) -> list[dict[str, Any]]:
+        sources = payload.get("sources") or []
+        if not isinstance(sources, list):
+            raise ResearchAgentValidationError("ResearchAgent sources must be a list.")
+        if len(sources) > MAX_RESEARCH_SOURCES:
+            raise ResearchAgentValidationError(
+                f"ResearchAgent accepts at most {MAX_RESEARCH_SOURCES} sources."
+            )
+        if sources:
+            return sources
+
+        metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+        query = str(payload.get("query") or metadata.get("query") or "").strip()
+        if not query:
+            raise ResearchAgentValidationError("ResearchAgent requires at least one source or a research query.")
+        if not self._web_search_allowed(metadata):
+            raise ResearchAgentValidationError("ResearchAgent web search is disabled by policy.")
+        if self.web_search_provider is None:
+            raise ResearchAgentValidationError("ResearchAgent web search provider is not configured.")
+
+        discovered = self.web_search_provider(query, self._max_sources(payload))
+        if not isinstance(discovered, list):
+            raise ResearchAgentValidationError("ResearchAgent web search provider must return a source list.")
+        if not discovered:
+            raise ResearchAgentValidationError("ResearchAgent web search returned no sources.")
+        return sorted(discovered, key=_source_policy_rank)[: self._max_sources(payload)]
+
     def _persist_sources(
         self,
         *,
         project_id: str,
         thread_id: str | None,
+        task_id: str,
         agent_run_id: str | None,
         sources: list[dict[str, Any]],
         report_artifact_id: str,
     ) -> tuple[list[dict[str, Any]], list[str]]:
         if not sources:
             raise ResearchAgentValidationError("ResearchAgent requires at least one source.")
+        if len(sources) > MAX_RESEARCH_SOURCES:
+            raise ResearchAgentValidationError(
+                f"ResearchAgent accepts at most {MAX_RESEARCH_SOURCES} sources."
+            )
         records: list[dict[str, Any]] = []
         artifact_ids: list[str] = []
         for index, source in enumerate(sources):
@@ -146,12 +337,17 @@ class ResearchAgentRunner:
                 raise ResearchAgentValidationError(f"sources[{index}] must be an object.")
             content = _source_text(source)
             related_artifact = str(source.get("relatedArtifact") or report_artifact_id)
+            source_url = _required_text(source, "url", field=f"sources[{index}]")
             record = build_source_record(
-                url=_required_text(source, "url", field=f"sources[{index}]"),
+                url=source_url,
+                title=str(source.get("title") or "").strip() or None,
                 publisher=_required_text(source, "publisher", field=f"sources[{index}]"),
                 content=content,
                 fetched_at=str(source.get("fetchedAt") or utc_now()),
+                source_type=str(source.get("sourceType") or source.get("source_type") or "web"),
                 related_artifact=related_artifact,
+                related_thread_id=thread_id,
+                related_task_id=task_id,
                 trust_level=source.get("trustLevel"),
             )
             artifact = persist_source(
@@ -159,6 +355,7 @@ class ResearchAgentRunner:
                 root=self.root,
                 project_id=project_id,
                 thread_id=thread_id,
+                task_id=task_id,
                 agent_run_id=agent_run_id,
                 record=record,
                 content=content,
@@ -247,7 +444,9 @@ class ResearchAgentRunner:
             "sourceId": source.get("id"),
             "artifactId": source.get("artifactId"),
             "url": source.get("url"),
+            "title": source.get("title"),
             "publisher": source.get("publisher"),
+            "sourceType": source.get("sourceType"),
             "trustLevel": source.get("trustLevel"),
             "fetchedAt": source.get("fetchedAt"),
             "hash": source.get("hash"),
@@ -258,6 +457,8 @@ class ResearchAgentRunner:
         *,
         technical_decisions: list[dict[str, Any]],
         conflict_findings: list[dict[str, Any]],
+        conclusions: list[dict[str, Any]],
+        sources: list[dict[str, Any]],
         status: str,
         reason: str,
     ) -> dict[str, Any]:
@@ -294,6 +495,14 @@ class ResearchAgentRunner:
                         }
                     ],
                 }
+        trusted_sources = [source for source in sources if source.get("trustLevel") != UNTRUSTED]
+        if conclusions and trusted_sources:
+            first_statement = str(conclusions[0].get("statement") or reason)
+            return {
+                "title": "Research recommendation",
+                "decision": first_statement,
+                "sourceCitations": [self._source_citation(source) for source in trusted_sources],
+            }
         return {"title": status.replace("_", " "), "decision": reason, "sourceCitations": []}
 
     def _write_report_artifact(
@@ -378,14 +587,21 @@ class ResearchAgentRunner:
         metadata = payload.get("metadata") or {}
         thread_id = str(metadata.get("threadId") or "").strip() or None
         profile = self._ensure_profile()
-        job = self.jobs.create_job(
-            project_id=project_id,
-            kind="agent.research",
-            status="running",
-            workflow_run_id=workflow_run_id,
-            workflow_step_id=workflow_step_id,
-            payload={"workspaceId": workspace["id"], "taskId": task_id},
-        )["job"]
+        existing_job_id = str(payload.get("jobId") or metadata.get("jobId") or "").strip()
+        owns_job = not existing_job_id
+        if existing_job_id:
+            job = self.jobs.get_job(existing_job_id)
+            if job["projectId"] != project_id:
+                raise ValueError("ResearchAgent job does not belong to the project.")
+        else:
+            job = self.jobs.create_job(
+                project_id=project_id,
+                kind="agent.research",
+                status="running",
+                workflow_run_id=workflow_run_id,
+                workflow_step_id=workflow_step_id,
+                payload={"workspaceId": workspace["id"], "taskId": task_id},
+            )["job"]
         agent_run = self.agents.create_agent_run(
             project_id=project_id,
             agent_profile_id=profile["id"],
@@ -411,8 +627,9 @@ class ResearchAgentRunner:
             sources, source_artifact_ids = self._persist_sources(
                 project_id=project_id,
                 thread_id=thread_id,
+                task_id=task_id,
                 agent_run_id=agent_run["id"],
-                sources=payload.get("sources") or [],
+                sources=self._sources_for_payload(payload),
                 report_artifact_id=report_artifact_id,
             )
             conclusions = self._normalize_conclusions(payload.get("conclusions") or [])
@@ -436,6 +653,8 @@ class ResearchAgentRunner:
         recommendation = self._recommendation(
             technical_decisions=technical_decisions,
             conflict_findings=conflict_findings,
+            conclusions=conclusions,
+            sources=sources,
             status=status,
             reason=reason,
         )
@@ -548,16 +767,19 @@ class ResearchAgentRunner:
                 "evidence_refs": [evidence["id"], *artifact_ids],
             },
         )
-        job = self.jobs.update_job_status(
-            job["id"],
-            status="completed" if status == "research_ready" else "failed",
-            metadata={
-                "status": status,
-                "reason": reason,
-                "evidencePackageId": evidence["id"],
-                "reportArtifactId": report_artifact["id"],
-            },
-        )
+        if owns_job:
+            job = self.jobs.update_job_status(
+                job["id"],
+                status="completed" if status == "research_ready" else "failed",
+                metadata={
+                    "status": status,
+                    "reason": reason,
+                    "evidencePackageId": evidence["id"],
+                    "reportArtifactId": report_artifact["id"],
+                },
+            )
+        else:
+            job = self.jobs.get_job(job["id"])
         return {
             "status": status,
             "verdict": status,

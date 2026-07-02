@@ -476,7 +476,8 @@
 	font-size: var(--font-size-sm);
 }
 
-/* Per-row actions trigger: revealed on hover/focus (always visible on touch and the active row). */
+/* Per-row actions trigger: faint at rest so the menu stays discoverable without a hover hunt;
+   full opacity on hover/focus, on touch, and on the active row. */
 .thread-row .thread-menu-trigger {
 	flex: 0 0 auto;
 	width: 1.6rem;
@@ -485,7 +486,7 @@
 	background: transparent;
 	color: var(--color-text-muted);
 	border-radius: var(--radius-sm);
-	opacity: 0;
+	opacity: 0.35;
 }
 
 .thread-row:hover .thread-menu-trigger,
@@ -1727,6 +1728,31 @@
 	border-bottom: 1px solid color-mix(in oklch, var(--color-border-subtle) 72%, transparent);
 }
 
+/* The console is an operations ledger: the wall clock leads every row. */
+.thread-console-row {
+	grid-template-columns: minmax(3.6rem, auto) minmax(2.6rem, auto) minmax(5rem, 9rem) minmax(0, 1fr);
+}
+
+.thread-console-time {
+	font-size: var(--font-size-2xs);
+	color: var(--color-text-muted);
+	white-space: nowrap;
+	font-variant-numeric: tabular-nums;
+}
+
+/* Make risk visible: full-row tint keyed off the event type the DOM already carries. */
+.thread-console-row[data-type="error"],
+.thread-console-row[data-type="worker_failed"],
+.thread-console-row[data-type="blocked"] {
+	background: color-mix(in oklch, var(--color-status-danger) 7%, transparent);
+}
+
+.thread-console-row[data-type="awaiting_approval"],
+.thread-console-row[data-type="approval_required"],
+.thread-console-row[data-type="decision_required"] {
+	background: color-mix(in oklch, var(--color-status-warning) 7%, transparent);
+}
+
 .thread-row-content,
 .thread-console-body p {
 	margin: 0;
@@ -2011,6 +2037,10 @@
 	.thread-console-row {
 		grid-template-columns: minmax(2.75rem, auto) minmax(0, 1fr);
 		gap: var(--space-2);
+	}
+
+	.thread-console-row {
+		grid-template-columns: minmax(3.6rem, auto) minmax(2.75rem, auto) minmax(0, 1fr);
 	}
 
 	.thread-row-content,

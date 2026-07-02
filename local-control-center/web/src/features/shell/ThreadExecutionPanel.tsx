@@ -7,7 +7,7 @@
  * payloads stay behind a per-row disclosure — never rendered by default.
  * @author Rodrigo Mason
  */
-import { AlertTriangle, Play } from 'lucide-react';
+import { AlertTriangle, ExternalLink, Play } from 'lucide-react';
 import { m } from 'motion/react';
 import { useMemo, useState } from 'react';
 
@@ -152,6 +152,8 @@ type BlockerCard = {
 	actionLabel?: string;
 	onAction?: () => void;
 	actionBusy?: boolean;
+	/** True when the action navigates away from the thread (shown with an outbound icon). */
+	actionExternal?: boolean;
 };
 
 const RUNTIME_STAGES = new Set(['runtime', 'product_owner_runtime']);
@@ -268,8 +270,19 @@ export function ThreadExecutionPanel({
 					className="thread-queued-banner"
 					aria-label={t('app.threads.waitingWorkerTitle', 'Waiting for worker')}
 				>
-					<strong>{t('app.threads.waitingWorkerTitle', 'Waiting for worker')}</strong>
-					<p>{t('app.threads.waitingWorker', 'Queued: waiting for a worker to claim this run.')}</p>
+					<strong>
+						{workerBusy
+							? t('app.threads.startingRunTitle', 'Starting run')
+							: t('app.threads.waitingWorkerTitle', 'Waiting for worker')}
+					</strong>
+					<p>
+						{workerBusy
+							? t(
+									'app.threads.startingRun',
+									'Starting this run — progress appears in the execution log below.',
+								)
+							: t('app.threads.waitingWorker', 'Queued: waiting for a worker to pick this run up.')}
+					</p>
 					{showRunNow ? (
 						<>
 							<p className="thread-queued-hint">
@@ -310,6 +323,11 @@ export function ThreadExecutionPanel({
 							{blocker.actionLabel && blocker.onAction ? (
 								<Button
 									variant="secondary"
+									icon={
+										blocker.actionExternal ? (
+											<ExternalLink aria-hidden="true" size={14} />
+										) : undefined
+									}
 									loading={blocker.actionBusy}
 									disabled={blocker.actionBusy}
 									onClick={blocker.onAction}
@@ -418,6 +436,9 @@ function collectBlockers({
 				'This run pauses until you approve it on the review board.',
 			),
 			actionLabel: t('app.threads.blocker.openApprovals', 'Open approvals'),
+			// The only blocker action that leaves the thread (navigates to the review board), so it
+			// alone carries the outbound icon.
+			actionExternal: true,
 			onAction: onOpenApprovals,
 		});
 	}
@@ -571,12 +592,33 @@ function mergeConsoleEntries(
 	);
 }
 
+/** Wall-clock HH:MM:SS for a console row; the full ISO instant stays available on hover. */
+function formatClock(iso: string): string {
+	const parsed = new Date(iso);
+	if (Number.isNaN(parsed.getTime())) return '';
+	return parsed.toLocaleTimeString(undefined, {
+		hour12: false,
+		hour: '2-digit',
+		minute: '2-digit',
+		second: '2-digit',
+	});
+}
+
+function ThreadConsoleTime({ createdAt }: { createdAt: string }) {
+	return (
+		<time className="thread-console-time" dateTime={createdAt} title={createdAt}>
+			{formatClock(createdAt)}
+		</time>
+	);
+}
+
 /** Execution-side message (agent summary, system event, error) rendered as a console row. */
 function ThreadConsoleMessageRow({ message }: { message: ThreadMessage }) {
 	const { t } = useI18n();
 	const meta = MESSAGE_META[message.kind];
 	return (
 		<div className="thread-console-row" data-type={message.kind}>
+			<ThreadConsoleTime createdAt={message.createdAt} />
 			<span className="thread-console-seq mono">#{message.sequence}</span>
 			<span className="thread-console-actor">
 				<StatusChip tone={meta.tone}>{t(meta.authorKey, message.author)}</StatusChip>
@@ -594,7 +636,7 @@ function ThreadConsoleRow({ event }: { event: ThreadAgentEvent }) {
 	const actor =
 		event.agentRole || textValue(payload.role) || textValue(payload.agentName) || 'aido';
 	const title = t(`app.threads.event.${event.type}`, eventTitle(event.type));
-	const detail = eventDetail(event, payload, t);
+	const detail = eventDetail(payload, t);
 	const chips = [
 		textValue(payload.status) || textValue(payload.toState),
 		textValue(payload.runtimeId),
@@ -605,6 +647,7 @@ function ThreadConsoleRow({ event }: { event: ThreadAgentEvent }) {
 	const hasPayload = Object.keys(payload).length > 0;
 	return (
 		<div className="thread-console-row" data-type={event.type}>
+			<ThreadConsoleTime createdAt={event.createdAt} />
 			<span className="thread-console-seq mono">#{event.sequence}</span>
 			<span className="thread-console-actor">{actor}</span>
 			<div className="thread-console-body">
@@ -658,15 +701,16 @@ function eventTitle(type: string): string {
 		completed: 'Completed',
 		decision_required: 'Decision required',
 		decision_resolved: 'Decision resolved',
+		goal_received: 'Goal received',
+		product_owner_completed: 'Product owner finished',
+		agent_tasks_ready: 'Agent tasks ready',
+		reworking: 'Reworking',
+		cancelled: 'Cancelled',
 	};
 	return titles[type] ?? type.replace(/_/g, ' ');
 }
 
-function eventDetail(
-	event: ThreadAgentEvent,
-	payload: Record<string, unknown>,
-	t: Translate,
-): string {
+function eventDetail(payload: Record<string, unknown>, t: Translate): string {
 	const reason = textValue(payload.reason);
 	if (reason) return reason;
 	const roles = safeRecord(payload.summary).roles;
@@ -675,8 +719,13 @@ function eventDetail(
 	}
 	const fromState = textValue(payload.fromState);
 	const toState = textValue(payload.toState);
-	if (fromState && toState) return `${fromState} -> ${toState}`;
+	if (fromState && toState) {
+		const fromLabel = t(`app.threads.event.${fromState}`, eventTitle(fromState));
+		const toLabel = t(`app.threads.event.${toState}`, eventTitle(toState));
+		return `${fromLabel} -> ${toLabel}`;
+	}
 	const assignmentId = textValue(payload.assignmentId);
 	if (assignmentId) return `${t('app.threads.eventAssignment', 'Assignment')}: ${assignmentId}`;
-	return event.createdAt;
+	// The visible clock column already tells *when*; a raw ISO detail would only repeat it.
+	return '';
 }

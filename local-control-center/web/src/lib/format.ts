@@ -117,3 +117,17 @@ export function toneForStatus(status?: string): 'ok' | 'warn' | 'danger' | 'info
 		return 'danger';
 	return 'info';
 }
+
+const THREAD_TONE_OVERRIDES: Record<string, ReturnType<typeof toneForStatus>> = {
+	resolved: 'ok',
+	waiting_decision: 'pending',
+	open: 'info',
+};
+
+/**
+ * Tono del chip de estado de un thread: aplica los overrides de ciclo de vida (resolved/open/
+ * waiting_decision) sobre `toneForStatus`, para que header e inspector coloreen igual el mismo estado.
+ */
+export function threadStatusTone(status: string): ReturnType<typeof toneForStatus> {
+	return THREAD_TONE_OVERRIDES[status] ?? toneForStatus(status);
+}

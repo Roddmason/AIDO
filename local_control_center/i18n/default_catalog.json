@@ -520,8 +520,16 @@
       "es": "Ejecutando cola"
     },
     "app.threads.waitingWorker": {
-      "en": "Queued: waiting for a worker to claim this run.",
-      "es": "En cola: esperando que un worker tome este run."
+      "en": "Queued: waiting for a worker to pick this run up.",
+      "es": "En cola: esperando que un worker tome esta ejecución."
+    },
+    "app.threads.startingRunTitle": {
+      "en": "Starting run",
+      "es": "Iniciando ejecución"
+    },
+    "app.threads.startingRun": {
+      "en": "Starting this run — progress appears in the execution log below.",
+      "es": "Iniciando esta ejecución — el progreso aparece en el registro de ejecución de abajo."
     },
     "app.threads.consoleEmpty": {
       "en": "No execution events yet.",
@@ -638,6 +646,26 @@
     "app.threads.event.decision_resolved": {
       "en": "Decision resolved",
       "es": "Decisión resuelta"
+    },
+    "app.threads.event.goal_received": {
+      "en": "Goal received",
+      "es": "Meta recibida"
+    },
+    "app.threads.event.product_owner_completed": {
+      "en": "Product owner finished",
+      "es": "Product owner finalizado"
+    },
+    "app.threads.event.agent_tasks_ready": {
+      "en": "Agent tasks ready",
+      "es": "Tareas de agentes listas"
+    },
+    "app.threads.event.reworking": {
+      "en": "Reworking",
+      "es": "Retrabajando"
+    },
+    "app.threads.event.cancelled": {
+      "en": "Cancelled",
+      "es": "Cancelado"
     },
     "app.composer.permissions": {
       "en": "Action approval",

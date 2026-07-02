@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from local_control_center.team_scheduler.scheduler import (
+    ALL_ROLES,
     SCHEDULER_VERSION,
     TeamScheduleError,
     schedule_team,
@@ -43,18 +44,55 @@ def test_role_resolution_carries_all_eight_attributes() -> None:
     plan = schedule_team(scope=["backend"], risk="medium", mode="balanced")
     assignment = _by_role(plan, "backend_engineer")
     for attribute in (
+        "capabilities",
         "providerKind",
+        "providerPreference",
         "modelTier",
         "runtime",
+        "runtimePreference",
         "skills",
         "tools",
+        "toolsAllowed",
+        "requiredInputArtifacts",
+        "outputArtifactSchema",
         "budgetUsd",
         "reviewer",
+        "reviewerPolicy",
         "qualityGates",
     ):
         assert attribute in assignment
     assert assignment["reviewer"] == "technical_lead"  # peer review outside economy/low-risk
+    assert assignment["reviewerPolicy"]["reviewerRole"] == "technical_lead"
+    assert assignment["reviewerPolicy"]["requiresDifferentModel"] is True
     assert assignment["qualityGates"] == ["lint", "test", "typecheck", "build"]
+    assert assignment["toolsAllowed"] == assignment["tools"]
+    assert assignment["providerPreference"]
+    assert assignment["runtimePreference"]
+    assert assignment["requiredInputArtifacts"]
+    assert assignment["outputArtifactSchema"]["type"] == "object"
+
+
+def test_team_scheduler_v2_catalog_materializes_the_full_available_roster() -> None:
+    assert SCHEDULER_VERSION == 2
+    assert tuple(ALL_ROLES) == (
+        "aido_lead",
+        "product_owner",
+        "project_manager",
+        "scrum_master",
+        "architect",
+        "technical_lead",
+        "backend_engineer",
+        "frontend_engineer",
+        "mobile_engineer",
+        "database_engineer",
+        "data_engineer",
+        "qa_engineer",
+        "security_engineer",
+        "pentester",
+        "devops_engineer",
+        "researcher",
+        "release_manager",
+    )
 
 
 def test_scope_pulls_in_exactly_the_matching_engineers() -> None:
@@ -83,10 +121,32 @@ def test_high_risk_adds_architect_and_security_regardless_of_scope() -> None:
     assert {"architect", "security_engineer"} <= _roles(plan)
 
 
-def test_pentester_only_in_critical_or_maximum_with_security_or_critical_risk() -> None:
-    assert "pentester" not in _roles(schedule_team(scope=["security"], risk="medium", mode="balanced"))
-    assert "pentester" in _roles(schedule_team(scope=["security"], risk="medium", mode="critical"))
+def test_security_intent_activates_security_engineer_and_pentester() -> None:
+    plan = schedule_team(scope=["security"], risk="medium", mode="balanced")
+    assert {"security_engineer", "pentester"} <= _roles(plan)
+
+
+def test_pentester_is_not_pulled_into_non_security_medium_work() -> None:
+    assert "pentester" not in _roles(schedule_team(scope=["backend"], risk="medium", mode="balanced"))
     assert "pentester" in _roles(schedule_team(scope=["backend"], risk="critical", mode="maximum"))
+
+
+def test_refactor_frontend_backend_activates_tl_backend_frontend_and_qa_only() -> None:
+    plan = schedule_team(scope=["refactor", "backend", "frontend"], risk="medium", mode="balanced")
+    selected = _roles(plan)
+    assert {"technical_lead", "backend_engineer", "frontend_engineer", "qa_engineer"} <= selected
+    assert {"mobile_engineer", "database_engineer", "data_engineer", "security_engineer"}.isdisjoint(
+        selected
+    )
+
+
+def test_infra_and_research_intents_activate_their_specialists_without_full_roster() -> None:
+    infra = schedule_team(scope=["infra"], risk="medium", mode="balanced")
+    research = schedule_team(scope=["research"], risk="low", mode="balanced")
+    assert "devops_engineer" in _roles(infra)
+    assert "researcher" in _roles(research)
+    assert len(infra["roles"]) < len(ALL_ROLES)
+    assert len(research["roles"]) < len(ALL_ROLES)
 
 
 def test_coordination_roles_only_in_maximum_or_critical_large_team() -> None:
@@ -117,6 +177,15 @@ def test_mode_tiers_escalate_model_budget_and_runtime() -> None:
     economy_budget = _by_role(tiers["economy"], "backend_engineer")["budgetUsd"]
     maximum_budget = _by_role(tiers["maximum"], "backend_engineer")["budgetUsd"]
     assert maximum_budget > economy_budget
+
+
+def test_balanced_prefers_a_different_reviewer_model_when_available() -> None:
+    plan = schedule_team(scope=["backend"], risk="medium", mode="balanced")
+    engineer = _by_role(plan, "backend_engineer")
+
+    assert engineer["reviewer"] == "technical_lead"
+    assert engineer["reviewerPolicy"]["requiresDifferentModel"] is True
+    assert engineer["reviewerPolicy"]["reviewerModelTier"] != engineer["modelTier"]
 
 
 def test_scheduler_is_deterministic() -> None:

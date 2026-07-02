@@ -6,6 +6,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from local_control_center.app import create_app
+from local_control_center.shared.migrations import initialize_platform_schema
 from tests_py.control_plane_fixture import ControlPlaneFixture
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -81,46 +82,109 @@ def test_frontend_is_vite_typescript_and_dependency_surface_is_pruned() -> None:
     assert not list((ROOT / "local-control-center" / "web").rglob("*.jsx"))
 
 
-def test_v1_sessions_chats_pipelines_replace_workspace_state(tmp_path: Path) -> None:
-    _store, client, headers = make_client(tmp_path)
+def test_legacy_sessions_chats_pipelines_are_read_only_and_migrated_to_threads(
+    tmp_path: Path,
+) -> None:
+    store, client, headers = make_client(tmp_path)
     project_id = client.get("/api/v1/projects").json()["projects"][0]["id"]
 
-    session_response = client.post(
+    session = store.sessions_chats.create_session(project_id=project_id, name="Cutover session")
+    chat = store.sessions_chats.create_chat(
+        project_id=project_id,
+        session_id=session["id"],
+        prompt="Plan the hard cutover",
+        title="Cutover chat",
+    )
+    pipeline = store.pipelines.create_pipeline(
+        project_id=project_id,
+        session_id=session["id"],
+        chat_id=chat["id"],
+        title="Cutover pipeline",
+    )
+    initialize_platform_schema(store.connection)
+
+    assert client.post(
         "/api/v1/sessions",
         headers=headers,
-        json={"projectId": project_id, "name": "Cutover session"},
-    )
-    assert session_response.status_code == 201
-    session = session_response.json()["session"]
-
-    chat_response = client.post(
+        json={"projectId": project_id, "name": "blocked"},
+    ).status_code == 404
+    assert client.post(
         "/api/v1/chats",
         headers=headers,
-        json={"projectId": project_id, "sessionId": session["id"], "prompt": "Plan the hard cutover"},
-    )
-    assert chat_response.status_code == 201
-    chat = chat_response.json()["chat"]
-
-    pipeline_response = client.post(
+        json={"projectId": project_id, "prompt": "blocked"},
+    ).status_code == 404
+    assert client.post(
         "/api/v1/pipelines",
         headers=headers,
-        json={
-            "projectId": project_id,
-            "sessionId": session["id"],
-            "chatId": chat["id"],
-            "title": "Cutover pipeline",
-        },
-    )
-    assert pipeline_response.status_code == 201
+        json={"projectId": project_id, "title": "blocked"},
+    ).status_code == 404
+    assert client.post(
+        "/api/v1/legacy/sessions",
+        headers=headers,
+        json={"projectId": project_id, "name": "blocked"},
+    ).status_code == 405
 
     overview = client.get("/api/v1/overview").json()
     removed_workspace_key = "workspace" + "State"
     assert removed_workspace_key not in overview
-    assert any(item["id"] == session["id"] for item in overview["sessions"])
-    assert any(item["id"] == chat["id"] for item in overview["chats"])
-    assert any(item["id"] == pipeline_response.json()["pipeline"]["id"] for item in overview["pipelines"])
+    assert "sessions" not in overview
+    assert "chats" not in overview
+    assert "pipelines" not in overview
+
+    legacy_sessions = client.get("/api/v1/legacy/sessions").json()["sessions"]
+    legacy_chats = client.get("/api/v1/legacy/chats").json()["chats"]
+    legacy_pipelines = client.get("/api/v1/legacy/pipelines").json()["pipelines"]
+    assert next(item for item in legacy_sessions if item["id"] == session["id"])["metadata"][
+        "legacyReadOnly"
+    ]
+    assert next(item for item in legacy_chats if item["id"] == chat["id"])["metadata"]["legacy"][
+        "migratedToThreadId"
+    ].startswith("thread-legacy-")
+    assert next(item for item in legacy_pipelines if item["id"] == pipeline["id"])["metadata"][
+        "legacy"
+    ]["migratedToMessageId"].startswith("thread-msg-legacy-")
+
+    threads = client.get(f"/api/v1/threads?projectId={project_id}").json()["threads"]
+    migrated_thread = next(item for item in threads if item["id"] == f"thread-legacy-{session['id']}")
+    detail = client.get(f"/api/v1/threads/{migrated_thread['id']}").json()
+    assert [message["content"] for message in detail["messages"]] == [
+        "Plan the hard cutover",
+        "Legacy pipeline imported: Cutover pipeline (queued)",
+    ]
     removed_state_route = "/api/" + "state"
     assert client.get(removed_state_route).status_code == 404
+
+
+def test_new_thread_messages_do_not_write_sessions_chats_or_pipelines(tmp_path: Path) -> None:
+    store, client, headers = make_client(tmp_path)
+    project_id = client.get("/api/v1/projects").json()["projects"][0]["id"]
+
+    created = client.post(
+        "/api/v1/threads",
+        headers=headers,
+        json={
+            "projectId": project_id,
+            "ownerType": "workspace",
+            "ownerId": project_id,
+            "title": "No legacy writes",
+        },
+    )
+    assert created.status_code == 201
+    thread_id = created.json()["thread"]["id"]
+
+    posted = client.post(
+        f"/api/v1/threads/{thread_id}/messages",
+        headers=headers,
+        json={"content": "Use thread messages only."},
+    )
+    assert posted.status_code == 200
+    assert store.connection.execute("SELECT COUNT(*) AS total FROM sessions").fetchone()["total"] == 0
+    assert store.connection.execute("SELECT COUNT(*) AS total FROM chats").fetchone()["total"] == 0
+    assert store.connection.execute("SELECT COUNT(*) AS total FROM pipelines").fetchone()["total"] == 0
+    assert (
+        store.connection.execute("SELECT COUNT(*) AS total FROM thread_messages").fetchone()["total"]
+        >= 1
+    )
 
 
 def test_removed_compatibility_routes_are_not_mounted(tmp_path: Path) -> None:
@@ -135,7 +199,15 @@ def test_removed_compatibility_routes_are_not_mounted(tmp_path: Path) -> None:
     }
 
     assert mounted_paths.isdisjoint(removed_routes)
-    assert not any(("legacy" in path.lower() or "compat" in path.lower()) for path in mounted_paths)
+    assert {"/api/v1/legacy/sessions", "/api/v1/legacy/chats", "/api/v1/legacy/pipelines"} <= mounted_paths
+    non_cutover_legacy = {
+        path
+        for path in mounted_paths
+        if ("legacy" in path.lower() or "compat" in path.lower())
+        and path
+        not in {"/api/v1/legacy/sessions", "/api/v1/legacy/chats", "/api/v1/legacy/pipelines"}
+    }
+    assert non_cutover_legacy == set()
 
 
 def test_frontend_source_does_not_call_removed_legacy_endpoints() -> None:

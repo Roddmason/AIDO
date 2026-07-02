@@ -27,9 +27,15 @@ from local_control_center.shared.db import immediate_transaction
 from local_control_center.shared.redaction import redact_secrets
 from local_control_center.team_scheduler.scheduler import schedule_team
 from local_control_center.threads.repository import ThreadsRepository
+from local_control_center.threads.similarity import (
+    HIGH_SIMILARITY_THRESHOLD,
+    SIMILARITY_ACTIONS,
+    ThreadSimilarityService,
+)
 
 # plan_mode values that mean the coordinator must stop and ask the operator before proceeding.
 BLOCKING_PLAN_MODES = ("ask", "blocked")
+THREAD_RESEARCH_JOB_KIND = "thread.research.run"
 _SUMMARY_LIMIT = 140
 
 
@@ -60,12 +66,17 @@ class ThreadCoordinator:
         git_state: dict[str, Any] | None = None,
         changed_files: list[str] | None = None,
         user_mode: str = "aido_decide",
+        metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Publica el mensaje, clasifica rápido y encola ejecución real cuando es seguro hacerlo."""
         if not content.strip():
             raise ValueError("Message content is required")
         # Resolve the thread up front so a missing id fails before any write.
         existing_thread = self.repository.get_thread(thread_id)
+        message_metadata = dict(metadata or {})
+        # A `mode` equal to a similarity action means the operator already took the deduplication
+        # decision in the new-thread intake; re-blocking here would ask the same question twice.
+        similarity_resolved = str(message_metadata.get("mode") or "") in SIMILARITY_ACTIONS
 
         decision_input = IntentClassificationInput(
             prompt=content,
@@ -77,7 +88,11 @@ class ThreadCoordinator:
 
         with immediate_transaction(self.connection):
             user_message = self.repository.append_message(
-                thread_id=thread_id, kind="user", author=author, content=content
+                thread_id=thread_id,
+                kind="user",
+                author=author,
+                content=content,
+                metadata=message_metadata or None,
             )
             self._seed_summary(thread_id, content)
             self.repository.record_event(
@@ -86,6 +101,46 @@ class ThreadCoordinator:
                 agent_role="user",
                 payload={"messageId": user_message["id"], "author": author},
             )
+            similar_candidate = (
+                None
+                if similarity_resolved
+                else self._high_similarity_candidate(
+                    thread=existing_thread,
+                    source_thread_id=thread_id,
+                    content=content,
+                )
+            )
+            if similar_candidate is not None:
+                lead_message, decision_record = self._block_for_similarity(
+                    thread_id,
+                    user_message["id"],
+                    similar_candidate,
+                )
+                self.repository.record_event(
+                    thread_id=thread_id,
+                    type="similarity_detected",
+                    agent_role="aido_lead",
+                    payload={
+                        "candidateThreadId": similar_candidate["threadId"],
+                        "score": similar_candidate["score"],
+                        "reason": similar_candidate["reason"],
+                    },
+                )
+                thread = self.repository.set_status(thread_id, "waiting_decision")
+                return {
+                    "thread": thread,
+                    "blocked": True,
+                    "run": {
+                        "status": "blocked",
+                        "jobId": None,
+                        "loopId": None,
+                        "reason": lead_message["content"],
+                    },
+                    "messages": [user_message, lead_message],
+                    "decision": decision_record,
+                    "artifacts": self.repository.list_artifacts(thread_id),
+                    "events": self.repository.list_events(thread_id),
+                }
 
             decision = self.classifier.classify(decision_input)
             self.repository.record_event(
@@ -108,8 +163,6 @@ class ThreadCoordinator:
                 artifact_id=f"thread-intake-{uuid.uuid4()}",
                 payload=decision.to_dict(),
             )
-            if "research" in decision.intents:
-                self._mark_research_required(thread_id, decision)
 
             blocked = decision.plan_mode in BLOCKING_PLAN_MODES
             if blocked:
@@ -125,6 +178,33 @@ class ThreadCoordinator:
                 )
                 thread = self.repository.set_status(thread_id, "waiting_decision")
                 run = {"status": "blocked", "jobId": None, "loopId": None, "reason": lead_message["content"]}
+            elif "research" in decision.intents:
+                decision_record = None
+                job = self._queue_research_run(
+                    thread=existing_thread,
+                    message=user_message,
+                    content=content,
+                    decision=decision,
+                    team_plan=team_plan,
+                )
+                self._mark_research_running(thread_id, decision=decision, job=job, query=content)
+                self.repository.record_event(
+                    thread_id=thread_id,
+                    type="research_running",
+                    agent_role="researcher",
+                    payload={
+                        "jobId": job["id"],
+                        "messageId": user_message["id"],
+                        "status": job["status"],
+                    },
+                )
+                thread = self.repository.set_status(thread_id, "queued")
+                run = {
+                    "status": "research_running",
+                    "jobId": job["id"],
+                    "loopId": None,
+                    "reason": "ResearchAgent job queued.",
+                }
             else:
                 decision_record = None
                 job = self._queue_product_loop_run(
@@ -199,7 +279,36 @@ class ThreadCoordinator:
                 payload={"decisionId": decision_id, "resolution": resolution},
             )
             current = self.repository.get_thread(thread_id)
-            if current["status"] == "waiting_decision" and source_message is not None:
+            similarity_candidate_id = _metadata_text(
+                pending_decision.get("metadata")
+                if isinstance(pending_decision.get("metadata"), dict)
+                else {},
+                "similarityCandidateId",
+                "",
+            )
+            resolution_mode = resolution.strip().lower().replace(" ", "_")
+            if (
+                current["status"] == "waiting_decision"
+                and similarity_candidate_id
+                and resolution_mode != "create_new_anyway"
+            ):
+                if resolution_mode not in SIMILARITY_ACTIONS:
+                    raise ValueError(f"Unknown similarity action: {resolution}")
+                metadata = (
+                    pending_decision.get("metadata")
+                    if isinstance(pending_decision.get("metadata"), dict)
+                    else {}
+                )
+                ThreadSimilarityService(self.connection).mark_similarity(
+                    project_id=current["projectId"],
+                    source_thread_id=thread_id,
+                    candidate_thread_id=similarity_candidate_id,
+                    score=float(metadata.get("similarityScore") or 0.0),
+                    reason=str(metadata.get("similarityReason") or "Similarity decision resolved."),
+                    action=resolution_mode,
+                )
+                thread = self.repository.set_status(thread_id, "resolved")
+            elif current["status"] == "waiting_decision" and source_message is not None:
                 forced_decision = self._decision_for_resolution(decision, resolution)
                 team_plan = self._team_plan(forced_decision)
                 job = self._queue_product_loop_run(
@@ -238,6 +347,59 @@ class ThreadCoordinator:
         return {"thread": thread, "decision": decision}
 
     # -- internals -------------------------------------------------------------
+    def _high_similarity_candidate(
+        self,
+        *,
+        thread: dict[str, Any],
+        source_thread_id: str,
+        content: str,
+    ) -> dict[str, Any] | None:
+        candidates = ThreadSimilarityService(self.connection).find_similar(
+            project_id=thread["projectId"],
+            query=content,
+            source_thread_id=source_thread_id,
+            include_deleted=False,
+            limit=1,
+        )
+        if not candidates:
+            return None
+        candidate = candidates[0]
+        return candidate if float(candidate["score"]) >= HIGH_SIMILARITY_THRESHOLD else None
+
+    def _block_for_similarity(
+        self,
+        thread_id: str,
+        message_id: str,
+        candidate: dict[str, Any],
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        prompt = (
+            f"Esto parece relacionado con {candidate['title']}. "
+            "¿Quieres continuar ese hilo, mejorar lo existente o crear hilo nuevo?"
+        )
+        metadata = {
+            "sourceMessageId": message_id,
+            "similarityCandidateId": candidate["threadId"],
+            "similarityScore": candidate["score"],
+            "similarityReason": candidate["reason"],
+            "similarityStatus": candidate["status"],
+        }
+        request_message = self.repository.append_message(
+            thread_id=thread_id,
+            kind="decision_request",
+            author="aido_lead",
+            content=prompt,
+            metadata=metadata,
+        )
+        decision_record = self.repository.create_decision(
+            thread_id=thread_id,
+            message_id=request_message["id"],
+            title="Similar thread detected",
+            prompt=prompt,
+            options=list(SIMILARITY_ACTIONS),
+            metadata=metadata,
+        )
+        return request_message, decision_record
+
     def _block(
         self, thread_id: str, message_id: str, decision: IntentClassification
     ) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -261,18 +423,27 @@ class ThreadCoordinator:
         )
         return request_message, decision_record
 
-    def _mark_research_required(self, thread_id: str, decision: IntentClassification) -> None:
+    def _mark_research_running(
+        self,
+        thread_id: str,
+        *,
+        decision: IntentClassification,
+        job: dict[str, Any],
+        query: str,
+    ) -> None:
         self.repository.attach_artifact(
             thread_id=thread_id,
             kind="research_report",
             title="Research",
             artifact_id=f"thread-research-{uuid.uuid4()}",
             payload={
-                "status": "research_required",
-                "reason": "Official documentation is required before a technical decision.",
+                "status": "research_running",
+                "reason": "ResearchAgent is collecting and validating sources.",
+                "jobId": job["id"],
+                "query": query,
                 "recommendation": {
-                    "title": "Research required",
-                    "decision": "Official documentation is required before a technical decision.",
+                    "title": "Research running",
+                    "decision": "ResearchAgent is collecting and validating sources.",
                     "sourceCitations": [],
                 },
                 "sources": [],
@@ -321,6 +492,48 @@ class ThreadCoordinator:
             kind="thread.product_loop.run",
             payload=payload,
             idempotency_key=f"thread-message:{message['id']}",
+        )
+        return created["job"]
+
+    def _queue_research_run(
+        self,
+        *,
+        thread: dict[str, Any],
+        message: dict[str, Any],
+        content: str,
+        decision: IntentClassification,
+        team_plan: dict[str, Any],
+    ) -> dict[str, Any]:
+        payload = {
+            "threadId": thread["id"],
+            "messageId": message["id"],
+            "projectId": thread["projectId"],
+            "workspaceId": thread["ownerId"] if thread["ownerType"] == "workspace" else None,
+            "taskId": f"thread-research-{message['id']}",
+            "query": content,
+            "maxSources": 5,
+            "sources": [],
+            "conclusions": [],
+            "claims": [],
+            "technicalDecisions": [],
+            "root": str(self.root) if self.root is not None else None,
+            "decision": decision.to_dict(),
+            "teamPlan": team_plan,
+            "metadata": {
+                "threadId": thread["id"],
+                "messageId": message["id"],
+                "allowWebSearch": True,
+                "researchPolicy": {
+                    "webSearchAllowed": True,
+                    "preferredSourceTypes": ["official_documentation"],
+                },
+            },
+        }
+        created = self.jobs.create_job(
+            project_id=thread["projectId"],
+            kind=THREAD_RESEARCH_JOB_KIND,
+            payload=payload,
+            idempotency_key=f"thread-research-message:{message['id']}",
         )
         return created["job"]
 
@@ -376,7 +589,10 @@ class ThreadCoordinator:
                 "risk": decision.risk,
                 "scope": scope,
                 "roles": [{"role": role} for role in decision.required_roles],
-                "summary": {"roles": list(decision.required_roles), "roleCount": len(decision.required_roles)},
+                "summary": {
+                    "roles": list(decision.required_roles),
+                    "roleCount": len(decision.required_roles),
+                },
             }
 
 

@@ -14,6 +14,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from local_control_center.shared.schemas import AuditEventRecord
+
 THREAD_OWNER_TYPES = ("workspace", "loop", "story", "agent_task", "review")
 ThreadOwnerType = Literal["workspace", "loop", "story", "agent_task", "review"]
 
@@ -26,6 +28,7 @@ THREAD_STATUSES = (
     "blocked",
     "resolved",
     "archived",
+    "deleted",
 )
 ThreadStatus = Literal[
     "open",
@@ -36,6 +39,7 @@ ThreadStatus = Literal[
     "blocked",
     "resolved",
     "archived",
+    "deleted",
 ]
 
 THREAD_MESSAGE_KINDS = (
@@ -60,6 +64,19 @@ ThreadMessageKind = Literal[
 THREAD_DECISION_STATUSES = ("pending", "resolved", "dismissed")
 ThreadDecisionStatus = Literal["pending", "resolved", "dismissed"]
 
+THREAD_SIMILARITY_ACTIONS = (
+    "continue_existing",
+    "improve_existing",
+    "performance_pass",
+    "create_new_anyway",
+)
+ThreadSimilarityAction = Literal[
+    "continue_existing",
+    "improve_existing",
+    "performance_pass",
+    "create_new_anyway",
+]
+
 
 class ThreadRecord(BaseModel):
     """Header de un hilo con ownership polimórfico, tal como se expone al cliente."""
@@ -72,6 +89,11 @@ class ThreadRecord(BaseModel):
     status: ThreadStatus
     summary: str
     metadata: dict[str, Any]
+    archived_at: str | None = Field(default=None, alias="archivedAt")
+    archived_by: str | None = Field(default=None, alias="archivedBy")
+    deleted_at: str | None = Field(default=None, alias="deletedAt")
+    deleted_by: str | None = Field(default=None, alias="deletedBy")
+    lifecycle_reason: str | None = Field(default=None, alias="lifecycleReason")
     created_at: str = Field(alias="createdAt")
     updated_at: str = Field(alias="updatedAt")
 
@@ -171,11 +193,102 @@ class ThreadCreateRequest(BaseModel):
     title: str
 
 
+class ThreadUpdateRequest(BaseModel):
+    """Cuerpo para mutar el header editable de un hilo."""
+
+    title: str | None = None
+
+
+class ThreadArchiveRequest(BaseModel):
+    """Cuerpo para archivar o reabrir un hilo con motivo auditable."""
+
+    reason: str
+    actor: str = "operator"
+
+
+class ThreadDeleteRequest(BaseModel):
+    """Cuerpo para borrar logicamente un hilo sin eliminar mensajes ni artifacts."""
+
+    reason: str
+    actor: str = "operator"
+
+
+class ThreadArchiveResponse(BaseModel):
+    """Resultado de archivar o reabrir un hilo junto con su evento de auditoria."""
+
+    thread: ThreadRecord
+    audit_event: AuditEventRecord = Field(alias="auditEvent")
+
+
+class ThreadDeleteResponse(BaseModel):
+    """Resultado de borrar logicamente un hilo junto con su evento de auditoria."""
+
+    thread: ThreadRecord
+    audit_event: AuditEventRecord = Field(alias="auditEvent")
+
+
+class ThreadSimilarityArtifactRef(BaseModel):
+    """Referencia mínima a artifact usada por el índice de similitud."""
+
+    artifact_id: str = Field(alias="artifactId")
+    kind: str
+    title: str
+
+
+class ThreadSimilarityCandidateRecord(BaseModel):
+    """Candidato similar devuelto por el índice lexical."""
+
+    thread_id: str = Field(alias="threadId")
+    project_id: str = Field(alias="projectId")
+    title: str
+    summary: str
+    status: ThreadStatus
+    score: float
+    reason: str
+    keywords: list[str]
+    artifact_refs: list[ThreadSimilarityArtifactRef] = Field(alias="artifactRefs")
+    updated_at: str = Field(alias="updatedAt")
+
+
+class ThreadSimilarityResponse(BaseModel):
+    """Respuesta de búsqueda de threads similares."""
+
+    candidates: list[ThreadSimilarityCandidateRecord]
+
+
+class ThreadSimilarityMarkRequest(BaseModel):
+    """Cuerpo para marcar la decisión operacional tomada sobre un candidato similar."""
+
+    action: ThreadSimilarityAction
+    score: float = 0.0
+    reason: str = ""
+
+
+class ThreadSimilarityEventRecord(BaseModel):
+    """Evento persistido de decisión de similitud entre dos threads."""
+
+    id: str
+    project_id: str = Field(alias="projectId")
+    source_thread_id: str = Field(alias="sourceThreadId")
+    candidate_thread_id: str = Field(alias="candidateThreadId")
+    score: float
+    reason: str
+    action: ThreadSimilarityAction
+    created_at: str = Field(alias="createdAt")
+
+
+class ThreadSimilarityMarkResponse(BaseModel):
+    """Respuesta de marcar un candidato similar."""
+
+    event: ThreadSimilarityEventRecord
+
+
 class ThreadMessageRequest(BaseModel):
     """Cuerpo para publicar un mensaje de usuario que dispara la ejecución del coordinator."""
 
     content: str
     author: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class ThreadRunSummary(BaseModel):
@@ -211,3 +324,72 @@ class ThreadDecisionResolveResponse(BaseModel):
 
     thread: ThreadRecord
     decision: ThreadDecisionRecord
+
+
+class ThreadMemoryDecisionRecord(BaseModel):
+    """Decisión ya resuelta en un hilo similar, recordada por el recall de memoria."""
+
+    id: str
+    thread_id: str = Field(alias="threadId")
+    thread_title: str = Field(alias="threadTitle")
+    title: str
+    prompt: str
+    resolution: str
+    decided_at: str | None = Field(default=None, alias="decidedAt")
+    created_at: str = Field(alias="createdAt")
+
+
+class ThreadMemoryEvidenceRecord(BaseModel):
+    """Artifact de un hilo similar expuesto como evidencia relacionada."""
+
+    id: str
+    thread_id: str = Field(alias="threadId")
+    thread_title: str = Field(alias="threadTitle")
+    artifact_id: str = Field(alias="artifactId")
+    kind: str
+    title: str
+    created_at: str = Field(alias="createdAt")
+
+
+class ThreadMemoryLessonRecord(BaseModel):
+    """Lección vigente del proyecto (``memory_items`` kind='lesson') con su relevancia lexical."""
+
+    id: str
+    content: str
+    source_ref: str = Field(alias="sourceRef")
+    matched_keywords: list[str] = Field(alias="matchedKeywords")
+    created_at: str = Field(alias="createdAt")
+
+
+class ThreadMemoryPerformanceRecord(BaseModel):
+    """Pasada de performance ya pedida sobre trabajo similar (evento o mensaje real)."""
+
+    id: str
+    thread_id: str = Field(alias="threadId")
+    thread_title: str = Field(alias="threadTitle")
+    note: str
+    source: Literal["similarity_event", "thread_message"]
+    created_at: str = Field(alias="createdAt")
+
+
+class ThreadMemoryImplementedRecord(BaseModel):
+    """Hilo similar ya resuelto: funcionalidad que el proyecto ya implementó antes."""
+
+    thread_id: str = Field(alias="threadId")
+    title: str
+    summary: str
+    score: float
+    updated_at: str = Field(alias="updatedAt")
+
+
+class ThreadMemoryRecallResponse(BaseModel):
+    """Memoria agregada de un hilo: las seis categorías del panel de recall."""
+
+    source_thread_id: str = Field(alias="sourceThreadId")
+    generated_at: str = Field(alias="generatedAt")
+    similar_threads: list[ThreadSimilarityCandidateRecord] = Field(alias="similarThreads")
+    previous_decisions: list[ThreadMemoryDecisionRecord] = Field(alias="previousDecisions")
+    related_evidence: list[ThreadMemoryEvidenceRecord] = Field(alias="relatedEvidence")
+    lessons_learned: list[ThreadMemoryLessonRecord] = Field(alias="lessonsLearned")
+    performance_issues: list[ThreadMemoryPerformanceRecord] = Field(alias="performanceIssues")
+    implemented_functionality: list[ThreadMemoryImplementedRecord] = Field(alias="implementedFunctionality")

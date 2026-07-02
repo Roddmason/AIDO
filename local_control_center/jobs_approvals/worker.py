@@ -13,11 +13,13 @@ import concurrent.futures
 from pathlib import Path
 from typing import Any
 
+from local_control_center.agents.research_agent import ResearchAgentRunner
 from local_control_center.jobs_approvals.repository import JobsRepository
 from local_control_center.product_loop.coordinator import ProductLoopCoordinator
 from local_control_center.shared.db import open_sqlite_connection
 from local_control_center.shared.migrations import initialize_platform_schema
 from local_control_center.shared.redaction import redact_secrets
+from local_control_center.threads.coordinator import THREAD_RESEARCH_JOB_KIND
 from local_control_center.threads.repository import ThreadsRepository
 
 THREAD_PRODUCT_LOOP_JOB_KIND = "thread.product_loop.run"
@@ -137,6 +139,21 @@ def execute_job(
             `unsupported_job_kind` para el resto.
     """
     kind = job["kind"]
+    if kind == THREAD_RESEARCH_JOB_KIND:
+        if connection is not None:
+            return _execute_thread_research_job(job, connection=connection, worker_id=worker_id)
+        if db_path is None:
+            raise JobExecutionUnavailable(
+                status="configuration_required",
+                summary="Thread research jobs require a SQLite connection or db_path.",
+                metadata={"kind": kind},
+            )
+        local_connection = open_sqlite_connection(db_path)
+        try:
+            initialize_platform_schema(local_connection)
+            return _execute_thread_research_job(job, connection=local_connection, worker_id=worker_id)
+        finally:
+            local_connection.close()
     if kind == THREAD_PRODUCT_LOOP_JOB_KIND:
         if connection is not None:
             return _execute_thread_product_loop_job(job, connection=connection, worker_id=worker_id)
@@ -195,6 +212,12 @@ def _execute_thread_product_loop_job(
     threads.set_status(thread_id, "running")
     threads.record_event(
         thread_id=thread_id,
+        type="worker_started",
+        agent_role="aido_lead",
+        payload={"jobId": job["id"], "workerId": worker_id or "worker"},
+    )
+    threads.record_event(
+        thread_id=thread_id,
         type="worker_claimed",
         agent_role="aido_lead",
         payload={"jobId": job["id"], "workerId": worker_id or "worker"},
@@ -220,6 +243,12 @@ def _execute_thread_product_loop_job(
         )
     except Exception as error:
         reason = str(redact_secrets(str(error)))
+        threads.record_event(
+            thread_id=thread_id,
+            type="worker_failed",
+            agent_role="aido_lead",
+            payload={"jobId": job["id"], "workerId": worker_id or "worker", "reason": reason},
+        )
         _finish_thread_after_product_loop(
             threads=threads,
             thread_id=thread_id,
@@ -256,6 +285,100 @@ def _execute_thread_product_loop_job(
             "productLoopStatus": status,
             "threadStatus": thread_status,
             "evidencePackageId": evidence.get("id"),
+        },
+    }
+
+
+def _execute_thread_research_job(
+    job: dict,
+    *,
+    connection: Any,
+    worker_id: str | None,
+) -> dict:
+    payload = dict(job.get("payload") or {})
+    thread_id = str(payload.get("threadId") or "").strip()
+    project_id = str(payload.get("projectId") or job.get("projectId") or "").strip()
+    query = str(payload.get("query") or "").strip()
+    workspace_id = str(payload.get("workspaceId") or "").strip()
+    if not thread_id or not project_id or not query or not workspace_id:
+        raise JobExecutionUnavailable(
+            status="configuration_required",
+            summary="Thread research job is missing threadId, projectId, query, or workspaceId.",
+            metadata={
+                "kind": job["kind"],
+                "threadId": thread_id,
+                "projectId": project_id,
+                "workspaceId": workspace_id,
+            },
+        )
+
+    threads = ThreadsRepository(connection)
+    threads.set_status(thread_id, "running")
+    threads.record_event(
+        thread_id=thread_id,
+        type="worker_claimed",
+        agent_role="researcher",
+        payload={"jobId": job["id"], "workerId": worker_id or "worker"},
+    )
+    root = Path(str(payload.get("root") or ".")).resolve(strict=False)
+    research_payload = {
+        "projectId": project_id,
+        "workspaceId": workspace_id,
+        "taskId": payload.get("taskId") or f"thread-research-{thread_id}",
+        "query": query,
+        "maxSources": payload.get("maxSources"),
+        "sources": payload.get("sources") if isinstance(payload.get("sources"), list) else [],
+        "conclusions": payload.get("conclusions") if isinstance(payload.get("conclusions"), list) else [],
+        "claims": payload.get("claims") if isinstance(payload.get("claims"), list) else [],
+        "technicalDecisions": payload.get("technicalDecisions")
+        if isinstance(payload.get("technicalDecisions"), list)
+        else [],
+        "jobId": job["id"],
+        "metadata": {
+            **(payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}),
+            "threadId": thread_id,
+            "messageId": payload.get("messageId"),
+            "jobId": job["id"],
+            "query": query,
+        },
+    }
+    try:
+        result = ResearchAgentRunner(connection, root=root).run(research_payload)
+    except Exception as error:
+        reason = str(redact_secrets(str(error)))
+        _finish_thread_after_research(
+            threads=threads,
+            thread_id=thread_id,
+            job_id=job["id"],
+            status="blocked",
+            reason=reason,
+            report_artifact_id=None,
+            event_type="blocked",
+        )
+        raise
+
+    status = str(result.get("status") or "research_blocked")
+    reason = str(result.get("reason") or status)
+    report = result.get("reportArtifact") if isinstance(result.get("reportArtifact"), dict) else {}
+    thread_status = "resolved" if status == "research_ready" else "blocked"
+    event_type = "completed" if status == "research_ready" else "blocked"
+    _finish_thread_after_research(
+        threads=threads,
+        thread_id=thread_id,
+        job_id=job["id"],
+        status=thread_status,
+        reason=reason,
+        report_artifact_id=report.get("id"),
+        event_type=event_type,
+    )
+    return {
+        "summary": reason,
+        "metadata": {
+            "kind": job["kind"],
+            "threadId": thread_id,
+            "researchStatus": status,
+            "threadStatus": thread_status,
+            "reportArtifactId": report.get("id"),
         },
     }
 
@@ -308,6 +431,38 @@ def _finish_thread_after_product_loop(
         thread_id=thread_id,
         kind=message_kind,
         author="product_loop" if status == "blocked" else "aido_lead",
+        content=reason,
+        metadata=payload,
+    )
+
+
+def _finish_thread_after_research(
+    *,
+    threads: ThreadsRepository,
+    thread_id: str,
+    job_id: str,
+    status: str,
+    reason: str,
+    report_artifact_id: str | None,
+    event_type: str,
+) -> None:
+    threads.set_status(thread_id, status)
+    payload = {
+        "jobId": job_id,
+        "status": status,
+        "reason": reason,
+        "reportArtifactId": report_artifact_id,
+    }
+    threads.record_event(
+        thread_id=thread_id,
+        type=event_type,
+        agent_role="researcher",
+        payload=payload,
+    )
+    threads.append_message(
+        thread_id=thread_id,
+        kind="error" if status == "blocked" else "aido_lead",
+        author="research_agent",
         content=reason,
         metadata=payload,
     )

@@ -1,7 +1,7 @@
 """Ensambla el snapshot global read-only del estado consultando cada repositorio de slice.
 
 Punto unico que el endpoint de overview usa para devolver, en una sola respuesta, las
-colecciones de todos los slices (proyectos, sesiones, pipelines, jobs, gobernanza, agentes,
+colecciones de todos los slices activos (proyectos, threads, jobs, gobernanza, agentes,
 seguridad, etc.). Solo lee: instancia repositorios sobre la conexion recibida, garantiza el
 proyecto runtime y arma el diccionario alineado con ``OverviewResponse``.
 
@@ -21,11 +21,9 @@ from local_control_center.governance.repository import GovernanceRepository
 from local_control_center.integrations.repository import IntegrationsRepository
 from local_control_center.jobs_approvals.repository import JobsRepository
 from local_control_center.memory_retrieval.repository import MemoryRepository
-from local_control_center.pipelines.repository import PipelinesRepository
 from local_control_center.projects.repository import ProjectsRepository
 from local_control_center.prompts.repository import PromptsRepository
 from local_control_center.security_policy.repository import SecurityPolicyRepository
-from local_control_center.sessions_chats.repository import SessionsChatsRepository
 from local_control_center.shared.event_bus import EventBus
 from local_control_center.threads.repository import ThreadsRepository
 from local_control_center.workflows.repository import WorkflowsRepository
@@ -60,8 +58,6 @@ def build_overview_from_connection(*, connection: sqlite3.Connection, cwd: str |
     ensure_runtime_project(connection, cwd)
 
     projects = ProjectsRepository(connection)
-    sessions_chats = SessionsChatsRepository(connection)
-    pipelines = PipelinesRepository(connection)
     jobs = JobsRepository(connection)
     events = EventBus(connection)
     memory = MemoryRepository(connection)
@@ -82,10 +78,7 @@ def build_overview_from_connection(*, connection: sqlite3.Connection, cwd: str |
         "providers": projects.list_providers(),
         "teams": projects.list_teams(),
         "agents": projects.list_agents(),
-        "sessions": sessions_chats.list_sessions(),
-        "chats": sessions_chats.list_chats(),
         "threads": threads.list_threads(),
-        "pipelines": pipelines.list_pipelines(),
         "jobs": jobs.list_jobs(),
         "jobRuns": jobs.list_job_runs(),
         "events": events.list_events(limit=OVERVIEW_EVENT_LIMIT),

@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import logging
 import threading
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
@@ -57,6 +58,8 @@ from .shared.telemetry import (
 )
 from .team_activity.api import create_router as create_team_activity_router
 from .threads.api import create_router as create_threads_router
+from .workers.api import create_router as create_workers_router
+from .workers.runtime import LocalWorkerRuntime
 from .workflows.api import create_router as create_workflows_router
 from .workspaces_projects.api import create_router as create_workspaces_router
 
@@ -80,8 +83,26 @@ def create_app(
     platform.init()
     platform.ensure_runtime_project()
     configure_external_telemetry_from_env()
-    app = FastAPI(title="Local Control Center", version="0.1.0")
+    worker_runtime = LocalWorkerRuntime.from_settings(
+        connection=platform.connection,
+        db_path=platform.db_path,
+        cwd=platform.cwd,
+    )
+
+    @asynccontextmanager
+    async def lifespan(_: FastAPI):
+        worker_runtime.refresh_settings(platform.connection)
+        if worker_runtime.settings.autostart:
+            await anyio.to_thread.run_sync(worker_runtime.start)
+        try:
+            yield
+        finally:
+            await anyio.to_thread.run_sync(lambda: worker_runtime.stop(reason="FastAPI shutdown."))
+
+    app = FastAPI(title="Local Control Center", version="0.1.0", lifespan=lifespan)
     app.state.runtime = platform
+    app.state.worker_runtime = worker_runtime
+    platform.local_worker_runtime = worker_runtime
     store_request_lock = threading.Lock()
 
     @app.exception_handler(Exception)
@@ -153,6 +174,7 @@ def create_app(
     app.include_router(create_self_improvement_router(platform=platform, require_write=require_write))
     app.include_router(create_team_activity_router(platform=platform, require_write=require_write))
     app.include_router(create_threads_router(platform=platform, require_write=require_write))
+    app.include_router(create_workers_router(platform=platform, require_write=require_write))
     app.include_router(create_settings_router(platform=platform, require_write=require_write))
     app.include_router(create_i18n_router(platform=platform, require_write=require_write))
     app.include_router(create_credentials_router(platform=platform, require_write=require_write))

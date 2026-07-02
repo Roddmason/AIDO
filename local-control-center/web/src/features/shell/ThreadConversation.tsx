@@ -1,14 +1,16 @@
 /**
  * Center surface of the threads shell: a real conversation backed by `project_threads`.
  *
- * Renders the selected thread's timeline (messages typed by kind: user, aido_lead, agent_summary,
- * decision_request, artifact, error, system_event), surfaces pending decisions as actionable options,
- * and hosts the Codex-style composer that posts a user message and runs the coordinator (responds or
- * blocks). The composer is one rounded box: the prompt on top, then the controls row (action-approval
- * level + send) and the workspace context row (project, local runtime, git branch/scan). When the
- * "New thread" sentinel is active the same box creates a real thread and sends its first message; the
- * title is derived automatically from the first line. Real data only — settings, git and threads all
- * come from their APIs.
+ * The live thread is split into two regions so the user can tell the conversation from the work:
+ * the transcript pane (user / AIDO Lead messages, pending decisions, artifacts such as research
+ * reports) with the Codex-style composer docked under it, and the execution panel
+ * ({@link ThreadExecutionPanel}) with the worker state, the pipeline steps, actionable blockers and
+ * the humanized event console. Execution-side messages (agent summaries, system events, errors)
+ * render in the panel, not the transcript. The composer is one rounded box: the prompt on top, then
+ * the controls row (action-approval level + send) and the workspace context row (project, local
+ * runtime, git branch/scan). When the "New thread" sentinel is active the same box creates a real
+ * thread and sends its first message; the title is derived automatically from the first line. Real
+ * data only — settings, git and threads all come from their APIs.
  * @author Rodrigo Mason
  */
 import {
@@ -16,6 +18,7 @@ import {
 	BookOpen,
 	CalendarClock,
 	Hash,
+	History,
 	Laptop,
 	MessageSquare,
 	Send,
@@ -32,7 +35,15 @@ import {
 	useRef,
 	useState,
 } from 'react';
-import { createThread, postThreadMessage } from '../../api/client';
+import {
+	createThread,
+	findSimilarThreads,
+	getWorkerStatus,
+	markSimilarThread,
+	postThreadMessage,
+	runWorkerOnce,
+	type WorkerStatusResponse,
+} from '../../api/client';
 import type {
 	Overview,
 	Project,
@@ -40,6 +51,7 @@ import type {
 	ThreadArtifact,
 	ThreadDetail,
 	ThreadMessage,
+	ThreadSimilarityCandidate,
 } from '../../api/types';
 import type { Mutate } from '../../app/routes';
 import { Button, EmptyState, Skeleton, StatusChip, TextArea } from '../../components/ui';
@@ -56,6 +68,14 @@ import {
 import { useSettings } from '../settings/useSettings';
 import { NEW_SESSION_ID } from '../workbench/useWorkbenchData';
 import { GitBranchBar } from './GitBranchBar';
+import { ThreadExecutionPanel } from './ThreadExecutionPanel';
+import {
+	arrayValue,
+	isRecord,
+	MESSAGE_META,
+	TRANSCRIPT_KINDS,
+	textValue,
+} from './threadPresentation';
 import { useThreadConversation } from './useThreadConversation';
 import { useThreadEventStream } from './useThreadEventStream';
 
@@ -67,9 +87,10 @@ type ThreadConversationProps = {
 	token: string;
 	onSelectThread: (threadId: string) => void;
 	onCreateProject: () => void;
+	onOpenRuntimeSetup: () => void;
+	onOpenApprovals: () => void;
 };
 
-type MessageMeta = { authorKey: string; tone: 'ok' | 'warn' | 'danger' | 'info' | 'pending' };
 type ResearchSourcePayload = {
 	id?: string;
 	artifactId?: string;
@@ -90,16 +111,6 @@ type ResearchCardPayload = {
 	recommendation?: ResearchRecommendationPayload;
 	sources?: ResearchSourcePayload[];
 	discrepancies?: Array<Record<string, unknown>>;
-};
-
-const MESSAGE_META: Record<ThreadMessage['kind'], MessageMeta> = {
-	user: { authorKey: 'app.threads.authorUser', tone: 'info' },
-	aido_lead: { authorKey: 'app.threads.authorLead', tone: 'ok' },
-	agent_summary: { authorKey: 'app.threads.authorAgent', tone: 'info' },
-	decision_request: { authorKey: 'app.threads.decisionTitle', tone: 'warn' },
-	artifact: { authorKey: 'app.threads.authorArtifact', tone: 'info' },
-	error: { authorKey: 'app.threads.authorError', tone: 'danger' },
-	system_event: { authorKey: 'app.threads.authorSystem', tone: 'pending' },
 };
 
 /** Resolves the workspace owner id for a brand-new thread: the project's runtime workspace if any. */
@@ -143,6 +154,8 @@ export function ThreadConversation({
 	token,
 	onSelectThread,
 	onCreateProject,
+	onOpenRuntimeSetup,
+	onOpenApprovals,
 }: ThreadConversationProps) {
 	const { t } = useI18n();
 	const isNew = !selectedThreadId || selectedThreadId === NEW_SESSION_ID;
@@ -152,7 +165,11 @@ export function ThreadConversation({
 		mutate,
 	);
 	const [streamRefreshKey, setStreamRefreshKey] = useState(0);
+	const [workerStatus, setWorkerStatus] = useState<WorkerStatusResponse | null>(null);
+	const [workerBusy, setWorkerBusy] = useState(false);
 	const eventStream = useThreadEventStream(activeThreadId, streamRefreshKey);
+	const decisionRef = useRef<HTMLElement | null>(null);
+	const composerDockRef = useRef<HTMLDivElement | null>(null);
 
 	// Git mutations inside the composer re-pull the overview (fire-and-forget) so the shell stays in sync.
 	const refreshOverview = () => {
@@ -172,6 +189,34 @@ export function ThreadConversation({
 		[send],
 	);
 
+	const loadWorkerStatus = useCallback((signal?: AbortSignal) => {
+		getWorkerStatus(signal)
+			.then((status) => {
+				if (!signal?.aborted) setWorkerStatus(status);
+			})
+			.catch(() => {
+				if (!signal?.aborted) setWorkerStatus(null);
+			});
+	}, []);
+
+	useEffect(() => {
+		const controller = new AbortController();
+		loadWorkerStatus(controller.signal);
+		return () => controller.abort();
+	}, [loadWorkerStatus, activeThreadId, eventStream.threadStatus]);
+
+	const runQueuedJobsNow = useCallback(async () => {
+		setWorkerBusy(true);
+		try {
+			await mutate((writeToken) => runWorkerOnce(writeToken), { awaitRefresh: false });
+			loadWorkerStatus();
+			reload();
+			setStreamRefreshKey((value) => value + 1);
+		} finally {
+			setWorkerBusy(false);
+		}
+	}, [loadWorkerStatus, mutate, reload]);
+
 	const resolveDecision = useCallback(
 		async (decisionId: string, resolution: string) => {
 			await resolve(decisionId, resolution);
@@ -179,6 +224,15 @@ export function ThreadConversation({
 		},
 		[resolve],
 	);
+
+	const focusDecision = useCallback(() => {
+		decisionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+		decisionRef.current?.focus();
+	}, []);
+
+	const focusGitBar = useCallback(() => {
+		composerDockRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+	}, []);
 
 	// One phase id per render, used only to pick the AnimatePresence key/variant below; the
 	// if/else-if chain further down re-checks the same conditions directly so TypeScript's
@@ -260,9 +314,16 @@ export function ThreadConversation({
 			</div>
 		);
 	} else {
-		const pendingDecision = detail.decisions.find((decision) => decision.status === 'pending');
+		const pendingDecision =
+			detail.decisions.find((decision) => decision.status === 'pending') ?? null;
 		const researchArtifacts = detail.artifacts.filter(
 			(artifact) => artifact.kind === 'research_report',
+		);
+		const transcriptMessages = detail.messages.filter((message) =>
+			TRANSCRIPT_KINDS.has(message.kind),
+		);
+		const executionMessages = detail.messages.filter(
+			(message) => !TRANSCRIPT_KINDS.has(message.kind),
 		);
 		const consoleEvents = mergeConsoleEvents(detail.events, eventStream.events);
 		const threadStatus = eventStream.threadStatus ?? detail.thread.status;
@@ -281,100 +342,93 @@ export function ThreadConversation({
 					</StatusChip>
 				</header>
 
-				<div className="thread-live-scroll" aria-label={t('app.threads.chatRegion', 'Thread chat')}>
-					<div className="thread-chat-transcript" aria-live="polite">
-						{detail.messages.length === 0 ? (
-							<p className="thread-chat-empty">
-								{t('app.threads.transcriptEmpty', 'No messages yet. Send the first one below.')}
-							</p>
-						) : (
-							detail.messages.map((message) => (
-								<ThreadMessageRow key={message.id} message={message} />
-							))
-						)}
+				<div className="thread-live-body">
+					<div className="thread-transcript-pane">
+						<section
+							className="thread-live-scroll"
+							aria-label={t('app.threads.chatRegion', 'Thread chat')}
+						>
+							<div className="thread-chat-transcript" aria-live="polite">
+								{transcriptMessages.length === 0 ? (
+									<p className="thread-chat-empty">
+										{t('app.threads.transcriptEmpty', 'No messages yet. Send the first one below.')}
+									</p>
+								) : (
+									transcriptMessages.map((message) => (
+										<ThreadMessageRow key={message.id} message={message} />
+									))
+								)}
+							</div>
+
+							{pendingDecision ? (
+								<m.section
+									ref={decisionRef}
+									tabIndex={-1}
+									className="thread-decision-console"
+									aria-label={t('app.threads.decisionTitle', 'Decision needed')}
+									variants={panelTransition}
+									initial="initial"
+									animate="animate"
+								>
+									<div className="thread-decision-head">
+										<AlertTriangle aria-hidden="true" size={15} />
+										<strong>{t('app.threads.decisionTitle', 'Decision needed')}</strong>
+									</div>
+									<p>{pendingDecision.prompt}</p>
+									<div className="thread-decision-options">
+										{pendingDecision.options.map((option) => (
+											<Button
+												key={option}
+												variant="secondary"
+												disabled={busy}
+												onClick={() => resolveDecision(pendingDecision.id, option)}
+											>
+												{option}
+											</Button>
+										))}
+									</div>
+								</m.section>
+							) : null}
+
+							{researchArtifacts.map((artifact) => (
+								<ThreadResearchCard key={artifact.id} artifact={artifact} />
+							))}
+						</section>
+
+						<div className="thread-composer-dock" ref={composerDockRef}>
+							<ThreadComposerBox
+								project={selectedProject}
+								token={token}
+								onGitRefresh={refreshOverview}
+								value=""
+								busy={busy}
+								rows={3}
+								submitLabel={t('app.threads.send', 'Send')}
+								submitBusyLabel={t('app.threads.sending', 'Sending…')}
+								onSendMessage={sendMessage}
+							/>
+						</div>
 					</div>
 
-					{pendingDecision ? (
-						<m.section
-							className="thread-decision-console"
-							aria-label={t('app.threads.decisionTitle', 'Decision needed')}
-							variants={panelTransition}
-							initial="initial"
-							animate="animate"
-						>
-							<div className="thread-decision-head">
-								<AlertTriangle aria-hidden="true" size={15} />
-								<strong>{t('app.threads.decisionTitle', 'Decision needed')}</strong>
-							</div>
-							<p>{pendingDecision.prompt}</p>
-							<div className="thread-decision-options">
-								{pendingDecision.options.map((option) => (
-									<Button
-										key={option}
-										variant="secondary"
-										disabled={busy}
-										onClick={() => resolveDecision(pendingDecision.id, option)}
-									>
-										{option}
-									</Button>
-								))}
-							</div>
-						</m.section>
-					) : null}
-
-					<m.section
-						className="thread-execution-console"
-						role="log"
-						aria-live="polite"
-						aria-relevant="additions"
-						aria-label={t('app.threads.consoleRegion', 'Execution console')}
-						initial={{ opacity: 0, y: 6 }}
-						animate={{
-							opacity: 1,
-							y: 0,
-							transition: { duration: 0.2, ease: EASE_OUT, delay: handoffFromIntake ? 0.55 : 0 },
-						}}
-					>
-						<div className="thread-console-title">
-							<span>{t('app.threads.consoleTitle', 'Execution')}</span>
-							{eventStream.loading ? (
-								<StatusChip tone="pending">{t('app.threads.consoleLoading', 'syncing')}</StatusChip>
-							) : null}
-						</div>
-						{eventStream.error ? (
-							<div className="thread-console-status" data-tone="danger">
-								{eventStream.error}
-							</div>
-						) : null}
-						{waitingForWorker ? (
-							<div className="thread-console-status" data-tone="pending">
-								{t('app.threads.waitingWorker', 'Queued: waiting for a worker to claim this run.')}
-							</div>
-						) : null}
-						{consoleEvents.length ? (
-							consoleEvents.map((event) => <ThreadConsoleRow key={event.id} event={event} />)
-						) : (
-							<div className="thread-console-status" data-tone="muted">
-								{t('app.threads.consoleEmpty', 'No execution events yet.')}
-							</div>
-						)}
-						{researchArtifacts.map((artifact) => (
-							<ThreadResearchCard key={artifact.id} artifact={artifact} />
-						))}
-					</m.section>
-				</div>
-
-				<div className="thread-composer-dock">
-					<ThreadComposerBox
+					<ThreadExecutionPanel
 						project={selectedProject}
 						token={token}
+						threadStatus={threadStatus}
+						events={consoleEvents}
+						messages={executionMessages}
+						pendingDecision={pendingDecision}
+						workerStatus={workerStatus}
+						workerBusy={workerBusy}
+						syncing={eventStream.loading}
+						streamError={eventStream.error}
+						waitingForWorker={waitingForWorker}
+						handoffFromIntake={handoffFromIntake}
+						onRunQueuedNow={runQueuedJobsNow}
+						onOpenRuntimeSetup={onOpenRuntimeSetup}
+						onOpenApprovals={onOpenApprovals}
+						onFocusDecision={focusDecision}
+						onFocusGitBar={focusGitBar}
 						onGitRefresh={refreshOverview}
-						value=""
-						busy={busy}
-						rows={3}
-						submitLabel={t('app.threads.send', 'Send')}
-						submitBusyLabel={t('app.threads.sending', 'Sending…')}
-						onSendMessage={sendMessage}
 					/>
 				</div>
 			</div>
@@ -517,18 +571,6 @@ function sourceValue(value: unknown): ResearchSourcePayload {
 	};
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
-
-function arrayValue(value: unknown): unknown[] {
-	return Array.isArray(value) ? value : [];
-}
-
-function textValue(value: unknown): string | undefined {
-	return typeof value === 'string' && value.trim() ? value : undefined;
-}
-
 function shortHash(value: string | undefined): string {
 	return value ? value.slice(0, 12) : 'pending';
 }
@@ -560,90 +602,6 @@ function ThreadMessageRow({ message }: { message: ThreadMessage }) {
 			<p className="thread-row-content">{message.content}</p>
 		</m.article>
 	);
-}
-
-function ThreadConsoleRow({ event }: { event: ThreadAgentEvent }) {
-	const { t } = useI18n();
-	const payload = safeRecord(event.payload);
-	const actor =
-		event.agentRole || textValue(payload.role) || textValue(payload.agentName) || 'aido';
-	const title = t(`app.threads.event.${event.type}`, eventTitle(event.type));
-	const detail = eventDetail(event, payload);
-	const chips = [
-		textValue(payload.status) || textValue(payload.toState),
-		textValue(payload.runtimeId),
-		textValue(payload.agentId),
-		textValue(payload.workerId),
-		textValue(payload.jobId),
-	].filter((value): value is string => Boolean(value));
-	return (
-		<div className="thread-console-row" data-type={event.type}>
-			<span className="thread-console-seq mono">#{event.sequence}</span>
-			<span className="thread-console-actor">{actor}</span>
-			<div className="thread-console-body">
-				<div className="thread-console-line">
-					<strong>{title}</strong>
-					{chips.map((chip) => (
-						<span className="thread-console-chip mono" key={chip}>
-							{chip}
-						</span>
-					))}
-				</div>
-				{detail ? <p>{detail}</p> : null}
-			</div>
-		</div>
-	);
-}
-
-function eventTitle(type: string): string {
-	const titles: Record<string, string> = {
-		message_received: 'Message received',
-		classification_completed: 'Classification ready',
-		team_planned: 'Team planned',
-		run_queued: 'Run queued',
-		worker_claimed: 'Worker assigned',
-		runtime_selected: 'Runtime selected',
-		agent_running: 'Agent working',
-		workspace_check: 'Workspace',
-		runtime_check: 'Runtime',
-		git_check: 'Git',
-		discovery: 'Discovery',
-		planning: 'Planning',
-		backlog_ready: 'Backlog ready',
-		branch_ready: 'Branch ready',
-		executing: 'Execution',
-		qa_running: 'QA',
-		security_running: 'Security',
-		review_ready: 'Review',
-		awaiting_approval: 'Approval required',
-		approval_required: 'Approval required',
-		blocked: 'Blocked',
-		completed: 'Completed',
-		decision_required: 'Decision required',
-		decision_resolved: 'Decision resolved',
-	};
-	return titles[type] ?? type.replace(/_/g, ' ');
-}
-
-function eventDetail(event: ThreadAgentEvent, payload: Record<string, unknown>): string {
-	const reason = textValue(payload.reason);
-	if (reason) return reason;
-	const roles = safeRecord(payload.summary).roles;
-	if (Array.isArray(roles) && roles.length) {
-		return `Roles: ${roles.map(String).join(', ')}`;
-	}
-	const fromState = textValue(payload.fromState);
-	const toState = textValue(payload.toState);
-	if (fromState && toState) return `${fromState} -> ${toState}`;
-	const assignmentId = textValue(payload.assignmentId);
-	if (assignmentId) return `Asignacion: ${assignmentId}`;
-	return event.createdAt;
-}
-
-function safeRecord(value: unknown): Record<string, unknown> {
-	return value && typeof value === 'object' && !Array.isArray(value)
-		? (value as Record<string, unknown>)
-		: {};
 }
 
 function mergeConsoleEvents(
@@ -682,6 +640,8 @@ type ThreadComposerBoxProps = {
 	onSendMessage?: (content: string) => Promise<void>;
 	/** New-thread mode: create the thread from the typed message (title auto-derived). */
 	onCreateThread?: (content: string) => Promise<void>;
+	/** Mirrors every keystroke to the parent (used by the intake's similar-work lookup). */
+	onValueChange?: (value: string) => void;
 };
 
 /**
@@ -701,6 +661,7 @@ function ThreadComposerBox({
 	errorText,
 	onSendMessage,
 	onCreateThread,
+	onValueChange,
 }: ThreadComposerBoxProps) {
 	const { t } = useI18n();
 	const [value, setValue] = useState(initialValue);
@@ -761,7 +722,10 @@ function ThreadComposerBox({
 				value={value}
 				rows={rows}
 				placeholder={t('app.threads.composerPlaceholder', 'Describe the work or ask a question…')}
-				onChange={(event) => setValue(event.target.value)}
+				onChange={(event) => {
+					setValue(event.target.value);
+					onValueChange?.(event.target.value);
+				}}
 				onKeyDown={onKeyDown}
 				error={errorText}
 			/>
@@ -808,8 +772,18 @@ function ThreadComposerBox({
 	);
 }
 
+/** Mirrors the backend HIGH_SIMILARITY_THRESHOLD: only real matches interrupt the intake. */
+const SIMILARITY_THRESHOLD = 0.6;
+/** Below this many characters no lexical token survives normalization, so the lookup is skipped. */
+const SIMILARITY_MIN_QUERY = 3;
+const SIMILARITY_DEBOUNCE_MS = 500;
+
+type SimilarityReuseMode = 'improve_existing' | 'performance_pass' | 'create_new_anyway';
+
 /** New-thread intake: the Codex-style composer box under a heading. The title is auto-derived from
- *  the first line of the message (no manual field), the way modern AI IDEs name conversations. */
+ *  the first line of the message (no manual field), the way modern AI IDEs name conversations.
+ *  While the operator types, a debounced similarity lookup surfaces already-done work so they can
+ *  continue/improve an existing thread instead of duplicating it. */
 function NewThreadComposer({
 	overview,
 	project,
@@ -827,12 +801,41 @@ function NewThreadComposer({
 }) {
 	const { t } = useI18n();
 	const [failed, setFailed] = useState(false);
+	const [draft, setDraft] = useState('');
+	const [candidate, setCandidate] = useState<ThreadSimilarityCandidate | null>(null);
+	const [reuseBusy, setReuseBusy] = useState<SimilarityReuseMode | null>(null);
+	const [reuseFailed, setReuseFailed] = useState(false);
+
+	// Debounced similar-work lookup. Best-effort by design: failures stay silent and never block
+	// the composer; the AbortController drops stale in-flight responses when the draft changes.
+	useEffect(() => {
+		const query = draft.trim();
+		if (query.length < SIMILARITY_MIN_QUERY) {
+			setCandidate(null);
+			return undefined;
+		}
+		const controller = new AbortController();
+		const timer = window.setTimeout(() => {
+			findSimilarThreads(project.id, query, 1, controller.signal)
+				.then((response) => {
+					const top = response.candidates[0];
+					setCandidate(top && top.score >= SIMILARITY_THRESHOLD ? top : null);
+				})
+				.catch(() => undefined);
+		}, SIMILARITY_DEBOUNCE_MS);
+		return () => {
+			controller.abort();
+			window.clearTimeout(timer);
+		};
+	}, [draft, project.id]);
 
 	const createThreadFromMessage = async (firstMessage: string) => {
 		// Title is derived automatically from the first line of the message (no manual field); the
 		// coordinator can refine it from the conversation topic later.
 		const firstLine = firstMessage.split(/\r?\n/)[0]?.trim() ?? '';
 		const threadTitle = (firstLine || firstMessage).slice(0, 80);
+		// Frozen here: the debounce may clear the card while the async creation is in flight.
+		const dismissedCandidate = candidate;
 		setFailed(false);
 		try {
 			const created = await mutate(
@@ -848,12 +851,73 @@ function NewThreadComposer({
 			onCreated(created.thread.id);
 			await mutate(
 				(mutateToken) =>
-					postThreadMessage(mutateToken, created.thread.id, { content: firstMessage }),
+					postThreadMessage(mutateToken, created.thread.id, {
+						content: firstMessage,
+						...(dismissedCandidate
+							? {
+									metadata: {
+										mode: 'create_new_anyway',
+										similarThreadId: dismissedCandidate.threadId,
+									},
+								}
+							: {}),
+					}),
 				{ awaitRefresh: false },
 			);
+			if (dismissedCandidate) {
+				// Persist the deduplication decision ("saw similar work, created new anyway") as a real
+				// similarity event; the thread itself is already created, so a failure here stays silent.
+				try {
+					await mutate(
+						(mutateToken) =>
+							markSimilarThread(mutateToken, created.thread.id, dismissedCandidate.threadId, {
+								action: 'create_new_anyway',
+								score: dismissedCandidate.score,
+								reason: dismissedCandidate.reason,
+							}),
+						{ awaitRefresh: false },
+					);
+				} catch {
+					// Best-effort audit trail; the created thread must not look broken because of it.
+				}
+			}
 		} catch (creationError) {
 			setFailed(true);
 			throw creationError;
+		}
+	};
+
+	/** Sends the draft to the matched thread with the chosen mode instead of creating a new one. */
+	const reuseExistingThread = async (mode: 'improve_existing' | 'performance_pass') => {
+		const content = draft.trim();
+		if (!candidate || !content || reuseBusy) return;
+		const target = candidate.threadId;
+		setReuseFailed(false);
+		setReuseBusy(mode);
+		try {
+			await mutate(
+				(mutateToken) => postThreadMessage(mutateToken, target, { content, metadata: { mode } }),
+				{ awaitRefresh: false },
+			);
+			onCreated(target);
+		} catch {
+			setReuseFailed(true);
+		} finally {
+			setReuseBusy(null);
+		}
+	};
+
+	/** The card's explicit "create new anyway": same flow as the composer submit. */
+	const createNewAnyway = async () => {
+		const content = draft.trim();
+		if (!content || reuseBusy) return;
+		setReuseBusy('create_new_anyway');
+		try {
+			await createThreadFromMessage(content);
+		} catch {
+			// createThreadFromMessage already surfaced the failure through the composer errorText.
+		} finally {
+			setReuseBusy(null);
 		}
 	};
 
@@ -874,7 +938,7 @@ function NewThreadComposer({
 						token={token}
 						onGitRefresh={onGitRefresh}
 						value=""
-						busy={false}
+						busy={reuseBusy !== null}
 						rows={4}
 						submitLabel={t('app.threads.create', 'Create thread')}
 						submitBusyLabel={t('app.threads.creating', 'Creating…')}
@@ -884,9 +948,111 @@ function NewThreadComposer({
 								: undefined
 						}
 						onCreateThread={createThreadFromMessage}
+						onValueChange={setDraft}
 					/>
+					<div className="thread-similarity-slot" aria-live="polite">
+						<AnimatePresence initial={false}>
+							{candidate ? (
+								<ThreadSimilaritySuggestion
+									candidate={candidate}
+									reuseBusy={reuseBusy}
+									reuseFailed={reuseFailed}
+									onContinueExisting={() => onCreated(candidate.threadId)}
+									onReuseExisting={reuseExistingThread}
+									onCreateNew={createNewAnyway}
+								/>
+							) : null}
+						</AnimatePresence>
+					</div>
 				</m.div>
 			</m.div>
 		</div>
+	);
+}
+
+/** The similar-work card: one matched thread and the four deduplication decisions the operator can
+ *  take on it. Purely presentational; every action stays in the intake's handlers. */
+function ThreadSimilaritySuggestion({
+	candidate,
+	reuseBusy,
+	reuseFailed,
+	onContinueExisting,
+	onReuseExisting,
+	onCreateNew,
+}: {
+	candidate: ThreadSimilarityCandidate;
+	reuseBusy: SimilarityReuseMode | null;
+	reuseFailed: boolean;
+	onContinueExisting: () => void;
+	onReuseExisting: (mode: 'improve_existing' | 'performance_pass') => Promise<void>;
+	onCreateNew: () => Promise<void>;
+}) {
+	const { t } = useI18n();
+	const busy = reuseBusy !== null;
+	return (
+		<m.section
+			className="thread-similarity-card"
+			aria-labelledby="thread-similarity-title"
+			initial={{ opacity: 0, y: 8 }}
+			animate={{ opacity: 1, y: 0, transition: { duration: 0.2, ease: EASE_OUT } }}
+			exit={{ opacity: 0, y: 8, transition: { duration: 0.14, ease: EASE_OUT } }}
+		>
+			<div className="thread-similarity-head">
+				<History aria-hidden="true" size={15} />
+				<h3 id="thread-similarity-title">
+					{t('app.threads.similar.title', 'This was already worked on in “{thread}”').replace(
+						'{thread}',
+						candidate.title,
+					)}
+				</h3>
+				<StatusChip tone="info">
+					{t('app.threads.similar.match', '{score}% match').replace(
+						'{score}',
+						String(Math.round(candidate.score * 100)),
+					)}
+				</StatusChip>
+			</div>
+			<p className="thread-similarity-candidate">
+				<strong>{candidate.title}</strong>
+				{candidate.summary ? <span>{candidate.summary}</span> : null}
+			</p>
+			<fieldset className="thread-similarity-actions">
+				<legend className="sr-only">
+					{t('app.threads.similar.actionsLabel', 'Choose what to do with this match')}
+				</legend>
+				<Button variant="secondary" disabled={busy} onClick={onContinueExisting}>
+					{t('app.threads.similar.continue', 'Continue existing thread')}
+				</Button>
+				<Button
+					variant="secondary"
+					loading={reuseBusy === 'improve_existing'}
+					disabled={busy}
+					onClick={() => void onReuseExisting('improve_existing')}
+				>
+					{t('app.threads.similar.improve', 'Refactor existing work')}
+				</Button>
+				<Button
+					variant="secondary"
+					loading={reuseBusy === 'performance_pass'}
+					disabled={busy}
+					onClick={() => void onReuseExisting('performance_pass')}
+				>
+					{t('app.threads.similar.performance', 'Improve performance')}
+				</Button>
+				<Button
+					variant="secondary"
+					loading={reuseBusy === 'create_new_anyway'}
+					disabled={busy}
+					onClick={() => void onCreateNew()}
+				>
+					{t('app.threads.similar.createNew', 'Create new thread anyway')}
+				</Button>
+			</fieldset>
+			{reuseFailed ? (
+				<p className="thread-similarity-error" role="alert">
+					{t('app.threads.similar.error', 'Could not reuse the existing thread. Try again.')}
+				</p>
+			) : null}
+		</m.section>
 	);
 }

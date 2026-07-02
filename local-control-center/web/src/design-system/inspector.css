@@ -158,6 +158,13 @@
 	border-radius: var(--radius-sm);
 }
 
+/* Team roster: an agent holding a live (unreleased) assignment gets a full accent border so the
+ * "who is working right now" answer pops during a roster scan. Tone via full border-color, never
+ * a side-stripe. */
+.thread-inspector-row[data-active="true"] {
+	border-color: var(--color-accent);
+}
+
 .thread-inspector-row[data-depth="1"] {
 	margin-left: var(--space-4);
 }

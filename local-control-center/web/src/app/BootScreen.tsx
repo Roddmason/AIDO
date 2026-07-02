@@ -2,7 +2,8 @@
  * Control-plane boot screen shown while the handshake + overview are still loading (or retrying).
  *
  * Honest loading UX: the backend's readiness ETA is unknown (the hook retries the handshake until
- * FastAPI is up), so this shows an INDETERMINATE animated bar — never a timer-driven fake fill — plus
+ * FastAPI is up), so this shows an INDETERMINATE animated bar — never a timer-driven fill that
+ * invents progress — plus
  * an animated signal mark, a static legend of the components it brings online, and an
  * automatic-reconnect status when contact is lost. All motion is CSS and degrades under
  * prefers-reduced-motion. The status line is a polite live region so AT is told when contact drops.

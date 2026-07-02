@@ -123,6 +123,39 @@ def test_git_status_categorizes_changed_untracked_and_staged_files(
     assert body["stagedFiles"] == ["staged.txt"]
 
 
+def test_git_branches_reuse_status_snapshot_without_extra_git_commands(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The branches endpoint must reuse the status() snapshot, not re-shell `git branch` again.
+
+    Perf regression guard: `status()` already brokers `git branch --format` and
+    `git branch --remotes`, so `branches()` reformats that result. Hitting /git/branches must
+    broker exactly the same set of git commands as a single /git/status call — no duplicates —
+    while every command stays audited (broker traces + policy decisions travel in the response).
+    """
+    store, client, _headers = create_client(tmp_path, monkeypatch)
+    project = create_git_project(store, tmp_path)
+    assert run_git(["branch", "feature/reuse"], cwd=Path(project["path"])).returncode == 0
+
+    base = len(store.agents.list_agent_tool_calls())
+    status = client.get(f"/api/v1/projects/{project['id']}/git/status").json()
+    after_status = len(store.agents.list_agent_tool_calls())
+    branches = client.get(f"/api/v1/projects/{project['id']}/git/branches").json()
+    after_branches = len(store.agents.list_agent_tool_calls())
+
+    status_commands = after_status - base
+    branch_commands = after_branches - after_status
+
+    assert status["status"] == "completed"
+    assert branches["status"] == "completed"
+    assert status_commands > 0
+    assert branch_commands == status_commands
+    assert set(branches["localBranches"]) == {"main", "feature/reuse"}
+    assert branches["currentBranch"] == "main"
+    assert branches["toolCalls"]
+    assert branches["policyDecisionIds"]
+
+
 def test_git_branch_can_be_created_from_current_branch(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

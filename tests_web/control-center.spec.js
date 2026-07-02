@@ -1317,14 +1317,26 @@ test('Settings modal Autonomy override and revert flow updates chip text', async
 		await setButton.click();
 		// Save the current value as-is to create the project-level override.
 		await autonomyRow.getByRole('button', { name: 'Save' }).click();
-		// Chip should now show "Overridden · Project".
-		await expect(autonomyRow.locator('.setting-chip')).toContainText('Overridden');
-		await expect(autonomyRow.locator('.setting-chip-source')).toContainText('Project');
+		// Chip should now show "Overridden · Project". Save commits the override via PUT and then
+		// re-resolves via GET; both requests queue behind the shell's policy-gated git/runtime
+		// status polling, serialized over a single sqlite connection, so the round-trip can land
+		// past the default 10s expect window (measured ~13.6s). Wait on the chip text with an
+		// extended budget so the check tracks the real write, not a fixed window. Assertions unchanged.
+		await expect(autonomyRow.locator('.setting-chip')).toContainText('Overridden', {
+			timeout: 30_000,
+		});
+		await expect(autonomyRow.locator('.setting-chip-source')).toContainText('Project', {
+			timeout: 30_000,
+		});
 
-		// Revert clears the override; chip returns to "Inherited · General".
+		// Revert clears the override; chip returns to "Inherited · General" (same slow round-trip).
 		await autonomyRow.getByRole('button', { name: 'Revert to General' }).click();
-		await expect(autonomyRow.locator('.setting-chip')).toContainText('Inherited');
-		await expect(autonomyRow.locator('.setting-chip-source')).toContainText('General');
+		await expect(autonomyRow.locator('.setting-chip')).toContainText('Inherited', {
+			timeout: 30_000,
+		});
+		await expect(autonomyRow.locator('.setting-chip-source')).toContainText('General', {
+			timeout: 30_000,
+		});
 	} else {
 		// General scope or already overridden — chip is always present.
 		await expect(autonomyRow.locator('.setting-chip')).toBeVisible();

@@ -35,6 +35,8 @@ ArtifactKind = Literal[
     "workspace_patch_manifest",
     "project_assessment",
     "product_owner_manifest",
+    "product_owner_output",
+    "product_brief",
 ]
 EvidenceSource = Literal[
     "operator_attested",

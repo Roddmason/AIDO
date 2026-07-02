@@ -2495,18 +2495,18 @@ test('Runtime settings shows guided setup actions when no runtime is executable'
 
 	await expect(dialog.getByText('No executable runtimes')).toBeVisible();
 	for (const label of [
-		'Configurar Codex CLI',
-		'Configurar Claude Code',
-		'Configurar Ollama',
-		'Configurar API',
-		'Configurar NVIDIA NIM',
+		'Detect installed CLIs',
+		'Configure Ollama',
+		'Configure API',
+		'Configure OpenRouter',
+		'Configure NVIDIA NIM',
 	]) {
 		await expect(dialog.getByRole('button', { name: label })).toBeVisible();
 	}
 	for (const provider of providers) {
 		const card = dialog.locator('.card').filter({ hasText: provider.displayName });
 		await expect(card).toContainText(provider.reason);
-		await expect(card.getByRole('button', { name: /Configurar|Run health check/ })).toBeVisible();
+		await expect(card.getByRole('button', { name: 'Detect & check' })).toBeVisible();
 	}
 });
 

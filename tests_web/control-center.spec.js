@@ -764,8 +764,8 @@ test('Settings owns selected project and persists it across reloads', async ({ p
 	await page.locator('.shell-sidebar-footer').getByRole('button', { name: 'Settings' }).click();
 	const dialog = page.getByRole('dialog', { name: 'Settings' });
 	await expect(dialog).toBeVisible();
-	// Navigate to the Project section.
-	await dialog.getByRole('button', { name: 'Project' }).click();
+	// Navigate to a project-scope section; its context bar owns the selection.
+	await dialog.getByRole('button', { name: 'Goal' }).click();
 	await page.getByLabel('Operational project').selectOption(project.id);
 	// Close and reopen to confirm persistence.
 	await dialog.getByRole('button', { name: 'Close Settings' }).click();
@@ -774,7 +774,7 @@ test('Settings owns selected project and persists it across reloads', async ({ p
 	await expectControlPlaneLoaded(page);
 	await page.locator('.shell-sidebar-footer').getByRole('button', { name: 'Settings' }).click();
 	await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible();
-	await page.getByRole('dialog', { name: 'Settings' }).getByRole('button', { name: 'Project' }).click();
+	await page.getByRole('dialog', { name: 'Settings' }).getByRole('button', { name: 'Goal' }).click();
 
 	await expect(page.getByLabel('Operational project')).toHaveValue(project.id);
 	await page.getByRole('dialog', { name: 'Settings' }).getByRole('button', { name: 'Close Settings' }).click();
@@ -788,13 +788,13 @@ test('New Project wizard validates input creates project and selects it', async 
 	const workspaceBasePath = '.tmp';
 	const projectDirectoryName = `wizard-project-${suffix}`;
 
-	// Open Settings modal and navigate to the Project section.
+	// Open Settings modal; the project-scope context bar hosts the New project action.
 	await page.goto('/#threads');
 	await expectControlPlaneLoaded(page);
 	await page.locator('.shell-sidebar-footer').getByRole('button', { name: 'Settings' }).click();
 	const dialog = page.getByRole('dialog', { name: 'Settings' });
 	await expect(dialog).toBeVisible();
-	await dialog.getByRole('button', { name: 'Project' }).click();
+	await dialog.getByRole('button', { name: 'Goal' }).click();
 	await page.getByRole('button', { name: 'New project' }).click();
 	await page.locator('.workspace-mode-card').filter({ hasText: 'Create workspace' }).click();
 
@@ -844,13 +844,13 @@ test('New Project wizard validates input creates project and selects it', async 
 });
 
 test('New Project wizard exposes attach existing mode and discovery controls', async ({ page }) => {
-	// Open Settings modal and navigate to the Project section.
+	// Open Settings modal; the project-scope context bar hosts the New project action.
 	await page.goto('/#threads');
 	await expectControlPlaneLoaded(page);
 	await page.locator('.shell-sidebar-footer').getByRole('button', { name: 'Settings' }).click();
 	const dialog = page.getByRole('dialog', { name: 'Settings' });
 	await expect(dialog).toBeVisible();
-	await dialog.getByRole('button', { name: 'Project' }).click();
+	await dialog.getByRole('button', { name: 'Goal' }).click();
 	await page.getByRole('button', { name: 'New project' }).click();
 
 	const openCard = page.locator('.workspace-mode-card').filter({ hasText: 'Open folder' });
@@ -1120,8 +1120,8 @@ test('language control localizes Settings and New Project wizard chrome', async 
 	const dialogEs = page.getByRole('dialog', { name: 'Ajustes' });
 	await expect(dialogEs).toBeVisible();
 
-	// The Project section "Nuevo proyecto" button should be localized.
-	await dialogEs.getByRole('button', { name: 'Proyecto' }).click();
+	// The project-scope context bar "Nuevo proyecto" button should be localized.
+	await dialogEs.getByRole('button', { name: 'Objetivo' }).click();
 	await expect(page.getByRole('button', { name: 'Nuevo proyecto' })).toBeVisible();
 
 	await page.getByRole('button', { name: 'Nuevo proyecto' }).click();
@@ -1162,13 +1162,13 @@ test('language control localizes catalog-backed operational surfaces', async ({ 
 test('New Project wizard uses IDE workspace import and blocks duplicate workspace names', async ({ page }) => {
 	const existing = await getActiveProject(page);
 
-	// Open Settings modal and navigate to the Project section.
+	// Open Settings modal; the project-scope context bar hosts the New project action.
 	await page.goto('/#threads');
 	await expectControlPlaneLoaded(page);
 	await page.locator('.shell-sidebar-footer').getByRole('button', { name: 'Settings' }).click();
 	const dialog = page.getByRole('dialog', { name: 'Settings' });
 	await expect(dialog).toBeVisible();
-	await dialog.getByRole('button', { name: 'Project' }).click();
+	await dialog.getByRole('button', { name: 'Goal' }).click();
 	await page.getByRole('button', { name: 'New project' }).click();
 
 	await expect(page.locator('.workspace-mode-card').filter({ hasText: 'Open folder' })).toHaveAttribute('aria-pressed', 'true');
@@ -1226,19 +1226,23 @@ test('settings separates configuration types and keeps defaults collapsed', asyn
 	// The section nav groups General and Project sections. At least one button for each
 	// key configuration category must be present (some names appear in both groups).
 	const nav = dialog.locator('nav[aria-label="Settings sections"]');
-	await expect(nav.getByRole('button', { name: 'Project', exact: true })).toBeVisible();
+	await expect(nav.getByRole('button', { name: 'Goal', exact: true })).toBeVisible();
 	await expect(nav.getByRole('button', { name: 'Providers & CLI', exact: true })).toBeVisible();
 	await expect(nav.getByRole('button', { name: 'Autonomy', exact: true })).toBeVisible();
 	// Security appears in both General and Project groups; assert at least one is present.
 	await expect(nav.getByRole('button', { name: 'Security', exact: true }).first()).toBeVisible();
 	await expect(nav.getByRole('button', { name: 'Workspaces', exact: true })).toBeVisible();
 
-	// The Advanced section in General keeps defaults collapsed by default.
-	// Use first() since "Advanced" appears in both General and Project nav groups.
-	await nav.getByRole('button', { name: 'Advanced', exact: true }).first().click();
-	await expect(page.getByText('Backend: FastAPI v1')).toBeHidden();
+	// The Advanced section keeps its dense catalogs collapsed by default.
+	await nav.getByRole('button', { name: 'Advanced', exact: true }).click();
+	await expect(page.getByText('Developer consoles')).toBeVisible();
+	const catalogs = page.getByRole('button', { name: 'Catalogs' });
+	await expect(catalogs).toHaveAttribute('aria-expanded', 'false');
+	await catalogs.click();
+	await expect(catalogs).toHaveAttribute('aria-expanded', 'true');
 
-	await page.getByRole('button', { name: 'Default configurations' }).click();
+	// Platform defaults now live in General, visible without a disclosure.
+	await nav.getByRole('button', { name: 'General', exact: true }).click();
 	await expect(page.getByText('Backend: FastAPI v1')).toBeVisible();
 });
 
@@ -1264,7 +1268,7 @@ test('Settings modal opens from sidebar and closes cleanly', async ({ page }) =>
 	await expect(dialog).toBeHidden();
 });
 
-test('Settings modal Autonomy section shows level control and inheritance chip', async ({ page }) => {
+test('Settings modal Autonomy section shows the three level cards', async ({ page }) => {
 	await page.goto('/#threads');
 	await expectControlPlaneLoaded(page);
 
@@ -1275,10 +1279,13 @@ test('Settings modal Autonomy section shows level control and inheritance chip',
 	// Navigate to the Autonomy section.
 	await dialog.getByRole('button', { name: 'Autonomy', exact: true }).click();
 
-	// The autonomy.level row renders a "Autonomy level" label and a chip.
-	const autonomyRow = page.locator('.setting-row').filter({ hasText: 'Autonomy level' });
-	await expect(autonomyRow).toBeVisible();
-	await expect(autonomyRow.locator('.setting-chip')).toBeVisible();
+	// The autonomy.level setting renders as a radio-card group with one selected level.
+	const group = dialog.getByRole('radiogroup', { name: 'Autonomy' });
+	await expect(group).toBeVisible();
+	for (const level of ['Ask for approval', 'Approve for me', 'Full access']) {
+		await expect(group.getByRole('radio', { name: new RegExp(level) })).toBeVisible();
+	}
+	await expect(group.locator('[aria-checked="true"]')).toHaveCount(1);
 });
 
 test('Settings modal Autonomy override and revert flow updates chip text', async ({ page }) => {
@@ -1288,7 +1295,8 @@ test('Settings modal Autonomy override and revert flow updates chip text', async
 	await page.locator('.shell-sidebar-footer').getByRole('button', { name: 'Settings' }).click();
 	const dialog = page.getByRole('dialog', { name: 'Settings' });
 	await expect(dialog).toBeVisible();
-	await dialog.getByRole('button', { name: 'Autonomy', exact: true }).click();
+	// The project-scope autonomy override lives in the Project group's Security section.
+	await dialog.getByRole('button', { name: 'Security', exact: true }).last().click();
 
 	const autonomyRow = page.locator('.setting-row').filter({ hasText: 'Autonomy level' });
 	await expect(autonomyRow).toBeVisible();
@@ -1342,7 +1350,7 @@ test('Settings modal re-seeds the active section on each open', async ({ page })
 	await dialog.getByRole('button', { name: 'Autonomy', exact: true }).click();
 	await expect(nav.getByRole('button', { name: 'Autonomy', exact: true })).toHaveAttribute(
 		'aria-current',
-		'page',
+		'true',
 	);
 
 	// Close, then reopen via the sidebar (which opens at the default section).
@@ -1354,7 +1362,7 @@ test('Settings modal re-seeds the active section on each open', async ({ page })
 	// The reopened modal must re-seed to the default section, not stay on the last-viewed Autonomy.
 	await expect(nav.getByRole('button', { name: 'Autonomy', exact: true })).not.toHaveAttribute(
 		'aria-current',
-		'page',
+		'true',
 	);
 });
 

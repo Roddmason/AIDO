@@ -203,6 +203,43 @@ export const EXPLORER_LINKS: Record<AreaId, NavigationItem[]> = {
  *  a single flat list. Areas absent here fall back to the flat EXPLORER_LINKS. */
 export const EXPLORER_GROUPS: Partial<Record<AreaId, ExplorerGroup[]>> = {};
 
+/** Read-only technical consoles demoted from primary navigation: rendered as the
+ *  grouped link clusters of the Settings "Developer Details" section. Pages stay
+ *  hash-routable; this registry is their only curated entry point in the chrome. */
+export const DEVELOPER_PAGE_GROUPS: ExplorerGroup[] = [
+	{
+		label: { en: 'Team & routing', es: 'Equipo y enrutamiento' },
+		links: [
+			{ page: 'agents', icon: Bot, label: { en: 'Agents', es: 'Agentes' } },
+			{
+				page: 'models',
+				icon: LayoutGrid,
+				label: { en: 'Model Gateway', es: 'Pasarela de modelos' },
+			},
+			{ page: 'workflows', icon: Workflow, label: { en: 'Workflows', es: 'Flujos de trabajo' } },
+		],
+	},
+	{
+		label: { en: 'Trust & security', es: 'Confianza y seguridad' },
+		links: [
+			{
+				page: 'policy',
+				icon: ShieldCheck,
+				label: { en: 'Policy & Security', es: 'Política y seguridad' },
+			},
+			{ page: 'governance', icon: KeyRound, label: { en: 'Governance', es: 'Gobierno' } },
+			{ page: 'assessment', icon: ScanSearch, label: { en: 'Assessment', es: 'Evaluación' } },
+		],
+	},
+	{
+		label: { en: 'Records & evidence', es: 'Registros y evidencia' },
+		links: [
+			{ page: 'evidence', icon: FileCheck2, label: { en: 'Evidence & QA', es: 'Evidencia y QA' } },
+			{ page: 'audit', icon: History, label: { en: 'Audit Log', es: 'Auditoría' } },
+		],
+	},
+];
+
 /** Short bilingual title for the ExplorerPanel header per area. */
 export const EXPLORER_TITLE: Record<AreaId, BilingualLabel> = {
 	threads: { en: 'Threads', es: 'Hilos' },

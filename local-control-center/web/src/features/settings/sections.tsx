@@ -1,11 +1,12 @@
 /**
  * Section registry for the Settings modal: defines all navigation sections for
- * the General and Project scopes, their kind (wired/display/placeholder), and the
- * render context type shared across all section render functions.
+ * the General and Project scopes, their kind (wired/display), and the render
+ * context type shared across all section render functions.
  *
  * I-4/B-3: each section's `render(ctx)` is fully implemented here, so SettingsModal
  * only calls `activeSection.render(ctx)` — no switch needed. Adding a new section
- * requires only this registry.
+ * requires only this registry. Every section renders real control-plane data:
+ * there are no placeholder sections.
  * @author Rodrigo Mason
  */
 
@@ -18,19 +19,15 @@ import type {
 	RuntimeProviderConfiguration,
 	RuntimeProviders,
 } from '../../api/types';
+import { AppearanceBody } from './AppearanceBody';
+import { AutonomyBody } from './AutonomyBody';
 import { CredentialManagerPanel } from './CredentialManagerPanel';
+import { GeneralBody } from './GeneralBody';
 import { PluginsPanel } from './PluginsPanel';
-import { SectionPlaceholder } from './SectionPlaceholder';
+import { ProjectPluginsBody } from './ProjectPluginsBody';
+import { ProjectTeamPanel } from './ProjectTeamPanel';
 import { SettingRow } from './SettingRow';
-import {
-	AdvancedBody,
-	AgentsBody,
-	ConsoleLink,
-	IntegrationsBody,
-	ProjectBody,
-	RuntimeBody,
-	WorkspacesBody,
-} from './SettingsPage';
+import { AdvancedBody, DefaultTeamBody, RuntimeBody, WorkspacesBody } from './SettingsPage';
 import type { ResolvedSetting, SettingScope } from './useSettings';
 
 /** Context available to every section render function. */
@@ -74,6 +71,9 @@ export type SectionContext = {
 	scope: 'general' | 'project';
 	/** Scope id (project id for project sections, null for general). */
 	scopeId: string | null;
+	/** Closes the Settings modal; sections whose links navigate to another page
+	 *  must call it so the overlay never survives the navigation it triggered. */
+	closeSettings: () => void;
 };
 
 /** A single section definition in the settings navigator. */
@@ -83,11 +83,77 @@ export type SectionDefinition = {
 	titleKey: string;
 	/** English fallback for the section title. */
 	titleFallback: string;
-	/** Whether this section has wired settings, reuses a display body, or is a placeholder. */
-	kind: 'wired' | 'display' | 'placeholder';
+	/** Whether this section edits wired settings or renders a display body. */
+	kind: 'wired' | 'display';
 	/** Renders the section's content given the shared context. */
 	render: (ctx: SectionContext) => ReactNode;
 };
+
+/**
+ * Human labels for wired enum settings: raw member values (`feature_branch`,
+ * `policy_gated`, …) read as machine identifiers, so the modal translates them
+ * through these keys before they reach a `<select>`.
+ */
+const SETTING_ENUM_LABELS: Record<string, Record<string, { key: string; fallback: string }>> = {
+	'autonomy.level': {
+		guided: { key: 'app.composer.permissions.guided', fallback: 'Ask for approval' },
+		recommended: { key: 'app.composer.permissions.recommended', fallback: 'Approve for me' },
+		autonomous: { key: 'app.composer.permissions.autonomous', fallback: 'Full access' },
+	},
+	'security.branch.policy': {
+		feature_branch: {
+			key: 'app.settings.enum.branch.featureBranch',
+			fallback: 'Feature branch first',
+		},
+		dev_direct: { key: 'app.settings.enum.branch.devDirect', fallback: 'Commit directly to dev' },
+	},
+	'security.shell.profile': {
+		plan: { key: 'app.settings.enum.shell.plan', fallback: 'Plan (read-only)' },
+		dev_safe: { key: 'app.settings.enum.shell.devSafe', fallback: 'Dev safe' },
+		qa: { key: 'app.settings.enum.shell.qa', fallback: 'QA checks' },
+		release: { key: 'app.settings.enum.shell.release', fallback: 'Release' },
+	},
+	'research.internetPolicy': {
+		blocked: { key: 'app.settings.enum.internet.blocked', fallback: 'Blocked' },
+		official_allowlist: {
+			key: 'app.settings.enum.internet.officialAllowlist',
+			fallback: 'Official allowlist',
+		},
+		policy_gated: { key: 'app.settings.enum.internet.policyGated', fallback: 'Policy gated' },
+	},
+	'project.loop.teamMode': {
+		economy: { key: 'app.settings.enum.teamMode.economy', fallback: 'Economy' },
+		balanced: { key: 'app.settings.enum.teamMode.balanced', fallback: 'Balanced' },
+		critical: { key: 'app.settings.enum.teamMode.critical', fallback: 'Critical' },
+		maximum: { key: 'app.settings.enum.teamMode.maximum', fallback: 'Maximum' },
+	},
+	'project.loop.risk': {
+		low: { key: 'app.settings.enum.risk.low', fallback: 'Low' },
+		medium: { key: 'app.settings.enum.risk.medium', fallback: 'Medium' },
+		high: { key: 'app.settings.enum.risk.high', fallback: 'High' },
+		critical: { key: 'app.settings.enum.risk.critical', fallback: 'Critical' },
+	},
+	'project.runtime.defaultMode': {
+		api: { key: 'app.settings.enum.mode.api', fallback: 'API (direct)' },
+		cli: { key: 'app.settings.enum.mode.cli', fallback: 'CLI runtime' },
+		ollama: { key: 'app.settings.enum.mode.ollama', fallback: 'Ollama (local)' },
+		hybrid: { key: 'app.settings.enum.mode.hybrid', fallback: 'Hybrid' },
+		manual: { key: 'app.settings.enum.mode.manual', fallback: 'Manual' },
+	},
+};
+
+/** Translated option labels for a wired enum setting, or undefined when unmapped. */
+export function labeledEnumOptions(
+	setting: ResolvedSetting,
+	t: (key: string, fallback: string) => string,
+): Array<{ value: string; label: string }> | undefined {
+	const labels = SETTING_ENUM_LABELS[setting.key];
+	if (!labels || !setting.enum) return undefined;
+	return setting.enum.map((member) => ({
+		value: member,
+		label: labels[member] ? t(labels[member].key, labels[member].fallback) : member,
+	}));
+}
 
 function renderWired(ctx: SectionContext): ReactNode {
 	if (ctx.resolved.length === 0) {
@@ -112,44 +178,35 @@ function renderWired(ctx: SectionContext): ReactNode {
 	);
 }
 
-function renderAgentsWithLink(ctx: SectionContext): ReactNode {
-	return (
+/** Wired section with a one-line intro so each surface states what it governs. */
+function wiredSection(introKey: string, introFallback: string) {
+	return (ctx: SectionContext): ReactNode => (
 		<>
-			<AgentsBody overview={ctx.overview} selectedProject={ctx.selectedProject} />
-			<ConsoleLink page="agents" label={ctx.t('app.settings.openAgents', 'Open Agents')} />
+			<p className="settings-section-intro">{ctx.t(introKey, introFallback)}</p>
+			{renderWired(ctx)}
 		</>
 	);
 }
 
 /**
  * General scope sections in display order.
- * General, Appearance, Providers & CLI, Credentials, Default Team,
- * Autonomy (wired), Security (wired), Research, Costs (wired), Integrations,
- * Plugins, Advanced.
+ * General, Appearance, Providers & CLI, Credentials, Default Team, Autonomy,
+ * Security, Research, Costs, Plugins, Advanced — all wired to real data.
  */
 export const GENERAL_SECTIONS: SectionDefinition[] = [
 	{
 		id: 'general',
 		titleKey: 'app.settings.section.general',
 		titleFallback: 'General',
-		kind: 'placeholder',
-		render: () => (
-			<SectionPlaceholder titleKey="app.settings.section.general" titleFallback="General" />
-		),
+		kind: 'display',
+		render: (ctx) => <GeneralBody workerSettings={renderWired(ctx)} />,
 	},
 	{
 		id: 'appearance',
 		titleKey: 'app.settings.section.appearance',
 		titleFallback: 'Appearance',
 		kind: 'display',
-		render: (ctx) => (
-			<AdvancedBody
-				overview={ctx.overview}
-				selectedProject={ctx.selectedProject}
-				mutate={ctx.mutate}
-				language={ctx.language}
-			/>
-		),
+		render: () => <AppearanceBody />,
 	},
 	{
 		id: 'providers-cli',
@@ -163,6 +220,7 @@ export const GENERAL_SECTIONS: SectionDefinition[] = [
 				runtimeProviderConfiguration={ctx.runtimeProviderConfiguration}
 				token={ctx.token}
 				onRefresh={ctx.onRefresh}
+				onNavigate={ctx.closeSettings}
 			/>
 		),
 	},
@@ -177,35 +235,43 @@ export const GENERAL_SECTIONS: SectionDefinition[] = [
 		id: 'default-team',
 		titleKey: 'app.settings.section.defaultTeam',
 		titleFallback: 'Default Team',
-		kind: 'placeholder',
-		render: () => (
-			<SectionPlaceholder
-				titleKey="app.settings.section.defaultTeam"
-				titleFallback="Default Team"
-			/>
-		),
+		kind: 'display',
+		render: (ctx) => <DefaultTeamBody overview={ctx.overview} onNavigate={ctx.closeSettings} />,
 	},
 	{
 		id: 'autonomy',
 		titleKey: 'app.settings.section.autonomy',
 		titleFallback: 'Autonomy',
 		kind: 'wired',
-		render: renderWired,
+		render: (ctx) => {
+			const setting = ctx.resolved.find((entry) => entry.key === 'autonomy.level');
+			return (
+				<AutonomyBody
+					setting={setting}
+					onSelect={(level) => ctx.setValue('autonomy.level', ctx.scope, ctx.scopeId, level)}
+					onRevert={() => ctx.clearValue('autonomy.level', ctx.scope, ctx.scopeId)}
+				/>
+			);
+		},
 	},
 	{
 		id: 'security',
 		titleKey: 'app.settings.section.security',
 		titleFallback: 'Security',
 		kind: 'wired',
-		render: renderWired,
+		render: wiredSection(
+			'app.settings.intro.security',
+			'Guardrails applied to every write the platform performs.',
+		),
 	},
 	{
 		id: 'research',
 		titleKey: 'app.settings.section.research',
 		titleFallback: 'Research',
-		kind: 'placeholder',
-		render: () => (
-			<SectionPlaceholder titleKey="app.settings.section.research" titleFallback="Research" />
+		kind: 'wired',
+		render: wiredSection(
+			'app.settings.intro.research',
+			'How agents reach the internet and which sources they prefer.',
 		),
 	},
 	{
@@ -213,14 +279,7 @@ export const GENERAL_SECTIONS: SectionDefinition[] = [
 		titleKey: 'app.settings.section.costs',
 		titleFallback: 'Costs',
 		kind: 'wired',
-		render: renderWired,
-	},
-	{
-		id: 'integrations',
-		titleKey: 'app.settings.section.integrations',
-		titleFallback: 'Integrations',
-		kind: 'display',
-		render: (ctx) => <IntegrationsBody overview={ctx.overview} />,
+		render: wiredSection('app.settings.intro.costs', 'Spending ceilings for runs and jobs.'),
 	},
 	{
 		id: 'plugins',
@@ -240,6 +299,7 @@ export const GENERAL_SECTIONS: SectionDefinition[] = [
 				selectedProject={ctx.selectedProject}
 				mutate={ctx.mutate}
 				language={ctx.language}
+				onNavigate={ctx.closeSettings}
 			/>
 		),
 	},
@@ -247,59 +307,57 @@ export const GENERAL_SECTIONS: SectionDefinition[] = [
 
 /**
  * Project scope sections in display order.
- * Project, Goal, Team, Routing, Quality, Security (wired override), Workspaces,
- * Internet, Budget (wired override), Credentials, Integrations, Advanced.
+ * Goal, Team, Routing, Quality, Security, Workspaces, Internet, Budget,
+ * Credentials, Plugins — all project-scoped over real data. The operational
+ * project is chosen from the context bar the modal renders above these sections.
  */
 export const PROJECT_SECTIONS: SectionDefinition[] = [
-	{
-		id: 'project',
-		titleKey: 'app.settings.section.project',
-		titleFallback: 'Project',
-		kind: 'display',
-		render: (ctx) => (
-			<ProjectBody
-				overview={ctx.overview}
-				activeProjects={ctx.overview.projects.filter((p) => p.status === 'active')}
-				selectedProject={ctx.selectedProject}
-				onSelectProject={ctx.onSelectProject}
-				onNewProject={ctx.onCreateProject}
-			/>
-		),
-	},
 	{
 		id: 'goal',
 		titleKey: 'app.settings.section.goal',
 		titleFallback: 'Goal',
-		kind: 'placeholder',
-		render: () => <SectionPlaceholder titleKey="app.settings.section.goal" titleFallback="Goal" />,
+		kind: 'wired',
+		render: wiredSection(
+			'app.settings.intro.goal',
+			'The goal statement and loop defaults that seed new runs for this project.',
+		),
 	},
 	{
 		id: 'team',
 		titleKey: 'app.settings.section.team',
 		titleFallback: 'Team',
 		kind: 'display',
-		render: renderAgentsWithLink,
+		render: (ctx) => <ProjectTeamPanel projectId={ctx.scopeId} onNavigate={ctx.closeSettings} />,
 	},
 	{
 		id: 'routing',
 		titleKey: 'app.settings.section.routing',
 		titleFallback: 'Routing',
-		kind: 'display',
-		render: renderAgentsWithLink,
+		kind: 'wired',
+		render: wiredSection(
+			'app.settings.intro.routing',
+			'Which providers and runtimes this project may use.',
+		),
 	},
 	{
 		id: 'quality',
 		titleKey: 'app.settings.section.quality',
 		titleFallback: 'Quality',
-		kind: 'display',
-		render: renderAgentsWithLink,
+		kind: 'wired',
+		render: wiredSection(
+			'app.settings.intro.quality',
+			'Commands that gate evidence before work is accepted.',
+		),
 	},
 	{
 		id: 'project-security',
 		titleKey: 'app.settings.section.security',
 		titleFallback: 'Security',
 		kind: 'wired',
-		render: renderWired,
+		render: wiredSection(
+			'app.settings.intro.projectSecurity',
+			'Project-level overrides of the security posture.',
+		),
 	},
 	{
 		id: 'workspaces',
@@ -312,17 +370,15 @@ export const PROJECT_SECTIONS: SectionDefinition[] = [
 		id: 'internet',
 		titleKey: 'app.settings.section.internet',
 		titleFallback: 'Internet',
-		kind: 'placeholder',
-		render: () => (
-			<SectionPlaceholder titleKey="app.settings.section.internet" titleFallback="Internet" />
-		),
+		kind: 'wired',
+		render: wiredSection('app.settings.intro.internet', 'Web access policy for this project.'),
 	},
 	{
 		id: 'budget',
 		titleKey: 'app.settings.section.budget',
 		titleFallback: 'Budget',
 		kind: 'wired',
-		render: renderWired,
+		render: wiredSection('app.settings.intro.budget', 'Spending limits for this project.'),
 	},
 	{
 		id: 'project-credentials',
@@ -332,25 +388,11 @@ export const PROJECT_SECTIONS: SectionDefinition[] = [
 		render: (ctx) => <CredentialManagerPanel token={ctx.token} />,
 	},
 	{
-		id: 'project-integrations',
-		titleKey: 'app.settings.section.integrations',
-		titleFallback: 'Integrations',
+		id: 'project-plugins',
+		titleKey: 'app.settings.section.plugins',
+		titleFallback: 'Plugins',
 		kind: 'display',
-		render: (ctx) => <IntegrationsBody overview={ctx.overview} />,
-	},
-	{
-		id: 'project-advanced',
-		titleKey: 'app.settings.section.advanced',
-		titleFallback: 'Advanced',
-		kind: 'display',
-		render: (ctx) => (
-			<AdvancedBody
-				overview={ctx.overview}
-				selectedProject={ctx.selectedProject}
-				mutate={ctx.mutate}
-				language={ctx.language}
-			/>
-		),
+		render: () => <ProjectPluginsBody />,
 	},
 ];
 
@@ -359,9 +401,15 @@ export const PROJECT_SECTIONS: SectionDefinition[] = [
  * `ResolvedSetting.projectSection` to filter which settings belong to a section.
  */
 export const SECTION_TO_SETTING_SECTION: Record<string, string> = {
+	general: 'worker',
 	autonomy: 'autonomy',
 	security: 'security',
+	research: 'research',
 	costs: 'costs',
+	goal: 'goal',
+	routing: 'runtime',
+	quality: 'quality',
 	'project-security': 'security',
+	internet: 'internet',
 	budget: 'budget',
 };

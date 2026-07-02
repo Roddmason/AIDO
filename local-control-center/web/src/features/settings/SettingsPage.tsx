@@ -1,10 +1,10 @@
 /**
- * Per-section body components for the Settings modal (project, runtime, agents, workspaces,
- * integrations, advanced). Each renders a readiness badge plus a compact body and deep-links to
- * the heavy operational consoles (Policy, Evidence, Audit, Model Gateway…) rather than duplicating
- * them. The modal's section registry (sections.tsx) imports these bodies; the former route-level
- * page wrapper and its scope/group scaffolding were retired when the modal replaced the /#settings
- * route.
+ * Per-section body components for the Settings modal (runtime, team roster cards,
+ * workspaces, advanced/developer). Each renders a compact body over real control-plane
+ * data and deep-links to the heavy operational consoles (Policy, Evidence, Audit,
+ * Model Gateway…) rather than duplicating them. The modal's section registry
+ * (sections.tsx) imports these bodies; stateful panels (credentials, plugins,
+ * project team) live in their own sibling modules.
  *
  * SecurityBody is intentionally retained as this module's credential-surface anchor: the secret-leak
  * tripwire (tests_py/test_ci_and_openapi_client.py) asserts this file references CredentialManagerPanel
@@ -13,15 +13,17 @@
  * @author Rodrigo Mason
  */
 
-import { ExternalLink, FolderPlus } from 'lucide-react';
+import { ExternalLink } from 'lucide-react';
 import { useMemo } from 'react';
 
 import type {
+	AgentProfile,
 	Overview,
 	Project,
 	RuntimeProviderConfiguration,
 	RuntimeProviders,
 } from '../../api/types';
+import { DEVELOPER_PAGE_GROUPS, pickLabel } from '../../app/navigation';
 import { Disclosure } from '../../components/Disclosure';
 import { Badge, DataTable, EmptyState } from '../../components/primitives';
 import { useI18n } from '../../i18n/I18nProvider';
@@ -33,119 +35,21 @@ import { CredentialManagerPanel } from './CredentialManagerPanel';
 
 type Mutate = <T>(operation: (token: string) => Promise<T>) => Promise<T>;
 
-export function ConsoleLink({ page, label }: { page: string; label: string }) {
+export function ConsoleLink({
+	page,
+	label,
+	onNavigate,
+}: {
+	page: string;
+	label: string;
+	/** Invoked on click so the Settings overlay closes before the hash navigation lands. */
+	onNavigate?: () => void;
+}) {
 	return (
-		<a className="settings-console-link" href={`#${page}`}>
+		<a className="settings-console-link" href={`#${page}`} onClick={onNavigate}>
 			<ExternalLink aria-hidden="true" size={15} />
 			{label}
 		</a>
-	);
-}
-
-export function ProjectBody({
-	overview,
-	activeProjects,
-	selectedProject,
-	onSelectProject,
-	onNewProject,
-}: {
-	overview: Overview;
-	activeProjects: Project[];
-	selectedProject: Project | null;
-	onSelectProject: (projectId: string) => void;
-	onNewProject: () => void;
-}) {
-	const { t } = useI18n();
-	const advLabel = t('ui.static.all.projects.403b2169', 'All projects');
-	return (
-		<>
-			<div className="form-grid">
-				<div className="field">
-					<label htmlFor="operational-project">
-						{t('ui.static.operational.project.8c3b31f6', 'Operational project')}
-					</label>
-					<select
-						id="operational-project"
-						className="select"
-						value={selectedProject?.id ?? ''}
-						disabled={!activeProjects.length}
-						onChange={(event) => onSelectProject(event.target.value)}
-					>
-						{activeProjects.length ? null : (
-							<option value="">
-								{t('ui.static.no.active.projects.e6823ecd', 'No active projects')}
-							</option>
-						)}
-						{activeProjects.map((project) => (
-							<option key={project.id} value={project.id}>
-								{project.name}
-							</option>
-						))}
-					</select>
-					<div className="field-help">
-						{t(
-							'ui.static.only.active.projects.can.be.selected.for.operational.mutatio.3f45da88',
-							'Only active projects can run work and receive changes.',
-						)}
-					</div>
-				</div>
-				<div className="inline">
-					<Badge tone={selectedProject ? 'ok' : 'warn'}>
-						{selectedProject
-							? selectedProject.name
-							: t('app.settings.project.noOperationalBadge', 'no operational project')}
-					</Badge>
-					<span className="field-help">
-						{t(
-							'settings.project.selectionHint',
-							'Command Center and Governance use this explicit selection, not the first project the API returns.',
-						)}
-					</span>
-				</div>
-				<button className="button primary settings-action" type="button" onClick={onNewProject}>
-					<FolderPlus aria-hidden="true" size={16} />
-					{t('app.copy.features.settings.SettingsPage.12', 'New project')}
-				</button>
-			</div>
-			<Disclosure title={advLabel}>
-				<DataTable
-					rows={overview.projects}
-					caption={advLabel}
-					empty={
-						<EmptyState
-							title={t('ui.static.no.project.records.4f3947bb', 'No project records')}
-							body={t(
-								'ui.static.the.runtime.project.is.created.automatically.at.startup.17ee3a10',
-								'The runtime project is created automatically at startup.',
-							)}
-						/>
-					}
-					columns={[
-						{ key: 'name', label: t('ui.static.name.709a2322', 'Name'), render: (row) => row.name },
-						{
-							key: 'path',
-							label: t('app.workspace.summary.path', 'Path'),
-							render: (row) => <span className="mono">{row.path}</span>,
-						},
-						{
-							key: 'status',
-							label: t('ui.static.status.bae7d5be', 'Status'),
-							render: (row) => <Badge tone={toneForStatus(row.status)}>{row.status}</Badge>,
-						},
-						{
-							key: 'template',
-							label: t('ui.static.template.3ec1ae06', 'Template'),
-							render: (row) => <span className="mono">{row.templateId}</span>,
-						},
-						{
-							key: 'source',
-							label: t('ui.static.source.6da13add', 'Source'),
-							render: (row) => row.source,
-						},
-					]}
-				/>
-			</Disclosure>
-		</>
 	);
 }
 
@@ -155,12 +59,14 @@ export function RuntimeBody({
 	runtimeProviderConfiguration,
 	token,
 	onRefresh,
+	onNavigate,
 }: {
 	overview: Overview;
 	runtimeProviders: RuntimeProviders | null;
 	runtimeProviderConfiguration: RuntimeProviderConfiguration[] | null;
 	token: string;
 	onRefresh: () => Promise<unknown> | undefined;
+	onNavigate?: () => void;
 }) {
 	const { t } = useI18n();
 	return (
@@ -199,69 +105,118 @@ export function RuntimeBody({
 				<ConsoleLink
 					page="models"
 					label={t('app.settings.openModelGateway', 'Open Model Gateway')}
+					onNavigate={onNavigate}
 				/>
 				<ConsoleLink
 					page="memory"
 					label={t('app.settings.openMemory', 'Open Memory & Retrieval')}
+					onNavigate={onNavigate}
 				/>
 			</div>
 		</>
 	);
 }
 
-export function AgentsBody({
-	overview,
-	selectedProject,
+/**
+ * Shared roster card grid for the Default Team (general) and project Team sections:
+ * one card per agent profile with runtime availability, providers and quality gates.
+ * Cards over tables: the roster is scanned by role, not compared column-by-column.
+ */
+export function TeamRosterCards({
+	profiles,
+	showOverride = false,
 }: {
-	overview: Overview;
-	selectedProject: Project | null;
+	profiles: AgentProfile[];
+	/** Marks profiles carrying a project-scope override (project Team section). */
+	showOverride?: boolean;
 }) {
 	const { t } = useI18n();
-	const catalogAgents = useMemo(() => {
-		if (!selectedProject) return [];
-		const teamIds = new Set(
-			overview.teams.filter((team) => team.projectId === selectedProject.id).map((team) => team.id),
+	if (profiles.length === 0) {
+		return (
+			<EmptyState
+				title={t('ui.static.no.catalog.agents.49a260d2', 'No available team profiles')}
+				body={t(
+					'settings.agents.catalogHint',
+					'Agent profiles live in the Agents console and appear here after the base team is seeded.',
+				)}
+			/>
 		);
-		return overview.agents.filter((agent) => teamIds.has(agent.teamId));
-	}, [overview.agents, overview.teams, selectedProject]);
+	}
+	return (
+		<div className="settings-team-grid">
+			{profiles.map((profile) => {
+				const availability = profile.runtimeAvailability?.status ?? profile.status;
+				return (
+					<article key={profile.id} className="settings-team-card">
+						<div className="settings-team-card-head">
+							<div className="settings-team-card-id">
+								<strong>{profile.name}</strong>
+								<span className="muted mono">{profile.role}</span>
+							</div>
+							<span className="inline">
+								{showOverride && profile.projectOverride ? (
+									<Badge tone="info">{t('app.agents.projectOverride', 'Project override')}</Badge>
+								) : null}
+								<Badge tone={toneForStatus(availability)}>{availability}</Badge>
+							</span>
+						</div>
+						<dl className="settings-team-card-meta">
+							<div>
+								<dt>{t('ui.static.mode.a7b93d21', 'Mode')}</dt>
+								<dd className="mono">{profile.runtimeMode}</dd>
+							</div>
+							<div>
+								<dt>{t('app.settings.team.providers', 'Providers')}</dt>
+								<dd className="mono">{profile.allowedProviders.join(', ') || '—'}</dd>
+							</div>
+							<div>
+								<dt>{t('app.settings.team.qualityGates', 'Quality gates')}</dt>
+								<dd>{profile.qualityGates.length}</dd>
+							</div>
+						</dl>
+						{profile.runtimeAvailability?.blockedReason ? (
+							<p className="settings-team-card-blocked">
+								{profile.runtimeAvailability.blockedReason}
+							</p>
+						) : null}
+					</article>
+				);
+			})}
+		</div>
+	);
+}
 
-	const advLabel = t('app.settings.advCatalogAgents', 'Catalog agents');
+/** Default Team section: the full available agent-profile roster as cards. */
+export function DefaultTeamBody({
+	overview,
+	onNavigate,
+}: {
+	overview: Overview;
+	onNavigate?: () => void;
+}) {
+	const { t } = useI18n();
+	const agentProfiles = useMemo(
+		() => [...overview.agentProfiles].sort((a, b) => a.role.localeCompare(b.role)),
+		[overview.agentProfiles],
+	);
+
 	return (
 		<>
-			<p className="muted">
-				{overview.agentProfiles.length}{' '}
+			<p className="settings-section-intro">
+				{agentProfiles.length}{' '}
 				{t(
 					'app.settings.agents.modesNote',
-					'agent profiles. Runtime modes (CLI / API / Ollama / hybrid) sit behind the same governance layer.',
+					'agent profiles available. TeamScheduler selects only the roles needed for the current intent and risk.',
 				)}
 			</p>
+			<TeamRosterCards profiles={agentProfiles} />
 			<div className="settings-deeplinks">
-				<ConsoleLink page="agents" label={t('app.settings.openAgents', 'Open Agents')} />
-			</div>
-			<Disclosure title={advLabel}>
-				<DataTable
-					rows={catalogAgents}
-					caption={advLabel}
-					empty={
-						<EmptyState
-							title={t('ui.static.no.catalog.agents.49a260d2', 'No catalog agents')}
-							body={t(
-								'settings.agents.catalogHint',
-								"Agent profiles live in the Agents console. This shows catalog agents owned by the selected project's teams.",
-							)}
-						/>
-					}
-					columns={[
-						{ key: 'name', label: t('ui.static.name.709a2322', 'Name'), render: (row) => row.name },
-						{ key: 'role', label: t('ui.static.role.c3f104d1', 'Role'), render: (row) => row.role },
-						{
-							key: 'provider',
-							label: t('ui.static.provider.7ceee3f3', 'Provider'),
-							render: (row) => <span className="mono">{row.providerId}</span>,
-						},
-					]}
+				<ConsoleLink
+					page="agents"
+					label={t('app.settings.openAgents', 'Open Agents')}
+					onNavigate={onNavigate}
 				/>
-			</Disclosure>
+			</div>
 		</>
 	);
 }
@@ -398,37 +353,18 @@ export function WorkspacesBody({ overview }: { overview: Overview }) {
 	);
 }
 
-export function IntegrationsBody({ overview }: { overview: Overview }) {
-	const { t } = useI18n();
-	return (
-		<>
-			<p className="muted">
-				{overview.mcpServers.length}{' '}
-				{t(
-					'app.settings.integrations.registeredNote',
-					'MCP servers registered. Registration, transports and IDE connections live in the Integrations console; execution still goes through broker, policy and sandbox.',
-				)}
-			</p>
-			<div className="settings-deeplinks">
-				<ConsoleLink
-					page="integrations"
-					label={t('app.settings.openIntegrations', 'Open Integrations')}
-				/>
-			</div>
-		</>
-	);
-}
-
 export function AdvancedBody({
 	overview,
 	selectedProject,
 	mutate,
 	language,
+	onNavigate,
 }: {
 	overview: Overview;
 	selectedProject: Project | null;
 	mutate: Mutate;
 	language: Language;
+	onNavigate?: () => void;
 }) {
 	const { t } = useI18n();
 	const teams = useMemo(
@@ -439,6 +375,35 @@ export function AdvancedBody({
 
 	return (
 		<>
+			<section className="settings-group">
+				<h4 className="settings-group-title">
+					{t('app.settings.advanced.consolesTitle', 'Developer consoles')}
+				</h4>
+				<p className="settings-section-intro">
+					{t(
+						'app.settings.advanced.consolesNote',
+						'Read-only technical consoles demoted from primary navigation.',
+					)}
+				</p>
+				<div className="settings-dev-groups">
+					{DEVELOPER_PAGE_GROUPS.map((group) => (
+						<div key={group.label.en} className="settings-dev-group">
+							<span className="settings-dev-group-label">{pickLabel(group.label, language)}</span>
+							<div className="settings-deeplinks">
+								{group.links.map((link) => (
+									<ConsoleLink
+										key={link.page}
+										page={link.page}
+										label={pickLabel(link.label, language)}
+										onNavigate={onNavigate}
+									/>
+								))}
+							</div>
+						</div>
+					))}
+				</div>
+			</section>
+
 			<Disclosure title={t('app.copy.features.settings.SettingsPage.5', 'Parameters')}>
 				<DataTable
 					rows={overview.modelPolicies}
@@ -471,62 +436,6 @@ export function AdvancedBody({
 						},
 					]}
 				/>
-			</Disclosure>
-
-			<Disclosure title={t('ui.static.user.preferences.c3c46a58', 'User preferences')}>
-				<div className="stack">
-					<div>
-						<strong>{t('ui.static.interface.language.9407e9ca', 'Interface language')}</strong>
-						<br />
-						<span className="muted">
-							{language === 'es'
-								? t('app.settings.prefs.languageSpanish', 'Spanish')
-								: t('app.settings.prefs.languageEnglish', 'English')}
-						</span>
-					</div>
-					<div>
-						<strong>{t('ui.static.display.density.a1b8d01b', 'Display density')}</strong>
-						<br />
-						<span className="muted">
-							{t('ui.static.operational.compact.180d847b', 'Operational compact')}
-						</span>
-					</div>
-					<div>
-						<strong>{t('ui.static.motion.preference.f216d061', 'Motion preference')}</strong>
-						<br />
-						<span className="muted">
-							{t(
-								'ui.static.respects.system.reduced.motion.settings.53b5b03a',
-								'Respects system reduced-motion settings',
-							)}
-						</span>
-					</div>
-				</div>
-			</Disclosure>
-
-			<Disclosure title={t('app.copy.features.settings.SettingsPage.8', 'Default configurations')}>
-				<div className="stack">
-					<span>{t('ui.static.backend.fastapi.v1.aac8dc1e', 'Backend: FastAPI v1')}</span>
-					<span>
-						{t(
-							'ui.static.frontend.vite.react.typescript.b3d4c705',
-							'Frontend: Vite + React + TypeScript',
-						)}
-					</span>
-					<span>
-						{t(
-							'ui.static.autostart.user.scoped.task.scheduler.9d01bf00',
-							'Autostart: user-scoped Task Scheduler',
-						)}
-					</span>
-					<span>
-						{t(
-							'ui.static.package.manager.corepack.pnpm.10.24.0.2e9f3ce1',
-							'Package manager: corepack pnpm@10.24.0',
-						)}
-					</span>
-					<span>{t('ui.static.python.runner.uv.8c1511e8', 'Python runner: uv')}</span>
-				</div>
 			</Disclosure>
 
 			<Disclosure title={t('app.copy.features.settings.SettingsPage.6', 'Catalogs')}>

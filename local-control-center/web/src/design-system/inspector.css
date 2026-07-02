@@ -1,0 +1,279 @@
+/*
+ * Thread Inspector (threads area): the 8-tab AI-manager console inside the shell's right
+ * inspector pane. Density mirrors .thread-console-row; tone is carried by StatusChip and
+ * full borders only (no side-stripes), copy stays at the sm/xs scale so the rail reads as
+ * an operations log, not a marketing card.
+ */
+
+.thread-inspector {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-3);
+	min-height: 0;
+	container-type: inline-size;
+}
+
+/* Persistent loop vitals pinned above the tabs: thread status, loop state and
+ * pending decisions stay visible on every tab so the operator never loses the
+ * "is the loop healthy" answer while browsing Backlog/Memory/Research. */
+.thread-inspector-summary {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-1);
+}
+
+.thread-inspector .tabs-root {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-3);
+	min-height: 0;
+}
+
+/* Single-row tablist: 8 tabs scroll horizontally instead of wrapping so the roving
+ * tabindex keeps its linear Left/Right model. The right-edge mask signals that more
+ * tabs exist past the fold in narrow panes. */
+.thread-inspector .tabs {
+	flex-wrap: nowrap;
+	overflow-x: auto;
+	scroll-snap-type: x proximity;
+	padding-bottom: var(--space-1);
+	-webkit-mask-image: linear-gradient(to right, #000 calc(100% - var(--space-4)), transparent);
+	mask-image: linear-gradient(to right, #000 calc(100% - var(--space-4)), transparent);
+}
+
+/* Primary-navigation emphasis for the selected inspector tab: accent border plus an
+ * inset underline (inset shadow, deliberately not a side-stripe border). */
+.thread-inspector .tabs .button[aria-selected="true"] {
+	border-color: var(--color-accent);
+	box-shadow: inset 0 -2px 0 var(--color-accent);
+}
+
+.thread-inspector .tabs .button {
+	scroll-snap-align: start;
+	white-space: nowrap;
+	flex-shrink: 0;
+}
+
+.thread-inspector .tabs-root > [role="tabpanel"] {
+	min-height: 0;
+	overflow: auto;
+}
+
+.thread-inspector-tab-label {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-1);
+}
+
+.thread-inspector-stack {
+	display: grid;
+	gap: var(--space-3);
+	align-content: start;
+}
+
+.thread-inspector-loading {
+	display: grid;
+	gap: var(--space-2);
+}
+
+.thread-inspector-skeleton-row {
+	height: 2.25rem;
+	border-radius: var(--radius-sm);
+}
+
+.thread-inspector-goal-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--space-2);
+}
+
+.thread-inspector-goal-head h3 {
+	margin: 0;
+	font-size: var(--font-size-sm);
+	font-weight: var(--weight-semibold);
+	overflow-wrap: anywhere;
+}
+
+.thread-inspector-goal-text {
+	margin: 0;
+	font-size: var(--font-size-sm);
+	color: var(--color-text-secondary);
+	line-height: var(--line-normal);
+	overflow-wrap: anywhere;
+}
+
+.thread-inspector-meta {
+	display: grid;
+	gap: var(--space-1);
+	margin: 0;
+}
+
+.thread-inspector-meta > div {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: var(--space-2);
+}
+
+.thread-inspector-meta dt {
+	color: var(--color-text-muted);
+	font-size: var(--font-size-xs);
+}
+
+.thread-inspector-meta dd {
+	margin: 0;
+	font-size: var(--font-size-xs);
+	color: var(--color-text-secondary);
+	text-align: right;
+	overflow-wrap: anywhere;
+}
+
+.thread-inspector-section-title {
+	margin: 0;
+	font-size: var(--font-size-2xs);
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+	color: var(--color-text-muted);
+	font-weight: var(--weight-medium);
+}
+
+.thread-inspector-list {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-1);
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.thread-inspector-row {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	gap: var(--space-2);
+	padding: var(--space-2);
+	background: var(--color-surface-card);
+	border: 1px solid var(--color-border-subtle);
+	border-radius: var(--radius-sm);
+}
+
+.thread-inspector-row[data-depth="1"] {
+	margin-left: var(--space-4);
+}
+
+.thread-inspector-row[data-depth="2"] {
+	margin-left: var(--space-7);
+}
+
+/* Narrow pane: shallower backlog indents so story/task titles keep a readable measure. */
+@container (max-width: 360px) {
+	.thread-inspector-row[data-depth="1"] {
+		margin-left: var(--space-2);
+	}
+
+	.thread-inspector-row[data-depth="2"] {
+		margin-left: var(--space-4);
+	}
+}
+
+.thread-inspector-row-main {
+	min-width: 0;
+	display: grid;
+	gap: 2px;
+	align-content: start;
+}
+
+.thread-inspector-row-main strong {
+	font-size: var(--font-size-sm);
+	font-weight: var(--weight-medium);
+	overflow-wrap: anywhere;
+}
+
+.thread-inspector-row-main a {
+	font-size: var(--font-size-sm);
+	overflow-wrap: anywhere;
+}
+
+.thread-inspector-subline {
+	font-size: var(--font-size-xs);
+	color: var(--color-text-muted);
+	overflow-wrap: anywhere;
+}
+
+.thread-inspector-subline[data-tone="danger"] {
+	color: var(--color-status-danger);
+}
+
+/* Blocked/disabled agent callout: leads the row body so the unhealthy team member
+ * pops during a roster scan. Tone lives in text + icon, never a stripe. */
+.thread-inspector-blocked {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-1);
+	font-size: var(--font-size-xs);
+	font-weight: var(--weight-medium);
+	color: var(--color-status-danger);
+	overflow-wrap: anywhere;
+}
+
+.thread-inspector-row-side {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-end;
+	gap: var(--space-1);
+}
+
+.thread-inspector-cost {
+	font-size: var(--font-size-xs);
+	color: var(--color-text-secondary);
+}
+
+.thread-inspector-external-icon {
+	margin-left: var(--space-1);
+	vertical-align: -0.125em;
+}
+
+.thread-inspector-memory-content {
+	font-size: var(--font-size-xs);
+	color: var(--color-text-secondary);
+	overflow-wrap: anywhere;
+}
+
+.thread-inspector-phase-list {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-1);
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.thread-inspector-phase-list li {
+	padding: var(--space-1) var(--space-2);
+	border: 1px solid var(--color-border-subtle);
+	border-radius: var(--radius-pill);
+	font-size: var(--font-size-2xs);
+	color: var(--color-text-muted);
+	background: var(--color-surface-inset);
+}
+
+.thread-inspector-phase-list li[data-state="done"] {
+	color: var(--color-text-secondary);
+	border-color: var(--color-border-default);
+}
+
+.thread-inspector-phase-list li[data-state="current"] {
+	color: var(--color-text-primary);
+	border-color: var(--color-accent);
+	background: var(--color-surface-card);
+}
+
+.thread-inspector-research {
+	display: grid;
+	gap: var(--space-2);
+	padding: var(--space-2);
+	background: var(--color-surface-card);
+	border: 1px solid var(--color-border-subtle);
+	border-radius: var(--radius-md);
+}

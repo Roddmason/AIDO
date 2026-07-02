@@ -12,6 +12,7 @@ import { useCallback, useEffect, useState } from 'react';
 export type Density = 'comfortable' | 'compact';
 
 const DENSITY_STORAGE_KEY = 'aido:density';
+const DENSITY_CHANGE_EVENT = 'aido:density-setting';
 
 function readStoredDensity(): Density {
 	try {
@@ -31,6 +32,7 @@ function persistDensity(density: Density) {
 	try {
 		window.localStorage.setItem(DENSITY_STORAGE_KEY, density);
 	} catch {}
+	window.dispatchEvent(new Event(DENSITY_CHANGE_EVENT));
 }
 
 /** Applies the persisted density to <html> before React renders, avoiding a flash. */
@@ -38,7 +40,8 @@ export function applyStoredDensity() {
 	applyDensity(readStoredDensity());
 }
 
-/** Exposes the current density and a toggle that persists the new choice and updates `<html>`. */
+/** Exposes the current density, a direct setter, and a toggle; both persist and update `<html>`.
+ *  Instances stay in sync via a window event (StatusBar, MenuBar and Settings share state). */
 export function useDensity() {
 	const [density, setDensityState] = useState<Density>(readStoredDensity);
 
@@ -46,13 +49,24 @@ export function useDensity() {
 		applyDensity(density);
 	}, [density]);
 
-	const toggleDensity = useCallback(() => {
-		setDensityState((current) => {
-			const next: Density = current === 'comfortable' ? 'compact' : 'comfortable';
-			persistDensity(next);
-			return next;
-		});
+	useEffect(() => {
+		const sync = () => setDensityState(readStoredDensity());
+		window.addEventListener(DENSITY_CHANGE_EVENT, sync);
+		return () => window.removeEventListener(DENSITY_CHANGE_EVENT, sync);
 	}, []);
 
-	return { density, toggleDensity };
+	const setDensity = useCallback((next: Density) => {
+		persistDensity(next);
+		setDensityState(next);
+	}, []);
+
+	const toggleDensity = useCallback(() => {
+		// Reads storage (not stale state) and persists outside the updater so the
+		// cross-instance sync event never fires mid-render.
+		const next: Density = readStoredDensity() === 'comfortable' ? 'compact' : 'comfortable';
+		persistDensity(next);
+		setDensityState(next);
+	}, []);
+
+	return { density, setDensity, toggleDensity };
 }

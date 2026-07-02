@@ -733,6 +733,12 @@ kbd.command-kbd {
 	text-decoration: underline;
 }
 
+.settings-console-link:focus-visible {
+	outline: none;
+	border-radius: var(--radius-sm);
+	box-shadow: var(--shadow-focus);
+}
+
 /* Group of "config lives elsewhere" deep links (wraps .settings-console-link). */
 .settings-deeplinks {
 	display: flex;

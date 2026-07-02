@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
 import time
 from typing import Any
 from urllib.error import URLError
@@ -506,15 +507,15 @@ class ModelGateway:
             if not getattr(provider, "base_url", ""):
                 return {"status": "configuration_required", "reason": "Provider base URL is not configured."}
             if not for_health:
-                policy_decision = RuntimeConfigRepository(
-                    self.repository.connection
-                ).runtime_policy_decision(
+                policy_decision = RuntimeConfigRepository(self.repository.connection).runtime_policy_decision(
                     provider_id=provider_id, kind=provider_type, project_id=project_id
                 )
                 if not policy_decision.get("allowed"):
                     return {
                         "status": "blocked",
-                        "reason": str(policy_decision.get("reason") or "Runtime execution is blocked by policy."),
+                        "reason": str(
+                            policy_decision.get("reason") or "Runtime execution is blocked by policy."
+                        ),
                         "runtimeType": resolved_runtime,
                     }
         if provider_type in LOCAL_PROVIDER_TYPES and provider_id not in {"ollama", "local_ollama"}:
@@ -731,3 +732,33 @@ def ollama_status(*, base_url: str | None = None, credential_ref: str | None = N
         "models": models,
         "reason": "",
     }
+
+
+# El sondeo del daemon Ollama es una llamada de red (`/api/tags`) que, sin daemon o contra un endpoint
+# remoto no accesible, agota su timeout (~4 s medidos en Windows) en CADA request. El rollup de estado
+# que consume el shell se poléa ~cada 5 s reteniendo el lock global del control-plane, así que se cachea
+# el resultado por `(base_url, credential_ref)` con TTL. `ollama_status` sigue siendo un probe vivo para
+# health-checks explícitos; solo la ruta de polling usa la versión cacheada.
+_OLLAMA_STATUS_CACHE_TTL_SECONDS = 30.0
+_ollama_status_cache: dict[tuple[str | None, str | None], tuple[float, dict[str, Any]]] = {}
+_ollama_status_cache_lock = threading.Lock()
+
+
+def reset_ollama_status_cache() -> None:
+    """Vacía el caché TTL de estado de Ollama; usar entre tests para evitar fugas de estado global."""
+    with _ollama_status_cache_lock:
+        _ollama_status_cache.clear()
+
+
+def cached_ollama_status(*, base_url: str | None = None, credential_ref: str | None = None) -> dict[str, Any]:
+    """Devuelve ``ollama_status`` cacheado por TTL; ante fallo de caché sondea FUERA del candado del caché."""
+    key = (base_url, credential_ref)
+    now = time.monotonic()
+    with _ollama_status_cache_lock:
+        cached = _ollama_status_cache.get(key)
+        if cached is not None and now - cached[0] < _OLLAMA_STATUS_CACHE_TTL_SECONDS:
+            return dict(cached[1])
+    status = ollama_status(base_url=base_url, credential_ref=credential_ref)
+    with _ollama_status_cache_lock:
+        _ollama_status_cache[key] = (time.monotonic(), status)
+    return dict(status)

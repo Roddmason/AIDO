@@ -601,7 +601,7 @@ def test_runtime_provider_status_uses_aido_env_config_without_revealing_secret_v
     monkeypatch.setenv("AIDO_OPENAI_COMPATIBLE_MODEL", "vendor/model-compatible")
     monkeypatch.setattr("shutil.which", lambda _command: None)
     monkeypatch.setattr(
-        "local_control_center.agents.runtime_status.ollama_status",
+        "local_control_center.agents.runtime_status.cached_ollama_status",
         lambda **_kwargs: {
             "provider": "ollama",
             "available": False,
@@ -634,7 +634,7 @@ def test_anthropic_status_requires_aido_model_and_real_health_before_execution(
     monkeypatch.setenv("AIDO_ANTHROPIC_MODEL", "claude-test-model")
     monkeypatch.setattr("shutil.which", lambda _command: None)
     monkeypatch.setattr(
-        "local_control_center.agents.runtime_status.ollama_status",
+        "local_control_center.agents.runtime_status.cached_ollama_status",
         lambda **_kwargs: {
             "provider": "ollama",
             "available": False,
@@ -666,7 +666,7 @@ def test_runtime_provider_status_does_not_report_api_available_without_credentia
     clear_runtime_provider_env(monkeypatch)
     monkeypatch.setattr("shutil.which", lambda _command: None)
     monkeypatch.setattr(
-        "local_control_center.agents.runtime_status.ollama_status",
+        "local_control_center.agents.runtime_status.cached_ollama_status",
         lambda **_kwargs: {
             "provider": "ollama",
             "available": False,
@@ -702,7 +702,7 @@ def test_remote_provider_status_fails_closed_without_configuration(
     clear_runtime_provider_env(monkeypatch)
     monkeypatch.setattr("shutil.which", lambda _command: None)
     monkeypatch.setattr(
-        "local_control_center.agents.runtime_status.ollama_status",
+        "local_control_center.agents.runtime_status.cached_ollama_status",
         lambda **_kwargs: {
             "provider": "ollama",
             "available": False,
@@ -738,7 +738,7 @@ def test_remote_provider_status_does_not_call_remote_health_by_default(
     configure_remote_provider_env(monkeypatch)
     monkeypatch.setattr("shutil.which", lambda _command: None)
     monkeypatch.setattr(
-        "local_control_center.agents.runtime_status.ollama_status",
+        "local_control_center.agents.runtime_status.cached_ollama_status",
         lambda **_kwargs: {
             "provider": "ollama",
             "available": False,
@@ -783,7 +783,7 @@ def test_remote_provider_failed_healthcheck_persists_sanitized_reason(
     configure_remote_provider_env(monkeypatch)
     monkeypatch.setattr("shutil.which", lambda _command: None)
     monkeypatch.setattr(
-        "local_control_center.agents.runtime_status.ollama_status",
+        "local_control_center.agents.runtime_status.cached_ollama_status",
         lambda **_kwargs: {
             "provider": "ollama",
             "available": False,
@@ -840,7 +840,7 @@ def test_remote_provider_healthy_requires_enabled_account_and_real_call_flag_for
     configure_remote_provider_env(monkeypatch)
     monkeypatch.setattr("shutil.which", lambda _command: None)
     monkeypatch.setattr(
-        "local_control_center.agents.runtime_status.ollama_status",
+        "local_control_center.agents.runtime_status.cached_ollama_status",
         lambda **_kwargs: {
             "provider": "ollama",
             "available": False,
@@ -902,7 +902,7 @@ def test_runtime_provider_status_reports_missing_cli_as_not_detected(
     clear_runtime_provider_env(monkeypatch)
     monkeypatch.setattr("shutil.which", lambda _command: None)
     monkeypatch.setattr(
-        "local_control_center.agents.runtime_status.ollama_status",
+        "local_control_center.agents.runtime_status.cached_ollama_status",
         lambda **_kwargs: {
             "provider": "ollama",
             "available": False,
@@ -932,7 +932,7 @@ def test_runtime_provider_status_reports_ollama_down_with_real_health_reason(
     clear_runtime_provider_env(monkeypatch)
     monkeypatch.setattr("shutil.which", lambda _command: None)
     monkeypatch.setattr(
-        "local_control_center.agents.runtime_status.ollama_status",
+        "local_control_center.agents.runtime_status.cached_ollama_status",
         lambda **_kwargs: {
             "provider": "ollama",
             "available": False,
@@ -972,7 +972,7 @@ def test_openai_compatible_status_requires_config_model_and_explicit_healthcheck
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test-runtime-status123456")
     monkeypatch.setattr("shutil.which", lambda _command: None)
     monkeypatch.setattr(
-        "local_control_center.agents.runtime_status.ollama_status",
+        "local_control_center.agents.runtime_status.cached_ollama_status",
         lambda **_kwargs: {
             "provider": "ollama",
             "available": False,

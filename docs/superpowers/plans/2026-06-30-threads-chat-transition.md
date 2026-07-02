@@ -3,9 +3,9 @@
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Animate the handoff from the "new thread" intake screen to the live thread view with a
-3D "depth dissolve" (using the `motion` library already installed), and verify/fix the sticky
-chat layout so the title+chat block stays pinned at the top while the execution console scrolls
-below it.
+3D "depth dissolve" (using the `motion` library already installed), and make sure the WHOLE chat
+block (title + transcript + composer) — not just its header — stays pinned at the top while the
+execution console scrolls below it.
 
 **Architecture:** Pure frontend/visual change inside `local-control-center/web`. No backend, data
 model, coordinator, or API changes (explicit user instruction: frontend + UX/UI only, no logic).
@@ -20,6 +20,16 @@ reducedMotion="user"`, already wired in `main.tsx`), Vite, Playwright (`tests_we
 
 **Design reference:** `docs/superpowers/specs/2026-06-30-threads-chat-transition-design.md`.
 
+**IMPORTANT — re-verify before editing:** this repo has a second, independent autonomous agent
+that also commits and pushes to `dev` (confirmed present in this session: 7 commits landed on
+`dev` between this plan's base commit and the start of implementation, including a change to the
+exact CSS this plan touches — see Task 1). Before touching any file this plan names, re-read its
+CURRENT content on disk / `git show HEAD:<path>` rather than trusting a diff shown verbatim below
+— treat the code blocks in this plan as "last verified against commit `7ae03ca`," not as guaranteed
+current truth. If what you find on disk differs from what a step shows, that is expected (not a
+sign you have the wrong file) — adapt the edit to the real surrounding code and note the drift in
+your report.
+
 ## Global Constraints
 
 - No new npm/pnpm dependencies — `motion` already covers 3D transforms, springs, and
@@ -33,30 +43,114 @@ reducedMotion="user"`, already wired in `main.tsx`), Vite, Playwright (`tests_we
 - Every task ends green on: `pnpm run check:web`, `pnpm run typecheck:web`.
 - Commits follow `Tipo (Ámbito): mensaje detallado` (this repo's convention) and only touch the
   files listed in that task.
+- Working directly on `dev` (no worktree/feature branch): this repo's GitHub ruleset blocks
+  create/push/delete on any branch except `dev`, and the established workflow here is to commit
+  and push straight to `dev` per finished piece of work.
 
 ---
 
-### Task 1: Verify and (if needed) fix the sticky chat layout
+### Task 1: Make the WHOLE chat block sticky (not just its header)
 
-**Owner:** `frontend-developer-senior` (implement) · `frontend-architect` (review the CSS/layout
-chain doesn't regress other routes sharing `.content-frame`).
+**Owner:** `frontend-developer-senior` (implement) · `code-reviewer-senior` (review).
+
+**Current state (verified at commit `7ae03ca`, re-verify before editing):** the other agent
+working in this repo already added `position: sticky` — but only to `.thread-chat-sticky
+.thread-conversation-head` (the small title + status-chip row), not to `.thread-chat-sticky`
+itself (the block that also contains the transcript and the composer). It also already added a
+Playwright test for this, `tests_web/threads.spec.js:102-162` ("Threads: the chat header stays
+pinned while the execution console scrolls"), which scrolls `.content-frame` (the real scroll
+ancestor — `.thread-live-layout` itself carries no `overflow` today) and asserts
+`.thread-conversation-head`'s bounding box is unchanged. That satisfies "the title never
+disappears" but not the actual request: "el chat quede arriba siempre visible" — the whole chat
+(messages + composer), not only the heading. This task fixes that gap.
 
 **Files:**
-- Modify (conditionally, only if Step 2 fails): `local-control-center/web/src/design-system/layout.css:1368-1372`
-- Test: `tests_web/threads.spec.js` (append)
+- Modify: `local-control-center/web/src/design-system/layout.css` (the `.thread-chat-sticky` /
+  `.thread-chat-sticky .thread-conversation-head` rules, currently around line 1373-1388)
+- Modify: `tests_web/threads.spec.js` (extend the existing test at line 102, do not duplicate it)
 
 **Interfaces:**
-- Consumes: existing classes `.thread-chat-sticky`, `.thread-live-layout`, `.thread-execution-console`
-  (no renames, no JS changes in this task).
-- Produces: a permanent Playwright regression test proving the sticky-chat-while-console-scrolls
-  contract, reused as a safety net by Task 2 and Task 3.
+- Consumes: existing classes `.thread-chat-sticky`, `.thread-conversation-head`,
+  `.thread-execution-console`, `.content-frame` (no renames, no JS/TSX changes in this task).
+- Produces: a strengthened Playwright regression test proving the whole chat block — not just its
+  header — stays pinned; Task 2 and Task 3 rely on this staying green.
 
-- [ ] **Step 1: Write the characterization test**
+- [ ] **Step 1: Read the current CSS and confirm the exact text to change**
 
-Append to `tests_web/threads.spec.js`:
+Read `local-control-center/web/src/design-system/layout.css` and find the three rules
+`.thread-live-layout`, `.thread-chat-sticky`, and `.thread-chat-sticky .thread-conversation-head`.
+As last verified, they read:
+
+```css
+.thread-live-layout {
+	gap: var(--space-4);
+	padding: var(--space-4) var(--space-6) var(--space-6);
+}
+
+.thread-chat-sticky {
+	display: grid;
+	gap: var(--space-3);
+	padding: 0 0 var(--space-3);
+	background: var(--color-surface-workbench);
+	border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.thread-chat-sticky .thread-conversation-head {
+	position: sticky;
+	top: 0;
+	z-index: 4;
+	padding: var(--space-2) 0;
+	border-bottom: none;
+	background: var(--color-surface-workbench);
+}
+```
+
+If this doesn't match what you find, work from what's actually on disk — the fix below is a
+description of the change, not a literal patch to force through.
+
+- [ ] **Step 2: Move `position: sticky` from the header to the whole chat block**
+
+Change it to:
+
+```css
+.thread-live-layout {
+	gap: var(--space-4);
+	padding: var(--space-4) var(--space-6) var(--space-6);
+}
+
+.thread-chat-sticky {
+	position: sticky;
+	top: 0;
+	z-index: 4;
+	display: grid;
+	gap: var(--space-3);
+	padding: 0 0 var(--space-3);
+	background: var(--color-surface-workbench);
+	border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.thread-chat-sticky .thread-conversation-head {
+	padding: var(--space-2) 0;
+	border-bottom: none;
+	background: transparent;
+}
+```
+
+`.thread-live-layout` itself is unchanged — `.content-frame` (an ancestor, shared with other
+routes, `overflow: auto` already set on it in `layout.css`) is the actual scrolling ancestor that
+`position: sticky` resolves against, exactly as the existing test already assumes. Do not add
+`overflow-y: auto` to `.thread-live-layout` — that would create a second, redundant scroll
+container and could break the existing test's `.content-frame` overflow measurement.
+
+- [ ] **Step 3: Strengthen the existing Playwright test**
+
+Open `tests_web/threads.spec.js`. Find the test `'Threads: the chat header stays pinned while the
+execution console scrolls'` (around line 102). Rename it and add a second locator/assertion pair
+for `.thread-chat-sticky` alongside the existing `.thread-conversation-head` one, reusing the same
+before/after scroll positions (do not re-scroll or duplicate the setup). The test becomes:
 
 ```js
-test('Threads: the chat header stays pinned while the execution console scrolls', async ({
+test('Threads: the whole chat block stays pinned while the execution console scrolls', async ({
 	page,
 }) => {
 	await page.setViewportSize({ width: 1280, height: 560 });
@@ -67,100 +161,95 @@ test('Threads: the chat header stays pinned while the execution console scrolls'
 	await page.locator('.shell-new-thread').click();
 	await expect(page.getByRole('heading', { name: /What will we work on/ })).toBeVisible();
 
-	const firstMessage = `Pin check ${Date.now()}`;
+	const firstMessage = `Add a pinned thread layout endpoint ${Date.now()}`;
 	await page.getByLabel('Message AIDO').fill(firstMessage);
 	await page.getByRole('button', { name: 'Create thread' }).click();
 	await expect(page.getByText(firstMessage).first()).toBeVisible({ timeout: 20_000 });
 	await expect(page.getByText(/Run queued|Run encolado/).first()).toBeVisible({ timeout: 20_000 });
 
-	const scrollRegion = page.locator('.thread-live-layout').first();
-	const sticky = page.locator('.thread-chat-sticky').first();
+	const project = await getActiveProject(page);
+	const listed = await page.request.get(`/api/v1/threads?projectId=${project.id}`);
+	const { threads } = await listed.json();
+	const created = threads.find((thread) => thread.title === firstMessage.slice(0, 80));
+	expect(created).toBeTruthy();
+	const token = await getWriteToken(page);
+	for (let index = 0; index < 6; index += 1) {
+		const response = await page.request.post(`/api/v1/threads/${created.id}/messages`, {
+			headers: { 'X-Local-Control-Token': token },
+			data: { content: `Add pinned layout overflow event ${index} ${Date.now()}` },
+		});
+		expect(response.ok()).toBe(true);
+	}
 
-	// Precondition: the console must actually overflow the viewport, otherwise the assertions
-	// below would pass vacuously. If this fails, shrink the viewport height further above.
-	const overflowAmount = await scrollRegion.evaluate(
-		(node) => node.scrollHeight - node.clientHeight,
-	);
-	expect(overflowAmount).toBeGreaterThan(0);
+	const scrollRegion = page.locator('.content-frame').first();
+	const stickyHeader = page.locator('.thread-conversation-head').first();
+	const stickyChat = page.locator('.thread-chat-sticky').first();
 
-	const before = await sticky.boundingBox();
-	expect(before).not.toBeNull();
+	// Precondition: the thread surface must actually overflow the viewport, otherwise the assertions
+	// below would pass vacuously.
+	await expect
+		.poll(() => scrollRegion.evaluate((node) => node.scrollHeight - node.clientHeight), {
+			timeout: 20_000,
+		})
+		.toBeGreaterThan(260);
 
 	await scrollRegion.evaluate((node) => {
-		node.scrollTop = node.scrollHeight;
+		node.scrollTop = 120;
+	});
+	await page.waitForTimeout(150);
+	const headerBefore = await stickyHeader.boundingBox();
+	const chatBefore = await stickyChat.boundingBox();
+	expect(headerBefore).not.toBeNull();
+	expect(chatBefore).not.toBeNull();
+
+	await scrollRegion.evaluate((node) => {
+		node.scrollTop = 240;
 	});
 	await page.waitForTimeout(150);
 
 	const scrollTop = await scrollRegion.evaluate((node) => node.scrollTop);
 	expect(scrollTop).toBeGreaterThan(0);
 
-	const after = await sticky.boundingBox();
-	expect(after).not.toBeNull();
-	expect(Math.round(after.y)).toBe(Math.round(before.y));
+	const headerAfter = await stickyHeader.boundingBox();
+	const chatAfter = await stickyChat.boundingBox();
+	expect(headerAfter).not.toBeNull();
+	expect(chatAfter).not.toBeNull();
+	expect(Math.round(headerAfter.y)).toBe(Math.round(headerBefore.y));
+	// The whole chat block (title + transcript + composer) stays pinned, not just the title — before
+	// this task only the header had `position: sticky`.
+	expect(Math.round(chatAfter.y)).toBe(Math.round(chatBefore.y));
 });
 ```
 
-- [ ] **Step 2: Run the test against the current code**
+- [ ] **Step 4: Run the test against the fixed code**
 
 Run: `node scripts/run-web-tests.mjs tests_web/threads.spec.js -g "stays pinned"`
+Expected: PASS. If it fails, read the actual failure — do not guess; report BLOCKED with the
+output if you cannot resolve it after checking the CSS specificity and the scroll target.
 
-Two possible outcomes:
-- **PASS** — the existing `position: sticky` + `overflow-y: auto` chain already works. Skip
-  Step 3, go straight to Step 4.
-- **FAIL** (`overflowAmount` not > 0, or `after.y !== before.y`) — continue to Step 3.
-
-- [ ] **Step 3 (only if Step 2 failed): Make the sizing chain explicit**
-
-Modify `local-control-center/web/src/design-system/layout.css` — current block at line 1368:
-
-```css
-.thread-live-layout {
-	overflow-y: auto;
-	gap: var(--space-4);
-	padding: var(--space-4) var(--space-6) var(--space-6);
-}
-```
-
-becomes:
-
-```css
-.thread-live-layout {
-	flex: 1 1 auto;
-	min-height: 0;
-	overflow-y: auto;
-	gap: var(--space-4);
-	padding: var(--space-4) var(--space-6) var(--space-6);
-}
-```
-
-Re-run Step 2's command and confirm PASS before continuing.
-
-- [ ] **Step 4: Run the full web test file to confirm no regressions**
+- [ ] **Step 5: Run the full web test file to confirm no regressions**
 
 Run: `node scripts/run-web-tests.mjs tests_web/threads.spec.js`
-Expected: all tests in the file PASS, including the new one.
+Expected: every test in the file PASSES.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add tests_web/threads.spec.js local-control-center/web/src/design-system/layout.css
-git commit -m "Test (Threads): verifica que el chat sticky se mantenga fijo mientras la consola de ejecucion hace scroll"
+git commit -m "Fix (Threads): fija el bloque de chat completo (no solo el titulo) al hacer scroll en la consola de ejecucion"
 ```
-
-(Drop `layout.css` from `git add` if Step 2 passed and Step 3 was skipped.)
 
 ---
 
 ### Task 2: Depth-dissolve transition (variants + `AnimatePresence` orchestration)
 
-**Owner:** `react-senior-dev` or `frontend-developer-senior` (implement) · `ux-ui-director` +
-`accessibility-qa` (review timing, reduced-motion fallback, no new AI-slop visual elements).
+**Owner:** `frontend-developer-senior` (implement) · `accessibility-qa` (review timing,
+reduced-motion fallback, no new AI-slop visual elements).
 
 **Files:**
 - Modify: `local-control-center/web/src/motion/variants.ts`
-- Modify: `local-control-center/web/src/design-system/layout.css` (new rules, appended near the
-  `/* ---- Real thread conversation (threads route center) ---- */` block, after line 1532 or any
-  current end of that section)
+- Modify: `local-control-center/web/src/design-system/layout.css` (new rules only, appended near
+  the end of the `/* ---- Real thread conversation (threads route center) ---- */` section)
 - Modify: `local-control-center/web/src/features/shell/ThreadConversation.tsx`
 - Test: `tests_web/threads.spec.js` (append)
 
@@ -168,13 +257,21 @@ git commit -m "Test (Threads): verifica que el chat sticky se mantenga fijo mien
 - Consumes: `EASE_OUT`, `panelTransition` (already exported from `motion/variants.ts`); `m`,
   `AnimatePresence` from `motion/react`.
 - Produces: two new named exports from `motion/variants.ts` — `threadIntakeExit: Variants` and
-  `threadLiveEnter: Variants` — for reuse if another "showcase" transition needs the same language
-  later.
+  `threadLiveEnter: Variants`.
 
-- [ ] **Step 1: Write the failing/characterization tests first**
+**Before you start:** re-read `local-control-center/web/src/features/shell/ThreadConversation.tsx`
+in full — Task 1 (a different implementer) may have just changed the CSS this file relies on, and
+the component itself may have been touched by the other autonomous agent working in this repo
+since this plan was written. As last verified (commit `7ae03ca`), the component already has a
+`useCallback`-wrapped `sendMessage`/`resolveDecision` pair (they bump a `streamRefreshKey` after
+each write) and a `mergeConsoleEvents(detail.events, eventStream.events)` helper for the console
+list — both must be preserved exactly; this task only adds the phase/AnimatePresence layer around
+the existing four early-return branches plus the live-layout return.
 
-Append to `tests_web/threads.spec.js` (two tests: a reduced-motion completion check, and a regression
-check that the existing creation flow still renders the full live layout after the refactor):
+- [ ] **Step 1: Write the characterization tests first**
+
+Append to `tests_web/threads.spec.js` (two tests: a reduced-motion completion check, and a
+regression check that thread creation still renders the full live layout after the refactor):
 
 ```js
 test('Threads: creating a thread still renders the live layout under reduced motion', async ({
@@ -230,7 +327,7 @@ this confirms the safety net is valid before refactoring).
 - [ ] **Step 3: Add the two new variants**
 
 Modify `local-control-center/web/src/motion/variants.ts` — append after the existing `crossfade`
-export (after line 66, before `skeletonShimmer`):
+export, before `skeletonShimmer`:
 
 ```ts
 /** Salida del intake al crear el hilo: se hunde con una leve rotación 3D antes de desvanecerse. */
@@ -263,8 +360,8 @@ export const threadLiveEnter: Variants = {
 - [ ] **Step 4: Add the perspective stage CSS**
 
 Modify `local-control-center/web/src/design-system/layout.css` — append right after the
-`.thread-console-chip` rule (the block ending around line 1491, right before the
-`@media (max-width: 720px)` block for threads):
+`.thread-console-chip` rule (immediately before the `@media (max-width: 720px)` block for
+threads):
 
 ```css
 .thread-conversation-stage {
@@ -285,21 +382,12 @@ Modify `local-control-center/web/src/design-system/layout.css` — append right 
 
 - [ ] **Step 5: Update the imports in `ThreadConversation.tsx`**
 
-Modify `local-control-center/web/src/features/shell/ThreadConversation.tsx:14-37` — replace:
+Add to the existing imports (re-read the file first and adapt — as last verified, the current
+imports are):
 
 ```tsx
-import {
-	AlertTriangle,
-	BookOpen,
-	CalendarClock,
-	Hash,
-	Laptop,
-	MessageSquare,
-	Send,
-	ShieldCheck,
-} from 'lucide-react';
 import { m } from 'motion/react';
-import { type FormEvent, type KeyboardEvent, useEffect, useState } from 'react';
+import { type FormEvent, type KeyboardEvent, useCallback, useEffect, useState } from 'react';
 import { createThread, postThreadMessage } from '../../api/client';
 import type { Overview, Project, ThreadAgentEvent, ThreadArtifact, ThreadMessage } from '../../api/types';
 import type { Mutate } from '../../app/routes';
@@ -307,28 +395,21 @@ import { Button, EmptyState, Skeleton, StatusChip, TextArea } from '../../compon
 import { useI18n } from '../../i18n/I18nProvider';
 import { toneForStatus } from '../../lib/format';
 import { cardTransition, listStagger, panelTransition } from '../../motion/variants';
-import { useSettings } from '../settings/useSettings';
-import { NEW_SESSION_ID } from '../workbench/useWorkbenchData';
-import { GitBranchBar } from './GitBranchBar';
-import { useThreadConversation } from './useThreadConversation';
-import { useThreadEventStream } from './useThreadEventStream';
 ```
 
-with:
+becomes:
 
 ```tsx
-import {
-	AlertTriangle,
-	BookOpen,
-	CalendarClock,
-	Hash,
-	Laptop,
-	MessageSquare,
-	Send,
-	ShieldCheck,
-} from 'lucide-react';
 import { AnimatePresence, m } from 'motion/react';
-import { type FormEvent, type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from 'react';
+import {
+	type FormEvent,
+	type KeyboardEvent,
+	type ReactNode,
+	useCallback,
+	useEffect,
+	useRef,
+	useState,
+} from 'react';
 import { createThread, postThreadMessage } from '../../api/client';
 import type {
 	Overview,
@@ -350,21 +431,12 @@ import {
 	threadIntakeExit,
 	threadLiveEnter,
 } from '../../motion/variants';
-import { useSettings } from '../settings/useSettings';
-import { NEW_SESSION_ID } from '../workbench/useWorkbenchData';
-import { GitBranchBar } from './GitBranchBar';
-import { useThreadConversation } from './useThreadConversation';
-import { useThreadEventStream } from './useThreadEventStream';
 ```
 
-- [ ] **Step 6: Refactor the component body**
+(keep every other import line — `lucide-react`, `GitBranchBar`, `useSettings`, `NEW_SESSION_ID`,
+`useThreadConversation`, `useThreadEventStream` — exactly as they are.)
 
-Modify `local-control-center/web/src/features/shell/ThreadConversation.tsx` — the whole
-`ThreadConversation` function (originally lines 89-283: from `export function ThreadConversation({`
-through the final closing `}` before `/** Research report card... */`). Replace it with the two
-helper functions below (Biome's `complexity/noNestedTernary` rule, part of the `recommended` set
-in this repo's `biome.json`, forbids a ternary-inside-a-ternary — these helpers express the same
-branching as plain `if` statements instead) followed by the refactored component:
+- [ ] **Step 6: Add the two phase helpers, right before `export function ThreadConversation`**
 
 ```tsx
 type ConversationPhase = 'no-project' | 'new' | 'loading' | 'error' | 'live';
@@ -392,7 +464,18 @@ function variantsForPhase(phase: ConversationPhase, handoffFromIntake: boolean) 
 	if (phase === 'live' && handoffFromIntake) return threadLiveEnter;
 	return panelTransition;
 }
+```
 
+(`ConversationPhase`/`deriveConversationPhase`/`variantsForPhase` avoid a nested ternary, which
+Biome's `complexity/noNestedTernary` — part of this repo's `recommended` ruleset in `biome.json` —
+would flag on `check:web`.)
+
+- [ ] **Step 7: Refactor the component body**
+
+Replace the whole `ThreadConversation` function (from `export function ThreadConversation({`
+through its closing `}`, right before the `/** Research report card... */` comment) with:
+
+```tsx
 export function ThreadConversation({
 	overview,
 	selectedProject,
@@ -409,7 +492,8 @@ export function ThreadConversation({
 		activeThreadId,
 		mutate,
 	);
-	const eventStream = useThreadEventStream(activeThreadId);
+	const [streamRefreshKey, setStreamRefreshKey] = useState(0);
+	const eventStream = useThreadEventStream(activeThreadId, streamRefreshKey);
 
 	// Git mutations inside the composer re-pull the overview (fire-and-forget) so the shell stays in sync.
 	const refreshOverview = () => {
@@ -420,6 +504,22 @@ export function ThreadConversation({
 		if (!activeThreadId || eventStream.events.length === 0) return;
 		reload();
 	}, [activeThreadId, eventStream.events.length, eventStream.threadStatus, reload]);
+
+	const sendMessage = useCallback(
+		async (content: string) => {
+			await send(content);
+			setStreamRefreshKey((value) => value + 1);
+		},
+		[send],
+	);
+
+	const resolveDecision = useCallback(
+		async (decisionId: string, resolution: string) => {
+			await resolve(decisionId, resolution);
+			setStreamRefreshKey((value) => value + 1);
+		},
+		[resolve],
+	);
 
 	// One phase id per render, used only to pick the AnimatePresence key/variant below; the
 	// if/else-if chain further down re-checks the same conditions directly so TypeScript's
@@ -493,7 +593,7 @@ export function ThreadConversation({
 	} else {
 		const pendingDecision = detail.decisions.find((decision) => decision.status === 'pending');
 		const researchArtifacts = detail.artifacts.filter((artifact) => artifact.kind === 'research_report');
-		const consoleEvents = eventStream.events.length ? eventStream.events : detail.events;
+		const consoleEvents = mergeConsoleEvents(detail.events, eventStream.events);
 		const threadStatus = eventStream.threadStatus ?? detail.thread.status;
 		const waitingForWorker =
 			threadStatus === 'queued' && !consoleEvents.some((event) => event.type === 'worker_claimed');
@@ -538,7 +638,7 @@ export function ThreadConversation({
 										key={option}
 										variant="secondary"
 										disabled={busy}
-										onClick={() => resolve(pendingDecision.id, option)}
+										onClick={() => resolveDecision(pendingDecision.id, option)}
 									>
 										{option}
 									</Button>
@@ -556,7 +656,7 @@ export function ThreadConversation({
 						rows={3}
 						submitLabel={t('app.threads.send', 'Send')}
 						submitBusyLabel={t('app.threads.sending', 'Sending…')}
-						onSendMessage={send}
+						onSendMessage={sendMessage}
 					/>
 				</section>
 
@@ -625,22 +725,26 @@ export function ThreadConversation({
 }
 ```
 
-- [ ] **Step 7: Run the typechecker and Biome**
+Do not touch `mergeConsoleEvents`, `ThreadResearchCard`, `ThreadMessageRow`, `ThreadConsoleRow`,
+`ThreadComposerBox`, `NewThreadComposer`, or any other function below this one — they are unrelated
+to this task and already correct.
+
+- [ ] **Step 8: Run the typechecker and Biome**
 
 Run: `pnpm run typecheck:web`
-Expected: no errors (no new `any`, no unused imports — `cardTransition`/`listStagger` are still
-used elsewhere in this file by `ThreadMessageRow`/`NewThreadComposer`, so they stay imported).
+Expected: no errors (`cardTransition`/`listStagger` stay imported — they're still used by
+`ThreadMessageRow`/`NewThreadComposer` further down in the same file).
 
 Run: `pnpm run check:web`
-Expected: exit 0 (Biome lint + format clean).
+Expected: exit 0.
 
-- [ ] **Step 8: Run the tests from Step 1 again, plus the full file**
+- [ ] **Step 9: Run the tests from Step 1 again, plus the full file**
 
 Run: `node scripts/run-web-tests.mjs tests_web/threads.spec.js`
-Expected: every test in the file PASSES, including Task 1's pinned-header test and both tests
-added in Step 1 of this task.
+Expected: every test in the file PASSES, including Task 1's pinned-chat test and both tests added
+in Step 1 of this task.
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 10: Commit**
 
 ```bash
 git add local-control-center/web/src/motion/variants.ts \
@@ -654,8 +758,8 @@ git commit -m "Feature (Threads): transicion Depth dissolve entre el intake de h
 
 ### Task 3: Visual verification and full gate run
 
-**Owner:** `e2e-visual-qa` (capture + visual review) · `technical-lead-senior` (final approval
-before commit/push).
+**Owner:** `e2e-visual-qa` (capture + gates). No push from inside this task — the controller
+handles the final whole-branch review and push separately after this task reports back.
 
 **Files:** none (verification only; this task produces no diff beyond what Tasks 1-2 already
 committed).
@@ -664,28 +768,28 @@ committed).
 
 - [ ] **Step 1: Start the real app and capture the handoff visually**
 
-Start the control center (`pnpm run start` or the existing dev workflow for this repo) and, using
-the available browser tooling (Playwright via `tests_web`, or chrome-devtools/`Claude_Preview`
-MCP if attached to a running instance), navigate to `#threads`, create a new thread, and capture
-screenshots immediately before and ~0.6s after submitting the first message. Save them under the
-scratchpad directory (not the repo).
+Start the control center (`pnpm run start`, or reuse an already-running instance on port 4310 if
+one exists — check before starting a second one) and, using available browser tooling, navigate
+to `#threads`, create a new thread, and capture screenshots immediately before and ~0.6s after
+submitting the first message. Save them under the scratchpad directory (not the repo).
 
 Confirm visually:
 - The intake card visibly recedes/rotates rather than just disappearing.
-- The title + chat block is in its final sticky position and not clipped or jittering once
-  settled.
+- The WHOLE title+transcript+composer block is in its final sticky position and not clipped or
+  jittering once settled — not just the title.
 - The execution console visibly appears after the chat block has settled, not simultaneously.
 - No new gradients, glow, or off-palette colors were introduced.
 
-If any of these don't hold, return to Task 2 Step 6 and adjust the numeric values (the `0.55`
-delay, the `rotateX`/`scale` magnitudes, or the spring `stiffness`/`damping`) — this is expected
-tuning, not a sign the architecture is wrong.
+If any of these don't hold, that's expected tuning territory (the `0.55` delay, the
+`rotateX`/`scale` magnitudes, the spring `stiffness`/`damping`) — adjust the values in
+`motion/variants.ts` / `ThreadConversation.tsx` and re-verify. Report what you changed and why.
 
 - [ ] **Step 2: Confirm reduced-motion still looks correct**
 
-Re-run the same flow with the OS/browser "reduce motion" preference enabled (or rely on the
-Playwright test from Task 2 Step 1, which already covers this functionally) and confirm by
-screenshot that the handoff is a plain, instant-feeling crossfade with no jitter.
+Re-run the same flow with the OS/browser "reduce motion" preference enabled and confirm by
+screenshot that the handoff is a plain, instant-feeling crossfade with no jitter. (The Playwright
+test from Task 2 Step 1 already covers this functionally — this step is the visual confirmation on
+top of that.)
 
 - [ ] **Step 3: Run the full web gate**
 
@@ -700,18 +804,13 @@ pnpm run test:web
 
 Expected: all four exit 0.
 
-- [ ] **Step 4: Run the Python i18n/architecture gates** (this change adds no new copy or Python
-code, but these gates also assert the web build stays consistent with the catalog)
+- [ ] **Step 4: Run the Python i18n/architecture gates**
 
 Run: `pnpm run test:py`
 Expected: exit 0.
 
-- [ ] **Step 5: Final review and push**
+- [ ] **Step 5: Report back**
 
-Have `technical-lead-senior` review the combined diff from Tasks 1-2 against the design spec
-(`docs/superpowers/specs/2026-06-30-threads-chat-transition-design.md`) and this plan. If
-approved, push the commits already made in Tasks 1-2:
-
-```bash
-git push origin dev
-```
+Report DONE with: a summary of the visual check (Step 1-2), the four gate results (Step 3), the
+`test:py` result (Step 4), and any tuning changes made. Do not push — the controller does the
+final whole-branch review and push after this report.

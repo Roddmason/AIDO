@@ -58,13 +58,13 @@ const routeAliases: Record<string, AppRoute> = {
  */
 export function settingsHashToSection(token: string): string | undefined {
 	const map: Record<string, string> = {
-		settings: 'project',
-		'settings-project': 'project',
+		settings: 'general',
+		'settings-project': 'goal',
 		'settings-runtime': 'providers-cli',
-		'settings-agents': 'autonomy',
+		'settings-agents': 'default-team',
 		'settings-security': 'security',
 		'settings-workspaces': 'workspaces',
-		'settings-integrations': 'integrations',
+		'settings-integrations': 'plugins',
 		'settings-advanced': 'advanced',
 		'settings-cli': 'providers-cli',
 		'settings-api': 'providers-cli',
@@ -72,7 +72,7 @@ export function settingsHashToSection(token: string): string | undefined {
 		'settings-parameters': 'advanced',
 		'settings-maintainers': 'advanced',
 		'settings-defaults': 'advanced',
-		'settings-projects': 'project',
+		'settings-projects': 'goal',
 	};
 	return map[token];
 }

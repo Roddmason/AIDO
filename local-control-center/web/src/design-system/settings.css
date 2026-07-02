@@ -1,0 +1,41 @@
+/*
+ * Settings area styles: the settings navigation and its section bodies (runtime setup,
+ * providers, i18n, appearance). Section-specific card layouts belong here when they are
+ * unique to Settings; shared primitives stay in components.css/ui.css. Tone is carried
+ * by StatusChip and full borders only (no side-stripes).
+ */
+
+/* Provider cards are containers with buttons inside, not clickable/selectable cards:
+ * the shared .card hover lift (translateY + elevation) would be a false affordance and
+ * constant motion noise across a 9-card grid, so it is neutralized here. */
+.card--static:hover {
+	background: var(--color-surface-card);
+	box-shadow: var(--shadow-xs);
+	transform: none;
+}
+
+/* Runtime state tone on the full card border (never a side-stripe), mirroring the
+ * badge tone mixes so the executable/blocked state reads at grid-scan distance. */
+.card--static[data-tone="ok"] {
+	border-color: color-mix(in oklch, var(--color-status-success) 40%, var(--color-border-subtle));
+}
+
+.card--static[data-tone="ok"]:hover {
+	border-color: color-mix(in oklch, var(--color-status-success) 40%, var(--color-border-subtle));
+}
+
+.card--static[data-tone="warn"] {
+	border-color: color-mix(in oklch, var(--color-status-warning) 42%, var(--color-border-subtle));
+}
+
+.card--static[data-tone="warn"]:hover {
+	border-color: color-mix(in oklch, var(--color-status-warning) 42%, var(--color-border-subtle));
+}
+
+.card--static[data-tone="danger"] {
+	border-color: color-mix(in oklch, var(--color-status-danger) 46%, var(--color-border-subtle));
+}
+
+.card--static[data-tone="danger"]:hover {
+	border-color: color-mix(in oklch, var(--color-status-danger) 46%, var(--color-border-subtle));
+}

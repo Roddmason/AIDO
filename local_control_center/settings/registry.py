@@ -1,8 +1,12 @@
 """Setting descriptor registry for the AIDO settings plane: keys, types, defaults, and validation.
 
-Defines the ``SettingDescriptor`` dataclass, the Phase-1 ``REGISTRY`` of three wired settings
-(autonomy level, sandbox profile, budget cap), and ``validate_value`` / ``descriptor_for``
-helpers that enforce type constraints at trust boundaries before any persistence occurs.
+Defines the ``SettingDescriptor`` dataclass, the ``REGISTRY`` of wired settings (autonomy,
+sandbox, budget, runtime/worker toggles, research/internet policy, security posture, and
+project goal/loop/quality defaults), and ``validate_value`` / ``descriptor_for`` helpers that
+enforce type constraints at trust boundaries before any persistence occurs. Enum members are
+grounded in runtime concepts: ``security.shell.profile`` mirrors the policy-engine permission
+profiles, ``project.loop.teamMode``/``project.loop.risk`` mirror the team-scheduler MODES/RISKS,
+and ``research.internetPolicy`` mirrors the conservative source-policy allowlist posture.
 
 @author Rodrigo Mason
 """
@@ -52,6 +56,180 @@ REGISTRY: list[SettingDescriptor] = [
         default=0,
         label_key="app.settings.budget.maxCostUsd",
     ),
+    SettingDescriptor(
+        key="runtime.cli.enabled",
+        section="runtime",
+        project_section=None,
+        type="boolean",
+        default=False,
+        label_key="app.settings.runtime.cli.enabled",
+    ),
+    SettingDescriptor(
+        key="runtime.remote.enabled",
+        section="runtime",
+        project_section=None,
+        type="boolean",
+        default=False,
+        label_key="app.settings.runtime.remote.enabled",
+    ),
+    SettingDescriptor(
+        key="runtime.ollama.enabled",
+        section="runtime",
+        project_section=None,
+        type="boolean",
+        default=True,
+        label_key="app.settings.runtime.ollama.enabled",
+    ),
+    SettingDescriptor(
+        key="runtime.nvidia.enabled",
+        section="runtime",
+        project_section=None,
+        type="boolean",
+        default=False,
+        label_key="app.settings.runtime.nvidia.enabled",
+    ),
+    SettingDescriptor(
+        key="project.runtime.cli.enabled",
+        section="runtime",
+        project_section="runtime",
+        type="boolean",
+        default=True,
+        label_key="app.settings.project.runtime.cli.enabled",
+    ),
+    SettingDescriptor(
+        key="project.runtime.remote.enabled",
+        section="runtime",
+        project_section="runtime",
+        type="boolean",
+        default=True,
+        label_key="app.settings.project.runtime.remote.enabled",
+    ),
+    SettingDescriptor(
+        key="project.runtime.allowedProviders",
+        section="runtime",
+        project_section="runtime",
+        type="string_list",
+        default=[],
+        label_key="app.settings.project.runtime.allowedProviders",
+    ),
+    SettingDescriptor(
+        key="project.runtime.defaultMode",
+        section="runtime",
+        project_section="runtime",
+        type="enum",
+        default="hybrid",
+        enum=("api", "cli", "ollama", "hybrid", "manual"),
+        label_key="app.settings.project.runtime.defaultMode",
+    ),
+    SettingDescriptor(
+        key="worker.autostart",
+        section="worker",
+        project_section=None,
+        type="boolean",
+        default=True,
+        label_key="app.settings.worker.autostart",
+    ),
+    SettingDescriptor(
+        key="worker.pollIntervalSeconds",
+        section="worker",
+        project_section=None,
+        type="number",
+        default=5,
+        label_key="app.settings.worker.pollIntervalSeconds",
+    ),
+    SettingDescriptor(
+        key="worker.maxConcurrentJobs",
+        section="worker",
+        project_section=None,
+        type="number",
+        default=2,
+        label_key="app.settings.worker.maxConcurrentJobs",
+    ),
+    SettingDescriptor(
+        key="research.internetPolicy",
+        section="research",
+        project_section="internet",
+        type="enum",
+        default="official_allowlist",
+        enum=("blocked", "official_allowlist", "policy_gated"),
+        label_key="app.settings.research.internetPolicy",
+    ),
+    SettingDescriptor(
+        key="research.preferOfficialDocs",
+        section="research",
+        project_section="internet",
+        type="boolean",
+        default=True,
+        label_key="app.settings.research.preferOfficialDocs",
+    ),
+    SettingDescriptor(
+        key="security.gitleaks.enforced",
+        section="security",
+        project_section="security",
+        type="boolean",
+        default=True,
+        label_key="app.settings.security.gitleaksEnforced",
+    ),
+    SettingDescriptor(
+        key="security.branch.policy",
+        section="security",
+        project_section="security",
+        type="enum",
+        default="feature_branch",
+        enum=("feature_branch", "dev_direct"),
+        label_key="app.settings.security.branchPolicy",
+    ),
+    SettingDescriptor(
+        key="security.shell.profile",
+        section="security",
+        project_section="security",
+        type="enum",
+        default="dev_safe",
+        enum=("plan", "dev_safe", "qa", "release"),
+        label_key="app.settings.security.shellProfile",
+    ),
+    SettingDescriptor(
+        key="security.pentest.beforeRelease",
+        section="pentest",
+        project_section="security",
+        type="boolean",
+        default=False,
+        label_key="app.settings.security.pentestBeforeRelease",
+    ),
+    SettingDescriptor(
+        key="project.goal.statement",
+        section="goal",
+        project_section="goal",
+        type="string",
+        default="",
+        label_key="app.settings.goal.statement",
+    ),
+    SettingDescriptor(
+        key="project.loop.teamMode",
+        section="goal",
+        project_section="goal",
+        type="enum",
+        default="balanced",
+        enum=("economy", "balanced", "critical", "maximum"),
+        label_key="app.settings.goal.teamMode",
+    ),
+    SettingDescriptor(
+        key="project.loop.risk",
+        section="goal",
+        project_section="goal",
+        type="enum",
+        default="medium",
+        enum=("low", "medium", "high", "critical"),
+        label_key="app.settings.goal.risk",
+    ),
+    SettingDescriptor(
+        key="project.quality.gateCommands",
+        section="quality",
+        project_section="quality",
+        type="string_list",
+        default=[],
+        label_key="app.settings.quality.gateCommands",
+    ),
 ]
 
 _REGISTRY_BY_KEY: dict[str, SettingDescriptor] = {d.key: d for d in REGISTRY}
@@ -80,6 +258,20 @@ def validate_value(descriptor: SettingDescriptor, value: Any) -> Any:
             return float(value)
         except (TypeError, ValueError) as exc:
             raise ValueError(f"Invalid numeric value {value!r} for {descriptor.key!r}.") from exc
+    if descriptor.type == "boolean":
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized in {"true", "1", "yes", "on"}:
+                return True
+            if normalized in {"false", "0", "no", "off"}:
+                return False
+        raise ValueError(f"Invalid boolean value {value!r} for {descriptor.key!r}.")
+    if descriptor.type == "string_list":
+        if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+            raise ValueError(f"Invalid value {value!r} for {descriptor.key!r}; expected a string list.")
+        return list(value)
     if not isinstance(value, str):
         raise ValueError(f"Invalid value {value!r} for {descriptor.key!r}; expected a string.")
     return value

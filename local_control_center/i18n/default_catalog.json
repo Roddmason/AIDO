@@ -8838,6 +8838,342 @@
     "settings.plugins.viewPermissions": {
       "en": "View permissions",
       "es": "Ver permisos"
+    },
+    "app.settings.context.editing": {
+      "en": "Editing project",
+      "es": "Editando proyecto"
+    },
+    "app.settings.general.languageHelp": {
+      "en": "Applies immediately across the interface.",
+      "es": "Se aplica de inmediato en toda la interfaz."
+    },
+    "app.settings.general.languagesUnavailable": {
+      "en": "Language catalog unavailable",
+      "es": "Catálogo de idiomas no disponible"
+    },
+    "app.settings.general.startupWorker": {
+      "en": "Startup worker",
+      "es": "Worker de arranque"
+    },
+    "app.settings.general.workerHelp": {
+      "en": "The background worker that leases jobs when the platform starts.",
+      "es": "El worker en segundo plano que toma trabajos cuando la plataforma inicia."
+    },
+    "app.settings.general.platform": {
+      "en": "Platform defaults",
+      "es": "Valores base de la plataforma"
+    },
+    "app.settings.appearance.theme": {
+      "en": "Theme",
+      "es": "Tema"
+    },
+    "app.settings.appearance.themeHelp": {
+      "en": "Dark is the default; Light is an opt-in override.",
+      "es": "Oscuro es el valor por defecto; Claro es una preferencia explícita."
+    },
+    "app.settings.appearance.dark": {
+      "en": "Dark",
+      "es": "Oscuro"
+    },
+    "app.settings.appearance.light": {
+      "en": "Light",
+      "es": "Claro"
+    },
+    "app.settings.appearance.density": {
+      "en": "Density",
+      "es": "Densidad"
+    },
+    "app.settings.appearance.densityHelp": {
+      "en": "Comfortable keeps touch-safe controls; Compact tightens spacing for dense sessions.",
+      "es": "Cómoda mantiene controles aptos para tacto; Compacta reduce espaciados para sesiones densas."
+    },
+    "app.settings.appearance.comfortable": {
+      "en": "Comfortable",
+      "es": "Cómoda"
+    },
+    "app.settings.appearance.compact": {
+      "en": "Compact",
+      "es": "Compacta"
+    },
+    "app.settings.appearance.motion": {
+      "en": "Motion",
+      "es": "Movimiento"
+    },
+    "app.settings.appearance.motionHelp": {
+      "en": "Reduced turns off non-essential transitions.",
+      "es": "Reducido apaga las transiciones no esenciales."
+    },
+    "app.settings.appearance.followSystem": {
+      "en": "Follow system",
+      "es": "Según el sistema"
+    },
+    "app.settings.appearance.reduced": {
+      "en": "Reduced",
+      "es": "Reducido"
+    },
+    "app.settings.autonomy.intro": {
+      "en": "How much AIDO may do before asking you. Every level keeps the same audit trail.",
+      "es": "Cuánto puede hacer AIDO antes de preguntarte. Todos los niveles mantienen la misma auditoría."
+    },
+    "app.settings.autonomy.guidedDesc": {
+      "en": "AIDO pauses for your approval before any state-changing action.",
+      "es": "AIDO se detiene y pide tu aprobación antes de cualquier acción que cambie estado."
+    },
+    "app.settings.autonomy.recommendedDesc": {
+      "en": "AIDO proceeds on low-risk steps and asks before risky ones.",
+      "es": "AIDO avanza en pasos de bajo riesgo y pregunta antes de los riesgosos."
+    },
+    "app.settings.autonomy.autonomousDesc": {
+      "en": "AIDO runs end-to-end without pausing; every action stays auditable.",
+      "es": "AIDO ejecuta de inicio a fin sin pausas; cada acción queda auditable."
+    },
+    "app.settings.autonomy.selected": {
+      "en": "Selected",
+      "es": "Seleccionado"
+    },
+    "app.settings.team.providers": {
+      "en": "Providers",
+      "es": "Proveedores"
+    },
+    "app.settings.team.qualityGates": {
+      "en": "Quality gates",
+      "es": "Puertas de calidad"
+    },
+    "app.settings.team.selectProjectTitle": {
+      "en": "Select a project",
+      "es": "Selecciona un proyecto"
+    },
+    "app.settings.team.selectProjectBody": {
+      "en": "Choose an operational project in the bar above to see its team.",
+      "es": "Elige un proyecto operacional en la barra superior para ver su equipo."
+    },
+    "app.settings.team.loadFailed": {
+      "en": "Failed to load the project team",
+      "es": "No se pudo cargar el equipo del proyecto"
+    },
+    "app.settings.team.loading": {
+      "en": "Loading project team...",
+      "es": "Cargando el equipo del proyecto..."
+    },
+    "app.settings.team.projectIntro": {
+      "en": "Effective team for this project. Overrides replace the general defaults.",
+      "es": "Equipo efectivo para este proyecto. Los overrides reemplazan los valores generales."
+    },
+    "app.settings.team.overridesActive": {
+      "en": "profiles carry a project override.",
+      "es": "perfiles llevan un override de proyecto."
+    },
+    "app.settings.team.noOverrides": {
+      "en": "No project overrides are active.",
+      "es": "No hay overrides de proyecto activos."
+    },
+    "app.settings.plugins.loading": {
+      "en": "Loading plugins...",
+      "es": "Cargando plugins..."
+    },
+    "app.settings.plugins.loadFailed": {
+      "en": "Failed to load plugins",
+      "es": "No se pudieron cargar los plugins"
+    },
+    "app.settings.plugins.projectEmptyTitle": {
+      "en": "No plugins enabled",
+      "es": "Sin plugins habilitados"
+    },
+    "app.settings.plugins.projectEmptyBody": {
+      "en": "Enabled plugins appear here once activated in General settings.",
+      "es": "Los plugins habilitados aparecen aquí cuando se activan en la configuración General."
+    },
+    "app.settings.plugins.projectNote": {
+      "en": "Plugins enabled for this workspace. Enablement is managed in General settings.",
+      "es": "Plugins habilitados para este workspace. La activación se administra en la configuración General."
+    },
+    "app.settings.intro.security": {
+      "en": "Guardrails applied to every write the platform performs.",
+      "es": "Guardas aplicadas a cada escritura que realiza la plataforma."
+    },
+    "app.settings.intro.research": {
+      "en": "How agents reach the internet and which sources they prefer.",
+      "es": "Cómo los agentes acceden a internet y qué fuentes prefieren."
+    },
+    "app.settings.intro.costs": {
+      "en": "Spending ceilings for runs and jobs.",
+      "es": "Techos de gasto para ejecuciones y trabajos."
+    },
+    "app.settings.intro.goal": {
+      "en": "The goal statement and loop defaults that seed new runs for this project.",
+      "es": "La declaración de objetivo y los valores del loop que alimentan nuevas ejecuciones de este proyecto."
+    },
+    "app.settings.intro.routing": {
+      "en": "Which providers and runtimes this project may use.",
+      "es": "Qué proveedores y runtimes puede usar este proyecto."
+    },
+    "app.settings.intro.quality": {
+      "en": "Commands that gate evidence before work is accepted.",
+      "es": "Comandos que condicionan la evidencia antes de aceptar el trabajo."
+    },
+    "app.settings.intro.projectSecurity": {
+      "en": "Project-level overrides of the security posture.",
+      "es": "Overrides a nivel de proyecto de la postura de seguridad."
+    },
+    "app.settings.intro.internet": {
+      "en": "Web access policy for this project.",
+      "es": "Política de acceso web para este proyecto."
+    },
+    "app.settings.intro.budget": {
+      "en": "Spending limits for this project.",
+      "es": "Límites de gasto para este proyecto."
+    },
+    "app.settings.advanced.consolesTitle": {
+      "en": "Developer consoles",
+      "es": "Consolas de desarrollador"
+    },
+    "app.settings.advanced.consolesNote": {
+      "en": "Read-only technical consoles demoted from primary navigation.",
+      "es": "Consolas técnicas de solo lectura retiradas de la navegación principal."
+    },
+    "app.settings.security.gitleaksEnforced": {
+      "en": "Gitleaks scan enforced",
+      "es": "Escaneo gitleaks obligatorio"
+    },
+    "app.settings.security.branchPolicy": {
+      "en": "Branch policy",
+      "es": "Política de ramas"
+    },
+    "app.settings.security.shellProfile": {
+      "en": "Shell permission profile",
+      "es": "Perfil de permisos de shell"
+    },
+    "app.settings.security.pentestBeforeRelease": {
+      "en": "Pentest before release",
+      "es": "Pentest antes de liberar"
+    },
+    "app.settings.research.internetPolicy": {
+      "en": "Internet access policy",
+      "es": "Política de acceso a internet"
+    },
+    "app.settings.research.preferOfficialDocs": {
+      "en": "Prefer official documentation",
+      "es": "Preferir documentación oficial"
+    },
+    "app.settings.goal.statement": {
+      "en": "Goal statement",
+      "es": "Declaración de objetivo"
+    },
+    "app.settings.goal.teamMode": {
+      "en": "Team mode",
+      "es": "Modo de equipo"
+    },
+    "app.settings.goal.risk": {
+      "en": "Risk posture",
+      "es": "Postura de riesgo"
+    },
+    "app.settings.quality.gateCommands": {
+      "en": "Quality gate commands",
+      "es": "Comandos de puertas de calidad"
+    },
+    "app.settings.project.runtime.cli.enabled": {
+      "en": "Allow CLI runtimes",
+      "es": "Permitir runtimes CLI"
+    },
+    "app.settings.project.runtime.remote.enabled": {
+      "en": "Allow remote APIs",
+      "es": "Permitir APIs remotas"
+    },
+    "app.settings.project.runtime.allowedProviders": {
+      "en": "Allowed providers",
+      "es": "Proveedores permitidos"
+    },
+    "app.settings.project.runtime.defaultMode": {
+      "en": "Default runtime mode",
+      "es": "Modo de runtime por defecto"
+    },
+    "app.settings.enum.branch.featureBranch": {
+      "en": "Feature branch first",
+      "es": "Primero rama feature"
+    },
+    "app.settings.enum.branch.devDirect": {
+      "en": "Commit directly to dev",
+      "es": "Commit directo a dev"
+    },
+    "app.settings.enum.shell.plan": {
+      "en": "Plan (read-only)",
+      "es": "Plan (solo lectura)"
+    },
+    "app.settings.enum.shell.devSafe": {
+      "en": "Dev safe",
+      "es": "Desarrollo seguro"
+    },
+    "app.settings.enum.shell.qa": {
+      "en": "QA checks",
+      "es": "Controles QA"
+    },
+    "app.settings.enum.shell.release": {
+      "en": "Release",
+      "es": "Liberación"
+    },
+    "app.settings.enum.internet.blocked": {
+      "en": "Blocked",
+      "es": "Bloqueado"
+    },
+    "app.settings.enum.internet.officialAllowlist": {
+      "en": "Official allowlist",
+      "es": "Lista oficial permitida"
+    },
+    "app.settings.enum.internet.policyGated": {
+      "en": "Policy gated",
+      "es": "Sujeto a política"
+    },
+    "app.settings.enum.teamMode.economy": {
+      "en": "Economy",
+      "es": "Economía"
+    },
+    "app.settings.enum.teamMode.balanced": {
+      "en": "Balanced",
+      "es": "Equilibrado"
+    },
+    "app.settings.enum.teamMode.critical": {
+      "en": "Critical",
+      "es": "Crítico"
+    },
+    "app.settings.enum.teamMode.maximum": {
+      "en": "Maximum",
+      "es": "Máximo"
+    },
+    "app.settings.enum.risk.low": {
+      "en": "Low",
+      "es": "Bajo"
+    },
+    "app.settings.enum.risk.medium": {
+      "en": "Medium",
+      "es": "Medio"
+    },
+    "app.settings.enum.risk.high": {
+      "en": "High",
+      "es": "Alto"
+    },
+    "app.settings.enum.risk.critical": {
+      "en": "Critical",
+      "es": "Crítico"
+    },
+    "app.settings.enum.mode.api": {
+      "en": "API (direct)",
+      "es": "API (directa)"
+    },
+    "app.settings.enum.mode.cli": {
+      "en": "CLI runtime",
+      "es": "Runtime CLI"
+    },
+    "app.settings.enum.mode.ollama": {
+      "en": "Ollama (local)",
+      "es": "Ollama local"
+    },
+    "app.settings.enum.mode.hybrid": {
+      "en": "Hybrid",
+      "es": "Híbrido"
+    },
+    "app.settings.enum.mode.manual": {
+      "en": "Manual",
+      "es": "Modo manual"
     }
   }
 }

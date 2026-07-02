@@ -91,6 +91,49 @@ def test_frontend_domain_types_are_generated_openapi_aliases() -> None:
         assert stale_manual_type not in source
 
 
+def test_settings_team_section_renders_full_available_agent_profile_roster() -> None:
+    settings_page = read(SRC / "features" / "settings" / "SettingsPage.tsx")
+    sections = read(SRC / "features" / "settings" / "sections.tsx")
+    project_team = read(SRC / "features" / "settings" / "ProjectTeamPanel.tsx")
+
+    # Default Team (general) renders the full roster from the overview; the project Team
+    # section fetches with the project id so per-project overrides are applied. Neither
+    # surface may hardcode roles or reuse a generic shared body for Team/Routing/Quality.
+    assert "id: 'team'" in sections
+    assert "<ProjectTeamPanel projectId={ctx.scopeId}" in sections
+    assert "<DefaultTeamBody overview={ctx.overview}" in sections
+    assert "AgentsBody" not in sections
+    assert "overview.agentProfiles" in settings_page
+    assert "runtimeAvailability" in settings_page
+    assert "allowedProviders" in settings_page
+    assert "mobile_engineer" not in settings_page
+    assert "getAgentProfiles(projectId" in project_team
+    assert "showOverride" in project_team
+
+
+def test_settings_registry_has_no_placeholder_sections() -> None:
+    sections = read(SRC / "features" / "settings" / "sections.tsx")
+
+    assert "SectionPlaceholder" not in sections
+    assert "kind: 'placeholder'" not in sections
+    assert not (SRC / "features" / "settings" / "SectionPlaceholder.tsx").exists()
+
+
+def test_settings_hash_aliases_resolve_to_existing_section_ids() -> None:
+    routing = read(SRC / "app" / "routing.ts")
+    sections = read(SRC / "features" / "settings" / "sections.tsx")
+
+    # Every legacy `#settings-*` hash must land on a real section id; renaming or
+    # removing a section without updating settingsHashToSection silently redirects
+    # deep-links to the fallback section.
+    map_block = routing.split("settingsHashToSection", 1)[1].split("};", 1)[0]
+    targets = set(re.findall(r":\s*'([a-z-]+)'", map_block))
+    section_ids = set(re.findall(r"\bid: '([a-z-]+)'", sections))
+
+    assert targets, "settings hash alias map must not be empty"
+    assert sorted(targets - section_ids) == []
+
+
 def test_stable_frontend_artifact_and_retrieval_surfaces_are_not_dictionary_typed() -> None:
     types_source = read(SRC / "api" / "types.ts")
     client_source = read(SRC / "api" / "client.ts")

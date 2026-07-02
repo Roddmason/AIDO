@@ -53,6 +53,7 @@ def initialize_platform_schema(connection: sqlite3.Connection) -> None:
     init_phase32_schema(connection)
     init_phase33_schema(connection)
     init_phase34_schema(connection)
+    init_phase39_schema(connection)
     seed_platform_catalogs(connection)
 
 
@@ -3820,6 +3821,113 @@ def init_phase34_schema(connection: sqlite3.Connection) -> None:
     connection.execute(
         "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
         (34, utc_now()),
+    )
+
+
+def init_phase39_schema(connection: sqlite3.Connection) -> None:
+    """Fase 39: sistema formal de plugins, versiones, permisos, skills, agentes, tools y audit."""
+    connection.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS plugins (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            publisher TEXT NOT NULL,
+            trust_level TEXT NOT NULL,
+            status TEXT NOT NULL,
+            active_version_id TEXT,
+            capabilities_json TEXT NOT NULL,
+            permissions_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS plugin_versions (
+            id TEXT PRIMARY KEY,
+            plugin_id TEXT NOT NULL,
+            version TEXT NOT NULL,
+            manifest_path TEXT NOT NULL,
+            manifest_hash TEXT NOT NULL,
+            package_hash TEXT NOT NULL,
+            min_aido_version TEXT NOT NULL,
+            entrypoints_json TEXT NOT NULL,
+            checksums_json TEXT NOT NULL,
+            manifest_json TEXT NOT NULL,
+            status TEXT NOT NULL,
+            installed_at TEXT NOT NULL,
+            validated_at TEXT NOT NULL,
+            UNIQUE(plugin_id, version)
+        );
+        CREATE TABLE IF NOT EXISTS plugin_permissions (
+            id TEXT PRIMARY KEY,
+            plugin_version_id TEXT NOT NULL,
+            permission TEXT NOT NULL,
+            risk_level TEXT NOT NULL,
+            status TEXT NOT NULL,
+            reason TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS plugin_skills (
+            id TEXT PRIMARY KEY,
+            plugin_version_id TEXT NOT NULL,
+            skill_id TEXT NOT NULL,
+            path TEXT NOT NULL,
+            contract_hash TEXT NOT NULL,
+            status TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS plugin_agents (
+            id TEXT PRIMARY KEY,
+            plugin_version_id TEXT NOT NULL,
+            agent_id TEXT NOT NULL,
+            role TEXT NOT NULL,
+            capabilities_json TEXT NOT NULL,
+            schema_json TEXT NOT NULL,
+            status TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS plugin_tools (
+            id TEXT PRIMARY KEY,
+            plugin_version_id TEXT NOT NULL,
+            tool_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            broker_tool TEXT NOT NULL,
+            policy_required INTEGER NOT NULL,
+            policy_json TEXT NOT NULL,
+            schema_json TEXT NOT NULL,
+            status TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS plugin_install_events (
+            id TEXT PRIMARY KEY,
+            plugin_id TEXT,
+            plugin_version_id TEXT,
+            action TEXT NOT NULL,
+            status TEXT NOT NULL,
+            reason TEXT NOT NULL,
+            manifest_hash TEXT,
+            payload_json TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_plugins_status
+            ON plugins(status, updated_at);
+        CREATE INDEX IF NOT EXISTS idx_plugin_versions_plugin
+            ON plugin_versions(plugin_id, version);
+        CREATE INDEX IF NOT EXISTS idx_plugin_permissions_version
+            ON plugin_permissions(plugin_version_id, permission);
+        CREATE INDEX IF NOT EXISTS idx_plugin_skills_version
+            ON plugin_skills(plugin_version_id, skill_id);
+        CREATE INDEX IF NOT EXISTS idx_plugin_agents_version
+            ON plugin_agents(plugin_version_id, agent_id);
+        CREATE INDEX IF NOT EXISTS idx_plugin_tools_version
+            ON plugin_tools(plugin_version_id, tool_id);
+        CREATE INDEX IF NOT EXISTS idx_plugin_install_events_plugin
+            ON plugin_install_events(plugin_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_plugin_install_events_created
+            ON plugin_install_events(created_at);
+        """
+    )
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (39, utc_now()),
     )
 
 

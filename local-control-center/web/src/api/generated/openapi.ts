@@ -197,6 +197,21 @@ export type PipelineCreateRequest = { "chatId"?: null | string; "productOwnerInt
 export type PipelineRecord = { "chatId"?: null | string; "createdAt": string; "id": string; "metadata": JsonObject; "projectId": string; "sessionId"?: null | string; "stages": Array<JsonObject>; "status": string; "title": string; "updatedAt": string };
 export type PipelineResponse = { "pipeline": PipelineRecord };
 export type PipelinesListResponse = { "pipelines": Array<PipelineRecord> };
+export type PluginAgentRecord = { "capabilities": Array<string>; "createdAt": string; "id": string; "role": string; "schema": JsonObject; "status": string };
+export type PluginInstallEventRecord = { "action": string; "createdAt": string; "id": string; "manifestHash"?: null | string; "payload": JsonObject; "pluginId"?: null | string; "pluginVersionId"?: null | string; "reason": string; "status": string };
+export type PluginInstallEventsResponse = { "events": Array<PluginInstallEventRecord> };
+export type PluginInstallLocalRequest = { "path": string };
+export type PluginPermissionRecord = { "createdAt": string; "id": string; "permission": string; "reason": string; "riskLevel": string; "status": string };
+export type PluginRecord = { "activeVersion": PluginVersionRecord | null; "activeVersionId": null | string; "capabilities": Array<string>; "createdAt": string; "id": string; "name": string; "permissions": Array<string>; "publisher": string; "status": string; "trustLevel": string; "updatedAt": string };
+export type PluginResponse = { "plugin": PluginRecord };
+export type PluginScanCandidateRecord = { "agentsCount"?: number; "id"?: null | string; "installed"?: boolean; "installedStatus"?: null | string; "issues": Array<string>; "name"?: null | string; "path": string; "permissions"?: Array<string>; "publisher"?: null | string; "skillsCount"?: number; "toolsCount"?: number; "trustLevel"?: null | string; "valid": boolean; "version"?: null | string };
+export type PluginScanLocalRequest = { "path": string };
+export type PluginScanLocalResponse = { "candidates": Array<PluginScanCandidateRecord>; "root": string };
+export type PluginSkillRecord = { "contractHash": string; "createdAt": string; "id": string; "path": string; "status": string };
+export type PluginToolRecord = { "brokerTool": string; "createdAt": string; "id": string; "name": string; "policy": JsonValue; "policyRequired": boolean; "schema": JsonObject; "status": string };
+export type PluginValidationResponse = { "issues": Array<string>; "plugin"?: PluginRecord | null; "valid": boolean };
+export type PluginVersionRecord = { "agents": Array<PluginAgentRecord>; "checksums": JsonObject; "entrypoints": JsonObject; "id": string; "installedAt": string; "manifest": JsonObject; "manifestHash": string; "manifestPath": string; "minAidoVersion": string; "packageHash": string; "permissions": Array<PluginPermissionRecord>; "pluginId": string; "skills": Array<PluginSkillRecord>; "status": string; "tools": Array<PluginToolRecord>; "validatedAt": string; "version": string };
+export type PluginsListResponse = { "plugins": Array<PluginRecord> };
 export type PoliciesListResponse = { "permissionDecisions": Array<PermissionDecisionRecord>; "permissionGrants": Array<ApprovalGrantRecord>; "policies": Array<PolicyRecord>; "policyRevisions": Array<PolicyRevisionRecord>; "sandboxProfiles": Array<SandboxProfileRecord> };
 export type PolicyEvaluateRequest = { "agentId"?: null | string; "command"?: null | string; "deploymentTarget"?: null | string; "environment"?: null | string; "gitOperation"?: null | string; "networkRequired"?: boolean | null; "operation"?: null | string; "path"?: null | string; "permissionProfile"?: null | string; "projectId"?: null | string; "riskLevel"?: "low" | "medium" | "high" | "critical" | null; "role"?: null | string; "secretsRequired"?: boolean | null; "tool"?: null | string; "workspaceId"?: null | string };
 export type PolicyEvaluationResponse = { "decision": PermissionDecisionRecord };
@@ -504,6 +519,13 @@ export const API_ENDPOINTS = [
 	{"method": "POST", "operationId": "revoke_permission_grant_api_v1_permissions_grants__grant_id__revoke_post", "path": "/api/v1/permissions/grants/{grant_id}/revoke", "summary": "Revoke Permission Grant"},
 	{"method": "GET", "operationId": "list_pipelines_api_v1_pipelines_get", "path": "/api/v1/pipelines", "summary": "List Pipelines"},
 	{"method": "POST", "operationId": "create_pipeline_api_v1_pipelines_post", "path": "/api/v1/pipelines", "summary": "Create Pipeline"},
+	{"method": "GET", "operationId": "list_plugins_api_v1_plugins_get", "path": "/api/v1/plugins", "summary": "List Plugins"},
+	{"method": "GET", "operationId": "list_plugin_install_events_api_v1_plugins_install_events_get", "path": "/api/v1/plugins/install-events", "summary": "List Plugin Install Events"},
+	{"method": "POST", "operationId": "install_local_plugin_api_v1_plugins_install_local_post", "path": "/api/v1/plugins/install-local", "summary": "Install Local Plugin"},
+	{"method": "POST", "operationId": "scan_local_plugins_api_v1_plugins_scan_local_post", "path": "/api/v1/plugins/scan-local", "summary": "Scan Local Plugins"},
+	{"method": "POST", "operationId": "disable_plugin_api_v1_plugins__plugin_id__disable_post", "path": "/api/v1/plugins/{plugin_id}/disable", "summary": "Disable Plugin"},
+	{"method": "POST", "operationId": "enable_plugin_api_v1_plugins__plugin_id__enable_post", "path": "/api/v1/plugins/{plugin_id}/enable", "summary": "Enable Plugin"},
+	{"method": "POST", "operationId": "validate_plugin_api_v1_plugins__plugin_id__validate_post", "path": "/api/v1/plugins/{plugin_id}/validate", "summary": "Validate Plugin"},
 	{"method": "GET", "operationId": "list_policies_api_v1_policies_get", "path": "/api/v1/policies", "summary": "List Policies"},
 	{"method": "POST", "operationId": "evaluate_policy_api_v1_policies_evaluate_post", "path": "/api/v1/policies/evaluate", "summary": "Evaluate Policy"},
 	{"method": "GET", "operationId": "project_templates_api_v1_project_templates_get", "path": "/api/v1/project-templates", "summary": "Project Templates"},
@@ -647,8 +669,10 @@ export type OperationRequestBodies = {
 	"detect_cli_runtime_api_v1_model_gateway_cli_runtimes__runtime_id__detect_post": unknown,
 	"developer_agent_status_api_v1_agents_developer_status_get": never,
 	"devops_agent_status_api_v1_agents_devops_status_get": never,
+	"disable_plugin_api_v1_plugins__plugin_id__disable_post": unknown,
 	"discover_models_api_v1_model_gateway_providers__provider_id__discover_models_post": unknown,
 	"discover_project_api_v1_projects_discover_post": ProjectDiscoveryRequest,
+	"enable_plugin_api_v1_plugins__plugin_id__enable_post": unknown,
 	"evaluate_policy_api_v1_policies_evaluate_post": PolicyEvaluateRequest,
 	"events_api_v1_events_get": never,
 	"export_evidence_report_api_v1_evidence__evidence_id__report_get": never,
@@ -671,6 +695,7 @@ export type OperationRequestBodies = {
 	"health_cli_runtime_api_v1_model_gateway_cli_runtimes__runtime_id__health_check_post": unknown,
 	"healthz_healthz_get": never,
 	"ingest_artifact_api_v1_evidence__evidence_id__artifacts_post": ArtifactIngestRequest,
+	"install_local_plugin_api_v1_plugins_install_local_post": PluginInstallLocalRequest,
 	"list_agent_profiles_api_v1_agent_profiles_get": never,
 	"list_agent_runs_api_v1_agent_runs_get": never,
 	"list_architecture_decisions_api_v1_architecture_decisions_get": never,
@@ -692,6 +717,8 @@ export type OperationRequestBodies = {
 	"list_models_api_v1_model_gateway_models_get": never,
 	"list_next_steps_api_v1_next_steps_get": never,
 	"list_pipelines_api_v1_pipelines_get": never,
+	"list_plugin_install_events_api_v1_plugins_install_events_get": never,
+	"list_plugins_api_v1_plugins_get": never,
 	"list_policies_api_v1_policies_get": never,
 	"list_pricing_snapshots_api_v1_model_gateway_pricing_snapshots_get": never,
 	"list_prompts_api_v1_prompts_get": never,
@@ -758,6 +785,7 @@ export type OperationRequestBodies = {
 	"run_research_agent_api_v1_agents_research_runs_post": ResearchAgentRunRequest,
 	"run_security_agent_api_v1_agents_security_runs_post": SecurityAgentRunRequest,
 	"sandbox_status_api_v1_sandbox_status_get": never,
+	"scan_local_plugins_api_v1_plugins_scan_local_post": PluginScanLocalRequest,
 	"security_agent_status_api_v1_agents_security_status_get": never,
 	"select_directory_api_v1_local_paths_select_directory_post": DirectoryPickerRequest,
 	"session_events_api_v1_cli_sessions__session_id__events_get": never,
@@ -777,7 +805,8 @@ export type OperationRequestBodies = {
 	"upsert_ide_connection_api_v1_ide_connections_post": IdeConnectionUpsertRequest,
 	"upsert_prompt_api_v1_prompts_post": PromptUpsertRequest,
 	"usage_summary_api_v1_model_gateway_usage_ledger_summary_get": never,
-	"validate_credential_api_v1_credentials__credential_id__validate_post": unknown
+	"validate_credential_api_v1_credentials__credential_id__validate_post": unknown,
+	"validate_plugin_api_v1_plugins__plugin_id__validate_post": unknown
 };
 
 export type OperationResponseBodies = {
@@ -834,8 +863,10 @@ export type OperationResponseBodies = {
 	"detect_cli_runtime_api_v1_model_gateway_cli_runtimes__runtime_id__detect_post": RuntimeDetectionResponse,
 	"developer_agent_status_api_v1_agents_developer_status_get": DeveloperAgentStatusResponse,
 	"devops_agent_status_api_v1_agents_devops_status_get": DevOpsAgentStatusResponse,
+	"disable_plugin_api_v1_plugins__plugin_id__disable_post": PluginResponse,
 	"discover_models_api_v1_model_gateway_providers__provider_id__discover_models_post": DiscoverModelsResponse,
 	"discover_project_api_v1_projects_discover_post": ProjectDiscoveryResponse,
+	"enable_plugin_api_v1_plugins__plugin_id__enable_post": PluginResponse,
 	"evaluate_policy_api_v1_policies_evaluate_post": PolicyEvaluationResponse,
 	"events_api_v1_events_get": never,
 	"export_evidence_report_api_v1_evidence__evidence_id__report_get": never,
@@ -858,6 +889,7 @@ export type OperationResponseBodies = {
 	"health_cli_runtime_api_v1_model_gateway_cli_runtimes__runtime_id__health_check_post": RuntimeHealthResponse,
 	"healthz_healthz_get": HealthResponse,
 	"ingest_artifact_api_v1_evidence__evidence_id__artifacts_post": ArtifactResponse,
+	"install_local_plugin_api_v1_plugins_install_local_post": PluginResponse,
 	"list_agent_profiles_api_v1_agent_profiles_get": AgentProfilesListResponse,
 	"list_agent_runs_api_v1_agent_runs_get": AgentRunsListResponse,
 	"list_architecture_decisions_api_v1_architecture_decisions_get": ArchitectureDecisionsListResponse,
@@ -879,6 +911,8 @@ export type OperationResponseBodies = {
 	"list_models_api_v1_model_gateway_models_get": ModelCatalogListResponse,
 	"list_next_steps_api_v1_next_steps_get": NextStepsListResponse,
 	"list_pipelines_api_v1_pipelines_get": PipelinesListResponse,
+	"list_plugin_install_events_api_v1_plugins_install_events_get": PluginInstallEventsResponse,
+	"list_plugins_api_v1_plugins_get": PluginsListResponse,
 	"list_policies_api_v1_policies_get": PoliciesListResponse,
 	"list_pricing_snapshots_api_v1_model_gateway_pricing_snapshots_get": PricingSnapshotsListResponse,
 	"list_prompts_api_v1_prompts_get": PromptTemplatesListResponse,
@@ -945,6 +979,7 @@ export type OperationResponseBodies = {
 	"run_research_agent_api_v1_agents_research_runs_post": ResearchAgentRunResponse,
 	"run_security_agent_api_v1_agents_security_runs_post": SecurityAgentRunResponse,
 	"sandbox_status_api_v1_sandbox_status_get": SandboxStatusResponse,
+	"scan_local_plugins_api_v1_plugins_scan_local_post": PluginScanLocalResponse,
 	"security_agent_status_api_v1_agents_security_status_get": SecurityAgentStatusResponse,
 	"select_directory_api_v1_local_paths_select_directory_post": DirectoryPickerResponse,
 	"session_events_api_v1_cli_sessions__session_id__events_get": CliSessionEventsResponse,
@@ -964,7 +999,8 @@ export type OperationResponseBodies = {
 	"upsert_ide_connection_api_v1_ide_connections_post": IdeConnectionResponse,
 	"upsert_prompt_api_v1_prompts_post": PromptResponse,
 	"usage_summary_api_v1_model_gateway_usage_ledger_summary_get": UsageSummaryResponse,
-	"validate_credential_api_v1_credentials__credential_id__validate_post": CredentialValidationResponse
+	"validate_credential_api_v1_credentials__credential_id__validate_post": CredentialValidationResponse,
+	"validate_plugin_api_v1_plugins__plugin_id__validate_post": PluginValidationResponse
 };
 
 export type OperationRequestBody<T extends ApiOperationId> = OperationRequestBodies[T];
@@ -1076,6 +1112,13 @@ export const OPERATIONS_BY_ID = {
 	"revoke_permission_grant_api_v1_permissions_grants__grant_id__revoke_post": {"method": "POST", "operationId": "revoke_permission_grant_api_v1_permissions_grants__grant_id__revoke_post", "path": "/api/v1/permissions/grants/{grant_id}/revoke", "summary": "Revoke Permission Grant"},
 	"list_pipelines_api_v1_pipelines_get": {"method": "GET", "operationId": "list_pipelines_api_v1_pipelines_get", "path": "/api/v1/pipelines", "summary": "List Pipelines"},
 	"create_pipeline_api_v1_pipelines_post": {"method": "POST", "operationId": "create_pipeline_api_v1_pipelines_post", "path": "/api/v1/pipelines", "summary": "Create Pipeline"},
+	"list_plugins_api_v1_plugins_get": {"method": "GET", "operationId": "list_plugins_api_v1_plugins_get", "path": "/api/v1/plugins", "summary": "List Plugins"},
+	"list_plugin_install_events_api_v1_plugins_install_events_get": {"method": "GET", "operationId": "list_plugin_install_events_api_v1_plugins_install_events_get", "path": "/api/v1/plugins/install-events", "summary": "List Plugin Install Events"},
+	"install_local_plugin_api_v1_plugins_install_local_post": {"method": "POST", "operationId": "install_local_plugin_api_v1_plugins_install_local_post", "path": "/api/v1/plugins/install-local", "summary": "Install Local Plugin"},
+	"scan_local_plugins_api_v1_plugins_scan_local_post": {"method": "POST", "operationId": "scan_local_plugins_api_v1_plugins_scan_local_post", "path": "/api/v1/plugins/scan-local", "summary": "Scan Local Plugins"},
+	"disable_plugin_api_v1_plugins__plugin_id__disable_post": {"method": "POST", "operationId": "disable_plugin_api_v1_plugins__plugin_id__disable_post", "path": "/api/v1/plugins/{plugin_id}/disable", "summary": "Disable Plugin"},
+	"enable_plugin_api_v1_plugins__plugin_id__enable_post": {"method": "POST", "operationId": "enable_plugin_api_v1_plugins__plugin_id__enable_post", "path": "/api/v1/plugins/{plugin_id}/enable", "summary": "Enable Plugin"},
+	"validate_plugin_api_v1_plugins__plugin_id__validate_post": {"method": "POST", "operationId": "validate_plugin_api_v1_plugins__plugin_id__validate_post", "path": "/api/v1/plugins/{plugin_id}/validate", "summary": "Validate Plugin"},
 	"list_policies_api_v1_policies_get": {"method": "GET", "operationId": "list_policies_api_v1_policies_get", "path": "/api/v1/policies", "summary": "List Policies"},
 	"evaluate_policy_api_v1_policies_evaluate_post": {"method": "POST", "operationId": "evaluate_policy_api_v1_policies_evaluate_post", "path": "/api/v1/policies/evaluate", "summary": "Evaluate Policy"},
 	"project_templates_api_v1_project_templates_get": {"method": "GET", "operationId": "project_templates_api_v1_project_templates_get", "path": "/api/v1/project-templates", "summary": "Project Templates"},

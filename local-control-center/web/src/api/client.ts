@@ -1397,3 +1397,86 @@ export function discoverModelGatewayProviderModels(token: string, providerId: st
 		},
 	);
 }
+
+export type PluginListResponse = OperationResponse<'list_plugins_api_v1_plugins_get'>;
+export type PluginRecord = PluginListResponse['plugins'][number];
+export type PluginInstallLocalRequest =
+	MutationBody<'install_local_plugin_api_v1_plugins_install_local_post'>;
+export type PluginInstallResponse =
+	OperationResponse<'install_local_plugin_api_v1_plugins_install_local_post'>;
+export type PluginValidationResponse =
+	OperationResponse<'validate_plugin_api_v1_plugins__plugin_id__validate_post'>;
+
+/** Installed plugin catalog with trust, status, and active-version detail; a read, no token. */
+export function listPlugins(signal?: AbortSignal) {
+	return requestGeneratedOperation<'list_plugins_api_v1_plugins_get', PluginListResponse>(
+		'list_plugins_api_v1_plugins_get',
+		{ signal },
+	);
+}
+
+/** Installs a local plugin folder after strict manifest validation; requires the write token. */
+export function installLocalPlugin(token: string, body: PluginInstallLocalRequest) {
+	return requestGeneratedOperation<
+		'install_local_plugin_api_v1_plugins_install_local_post',
+		PluginInstallResponse
+	>('install_local_plugin_api_v1_plugins_install_local_post', { token, body });
+}
+
+/** Revalidates the active plugin manifest and records the outcome; requires the write token. */
+export function validatePlugin(token: string, pluginId: string) {
+	return requestGeneratedOperation<
+		'validate_plugin_api_v1_plugins__plugin_id__validate_post',
+		PluginValidationResponse
+	>('validate_plugin_api_v1_plugins__plugin_id__validate_post', {
+		token,
+		pathParams: { plugin_id: pluginId },
+	});
+}
+
+/** Enables a plugin after manifest revalidation; requires the write token. */
+export function enablePlugin(token: string, pluginId: string) {
+	return requestGeneratedOperation('enable_plugin_api_v1_plugins__plugin_id__enable_post', {
+		token,
+		pathParams: { plugin_id: pluginId },
+	});
+}
+
+/** Disables a plugin; requires the write token. */
+export function disablePlugin(token: string, pluginId: string) {
+	return requestGeneratedOperation('disable_plugin_api_v1_plugins__plugin_id__disable_post', {
+		token,
+		pathParams: { plugin_id: pluginId },
+	});
+}
+
+export type PluginScanLocalRequest =
+	MutationBody<'scan_local_plugins_api_v1_plugins_scan_local_post'>;
+export type PluginScanLocalResponse =
+	OperationResponse<'scan_local_plugins_api_v1_plugins_scan_local_post'>;
+export type PluginScanCandidate = PluginScanLocalResponse['candidates'][number];
+export type PluginInstallEventsResponse =
+	OperationResponse<'list_plugin_install_events_api_v1_plugins_install_events_get'>;
+export type PluginInstallEvent = PluginInstallEventsResponse['events'][number];
+
+/** Scans a local folder for plugin candidates without installing; requires the write token. */
+export function scanLocalPlugins(token: string, body: PluginScanLocalRequest) {
+	return requestGeneratedOperation<
+		'scan_local_plugins_api_v1_plugins_scan_local_post',
+		PluginScanLocalResponse
+	>('scan_local_plugins_api_v1_plugins_scan_local_post', { token, body });
+}
+
+/** Plugin install lifecycle events, optionally filtered by status (e.g. blocked); a read. */
+export function listPluginInstallEvents(
+	params?: { status?: string; limit?: number },
+	signal?: AbortSignal,
+) {
+	return requestGeneratedOperation<
+		'list_plugin_install_events_api_v1_plugins_install_events_get',
+		PluginInstallEventsResponse
+	>('list_plugin_install_events_api_v1_plugins_install_events_get', {
+		query: params,
+		signal,
+	});
+}

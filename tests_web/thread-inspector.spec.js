@@ -74,7 +74,9 @@ test('Threads: the inspector opens as the AI-manager console with pinned loop vi
 	});
 
 	// Goal (default view) renders the real objective plus its metadata, no placeholders.
-	await expect(inspector.locator('.thread-inspector-goal-text')).toContainText(firstMessage, {
+	// `.first()`: the goal tab also renders a second `.thread-inspector-goal-text` inside the
+	// Summary disclosure once the pipeline populates thread.summary; target the primary one.
+	await expect(inspector.locator('.thread-inspector-goal-text').first()).toContainText(firstMessage, {
 		timeout: 20_000,
 	});
 	await expect(inspector.getByText(/Owner|Responsable/).first()).toBeVisible();

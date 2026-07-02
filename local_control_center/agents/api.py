@@ -84,6 +84,9 @@ VALID_AGENT_ROLES = {
     "developer",
     "backend_engineer",
     "frontend_engineer",
+    "mobile_engineer",
+    "database_engineer",
+    "data_engineer",
     "implementer",
     "devops",
     "devops_engineer",
@@ -92,6 +95,7 @@ VALID_AGENT_ROLES = {
     "qa_reviewer",
     "security_engineer",
     "security_reviewer",
+    "pentester",
     "researcher",
     "release_manager",
 }
@@ -375,16 +379,22 @@ def validate_research_agent_run_body(body: ResearchAgentRunRequest) -> dict[str,
     """Valida un run de ResearchAgent: fuentes, conclusiones y claims acotados y referenciables.
 
     Raises:
-        HTTPException: 422 si falta taskId, no hay fuentes, se exceden los límites o claims/citas no
-            tienen strings válidos.
+        HTTPException: 422 si falta taskId, no hay fuentes ni query, se exceden los límites o claims/citas
+            no tienen strings válidos.
     """
     payload = body.model_dump(by_alias=True)
     task_id = str(payload.get("taskId") or "").strip()
     if not task_id:
         raise HTTPException(status_code=422, detail="ResearchAgent taskId is required.")
+    query = str(payload.get("query") or "").strip()
     sources = payload.get("sources") or []
-    if not sources:
-        raise HTTPException(status_code=422, detail="ResearchAgent requires at least one source.")
+    if not sources and not query:
+        raise HTTPException(
+            status_code=422, detail="ResearchAgent requires at least one source or a research query."
+        )
+    max_sources = payload.get("maxSources")
+    if max_sources is not None and (int(max_sources) < 1 or int(max_sources) > 50):
+        raise HTTPException(status_code=422, detail="ResearchAgent maxSources must be between 1 and 50.")
     if len(sources) > 50:
         raise HTTPException(status_code=422, detail="ResearchAgent accepts at most 50 sources.")
     for index, source in enumerate(sources):
@@ -1171,9 +1181,9 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         return AgentRunResponse(agentRun=run)
 
     @router.get("/api/v1/runtime/providers", response_model=RuntimeProvidersResponse)
-    async def list_runtime_providers() -> dict[str, Any]:
+    async def list_runtime_providers(projectId: str | None = None) -> dict[str, Any]:
         """Devuelve el estado agregado de los runtime providers."""
-        return RuntimeStatusService(platform.connection).runtime_provider_status()
+        return RuntimeStatusService(platform.connection).runtime_provider_status(project_id=projectId)
 
     @router.get("/api/v1/runtime/provider-configuration", response_model=RuntimeProviderConfigurationResponse)
     async def list_runtime_provider_configuration() -> dict[str, Any]:

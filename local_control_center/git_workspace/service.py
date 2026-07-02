@@ -402,6 +402,8 @@ class GitWorkspaceService:
             "workspaceId": ctx.workspace_id,
             "root": str(ctx.root),
             "currentBranch": "",
+            "localBranches": [],
+            "remoteBranches": [],
             "dirty": False,
             "porcelain": [],
             "changedFiles": [],
@@ -483,6 +485,8 @@ class GitWorkspaceService:
                 [current.trace, local.trace, remote.trace, remotes.trace, last_commit.trace, worktrees.trace]
             )
             parsed = _parse_porcelain(porcelain_result.stdout)
+            local_branches = _split_lines(local.stdout) if local.return_code == 0 else []
+            remote_branches = _split_lines(remote.stdout) if remote.return_code == 0 else []
             response = {
                 "status": "completed",
                 "reason": "Git status collected through ToolBroker.",
@@ -490,6 +494,8 @@ class GitWorkspaceService:
                 "workspaceId": ctx.workspace_id,
                 "root": str(ctx.root),
                 "currentBranch": current.stdout.strip() or "HEAD",
+                "localBranches": local_branches,
+                "remoteBranches": remote_branches,
                 "dirty": bool(parsed["changedFiles"] or parsed["untrackedFiles"] or parsed["stagedFiles"]),
                 "porcelain": _split_lines(porcelain_result.stdout),
                 "changedFiles": parsed["changedFiles"],
@@ -517,57 +523,27 @@ class GitWorkspaceService:
             raise
 
     def branches(self, project_id: str) -> dict[str, Any]:
-        """Lista ramas locales/remotas y dirty state del proyecto."""
+        """Lista ramas locales/remotas y dirty state reutilizando el snapshot de ``status()``.
+
+        ``status()`` ya ejecuta ``git branch --format`` y ``git branch --remotes`` bajo el broker,
+        de modo que esta operacion reformatea ese resultado en vez de volver a lanzar los mismos
+        subprocesos: mismo contrato auditado (los comandos siguen brokered en el run de status)
+        sin comandos Git redundantes ni un segundo contexto de workspace.
+        """
         status = self.status(project_id)
-        local_branches: list[str] = []
-        remote_branches: list[str] = []
-        traces = list(status.get("toolCalls") or [])
-        if status["status"] == "completed":
-            ctx = self._project_context(project_id)
-            profile = self._git_profile()
-            op = self._begin_operation(ctx=ctx, operation="branches", profile=profile, payload={})
-            local = self._run_git(ctx=ctx, op=op, args=["branch", "--format=%(refname:short)"])
-            remote = self._run_git(ctx=ctx, op=op, args=["branch", "--remotes", "--format=%(refname:short)"])
-            traces.extend([local.trace, remote.trace])
-            local_branches = _split_lines(local.stdout) if local.return_code == 0 else []
-            remote_branches = _split_lines(remote.stdout) if remote.return_code == 0 else []
-            response_status = "completed" if local.return_code == 0 and remote.return_code == 0 else "failed"
-            reason = (
-                "Git branches collected through ToolBroker."
-                if response_status == "completed"
-                else "Git branch listing failed."
-            )
-            response = {
-                "status": response_status,
-                "reason": reason,
-                "projectId": project_id,
-                "workspaceId": ctx.workspace_id,
-                "currentBranch": status.get("currentBranch") or "",
-                "dirty": bool(status.get("dirty")),
-                "localBranches": local_branches,
-                "remoteBranches": remote_branches,
-                "remotes": status.get("remotes") or [],
-                "toolCalls": traces,
-                "policyDecisionIds": [
-                    str(trace["permissionDecisionId"])
-                    for trace in traces
-                    if trace.get("permissionDecisionId")
-                ],
-            }
-            self._finish_operation(op, status=response_status, output=response)
-            return response
+        completed = status["status"] == "completed"
         return {
             "status": status["status"],
-            "reason": status["reason"],
+            "reason": ("Git branches collected through ToolBroker." if completed else status["reason"]),
             "projectId": project_id,
             "workspaceId": status.get("workspaceId") or "",
             "currentBranch": status.get("currentBranch") or "",
             "dirty": bool(status.get("dirty")),
-            "localBranches": local_branches,
-            "remoteBranches": remote_branches,
+            "localBranches": list(status.get("localBranches") or []),
+            "remoteBranches": list(status.get("remoteBranches") or []),
             "remotes": status.get("remotes") or [],
-            "toolCalls": traces,
-            "policyDecisionIds": status.get("policyDecisionIds") or [],
+            "toolCalls": list(status.get("toolCalls") or []),
+            "policyDecisionIds": list(status.get("policyDecisionIds") or []),
         }
 
     def create_branch(self, project_id: str, *, name: str, base: str | None = None) -> dict[str, Any]:

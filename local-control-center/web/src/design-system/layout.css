@@ -2359,6 +2359,12 @@
 	color: var(--color-status-warning);
 }
 
+/* When execution is blocked (zero executable runtimes) the autonomy risk is moot — nothing runs — so
+ * the shield drops its warn tint and the runtime "Set up runtimes" CTA stays the composer's only warn. */
+.composer-perms[data-level="autonomous"][data-execution-blocked] svg {
+	color: var(--color-text-muted);
+}
+
 .composer-perms-select {
 	min-width: 9rem;
 }

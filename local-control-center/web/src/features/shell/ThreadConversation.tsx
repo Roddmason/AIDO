@@ -690,6 +690,10 @@ function ThreadComposerBox({
 	// Same executable definition the status bar counts (shellStatus), so both surfaces agree.
 	const executableRuntimes =
 		runtimeProviders?.providers.filter((provider) => provider.executable).length ?? 0;
+	// With zero executable runtimes nothing runs regardless of autonomy, so the "full access" warn on
+	// the permissions shield is moot; suppressing it leaves the runtime CTA as the composer's only warn.
+	// Gated on a settled snapshot (runtimeProviders !== null) so a pending discovery never mutes it.
+	const runtimesBlocked = runtimeProviders !== null && executableRuntimes === 0;
 
 	const onPermissionChange = async (next: string) => {
 		setPermBusy(true);
@@ -748,7 +752,11 @@ function ThreadComposerBox({
 				error={errorText}
 			/>
 			<div className="shell-chat-options">
-				<span className="composer-perms" data-level={autonomyValue}>
+				<span
+					className="composer-perms"
+					data-level={autonomyValue}
+					data-execution-blocked={runtimesBlocked ? '' : undefined}
+				>
 					<ShieldCheck aria-hidden="true" size={14} />
 					<select
 						className="status-branch-select composer-perms-select"
@@ -797,7 +805,9 @@ function ThreadComposerBox({
 						onClick={onOpenRuntimeSetup}
 					>
 						<StatusDot tone={executableRuntimes > 0 ? 'ok' : 'warn'} />
-						<span className="composer-runtimes-label">
+						{/* Polite live region: once the button is mounted its label persists, so a later
+						    warn→ok flip (or a changed count) is announced without re-announcing on focus. */}
+						<span className="composer-runtimes-label" aria-live="polite">
 							{executableRuntimes > 0 ? (
 								<>
 									<span className="tnum">{executableRuntimes}</span>{' '}

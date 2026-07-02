@@ -12,6 +12,7 @@ import { useMemo, useState } from 'react';
 import { healthCheckModelGatewayProvider } from '../../api/client';
 import type { RuntimeProviderConfiguration, RuntimeProviders } from '../../api/types';
 import { StatusDot } from '../../components/primitives';
+import { useToast } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import {
 	apiProviderIdsNeedingProbe,
@@ -40,6 +41,7 @@ export function RuntimeSetupInspectorCard({
 	onOpenRuntimeSetup,
 }: RuntimeSetupInspectorCardProps) {
 	const { t } = useI18n();
+	const { notify } = useToast();
 	const [refreshing, setRefreshing] = useState(false);
 
 	const providers = useMemo(
@@ -64,6 +66,7 @@ export function RuntimeSetupInspectorCard({
 				await Promise.allSettled(probeIds.map((id) => healthCheckModelGatewayProvider(token, id)));
 			}
 			await onRefresh();
+			notify({ title: t('app.runtime.refreshDone', 'Runtime health refreshed'), tone: 'info' });
 		} finally {
 			setRefreshing(false);
 		}
@@ -107,7 +110,12 @@ export function RuntimeSetupInspectorCard({
 				<RefreshCw aria-hidden="true" size={15} />
 				{t('app.runtime.refresh', 'Refresh health')}
 			</button>
-			<button className="button" type="button" onClick={onOpenRuntimeSetup}>
+			{/* With nothing executable, advancing to setup is the recovery path — promote it. */}
+			<button
+				className={executableCount === 0 ? 'button primary' : 'button'}
+				type="button"
+				onClick={onOpenRuntimeSetup}
+			>
 				<ArrowRight aria-hidden="true" size={15} />
 				{t('app.runtime.inspector.open', 'Open runtime setup')}
 			</button>

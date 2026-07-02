@@ -113,6 +113,67 @@ export function deriveRuntimeState(provider: MergedProvider): RuntimeSetupState 
 	return 'configured';
 }
 
+export type RuntimeSetupAction = 'setup' | 'validate' | 'use';
+
+/**
+ * Single primary CTA per card: `setup` while nothing is configured yet, `validate`
+ * while configuration exists but execution is still blocked, `use` once executable.
+ */
+export function deriveRuntimeAction(state: RuntimeSetupState): RuntimeSetupAction {
+	if (state === 'not_configured') return 'setup';
+	if (state === 'executable') return 'use';
+	return 'validate';
+}
+
+export type RuntimeReadinessFactId =
+	| 'installed'
+	| 'authenticated'
+	| 'canRunPrompt'
+	| 'canEditWorkspace';
+
+export type RuntimeReadinessFact = {
+	id: RuntimeReadinessFactId;
+	labelKey: string;
+	fallback: string;
+	/** `null` when the backend has no status record yet (fact unknown, not false). */
+	value: boolean | null;
+};
+
+/**
+ * The four readiness facts every card answers explicitly — installed, authenticated,
+ * can run prompt, can edit workspace — so setup is actionable instead of passive.
+ */
+export function readinessFacts(provider: MergedProvider): RuntimeReadinessFact[] {
+	const status = provider.status;
+	const fact = (flag: boolean | undefined): boolean | null => (status ? Boolean(flag) : null);
+	return [
+		{
+			id: 'installed',
+			labelKey: 'app.runtime.fact.installed',
+			fallback: 'installed',
+			value: fact(status?.installed),
+		},
+		{
+			id: 'authenticated',
+			labelKey: 'app.runtime.fact.authenticated',
+			fallback: 'authenticated',
+			value: fact(status?.authenticated),
+		},
+		{
+			id: 'canRunPrompt',
+			labelKey: 'app.runtime.fact.canRunPrompt',
+			fallback: 'runs prompts',
+			value: fact(status?.canRunPrompt),
+		},
+		{
+			id: 'canEditWorkspace',
+			labelKey: 'app.runtime.fact.canEditWorkspace',
+			fallback: 'edits workspace',
+			value: fact(status?.canEditWorkspace),
+		},
+	];
+}
+
 export const STATE_META: Record<
 	RuntimeSetupState,
 	{ tone: 'ok' | 'warn' | 'danger' | 'info'; Icon: IconComponent; labelKey: string }
@@ -134,6 +195,16 @@ export const PROVIDER_ICON: Record<RuntimeSetupProviderId, IconComponent> = {
 	openrouter: Network,
 	nvidia_nim: Cpu,
 	anthropic_api: Bot,
+};
+
+/** Human-readable labels for the raw provider `kind` enum (resolved via t()); the raw
+ *  value is kept as fallback so an uncatalogued kind still renders something. */
+export const KIND_LABEL: Record<string, { labelKey: string; fallback: string }> = {
+	cli: { labelKey: 'app.runtime.kind.cli', fallback: 'Local CLI' },
+	api: { labelKey: 'app.runtime.kind.api', fallback: 'API key' },
+	gateway: { labelKey: 'app.runtime.kind.gateway', fallback: 'API gateway' },
+	local: { labelKey: 'app.runtime.kind.local', fallback: 'Local daemon' },
+	manual: { labelKey: 'app.runtime.kind.manual', fallback: 'Manual operator' },
 };
 
 /** Catalog keys for the per-provider "how to configure" copy (resolved via t()). */

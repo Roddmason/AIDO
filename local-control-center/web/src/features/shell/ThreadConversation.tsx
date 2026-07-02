@@ -8,7 +8,7 @@
  * the humanized event console. Execution-side messages (agent summaries, system events, errors)
  * render in the panel, not the transcript. The composer is one rounded box: the prompt on top, then
  * the controls row (action-approval level + send) and the workspace context row (project, local
- * runtime, git branch/scan). When the "New thread" sentinel is active the same box creates a real
+ * runtime, runtime readiness chip, git branch/scan). When the "New thread" sentinel is active the same box creates a real
  * thread and sends its first message; the title is derived automatically from the first line. Real
  * data only — settings, git and threads all come from their APIs.
  * @author Rodrigo Mason
@@ -47,6 +47,7 @@ import {
 import type {
 	Overview,
 	Project,
+	RuntimeProviders,
 	ThreadAgentEvent,
 	ThreadArtifact,
 	ThreadDetail,
@@ -54,6 +55,7 @@ import type {
 	ThreadSimilarityCandidate,
 } from '../../api/types';
 import type { Mutate } from '../../app/routes';
+import { StatusDot } from '../../components/primitives';
 import { Button, EmptyState, Skeleton, StatusChip, TextArea } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { toneForStatus } from '../../lib/format';
@@ -85,6 +87,7 @@ type ThreadConversationProps = {
 	selectedThreadId: string;
 	mutate: Mutate;
 	token: string;
+	runtimeProviders: RuntimeProviders | null;
 	onSelectThread: (threadId: string) => void;
 	onCreateProject: () => void;
 	onOpenRuntimeSetup: () => void;
@@ -152,6 +155,7 @@ export function ThreadConversation({
 	selectedThreadId,
 	mutate,
 	token,
+	runtimeProviders,
 	onSelectThread,
 	onCreateProject,
 	onOpenRuntimeSetup,
@@ -283,7 +287,9 @@ export function ThreadConversation({
 				project={selectedProject}
 				mutate={mutate}
 				token={token}
+				runtimeProviders={runtimeProviders}
 				onGitRefresh={refreshOverview}
+				onOpenRuntimeSetup={onOpenRuntimeSetup}
 				onCreated={onSelectThread}
 			/>
 		);
@@ -399,7 +405,9 @@ export function ThreadConversation({
 							<ThreadComposerBox
 								project={selectedProject}
 								token={token}
+								runtimeProviders={runtimeProviders}
 								onGitRefresh={refreshOverview}
+								onOpenRuntimeSetup={onOpenRuntimeSetup}
 								value=""
 								busy={busy}
 								rows={3}
@@ -629,7 +637,10 @@ const PERMISSION_OPTIONS: ReadonlyArray<{ value: string; labelKey: string; fallb
 type ThreadComposerBoxProps = {
 	project: Project;
 	token: string;
+	runtimeProviders: RuntimeProviders | null;
 	onGitRefresh: () => void;
+	/** Opens the runtime setup section in Settings — the chip's recovery path. */
+	onOpenRuntimeSetup: () => void;
 	value: string;
 	busy: boolean;
 	rows: number;
@@ -647,12 +658,16 @@ type ThreadComposerBoxProps = {
 /**
  * The Codex-style composer box shared by the new-thread intake and the active conversation: a single
  * rounded surface with the prompt, the action-approval level (wired to the real `autonomy.level`
- * setting), Send, and the workspace context row (project, local runtime, git branch/scan).
+ * setting), Send, and the workspace context row (project, local runtime, runtime readiness chip,
+ * git branch/scan). The readiness chip deep-links into runtime setup and turns into the setup CTA
+ * when nothing is executable, so the composer never shows a dead "0 runtimes" fact.
  */
 function ThreadComposerBox({
 	project,
 	token,
+	runtimeProviders,
 	onGitRefresh,
+	onOpenRuntimeSetup,
 	value: initialValue,
 	busy,
 	rows,
@@ -672,6 +687,9 @@ function ThreadComposerBox({
 	const autonomy = projectSettings.find((setting) => setting.key === 'autonomy.level');
 	const autonomyValue = typeof autonomy?.value === 'string' ? autonomy.value : 'guided';
 	const working = busy || localBusy;
+	// Same executable definition the status bar counts (shellStatus), so both surfaces agree.
+	const executableRuntimes =
+		runtimeProviders?.providers.filter((provider) => provider.executable).length ?? 0;
 
 	const onPermissionChange = async (next: string) => {
 		setPermBusy(true);
@@ -766,6 +784,33 @@ function ThreadComposerBox({
 					<Laptop aria-hidden="true" size={13} />
 					{t('app.composer.local', 'Local')}
 				</span>
+				{/* Runtime readiness at the point of composing: with zero executable runtimes the thread
+				    will block on execution, so the chip becomes the setup CTA instead of a passive count.
+				    Hidden while discovery is pending — no state is asserted before the API answered.
+				    Direct child of the context row (no wrapper) so its top border stays on the shared
+				    toolbar line; the underlined label is the persistent "this is a link" affordance. */}
+				{runtimeProviders ? (
+					<button
+						type="button"
+						className="composer-env composer-runtimes"
+						data-tone={executableRuntimes === 0 ? 'warn' : undefined}
+						onClick={onOpenRuntimeSetup}
+					>
+						<StatusDot tone={executableRuntimes > 0 ? 'ok' : 'warn'} />
+						<span className="composer-runtimes-label">
+							{executableRuntimes > 0 ? (
+								<>
+									<span className="tnum">{executableRuntimes}</span>{' '}
+									{executableRuntimes === 1
+										? t('app.composer.executableRuntime', 'executable runtime')
+										: t('app.statusBar.executableRuntimes', 'executable runtimes')}
+								</>
+							) : (
+								t('app.statusBar.configureRuntimes', 'Set up runtimes')
+							)}
+						</span>
+					</button>
+				) : null}
 				<GitBranchBar selectedProject={project} token={token} onRefresh={onGitRefresh} />
 			</div>
 		</form>
@@ -789,14 +834,18 @@ function NewThreadComposer({
 	project,
 	mutate,
 	token,
+	runtimeProviders,
 	onGitRefresh,
+	onOpenRuntimeSetup,
 	onCreated,
 }: {
 	overview: Overview;
 	project: Project;
 	mutate: Mutate;
 	token: string;
+	runtimeProviders: RuntimeProviders | null;
 	onGitRefresh: () => void;
+	onOpenRuntimeSetup: () => void;
 	onCreated: (threadId: string) => void;
 }) {
 	const { t } = useI18n();
@@ -936,7 +985,9 @@ function NewThreadComposer({
 					<ThreadComposerBox
 						project={project}
 						token={token}
+						runtimeProviders={runtimeProviders}
 						onGitRefresh={onGitRefresh}
+						onOpenRuntimeSetup={onOpenRuntimeSetup}
 						value=""
 						busy={reuseBusy !== null}
 						rows={4}

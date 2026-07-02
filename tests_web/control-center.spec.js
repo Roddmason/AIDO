@@ -1080,17 +1080,14 @@ test('Workbench shows the Git branch detected by the policy-gated Git status end
 	const explorer = page.getByRole('complementary', { name: 'Workspace explorer' });
 	await expect(explorer).toBeVisible();
 	const gitWorkspace = page.getByRole('group', { name: 'Git workspace' });
-	// The composer resolves the branch through the policy-gated git endpoints. branches() now
-	// reuses the status() snapshot instead of re-shelling `git branch`, so a workbench load runs
-	// ~14 brokered git subprocesses (7 per endpoint) over a single sqlite connection — down from
-	// ~16 — but still takes several seconds. The branch <select> only renders once BOTH fetches
-	// resolve, so under full-suite load it can appear past the default 10s expect window (measured
-	// ~9s even lightly loaded). Wait for the control to attach before asserting so the check tracks
-	// the fetch instead of a fixed window. The assertion is unchanged: exact current branch and no
-	// "not detected" placeholder.
+	// The branch <select> now renders immediately in a loading state (GitBranchBar gitPhase) and
+	// fills in when the policy-gated git endpoints resolve — ~14 brokered git subprocesses (7 per
+	// endpoint) over a single sqlite connection, several seconds and more under full-suite load.
+	// With the control always present, the slow signal is the VALUE, not visibility: wait for the
+	// real branch value so the check tracks the fetch, not the default 10s window. The assertion is
+	// unchanged: exact current branch and no "not detected" placeholder.
 	const gitBranch = gitWorkspace.getByLabel('Git branch');
-	await expect(gitBranch).toBeVisible({ timeout: 30_000 });
-	await expect(gitBranch).toHaveValue(gitStatus.currentBranch);
+	await expect(gitBranch).toHaveValue(gitStatus.currentBranch, { timeout: 30_000 });
 	await expect(gitWorkspace.getByRole('option', { name: 'not detected' })).toHaveCount(0);
 });
 

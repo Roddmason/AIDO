@@ -707,6 +707,10 @@
       "en": "not detected",
       "es": "no detectada"
     },
+    "app.statusBar.git.branchLoading": {
+      "en": "loading…",
+      "es": "cargando…"
+    },
     "app.statusBar.git.branchPlaceholder": {
       "en": "new branch",
       "es": "rama nueva"

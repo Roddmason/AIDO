@@ -41,6 +41,11 @@ const GITLEAKS_STATUS_LABEL: Record<string, { labelKey: string; fallback: string
 	},
 };
 
+/** Explicit render phase for the git bar: replaces the scattered ready/not-connected/error booleans
+ *  with one discriminated state so every cluster (picker, status, actions) reads a single source of
+ *  truth — and so the loading window becomes a first-class state instead of an implicit gap. */
+type GitPhase = 'loading' | 'ready' | 'notConnected' | 'error';
+
 /**
  * Interactive git workspace bar for the composer: branch picker + create, dirty/gitleaks status and
  * refresh. `onRefresh` re-pulls the overview after a successful mutation so the rest of the shell
@@ -202,10 +207,22 @@ export function GitBranchBar({
 
 	const dirty = gitStatus?.dirty === true;
 	const lastCommit = gitStatus?.lastCommit?.shortHash ? gitStatus.lastCommit : null;
-	const gitReady = gitStatus?.status === 'completed' && gitBranches?.status === 'completed';
+	// Single source of truth for the bar's render state. Both git fetches resolve together
+	// (Promise.all in refreshGit), so `loading` is exactly the pre-response window — the moment the
+	// branch <select> must already exist (inert) instead of appearing in the DOM seconds later.
+	const gitPhase: GitPhase = gitError
+		? 'error'
+		: !gitStatus
+			? 'loading'
+			: gitStatus.status === 'configuration_required'
+				? 'notConnected'
+				: gitStatus.status === 'completed' && gitBranches?.status === 'completed'
+					? 'ready'
+					: 'error';
+	const gitReady = gitPhase === 'ready';
 	// The project owns no repo of its own (e.g. a folder nested inside another repo): show
 	// "not connected" and hide the branch controls instead of another repository's branches.
-	const notConnected = gitStatus?.status === 'configuration_required';
+	const notConnected = gitPhase === 'notConnected';
 	const rawGitleaksStatus = gitleaks?.gitleaks.status;
 	const gitleaksLabelDef = rawGitleaksStatus ? GITLEAKS_STATUS_LABEL[rawGitleaksStatus] : null;
 	const gitleaksLabel = rawGitleaksStatus
@@ -216,12 +233,7 @@ export function GitBranchBar({
 
 	// Derived tones for non-OK coloring of status label text.
 	const dirtyTone = dirty ? 'warn' : 'ok';
-	const gitConnTone =
-		gitError || gitStatus?.status === 'failed'
-			? 'danger'
-			: gitStatus?.status === 'configuration_required'
-				? 'warn'
-				: 'ok';
+	const gitConnTone = gitPhase === 'error' ? 'danger' : gitPhase === 'notConnected' ? 'warn' : 'ok';
 	const gitleaksTone =
 		gitleaks?.status === 'completed'
 			? 'ok'
@@ -297,6 +309,22 @@ export function GitBranchBar({
 							</IconButton>
 						</Tooltip>
 					</form>
+				</div>
+			) : gitPhase === 'loading' ? (
+				<div className="composer-git-cluster composer-git-cluster--workspace">
+					{/* Loading window: the branch control is present but inert (nothing to browse yet,
+					    WCAG 3.2.2 On Input) so it fills in when the policy-gated git fetch resolves instead
+					    of popping into the DOM seconds later. onChange is a required no-op for a disabled
+					    controlled <select>; the picker stays keyboard-reachable and announces "loading". */}
+					<select
+						className="status-branch-select"
+						aria-label={t('app.statusBar.git.branchSelect', 'Git branch')}
+						value=""
+						disabled
+						onChange={() => undefined}
+					>
+						<option value="">{t('app.statusBar.git.branchLoading', 'loading…')}</option>
+					</select>
 				</div>
 			) : null}
 

@@ -6,31 +6,45 @@
  * @author Rodrigo Mason
  */
 
-import { CheckCircle2, RefreshCw, XCircle } from 'lucide-react';
-import { useId, useMemo, useState } from 'react';
+import { CheckCircle2, CircleDashed, RefreshCw, XCircle } from 'lucide-react';
+import { useId, useMemo, useRef, useState } from 'react';
 
 import { detectModelGatewayCliRuntime, healthCheckModelGatewayProvider } from '../../api/client';
 import type { RuntimeProviderConfiguration, RuntimeProviders } from '../../api/types';
 import { Badge } from '../../components/primitives';
+import { useToast } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { redactVisibleSecret } from '../../lib/format';
 import {
 	apiProviderIdsNeedingProbe,
+	deriveRuntimeAction,
 	deriveRuntimeState,
 	INSTRUCTIONS_KEY,
+	KIND_LABEL,
 	type MergedProvider,
 	mergeProviders,
 	PROVIDER_ICON,
 	type RuntimeSetupProviderId,
+	readinessFacts,
 	STATE_META,
 } from './runtimeSetup';
 
+/** Non-CLI providers offered individually in the empty state. The four CLIs are covered
+ *  by the single "Detect installed CLIs" primary action instead of four equal buttons,
+ *  so a user with 0 executable runtimes gets one obvious first step, not eight. */
 const GUIDED_SETUP_ACTIONS = [
-	{ id: 'codex_cli', label: 'Configurar Codex CLI' },
-	{ id: 'claude_code_cli', label: 'Configurar Claude Code' },
-	{ id: 'ollama', label: 'Configurar Ollama' },
-	{ id: 'openai_compatible', label: 'Configurar API' },
-	{ id: 'nvidia_nim', label: 'Configurar NVIDIA NIM' },
+	{ id: 'ollama', labelKey: 'app.runtime.setup.configureOllama', label: 'Configure Ollama' },
+	{ id: 'openai_compatible', labelKey: 'app.runtime.setup.configureApi', label: 'Configure API' },
+	{
+		id: 'openrouter',
+		labelKey: 'app.runtime.setup.configureOpenRouter',
+		label: 'Configure OpenRouter',
+	},
+	{
+		id: 'nvidia_nim',
+		labelKey: 'app.runtime.setup.configureNvidiaNim',
+		label: 'Configure NVIDIA NIM',
+	},
 ] as const;
 const CLI_SETUP_PROVIDER_IDS = new Set<RuntimeSetupProviderId>([
 	'codex_cli',
@@ -53,9 +67,9 @@ export function RuntimeSetupPanel({
 	onRefresh,
 }: RuntimeSetupPanelProps) {
 	const { t } = useI18n();
+	const { notify } = useToast();
 	const [refreshing, setRefreshing] = useState(false);
 	const [busyAction, setBusyAction] = useState<string | null>(null);
-	const [actionMessage, setActionMessage] = useState<string | null>(null);
 
 	const providers = useMemo(
 		() => mergeProviders(runtimeProviders?.providers, runtimeProviderConfiguration),
@@ -74,21 +88,29 @@ export function RuntimeSetupPanel({
 				await Promise.allSettled(probeIds.map((id) => healthCheckModelGatewayProvider(token, id)));
 			}
 			await onRefresh();
+			notify({ title: t('app.runtime.refreshDone', 'Runtime health refreshed'), tone: 'info' });
 		} finally {
 			setRefreshing(false);
 		}
 	};
 
-	const runSetupAction = async (providerId: RuntimeSetupProviderId) => {
-		if (busyAction) return;
-		if (!token) {
-			setActionMessage(
-				'configuration_required: write token is required to run runtime setup checks.',
-			);
-			return;
-		}
+	const requireToken = (): boolean => {
+		if (token) return true;
+		notify({
+			title: t(
+				'app.runtime.setup.tokenRequired',
+				'A local write token is required to run runtime setup checks.',
+			),
+			tone: 'warn',
+		});
+		return false;
+	};
+
+	/** Returns whether the probe succeeded so the card can auto-open its recovery steps. */
+	const runSetupAction = async (providerId: RuntimeSetupProviderId): Promise<boolean> => {
+		if (busyAction) return true;
+		if (!requireToken()) return true;
 		setBusyAction(providerId);
-		setActionMessage(null);
 		try {
 			if (CLI_SETUP_PROVIDER_IDS.has(providerId)) {
 				await detectModelGatewayCliRuntime(token, providerId);
@@ -96,10 +118,32 @@ export function RuntimeSetupPanel({
 				await healthCheckModelGatewayProvider(token, providerId);
 			}
 			await onRefresh();
-			setActionMessage(`completed: ${providerId}`);
+			notify({ title: t('app.runtime.setup.checkDone', 'Runtime check finished'), tone: 'ok' });
+			return true;
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
-			setActionMessage(`blocked: ${redactVisibleSecret(message, 'runtime setup action failed')}`);
+			notify({
+				title: t('app.runtime.setup.checkBlocked', 'Runtime check failed'),
+				body: redactVisibleSecret(message, 'runtime setup action failed'),
+				tone: 'danger',
+			});
+			return false;
+		} finally {
+			setBusyAction(null);
+		}
+	};
+
+	/** One-click first step: probe every CLI runtime in parallel, then reload the snapshot. */
+	const detectClis = async () => {
+		if (busyAction) return;
+		if (!requireToken()) return;
+		setBusyAction('detect_clis');
+		try {
+			await Promise.allSettled(
+				[...CLI_SETUP_PROVIDER_IDS].map((id) => detectModelGatewayCliRuntime(token, id)),
+			);
+			await onRefresh();
+			notify({ title: t('app.runtime.setup.detectDone', 'CLI detection finished'), tone: 'ok' });
 		} finally {
 			setBusyAction(null);
 		}
@@ -115,9 +159,11 @@ export function RuntimeSetupPanel({
 			</p>
 			<div className="surface-toolbar">
 				<div className="inline">
+					<span className="muted">{t('app.runtime.readyLabel', 'Runtimes ready')}</span>
 					<strong className="tnum">{executableCount}</strong>
 					<span className="muted">
-						/ {providers.length} {t('app.runtime.executable', 'executable')}
+						/ <span className="tnum">{providers.length}</span>{' '}
+						{t('app.runtime.executable', 'executable')}
 					</span>
 				</div>
 				<button
@@ -135,6 +181,25 @@ export function RuntimeSetupPanel({
 				<section className="empty-state" aria-live="polite">
 					<strong>{t('app.runtime.setup.noneExecutable', 'No executable runtimes')}</strong>
 					<div className="inline">
+						<button
+							className="button primary"
+							type="button"
+							disabled={busyAction !== null}
+							aria-busy={busyAction === 'detect_clis'}
+							onClick={() => void detectClis()}
+						>
+							{busyAction === 'detect_clis'
+								? t('app.runtime.setup.running', 'Running...')
+								: t('app.runtime.setup.detectClis', 'Detect installed CLIs')}
+						</button>
+					</div>
+					<span className="field-help">
+						{t(
+							'app.runtime.setup.detectClisHint',
+							'One check finds Codex, Claude Code, OpenHands and SWE-agent on this machine.',
+						)}
+					</span>
+					<div className="inline">
 						{GUIDED_SETUP_ACTIONS.map((action) => (
 							<button
 								key={action.id}
@@ -146,11 +211,10 @@ export function RuntimeSetupPanel({
 							>
 								{busyAction === action.id
 									? t('app.runtime.setup.running', 'Running...')
-									: t(`app.runtime.setup.${action.id}`, action.label)}
+									: t(action.labelKey, action.label)}
 							</button>
 						))}
 					</div>
-					{actionMessage ? <span className="field-help">{actionMessage}</span> : null}
 				</section>
 			) : null}
 			<div className="masonry-grid">
@@ -159,7 +223,7 @@ export function RuntimeSetupPanel({
 						key={provider.id}
 						provider={provider}
 						busy={busyAction === provider.id}
-						onSetupAction={() => void runSetupAction(provider.id as RuntimeSetupProviderId)}
+						onSetupAction={() => runSetupAction(provider.id as RuntimeSetupProviderId)}
 					/>
 				))}
 			</div>
@@ -174,11 +238,13 @@ function ProviderCard({
 }: {
 	provider: MergedProvider;
 	busy: boolean;
-	onSetupAction: () => void;
+	/** Resolves false when the probe failed, so the card opens its recovery steps. */
+	onSetupAction: () => Promise<boolean>;
 }) {
 	const { t } = useI18n();
 	const [open, setOpen] = useState(false);
 	const detailsId = useId();
+	const detailsRef = useRef<HTMLDivElement | null>(null);
 
 	const state = deriveRuntimeState(provider);
 	const meta = STATE_META[state];
@@ -194,16 +260,31 @@ function ProviderCard({
 	const variables = provider.config?.variables ?? [];
 	const isCli = provider.kind === 'cli';
 	const capabilities = status?.capabilities ?? [];
-	const actionLabel = isCli
-		? t('app.runtime.card.runHealthCheck', 'Run health check')
-		: t('app.runtime.card.configure', 'Configurar');
+	const facts = readinessFacts(provider);
+	const kindLabel = KIND_LABEL[provider.kind];
+	const action = deriveRuntimeAction(state);
+	const actionLabel =
+		action === 'setup'
+			? t('app.runtime.action.setup', 'Detect & check')
+			: action === 'use'
+				? t('app.runtime.action.use', 'Use in a thread')
+				: t('app.runtime.action.validate', 'Validate');
+
+	/** A failed probe opens "How to configure" and moves focus there (recovery path). */
+	const runAction = async () => {
+		const ok = await onSetupAction();
+		if (!ok) {
+			setOpen(true);
+			requestAnimationFrame(() => detailsRef.current?.focus());
+		}
+	};
 
 	return (
-		<article className="card" data-tone={meta.tone}>
+		<article className="card card--static" data-tone={meta.tone}>
 			<div className="card-header">
 				<div className="inline">
 					{ProviderGlyph ? <ProviderGlyph aria-hidden="true" size={18} /> : null}
-					<span className="card-title">{provider.displayName}</span>
+					<h4 className="card-title">{provider.displayName}</h4>
 				</div>
 				<Badge tone={meta.tone}>
 					<StateIcon aria-hidden="true" size={13} />
@@ -211,20 +292,53 @@ function ProviderCard({
 				</Badge>
 			</div>
 			<div className="card-meta">
-				<Badge tone="info">{provider.kind}</Badge>
+				<Badge tone="info">
+					{kindLabel ? t(kindLabel.labelKey, kindLabel.fallback) : provider.kind}
+				</Badge>
 			</div>
 			<p className="card-body">{reason}</p>
 
+			{status ? (
+				<div className="inline">
+					{facts.map((fact) => {
+						const FactIcon =
+							fact.value === true ? CheckCircle2 : fact.value === false ? XCircle : CircleDashed;
+						return (
+							<Badge
+								key={fact.id}
+								tone={fact.value === true ? 'ok' : fact.value === false ? 'warn' : 'info'}
+							>
+								<FactIcon aria-hidden="true" size={12} />
+								<span>{t(fact.labelKey, fact.fallback)}</span>
+							</Badge>
+						);
+					})}
+				</div>
+			) : (
+				<span className="field-help">
+					{t(
+						'app.runtime.card.noStatusYet',
+						'Not checked yet — run the setup check to fill in readiness.',
+					)}
+				</span>
+			)}
+
 			<div className="inline">
-				<button
-					className="button"
-					type="button"
-					disabled={busy}
-					aria-busy={busy}
-					onClick={onSetupAction}
-				>
-					{busy ? t('app.runtime.setup.running', 'Running...') : actionLabel}
-				</button>
+				{action === 'use' ? (
+					<a className="button primary" href="#home">
+						{actionLabel}
+					</a>
+				) : (
+					<button
+						className={action === 'setup' ? 'button primary' : 'button'}
+						type="button"
+						disabled={busy}
+						aria-busy={busy}
+						onClick={() => void runAction()}
+					>
+						{busy ? t('app.runtime.setup.running', 'Running...') : actionLabel}
+					</button>
+				)}
 				<button
 					className="button"
 					type="button"
@@ -238,11 +352,11 @@ function ProviderCard({
 				</button>
 			</div>
 
-			<div id={detailsId} className="stack" hidden={!open}>
+			<div id={detailsId} ref={detailsRef} tabIndex={-1} className="stack" hidden={!open}>
 				<section className="stack compact">
-					<h3 className="field-label">
+					<h5 className="field-label">
 						{t('app.runtime.card.envVars', 'Required environment variables')}
-					</h3>
+					</h5>
 					{variables.length ? (
 						variables.map((variable) => (
 							<div className="inline" key={variable.key}>
@@ -277,7 +391,7 @@ function ProviderCard({
 
 				{isCli ? (
 					<section className="stack compact">
-						<h3 className="field-label">{t('app.runtime.card.command', 'Command detected')}</h3>
+						<h5 className="field-label">{t('app.runtime.card.command', 'Command detected')}</h5>
 						{status?.detectedCommand ? (
 							<span className="mono">
 								{redactVisibleSecret(status.detectedCommand)}
@@ -292,7 +406,7 @@ function ProviderCard({
 				) : null}
 
 				<section className="stack compact">
-					<h3 className="field-label">{t('app.runtime.card.health', 'Health check')}</h3>
+					<h5 className="field-label">{t('app.runtime.card.health', 'Health check')}</h5>
 					<div className="inline">
 						{status?.healthStatus === 'healthy' ? (
 							<CheckCircle2 aria-hidden="true" size={14} />
@@ -319,7 +433,7 @@ function ProviderCard({
 
 				{capabilities.length || status?.requiresApproval ? (
 					<section className="stack compact">
-						<h3 className="field-label">{t('app.runtime.card.capabilities', 'Capabilities')}</h3>
+						<h5 className="field-label">{t('app.runtime.card.capabilities', 'Capabilities')}</h5>
 						<div className="inline">
 							{capabilities.map((capability) => (
 								<Badge tone="info" key={capability}>
@@ -336,7 +450,7 @@ function ProviderCard({
 				) : null}
 
 				<section className="stack compact">
-					<h3 className="field-label">{t('app.runtime.card.instructions', 'How to configure')}</h3>
+					<h5 className="field-label">{t('app.runtime.card.instructions', 'How to configure')}</h5>
 					<span className="field-help">
 						{t(INSTRUCTIONS_KEY[provider.id as RuntimeSetupProviderId], '')}
 					</span>

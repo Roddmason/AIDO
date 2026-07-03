@@ -29,6 +29,7 @@ from local_control_center.evidence.artifacts import (
 )
 from local_control_center.evidence.repository import EvidenceRepository
 from local_control_center.jobs_approvals.repository import JobsRepository
+from local_control_center.research.repository import ResearchRepository
 from local_control_center.research.source_log import persist_source
 from local_control_center.research.source_policy import (
     UNTRUSTED,
@@ -226,6 +227,7 @@ class ResearchAgentRunner:
         self.agents = AgentsRepository(connection)
         self.jobs = JobsRepository(connection)
         self.evidence = EvidenceRepository(connection)
+        self.research = ResearchRepository(connection)
         self.workspaces = WorkspacesRepository(connection, root=root)
 
     def status(self) -> dict[str, Any]:
@@ -503,7 +505,160 @@ class ResearchAgentRunner:
                 "decision": first_statement,
                 "sourceCitations": [self._source_citation(source) for source in trusted_sources],
             }
+        if trusted_sources:
+            return {
+                "title": "Research recommendation",
+                "decision": reason,
+                "sourceCitations": [self._source_citation(source) for source in trusted_sources],
+            }
         return {"title": status.replace("_", " "), "decision": reason, "sourceCitations": []}
+
+    @staticmethod
+    def _remediation_for_blocker(*, status: str, reason: str) -> dict[str, Any]:
+        if status != "research_blocked":
+            return {}
+        reason_text = reason.lower()
+        if "network" in reason_text or "urlopen" in reason_text or "timed out" in reason_text:
+            return {
+                "action": "check_network_access",
+                "summary": "Check network access and retry ResearchAgent after official sources are reachable.",
+                "steps": [
+                    "Check network access from the local AIDO runtime.",
+                    "Retry ResearchAgent with the same query after connectivity is restored.",
+                    "If the official source is unavailable, provide an approved source payload explicitly.",
+                ],
+            }
+        if "web search is disabled by policy" in reason_text:
+            return {
+                "action": "enable_research_policy_or_provide_sources",
+                "summary": "Enable web search by policy or provide official sources explicitly.",
+                "steps": [
+                    "Set researchPolicy.webSearchAllowed when internet research is permitted.",
+                    "Otherwise provide official source URLs and content in the ResearchAgent request.",
+                ],
+            }
+        if "cite" in reason_text or "trusted source" in reason_text:
+            return {
+                "action": "add_trusted_citations",
+                "summary": "Add trusted citations for every web-based conclusion.",
+                "steps": [
+                    "Use official documentation, official repositories, standards, or primary research.",
+                    "Reference each cited source URL from conclusions or technical decisions.",
+                ],
+            }
+        return {
+            "action": "review_research_blocker",
+            "summary": "Review the ResearchAgent blocker and retry with compliant official sources.",
+            "steps": ["Inspect the persisted research findings.", "Retry after correcting the source policy issue."],
+        }
+
+    def _persist_findings(
+        self,
+        *,
+        research_run_id: str,
+        project_id: str,
+        thread_id: str | None,
+        status: str,
+        reason: str,
+        citation_check: dict[str, Any],
+        conflict_findings: list[dict[str, Any]],
+        technical_decisions: list[dict[str, Any]],
+        recommendation: dict[str, Any],
+        remediation: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        findings: list[dict[str, Any]] = []
+        findings.append(
+            self.research.create_finding(
+                research_run_id=research_run_id,
+                project_id=project_id,
+                thread_id=thread_id,
+                finding_type="citation_check",
+                severity="low" if citation_check.get("valid") else "high",
+                summary="Citation policy passed."
+                if citation_check.get("valid")
+                else "Citation policy blocked the research run.",
+                payload=citation_check,
+            )
+        )
+        for conflict in conflict_findings:
+            claims = conflict.get("claims") if isinstance(conflict.get("claims"), list) else []
+            citations = [
+                {
+                    "url": claim.get("sourceUrl"),
+                    "trustLevel": claim.get("trustLevel"),
+                    "fetchedAt": claim.get("fetchedAt"),
+                }
+                for claim in claims
+                if isinstance(claim, dict)
+            ]
+            findings.append(
+                self.research.create_finding(
+                    research_run_id=research_run_id,
+                    project_id=project_id,
+                    thread_id=thread_id,
+                    finding_type="contradiction",
+                    severity="high"
+                    if (conflict.get("recommendation") or {}).get("needsManualReview")
+                    else "medium",
+                    summary=f"Contradictory source claims for {conflict.get('topic')}.",
+                    citations=citations,
+                    payload=conflict,
+                )
+            )
+        for decision in technical_decisions:
+            citations = decision.get("sourceCitations") if isinstance(decision, dict) else []
+            findings.append(
+                self.research.create_finding(
+                    research_run_id=research_run_id,
+                    project_id=project_id,
+                    thread_id=thread_id,
+                    finding_type="technical_decision",
+                    severity="medium",
+                    summary=str(decision.get("title") or decision.get("decision") or "Technical decision"),
+                    source_ids=[
+                        str(citation.get("sourceId"))
+                        for citation in citations
+                        if isinstance(citation, dict) and citation.get("sourceId")
+                    ],
+                    citations=citations,
+                    payload=decision,
+                )
+            )
+        if status == "research_blocked":
+            findings.append(
+                self.research.create_finding(
+                    research_run_id=research_run_id,
+                    project_id=project_id,
+                    thread_id=thread_id,
+                    finding_type="blocker",
+                    severity="high",
+                    summary=reason,
+                    payload={"reason": reason, "remediation": remediation},
+                )
+            )
+        citations = (
+            recommendation.get("sourceCitations")
+            if isinstance(recommendation.get("sourceCitations"), list)
+            else []
+        )
+        findings.append(
+            self.research.create_finding(
+                research_run_id=research_run_id,
+                project_id=project_id,
+                thread_id=thread_id,
+                finding_type="recommendation",
+                severity="low" if status == "research_ready" else "medium",
+                summary=str(recommendation.get("decision") or reason),
+                source_ids=[
+                    str(citation.get("sourceId"))
+                    for citation in citations
+                    if isinstance(citation, dict) and citation.get("sourceId")
+                ],
+                citations=citations,
+                payload=recommendation,
+            )
+        )
+        return findings
 
     def _write_report_artifact(
         self, *, project_id: str, artifact_id: str, report: dict[str, Any]
@@ -623,6 +778,27 @@ class ResearchAgentRunner:
         conflict_findings: list[dict[str, Any]] = []
         status = "research_running"
         reason = "ResearchAgent is validating official sources."
+        research_run = self.research.create_run(
+            project_id=project_id,
+            thread_id=thread_id,
+            message_id=str(metadata.get("messageId") or "").strip() or None,
+            workspace_id=workspace["id"],
+            job_id=job["id"],
+            agent_run_id=agent_run["id"],
+            task_id=task_id,
+            query=str(payload.get("query") or metadata.get("query") or ""),
+            status=status,
+            reason=reason,
+            metadata={
+                "source": RESEARCH_AGENT_ID,
+                "workflowRunId": workflow_run_id,
+                "workflowStepId": workflow_step_id,
+                "policy": metadata.get("policy") if isinstance(metadata.get("policy"), dict) else {},
+                "researchPolicy": metadata.get("researchPolicy")
+                if isinstance(metadata.get("researchPolicy"), dict)
+                else {},
+            },
+        )
         try:
             sources, source_artifact_ids = self._persist_sources(
                 project_id=project_id,
@@ -658,6 +834,7 @@ class ResearchAgentRunner:
             status=status,
             reason=reason,
         )
+        remediation = self._remediation_for_blocker(status=status, reason=reason)
         report_payload = {
             "status": status,
             "verdict": status,
@@ -669,6 +846,7 @@ class ResearchAgentRunner:
             "citationCheck": citation_check,
             "conflictFindings": conflict_findings,
             "discrepancies": conflict_findings,
+            "remediation": remediation,
         }
         report_artifact = self._write_report_artifact(
             project_id=project_id, artifact_id=report_artifact_id, report=report_payload
@@ -750,6 +928,30 @@ class ResearchAgentRunner:
             self.evidence.attach_artifact_to_evidence(
                 artifact_id=artifact_id, evidence_package_id=evidence["id"]
             )
+        research_run = self.research.update_run_result(
+            research_run["id"],
+            status=status,
+            reason=reason,
+            recommendation=recommendation,
+            citation_check=citation_check,
+            sources=sources,
+            conflict_findings=conflict_findings,
+            evidence_package_id=evidence["id"],
+            report_artifact_id=report_artifact["id"],
+            remediation=remediation,
+        )
+        research_findings = self._persist_findings(
+            research_run_id=research_run["id"],
+            project_id=project_id,
+            thread_id=thread_id,
+            status=status,
+            reason=reason,
+            citation_check=citation_check,
+            conflict_findings=conflict_findings,
+            technical_decisions=technical_decisions,
+            recommendation=recommendation,
+            remediation=remediation,
+        )
         self._link_sources_to_evidence(artifact_ids=source_artifact_ids, evidence_id=evidence["id"])
         self._attach_report_to_thread(
             thread_id=thread_id,
@@ -797,4 +999,6 @@ class ResearchAgentRunner:
             "conflictFindings": conflict_findings,
             "discrepancies": conflict_findings,
             "reportArtifact": report_artifact,
+            "researchRun": research_run,
+            "researchFindings": research_findings,
         }

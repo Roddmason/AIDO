@@ -115,10 +115,14 @@ test('Sidebar: undo on the archive toast restores the thread in place', async ({
 	await openThreadMenu(page, title);
 	await page.getByRole('menuitem', { name: /Archive|Archivar/ }).click();
 
-	// Undo must be pressed while the 8s action toast is still on screen (the real user budget);
-	// waiting for the row to disappear first can eat that window on slow (mobile) renders.
+	// Grab the undo button directly instead of waiting for the row to disappear first. The toast
+	// only mounts after `await mutate(archiveThread)` resolves, and that PATCH is serialized behind
+	// the control-plane lock (all /api/ shares it), so under concurrent load it can take several
+	// seconds to surface — wait as long as this file's other post-mutation assertions (20s). The
+	// toast's own 8s auto-dismiss (durationMs: 8000, timed from mount, not from this wait) is what
+	// protects the click window, so a longer detection timeout never eats into it.
 	const undoButton = page.getByRole('button', { name: /Undo|Deshacer/ });
-	await expect(undoButton).toBeVisible({ timeout: 5_000 });
+	await expect(undoButton).toBeVisible({ timeout: 20_000 });
 	await undoButton.click();
 	await expect(page.getByText(/Thread restored|Hilo restaurado/)).toBeVisible({ timeout: 20_000 });
 	await expect(threadRow(page, title)).toBeVisible({ timeout: 20_000 });

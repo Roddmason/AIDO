@@ -60,9 +60,19 @@ FAILED_VALIDATION_STATUS = "failed_validation"
 COMPLETED_STATUS = "completed"
 BLOCKED_STATUS = "blocked"
 BRIEF_READY_STATUS = "brief_ready"
+NEEDS_INPUT_STATUS = "needs_input"
+SCOPE_IS_CLEAR_STATUS = "scope_is_clear"
 CONFIDENCES = {"low", "medium", "high"}
 BUSINESS_VALUES = {"low", "medium", "high"}
-RUNTIME_OUTPUT_STATUSES = {"questions_required", "brief_ready", "backlog_ready", "completed", "blocked"}
+RUNTIME_OUTPUT_STATUSES = {
+    NEEDS_INPUT_STATUS,
+    "questions_required",
+    BRIEF_READY_STATUS,
+    "backlog_ready",
+    COMPLETED_STATUS,
+    BLOCKED_STATUS,
+    SCOPE_IS_CLEAR_STATUS,
+}
 BLOCKING_DECISION_STATUSES = {"open", "proposed", "resolved", "accepted"}
 QUESTION_CONFIDENCE_PRIORITY = {"low": "high", "medium": "medium", "high": "low"}
 DEFAULT_COMPLETENESS_THRESHOLD = 70
@@ -330,8 +340,10 @@ class ProductOwnerAgent:
             "You are ProductOwnerAgent. Analyze the supplied idea or existing assessment and return ONLY "
             "valid JSON, without markdown fences, matching this schema: "
             + json_dumps(self.contract()["outputSchema"])
-            + " Rules: status is questions_required when the idea lacks product facts needed for a backlog, "
-            "brief_ready when the brief can be reviewed, or backlog_ready when stories are ready for approval. "
+            + " Rules: status is needs_input when the idea lacks product facts needed for a backlog, "
+            "scope_is_clear when a direct technical order in an existing project only needs a mini brief/task "
+            "scope, brief_ready when the brief can be reviewed, or backlog_ready when stories are ready for "
+            "approval. questions_required is accepted only as a legacy alias for needs_input. "
             "A user story represents user value (asA/iWant/soThat) and is never a technical task or duplicated "
             "per technical role; technical implementation work belongs outside userStories. Record product "
             "decisions in decisions with status open when a human/AIDO choice is still needed. Do not invent "
@@ -460,6 +472,11 @@ class ProductOwnerAgent:
                     ),
                     "options": options,
                     "recommendation": str(item.get("recommendation") or "").strip(),
+                    "category": str(item.get("category") or item.get("type") or "").strip(),
+                    "impact": str(
+                        item.get("impact") or item.get("risk") or item.get("severity") or ""
+                    ).strip(),
+                    "requiresResearch": bool(item.get("requiresResearch", False)),
                     "reversibility": _enum_value(
                         item,
                         "reversibility",
@@ -1244,7 +1261,7 @@ class ProductOwnerAgentRunner:
             task_id=task_id,
         )
         result["outputRecord"] = output_record
-        if output["status"] == "questions_required":
+        if output["status"] in {NEEDS_INPUT_STATUS, "questions_required"}:
             result["status"] = BLOCKED_STATUS
             result["reason"] = (
                 output["recommendedNextAction"]
@@ -1262,6 +1279,10 @@ class ProductOwnerAgentRunner:
         if (payload.get("metadata") or {}).get("requireBriefApproval"):
             result["status"] = BRIEF_READY_STATUS
             result["reason"] = "ProductOwnerAgent produced a brief awaiting approval before backlog generation."
+            return result
+        if output["status"] == SCOPE_IS_CLEAR_STATUS:
+            result["status"] = BRIEF_READY_STATUS
+            result["reason"] = "ProductOwnerAgent produced a mini brief/task scope for a direct technical order."
             return result
         result["backlog"] = self._persist_backlog(
             project_id=project_id,

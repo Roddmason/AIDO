@@ -29,12 +29,15 @@ from local_control_center.agents.assessment_runner import ProjectAssessmentRunne
 from local_control_center.agents.developer_agent import DeveloperAgentRunner
 from local_control_center.agents.developer_agent_contract import DEVELOPER_AGENT_ID
 from local_control_center.agents.product_owner_agent import (
+    ProductOwnerAgent,
     ProductOwnerAgentRunner,
+    ProductOwnerOutputValidationError,
     persist_product_owner_backlog,
 )
 from local_control_center.agents.product_owner_agent_contract import PRODUCT_OWNER_AGENT_ID
 from local_control_center.agents.repository import AgentsRepository
 from local_control_center.backlog.repository import BacklogRepository
+from local_control_center.backlog.technical_lead_planner import TechnicalLeadPlanner
 from local_control_center.evidence.artifacts import write_text_artifact
 from local_control_center.evidence.repository import EvidenceRepository
 from local_control_center.git_workspace.service import GitWorkspaceService
@@ -42,6 +45,7 @@ from local_control_center.jobs_approvals.repository import JobsRepository
 from local_control_center.product_discovery.repository import ProductDiscoveryRepository
 from local_control_center.product_loop.intent_classifier import IntentClassificationInput, IntentClassifier
 from local_control_center.projects.repository import ProjectsRepository
+from local_control_center.remediations.service import BlockerRemediationService
 from local_control_center.shared.db import immediate_transaction
 from local_control_center.shared.event_bus import EventBus
 from local_control_center.shared.redaction import redact_secrets
@@ -49,6 +53,7 @@ from local_control_center.shared.serialization import json_dumps
 from local_control_center.shared.time import iso_after_seconds, utc_now
 from local_control_center.team_scheduler.scheduler import MODES, RISKS, schedule_team
 from local_control_center.threads.repository import ThreadsRepository
+from local_control_center.threads.similarity import SIMILARITY_ACTIONS, ThreadMemoryService
 from local_control_center.workspaces_projects.git_worktrees import capture_git_diff
 from local_control_center.workspaces_projects.repository import (
     WorkspaceConflictError,
@@ -155,6 +160,19 @@ _ROLE_TO_SCOPE = {
     "software_architect": "architecture",
 }
 TARGET_REQUIRED_ACTIONS = {"request_changes", "reprioritize", "reject_decision", "reopen_story"}
+THREAD_RESEARCH_JOB_KIND = "thread.research.run"
+HIGH_IMPACT_RESEARCH_VALUES = {"high", "critical"}
+TECHNICAL_DECISION_CATEGORIES = {
+    "architecture",
+    "database",
+    "data",
+    "devops",
+    "infra",
+    "infrastructure",
+    "migration",
+    "security",
+    "technical",
+}
 
 
 class ProductLoopTransitionError(ValueError):
@@ -608,6 +626,14 @@ class ProductLoopCoordinator:
             metadata={"blockedStage": stage, "evidencePackageId": evidence["id"]},
             thread_id=thread_id,
         )
+        BlockerRemediationService(self.connection, root=self.root).create_for_blocked_run(
+            project_id=blocked["projectId"],
+            thread_id=thread_id,
+            loop_id=blocked["id"],
+            stage=stage,
+            reason=reason,
+            details=details or {},
+        )
         self._record_thread_event(
             thread_id=thread_id,
             event_type="blocked",
@@ -686,6 +712,97 @@ class ProductLoopCoordinator:
             "title": thread["title"],
         }
 
+    @staticmethod
+    def _memory_decision_resolved(request_meta: dict[str, Any]) -> bool:
+        mode = str(
+            request_meta.get("mode")
+            or request_meta.get("functionalityDecision")
+            or request_meta.get("memoryMode")
+            or ""
+        ).strip()
+        return mode in SIMILARITY_ACTIONS
+
+    def _existing_functionality_match(self, *, project_id: str, message: str) -> dict[str, Any] | None:
+        matches = ThreadMemoryService(self.connection).find_existing_functionality(
+            project_id=project_id,
+            query=message,
+            limit=1,
+        )
+        return matches[0] if matches else None
+
+    def _block_existing_functionality(
+        self,
+        *,
+        loop: dict[str, Any],
+        thread_id: str,
+        functionality: dict[str, Any],
+        actor: str,
+    ) -> dict[str, Any]:
+        threads = ThreadsRepository(self.connection)
+        options = list(SIMILARITY_ACTIONS)
+        reason = (
+            f"Existing functionality detected: {functionality['name']}. "
+            "Choose whether to continue, improve, run a performance pass, or create a new thread anyway."
+        )
+        metadata = {
+            "source": "functionality_registry",
+            "functionalityId": functionality["id"],
+            "sourceThreadId": functionality["sourceThreadId"],
+            "score": functionality.get("score"),
+            "reason": functionality.get("reason"),
+        }
+        request_message = threads.append_message(
+            thread_id=thread_id,
+            kind="decision_request",
+            author="aido_lead",
+            content=reason,
+            metadata=metadata,
+        )
+        decision = threads.create_decision(
+            thread_id=thread_id,
+            message_id=request_message["id"],
+            title="Existing functionality detected",
+            prompt=reason,
+            options=options,
+            metadata=metadata,
+        )
+        threads.record_event(
+            thread_id=thread_id,
+            type="functionality_detected",
+            agent_role="aido_lead",
+            payload={**metadata, "decisionId": decision["id"]},
+        )
+        threads.set_status(thread_id, "waiting_decision")
+        evidence = self._record_run_evidence(
+            project_id=loop["projectId"],
+            loop_id=loop["id"],
+            stage="functionality_memory",
+            status="blocked",
+            reason=reason,
+            details={"functionality": functionality, "decisionId": decision["id"]},
+        )
+        blocked = self._transition_run_state(
+            loop,
+            to_state=BLOCKED_STATE,
+            reason=reason,
+            trigger="functionality_memory_blocked",
+            actor=actor,
+            context_patch=self._durable_run_patch(
+                loop,
+                {
+                    "status": "blocked",
+                    "blockedStage": "functionality_memory",
+                    "blockedReason": reason,
+                    "existingFunctionality": functionality,
+                    "decisionId": decision["id"],
+                },
+                evidence_package_ids=[evidence["id"]],
+            ),
+            metadata={"blockedStage": "functionality_memory", "decisionId": decision["id"]},
+            thread_id=thread_id,
+        )
+        return self._run_result(blocked, status="blocked", reason=reason, evidence_package=evidence)
+
     def _external_evidence_ids(self, payload: dict[str, Any]) -> list[str]:
         ids: list[str] = []
         evidence = payload.get("evidencePackage")
@@ -751,8 +868,16 @@ class ProductLoopCoordinator:
         return bool(path and Path(path).exists())
 
     def _product_owner_output(self, result: dict[str, Any]) -> dict[str, Any]:
-        output = dict(result.get("output") or {})
+        if not isinstance(result, dict):
+            raise ProductOwnerOutputValidationError("ProductOwnerAgent result must be a JSON object.")
+        raw_output = result.get("output")
+        if not isinstance(raw_output, dict):
+            reason = str(result.get("reason") or "").strip()
+            suffix = f": {reason}" if reason else "."
+            raise ProductOwnerOutputValidationError(f"ProductOwnerAgent output must be a JSON object{suffix}")
+        output = dict(raw_output)
         for key in (
+            "status",
             "summary",
             "confidence",
             "questions",
@@ -768,31 +893,30 @@ class ProductLoopCoordinator:
                 output[key] = result[key]
         if "productBriefPatch" not in output:
             output["productBriefPatch"] = result.get("brief") or {}
-        if "status" not in output:
-            output["status"] = result.get("status") or "blocked"
-        output.setdefault("summary", result.get("summary") or "")
-        output.setdefault("confidence", result.get("confidence") or "low")
-        output.setdefault("questions", result.get("questions") or [])
-        output.setdefault("assumptions", result.get("assumptions") or [])
-        output.setdefault("decisions", result.get("decisions") or [])
-        output.setdefault("epics", result.get("epics") or [])
-        output.setdefault("userStories", result.get("userStories") or [])
-        output.setdefault("risks", result.get("risks") or [])
-        output.setdefault("recommendedNextAction", result.get("recommendedNextAction") or "")
-        return output
+        validated = ProductOwnerAgent().validate_output(output)
+        for key, value in output.items():
+            validated.setdefault(key, value)
+        return validated
 
-    def _product_owner_flow_status(self, result: dict[str, Any]) -> str:
-        output = self._product_owner_output(result)
+    def _product_owner_flow_status(
+        self, result: dict[str, Any], output: dict[str, Any] | None = None
+    ) -> str:
+        output = output if output is not None else self._product_owner_output(result)
         status = str(result.get("status") or "").strip().lower()
         output_status = str(output.get("status") or "").strip().lower()
         questions = output.get("questions") or result.get("questions") or []
         decisions = output.get("decisions") or result.get("blockingDecisions") or result.get("decisions") or []
-        if status in {"runtime_unavailable", "failed_validation"}:
+        if status in {"runtime_unavailable", "failed_validation", "failed"}:
             return "blocked"
-        if status in {"needs_input", "questions_required"} or output_status == "questions_required":
+        if status in {"needs_input", "questions_required"} or output_status in {
+            "needs_input",
+            "questions_required",
+        }:
             return "needs_input"
         if status == "blocked" and (questions or decisions):
             return "needs_input"
+        if status == "scope_is_clear" or output_status == "scope_is_clear":
+            return "brief_ready"
         if status == "brief_ready" or output_status == "brief_ready":
             return "brief_ready"
         if status in {"backlog_ready", "completed"} or output_status in {"backlog_ready", "completed"}:
@@ -1021,6 +1145,9 @@ class ProductLoopCoordinator:
                         "source": PRODUCT_OWNER_AGENT_ID,
                         "blocking": blocking,
                         "confidence": item.get("confidence") or "low",
+                        "category": item.get("category") or item.get("type") or "",
+                        "impact": item.get("impact") or item.get("risk") or item.get("severity") or "",
+                        "requiresResearch": bool(item.get("requiresResearch", False)),
                     },
                 }
             )
@@ -1064,6 +1191,27 @@ class ProductLoopCoordinator:
                     stories.append(story)
         return stories
 
+    def _acceptance_criteria_from_backlog(self, backlog: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        criteria: list[dict[str, Any]] = []
+        for epic_group in backlog:
+            for item in epic_group.get("stories") or []:
+                if not isinstance(item, dict):
+                    continue
+                story = item.get("story") if isinstance(item.get("story"), dict) else {}
+                story_id = story.get("id")
+                for index, criterion in enumerate(item.get("acceptanceCriteria") or [], start=1):
+                    if isinstance(criterion, dict):
+                        criteria.append(criterion)
+                    else:
+                        criteria.append(
+                            {
+                                "id": f"{story_id}-ac-{index}",
+                                "storyId": story_id,
+                                "criterion": str(criterion),
+                            }
+                        )
+        return criteria
+
     def _generate_agent_tasks(
         self,
         *,
@@ -1073,6 +1221,9 @@ class ProductLoopCoordinator:
         product_owner_output_id: str | None,
         technical_lead_runner: Any | None,
         team_schedule: dict[str, Any] | None = None,
+        product_owner_output: dict[str, Any] | None = None,
+        assessment_result: dict[str, Any] | None = None,
+        git_state: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
         stories = self._stories_from_backlog(backlog)
         existing = [
@@ -1088,29 +1239,53 @@ class ProductLoopCoordinator:
             "productOwnerOutputId": product_owner_output_id,
             "backlog": backlog,
             "userStories": stories,
+            "acceptanceCriteria": self._acceptance_criteria_from_backlog(backlog),
+            "productBrief": (product_owner_output or {}).get("productBriefPatch")
+            or (product_owner_output or {}).get("productBrief")
+            or {},
+            "projectAssessment": {
+                **(assessment_result or {}),
+                "changedFiles": (git_state or {}).get("changedFiles") or [],
+            },
+            "intentClassification": (team_schedule or {}).get("intent") or {},
+            "risk": (team_schedule or {}).get("risk") or ((team_schedule or {}).get("intent") or {}).get("risk"),
+            "availableTeam": (team_schedule or {}).get("roles") or [],
             "teamSchedule": team_schedule or {},
         }
         if technical_lead_runner is not None and hasattr(technical_lead_runner, "generate_agent_tasks"):
-            specs = technical_lead_runner.generate_agent_tasks(payload)
+            planned = technical_lead_runner.generate_agent_tasks(payload)
         else:
-            specs = [
-                {
-                    "storyId": story["id"],
-                    "title": f"Implement {story['title']}",
-                    "description": "Implement the user story against its acceptance criteria.",
-                    "role": "developer",
-                    "category": "implementation",
-                    "priority": story.get("priority", "medium"),
-                }
-                for story in stories
-            ]
+            planned = TechnicalLeadPlanner().plan(payload)
+        if isinstance(planned, dict):
+            specs = planned.get("agent_tasks") or planned.get("agentTasks") or []
+            dependency_specs = planned.get("task_dependencies") or planned.get("taskDependencies") or []
+        else:
+            specs = planned
+            dependency_specs = []
         tasks: list[dict[str, Any]] = []
+        planned_to_persisted: dict[str, str] = {}
         for spec in specs or []:
             if not isinstance(spec, dict):
                 continue
             story_id = str(spec.get("storyId") or "").strip()
             if not story_id:
                 continue
+            planned_task_id = str(spec.get("id") or "").strip()
+            planner_metadata = {
+                key: spec.get(key)
+                for key in (
+                    "goal",
+                    "scope",
+                    "filesLikely",
+                    "acceptanceRefs",
+                    "outputSchema",
+                    "requiredTools",
+                    "runtimePreference",
+                    "reviewerRole",
+                    "risk",
+                )
+                if key in spec
+            }
             task = self.backlog.create_agent_task(
                 {
                     "projectId": project_id,
@@ -1124,13 +1299,38 @@ class ProductLoopCoordinator:
                     "estimateHours": spec.get("estimateHours"),
                     "metadata": {
                         **dict(spec.get("metadata") or {}),
+                        **planner_metadata,
+                        "source": "technical_lead",
+                        "loopId": loop_id,
+                        "productOwnerOutputId": product_owner_output_id,
+                        "technicalLeadTaskId": planned_task_id,
+                    },
+                }
+            )
+            if planned_task_id:
+                planned_to_persisted[planned_task_id] = task["id"]
+            tasks.append({**spec, **task})
+        for dependency in dependency_specs or []:
+            if not isinstance(dependency, dict):
+                continue
+            task_id = planned_to_persisted.get(str(dependency.get("taskId") or ""))
+            depends_on_task_id = planned_to_persisted.get(str(dependency.get("dependsOnTaskId") or ""))
+            if not task_id or not depends_on_task_id or task_id == depends_on_task_id:
+                continue
+            self.backlog.create_task_dependency(
+                {
+                    "projectId": project_id,
+                    "taskId": task_id,
+                    "dependsOnTaskId": depends_on_task_id,
+                    "type": dependency.get("type") or "blocks",
+                    "reason": dependency.get("reason") or "TechnicalLeadPlanner task ordering.",
+                    "metadata": {
                         "source": "technical_lead",
                         "loopId": loop_id,
                         "productOwnerOutputId": product_owner_output_id,
                     },
                 }
             )
-            tasks.append(task)
         return tasks
 
     def _team_mode(self, request_meta: dict[str, Any]) -> str:
@@ -1317,6 +1517,135 @@ class ProductLoopCoordinator:
             return level in {"guided", "recommended"}
         return False
 
+    @staticmethod
+    def _research_policy(request_meta: dict[str, Any]) -> dict[str, Any]:
+        policy = request_meta.get("researchPolicy") if isinstance(request_meta.get("researchPolicy"), dict) else {}
+        nested_policy = request_meta.get("policy") if isinstance(request_meta.get("policy"), dict) else {}
+        nested_research = (
+            nested_policy.get("research") if isinstance(nested_policy.get("research"), dict) else {}
+        )
+        return {**nested_research, **policy}
+
+    def _requires_research_for_high_impact_decisions(self, request_meta: dict[str, Any]) -> bool:
+        policy = self._research_policy(request_meta)
+        value = (
+            policy.get("requireForHighImpactTechnicalDecisions")
+            if "requireForHighImpactTechnicalDecisions" in policy
+            else policy.get("requireResearchForHighImpactTechnicalDecisions")
+        )
+        if isinstance(value, bool):
+            return value
+        return str(value or "").strip().lower() in {"1", "true", "yes", "required", "require"}
+
+    @staticmethod
+    def _is_high_impact_technical_decision(decision: dict[str, Any]) -> bool:
+        category = str(decision.get("category") or decision.get("type") or "").strip().lower()
+        impact = str(
+            decision.get("impact")
+            or decision.get("risk")
+            or decision.get("severity")
+            or decision.get("priority")
+            or ""
+        ).strip().lower()
+        text = " ".join(
+            str(decision.get(key) or "")
+            for key in ("title", "question", "decision", "recommendation", "rationale")
+        ).lower()
+        technical = category in TECHNICAL_DECISION_CATEGORIES or any(
+            marker in text
+            for marker in (
+                "architecture",
+                "database",
+                "migration",
+                "security",
+                "runtime",
+                "api",
+                "schema",
+                "infrastructure",
+            )
+        )
+        high_impact = impact in HIGH_IMPACT_RESEARCH_VALUES or bool(decision.get("requiresResearch"))
+        return technical and high_impact
+
+    def _high_impact_technical_decisions_requiring_research(
+        self, *, request_meta: dict[str, Any], output: dict[str, Any]
+    ) -> list[dict[str, Any]]:
+        decisions = [item for item in output.get("decisions") or [] if isinstance(item, dict)]
+        if not decisions:
+            return []
+        policy_requires = self._requires_research_for_high_impact_decisions(request_meta)
+        return [
+            decision
+            for decision in decisions
+            if (policy_requires or bool(decision.get("requiresResearch")))
+            and self._is_high_impact_technical_decision(decision)
+        ]
+
+    def _queue_required_research(
+        self,
+        *,
+        project_id: str,
+        thread_id: str,
+        message_id: str,
+        workspace_id: str,
+        loop_id: str,
+        message: str,
+        request_meta: dict[str, Any],
+        decisions: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        policy = self._research_policy(request_meta)
+        decision_titles = [
+            str(decision.get("title") or decision.get("decision") or decision.get("recommendation") or "").strip()
+            for decision in decisions
+        ]
+        query = (
+            "Research official sources before accepting high-impact technical decisions: "
+            + "; ".join(title for title in decision_titles if title)
+        ).strip()
+        if not query.endswith("."):
+            query = f"{query}."
+        payload = {
+            "threadId": thread_id,
+            "messageId": message_id,
+            "projectId": project_id,
+            "workspaceId": workspace_id,
+            "taskId": f"product-loop-research-{loop_id.replace('product-loop-', '')[:12]}",
+            "query": f"{query} Original request: {message}",
+            "maxSources": policy.get("maxSources") or 5,
+            "sources": [],
+            "conclusions": [],
+            "claims": [],
+            "technicalDecisions": [],
+            "root": str(self.root) if self.root is not None else None,
+            "metadata": {
+                "threadId": thread_id,
+                "messageId": message_id,
+                "loopId": loop_id,
+                "allowWebSearch": bool(policy.get("allowWebSearch") or policy.get("webSearchAllowed")),
+                "researchPolicy": policy,
+                "requiredFor": "high_impact_technical_decision",
+                "decisions": decisions,
+            },
+        }
+        job = self.jobs.create_job(
+            project_id=project_id,
+            kind=THREAD_RESEARCH_JOB_KIND,
+            payload=payload,
+            idempotency_key=f"product-loop-research:{loop_id}:{thread_id}",
+        )["job"]
+        self._record_thread_event(
+            thread_id=thread_id,
+            event_type="research_required",
+            agent_role="researcher",
+            payload={
+                "loopId": loop_id,
+                "jobId": job["id"],
+                "reason": "High-impact technical decisions require ResearchAgent evidence by policy.",
+                "decisionCount": len(decisions),
+            },
+        )
+        return job
+
     def _create_brief_approval(
         self, *, project_id: str, loop_id: str, brief: dict[str, Any], artifact_ids: list[str]
     ) -> dict[str, Any]:
@@ -1408,6 +1737,18 @@ class ProductLoopCoordinator:
             payload={"thread": thread},
             thread_id=thread_id,
         )
+        existing_functionality = (
+            None
+            if self._memory_decision_resolved(request_meta)
+            else self._existing_functionality_match(project_id=project_id, message=message_text)
+        )
+        if existing_functionality is not None:
+            return self._block_existing_functionality(
+                loop=loop,
+                thread_id=thread_id,
+                functionality=existing_functionality,
+                actor=actor,
+            )
 
         assignments = self._ensure_delivery_agents(project_id)
         loop = self._transition_run_state(
@@ -1590,8 +1931,24 @@ class ProductLoopCoordinator:
                 thread_id=thread_id,
             )
 
-        output = self._product_owner_output(product_owner_result)
-        product_owner_status = self._product_owner_flow_status(product_owner_result)
+        try:
+            output = self._product_owner_output(product_owner_result)
+            product_owner_status = self._product_owner_flow_status(product_owner_result, output=output)
+        except ProductOwnerOutputValidationError as error:
+            raw_output = product_owner_result.get("output") if isinstance(product_owner_result, dict) else None
+            details = {
+                "status": product_owner_result.get("status") if isinstance(product_owner_result, dict) else None,
+                "reason": product_owner_result.get("reason") if isinstance(product_owner_result, dict) else None,
+                "outputType": type(raw_output).__name__,
+            }
+            return self._block_run(
+                loop,
+                stage="product_owner",
+                reason=str(redact_secrets(str(error))),
+                actor=actor,
+                details=details,
+                thread_id=thread_id,
+            )
         product_owner_artifact = self._write_json_artifact(
             root=effective_root,
             project_id=project_id,
@@ -1721,6 +2078,38 @@ class ProductLoopCoordinator:
                 thread_id=thread_id,
             )
 
+        research_required_decisions = self._high_impact_technical_decisions_requiring_research(
+            request_meta=request_meta,
+            output=output,
+        )
+        if research_required_decisions:
+            research_job = self._queue_required_research(
+                project_id=project_id,
+                thread_id=thread_id,
+                message_id=thread["messageId"],
+                workspace_id=product_owner_workspace["id"],
+                loop_id=loop["id"],
+                message=message_text,
+                request_meta=request_meta,
+                decisions=research_required_decisions,
+            )
+            return self._block_run(
+                loop,
+                stage="research",
+                reason=(
+                    "ResearchAgent evidence is required before accepting high-impact technical "
+                    "decisions."
+                ),
+                actor=actor,
+                details={
+                    "jobId": research_job["id"],
+                    "researchStatus": "research_required",
+                    "decisions": research_required_decisions,
+                    "researchPolicy": self._research_policy(request_meta),
+                },
+                thread_id=thread_id,
+            )
+
         if product_owner_status == "brief_ready":
             approval = None
             if self._requires_brief_approval(
@@ -1798,6 +2187,9 @@ class ProductLoopCoordinator:
             product_owner_output_id=product_owner_output_record["id"],
             technical_lead_runner=technical_lead_runner,
             team_schedule=preliminary_team_schedule,
+            product_owner_output=output,
+            assessment_result=assessment_result,
+            git_state=git_state,
         )
         if not agent_tasks:
             return self._block_run(

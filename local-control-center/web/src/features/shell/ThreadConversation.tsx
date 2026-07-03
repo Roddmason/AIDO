@@ -280,6 +280,9 @@ export function ThreadConversation({
 	const [objectiveFailed, setObjectiveFailed] = useState(false);
 	// Bumped after a modal action that stays on this thread, remounting the composer to clear its draft.
 	const [composerResetKey, setComposerResetKey] = useState(0);
+	// Holds a thread created for the new objective but not yet messaged, so a retry after a flaky
+	// postThreadMessage reuses it instead of minting a second empty orphan thread.
+	const pendingNewThreadRef = useRef<string | null>(null);
 
 	const addNote = useCallback(
 		async (noteContent: string) => {
@@ -318,6 +321,8 @@ export function ThreadConversation({
 
 	const closeNewObjective = useCallback(() => {
 		if (objectiveBusy) return; // never dismiss mid-action
+		// Abandon any half-created thread so a later, unrelated objective never reuses a stale id.
+		pendingNewThreadRef.current = null;
 		setObjectiveDraft(null);
 	}, [objectiveBusy]);
 
@@ -334,24 +339,31 @@ export function ThreadConversation({
 					await addNote(objective);
 					setComposerResetKey((value) => value + 1);
 				} else if (mode === 'new_thread') {
-					const firstLine = objective.split(/\r?\n/)[0]?.trim() ?? '';
-					const title = (firstLine || objective).slice(0, 80);
-					const created = await mutate(
-						(writeToken) =>
-							createThread(writeToken, {
-								projectId: selectedProject.id,
-								ownerType: 'workspace',
-								ownerId: ownerIdForProject(overview, selectedProject),
-								title,
-							}),
-						{ awaitRefresh: false },
-					);
-					onSelectThread(created.thread.id);
+					// Reuse a thread a prior attempt already created (message failed) rather than mint a
+					// second empty orphan; only navigate once the objective has actually been posted.
+					let createdId = pendingNewThreadRef.current;
+					if (!createdId) {
+						const firstLine = objective.split(/\r?\n/)[0]?.trim() ?? '';
+						const title = (firstLine || objective).slice(0, 80);
+						const created = await mutate(
+							(writeToken) =>
+								createThread(writeToken, {
+									projectId: selectedProject.id,
+									ownerType: 'workspace',
+									ownerId: ownerIdForProject(overview, selectedProject),
+									title,
+								}),
+							{ awaitRefresh: false },
+						);
+						createdId = created.thread.id;
+						pendingNewThreadRef.current = createdId;
+					}
 					await mutate(
-						(writeToken) =>
-							postThreadMessage(writeToken, created.thread.id, { content: objective }),
+						(writeToken) => postThreadMessage(writeToken, createdId, { content: objective }),
 						{ awaitRefresh: false },
 					);
+					pendingNewThreadRef.current = null;
+					onSelectThread(createdId);
 				} else if (activeThreadId) {
 					await mutate(
 						(writeToken) =>

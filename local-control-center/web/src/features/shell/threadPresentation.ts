@@ -16,6 +16,7 @@ export const TRANSCRIPT_KINDS: ReadonlySet<ThreadMessage['kind']> = new Set([
 	'aido_lead',
 	'decision_request',
 	'artifact',
+	'operator_note',
 ]);
 
 export const MESSAGE_META: Record<ThreadMessage['kind'], MessageMeta> = {
@@ -26,6 +27,7 @@ export const MESSAGE_META: Record<ThreadMessage['kind'], MessageMeta> = {
 	artifact: { authorKey: 'app.threads.authorArtifact', tone: 'info' },
 	error: { authorKey: 'app.threads.authorError', tone: 'danger' },
 	system_event: { authorKey: 'app.threads.authorSystem', tone: 'pending' },
+	operator_note: { authorKey: 'app.threads.authorOperatorNote', tone: 'info' },
 };
 
 export function isRecord(value: unknown): value is Record<string, unknown> {

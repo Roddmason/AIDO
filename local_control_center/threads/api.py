@@ -19,8 +19,11 @@ from fastapi import APIRouter, Body, HTTPException, Request
 from local_control_center.shared.event_bus import row_to_audit
 
 from .contracts import (
+    ProjectFunctionalityResponse,
     ThreadArchiveRequest,
     ThreadArchiveResponse,
+    ThreadCancelRequest,
+    ThreadCancelResponse,
     ThreadCreateRequest,
     ThreadDecisionResolveRequest,
     ThreadDecisionResolveResponse,
@@ -30,17 +33,20 @@ from .contracts import (
     ThreadEventsResponse,
     ThreadListResponse,
     ThreadMemoryRecallResponse,
+    ThreadMemoryReindexResponse,
     ThreadMessageRequest,
     ThreadMessageResultResponse,
+    ThreadNoteRequest,
+    ThreadNoteResponse,
     ThreadSimilarityMarkRequest,
     ThreadSimilarityMarkResponse,
     ThreadSimilarityResponse,
     ThreadUpdateRequest,
 )
-from .coordinator import ThreadCoordinator
+from .coordinator import ThreadBusyError, ThreadCoordinator
 from .memory_recall import ThreadMemoryRecallService
 from .repository import ThreadLifecycleError, ThreadsRepository
-from .similarity import ThreadSimilarityService
+from .similarity import ThreadMemoryService, ThreadSimilarityService
 
 
 def create_router(*, platform: Any, require_write: Callable[[Request], None]) -> APIRouter:
@@ -58,6 +64,9 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
 
     def memory_recall_service() -> ThreadMemoryRecallService:
         return ThreadMemoryRecallService(platform.connection)
+
+    def thread_memory_service() -> ThreadMemoryService:
+        return ThreadMemoryService(platform.connection)
 
     def thread_detail(thread_id: str) -> dict[str, Any]:
         repo = repository()
@@ -218,6 +227,38 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
 
+    @router.post(
+        "/api/v1/threads/{thread_id}/memory/reindex",
+        response_model=ThreadMemoryReindexResponse,
+    )
+    async def reindex_thread_memory(thread_id: str, request: Request) -> dict[str, Any]:
+        """Reconstruye índice de memoria y registry de funcionalidad para un hilo."""
+        require_write(request)
+        try:
+            return thread_memory_service().reindex_thread_memory(thread_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @router.get(
+        "/api/v1/projects/{project_id}/functionality",
+        response_model=ProjectFunctionalityResponse,
+    )
+    async def project_functionality(
+        project_id: str,
+        query: str | None = None,
+        limit: int = 50,
+    ) -> dict[str, Any]:
+        """Lista funcionalidad existente del proyecto para evitar trabajo duplicado."""
+        return {
+            "functionality": thread_memory_service().list_project_functionality(
+                project_id=project_id,
+                query=query,
+                limit=limit,
+            )
+        }
+
     @router.get("/api/v1/threads/{thread_id}", response_model=ThreadDetailResponse)
     async def get_thread(thread_id: str) -> dict[str, Any]:
         """Devuelve un hilo con su timeline completo (mensajes, artifacts, decisiones y eventos)."""
@@ -325,6 +366,50 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
                 content=body.content,
                 author=body.author or "user",
                 metadata=body.metadata,
+            )
+        except ThreadBusyError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @router.post(
+        "/api/v1/threads/{thread_id}/notes",
+        response_model=ThreadNoteResponse,
+    )
+    async def post_note(thread_id: str, body: ThreadNoteRequest, request: Request) -> dict[str, Any]:
+        """Adjunta una nota del operador al hilo sin encolar ejecución (escritura segura en ejecución)."""
+        require_write(request)
+        try:
+            return coordinator().add_operator_note(
+                thread_id=thread_id,
+                content=body.content,
+                author=body.author or "operator",
+                metadata=body.metadata,
+            )
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @router.post(
+        "/api/v1/threads/{thread_id}/cancel",
+        response_model=ThreadCancelResponse,
+    )
+    async def cancel_execution(
+        thread_id: str,
+        request: Request,
+        body: Annotated[ThreadCancelRequest | None, Body()] = None,
+    ) -> dict[str, Any]:
+        """Cancela la ejecución en curso del hilo (jobs en vuelo) y lo reabre en ``open``."""
+        require_write(request)
+        payload = body or ThreadCancelRequest()
+        try:
+            return coordinator().cancel_execution(
+                thread_id=thread_id,
+                reason=payload.reason,
+                actor=payload.actor,
             )
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error

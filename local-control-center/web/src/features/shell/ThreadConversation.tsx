@@ -15,6 +15,7 @@
  */
 import {
 	AlertTriangle,
+	Ban,
 	BookOpen,
 	CalendarClock,
 	Hash,
@@ -23,6 +24,8 @@ import {
 	MessageSquare,
 	Send,
 	ShieldCheck,
+	StickyNote,
+	Target,
 } from 'lucide-react';
 import { AnimatePresence, m } from 'motion/react';
 import {
@@ -36,11 +39,13 @@ import {
 	useState,
 } from 'react';
 import {
+	cancelThreadExecution,
 	createThread,
 	findSimilarThreads,
 	getWorkerStatus,
 	markSimilarThread,
 	postThreadMessage,
+	postThreadNote,
 	runWorkerOnce,
 	type WorkerStatusResponse,
 } from '../../api/client';
@@ -56,7 +61,7 @@ import type {
 } from '../../api/types';
 import type { Mutate } from '../../app/routes';
 import { StatusDot } from '../../components/primitives';
-import { Button, EmptyState, Skeleton, StatusChip, TextArea } from '../../components/ui';
+import { Button, Dialog, EmptyState, Skeleton, StatusChip, TextArea } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { threadStatusTone } from '../../lib/format';
 import {
@@ -80,6 +85,7 @@ import {
 } from './threadPresentation';
 import { useThreadConversation } from './useThreadConversation';
 import { useThreadEventStream } from './useThreadEventStream';
+import { useThreadRemediations } from './useThreadRemediations';
 
 type ThreadConversationProps = {
 	overview: Overview;
@@ -92,6 +98,8 @@ type ThreadConversationProps = {
 	onCreateProject: () => void;
 	onOpenRuntimeSetup: () => void;
 	onOpenApprovals: () => void;
+	/** Opens a Settings section — the recovery path for blocker remediation actions. */
+	onOpenSettings: (section?: string) => void;
 };
 
 type ResearchSourcePayload = {
@@ -160,6 +168,7 @@ export function ThreadConversation({
 	onCreateProject,
 	onOpenRuntimeSetup,
 	onOpenApprovals,
+	onOpenSettings,
 }: ThreadConversationProps) {
 	const { t } = useI18n();
 	const isNew = !selectedThreadId || selectedThreadId === NEW_SESSION_ID;
@@ -172,6 +181,9 @@ export function ThreadConversation({
 	const [workerStatus, setWorkerStatus] = useState<WorkerStatusResponse | null>(null);
 	const [workerBusy, setWorkerBusy] = useState(false);
 	const eventStream = useThreadEventStream(activeThreadId, streamRefreshKey);
+	// Refetch the blocker remediations whenever a new execution event lands (a `blocked` event brings
+	// fresh repair actions) so the cards stay in sync with the live pipeline without manual polling.
+	const remediations = useThreadRemediations(activeThreadId, mutate, eventStream.events.length);
 	const decisionRef = useRef<HTMLElement | null>(null);
 	const composerDockRef = useRef<HTMLDivElement | null>(null);
 
@@ -234,10 +246,6 @@ export function ThreadConversation({
 		decisionRef.current?.focus();
 	}, []);
 
-	const focusGitBar = useCallback(() => {
-		composerDockRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-	}, []);
-
 	// One phase id per render, used only to pick the AnimatePresence key/variant below; the
 	// if/else-if chain further down re-checks the same conditions directly so TypeScript's
 	// narrowing of `selectedProject`/`detail` keeps working exactly as before this refactor.
@@ -261,6 +269,123 @@ export function ThreadConversation({
 			awaitingHandoffRef.current = false;
 		}
 	}, [phase]);
+
+	// --- Anti-concurrent-loop controls ------------------------------------------------------------
+	// While a thread executes, the composer switches to note mode; these handlers back its three safe
+	// actions (add a note, stop the run, or resolve a new objective through an explicit modal) so a
+	// second product-loop run can never start by accident.
+	const [cancelBusy, setCancelBusy] = useState(false);
+	const [objectiveDraft, setObjectiveDraft] = useState<string | null>(null);
+	const [objectiveBusy, setObjectiveBusy] = useState<NewObjectiveMode | null>(null);
+	const [objectiveFailed, setObjectiveFailed] = useState(false);
+	// Bumped after a modal action that stays on this thread, remounting the composer to clear its draft.
+	const [composerResetKey, setComposerResetKey] = useState(0);
+
+	const addNote = useCallback(
+		async (noteContent: string) => {
+			// Throw (not silent return) so the composer's catch restores the draft if the thread id is
+			// somehow stale — a note must never vanish without the operator seeing it failed.
+			if (!activeThreadId) throw new Error('No active thread to attach the note to.');
+			await mutate(
+				(writeToken) => postThreadNote(writeToken, activeThreadId, { content: noteContent }),
+				{ awaitRefresh: false },
+			);
+			reload();
+			setStreamRefreshKey((value) => value + 1);
+		},
+		[activeThreadId, mutate, reload],
+	);
+
+	const cancelExecution = useCallback(async () => {
+		if (!activeThreadId) return;
+		setCancelBusy(true);
+		try {
+			await mutate((writeToken) => cancelThreadExecution(writeToken, activeThreadId), {
+				awaitRefresh: false,
+			});
+			reload();
+			loadWorkerStatus();
+			setStreamRefreshKey((value) => value + 1);
+		} finally {
+			setCancelBusy(false);
+		}
+	}, [activeThreadId, mutate, reload, loadWorkerStatus]);
+
+	const openNewObjective = useCallback((objective: string) => {
+		setObjectiveFailed(false);
+		setObjectiveDraft(objective);
+	}, []);
+
+	const closeNewObjective = useCallback(() => {
+		if (objectiveBusy) return; // never dismiss mid-action
+		setObjectiveDraft(null);
+	}, [objectiveBusy]);
+
+	// One handler for the modal's three resolutions of a new objective typed during execution:
+	// fold it into the running loop as a note, branch it into a fresh thread, or cancel-and-replace.
+	const resolveNewObjective = useCallback(
+		async (mode: NewObjectiveMode) => {
+			if (objectiveDraft === null || !selectedProject) return;
+			const objective = objectiveDraft;
+			setObjectiveFailed(false);
+			setObjectiveBusy(mode);
+			try {
+				if (mode === 'add_to_loop') {
+					await addNote(objective);
+					setComposerResetKey((value) => value + 1);
+				} else if (mode === 'new_thread') {
+					const firstLine = objective.split(/\r?\n/)[0]?.trim() ?? '';
+					const title = (firstLine || objective).slice(0, 80);
+					const created = await mutate(
+						(writeToken) =>
+							createThread(writeToken, {
+								projectId: selectedProject.id,
+								ownerType: 'workspace',
+								ownerId: ownerIdForProject(overview, selectedProject),
+								title,
+							}),
+						{ awaitRefresh: false },
+					);
+					onSelectThread(created.thread.id);
+					await mutate(
+						(writeToken) =>
+							postThreadMessage(writeToken, created.thread.id, { content: objective }),
+						{ awaitRefresh: false },
+					);
+				} else if (activeThreadId) {
+					await mutate(
+						(writeToken) =>
+							cancelThreadExecution(writeToken, activeThreadId, {
+								reason: 'Replaced by a new objective.',
+							}),
+						{ awaitRefresh: false },
+					);
+					await mutate(
+						(writeToken) => postThreadMessage(writeToken, activeThreadId, { content: objective }),
+						{ awaitRefresh: false },
+					);
+					setComposerResetKey((value) => value + 1);
+					reload();
+					setStreamRefreshKey((value) => value + 1);
+				}
+				setObjectiveDraft(null);
+			} catch {
+				setObjectiveFailed(true);
+			} finally {
+				setObjectiveBusy(null);
+			}
+		},
+		[
+			objectiveDraft,
+			selectedProject,
+			addNote,
+			mutate,
+			overview,
+			onSelectThread,
+			activeThreadId,
+			reload,
+		],
+	);
 
 	let content: ReactNode;
 
@@ -335,6 +460,8 @@ export function ThreadConversation({
 		const threadStatus = eventStream.threadStatus ?? detail.thread.status;
 		const waitingForWorker =
 			threadStatus === 'queued' && !consoleEvents.some((event) => event.type === 'worker_claimed');
+		// A live run: the composer becomes a note pad and only the explicit modal can start something new.
+		const isExecuting = threadStatus === 'queued' || threadStatus === 'running';
 
 		content = (
 			<div className="shell-chat-layout thread-live-layout">
@@ -403,6 +530,7 @@ export function ThreadConversation({
 
 						<div className="thread-composer-dock" ref={composerDockRef}>
 							<ThreadComposerBox
+								key={`composer-${composerResetKey}`}
 								project={selectedProject}
 								token={token}
 								runtimeProviders={runtimeProviders}
@@ -414,13 +542,16 @@ export function ThreadConversation({
 								submitLabel={t('app.threads.send', 'Send')}
 								submitBusyLabel={t('app.threads.sending', 'Sending…')}
 								onSendMessage={sendMessage}
+								executing={isExecuting}
+								cancelBusy={cancelBusy}
+								onAddNote={addNote}
+								onCancelExecution={cancelExecution}
+								onNewObjective={openNewObjective}
 							/>
 						</div>
 					</div>
 
 					<ThreadExecutionPanel
-						project={selectedProject}
-						token={token}
 						threadStatus={threadStatus}
 						events={consoleEvents}
 						messages={executionMessages}
@@ -431,14 +562,22 @@ export function ThreadConversation({
 						streamError={eventStream.error}
 						waitingForWorker={waitingForWorker}
 						handoffFromIntake={handoffFromIntake}
+						remediations={remediations}
 						onRunQueuedNow={runQueuedJobsNow}
-						onOpenRuntimeSetup={onOpenRuntimeSetup}
 						onOpenApprovals={onOpenApprovals}
 						onFocusDecision={focusDecision}
-						onFocusGitBar={focusGitBar}
-						onGitRefresh={refreshOverview}
+						onOpenSettings={onOpenSettings}
 					/>
 				</div>
+
+				<ThreadNewObjectiveDialog
+					open={objectiveDraft !== null}
+					objective={objectiveDraft ?? ''}
+					busy={objectiveBusy}
+					failed={objectiveFailed}
+					onClose={closeNewObjective}
+					onResolve={resolveNewObjective}
+				/>
 			</div>
 		);
 	}
@@ -653,6 +792,16 @@ type ThreadComposerBoxProps = {
 	onCreateThread?: (content: string) => Promise<void>;
 	/** Mirrors every keystroke to the parent (used by the intake's similar-work lookup). */
 	onValueChange?: (value: string) => void;
+	/** Note mode (thread queued/running): the primary action saves a note instead of starting a run. */
+	executing?: boolean;
+	/** True while the stop-execution request is in flight (drives the secondary button spinner). */
+	cancelBusy?: boolean;
+	/** Note-mode primary action: append the typed text as an operator note (no run). */
+	onAddNote?: (content: string) => Promise<void>;
+	/** Note-mode secondary action: stop the thread's in-flight execution. */
+	onCancelExecution?: () => void;
+	/** Note-mode escape hatch: hand the typed text to the "new objective" decision modal. */
+	onNewObjective?: (content: string) => void;
 };
 
 /**
@@ -677,6 +826,11 @@ function ThreadComposerBox({
 	onSendMessage,
 	onCreateThread,
 	onValueChange,
+	executing = false,
+	cancelBusy = false,
+	onAddNote,
+	onCancelExecution,
+	onNewObjective,
 }: ThreadComposerBoxProps) {
 	const { t } = useI18n();
 	const [value, setValue] = useState(initialValue);
@@ -709,7 +863,15 @@ function ThreadComposerBox({
 		if (!content || working) return;
 		setLocalBusy(true);
 		try {
-			if (onSendMessage) {
+			// While the thread executes the primary action is a note, never a second run.
+			if (executing && onAddNote) {
+				setValue('');
+				try {
+					await onAddNote(content);
+				} catch {
+					setValue(content);
+				}
+			} else if (onSendMessage) {
 				setValue('');
 				try {
 					await onSendMessage(content);
@@ -740,10 +902,18 @@ function ThreadComposerBox({
 	return (
 		<form className="thread-composer-box" onSubmit={submit}>
 			<TextArea
-				label={t('app.threads.composerLabel', 'Message AIDO')}
+				label={
+					executing
+						? t('app.threads.noteLabel', 'Add a note')
+						: t('app.threads.composerLabel', 'Message AIDO')
+				}
 				value={value}
 				rows={rows}
-				placeholder={t('app.threads.composerPlaceholder', 'Describe the work or ask a question…')}
+				placeholder={
+					executing
+						? t('app.threads.notePlaceholder', 'Add a note or instruction for the running loop…')
+						: t('app.threads.composerPlaceholder', 'Describe the work or ask a question…')
+				}
 				onChange={(event) => {
 					setValue(event.target.value);
 					onValueChange?.(event.target.value);
@@ -751,38 +921,90 @@ function ThreadComposerBox({
 				onKeyDown={onKeyDown}
 				error={errorText}
 			/>
-			<div className="shell-chat-options">
-				<span
-					className="composer-perms"
-					data-level={autonomyValue}
-					data-execution-blocked={runtimesBlocked ? '' : undefined}
-				>
-					<ShieldCheck aria-hidden="true" size={14} />
-					<select
-						className="status-branch-select composer-perms-select"
-						aria-label={t('app.composer.permissions', 'Action approval')}
-						value={autonomyValue}
-						disabled={permBusy}
-						onChange={(event) => void onPermissionChange(event.target.value)}
+			{executing ? (
+				<>
+					<div className="thread-note-mode-hint" role="note">
+						<StickyNote aria-hidden="true" size={14} />
+						<span>
+							<strong>{t('app.threads.noteMode.title', 'Note mode')}</strong>{' '}
+							{t(
+								'app.threads.noteMode.hint',
+								'Execution running — your message is saved as a note, not a new run.',
+							)}
+						</span>
+					</div>
+					<div className="shell-chat-options">
+						<button
+							type="button"
+							className="composer-new-objective"
+							disabled={!value.trim()}
+							onClick={() => onNewObjective?.(value.trim())}
+						>
+							<Target aria-hidden="true" size={14} />
+							{t('app.threads.newObjective.trigger', 'New objective? Decide what to do')}
+						</button>
+						<div className="thread-note-actions">
+							<Button
+								type="button"
+								variant="secondary"
+								loading={cancelBusy}
+								disabled={cancelBusy}
+								icon={<Ban aria-hidden="true" size={15} />}
+								onClick={() => onCancelExecution?.()}
+							>
+								{cancelBusy
+									? t('app.threads.stoppingExecution', 'Stopping…')
+									: t('app.threads.stopExecution', 'Stop execution')}
+							</Button>
+							<Button
+								type="submit"
+								variant="primary"
+								className="shell-chat-send"
+								loading={working}
+								disabled={!value.trim()}
+								icon={<StickyNote aria-hidden="true" size={15} />}
+							>
+								{working
+									? t('app.threads.addingNote', 'Adding…')
+									: t('app.threads.addNote', 'Add note')}
+							</Button>
+						</div>
+					</div>
+				</>
+			) : (
+				<div className="shell-chat-options">
+					<span
+						className="composer-perms"
+						data-level={autonomyValue}
+						data-execution-blocked={runtimesBlocked ? '' : undefined}
 					>
-						{PERMISSION_OPTIONS.map((option) => (
-							<option key={option.value} value={option.value}>
-								{t(option.labelKey, option.fallback)}
-							</option>
-						))}
-					</select>
-				</span>
-				<Button
-					type="submit"
-					variant="primary"
-					className="shell-chat-send"
-					loading={working}
-					disabled={!value.trim()}
-					icon={<Send aria-hidden="true" size={15} />}
-				>
-					{working ? submitBusyLabel : submitLabel}
-				</Button>
-			</div>
+						<ShieldCheck aria-hidden="true" size={14} />
+						<select
+							className="status-branch-select composer-perms-select"
+							aria-label={t('app.composer.permissions', 'Action approval')}
+							value={autonomyValue}
+							disabled={permBusy}
+							onChange={(event) => void onPermissionChange(event.target.value)}
+						>
+							{PERMISSION_OPTIONS.map((option) => (
+								<option key={option.value} value={option.value}>
+									{t(option.labelKey, option.fallback)}
+								</option>
+							))}
+						</select>
+					</span>
+					<Button
+						type="submit"
+						variant="primary"
+						className="shell-chat-send"
+						loading={working}
+						disabled={!value.trim()}
+						icon={<Send aria-hidden="true" size={15} />}
+					>
+						{working ? submitBusyLabel : submitLabel}
+					</Button>
+				</div>
+			)}
 			<div className="shell-chat-context">
 				<span className="shell-chat-context-project">{project.name}</span>
 				<span
@@ -824,6 +1046,113 @@ function ThreadComposerBox({
 				<GitBranchBar selectedProject={project} token={token} onRefresh={onGitRefresh} />
 			</div>
 		</form>
+	);
+}
+
+type NewObjectiveMode = 'add_to_loop' | 'new_thread' | 'replace';
+
+/** The three deliberate resolutions for a new objective typed during execution. The stacked-choice
+ *  shape mirrors the similarity card so both decision surfaces read the same. */
+const NEW_OBJECTIVE_OPTIONS: ReadonlyArray<{
+	mode: NewObjectiveMode;
+	labelKey: string;
+	labelFallback: string;
+	hintKey: string;
+	hintFallback: string;
+	danger?: boolean;
+}> = [
+	{
+		mode: 'add_to_loop',
+		labelKey: 'app.threads.newObjective.addToLoop',
+		labelFallback: 'Add to the current loop',
+		hintKey: 'app.threads.newObjective.addToLoopHint',
+		hintFallback: 'Saved as a note for the running execution. Nothing new starts.',
+	},
+	{
+		mode: 'new_thread',
+		labelKey: 'app.threads.newObjective.newThread',
+		labelFallback: 'Create a new thread',
+		hintKey: 'app.threads.newObjective.newThreadHint',
+		hintFallback: 'Starts a separate thread with this objective. The current one keeps running.',
+	},
+	{
+		mode: 'replace',
+		labelKey: 'app.threads.newObjective.replace',
+		labelFallback: 'Cancel current and replace',
+		hintKey: 'app.threads.newObjective.replaceHint',
+		hintFallback: 'Stops the running execution and starts this objective here.',
+		danger: true,
+	},
+];
+
+/** Decision modal shown when the operator types a fresh objective into a running thread. It never
+ *  starts a run on its own — the operator must consciously pick a resolution, so a concurrent loop is
+ *  always intentional. Purely presentational; every action lives in the parent's `onResolve`. */
+function ThreadNewObjectiveDialog({
+	open,
+	objective,
+	busy,
+	failed,
+	onClose,
+	onResolve,
+}: {
+	open: boolean;
+	objective: string;
+	busy: NewObjectiveMode | null;
+	failed: boolean;
+	onClose: () => void;
+	onResolve: (mode: NewObjectiveMode) => void;
+}) {
+	const { t } = useI18n();
+	const anyBusy = busy !== null;
+	return (
+		<Dialog
+			open={open}
+			onClose={onClose}
+			label={t('app.threads.newObjective.title', 'An execution is already running')}
+			className="thread-objective-dialog"
+		>
+			<p className="thread-objective-body">
+				{t(
+					'app.threads.newObjective.body',
+					'Choose what to do with this objective without accidentally starting a second run:',
+				)}
+			</p>
+			<figure className="thread-objective-preview">
+				<figcaption>{t('app.threads.newObjective.yourObjective', 'Your objective')}</figcaption>
+				<blockquote>{objective}</blockquote>
+			</figure>
+			<div className="thread-objective-options">
+				{NEW_OBJECTIVE_OPTIONS.map((option) => (
+					<button
+						key={option.mode}
+						type="button"
+						className="thread-objective-option"
+						data-danger={option.danger ? '' : undefined}
+						data-busy={busy === option.mode ? '' : undefined}
+						disabled={anyBusy}
+						onClick={() => onResolve(option.mode)}
+					>
+						<span className="thread-objective-option-label">
+							{t(option.labelKey, option.labelFallback)}
+						</span>
+						<span className="thread-objective-option-hint">
+							{t(option.hintKey, option.hintFallback)}
+						</span>
+					</button>
+				))}
+			</div>
+			{failed ? (
+				<p className="thread-objective-error" role="alert">
+					{t('app.threads.newObjective.error', 'Could not complete the action. Try again.')}
+				</p>
+			) : null}
+			<div className="thread-objective-footer">
+				<Button variant="secondary" disabled={anyBusy} onClick={onClose}>
+					{t('app.threads.newObjective.cancel', 'Keep writing')}
+				</Button>
+			</div>
+		</Dialog>
 	);
 }
 

@@ -37,6 +37,15 @@ from local_control_center.threads.similarity import (
 BLOCKING_PLAN_MODES = ("ask", "blocked")
 THREAD_RESEARCH_JOB_KIND = "thread.research.run"
 _SUMMARY_LIMIT = 140
+# Thread statuses with a live run: a new user message here would spawn a concurrent loop, so
+# `post_message` refuses one. The operator adds a note (`add_operator_note`) or cancels first.
+ACTIVE_EXECUTION_STATUSES = ("queued", "running")
+# Job statuses still worth cancelling when the operator stops a thread's execution.
+_CANCELLABLE_JOB_STATUSES = ("queued", "running", "approval_required")
+
+
+class ThreadBusyError(RuntimeError):
+    """Raised when a normal message would start a second run on a thread already executing."""
 
 
 class ThreadCoordinator:
@@ -73,6 +82,13 @@ class ThreadCoordinator:
             raise ValueError("Message content is required")
         # Resolve the thread up front so a missing id fails before any write.
         existing_thread = self.repository.get_thread(thread_id)
+        # Fail closed on a thread that is already executing: a normal message would queue a second,
+        # concurrent product-loop run. The operator must add a note or cancel the current run first.
+        if existing_thread["status"] in ACTIVE_EXECUTION_STATUSES:
+            raise ThreadBusyError(
+                f"Thread {thread_id} is {existing_thread['status']}: add a note or cancel the current "
+                "execution before starting a new one."
+            )
         message_metadata = dict(metadata or {})
         # A `mode` equal to a similarity action means the operator already took the deduplication
         # decision in the new-thread intake; re-blocking here would ask the same question twice.
@@ -187,7 +203,6 @@ class ThreadCoordinator:
                     decision=decision,
                     team_plan=team_plan,
                 )
-                self._mark_research_running(thread_id, decision=decision, job=job, query=content)
                 self.repository.record_event(
                     thread_id=thread_id,
                     type="research_running",
@@ -346,6 +361,86 @@ class ThreadCoordinator:
                 )
         return {"thread": thread, "decision": decision}
 
+    def add_operator_note(
+        self,
+        *,
+        thread_id: str,
+        content: str,
+        author: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Adjunta una nota del operador al hilo sin clasificar, sin encolar job ni cambiar el estado.
+
+        Es la escritura segura mientras el hilo ejecuta: deja constancia auditable
+        (``operator_note`` + evento ``operator_note_added``) sin arriesgar un loop concurrente.
+        """
+        if not content.strip():
+            raise ValueError("Note content is required")
+        # Resolve up front so a missing thread fails before any write.
+        thread = self.repository.get_thread(thread_id)
+        with immediate_transaction(self.connection):
+            note = self.repository.append_message(
+                thread_id=thread_id,
+                kind="operator_note",
+                author=author or "operator",
+                content=content,
+                metadata=dict(metadata or {}) or None,
+            )
+            self.repository.record_event(
+                thread_id=thread_id,
+                type="operator_note_added",
+                agent_role="operator",
+                payload={"messageId": note["id"], "author": note["author"]},
+            )
+        return {"thread": thread, "message": note}
+
+    def cancel_execution(
+        self,
+        *,
+        thread_id: str,
+        reason: str | None = None,
+        actor: str | None = None,
+    ) -> dict[str, Any]:
+        """Cancela los jobs en vuelo del hilo, deja traza y lo reabre en ``open`` (idempotente).
+
+        Cancelar libera el lease y marca el job ``cancelled``. Un job aún ``queued`` nunca se reclama;
+        uno ya reclamado por un worker termina su iteración en curso, pero el finalizador del worker
+        detecta la cancelación y **no** resucita el estado del hilo (ver ``_thread_job_was_cancelled``).
+        Si no hay nada activo que cancelar y el hilo no estaba ejecutando, es un no-op silencioso.
+        """
+        thread = self.repository.get_thread(thread_id)
+        clean_actor = (actor or "operator").strip() or "operator"
+        clean_reason = (reason or "Operator cancelled the execution.").strip()
+        was_executing = thread["status"] in ACTIVE_EXECUTION_STATUSES
+        cancelled_job_ids: list[str] = []
+        with immediate_transaction(self.connection):
+            for job in self.jobs.list_jobs(project_id=thread["projectId"]):
+                payload = job.get("payload")
+                if not isinstance(payload, dict) or payload.get("threadId") != thread_id:
+                    continue
+                if job["status"] not in _CANCELLABLE_JOB_STATUSES:
+                    continue
+                self.jobs.cancel_job(job["id"], reason=clean_reason, actor=clean_actor)
+                cancelled_job_ids.append(job["id"])
+            # Only mutate the thread when there was something to stop; a stray click after the run
+            # already finished must not append a misleading "cancelled" note or reopen a closed thread.
+            if cancelled_job_ids or was_executing:
+                self.repository.append_message(
+                    thread_id=thread_id,
+                    kind="system_event",
+                    author=clean_actor,
+                    content=f"Execution cancelled by operator: {clean_reason}",
+                    metadata={"cancelledJobIds": cancelled_job_ids},
+                )
+                self.repository.record_event(
+                    thread_id=thread_id,
+                    type="execution_cancelled",
+                    agent_role="operator",
+                    payload={"cancelledJobIds": cancelled_job_ids, "reason": clean_reason},
+                )
+                thread = self.repository.set_status(thread_id, "open")
+        return {"thread": thread, "cancelledJobIds": cancelled_job_ids}
+
     # -- internals -------------------------------------------------------------
     def _high_similarity_candidate(
         self,
@@ -422,36 +517,6 @@ class ThreadCoordinator:
             metadata=request_metadata,
         )
         return request_message, decision_record
-
-    def _mark_research_running(
-        self,
-        thread_id: str,
-        *,
-        decision: IntentClassification,
-        job: dict[str, Any],
-        query: str,
-    ) -> None:
-        self.repository.attach_artifact(
-            thread_id=thread_id,
-            kind="research_report",
-            title="Research",
-            artifact_id=f"thread-research-{uuid.uuid4()}",
-            payload={
-                "status": "research_running",
-                "reason": "ResearchAgent is collecting and validating sources.",
-                "jobId": job["id"],
-                "query": query,
-                "recommendation": {
-                    "title": "Research running",
-                    "decision": "ResearchAgent is collecting and validating sources.",
-                    "sourceCitations": [],
-                },
-                "sources": [],
-                "technicalDecisions": [],
-                "discrepancies": [],
-                "intent": decision.to_dict(),
-            },
-        )
 
     @staticmethod
     def _decision_options(decision: IntentClassification) -> list[str]:

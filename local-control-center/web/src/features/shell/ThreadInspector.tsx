@@ -30,7 +30,7 @@ import {
 } from 'lucide-react';
 import { AnimatePresence, m } from 'motion/react';
 import type { ReactNode } from 'react';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 
 import type {
 	ProjectProductLoopResponse,
@@ -45,6 +45,7 @@ import type {
 	ThreadArtifact,
 	ThreadDetail,
 } from '../../api/types';
+import type { Mutate } from '../../app/routes';
 import {
 	Button,
 	Disclosure,
@@ -59,17 +60,22 @@ import { useI18n } from '../../i18n/I18nProvider';
 import { formatCostUsd, shortId, threadStatusTone, toneForStatus } from '../../lib/format';
 import { cardTransition, crossfade, listStagger } from '../../motion/variants';
 import { PRODUCT_LOOP_PHASES, PRODUCT_LOOP_STATE_ORDER } from '../workbench/productLoopModel';
+import { ThreadBlockerList } from './ThreadBlockerCard';
 import {
 	type InspectorResource,
 	type ThreadInspectorTab,
 	useThreadInspectorData,
 } from './useThreadInspectorData';
+import { useThreadRemediations } from './useThreadRemediations';
 
 type ThreadInspectorProps = {
 	overview: Overview;
 	project: Project;
 	/** Active thread id, or null while the new-thread intake is open. */
 	threadId: string | null;
+	mutate: Mutate;
+	/** Opens a Settings section — the recovery path for blocker remediation actions. */
+	onOpenSettings: (section?: string) => void;
 };
 
 type LoopData = ProjectProductLoopResponse;
@@ -117,26 +123,32 @@ const TAB_DEFS: ReadonlyArray<{
 ];
 
 /** The threads-area inspector console: eight lazily loaded, read-only views over real data. */
-export function ThreadInspector({ overview, project, threadId }: ThreadInspectorProps) {
+export function ThreadInspector({
+	overview,
+	project,
+	threadId,
+	mutate,
+	onOpenSettings,
+}: ThreadInspectorProps) {
 	const { t } = useI18n();
 	const [tab, setTab] = useState<ThreadInspectorTab>('goal');
 	const { detail, loop, memory, settings } = useThreadInspectorData(project.id, threadId, tab);
-
-	// Keeps the active tab visible inside the single-row, horizontally scrollable tablist.
-	useEffect(() => {
-		document
-			.getElementById(`thread-inspector-tab-${tab}`)
-			?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-	}, [tab]);
+	// Actionable repair cards read from the remediations endpoint; pinned above the tabs so a blocked
+	// thread always shows how to unblock it, whichever manager view is open.
+	const remediations = useThreadRemediations(threadId, mutate);
 
 	const tabs = TAB_DEFS.map((def) => {
 		const Icon = def.icon;
+		const label = t(def.labelKey, def.fallback);
 		return {
 			id: def.id,
 			label: (
-				<span className="thread-inspector-tab-label">
+				// `title` carries the label as a hover tooltip when the narrow pane collapses the
+				// tabs to icon-only; the wrapped text keeps the tab's accessible name for screen
+				// readers and role queries even while visually hidden.
+				<span className="thread-inspector-tab-label" title={label}>
 					<Icon aria-hidden="true" size={14} />
-					{t(def.labelKey, def.fallback)}
+					<span className="thread-inspector-tab-text">{label}</span>
 				</span>
 			),
 		};
@@ -164,6 +176,7 @@ export function ThreadInspector({ overview, project, threadId }: ThreadInspector
 	return (
 		<div className="thread-inspector">
 			<ThreadVitals threadId={threadId} detail={detail} loop={loop} />
+			<ThreadBlockerList handle={remediations} onOpenSettings={onOpenSettings} />
 			<Tabs
 				label={t('app.threads.inspector.tabsLabel', 'Thread inspector views')}
 				activeTab={tab}

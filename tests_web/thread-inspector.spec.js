@@ -125,3 +125,77 @@ test('Threads: inspector views survive rapid tab switching without a stuck skele
 		inspector.locator('.thread-inspector-row, .empty-state').first(),
 	).toBeVisible({ timeout: 20_000 });
 });
+
+test('Threads: all eight tabs stay reachable, un-cut and keyboard-navigable in a 320px pane', async ({
+	page,
+}) => {
+	await page.goto('/#threads');
+	await expectControlPlaneLoaded(page);
+
+	const firstMessage = `Narrow inspector tab reachability ${Date.now()}`;
+	await createLiveThread(page, firstMessage);
+
+	const inspector = page.locator('.inspector-panel');
+	const threadInspector = inspector.locator('.thread-inspector');
+	await expect(threadInspector).toBeVisible({ timeout: 20_000 });
+
+	// Container queries key off the inspector's own width, not the viewport. Constrain it to
+	// what it would be inside a 320px pane (minus the panel's 16px inline padding per side) to
+	// faithfully exercise the narrow, icon-only regime.
+	await threadInspector.evaluate((el) => el.style.setProperty('width', '288px', 'important'));
+
+	const tablist = inspector.getByRole('tablist');
+	const tabNames = [
+		/Goal|Objetivo/,
+		/Team|Equipo/,
+		/Plan/,
+		/Backlog/,
+		/Memory|Memoria/,
+		/Research|Investigaci/,
+		/Artifacts|Artefactos/,
+		/Settings|Configuraci/,
+	];
+
+	// Every view keeps its accessible name in icon-only mode and stays visible — none is hidden
+	// behind a mask or clipped past the fold. This is the "Equipo is not cut" guarantee too.
+	for (const name of tabNames) {
+		await expect(tablist.getByRole('tab', { name })).toBeVisible();
+	}
+	await expect(tablist.getByRole('tab')).toHaveCount(8);
+
+	// Icon-only compaction is genuinely engaged: the label collapses to a visually-hidden node
+	// (position:absolute sr-only) while the tab keeps its accessible name (asserted above).
+	const teamText = inspector.locator('#thread-inspector-tab-team .thread-inspector-tab-text');
+	await expect(teamText).toHaveCount(1);
+	expect(await teamText.evaluate((el) => getComputedStyle(el).position)).toBe('absolute');
+
+	// No horizontal cut/scroll at 320px: the tablist wraps instead of overflowing its width.
+	const overflow = await tablist.evaluate((el) => el.scrollWidth - el.clientWidth);
+	expect(overflow).toBeLessThanOrEqual(1);
+
+	// Keyboard reachability: the roving tabindex moves selection with Arrow/End/Home.
+	const goal = tablist.getByRole('tab', { name: /Goal|Objetivo/ });
+	await goal.focus();
+	await page.keyboard.press('ArrowRight');
+	await expect(tablist.getByRole('tab', { name: /Team|Equipo/ })).toHaveAttribute(
+		'aria-selected',
+		'true',
+	);
+	await page.keyboard.press('End');
+	await expect(tablist.getByRole('tab', { name: /Settings|Configuraci/ })).toHaveAttribute(
+		'aria-selected',
+		'true',
+	);
+	await page.keyboard.press('Home');
+	await expect(goal).toHaveAttribute('aria-selected', 'true');
+
+	// Pointer reachability: the last view is clickable at this width and renders its panel.
+	await tablist.getByRole('tab', { name: /Settings|Configuraci/ }).click();
+	await expect(
+		inspector.locator('.thread-inspector-row, .empty-state').first(),
+	).toBeVisible({ timeout: 20_000 });
+
+	// Full labels return once the pane is genuinely wide: the label node leaves sr-only.
+	await threadInspector.evaluate((el) => el.style.setProperty('width', '900px', 'important'));
+	expect(await teamText.evaluate((el) => getComputedStyle(el).position)).toBe('static');
+});

@@ -290,12 +290,7 @@ def test_coordinator_queues_research_job_and_marks_research_running(tmp_path: Pa
             for artifact in repo.list_artifacts(thread["id"])
             if artifact["kind"] == "research_report"
         ]
-        assert len(research_artifacts) == 1
-        payload = research_artifacts[0]["metadata"]
-        assert payload["status"] == "research_running"
-        assert payload["jobId"] == research_job["id"]
-        assert payload["sources"] == []
-        assert payload["recommendation"]["sourceCitations"] == []
+        assert research_artifacts == []
         events = repo.list_events(thread["id"])
         assert "research_running" in [event["type"] for event in events]
 

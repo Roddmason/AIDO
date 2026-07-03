@@ -6,6 +6,7 @@ artifacts visibles en el hilo, guardas de escritura y presencia en el overview.
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -327,6 +328,191 @@ def test_post_message_accepts_similarity_metadata_and_skips_duplicate_gate(tmp_p
             "mode": "create_new_anyway",
             "similarThreadId": existing["id"],
         }
+    finally:
+        runtime.close()
+
+
+def test_thread_remediations_materialize_run_worker_once_when_worker_is_stopped(tmp_path: Path) -> None:
+    runtime, client = _client(tmp_path)
+    try:
+        headers = _token(runtime)
+        project_id = _project(runtime, tmp_path)
+        thread = _create_thread(client, headers, project_id)
+        queued = client.post(
+            f"/api/v1/threads/{thread['id']}/messages",
+            headers=headers,
+            json={"content": "Add a new dashboard endpoint to list active workspaces."},
+        )
+        assert queued.status_code == 200, queued.text
+        assert queued.json()["thread"]["status"] == "queued"
+
+        response = client.get(f"/api/v1/threads/{thread['id']}/remediations")
+
+        assert response.status_code == 200, response.text
+        actions = {(item["blockerType"], item["actionType"]) for item in response.json()["remediations"]}
+        assert ("worker_not_running", "run_worker_once") in actions
+
+        persisted = runtime.connection.execute(
+            """
+            SELECT COUNT(*) AS total
+            FROM remediation_actions
+            WHERE thread_id = ? AND blocker_type = 'worker_not_running' AND action_type = 'run_worker_once'
+            """,
+            (thread["id"],),
+        ).fetchone()["total"]
+        assert persisted == 1
+    finally:
+        runtime.close()
+
+
+def test_thread_remediations_api_redacts_secrets_from_payload(tmp_path: Path) -> None:
+    runtime, client = _client(tmp_path)
+    try:
+        project_id = _project(runtime, tmp_path)
+        thread = _create_thread(client, _token(runtime), project_id)
+        runtime.connection.execute(
+            """
+            INSERT INTO remediation_actions
+                (id, project_id, thread_id, loop_id, stage, blocker_type, title, description,
+                 action_type, payload_json, status, created_at, resolved_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, NULL)
+            """,
+            (
+                "remediation-secret-test",
+                project_id,
+                thread["id"],
+                "product-loop-secret",
+                "runtime",
+                "provider_missing_credentials",
+                "Configure provider credentials sk-title-secret1234567",
+                "The provider token sk-supersecret1234567 is missing.",
+                "open_settings_section",
+                json.dumps(
+                    {
+                        "section": "providers",
+                        "token": "sk-supersecret1234567",
+                        "hint": "Bearer secret-token-123456",
+                    }
+                ),
+                "2026-01-01T00:00:00.000Z",
+            ),
+        )
+
+        response = client.get(f"/api/v1/threads/{thread['id']}/remediations")
+
+        assert response.status_code == 200, response.text
+        payload = json.dumps(response.json(), sort_keys=True)
+        assert "sk-title-secret1234567" not in payload
+        assert "sk-supersecret1234567" not in payload
+        assert "secret-token-123456" not in payload
+        assert "[redacted]" in payload
+    finally:
+        runtime.close()
+
+
+def test_dismiss_remediation_marks_action_resolved(tmp_path: Path) -> None:
+    runtime, client = _client(tmp_path)
+    try:
+        headers = _token(runtime)
+        project_id = _project(runtime, tmp_path)
+        thread = _create_thread(client, headers, project_id)
+        runtime.connection.execute(
+            """
+            INSERT INTO remediation_actions
+                (id, project_id, thread_id, loop_id, stage, blocker_type, title, description,
+                 action_type, payload_json, status, created_at, resolved_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, NULL)
+            """,
+            (
+                "remediation-dismiss-test",
+                project_id,
+                thread["id"],
+                "product-loop-dismiss",
+                "runtime",
+                "runtime_not_executable",
+                "Validate runtime",
+                "Validate the selected runtime.",
+                "validate_runtime",
+                "{}",
+                "2026-01-01T00:00:00.000Z",
+            ),
+        )
+
+        response = client.post("/api/v1/remediations/remediation-dismiss-test/dismiss", headers=headers)
+
+        assert response.status_code == 200, response.text
+        remediation = response.json()["remediation"]
+        assert remediation["status"] == "dismissed"
+        assert remediation["resolvedAt"] is not None
+    finally:
+        runtime.close()
+
+
+def test_execute_save_patch_persists_evidence_artifact_without_returning_patch(
+    tmp_path: Path, monkeypatch
+) -> None:
+    runtime, client = _client(tmp_path)
+    try:
+        headers = _token(runtime)
+        project_id = _project(runtime, tmp_path)
+        thread = _create_thread(client, headers, project_id)
+        patch = (
+            "diff --git a/service.py b/service.py\n"
+            "--- a/service.py\n"
+            "+++ b/service.py\n"
+            "@@ -1 +1 @@\n"
+            "-old\n"
+            "+new\n"
+        )
+        monkeypatch.setattr(
+            "local_control_center.remediations.service.GitWorkspaceService.diff",
+            lambda _service, _project_id: {
+                "status": "completed",
+                "changedFiles": ["service.py"],
+                "diff": patch,
+            },
+        )
+        runtime.connection.execute(
+            """
+            INSERT INTO remediation_actions
+                (id, project_id, thread_id, loop_id, stage, blocker_type, title, description,
+                 action_type, payload_json, status, created_at, resolved_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, NULL)
+            """,
+            (
+                "remediation-save-patch-test",
+                project_id,
+                thread["id"],
+                "product-loop-save-patch",
+                "git",
+                "git_dirty_tree",
+                "Save dirty tree patch",
+                "Save the current diff before changing branches.",
+                "save_patch",
+                "{}",
+                "2026-01-01T00:00:00.000Z",
+            ),
+        )
+
+        response = client.post(
+            "/api/v1/remediations/remediation-save-patch-test/execute",
+            headers=headers,
+        )
+
+        assert response.status_code == 200, response.text
+        body = response.json()
+        execution = body["execution"]
+        assert execution["status"] == "completed"
+        assert execution["artifactId"].startswith("artifact-")
+        assert "diff --git" not in json.dumps(body)
+        artifact = runtime.connection.execute(
+            "SELECT * FROM artifacts WHERE id = ?",
+            (execution["artifactId"],),
+        ).fetchone()
+        assert artifact is not None
+        assert artifact["kind"] == "git_patch"
+        assert Path(artifact["path"]).read_text(encoding="utf-8") == patch
+        assert body["remediation"]["status"] == "pending"
     finally:
         runtime.close()
 

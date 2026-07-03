@@ -39,3 +39,31 @@
 .card--static[data-tone="danger"]:hover {
 	border-color: color-mix(in oklch, var(--color-status-danger) 46%, var(--color-border-subtle));
 }
+
+/* Compact key/value facts (base URL, discovered model count) inside a provider setup card. */
+.provider-facts {
+	display: grid;
+	grid-template-columns: auto 1fr;
+	gap: var(--space-1) var(--space-3);
+	margin: 0;
+}
+
+.provider-facts div {
+	display: contents;
+}
+
+.provider-facts dt {
+	color: var(--color-text-muted);
+	font-size: var(--font-size-sm);
+}
+
+.provider-facts dd {
+	margin: 0;
+	overflow-wrap: anywhere;
+}
+
+/* The discovered-model checklist in the Add-provider wizard scrolls past a handful of rows. */
+.provider-model-list {
+	max-height: 14rem;
+	overflow-y: auto;
+}

@@ -10,6 +10,7 @@ ejecutar rutas. La ejecución falla cerrada: exige aprobación, policy SQLite y 
 from __future__ import annotations
 
 import re
+import time
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
@@ -67,6 +68,8 @@ from .model_gateway_models import (
     RoutingProfileUpsertRequest,
     RuntimeDetectionResponse,
     RuntimeHealthResponse,
+    TestPromptRequest,
+    TestPromptResponse,
     UsageLedgerListResponse,
     UsageSummaryResponse,
 )
@@ -120,6 +123,71 @@ def _validate_real_discovery_credentials(account: dict[str, Any]) -> None:
             status_code=400,
             detail=redact_secrets(f"Credential ref {credential_ref} is {credential.status}."),
         )
+
+
+TEST_PROMPT_MESSAGE = "Reply with the single word: ok."
+TEST_PROMPT_SAMPLE_LIMIT = 280
+
+
+def _resolve_test_prompt_model(
+    store: ProviderAccountStore, provider_id: str, *, requested: str | None
+) -> str:
+    """Devuelve el modelo a probar: el solicitado o el primer modelo habilitado del catálogo del proveedor."""
+    if requested:
+        return requested
+    for model in store.list_models():
+        if model.get("providerId") == provider_id and model.get("enabled"):
+            return str(model.get("model"))
+    raise HTTPException(
+        status_code=400,
+        detail=f"Provider {provider_id} has no enabled model; sync or select a model before testing.",
+    )
+
+
+def _run_provider_test_prompt(provider_id: str, model: str, *, connection: Any) -> dict[str, Any]:
+    """Ejecuta una completion corta contra el proveedor y devuelve un resultado redactado con latencia.
+
+    Cualquier fallo del proveedor se captura y se reporta como ``ok=False`` con el error saneado, para
+    que la prueba nunca filtre el secreto ni propague la excepción cruda al cliente.
+    """
+    from .providers.base import ModelRequest
+
+    started = time.monotonic()
+    try:
+        provider = provider_instance(provider_id, connection=connection)
+        response = provider.chat_completion(
+            ModelRequest.model_validate(
+                {
+                    "model": model,
+                    "messages": [{"role": "user", "content": TEST_PROMPT_MESSAGE}],
+                    "temperature": 0,
+                }
+            )
+        )
+        usage = response.usage
+        return {
+            "providerId": provider_id,
+            "model": model,
+            "ok": True,
+            "latencyMs": int((time.monotonic() - started) * 1000),
+            "sample": str(redact_secrets(response.content or ""))[:TEST_PROMPT_SAMPLE_LIMIT],
+            "totalTokens": int(getattr(usage, "total_tokens", 0) or 0),
+            "usageSource": str((getattr(usage, "raw_usage", None) or {}).get("usage_source") or "unknown"),
+            "error": None,
+        }
+    except Exception as error:
+        # Any provider/network failure is surfaced as a redacted test result, never raised, so the
+        # test action degrades gracefully and never leaks the secret in a stack trace.
+        return {
+            "providerId": provider_id,
+            "model": model,
+            "ok": False,
+            "latencyMs": int((time.monotonic() - started) * 1000),
+            "sample": "",
+            "totalTokens": 0,
+            "usageSource": "unknown",
+            "error": str(redact_secrets(f"{error.__class__.__name__}: {error}")),
+        }
 
 
 def _approval_request_payload(body_payload: dict[str, Any], routing_result: dict[str, Any]) -> dict[str, Any]:
@@ -388,6 +456,44 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
             {"count": len(stored), "source": "provider"},
         )
         return {"models": stored}
+
+    @router.post("/providers/{provider_id}/test-prompt", response_model=TestPromptResponse)
+    async def test_prompt(provider_id: str, body: TestPromptRequest, request: Request) -> dict[str, Any]:
+        """Prueba el proveedor con una completion corta y controlada; falla cerrado como discover-models.
+
+        Exige habilitación, política de runtime permitida y credencial válida. Envía un prompt fijo y
+        benigno (nunca uno provisto por el cliente) y devuelve latencia, uso y una muestra redactada.
+        No aplica a runtimes CLI/manual, que se ejecutan por sesiones de runtime aprobadas por política.
+        """
+        require_write(request)
+        try:
+            account = providers().get_provider_account(provider_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        if str(account.get("providerType") or "") in {"cli", "manual"}:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Provider {provider_id} runs as a CLI/manual runtime; test-prompt targets API providers.",
+            )
+        if not account.get("enabled"):
+            raise HTTPException(
+                status_code=403,
+                detail=f"Provider {provider_id} is disabled; test-prompt requires explicit enablement.",
+            )
+        if _requires_remote_provider_call(account):
+            policy_decision = runtimes().runtime_policy_decision(
+                provider_id=provider_id, kind=str(account.get("providerType") or "")
+            )
+            if not policy_decision.get("allowed"):
+                raise HTTPException(
+                    status_code=403,
+                    detail=str(policy_decision.get("reason") or "Remote provider calls are disabled."),
+                )
+        _validate_real_discovery_credentials(account)
+        model = _resolve_test_prompt_model(providers(), provider_id, requested=body.model)
+        result = _run_provider_test_prompt(provider_id, model, connection=platform.connection)
+        audit("model_gateway.provider.test_prompt", provider_id, {"model": model, "ok": result["ok"]})
+        return {"test": result}
 
     @router.get("/models", response_model=ModelCatalogListResponse)
     async def list_models() -> dict[str, Any]:

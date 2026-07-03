@@ -205,6 +205,7 @@ def test_claude_code_is_not_executable_when_configured_command_does_not_match_ru
         # account) so the only remaining gate is the command mismatch this test verifies. Without this,
         # the earlier runtime_installations.enabled gate would mask the command-mismatch reason.
         repo = RuntimeConfigRepository(connection)
+        repo.set_runtime_setting("runtime.cli.enabled", True)
         repo.upsert_installation(
             {
                 "runtimeId": "claude_code_cli",

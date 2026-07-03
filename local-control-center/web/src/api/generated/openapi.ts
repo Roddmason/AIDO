@@ -117,6 +117,8 @@ export type ExpiredArtifactRecord = { "createdAt": string; "evidencePackageId"?:
 export type ExternalTelemetryStatus = { "available": boolean; "enabled": boolean; "metricsEnabled": boolean; "metricsEndpoint"?: null | string; "mode": string; "reason": string; "serviceName"?: null | string; "tracesEnabled": boolean; "tracesEndpoint"?: null | string };
 export type GitBranchCreateRequest = { "base"?: null | string; "name": string };
 export type GitBranchMutationResponse = { "base"?: null | string; "branch": string; "currentBranch"?: string; "policyDecisionIds"?: Array<string>; "projectId": string; "reason": string; "status": "completed" | "blocked" | "configuration_required" | "failed"; "toolCalls"?: Array<GitCommandTraceRecord>; "workspaceId": string };
+export type GitBranchPolicyApplyRequest = { "branchName"?: null | string; "createBranch"?: boolean; "intent": string; "selectedBase"?: string };
+export type GitBranchPolicyApplyResponse = { "created": boolean; "currentBranch"?: string; "intent": string; "policyDecisionIds"?: Array<string>; "projectId": string; "protectedBranches": Array<string>; "reason": string; "selectedBase": string; "status": "completed" | "blocked" | "configuration_required" | "failed"; "suggestedBranchName": string; "targetBranch": string; "toolCalls"?: Array<GitCommandTraceRecord>; "workspaceId": string };
 export type GitBranchesResponse = { "currentBranch"?: string; "dirty"?: boolean; "localBranches"?: Array<string>; "policyDecisionIds"?: Array<string>; "projectId": string; "reason": string; "remoteBranches"?: Array<string>; "remotes"?: Array<GitRemoteRecord>; "status": "completed" | "blocked" | "configuration_required" | "failed"; "toolCalls"?: Array<GitCommandTraceRecord>; "workspaceId": string };
 export type GitCheckoutRequest = { "allowDirty"?: boolean; "branch": string };
 export type GitCheckoutResponse = { "currentBranch"?: string; "dirty"?: boolean; "policyDecisionIds"?: Array<string>; "projectId": string; "reason": string; "requestedBranch": string; "status": "completed" | "blocked" | "configuration_required" | "failed"; "toolCalls"?: Array<GitCommandTraceRecord>; "workspaceId": string };
@@ -125,7 +127,14 @@ export type GitCommitRecord = { "author"?: string; "authoredAt"?: string; "hash"
 export type GitDiffResponse = { "changedFiles"?: Array<string>; "diff": string; "policyDecisionIds"?: Array<string>; "projectId": string; "reason": string; "root": string; "status": "completed" | "blocked" | "configuration_required" | "failed"; "toolCalls"?: Array<GitCommandTraceRecord>; "workspaceId": string };
 export type GitGitleaksRecord = { "configured": boolean; "executable": boolean; "exitCode"?: null | number; "findingCount"?: number; "permissionDecisionId"?: null | string; "reason": string; "report"?: JsonValue | null; "reportPath"?: null | string; "status": "completed" | "blocked" | "configuration_required" | "failed"; "toolCallId"?: null | string };
 export type GitGitleaksScanResponse = { "deliveryBlocked": boolean; "gitleaks": GitGitleaksRecord; "policyDecisionIds"?: Array<string>; "projectId": string; "reason": string; "status": "completed" | "blocked" | "configuration_required" | "failed"; "toolCalls"?: Array<GitCommandTraceRecord>; "workspaceId": string };
+export type GitInitRequest = { "defaultBranch"?: "main" | "dev" };
+export type GitInitResponse = { "commitCreated": boolean; "currentBranch"?: string; "defaultBranch": "main" | "dev"; "gitignoreCreated": boolean; "policyDecisionIds"?: Array<string>; "projectId": string; "reason": string; "status": "completed" | "blocked" | "configuration_required" | "failed"; "toolCalls"?: Array<GitCommandTraceRecord>; "workspaceId": string };
+export type GitRemoteAddRequest = { "name": string; "url": string };
+export type GitRemoteMetadataRecord = { "createdAt": string; "host": string; "lastTestReason"?: null | string; "lastTestStatus"?: null | string; "lastTestedAt"?: null | string; "name": string; "path": string; "scheme": string; "updatedAt": string; "url": string };
+export type GitRemoteMutationResponse = { "policyDecisionIds"?: Array<string>; "projectId": string; "reason": string; "remote"?: GitRemoteMetadataRecord | null; "status": "completed" | "blocked" | "configuration_required" | "failed"; "toolCalls"?: Array<GitCommandTraceRecord>; "workspaceId": string };
 export type GitRemoteRecord = { "direction": "fetch" | "push"; "name": string; "url": string };
+export type GitRemoteTestRequest = { "allowNetwork"?: boolean };
+export type GitRemoteTestResponse = { "outputPreview"?: string; "policyDecisionIds"?: Array<string>; "projectId": string; "reason": string; "remoteName": string; "status": "completed" | "blocked" | "configuration_required" | "failed"; "tested": boolean; "toolCalls"?: Array<GitCommandTraceRecord>; "workspaceId": string };
 export type GitStatusResponse = { "changedFiles"?: Array<string>; "currentBranch"?: string; "dirty"?: boolean; "lastCommit"?: GitCommitRecord | null; "policyDecisionIds"?: Array<string>; "porcelain"?: Array<string>; "projectId": string; "reason": string; "remotes"?: Array<GitRemoteRecord>; "root": string; "stagedFiles"?: Array<string>; "status": "completed" | "blocked" | "configuration_required" | "failed"; "toolCalls"?: Array<GitCommandTraceRecord>; "untrackedFiles"?: Array<string>; "workspaceId": string; "worktrees"?: Array<GitWorktreeRecord> };
 export type GitWorktreeRecord = { "bare"?: boolean; "branch"?: string; "detached"?: boolean; "head"?: string; "path": string };
 export type GovernanceResponse = { "architectureDecisions": Array<ArchitectureDecisionRecord>; "nextSteps": Array<NextStepRecord>; "risks": Array<RiskRecord> };
@@ -183,7 +192,9 @@ export type N8nEventDeliveryResponse = { "delivery": N8nEventDeliveryRecord };
 export type N8nEventEmitRequest = { "eventType": "thread.created" | "loop.blocked" | "approval.required" | "delivery.ready" | "gitleaks.failed" | "qa.failed" | "research.completed"; "payload"?: JsonObject; "projectId": string; "subjectId"?: null | string; "targetId"?: null | string };
 export type N8nEventTestRequest = { "eventType"?: "thread.created" | "loop.blocked" | "approval.required" | "delivery.ready" | "gitleaks.failed" | "qa.failed" | "research.completed"; "payload"?: JsonObject; "projectId": string; "targetId"?: null | string };
 export type N8nInboundWebhookRequest = { "action": string; "payload"?: JsonObject; "projectId": string };
-export type N8nInboundWebhookResponse = { "accepted": boolean; "action": "create_thread" | "create_loop"; "loop"?: JsonObject | null; "thread"?: JsonObject | null };
+export type N8nInboundWebhookResponse = { "accepted": boolean; "action": "create_thread" | "create_loop" | "add_message" | "get_status"; "loop"?: JsonObject | null; "message"?: JsonObject | null; "status"?: JsonObject | null; "thread"?: JsonObject | null };
+export type N8nIntegrationStatusRecord = { "allowedEventTypes": Array<"thread.created" | "loop.blocked" | "approval.required" | "delivery.ready" | "gitleaks.failed" | "qa.failed" | "research.completed">; "configured": boolean; "enabledTargetCount": number; "eventAllowlist": Array<"thread.created" | "loop.blocked" | "approval.required" | "delivery.ready" | "gitleaks.failed" | "qa.failed" | "research.completed">; "targetCount": number; "targets": Array<N8nWebhookTargetRecord> };
+export type N8nIntegrationStatusResponse = { "status": N8nIntegrationStatusRecord };
 export type N8nWebhookTargetCreateRequest = { "allowedEventTypes": Array<"thread.created" | "loop.blocked" | "approval.required" | "delivery.ready" | "gitleaks.failed" | "qa.failed" | "research.completed">; "credentialRef": string; "enabled"?: boolean; "metadata"?: JsonObject; "projectId": string; "url": string };
 export type N8nWebhookTargetRecord = { "allowedEventTypes": Array<"thread.created" | "loop.blocked" | "approval.required" | "delivery.ready" | "gitleaks.failed" | "qa.failed" | "research.completed">; "createdAt": string; "credentialRef": string; "enabled": boolean; "id": string; "metadata": JsonObject; "projectId": string; "updatedAt": string; "url": string };
 export type N8nWebhookTargetResponse = { "target": N8nWebhookTargetRecord };
@@ -193,7 +204,14 @@ export type NextStepRecord = { "createdAt": string; "dueAt"?: null | string; "id
 export type NextStepResponse = { "nextStep": NextStepRecord };
 export type NextStepUpdateRequest = { "dueAt"?: null | string; "metadata"?: JsonObject | null; "owner"?: null | string; "priority"?: "low" | "medium" | "high" | "urgent" | null; "status"?: "planned" | "in_progress" | "blocked" | "completed" | "cancelled" | null };
 export type NextStepsListResponse = { "nextSteps": Array<NextStepRecord> };
+export type OllamaEndpointCreateRequest = { "baseUrl": string; "credentialRef"?: null | string; "displayName"?: null | string; "enabled"?: boolean; "id": string; "kind"?: "local" | "remote" | null; "metadata"?: JsonObject };
+export type OllamaEndpointHealthRecord = { "healthStatus": string; "id": string; "lastError"?: null | string; "message"?: string; "models"?: Array<string>; "providerId": string; "status": string };
+export type OllamaEndpointHealthResponse = { "health": OllamaEndpointHealthRecord };
+export type OllamaEndpointRecord = { "baseUrl": string; "createdAt": string; "credentialRef"?: null | string; "credentialStatus": string; "displayName": string; "enabled": boolean; "healthStatus": string; "id": string; "kind": "local" | "remote"; "lastError": string; "lastHealthCheckAt"?: null | string; "models"?: Array<string>; "providerId": string; "runtimeId": string; "updatedAt": string };
+export type OllamaEndpointResponse = { "endpoint": OllamaEndpointRecord };
+export type OllamaEndpointsListResponse = { "endpoints": Array<OllamaEndpointRecord> };
 export type OllamaRuntimeProviderStatus = { "available": boolean; "models": Array<string>; "provider": string; "reason"?: string };
+export type OllamaSyncModelsResponse = { "models": Array<JsonObject> };
 export type OpenDesignResponse = { "backend": string; "runtime": string; "status": string };
 export type OpenDesignStatus = { "status": string };
 export type OptionalReasonRequest = { "reason"?: string };
@@ -251,6 +269,8 @@ export type ProjectDiscoveryRequest = { "path": string };
 export type ProjectDiscoveryResponse = { "discovery": JsonObject };
 export type ProjectFindingRecord = { "assessmentId": string; "category": string; "confidence": string; "createdAt": string; "detail": string; "evidence": string; "id": string; "metadata": JsonObject; "projectId": string; "severity": string; "title": string };
 export type ProjectFindingsListResponse = { "findings": Array<ProjectFindingRecord> };
+export type ProjectFunctionalityRecord = { "createdAt": string; "filePaths": Array<string>; "fingerprint": string; "id": string; "metadata": JsonObject; "name": string; "normalizedName": string; "performanceNotes": Array<JsonObject>; "projectId": string; "reason"?: null | string; "score"?: null | number; "sourceThreadId": string; "status": "open" | "queued" | "running" | "waiting_decision" | "awaiting_approval" | "blocked" | "resolved" | "archived" | "deleted"; "summary": string; "updatedAt": string };
+export type ProjectFunctionalityResponse = { "functionality": Array<ProjectFunctionalityRecord> };
 export type ProjectRecord = { "createdAt": string; "id": string; "metadata": JsonObject; "name": string; "path": string; "source": string; "status": string; "templateId": string; "updatedAt": string };
 export type ProjectResponse = { "auditEvent"?: AuditEventRecord | null; "project": ProjectRecord };
 export type ProjectTemplateRecord = { "id": string; "kind": string; "name": string };
@@ -279,6 +299,11 @@ export type QAAgentCommandRequest = { "argv": Array<string>; "critical"?: boolea
 export type QAAgentContract = { "allowedTools": Array<string>; "id": string; "inputSchema": JsonObject; "outputSchema": JsonObject; "requiredEvidence": boolean; "requiredRuntimeCapabilities": Array<string>; "requiredWorkspace": boolean; "verdictSource": string };
 export type QAAgentRunRequest = { "commands"?: Array<QAAgentCommandRequest>; "metadata"?: JsonObject; "projectId": string; "taskId"?: string; "workspaceId": string };
 export type QAAgentRunResponse = { "agentRun": AgentRunRecord; "contract": QAAgentContract; "evidencePackage": JsonObject; "job": JsonObject; "reason": string; "results": Array<JsonObject>; "status": string; "verdict": string; "workspace": JsonObject };
+export type RemediationActionRecord = { "actionType": "open_settings_section" | "validate_runtime" | "switch_runtime" | "continue_plan_only" | "git_init" | "create_branch" | "checkout_branch" | "run_gitleaks" | "run_worker_once" | "answer_question" | "retry_loop" | "view_diff" | "save_patch"; "blockerType": "runtime_not_executable" | "runtime_auth_missing" | "runtime_output_invalid" | "git_not_initialized" | "git_dirty_tree" | "git_branch_missing" | "gitleaks_missing" | "gitleaks_failed" | "qa_failed" | "po_needs_input" | "worker_not_running" | "provider_missing_credentials" | "provider_health_failed"; "createdAt": string; "description": string; "id": string; "loopId": string; "payload": JsonObject; "projectId": string; "resolvedAt"?: null | string; "stage": string; "status": "pending" | "resolved" | "dismissed" | "failed"; "threadId": string; "title": string };
+export type RemediationDismissResponse = { "remediation": RemediationActionRecord };
+export type RemediationExecuteRequest = { "payload"?: JsonObject };
+export type RemediationExecuteResponse = { "execution": JsonObject; "remediation": RemediationActionRecord };
+export type RemediationListResponse = { "remediations": Array<RemediationActionRecord> };
 export type RequiredReasonRequest = { "reason": string };
 export type ResearchAgentContract = { "allowedTools": Array<string>; "id": string; "inputSchema": JsonObject; "outputSchema": JsonObject; "requiredEvidence": boolean; "requiredRuntimeCapabilities": Array<string>; "requiredWorkspace": boolean; "sourcePolicy": JsonObject; "verdictSource": string };
 export type ResearchAgentRunRequest = { "claims"?: Array<ResearchClaimRequest>; "conclusions"?: Array<ResearchConclusionRequest>; "maxSources"?: null | number; "metadata"?: JsonObject; "projectId": string; "query"?: null | string; "sources"?: Array<ResearchSourceRequest>; "taskId"?: string; "technicalDecisions"?: Array<ResearchTechnicalDecisionRequest>; "workspaceId": string };
@@ -370,11 +395,16 @@ export type TeamActivityResponse = { "activeCount": number; "blockedCount": numb
 export type TeamRecord = { "capabilities": Array<JsonValue>; "createdAt": string; "id": string; "metadata": JsonObject; "name": string; "projectId": string; "updatedAt": string; "version": string };
 export type TeamsListResponse = { "teams": Array<TeamRecord> };
 export type TelemetryStatusResponse = { "externalExporter": ExternalTelemetryStatus };
+export type TestPromptRecord = { "error"?: null | string; "latencyMs": number; "model": string; "ok": boolean; "providerId": string; "sample"?: string; "totalTokens"?: number; "usageSource"?: string };
+export type TestPromptRequest = { "model"?: null | string };
+export type TestPromptResponse = { "test": TestPromptRecord };
 export type TestResultRecord = { "command": string; "createdAt": string; "durationMs"?: null | number; "evidencePackageId": string; "id": string; "metadata": JsonObject; "outputRef"?: null | string; "projectId": string; "status": "passed" | "failed" | "completed" | "denied" | "allowed" | "requires_approval" | "approval_required" | "blocked" | "skipped" | "skipped_with_reason" | "error" | "timed_out" };
 export type ThreadAgentEventRecord = { "agentRole"?: null | string; "createdAt": string; "id": string; "metadata": JsonObject; "payload": JsonObject; "projectId": string; "sequence": number; "threadId": string; "type": string };
 export type ThreadArchiveRequest = { "actor"?: string; "reason": string };
 export type ThreadArchiveResponse = { "auditEvent": AuditEventRecord; "thread": ThreadRecord };
 export type ThreadArtifactRecord = { "artifactId": string; "createdAt": string; "id": string; "kind": string; "messageId"?: null | string; "metadata": JsonObject; "projectId": string; "threadId": string; "title": string };
+export type ThreadCancelRequest = { "actor"?: null | string; "reason"?: null | string };
+export type ThreadCancelResponse = { "cancelledJobIds": Array<string>; "thread": ThreadRecord };
 export type ThreadCreateRequest = { "ownerId": string; "ownerType": "workspace" | "loop" | "story" | "agent_task" | "review"; "projectId": string; "title": string };
 export type ThreadDecisionRecord = { "createdAt": string; "decidedAt"?: null | string; "decidedBy"?: null | string; "id": string; "messageId"?: null | string; "metadata": JsonObject; "options": Array<string>; "projectId": string; "prompt": string; "resolution"?: null | string; "status": "pending" | "resolved" | "dismissed"; "threadId": string; "title": string; "updatedAt": string };
 export type ThreadDecisionResolveRequest = { "decidedBy"?: null | string; "resolution": string };
@@ -390,14 +420,17 @@ export type ThreadMemoryImplementedRecord = { "score": number; "summary": string
 export type ThreadMemoryLessonRecord = { "content": string; "createdAt": string; "id": string; "matchedKeywords": Array<string>; "sourceRef": string };
 export type ThreadMemoryPerformanceRecord = { "createdAt": string; "id": string; "note": string; "source": "similarity_event" | "thread_message"; "threadId": string; "threadTitle": string };
 export type ThreadMemoryRecallResponse = { "generatedAt": string; "implementedFunctionality": Array<ThreadMemoryImplementedRecord>; "lessonsLearned": Array<ThreadMemoryLessonRecord>; "performanceIssues": Array<ThreadMemoryPerformanceRecord>; "previousDecisions": Array<ThreadMemoryDecisionRecord>; "relatedEvidence": Array<ThreadMemoryEvidenceRecord>; "similarThreads": Array<ThreadSimilarityCandidateRecord>; "sourceThreadId": string };
-export type ThreadMessageRecord = { "author": string; "content": string; "createdAt": string; "id": string; "kind": "user" | "aido_lead" | "agent_summary" | "decision_request" | "artifact" | "error" | "system_event"; "metadata": JsonObject; "projectId": string; "sequence": number; "threadId": string };
+export type ThreadMemoryReindexResponse = { "functionality"?: ProjectFunctionalityRecord | null; "index": JsonObject };
+export type ThreadMessageRecord = { "author": string; "content": string; "createdAt": string; "id": string; "kind": "user" | "aido_lead" | "agent_summary" | "decision_request" | "artifact" | "error" | "system_event" | "operator_note"; "metadata": JsonObject; "projectId": string; "sequence": number; "threadId": string };
 export type ThreadMessageRequest = { "author"?: null | string; "content": string; "metadata"?: JsonObject };
 export type ThreadMessageResultResponse = { "artifacts": Array<ThreadArtifactRecord>; "blocked": boolean; "decision"?: ThreadDecisionRecord | null; "events": Array<ThreadAgentEventRecord>; "messages": Array<ThreadMessageRecord>; "run": ThreadRunSummary; "thread": ThreadRecord };
+export type ThreadNoteRequest = { "author"?: null | string; "content": string; "metadata"?: JsonObject };
+export type ThreadNoteResponse = { "message": ThreadMessageRecord; "thread": ThreadRecord };
 export type ThreadRecord = { "archivedAt"?: null | string; "archivedBy"?: null | string; "createdAt": string; "deletedAt"?: null | string; "deletedBy"?: null | string; "id": string; "lifecycleReason"?: null | string; "metadata": JsonObject; "ownerId": string; "ownerType": "workspace" | "loop" | "story" | "agent_task" | "review"; "projectId": string; "status": "open" | "queued" | "running" | "waiting_decision" | "awaiting_approval" | "blocked" | "resolved" | "archived" | "deleted"; "summary": string; "title": string; "updatedAt": string };
 export type ThreadRunSummary = { "jobId"?: null | string; "loopId"?: null | string; "reason"?: null | string; "status": "queued" | "running" | "blocked" | "awaiting_approval" | "completed" | "failed" };
 export type ThreadSimilarityArtifactRef = { "artifactId": string; "kind": string; "title": string };
 export type ThreadSimilarityCandidateRecord = { "artifactRefs": Array<ThreadSimilarityArtifactRef>; "keywords": Array<string>; "projectId": string; "reason": string; "score": number; "status": "open" | "queued" | "running" | "waiting_decision" | "awaiting_approval" | "blocked" | "resolved" | "archived" | "deleted"; "summary": string; "threadId": string; "title": string; "updatedAt": string };
-export type ThreadSimilarityEventRecord = { "action": "continue_existing" | "improve_existing" | "performance_pass" | "create_new_anyway"; "candidateThreadId": string; "createdAt": string; "id": string; "projectId": string; "reason": string; "score": number; "sourceThreadId": string };
+export type ThreadSimilarityEventRecord = { "action": "continue_existing" | "improve_existing" | "performance_pass" | "create_new_anyway"; "candidateThreadId": string; "createdAt": string; "functionalityId"?: string; "id": string; "projectId": string; "reason": string; "score": number; "sourceThreadId": string };
 export type ThreadSimilarityMarkRequest = { "action": "continue_existing" | "improve_existing" | "performance_pass" | "create_new_anyway"; "reason"?: string; "score"?: number };
 export type ThreadSimilarityMarkResponse = { "event": ThreadSimilarityEventRecord };
 export type ThreadSimilarityResponse = { "candidates": Array<ThreadSimilarityCandidateRecord> };
@@ -484,7 +517,11 @@ export const API_ENDPOINTS = [
 	{"method": "POST", "operationId": "upsert_ide_connection_api_v1_ide_connections_post", "path": "/api/v1/ide-connections", "summary": "Upsert Ide Connection"},
 	{"method": "GET", "operationId": "list_integrations_api_v1_integrations_get", "path": "/api/v1/integrations", "summary": "List Integrations"},
 	{"method": "POST", "operationId": "register_mcp_server_api_v1_integrations_mcp_register_post", "path": "/api/v1/integrations/mcp/register", "summary": "Register Mcp Server"},
+	{"method": "POST", "operationId": "configure_n8n_api_v1_integrations_n8n_configure_post", "path": "/api/v1/integrations/n8n/configure", "summary": "Configure N8N"},
+	{"method": "POST", "operationId": "emit_n8n_api_v1_integrations_n8n_emit_post", "path": "/api/v1/integrations/n8n/emit", "summary": "Emit N8N"},
 	{"method": "POST", "operationId": "emit_n8n_event_api_v1_integrations_n8n_emit_event_post", "path": "/api/v1/integrations/n8n/emit-event", "summary": "Emit N8N Event"},
+	{"method": "POST", "operationId": "receive_n8n_inbound_api_v1_integrations_n8n_inbound__token__post", "path": "/api/v1/integrations/n8n/inbound/{token}", "summary": "Receive N8N Inbound"},
+	{"method": "GET", "operationId": "get_n8n_status_api_v1_integrations_n8n_status_get", "path": "/api/v1/integrations/n8n/status", "summary": "Get N8N Status"},
 	{"method": "POST", "operationId": "test_n8n_target_api_v1_integrations_n8n_test_post", "path": "/api/v1/integrations/n8n/test", "summary": "Test N8N Target"},
 	{"method": "POST", "operationId": "receive_n8n_webhook_api_v1_integrations_n8n_webhook_post", "path": "/api/v1/integrations/n8n/webhook", "summary": "Receive N8N Webhook"},
 	{"method": "POST", "operationId": "upsert_n8n_webhook_target_api_v1_integrations_n8n_webhook_targets_post", "path": "/api/v1/integrations/n8n/webhook-targets", "summary": "Upsert N8N Webhook Target"},
@@ -527,6 +564,7 @@ export const API_ENDPOINTS = [
 	{"method": "PATCH", "operationId": "patch_provider_api_v1_model_gateway_providers__provider_id__patch", "path": "/api/v1/model-gateway/providers/{provider_id}", "summary": "Patch Provider"},
 	{"method": "POST", "operationId": "discover_models_api_v1_model_gateway_providers__provider_id__discover_models_post", "path": "/api/v1/model-gateway/providers/{provider_id}/discover-models", "summary": "Discover Models"},
 	{"method": "POST", "operationId": "provider_health_check_api_v1_model_gateway_providers__provider_id__health_check_post", "path": "/api/v1/model-gateway/providers/{provider_id}/health-check", "summary": "Provider Health Check"},
+	{"method": "POST", "operationId": "test_prompt_api_v1_model_gateway_providers__provider_id__test_prompt_post", "path": "/api/v1/model-gateway/providers/{provider_id}/test-prompt", "summary": "Test Prompt"},
 	{"method": "GET", "operationId": "list_role_policies_api_v1_model_gateway_role_policies_get", "path": "/api/v1/model-gateway/role-policies", "summary": "List Role Policies"},
 	{"method": "POST", "operationId": "create_role_policy_api_v1_model_gateway_role_policies_post", "path": "/api/v1/model-gateway/role-policies", "summary": "Create Role Policy"},
 	{"method": "PATCH", "operationId": "patch_role_policy_api_v1_model_gateway_role_policies__policy_id__patch", "path": "/api/v1/model-gateway/role-policies/{policy_id}", "summary": "Patch Role Policy"},
@@ -541,6 +579,10 @@ export const API_ENDPOINTS = [
 	{"method": "GET", "operationId": "list_next_steps_api_v1_next_steps_get", "path": "/api/v1/next-steps", "summary": "List Next Steps"},
 	{"method": "POST", "operationId": "create_next_step_api_v1_next_steps_post", "path": "/api/v1/next-steps", "summary": "Create Next Step"},
 	{"method": "PATCH", "operationId": "update_next_step_api_v1_next_steps__step_id__patch", "path": "/api/v1/next-steps/{step_id}", "summary": "Update Next Step"},
+	{"method": "GET", "operationId": "list_endpoints_api_v1_ollama_endpoints_get", "path": "/api/v1/ollama/endpoints", "summary": "List Endpoints"},
+	{"method": "POST", "operationId": "create_endpoint_api_v1_ollama_endpoints_post", "path": "/api/v1/ollama/endpoints", "summary": "Create Endpoint"},
+	{"method": "POST", "operationId": "health_endpoint_api_v1_ollama_endpoints__endpoint_id__health_post", "path": "/api/v1/ollama/endpoints/{endpoint_id}/health", "summary": "Health Endpoint"},
+	{"method": "POST", "operationId": "sync_models_api_v1_ollama_endpoints__endpoint_id__sync_models_post", "path": "/api/v1/ollama/endpoints/{endpoint_id}/sync-models", "summary": "Sync Models"},
 	{"method": "GET", "operationId": "open_design_api_v1_open_design_get", "path": "/api/v1/open-design", "summary": "Open Design"},
 	{"method": "GET", "operationId": "overview_api_v1_overview_get", "path": "/api/v1/overview", "summary": "Overview"},
 	{"method": "POST", "operationId": "revoke_permission_grant_api_v1_permissions_grants__grant_id__revoke_post", "path": "/api/v1/permissions/grants/{grant_id}/revoke", "summary": "Revoke Permission Grant"},
@@ -561,11 +603,16 @@ export const API_ENDPOINTS = [
 	{"method": "POST", "operationId": "run_assessment_api_v1_projects__project_id__assessment_post", "path": "/api/v1/projects/{project_id}/assessment", "summary": "Run Assessment"},
 	{"method": "GET", "operationId": "list_assessments_api_v1_projects__project_id__assessments_get", "path": "/api/v1/projects/{project_id}/assessments", "summary": "List Assessments"},
 	{"method": "GET", "operationId": "list_findings_api_v1_projects__project_id__findings_get", "path": "/api/v1/projects/{project_id}/findings", "summary": "List Findings"},
+	{"method": "GET", "operationId": "project_functionality_api_v1_projects__project_id__functionality_get", "path": "/api/v1/projects/{project_id}/functionality", "summary": "Project Functionality"},
+	{"method": "POST", "operationId": "apply_git_branch_policy_api_v1_projects__project_id__git_branch_policy_apply_post", "path": "/api/v1/projects/{project_id}/git/branch-policy/apply", "summary": "Apply Git Branch Policy"},
 	{"method": "GET", "operationId": "git_branches_api_v1_projects__project_id__git_branches_get", "path": "/api/v1/projects/{project_id}/git/branches", "summary": "Git Branches"},
 	{"method": "POST", "operationId": "create_git_branch_api_v1_projects__project_id__git_branches_post", "path": "/api/v1/projects/{project_id}/git/branches", "summary": "Create Git Branch"},
 	{"method": "POST", "operationId": "checkout_git_branch_api_v1_projects__project_id__git_checkout_post", "path": "/api/v1/projects/{project_id}/git/checkout", "summary": "Checkout Git Branch"},
 	{"method": "GET", "operationId": "git_diff_api_v1_projects__project_id__git_diff_get", "path": "/api/v1/projects/{project_id}/git/diff", "summary": "Git Diff"},
 	{"method": "POST", "operationId": "git_gitleaks_scan_api_v1_projects__project_id__git_gitleaks_scan_post", "path": "/api/v1/projects/{project_id}/git/gitleaks/scan", "summary": "Git Gitleaks Scan"},
+	{"method": "POST", "operationId": "init_git_repository_api_v1_projects__project_id__git_init_post", "path": "/api/v1/projects/{project_id}/git/init", "summary": "Init Git Repository"},
+	{"method": "POST", "operationId": "add_git_remote_api_v1_projects__project_id__git_remotes_post", "path": "/api/v1/projects/{project_id}/git/remotes", "summary": "Add Git Remote"},
+	{"method": "POST", "operationId": "test_git_remote_api_v1_projects__project_id__git_remotes__name__test_post", "path": "/api/v1/projects/{project_id}/git/remotes/{name}/test", "summary": "Test Git Remote"},
 	{"method": "GET", "operationId": "git_status_api_v1_projects__project_id__git_status_get", "path": "/api/v1/projects/{project_id}/git/status", "summary": "Git Status"},
 	{"method": "GET", "operationId": "get_product_loop_state_api_v1_projects__project_id__product_loop_get", "path": "/api/v1/projects/{project_id}/product-loop", "summary": "Get Product Loop State"},
 	{"method": "POST", "operationId": "start_product_loop_api_v1_projects__project_id__product_loop_post", "path": "/api/v1/projects/{project_id}/product-loop", "summary": "Start Product Loop"},
@@ -578,6 +625,8 @@ export const API_ENDPOINTS = [
 	{"method": "GET", "operationId": "list_prompts_api_v1_prompts_get", "path": "/api/v1/prompts", "summary": "List Prompts"},
 	{"method": "POST", "operationId": "upsert_prompt_api_v1_prompts_post", "path": "/api/v1/prompts", "summary": "Upsert Prompt"},
 	{"method": "GET", "operationId": "providers_api_v1_providers_get", "path": "/api/v1/providers", "summary": "Providers"},
+	{"method": "POST", "operationId": "dismiss_remediation_api_v1_remediations__remediation_id__dismiss_post", "path": "/api/v1/remediations/{remediation_id}/dismiss", "summary": "Dismiss Remediation"},
+	{"method": "POST", "operationId": "execute_remediation_api_v1_remediations__remediation_id__execute_post", "path": "/api/v1/remediations/{remediation_id}/execute", "summary": "Execute Remediation"},
 	{"method": "POST", "operationId": "retrieval_reindex_api_v1_retrieval_reindex_post", "path": "/api/v1/retrieval/reindex", "summary": "Retrieval Reindex"},
 	{"method": "POST", "operationId": "retrieval_search_api_v1_retrieval_search_post", "path": "/api/v1/retrieval/search", "summary": "Retrieval Search"},
 	{"method": "GET", "operationId": "retrieval_status_api_v1_retrieval_status_get", "path": "/api/v1/retrieval/status", "summary": "Retrieval Status"},
@@ -609,10 +658,14 @@ export const API_ENDPOINTS = [
 	{"method": "GET", "operationId": "get_thread_api_v1_threads__thread_id__get", "path": "/api/v1/threads/{thread_id}", "summary": "Get Thread"},
 	{"method": "PATCH", "operationId": "update_thread_api_v1_threads__thread_id__patch", "path": "/api/v1/threads/{thread_id}", "summary": "Update Thread"},
 	{"method": "POST", "operationId": "archive_thread_api_v1_threads__thread_id__archive_post", "path": "/api/v1/threads/{thread_id}/archive", "summary": "Archive Thread"},
+	{"method": "POST", "operationId": "cancel_execution_api_v1_threads__thread_id__cancel_post", "path": "/api/v1/threads/{thread_id}/cancel", "summary": "Cancel Execution"},
 	{"method": "POST", "operationId": "resolve_decision_api_v1_threads__thread_id__decisions__decision_id__resolve_post", "path": "/api/v1/threads/{thread_id}/decisions/{decision_id}/resolve", "summary": "Resolve Decision"},
 	{"method": "GET", "operationId": "thread_events_api_v1_threads__thread_id__events_get", "path": "/api/v1/threads/{thread_id}/events", "summary": "Thread Events"},
 	{"method": "GET", "operationId": "thread_memory_api_v1_threads__thread_id__memory_get", "path": "/api/v1/threads/{thread_id}/memory", "summary": "Thread Memory"},
+	{"method": "POST", "operationId": "reindex_thread_memory_api_v1_threads__thread_id__memory_reindex_post", "path": "/api/v1/threads/{thread_id}/memory/reindex", "summary": "Reindex Thread Memory"},
 	{"method": "POST", "operationId": "post_message_api_v1_threads__thread_id__messages_post", "path": "/api/v1/threads/{thread_id}/messages", "summary": "Post Message"},
+	{"method": "POST", "operationId": "post_note_api_v1_threads__thread_id__notes_post", "path": "/api/v1/threads/{thread_id}/notes", "summary": "Post Note"},
+	{"method": "GET", "operationId": "list_thread_remediations_api_v1_threads__thread_id__remediations_get", "path": "/api/v1/threads/{thread_id}/remediations", "summary": "List Thread Remediations"},
 	{"method": "GET", "operationId": "find_similar_to_thread_api_v1_threads__thread_id__similar_get", "path": "/api/v1/threads/{thread_id}/similar", "summary": "Find Similar To Thread"},
 	{"method": "POST", "operationId": "mark_similar_thread_api_v1_threads__thread_id__similar__candidate_id__mark_post", "path": "/api/v1/threads/{thread_id}/similar/{candidate_id}/mark", "summary": "Mark Similar Thread"},
 	{"method": "POST", "operationId": "unarchive_thread_api_v1_threads__thread_id__unarchive_post", "path": "/api/v1/threads/{thread_id}/unarchive", "summary": "Unarchive Thread"},
@@ -651,12 +704,14 @@ export type OperationPath<T extends ApiOperationId> = OperationById<T>["path"];
 export type OperationMethod<T extends ApiOperationId> = OperationById<T>["method"];
 
 export type OperationRequestBodies = {
+	"add_git_remote_api_v1_projects__project_id__git_remotes_post": GitRemoteAddRequest,
 	"advance_workflow_gate_api_v1_workflows__workflow_id__steps__step_id__advance_post": WorkflowGateAdvanceRequest,
 	"agent_profile_override_api_v1_projects__project_id__agent_profile_overrides__profile_id__put": AgentProfileProjectOverrideRequest,
 	"agents_api_v1_agents_get": never,
 	"aido_decide_product_loop_api_v1_projects__project_id__product_loop__loop_id__aido_decide_post": ProductLoopAidoDecideRequest,
 	"allocate_workspace_api_v1_workspaces_post": WorkspaceAllocateRequest,
 	"apply_artifact_retention_action_api_v1_evidence_artifacts_retention_actions_post": ArtifactRetentionActionRequest,
+	"apply_git_branch_policy_api_v1_projects__project_id__git_branch_policy_apply_post": GitBranchPolicyApplyRequest,
 	"apply_product_loop_feedback_api_v1_projects__project_id__product_loop__loop_id__feedback_post": ProductLoopFeedbackRequest,
 	"approvals_api_v1_approvals_get": never,
 	"approve_action_api_v1_jobs__job_id__actions__action_id__approve_post": ApprovalReasonRequest,
@@ -668,16 +723,19 @@ export type OperationRequestBodies = {
 	"architect_agent_status_api_v1_agents_architect_status_get": never,
 	"archive_thread_api_v1_threads__thread_id__archive_post": ThreadArchiveRequest,
 	"archive_workspace_api_v1_workspaces__workspace_id__archive_post": WorkspaceArchiveRequest,
+	"cancel_execution_api_v1_threads__thread_id__cancel_post": ThreadCancelRequest | null,
 	"cancel_job_api_v1_jobs__job_id__cancel_post": OptionalReasonRequest,
 	"cancel_session_api_v1_cli_sessions__session_id__cancel_post": unknown,
 	"cancel_workflow_api_v1_workflows__workflow_id__cancel_post": WorkflowStatusChangeRequest,
 	"checkout_git_branch_api_v1_projects__project_id__git_checkout_post": GitCheckoutRequest,
 	"cleanup_artifacts_api_v1_evidence_artifacts_cleanup_post": ArtifactCleanupRequest,
+	"configure_n8n_api_v1_integrations_n8n_configure_post": N8nWebhookTargetCreateRequest,
 	"create_agent_run_api_v1_agent_runs_post": AgentRunCreateRequest,
 	"create_architecture_decision_api_v1_architecture_decisions_post": ArchitectureDecisionCreateRequest,
 	"create_benchmark_outcome_api_v1_model_gateway_benchmark_outcomes_post": ModelBenchmarkOutcomeCreateRequest,
 	"create_budget_rule_api_v1_model_gateway_budget_rules_post": BudgetRuleUpsertRequest,
 	"create_credential_api_v1_credentials_post": CredentialCreateRequest,
+	"create_endpoint_api_v1_ollama_endpoints_post": OllamaEndpointCreateRequest,
 	"create_evidence_api_v1_evidence_post": EvidenceCreateRequest,
 	"create_git_branch_api_v1_projects__project_id__git_branches_post": GitBranchCreateRequest,
 	"create_job_api_v1_jobs_post": JobCreateRequest,
@@ -706,10 +764,13 @@ export type OperationRequestBodies = {
 	"disable_plugin_api_v1_plugins__plugin_id__disable_post": unknown,
 	"discover_models_api_v1_model_gateway_providers__provider_id__discover_models_post": unknown,
 	"discover_project_api_v1_projects_discover_post": ProjectDiscoveryRequest,
+	"dismiss_remediation_api_v1_remediations__remediation_id__dismiss_post": unknown,
+	"emit_n8n_api_v1_integrations_n8n_emit_post": N8nEventEmitRequest,
 	"emit_n8n_event_api_v1_integrations_n8n_emit_event_post": N8nEventEmitRequest,
 	"enable_plugin_api_v1_plugins__plugin_id__enable_post": unknown,
 	"evaluate_policy_api_v1_policies_evaluate_post": PolicyEvaluateRequest,
 	"events_api_v1_events_get": never,
+	"execute_remediation_api_v1_remediations__remediation_id__execute_post": RemediationExecuteRequest | null,
 	"export_evidence_report_api_v1_evidence__evidence_id__report_get": never,
 	"find_similar_threads_api_v1_threads_similar_get": never,
 	"find_similar_to_thread_api_v1_threads__thread_id__similar_get": never,
@@ -717,6 +778,7 @@ export type OperationRequestBodies = {
 	"get_cli_session_api_v1_model_gateway_cli_sessions__session_id__get": never,
 	"get_evidence_api_v1_evidence__evidence_id__get": never,
 	"get_i18n_catalog_api_v1_i18n_catalog_get": never,
+	"get_n8n_status_api_v1_integrations_n8n_status_get": never,
 	"get_product_loop_state_api_v1_projects__project_id__product_loop_get": never,
 	"get_provider_api_v1_model_gateway_providers__provider_id__get": never,
 	"get_self_improvement_state_api_v1_self_improvement_get": never,
@@ -730,8 +792,10 @@ export type OperationRequestBodies = {
 	"governance_api_v1_governance_get": never,
 	"handshake_api_v1_security_handshake_get": never,
 	"health_cli_runtime_api_v1_model_gateway_cli_runtimes__runtime_id__health_check_post": unknown,
+	"health_endpoint_api_v1_ollama_endpoints__endpoint_id__health_post": unknown,
 	"healthz_healthz_get": never,
 	"ingest_artifact_api_v1_evidence__evidence_id__artifacts_post": ArtifactIngestRequest,
+	"init_git_repository_api_v1_projects__project_id__git_init_post": GitInitRequest,
 	"install_local_plugin_api_v1_plugins_install_local_post": PluginInstallLocalRequest,
 	"list_agent_profiles_api_v1_agent_profiles_get": never,
 	"list_agent_runs_api_v1_agent_runs_get": never,
@@ -745,6 +809,7 @@ export type OperationRequestBodies = {
 	"list_cli_sessions_api_v1_model_gateway_cli_sessions_get": never,
 	"list_credential_audit_api_v1_credentials_audit_get": never,
 	"list_credentials_api_v1_credentials_get": never,
+	"list_endpoints_api_v1_ollama_endpoints_get": never,
 	"list_evidence_api_v1_evidence_get": never,
 	"list_findings_api_v1_projects__project_id__findings_get": never,
 	"list_ide_connections_api_v1_ide_connections_get": never,
@@ -769,6 +834,7 @@ export type OperationRequestBodies = {
 	"list_runtime_providers_api_v1_runtime_providers_get": never,
 	"list_sessions_api_v1_legacy_sessions_get": never,
 	"list_skills_api_v1_skills_get": never,
+	"list_thread_remediations_api_v1_threads__thread_id__remediations_get": never,
 	"list_threads_api_v1_threads_get": never,
 	"list_usage_ledger_api_v1_model_gateway_usage_ledger_get": never,
 	"list_workflows_api_v1_workflows_get": never,
@@ -787,7 +853,9 @@ export type OperationRequestBodies = {
 	"pause_workflow_api_v1_workflows__workflow_id__pause_post": WorkflowStatusChangeRequest,
 	"plan_artifact_retention_api_v1_evidence_artifacts_retention_post": ArtifactRetentionPlanRequest,
 	"post_message_api_v1_threads__thread_id__messages_post": ThreadMessageRequest,
+	"post_note_api_v1_threads__thread_id__notes_post": ThreadNoteRequest,
 	"product_owner_agent_status_api_v1_agents_product_owner_status_get": never,
+	"project_functionality_api_v1_projects__project_id__functionality_get": never,
 	"project_templates_api_v1_project_templates_get": never,
 	"projects_api_v1_projects_get": never,
 	"promote_issue_to_pr_branch_api_v1_workflows_issue_to_pr__run_id__promote_post": PromotePatchToBranchRequest,
@@ -797,10 +865,12 @@ export type OperationRequestBodies = {
 	"providers_api_v1_providers_get": never,
 	"put_i18n_catalog_api_v1_i18n_catalog_put": I18nCatalog,
 	"put_setting_api_v1_settings__key__put": SetSettingRequest,
+	"receive_n8n_inbound_api_v1_integrations_n8n_inbound__token__post": N8nInboundWebhookRequest,
 	"receive_n8n_webhook_api_v1_integrations_n8n_webhook_post": N8nInboundWebhookRequest,
 	"record_self_improvement_lesson_api_v1_self_improvement_lessons_post": SelfImprovementLessonRequest,
 	"record_self_improvement_performance_api_v1_self_improvement_performance_records_post": SelfImprovementPerformanceRequest,
 	"register_mcp_server_api_v1_integrations_mcp_register_post": McpServerRegisterRequest,
+	"reindex_thread_memory_api_v1_threads__thread_id__memory_reindex_post": unknown,
 	"research_agent_status_api_v1_agents_research_status_get": never,
 	"resolve_decision_api_v1_threads__thread_id__decisions__decision_id__resolve_post": ThreadDecisionResolveRequest,
 	"resume_workflow_api_v1_workflows__workflow_id__resume_post": WorkflowStatusChangeRequest,
@@ -831,11 +901,14 @@ export type OperationRequestBodies = {
 	"start_product_loop_api_v1_projects__project_id__product_loop_post": ProductLoopStartRequest,
 	"start_session_api_v1_cli_sessions_post": CliSessionStartRequest,
 	"start_workflow_api_v1_workflows__workflow_id__start_post": WorkflowStatusChangeRequest,
+	"sync_models_api_v1_ollama_endpoints__endpoint_id__sync_models_post": unknown,
 	"sync_skills_api_v1_skills_sync_post": SkillsSyncRequest,
 	"team_activity_api_v1_projects__project_id__team_activity_get": never,
 	"teams_api_v1_teams_get": never,
 	"telemetry_status_api_v1_telemetry_status_get": never,
+	"test_git_remote_api_v1_projects__project_id__git_remotes__name__test_post": GitRemoteTestRequest,
 	"test_n8n_target_api_v1_integrations_n8n_test_post": N8nEventTestRequest,
+	"test_prompt_api_v1_model_gateway_providers__provider_id__test_prompt_post": TestPromptRequest,
 	"thread_events_api_v1_threads__thread_id__events_get": never,
 	"thread_memory_api_v1_threads__thread_id__memory_get": never,
 	"transition_product_loop_api_v1_projects__project_id__product_loop__loop_id__transition_post": ProductLoopTransitionRequest,
@@ -858,12 +931,14 @@ export type OperationRequestBodies = {
 };
 
 export type OperationResponseBodies = {
+	"add_git_remote_api_v1_projects__project_id__git_remotes_post": GitRemoteMutationResponse,
 	"advance_workflow_gate_api_v1_workflows__workflow_id__steps__step_id__advance_post": WorkflowGateAdvanceResponse,
 	"agent_profile_override_api_v1_projects__project_id__agent_profile_overrides__profile_id__put": AgentProfileResponse,
 	"agents_api_v1_agents_get": AgentsListResponse,
 	"aido_decide_product_loop_api_v1_projects__project_id__product_loop__loop_id__aido_decide_post": ProductLoopStateResponse,
 	"allocate_workspace_api_v1_workspaces_post": WorkspaceResponse,
 	"apply_artifact_retention_action_api_v1_evidence_artifacts_retention_actions_post": ArtifactRetentionActionResponse,
+	"apply_git_branch_policy_api_v1_projects__project_id__git_branch_policy_apply_post": GitBranchPolicyApplyResponse,
 	"apply_product_loop_feedback_api_v1_projects__project_id__product_loop__loop_id__feedback_post": ProductLoopFeedbackApplyResponse,
 	"approvals_api_v1_approvals_get": ApprovalsListResponse,
 	"approve_action_api_v1_jobs__job_id__actions__action_id__approve_post": JobMutationResponse,
@@ -875,16 +950,19 @@ export type OperationResponseBodies = {
 	"architect_agent_status_api_v1_agents_architect_status_get": ArchitectAgentStatusResponse,
 	"archive_thread_api_v1_threads__thread_id__archive_post": ThreadArchiveResponse,
 	"archive_workspace_api_v1_workspaces__workspace_id__archive_post": WorkspaceArchiveResponse,
+	"cancel_execution_api_v1_threads__thread_id__cancel_post": ThreadCancelResponse,
 	"cancel_job_api_v1_jobs__job_id__cancel_post": JobMutationResponse,
 	"cancel_session_api_v1_cli_sessions__session_id__cancel_post": CliSessionCancelResponse,
 	"cancel_workflow_api_v1_workflows__workflow_id__cancel_post": WorkflowResponse,
 	"checkout_git_branch_api_v1_projects__project_id__git_checkout_post": GitCheckoutResponse,
 	"cleanup_artifacts_api_v1_evidence_artifacts_cleanup_post": ArtifactCleanupResponse,
+	"configure_n8n_api_v1_integrations_n8n_configure_post": N8nWebhookTargetResponse,
 	"create_agent_run_api_v1_agent_runs_post": AgentRunResponse,
 	"create_architecture_decision_api_v1_architecture_decisions_post": ArchitectureDecisionResponse,
 	"create_benchmark_outcome_api_v1_model_gateway_benchmark_outcomes_post": ModelBenchmarkOutcomeResponse,
 	"create_budget_rule_api_v1_model_gateway_budget_rules_post": BudgetRuleResponse,
 	"create_credential_api_v1_credentials_post": CredentialResponse,
+	"create_endpoint_api_v1_ollama_endpoints_post": OllamaEndpointResponse,
 	"create_evidence_api_v1_evidence_post": EvidencePackageResponse,
 	"create_git_branch_api_v1_projects__project_id__git_branches_post": GitBranchMutationResponse,
 	"create_job_api_v1_jobs_post": JobMutationResponse,
@@ -913,10 +991,13 @@ export type OperationResponseBodies = {
 	"disable_plugin_api_v1_plugins__plugin_id__disable_post": PluginResponse,
 	"discover_models_api_v1_model_gateway_providers__provider_id__discover_models_post": DiscoverModelsResponse,
 	"discover_project_api_v1_projects_discover_post": ProjectDiscoveryResponse,
+	"dismiss_remediation_api_v1_remediations__remediation_id__dismiss_post": RemediationDismissResponse,
+	"emit_n8n_api_v1_integrations_n8n_emit_post": N8nEventDeliveryResponse,
 	"emit_n8n_event_api_v1_integrations_n8n_emit_event_post": N8nEventDeliveryResponse,
 	"enable_plugin_api_v1_plugins__plugin_id__enable_post": PluginResponse,
 	"evaluate_policy_api_v1_policies_evaluate_post": PolicyEvaluationResponse,
 	"events_api_v1_events_get": never,
+	"execute_remediation_api_v1_remediations__remediation_id__execute_post": RemediationExecuteResponse,
 	"export_evidence_report_api_v1_evidence__evidence_id__report_get": never,
 	"find_similar_threads_api_v1_threads_similar_get": ThreadSimilarityResponse,
 	"find_similar_to_thread_api_v1_threads__thread_id__similar_get": ThreadSimilarityResponse,
@@ -924,6 +1005,7 @@ export type OperationResponseBodies = {
 	"get_cli_session_api_v1_model_gateway_cli_sessions__session_id__get": CliSessionResponse,
 	"get_evidence_api_v1_evidence__evidence_id__get": EvidenceDetailResponse,
 	"get_i18n_catalog_api_v1_i18n_catalog_get": I18nCatalogResponse,
+	"get_n8n_status_api_v1_integrations_n8n_status_get": N8nIntegrationStatusResponse,
 	"get_product_loop_state_api_v1_projects__project_id__product_loop_get": ProductLoopStateResponse,
 	"get_provider_api_v1_model_gateway_providers__provider_id__get": ProviderAccountResponse,
 	"get_self_improvement_state_api_v1_self_improvement_get": SelfImprovementStateResponse,
@@ -937,8 +1019,10 @@ export type OperationResponseBodies = {
 	"governance_api_v1_governance_get": GovernanceResponse,
 	"handshake_api_v1_security_handshake_get": HandshakeResponse,
 	"health_cli_runtime_api_v1_model_gateway_cli_runtimes__runtime_id__health_check_post": RuntimeHealthResponse,
+	"health_endpoint_api_v1_ollama_endpoints__endpoint_id__health_post": OllamaEndpointHealthResponse,
 	"healthz_healthz_get": HealthResponse,
 	"ingest_artifact_api_v1_evidence__evidence_id__artifacts_post": ArtifactResponse,
+	"init_git_repository_api_v1_projects__project_id__git_init_post": GitInitResponse,
 	"install_local_plugin_api_v1_plugins_install_local_post": PluginResponse,
 	"list_agent_profiles_api_v1_agent_profiles_get": AgentProfilesListResponse,
 	"list_agent_runs_api_v1_agent_runs_get": AgentRunsListResponse,
@@ -952,6 +1036,7 @@ export type OperationResponseBodies = {
 	"list_cli_sessions_api_v1_model_gateway_cli_sessions_get": CliSessionsListResponse,
 	"list_credential_audit_api_v1_credentials_audit_get": CredentialAuditResponse,
 	"list_credentials_api_v1_credentials_get": CredentialsListResponse,
+	"list_endpoints_api_v1_ollama_endpoints_get": OllamaEndpointsListResponse,
 	"list_evidence_api_v1_evidence_get": EvidenceListResponse,
 	"list_findings_api_v1_projects__project_id__findings_get": ProjectFindingsListResponse,
 	"list_ide_connections_api_v1_ide_connections_get": IdeConnectionsListResponse,
@@ -976,6 +1061,7 @@ export type OperationResponseBodies = {
 	"list_runtime_providers_api_v1_runtime_providers_get": RuntimeProvidersResponse,
 	"list_sessions_api_v1_legacy_sessions_get": SessionsListResponse,
 	"list_skills_api_v1_skills_get": SkillsListResponse,
+	"list_thread_remediations_api_v1_threads__thread_id__remediations_get": RemediationListResponse,
 	"list_threads_api_v1_threads_get": ThreadListResponse,
 	"list_usage_ledger_api_v1_model_gateway_usage_ledger_get": UsageLedgerListResponse,
 	"list_workflows_api_v1_workflows_get": WorkflowsListResponse,
@@ -994,7 +1080,9 @@ export type OperationResponseBodies = {
 	"pause_workflow_api_v1_workflows__workflow_id__pause_post": WorkflowResponse,
 	"plan_artifact_retention_api_v1_evidence_artifacts_retention_post": ArtifactRetentionPlanResponse,
 	"post_message_api_v1_threads__thread_id__messages_post": ThreadMessageResultResponse,
+	"post_note_api_v1_threads__thread_id__notes_post": ThreadNoteResponse,
 	"product_owner_agent_status_api_v1_agents_product_owner_status_get": ProductOwnerAgentStatusResponse,
+	"project_functionality_api_v1_projects__project_id__functionality_get": ProjectFunctionalityResponse,
 	"project_templates_api_v1_project_templates_get": ProjectTemplatesResponse,
 	"projects_api_v1_projects_get": ProjectsListResponse,
 	"promote_issue_to_pr_branch_api_v1_workflows_issue_to_pr__run_id__promote_post": IssueToPrResponse,
@@ -1004,10 +1092,12 @@ export type OperationResponseBodies = {
 	"providers_api_v1_providers_get": ProvidersListResponse,
 	"put_i18n_catalog_api_v1_i18n_catalog_put": I18nCatalogResponse,
 	"put_setting_api_v1_settings__key__put": never,
+	"receive_n8n_inbound_api_v1_integrations_n8n_inbound__token__post": N8nInboundWebhookResponse,
 	"receive_n8n_webhook_api_v1_integrations_n8n_webhook_post": N8nInboundWebhookResponse,
 	"record_self_improvement_lesson_api_v1_self_improvement_lessons_post": SelfImprovementLessonResponse,
 	"record_self_improvement_performance_api_v1_self_improvement_performance_records_post": SelfImprovementPerformanceResponse,
 	"register_mcp_server_api_v1_integrations_mcp_register_post": McpServerResponse,
+	"reindex_thread_memory_api_v1_threads__thread_id__memory_reindex_post": ThreadMemoryReindexResponse,
 	"research_agent_status_api_v1_agents_research_status_get": ResearchAgentStatusResponse,
 	"resolve_decision_api_v1_threads__thread_id__decisions__decision_id__resolve_post": ThreadDecisionResolveResponse,
 	"resume_workflow_api_v1_workflows__workflow_id__resume_post": WorkflowResponse,
@@ -1038,11 +1128,14 @@ export type OperationResponseBodies = {
 	"start_product_loop_api_v1_projects__project_id__product_loop_post": ProductLoopResumeResponse,
 	"start_session_api_v1_cli_sessions_post": CliSessionStartResponse,
 	"start_workflow_api_v1_workflows__workflow_id__start_post": WorkflowStartResponse,
+	"sync_models_api_v1_ollama_endpoints__endpoint_id__sync_models_post": OllamaSyncModelsResponse,
 	"sync_skills_api_v1_skills_sync_post": SkillsSyncResponse,
 	"team_activity_api_v1_projects__project_id__team_activity_get": TeamActivityResponse,
 	"teams_api_v1_teams_get": TeamsListResponse,
 	"telemetry_status_api_v1_telemetry_status_get": TelemetryStatusResponse,
+	"test_git_remote_api_v1_projects__project_id__git_remotes__name__test_post": GitRemoteTestResponse,
 	"test_n8n_target_api_v1_integrations_n8n_test_post": N8nEventDeliveryResponse,
+	"test_prompt_api_v1_model_gateway_providers__provider_id__test_prompt_post": TestPromptResponse,
 	"thread_events_api_v1_threads__thread_id__events_get": ThreadEventsResponse,
 	"thread_memory_api_v1_threads__thread_id__memory_get": ThreadMemoryRecallResponse,
 	"transition_product_loop_api_v1_projects__project_id__product_loop__loop_id__transition_post": ProductLoopResumeResponse,
@@ -1116,7 +1209,11 @@ export const OPERATIONS_BY_ID = {
 	"upsert_ide_connection_api_v1_ide_connections_post": {"method": "POST", "operationId": "upsert_ide_connection_api_v1_ide_connections_post", "path": "/api/v1/ide-connections", "summary": "Upsert Ide Connection"},
 	"list_integrations_api_v1_integrations_get": {"method": "GET", "operationId": "list_integrations_api_v1_integrations_get", "path": "/api/v1/integrations", "summary": "List Integrations"},
 	"register_mcp_server_api_v1_integrations_mcp_register_post": {"method": "POST", "operationId": "register_mcp_server_api_v1_integrations_mcp_register_post", "path": "/api/v1/integrations/mcp/register", "summary": "Register Mcp Server"},
+	"configure_n8n_api_v1_integrations_n8n_configure_post": {"method": "POST", "operationId": "configure_n8n_api_v1_integrations_n8n_configure_post", "path": "/api/v1/integrations/n8n/configure", "summary": "Configure N8N"},
+	"emit_n8n_api_v1_integrations_n8n_emit_post": {"method": "POST", "operationId": "emit_n8n_api_v1_integrations_n8n_emit_post", "path": "/api/v1/integrations/n8n/emit", "summary": "Emit N8N"},
 	"emit_n8n_event_api_v1_integrations_n8n_emit_event_post": {"method": "POST", "operationId": "emit_n8n_event_api_v1_integrations_n8n_emit_event_post", "path": "/api/v1/integrations/n8n/emit-event", "summary": "Emit N8N Event"},
+	"receive_n8n_inbound_api_v1_integrations_n8n_inbound__token__post": {"method": "POST", "operationId": "receive_n8n_inbound_api_v1_integrations_n8n_inbound__token__post", "path": "/api/v1/integrations/n8n/inbound/{token}", "summary": "Receive N8N Inbound"},
+	"get_n8n_status_api_v1_integrations_n8n_status_get": {"method": "GET", "operationId": "get_n8n_status_api_v1_integrations_n8n_status_get", "path": "/api/v1/integrations/n8n/status", "summary": "Get N8N Status"},
 	"test_n8n_target_api_v1_integrations_n8n_test_post": {"method": "POST", "operationId": "test_n8n_target_api_v1_integrations_n8n_test_post", "path": "/api/v1/integrations/n8n/test", "summary": "Test N8N Target"},
 	"receive_n8n_webhook_api_v1_integrations_n8n_webhook_post": {"method": "POST", "operationId": "receive_n8n_webhook_api_v1_integrations_n8n_webhook_post", "path": "/api/v1/integrations/n8n/webhook", "summary": "Receive N8N Webhook"},
 	"upsert_n8n_webhook_target_api_v1_integrations_n8n_webhook_targets_post": {"method": "POST", "operationId": "upsert_n8n_webhook_target_api_v1_integrations_n8n_webhook_targets_post", "path": "/api/v1/integrations/n8n/webhook-targets", "summary": "Upsert N8N Webhook Target"},
@@ -1159,6 +1256,7 @@ export const OPERATIONS_BY_ID = {
 	"patch_provider_api_v1_model_gateway_providers__provider_id__patch": {"method": "PATCH", "operationId": "patch_provider_api_v1_model_gateway_providers__provider_id__patch", "path": "/api/v1/model-gateway/providers/{provider_id}", "summary": "Patch Provider"},
 	"discover_models_api_v1_model_gateway_providers__provider_id__discover_models_post": {"method": "POST", "operationId": "discover_models_api_v1_model_gateway_providers__provider_id__discover_models_post", "path": "/api/v1/model-gateway/providers/{provider_id}/discover-models", "summary": "Discover Models"},
 	"provider_health_check_api_v1_model_gateway_providers__provider_id__health_check_post": {"method": "POST", "operationId": "provider_health_check_api_v1_model_gateway_providers__provider_id__health_check_post", "path": "/api/v1/model-gateway/providers/{provider_id}/health-check", "summary": "Provider Health Check"},
+	"test_prompt_api_v1_model_gateway_providers__provider_id__test_prompt_post": {"method": "POST", "operationId": "test_prompt_api_v1_model_gateway_providers__provider_id__test_prompt_post", "path": "/api/v1/model-gateway/providers/{provider_id}/test-prompt", "summary": "Test Prompt"},
 	"list_role_policies_api_v1_model_gateway_role_policies_get": {"method": "GET", "operationId": "list_role_policies_api_v1_model_gateway_role_policies_get", "path": "/api/v1/model-gateway/role-policies", "summary": "List Role Policies"},
 	"create_role_policy_api_v1_model_gateway_role_policies_post": {"method": "POST", "operationId": "create_role_policy_api_v1_model_gateway_role_policies_post", "path": "/api/v1/model-gateway/role-policies", "summary": "Create Role Policy"},
 	"patch_role_policy_api_v1_model_gateway_role_policies__policy_id__patch": {"method": "PATCH", "operationId": "patch_role_policy_api_v1_model_gateway_role_policies__policy_id__patch", "path": "/api/v1/model-gateway/role-policies/{policy_id}", "summary": "Patch Role Policy"},
@@ -1173,6 +1271,10 @@ export const OPERATIONS_BY_ID = {
 	"list_next_steps_api_v1_next_steps_get": {"method": "GET", "operationId": "list_next_steps_api_v1_next_steps_get", "path": "/api/v1/next-steps", "summary": "List Next Steps"},
 	"create_next_step_api_v1_next_steps_post": {"method": "POST", "operationId": "create_next_step_api_v1_next_steps_post", "path": "/api/v1/next-steps", "summary": "Create Next Step"},
 	"update_next_step_api_v1_next_steps__step_id__patch": {"method": "PATCH", "operationId": "update_next_step_api_v1_next_steps__step_id__patch", "path": "/api/v1/next-steps/{step_id}", "summary": "Update Next Step"},
+	"list_endpoints_api_v1_ollama_endpoints_get": {"method": "GET", "operationId": "list_endpoints_api_v1_ollama_endpoints_get", "path": "/api/v1/ollama/endpoints", "summary": "List Endpoints"},
+	"create_endpoint_api_v1_ollama_endpoints_post": {"method": "POST", "operationId": "create_endpoint_api_v1_ollama_endpoints_post", "path": "/api/v1/ollama/endpoints", "summary": "Create Endpoint"},
+	"health_endpoint_api_v1_ollama_endpoints__endpoint_id__health_post": {"method": "POST", "operationId": "health_endpoint_api_v1_ollama_endpoints__endpoint_id__health_post", "path": "/api/v1/ollama/endpoints/{endpoint_id}/health", "summary": "Health Endpoint"},
+	"sync_models_api_v1_ollama_endpoints__endpoint_id__sync_models_post": {"method": "POST", "operationId": "sync_models_api_v1_ollama_endpoints__endpoint_id__sync_models_post", "path": "/api/v1/ollama/endpoints/{endpoint_id}/sync-models", "summary": "Sync Models"},
 	"open_design_api_v1_open_design_get": {"method": "GET", "operationId": "open_design_api_v1_open_design_get", "path": "/api/v1/open-design", "summary": "Open Design"},
 	"overview_api_v1_overview_get": {"method": "GET", "operationId": "overview_api_v1_overview_get", "path": "/api/v1/overview", "summary": "Overview"},
 	"revoke_permission_grant_api_v1_permissions_grants__grant_id__revoke_post": {"method": "POST", "operationId": "revoke_permission_grant_api_v1_permissions_grants__grant_id__revoke_post", "path": "/api/v1/permissions/grants/{grant_id}/revoke", "summary": "Revoke Permission Grant"},
@@ -1193,11 +1295,16 @@ export const OPERATIONS_BY_ID = {
 	"run_assessment_api_v1_projects__project_id__assessment_post": {"method": "POST", "operationId": "run_assessment_api_v1_projects__project_id__assessment_post", "path": "/api/v1/projects/{project_id}/assessment", "summary": "Run Assessment"},
 	"list_assessments_api_v1_projects__project_id__assessments_get": {"method": "GET", "operationId": "list_assessments_api_v1_projects__project_id__assessments_get", "path": "/api/v1/projects/{project_id}/assessments", "summary": "List Assessments"},
 	"list_findings_api_v1_projects__project_id__findings_get": {"method": "GET", "operationId": "list_findings_api_v1_projects__project_id__findings_get", "path": "/api/v1/projects/{project_id}/findings", "summary": "List Findings"},
+	"project_functionality_api_v1_projects__project_id__functionality_get": {"method": "GET", "operationId": "project_functionality_api_v1_projects__project_id__functionality_get", "path": "/api/v1/projects/{project_id}/functionality", "summary": "Project Functionality"},
+	"apply_git_branch_policy_api_v1_projects__project_id__git_branch_policy_apply_post": {"method": "POST", "operationId": "apply_git_branch_policy_api_v1_projects__project_id__git_branch_policy_apply_post", "path": "/api/v1/projects/{project_id}/git/branch-policy/apply", "summary": "Apply Git Branch Policy"},
 	"git_branches_api_v1_projects__project_id__git_branches_get": {"method": "GET", "operationId": "git_branches_api_v1_projects__project_id__git_branches_get", "path": "/api/v1/projects/{project_id}/git/branches", "summary": "Git Branches"},
 	"create_git_branch_api_v1_projects__project_id__git_branches_post": {"method": "POST", "operationId": "create_git_branch_api_v1_projects__project_id__git_branches_post", "path": "/api/v1/projects/{project_id}/git/branches", "summary": "Create Git Branch"},
 	"checkout_git_branch_api_v1_projects__project_id__git_checkout_post": {"method": "POST", "operationId": "checkout_git_branch_api_v1_projects__project_id__git_checkout_post", "path": "/api/v1/projects/{project_id}/git/checkout", "summary": "Checkout Git Branch"},
 	"git_diff_api_v1_projects__project_id__git_diff_get": {"method": "GET", "operationId": "git_diff_api_v1_projects__project_id__git_diff_get", "path": "/api/v1/projects/{project_id}/git/diff", "summary": "Git Diff"},
 	"git_gitleaks_scan_api_v1_projects__project_id__git_gitleaks_scan_post": {"method": "POST", "operationId": "git_gitleaks_scan_api_v1_projects__project_id__git_gitleaks_scan_post", "path": "/api/v1/projects/{project_id}/git/gitleaks/scan", "summary": "Git Gitleaks Scan"},
+	"init_git_repository_api_v1_projects__project_id__git_init_post": {"method": "POST", "operationId": "init_git_repository_api_v1_projects__project_id__git_init_post", "path": "/api/v1/projects/{project_id}/git/init", "summary": "Init Git Repository"},
+	"add_git_remote_api_v1_projects__project_id__git_remotes_post": {"method": "POST", "operationId": "add_git_remote_api_v1_projects__project_id__git_remotes_post", "path": "/api/v1/projects/{project_id}/git/remotes", "summary": "Add Git Remote"},
+	"test_git_remote_api_v1_projects__project_id__git_remotes__name__test_post": {"method": "POST", "operationId": "test_git_remote_api_v1_projects__project_id__git_remotes__name__test_post", "path": "/api/v1/projects/{project_id}/git/remotes/{name}/test", "summary": "Test Git Remote"},
 	"git_status_api_v1_projects__project_id__git_status_get": {"method": "GET", "operationId": "git_status_api_v1_projects__project_id__git_status_get", "path": "/api/v1/projects/{project_id}/git/status", "summary": "Git Status"},
 	"get_product_loop_state_api_v1_projects__project_id__product_loop_get": {"method": "GET", "operationId": "get_product_loop_state_api_v1_projects__project_id__product_loop_get", "path": "/api/v1/projects/{project_id}/product-loop", "summary": "Get Product Loop State"},
 	"start_product_loop_api_v1_projects__project_id__product_loop_post": {"method": "POST", "operationId": "start_product_loop_api_v1_projects__project_id__product_loop_post", "path": "/api/v1/projects/{project_id}/product-loop", "summary": "Start Product Loop"},
@@ -1210,6 +1317,8 @@ export const OPERATIONS_BY_ID = {
 	"list_prompts_api_v1_prompts_get": {"method": "GET", "operationId": "list_prompts_api_v1_prompts_get", "path": "/api/v1/prompts", "summary": "List Prompts"},
 	"upsert_prompt_api_v1_prompts_post": {"method": "POST", "operationId": "upsert_prompt_api_v1_prompts_post", "path": "/api/v1/prompts", "summary": "Upsert Prompt"},
 	"providers_api_v1_providers_get": {"method": "GET", "operationId": "providers_api_v1_providers_get", "path": "/api/v1/providers", "summary": "Providers"},
+	"dismiss_remediation_api_v1_remediations__remediation_id__dismiss_post": {"method": "POST", "operationId": "dismiss_remediation_api_v1_remediations__remediation_id__dismiss_post", "path": "/api/v1/remediations/{remediation_id}/dismiss", "summary": "Dismiss Remediation"},
+	"execute_remediation_api_v1_remediations__remediation_id__execute_post": {"method": "POST", "operationId": "execute_remediation_api_v1_remediations__remediation_id__execute_post", "path": "/api/v1/remediations/{remediation_id}/execute", "summary": "Execute Remediation"},
 	"retrieval_reindex_api_v1_retrieval_reindex_post": {"method": "POST", "operationId": "retrieval_reindex_api_v1_retrieval_reindex_post", "path": "/api/v1/retrieval/reindex", "summary": "Retrieval Reindex"},
 	"retrieval_search_api_v1_retrieval_search_post": {"method": "POST", "operationId": "retrieval_search_api_v1_retrieval_search_post", "path": "/api/v1/retrieval/search", "summary": "Retrieval Search"},
 	"retrieval_status_api_v1_retrieval_status_get": {"method": "GET", "operationId": "retrieval_status_api_v1_retrieval_status_get", "path": "/api/v1/retrieval/status", "summary": "Retrieval Status"},
@@ -1241,10 +1350,14 @@ export const OPERATIONS_BY_ID = {
 	"get_thread_api_v1_threads__thread_id__get": {"method": "GET", "operationId": "get_thread_api_v1_threads__thread_id__get", "path": "/api/v1/threads/{thread_id}", "summary": "Get Thread"},
 	"update_thread_api_v1_threads__thread_id__patch": {"method": "PATCH", "operationId": "update_thread_api_v1_threads__thread_id__patch", "path": "/api/v1/threads/{thread_id}", "summary": "Update Thread"},
 	"archive_thread_api_v1_threads__thread_id__archive_post": {"method": "POST", "operationId": "archive_thread_api_v1_threads__thread_id__archive_post", "path": "/api/v1/threads/{thread_id}/archive", "summary": "Archive Thread"},
+	"cancel_execution_api_v1_threads__thread_id__cancel_post": {"method": "POST", "operationId": "cancel_execution_api_v1_threads__thread_id__cancel_post", "path": "/api/v1/threads/{thread_id}/cancel", "summary": "Cancel Execution"},
 	"resolve_decision_api_v1_threads__thread_id__decisions__decision_id__resolve_post": {"method": "POST", "operationId": "resolve_decision_api_v1_threads__thread_id__decisions__decision_id__resolve_post", "path": "/api/v1/threads/{thread_id}/decisions/{decision_id}/resolve", "summary": "Resolve Decision"},
 	"thread_events_api_v1_threads__thread_id__events_get": {"method": "GET", "operationId": "thread_events_api_v1_threads__thread_id__events_get", "path": "/api/v1/threads/{thread_id}/events", "summary": "Thread Events"},
 	"thread_memory_api_v1_threads__thread_id__memory_get": {"method": "GET", "operationId": "thread_memory_api_v1_threads__thread_id__memory_get", "path": "/api/v1/threads/{thread_id}/memory", "summary": "Thread Memory"},
+	"reindex_thread_memory_api_v1_threads__thread_id__memory_reindex_post": {"method": "POST", "operationId": "reindex_thread_memory_api_v1_threads__thread_id__memory_reindex_post", "path": "/api/v1/threads/{thread_id}/memory/reindex", "summary": "Reindex Thread Memory"},
 	"post_message_api_v1_threads__thread_id__messages_post": {"method": "POST", "operationId": "post_message_api_v1_threads__thread_id__messages_post", "path": "/api/v1/threads/{thread_id}/messages", "summary": "Post Message"},
+	"post_note_api_v1_threads__thread_id__notes_post": {"method": "POST", "operationId": "post_note_api_v1_threads__thread_id__notes_post", "path": "/api/v1/threads/{thread_id}/notes", "summary": "Post Note"},
+	"list_thread_remediations_api_v1_threads__thread_id__remediations_get": {"method": "GET", "operationId": "list_thread_remediations_api_v1_threads__thread_id__remediations_get", "path": "/api/v1/threads/{thread_id}/remediations", "summary": "List Thread Remediations"},
 	"find_similar_to_thread_api_v1_threads__thread_id__similar_get": {"method": "GET", "operationId": "find_similar_to_thread_api_v1_threads__thread_id__similar_get", "path": "/api/v1/threads/{thread_id}/similar", "summary": "Find Similar To Thread"},
 	"mark_similar_thread_api_v1_threads__thread_id__similar__candidate_id__mark_post": {"method": "POST", "operationId": "mark_similar_thread_api_v1_threads__thread_id__similar__candidate_id__mark_post", "path": "/api/v1/threads/{thread_id}/similar/{candidate_id}/mark", "summary": "Mark Similar Thread"},
 	"unarchive_thread_api_v1_threads__thread_id__unarchive_post": {"method": "POST", "operationId": "unarchive_thread_api_v1_threads__thread_id__unarchive_post", "path": "/api/v1/threads/{thread_id}/unarchive", "summary": "Unarchive Thread"},

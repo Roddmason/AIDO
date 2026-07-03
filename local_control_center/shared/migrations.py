@@ -60,6 +60,11 @@ def initialize_platform_schema(connection: sqlite3.Connection) -> None:
     init_phase39_schema(connection)
     init_phase40_schema(connection)
     init_phase41_schema(connection)
+    init_phase42_schema(connection)
+    init_phase43_schema(connection)
+    init_phase44_schema(connection)
+    init_phase45_schema(connection)
+    init_phase46_schema(connection)
     seed_platform_catalogs(connection)
 
 
@@ -1509,6 +1514,96 @@ def init_phase12_schema(connection: sqlite3.Connection) -> None:
         ),
         ("openhands", "openhands", "OpenHands", "cli", "cli", "", "", 0, "manual", "unknown"),
         ("swe_agent", "swe_agent", "SWE-agent", "cli", "cli", "", "", 0, "manual", "unknown"),
+        # OpenAI-compatible API providers with preconfigured base URLs (verified against official docs):
+        # only an API key is needed to enable them from the Providers & CLI setup catalog.
+        (
+            "deepseek",
+            "deepseek",
+            "DeepSeek",
+            "api",
+            "openai_compatible",
+            "https://api.deepseek.com/v1",
+            "",
+            0,
+            "none",
+            "unknown",
+        ),
+        (
+            "groq",
+            "groq",
+            "Groq",
+            "api",
+            "openai_compatible",
+            "https://api.groq.com/openai/v1",
+            "",
+            0,
+            "none",
+            "unknown",
+        ),
+        (
+            "mistral",
+            "mistral",
+            "Mistral AI",
+            "api",
+            "openai_compatible",
+            "https://api.mistral.ai/v1",
+            "",
+            0,
+            "none",
+            "unknown",
+        ),
+        (
+            "kimi",
+            "kimi",
+            "Kimi (Moonshot)",
+            "api",
+            "openai_compatible",
+            "https://api.moonshot.ai/v1",
+            "",
+            0,
+            "none",
+            "unknown",
+        ),
+        (
+            "gemini",
+            "gemini",
+            "Google Gemini",
+            "api",
+            "openai_compatible",
+            "https://generativelanguage.googleapis.com/v1beta/openai/",
+            "",
+            0,
+            "none",
+            "unknown",
+        ),
+        # Azure OpenAI speaks the OpenAI dialect but authenticates with an api-key header and a
+        # per-resource endpoint, so the base URL is supplied by the operator (no default is possible).
+        (
+            "azure_openai",
+            "azure_openai",
+            "Azure OpenAI",
+            "api",
+            "azure_openai",
+            "",
+            "",
+            0,
+            "none",
+            "unknown",
+        ),
+        # Remote Ollama reuses the Ollama adapter (apiFormat=ollama) but always needs the operator's
+        # server URL and, when the deployment is authenticated, a bearer credential.
+        (
+            "ollama_remote",
+            "ollama_remote",
+            "Ollama Remote",
+            "local",
+            "ollama",
+            "",
+            "",
+            0,
+            "none",
+            "unknown",
+        ),
         ("manual", "manual", "Manual Operator", "manual", "cli", "", "", 1, "none", "healthy"),
     ]
     for row in provider_accounts:
@@ -4436,6 +4531,313 @@ def init_phase41_schema(connection: sqlite3.Connection) -> None:
     connection.execute(
         "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
         (41, utc_now()),
+    )
+
+
+def init_phase42_schema(connection: sqlite3.Connection) -> None:
+    """Fase 42: acciones reparables para blockers de threads/product loop."""
+    connection.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS remediation_actions (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            thread_id TEXT NOT NULL,
+            loop_id TEXT NOT NULL,
+            stage TEXT NOT NULL,
+            blocker_type TEXT NOT NULL,
+            title TEXT NOT NULL,
+            description TEXT NOT NULL,
+            action_type TEXT NOT NULL,
+            payload_json TEXT NOT NULL,
+            status TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            resolved_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_remediation_actions_thread_status
+            ON remediation_actions(thread_id, status, created_at);
+        CREATE INDEX IF NOT EXISTS idx_remediation_actions_project
+            ON remediation_actions(project_id, blocker_type, created_at);
+        CREATE INDEX IF NOT EXISTS idx_remediation_actions_loop
+            ON remediation_actions(loop_id, status, created_at);
+        """
+    )
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (42, utc_now()),
+    )
+
+
+def init_phase43_schema(connection: sqlite3.Connection) -> None:
+    """Fase 43: metadata segura de remotos Git por proyecto."""
+    connection.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS git_remotes (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            url TEXT NOT NULL,
+            scheme TEXT NOT NULL,
+            host TEXT NOT NULL,
+            path TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            last_tested_at TEXT,
+            last_test_status TEXT,
+            last_test_reason TEXT,
+            metadata TEXT NOT NULL,
+            UNIQUE(project_id, name)
+        );
+        CREATE INDEX IF NOT EXISTS idx_git_remotes_project
+            ON git_remotes(project_id, name);
+        """
+    )
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (43, utc_now()),
+    )
+
+
+def init_phase44_schema(connection: sqlite3.Connection) -> None:
+    """Fase 44: AIResourceManager con ruteo explicable, costos honestos y contexto resumido."""
+    connection.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS ai_model_performance (
+            id TEXT PRIMARY KEY,
+            provider_id TEXT NOT NULL,
+            model TEXT NOT NULL,
+            runtime TEXT NOT NULL,
+            capabilities_json TEXT NOT NULL,
+            context_window INTEGER NOT NULL,
+            max_output_tokens INTEGER NOT NULL,
+            input_price_per_mtok REAL,
+            cached_input_price_per_mtok REAL,
+            output_price_per_mtok REAL,
+            reasoning_price_per_mtok REAL,
+            observed_latency_ms INTEGER,
+            observed_success_rate REAL NOT NULL,
+            rework_rate REAL NOT NULL,
+            total_observed_tokens INTEGER,
+            quality_score REAL NOT NULL,
+            locality TEXT NOT NULL,
+            privacy_level TEXT NOT NULL,
+            evidence_json TEXT NOT NULL,
+            enabled INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(provider_id, model, runtime)
+        );
+        CREATE TABLE IF NOT EXISTS ai_routing_decisions (
+            id TEXT PRIMARY KEY,
+            project_id TEXT,
+            task_type TEXT NOT NULL,
+            risk_level TEXT NOT NULL,
+            selected_provider TEXT,
+            selected_model TEXT,
+            selected_runtime TEXT,
+            reviewer_provider TEXT,
+            reviewer_model TEXT,
+            reviewer_runtime TEXT,
+            local_vs_remote TEXT,
+            cost_tier TEXT,
+            multi_model_quorum INTEGER NOT NULL,
+            context_compression INTEGER NOT NULL,
+            max_tokens INTEGER,
+            budget_stop INTEGER NOT NULL,
+            approval_required INTEGER NOT NULL,
+            estimated_cost_usd REAL,
+            actual_cost_usd REAL,
+            usage_status TEXT NOT NULL,
+            candidates_json TEXT NOT NULL,
+            rejected_json TEXT NOT NULL,
+            decision_reason TEXT NOT NULL,
+            score_breakdown_json TEXT NOT NULL,
+            policy_result_json TEXT NOT NULL,
+            workflow_run_id TEXT,
+            workflow_step_id TEXT,
+            agent_id TEXT,
+            task_id TEXT,
+            created_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS ai_cost_observations (
+            id TEXT PRIMARY KEY,
+            provider_id TEXT NOT NULL,
+            model TEXT NOT NULL,
+            runtime TEXT NOT NULL,
+            input_tokens INTEGER,
+            cached_input_tokens INTEGER,
+            output_tokens INTEGER,
+            reasoning_tokens INTEGER,
+            tool_tokens INTEGER,
+            total_tokens INTEGER,
+            estimated_cost_usd REAL,
+            actual_cost_usd REAL,
+            currency TEXT NOT NULL,
+            latency_ms INTEGER,
+            usage_source TEXT NOT NULL,
+            token_status TEXT NOT NULL,
+            cost_status TEXT NOT NULL,
+            raw_usage_json TEXT NOT NULL,
+            evidence_ref TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS ai_prompt_profiles (
+            id TEXT PRIMARY KEY,
+            task_type TEXT NOT NULL,
+            risk_level TEXT NOT NULL,
+            required_capabilities_json TEXT NOT NULL,
+            privacy_level TEXT NOT NULL,
+            max_context_tokens INTEGER,
+            max_output_tokens INTEGER,
+            budget_usd REAL,
+            metadata_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS ai_context_summaries (
+            id TEXT PRIMARY KEY,
+            project_id TEXT,
+            source_context_hash TEXT NOT NULL,
+            summary TEXT NOT NULL,
+            input_tokens INTEGER,
+            output_tokens INTEGER,
+            token_status TEXT NOT NULL,
+            compression_reason TEXT NOT NULL,
+            evidence_ref TEXT NOT NULL,
+            metadata_json TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_ai_model_performance_provider_model
+            ON ai_model_performance(provider_id, model, runtime);
+        CREATE INDEX IF NOT EXISTS idx_ai_routing_decisions_created
+            ON ai_routing_decisions(task_type, risk_level, created_at);
+        CREATE INDEX IF NOT EXISTS idx_ai_cost_observations_provider_created
+            ON ai_cost_observations(provider_id, model, created_at);
+        CREATE INDEX IF NOT EXISTS idx_ai_context_summaries_project_created
+            ON ai_context_summaries(project_id, created_at);
+        """
+    )
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (44, utc_now()),
+    )
+
+
+def init_phase45_schema(connection: sqlite3.Connection) -> None:
+    """Fase 45: memoria thread-first para lecciones y funcionalidad existente."""
+    _add_column_if_missing(
+        connection,
+        "thread_similarity_events",
+        "functionality_id",
+        "functionality_id TEXT NOT NULL DEFAULT ''",
+    )
+    connection.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS project_lessons (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            thread_id TEXT,
+            title TEXT NOT NULL,
+            lesson TEXT NOT NULL,
+            source_ref TEXT NOT NULL,
+            status TEXT NOT NULL,
+            metadata TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            deleted_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_project_lessons_project_status
+            ON project_lessons(project_id, status, updated_at);
+        CREATE INDEX IF NOT EXISTS idx_project_lessons_thread
+            ON project_lessons(thread_id, updated_at);
+        CREATE TABLE IF NOT EXISTS functionality_registry (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            summary TEXT NOT NULL,
+            normalized_name TEXT NOT NULL,
+            fingerprint TEXT NOT NULL,
+            source_thread_id TEXT,
+            status TEXT NOT NULL,
+            file_paths_json TEXT NOT NULL,
+            performance_notes_json TEXT NOT NULL,
+            metadata TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(project_id, fingerprint)
+        );
+        CREATE INDEX IF NOT EXISTS idx_functionality_registry_project_status
+            ON functionality_registry(project_id, status, updated_at);
+        CREATE INDEX IF NOT EXISTS idx_functionality_registry_source_thread
+            ON functionality_registry(source_thread_id);
+        CREATE INDEX IF NOT EXISTS idx_thread_similarity_events_functionality
+            ON thread_similarity_events(project_id, functionality_id, created_at);
+        """
+    )
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (45, utc_now()),
+    )
+
+
+def init_phase46_schema(connection: sqlite3.Connection) -> None:
+    """Fase 46: runs y findings durables del ResearchAgent."""
+    connection.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS research_runs (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            thread_id TEXT,
+            message_id TEXT,
+            workspace_id TEXT NOT NULL,
+            job_id TEXT,
+            agent_run_id TEXT,
+            task_id TEXT NOT NULL,
+            query TEXT NOT NULL,
+            status TEXT NOT NULL,
+            reason TEXT NOT NULL,
+            recommendation_json TEXT NOT NULL,
+            citation_check_json TEXT NOT NULL,
+            conflict_count INTEGER NOT NULL,
+            source_count INTEGER NOT NULL,
+            trusted_source_count INTEGER NOT NULL,
+            evidence_package_id TEXT,
+            report_artifact_id TEXT,
+            remediation_json TEXT NOT NULL,
+            metadata_json TEXT NOT NULL,
+            started_at TEXT NOT NULL,
+            completed_at TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_research_runs_project_created
+            ON research_runs(project_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_research_runs_thread_created
+            ON research_runs(thread_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_research_runs_job
+            ON research_runs(job_id);
+
+        CREATE TABLE IF NOT EXISTS research_findings (
+            id TEXT PRIMARY KEY,
+            research_run_id TEXT NOT NULL,
+            project_id TEXT NOT NULL,
+            thread_id TEXT,
+            finding_type TEXT NOT NULL,
+            severity TEXT NOT NULL,
+            summary TEXT NOT NULL,
+            source_ids_json TEXT NOT NULL,
+            citations_json TEXT NOT NULL,
+            payload_json TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_research_findings_run
+            ON research_findings(research_run_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_research_findings_project
+            ON research_findings(project_id, finding_type, created_at);
+        """
+    )
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (46, utc_now()),
     )
 
 

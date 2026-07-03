@@ -1,22 +1,53 @@
 /**
- * Full runtime-setup panel: one expandable card per provider answering "why can/can't
- * this execute?" — required env vars, detected command, health and configure steps.
- * Re-probes API/gateway providers on refresh (their health is stored, not live on GET)
- * and redacts secret values everywhere, showing only set/unset state and a fingerprint.
+ * Providers & CLI setup catalog: one card per catalog provider that answers both "why can/can't this
+ * execute?" (runtime detection, health, required env vars — secrets never shown) and "how is it set
+ * up?" (credential state, base URL, discovered models, cost knowledge, and which roles route to it).
+ * CLI runtimes keep their Detect & check flow; API/local providers add Test prompt, Sync models and a
+ * Configure action that opens the Add-provider wizard. Re-probes API/gateway providers on refresh.
  * @author Rodrigo Mason
  */
 
-import { CheckCircle2, CircleDashed, RefreshCw, XCircle } from 'lucide-react';
-import { useId, useMemo, useRef, useState } from 'react';
+import {
+	CheckCircle2,
+	CircleDashed,
+	CircleDollarSign,
+	Plus,
+	RefreshCw,
+	Send,
+	Settings2,
+	XCircle,
+} from 'lucide-react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 
-import { detectModelGatewayCliRuntime, healthCheckModelGatewayProvider } from '../../api/client';
-import type { RuntimeProviderConfiguration, RuntimeProviders } from '../../api/types';
+import {
+	detectModelGatewayCliRuntime,
+	discoverModelGatewayProviderModels,
+	getModelGatewayModels,
+	getModelGatewayProviders,
+	getModelGatewayRolePolicies,
+	healthCheckModelGatewayProvider,
+	testPromptModelGatewayProvider,
+} from '../../api/client';
+import type {
+	ModelGatewayModel,
+	ModelGatewayProviderAccount,
+	ModelGatewayRolePolicy,
+	RuntimeProviderConfiguration,
+	RuntimeProviders,
+} from '../../api/types';
 import { Badge } from '../../components/primitives';
 import { useToast } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { redactVisibleSecret } from '../../lib/format';
+import { AddProviderWizard } from './AddProviderWizard';
+import {
+	type CostKnowledge,
+	deriveProviderSetup,
+	type ProviderSetupInfo,
+} from './providerCardModel';
 import {
 	apiProviderIdsNeedingProbe,
+	catalogEntry,
 	deriveRuntimeAction,
 	deriveRuntimeState,
 	INSTRUCTIONS_KEY,
@@ -24,14 +55,12 @@ import {
 	type MergedProvider,
 	mergeProviders,
 	PROVIDER_ICON,
-	type RuntimeSetupProviderId,
 	readinessFacts,
 	STATE_META,
 } from './runtimeSetup';
 
-/** Non-CLI providers offered individually in the empty state. The four CLIs are covered
- *  by the single "Detect installed CLIs" primary action instead of four equal buttons,
- *  so a user with 0 executable runtimes gets one obvious first step, not eight. */
+/** Non-CLI providers offered individually in the empty state; the CLIs are covered by a single
+ *  "Detect installed CLIs" action so a user with 0 executable runtimes gets one obvious first step. */
 const GUIDED_SETUP_ACTIONS = [
 	{ id: 'ollama', labelKey: 'app.runtime.setup.configureOllama', label: 'Configure Ollama' },
 	{ id: 'openai_compatible', labelKey: 'app.runtime.setup.configureApi', label: 'Configure API' },
@@ -46,18 +75,23 @@ const GUIDED_SETUP_ACTIONS = [
 		label: 'Configure NVIDIA NIM',
 	},
 ] as const;
-const CLI_SETUP_PROVIDER_IDS = new Set<RuntimeSetupProviderId>([
-	'codex_cli',
-	'claude_code_cli',
-	'openhands',
-	'swe_agent',
-]);
+const CLI_SETUP_PROVIDER_IDS = new Set(['codex_cli', 'claude_code_cli', 'openhands', 'swe_agent']);
 
 type RuntimeSetupPanelProps = {
 	runtimeProviders: RuntimeProviders | null;
 	runtimeProviderConfiguration: RuntimeProviderConfiguration[] | null;
 	token: string;
 	onRefresh: () => Promise<unknown> | undefined;
+};
+
+const COST_META: Record<
+	CostKnowledge,
+	{ tone: 'ok' | 'warn' | 'info'; labelKey: string; fallback: string }
+> = {
+	known: { tone: 'ok', labelKey: 'app.providers.cost.known', fallback: 'cost known' },
+	free: { tone: 'ok', labelKey: 'app.providers.cost.free', fallback: 'free tier' },
+	unknown: { tone: 'warn', labelKey: 'app.providers.cost.unknown', fallback: 'cost unknown' },
+	none: { tone: 'info', labelKey: 'app.providers.cost.none', fallback: 'no models yet' },
 };
 
 export function RuntimeSetupPanel({
@@ -70,6 +104,36 @@ export function RuntimeSetupPanel({
 	const { notify } = useToast();
 	const [refreshing, setRefreshing] = useState(false);
 	const [busyAction, setBusyAction] = useState<string | null>(null);
+	const [accounts, setAccounts] = useState<ModelGatewayProviderAccount[]>([]);
+	const [models, setModels] = useState<ModelGatewayModel[]>([]);
+	const [rolePolicies, setRolePolicies] = useState<ModelGatewayRolePolicy[]>([]);
+	const [wizardOpen, setWizardOpen] = useState(false);
+	const [wizardProviderId, setWizardProviderId] = useState<string | null>(null);
+
+	const loadGateway = useCallback(async () => {
+		try {
+			const [providerPayload, modelPayload, rolePayload] = await Promise.all([
+				getModelGatewayProviders(),
+				getModelGatewayModels(),
+				getModelGatewayRolePolicies(),
+			]);
+			setAccounts(providerPayload.providers);
+			setModels(modelPayload.models);
+			setRolePolicies(rolePayload.rolePolicies);
+		} catch {
+			// Read-only enrichment: a failed gateway fetch leaves cards on their runtime-diagnostic data.
+		}
+	}, []);
+
+	useEffect(() => {
+		void loadGateway();
+	}, [loadGateway]);
+
+	const accountById = useMemo(() => {
+		const map = new Map<string, ModelGatewayProviderAccount>();
+		for (const account of accounts) map.set(account.providerId, account);
+		return map;
+	}, [accounts]);
 
 	const providers = useMemo(
 		() => mergeProviders(runtimeProviders?.providers, runtimeProviderConfiguration),
@@ -78,21 +142,6 @@ export function RuntimeSetupPanel({
 	const executableCount = providers.filter(
 		(provider) => deriveRuntimeState(provider) === 'executable',
 	).length;
-
-	const refreshHealth = async () => {
-		if (refreshing) return;
-		setRefreshing(true);
-		try {
-			const probeIds = token ? apiProviderIdsNeedingProbe(providers) : [];
-			if (probeIds.length) {
-				await Promise.allSettled(probeIds.map((id) => healthCheckModelGatewayProvider(token, id)));
-			}
-			await onRefresh();
-			notify({ title: t('app.runtime.refreshDone', 'Runtime health refreshed'), tone: 'info' });
-		} finally {
-			setRefreshing(false);
-		}
-	};
 
 	const requireToken = (): boolean => {
 		if (token) return true;
@@ -106,8 +155,23 @@ export function RuntimeSetupPanel({
 		return false;
 	};
 
+	const refreshHealth = async () => {
+		if (refreshing) return;
+		setRefreshing(true);
+		try {
+			const probeIds = token ? apiProviderIdsNeedingProbe(providers) : [];
+			if (probeIds.length) {
+				await Promise.allSettled(probeIds.map((id) => healthCheckModelGatewayProvider(token, id)));
+			}
+			await Promise.all([onRefresh(), loadGateway()]);
+			notify({ title: t('app.runtime.refreshDone', 'Runtime health refreshed'), tone: 'info' });
+		} finally {
+			setRefreshing(false);
+		}
+	};
+
 	/** Returns whether the probe succeeded so the card can auto-open its recovery steps. */
-	const runSetupAction = async (providerId: RuntimeSetupProviderId): Promise<boolean> => {
+	const runSetupAction = async (providerId: string): Promise<boolean> => {
 		if (busyAction) return true;
 		if (!requireToken()) return true;
 		setBusyAction(providerId);
@@ -117,7 +181,7 @@ export function RuntimeSetupPanel({
 			} else {
 				await healthCheckModelGatewayProvider(token, providerId);
 			}
-			await onRefresh();
+			await Promise.all([onRefresh(), loadGateway()]);
 			notify({ title: t('app.runtime.setup.checkDone', 'Runtime check finished'), tone: 'ok' });
 			return true;
 		} catch (error) {
@@ -133,6 +197,48 @@ export function RuntimeSetupPanel({
 		}
 	};
 
+	const runProviderTask = async (providerId: string, task: 'test' | 'sync', model?: string) => {
+		if (busyAction) return;
+		if (!requireToken()) return;
+		setBusyAction(`${providerId}:${task}`);
+		try {
+			if (task === 'sync') {
+				const result = await discoverModelGatewayProviderModels(token, providerId);
+				const count = (result as { models?: unknown[] }).models?.length ?? 0;
+				notify({
+					title: t('app.providers.action.modelsSynced', 'Models synced'),
+					body: String(count),
+					tone: 'ok',
+				});
+			} else {
+				const response = await testPromptModelGatewayProvider(
+					token,
+					providerId,
+					model ? { model } : {},
+				);
+				const outcome = (response as { test: { ok: boolean; latencyMs?: number } }).test;
+				notify({
+					title: outcome.ok
+						? t('app.providers.action.testOk', 'Provider responded')
+						: t('app.providers.action.testFailed', 'Test prompt failed'),
+					body:
+						outcome.ok && typeof outcome.latencyMs === 'number' ? `${outcome.latencyMs} ms` : '',
+					tone: outcome.ok ? 'ok' : 'danger',
+				});
+			}
+			await loadGateway();
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			notify({
+				title: t('app.providers.action.taskFailed', 'Provider action failed'),
+				body: redactVisibleSecret(message, 'provider action failed'),
+				tone: 'danger',
+			});
+		} finally {
+			setBusyAction(null);
+		}
+	};
+
 	/** One-click first step: probe every CLI runtime in parallel, then reload the snapshot. */
 	const detectClis = async () => {
 		if (busyAction) return;
@@ -142,11 +248,16 @@ export function RuntimeSetupPanel({
 			await Promise.allSettled(
 				[...CLI_SETUP_PROVIDER_IDS].map((id) => detectModelGatewayCliRuntime(token, id)),
 			);
-			await onRefresh();
+			await Promise.all([onRefresh(), loadGateway()]);
 			notify({ title: t('app.runtime.setup.detectDone', 'CLI detection finished'), tone: 'ok' });
 		} finally {
 			setBusyAction(null);
 		}
+	};
+
+	const openWizard = (providerId: string | null) => {
+		setWizardProviderId(providerId);
+		setWizardOpen(true);
 	};
 
 	return (
@@ -166,16 +277,22 @@ export function RuntimeSetupPanel({
 						{t('app.runtime.executable', 'executable')}
 					</span>
 				</div>
-				<button
-					className="button"
-					type="button"
-					disabled={refreshing}
-					aria-busy={refreshing}
-					onClick={() => void refreshHealth()}
-				>
-					<RefreshCw aria-hidden="true" size={15} />
-					{t('app.runtime.refresh', 'Refresh health')}
-				</button>
+				<div className="inline">
+					<button className="button primary" type="button" onClick={() => openWizard(null)}>
+						<Plus aria-hidden="true" size={15} />
+						{t('app.providers.addProvider', 'Add provider')}
+					</button>
+					<button
+						className="button"
+						type="button"
+						disabled={refreshing}
+						aria-busy={refreshing}
+						onClick={() => void refreshHealth()}
+					>
+						<RefreshCw aria-hidden="true" size={15} />
+						{t('app.runtime.refresh', 'Refresh health')}
+					</button>
+				</div>
 			</div>
 			{executableCount === 0 ? (
 				<section className="empty-state" aria-live="polite">
@@ -218,28 +335,53 @@ export function RuntimeSetupPanel({
 				</section>
 			) : null}
 			<div className="masonry-grid">
-				{providers.map((provider) => (
-					<ProviderCard
-						key={provider.id}
-						provider={provider}
-						busy={busyAction === provider.id}
-						onSetupAction={() => runSetupAction(provider.id as RuntimeSetupProviderId)}
-					/>
-				))}
+				{providers.map((provider) => {
+					const entry = catalogEntry(provider.id);
+					const setup = entry
+						? deriveProviderSetup(entry, accountById.get(provider.id) ?? null, models, rolePolicies)
+						: null;
+					return (
+						<ProviderCard
+							key={provider.id}
+							provider={provider}
+							setup={setup}
+							busyAction={busyAction}
+							onSetupAction={() => runSetupAction(provider.id)}
+							onTest={(model) => runProviderTask(provider.id, 'test', model)}
+							onSync={() => runProviderTask(provider.id, 'sync')}
+							onConfigure={() => openWizard(provider.id)}
+						/>
+					);
+				})}
 			</div>
+			<AddProviderWizard
+				open={wizardOpen}
+				token={token}
+				initialProviderId={wizardProviderId}
+				onClose={() => setWizardOpen(false)}
+				onSaved={() => void refreshHealth()}
+			/>
 		</>
 	);
 }
 
 function ProviderCard({
 	provider,
-	busy,
+	setup,
+	busyAction,
 	onSetupAction,
+	onTest,
+	onSync,
+	onConfigure,
 }: {
 	provider: MergedProvider;
-	busy: boolean;
+	setup: ProviderSetupInfo | null;
+	busyAction: string | null;
 	/** Resolves false when the probe failed, so the card opens its recovery steps. */
 	onSetupAction: () => Promise<boolean>;
+	onTest: (model?: string) => void;
+	onSync: () => void;
+	onConfigure: () => void;
 }) {
 	const { t } = useI18n();
 	const [open, setOpen] = useState(false);
@@ -249,7 +391,7 @@ function ProviderCard({
 	const state = deriveRuntimeState(provider);
 	const meta = STATE_META[state];
 	const StateIcon = meta.Icon;
-	const ProviderGlyph = PROVIDER_ICON[provider.id as RuntimeSetupProviderId];
+	const ProviderGlyph = PROVIDER_ICON[provider.id];
 	const stateLabel = t(meta.labelKey, state);
 
 	const status = provider.status;
@@ -259,7 +401,7 @@ function ProviderCard({
 	);
 	const variables = provider.config?.variables ?? [];
 	const isCli = provider.kind === 'cli';
-	const capabilities = status?.capabilities ?? [];
+	const capabilities = catalogEntry(provider.id)?.capabilities ?? status?.capabilities ?? [];
 	const facts = readinessFacts(provider);
 	const kindLabel = KIND_LABEL[provider.kind];
 	const action = deriveRuntimeAction(state);
@@ -269,6 +411,12 @@ function ProviderCard({
 			: action === 'use'
 				? t('app.runtime.action.use', 'Use in a thread')
 				: t('app.runtime.action.validate', 'Validate');
+
+	const busy = busyAction === provider.id;
+	const testBusy = busyAction === `${provider.id}:test`;
+	const syncBusy = busyAction === `${provider.id}:sync`;
+	const cost = setup ? COST_META[setup.cost] : null;
+	const canRunTasks = Boolean(setup?.enabled && setup?.hasCredential && !isCli);
 
 	/** A failed probe opens "How to configure" and moves focus there (recovery path). */
 	const runAction = async () => {
@@ -295,8 +443,66 @@ function ProviderCard({
 				<Badge tone="info">
 					{kindLabel ? t(kindLabel.labelKey, kindLabel.fallback) : provider.kind}
 				</Badge>
+				{setup ? (
+					<Badge tone={setup.hasCredential ? 'ok' : 'warn'}>
+						{setup.hasCredential
+							? t('app.providers.credential.configured', 'credential set')
+							: t('app.providers.credential.missing', 'no credential')}
+					</Badge>
+				) : null}
+				{setup ? (
+					<Badge tone={setup.healthStatus === 'healthy' ? 'ok' : 'warn'}>
+						{redactVisibleSecret(setup.healthStatus, t('app.runtime.card.unknown', 'unknown'))}
+					</Badge>
+				) : null}
+				{cost ? (
+					<Badge tone={cost.tone}>
+						<CircleDollarSign aria-hidden="true" size={12} />
+						<span>{t(cost.labelKey, cost.fallback)}</span>
+					</Badge>
+				) : null}
 			</div>
 			<p className="card-body">{reason}</p>
+
+			{capabilities.length ? (
+				<div className="inline">
+					{capabilities.map((capability) => (
+						<Badge tone="info" key={capability}>
+							{capability}
+						</Badge>
+					))}
+				</div>
+			) : null}
+
+			<dl className="provider-facts">
+				{!isCli ? (
+					<div>
+						<dt>{t('app.providers.card.baseUrl', 'Base URL')}</dt>
+						<dd className="mono">
+							{setup?.baseUrl || t('app.providers.card.baseUrlUnset', 'not set')}
+						</dd>
+					</div>
+				) : null}
+				{setup && !isCli ? (
+					<div>
+						<dt>{t('app.providers.card.models', 'Models')}</dt>
+						<dd className="tnum">{setup.modelCount}</dd>
+					</div>
+				) : null}
+			</dl>
+
+			{setup?.roles.length ? (
+				<div className="inline">
+					<span className="field-label">
+						{t('app.providers.card.useForRoles', 'Use for roles')}
+					</span>
+					{setup.roles.slice(0, 6).map((role) => (
+						<Badge tone="info" key={role}>
+							{role}
+						</Badge>
+					))}
+				</div>
+			) : null}
 
 			{status ? (
 				<div className="inline">
@@ -339,6 +545,36 @@ function ProviderCard({
 						{busy ? t('app.runtime.setup.running', 'Running...') : actionLabel}
 					</button>
 				)}
+				{!isCli ? (
+					<button className="button" type="button" onClick={onConfigure}>
+						<Settings2 aria-hidden="true" size={14} />
+						{t('app.providers.card.configure', 'Configure')}
+					</button>
+				) : null}
+				{canRunTasks ? (
+					<button
+						className="button"
+						type="button"
+						disabled={syncBusy}
+						aria-busy={syncBusy}
+						onClick={onSync}
+					>
+						<RefreshCw aria-hidden="true" size={14} />
+						{t('app.providers.card.syncModels', 'Sync models')}
+					</button>
+				) : null}
+				{canRunTasks ? (
+					<button
+						className="button"
+						type="button"
+						disabled={testBusy}
+						aria-busy={testBusy}
+						onClick={() => onTest()}
+					>
+						<Send aria-hidden="true" size={14} />
+						{t('app.providers.card.testPrompt', 'Test prompt')}
+					</button>
+				) : null}
 				<button
 					className="button"
 					type="button"
@@ -408,19 +644,25 @@ function ProviderCard({
 				<section className="stack compact">
 					<h5 className="field-label">{t('app.runtime.card.health', 'Health check')}</h5>
 					<div className="inline">
-						{status?.healthStatus === 'healthy' ? (
+						{status?.healthStatus === 'healthy' || setup?.healthStatus === 'healthy' ? (
 							<CheckCircle2 aria-hidden="true" size={14} />
 						) : (
 							<XCircle aria-hidden="true" size={14} />
 						)}
 						<span className="mono">
-							{redactVisibleSecret(status?.healthStatus, t('app.runtime.card.unknown', 'unknown'))}
+							{redactVisibleSecret(
+								status?.healthStatus ?? setup?.healthStatus,
+								t('app.runtime.card.unknown', 'unknown'),
+							)}
 						</span>
 					</div>
 					<span className="field-help">
 						{t('app.runtime.card.lastChecked', 'Last checked')}:{' '}
 						<span className="mono">
-							{redactVisibleSecret(status?.healthCheckedAt, t('app.runtime.card.never', 'never'))}
+							{redactVisibleSecret(
+								status?.healthCheckedAt ?? setup?.account?.lastHealthCheckAt,
+								t('app.runtime.card.never', 'never'),
+							)}
 						</span>
 					</span>
 					{status?.lastError ? (
@@ -431,29 +673,9 @@ function ProviderCard({
 					) : null}
 				</section>
 
-				{capabilities.length || status?.requiresApproval ? (
-					<section className="stack compact">
-						<h5 className="field-label">{t('app.runtime.card.capabilities', 'Capabilities')}</h5>
-						<div className="inline">
-							{capabilities.map((capability) => (
-								<Badge tone="info" key={capability}>
-									{capability}
-								</Badge>
-							))}
-							{status?.requiresApproval ? (
-								<Badge tone="warn">
-									{t('app.runtime.card.requiresApproval', 'requires approval')}
-								</Badge>
-							) : null}
-						</div>
-					</section>
-				) : null}
-
 				<section className="stack compact">
 					<h5 className="field-label">{t('app.runtime.card.instructions', 'How to configure')}</h5>
-					<span className="field-help">
-						{t(INSTRUCTIONS_KEY[provider.id as RuntimeSetupProviderId], '')}
-					</span>
+					<span className="field-help">{t(INSTRUCTIONS_KEY[provider.id] ?? '', '')}</span>
 				</section>
 			</div>
 		</article>

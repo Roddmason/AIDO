@@ -67,6 +67,7 @@ def provider_instance(provider_id: str, *, connection: sqlite3.Connection):
     """Construye el adaptador de proveedor adecuado, resolviendo base_url y credential_ref de su config."""
     from .provider_accounts import ProviderAccountStore
     from .providers.anthropic_api import AnthropicAPIProvider
+    from .providers.azure_openai import AzureOpenAIProvider
     from .providers.litellm_adapter import LiteLLMAdapter
     from .providers.nvidia_nim import NvidiaNimProvider
     from .providers.ollama import OllamaProvider
@@ -94,7 +95,7 @@ def provider_instance(provider_id: str, *, connection: sqlite3.Connection):
         return NvidiaNimProvider(
             connection=connection, base_url=base_url or "", credential_ref=credential_ref or ""
         )
-    if provider_id in {"ollama", "local_ollama"}:
+    if provider_id in {"ollama", "local_ollama"} or account.get("apiFormat") == "ollama":
         return OllamaProvider(base_url=base_url, credential_ref=credential_ref or None)
     if provider_id in {"openai", "openai_api"}:
         return OpenAIAPIProvider(base_url=base_url, credential_ref=credential_ref or "")
@@ -104,6 +105,8 @@ def provider_instance(provider_id: str, *, connection: sqlite3.Connection):
         return OpenRouterProvider(base_url=base_url, credential_ref=credential_ref or "")
     if provider_id == "litellm":
         return LiteLLMAdapter(base_url=base_url, credential_ref=credential_ref or "")
+    if provider_id == "azure_openai" or account.get("apiFormat") == "azure_openai":
+        return AzureOpenAIProvider(base_url=base_url, credential_ref=credential_ref)
     return OpenAICompatibleProvider(provider_id=provider_id, base_url=base_url, credential_ref=credential_ref)
 
 
@@ -469,6 +472,8 @@ class ModelGateway:
             return {"status": "configuration_required", "reason": "Provider account is disabled."}
         resolved_runtime = runtime_type or _runtime_type(account)
         provider_type = str(account.get("providerType") or "")
+        api_format = str(account.get("apiFormat") or "")
+        is_ollama_provider = api_format == "ollama"
         if resolved_runtime in {"cli", "manual"} or provider_type in {"cli", "manual"}:
             return {
                 "status": "blocked",
@@ -486,23 +491,25 @@ class ModelGateway:
                 or account.get("credentialRef")
                 or ""
             )
-            if not credential_ref:
+            if not credential_ref and not is_ollama_provider:
                 return {
                     "status": "configuration_required",
                     "reason": "Credential ref is required for remote provider execution.",
                 }
-            credential = CredentialResolver().resolve(credential_ref, fetch=not for_health)
-            if (for_health and credential.status == "configured") or (
-                for_health and credential.status == "unverified"
-            ):
-                pass
-            elif not credential.configured:
-                return {
-                    "status": "configuration_required",
-                    "reason": redact_secrets(
-                        f"Credential ref {credential_ref} is {credential.status}. {credential.message}".strip()
-                    ),
-                }
+            if credential_ref:
+                credential = CredentialResolver().resolve(credential_ref, fetch=not for_health)
+                if (for_health and credential.status == "configured") or (
+                    for_health and credential.status == "unverified"
+                ):
+                    pass
+                elif not credential.configured:
+                    return {
+                        "status": "configuration_required",
+                        "reason": redact_secrets(
+                            f"Credential ref {credential_ref} is {credential.status}. "
+                            f"{credential.message}".strip()
+                        ),
+                    }
             provider = provider_instance(provider_id, connection=self.repository.connection)
             if not getattr(provider, "base_url", ""):
                 return {"status": "configuration_required", "reason": "Provider base URL is not configured."}
@@ -518,7 +525,9 @@ class ModelGateway:
                         ),
                         "runtimeType": resolved_runtime,
                     }
-        if provider_type in LOCAL_PROVIDER_TYPES and provider_id not in {"ollama", "local_ollama"}:
+        if provider_type in LOCAL_PROVIDER_TYPES and not (
+            provider_id in {"ollama", "local_ollama"} or is_ollama_provider
+        ):
             return {
                 "status": "configuration_required",
                 "reason": f"Unsupported local model provider: {provider_id}",

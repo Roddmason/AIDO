@@ -14,6 +14,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from .ai_resource_manager import AIResourceManager, AIResourceRequest
 from .budget_rules import BudgetRuleEvaluator
 from .model_benchmarks import ModelBenchmarkStore
 from .pricing_catalog import PricingCatalog
@@ -34,6 +35,7 @@ class RoutingRequest(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True)
 
+    project_id: str | None = Field(default=None, alias="projectId")
     role: str = "developer"
     task_type: str = Field(default="task", alias="taskType")
     mode: str = "balanced_best_value"
@@ -81,6 +83,10 @@ class ModelRouter:
             Resultado con el provider/model/runtime elegido (o None), el desglose de puntaje, los
             candidatos/rechazados y el policyResult con presupuesto, cuota y si requiere aprobación.
         """
+        ai_resource_preview = self._preview_with_ai_resource_manager(request, record=record)
+        if ai_resource_preview is not None:
+            return ai_resource_preview
+
         providers = {item["providerId"]: item for item in self.providers.list_provider_accounts()}
         models = self.providers.list_models()
         try:
@@ -307,6 +313,155 @@ class ModelRouter:
                 }
             )
         return result
+
+    def _preview_with_ai_resource_manager(
+        self, request: RoutingRequest, *, record: bool
+    ) -> dict[str, Any] | None:
+        if not self._has_ai_resource_profiles():
+            return None
+        try:
+            role_policy = self.routes.get_role_policy(request.role)
+        except KeyError:
+            role_policy = self.routes.get_role_policy("developer")
+        ai_request = AIResourceRequest(
+            project_id=request.project_id,
+            task_type=request.task_type,
+            risk_level=request.risk_level,
+            context_tokens_estimate=request.context_tokens_estimate,
+            required_capabilities=self._ai_required_capabilities(request),
+            privacy_level=request.privacy_level,
+            budget_remaining_usd=request.budget_remaining_usd,
+            allow_unknown_cost=bool(role_policy.get("allowUnknownCost", False)),
+            require_approval_for_unknown_cost=bool(
+                role_policy.get("requireApprovalForUnknownCost", True)
+            ),
+            workflow_run_id=request.workflow_run_id,
+            workflow_step_id=request.workflow_step_id,
+            agent_id=request.agent_id,
+            task_id=request.task_id,
+        )
+        decision = AIResourceManager(self.connection).select_resource(ai_request, record=record)
+        result = self._ai_decision_to_routing_preview(request, role_policy, decision)
+        if record:
+            selected = result.get("selected") or {}
+            self.routes.record_routing_decision(
+                {
+                    "role": request.role,
+                    "taskType": request.task_type,
+                    "mode": request.mode,
+                    "selectedProvider": selected.get("provider"),
+                    "selectedModel": selected.get("model"),
+                    "selectedRuntime": selected.get("runtime"),
+                    "selectedEffort": selected.get("effort"),
+                    "workflowRunId": request.workflow_run_id,
+                    "workflowStepId": request.workflow_step_id,
+                    "agentId": request.agent_id,
+                    "jobId": request.job_id,
+                    "taskId": request.task_id,
+                    "estimatedCostUsd": result.get("estimatedCostUsd"),
+                    "estimatedTokens": request.context_tokens_estimate,
+                    "candidates": result.get("candidates") or [],
+                    "rejected": result.get("rejected") or [],
+                    "decisionReason": result.get("decisionReason", ""),
+                    "scoreBreakdown": result.get("scoreBreakdown") or {},
+                    "policyResult": result.get("policyResult") or {},
+                }
+            )
+        return result
+
+    def _has_ai_resource_profiles(self) -> bool:
+        row = self.connection.execute("SELECT 1 FROM ai_model_performance WHERE enabled = 1 LIMIT 1").fetchone()
+        return row is not None
+
+    def _ai_required_capabilities(self, request: RoutingRequest) -> list[str]:
+        capabilities: list[str] = []
+        if request.requires_code_edit:
+            capabilities.append("code")
+        if request.requires_tools:
+            capabilities.append("tools")
+        if request.requires_search:
+            capabilities.append("search")
+        if request.requires_reasoning:
+            capabilities.append("reasoning")
+        if request.requires_vision:
+            capabilities.append("vision")
+        if request.requires_json:
+            capabilities.append("json")
+        return capabilities or ["chat"]
+
+    def _ai_decision_to_routing_preview(
+        self,
+        request: RoutingRequest,
+        role_policy: dict[str, Any],
+        decision: dict[str, Any],
+    ) -> dict[str, Any]:
+        selected = self._ai_selection_to_router_selection(decision.get("selected"))
+        candidates = [self._ai_candidate_to_router_candidate(item) for item in decision.get("candidates", [])]
+        rejected = [self._ai_rejected_to_router_rejected(item) for item in decision.get("rejected", [])]
+        policy_result = {
+            "requiresApproval": bool(decision.get("approvalRequired")),
+            "rolePolicyId": role_policy["id"],
+            "maxCostPerTaskUsd": role_policy.get("maxCostPerTaskUsd"),
+            "allowUnknownCost": bool(role_policy.get("allowUnknownCost", False)),
+            "requireApprovalForUnknownCost": bool(role_policy.get("requireApprovalForUnknownCost", True)),
+            "unknownCostPolicy": decision.get("policyResult", {}).get("unknownCostPolicy", {}),
+            "source": "ai_resource_manager",
+            "opaqueMlUsed": False,
+        }
+        budget_result = {
+            "allowed": not bool(decision.get("budgetStop")),
+            "action": "stop" if decision.get("budgetStop") else "allow",
+            "reason": "budget_stop" if decision.get("budgetStop") else "within_budget",
+            "requiresApproval": False,
+        }
+        quota_result = {"allowed": True, "reason": "not_evaluated_by_ai_resource_manager", "quotaPressure": 0.0}
+        policy_result["budgetResult"] = budget_result
+        policy_result["quotaResult"] = quota_result
+        return {
+            "selected": selected,
+            "estimatedCostUsd": decision.get("estimatedCostUsd"),
+            "estimatedTokens": request.context_tokens_estimate,
+            "decisionReason": decision.get("decisionReason", ""),
+            "candidates": candidates,
+            "rejected": rejected,
+            "scoreBreakdown": decision.get("scoreBreakdown", {}),
+            "policyResult": policy_result,
+            "budgetResult": budget_result,
+            "quotaResult": quota_result,
+        }
+
+    def _ai_selection_to_router_selection(self, selection: dict[str, Any] | None) -> dict[str, Any] | None:
+        if not selection:
+            return None
+        return {
+            "provider": selection["providerId"],
+            "model": selection["model"],
+            "runtime": selection["runtime"],
+            "effort": None,
+        }
+
+    def _ai_candidate_to_router_candidate(self, candidate: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "provider": candidate["providerId"],
+            "model": candidate["model"],
+            "runtime": candidate["runtime"],
+            "effort": None,
+            "estimatedCostUsd": candidate.get("estimatedCostUsd"),
+            "pricingSource": "ai_resource_manager",
+            "pricingStaleness": "observed",
+            "priceKnown": bool(candidate.get("priceKnown")),
+            "freeTier": candidate.get("estimatedCostUsd") == 0,
+            "score": candidate["score"],
+            "scoreBreakdown": candidate["scoreBreakdown"],
+        }
+
+    def _ai_rejected_to_router_rejected(self, rejected: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "provider": rejected["providerId"],
+            "model": rejected.get("model"),
+            "runtime": rejected.get("runtime"),
+            "reason": rejected["reason"],
+        }
 
     def _hard_reject_reason(
         self,

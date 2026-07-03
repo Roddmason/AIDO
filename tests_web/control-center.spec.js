@@ -1091,6 +1091,149 @@ test('Workbench shows the Git branch detected by the policy-gated Git status end
 	await expect(gitWorkspace.getByRole('option', { name: 'not detected' })).toHaveCount(0);
 });
 
+// Deterministic Git state fixtures: mocking status + branches makes the policy-gated endpoints
+// resolve instantly, so these assert the GitBranchBar render phases without the real fetch latency.
+function gitStatusFixture(projectId, overrides = {}) {
+	return {
+		status: 'completed',
+		reason: 'Git status collected through ToolBroker.',
+		projectId,
+		workspaceId: 'workspace-git-web',
+		root: '/tmp/web-git',
+		currentBranch: 'dev',
+		dirty: false,
+		porcelain: [],
+		changedFiles: [],
+		untrackedFiles: [],
+		stagedFiles: [],
+		remotes: [{ name: 'origin', url: 'https://example.test/aido.git', direction: 'fetch' }],
+		lastCommit: { hash: 'h'.repeat(40), shortHash: 'abc1234', author: 'Dev', authoredAt: '2026-01-01T00:00:00Z', subject: 'init' },
+		worktrees: [],
+		...overrides,
+	};
+}
+
+function gitBranchesFixture(projectId, overrides = {}) {
+	return {
+		status: 'completed',
+		reason: 'Git branches collected through ToolBroker.',
+		projectId,
+		workspaceId: 'workspace-git-web',
+		currentBranch: 'dev',
+		dirty: false,
+		localBranches: ['dev'],
+		remoteBranches: [],
+		remotes: [{ name: 'origin', url: 'https://example.test/aido.git', direction: 'fetch' }],
+		...overrides,
+	};
+}
+
+async function mockGitEndpoints(page, projectId, { status, branches, onCreateBranch } = {}) {
+	await page.route('/api/v1/events', (route) => route.abort());
+	await page.route(`/api/v1/projects/${projectId}/git/status`, async (route) => {
+		await route.fulfill({ json: status });
+	});
+	await page.route(`/api/v1/projects/${projectId}/git/branches`, async (route) => {
+		if (route.request().method() === 'POST') {
+			const body = route.request().postDataJSON();
+			onCreateBranch?.(body);
+			await route.fulfill({
+				status: 201,
+				json: { status: 'completed', reason: 'Branch created from the requested base.', projectId, workspaceId: branches.workspaceId, branch: body.name, base: body.base ?? null, currentBranch: branches.currentBranch },
+			});
+			return;
+		}
+		await route.fulfill({ json: branches });
+	});
+	async function openGitWorkbench() {
+		await page.goto('/#workbench');
+		const gitWorkspace = page.getByRole('group', { name: 'Git workspace' });
+		await expect(gitWorkspace).toBeVisible({ timeout: 30_000 });
+		return gitWorkspace;
+	}
+	return { openGitWorkbench };
+}
+
+test('GitBranchBar offers Initialize Git as the exit when the project has no repository', async ({ page }) => {
+	await page.setViewportSize({ width: 1280, height: 900 });
+	const project = await getActiveProject(page);
+	const notARepo = { ...gitStatusFixture(project.id), status: 'configuration_required', reason: 'Project path is not a Git repository.', currentBranch: '', dirty: false, remotes: [], lastCommit: null };
+	const notARepoBranches = { ...gitBranchesFixture(project.id), status: 'configuration_required', reason: 'Project path is not a Git repository.', currentBranch: '', localBranches: [], remotes: [] };
+	const { openGitWorkbench } = await mockGitEndpoints(page, project.id, { status: notARepo, branches: notARepoBranches });
+
+	const gitWorkspace = await openGitWorkbench();
+	// No dead end: an explicit primary CTA, not just a red dot.
+	await expect(gitWorkspace.getByRole('button', { name: 'Initialize Git' })).toBeVisible();
+	await expect(gitWorkspace.getByText('no repository')).toBeVisible();
+});
+
+test('GitBranchBar shows the dirty breakdown and a View changes exit when the tree is dirty', async ({ page }) => {
+	await page.setViewportSize({ width: 1280, height: 900 });
+	const project = await getActiveProject(page);
+	const dirtyStatus = gitStatusFixture(project.id, { dirty: true, porcelain: [' M a.ts', 'A  c.ts', '?? b.ts'], changedFiles: ['a.ts'], stagedFiles: ['c.ts'], untrackedFiles: ['b.ts'] });
+	const dirtyBranches = gitBranchesFixture(project.id, { dirty: true });
+	const { openGitWorkbench } = await mockGitEndpoints(page, project.id, { status: dirtyStatus, branches: dirtyBranches });
+
+	const gitWorkspace = await openGitWorkbench();
+	await expect(gitWorkspace.getByRole('button', { name: 'View changes' })).toBeVisible();
+	// The counts are surfaced inline so the dirty state is legible without opening the dialog.
+	await expect(gitWorkspace.getByText(/1 changed/)).toBeVisible();
+	await expect(gitWorkspace.getByText(/1 staged/)).toBeVisible();
+	await expect(gitWorkspace.getByText(/1 untracked/)).toBeVisible();
+});
+
+test('GitBranchBar creates a branch through the git branches API', async ({ page }) => {
+	await page.setViewportSize({ width: 1280, height: 900 });
+	const project = await getActiveProject(page);
+	let createdBody = null;
+	const { openGitWorkbench } = await mockGitEndpoints(page, project.id, {
+		status: gitStatusFixture(project.id),
+		branches: gitBranchesFixture(project.id),
+		onCreateBranch: (body) => {
+			createdBody = body;
+		},
+	});
+
+	const gitWorkspace = await openGitWorkbench();
+	await gitWorkspace.getByLabel('New branch name').fill('feature/git-bar');
+	await gitWorkspace.getByRole('button', { name: 'Create branch' }).click();
+
+	await expect.poll(() => createdBody?.name).toBe('feature/git-bar');
+	await expect(page.getByText('Branch created')).toBeVisible({ timeout: 30_000 });
+});
+
+test('GitBranchBar surfaces a policy block distinctly from a transient error', async ({ page }) => {
+	await page.setViewportSize({ width: 1280, height: 900 });
+	const project = await getActiveProject(page);
+	const blockedStatus = { ...gitStatusFixture(project.id), status: 'blocked', reason: 'Policy engine denied git status --porcelain.', currentBranch: '', remotes: [], lastCommit: null };
+	const blockedBranches = { ...gitBranchesFixture(project.id), status: 'blocked', reason: 'Policy engine denied git status --porcelain.', currentBranch: '', localBranches: [], remotes: [] };
+	const { openGitWorkbench } = await mockGitEndpoints(page, project.id, { status: blockedStatus, branches: blockedBranches });
+
+	const gitWorkspace = await openGitWorkbench();
+	// A policy block is not a transient failure: distinct copy, and no blind "Retry" that would just
+	// re-run the same blocked command.
+	await expect(gitWorkspace.getByText('Blocked by policy').first()).toBeVisible();
+	await expect(gitWorkspace.getByRole('button', { name: 'Retry' })).toHaveCount(0);
+	await expect(gitWorkspace.getByRole('button', { name: 'Initialize Git' })).toHaveCount(0);
+});
+
+test('GitBranchBar confirms before switching branches with a dirty tree', async ({ page }) => {
+	await page.setViewportSize({ width: 1280, height: 900 });
+	const project = await getActiveProject(page);
+	const dirtyStatus = gitStatusFixture(project.id, { dirty: true, changedFiles: ['a.ts'] });
+	const dirtyBranches = gitBranchesFixture(project.id, { dirty: true, localBranches: ['dev', 'feature'] });
+	const { openGitWorkbench } = await mockGitEndpoints(page, project.id, { status: dirtyStatus, branches: dirtyBranches });
+
+	const gitWorkspace = await openGitWorkbench();
+	// Stage a different branch, then confirm the checkout: a dirty tree must ask before switching.
+	await gitWorkspace.getByLabel('Git branch').selectOption('feature');
+	await gitWorkspace.getByRole('button', { name: 'Checkout selected branch' }).click();
+	const confirm = page.getByRole('dialog', { name: 'Uncommitted changes' });
+	await expect(confirm).toBeVisible();
+	await expect(confirm.getByRole('button', { name: 'Switch anyway' })).toBeVisible();
+	await expect(confirm.getByRole('button', { name: 'View changes' })).toBeVisible();
+});
+
 test('Go menu localizes primary destinations with the ES EN control', async ({ page }) => {
 	await page.goto('/#threads');
 	await expectControlPlaneLoaded(page);
@@ -2504,7 +2647,9 @@ test('Runtime settings shows guided setup actions when no runtime is executable'
 		await expect(dialog.getByRole('button', { name: label })).toBeVisible();
 	}
 	for (const provider of providers) {
-		const card = dialog.locator('.card').filter({ hasText: provider.displayName });
+		// Filter by the unique reason: the setup catalog renders both an "Ollama" and an
+		// "Ollama remote" card, so filtering by the displayName 'Ollama' would match two.
+		const card = dialog.locator('.card').filter({ hasText: provider.reason });
 		await expect(card).toContainText(provider.reason);
 		await expect(card.getByRole('button', { name: 'Detect & check' })).toBeVisible();
 	}

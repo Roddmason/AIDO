@@ -9,8 +9,10 @@ thread o loop con token scoped; bloquea comandos, secretos y aprobaciones críti
 
 from __future__ import annotations
 
+import hashlib
 import hmac
 import json
+import time
 import urllib.error
 import urllib.request
 from collections.abc import Callable
@@ -41,11 +43,28 @@ FORBIDDEN_INBOUND_ACTIONS = {
     "create_secret",
     "rotate_secret",
     "approve_action",
+    "approve_delivery",
     "approve_critical_action",
+    "approve_critical_delivery",
+    "critical_delivery_approval",
+    "delivery_approval",
+    "resolve_delivery_approval",
     "resolve_approval",
 }
 FORBIDDEN_COMMAND_KEYS = {"command", "commands", "argv", "shell", "cwd", "workingDirectory"}
 FORBIDDEN_APPROVAL_KEYS = {"approve", "approval", "approved", "humanToken", "humanApprovalToken"}
+ALLOWED_INBOUND_ACTIONS = {"create_thread", "create_loop", "add_message", "get_status"}
+INBOUND_ACTION_ALIASES = {
+    "append_message": "add_message",
+    "message_add": "add_message",
+    "message_added": "add_message",
+    "add_thread_message": "add_message",
+    "agregar_mensaje": "add_message",
+    "status": "get_status",
+    "request_status": "get_status",
+    "pedir_status": "get_status",
+}
+DEFAULT_INBOUND_RATE_LIMIT = {"maxRequests": 60, "windowSeconds": 60.0}
 
 
 class N8nIntegrationError(ValueError):
@@ -60,6 +79,45 @@ class N8nDeliveryError(RuntimeError):
     """Se lanza cuando el target n8n no puede recibir el evento."""
 
 
+class N8nRateLimitError(PermissionError):
+    """Se lanza cuando un token scoped excede el rate limit inbound local."""
+
+
+class N8nLocalRateLimiter:
+    """Rate limiter local en memoria para webhooks inbound n8n.
+
+    El límite es deliberadamente local: AIDO no convierte n8n en core ni introduce infraestructura
+    distribuida para esta integración. La clave usada por el servicio es un fingerprint del token.
+    """
+
+    def __init__(
+        self,
+        *,
+        max_requests: int = int(DEFAULT_INBOUND_RATE_LIMIT["maxRequests"]),
+        window_seconds: float = float(DEFAULT_INBOUND_RATE_LIMIT["windowSeconds"]),
+        clock: Callable[[], float] | None = None,
+    ):
+        self.max_requests = max_requests
+        self.window_seconds = window_seconds
+        self.clock = clock or time.monotonic
+        self._hits: dict[str, list[float]] = {}
+
+    def check(self, key: str, config: dict[str, Any] | None = None) -> None:
+        """Registra un hit o lanza ``N8nRateLimitError`` si la ventana excede el máximo."""
+        max_requests = int((config or {}).get("maxRequests") or self.max_requests)
+        window_seconds = float((config or {}).get("windowSeconds") or self.window_seconds)
+        if max_requests < 1 or window_seconds <= 0:
+            raise N8nRateLimitError("Invalid n8n inbound rate limit configuration.")
+        now = self.clock()
+        window_start = now - window_seconds
+        hits = [hit for hit in self._hits.get(key, []) if hit >= window_start]
+        if len(hits) >= max_requests:
+            self._hits[key] = hits
+            raise N8nRateLimitError("n8n inbound rate limit exceeded.")
+        hits.append(now)
+        self._hits[key] = hits
+
+
 class N8nIntegrationService:
     """Casos de uso del adaptador n8n sobre repositorios existentes de AIDO."""
 
@@ -69,6 +127,8 @@ class N8nIntegrationService:
         *,
         http_post: HttpPost | None = None,
         credential_resolver: CredentialResolver | None = None,
+        rate_limiter: N8nLocalRateLimiter | None = None,
+        rate_limit_config: dict[str, Any] | None = None,
     ):
         self.connection = connection
         self.repository = IntegrationsRepository(connection)
@@ -76,6 +136,8 @@ class N8nIntegrationService:
         self.events = EventBus(connection)
         self.credential_resolver = credential_resolver or CredentialResolver()
         self.http_post = http_post or default_http_post
+        self.rate_limiter = rate_limiter or N8nLocalRateLimiter()
+        self.rate_limit_config = rate_limit_config
 
     def configure_target(
         self,
@@ -113,6 +175,26 @@ class N8nIntegrationService:
             },
         )
         return target
+
+    def status(self, *, project_id: str | None = None) -> dict[str, Any]:
+        """Devuelve estado seguro de n8n: targets, allowlist efectiva y señal de configuración."""
+        if project_id:
+            self.projects.get_project(project_id)
+        targets = self.repository.list_n8n_webhook_targets(project_id=project_id)
+        enabled_targets = [target for target in targets if target["enabled"]]
+        allowed_event_types: list[str] = []
+        for target in enabled_targets:
+            for event_type in target["allowedEventTypes"]:
+                if event_type not in allowed_event_types:
+                    allowed_event_types.append(event_type)
+        return {
+            "configured": bool(enabled_targets),
+            "targetCount": len(targets),
+            "enabledTargetCount": len(enabled_targets),
+            "allowedEventTypes": allowed_event_types,
+            "eventAllowlist": list(N8N_EVENT_TYPES),
+            "targets": targets,
+        }
 
     def validate_credential_ref(self, credential_ref: str) -> str:
         """Valida que ``credentialRef`` sea una referencia soportada, nunca un secreto crudo."""
@@ -169,6 +251,19 @@ class N8nIntegrationService:
                 request_payload=event_payload,
                 error=f"{error.__class__.__name__}: {error}",
             )
+            self.events.record_audit(
+                project_id=project_id,
+                action="n8n.event.emit",
+                target=delivery["id"],
+                actor="system",
+                payload={
+                    "targetId": target["id"],
+                    "eventType": event_type,
+                    "subjectId": subject_id,
+                    "status": delivery["status"],
+                    "statusCode": delivery["statusCode"],
+                },
+            )
             raise N8nDeliveryError(f"n8n target is unreachable: {delivery['error']}") from error
         status_code = int(response.get("statusCode") or response.get("status_code") or 0)
         response_body = response.get("body") if isinstance(response.get("body"), dict) else {}
@@ -192,6 +287,19 @@ class N8nIntegrationService:
                 "eventType": event_type,
                 "subjectId": subject_id,
                 "deliveryId": delivery["id"],
+                "status": delivery["status"],
+                "statusCode": delivery["statusCode"],
+            },
+        )
+        self.events.record_audit(
+            project_id=project_id,
+            action="n8n.event.emit",
+            target=delivery["id"],
+            actor="system",
+            payload={
+                "targetId": target["id"],
+                "eventType": event_type,
+                "subjectId": subject_id,
                 "status": delivery["status"],
                 "statusCode": delivery["statusCode"],
             },
@@ -228,15 +336,48 @@ class N8nIntegrationService:
     ) -> dict[str, Any]:
         """Procesa un webhook inbound permitido desde n8n tras validar token scoped."""
         project = self.projects.get_project(project_id)
-        self._require_scoped_token(project_id=project["id"], token=token)
-        action_key = normalize_action(action)
-        self._validate_inbound_action(action_key, payload)
+        action_key = canonical_inbound_action(action)
+        try:
+            self._require_scoped_token(project_id=project["id"], token=token)
+        except N8nAuthenticationError as error:
+            self.events.record_audit(
+                project_id=project["id"],
+                action="n8n.webhook.auth_failed",
+                actor="n8n",
+                target=project["id"],
+                payload={"action": action_key, "reason": str(error)},
+            )
+            raise
+        try:
+            self._check_inbound_rate_limit(project_id=project["id"], token=token)
+        except N8nRateLimitError as error:
+            self.events.record_audit(
+                project_id=project["id"],
+                action="n8n.webhook.rate_limited",
+                actor="n8n",
+                target=project["id"],
+                payload={"action": action_key, "reason": str(error)},
+            )
+            raise
+        try:
+            self._validate_inbound_action(action_key, payload)
+        except N8nAuthenticationError as error:
+            self.events.record_audit(
+                project_id=project["id"],
+                action="n8n.webhook.blocked",
+                actor="n8n",
+                target=project["id"],
+                payload={"action": action_key, "reason": str(error)},
+            )
+            raise
         if action_key == "create_thread":
             return {
                 "accepted": True,
                 "action": "create_thread",
                 "thread": self._create_thread(project_id=project["id"], payload=payload),
                 "loop": None,
+                "message": None,
+                "status": None,
             }
         if action_key == "create_loop":
             return {
@@ -244,6 +385,28 @@ class N8nIntegrationService:
                 "action": "create_loop",
                 "thread": None,
                 "loop": self._create_loop(project_id=project["id"], payload=payload),
+                "message": None,
+                "status": None,
+            }
+        if action_key == "add_message":
+            thread, message = self._add_message(project_id=project["id"], payload=payload)
+            return {
+                "accepted": True,
+                "action": "add_message",
+                "thread": thread,
+                "loop": None,
+                "message": message,
+                "status": {"threadStatus": thread["status"]},
+            }
+        if action_key == "get_status":
+            thread, status = self._get_status(project_id=project["id"], payload=payload)
+            return {
+                "accepted": True,
+                "action": "get_status",
+                "thread": thread,
+                "loop": None,
+                "message": None,
+                "status": status,
             }
         raise N8nIntegrationError(f"Unsupported n8n inbound action: {action}")
 
@@ -293,6 +456,13 @@ class N8nIntegrationService:
                 return
         raise N8nAuthenticationError("Invalid scoped n8n token.")
 
+    def _check_inbound_rate_limit(self, *, project_id: str, token: str) -> None:
+        fingerprint = hashlib.sha256(str(token).encode("utf-8")).hexdigest()[:24]
+        self.rate_limiter.check(
+            f"{project_id}:{fingerprint}",
+            config=self.rate_limit_config,
+        )
+
     @staticmethod
     def _validate_inbound_action(action: str, payload: dict[str, Any]) -> None:
         if action in FORBIDDEN_INBOUND_ACTIONS:
@@ -303,7 +473,7 @@ class N8nIntegrationService:
             raise N8nAuthenticationError(
                 "n8n webhooks cannot approve critical actions without a human token."
             )
-        if action not in {"create_thread", "create_loop"}:
+        if action not in ALLOWED_INBOUND_ACTIONS:
             raise N8nIntegrationError(f"Unsupported n8n inbound action: {action}")
 
     def _create_thread(self, *, project_id: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -338,6 +508,68 @@ class N8nIntegrationService:
             payload={"ownerType": owner_type, "ownerId": owner_id},
         )
         return repo.get_thread(thread["id"])
+
+    def _add_message(self, *, project_id: str, payload: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+        thread_id = required_text(
+            payload.get("threadId") or payload.get("thread_id"),
+            "Thread id is required.",
+        )
+        content = required_text(payload.get("content") or payload.get("message"), "Message content is required.")
+        repo = ThreadsRepository(self.connection)
+        thread = repo.get_thread(thread_id)
+        if thread["projectId"] != project_id:
+            raise N8nIntegrationError(f"Thread not found in project: {thread_id}")
+        metadata = redact_secrets({"source": "n8n", **dict(payload.get("metadata") or {})})
+        message = repo.append_message(
+            thread_id=thread_id,
+            kind="user",
+            author=optional_text(payload.get("author")) or "n8n",
+            content=content,
+            metadata=metadata,
+        )
+        self.events.record_audit(
+            project_id=project_id,
+            action="n8n.webhook.message.add",
+            actor="n8n",
+            target=thread_id,
+            payload={"messageId": message["id"]},
+        )
+        return repo.get_thread(thread_id), message
+
+    def _get_status(self, *, project_id: str, payload: dict[str, Any]) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+        thread_id = optional_text(payload.get("threadId") or payload.get("thread_id"))
+        if not thread_id:
+            self.events.record_audit(
+                project_id=project_id,
+                action="n8n.webhook.status.request",
+                actor="n8n",
+                target=project_id,
+                payload={"scope": "integration"},
+            )
+            return None, self.status(project_id=project_id)
+        repo = ThreadsRepository(self.connection)
+        thread = repo.get_thread(thread_id)
+        if thread["projectId"] != project_id:
+            raise N8nIntegrationError(f"Thread not found in project: {thread_id}")
+        messages = repo.list_messages(thread_id)
+        decisions = repo.list_decisions(thread_id)
+        events = repo.list_events(thread_id)
+        self.events.record_audit(
+            project_id=project_id,
+            action="n8n.webhook.status.request",
+            actor="n8n",
+            target=thread_id,
+            payload={"scope": "thread"},
+        )
+        return thread, {
+            "projectId": project_id,
+            "threadId": thread_id,
+            "threadStatus": thread["status"],
+            "messageCount": len(messages),
+            "decisionCount": len(decisions),
+            "eventCount": len(events),
+            "updatedAt": thread["updatedAt"],
+        }
 
     def _create_loop(self, *, project_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         title = required_text(payload.get("title"), "Product loop title is required.")
@@ -402,6 +634,12 @@ def extract_inbound_token(headers: Any) -> str:
 def normalize_action(value: str) -> str:
     """Normaliza acciones inbound para comparar de forma estable."""
     return str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+
+
+def canonical_inbound_action(value: str) -> str:
+    """Normaliza aliases inbound conocidos a la acción interna allowlisted."""
+    action = normalize_action(value)
+    return INBOUND_ACTION_ALIASES.get(action, action)
 
 
 def contains_forbidden_key(value: Any, forbidden: set[str]) -> bool:

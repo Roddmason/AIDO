@@ -171,6 +171,23 @@ class N8nWebhookTargetResponse(IntegrationApiModel):
     target: N8nWebhookTargetRecord
 
 
+class N8nIntegrationStatusRecord(IntegrationApiModel):
+    """Estado seguro de la integración n8n, sin exponer secretos."""
+
+    configured: bool
+    target_count: int = Field(alias="targetCount")
+    enabled_target_count: int = Field(alias="enabledTargetCount")
+    allowed_event_types: list[N8nEventType] = Field(alias="allowedEventTypes")
+    event_allowlist: list[N8nEventType] = Field(alias="eventAllowlist")
+    targets: list[N8nWebhookTargetRecord]
+
+
+class N8nIntegrationStatusResponse(IntegrationApiModel):
+    """Respuesta del estado n8n."""
+
+    status: N8nIntegrationStatusRecord
+
+
 class N8nEventEmitRequest(IntegrationApiModel):
     """Emite un evento soportado hacia n8n usando un target project-scoped."""
 
@@ -224,6 +241,8 @@ class N8nInboundWebhookResponse(IntegrationApiModel):
     """Resultado de un comando inbound permitido desde n8n."""
 
     accepted: bool
-    action: Literal["create_thread", "create_loop"]
+    action: Literal["create_thread", "create_loop", "add_message", "get_status"]
     thread: dict[str, Any] | None = None
     loop: dict[str, Any] | None = None
+    message: dict[str, Any] | None = None
+    status: dict[str, Any] | None = None

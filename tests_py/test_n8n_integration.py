@@ -42,6 +42,176 @@ def _target(client: TestClient, headers: dict[str, str], project_id: str) -> dic
     return response.json()["target"]
 
 
+def test_n8n_status_and_configure_use_requested_api_contract(tmp_path: Path, monkeypatch) -> None:
+    client, headers, store = _client(tmp_path, monkeypatch)
+    project = _project(store, tmp_path)
+
+    initial = client.get(
+        "/api/v1/integrations/n8n/status",
+        headers=headers,
+        params={"projectId": project["id"]},
+    )
+    assert initial.status_code == 200, initial.text
+    assert initial.json()["status"]["configured"] is False
+    assert initial.json()["status"]["enabledTargetCount"] == 0
+
+    configured = client.post(
+        "/api/v1/integrations/n8n/configure",
+        headers=headers,
+        json={
+            "projectId": project["id"],
+            "url": "https://n8n.example.invalid/webhook/aido",
+            "credentialRef": "env:AIDO_N8N_TOKEN",
+            "enabled": True,
+            "allowedEventTypes": ["thread.created", "approval.required"],
+            "metadata": {"apiKey": N8N_TOKEN},
+        },
+    )
+    assert configured.status_code == 201, configured.text
+    assert configured.json()["target"]["credentialRef"] == "env:AIDO_N8N_TOKEN"
+    assert N8N_TOKEN not in configured.text
+
+    current = client.get(
+        "/api/v1/integrations/n8n/status",
+        headers=headers,
+        params={"projectId": project["id"]},
+    )
+    assert current.status_code == 200, current.text
+    status = current.json()["status"]
+    assert status["configured"] is True
+    assert status["targetCount"] == 1
+    assert status["enabledTargetCount"] == 1
+    assert status["allowedEventTypes"] == ["thread.created", "approval.required"]
+    assert status["targets"][0]["url"] == "https://n8n.example.invalid/webhook/aido"
+    assert N8N_TOKEN not in current.text
+
+
+def test_n8n_emit_uses_requested_endpoint_with_mocked_outbound_webhook(
+    tmp_path: Path, monkeypatch
+) -> None:
+    client, headers, store = _client(tmp_path, monkeypatch)
+    project = _project(store, tmp_path)
+    target = _target(client, headers, project["id"])
+    sent: list[dict[str, Any]] = []
+
+    def fake_http_post(
+        url: str, request_headers: dict[str, str], payload: dict[str, Any], timeout_seconds: float
+    ) -> dict[str, Any]:
+        sent.append({"url": url, "headers": request_headers, "payload": payload, "timeout": timeout_seconds})
+        return {"statusCode": 200, "body": {"ok": True}}
+
+    store.n8n_http_post = fake_http_post
+
+    response = client.post(
+        "/api/v1/integrations/n8n/emit",
+        headers=headers,
+        json={
+            "projectId": project["id"],
+            "targetId": target["id"],
+            "eventType": "thread.created",
+            "subjectId": "thread-1",
+            "payload": {"title": "Created from AIDO"},
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["delivery"]["status"] == "delivered"
+    assert sent[0]["payload"]["eventType"] == "thread.created"
+    assert sent[0]["headers"]["Authorization"] == f"Bearer {N8N_TOKEN}"
+
+
+def test_n8n_inbound_token_adds_message_and_returns_thread_status_without_execution(
+    tmp_path: Path, monkeypatch
+) -> None:
+    client, headers, store = _client(tmp_path, monkeypatch)
+    project = _project(store, tmp_path)
+    _target(client, headers, project["id"])
+
+    created = client.post(
+        f"/api/v1/integrations/n8n/inbound/{N8N_TOKEN}",
+        json={
+            "projectId": project["id"],
+            "action": "create_thread",
+            "payload": {
+                "title": "Thread from inbound path",
+                "ownerType": "workspace",
+                "ownerId": "n8n",
+            },
+        },
+    )
+    assert created.status_code == 201, created.text
+    thread_id = created.json()["thread"]["id"]
+
+    message = client.post(
+        f"/api/v1/integrations/n8n/inbound/{N8N_TOKEN}",
+        json={
+            "projectId": project["id"],
+            "action": "add_message",
+            "payload": {
+                "threadId": thread_id,
+                "content": "External automation added context.",
+                "metadata": {"apiKey": N8N_TOKEN},
+            },
+        },
+    )
+    assert message.status_code == 201, message.text
+    assert message.json()["message"]["content"] == "External automation added context."
+    assert message.json()["thread"]["status"] == "open"
+
+    status = client.post(
+        f"/api/v1/integrations/n8n/inbound/{N8N_TOKEN}",
+        json={
+            "projectId": project["id"],
+            "action": "get_status",
+            "payload": {"threadId": thread_id},
+        },
+    )
+    assert status.status_code == 200, status.text
+    assert status.json()["status"]["threadStatus"] == "open"
+    assert status.json()["status"]["messageCount"] == 1
+    assert store.jobs.list_jobs(project["id"]) == []
+    assert N8N_TOKEN not in message.text
+
+
+def test_n8n_inbound_rate_limit_and_critical_delivery_approval_are_blocked(
+    tmp_path: Path, monkeypatch
+) -> None:
+    client, headers, store = _client(tmp_path, monkeypatch)
+    project = _project(store, tmp_path)
+    _target(client, headers, project["id"])
+    store.n8n_inbound_rate_limit = {"maxRequests": 2, "windowSeconds": 60}
+
+    blocked_approval = client.post(
+        f"/api/v1/integrations/n8n/inbound/{N8N_TOKEN}",
+        json={
+            "projectId": project["id"],
+            "action": "approve_delivery",
+            "payload": {"deliveryId": "delivery-1", "approved": True},
+        },
+    )
+    assert blocked_approval.status_code == 403
+
+    first = client.post(
+        f"/api/v1/integrations/n8n/inbound/{N8N_TOKEN}",
+        json={
+            "projectId": project["id"],
+            "action": "get_status",
+            "payload": {},
+        },
+    )
+    assert first.status_code == 200, first.text
+
+    limited = client.post(
+        f"/api/v1/integrations/n8n/inbound/{N8N_TOKEN}",
+        json={
+            "projectId": project["id"],
+            "action": "get_status",
+            "payload": {},
+        },
+    )
+    assert limited.status_code == 429
+
+
 def test_n8n_emit_event_delivers_mocked_outbound_event_and_redacts_secrets(
     tmp_path: Path, monkeypatch
 ) -> None:

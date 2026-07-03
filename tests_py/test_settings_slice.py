@@ -65,6 +65,20 @@ def test_registry_descriptor_for_unknown_key(tmp_path: Path) -> None:
     assert descriptor_for("nope") is None
 
 
+def test_registry_exposes_research_source_controls(tmp_path: Path) -> None:
+    from local_control_center.settings.registry import descriptor_for
+
+    max_sources = descriptor_for("research.maxSources")
+    assert max_sources is not None
+    assert max_sources.type == "number"
+    assert max_sources.section == "research"
+
+    trusted = descriptor_for("research.trustedDomains")
+    assert trusted is not None
+    assert trusted.type == "string_list"
+    assert trusted.project_section == "internet"
+
+
 def test_validate_value_enum_accepts_valid(tmp_path: Path) -> None:
     from local_control_center.settings.registry import descriptor_for, validate_value
 

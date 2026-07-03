@@ -35,6 +35,18 @@ import { CredentialManagerPanel } from './CredentialManagerPanel';
 
 type Mutate = <T>(operation: (token: string) => Promise<T>) => Promise<T>;
 
+/** Formats a per-run USD budget, or the translated 'no cap' label when unbounded (<= 0). */
+function usdLabel(amount: number, noCap: string): string {
+	return amount > 0 ? `$${amount.toFixed(2)}` : noCap;
+}
+
+/** Reads the reviewer role from an agent profile's opaque reviewer-policy object. */
+function reviewerRoleOf(reviewerPolicy: Record<string, unknown> | null | undefined): string {
+	return reviewerPolicy && typeof reviewerPolicy.reviewerRole === 'string'
+		? reviewerPolicy.reviewerRole
+		: '';
+}
+
 export function ConsoleLink({
 	page,
 	label,
@@ -146,6 +158,9 @@ export function TeamRosterCards({
 		<div className="settings-team-grid">
 			{profiles.map((profile) => {
 				const availability = profile.runtimeAvailability?.status ?? profile.status;
+				const reviewerRole = reviewerRoleOf(
+					profile.reviewerPolicy as Record<string, unknown> | null,
+				);
 				return (
 					<article key={profile.id} className="settings-team-card">
 						<div className="settings-team-card-head">
@@ -168,6 +183,16 @@ export function TeamRosterCards({
 							<div>
 								<dt>{t('app.settings.team.providers', 'Providers')}</dt>
 								<dd className="mono">{profile.allowedProviders.join(', ') || '—'}</dd>
+							</div>
+							<div>
+								<dt>{t('app.settings.team.reviewer', 'Reviewer')}</dt>
+								<dd className="mono">{reviewerRole || '—'}</dd>
+							</div>
+							<div>
+								<dt>{t('app.settings.team.budgetPerRun', 'Budget / run')}</dt>
+								<dd className="mono">
+									{usdLabel(profile.maxCostPerRun, t('app.settings.team.noBudget', 'No cap'))}
+								</dd>
 							</div>
 							<div>
 								<dt>{t('app.settings.team.qualityGates', 'Quality gates')}</dt>

@@ -163,6 +163,22 @@ REGISTRY: list[SettingDescriptor] = [
         label_key="app.settings.research.preferOfficialDocs",
     ),
     SettingDescriptor(
+        key="research.maxSources",
+        section="research",
+        project_section=None,
+        type="number",
+        default=5,
+        label_key="app.settings.research.maxSources",
+    ),
+    SettingDescriptor(
+        key="research.trustedDomains",
+        section="research",
+        project_section="internet",
+        type="string_list",
+        default=[],
+        label_key="app.settings.research.trustedDomains",
+    ),
+    SettingDescriptor(
         key="security.gitleaks.enforced",
         section="security",
         project_section="security",

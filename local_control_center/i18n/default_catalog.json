@@ -10034,6 +10034,134 @@
     "app.settings.status.saving": {
       "en": "Saving...",
       "es": "Guardando..."
+    },
+    "app.settings.research.maxSources": {
+      "en": "Maximum sources",
+      "es": "Máximo de fuentes"
+    },
+    "app.settings.research.trustedDomains": {
+      "en": "Trusted domains",
+      "es": "Dominios de confianza"
+    },
+    "app.settings.research.internetGroup": {
+      "en": "Internet access",
+      "es": "Acceso a internet"
+    },
+    "app.settings.research.sourcesGroup": {
+      "en": "Sources",
+      "es": "Fuentes"
+    },
+    "app.settings.internet.policyGroup": {
+      "en": "Project internet policy",
+      "es": "Política de internet del proyecto"
+    },
+    "app.settings.internet.allowlistGroup": {
+      "en": "Allowlist domains",
+      "es": "Dominios permitidos"
+    },
+    "app.settings.goal.objectiveGroup": {
+      "en": "Objective",
+      "es": "Objetivo"
+    },
+    "app.settings.goal.loopGroup": {
+      "en": "Active loop policy",
+      "es": "Política del loop activo"
+    },
+    "app.settings.routing.preferredGroup": {
+      "en": "Preferred runtime",
+      "es": "Runtime preferido"
+    },
+    "app.settings.routing.accessGroup": {
+      "en": "Runtime access",
+      "es": "Acceso a runtimes"
+    },
+    "app.settings.quality.commandsGroup": {
+      "en": "Gate commands",
+      "es": "Comandos de puerta"
+    },
+    "app.settings.quality.activeHint": {
+      "en": "Every listed command must pass before evidence is accepted for this project.",
+      "es": "Cada comando listado debe pasar antes de aceptar evidencia para este proyecto."
+    },
+    "app.settings.quality.emptyHint": {
+      "en": "Add commands like tests, lint or build that must pass before evidence is accepted.",
+      "es": "Agrega comandos como pruebas, lint o build que deban pasar antes de aceptar evidencia."
+    },
+    "app.settings.team.reviewer": {
+      "en": "Reviewer",
+      "es": "Revisor"
+    },
+    "app.settings.team.budgetPerRun": {
+      "en": "Budget / run",
+      "es": "Presupuesto / ejecución"
+    },
+    "app.settings.team.noBudget": {
+      "en": "No cap",
+      "es": "Sin tope"
+    },
+    "app.settings.enum.internet.blockedDesc": {
+      "en": "Agents never reach the public internet.",
+      "es": "Los agentes nunca acceden a internet."
+    },
+    "app.settings.enum.internet.officialAllowlistDesc": {
+      "en": "Only vetted official documentation domains are reachable.",
+      "es": "Solo se alcanzan dominios de documentación oficial validados."
+    },
+    "app.settings.enum.internet.policyGatedDesc": {
+      "en": "Each fetch is checked against the security policy before it runs.",
+      "es": "Cada acceso se valida contra la política de seguridad antes de ejecutarse."
+    },
+    "app.settings.enum.teamMode.economyDesc": {
+      "en": "Fewest roles for the fastest, cheapest passes.",
+      "es": "Menos roles para pasadas más rápidas y económicas."
+    },
+    "app.settings.enum.teamMode.balancedDesc": {
+      "en": "A balanced roster for everyday delivery.",
+      "es": "Un equipo equilibrado para la entrega diaria."
+    },
+    "app.settings.enum.teamMode.criticalDesc": {
+      "en": "Adds review and security roles for risky work.",
+      "es": "Suma roles de revisión y seguridad para trabajo riesgoso."
+    },
+    "app.settings.enum.teamMode.maximumDesc": {
+      "en": "The full roster with every guardrail engaged.",
+      "es": "El equipo completo con todas las salvaguardas activas."
+    },
+    "app.settings.enum.risk.lowDesc": {
+      "en": "Routine changes with minimal oversight.",
+      "es": "Cambios rutinarios con supervisión mínima."
+    },
+    "app.settings.enum.risk.mediumDesc": {
+      "en": "Standard oversight for typical delivery.",
+      "es": "Supervisión estándar para la entrega típica."
+    },
+    "app.settings.enum.risk.highDesc": {
+      "en": "Extra checks before anything is accepted.",
+      "es": "Verificaciones adicionales antes de aceptar cualquier cosa."
+    },
+    "app.settings.enum.risk.criticalDesc": {
+      "en": "Maximum scrutiny; nothing ships unreviewed.",
+      "es": "Escrutinio máximo; nada se entrega sin revisión."
+    },
+    "app.settings.enum.mode.apiDesc": {
+      "en": "Call hosted provider APIs directly.",
+      "es": "Llamar directamente a las APIs de proveedores alojados."
+    },
+    "app.settings.enum.mode.cliDesc": {
+      "en": "Drive installed CLI runtimes on this machine.",
+      "es": "Usar los runtimes CLI instalados en esta máquina."
+    },
+    "app.settings.enum.mode.ollamaDesc": {
+      "en": "Run local models through Ollama.",
+      "es": "Ejecutar modelos locales mediante Ollama."
+    },
+    "app.settings.enum.mode.hybridDesc": {
+      "en": "Mix API, CLI and local as each step needs.",
+      "es": "Combinar API, CLI y local según lo requiera cada paso."
+    },
+    "app.settings.enum.mode.manualDesc": {
+      "en": "Pick the runtime for every step by hand.",
+      "es": "Elegir el runtime de cada paso manualmente."
     }
   }
 }

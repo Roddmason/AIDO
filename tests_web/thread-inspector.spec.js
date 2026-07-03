@@ -10,6 +10,12 @@
  */
 import { expect, test } from '@playwright/test';
 
+// The AI-manager inspector auto-opens only in the desktop IDE layout (min-width 981px):
+// on the narrow mobile project the shell keeps it collapsed so it never overlays the
+// composer (AppShell: `if (!isDesktop) return`). Pin a desktop-width viewport so both
+// Playwright projects exercise the inspector instead of the stacked mobile fallback.
+test.use({ viewport: { width: 1280, height: 800 } });
+
 async function expectControlPlaneLoaded(page) {
 	await expect(page.getByRole('heading', { name: 'AIDO Control Center' })).toBeVisible({
 		timeout: 30_000,

@@ -271,7 +271,12 @@ def test_overview_returns_bounded_recent_event_snapshot(tmp_path: Path, monkeypa
     overview = response.json()
     assert len(overview["events"]) == OVERVIEW_EVENT_LIMIT
     assert len(overview["auditEvents"]) == OVERVIEW_AUDIT_EVENT_LIMIT
-    assert overview["events"][0]["payload"]["sequence"] == OVERVIEW_EVENT_LIMIT + 24
+    event_sequences = [
+        item["payload"].get("sequence")
+        for item in overview["events"]
+        if "sequence" in item["payload"]
+    ]
+    assert max(event_sequences) == OVERVIEW_EVENT_LIMIT + 24
     audit_sequences = [
         item["payload"].get("sequence")
         for item in overview["auditEvents"]

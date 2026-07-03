@@ -31,6 +31,13 @@ HIGH_SIMILARITY_THRESHOLD = 0.6
 MAX_INDEX_TEXT_CHARS = 8_000
 MAX_KEYWORDS = 24
 MAX_CANDIDATES = 20
+FUNCTIONALITY_SOURCE_STATUSES = {"resolved", "archived"}
+FUNCTIONALITY_MATCH_THRESHOLD = 0.45
+MAX_FILE_PATHS = 50
+MAX_PERFORMANCE_NOTES = 20
+_PATH_PATTERN = re.compile(
+    r"(?:(?:[A-Za-z]:)?[\\/])?(?:[A-Za-z0-9_.@() -]+[\\/])+[A-Za-z0-9_.@() -]+\.[A-Za-z0-9]+"
+)
 
 _STOPWORDS = {
     "a",
@@ -75,7 +82,27 @@ def row_to_similarity_event(row: sqlite3.Row) -> dict[str, Any]:
         "score": float(row["score"]),
         "reason": row["reason"],
         "action": row["action"],
+        "functionalityId": row["functionality_id"] if "functionality_id" in row.keys() else "",
         "createdAt": row["created_at"],
+    }
+
+
+def row_to_functionality(row: sqlite3.Row) -> dict[str, Any]:
+    """Mapea una fila del registry de funcionalidad al contrato camelCase."""
+    return {
+        "id": row["id"],
+        "projectId": row["project_id"],
+        "name": row["name"],
+        "summary": row["summary"],
+        "normalizedName": row["normalized_name"],
+        "fingerprint": row["fingerprint"],
+        "sourceThreadId": row["source_thread_id"] or "",
+        "status": row["status"],
+        "filePaths": json_loads(row["file_paths_json"], []),
+        "performanceNotes": json_loads(row["performance_notes_json"], []),
+        "metadata": json_loads(row["metadata"], {}),
+        "createdAt": row["created_at"],
+        "updatedAt": row["updated_at"],
     }
 
 
@@ -161,6 +188,145 @@ class ThreadSimilarityService:
         ).fetchall()
         for row in rows:
             self.index_thread(row["id"])
+
+    def reindex_thread_memory(self, thread_id: str) -> dict[str, Any]:
+        """Reconstruye índice y registry derivado para un thread concreto."""
+        index = self.index_thread(thread_id)
+        functionality = None
+        if index["status"] in FUNCTIONALITY_SOURCE_STATUSES:
+            functionality = self.upsert_functionality_from_thread(thread_id)
+        return {"index": index, "functionality": functionality}
+
+    def reindex_project_memory(self, project_id: str) -> None:
+        """Backfill del índice y de funcionalidad resuelta/archivada del proyecto."""
+        rows = self.connection.execute(
+            "SELECT id, status FROM project_threads WHERE project_id = ? ORDER BY updated_at ASC",
+            (project_id,),
+        ).fetchall()
+        for row in rows:
+            self.index_thread(row["id"])
+            if row["status"] in FUNCTIONALITY_SOURCE_STATUSES:
+                self.upsert_functionality_from_thread(row["id"])
+
+    def upsert_functionality_from_thread(self, thread_id: str) -> dict[str, Any]:
+        """Materializa un thread como funcionalidad del proyecto para decisiones futuras."""
+        thread = self._thread_row(thread_id)
+        if thread["status"] == "deleted" or ("deleted_at" in thread.keys() and thread["deleted_at"]):
+            raise ValueError("Deleted threads cannot be registered as functionality")
+        index = self.index_thread(thread_id)
+        name = str(redact_secrets(thread["title"] or "")).strip()
+        summary = str(redact_secrets(thread["summary"] or "")).strip()
+        normalized_name = normalize_text(" ".join([name, summary, str(index["normalizedGoal"])]))
+        if not normalized_name:
+            raise ValueError("Functionality must have indexable text")
+        timestamp = utc_now()
+        fingerprint = stable_hash(normalized_name)
+        existing = self.connection.execute(
+            """
+            SELECT * FROM functionality_registry
+            WHERE project_id = ? AND (fingerprint = ? OR source_thread_id = ?)
+            ORDER BY CASE WHEN source_thread_id = ? THEN 0 ELSE 1 END, updated_at DESC
+            LIMIT 1
+            """,
+            (thread["project_id"], fingerprint, thread_id, thread_id),
+        ).fetchone()
+        functionality_id = existing["id"] if existing else f"functionality-{uuid.uuid4()}"
+        created_at = existing["created_at"] if existing else timestamp
+        file_paths = self._file_paths_for_thread(thread_id)
+        performance_notes = self._performance_notes_for_thread(thread_id)
+        metadata = {
+            "source": "thread_memory",
+            "threadStatus": thread["status"],
+            "keywords": index["keywords"],
+            "artifactRefs": index["artifactRefs"],
+        }
+        self.connection.execute(
+            """
+            INSERT INTO functionality_registry
+                (id, project_id, name, summary, normalized_name, fingerprint, source_thread_id, status,
+                 file_paths_json, performance_notes_json, metadata, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(project_id, fingerprint) DO UPDATE SET
+                name = excluded.name,
+                summary = excluded.summary,
+                normalized_name = excluded.normalized_name,
+                source_thread_id = excluded.source_thread_id,
+                status = excluded.status,
+                file_paths_json = excluded.file_paths_json,
+                performance_notes_json = excluded.performance_notes_json,
+                metadata = excluded.metadata,
+                updated_at = excluded.updated_at
+            """,
+            (
+                functionality_id,
+                thread["project_id"],
+                name,
+                summary,
+                normalized_name,
+                fingerprint,
+                thread_id,
+                thread["status"],
+                json_dumps(file_paths),
+                json_dumps(performance_notes),
+                json_dumps(metadata),
+                created_at,
+                timestamp,
+            ),
+        )
+        return self._functionality_by_fingerprint(project_id=thread["project_id"], fingerprint=fingerprint)
+
+    def list_project_functionality(
+        self,
+        *,
+        project_id: str,
+        query: str | None = None,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        """Lista funcionalidad registrada; si hay query, ordena por similitud lexical."""
+        self.reindex_project_memory(project_id)
+        bounded_limit = max(1, min(int(limit), 100))
+        rows = self.connection.execute(
+            """
+            SELECT * FROM functionality_registry
+            WHERE project_id = ? AND status <> 'deleted'
+            ORDER BY updated_at DESC, rowid DESC
+            """,
+            (project_id,),
+        ).fetchall()
+        records = [row_to_functionality(row) for row in rows]
+        query_text = str(query or "").strip()
+        if not query_text:
+            return records[:bounded_limit]
+        scored: list[tuple[float, dict[str, Any]]] = []
+        query_normalized = normalize_text(str(redact_secrets(query_text)))
+        query_tokens = set(query_normalized.split())
+        for record in records:
+            candidate = {
+                "title": record["name"],
+                "normalizedGoal": record["normalizedName"],
+                "keywords": extract_keywords(record["normalizedName"]),
+            }
+            score, reason = _score_candidate(query_tokens, query_normalized, candidate)
+            if score <= 0:
+                continue
+            scored_record = {**record, "score": round(score, 3), "reason": reason}
+            scored.append((score, scored_record))
+        scored.sort(key=lambda item: (item[0], item[1]["updatedAt"]), reverse=True)
+        return [item[1] for item in scored[:bounded_limit]]
+
+    def find_existing_functionality(
+        self,
+        *,
+        project_id: str,
+        query: str,
+        limit: int = 1,
+    ) -> list[dict[str, Any]]:
+        """Busca funcionalidad existente suficientemente parecida a la solicitud."""
+        return [
+            item
+            for item in self.list_project_functionality(project_id=project_id, query=query, limit=limit)
+            if float(item.get("score") or 0.0) >= FUNCTIONALITY_MATCH_THRESHOLD
+        ]
 
     def find_similar(
         self,
@@ -250,14 +416,18 @@ class ThreadSimilarityService:
         candidate = self._thread_row(candidate_thread_id)
         if source["project_id"] != project_id or candidate["project_id"] != project_id:
             raise ValueError("Similarity candidates must belong to the same project")
+        functionality_id = ""
+        if action != "create_new_anyway":
+            functionality_id = self.upsert_functionality_from_thread(candidate_thread_id)["id"]
         event_id = f"thread-similarity-{uuid.uuid4()}"
         clean_reason = str(redact_secrets(reason or "")).strip()
         bounded_score = max(0.0, min(float(score), 1.0))
         self.connection.execute(
             """
             INSERT INTO thread_similarity_events
-                (id, project_id, source_thread_id, candidate_thread_id, score, reason, action, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                (id, project_id, source_thread_id, candidate_thread_id, score, reason, action,
+                 functionality_id, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 event_id,
@@ -267,9 +437,12 @@ class ThreadSimilarityService:
                 bounded_score,
                 clean_reason,
                 action,
+                functionality_id,
                 utc_now(),
             ),
         )
+        if action == "performance_pass" and functionality_id:
+            self._refresh_functionality_performance_notes(functionality_id)
         from local_control_center.threads.repository import ThreadsRepository
 
         ThreadsRepository(self.connection).record_event(
@@ -309,6 +482,80 @@ class ThreadSimilarityService:
         if not row:
             raise KeyError(f"Thread not found: {thread_id}")
         return row
+
+    def _functionality_by_fingerprint(self, *, project_id: str, fingerprint: str) -> dict[str, Any]:
+        row = self.connection.execute(
+            """
+            SELECT * FROM functionality_registry
+            WHERE project_id = ? AND fingerprint = ?
+            """,
+            (project_id, fingerprint),
+        ).fetchone()
+        if not row:
+            raise KeyError(f"Functionality not found: {fingerprint}")
+        return row_to_functionality(row)
+
+    def _refresh_functionality_performance_notes(self, functionality_id: str) -> None:
+        row = self.connection.execute(
+            "SELECT source_thread_id FROM functionality_registry WHERE id = ?",
+            (functionality_id,),
+        ).fetchone()
+        if not row or not row["source_thread_id"]:
+            return
+        notes = self._performance_notes_for_thread(str(row["source_thread_id"]))
+        self.connection.execute(
+            """
+            UPDATE functionality_registry
+            SET performance_notes_json = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (json_dumps(notes), utc_now(), functionality_id),
+        )
+
+    def _file_paths_for_thread(self, thread_id: str) -> list[str]:
+        rows = self.connection.execute(
+            """
+            SELECT payload AS value FROM thread_agent_events WHERE thread_id = ?
+            UNION ALL
+            SELECT metadata AS value FROM thread_agent_events WHERE thread_id = ?
+            UNION ALL
+            SELECT metadata AS value FROM thread_messages WHERE thread_id = ?
+            UNION ALL
+            SELECT metadata AS value FROM thread_artifacts WHERE thread_id = ?
+            """,
+            (thread_id, thread_id, thread_id, thread_id),
+        ).fetchall()
+        paths: list[str] = []
+        for row in rows:
+            for path in _extract_file_paths(json_loads(row["value"], {})):
+                if path not in paths:
+                    paths.append(path)
+                if len(paths) >= MAX_FILE_PATHS:
+                    return paths
+        return paths
+
+    def _performance_notes_for_thread(self, thread_id: str) -> list[dict[str, Any]]:
+        rows = self.connection.execute(
+            """
+            SELECT id, reason, action, created_at
+            FROM thread_similarity_events
+            WHERE action = 'performance_pass'
+              AND (source_thread_id = ? OR candidate_thread_id = ?)
+            ORDER BY created_at DESC, rowid DESC
+            LIMIT ?
+            """,
+            (thread_id, thread_id, MAX_PERFORMANCE_NOTES),
+        ).fetchall()
+        return [
+            {
+                "id": row["id"],
+                "source": "similarity_event",
+                "action": row["action"],
+                "note": str(redact_secrets(row["reason"] or ""))[:240],
+                "createdAt": row["created_at"],
+            }
+            for row in rows
+        ]
 
     def _recent_message_text(self, thread_id: str) -> str:
         rows = self.connection.execute(
@@ -439,9 +686,29 @@ def _flatten_text(value: Any) -> str:
     return str(value)
 
 
+def _extract_file_paths(value: Any) -> list[str]:
+    paths: list[str] = []
+    if isinstance(value, dict):
+        for item in value.values():
+            paths.extend(_extract_file_paths(item))
+    elif isinstance(value, list):
+        for item in value:
+            paths.extend(_extract_file_paths(item))
+    elif isinstance(value, str):
+        for match in _PATH_PATTERN.findall(value):
+            normalized = match.replace("\\", "/").strip()
+            if normalized and normalized not in paths:
+                paths.append(normalized)
+    return paths
+
+
 def _stem_token(token: str) -> str:
     if len(token) > 4 and token.endswith("ies"):
         return f"{token[:-3]}y"
     if len(token) > 4 and token.endswith("s") and not token.endswith("ss"):
         return token[:-1]
     return token
+
+
+class ThreadMemoryService(ThreadSimilarityService):
+    """Nombre publico del servicio de memoria de threads y funcionalidad existente."""

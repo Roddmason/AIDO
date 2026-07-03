@@ -185,6 +185,20 @@ def test_research_agent_fetches_official_source_and_persists_research_sources(
     assert persisted[0]["content_hash"] == hashlib.sha256(docs_content.encode("utf-8")).hexdigest()
     assert body["sources"][0]["id"] == persisted[0]["id"]
     assert body["sources"][0]["artifactId"] == persisted[0]["artifact_id"]
+    run = store.connection.execute(
+        "SELECT * FROM research_runs WHERE project_id = ?", (project["id"],)
+    ).fetchone()
+    assert run is not None
+    assert run["status"] == "research_ready"
+    assert run["recommendation_json"]
+
+    findings = store.connection.execute(
+        "SELECT * FROM research_findings WHERE research_run_id = ? ORDER BY created_at",
+        (run["id"],),
+    ).fetchall()
+    assert {finding["finding_type"] for finding in findings} >= {"citation_check", "recommendation"}
+    recommendation = next(finding for finding in findings if finding["finding_type"] == "recommendation")
+    assert docs_url in recommendation["citations_json"]
 
 
 def test_research_agent_recommendation_cites_trusted_source_without_manual_decision(
@@ -368,6 +382,21 @@ def test_research_agent_web_search_blocks_with_reason_when_internet_is_unavailab
     assert body["reason"] == "ResearchAgent web search failed: <urlopen error network unreachable>"
     assert body["sources"] == []
     assert body["agentRun"]["status"] == "blocked"
+    run = store.connection.execute(
+        "SELECT * FROM research_runs WHERE project_id = ?", (project["id"],)
+    ).fetchone()
+    assert run is not None
+    assert run["status"] == "research_blocked"
+    assert "Check network access" in run["remediation_json"]
+    blocker = store.connection.execute(
+        """
+        SELECT * FROM research_findings
+        WHERE research_run_id = ? AND finding_type = 'blocker'
+        """,
+        (run["id"],),
+    ).fetchone()
+    assert blocker is not None
+    assert "network unreachable" in blocker["summary"]
 
 
 def test_research_agent_technical_decision_cites_persisted_source(

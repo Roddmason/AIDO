@@ -1,8 +1,8 @@
 """Recall de memoria de threads: agrega lo que AIDO ya recuerda sobre trabajo similar.
 
-Compone, sin tablas nuevas, las seis categorías del panel de memoria a partir de datos reales:
+Compone las seis categorías del panel de memoria a partir de datos reales:
 candidatos del índice lexical (``thread_memory_index``), decisiones resueltas y artifacts de esos
-hilos similares, lecciones registradas como ``memory_items`` (kind='lesson'), pasadas de
+hilos similares, lecciones registradas en ``project_lessons`` o ``memory_items`` (kind='lesson'), pasadas de
 performance ya solicitadas (``thread_similarity_events`` con action='performance_pass' y mensajes
 con metadata.mode='performance_pass') y los hilos similares ya resueltos como funcionalidad
 existente. Solo lecturas sobre la conexión del caller; el índice se refresca vía
@@ -121,12 +121,12 @@ class ThreadMemoryRecallService:
         ]
 
     def _lessons(self, source_index: dict[str, Any], limit: int) -> list[dict[str, Any]]:
-        """Lecciones vigentes del proyecto (``memory_items`` kind='lesson'), relevantes primero.
+        """Lecciones vigentes del proyecto, relevantes primero.
 
         La relevancia es el overlap lexical entre la lección y el objetivo normalizado del hilo;
         las lecciones sin overlap igual se listan (recencia) para no ocultar memoria registrada.
         """
-        rows = self.connection.execute(
+        memory_rows = self.connection.execute(
             """
             SELECT rowid, id, content, source_ref, created_at
             FROM memory_items
@@ -137,9 +137,19 @@ class ThreadMemoryRecallService:
             """,
             (source_index["projectId"], utc_now(), LESSON_SCAN_ROWS),
         ).fetchall()
+        project_rows = self.connection.execute(
+            """
+            SELECT rowid, id, lesson AS content, source_ref, created_at
+            FROM project_lessons
+            WHERE project_id = ? AND status = 'active' AND deleted_at IS NULL
+            ORDER BY created_at DESC, rowid DESC
+            LIMIT ?
+            """,
+            (source_index["projectId"], LESSON_SCAN_ROWS),
+        ).fetchall()
         source_tokens = set(str(source_index["normalizedGoal"]).split())
         lessons: list[tuple[int, str, int, dict[str, Any]]] = []
-        for row in rows:
+        for row in [*project_rows, *memory_rows]:
             content = str(redact_secrets(row["content"] or ""))
             matched = sorted(source_tokens & set(normalize_text(content).split()))[:8]
             lessons.append(

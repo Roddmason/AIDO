@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from .command_classifier import classify_command
 
@@ -42,7 +43,7 @@ PROFILE_DEFAULTS: dict[str, str] = {
 }
 
 GIT_WORKSPACE_AGENT_ID = "git_workspace_agent"
-GIT_WORKSPACE_READ_COMMANDS = {"status", "diff", "remote", "log", "rev-parse"}
+GIT_WORKSPACE_READ_COMMANDS = {"status", "diff", "log", "rev-parse"}
 GIT_WORKSPACE_WRITE_COMMANDS = {"branch", "checkout"}
 GIT_BRANCH_READ_FLAGS = {"--show-current", "--remotes", "-r", "--list"}
 GIT_BRANCH_MUTATION_FLAGS = {
@@ -62,6 +63,32 @@ GIT_CHECKOUT_BLOCKED_FLAGS = {"-f", "--force", "--orphan", "--detach", "-B", "-b
 GIT_WORKTREE_LIST_FLAGS = {"--porcelain"}
 MODEL_RUNTIME_TOOLS = {"ollama", "openai_compatible", "openrouter", "nvidia_nim", "anthropic_api"}
 MODEL_RUNTIME_REASON = "configured Ollama, OpenAI-compatible, OpenRouter, NVIDIA NIM or Anthropic adapters"
+
+
+def _is_safe_git_arg(value: str | None) -> bool:
+    text = (value or "").strip()
+    if not text or text != value or text.startswith("-") or len(text) > 200:
+        return False
+    if ".." in text or "@{" in text or "\n" in text or "\r" in text:
+        return False
+    return not any(char in set(" ~^:?*[\\") or ord(char) < 32 for char in text)
+
+
+def _is_safe_remote_name(value: str | None) -> bool:
+    text = (value or "").strip()
+    if not text or text != value or text.startswith("-") or len(text) > 80:
+        return False
+    return all(char.isalnum() or char in {".", "_", "-"} for char in text)
+
+
+def _remote_url_embeds_credentials(value: str | None) -> bool:
+    text = (value or "").strip()
+    parsed = urlparse(text)
+    if parsed.scheme == "https":
+        return bool(parsed.username or parsed.password)
+    if parsed.scheme == "ssh":
+        return bool(parsed.password)
+    return False
 
 
 def is_path_inside(path: str | None, root: str | None) -> bool:
@@ -179,12 +206,12 @@ def evaluate_git_workspace_command(
             "reason": "Git workspace execution requires workspace and agent run context.",
             "categories": categories,
         }
-    if input_payload.get("networkRequired") or input_payload.get("secretsRequired"):
-        categories.append("git_workspace_remote_or_secret_denied")
+    if input_payload.get("secretsRequired"):
+        categories.append("git_workspace_secret_denied")
         return {
             "decision": "deny",
             "riskLevel": "high",
-            "reason": "Git workspace commands must run locally without network or injected secrets.",
+            "reason": "Git workspace commands must not receive injected secrets.",
             "categories": categories,
         }
     argv = input_payload.get("commandArgv")
@@ -211,6 +238,16 @@ def evaluate_git_workspace_command(
         }
     subcommand = str(argv[1]).lower()
     args = [str(item) for item in argv[2:]]
+    git_operation = str(input_payload.get("gitOperation") or "")
+    network_required = bool(input_payload.get("networkRequired"))
+    if network_required and not (subcommand == "ls-remote" and git_operation == "remote_test"):
+        categories.append("git_workspace_unapproved_network_denied")
+        return {
+            "decision": "deny",
+            "riskLevel": "high",
+            "reason": "Git workspace network access is limited to explicit remote tests.",
+            "categories": categories,
+        }
     if subcommand in GIT_WORKSPACE_READ_COMMANDS:
         return {
             "decision": "allow",
@@ -218,8 +255,117 @@ def evaluate_git_workspace_command(
             "reason": f"Git {subcommand} is allowlisted for local workspace evidence.",
             "categories": [*categories, "git_workspace_command", f"git_{subcommand}"],
         }
+    if subcommand == "init":
+        if git_operation != "init_repository":
+            categories.append("git_workspace_init_context_denied")
+            return {
+                "decision": "deny",
+                "riskLevel": "high",
+                "reason": "Git init requires the gitOperation=init_repository context.",
+                "categories": categories,
+            }
+        if args and not (
+            len(args) == 2 and args[0] in {"--initial-branch", "-b"} and args[1] in {"main", "dev"}
+        ):
+            categories.append("git_workspace_init_shape_denied")
+            return {
+                "decision": "deny",
+                "riskLevel": "high",
+                "reason": "Git init is limited to --initial-branch main/dev.",
+                "categories": categories,
+            }
+        return {
+            "decision": "allow",
+            "riskLevel": "medium",
+            "reason": "Git init is allowlisted for project repository setup.",
+            "categories": [*categories, "git_workspace_command", "git_init"],
+        }
+    if subcommand == "remote":
+        if args == ["-v"]:
+            return {
+                "decision": "allow",
+                "riskLevel": "low",
+                "reason": "Git remote listing is allowlisted for local workspace evidence.",
+                "categories": [*categories, "git_workspace_command", "git_remote_read"],
+            }
+        if git_operation == "remote_add":
+            if len(args) != 3 or args[0] != "add" or not _is_safe_remote_name(args[1]):
+                categories.append("git_workspace_remote_add_shape_denied")
+                return {
+                    "decision": "deny",
+                    "riskLevel": "high",
+                    "reason": "Git remote add must use argv [git, remote, add, name, url].",
+                    "categories": categories,
+                }
+            if _remote_url_embeds_credentials(args[2]):
+                categories.append("git_workspace_remote_add_secret_denied")
+                return {
+                    "decision": "deny",
+                    "riskLevel": "high",
+                    "reason": "Git remote URLs must not embed tokens or credentials.",
+                    "categories": categories,
+                }
+            return {
+                "decision": "allow",
+                "riskLevel": "medium",
+                "reason": "Git remote add is allowlisted after service-level URL validation.",
+                "categories": [*categories, "git_workspace_command", "git_remote_add"],
+            }
+        categories.append("git_workspace_remote_mode_denied")
+        return {
+            "decision": "deny",
+            "riskLevel": "high",
+            "reason": "Git remote command is limited to listing or remote add with explicit context.",
+            "categories": categories,
+        }
+    if subcommand == "ls-remote":
+        if git_operation != "remote_test":
+            categories.append("git_workspace_ls_remote_context_denied")
+            return {
+                "decision": "deny",
+                "riskLevel": "high",
+                "reason": "Git ls-remote requires the gitOperation=remote_test context.",
+                "categories": categories,
+            }
+        if not network_required:
+            categories.append("git_workspace_ls_remote_network_required")
+            return {
+                "decision": "deny",
+                "riskLevel": "high",
+                "reason": "Git ls-remote must explicitly declare networkRequired=true.",
+                "categories": categories,
+            }
+        if len(args) != 2 or args[0] != "--heads" or not _is_safe_remote_name(args[1]):
+            categories.append("git_workspace_ls_remote_shape_denied")
+            return {
+                "decision": "deny",
+                "riskLevel": "high",
+                "reason": "Git ls-remote is limited to argv [git, ls-remote, --heads, remote].",
+                "categories": categories,
+            }
+        return {
+            "decision": "allow",
+            "riskLevel": "medium",
+            "reason": "Git remote test is allowlisted with explicit network gating.",
+            "categories": [*categories, "git_workspace_command", "git_remote_test"],
+        }
     if subcommand == "branch":
         git_operation = str(input_payload.get("gitOperation") or "")
+        if git_operation == "init_default_branch":
+            if len(args) != 2 or args[0] != "-M" or args[1] not in {"main", "dev"}:
+                categories.append("git_workspace_init_default_branch_denied")
+                return {
+                    "decision": "deny",
+                    "riskLevel": "high",
+                    "reason": "Git default branch rename is limited to -M main/dev after init.",
+                    "categories": categories,
+                }
+            return {
+                "decision": "allow",
+                "riskLevel": "medium",
+                "reason": "Git default branch rename is allowlisted for project repository setup.",
+                "categories": [*categories, "git_workspace_command", "git_init_default_branch"],
+            }
         if git_operation == "create_branch":
             if any(arg in GIT_BRANCH_MUTATION_FLAGS or arg.startswith("-") for arg in args):
                 categories.append("git_workspace_branch_flag_denied")
@@ -227,6 +373,14 @@ def evaluate_git_workspace_command(
                     "decision": "deny",
                     "riskLevel": "high",
                     "reason": "Git branch creation cannot include mutation flags.",
+                    "categories": categories,
+                }
+            if not args or not all(_is_safe_git_arg(arg) for arg in args):
+                categories.append("git_workspace_branch_name_denied")
+                return {
+                    "decision": "deny",
+                    "riskLevel": "high",
+                    "reason": "Git branch creation requires safe branch/base refs.",
                     "categories": categories,
                 }
             return {

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 
@@ -31,10 +32,20 @@ def run_git(args: list[str], *, cwd: Path | None = None) -> subprocess.Completed
         return subprocess.CompletedProcess(
             args=["git", *args], returncode=127, stdout="", stderr="git CLI is not available"
         )
-    return subprocess.run(
-        ["git", *args],
-        cwd=str(cwd) if cwd else None,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    command = ["git", *args]
+    with tempfile.TemporaryFile() as stdout_file, tempfile.TemporaryFile() as stderr_file:
+        completed = subprocess.run(
+            command,
+            cwd=str(cwd) if cwd else None,
+            stdout=stdout_file,
+            stderr=stderr_file,
+            check=False,
+        )
+        stdout_file.seek(0)
+        stderr_file.seek(0)
+        return subprocess.CompletedProcess(
+            args=command,
+            returncode=completed.returncode,
+            stdout=stdout_file.read().decode("utf-8", errors="replace"),
+            stderr=stderr_file.read().decode("utf-8", errors="replace"),
+        )

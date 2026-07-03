@@ -91,6 +91,81 @@ class GitBranchesResponse(BaseModel):
     policy_decision_ids: list[str] = Field(default_factory=list, alias="policyDecisionIds")
 
 
+class GitInitRequest(BaseModel):
+    """Inicializa Git con una rama default controlada."""
+
+    default_branch: Literal["main", "dev"] = Field(default="main", alias="defaultBranch")
+
+
+class GitInitResponse(BaseModel):
+    """Resultado de ``git init`` brokered, sin commit automatico."""
+
+    status: GitWorkspaceStatus
+    reason: str
+    project_id: str = Field(alias="projectId")
+    workspace_id: str = Field(alias="workspaceId")
+    default_branch: Literal["main", "dev"] = Field(alias="defaultBranch")
+    current_branch: str = Field(default="", alias="currentBranch")
+    gitignore_created: bool = Field(alias="gitignoreCreated")
+    commit_created: bool = Field(alias="commitCreated")
+    tool_calls: list[GitCommandTraceRecord] = Field(default_factory=list, alias="toolCalls")
+    policy_decision_ids: list[str] = Field(default_factory=list, alias="policyDecisionIds")
+
+
+class GitRemoteAddRequest(BaseModel):
+    """Agrega un remote Git validado y sin credenciales embebidas."""
+
+    name: str
+    url: str
+
+
+class GitRemoteMetadataRecord(BaseModel):
+    """Metadata persistida de un remote, sanitizada y sin secretos."""
+
+    name: str
+    url: str
+    scheme: str
+    host: str
+    path: str
+    created_at: str = Field(alias="createdAt")
+    updated_at: str = Field(alias="updatedAt")
+    last_tested_at: str | None = Field(default=None, alias="lastTestedAt")
+    last_test_status: str | None = Field(default=None, alias="lastTestStatus")
+    last_test_reason: str | None = Field(default=None, alias="lastTestReason")
+
+
+class GitRemoteMutationResponse(BaseModel):
+    """Resultado de agregar un remote por ToolBroker."""
+
+    status: GitWorkspaceStatus
+    reason: str
+    project_id: str = Field(alias="projectId")
+    workspace_id: str = Field(alias="workspaceId")
+    remote: GitRemoteMetadataRecord | None = None
+    tool_calls: list[GitCommandTraceRecord] = Field(default_factory=list, alias="toolCalls")
+    policy_decision_ids: list[str] = Field(default_factory=list, alias="policyDecisionIds")
+
+
+class GitRemoteTestRequest(BaseModel):
+    """Prueba opcional de remote; la red debe habilitarse explicitamente."""
+
+    allow_network: bool = Field(default=False, alias="allowNetwork")
+
+
+class GitRemoteTestResponse(BaseModel):
+    """Resultado de ``git ls-remote`` sobre un remote existente."""
+
+    status: GitWorkspaceStatus
+    reason: str
+    project_id: str = Field(alias="projectId")
+    workspace_id: str = Field(alias="workspaceId")
+    remote_name: str = Field(alias="remoteName")
+    tested: bool
+    output_preview: str = Field(default="", alias="outputPreview")
+    tool_calls: list[GitCommandTraceRecord] = Field(default_factory=list, alias="toolCalls")
+    policy_decision_ids: list[str] = Field(default_factory=list, alias="policyDecisionIds")
+
+
 class GitBranchCreateRequest(BaseModel):
     """Crear una rama desde HEAD o desde una base explicita."""
 
@@ -107,6 +182,33 @@ class GitBranchMutationResponse(BaseModel):
     workspace_id: str = Field(alias="workspaceId")
     branch: str
     base: str | None = None
+    current_branch: str = Field(default="", alias="currentBranch")
+    tool_calls: list[GitCommandTraceRecord] = Field(default_factory=list, alias="toolCalls")
+    policy_decision_ids: list[str] = Field(default_factory=list, alias="policyDecisionIds")
+
+
+class GitBranchPolicyApplyRequest(BaseModel):
+    """Aplica la politica de ramas para trabajo seguro sobre una base elegida."""
+
+    intent: str
+    selected_base: str = Field(default="main", alias="selectedBase")
+    branch_name: str | None = Field(default=None, alias="branchName")
+    create_branch: bool = Field(default=False, alias="createBranch")
+
+
+class GitBranchPolicyApplyResponse(BaseModel):
+    """Sugerencia/creacion de rama de trabajo con ramas protegidas bloqueadas."""
+
+    status: GitWorkspaceStatus
+    reason: str
+    project_id: str = Field(alias="projectId")
+    workspace_id: str = Field(alias="workspaceId")
+    intent: str
+    selected_base: str = Field(alias="selectedBase")
+    suggested_branch_name: str = Field(alias="suggestedBranchName")
+    target_branch: str = Field(alias="targetBranch")
+    protected_branches: list[str] = Field(alias="protectedBranches")
+    created: bool
     current_branch: str = Field(default="", alias="currentBranch")
     tool_calls: list[GitCommandTraceRecord] = Field(default_factory=list, alias="toolCalls")
     policy_decision_ids: list[str] = Field(default_factory=list, alias="policyDecisionIds")

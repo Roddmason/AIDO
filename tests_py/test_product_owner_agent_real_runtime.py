@@ -14,6 +14,7 @@ from local_control_center.app import create_app
 from local_control_center.backlog.repository import BacklogRepository
 from local_control_center.product_discovery.repository import ProductDiscoveryRepository
 from local_control_center.projects.repository import ProjectsRepository
+from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
 from tests_py.control_plane_fixture import ControlPlaneFixture
 
 
@@ -329,6 +330,32 @@ def incomplete_product_owner_output() -> dict[str, Any]:
     }
 
 
+def scope_is_clear_product_owner_output() -> dict[str, Any]:
+    output = product_owner_output(blocking=False)
+    output["status"] = "scope_is_clear"
+    output["summary"] = "The direct technical order has enough existing-project context."
+    output["questions"] = []
+    output["decisions"] = []
+    output["blockingDecisions"] = []
+    output["epics"] = []
+    output["userStories"] = []
+    output["productBriefPatch"] = {
+        **output["productBriefPatch"],
+        "title": "Direct technical task scope",
+        "summary": "Implement the bounded technical change in the existing project.",
+        "scope": "Fix the requested technical behavior without adjacent refactors.",
+        "outOfScope": "New product capabilities.",
+    }
+    output["brief"] = output["productBriefPatch"]
+    output["recommendedNextAction"] = "Review the mini brief/task scope before implementation."
+    output["taskScope"] = {
+        "type": "direct_technical_order",
+        "goal": "Apply the bounded technical change.",
+        "constraints": ["Use existing architecture", "Preserve current flow"],
+    }
+    return output
+
+
 def product_owner_request(project: dict[str, Any], workspace: dict[str, Any]) -> dict[str, Any]:
     return {
         "projectId": project["id"],
@@ -376,6 +403,10 @@ def run_with_controlled_provider(
         }
         for name, value in env_by_runtime[runtime_id].items():
             monkeypatch.setenv(name, value)
+        runtime_settings = RuntimeConfigRepository(client.app.state.runtime.connection)
+        runtime_settings.set_runtime_setting("runtime.remote.enabled", True)
+        if runtime_id == "nvidia_nim":
+            runtime_settings.set_runtime_setting("runtime.nvidia.enabled", True)
         monkeypatch.setattr(
             "local_control_center.agents.runtime_status.RuntimeStatusService.list_provider_statuses",
             lambda _service: executable_model_runtime_status(runtime_id),
@@ -595,6 +626,29 @@ def test_product_owner_brief_approval_generates_backlog(
     assert [story["title"] for story in approved_body["stories"]] == ["Guided account setup"]
     stories = BacklogRepository(store.connection).list_user_stories(project_id=project["id"])
     assert stories and "role" not in stories[0]
+
+
+def test_product_owner_scope_is_clear_returns_brief_ready_without_backlog(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store, client, headers = create_client(tmp_path, monkeypatch)
+    project, workspace = create_project_and_workspace(store, tmp_path, task_id="po-scope-clear")
+
+    response = run_with_controlled_provider(
+        client,
+        headers,
+        monkeypatch,
+        content=json.dumps(scope_is_clear_product_owner_output()),
+        body=product_owner_request(project, workspace),
+    )
+
+    assert response.status_code == 202
+    body = response.json()
+    assert body["status"] == "brief_ready"
+    assert body["brief"]["title"] == "Direct technical task scope"
+    assert body["productOwnerOutput"]["status"] == "scope_is_clear"
+    assert body["epics"] == []
+    assert BacklogRepository(store.connection).list_epics(project["id"]) == []
 
 
 def test_product_owner_agent_runs_through_nvidia_nim_runtime_adapter(

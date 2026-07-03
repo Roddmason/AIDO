@@ -78,12 +78,51 @@ def product_owner_agent_contract() -> dict[str, Any]:
                 "recommendedNextAction",
             ],
             "properties": {
-                "status": {"type": "string"},
+                "status": {
+                    "type": "string",
+                    "enum": [
+                        "needs_input",
+                        "questions_required",
+                        "scope_is_clear",
+                        "brief_ready",
+                        "backlog_ready",
+                        "completed",
+                        "blocked",
+                    ],
+                },
                 "summary": {"type": "string"},
                 "confidence": {"type": "string", "enum": ["low", "medium", "high"]},
                 "questions": {"type": "array", "items": {"type": "object"}},
                 "assumptions": {"type": "array", "items": {"type": "object"}},
-                "decisions": {"type": "array", "items": {"type": "object"}},
+                "decisions": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "required": ["title", "status", "confidence"],
+                        "properties": {
+                            "title": {"type": "string"},
+                            "question": {"type": "string"},
+                            "rationale": {"type": "string"},
+                            "status": {
+                                "type": "string",
+                                "enum": ["open", "proposed", "resolved", "accepted"],
+                            },
+                            "options": {"type": "array", "items": {"type": "string"}},
+                            "recommendation": {"type": "string"},
+                            "category": {
+                                "type": "string",
+                                "description": "Decision domain, e.g. product, technical, architecture, database, security.",
+                            },
+                            "impact": {"type": "string", "enum": ["low", "medium", "high", "critical", ""]},
+                            "requiresResearch": {"type": "boolean"},
+                            "reversibility": {
+                                "type": "string",
+                                "enum": ["reversible", "difficult", "irreversible"],
+                            },
+                            "confidence": {"type": "string", "enum": ["low", "medium", "high"]},
+                        },
+                    },
+                },
                 "productBriefPatch": {"type": "object"},
                 "epics": {"type": "array", "items": {"type": "object"}},
                 "userStories": {"type": "array", "items": {"type": "object"}},

@@ -166,9 +166,7 @@ def execute_job(
         local_connection = open_sqlite_connection(db_path)
         try:
             initialize_platform_schema(local_connection)
-            return _execute_thread_product_loop_job(
-                job, connection=local_connection, worker_id=worker_id
-            )
+            return _execute_thread_product_loop_job(job, connection=local_connection, worker_id=worker_id)
         finally:
             local_connection.close()
     if kind in {
@@ -401,6 +399,16 @@ def _thread_terminal_event_for_product_loop_result(status: str) -> str:
     return "blocked"
 
 
+def _thread_job_was_cancelled(threads: ThreadsRepository, job_id: str) -> bool:
+    """Indica si el job del hilo fue cancelado mientras el worker lo ejecutaba.
+
+    Lee fresco (autocommit + WAL) para ver un cancel commiteado en otra conexión: le indica al worker
+    que aborte su finalización en vez de resucitar un hilo que el operador ya detuvo.
+    """
+    row = threads.connection.execute("SELECT status FROM jobs WHERE id = ?", (job_id,)).fetchone()
+    return bool(row) and str(row["status"]) == "cancelled"
+
+
 def _finish_thread_after_product_loop(
     *,
     threads: ThreadsRepository,
@@ -412,6 +420,16 @@ def _finish_thread_after_product_loop(
     evidence_id: str | None,
     event_type: str = "blocked",
 ) -> None:
+    # If the operator cancelled this job mid-run, do not overwrite the thread status: leave whatever
+    # the cancel (or a replacement run) set and only leave a benign trace in the execution console.
+    if _thread_job_was_cancelled(threads, job_id):
+        threads.record_event(
+            thread_id=thread_id,
+            type="worker_aborted",
+            agent_role="aido_lead",
+            payload={"jobId": job_id, "reason": "Execution was cancelled; thread status preserved."},
+        )
+        return
     threads.set_status(thread_id, status)
     payload = {
         "jobId": job_id,
@@ -446,6 +464,16 @@ def _finish_thread_after_research(
     report_artifact_id: str | None,
     event_type: str,
 ) -> None:
+    # Same cancellation guard as the product-loop finalizer: a stopped research run must not resurrect
+    # the thread the operator already reopened.
+    if _thread_job_was_cancelled(threads, job_id):
+        threads.record_event(
+            thread_id=thread_id,
+            type="worker_aborted",
+            agent_role="researcher",
+            payload={"jobId": job_id, "reason": "Research was cancelled; thread status preserved."},
+        )
+        return
     threads.set_status(thread_id, status)
     payload = {
         "jobId": job_id,

@@ -138,6 +138,88 @@ class _FilesystemRuntime:
         }
 
 
+class _ProductOwnerRuntime:
+    def __init__(self) -> None:
+        self.run_payloads: list[dict[str, Any]] = []
+
+    def status(self, *, preferred_runtime: str | None = None) -> dict[str, Any]:
+        return {
+            "executable": True,
+            "selectedRuntimeId": preferred_runtime or "controlled_product_owner_runtime",
+            "reason": "Controlled ProductOwnerAgent runtime is executable.",
+        }
+
+    def run(self, payload: dict[str, Any]) -> dict[str, Any]:
+        self.run_payloads.append(payload)
+        brief = {
+            "title": "Real Product Loop E2E",
+            "summary": "Generate one file through the durable Product Loop.",
+            "problemStatement": "The delivery path must prove real git, QA, review, and approval gates.",
+            "goals": ["Create the requested file", "Preserve approval evidence"],
+            "targetUsers": ["AIDO operator"],
+            "successMetrics": ["Generated file exists in the isolated worktree"],
+            "scope": "Create src/generated.txt through the controlled runtime.",
+            "outOfScope": "Deploying or merging the generated branch.",
+        }
+        output = {
+            "status": "backlog_ready",
+            "summary": "Controlled ProductOwnerAgent backlog for the real E2E.",
+            "confidence": "high",
+            "questions": [],
+            "assumptions": [],
+            "decisions": [],
+            "productBriefPatch": brief,
+            "epics": [
+                {
+                    "title": "Durable Product Loop delivery",
+                    "description": "Deliver one auditable filesystem change through the loop.",
+                }
+            ],
+            "userStories": [
+                {
+                    "epicTitle": "Durable Product Loop delivery",
+                    "title": "Generate auditable file",
+                    "asA": "AIDO operator",
+                    "iWant": "the loop to create a generated file in an isolated worktree",
+                    "soThat": "I can review real evidence before approval",
+                    "businessValue": "high",
+                    "acceptanceCriteria": [
+                        "Given the controlled runtime, when the loop executes, then src/generated.txt is created."
+                    ],
+                }
+            ],
+            "risks": [],
+            "recommendedNextAction": "Continue to implementation.",
+        }
+        return {
+            "status": "backlog_ready",
+            "reason": "Controlled ProductOwnerAgent produced a backlog.",
+            "runtime": {"id": "controlled_product_owner_runtime", "executable": True},
+            "output": output,
+            "brief": brief,
+        }
+
+
+class _TechnicalLeadRuntime:
+    def __init__(self) -> None:
+        self.payloads: list[dict[str, Any]] = []
+
+    def generate_agent_tasks(self, payload: dict[str, Any]) -> list[dict[str, Any]]:
+        self.payloads.append(payload)
+        story = payload["userStories"][0]
+        return [
+            {
+                "storyId": story["id"],
+                "title": f"Implement {story['title']}",
+                "description": "Controlled TechnicalLead task for the real Product Loop E2E.",
+                "role": "developer",
+                "category": "implementation",
+                "priority": story["priority"],
+                "estimateHours": 1.0,
+            }
+        ]
+
+
 def test_aido_product_loop_real_git_runtime_review_approval_and_secret_hygiene(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -173,6 +255,8 @@ def test_aido_product_loop_real_git_runtime_review_approval_and_secret_hygiene(
     assert checkout_response.json()["currentBranch"] == branch_name
 
     runtime = _FilesystemRuntime(store.connection, secret=secret)
+    product_owner = _ProductOwnerRuntime()
+    technical_lead = _TechnicalLeadRuntime()
     result = ProductLoopCoordinator(store.connection, root=tmp_path).run_user_message(
         project_id=project["id"],
         message="Implement a real generated file through Agents / Loop.",
@@ -192,9 +276,11 @@ def test_aido_product_loop_real_git_runtime_review_approval_and_secret_hygiene(
         },
         runtime_runner=runtime,
         git_service=GitWorkspaceService(store.connection, root=tmp_path),
+        product_owner_runner=product_owner,
+        technical_lead_runner=technical_lead,
     )
 
-    assert result["status"] == "awaiting_approval"
+    assert result["status"] == "awaiting_approval", result
     assert result["loop"]["state"] == "awaiting_approval"
     assert "delivered" in result["allowedNextStates"]
 
@@ -235,6 +321,8 @@ def test_aido_product_loop_real_git_runtime_review_approval_and_secret_hygiene(
     assert any(package["qaVerdict"] == "passed" for package in persisted_evidence)
     assert any(package["diffSummary"].get("changedFiles") == ["src/generated.txt"] for package in persisted_evidence)
     assert runtime.run_payloads[0]["workspaceId"] == durable["workspaceId"]
+    assert product_owner.run_payloads[0]["projectId"] == project["id"]
+    assert technical_lead.payloads[0]["userStories"][0]["title"] == "Generate auditable file"
 
     api_payload = {
         "overview": overview,

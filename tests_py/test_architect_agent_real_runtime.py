@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 from local_control_center.agents.architect_agent_contract import architect_agent_readiness
 from local_control_center.app import create_app
 from local_control_center.evidence.artifacts import write_text_artifact
+from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
 from tests_py.control_plane_fixture import ControlPlaneFixture
 
 
@@ -102,6 +103,14 @@ def executable_openai_runtime_status() -> list[dict[str, Any]]:
             },
         }
     ]
+
+
+def enable_openai_runtime_policy(store: ControlPlaneFixture) -> None:
+    runtime_settings = RuntimeConfigRepository(store.connection)
+    runtime_settings.set_runtime_setting("runtime.remote.enabled", True)
+    store.connection.execute(
+        "UPDATE runtime_installations SET enabled = 1 WHERE runtime_id = 'openai_compatible'"
+    )
 
 
 class ControlledArchitectProviderHandler(BaseHTTPRequestHandler):
@@ -233,6 +242,7 @@ def test_architect_agent_valid_provider_output_persists_decision_and_risks(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     store, client, headers = create_client(tmp_path, monkeypatch)
+    enable_openai_runtime_policy(store)
     project, workspace = create_project_and_workspace(store, tmp_path, task_id="architect-valid")
     diff_artifact = create_diff_artifact(store, project["id"])
     output = {
@@ -314,6 +324,7 @@ def test_architect_agent_invalid_provider_output_fails_validation_without_persis
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     store, client, headers = create_client(tmp_path, monkeypatch)
+    enable_openai_runtime_policy(store)
     project, workspace = create_project_and_workspace(store, tmp_path, task_id="architect-invalid")
     diff_artifact = create_diff_artifact(store, project["id"])
     server, base_url = start_controlled_provider(json.dumps({"verdict": "approved"}))

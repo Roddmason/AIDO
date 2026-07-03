@@ -43,6 +43,12 @@ REMOTE_RUNTIME_KINDS = {"api", "gateway"}
 OLLAMA_RUNTIME_IDS = {"ollama", "local_ollama"}
 
 
+def is_ollama_runtime_id(provider_id: str) -> bool:
+    """Return True for the built-in Ollama ids and endpoint-scoped Ollama runtime ids."""
+    normalized = str(provider_id or "")
+    return normalized in OLLAMA_RUNTIME_IDS or normalized.startswith("ollama-")
+
+
 def row_to_runtime_installation(row: sqlite3.Row) -> dict[str, Any]:
     """Mapea una fila de ``runtime_installations`` al dict camelCase del contrato."""
     return {
@@ -237,7 +243,7 @@ class RuntimeConfigRepository:
                     "reason": "project.runtime.remote.enabled is false for this project.",
                     "policy": policy,
                 }
-        elif provider in OLLAMA_RUNTIME_IDS and not global_policy.get("ollamaEnabled"):
+        if is_ollama_runtime_id(provider) and not global_policy.get("ollamaEnabled"):
             return {"allowed": False, "reason": "runtime.ollama.enabled is false.", "policy": policy}
         return {"allowed": True, "reason": "", "policy": policy}
 
@@ -268,7 +274,7 @@ class RuntimeConfigRepository:
             return f"project.runtime.defaultMode=cli blocks provider {provider_id}."
         if mode == "api" and kind not in REMOTE_RUNTIME_KINDS:
             return f"project.runtime.defaultMode=api blocks provider {provider_id}."
-        if mode == "ollama" and provider_id != "ollama":
+        if mode == "ollama" and not is_ollama_runtime_id(provider_id):
             return f"project.runtime.defaultMode=ollama blocks provider {provider_id}."
         if mode == "manual" and kind != "manual":
             return f"project.runtime.defaultMode=manual blocks provider {provider_id}."
@@ -420,6 +426,18 @@ class RuntimeConfigRepository:
                 (runtime_id, account_id),
             )
         return self.get_runtime_account(account_id)
+
+    def upsert_runtime_account(self, body: dict[str, Any]) -> dict[str, Any]:
+        """Create or update a runtime account keyed by ``runtimeId`` and ``accountLabel``."""
+        runtime_id = str(body["runtimeId"])
+        account_label = str(body["accountLabel"])
+        existing = self.connection.execute(
+            "SELECT id FROM runtime_accounts WHERE runtime_id = ? AND account_label = ?",
+            (runtime_id, account_label),
+        ).fetchone()
+        if existing:
+            return self.update_runtime_account(str(existing["id"]), body)
+        return self.create_runtime_account(body)
 
     def get_runtime_account(self, account_id: str) -> dict[str, Any]:
         """Recupera una cuenta de runtime por id.

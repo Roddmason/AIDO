@@ -160,6 +160,8 @@ def _status_payload(
 
 def _api_required_configuration(account: dict[str, Any]) -> list[str]:
     api_format = str(account.get("apiFormat") or "")
+    if api_format == "ollama":
+        return ["baseUrl", "model"]
     if api_format in OPENAI_COMPATIBLE_FORMATS or account["providerId"] in {"openai_compatible", "litellm"}:
         return ["baseUrl", "apiKey", "model"]
     if account["providerId"] == "anthropic_api":
@@ -444,7 +446,7 @@ def _ollama_provider_status(
         cached_ollama_status(base_url=base_url, credential_ref=credential_ref)
         if base_url
         else {
-            "provider": "ollama",
+            "provider": str(account.get("providerId") or "ollama"),
             "available": False,
             "models": [],
             "reason": "Ollama base URL is not configured.",
@@ -479,8 +481,8 @@ def _ollama_provider_status(
     else:
         reason = "Ollama daemon is reachable and executable."
     payload = _status_payload(
-        provider_id="ollama",
-        kind="local",
+        provider_id=str(account["providerId"]),
+        kind=str(account.get("providerType") or "local"),
         display_name=str(account.get("displayName") or "Ollama"),
         installed=daemon_available,
         detected=daemon_available,
@@ -582,10 +584,11 @@ class RuntimeStatusService:
             provider_id = str(account["providerId"])
             provider_capabilities = capabilities.get(provider_id, [])
             provider_type = str(account.get("providerType") or "")
+            api_format = str(account.get("apiFormat") or "")
             policy_decision = runtime_repo.runtime_policy_decision(
                 provider_id=provider_id, kind=provider_type, project_id=project_id
             )
-            if provider_id == "ollama":
+            if provider_id == "ollama" or api_format == "ollama":
                 statuses.append(
                     _ollama_provider_status(
                         account,
@@ -649,16 +652,25 @@ class RuntimeStatusService:
         runtime_repo = RuntimeConfigRepository(self.connection)
         policy = runtime_repo.runtime_execution_policy(project_id=project_id)
         providers = self.list_provider_statuses(project_id=project_id)
-        ollama = next((provider for provider in providers if provider["id"] == "ollama"), None)
+        ollama_providers = [
+            provider
+            for provider in providers
+            if provider["id"] == "ollama" or str(provider["id"]).startswith("ollama-")
+        ]
+        ollama = next((provider for provider in ollama_providers if provider["id"] == "ollama"), None)
+        ollama_available = next((provider for provider in ollama_providers if provider["available"]), None)
         cli_providers = [provider for provider in providers if provider["id"] in CLI_RUNTIME_IDS]
         api_providers = [provider for provider in providers if provider["kind"] in API_RUNTIME_KINDS]
         return {
             "runtimeModes": RUNTIME_MODES,
             "ollama": {
-                "provider": "ollama",
-                "available": bool(ollama and ollama["available"]),
-                "models": list((ollama or {}).get("models") or []),
-                "reason": str(ollama.get("reason") if ollama else "Ollama provider is not catalogued."),
+                "provider": str((ollama_available or ollama or {}).get("id") or "ollama"),
+                "available": bool(ollama_available),
+                "models": list((ollama_available or ollama or {}).get("models") or []),
+                "reason": str(
+                    (ollama_available or ollama or {}).get("reason")
+                    or "Ollama provider is not catalogued."
+                ),
             },
             "cli": {
                 "provider": "cli",

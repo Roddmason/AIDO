@@ -8,7 +8,12 @@
  * @author Rodrigo Mason
  */
 
-import type { ApiOperationId, OperationRequestBody, OperationResponse } from './generated/openapi';
+import type {
+	ApiOperationId,
+	JsonObject,
+	OperationRequestBody,
+	OperationResponse,
+} from './generated/openapi';
 import { extractErrorDetail, requestGeneratedOperation } from './generated/openapi';
 import type { Overview, RetrievalStatus, RuntimeProviders } from './types';
 
@@ -36,6 +41,20 @@ export type ModelGatewayBenchmarkOutcomeRequest =
 	MutationBody<'create_benchmark_outcome_api_v1_model_gateway_benchmark_outcomes_post'>;
 export type ModelGatewayProviderPatchRequest =
 	MutationBody<'patch_provider_api_v1_model_gateway_providers__provider_id__patch'>;
+export type ModelGatewayTestPromptRequest =
+	MutationBody<'test_prompt_api_v1_model_gateway_providers__provider_id__test_prompt_post'>;
+export type ModelGatewayTestPromptResponse =
+	OperationResponse<'test_prompt_api_v1_model_gateway_providers__provider_id__test_prompt_post'>;
+export type OllamaEndpointCreateRequest =
+	MutationBody<'create_endpoint_api_v1_ollama_endpoints_post'>;
+export type OllamaEndpointResponse =
+	OperationResponse<'create_endpoint_api_v1_ollama_endpoints_post'>;
+export type OllamaEndpointsListResponse =
+	OperationResponse<'list_endpoints_api_v1_ollama_endpoints_get'>;
+export type OllamaEndpointHealthResponse =
+	OperationResponse<'health_endpoint_api_v1_ollama_endpoints__endpoint_id__health_post'>;
+export type OllamaSyncModelsResponse =
+	OperationResponse<'sync_models_api_v1_ollama_endpoints__endpoint_id__sync_models_post'>;
 export type ThreadCreateRequest = MutationBody<'create_thread_api_v1_threads_post'>;
 export type ThreadDetailResponse = OperationResponse<'get_thread_api_v1_threads__thread_id__get'>;
 export type ThreadListResponse = OperationResponse<'list_threads_api_v1_threads_get'>;
@@ -53,6 +72,13 @@ export type ThreadMessageRequest =
 	MutationBody<'post_message_api_v1_threads__thread_id__messages_post'>;
 export type ThreadMessageResultResponse =
 	OperationResponse<'post_message_api_v1_threads__thread_id__messages_post'>;
+export type ThreadNoteRequest = MutationBody<'post_note_api_v1_threads__thread_id__notes_post'>;
+export type ThreadNoteResponse =
+	OperationResponse<'post_note_api_v1_threads__thread_id__notes_post'>;
+export type ThreadCancelRequest =
+	MutationBody<'cancel_execution_api_v1_threads__thread_id__cancel_post'>;
+export type ThreadCancelResponse =
+	OperationResponse<'cancel_execution_api_v1_threads__thread_id__cancel_post'>;
 export type ThreadDecisionResolveRequest =
 	MutationBody<'resolve_decision_api_v1_threads__thread_id__decisions__decision_id__resolve_post'>;
 export type ThreadDecisionResolveResponse =
@@ -68,6 +94,13 @@ export type ThreadMemoryRecallResponse =
 export type WorkerStatusResponse = OperationResponse<'worker_status_api_v1_workers_status_get'>;
 export type WorkerRunOnceResponse =
 	OperationResponse<'worker_run_once_api_v1_workers_run_once_post'>;
+export type ThreadRemediationsResponse =
+	OperationResponse<'list_thread_remediations_api_v1_threads__thread_id__remediations_get'>;
+export type RemediationActionRecord = ThreadRemediationsResponse['remediations'][number];
+export type RemediationExecuteResponse =
+	OperationResponse<'execute_remediation_api_v1_remediations__remediation_id__execute_post'>;
+export type RemediationDismissResponse =
+	OperationResponse<'dismiss_remediation_api_v1_remediations__remediation_id__dismiss_post'>;
 export type IssueToPatchRequest =
 	MutationBody<'run_issue_to_patch_api_v1_workflows_issue_to_patch_post'>;
 export type IssueToPatchResponse =
@@ -630,6 +663,19 @@ export interface ProjectGitBranchesResponse {
 	remotes: ProjectGitRemote[];
 }
 
+export type ProjectGitInitRequest =
+	MutationBody<'init_git_repository_api_v1_projects__project_id__git_init_post'>;
+export type ProjectGitInitResponse =
+	OperationResponse<'init_git_repository_api_v1_projects__project_id__git_init_post'>;
+export type ProjectGitRemoteAddRequest =
+	MutationBody<'add_git_remote_api_v1_projects__project_id__git_remotes_post'>;
+export type ProjectGitRemoteMutationResponse =
+	OperationResponse<'add_git_remote_api_v1_projects__project_id__git_remotes_post'>;
+export type ProjectGitRemoteTestRequest =
+	MutationBody<'test_git_remote_api_v1_projects__project_id__git_remotes__name__test_post'>;
+export type ProjectGitRemoteTestResponse =
+	OperationResponse<'test_git_remote_api_v1_projects__project_id__git_remotes__name__test_post'>;
+
 export interface ProjectGitBranchCreateRequest {
 	name: string;
 	base?: string | null;
@@ -644,6 +690,11 @@ export interface ProjectGitBranchMutationResponse {
 	base?: string | null;
 	currentBranch: string;
 }
+
+export type ProjectGitBranchPolicyApplyRequest =
+	MutationBody<'apply_git_branch_policy_api_v1_projects__project_id__git_branch_policy_apply_post'>;
+export type ProjectGitBranchPolicyApplyResponse =
+	OperationResponse<'apply_git_branch_policy_api_v1_projects__project_id__git_branch_policy_apply_post'>;
 
 export interface ProjectGitCheckoutRequest {
 	branch: string;
@@ -677,6 +728,16 @@ export interface ProjectGitGitleaksScanResponse {
 	};
 }
 
+export interface ProjectGitDiffResponse {
+	status: GitWorkspaceStatus;
+	reason: string;
+	projectId: string;
+	workspaceId: string;
+	root: string;
+	diff: string;
+	changedFiles: string[];
+}
+
 export function getProjectFiles(
 	projectId: string,
 	signal?: AbortSignal,
@@ -701,6 +762,40 @@ export function getProjectGitBranches(projectId: string, signal?: AbortSignal) {
 	);
 }
 
+export function initProjectGitRepository(
+	token: string,
+	projectId: string,
+	body: ProjectGitInitRequest = {},
+) {
+	return apiRequest<ProjectGitInitResponse>(
+		`/api/v1/projects/${encodeURIComponent(projectId)}/git/init`,
+		{ method: 'POST', token, body },
+	);
+}
+
+export function addProjectGitRemote(
+	token: string,
+	projectId: string,
+	body: ProjectGitRemoteAddRequest,
+) {
+	return apiRequest<ProjectGitRemoteMutationResponse>(
+		`/api/v1/projects/${encodeURIComponent(projectId)}/git/remotes`,
+		{ method: 'POST', token, body },
+	);
+}
+
+export function testProjectGitRemote(
+	token: string,
+	projectId: string,
+	name: string,
+	body: ProjectGitRemoteTestRequest = {},
+) {
+	return apiRequest<ProjectGitRemoteTestResponse>(
+		`/api/v1/projects/${encodeURIComponent(projectId)}/git/remotes/${encodeURIComponent(name)}/test`,
+		{ method: 'POST', token, body },
+	);
+}
+
 export function createProjectGitBranch(
 	token: string,
 	projectId: string,
@@ -708,6 +803,17 @@ export function createProjectGitBranch(
 ) {
 	return apiRequest<ProjectGitBranchMutationResponse>(
 		`/api/v1/projects/${encodeURIComponent(projectId)}/git/branches`,
+		{ method: 'POST', token, body },
+	);
+}
+
+export function applyProjectGitBranchPolicy(
+	token: string,
+	projectId: string,
+	body: ProjectGitBranchPolicyApplyRequest,
+) {
+	return apiRequest<ProjectGitBranchPolicyApplyResponse>(
+		`/api/v1/projects/${encodeURIComponent(projectId)}/git/branch-policy/apply`,
 		{ method: 'POST', token, body },
 	);
 }
@@ -727,6 +833,13 @@ export function scanProjectGitleaks(token: string, projectId: string) {
 	return apiRequest<ProjectGitGitleaksScanResponse>(
 		`/api/v1/projects/${encodeURIComponent(projectId)}/git/gitleaks/scan`,
 		{ method: 'POST', token },
+	);
+}
+
+export function getProjectGitDiff(projectId: string, signal?: AbortSignal) {
+	return apiRequest<ProjectGitDiffResponse>(
+		`/api/v1/projects/${encodeURIComponent(projectId)}/git/diff`,
+		{ signal },
 	);
 }
 
@@ -1052,6 +1165,40 @@ export function getThreadMemory(threadId: string, signal?: AbortSignal) {
 	});
 }
 
+/** Lists the persisted, user-repairable actions for a blocked thread; a read, so no token needed. */
+export function getThreadRemediations(threadId: string, signal?: AbortSignal) {
+	return requestGeneratedOperation<
+		'list_thread_remediations_api_v1_threads__thread_id__remediations_get',
+		ThreadRemediationsResponse
+	>('list_thread_remediations_api_v1_threads__thread_id__remediations_get', {
+		pathParams: { thread_id: threadId },
+		signal,
+	});
+}
+
+/** Executes one remediation action (the backend performs the side effect); requires the write token. */
+export function executeRemediation(token: string, remediationId: string, payload?: JsonObject) {
+	return requestGeneratedOperation<
+		'execute_remediation_api_v1_remediations__remediation_id__execute_post',
+		RemediationExecuteResponse
+	>('execute_remediation_api_v1_remediations__remediation_id__execute_post', {
+		token,
+		pathParams: { remediation_id: remediationId },
+		body: payload ? { payload } : undefined,
+	});
+}
+
+/** Dismisses one pending remediation action so it stops surfacing; requires the write token. */
+export function dismissRemediation(token: string, remediationId: string) {
+	return requestGeneratedOperation<
+		'dismiss_remediation_api_v1_remediations__remediation_id__dismiss_post',
+		RemediationDismissResponse
+	>('dismiss_remediation_api_v1_remediations__remediation_id__dismiss_post', {
+		token,
+		pathParams: { remediation_id: remediationId },
+	});
+}
+
 /** Records the operator's decision about a similar-thread candidate; requires the write token. */
 export function markSimilarThread(
 	token: string,
@@ -1082,6 +1229,46 @@ export function postThreadMessage(
 		'post_message_api_v1_threads__thread_id__messages_post',
 		ThreadMessageResultResponse
 	>('post_message_api_v1_threads__thread_id__messages_post', {
+		token,
+		pathParams: { thread_id: threadId },
+		body,
+		signal,
+	});
+}
+
+/**
+ * Attaches an operator note to a thread that is executing. Unlike {@link postThreadMessage}, a note
+ * never queues a run — it is the safe write while the loop is in flight, so accidental concurrent
+ * executions are impossible from the composer.
+ */
+export function postThreadNote(
+	token: string,
+	threadId: string,
+	body: ThreadNoteRequest,
+	signal?: AbortSignal,
+) {
+	return requestGeneratedOperation<
+		'post_note_api_v1_threads__thread_id__notes_post',
+		ThreadNoteResponse
+	>('post_note_api_v1_threads__thread_id__notes_post', {
+		token,
+		pathParams: { thread_id: threadId },
+		body,
+		signal,
+	});
+}
+
+/** Cancels the thread's in-flight execution (queued/running jobs) and reopens it; write token. */
+export function cancelThreadExecution(
+	token: string,
+	threadId: string,
+	body: ThreadCancelRequest = {},
+	signal?: AbortSignal,
+) {
+	return requestGeneratedOperation<
+		'cancel_execution_api_v1_threads__thread_id__cancel_post',
+		ThreadCancelResponse
+	>('cancel_execution_api_v1_threads__thread_id__cancel_post', {
 		token,
 		pathParams: { thread_id: threadId },
 		body,
@@ -1391,6 +1578,40 @@ export function getModelGatewayModels(signal?: AbortSignal) {
 	return requestGeneratedOperation('list_models_api_v1_model_gateway_models_get', { signal });
 }
 
+export function getOllamaEndpoints(signal?: AbortSignal) {
+	return requestGeneratedOperation<'list_endpoints_api_v1_ollama_endpoints_get'>(
+		'list_endpoints_api_v1_ollama_endpoints_get',
+		{ signal },
+	);
+}
+
+export function createOllamaEndpoint(token: string, body: OllamaEndpointCreateRequest) {
+	return requestGeneratedOperation<'create_endpoint_api_v1_ollama_endpoints_post'>(
+		'create_endpoint_api_v1_ollama_endpoints_post',
+		{ token, body },
+	);
+}
+
+export function healthCheckOllamaEndpoint(token: string, endpointId: string) {
+	return requestGeneratedOperation<'health_endpoint_api_v1_ollama_endpoints__endpoint_id__health_post'>(
+		'health_endpoint_api_v1_ollama_endpoints__endpoint_id__health_post',
+		{
+			token,
+			pathParams: { endpoint_id: endpointId },
+		},
+	);
+}
+
+export function syncOllamaEndpointModels(token: string, endpointId: string) {
+	return requestGeneratedOperation<'sync_models_api_v1_ollama_endpoints__endpoint_id__sync_models_post'>(
+		'sync_models_api_v1_ollama_endpoints__endpoint_id__sync_models_post',
+		{
+			token,
+			pathParams: { endpoint_id: endpointId },
+		},
+	);
+}
+
 export function getModelGatewayRoutingProfiles(signal?: AbortSignal) {
 	return requestGeneratedOperation(
 		'list_routing_profiles_api_v1_model_gateway_routing_profiles_get',
@@ -1527,6 +1748,33 @@ export function discoverModelGatewayProviderModels(token: string, providerId: st
 			pathParams: { provider_id: providerId },
 		},
 	);
+}
+
+export function testPromptModelGatewayProvider(
+	token: string,
+	providerId: string,
+	body?: ModelGatewayTestPromptRequest,
+) {
+	return requestGeneratedOperation<
+		'test_prompt_api_v1_model_gateway_providers__provider_id__test_prompt_post',
+		ModelGatewayTestPromptResponse
+	>('test_prompt_api_v1_model_gateway_providers__provider_id__test_prompt_post', {
+		token,
+		pathParams: { provider_id: providerId },
+		body: body ?? {},
+	});
+}
+
+export function patchModelGatewayModel(
+	token: string,
+	modelId: string,
+	body: MutationBody<'patch_model_api_v1_model_gateway_models__model_id__patch'>,
+) {
+	return requestGeneratedOperation('patch_model_api_v1_model_gateway_models__model_id__patch', {
+		token,
+		pathParams: { model_id: modelId },
+		body,
+	});
 }
 
 export type PluginListResponse = OperationResponse<'list_plugins_api_v1_plugins_get'>;

@@ -703,6 +703,31 @@ class DiscoverModelsResponse(BaseModel):
     models: list[ModelCatalogRecord]
 
 
+class TestPromptRequest(GatewayFlexibleModel):
+    """Payload para probar un proveedor con una completion corta y controlada (modelo opcional)."""
+
+    model: str | None = None
+
+
+class TestPromptRecord(BaseModel):
+    """Resultado de una prueba de prompt: éxito, latencia y una muestra redactada de la respuesta."""
+
+    provider_id: str = Field(alias="providerId")
+    model: str
+    ok: bool
+    latency_ms: int = Field(alias="latencyMs")
+    sample: str = ""
+    total_tokens: int = Field(default=0, alias="totalTokens")
+    usage_source: str = Field(default="unknown", alias="usageSource")
+    error: str | None = None
+
+
+class TestPromptResponse(BaseModel):
+    """Respuesta con el resultado de una prueba de prompt de proveedor."""
+
+    test: TestPromptRecord
+
+
 class ModelGatewayOverviewRecord(BaseModel):
     """Resumen del gateway: conteos de proveedores/runtimes, salud, costo del día y pendientes."""
 

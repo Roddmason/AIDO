@@ -1,8 +1,9 @@
 /**
- * Shared domain logic for the runtime-setup cards: the fixed list of providers to
- * explain, the left-join of live status with configuration, and the rule that collapses
- * the backend readiness booleans into one user-facing state plus its display metadata.
- * UI-agnostic so both the full panel and the compact inspector card render identically.
+ * Shared domain logic for the Providers & CLI setup catalog: the fixed 15-provider list, their
+ * presentation metadata (icon, group, preconfigured base URL, whether the operator must supply a
+ * URL, and how they authenticate), the left-join of live runtime status with configuration, and the
+ * rule that collapses the backend readiness booleans into one user-facing state. UI-agnostic so the
+ * full panel, the wizard and the compact inspector card all read the same source of truth.
  * @author Rodrigo Mason
  */
 
@@ -14,11 +15,16 @@ import {
 	CheckCircle2,
 	CircleDashed,
 	Clock,
+	Cloud,
 	Cpu,
 	Network,
 	PlugZap,
+	Server,
+	Sparkles,
 	SquareTerminal,
+	Wind,
 	XCircle,
+	Zap,
 } from 'lucide-react';
 import type { ComponentType } from 'react';
 
@@ -26,23 +32,249 @@ import type { RuntimeProvider, RuntimeProviderConfiguration } from '../../api/ty
 
 type IconComponent = ComponentType<LucideProps>;
 
-/** The exact runtimes this setup surface explains, in the order they are shown.
- *  Driving the cards from this constant (rather than from either API response)
- *  guarantees every requested provider renders — even one the backend has never
- *  catalogued — so the panel can always answer "why can't I execute this?". */
-export const RUNTIME_SETUP_PROVIDER_IDS = [
-	'codex_cli',
-	'claude_code_cli',
-	'openhands',
-	'swe_agent',
-	'ollama',
-	'openai_compatible',
-	'openrouter',
-	'nvidia_nim',
-	'anthropic_api',
+/** How a provider is reached — drives grouping, the kind badge and which wizard fields appear. */
+export type ProviderGroup = 'cli' | 'local' | 'api' | 'gateway';
+
+/** How a provider authenticates: an API key/token, or none (CLI login / local daemon). */
+export type ProviderAuthKind = 'api_key' | 'none';
+
+/** Static presentation + wizard metadata for one catalog provider (joined at runtime with live data). */
+export type ProviderCatalogEntry = {
+	/** Model-gateway provider account id (the join key across runtime status, account and models). */
+	id: string;
+	displayName: string;
+	group: ProviderGroup;
+	Icon: IconComponent;
+	/** Provider account `providerType` used when the wizard upserts the account. */
+	providerType: string;
+	/** Provider account `apiFormat` used when the wizard upserts the account. */
+	apiFormat: string;
+	/** Preconfigured base URL shown on the card, or null when there is no sensible default. */
+	defaultBaseUrl: string | null;
+	/** True only for custom/remote/Azure providers whose endpoint the operator must supply. */
+	needsBaseUrl: boolean;
+	/** api_key providers surface the masked key field in the wizard; none providers do not. */
+	authKind: ProviderAuthKind;
+	/** Declared capabilities shown as chips before any model is discovered. */
+	capabilities: string[];
+	/** i18n key for the per-provider "how to configure" copy. */
+	instructionsKey: string;
+};
+
+/**
+ * The exact providers the setup catalog explains, in display order. Driving the cards from this
+ * constant (not from either API response) guarantees every requested provider renders — even one the
+ * backend has not catalogued yet — so a card can always answer "how do I connect this?".
+ */
+export const PROVIDER_CATALOG: readonly ProviderCatalogEntry[] = [
+	{
+		id: 'codex_cli',
+		displayName: 'Codex CLI',
+		group: 'cli',
+		Icon: SquareTerminal,
+		providerType: 'cli',
+		apiFormat: 'cli',
+		defaultBaseUrl: null,
+		needsBaseUrl: false,
+		authKind: 'none',
+		capabilities: ['code_edit', 'issue_to_patch'],
+		instructionsKey: 'app.runtime.instructions.codex_cli',
+	},
+	{
+		id: 'claude_code_cli',
+		displayName: 'Claude Code CLI',
+		group: 'cli',
+		Icon: Bot,
+		providerType: 'cli',
+		apiFormat: 'cli',
+		defaultBaseUrl: null,
+		needsBaseUrl: false,
+		authKind: 'none',
+		capabilities: ['code_edit', 'issue_to_patch'],
+		instructionsKey: 'app.runtime.instructions.claude_code_cli',
+	},
+	{
+		id: 'ollama',
+		displayName: 'Ollama local',
+		group: 'local',
+		Icon: Boxes,
+		providerType: 'local',
+		apiFormat: 'ollama',
+		defaultBaseUrl: 'http://localhost:11434',
+		needsBaseUrl: false,
+		authKind: 'none',
+		capabilities: ['chat', 'local', 'private'],
+		instructionsKey: 'app.runtime.instructions.ollama',
+	},
+	{
+		id: 'ollama_remote',
+		displayName: 'Ollama remote',
+		group: 'local',
+		Icon: Server,
+		providerType: 'local',
+		apiFormat: 'ollama',
+		defaultBaseUrl: null,
+		needsBaseUrl: true,
+		authKind: 'api_key',
+		capabilities: ['chat', 'self_hosted'],
+		instructionsKey: 'app.runtime.instructions.ollama_remote',
+	},
+	{
+		id: 'openai_api',
+		displayName: 'OpenAI',
+		group: 'api',
+		Icon: Sparkles,
+		providerType: 'api',
+		apiFormat: 'responses',
+		defaultBaseUrl: 'https://api.openai.com/v1',
+		needsBaseUrl: false,
+		authKind: 'api_key',
+		capabilities: ['chat', 'tools', 'json', 'vision', 'reasoning'],
+		instructionsKey: 'app.runtime.instructions.openai_api',
+	},
+	{
+		id: 'anthropic_api',
+		displayName: 'Anthropic',
+		group: 'api',
+		Icon: Bot,
+		providerType: 'api',
+		apiFormat: 'anthropic',
+		defaultBaseUrl: 'https://api.anthropic.com/v1',
+		needsBaseUrl: false,
+		authKind: 'api_key',
+		capabilities: ['chat', 'tools', 'json', 'vision', 'reasoning'],
+		instructionsKey: 'app.runtime.instructions.anthropic_api',
+	},
+	{
+		id: 'openrouter',
+		displayName: 'OpenRouter',
+		group: 'gateway',
+		Icon: Network,
+		providerType: 'gateway',
+		apiFormat: 'openai_compatible',
+		defaultBaseUrl: 'https://openrouter.ai/api/v1',
+		needsBaseUrl: false,
+		authKind: 'api_key',
+		capabilities: ['chat', 'tools', 'routing'],
+		instructionsKey: 'app.runtime.instructions.openrouter',
+	},
+	{
+		id: 'nvidia_nim',
+		displayName: 'NVIDIA NIM',
+		group: 'api',
+		Icon: Cpu,
+		providerType: 'api',
+		apiFormat: 'openai_compatible',
+		defaultBaseUrl: 'https://integrate.api.nvidia.com/v1',
+		needsBaseUrl: false,
+		authKind: 'api_key',
+		capabilities: ['chat', 'tools', 'vision'],
+		instructionsKey: 'app.runtime.instructions.nvidia_nim',
+	},
+	{
+		id: 'deepseek',
+		displayName: 'DeepSeek',
+		group: 'api',
+		Icon: Wind,
+		providerType: 'api',
+		apiFormat: 'openai_compatible',
+		defaultBaseUrl: 'https://api.deepseek.com/v1',
+		needsBaseUrl: false,
+		authKind: 'api_key',
+		capabilities: ['chat', 'tools', 'json', 'reasoning'],
+		instructionsKey: 'app.runtime.instructions.deepseek',
+	},
+	{
+		id: 'kimi',
+		displayName: 'Kimi (Moonshot)',
+		group: 'api',
+		Icon: Sparkles,
+		providerType: 'api',
+		apiFormat: 'openai_compatible',
+		defaultBaseUrl: 'https://api.moonshot.ai/v1',
+		needsBaseUrl: false,
+		authKind: 'api_key',
+		capabilities: ['chat', 'tools', 'json'],
+		instructionsKey: 'app.runtime.instructions.kimi',
+	},
+	{
+		id: 'mistral',
+		displayName: 'Mistral',
+		group: 'api',
+		Icon: Wind,
+		providerType: 'api',
+		apiFormat: 'openai_compatible',
+		defaultBaseUrl: 'https://api.mistral.ai/v1',
+		needsBaseUrl: false,
+		authKind: 'api_key',
+		capabilities: ['chat', 'tools', 'json'],
+		instructionsKey: 'app.runtime.instructions.mistral',
+	},
+	{
+		id: 'groq',
+		displayName: 'Groq',
+		group: 'api',
+		Icon: Zap,
+		providerType: 'api',
+		apiFormat: 'openai_compatible',
+		defaultBaseUrl: 'https://api.groq.com/openai/v1',
+		needsBaseUrl: false,
+		authKind: 'api_key',
+		capabilities: ['chat', 'tools', 'fast'],
+		instructionsKey: 'app.runtime.instructions.groq',
+	},
+	{
+		id: 'gemini',
+		displayName: 'Gemini',
+		group: 'api',
+		Icon: Sparkles,
+		providerType: 'api',
+		apiFormat: 'openai_compatible',
+		defaultBaseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai/',
+		needsBaseUrl: false,
+		authKind: 'api_key',
+		capabilities: ['chat', 'tools', 'vision', 'reasoning'],
+		instructionsKey: 'app.runtime.instructions.gemini',
+	},
+	{
+		id: 'azure_openai',
+		displayName: 'Azure OpenAI',
+		group: 'api',
+		Icon: Cloud,
+		providerType: 'api',
+		apiFormat: 'azure_openai',
+		defaultBaseUrl: null,
+		needsBaseUrl: true,
+		authKind: 'api_key',
+		capabilities: ['chat', 'tools', 'json', 'enterprise'],
+		instructionsKey: 'app.runtime.instructions.azure_openai',
+	},
+	{
+		id: 'openai_compatible',
+		displayName: 'Custom OpenAI-compatible',
+		group: 'api',
+		Icon: PlugZap,
+		providerType: 'api',
+		apiFormat: 'openai_compatible',
+		defaultBaseUrl: null,
+		needsBaseUrl: true,
+		authKind: 'api_key',
+		capabilities: ['chat'],
+		instructionsKey: 'app.runtime.instructions.openai_compatible',
+	},
 ] as const;
 
-export type RuntimeSetupProviderId = (typeof RUNTIME_SETUP_PROVIDER_IDS)[number];
+/** Catalog provider ids in display order (the fixed card list). */
+export const RUNTIME_SETUP_PROVIDER_IDS = PROVIDER_CATALOG.map((entry) => entry.id);
+
+export type RuntimeSetupProviderId = string;
+
+const CATALOG_BY_ID = new Map(PROVIDER_CATALOG.map((entry) => [entry.id, entry]));
+
+/** Lookup a catalog entry by provider id (undefined for an unknown id). */
+export function catalogEntry(id: string): ProviderCatalogEntry | undefined {
+	return CATALOG_BY_ID.get(id);
+}
 
 export type RuntimeSetupState =
 	| 'not_configured'
@@ -51,7 +283,7 @@ export type RuntimeSetupState =
 	| 'executable'
 	| 'blocked';
 
-/** A provider as shown in the UI: the live status record (may be absent when the
+/** A provider as shown in the UI: the live runtime status record (may be absent when the
  *  backend has no account for it) left-joined with its configuration record. */
 export type MergedProvider = {
 	id: string;
@@ -71,18 +303,18 @@ function findById<T extends { id: string }>(
 	return items?.find((item) => item.id === id) ?? null;
 }
 
-/** Left-join status + configuration by provider id, in the fixed display order. */
+/** Left-join runtime status + configuration by provider id, in the fixed catalog order. */
 export function mergeProviders(
 	status: readonly RuntimeProvider[] | null | undefined,
 	config: readonly RuntimeProviderConfiguration[] | null | undefined,
 ): MergedProvider[] {
-	return RUNTIME_SETUP_PROVIDER_IDS.map((id) => {
-		const statusRecord = findById(status, id);
-		const configRecord = findById(config, id);
+	return PROVIDER_CATALOG.map((entry) => {
+		const statusRecord = findById(status, entry.id);
+		const configRecord = findById(config, entry.id);
 		return {
-			id,
-			displayName: statusRecord?.displayName ?? configRecord?.displayName ?? id,
-			kind: statusRecord?.kind ?? configRecord?.kind ?? 'manual',
+			id: entry.id,
+			displayName: statusRecord?.displayName ?? configRecord?.displayName ?? entry.displayName,
+			kind: statusRecord?.kind ?? configRecord?.kind ?? entry.group,
 			status: statusRecord,
 			config: configRecord,
 		};
@@ -185,17 +417,10 @@ export const STATE_META: Record<
 	blocked: { tone: 'danger', Icon: XCircle, labelKey: 'app.runtime.state.blocked' },
 };
 
-export const PROVIDER_ICON: Record<RuntimeSetupProviderId, IconComponent> = {
-	codex_cli: SquareTerminal,
-	claude_code_cli: Bot,
-	openhands: SquareTerminal,
-	swe_agent: SquareTerminal,
-	ollama: Boxes,
-	openai_compatible: PlugZap,
-	openrouter: Network,
-	nvidia_nim: Cpu,
-	anthropic_api: Bot,
-};
+/** Provider glyph, resolved from the catalog (falls back to a neutral plug for unknown ids). */
+export const PROVIDER_ICON: Record<string, IconComponent> = Object.fromEntries(
+	PROVIDER_CATALOG.map((entry) => [entry.id, entry.Icon]),
+);
 
 /** Human-readable labels for the raw provider `kind` enum (resolved via t()); the raw
  *  value is kept as fallback so an uncatalogued kind still renders something. */
@@ -208,17 +433,9 @@ export const KIND_LABEL: Record<string, { labelKey: string; fallback: string }> 
 };
 
 /** Catalog keys for the per-provider "how to configure" copy (resolved via t()). */
-export const INSTRUCTIONS_KEY: Record<RuntimeSetupProviderId, string> = {
-	codex_cli: 'app.runtime.instructions.codex_cli',
-	claude_code_cli: 'app.runtime.instructions.claude_code_cli',
-	openhands: 'app.runtime.instructions.openhands',
-	swe_agent: 'app.runtime.instructions.swe_agent',
-	ollama: 'app.runtime.instructions.ollama',
-	openai_compatible: 'app.runtime.instructions.openai_compatible',
-	openrouter: 'app.runtime.instructions.openrouter',
-	nvidia_nim: 'app.runtime.instructions.nvidia_nim',
-	anthropic_api: 'app.runtime.instructions.anthropic_api',
-};
+export const INSTRUCTIONS_KEY: Record<string, string> = Object.fromEntries(
+	PROVIDER_CATALOG.map((entry) => [entry.id, entry.instructionsKey]),
+);
 
 /** Ids of API/gateway providers whose health is stored (not live on GET) and so
  *  must be actively re-probed when the user asks to refresh health. */

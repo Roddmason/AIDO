@@ -15,6 +15,242 @@
     }
   ],
   "translations": {
+    "app.runtime.instructions.ollama_remote": {
+      "en": "Point to your remote Ollama server URL and, if it requires auth, add a bearer token.",
+      "es": "Apunta a la URL de tu servidor Ollama remoto y, si requiere autenticación, agrega un token bearer."
+    },
+    "app.runtime.instructions.openai_api": {
+      "en": "Create an API key at platform.openai.com and paste it here; the base URL is preconfigured.",
+      "es": "Crea una API key en platform.openai.com y pégala aquí; la URL base viene preconfigurada."
+    },
+    "app.runtime.instructions.deepseek": {
+      "en": "Create an API key at platform.deepseek.com; only the key is needed.",
+      "es": "Crea una API key en platform.deepseek.com; solo se necesita la clave."
+    },
+    "app.runtime.instructions.kimi": {
+      "en": "Create an API key at platform.moonshot.ai (Kimi); only the key is needed.",
+      "es": "Crea una API key en platform.moonshot.ai (Kimi); solo se necesita la clave."
+    },
+    "app.runtime.instructions.mistral": {
+      "en": "Create an API key at console.mistral.ai; only the key is needed.",
+      "es": "Crea una API key en console.mistral.ai; solo se necesita la clave."
+    },
+    "app.runtime.instructions.groq": {
+      "en": "Create an API key at console.groq.com; only the key is needed.",
+      "es": "Crea una API key en console.groq.com; solo se necesita la clave."
+    },
+    "app.runtime.instructions.gemini": {
+      "en": "Create an API key at aistudio.google.com; the OpenAI-compatible base URL is preconfigured.",
+      "es": "Crea una API key en aistudio.google.com; la URL base compatible con OpenAI viene preconfigurada."
+    },
+    "app.runtime.instructions.azure_openai": {
+      "en": "Enter your Azure OpenAI resource endpoint and key; models are your deployment names.",
+      "es": "Ingresa el endpoint y la clave de tu recurso Azure OpenAI; los modelos son los nombres de tus deployments."
+    },
+    "app.providers.addProvider": {
+      "en": "Add provider",
+      "es": "Agregar proveedor"
+    },
+    "app.providers.cost.known": {
+      "en": "cost known",
+      "es": "costo conocido"
+    },
+    "app.providers.cost.free": {
+      "en": "free tier",
+      "es": "capa gratuita"
+    },
+    "app.providers.cost.unknown": {
+      "en": "cost unknown",
+      "es": "costo desconocido"
+    },
+    "app.providers.cost.none": {
+      "en": "no models yet",
+      "es": "sin modelos aún"
+    },
+    "app.providers.credential.configured": {
+      "en": "credential set",
+      "es": "credencial lista"
+    },
+    "app.providers.credential.missing": {
+      "en": "no credential",
+      "es": "sin credencial"
+    },
+    "app.providers.card.baseUrl": {
+      "en": "Base URL",
+      "es": "URL base"
+    },
+    "app.providers.card.baseUrlUnset": {
+      "en": "not set",
+      "es": "sin definir"
+    },
+    "app.providers.card.models": {
+      "en": "Models",
+      "es": "Modelos"
+    },
+    "app.providers.card.useForRoles": {
+      "en": "Use for roles",
+      "es": "Usar para roles"
+    },
+    "app.providers.card.configure": {
+      "en": "Configure",
+      "es": "Configurar"
+    },
+    "app.providers.card.syncModels": {
+      "en": "Sync models",
+      "es": "Sincronizar modelos"
+    },
+    "app.providers.card.testPrompt": {
+      "en": "Test prompt",
+      "es": "Probar prompt"
+    },
+    "app.providers.action.modelsSynced": {
+      "en": "Models synced",
+      "es": "Modelos sincronizados"
+    },
+    "app.providers.action.testOk": {
+      "en": "Provider responded",
+      "es": "El proveedor respondió"
+    },
+    "app.providers.action.testFailed": {
+      "en": "Test prompt failed",
+      "es": "Falló la prueba de prompt"
+    },
+    "app.providers.action.taskFailed": {
+      "en": "Provider action failed",
+      "es": "Falló la acción del proveedor"
+    },
+    "app.providers.wizard.title": {
+      "en": "Add provider",
+      "es": "Agregar proveedor"
+    },
+    "app.providers.wizard.stepProvider": {
+      "en": "Choose provider",
+      "es": "Elegir proveedor"
+    },
+    "app.providers.wizard.stepCredential": {
+      "en": "Credential",
+      "es": "Credencial"
+    },
+    "app.providers.wizard.stepModels": {
+      "en": "Select models",
+      "es": "Seleccionar modelos"
+    },
+    "app.providers.wizard.stepValidate": {
+      "en": "Validate",
+      "es": "Validar"
+    },
+    "app.providers.wizard.stepsAria": {
+      "en": "Add provider steps",
+      "es": "Pasos para agregar proveedor"
+    },
+    "app.providers.wizard.provider": {
+      "en": "Provider",
+      "es": "Proveedor"
+    },
+    "app.providers.wizard.providerHelp": {
+      "en": "Pick a provider to connect. CLI runtimes are set up from their card.",
+      "es": "Elige un proveedor para conectar. Los runtimes CLI se configuran desde su tarjeta."
+    },
+    "app.providers.wizard.credMode": {
+      "en": "Credential type",
+      "es": "Tipo de credencial"
+    },
+    "app.providers.wizard.credModeKey": {
+      "en": "API key",
+      "es": "Clave API"
+    },
+    "app.providers.wizard.credModeRef": {
+      "en": "Reference",
+      "es": "Referencia"
+    },
+    "app.providers.wizard.baseUrl": {
+      "en": "Base URL",
+      "es": "URL base"
+    },
+    "app.providers.wizard.baseUrlHelp": {
+      "en": "The provider endpoint for this account.",
+      "es": "El endpoint del proveedor para esta cuenta."
+    },
+    "app.providers.wizard.noBaseUrl": {
+      "en": "Not applicable",
+      "es": "No aplica"
+    },
+    "app.providers.wizard.baseUrlPreset": {
+      "en": "Preconfigured — no URL needed.",
+      "es": "Preconfigurada — no se necesita URL."
+    },
+    "app.providers.wizard.apiKey": {
+      "en": "API key",
+      "es": "Clave API"
+    },
+    "app.providers.wizard.apiKeyHelp": {
+      "en": "Stored in the credential vault — never shown again.",
+      "es": "Se guarda en la bóveda de credenciales — no se vuelve a mostrar."
+    },
+    "app.providers.wizard.credentialRef": {
+      "en": "Credential reference",
+      "es": "Referencia de credencial"
+    },
+    "app.providers.wizard.credentialRefHelp": {
+      "en": "Reference an existing secret (env:, keyring:, openbao:, vault:).",
+      "es": "Referencia un secreto existente (env:, keyring:, openbao:, vault:)."
+    },
+    "app.providers.wizard.noCredential": {
+      "en": "This provider needs no API key; saving enables it.",
+      "es": "Este proveedor no necesita API key; guardar lo habilita."
+    },
+    "app.providers.wizard.modelsSelected": {
+      "en": "selected",
+      "es": "seleccionados"
+    },
+    "app.providers.wizard.modelsEmpty": {
+      "en": "No models synced yet.",
+      "es": "Aún no se sincronizan modelos."
+    },
+    "app.providers.wizard.syncModels": {
+      "en": "Sync models",
+      "es": "Sincronizar modelos"
+    },
+    "app.providers.wizard.runValidate": {
+      "en": "Validate connection",
+      "es": "Validar conexión"
+    },
+    "app.providers.wizard.validateOk": {
+      "en": "Provider responded",
+      "es": "El proveedor respondió"
+    },
+    "app.providers.wizard.validateFailed": {
+      "en": "Validation failed",
+      "es": "Falló la validación"
+    },
+    "app.providers.wizard.cancel": {
+      "en": "Cancel",
+      "es": "Cancelar"
+    },
+    "app.providers.wizard.back": {
+      "en": "Back",
+      "es": "Atrás"
+    },
+    "app.providers.wizard.finish": {
+      "en": "Save & finish",
+      "es": "Guardar y finalizar"
+    },
+    "app.providers.wizard.next": {
+      "en": "Next",
+      "es": "Siguiente"
+    },
+    "app.providers.wizard.errorBaseUrl": {
+      "en": "Enter the provider base URL.",
+      "es": "Ingresa la URL base del proveedor."
+    },
+    "app.providers.wizard.errorApiKey": {
+      "en": "Enter the API key.",
+      "es": "Ingresa la clave API."
+    },
+    "app.providers.wizard.errorNoBackend": {
+      "en": "No writable credential backend is configured; use a reference instead.",
+      "es": "No hay un backend de credenciales escribible configurado; usa una referencia."
+    },
     "app.menu.bar": {
       "en": "Application menu",
       "es": "Menú de la aplicación"
@@ -238,6 +474,90 @@
     "app.threads.sending": {
       "en": "Sending…",
       "es": "Enviando…"
+    },
+    "app.threads.noteLabel": {
+      "en": "Add a note",
+      "es": "Agregar una nota"
+    },
+    "app.threads.notePlaceholder": {
+      "en": "Add a note or instruction for the running loop…",
+      "es": "Agrega una nota o instrucción para el loop en curso…"
+    },
+    "app.threads.noteMode.title": {
+      "en": "Note mode",
+      "es": "Modo nota"
+    },
+    "app.threads.noteMode.hint": {
+      "en": "Execution running — your message is saved as a note, not a new run.",
+      "es": "Ejecución en curso — tu mensaje se guarda como nota, no como una nueva ejecución."
+    },
+    "app.threads.addNote": {
+      "en": "Add note",
+      "es": "Agregar nota"
+    },
+    "app.threads.addingNote": {
+      "en": "Adding…",
+      "es": "Agregando…"
+    },
+    "app.threads.stopExecution": {
+      "en": "Stop execution",
+      "es": "Detener ejecución"
+    },
+    "app.threads.stoppingExecution": {
+      "en": "Stopping…",
+      "es": "Deteniendo…"
+    },
+    "app.threads.authorOperatorNote": {
+      "en": "Note",
+      "es": "Nota"
+    },
+    "app.threads.newObjective.trigger": {
+      "en": "New objective? Decide what to do",
+      "es": "¿Objetivo nuevo? Decide qué hacer"
+    },
+    "app.threads.newObjective.title": {
+      "en": "An execution is already running",
+      "es": "Ya hay una ejecución en curso"
+    },
+    "app.threads.newObjective.body": {
+      "en": "Choose what to do with this objective without accidentally starting a second run:",
+      "es": "Elige qué hacer con este objetivo sin iniciar una segunda ejecución por accidente:"
+    },
+    "app.threads.newObjective.yourObjective": {
+      "en": "Your objective",
+      "es": "Tu objetivo"
+    },
+    "app.threads.newObjective.addToLoop": {
+      "en": "Add to the current loop",
+      "es": "Agregar al loop actual"
+    },
+    "app.threads.newObjective.addToLoopHint": {
+      "en": "Saved as a note for the running execution. Nothing new starts.",
+      "es": "Se guarda como nota para la ejecución en curso. No inicia nada nuevo."
+    },
+    "app.threads.newObjective.newThread": {
+      "en": "Create a new thread",
+      "es": "Crear un hilo nuevo"
+    },
+    "app.threads.newObjective.newThreadHint": {
+      "en": "Starts a separate thread with this objective. The current one keeps running.",
+      "es": "Inicia un hilo aparte con este objetivo. El actual sigue en ejecución."
+    },
+    "app.threads.newObjective.replace": {
+      "en": "Cancel current and replace",
+      "es": "Cancelar la actual y reemplazar"
+    },
+    "app.threads.newObjective.replaceHint": {
+      "en": "Stops the running execution and starts this objective here.",
+      "es": "Detiene la ejecución en curso e inicia este objetivo aquí."
+    },
+    "app.threads.newObjective.cancel": {
+      "en": "Keep writing",
+      "es": "Seguir escribiendo"
+    },
+    "app.threads.newObjective.error": {
+      "en": "Could not complete the action. Try again.",
+      "es": "No se pudo completar la acción. Inténtalo de nuevo."
     },
     "app.threads.create": {
       "en": "Create thread",
@@ -794,6 +1114,186 @@
     "app.statusBar.git.refresh": {
       "en": "Refresh Git status",
       "es": "Actualizar estado de Git"
+    },
+    "app.statusBar.git.retry": {
+      "en": "Retry",
+      "es": "Reintentar"
+    },
+    "app.statusBar.git.blockedByPolicy": {
+      "en": "Blocked by policy",
+      "es": "Bloqueado por política"
+    },
+    "app.statusBar.git.gitNotInstalled": {
+      "en": "Git is not installed",
+      "es": "Git no está instalado"
+    },
+    "app.statusBar.git.initGit": {
+      "en": "Initialize Git",
+      "es": "Inicializar Git"
+    },
+    "app.statusBar.git.noRepo": {
+      "en": "no repository",
+      "es": "sin repositorio"
+    },
+    "app.statusBar.git.initGitDone": {
+      "en": "Git repository initialized",
+      "es": "Repositorio Git inicializado"
+    },
+    "app.statusBar.git.initGitFailed": {
+      "en": "Git init failed",
+      "es": "Falló la inicialización de Git"
+    },
+    "app.statusBar.git.noCommits": {
+      "en": "No commits yet",
+      "es": "Sin commits aún"
+    },
+    "app.statusBar.git.detachedHead": {
+      "en": "Detached HEAD",
+      "es": "HEAD separado"
+    },
+    "app.statusBar.git.branchDetachedOption": {
+      "en": "select a branch",
+      "es": "elige una rama"
+    },
+    "app.statusBar.git.selectHelp": {
+      "en": "Select a branch, then confirm with the checkout button",
+      "es": "Selecciona una rama y confírmala con el botón de checkout"
+    },
+    "app.statusBar.git.onlyProtectedPrefix": {
+      "en": "Working on",
+      "es": "Trabajando en"
+    },
+    "app.statusBar.git.onlyProtectedSuffix": {
+      "en": "create a work branch before your first change",
+      "es": "crea una rama de trabajo antes de tu primer cambio"
+    },
+    "app.statusBar.git.changedLabel": {
+      "en": "changed",
+      "es": "cambiados"
+    },
+    "app.statusBar.git.stagedLabel": {
+      "en": "staged",
+      "es": "preparados"
+    },
+    "app.statusBar.git.untrackedLabel": {
+      "en": "untracked",
+      "es": "sin seguimiento"
+    },
+    "app.statusBar.git.viewChanges": {
+      "en": "View changes",
+      "es": "Ver cambios"
+    },
+    "app.statusBar.git.changesTitle": {
+      "en": "Git changes",
+      "es": "Cambios de Git"
+    },
+    "app.statusBar.git.noChanges": {
+      "en": "No changes against HEAD",
+      "es": "Sin cambios contra HEAD"
+    },
+    "app.statusBar.git.diffFailed": {
+      "en": "Could not load the diff",
+      "es": "No se pudo cargar el diff"
+    },
+    "app.statusBar.git.savePatch": {
+      "en": "Save patch",
+      "es": "Guardar patch"
+    },
+    "app.statusBar.git.savePatchDone": {
+      "en": "Patch saved",
+      "es": "Patch guardado"
+    },
+    "app.statusBar.git.savePatchEmpty": {
+      "en": "No changes to export",
+      "es": "Sin cambios para exportar"
+    },
+    "app.statusBar.git.remotes": {
+      "en": "Remotes",
+      "es": "Remotos"
+    },
+    "app.statusBar.git.remotesTitle": {
+      "en": "Git remotes",
+      "es": "Remotos de Git"
+    },
+    "app.statusBar.git.noRemote": {
+      "en": "no remote",
+      "es": "sin remoto"
+    },
+    "app.statusBar.git.noRemotes": {
+      "en": "No remotes configured",
+      "es": "Sin remotos configurados"
+    },
+    "app.statusBar.git.addRemote": {
+      "en": "Add remote",
+      "es": "Agregar remoto"
+    },
+    "app.statusBar.git.remoteName": {
+      "en": "Remote name",
+      "es": "Nombre del remoto"
+    },
+    "app.statusBar.git.remoteNamePlaceholder": {
+      "en": "e.g. origin",
+      "es": "ej. origin"
+    },
+    "app.statusBar.git.remoteUrl": {
+      "en": "Remote URL",
+      "es": "URL del remoto"
+    },
+    "app.statusBar.git.remoteUrlPlaceholder": {
+      "en": "https://host/org/repo.git",
+      "es": "https://host/organización/repo.git"
+    },
+    "app.statusBar.git.remoteAdded": {
+      "en": "Remote added",
+      "es": "Remoto agregado"
+    },
+    "app.statusBar.git.remoteAddFailed": {
+      "en": "Could not add the remote",
+      "es": "No se pudo agregar el remoto"
+    },
+    "app.statusBar.git.testRemote": {
+      "en": "Test remote",
+      "es": "Probar remoto"
+    },
+    "app.statusBar.git.testRemoteHint": {
+      "en": "Testing a remote uses the network",
+      "es": "Probar un remoto usa la red"
+    },
+    "app.statusBar.git.remoteTested": {
+      "en": "Remote reachable",
+      "es": "Remoto alcanzable"
+    },
+    "app.statusBar.git.remoteTestFailed": {
+      "en": "Remote test failed",
+      "es": "Falló la prueba del remoto"
+    },
+    "app.statusBar.git.gitleaksSetup": {
+      "en": "Open setup",
+      "es": "Abrir configuración"
+    },
+    "app.statusBar.git.gitleaksSetupTitle": {
+      "en": "Gitleaks setup",
+      "es": "Configuración de gitleaks"
+    },
+    "app.statusBar.git.gitleaksSetupBody": {
+      "en": "Gitleaks is not installed on this machine. Install it and add it to PATH, then rescan.",
+      "es": "Gitleaks no está instalado en este equipo. Instálalo y agrégalo al PATH, luego vuelve a escanear."
+    },
+    "app.statusBar.git.gitleaksRescan": {
+      "en": "Rescan",
+      "es": "Volver a escanear"
+    },
+    "app.statusBar.git.checkoutDirtyTitle": {
+      "en": "Uncommitted changes",
+      "es": "Cambios sin confirmar"
+    },
+    "app.statusBar.git.checkoutDirtyBody": {
+      "en": "Switching branches with uncommitted changes may fail or carry them over.",
+      "es": "Cambiar de rama con cambios sin confirmar puede fallar o arrastrarlos."
+    },
+    "app.statusBar.git.checkoutAnyway": {
+      "en": "Switch anyway",
+      "es": "Cambiar de todos modos"
     },
     "app.shell.loops.noProjectTitle": {
       "en": "No workspace selected",
@@ -10034,6 +10534,210 @@
     "app.settings.status.saving": {
       "en": "Saving...",
       "es": "Guardando..."
+    },
+    "app.threads.remediation.blocker.runtime_not_executable.title": {
+      "en": "No executable runtime",
+      "es": "Sin runtime ejecutable"
+    },
+    "app.threads.remediation.blocker.runtime_not_executable.explanation": {
+      "en": "AIDO could not find a runtime it can run on this machine, so the work cannot start.",
+      "es": "AIDO no encontró un runtime que pueda ejecutar en este equipo, así que el trabajo no puede iniciar."
+    },
+    "app.threads.remediation.blocker.runtime_auth_missing.title": {
+      "en": "Runtime not authenticated",
+      "es": "Runtime sin autenticar"
+    },
+    "app.threads.remediation.blocker.runtime_auth_missing.explanation": {
+      "en": "The selected runtime needs credentials before AIDO can use it.",
+      "es": "El runtime seleccionado necesita credenciales antes de que AIDO pueda usarlo."
+    },
+    "app.threads.remediation.blocker.runtime_output_invalid.title": {
+      "en": "Runtime returned invalid output",
+      "es": "El runtime devolvió una salida inválida"
+    },
+    "app.threads.remediation.blocker.runtime_output_invalid.explanation": {
+      "en": "The runtime answered in a shape AIDO could not use, so the step was stopped.",
+      "es": "El runtime respondió en un formato que AIDO no pudo usar, así que el paso se detuvo."
+    },
+    "app.threads.remediation.blocker.git_not_initialized.title": {
+      "en": "Git is not initialized",
+      "es": "Git no está inicializado"
+    },
+    "app.threads.remediation.blocker.git_not_initialized.explanation": {
+      "en": "The project folder has no Git repository yet, so AIDO cannot track changes.",
+      "es": "La carpeta del proyecto aún no tiene un repositorio Git, así que AIDO no puede registrar los cambios."
+    },
+    "app.threads.remediation.blocker.git_dirty_tree.title": {
+      "en": "Uncommitted changes present",
+      "es": "Hay cambios sin confirmar"
+    },
+    "app.threads.remediation.blocker.git_dirty_tree.explanation": {
+      "en": "The working tree has uncommitted changes AIDO will not overwrite on its own.",
+      "es": "El working tree tiene cambios sin confirmar que AIDO no sobrescribirá por su cuenta."
+    },
+    "app.threads.remediation.blocker.git_branch_missing.title": {
+      "en": "Working branch required",
+      "es": "Falta la rama de trabajo"
+    },
+    "app.threads.remediation.blocker.git_branch_missing.explanation": {
+      "en": "AIDO needs a working branch before it makes changes to the project.",
+      "es": "AIDO necesita una rama de trabajo antes de modificar el proyecto."
+    },
+    "app.threads.remediation.blocker.gitleaks_missing.title": {
+      "en": "Gitleaks is not installed",
+      "es": "Gitleaks no está instalado"
+    },
+    "app.threads.remediation.blocker.gitleaks_missing.explanation": {
+      "en": "The secret scanner required by the security gate is not available on this machine.",
+      "es": "El escáner de secretos que exige la barrera de seguridad no está disponible en este equipo."
+    },
+    "app.threads.remediation.blocker.gitleaks_failed.title": {
+      "en": "Gitleaks blocked delivery",
+      "es": "Gitleaks bloqueó la entrega"
+    },
+    "app.threads.remediation.blocker.gitleaks_failed.explanation": {
+      "en": "The secret scanner found something that must be removed before delivery continues.",
+      "es": "El escáner de secretos encontró algo que debe eliminarse antes de continuar la entrega."
+    },
+    "app.threads.remediation.blocker.qa_failed.title": {
+      "en": "Quality checks failed",
+      "es": "Las verificaciones de calidad fallaron"
+    },
+    "app.threads.remediation.blocker.qa_failed.explanation": {
+      "en": "Automated quality checks did not pass, so delivery was paused for review.",
+      "es": "Las verificaciones automáticas de calidad no pasaron, así que la entrega quedó en pausa para revisión."
+    },
+    "app.threads.remediation.blocker.po_needs_input.title": {
+      "en": "A product decision is needed",
+      "es": "Se necesita una decisión de producto"
+    },
+    "app.threads.remediation.blocker.po_needs_input.explanation": {
+      "en": "AIDO needs you to answer a product question before it keeps going.",
+      "es": "AIDO necesita que respondas una pregunta de producto antes de continuar."
+    },
+    "app.threads.remediation.blocker.worker_not_running.title": {
+      "en": "Worker is not running",
+      "es": "El worker no está corriendo"
+    },
+    "app.threads.remediation.blocker.worker_not_running.explanation": {
+      "en": "This thread is queued but no local worker is processing it right now.",
+      "es": "Este hilo está en cola, pero ningún worker local lo está procesando ahora."
+    },
+    "app.threads.remediation.blocker.provider_missing_credentials.title": {
+      "en": "Provider credentials missing",
+      "es": "Faltan credenciales del proveedor"
+    },
+    "app.threads.remediation.blocker.provider_missing_credentials.explanation": {
+      "en": "The provider needs credentials before AIDO can reach it.",
+      "es": "El proveedor necesita credenciales antes de que AIDO pueda conectarse."
+    },
+    "app.threads.remediation.blocker.provider_health_failed.title": {
+      "en": "Provider is unhealthy",
+      "es": "El proveedor no está sano"
+    },
+    "app.threads.remediation.blocker.provider_health_failed.explanation": {
+      "en": "The provider failed its health check, so AIDO stopped before using it.",
+      "es": "El proveedor falló su chequeo de salud, así que AIDO se detuvo antes de usarlo."
+    },
+    "app.threads.remediation.blocker.generic.title": {
+      "en": "Run blocked",
+      "es": "Ejecución bloqueada"
+    },
+    "app.threads.remediation.blocker.generic.explanation": {
+      "en": "This run stopped and needs a manual step before it can continue.",
+      "es": "Esta ejecución se detuvo y necesita un paso manual antes de continuar."
+    },
+    "app.threads.remediation.action.configureRuntime": {
+      "en": "Configure runtime",
+      "es": "Configurar runtime"
+    },
+    "app.threads.remediation.action.openSecurityTools": {
+      "en": "Open security tools",
+      "es": "Abrir herramientas de seguridad"
+    },
+    "app.threads.remediation.action.openCredentials": {
+      "en": "Open credentials",
+      "es": "Abrir credenciales"
+    },
+    "app.threads.remediation.action.openConfiguration": {
+      "en": "Open configuration",
+      "es": "Abrir configuración"
+    },
+    "app.threads.remediation.action.validateRuntime": {
+      "en": "Revalidate runtime",
+      "es": "Revalidar runtime"
+    },
+    "app.threads.remediation.action.switchRuntime": {
+      "en": "Switch to Ollama / API / CLI",
+      "es": "Cambiar a Ollama / API / CLI"
+    },
+    "app.threads.remediation.action.continuePlanOnly": {
+      "en": "Continue plan-only",
+      "es": "Continuar solo-plan"
+    },
+    "app.threads.remediation.action.gitInit": {
+      "en": "Initialize Git",
+      "es": "Inicializar Git"
+    },
+    "app.threads.remediation.action.createBranch": {
+      "en": "Create branch",
+      "es": "Crear rama"
+    },
+    "app.threads.remediation.action.checkoutBranch": {
+      "en": "Switch branch",
+      "es": "Cambiar de rama"
+    },
+    "app.threads.remediation.action.runGitleaks": {
+      "en": "Run gitleaks",
+      "es": "Ejecutar gitleaks"
+    },
+    "app.threads.remediation.action.answerQuestion": {
+      "en": "Answer question",
+      "es": "Responder pregunta"
+    },
+    "app.threads.remediation.action.retryLoop": {
+      "en": "Retry loop",
+      "es": "Reintentar loop"
+    },
+    "app.threads.remediation.action.viewDiff": {
+      "en": "View diff",
+      "es": "Ver diff"
+    },
+    "app.threads.remediation.action.savePatch": {
+      "en": "Save patch",
+      "es": "Guardar parche"
+    },
+    "app.threads.remediation.title": {
+      "en": "Needs your action",
+      "es": "Requiere tu acción"
+    },
+    "app.threads.remediation.technicalDetail": {
+      "en": "Technical detail",
+      "es": "Detalle técnico"
+    },
+    "app.threads.remediation.executeSuccess": {
+      "en": "Repair action ran",
+      "es": "Acción de reparación ejecutada"
+    },
+    "app.threads.remediation.executeBlocked": {
+      "en": "Action needs another step",
+      "es": "La acción necesita otro paso"
+    },
+    "app.threads.remediation.copied": {
+      "en": "Diagnostic copied",
+      "es": "Diagnóstico copiado"
+    },
+    "app.threads.remediation.copyFailed": {
+      "en": "Could not copy the diagnostic",
+      "es": "No se pudo copiar el diagnóstico"
+    },
+    "app.threads.remediation.copyDiagnostic": {
+      "en": "Copy diagnostic",
+      "es": "Copiar diagnóstico"
+    },
+    "app.threads.remediation.dismiss": {
+      "en": "Dismiss",
+      "es": "Descartar"
     },
     "app.settings.research.maxSources": {
       "en": "Maximum sources",

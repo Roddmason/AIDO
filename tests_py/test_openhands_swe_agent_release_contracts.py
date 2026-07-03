@@ -272,6 +272,7 @@ def test_openhands_and_swe_agent_are_not_executable_without_developer_agent_capa
         # disabled (defense-in-depth), so the test enables them explicitly to simulate the operator
         # grant and reach the capability gate rather than the earlier installation/account gates.
         repo = RuntimeConfigRepository(connection)
+        repo.set_runtime_setting("runtime.cli.enabled", True)
         for runtime_id in ("openhands", "swe_agent"):
             repo.upsert_installation(
                 {
@@ -286,6 +287,14 @@ def test_openhands_and_swe_agent_are_not_executable_without_developer_agent_capa
             repo.update_runtime_account(
                 account["id"],
                 {"enabled": True, "healthStatus": "healthy", "lastValidationAt": "2026-06-27T12:00:00Z"},
+            )
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO runtime_capabilities
+                    (id, runtime, capability, enabled, metadata, created_at, updated_at)
+                VALUES (?, ?, 'chat', 1, ?, '2026-06-27T12:00:00Z', '2026-06-27T12:00:00Z')
+                """,
+                (f"{runtime_id}:chat:test", runtime_id, json.dumps({"source": "test"})),
             )
         statuses = {
             provider["id"]: provider

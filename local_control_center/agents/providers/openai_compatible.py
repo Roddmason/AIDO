@@ -77,6 +77,14 @@ class OpenAICompatibleProvider(ModelProvider):
     def _credential(self) -> str:
         return self.credential_resolver.resolve(self.credential_ref).value or ""
 
+    def _auth_headers(self) -> dict[str, str]:
+        """Cabeceras de autenticación del dialecto OpenAI (`Authorization: Bearer`).
+
+        Punto de extensión: las variantes con otro esquema (p. ej. Azure OpenAI con `api-key`)
+        sobreescriben este método sin duplicar el resto del transporte.
+        """
+        return {"Authorization": f"Bearer {self._credential()}"}
+
     def health_check(self) -> ProviderHealth:
         """Valida config/credencial y prueba `/models`; la política runtime se aplica aguas arriba."""
         if not self.base_url:
@@ -103,7 +111,7 @@ class OpenAICompatibleProvider(ModelProvider):
             )
         request = urllib.request.Request(
             f"{self.base_url}/models",
-            headers={"Authorization": f"Bearer {self._credential()}", "Accept": "application/json"},
+            headers={**self._auth_headers(), "Accept": "application/json"},
             method="GET",
         )
         try:
@@ -129,7 +137,7 @@ class OpenAICompatibleProvider(ModelProvider):
             return []
         request = urllib.request.Request(
             f"{self.base_url}/models",
-            headers={"Authorization": f"Bearer {self._credential()}", "Accept": "application/json"},
+            headers={**self._auth_headers(), "Accept": "application/json"},
             method="GET",
         )
         try:
@@ -158,7 +166,7 @@ class OpenAICompatibleProvider(ModelProvider):
             f"{self.base_url}/chat/completions",
             data=payload,
             headers={
-                "Authorization": f"Bearer {self._credential()}",
+                **self._auth_headers(),
                 "Content-Type": "application/json",
                 "Accept": "application/json",
             },

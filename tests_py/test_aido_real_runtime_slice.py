@@ -15,6 +15,7 @@ from local_control_center.agents.providers.anthropic_api import AnthropicAPIProv
 from local_control_center.agents.providers.base import ProviderHealth
 from local_control_center.agents.providers.openai_compatible import OpenAICompatibleProvider
 from local_control_center.app import create_app
+from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
 from local_control_center.security_policy.git_command_runner import git_available, run_git
 from local_control_center.security_policy.sandbox import RestrictedSubprocessSandbox
 from local_control_center.workflows.issue_to_patch_runner import _status_from_developer_result
@@ -109,6 +110,16 @@ def configure_remote_provider_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def enable_remote_provider_accounts(store: ControlPlaneFixture) -> None:
+    runtime_settings = RuntimeConfigRepository(store.connection)
+    runtime_settings.set_runtime_setting("runtime.remote.enabled", True)
+    runtime_settings.set_runtime_setting("runtime.nvidia.enabled", True)
+    store.connection.execute(
+        """
+        UPDATE runtime_installations
+        SET enabled = 1
+        WHERE runtime_id IN ('openai_compatible', 'openrouter', 'nvidia_nim', 'anthropic_api')
+        """
+    )
     store.connection.execute(
         """
         UPDATE provider_accounts
@@ -823,7 +834,7 @@ def test_remote_provider_failed_healthcheck_persists_sanitized_reason(
         assert "Bearer" not in str(provider)
 
 
-def test_remote_provider_healthy_requires_enabled_account_and_real_call_flag_for_executable(
+def test_remote_provider_healthy_requires_enabled_account_and_sqlite_policy_for_executable(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -869,9 +880,12 @@ def test_remote_provider_healthy_requires_enabled_account_and_real_call_flag_for
         provider = disabled_providers[provider_id]
         assert provider["configured"] is True
         assert provider["available"] is True
-        assert provider["executable"] is False
+        assert provider["executable"] is True
         assert provider["healthStatus"] == "healthy"
-        assert "AIDO_ENABLE_REAL_PROVIDER_CALLS=false" in provider["reason"]
+        assert any(
+            "AIDO_ENABLE_REAL_PROVIDER_CALLS" in warning
+            for warning in provider["configurationWarnings"]
+        )
 
     monkeypatch.setenv("AIDO_ENABLE_REAL_PROVIDER_CALLS", "true")
     enabled_flag = client.get("/api/v1/runtime/providers").json()
@@ -983,6 +997,10 @@ def test_openai_compatible_status_requires_config_model_and_explicit_healthcheck
     monkeypatch.setattr(OpenAICompatibleProvider, "health_check", healthy_provider)
     store, client, headers = create_client(tmp_path, monkeypatch)
     monkeypatch.setenv("AIDO_ENABLE_REAL_PROVIDER_CALLS", "true")
+    RuntimeConfigRepository(store.connection).set_runtime_setting("runtime.remote.enabled", True)
+    store.connection.execute(
+        "UPDATE runtime_installations SET enabled = 1 WHERE runtime_id = 'openai_compatible'"
+    )
     store.connection.execute(
         """
         UPDATE provider_accounts

@@ -5,14 +5,17 @@
  * Enter / Space) because each commit is an audited PUT — selection-follows-focus
  * would write transient levels to the audit log. The selected card is marked by
  * full border + tint + check flag (never color alone). Mirrors the composer's
- * PERMISSION_OPTIONS semantics so both surfaces speak the same language.
+ * PERMISSION_OPTIONS semantics so both surfaces speak the same language. After a
+ * commit the focus returns to the activated card (native `disabled` drops it to
+ * <body> during the write), and the roving tab stop always lands on a real card
+ * even if the stored value drifts outside the level set.
  * @author Rodrigo Mason
  */
 
 import type { LucideIcon } from 'lucide-react';
 import { Check, Shield, ShieldAlert, ShieldCheck } from 'lucide-react';
 import type { KeyboardEvent } from 'react';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { useI18n } from '../../i18n/I18nProvider';
 import type { ResolvedSetting } from './useSettings';
@@ -69,6 +72,18 @@ export function AutonomyBody({
 	// Synchronous in-flight guard: `pending` state lags one render behind, so fast
 	// arrow-key repeats could otherwise fire concurrent PUTs for the same setting.
 	const inFlightRef = useRef(false);
+	// The card to refocus once a commit re-enables the grid (native `disabled` drops
+	// focus to <body> mid-write); null when no refocus is pending.
+	const refocusValueRef = useRef<string | null>(null);
+
+	// Restore keyboard focus to the activated card after the write completes. Runs on
+	// every pending -> false transition; the ref gates it to real commits only.
+	useEffect(() => {
+		if (pending || refocusValueRef.current === null) return;
+		const target = cardRefs.current[refocusValueRef.current];
+		refocusValueRef.current = null;
+		target?.focus();
+	}, [pending]);
 
 	const current: AutonomyLevel =
 		setting &&
@@ -76,10 +91,16 @@ export function AutonomyBody({
 		['guided', 'recommended', 'autonomous'].includes(setting.value)
 			? (setting.value as AutonomyLevel)
 			: 'guided';
+	// Roving tab stop: the selected card owns it, but if the stored value has drifted
+	// outside the level set the first card owns it — never leave the group with no
+	// reachable tab stop.
+	const currentIndex = LEVELS.findIndex((entry) => entry.level === current);
+	const activeIndex = currentIndex >= 0 ? currentIndex : 0;
 
 	const commit = async (level: AutonomyLevel) => {
 		if (inFlightRef.current || level === current) return;
 		inFlightRef.current = true;
+		refocusValueRef.current = level;
 		setPending(true);
 		try {
 			await onSelect(level);
@@ -101,7 +122,7 @@ export function AutonomyBody({
 		const focused = LEVELS.findIndex(
 			(entry) => cardRefs.current[entry.level] === document.activeElement,
 		);
-		const index = focused >= 0 ? focused : LEVELS.findIndex((entry) => entry.level === current);
+		const index = focused >= 0 ? focused : activeIndex;
 		if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
 			event.preventDefault();
 			moveFocusTo(index + 1);
@@ -143,7 +164,7 @@ export function AutonomyBody({
 				aria-label={t('app.settings.section.autonomy', 'Autonomy')}
 				onKeyDown={onKeyDown}
 			>
-				{LEVELS.map((entry) => {
+				{LEVELS.map((entry, index) => {
 					const selected = entry.level === current;
 					const Icon = entry.icon;
 					return (
@@ -155,7 +176,7 @@ export function AutonomyBody({
 							type="button"
 							role="radio"
 							aria-checked={selected}
-							tabIndex={selected ? 0 : -1}
+							tabIndex={index === activeIndex ? 0 : -1}
 							className="settings-choice-card"
 							data-selected={selected || undefined}
 							disabled={pending}
@@ -191,6 +212,10 @@ export function AutonomyBody({
 					</button>
 				</div>
 			) : null}
+			{/* Save progress announced to screen readers; visual state is the disabled cards. */}
+			<span className="sr-only" role="status">
+				{pending ? t('app.settings.status.saving', 'Saving...') : ''}
+			</span>
 		</div>
 	);
 }

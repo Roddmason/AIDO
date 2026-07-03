@@ -50,6 +50,7 @@ export function InspectorPanel({
 	mutate,
 	onClose,
 	onClearRun,
+	onOpenSettings,
 	showLoops = false,
 	selectedThreadId = '',
 }: {
@@ -61,6 +62,8 @@ export function InspectorPanel({
 	mutate: Mutate;
 	onClose: () => void;
 	onClearRun: () => void;
+	/** Opens a Settings section — the threads inspector's blocker cards route their recovery here. */
+	onOpenSettings: (section?: string) => void;
 	/** Threads area: replace the project summary with the thread manager console. */
 	showLoops?: boolean;
 	/** Active thread id from the shell selection ('' or the new-thread sentinel when none). */
@@ -102,7 +105,13 @@ export function InspectorPanel({
 		body = <RunDetail overview={overview} runId={selectedRunId} token={token} mutate={mutate} />;
 	} else if (showLoops && selectedProject) {
 		body = (
-			<ThreadInspector overview={overview} project={selectedProject} threadId={liveThreadId} />
+			<ThreadInspector
+				overview={overview}
+				project={selectedProject}
+				threadId={liveThreadId}
+				mutate={mutate}
+				onOpenSettings={onOpenSettings}
+			/>
 		);
 	} else if (selectedProject && stats) {
 		body = (

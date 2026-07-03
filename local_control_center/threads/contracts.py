@@ -50,6 +50,7 @@ THREAD_MESSAGE_KINDS = (
     "artifact",
     "error",
     "system_event",
+    "operator_note",
 )
 ThreadMessageKind = Literal[
     "user",
@@ -59,6 +60,7 @@ ThreadMessageKind = Literal[
     "artifact",
     "error",
     "system_event",
+    "operator_note",
 ]
 
 THREAD_DECISION_STATUSES = ("pending", "resolved", "dismissed")
@@ -274,6 +276,7 @@ class ThreadSimilarityEventRecord(BaseModel):
     score: float
     reason: str
     action: ThreadSimilarityAction
+    functionality_id: str = Field(default="", alias="functionalityId")
     created_at: str = Field(alias="createdAt")
 
 
@@ -283,12 +286,78 @@ class ThreadSimilarityMarkResponse(BaseModel):
     event: ThreadSimilarityEventRecord
 
 
+class ProjectFunctionalityRecord(BaseModel):
+    """Funcionalidad existente registrada desde threads resueltos o decisiones de similitud."""
+
+    id: str
+    project_id: str = Field(alias="projectId")
+    name: str
+    summary: str
+    normalized_name: str = Field(alias="normalizedName")
+    fingerprint: str
+    source_thread_id: str = Field(alias="sourceThreadId")
+    status: ThreadStatus
+    file_paths: list[str] = Field(alias="filePaths")
+    performance_notes: list[dict[str, Any]] = Field(alias="performanceNotes")
+    metadata: dict[str, Any]
+    created_at: str = Field(alias="createdAt")
+    updated_at: str = Field(alias="updatedAt")
+    score: float | None = None
+    reason: str | None = None
+
+
+class ProjectFunctionalityResponse(BaseModel):
+    """Listado project-scoped de funcionalidad existente."""
+
+    functionality: list[ProjectFunctionalityRecord]
+
+
+class ThreadMemoryReindexResponse(BaseModel):
+    """Resultado de reindexar memoria de thread y, si aplica, funcionalidad existente."""
+
+    index: dict[str, Any]
+    functionality: ProjectFunctionalityRecord | None = None
+
+
 class ThreadMessageRequest(BaseModel):
     """Cuerpo para publicar un mensaje de usuario que dispara la ejecución del coordinator."""
 
     content: str
     author: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class ThreadNoteRequest(BaseModel):
+    """Cuerpo para adjuntar una nota del operador a un hilo con ejecución en curso.
+
+    A diferencia de ``ThreadMessageRequest``, una nota nunca dispara el coordinator ni encola un job:
+    solo deja constancia auditable en el timeline para evitar iniciar loops concurrentes por accidente.
+    """
+
+    content: str
+    author: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class ThreadNoteResponse(BaseModel):
+    """Resultado de adjuntar una nota del operador: el hilo (sin cambio de estado) y la nota creada."""
+
+    thread: ThreadRecord
+    message: ThreadMessageRecord
+
+
+class ThreadCancelRequest(BaseModel):
+    """Cuerpo para cancelar la ejecución en curso de un hilo con un motivo auditable."""
+
+    reason: str | None = None
+    actor: str | None = None
+
+
+class ThreadCancelResponse(BaseModel):
+    """Resultado de cancelar la ejecución: el hilo reabierto y los jobs efectivamente cancelados."""
+
+    thread: ThreadRecord
+    cancelled_job_ids: list[str] = Field(alias="cancelledJobIds")
 
 
 class ThreadRunSummary(BaseModel):

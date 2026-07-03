@@ -2,27 +2,28 @@
  * Right-hand execution panel of the threads shell: everything AIDO is *doing*, kept apart from the
  * conversation transcript. Surfaces the worker state with a manual "Run now" escape hatch while the
  * thread sits queued and no worker is running, the seven-step product pipeline derived from the
- * thread's real event log, actionable blockers (runtime setup, gitleaks, dirty git tree, missing
- * branch, pending decision, approval, worker error) and the humanized execution console. Raw event
- * payloads stay behind a per-row disclosure — never rendered by default.
+ * thread's real event log, the actionable blocker cards read from `/threads/{id}/remediations`
+ * ({@link ThreadBlockerList}) plus the two thread-state blockers that are not remediations (pending
+ * decision, approval), and the humanized execution console. Raw event payloads stay behind a per-row
+ * disclosure — never rendered by default.
  * @author Rodrigo Mason
  */
 import { AlertTriangle, ExternalLink, Play } from 'lucide-react';
 import { m } from 'motion/react';
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 
-import { scanProjectGitleaks, type WorkerStatusResponse } from '../../api/client';
-import type { Project, ThreadAgentEvent, ThreadDecision, ThreadMessage } from '../../api/types';
-import { Button, StatusChip, useToast } from '../../components/ui';
+import type { WorkerStatusResponse } from '../../api/client';
+import type { ThreadAgentEvent, ThreadDecision, ThreadMessage } from '../../api/types';
+import { Button, StatusChip } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { EASE_OUT } from '../../motion/variants';
+import { ThreadBlockerList } from './ThreadBlockerCard';
 import { MESSAGE_META, safeRecord, textValue } from './threadPresentation';
+import type { ThreadRemediationsHandle } from './useThreadRemediations';
 
 type Translate = ReturnType<typeof useI18n>['t'];
 
 export type ThreadExecutionPanelProps = {
-	project: Project;
-	token: string;
 	threadStatus: string;
 	events: ThreadAgentEvent[];
 	/** Execution-side messages only (agent_summary, system_event, error). */
@@ -34,12 +35,13 @@ export type ThreadExecutionPanelProps = {
 	streamError: string;
 	waitingForWorker: boolean;
 	handoffFromIntake: boolean;
+	/** Persisted blocker remediations for this thread; the queued banner owns `worker_not_running`. */
+	remediations: ThreadRemediationsHandle;
 	onRunQueuedNow: () => void;
-	onOpenRuntimeSetup: () => void;
 	onOpenApprovals: () => void;
 	onFocusDecision: () => void;
-	onFocusGitBar: () => void;
-	onGitRefresh: () => void;
+	/** Opens a Settings section — the recovery path for settings-kind remediation actions. */
+	onOpenSettings: (section?: string) => void;
 };
 
 const PIPELINE_STEPS = [
@@ -156,13 +158,11 @@ type BlockerCard = {
 	actionExternal?: boolean;
 };
 
-const RUNTIME_STAGES = new Set(['runtime', 'product_owner_runtime']);
-const WORKSPACE_STAGES = new Set(['workspace', 'workspace_check', 'product_owner_workspace']);
+/** The queued banner already offers "Run now", so the worker remediation is hidden in this host. */
+const REMEDIATION_EXCLUDE_IN_PANEL = ['worker_not_running'] as const;
 
 /** Everything AIDO is doing for this thread, rendered as its own panel next to the transcript. */
 export function ThreadExecutionPanel({
-	project,
-	token,
 	threadStatus,
 	events,
 	messages,
@@ -173,61 +173,24 @@ export function ThreadExecutionPanel({
 	streamError,
 	waitingForWorker,
 	handoffFromIntake,
+	remediations,
 	onRunQueuedNow,
-	onOpenRuntimeSetup,
 	onOpenApprovals,
 	onFocusDecision,
-	onFocusGitBar,
-	onGitRefresh,
+	onOpenSettings,
 }: ThreadExecutionPanelProps) {
 	const { t } = useI18n();
-	const { notify } = useToast();
-	const [gitleaksBusy, setGitleaksBusy] = useState(false);
 
 	const pipeline = useMemo(() => derivePipeline(events, threadStatus), [events, threadStatus]);
 
-	const verifyGitleaks = async () => {
-		if (gitleaksBusy) return;
-		setGitleaksBusy(true);
-		try {
-			const result = await scanProjectGitleaks(token, project.id);
-			notify({
-				title:
-					result.status === 'completed'
-						? t('app.statusBar.git.gitleaksPassed', 'Gitleaks passed')
-						: t('app.statusBar.git.gitleaksBlocked', 'Gitleaks blocked delivery'),
-				body: result.reason,
-				tone:
-					result.status === 'completed'
-						? 'ok'
-						: result.status === 'configuration_required'
-							? 'warn'
-							: 'danger',
-			});
-			onGitRefresh();
-		} catch (error) {
-			notify({
-				title: t('app.statusBar.git.gitleaksFailed', 'Gitleaks scan failed'),
-				body: error instanceof Error ? error.message : undefined,
-				tone: 'danger',
-			});
-		} finally {
-			setGitleaksBusy(false);
-		}
-	};
-
+	// Thread-state blockers that are NOT persisted remediations: a pending decision and an awaiting
+	// approval. The stage/runtime/git/worker blockers now come from the remediations endpoint below.
 	const blockers = collectBlockers({
 		t,
 		threadStatus,
-		pipeline,
 		pendingDecision,
-		workerStatus,
-		gitleaksBusy,
-		onOpenRuntimeSetup,
 		onOpenApprovals,
 		onFocusDecision,
-		onFocusGitBar,
-		onVerifyGitleaks: () => void verifyGitleaks(),
 	});
 
 	const consoleEntries = useMemo(() => mergeConsoleEntries(events, messages), [events, messages]);
@@ -340,6 +303,14 @@ export function ThreadExecutionPanel({
 				</section>
 			) : null}
 
+			{/* Persisted, executable repair actions for runtime/git/gitleaks/QA/provider blockers. The
+			    queued banner above owns the worker-not-running "Run now", so it is excluded here. */}
+			<ThreadBlockerList
+				handle={remediations}
+				onOpenSettings={onOpenSettings}
+				excludeBlockerTypes={REMEDIATION_EXCLUDE_IN_PANEL}
+			/>
+
 			<ol className="thread-pipeline" aria-label={t('app.threads.pipelineTitle', 'Pipeline steps')}>
 				{PIPELINE_STEPS.map((step, index) => (
 					<li
@@ -392,30 +363,22 @@ function workerLabel(status: WorkerStatusResponse, t: Translate) {
 type CollectBlockersInput = {
 	t: Translate;
 	threadStatus: string;
-	pipeline: PipelineSnapshot;
 	pendingDecision: ThreadDecision | null;
-	workerStatus: WorkerStatusResponse | null;
-	gitleaksBusy: boolean;
-	onOpenRuntimeSetup: () => void;
 	onOpenApprovals: () => void;
 	onFocusDecision: () => void;
-	onFocusGitBar: () => void;
-	onVerifyGitleaks: () => void;
 };
 
-/** Builds the actionable blocker cards: decision first, then approval, run block, worker error. */
+/**
+ * Builds the two thread-state blocker cards that are not persisted remediations: a pending decision
+ * and an awaiting approval. Runtime/git/gitleaks/worker blockers come from the remediations endpoint
+ * ({@link ThreadBlockerList}), so they are intentionally not derived from the event log here.
+ */
 function collectBlockers({
 	t,
 	threadStatus,
-	pipeline,
 	pendingDecision,
-	workerStatus,
-	gitleaksBusy,
-	onOpenRuntimeSetup,
 	onOpenApprovals,
 	onFocusDecision,
-	onFocusGitBar,
-	onVerifyGitleaks,
 }: CollectBlockersInput): BlockerCard[] {
 	const cards: BlockerCard[] = [];
 	if (pendingDecision) {
@@ -442,119 +405,7 @@ function collectBlockers({
 			onAction: onOpenApprovals,
 		});
 	}
-	if (pipeline.blockedStage || pipeline.blockedReason) {
-		cards.push(
-			blockerForStage({
-				t,
-				stage: pipeline.blockedStage,
-				reason: pipeline.blockedReason,
-				gitleaksBusy,
-				onOpenRuntimeSetup,
-				onFocusGitBar,
-				onVerifyGitleaks,
-			}),
-		);
-	}
-	if (
-		workerStatus &&
-		(workerStatus.status === 'failed' || workerStatus.status === 'blocked') &&
-		workerStatus.lastError
-	) {
-		cards.push({
-			id: 'worker-error',
-			title: t('app.threads.blocker.workerTitle', 'Worker error'),
-			detail: workerStatus.lastError,
-			// 'blocked' only ever comes from the worker preflight, whose two failure modes are a
-			// missing runtime or a missing gitleaks executable — so it always has a remedy to offer.
-			...(workerStatus.status === 'blocked'
-				? /gitleaks/i.test(workerStatus.lastError)
-					? {
-							hint: t(
-								'app.threads.blocker.gitleaksHint',
-								'Install gitleaks, then run the scan again.',
-							),
-							actionLabel: t('app.statusBar.git.runGitleaks', 'Run gitleaks scan'),
-							onAction: onVerifyGitleaks,
-							actionBusy: gitleaksBusy,
-						}
-					: {
-							actionLabel: t('app.threads.blocker.configureRuntime', 'Configure runtime'),
-							onAction: onOpenRuntimeSetup,
-						}
-				: {}),
-		});
-	}
 	return cards;
-}
-
-type BlockerForStageInput = {
-	t: Translate;
-	stage: string;
-	reason: string;
-	gitleaksBusy: boolean;
-	onOpenRuntimeSetup: () => void;
-	onFocusGitBar: () => void;
-	onVerifyGitleaks: () => void;
-};
-
-/** Maps the coordinator's `blocked` stage onto a card whose action actually remedies the block. */
-function blockerForStage({
-	t,
-	stage,
-	reason,
-	gitleaksBusy,
-	onOpenRuntimeSetup,
-	onFocusGitBar,
-	onVerifyGitleaks,
-}: BlockerForStageInput): BlockerCard {
-	if (RUNTIME_STAGES.has(stage)) {
-		return {
-			id: `stage-${stage}`,
-			title: t('app.threads.blocker.runtimeTitle', 'Runtime unavailable'),
-			detail: reason,
-			actionLabel: t('app.threads.blocker.configureRuntime', 'Configure runtime'),
-			onAction: onOpenRuntimeSetup,
-		};
-	}
-	if (stage === 'gitleaks') {
-		return {
-			id: 'stage-gitleaks',
-			title: t('app.threads.blocker.gitleaksTitle', 'Gitleaks blocked delivery'),
-			detail: reason,
-			hint: t('app.threads.blocker.gitleaksHint', 'Install gitleaks, then run the scan again.'),
-			actionLabel: t('app.statusBar.git.runGitleaks', 'Run gitleaks scan'),
-			onAction: onVerifyGitleaks,
-			actionBusy: gitleaksBusy,
-		};
-	}
-	if (stage === 'git') {
-		return {
-			id: 'stage-git',
-			title: t('app.threads.blocker.gitTitle', 'Git workspace blocked'),
-			detail: reason,
-			hint: t('app.threads.blocker.gitHint', 'Clean the project working tree, then retry.'),
-			actionLabel: t('app.threads.blocker.openGitControls', 'Open Git controls'),
-			onAction: onFocusGitBar,
-		};
-	}
-	if (WORKSPACE_STAGES.has(stage)) {
-		return {
-			id: `stage-${stage}`,
-			title: t('app.threads.blocker.branchTitle', 'Working branch required'),
-			detail: reason,
-			hint: t(
-				'app.threads.blocker.branchHint',
-				'Create a working branch from the Git bar in the composer.',
-			),
-			actionLabel: t('app.threads.blocker.openGitControls', 'Open Git controls'),
-			onAction: onFocusGitBar,
-		};
-	}
-	return {
-		id: `stage-${stage || 'unknown'}`,
-		title: t('app.threads.blocker.genericTitle', 'Run blocked'),
-		detail: reason,
-	};
 }
 
 type ConsoleEntry =
@@ -682,6 +533,9 @@ function eventTitle(type: string): string {
 		worker_idle: 'Worker idle',
 		worker_failed: 'Worker failed',
 		worker_paused: 'Worker paused',
+		worker_aborted: 'Execution stopped',
+		operator_note_added: 'Operator note',
+		execution_cancelled: 'Execution cancelled',
 		runtime_selected: 'Runtime selected',
 		agent_running: 'Agent working',
 		workspace_check: 'Workspace',

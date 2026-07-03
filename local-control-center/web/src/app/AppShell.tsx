@@ -255,6 +255,7 @@ export function AppShell({
 			mutate={mutate}
 			onClose={toggleInspector}
 			onClearRun={onClearRun}
+			onOpenSettings={onOpenSettings}
 			showLoops={area === 'threads'}
 			selectedThreadId={selectedSessionId}
 		/>

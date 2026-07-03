@@ -30,16 +30,13 @@
 	min-height: 0;
 }
 
-/* Single-row tablist: 8 tabs scroll horizontally instead of wrapping so the roving
- * tabindex keeps its linear Left/Right model. The right-edge mask signals that more
- * tabs exist past the fold in narrow panes. */
+/* Inspector tablist: allowed to wrap so the eight views are never cut. In a narrow pane the
+ * tabs collapse to icon-only (container query below) so every view fits without the old
+ * text-hiding right-edge mask. The tabs stay put while a long Team roster scrolls because the
+ * active view owns its scroll (the [role="tabpanel"] overflow rule below), so a full roster
+ * never pushes the tabs out of reach — no sticky/overlap needed. */
 .thread-inspector .tabs {
-	flex-wrap: nowrap;
-	overflow-x: auto;
-	scroll-snap-type: x proximity;
-	padding-bottom: var(--space-1);
-	-webkit-mask-image: linear-gradient(to right, #000 calc(100% - var(--space-4)), transparent);
-	mask-image: linear-gradient(to right, #000 calc(100% - var(--space-4)), transparent);
+	flex-wrap: wrap;
 }
 
 /* Primary-navigation emphasis for the selected inspector tab: accent border plus an
@@ -50,7 +47,6 @@
 }
 
 .thread-inspector .tabs .button {
-	scroll-snap-align: start;
 	white-space: nowrap;
 	flex-shrink: 0;
 }
@@ -61,9 +57,49 @@
 }
 
 .thread-inspector-tab-label {
+	/* Positioned so the visually-hidden label text (icon-only mode below) is scoped to its own
+	 * tab, not to some further ancestor. */
+	position: relative;
 	display: inline-flex;
 	align-items: center;
 	gap: var(--space-1);
+}
+
+/*
+ * Narrow inspector pane (the common side-panel width): collapse to icon-only tabs so all
+ * eight views fit without cutting or horizontal scroll. The label text stays in the
+ * accessibility tree — visually hidden, not removed — so each tab keeps its accessible name
+ * for screen readers and role queries; the hover tooltip is carried by the button's `title`.
+ * Full labels return once the pane is wide enough to show them.
+ */
+@container (max-width: 47.99rem) {
+	.thread-inspector .tabs .button {
+		padding-inline: var(--space-2);
+	}
+
+	/* The icon carries the whole tab here, so give it a touch more presence than in label mode. */
+	.thread-inspector .tabs .button svg {
+		width: 16px;
+		height: 16px;
+	}
+
+	.thread-inspector-tab-label {
+		gap: 0;
+	}
+
+	/* Same recipe as the shared `.sr-only` util (base.css); inlined because it must toggle off
+	 * above the breakpoint, which a static utility class cannot do. Keep the two in sync. */
+	.thread-inspector-tab-text {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		margin: -1px;
+		padding: 0;
+		overflow: hidden;
+		clip: rect(0, 0, 0, 0);
+		white-space: nowrap;
+		border: 0;
+	}
 }
 
 .thread-inspector-stack {

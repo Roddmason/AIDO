@@ -1324,6 +1324,140 @@
 	cursor: not-allowed;
 }
 
+/* State note: the state-driven CTA/summary in the workspace cluster (blocked, detached, no commits,
+   git missing, only-protected hint). Tone rides on full text color, never a side-stripe. */
+.composer-git-note {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-2);
+	font-size: var(--font-size-xs);
+	color: var(--color-text-muted);
+	white-space: nowrap;
+}
+
+.composer-git-note[data-tone="warn"] {
+	color: var(--color-status-warning);
+}
+
+.composer-git-note--hint {
+	color: var(--color-text-muted);
+	white-space: normal;
+}
+
+/* gitleaks-missing chip is itself the button that opens setup: strip native button chrome so it
+   reads as a status item, keep a visible focus ring for keyboard users. */
+.composer-git-item--action {
+	border: 0;
+	background: none;
+	padding: 0;
+	cursor: pointer;
+	font: inherit;
+}
+
+.composer-git-item--action:focus-visible {
+	outline: none;
+	border-radius: var(--radius-sm);
+	box-shadow: var(--shadow-focus);
+}
+
+/* Icon + suggested-action dot overlay (Remotes button when no remote is configured yet). */
+.composer-git-icon-badge {
+	position: relative;
+	display: inline-flex;
+}
+
+.composer-git-icon-badge .status-dot {
+	position: absolute;
+	top: -2px;
+	right: -2px;
+}
+
+/* Dialog bodies for the diff/patch, remotes and gitleaks-setup flows. */
+.composer-git-dialog {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-3);
+	min-width: min(32rem, 80vw);
+	margin-top: var(--space-4);
+}
+
+.composer-git-dialog-detail {
+	font-size: var(--font-size-xs);
+	color: var(--color-text-muted);
+}
+
+.composer-git-dialog-detail[data-tone="danger"] {
+	color: var(--color-status-danger);
+}
+
+.composer-git-dialog-actions,
+.composer-git-dialog-toolbar {
+	display: flex;
+	gap: var(--space-2);
+	flex-wrap: wrap;
+}
+
+.composer-git-dialog-actions {
+	justify-content: flex-end;
+}
+
+/* Diff viewer scrolls inside its own box so the dialog never grows past the viewport. */
+.composer-git-diff {
+	max-height: min(50vh, 26rem);
+	overflow: auto;
+	border: 1px solid var(--color-border-subtle);
+	border-radius: var(--radius-sm);
+	background: var(--color-surface-inset);
+}
+
+.composer-git-diff-body {
+	margin: 0;
+	padding: var(--space-3);
+	font-family: var(--font-mono);
+	font-size: var(--font-size-xs);
+	line-height: 1.5;
+	white-space: pre;
+	color: var(--color-text-primary);
+}
+
+.composer-git-remote-list {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-2);
+}
+
+.composer-git-remote-row {
+	display: flex;
+	align-items: center;
+	gap: var(--space-3);
+}
+
+.composer-git-remote-name {
+	font-weight: 600;
+	font-size: var(--font-size-sm);
+}
+
+.composer-git-remote-url {
+	flex: 1 1 auto;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: var(--font-size-xs);
+	color: var(--color-text-muted);
+}
+
+.composer-git-remote-form {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-3);
+	border-top: 1px solid var(--color-border-subtle);
+	padding-top: var(--space-3);
+}
+
 .status-bar .icon-button {
 	min-width: var(--control-height-sm);
 	min-height: var(--control-height-sm);
@@ -1855,6 +1989,80 @@
 .thread-blocker-hint {
 	font-size: var(--font-size-sm);
 	color: var(--color-text-muted);
+}
+
+.thread-remediation-list {
+	display: grid;
+	gap: var(--space-2);
+}
+
+/* Tone is carried by the full border colour, never a side stripe (visual guardrail). */
+.thread-remediation-card {
+	display: grid;
+	gap: var(--space-2);
+	justify-items: start;
+	padding: var(--space-3);
+	font-family: var(--font-sans);
+	border: 1px solid color-mix(in oklch, var(--color-status-danger) 42%, var(--color-border-subtle));
+	border-radius: var(--radius-md);
+	background: var(--color-surface-panel);
+}
+
+.thread-remediation-stage {
+	font-size: var(--font-size-2xs);
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+	color: var(--color-text-muted);
+}
+
+.thread-remediation-title {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-2);
+	color: var(--color-status-danger);
+}
+
+.thread-remediation-explanation {
+	margin: 0;
+	color: var(--color-text-secondary);
+	overflow-wrap: anywhere;
+}
+
+.thread-remediation-detail {
+	display: grid;
+	gap: var(--space-2);
+}
+
+.thread-remediation-detail p {
+	margin: 0;
+	font-size: var(--font-size-sm);
+	color: var(--color-text-secondary);
+	overflow-wrap: anywhere;
+}
+
+.thread-remediation-detail pre {
+	margin: 0;
+	max-height: 12rem;
+	overflow: auto;
+	padding: var(--space-2);
+	font-size: var(--font-size-xs);
+	color: var(--color-text-secondary);
+	background: var(--color-surface-panel-raised);
+	border-radius: var(--radius-sm);
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+
+.thread-remediation-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-2);
+	width: 100%;
+}
+
+/* Dismiss is the lowest-emphasis control on the card: push it to the trailing edge. */
+.thread-remediation-dismiss {
+	margin-inline-start: auto;
 }
 
 .thread-pipeline {
@@ -2715,6 +2923,191 @@
 /* Send / cancel button pushed to the end of the options row. */
 .shell-chat-options .shell-chat-send {
 	margin-left: auto;
+}
+
+/* Note mode (thread queued/running): a full-width info strip explaining why the composer changed,
+ * so a running thread never surprises the operator with a note-instead-of-run. Full 1px border in
+ * an info tone — no side stripe — to stay within the visual guardrails. */
+.thread-note-mode-hint {
+	display: flex;
+	align-items: flex-start;
+	gap: var(--space-2);
+	padding: var(--space-2) var(--space-3);
+	border: 1px solid color-mix(in oklch, var(--color-status-info) 35%, var(--color-border-subtle));
+	border-radius: var(--radius-md);
+	background: color-mix(in oklch, var(--color-status-info) 8%, var(--color-surface-card));
+	color: var(--color-text-secondary);
+	font-size: var(--font-size-xs);
+	line-height: 1.5;
+}
+
+.thread-note-mode-hint svg {
+	flex: 0 0 auto;
+	margin-top: 0.1rem;
+	color: var(--color-status-info);
+}
+
+.thread-note-mode-hint strong {
+	color: var(--color-text-primary);
+	font-weight: var(--weight-semibold);
+}
+
+/* Escape hatch to the new-objective modal: a quiet, link-like control on the left of the note-mode
+ * options row. Deliberately understated so "Add note" stays the one obvious primary action. */
+.composer-new-objective {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-1);
+	padding: var(--space-1) var(--space-2);
+	border: 1px solid transparent;
+	border-radius: var(--radius-md);
+	background: transparent;
+	color: var(--color-text-muted);
+	font: inherit;
+	font-size: var(--font-size-xs);
+	text-decoration: underline;
+	text-underline-offset: 2px;
+	cursor: pointer;
+	transition: color var(--duration-fast) var(--ease-standard);
+}
+
+.composer-new-objective:hover:not(:disabled) {
+	color: var(--color-text-primary);
+	background: var(--color-surface-inset);
+}
+
+.composer-new-objective:focus-visible {
+	outline: none;
+	box-shadow: var(--shadow-focus);
+}
+
+.composer-new-objective:disabled {
+	opacity: 0.5;
+	text-decoration: none;
+	cursor: not-allowed;
+}
+
+.composer-new-objective svg {
+	color: var(--color-accent);
+}
+
+/* Stop + Add note cluster, pushed to the end of the note-mode options row. */
+.thread-note-actions {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-2);
+	margin-inline-start: auto;
+}
+
+/* New-objective decision modal: a preview of the typed objective plus three stacked choices. */
+.thread-objective-dialog {
+	inline-size: min(30rem, 92vw);
+}
+
+.thread-objective-body {
+	margin: 0 0 var(--space-3);
+	color: var(--color-text-secondary);
+	font-size: var(--font-size-sm);
+	line-height: 1.5;
+}
+
+.thread-objective-preview {
+	margin: 0 0 var(--space-3);
+	padding: var(--space-2) var(--space-3);
+	border: 1px solid var(--color-border-subtle);
+	border-radius: var(--radius-md);
+	background: var(--color-surface-inset);
+}
+
+.thread-objective-preview figcaption {
+	margin-bottom: var(--space-1);
+	color: var(--color-text-muted);
+	font-size: var(--font-size-xs);
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+}
+
+.thread-objective-preview blockquote {
+	margin: 0;
+	color: var(--color-text-primary);
+	font-size: var(--font-size-sm);
+	line-height: 1.5;
+	overflow-wrap: anywhere;
+}
+
+.thread-objective-options {
+	display: grid;
+	gap: var(--space-2);
+}
+
+.thread-objective-option {
+	display: grid;
+	gap: 2px;
+	padding: var(--space-2) var(--space-3);
+	border: 1px solid var(--color-border-subtle);
+	border-radius: var(--radius-md);
+	background: var(--color-surface-card);
+	color: var(--color-text-primary);
+	font: inherit;
+	text-align: start;
+	cursor: pointer;
+	transition:
+		border-color var(--duration-fast) var(--ease-standard),
+		background var(--duration-fast) var(--ease-standard);
+}
+
+.thread-objective-option:hover:not(:disabled) {
+	border-color: color-mix(in oklch, var(--color-accent) 50%, var(--color-border-subtle));
+	background: color-mix(in oklch, var(--color-accent) 6%, var(--color-surface-card));
+}
+
+.thread-objective-option:focus-visible {
+	outline: none;
+	box-shadow: var(--shadow-focus);
+}
+
+.thread-objective-option:disabled {
+	opacity: 0.55;
+	cursor: not-allowed;
+}
+
+.thread-objective-option[data-danger] {
+	border-color: color-mix(in oklch, var(--color-status-danger) 40%, var(--color-border-subtle));
+}
+
+.thread-objective-option[data-danger]:hover:not(:disabled) {
+	border-color: color-mix(in oklch, var(--color-status-danger) 60%, var(--color-border-subtle));
+	background: color-mix(in oklch, var(--color-status-danger) 8%, var(--color-surface-card));
+}
+
+.thread-objective-option[data-busy] {
+	border-color: color-mix(in oklch, var(--color-accent) 60%, var(--color-border-subtle));
+}
+
+.thread-objective-option-label {
+	font-weight: var(--weight-semibold);
+}
+
+.thread-objective-option[data-danger] .thread-objective-option-label {
+	color: var(--color-status-danger);
+}
+
+.thread-objective-option-hint {
+	color: var(--color-text-muted);
+	font-size: var(--font-size-xs);
+	line-height: 1.4;
+}
+
+.thread-objective-error {
+	margin: var(--space-3) 0 0;
+	color: var(--color-status-danger);
+	font-size: var(--font-size-xs);
+}
+
+.thread-objective-footer {
+	display: flex;
+	justify-content: flex-end;
+	margin-top: var(--space-3);
 }
 
 /* Workspace toolbar row: project label + git bar that stretches to fill remaining width.

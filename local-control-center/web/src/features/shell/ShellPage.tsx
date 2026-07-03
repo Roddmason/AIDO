@@ -25,6 +25,7 @@ export function ShellPage({ ctx }: { ctx: RouteContext }) {
 			onCreateProject={() => ctx.openWorkspaceDialog('open_folder')}
 			onOpenRuntimeSetup={() => ctx.openSettings('providers-cli')}
 			onOpenApprovals={() => ctx.navigateTo('review-board')}
+			onOpenSettings={ctx.openSettings}
 		/>
 	);
 }

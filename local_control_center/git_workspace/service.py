@@ -10,12 +10,14 @@ por fuera del broker; si el runtime local no esta disponible, devuelve estado ex
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import sqlite3
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from local_control_center.agents.repository import AgentsRepository
 from local_control_center.agents.tool_broker import ToolBroker
@@ -30,6 +32,57 @@ PROJECT_GIT_TASK_ID = "git-workspace"
 GITLEAKS_REPORT_DIR = "git-gitleaks-reports"
 GIT_TIMEOUT_SECONDS = 30
 GITLEAKS_TIMEOUT_SECONDS = 120
+REMOTE_TEST_TIMEOUT_SECONDS = 30
+PROTECTED_WORK_BRANCHES = {"main", "master"}
+DEFAULT_GITIGNORE_LINES = [
+    "# Environment and local secrets",
+    ".env*",
+    "!.env.example",
+    "*.pem",
+    "*.key",
+    "id_rsa",
+    "",
+    "# OS and editor noise",
+    ".DS_Store",
+    "Thumbs.db",
+    ".idea/",
+    ".vscode/",
+    "",
+    "# Local AIDO artifacts",
+    ".aido/",
+    ".tmp/",
+]
+GITIGNORE_BY_TEMPLATE = {
+    "python-fastapi": [
+        "",
+        "# Python",
+        "__pycache__/",
+        "*.py[cod]",
+        ".pytest_cache/",
+        ".ruff_cache/",
+        ".venv/",
+        "venv/",
+        "dist/",
+        "build/",
+    ],
+    "react-vite": [
+        "",
+        "# Node / Vite",
+        "node_modules/",
+        "dist/",
+        "build/",
+        ".vite/",
+        "coverage/",
+    ],
+    "node-cli": [
+        "",
+        "# Node",
+        "node_modules/",
+        "dist/",
+        "build/",
+        "coverage/",
+    ],
+}
 
 
 @dataclass(frozen=True)
@@ -62,6 +115,16 @@ class BrokeredCommand:
     execution_result: dict[str, Any]
 
 
+@dataclass(frozen=True)
+class RemoteUrlMetadata:
+    """URL de remote validada, lista para persistir sin secretos."""
+
+    url: str
+    scheme: str
+    host: str
+    path: str
+
+
 def _split_lines(value: str) -> list[str]:
     return [line.rstrip("\r") for line in value.splitlines() if line.rstrip("\r")]
 
@@ -82,6 +145,66 @@ def _is_safe_ref(value: str | None) -> bool:
         return False
     invalid = set(" ~^:?*[\\")
     return not any(char in invalid or ord(char) < 32 for char in text)
+
+
+def _is_protected_work_branch(value: str | None) -> bool:
+    return (value or "").strip().lower() in PROTECTED_WORK_BRANCHES
+
+
+def _is_safe_remote_name(value: str | None) -> bool:
+    text = (value or "").strip()
+    return bool(re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,79}", text))
+
+
+def _validate_remote_url(value: str) -> RemoteUrlMetadata:
+    url = value.strip()
+    if not url or url != value:
+        raise ValueError("Remote URL must not be empty or padded with whitespace.")
+
+    parsed = urlparse(url)
+    if parsed.scheme == "https":
+        if parsed.username or parsed.password:
+            raise ValueError("Remote URL must not embed tokens or credentials.")
+        if not parsed.hostname or not parsed.path.strip("/"):
+            raise ValueError("HTTPS remote URL must include host and repository path.")
+        return RemoteUrlMetadata(
+            url=url,
+            scheme="https",
+            host=parsed.hostname,
+            path=parsed.path.lstrip("/"),
+        )
+    if parsed.scheme == "ssh":
+        if parsed.password:
+            raise ValueError("SSH remote URL must not embed passwords.")
+        if not parsed.hostname or not parsed.path.strip("/"):
+            raise ValueError("SSH remote URL must include host and repository path.")
+        return RemoteUrlMetadata(
+            url=url,
+            scheme="ssh",
+            host=parsed.hostname,
+            path=parsed.path.lstrip("/"),
+        )
+    if parsed.scheme:
+        raise ValueError("Remote URL must use HTTPS or SSH.")
+
+    scp_like = re.fullmatch(
+        r"(?P<user>[A-Za-z0-9._-]+)@(?P<host>[A-Za-z0-9.-]+):(?P<path>[^\s]+)",
+        url,
+    )
+    if scp_like:
+        return RemoteUrlMetadata(
+            url=url,
+            scheme="ssh",
+            host=scp_like.group("host"),
+            path=scp_like.group("path").lstrip("/"),
+        )
+    raise ValueError("Remote URL must use HTTPS or SSH.")
+
+
+def _slugify_branch_intent(intent: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", intent.lower()).strip("-")
+    slug = re.sub(r"-{2,}", "-", slug)[:72].strip("-")
+    return f"codex/{slug or f'work-{uuid.uuid4().hex[:8]}'}"
 
 
 def _porcelain_path(raw_path: str) -> str:
@@ -324,6 +447,8 @@ class GitWorkspaceService:
         git_operation: str | None = None,
         capability: str = "git",
         timeout_seconds: int = GIT_TIMEOUT_SECONDS,
+        network_required: bool = False,
+        secrets_required: bool = False,
     ) -> BrokeredCommand:
         broker_result = ToolBroker(self.connection, artifact_root=self.root).evaluate_tool_call(
             project_id=ctx.project["id"],
@@ -340,8 +465,8 @@ class GitWorkspaceService:
                 "runtimeId": runtime_id,
                 "gitOperation": git_operation,
                 "capability": capability,
-                "networkRequired": False,
-                "secretsRequired": False,
+                "networkRequired": network_required,
+                "secretsRequired": secrets_required,
                 "execute": True,
                 "timeoutSeconds": timeout_seconds,
             },
@@ -446,6 +571,98 @@ class GitWorkspaceService:
             }
         return None
 
+    def _gitignore_template(self, project: dict[str, Any]) -> str:
+        template_id = str(project.get("templateId") or "other")
+        lines = [*DEFAULT_GITIGNORE_LINES, *GITIGNORE_BY_TEMPLATE.get(template_id, [])]
+        return "\n".join(lines).rstrip() + "\n"
+
+    def _ensure_initial_gitignore(self, ctx: GitWorkspaceContext) -> bool:
+        gitignore = ctx.root / ".gitignore"
+        if gitignore.exists():
+            return False
+        gitignore.write_text(self._gitignore_template(ctx.project), encoding="utf-8")
+        return True
+
+    def _remote_metadata_from_row(self, row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "name": row["name"],
+            "url": row["url"],
+            "scheme": row["scheme"],
+            "host": row["host"],
+            "path": row["path"],
+            "createdAt": row["created_at"],
+            "updatedAt": row["updated_at"],
+            "lastTestedAt": row["last_tested_at"],
+            "lastTestStatus": row["last_test_status"],
+            "lastTestReason": row["last_test_reason"],
+        }
+
+    def _get_remote_metadata(self, *, project_id: str, name: str) -> dict[str, Any] | None:
+        row = self.connection.execute(
+            """
+            SELECT * FROM git_remotes
+            WHERE project_id = ? AND name = ?
+            """,
+            (project_id, name),
+        ).fetchone()
+        return self._remote_metadata_from_row(row) if row else None
+
+    def _upsert_remote_metadata(
+        self,
+        *,
+        project_id: str,
+        name: str,
+        remote: RemoteUrlMetadata,
+    ) -> dict[str, Any]:
+        timestamp = utc_now()
+        remote_id = f"git-remote-{uuid.uuid4()}"
+        self.connection.execute(
+            """
+            INSERT INTO git_remotes
+                (id, project_id, name, url, scheme, host, path, created_at, updated_at,
+                 last_tested_at, last_test_status, last_test_reason, metadata)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, '{}')
+            ON CONFLICT(project_id, name) DO UPDATE SET
+                url = excluded.url,
+                scheme = excluded.scheme,
+                host = excluded.host,
+                path = excluded.path,
+                updated_at = excluded.updated_at
+            """,
+            (
+                remote_id,
+                project_id,
+                name,
+                remote.url,
+                remote.scheme,
+                remote.host,
+                remote.path,
+                timestamp,
+                timestamp,
+            ),
+        )
+        metadata = self._get_remote_metadata(project_id=project_id, name=name)
+        if metadata is None:
+            raise RuntimeError("Git remote metadata was not persisted.")
+        return metadata
+
+    def _update_remote_test_metadata(
+        self,
+        *,
+        project_id: str,
+        name: str,
+        status: str,
+        reason: str,
+    ) -> None:
+        self.connection.execute(
+            """
+            UPDATE git_remotes
+            SET last_tested_at = ?, last_test_status = ?, last_test_reason = ?, updated_at = ?
+            WHERE project_id = ? AND name = ?
+            """,
+            (utc_now(), status, reason, utc_now(), project_id, name),
+        )
+
     def status(self, project_id: str) -> dict[str, Any]:
         """Devuelve snapshot Git completo del proyecto."""
         ctx = self._project_context(project_id)
@@ -522,6 +739,257 @@ class GitWorkspaceService:
             self._finish_operation(op, status="failed", output=output)
             raise
 
+    def init_repository(self, project_id: str, *, default_branch: str = "main") -> dict[str, Any]:
+        """Inicializa Git en la carpeta del proyecto usando ToolBroker."""
+        ctx = self._project_context(project_id)
+        if default_branch not in {"main", "dev"}:
+            return {
+                "status": "blocked",
+                "reason": "Default branch must be main or dev.",
+                "projectId": project_id,
+                "workspaceId": ctx.workspace_id,
+                "defaultBranch": default_branch,
+                "currentBranch": "",
+                "gitignoreCreated": False,
+                "commitCreated": False,
+                "toolCalls": [],
+                "policyDecisionIds": [],
+            }
+        if not shutil.which("git"):
+            response = self._base_unavailable_response(ctx=ctx, reason="Git executable was not found on PATH.")
+            return {
+                **response,
+                "defaultBranch": default_branch,
+                "gitignoreCreated": False,
+                "commitCreated": False,
+            }
+        if not ctx.workspace_id:
+            response = self._base_unavailable_response(
+                ctx=ctx, reason="Project path does not exist or is not a directory."
+            )
+            return {
+                **response,
+                "defaultBranch": default_branch,
+                "gitignoreCreated": False,
+                "commitCreated": False,
+            }
+        if (ctx.root / ".git").exists():
+            status = self.status(project_id)
+            return {
+                "status": "completed",
+                "reason": "Project path is already a Git repository.",
+                "projectId": project_id,
+                "workspaceId": ctx.workspace_id,
+                "defaultBranch": default_branch,
+                "currentBranch": status.get("currentBranch") or "",
+                "gitignoreCreated": False,
+                "commitCreated": False,
+                "toolCalls": status.get("toolCalls") or [],
+                "policyDecisionIds": status.get("policyDecisionIds") or [],
+            }
+        profile = self._git_profile()
+        op = self._begin_operation(
+            ctx=ctx,
+            operation="init_repository",
+            profile=profile,
+            payload={"defaultBranch": default_branch},
+        )
+        result = self._run_git(
+            ctx=ctx,
+            op=op,
+            args=["init", "--initial-branch", default_branch],
+            git_operation="init_repository",
+        )
+        init_traces = [result.trace]
+        if result.return_code != 0 and "initial-branch" in f"{result.stdout}\n{result.stderr}":
+            fallback = self._run_git(ctx=ctx, op=op, args=["init"], git_operation="init_repository")
+            init_traces.append(fallback.trace)
+            if fallback.return_code == 0:
+                rename = self._run_git(
+                    ctx=ctx,
+                    op=op,
+                    args=["branch", "-M", default_branch],
+                    git_operation="init_default_branch",
+                )
+                init_traces.append(rename.trace)
+                result = rename if rename.return_code != 0 else fallback
+            else:
+                result = fallback
+        response_status = "completed" if result.return_code == 0 else result.status
+        gitignore_created = self._ensure_initial_gitignore(ctx) if response_status == "completed" else False
+        status_snapshot = self.status(project_id) if response_status == "completed" else {}
+        status_traces = status_snapshot.get("toolCalls") or []
+        response = {
+            "status": response_status,
+            "reason": "Git repository initialized."
+            if response_status == "completed"
+            else result.stderr.strip() or result.reason,
+            "projectId": project_id,
+            "workspaceId": ctx.workspace_id,
+            "defaultBranch": default_branch,
+            "currentBranch": status_snapshot.get("currentBranch") or "",
+            "gitignoreCreated": gitignore_created,
+            "commitCreated": False,
+            "toolCalls": [*init_traces, *status_traces],
+            "policyDecisionIds": [
+                str(trace["permissionDecisionId"])
+                for trace in [*init_traces, *status_traces]
+                if trace.get("permissionDecisionId")
+            ],
+        }
+        self._finish_operation(op, status=response_status, output=response)
+        return response
+
+    def add_remote(self, project_id: str, *, name: str, url: str) -> dict[str, Any]:
+        """Agrega un remote validado y persiste metadata sin secretos."""
+        ctx = self._project_context(project_id)
+        if not _is_safe_remote_name(name):
+            return {
+                "status": "blocked",
+                "reason": "Remote name is invalid or unsafe for local Git operations.",
+                "projectId": project_id,
+                "workspaceId": ctx.workspace_id,
+                "remote": None,
+                "toolCalls": [],
+                "policyDecisionIds": [],
+            }
+        try:
+            remote = _validate_remote_url(url)
+        except ValueError as exc:
+            return {
+                "status": "blocked",
+                "reason": str(exc),
+                "projectId": project_id,
+                "workspaceId": ctx.workspace_id,
+                "remote": None,
+                "toolCalls": [],
+                "policyDecisionIds": [],
+            }
+        if not (ctx.root / ".git").exists():
+            return {
+                "status": "configuration_required",
+                "reason": "Project path is not a Git repository. Initialize Git first.",
+                "projectId": project_id,
+                "workspaceId": ctx.workspace_id,
+                "remote": None,
+                "toolCalls": [],
+                "policyDecisionIds": [],
+            }
+        profile = self._git_profile()
+        op = self._begin_operation(
+            ctx=ctx,
+            operation="add_remote",
+            profile=profile,
+            payload={"remoteName": name, "remoteScheme": remote.scheme, "remoteHost": remote.host},
+        )
+        result = self._run_git(
+            ctx=ctx,
+            op=op,
+            args=["remote", "add", name, remote.url],
+            git_operation="remote_add",
+        )
+        response_status = "completed" if result.return_code == 0 else result.status
+        metadata = (
+            self._upsert_remote_metadata(project_id=project_id, name=name, remote=remote)
+            if response_status == "completed"
+            else None
+        )
+        response = {
+            "status": response_status,
+            "reason": "Git remote added through ToolBroker."
+            if response_status == "completed"
+            else result.stderr.strip() or result.reason,
+            "projectId": project_id,
+            "workspaceId": ctx.workspace_id,
+            "remote": metadata,
+            "toolCalls": [result.trace],
+            "policyDecisionIds": [result.trace["permissionDecisionId"]]
+            if result.trace.get("permissionDecisionId")
+            else [],
+        }
+        self._finish_operation(op, status=response_status, output=response)
+        return response
+
+    def test_remote(self, project_id: str, *, name: str, allow_network: bool = False) -> dict[str, Any]:
+        """Prueba un remote con ``git ls-remote`` solo cuando el usuario habilita red."""
+        ctx = self._project_context(project_id)
+        if not _is_safe_remote_name(name):
+            return {
+                "status": "blocked",
+                "reason": "Remote name is invalid or unsafe for local Git operations.",
+                "projectId": project_id,
+                "workspaceId": ctx.workspace_id,
+                "remoteName": name,
+                "tested": False,
+                "outputPreview": "",
+                "toolCalls": [],
+                "policyDecisionIds": [],
+            }
+        if not (ctx.root / ".git").exists():
+            return {
+                "status": "configuration_required",
+                "reason": "Project path is not a Git repository. Initialize Git first.",
+                "projectId": project_id,
+                "workspaceId": ctx.workspace_id,
+                "remoteName": name,
+                "tested": False,
+                "outputPreview": "",
+                "toolCalls": [],
+                "policyDecisionIds": [],
+            }
+        if not allow_network:
+            return {
+                "status": "blocked",
+                "reason": "Remote test requires allowNetwork=true because git ls-remote uses network.",
+                "projectId": project_id,
+                "workspaceId": ctx.workspace_id,
+                "remoteName": name,
+                "tested": False,
+                "outputPreview": "",
+                "toolCalls": [],
+                "policyDecisionIds": [],
+            }
+        profile = self._git_profile()
+        op = self._begin_operation(
+            ctx=ctx,
+            operation="test_remote",
+            profile=profile,
+            payload={"remoteName": name, "allowNetwork": allow_network},
+        )
+        result = self._run_brokered_command(
+            ctx=ctx,
+            op=op,
+            argv=["git", "ls-remote", "--heads", name],
+            operation="git_workspace_command",
+            runtime_id="git",
+            git_operation="remote_test",
+            capability="git",
+            timeout_seconds=REMOTE_TEST_TIMEOUT_SECONDS,
+            network_required=True,
+        )
+        response_status = "completed" if result.return_code == 0 else result.status
+        reason = (
+            "Git remote responded to ls-remote."
+            if response_status == "completed"
+            else result.stderr.strip() or result.reason
+        )
+        self._update_remote_test_metadata(project_id=project_id, name=name, status=response_status, reason=reason)
+        response = {
+            "status": response_status,
+            "reason": reason,
+            "projectId": project_id,
+            "workspaceId": ctx.workspace_id,
+            "remoteName": name,
+            "tested": True,
+            "outputPreview": result.stdout[:1000],
+            "toolCalls": [result.trace],
+            "policyDecisionIds": [result.trace["permissionDecisionId"]]
+            if result.trace.get("permissionDecisionId")
+            else [],
+        }
+        self._finish_operation(op, status=response_status, output=response)
+        return response
+
     def branches(self, project_id: str) -> dict[str, Any]:
         """Lista ramas locales/remotas y dirty state reutilizando el snapshot de ``status()``.
 
@@ -553,6 +1021,18 @@ class GitWorkspaceService:
             return {
                 "status": "blocked",
                 "reason": "Branch name is invalid or unsafe for local Git operations.",
+                "projectId": project_id,
+                "workspaceId": ctx.workspace_id,
+                "branch": name,
+                "base": base,
+                "currentBranch": "",
+                "toolCalls": [],
+                "policyDecisionIds": [],
+            }
+        if _is_protected_work_branch(name):
+            return {
+                "status": "blocked",
+                "reason": "Protected branches main/master cannot be used as direct work branches.",
                 "projectId": project_id,
                 "workspaceId": ctx.workspace_id,
                 "branch": name,
@@ -605,6 +1085,77 @@ class GitWorkspaceService:
         }
         self._finish_operation(op, status=response_status, output=response)
         return response
+
+    def apply_branch_policy(
+        self,
+        project_id: str,
+        *,
+        intent: str,
+        selected_base: str = "main",
+        branch_name: str | None = None,
+        create_branch: bool = False,
+    ) -> dict[str, Any]:
+        """Sugiere y opcionalmente crea una rama de trabajo fuera de main/master."""
+        ctx = self._project_context(project_id)
+        suggested = _slugify_branch_intent(intent)
+        target_branch = (branch_name or suggested).strip()
+        protected = sorted(PROTECTED_WORK_BRANCHES)
+
+        def policy_response(
+            *,
+            status: str,
+            reason: str,
+            created: bool = False,
+            current_branch: str = "",
+            tool_calls: list[dict[str, Any]] | None = None,
+            policy_decision_ids: list[str] | None = None,
+        ) -> dict[str, Any]:
+            return {
+                "status": status,
+                "reason": reason,
+                "projectId": project_id,
+                "workspaceId": ctx.workspace_id,
+                "intent": intent,
+                "selectedBase": selected_base,
+                "suggestedBranchName": suggested,
+                "targetBranch": target_branch,
+                "protectedBranches": protected,
+                "created": created,
+                "currentBranch": current_branch,
+                "toolCalls": tool_calls or [],
+                "policyDecisionIds": policy_decision_ids or [],
+            }
+
+        if not _is_safe_ref(target_branch):
+            return policy_response(
+                status="blocked",
+                reason="Target branch name is invalid or unsafe for local Git operations.",
+            )
+        if _is_protected_work_branch(target_branch):
+            return policy_response(
+                status="blocked",
+                reason="Protected branches main/master cannot be used as direct work branches.",
+            )
+        if selected_base and not _is_safe_ref(selected_base):
+            return policy_response(
+                status="blocked",
+                reason="Selected base ref is invalid or unsafe for local Git operations.",
+            )
+        if not create_branch:
+            return policy_response(
+                status="completed",
+                reason="Branch policy evaluated; createBranch=false so no Git mutation was executed.",
+            )
+
+        created = self.create_branch(project_id, name=target_branch, base=selected_base or None)
+        return policy_response(
+            status=created["status"],
+            reason=created["reason"],
+            created=created["status"] == "completed",
+            current_branch=created.get("currentBranch") or "",
+            tool_calls=created.get("toolCalls") or [],
+            policy_decision_ids=created.get("policyDecisionIds") or [],
+        )
 
     def checkout(self, project_id: str, *, branch: str, allow_dirty: bool = False) -> dict[str, Any]:
         """Hace checkout de una rama, bloqueando dirty tree sin confirmacion."""

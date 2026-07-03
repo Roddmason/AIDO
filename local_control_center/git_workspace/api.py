@@ -18,10 +18,18 @@ from .models import (
     GitBranchCreateRequest,
     GitBranchesResponse,
     GitBranchMutationResponse,
+    GitBranchPolicyApplyRequest,
+    GitBranchPolicyApplyResponse,
     GitCheckoutRequest,
     GitCheckoutResponse,
     GitDiffResponse,
     GitGitleaksScanResponse,
+    GitInitRequest,
+    GitInitResponse,
+    GitRemoteAddRequest,
+    GitRemoteMutationResponse,
+    GitRemoteTestRequest,
+    GitRemoteTestResponse,
     GitStatusResponse,
 )
 from .service import GitWorkspaceService
@@ -48,6 +56,39 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
 
+    @router.post("/api/v1/projects/{project_id}/git/init", response_model=GitInitResponse)
+    async def init_git_repository(
+        project_id: str, body: GitInitRequest, request: Request
+    ) -> dict[str, Any]:
+        require_write(request)
+        try:
+            return service().init_repository(project_id, default_branch=body.default_branch)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+
+    @router.post("/api/v1/projects/{project_id}/git/remotes", response_model=GitRemoteMutationResponse)
+    async def add_git_remote(
+        project_id: str, body: GitRemoteAddRequest, request: Request
+    ) -> dict[str, Any]:
+        require_write(request)
+        try:
+            return service().add_remote(project_id, name=body.name, url=body.url)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+
+    @router.post(
+        "/api/v1/projects/{project_id}/git/remotes/{name}/test",
+        response_model=GitRemoteTestResponse,
+    )
+    async def test_git_remote(
+        project_id: str, name: str, body: GitRemoteTestRequest, request: Request
+    ) -> dict[str, Any]:
+        require_write(request)
+        try:
+            return service().test_remote(project_id, name=name, allow_network=body.allow_network)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+
     @router.post(
         "/api/v1/projects/{project_id}/git/branches",
         status_code=201,
@@ -59,6 +100,25 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         require_write(request)
         try:
             return service().create_branch(project_id, name=body.name, base=body.base)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+
+    @router.post(
+        "/api/v1/projects/{project_id}/git/branch-policy/apply",
+        response_model=GitBranchPolicyApplyResponse,
+    )
+    async def apply_git_branch_policy(
+        project_id: str, body: GitBranchPolicyApplyRequest, request: Request
+    ) -> dict[str, Any]:
+        require_write(request)
+        try:
+            return service().apply_branch_policy(
+                project_id,
+                intent=body.intent,
+                selected_base=body.selected_base,
+                branch_name=body.branch_name,
+                create_branch=body.create_branch,
+            )
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
 

@@ -50,6 +50,157 @@ def create_git_project(store: ControlPlaneFixture, tmp_path: Path, *, name: str 
     return store.create_project(name=name, path=project_path, template_id="other")
 
 
+def create_plain_project(
+    store: ControlPlaneFixture,
+    tmp_path: Path,
+    *,
+    name: str = "plain",
+    template_id: str = "other",
+) -> dict[str, Any]:
+    project_path = tmp_path / name
+    project_path.mkdir(parents=True, exist_ok=True)
+    return store.create_project(name=name, path=project_path, template_id=template_id)
+
+
+def test_git_init_completed_for_project_without_git_creates_default_branch_and_no_commit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store, client, headers = create_client(tmp_path, monkeypatch)
+    project = create_plain_project(store, tmp_path, template_id="python-fastapi")
+    project_path = Path(project["path"])
+
+    response = client.post(
+        f"/api/v1/projects/{project['id']}/git/init",
+        headers=headers,
+        json={"defaultBranch": "dev"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "completed"
+    assert body["currentBranch"] == "dev"
+    assert body["defaultBranch"] == "dev"
+    assert body["commitCreated"] is False
+    assert body["gitignoreCreated"] is True
+    assert (project_path / ".git").exists()
+    gitignore = (project_path / ".gitignore").read_text(encoding="utf-8")
+    assert ".env*" in gitignore
+    assert "__pycache__/" in gitignore
+    assert run_git(["branch", "--show-current"], cwd=project_path).stdout.strip() == "dev"
+    assert run_git(["rev-parse", "--verify", "HEAD"], cwd=project_path).returncode != 0
+    assert not any("commit" in call["payload"].get("command", "") for call in store.agents.list_agent_tool_calls())
+
+
+def test_git_init_defaults_to_main_when_branch_not_supplied(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store, client, headers = create_client(tmp_path, monkeypatch)
+    project = create_plain_project(store, tmp_path)
+    project_path = Path(project["path"])
+
+    response = client.post(f"/api/v1/projects/{project['id']}/git/init", headers=headers, json={})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "completed"
+    assert body["currentBranch"] == "main"
+    assert run_git(["branch", "--show-current"], cwd=project_path).stdout.strip() == "main"
+
+
+def test_git_remote_add_persists_sanitized_metadata_and_uses_git_remote_add(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store, client, headers = create_client(tmp_path, monkeypatch)
+    project = create_git_project(store, tmp_path)
+    project_path = Path(project["path"])
+
+    response = client.post(
+        f"/api/v1/projects/{project['id']}/git/remotes",
+        headers=headers,
+        json={"name": "origin", "url": "git@github.com:aido/example.git"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "completed"
+    assert body["remote"]["name"] == "origin"
+    assert body["remote"]["url"] == "git@github.com:aido/example.git"
+    assert body["remote"]["host"] == "github.com"
+    assert "token" not in str(body["remote"]).lower()
+    assert run_git(["remote", "get-url", "origin"], cwd=project_path).stdout.strip() == (
+        "git@github.com:aido/example.git"
+    )
+    assert any("remote add origin" in call["payload"].get("command", "") for call in store.agents.list_agent_tool_calls())
+
+
+def test_git_remote_with_embedded_token_is_blocked_before_git_remote_add(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store, client, headers = create_client(tmp_path, monkeypatch)
+    project = create_git_project(store, tmp_path)
+    project_path = Path(project["path"])
+
+    response = client.post(
+        f"/api/v1/projects/{project['id']}/git/remotes",
+        headers=headers,
+        json={"name": "origin", "url": "https://ghp_secret@example.com/aido/repo.git"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "blocked"
+    assert "token" in body["reason"].lower() or "credential" in body["reason"].lower()
+    assert run_git(["remote"], cwd=project_path).stdout.strip() == ""
+    assert not any("remote add origin" in call["payload"].get("command", "") for call in store.agents.list_agent_tool_calls())
+
+
+def test_git_branch_policy_suggests_branch_from_intent_and_creates_from_selected_base(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store, client, headers = create_client(tmp_path, monkeypatch)
+    project = create_git_project(store, tmp_path)
+
+    response = client.post(
+        f"/api/v1/projects/{project['id']}/git/branch-policy/apply",
+        headers=headers,
+        json={"intent": "Fix Git init for new projects", "selectedBase": "main", "createBranch": True},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "completed"
+    assert body["selectedBase"] == "main"
+    assert body["suggestedBranchName"] == "codex/fix-git-init-for-new-projects"
+    assert body["targetBranch"] == "codex/fix-git-init-for-new-projects"
+    assert body["created"] is True
+    branches = client.get(f"/api/v1/projects/{project['id']}/git/branches").json()
+    assert "codex/fix-git-init-for-new-projects" in branches["localBranches"]
+
+
+def test_git_branch_policy_blocks_main_and_master_as_work_branches(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store, client, headers = create_client(tmp_path, monkeypatch)
+    project = create_git_project(store, tmp_path)
+
+    response = client.post(
+        f"/api/v1/projects/{project['id']}/git/branch-policy/apply",
+        headers=headers,
+        json={
+            "intent": "Implement directly on main",
+            "selectedBase": "main",
+            "branchName": "main",
+            "createBranch": True,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "blocked"
+    assert body["targetBranch"] == "main"
+    assert "protected" in body["reason"].lower()
+
+
 def test_git_status_detects_current_branch_and_records_broker_evidence(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

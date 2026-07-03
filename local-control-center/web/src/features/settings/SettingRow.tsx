@@ -57,7 +57,7 @@ function parseListValue(raw: string): string[] {
 		.filter((item) => item.length > 0);
 }
 
-function ChipLabel({
+export function ChipLabel({
 	setting,
 	scope,
 	t,

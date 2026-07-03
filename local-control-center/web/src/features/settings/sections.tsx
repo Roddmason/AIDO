@@ -42,9 +42,14 @@ import { AppearanceBody } from './AppearanceBody';
 import { AutonomyBody } from './AutonomyBody';
 import { CredentialManagerPanel } from './CredentialManagerPanel';
 import { GeneralBody } from './GeneralBody';
+import { GoalBody } from './GoalBody';
+import { InternetBody } from './InternetBody';
 import { PluginsPanel } from './PluginsPanel';
 import { ProjectPluginsBody } from './ProjectPluginsBody';
 import { ProjectTeamPanel } from './ProjectTeamPanel';
+import { QualityGateSettings } from './QualityGateSettings';
+import { ResearchBody } from './ResearchBody';
+import { RoutingSettings } from './RoutingSettings';
 import { SettingRow } from './SettingRow';
 import { AdvancedBody, DefaultTeamBody, RuntimeBody, WorkspacesBody } from './SettingsPage';
 import type { ResolvedSetting, SettingScope } from './useSettings';
@@ -298,10 +303,7 @@ export const GENERAL_SECTIONS: SectionDefinition[] = [
 		titleFallback: 'Research',
 		icon: FlaskConical,
 		kind: 'wired',
-		render: wiredSection(
-			'app.settings.intro.research',
-			'How agents reach the internet and which sources they prefer.',
-		),
+		render: (ctx) => <ResearchBody ctx={ctx} />,
 	},
 	{
 		id: 'costs',
@@ -350,10 +352,7 @@ export const PROJECT_SECTIONS: SectionDefinition[] = [
 		titleFallback: 'Goal',
 		icon: Target,
 		kind: 'wired',
-		render: wiredSection(
-			'app.settings.intro.goal',
-			'The goal statement and loop defaults that seed new runs for this project.',
-		),
+		render: (ctx) => <GoalBody ctx={ctx} />,
 	},
 	{
 		id: 'team',
@@ -369,10 +368,7 @@ export const PROJECT_SECTIONS: SectionDefinition[] = [
 		titleFallback: 'Routing',
 		icon: Route,
 		kind: 'wired',
-		render: wiredSection(
-			'app.settings.intro.routing',
-			'Which providers and runtimes this project may use.',
-		),
+		render: (ctx) => <RoutingSettings ctx={ctx} />,
 	},
 	{
 		id: 'quality',
@@ -380,10 +376,7 @@ export const PROJECT_SECTIONS: SectionDefinition[] = [
 		titleFallback: 'Quality',
 		icon: CheckCircle2,
 		kind: 'wired',
-		render: wiredSection(
-			'app.settings.intro.quality',
-			'Commands that gate evidence before work is accepted.',
-		),
+		render: (ctx) => <QualityGateSettings ctx={ctx} />,
 	},
 	{
 		id: 'project-security',
@@ -410,7 +403,7 @@ export const PROJECT_SECTIONS: SectionDefinition[] = [
 		titleFallback: 'Internet',
 		icon: Globe,
 		kind: 'wired',
-		render: wiredSection('app.settings.intro.internet', 'Web access policy for this project.'),
+		render: (ctx) => <InternetBody ctx={ctx} />,
 	},
 	{
 		id: 'budget',

@@ -119,6 +119,34 @@ def test_settings_registry_has_no_placeholder_sections() -> None:
     assert not (SRC / "features" / "settings" / "SectionPlaceholder.tsx").exists()
 
 
+def test_settings_target_sections_render_dedicated_card_bodies() -> None:
+    settings_dir = SRC / "features" / "settings"
+    sections = read(settings_dir / "sections.tsx")
+
+    # Research, Goal, Internet, Routing and Quality no longer fall back to the generic
+    # wired list: each renders its own body built from modern cards, and none of the
+    # Team/Routing/Quality surfaces reuse a shared AgentsBody.
+    for component in (
+        "ResearchBody",
+        "GoalBody",
+        "InternetBody",
+        "RoutingSettings",
+        "QualityGateSettings",
+    ):
+        assert f"<{component} ctx={{ctx}}" in sections, component
+        assert (settings_dir / f"{component}.tsx").exists(), component
+
+    assert "AgentsBody" not in sections
+
+    # The headline enum of each policy body is an accessible radio-card grid, not a
+    # bare dropdown; the shared selector renders the radiogroup semantics.
+    choice_cards = read(settings_dir / "SettingsChoiceCards.tsx")
+    assert 'role="radiogroup"' in choice_cards
+    assert 'role="radio"' in choice_cards
+    for body in ("ResearchBody", "GoalBody", "InternetBody", "RoutingSettings"):
+        assert "SettingChoiceCards" in read(settings_dir / f"{body}.tsx"), body
+
+
 def test_settings_hash_aliases_resolve_to_existing_section_ids() -> None:
     routing = read(SRC / "app" / "routing.ts")
     sections = read(SRC / "features" / "settings" / "sections.tsx")

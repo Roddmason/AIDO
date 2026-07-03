@@ -2647,9 +2647,10 @@ test('Runtime settings shows guided setup actions when no runtime is executable'
 		await expect(dialog.getByRole('button', { name: label })).toBeVisible();
 	}
 	for (const provider of providers) {
-		// Filter by the unique reason: the setup catalog renders both an "Ollama" and an
-		// "Ollama remote" card, so filtering by the displayName 'Ollama' would match two.
-		const card = dialog.locator('.card').filter({ hasText: provider.reason });
+		// The setup catalog also renders an "Ollama remote" card, so 'Ollama' matches two; take the
+		// first (the local Ollama card precedes the remote one in catalog order). Every other
+		// provider's displayName matches exactly one card.
+		const card = dialog.locator('.card').filter({ hasText: provider.displayName }).first();
 		await expect(card).toContainText(provider.reason);
 		await expect(card.getByRole('button', { name: 'Detect & check' })).toBeVisible();
 	}

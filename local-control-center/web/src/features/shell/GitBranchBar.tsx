@@ -284,31 +284,34 @@ export function GitBranchBar({
 							</IconButton>
 						</Tooltip>
 					) : null}
-					<form
-						className="status-branch-create"
-						onSubmit={(event) => {
-							event.preventDefault();
-							void createBranch();
-						}}
-					>
+					{/* Not a nested <form>: this bar renders inside the composer's <form>, and nesting forms
+					    is invalid HTML that risks Enter here bubbling into a message send. Enter on the
+					    input creates the branch via onKeyDown; the button is a plain type="button". */}
+					<div className="status-branch-create">
 						<input
 							value={branchName}
 							disabled={!selectedProject || gitBusy}
 							placeholder={t('app.statusBar.git.branchPlaceholder', 'new branch')}
 							aria-label={t('app.statusBar.git.branchName', 'New branch name')}
 							onChange={(event) => setBranchName(event.target.value)}
+							onKeyDown={(event) => {
+								if (event.key === 'Enter') {
+									event.preventDefault();
+									void createBranch();
+								}
+							}}
 						/>
 						<Tooltip label={t('app.statusBar.git.createBranch', 'Create branch')}>
 							<IconButton
-								type="submit"
 								aria-label={t('app.statusBar.git.createBranch', 'Create branch')}
 								disabled={!selectedProject || !branchName.trim()}
 								loading={gitBusy}
+								onClick={() => void createBranch()}
 							>
 								<Plus aria-hidden="true" size={14} />
 							</IconButton>
 						</Tooltip>
-					</form>
+					</div>
 				</div>
 			) : gitPhase === 'loading' ? (
 				<div className="composer-git-cluster composer-git-cluster--workspace">

@@ -24,6 +24,7 @@ from .contracts import (
     ThreadArchiveResponse,
     ThreadCancelRequest,
     ThreadCancelResponse,
+    ThreadCostPerformanceResponse,
     ThreadCreateRequest,
     ThreadDecisionResolveRequest,
     ThreadDecisionResolveResponse,
@@ -44,6 +45,7 @@ from .contracts import (
     ThreadUpdateRequest,
 )
 from .coordinator import ThreadBusyError, ThreadCoordinator
+from .cost_performance import ThreadCostPerformanceService
 from .memory_recall import ThreadMemoryRecallService
 from .repository import ThreadLifecycleError, ThreadsRepository
 from .similarity import ThreadMemoryService, ThreadSimilarityService
@@ -64,6 +66,9 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
 
     def memory_recall_service() -> ThreadMemoryRecallService:
         return ThreadMemoryRecallService(platform.connection)
+
+    def cost_performance_service() -> ThreadCostPerformanceService:
+        return ThreadCostPerformanceService(platform.connection)
 
     def thread_memory_service() -> ThreadMemoryService:
         return ThreadMemoryService(platform.connection)
@@ -264,6 +269,17 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         """Devuelve un hilo con su timeline completo (mensajes, artifacts, decisiones y eventos)."""
         try:
             return thread_detail(thread_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+
+    @router.get(
+        "/api/v1/threads/{thread_id}/cost-performance",
+        response_model=ThreadCostPerformanceResponse,
+    )
+    async def thread_cost_performance(thread_id: str) -> dict[str, Any]:
+        """Devuelve el snapshot accionable de costo/rendimiento del hilo (unknown se modela como None, no $0)."""
+        try:
+            return {"costPerformance": cost_performance_service().snapshot(thread_id)}
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
 

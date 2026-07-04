@@ -647,6 +647,10 @@
       "en": "{score}% match",
       "es": "{score}% de coincidencia"
     },
+    "app.threads.similar.archived": {
+      "en": "Archived",
+      "es": "Archivado"
+    },
     "app.threads.similar.continue": {
       "en": "Continue existing thread",
       "es": "Continuar hilo existente"

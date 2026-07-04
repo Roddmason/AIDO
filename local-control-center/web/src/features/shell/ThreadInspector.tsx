@@ -1025,6 +1025,11 @@ function MemoryPanel({
 							<span className="thread-inspector-subline">{candidate.reason}</span>
 						</div>
 						<div className="thread-inspector-row-side">
+							{candidate.status === 'archived' ? (
+								<StatusChip tone={threadStatusTone(candidate.status)}>
+									{t('app.threads.similar.archived', 'Archived')}
+								</StatusChip>
+							) : null}
 							<StatusChip tone="info">{Math.round(candidate.score * 100)}%</StatusChip>
 						</div>
 					</li>

@@ -246,6 +246,32 @@ test('Threads: typing a goal similar to previous work surfaces the suggestion ca
 	await expect(card.getByRole('button', { name: 'Create new thread anyway' })).toBeVisible();
 });
 
+test('Threads: an archived thread still surfaces in the similarity card with an archived badge', async ({
+	page,
+}) => {
+	await page.goto('/#threads');
+	await expectControlPlaneLoaded(page);
+	const project = await getActiveProject(page);
+	const token = await getWriteToken(page);
+	const goal = `Add a dead-letter queue endpoint with replay controls ${Date.now()}`;
+	const seeded = await seedThreadWithGoal(page, project.id, token, goal);
+
+	// Archiving must not erase the thread from recall: archived work still surfaces, just flagged.
+	const archived = await page.request.post(`/api/v1/threads/${seeded.id}/archive`, {
+		headers: { 'X-Local-Control-Token': token },
+		data: { reason: 'Archived to verify the similarity badge' },
+	});
+	expect(archived.ok()).toBe(true);
+
+	await typeGoalInNewThreadIntake(page, goal);
+	const card = page.locator('.thread-similarity-card');
+	await expect(card).toBeVisible({ timeout: 15_000 });
+
+	// The archived match stays visible and carries the Archived badge instead of being dropped.
+	await expect(card).toContainText(seeded.title);
+	await expect(card.getByText('Archived', { exact: true })).toBeVisible();
+});
+
 test('Threads: continuing from the similarity card opens the existing thread', async ({ page }) => {
 	await page.goto('/#threads');
 	await expectControlPlaneLoaded(page);

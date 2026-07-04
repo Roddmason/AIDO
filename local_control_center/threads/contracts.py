@@ -462,3 +462,90 @@ class ThreadMemoryRecallResponse(BaseModel):
     lessons_learned: list[ThreadMemoryLessonRecord] = Field(alias="lessonsLearned")
     performance_issues: list[ThreadMemoryPerformanceRecord] = Field(alias="performanceIssues")
     implemented_functionality: list[ThreadMemoryImplementedRecord] = Field(alias="implementedFunctionality")
+
+
+ThreadCostStatus = Literal["actual", "estimated", "mixed", "unknown"]
+ThreadTokenStatus = Literal["actual", "partial", "unknown", "none"]
+
+
+class ThreadBudgetUsedRecord(BaseModel):
+    """Gasto acumulado del hilo contra el cap por-run efectivo; ``None`` cuando el costo es desconocido."""
+
+    used_usd: float | None = Field(default=None, alias="usedUsd")
+    cost_status: ThreadCostStatus = Field(alias="costStatus")
+    call_count: int = Field(alias="callCount")
+    per_run_cap_usd: float | None = Field(default=None, alias="perRunCapUsd")
+    cap_scope: str | None = Field(default=None, alias="capScope")
+
+
+class ThreadCostSummaryRecord(BaseModel):
+    """Costo estimado vs actual del hilo como sumas honestas (``None`` = desconocido, nunca ``0``)."""
+
+    estimated_cost_usd: float | None = Field(default=None, alias="estimatedCostUsd")
+    actual_cost_usd: float | None = Field(default=None, alias="actualCostUsd")
+
+
+class ThreadTokenSummaryRecord(BaseModel):
+    """Tokens del hilo con el desglose de llamadas con uso conocido vs desconocido."""
+
+    total_tokens: int = Field(alias="totalTokens")
+    known_calls: int = Field(alias="knownCalls")
+    unknown_calls: int = Field(alias="unknownCalls")
+    token_status: ThreadTokenStatus = Field(alias="tokenStatus")
+    call_count: int = Field(alias="callCount")
+
+
+class ThreadModelChosenRecord(BaseModel):
+    """Modelo/proveedor/runtime elegido en la decisión de ruteo más reciente del hilo."""
+
+    provider: str | None = None
+    model: str | None = None
+    runtime: str | None = None
+    effort: str | None = None
+    mode: str | None = None
+
+
+class ThreadCheaperAlternativeRecord(BaseModel):
+    """Candidato con precio conocido estrictamente más barato que el elegido, con su delta de costo."""
+
+    provider: str | None = None
+    model: str | None = None
+    runtime: str | None = None
+    estimated_cost_usd: float | None = Field(default=None, alias="estimatedCostUsd")
+    delta_usd: float | None = Field(default=None, alias="deltaUsd")
+    price_known: bool = Field(default=False, alias="priceKnown")
+
+
+class ThreadQualityReworkRecord(BaseModel):
+    """Retrabajo real del hilo (rondas del FSM) y calidad del modelo elegido (benchmark), rotulada."""
+
+    rework_rounds: int | None = Field(default=None, alias="reworkRounds")
+    max_rework_rounds: int | None = Field(default=None, alias="maxReworkRounds")
+    model_success_rate: float | None = Field(default=None, alias="modelSuccessRate")
+    model_qa_pass_rate: float | None = Field(default=None, alias="modelQaPassRate")
+    model_rework_rate: float | None = Field(default=None, alias="modelReworkRate")
+    benchmark_insufficient_data: bool = Field(default=True, alias="benchmarkInsufficientData")
+    model_label: str | None = Field(default=None, alias="modelLabel")
+
+
+class ThreadCostPerformanceRecord(BaseModel):
+    """Snapshot accionable de costo/rendimiento por hilo: las siete señales del inspector."""
+
+    thread_id: str = Field(alias="threadId")
+    loop_ids: list[str] = Field(alias="loopIds")
+    has_data: bool = Field(alias="hasData")
+    budget_used: ThreadBudgetUsedRecord = Field(alias="budgetUsed")
+    cost: ThreadCostSummaryRecord
+    tokens: ThreadTokenSummaryRecord
+    model_chosen: ThreadModelChosenRecord | None = Field(default=None, alias="modelChosen")
+    reason_selected: str | None = Field(default=None, alias="reasonSelected")
+    cheaper_alternative: ThreadCheaperAlternativeRecord | None = Field(
+        default=None, alias="cheaperAlternative"
+    )
+    quality_rework: ThreadQualityReworkRecord = Field(alias="qualityRework")
+
+
+class ThreadCostPerformanceResponse(BaseModel):
+    """Respuesta con el snapshot de costo/rendimiento de un hilo."""
+
+    cost_performance: ThreadCostPerformanceRecord = Field(alias="costPerformance")

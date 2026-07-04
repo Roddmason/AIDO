@@ -441,6 +441,24 @@ class RoutingProfileStore:
         rows = self.connection.execute("SELECT * FROM routing_decisions ORDER BY created_at DESC").fetchall()
         return [row_to_routing_decision(row) for row in rows]
 
+    def list_routing_decisions_for_task_prefixes(self, task_prefixes: list[str]) -> list[dict[str, Any]]:
+        """List routing decisions whose ``task_id`` starts with any prefix, newest first.
+
+        Scopes a thread's routing decisions by its product-loop ``task_id`` prefixes (the table has
+        no ``thread_id`` column). Prefixes are internally derived loop ids without LIKE wildcards.
+        Returns an empty list when no prefixes are given.
+        """
+        prefixes = [prefix for prefix in task_prefixes if prefix]
+        if not prefixes:
+            return []
+        clause = " OR ".join("task_id LIKE ?" for _ in prefixes)
+        params = [f"{prefix}%" for prefix in prefixes]
+        rows = self.connection.execute(
+            f"SELECT * FROM routing_decisions WHERE {clause} ORDER BY created_at DESC",
+            params,
+        ).fetchall()
+        return [row_to_routing_decision(row) for row in rows]
+
     def list_cli_sessions(self) -> list[dict[str, Any]]:
         """List all CLI runtime sessions, newest first."""
         rows = self.connection.execute("SELECT * FROM cli_sessions ORDER BY created_at DESC").fetchall()

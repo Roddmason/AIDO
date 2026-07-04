@@ -170,6 +170,25 @@ class UsageLedger:
         rows = self.connection.execute("SELECT * FROM usage_ledger ORDER BY created_at DESC").fetchall()
         return [row_to_usage(row) for row in rows]
 
+    def list_usage_for_task_prefixes(self, task_prefixes: list[str]) -> list[dict[str, Any]]:
+        """Return ledger entries whose ``task_id`` starts with any prefix, newest first.
+
+        Scopes a thread's usage by its product-loop ``task_id`` prefixes (the ledger has no
+        ``thread_id`` column). Prefixes are internally derived loop ids that never contain LIKE
+        wildcards. Returns an empty list when no prefixes are given, so an unrun thread yields no
+        fabricated rows.
+        """
+        prefixes = [prefix for prefix in task_prefixes if prefix]
+        if not prefixes:
+            return []
+        clause = " OR ".join("task_id LIKE ?" for _ in prefixes)
+        params = [f"{prefix}%" for prefix in prefixes]
+        rows = self.connection.execute(
+            f"SELECT * FROM usage_ledger WHERE {clause} ORDER BY created_at DESC",
+            params,
+        ).fetchall()
+        return [row_to_usage(row) for row in rows]
+
     def summary(self) -> dict[str, Any]:
         """Aggregate total tokens and estimated/actual cost overall and per provider."""
         row = self.connection.execute(

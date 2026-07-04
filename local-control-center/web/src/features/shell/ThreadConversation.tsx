@@ -1413,6 +1413,11 @@ function ThreadSimilaritySuggestion({
 						String(Math.round(candidate.score * 100)),
 					)}
 				</StatusChip>
+				{candidate.status === 'archived' ? (
+					<StatusChip tone={threadStatusTone(candidate.status)}>
+						{t('app.threads.similar.archived', 'Archived')}
+					</StatusChip>
+				) : null}
 			</div>
 			<p className="thread-similarity-candidate">
 				<strong>{candidate.title}</strong>

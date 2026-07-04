@@ -181,6 +181,19 @@ test('Threads: all eight tabs stay reachable, un-cut and keyboard-navigable in a
 		'aria-selected',
 		'true',
 	);
+
+	// Keyboard-focus discoverability: reached by keyboard (so :focus-visible engages), the icon-only
+	// tab surfaces its label via a CSS tooltip — the native `title` never shows on keyboard focus.
+	// The ::after content mirrors the tab's data-label.
+	const teamTip = await page.evaluate(
+		() =>
+			getComputedStyle(
+				document.querySelector('#thread-inspector-tab-team .thread-inspector-tab-label'),
+				'::after',
+			).content,
+	);
+	expect(teamTip).toContain('Team');
+
 	await page.keyboard.press('End');
 	await expect(tablist.getByRole('tab', { name: /Settings|Configuraci/ })).toHaveAttribute(
 		'aria-selected',

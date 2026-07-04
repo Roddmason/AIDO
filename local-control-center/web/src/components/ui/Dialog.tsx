@@ -10,13 +10,14 @@
 import type { Variants } from 'motion/react';
 import { AnimatePresence, m } from 'motion/react';
 import type { ReactNode } from 'react';
-import { useEffect, useRef } from 'react';
+import { useRef } from 'react';
 import { createPortal } from 'react-dom';
 
 import { useI18n } from '../../i18n/I18nProvider';
 import { EASE_OUT } from '../../motion/variants';
 import { cn } from './cn';
 import { IconButton } from './IconButton';
+import { useDialogEscape } from './useDialogEscape';
 import { useDialogFocus } from './useDialogFocus';
 
 export interface DialogProps {
@@ -50,14 +51,7 @@ function DialogContent({ open, onClose, label, children, className }: DialogProp
 	const panelRef = useRef<HTMLDivElement>(null);
 	const { t } = useI18n();
 	useDialogFocus(open, panelRef);
-	useEffect(() => {
-		if (!open) return undefined;
-		const closeOnEscape = (event: KeyboardEvent) => {
-			if (event.key === 'Escape') onClose();
-		};
-		window.addEventListener('keydown', closeOnEscape);
-		return () => window.removeEventListener('keydown', closeOnEscape);
-	}, [open, onClose]);
+	useDialogEscape(open, onClose);
 	const closeLabel = `${t('app.global.close', 'Close')} ${label}`;
 	return (
 		<m.div

@@ -5,12 +5,13 @@
  */
 
 import type { ReactNode } from 'react';
-import { useEffect, useRef } from 'react';
+import { useRef } from 'react';
 import { createPortal } from 'react-dom';
 
 import { useI18n } from '../../i18n/I18nProvider';
 import { cn } from './cn';
 import { IconButton } from './IconButton';
+import { useDialogEscape } from './useDialogEscape';
 import { useDialogFocus } from './useDialogFocus';
 
 export interface DrawerProps {
@@ -26,14 +27,7 @@ export function Drawer({ open, onClose, label, children, className }: DrawerProp
 	const panelRef = useRef<HTMLDivElement>(null);
 	const { t } = useI18n();
 	useDialogFocus(open, panelRef);
-	useEffect(() => {
-		if (!open) return undefined;
-		const closeOnEscape = (event: KeyboardEvent) => {
-			if (event.key === 'Escape') onClose();
-		};
-		window.addEventListener('keydown', closeOnEscape);
-		return () => window.removeEventListener('keydown', closeOnEscape);
-	}, [open, onClose]);
+	useDialogEscape(open, onClose);
 	if (!open) return null;
 	const closeLabel = `${t('app.global.close', 'Close')} ${label}`;
 	return createPortal(

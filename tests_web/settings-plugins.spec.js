@@ -155,7 +155,12 @@ test('Settings Plugins console installs, enables, inspects, and audits local plu
 	await inspector.getByRole('tab', { name: 'Tools', exact: true }).click();
 	await expect(inspector.getByText('Fixture Tool')).toBeVisible();
 	await expect(inspector.getByText('policy required', { exact: true })).toBeVisible();
-	await inspector.getByRole('button', { name: 'Close Plugin inspector' }).click();
+
+	// Layered Escape (WCAG 2.2 layered dismiss): backing out of the nested inspector with
+	// a single Escape closes only the topmost dialog; the Settings modal beneath survives.
+	await page.keyboard.press('Escape');
+	await expect(inspector).toBeHidden();
+	await expect(dialog).toBeVisible();
 
 	// Blocked tab: the seeded rejection is listed with its exact validator reason.
 	await dialog.getByRole('tab', { name: 'Blocked', exact: true }).click();
@@ -167,4 +172,9 @@ test('Settings Plugins console installs, enables, inspects, and audits local plu
 	await dialog.getByRole('tab', { name: 'Events', exact: true }).click();
 	await expect(dialog.getByText('enable', { exact: true })).toBeVisible();
 	await expect(dialog.getByText('install_local', { exact: true }).first()).toBeVisible();
+
+	// Single-layer behaviour is unchanged: with the inspector already gone, one Escape
+	// dismisses the lone Settings modal.
+	await page.keyboard.press('Escape');
+	await expect(dialog).toBeHidden();
 });

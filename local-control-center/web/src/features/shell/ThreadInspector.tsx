@@ -143,10 +143,11 @@ export function ThreadInspector({
 		return {
 			id: def.id,
 			label: (
-				// `title` carries the label as a hover tooltip when the narrow pane collapses the
-				// tabs to icon-only; the wrapped text keeps the tab's accessible name for screen
-				// readers and role queries even while visually hidden.
-				<span className="thread-inspector-tab-label" title={label}>
+				// In icon-only mode the label survives three ways: the wrapped text keeps the tab's
+				// accessible name (screen readers + role queries) even while visually hidden; `title`
+				// gives a mouse-hover tooltip; and `data-label` feeds the CSS focus tooltip that covers
+				// the sighted keyboard user (native `title` never shows on keyboard focus).
+				<span className="thread-inspector-tab-label" title={label} data-label={label}>
 					<Icon aria-hidden="true" size={14} />
 					<span className="thread-inspector-tab-text">{label}</span>
 				</span>

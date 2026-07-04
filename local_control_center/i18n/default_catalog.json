@@ -9751,6 +9751,34 @@
       "en": "installed",
       "es": "instalado"
     },
+    "settings.plugins.badge.blocked": {
+      "en": "Blocked",
+      "es": "Bloqueado"
+    },
+    "settings.plugins.badge.dangerousPermission": {
+      "en": "Dangerous permission",
+      "es": "Permiso peligroso"
+    },
+    "settings.plugins.badge.disabled": {
+      "en": "Disabled",
+      "es": "Deshabilitado"
+    },
+    "settings.plugins.badge.enabled": {
+      "en": "Enabled",
+      "es": "Habilitado"
+    },
+    "settings.plugins.badge.firstParty": {
+      "en": "First-party",
+      "es": "Primera parte"
+    },
+    "settings.plugins.badge.invalid": {
+      "en": "Invalid",
+      "es": "Inválido"
+    },
+    "settings.plugins.badge.thirdParty": {
+      "en": "Third-party",
+      "es": "Terceros"
+    },
     "settings.plugins.candidateBlocked": {
       "en": "blocked",
       "es": "bloqueado"
@@ -9782,6 +9810,10 @@
     "settings.plugins.col.entrypoints": {
       "en": "Entrypoints",
       "es": "Puntos de entrada"
+    },
+    "settings.plugins.col.origin": {
+      "en": "Origin",
+      "es": "Origen"
     },
     "settings.plugins.col.permission": {
       "en": "Permission",
@@ -9823,6 +9855,10 @@
       "en": "Version",
       "es": "Versión"
     },
+    "settings.plugins.contractViews": {
+      "en": "Contract views",
+      "es": "Vistas del contrato"
+    },
     "settings.plugins.disable": {
       "en": "Disable",
       "es": "Deshabilitar"
@@ -9863,6 +9899,14 @@
       "en": "Install a plugin to inspect its declared contract.",
       "es": "Instala un complemento para inspeccionar su contrato declarado."
     },
+    "settings.plugins.emptyEventsBody": {
+      "en": "Install, enable, or validate a plugin and the audit trail appears here.",
+      "es": "Instala, habilita o valida un complemento y el registro de auditoría aparecerá aquí."
+    },
+    "settings.plugins.emptyEventsTitle": {
+      "en": "No plugin events yet",
+      "es": "Aún no hay eventos de complementos"
+    },
     "settings.plugins.emptyInstalledBody": {
       "en": "Scan a local folder and install a validated plugin to extend AIDO.",
       "es": "Escanea una carpeta local e instala un complemento validado para extender AIDO."
@@ -9902,6 +9946,18 @@
     "settings.plugins.enabledToast": {
       "en": "Plugin enabled",
       "es": "Complemento habilitado"
+    },
+    "settings.plugins.inspect": {
+      "en": "Inspect",
+      "es": "Inspeccionar"
+    },
+    "settings.plugins.inspector.manifest": {
+      "en": "Manifest",
+      "es": "Manifiesto"
+    },
+    "settings.plugins.inspectorDialog": {
+      "en": "Plugin inspector",
+      "es": "Inspector de complemento"
     },
     "settings.plugins.install": {
       "en": "Install",
@@ -9995,6 +10051,10 @@
       "en": "installed",
       "es": "instalados"
     },
+    "settings.plugins.summaryReview": {
+      "en": "need review",
+      "es": "por revisar"
+    },
     "settings.plugins.tab.agents": {
       "en": "Agents",
       "es": "Agentes"
@@ -10010,6 +10070,10 @@
     "settings.plugins.tab.disabled": {
       "en": "Disabled",
       "es": "Deshabilitados"
+    },
+    "settings.plugins.tab.events": {
+      "en": "Events",
+      "es": "Eventos"
     },
     "settings.plugins.tab.installed": {
       "en": "Installed",
@@ -10142,6 +10206,10 @@
     "settings.plugins.loadFailed": {
       "en": "Plugin registry unavailable",
       "es": "Registro de complementos no disponible"
+    },
+    "settings.plugins.loading": {
+      "en": "Loading plugins…",
+      "es": "Cargando complementos…"
     },
     "settings.plugins.retry": {
       "en": "Retry",

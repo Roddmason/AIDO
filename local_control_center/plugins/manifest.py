@@ -122,6 +122,74 @@ def _validate_permissions(permissions: list[str]) -> None:
         raise PluginValidationError(f"dangerous plugin permissions are blocked: {joined}")
 
 
+_ELEVATED_PERMISSION_PREFIXES = (
+    "filesystem.write",
+    "network",
+    "process",
+    "shell",
+    "system",
+    "credentials",
+    "secrets",
+    "env.",
+    "http",
+    "https",
+    "fetch",
+    "exec",
+    "command",
+    "spawn",
+    "egress",
+    "outbound",
+)
+_ELEVATED_PERMISSION_VERBS = frozenset(
+    {
+        "write",
+        "exec",
+        "execute",
+        "run",
+        "spawn",
+        "delete",
+        "remove",
+        "destroy",
+        "post",
+        "put",
+        "patch",
+        "send",
+        "fetch",
+        "request",
+        "upload",
+        "download",
+        "egress",
+        "mutate",
+    }
+)
+
+
+def permission_risk_level(permission: str) -> str:
+    """Classify the residual risk of an already-permitted plugin permission.
+
+    Hard-blocked permissions never reach persistence (see ``_validate_permissions``);
+    permitted ones still range from read-only (``low``) to mutation- or egress-capable
+    (``medium``). The operator console raises a review badge on anything above ``low``.
+    Blocklisted permissions map to ``high`` for completeness even though install rejects
+    them first.
+
+    Elevation is detected two ways so no verb form slips through: a broad namespace prefix
+    match, and a token match against known mutation/egress verbs anywhere in the scope
+    (the part before any ``:`` target). This catches ``exec.command``, ``command.run``,
+    ``filesystem.remove:reports`` and ``http.post:...`` that a prefix list alone misses,
+    while exact-token matching keeps plural nouns like ``runs.read`` at ``low``.
+    """
+    normalized = permission.strip().lower().replace("\\", "/")
+    if _is_dangerous_permission(permission):
+        return "high"
+    if normalized.startswith(_ELEVATED_PERMISSION_PREFIXES):
+        return "medium"
+    scope = normalized.split(":", 1)[0]
+    if _ELEVATED_PERMISSION_VERBS.intersection(re.split(r"[._]", scope)):
+        return "medium"
+    return "low"
+
+
 def _validate_checksums(root: Path, checksums: Any) -> dict[str, str]:
     if not isinstance(checksums, dict) or not checksums:
         raise PluginValidationError("checksums must be a non-empty object.")

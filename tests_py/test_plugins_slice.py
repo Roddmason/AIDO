@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 
 from local_control_center.api import create_app
 from local_control_center.control_plane.runtime import ControlCenterRuntime
+from local_control_center.plugins.manifest import permission_risk_level
 
 
 def auth_headers(client: TestClient) -> dict[str, str]:
@@ -213,3 +214,46 @@ def test_executable_plugin_tool_is_blocked_without_policy(tmp_path: Path) -> Non
     assert plugin_rows(runtime.connection, "agent_tool_calls") == []
     event = plugin_rows(runtime.connection, "plugin_install_events")[0]
     assert event["status"] == "blocked"
+
+
+def test_permission_risk_level_classifies_read_and_mutation_scopes() -> None:
+    # Read-only scopes stay low; exact-token matching keeps plural nouns off the verb list.
+    assert permission_risk_level("workspace.read") == "low"
+    assert permission_risk_level("catalog.list") == "low"
+    assert permission_risk_level("config.read") == "low"
+    assert permission_risk_level("runs.read") == "low"
+    # Mutation or egress capable scopes read as elevated so the console can flag them,
+    # regardless of whether the verb sits in the prefix, an inner token, or before a target.
+    assert permission_risk_level("filesystem.write:reports") == "medium"
+    assert permission_risk_level("network.http:api.example.com") == "medium"
+    assert permission_risk_level("process.status") == "medium"
+    assert permission_risk_level("exec.command") == "medium"
+    assert permission_risk_level("command.run") == "medium"
+    assert permission_risk_level("spawn.subprocess") == "medium"
+    assert permission_risk_level("fetch.url") == "medium"
+    assert permission_risk_level("filesystem.remove:reports") == "medium"
+    assert permission_risk_level("http.post:https://example.com") == "medium"
+    assert permission_risk_level("filesystem.write:/") == "high"
+
+
+def test_installed_permissions_persist_classified_risk_levels(tmp_path: Path) -> None:
+    runtime = ControlCenterRuntime(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    client = TestClient(create_app(runtime=runtime, static_dir=None))
+    headers = auth_headers(client)
+    plugin_dir = tmp_path / "plugins" / "elevated"
+    # filesystem.write:reports is permitted (scoped) but mutation-capable, so it must
+    # persist as an elevated risk the operator can review before enabling.
+    write_manifest(plugin_dir, {"permissions": ["workspace.read", "filesystem.write:reports"]})
+
+    response = client.post(
+        "/api/v1/plugins/install-local",
+        json={"path": str(plugin_dir)},
+        headers=headers,
+    )
+
+    assert response.status_code == 201
+    persisted = {
+        row["permission"]: row["risk_level"] for row in plugin_rows(runtime.connection, "plugin_permissions")
+    }
+    assert persisted["workspace.read"] == "low"
+    assert persisted["filesystem.write:reports"] == "medium"

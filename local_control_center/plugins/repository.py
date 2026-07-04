@@ -13,7 +13,7 @@ import sqlite3
 import uuid
 from typing import Any
 
-from local_control_center.plugins.manifest import ValidatedPluginManifest
+from local_control_center.plugins.manifest import ValidatedPluginManifest, permission_risk_level
 from local_control_center.shared.serialization import json_dumps, json_loads
 from local_control_center.shared.time import utc_now
 
@@ -253,7 +253,7 @@ class PluginsRepository:
                     f"plugin-permission-{uuid.uuid4()}",
                     version_id,
                     permission,
-                    "low",
+                    permission_risk_level(permission),
                     "declared",
                     "Explicit manifest permission.",
                     timestamp,

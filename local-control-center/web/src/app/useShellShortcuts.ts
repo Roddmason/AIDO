@@ -7,6 +7,7 @@
 
 import type { RefObject } from 'react';
 import { useLayoutEffect } from 'react';
+import { hasOpenModalLayer } from '../components/ui/useDialogEscape';
 import type { CommandAction } from './commandActions';
 import { matchesShortcut } from './commandActions';
 import type { AppRoute } from './routing';
@@ -40,7 +41,9 @@ export function useShellShortcuts({
 				target?.tagName === 'INPUT' ||
 				target?.tagName === 'TEXTAREA' ||
 				target?.tagName === 'SELECT';
-			if (event.key === 'Escape') {
+			// While a Dialog/Drawer overlay is open it owns Escape (LIFO, topmost only);
+			// yield so the shell's close-overlays broom never dismisses the layer beneath.
+			if (event.key === 'Escape' && !hasOpenModalLayer()) {
 				onEscape();
 			}
 			if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {

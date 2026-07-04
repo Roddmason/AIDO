@@ -9,7 +9,7 @@ import { shortId, toneForStatus } from '../lib/format';
 /**
  * Slide-over listing the pending action requests awaiting a human decision.
  * Opened from the Edit menu ("Approvals") or Ctrl+Alt+A, and dismissed with
- * Escape (handled by the shell shortcut layer).
+ * Escape (owned by the Drawer primitive's shared LIFO layer).
  */
 export function ApprovalsDrawer({
 	open,

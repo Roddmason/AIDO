@@ -11,7 +11,8 @@ function sha256(payload) {
 
 /**
  * Writes a plugin directory with a checksummed SKILL.md contract and an
- * aido.plugin.json manifest, mirroring the backend install contract.
+ * aido.plugin.json manifest, mirroring the backend install contract. Returns
+ * the plugin directory so a test can install it through the API as well.
  */
 function writePluginFixture(root, { dirName, id, name, permissions }) {
 	const pluginDir = path.join(root, dirName);
@@ -64,26 +65,39 @@ function writePluginFixture(root, { dirName, id, name, permissions }) {
 	return pluginDir;
 }
 
-test('Settings Plugins section installs, enables and validates a local plugin end to end', async ({
+test('Settings Plugins console installs, enables, inspects, and audits local plugins', async ({
 	page,
 }) => {
 	const root = mkdtempSync(path.join(tmpdir(), 'aido-plugins-e2e-'));
 	const stamp = Date.now();
 	const pluginId = `e2e.plugin.${stamp}`;
 	const pluginName = `E2E Plugin ${stamp}`;
+	const dangerId = `e2e.danger.${stamp}`;
 	const dangerName = `E2E Danger ${stamp}`;
+	// The installable plugin carries a scoped-but-mutation-capable permission, so it must
+	// surface the "Dangerous permission" review badge once installed.
 	writePluginFixture(root, {
 		dirName: 'valid-plugin',
 		id: pluginId,
 		name: pluginName,
-		permissions: ['workspace.read'],
+		permissions: ['workspace.read', 'filesystem.write:reports'],
 	});
-	writePluginFixture(root, {
+	const dangerDir = writePluginFixture(root, {
 		dirName: 'dangerous-plugin',
-		id: `e2e.danger.${stamp}`,
+		id: dangerId,
 		name: dangerName,
 		permissions: ['filesystem.write:/'],
 	});
+
+	// Seed a real blocked install attempt through the write API so the Blocked and Events
+	// tabs render an auditable rejection with its validator reason (the UI disables Install
+	// on invalid candidates by design, so a blocked event cannot be produced from the row).
+	const token = (await (await page.request.get('/api/v1/security/handshake')).json()).token;
+	const blocked = await page.request.post('/api/v1/plugins/install-local', {
+		headers: { 'X-Local-Control-Token': token },
+		data: { path: dangerDir },
+	});
+	expect(blocked.status()).toBe(422);
 
 	await page.goto('/');
 	await page.locator('.shell-sidebar-footer').getByRole('button', { name: 'Settings' }).click();
@@ -114,33 +128,43 @@ test('Settings Plugins section installs, enables and validates a local plugin en
 	await expect(page.getByText('Plugin installed', { exact: true })).toBeVisible();
 	await expect(validRow.getByText('installed', { exact: true })).toBeVisible();
 
-	// Plugins install disabled by contract; enabling revalidates the manifest.
+	// Installed tab: the plugin reads as third-party, disabled, and carrying a dangerous permission.
 	await dialog.getByRole('tab', { name: 'Installed', exact: true }).click();
 	const pluginRow = dialog.getByRole('row').filter({ hasText: pluginId });
-	await expect(pluginRow.getByText('disabled', { exact: true })).toBeVisible();
+	await expect(pluginRow.getByText('Third-party', { exact: true })).toBeVisible();
+	await expect(pluginRow.getByText('Disabled', { exact: true })).toBeVisible();
+	await expect(pluginRow.getByText('Dangerous permission', { exact: true })).toBeVisible();
+
+	// Enabling revalidates the manifest and flips the lifecycle badge to Enabled.
 	await pluginRow.getByRole('button', { name: 'Enable', exact: true }).click();
-	await expect(pluginRow.getByText('enabled', { exact: true })).toBeVisible();
+	await expect(page.getByText('Plugin enabled', { exact: true })).toBeVisible();
+	await expect(pluginRow.getByText('Enabled', { exact: true })).toBeVisible();
 
 	await pluginRow.getByRole('button', { name: 'Validate', exact: true }).click();
 	await expect(page.getByText('Manifest valid', { exact: true })).toBeVisible();
 
-	// View permissions: the declared manifest permission is listed with its risk level.
-	await pluginRow.getByRole('button', { name: 'View permissions' }).click();
-	const permissionsDialog = page.getByRole('dialog', { name: 'Plugin permissions' });
-	await expect(permissionsDialog.getByText('workspace.read')).toBeVisible();
-	await permissionsDialog.getByRole('button', { name: 'Close Plugin permissions' }).click();
+	// Inspect: one per-plugin surface with manifest, permissions, skills, and tools sub-views.
+	await pluginRow.getByRole('button', { name: 'Inspect', exact: true }).click();
+	const inspector = page.getByRole('dialog', { name: 'Plugin inspector' });
+	await expect(inspector.getByText('Manifest hash')).toBeVisible();
+	await expect(inspector.getByText(`"id": "${pluginId}"`)).toBeVisible();
+	await inspector.getByRole('tab', { name: 'Permissions', exact: true }).click();
+	await expect(inspector.getByText('workspace.read')).toBeVisible();
+	await inspector.getByRole('tab', { name: 'Skills', exact: true }).click();
+	await expect(inspector.getByText('skills/example/SKILL.md')).toBeVisible();
+	await inspector.getByRole('tab', { name: 'Tools', exact: true }).click();
+	await expect(inspector.getByText('Fixture Tool')).toBeVisible();
+	await expect(inspector.getByText('policy required', { exact: true })).toBeVisible();
+	await inspector.getByRole('button', { name: 'Close Plugin inspector' }).click();
 
-	// View manifest: hashes and the raw manifest JSON are exposed for audit.
-	await pluginRow.getByRole('button', { name: 'View manifest' }).click();
-	const manifestDialog = page.getByRole('dialog', { name: 'Plugin manifest' });
-	await expect(manifestDialog.getByText('Manifest hash')).toBeVisible();
-	await expect(manifestDialog.getByText(`"id": "${pluginId}"`)).toBeVisible();
-	await manifestDialog.getByRole('button', { name: 'Close Plugin manifest' }).click();
+	// Blocked tab: the seeded rejection is listed with its exact validator reason.
+	await dialog.getByRole('tab', { name: 'Blocked', exact: true }).click();
+	const blockedRow = dialog.getByRole('row').filter({ hasText: dangerId });
+	await expect(blockedRow.getByText('Blocked', { exact: true })).toBeVisible();
+	await expect(blockedRow.getByText(/dangerous/)).toBeVisible();
 
-	// Entrypoint views aggregate the declared contract across installed plugins.
-	await dialog.getByRole('tab', { name: 'Skills', exact: true }).click();
-	await expect(dialog.getByText('skills/example/SKILL.md')).toBeVisible();
-	await dialog.getByRole('tab', { name: 'Tools', exact: true }).click();
-	await expect(dialog.getByText('Fixture Tool')).toBeVisible();
-	await expect(dialog.getByText('policy required', { exact: true })).toBeVisible();
+	// Events tab: the full lifecycle trail (install + enable) is auditable.
+	await dialog.getByRole('tab', { name: 'Events', exact: true }).click();
+	await expect(dialog.getByText('enable', { exact: true })).toBeVisible();
+	await expect(dialog.getByText('install_local', { exact: true }).first()).toBeVisible();
 });

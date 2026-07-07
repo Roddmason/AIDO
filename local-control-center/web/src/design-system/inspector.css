@@ -342,3 +342,33 @@
 	border: 1px solid var(--color-border-subtle);
 	border-radius: var(--radius-md);
 }
+
+/* Team roster: state groups stacked with clear separation; the idle available/unconfigured groups
+   collapse behind a Disclosure so a large bench never buries the live work. State tone rides the
+   per-card chip and the active accent border, never a side stripe, per the visual guardrails. */
+.thread-team-groups {
+	display: grid;
+	gap: var(--space-3);
+}
+
+.thread-team-group {
+	display: grid;
+	gap: var(--space-1);
+}
+
+.thread-team-group-title {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+}
+
+.thread-team-group-count {
+	color: var(--color-text-secondary);
+	font-variant-numeric: tabular-nums;
+}
+
+/* Inline recovery action under a blocked or unconfigured agent: the one-click path to its fix. */
+.thread-team-fix {
+	justify-self: start;
+	margin-top: var(--space-1);
+}

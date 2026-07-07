@@ -9599,6 +9599,58 @@
       "en": "Model calls",
       "es": "Llamadas al modelo"
     },
+    "app.threads.inspector.team.state.active": {
+      "en": "Active",
+      "es": "Activo"
+    },
+    "app.threads.inspector.team.state.waiting": {
+      "en": "Waiting",
+      "es": "En espera"
+    },
+    "app.threads.inspector.team.state.blocked": {
+      "en": "Blocked",
+      "es": "Bloqueado"
+    },
+    "app.threads.inspector.team.state.available": {
+      "en": "Available",
+      "es": "Disponible"
+    },
+    "app.threads.inspector.team.state.unconfigured": {
+      "en": "Unconfigured",
+      "es": "Sin configurar"
+    },
+    "app.threads.inspector.team.whySelected": {
+      "en": "Why selected",
+      "es": "Por qué se eligió"
+    },
+    "app.threads.inspector.team.currentArtifact": {
+      "en": "Current artifact",
+      "es": "Artefacto actual"
+    },
+    "app.threads.inspector.team.tokenCap": {
+      "en": "Token cap per run",
+      "es": "Tope de tokens por ejecución"
+    },
+    "app.threads.inspector.team.selectionPending": {
+      "en": "Awaiting runtime selection",
+      "es": "Esperando selección de runtime"
+    },
+    "app.threads.inspector.team.selectionVia": {
+      "en": "via",
+      "es": "según"
+    },
+    "app.threads.inspector.team.selectionCaps": {
+      "en": "capabilities",
+      "es": "capacidades"
+    },
+    "app.threads.inspector.team.fixBlocked": {
+      "en": "Resolve blocker",
+      "es": "Resolver bloqueo"
+    },
+    "app.threads.inspector.team.fixUnconfigured": {
+      "en": "Configure runtime",
+      "es": "Configurar runtime"
+    },
     "app.threads.inspector.plan.emptyTitle": {
       "en": "No product loop yet",
       "es": "Aún no hay loop de producto"

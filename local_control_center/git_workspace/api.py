@@ -118,6 +118,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
                 selected_base=body.selected_base,
                 branch_name=body.branch_name,
                 create_branch=body.create_branch,
+                allow_protected=body.allow_protected,
             )
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error

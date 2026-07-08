@@ -91,7 +91,7 @@ def test_git_init_completed_for_project_without_git_creates_default_branch_and_n
     assert not any("commit" in call["payload"].get("command", "") for call in store.agents.list_agent_tool_calls())
 
 
-def test_git_init_defaults_to_main_when_branch_not_supplied(
+def test_git_init_defaults_to_dev_when_branch_not_supplied(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     store, client, headers = create_client(tmp_path, monkeypatch)
@@ -103,8 +103,9 @@ def test_git_init_defaults_to_main_when_branch_not_supplied(
     assert response.status_code == 200
     body = response.json()
     assert body["status"] == "completed"
-    assert body["currentBranch"] == "main"
-    assert run_git(["branch", "--show-current"], cwd=project_path).stdout.strip() == "main"
+    assert body["defaultBranch"] == "dev"
+    assert body["currentBranch"] == "dev"
+    assert run_git(["branch", "--show-current"], cwd=project_path).stdout.strip() == "dev"
 
 
 def test_git_remote_add_persists_sanitized_metadata_and_uses_git_remote_add(
@@ -170,11 +171,13 @@ def test_git_branch_policy_suggests_branch_from_intent_and_creates_from_selected
     body = response.json()
     assert body["status"] == "completed"
     assert body["selectedBase"] == "main"
-    assert body["suggestedBranchName"] == "codex/fix-git-init-for-new-projects"
-    assert body["targetBranch"] == "codex/fix-git-init-for-new-projects"
+    # Suggested name comes from the deterministic IntentClassifier, so it carries the classified
+    # intent ("fix" -> bugfix) as a prefix over the slugified intent text.
+    assert body["suggestedBranchName"] == "codex/bugfix-fix-git-init-for-new-projects"
+    assert body["targetBranch"] == "codex/bugfix-fix-git-init-for-new-projects"
     assert body["created"] is True
     branches = client.get(f"/api/v1/projects/{project['id']}/git/branches").json()
-    assert "codex/fix-git-init-for-new-projects" in branches["localBranches"]
+    assert "codex/bugfix-fix-git-init-for-new-projects" in branches["localBranches"]
 
 
 def test_git_branch_policy_blocks_main_and_master_as_work_branches(
@@ -199,6 +202,41 @@ def test_git_branch_policy_blocks_main_and_master_as_work_branches(
     assert body["status"] == "blocked"
     assert body["targetBranch"] == "main"
     assert "protected" in body["reason"].lower()
+
+
+def test_git_branch_policy_allows_protected_branch_with_explicit_override(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store, client, headers = create_client(tmp_path, monkeypatch)
+    project = create_git_project(store, tmp_path)
+    project_path = Path(project["path"])
+
+    response = client.post(
+        f"/api/v1/projects/{project['id']}/git/branch-policy/apply",
+        headers=headers,
+        json={
+            "intent": "Work directly on main",
+            "selectedBase": "main",
+            "branchName": "main",
+            "createBranch": True,
+            "allowProtected": True,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "completed"
+    assert body["targetBranch"] == "main"
+    assert body["created"] is False
+    assert "override" in body["reason"].lower()
+    # The override must NOT create a branch nor leave the checkout on anything but main.
+    assert run_git(["branch", "--show-current"], cwd=project_path).stdout.strip() == "main"
+    local_branches = {
+        line.strip().lstrip("* ").strip()
+        for line in run_git(["branch"], cwd=project_path).stdout.splitlines()
+        if line.strip()
+    }
+    assert local_branches == {"main"}
 
 
 def test_git_status_detects_current_branch_and_records_broker_evidence(

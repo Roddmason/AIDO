@@ -21,6 +21,10 @@ from urllib.parse import urlparse
 
 from local_control_center.agents.repository import AgentsRepository
 from local_control_center.agents.tool_broker import ToolBroker
+from local_control_center.product_loop.intent_classifier import (
+    IntentClassificationInput,
+    IntentClassifier,
+)
 from local_control_center.projects.repository import ProjectsRepository
 from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.serialization import json_dumps
@@ -199,12 +203,6 @@ def _validate_remote_url(value: str) -> RemoteUrlMetadata:
             path=scp_like.group("path").lstrip("/"),
         )
     raise ValueError("Remote URL must use HTTPS or SSH.")
-
-
-def _slugify_branch_intent(intent: str) -> str:
-    slug = re.sub(r"[^a-z0-9]+", "-", intent.lower()).strip("-")
-    slug = re.sub(r"-{2,}", "-", slug)[:72].strip("-")
-    return f"codex/{slug or f'work-{uuid.uuid4().hex[:8]}'}"
 
 
 def _porcelain_path(raw_path: str) -> str:
@@ -739,7 +737,7 @@ class GitWorkspaceService:
             self._finish_operation(op, status="failed", output=output)
             raise
 
-    def init_repository(self, project_id: str, *, default_branch: str = "main") -> dict[str, Any]:
+    def init_repository(self, project_id: str, *, default_branch: str = "dev") -> dict[str, Any]:
         """Inicializa Git en la carpeta del proyecto usando ToolBroker."""
         ctx = self._project_context(project_id)
         if default_branch not in {"main", "dev"}:
@@ -1094,10 +1092,17 @@ class GitWorkspaceService:
         selected_base: str = "main",
         branch_name: str | None = None,
         create_branch: bool = False,
+        allow_protected: bool = False,
     ) -> dict[str, Any]:
-        """Sugiere y opcionalmente crea una rama de trabajo fuera de main/master."""
+        """Sugiere y opcionalmente crea una rama de trabajo fuera de main/master.
+
+        La rama sugerida la produce el ``IntentClassifier`` deterministico del Product Loop, de modo
+        que el nombre refleja la intencion clasificada (misma taxonomia que usa el intake). Trabajar
+        directo sobre main/master queda bloqueado salvo que el operador pase ``allow_protected=True``.
+        """
         ctx = self._project_context(project_id)
-        suggested = _slugify_branch_intent(intent)
+        classification = IntentClassifier().classify(IntentClassificationInput(prompt=intent))
+        suggested = classification.suggested_branch_name
         target_branch = (branch_name or suggested).strip()
         protected = sorted(PROTECTED_WORK_BRANCHES)
 
@@ -1132,9 +1137,17 @@ class GitWorkspaceService:
                 reason="Target branch name is invalid or unsafe for local Git operations.",
             )
         if _is_protected_work_branch(target_branch):
+            if not allow_protected:
+                return policy_response(
+                    status="blocked",
+                    reason="Protected branches main/master cannot be used as direct work branches.",
+                )
             return policy_response(
-                status="blocked",
-                reason="Protected branches main/master cannot be used as direct work branches.",
+                status="completed",
+                reason=(
+                    f"Override honored: direct work on protected branch '{target_branch}' is permitted; "
+                    "no new branch was created."
+                ),
             )
         if selected_base and not _is_safe_ref(selected_base):
             return policy_response(

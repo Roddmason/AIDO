@@ -94,7 +94,7 @@ class GitBranchesResponse(BaseModel):
 class GitInitRequest(BaseModel):
     """Inicializa Git con una rama default controlada."""
 
-    default_branch: Literal["main", "dev"] = Field(default="main", alias="defaultBranch")
+    default_branch: Literal["main", "dev"] = Field(default="dev", alias="defaultBranch")
 
 
 class GitInitResponse(BaseModel):
@@ -194,6 +194,7 @@ class GitBranchPolicyApplyRequest(BaseModel):
     selected_base: str = Field(default="main", alias="selectedBase")
     branch_name: str | None = Field(default=None, alias="branchName")
     create_branch: bool = Field(default=False, alias="createBranch")
+    allow_protected: bool = Field(default=False, alias="allowProtected")
 
 
 class GitBranchPolicyApplyResponse(BaseModel):

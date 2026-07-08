@@ -108,6 +108,25 @@ def test_git_init_defaults_to_dev_when_branch_not_supplied(
     assert run_git(["branch", "--show-current"], cwd=project_path).stdout.strip() == "dev"
 
 
+def test_git_init_preserves_existing_gitignore_without_overwriting(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store, client, headers = create_client(tmp_path, monkeypatch)
+    project = create_plain_project(store, tmp_path, template_id="python-fastapi")
+    project_path = Path(project["path"])
+    sentinel = "# hand-written ignore\ncustom-secret.txt\n"
+    (project_path / ".gitignore").write_text(sentinel, encoding="utf-8")
+
+    response = client.post(f"/api/v1/projects/{project['id']}/git/init", headers=headers, json={})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "completed"
+    assert body["gitignoreCreated"] is False
+    # A pre-existing .gitignore must survive init byte-for-byte: no overwrite, no append.
+    assert (project_path / ".gitignore").read_text(encoding="utf-8") == sentinel
+
+
 def test_git_remote_add_persists_sanitized_metadata_and_uses_git_remote_add(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

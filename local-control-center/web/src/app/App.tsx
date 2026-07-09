@@ -76,6 +76,7 @@ export function App() {
 	const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
 	const [settingsModalOpen, setSettingsModalOpen] = useState(false);
 	const [settingsSection, setSettingsSection] = useState('general');
+	const [settingsProviderId, setSettingsProviderId] = useState<string | null>(null);
 	const state = useControlPlane();
 	const commandActionsRef = useRef<CommandAction[]>([]);
 
@@ -93,8 +94,9 @@ export function App() {
 	}, []);
 
 	/** Opens the Settings modal at a given section (defaults to 'general'). */
-	const openSettings = useCallback((section?: string) => {
+	const openSettings = useCallback((section?: string, providerId?: string) => {
 		setSettingsSection(section ?? 'general');
+		setSettingsProviderId(providerId?.trim() || null);
 		setSettingsModalOpen(true);
 	}, []);
 
@@ -328,6 +330,7 @@ export function App() {
 				onClose={() => setSettingsModalOpen(false)}
 				projectId={selectedProject?.id}
 				initialSection={settingsSection}
+				initialProviderId={settingsProviderId}
 				overview={overview}
 				selectedProject={selectedProject}
 				runtimeProviders={state.runtimeProviders}

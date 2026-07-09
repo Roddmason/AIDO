@@ -15,6 +15,7 @@ import type { KeyboardEvent } from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
 	aidoDecideProductLoop,
+	applyProductLoopFeedback,
 	approveProductBrief,
 	approveProductLoopBacklog,
 	createThread,
@@ -436,6 +437,63 @@ export function WorkbenchPage({
 				}),
 			t('app.workbench.loop.iterationStarted', 'Iteration started'),
 			t('app.workbench.loop.iterationStartFailed', 'Could not start the iteration'),
+		);
+	};
+
+	const handleAcceptDelivery = () => {
+		if (!project || !activeProductLoop) return;
+		void runLoopAction(
+			'accept_delivery',
+			() =>
+				applyProductLoopFeedback(token, project.id, activeProductLoop.id, {
+					action: 'accept',
+					feedback: 'Delivery approved from the Workbench after reviewing evidence.',
+					targetType: 'loop',
+					targetId: activeProductLoop.id,
+					expectedVersion: activeProductLoop.version,
+				}),
+			t('app.workbench.loop.deliveryApproved', 'Delivery approved'),
+			t('app.workbench.loop.deliveryApproveFailed', 'Could not approve the delivery'),
+		);
+	};
+
+	const handleRequestDeliveryChanges = (taskId: string, feedback: string) => {
+		if (!project || !activeProductLoop) return;
+		void runLoopAction(
+			'request_delivery_changes',
+			() =>
+				applyProductLoopFeedback(token, project.id, activeProductLoop.id, {
+					action: 'request_changes',
+					feedback,
+					targetType: 'task',
+					targetId: taskId,
+					expectedVersion: activeProductLoop.version,
+				}),
+			t('app.workbench.loop.deliveryChangesRequested', 'Changes requested'),
+			t(
+				'app.workbench.loop.deliveryChangesRequestFailed',
+				'Could not request delivery changes',
+			),
+		);
+	};
+
+	const handleContinueDelivery = (feedback: string) => {
+		if (!project || !activeProductLoop) return;
+		void runLoopAction(
+			'continue_delivery',
+			() =>
+				applyProductLoopFeedback(token, project.id, activeProductLoop.id, {
+					action: 'continue',
+					feedback,
+					targetType: 'loop',
+					targetId: activeProductLoop.id,
+					expectedVersion: activeProductLoop.version,
+				}),
+			t('app.workbench.loop.deliveryContinued', 'Delivery continuation recorded'),
+			t(
+				'app.workbench.loop.deliveryContinueFailed',
+				'Could not continue the delivery loop',
+			),
 		);
 	};
 
@@ -943,6 +1001,16 @@ export function WorkbenchPage({
 								evidencePackage={activeEvidence}
 								testResults={projectTestResults}
 								artifacts={projectArtifacts}
+								activeProductLoop={activeProductLoop}
+								tasks={loop.data?.tasks ?? []}
+								decisionBusy={
+									loopActionBusy === 'accept_delivery' ||
+									loopActionBusy === 'request_delivery_changes' ||
+									loopActionBusy === 'continue_delivery'
+								}
+								onAcceptDelivery={handleAcceptDelivery}
+								onRequestChanges={handleRequestDeliveryChanges}
+								onContinueDelivery={handleContinueDelivery}
 							/>
 						) : null}
 					</WorkbenchTabs>

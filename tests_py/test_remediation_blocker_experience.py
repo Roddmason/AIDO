@@ -1746,6 +1746,46 @@ def test_checkout_branch_remediation_requires_confirmation(tmp_path: Path) -> No
         assert "branchname" in str(confirmed["execution"].get("reason", "")).lower()
 
 
+def test_product_owner_output_invalid_offers_validate_and_switch_runtime(tmp_path: Path) -> None:
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        project, thread = _project_and_thread(connection, tmp_path, "product-owner-runtime")
+        service = BlockerRemediationService(connection, root=tmp_path)
+
+        created = service.create_for_blocked_run(
+            project_id=project["id"],
+            thread_id=thread["id"],
+            loop_id="loop-product-owner-runtime",
+            stage="product_owner",
+            reason="ProductOwnerAgent returned a brief that failed schema validation.",
+            details={
+                "status": "failed_validation",
+                "outputStatus": "failed_validation",
+                "runtimeId": "ollama",
+            },
+        )
+
+        actions = _pending_action_types(connection, thread["id"])
+        assert ("product_owner_output_invalid", "validate_runtime") in actions
+        assert ("product_owner_output_invalid", "switch_runtime") in actions
+
+        validate = next(action for action in created if action["actionType"] == "validate_runtime")
+        switch = next(action for action in created if action["actionType"] == "switch_runtime")
+        open_settings = next(
+            action for action in created if action["actionType"] == "open_settings_section"
+        )
+
+        # The runtime behind ProductOwnerAgent is the likely culprit, so revalidating it leads the card.
+        assert validate["primary"] is True
+        assert open_settings["primary"] is False
+        for action in (validate, switch):
+            assert action["payload"]["runtimeId"] == "ollama"
+            assert action["payload"]["settingsSection"] == "providers-cli"
+            assert action["technicalReason"] == (
+                "ProductOwnerAgent returned a brief that failed schema validation."
+            )
+
+
 def test_remediation_records_carry_primary_destructive_and_technical_reason(tmp_path: Path) -> None:
     with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
         initialize_platform_schema(connection)

@@ -340,6 +340,51 @@ def test_thread_remediation_presentation_has_specific_copy_for_product_loop_bloc
         assert f"{blocker_type}:" in source
 
 
+def test_thread_blocker_card_explains_cause_impact_and_one_primary_repair() -> None:
+    presentation_source = read(SRC / "features" / "shell" / "remediationPresentation.ts")
+    card_source = read(SRC / "features" / "shell" / "ThreadBlockerCard.tsx")
+
+    assert "impactKey: string;" in presentation_source
+    assert "cause: first.technicalReason || reason || first.description," in presentation_source
+    assert "function withPrimaryFirst(actions: DraftAction[]): BlockerActionModel[]" in presentation_source
+    assert (
+        "actions.find((action) => action.remediation?.primary === true)?.id ?? actions[0]?.id"
+        in presentation_source
+    )
+
+    assert "const [primaryAction, ...secondaryActions] = card.actions;" in card_source
+    assert "const variant = action.primary ? 'primary' : 'secondary';" in card_source
+    assert "app.threads.remediation.factStage" in card_source
+    assert "app.threads.remediation.factCause" in card_source
+    assert "app.threads.remediation.factImpact" in card_source
+    assert "app.threads.remediation.technicalDetail" in card_source
+
+
+def test_thread_blocker_card_confirms_destructive_remediations_before_executing() -> None:
+    card_source = read(SRC / "features" / "shell" / "ThreadBlockerCard.tsx")
+
+    assert "if (action.confirmationRequired) {" in card_source
+    assert "setPendingConfirmation(action);" in card_source
+    assert "runExecute(action, { confirmed: true })" in card_source
+
+
+def test_blocked_thread_without_remediations_falls_back_to_diagnostic_and_settings() -> None:
+    presentation_source = read(SRC / "features" / "shell" / "remediationPresentation.ts")
+    card_source = read(SRC / "features" / "shell" / "ThreadBlockerCard.tsx")
+    panel_source = read(SRC / "features" / "shell" / "ThreadExecutionPanel.tsx")
+
+    assert (
+        "export function buildFallbackCard(stage: string, reason: string): BlockerCardModel"
+        in presentation_source
+    )
+    assert "buildFallbackCard(fallback.stage, fallback.reason)" in card_source
+    assert "app.threads.remediation.action.openConfiguration" in card_source
+    assert "app.threads.remediation.copyDiagnostic" in card_source
+    assert "blocked: isBlocked," in panel_source
+    assert "const remediationFallback = pipeline.blocked" in panel_source
+    assert "fallback={remediationFallback}" in panel_source
+
+
 def test_thread_remediation_presentation_is_typed_against_backend_contract() -> None:
     source = read(SRC / "features" / "shell" / "remediationPresentation.ts")
 

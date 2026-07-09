@@ -10667,6 +10667,10 @@
       "en": "AIDO could not find a runtime it can run on this machine, so the work cannot start.",
       "es": "AIDO no encontró un runtime que pueda ejecutar en este equipo, así que el trabajo no puede iniciar."
     },
+    "app.threads.remediation.blocker.runtime_not_executable.impact": {
+      "en": "No agent can run until a runtime is available, so the loop stays blocked.",
+      "es": "Ningún agente puede ejecutarse hasta que haya un runtime disponible, así que el loop queda bloqueado."
+    },
     "app.threads.remediation.blocker.runtime_auth_missing.title": {
       "en": "Runtime not authenticated",
       "es": "Runtime sin autenticar"
@@ -10674,6 +10678,10 @@
     "app.threads.remediation.blocker.runtime_auth_missing.explanation": {
       "en": "The selected runtime needs credentials before AIDO can use it.",
       "es": "El runtime seleccionado necesita credenciales antes de que AIDO pueda usarlo."
+    },
+    "app.threads.remediation.blocker.runtime_auth_missing.impact": {
+      "en": "Every agent step that uses this runtime stays blocked until it authenticates.",
+      "es": "Cada paso de agente que use este runtime queda bloqueado hasta que se autentique."
     },
     "app.threads.remediation.blocker.runtime_output_invalid.title": {
       "en": "Runtime returned invalid output",
@@ -10683,6 +10691,10 @@
       "en": "The runtime answered in a shape AIDO could not use, so the step was stopped.",
       "es": "El runtime respondió en un formato que AIDO no pudo usar, así que el paso se detuvo."
     },
+    "app.threads.remediation.blocker.runtime_output_invalid.impact": {
+      "en": "The step produced no usable result, so the loop cannot reach the next stage.",
+      "es": "El paso no produjo un resultado utilizable, así que el loop no puede llegar a la etapa siguiente."
+    },
     "app.threads.remediation.blocker.git_not_initialized.title": {
       "en": "Git is not initialized",
       "es": "Git no está inicializado"
@@ -10690,6 +10702,10 @@
     "app.threads.remediation.blocker.git_not_initialized.explanation": {
       "en": "The project folder has no Git repository yet, so AIDO cannot track changes.",
       "es": "La carpeta del proyecto aún no tiene un repositorio Git, así que AIDO no puede registrar los cambios."
+    },
+    "app.threads.remediation.blocker.git_not_initialized.impact": {
+      "en": "AIDO cannot create branches, diffs, or delivery evidence for this project.",
+      "es": "AIDO no puede crear ramas, diffs ni evidencia de entrega para este proyecto."
     },
     "app.threads.remediation.blocker.git_dirty_tree.title": {
       "en": "Uncommitted changes present",
@@ -10699,6 +10715,10 @@
       "en": "The working tree has uncommitted changes AIDO will not overwrite on its own.",
       "es": "El working tree tiene cambios sin confirmar que AIDO no sobrescribirá por su cuenta."
     },
+    "app.threads.remediation.blocker.git_dirty_tree.impact": {
+      "en": "Execution is paused so your uncommitted work is never overwritten.",
+      "es": "La ejecución queda en pausa para no sobrescribir tu trabajo sin confirmar."
+    },
     "app.threads.remediation.blocker.git_branch_missing.title": {
       "en": "Working branch required",
       "es": "Falta la rama de trabajo"
@@ -10706,6 +10726,10 @@
     "app.threads.remediation.blocker.git_branch_missing.explanation": {
       "en": "AIDO needs a working branch before it makes changes to the project.",
       "es": "AIDO necesita una rama de trabajo antes de modificar el proyecto."
+    },
+    "app.threads.remediation.blocker.git_branch_missing.impact": {
+      "en": "AIDO will not modify the project until an isolated working branch exists.",
+      "es": "AIDO no modificará el proyecto mientras no exista una rama de trabajo aislada."
     },
     "app.threads.remediation.blocker.gitleaks_missing.title": {
       "en": "Gitleaks is not installed",
@@ -10715,6 +10739,10 @@
       "en": "The secret scanner required by the security gate is not available on this machine.",
       "es": "El escáner de secretos que exige la barrera de seguridad no está disponible en este equipo."
     },
+    "app.threads.remediation.blocker.gitleaks_missing.impact": {
+      "en": "The security gate cannot run, so no delivery reaches approval.",
+      "es": "La barrera de seguridad no puede correr, así que ninguna entrega llega a aprobación."
+    },
     "app.threads.remediation.blocker.gitleaks_failed.title": {
       "en": "Gitleaks blocked delivery",
       "es": "Gitleaks bloqueó la entrega"
@@ -10722,6 +10750,10 @@
     "app.threads.remediation.blocker.gitleaks_failed.explanation": {
       "en": "The secret scanner found something that must be removed before delivery continues.",
       "es": "El escáner de secretos encontró algo que debe eliminarse antes de continuar la entrega."
+    },
+    "app.threads.remediation.blocker.gitleaks_failed.impact": {
+      "en": "Delivery is held back to keep a detected secret out of the repository.",
+      "es": "La entrega queda retenida para mantener el secreto detectado fuera del repositorio."
     },
     "app.threads.remediation.blocker.qa_failed.title": {
       "en": "Quality checks failed",
@@ -10731,6 +10763,10 @@
       "en": "Automated quality checks did not pass, so delivery was paused for review.",
       "es": "Las verificaciones automáticas de calidad no pasaron, así que la entrega quedó en pausa para revisión."
     },
+    "app.threads.remediation.blocker.qa_failed.impact": {
+      "en": "The change stays out of approval until the quality checks pass.",
+      "es": "El cambio no llega a aprobación mientras las verificaciones de calidad no pasen."
+    },
     "app.threads.remediation.blocker.po_needs_input.title": {
       "en": "A product decision is needed",
       "es": "Se necesita una decisión de producto"
@@ -10738,6 +10774,10 @@
     "app.threads.remediation.blocker.po_needs_input.explanation": {
       "en": "AIDO needs you to answer a product question before it keeps going.",
       "es": "AIDO necesita que respondas una pregunta de producto antes de continuar."
+    },
+    "app.threads.remediation.blocker.po_needs_input.impact": {
+      "en": "The loop waits for your answer; nothing is planned or executed meanwhile.",
+      "es": "El loop espera tu respuesta; mientras tanto no se planifica ni se ejecuta nada."
     },
     "app.threads.remediation.blocker.worker_not_running.title": {
       "en": "Worker is not running",
@@ -10747,6 +10787,10 @@
       "en": "This thread is queued but no local worker is processing it right now.",
       "es": "Este hilo está en cola, pero ningún worker local lo está procesando ahora."
     },
+    "app.threads.remediation.blocker.worker_not_running.impact": {
+      "en": "The queued run will not start until a worker picks it up.",
+      "es": "La ejecución en cola no partirá hasta que un worker la tome."
+    },
     "app.threads.remediation.blocker.provider_missing_credentials.title": {
       "en": "Provider credentials missing",
       "es": "Faltan credenciales del proveedor"
@@ -10754,6 +10798,10 @@
     "app.threads.remediation.blocker.provider_missing_credentials.explanation": {
       "en": "The provider needs credentials before AIDO can reach it.",
       "es": "El proveedor necesita credenciales antes de que AIDO pueda conectarse."
+    },
+    "app.threads.remediation.blocker.provider_missing_credentials.impact": {
+      "en": "Every model call routed to this provider fails until credentials are stored.",
+      "es": "Cada llamada al modelo enrutada a este proveedor falla hasta que se guarden las credenciales."
     },
     "app.threads.remediation.blocker.provider_health_failed.title": {
       "en": "Provider is unhealthy",
@@ -10763,6 +10811,10 @@
       "en": "The provider failed its health check, so AIDO stopped before using it.",
       "es": "El proveedor falló su chequeo de salud, así que AIDO se detuvo antes de usarlo."
     },
+    "app.threads.remediation.blocker.provider_health_failed.impact": {
+      "en": "AIDO will not send work to a provider that failed its health check.",
+      "es": "AIDO no enviará trabajo a un proveedor que falló su chequeo de salud."
+    },
     "app.threads.remediation.blocker.generic.title": {
       "en": "Run blocked",
       "es": "Ejecución bloqueada"
@@ -10770,6 +10822,226 @@
     "app.threads.remediation.blocker.generic.explanation": {
       "en": "This run stopped and needs a manual step before it can continue.",
       "es": "Esta ejecución se detuvo y necesita un paso manual antes de continuar."
+    },
+    "app.threads.remediation.blocker.generic.impact": {
+      "en": "The run stays stopped until this blocker is resolved.",
+      "es": "La ejecución sigue detenida hasta resolver este bloqueo."
+    },
+    "app.threads.remediation.blocker.unresolved.title": {
+      "en": "Blocked without a repair plan",
+      "es": "Bloqueado sin plan de reparación"
+    },
+    "app.threads.remediation.blocker.unresolved.explanation": {
+      "en": "AIDO stopped this run but did not persist any repair action for it.",
+      "es": "AIDO detuvo esta ejecución pero no persistió ninguna acción de reparación."
+    },
+    "app.threads.remediation.blocker.unresolved.impact": {
+      "en": "The run stays stopped until you resolve the reported cause by hand.",
+      "es": "La ejecución sigue detenida hasta que resuelvas la causa reportada a mano."
+    },
+    "app.threads.remediation.blocker.git_status_failed.title": {
+      "en": "Git status failed",
+      "es": "Falló el estado de Git"
+    },
+    "app.threads.remediation.blocker.git_status_failed.explanation": {
+      "en": "AIDO could not read the project Git status, so it stopped before planning or execution.",
+      "es": "AIDO no pudo leer el estado de Git del proyecto, así que se detuvo antes de planificar o ejecutar."
+    },
+    "app.threads.remediation.blocker.git_status_failed.impact": {
+      "en": "Planning and execution stay blocked until AIDO can read the repository state.",
+      "es": "La planificación y la ejecución siguen bloqueadas hasta que AIDO pueda leer el estado del repositorio."
+    },
+    "app.threads.remediation.blocker.git_remote_missing.title": {
+      "en": "Git remote is unavailable",
+      "es": "El remote de Git no está disponible"
+    },
+    "app.threads.remediation.blocker.git_remote_missing.explanation": {
+      "en": "The project has a configured Git remote, but the repository can no longer reach it.",
+      "es": "El proyecto tiene un remote de Git configurado, pero el repositorio ya no puede alcanzarlo."
+    },
+    "app.threads.remediation.blocker.git_remote_missing.impact": {
+      "en": "Anything that needs the configured remote cannot complete.",
+      "es": "Todo lo que dependa del remote configurado no puede completarse."
+    },
+    "app.threads.remediation.blocker.resource_manager_unconfigured.title": {
+      "en": "AI resource routing is not configured",
+      "es": "El enrutamiento de recursos de IA no está configurado"
+    },
+    "app.threads.remediation.blocker.resource_manager_unconfigured.explanation": {
+      "en": "ResourceManager could not choose a model/runtime for the scheduled team role.",
+      "es": "ResourceManager no pudo elegir modelo/runtime para el rol de equipo agendado."
+    },
+    "app.threads.remediation.blocker.resource_manager_unconfigured.impact": {
+      "en": "No role gets a model or runtime, so execution never starts.",
+      "es": "Ningún rol recibe modelo ni runtime, así que la ejecución nunca comienza."
+    },
+    "app.threads.remediation.blocker.resource_manager_approval_required.title": {
+      "en": "AI resource approval required",
+      "es": "Se requiere aprobar el recurso de IA"
+    },
+    "app.threads.remediation.blocker.resource_manager_approval_required.explanation": {
+      "en": "ResourceManager selected a model/runtime that needs review before execution.",
+      "es": "ResourceManager seleccionó un modelo/runtime que necesita revisión antes de ejecutar."
+    },
+    "app.threads.remediation.blocker.resource_manager_approval_required.impact": {
+      "en": "Execution waits for you to approve the selected model and its cost.",
+      "es": "La ejecución espera que apruebes el modelo seleccionado y su costo."
+    },
+    "app.threads.remediation.blocker.team_scheduler_failed.title": {
+      "en": "Team scheduling failed",
+      "es": "Falló la planificación del equipo"
+    },
+    "app.threads.remediation.blocker.team_scheduler_failed.explanation": {
+      "en": "TeamScheduler could not produce the required role schedule, so execution is blocked.",
+      "es": "TeamScheduler no pudo generar el plan de roles requerido, así que la ejecución está bloqueada."
+    },
+    "app.threads.remediation.blocker.team_scheduler_failed.impact": {
+      "en": "Without a role schedule no agent is assigned and the loop stops here.",
+      "es": "Sin un plan de roles no se asigna ningún agente y el loop se detiene aquí."
+    },
+    "app.threads.remediation.blocker.technical_lead_planning_failed.title": {
+      "en": "Technical planning is incomplete",
+      "es": "La planificación técnica está incompleta"
+    },
+    "app.threads.remediation.blocker.technical_lead_planning_failed.explanation": {
+      "en": "TechnicalLeadPlanner did not produce role tasks, so DeveloperAgent execution is blocked.",
+      "es": "TechnicalLeadPlanner no generó tareas por rol, así que la ejecución de DeveloperAgent está bloqueada."
+    },
+    "app.threads.remediation.blocker.technical_lead_planning_failed.impact": {
+      "en": "DeveloperAgent has no tasks to execute, so implementation cannot start.",
+      "es": "DeveloperAgent no tiene tareas que ejecutar, así que la implementación no puede partir."
+    },
+    "app.threads.remediation.blocker.product_owner_output_invalid.title": {
+      "en": "ProductOwnerAgent output is incomplete",
+      "es": "La salida de ProductOwnerAgent está incompleta"
+    },
+    "app.threads.remediation.blocker.product_owner_output_invalid.explanation": {
+      "en": "The ProductOwnerAgent did not produce a validated brief or backlog for this loop.",
+      "es": "ProductOwnerAgent no generó un brief o backlog validado para este loop."
+    },
+    "app.threads.remediation.blocker.product_owner_output_invalid.impact": {
+      "en": "Without a validated brief or backlog, planning and execution cannot continue.",
+      "es": "Sin un brief o backlog validado, la planificación y la ejecución no pueden continuar."
+    },
+    "app.threads.remediation.blocker.research_required.title": {
+      "en": "Research evidence required",
+      "es": "Evidencia de investigación requerida"
+    },
+    "app.threads.remediation.blocker.research_required.explanation": {
+      "en": "AIDO must process a ResearchAgent job before accepting this high-impact decision.",
+      "es": "AIDO debe procesar un trabajo de ResearchAgent antes de aceptar esta decisión de alto impacto."
+    },
+    "app.threads.remediation.blocker.research_required.impact": {
+      "en": "The decision waits for research evidence before AIDO adopts it.",
+      "es": "La decisión espera evidencia de investigación antes de que AIDO la adopte."
+    },
+    "app.threads.remediation.blocker.workspace_root_missing.title": {
+      "en": "Workspace root missing",
+      "es": "Falta la raíz del workspace"
+    },
+    "app.threads.remediation.blocker.workspace_root_missing.explanation": {
+      "en": "AIDO needs a project workspace root before it can allocate isolated execution.",
+      "es": "AIDO necesita una raíz de workspace del proyecto antes de asignar ejecución aislada."
+    },
+    "app.threads.remediation.blocker.workspace_root_missing.impact": {
+      "en": "AIDO cannot isolate execution, so it refuses to touch the project folder.",
+      "es": "AIDO no puede aislar la ejecución, así que se niega a tocar la carpeta del proyecto."
+    },
+    "app.threads.remediation.blocker.workspace_allocation_failed.title": {
+      "en": "Workspace allocation failed",
+      "es": "Falló la asignación del workspace"
+    },
+    "app.threads.remediation.blocker.workspace_allocation_failed.explanation": {
+      "en": "AIDO could not create the isolated workspace or worktree needed for execution.",
+      "es": "AIDO no pudo crear el workspace o worktree aislado que necesita la ejecución."
+    },
+    "app.threads.remediation.blocker.workspace_allocation_failed.impact": {
+      "en": "Execution stays blocked because there is no isolated worktree to work in.",
+      "es": "La ejecución sigue bloqueada porque no hay un worktree aislado donde trabajar."
+    },
+    "app.threads.remediation.blocker.review_diff_unavailable.title": {
+      "en": "Review diff is unavailable",
+      "es": "El diff de revisión no está disponible"
+    },
+    "app.threads.remediation.blocker.review_diff_unavailable.explanation": {
+      "en": "The runtime finished, but AIDO could not capture real changed files for review.",
+      "es": "El runtime terminó, pero AIDO no pudo capturar archivos realmente modificados para revisar."
+    },
+    "app.threads.remediation.blocker.review_diff_unavailable.impact": {
+      "en": "Without real changed files there is nothing to review, so delivery stops.",
+      "es": "Sin archivos realmente modificados no hay nada que revisar, así que la entrega se detiene."
+    },
+    "app.threads.remediation.blocker.approval_unavailable.title": {
+      "en": "Approval request is unavailable",
+      "es": "La solicitud de aprobación no está disponible"
+    },
+    "app.threads.remediation.blocker.approval_unavailable.explanation": {
+      "en": "QA and security evidence are ready, but AIDO could not create the approval request.",
+      "es": "La evidencia de QA y seguridad está lista, pero AIDO no pudo crear la solicitud de aprobación."
+    },
+    "app.threads.remediation.blocker.approval_unavailable.impact": {
+      "en": "The finished work cannot reach the review board for your approval.",
+      "es": "El trabajo terminado no puede llegar al tablero de revisión para tu aprobación."
+    },
+    "app.threads.remediation.blocker.resource_learning_failed.title": {
+      "en": "Resource learning failed",
+      "es": "Falló el aprendizaje de recursos"
+    },
+    "app.threads.remediation.blocker.resource_learning_failed.explanation": {
+      "en": "AIDO could not persist the cost, token, or quality observation required before approval.",
+      "es": "AIDO no pudo persistir la observación de costo, tokens o calidad requerida antes de aprobar."
+    },
+    "app.threads.remediation.blocker.resource_learning_failed.impact": {
+      "en": "Delivery approval is held back until the run cost and quality are recorded.",
+      "es": "La aprobación de entrega queda retenida hasta registrar el costo y la calidad de la ejecución."
+    },
+    "app.threads.remediation.blocker.project_assessment_failed.title": {
+      "en": "Project assessment failed",
+      "es": "Falló el diagnóstico del proyecto"
+    },
+    "app.threads.remediation.blocker.project_assessment_failed.explanation": {
+      "en": "AIDO could not read enough project context to hand off safely to ProductOwnerAgent.",
+      "es": "AIDO no pudo leer suficiente contexto del proyecto para traspasarlo con seguridad a ProductOwnerAgent."
+    },
+    "app.threads.remediation.blocker.project_assessment_failed.impact": {
+      "en": "ProductOwnerAgent would plan blindly, so AIDO stops before the handoff.",
+      "es": "ProductOwnerAgent planificaría a ciegas, así que AIDO se detiene antes del traspaso."
+    },
+    "app.threads.remediation.blocker.functionality_memory_decision_required.title": {
+      "en": "Similar functionality already exists",
+      "es": "Funcionalidad similar ya existe"
+    },
+    "app.threads.remediation.blocker.functionality_memory_decision_required.explanation": {
+      "en": "AIDO found existing work and needs your decision before creating or changing anything.",
+      "es": "AIDO encontró trabajo existente y necesita tu decisión antes de crear o cambiar algo."
+    },
+    "app.threads.remediation.blocker.functionality_memory_decision_required.impact": {
+      "en": "AIDO waits for your decision so it does not duplicate existing work.",
+      "es": "AIDO espera tu decisión para no duplicar trabajo que ya existe."
+    },
+    "app.threads.remediation.blocker.thread_similarity_decision_required.title": {
+      "en": "Similar thread found",
+      "es": "Se encontró un hilo similar"
+    },
+    "app.threads.remediation.blocker.thread_similarity_decision_required.explanation": {
+      "en": "AIDO found a related thread and needs your decision before starting duplicate work.",
+      "es": "AIDO encontró un hilo relacionado y necesita tu decisión antes de iniciar trabajo duplicado."
+    },
+    "app.threads.remediation.blocker.thread_similarity_decision_required.impact": {
+      "en": "AIDO waits for your decision so it does not duplicate a related thread.",
+      "es": "AIDO espera tu decisión para no duplicar un hilo relacionado."
+    },
+    "app.threads.remediation.blocker.thread_intake_decision_required.title": {
+      "en": "Thread decision required",
+      "es": "Se requiere una decisión del hilo"
+    },
+    "app.threads.remediation.blocker.thread_intake_decision_required.explanation": {
+      "en": "AIDO needs you to choose one of the available options before it queues the loop.",
+      "es": "AIDO necesita que elijas una de las opciones disponibles antes de encolar el loop."
+    },
+    "app.threads.remediation.blocker.thread_intake_decision_required.impact": {
+      "en": "The loop is not queued until you pick one of the offered options.",
+      "es": "El loop no se encola hasta que elijas una de las opciones ofrecidas."
     },
     "app.threads.remediation.action.configureRuntime": {
       "en": "Configure runtime",
@@ -10835,6 +11107,34 @@
       "en": "Save patch",
       "es": "Guardar parche"
     },
+    "app.threads.remediation.action.openWorkspaceSettings": {
+      "en": "Open workspace settings",
+      "es": "Abrir configuración de workspace"
+    },
+    "app.threads.remediation.action.openWorkspaces": {
+      "en": "Open workspaces",
+      "es": "Abrir workspaces"
+    },
+    "app.threads.remediation.action.openRouting": {
+      "en": "Open routing",
+      "es": "Abrir enrutamiento"
+    },
+    "app.threads.remediation.action.openTeam": {
+      "en": "Open team",
+      "es": "Abrir equipo"
+    },
+    "app.threads.remediation.action.openResearch": {
+      "en": "Open research",
+      "es": "Abrir investigación"
+    },
+    "app.threads.remediation.action.checkNetworkAccess": {
+      "en": "Check network access",
+      "es": "Verificar acceso a la red"
+    },
+    "app.threads.remediation.action.approveResourceDecision": {
+      "en": "Approve resource",
+      "es": "Aprobar recurso"
+    },
     "app.threads.remediation.title": {
       "en": "Needs your action",
       "es": "Requiere tu acción"
@@ -10866,6 +11166,54 @@
     "app.threads.remediation.dismiss": {
       "en": "Dismiss",
       "es": "Descartar"
+    },
+    "app.threads.remediation.factStage": {
+      "en": "Stage",
+      "es": "Etapa"
+    },
+    "app.threads.remediation.factCause": {
+      "en": "Cause",
+      "es": "Causa"
+    },
+    "app.threads.remediation.factImpact": {
+      "en": "Impact",
+      "es": "Impacto"
+    },
+    "app.threads.remediation.stageUnknown": {
+      "en": "unknown",
+      "es": "desconocida"
+    },
+    "app.threads.remediation.causeUnknown": {
+      "en": "The runtime reported no machine cause.",
+      "es": "El runtime no reportó una causa técnica."
+    },
+    "app.threads.remediation.answerLabel": {
+      "en": "Answer",
+      "es": "Respuesta"
+    },
+    "app.threads.remediation.answerHelp": {
+      "en": "Choose one of the options requested by the Product Loop.",
+      "es": "Elige una de las opciones que pide el Product Loop."
+    },
+    "app.threads.remediation.answerPlaceholder": {
+      "en": "Select an answer",
+      "es": "Selecciona una respuesta"
+    },
+    "app.threads.remediation.confirmTitle": {
+      "en": "Confirm this action",
+      "es": "Confirma esta acción"
+    },
+    "app.threads.remediation.confirmBody": {
+      "en": "This action can discard or overwrite uncommitted local work. Run it only once your changes are preserved.",
+      "es": "Esta acción puede descartar o sobrescribir trabajo local sin confirmar. Ejecútala solo cuando tus cambios estén preservados."
+    },
+    "app.threads.remediation.confirmAccept": {
+      "en": "Run anyway",
+      "es": "Ejecutar de todos modos"
+    },
+    "app.threads.remediation.confirmCancel": {
+      "en": "Cancel",
+      "es": "Cancelar"
     },
     "app.settings.research.maxSources": {
       "en": "Maximum sources",

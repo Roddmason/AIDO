@@ -1996,8 +1996,10 @@
 	gap: var(--space-2);
 }
 
-/* Tone is carried by the full border colour, never a side stripe (visual guardrail). */
+/* Tone is carried by the full border colour, never a side stripe (visual guardrail). The card is its
+   own query container: it renders both in the wide execution pane and in the narrow inspector. */
 .thread-remediation-card {
+	container-type: inline-size;
 	display: grid;
 	gap: var(--space-2);
 	justify-items: start;
@@ -2008,11 +2010,41 @@
 	background: var(--color-surface-panel);
 }
 
-.thread-remediation-stage {
+/* Stage / cause / impact: the three facts that turn a blocker into something a human can act on. */
+.thread-remediation-facts {
+	display: grid;
+	gap: var(--space-1);
+	margin: 0;
+	width: 100%;
+}
+
+.thread-remediation-facts > div {
+	display: grid;
+	grid-template-columns: minmax(5rem, max-content) 1fr;
+	gap: var(--space-2);
+	align-items: baseline;
+}
+
+.thread-remediation-facts dt {
 	font-size: var(--font-size-2xs);
 	letter-spacing: 0.08em;
 	text-transform: uppercase;
 	color: var(--color-text-muted);
+}
+
+.thread-remediation-facts dd {
+	margin: 0;
+	font-size: var(--font-size-sm);
+	color: var(--color-text-secondary);
+	overflow-wrap: anywhere;
+}
+
+/* Below this width the label column starves the sentence, so stack the label over its value. */
+@container (max-width: 26rem) {
+	.thread-remediation-facts > div {
+		grid-template-columns: 1fr;
+		gap: 0;
+	}
 }
 
 .thread-remediation-title {
@@ -2053,11 +2085,30 @@
 	overflow-wrap: anywhere;
 }
 
+/* The recommended repair gets its own row so it is never lost among the alternatives. */
+.thread-remediation-primary,
 .thread-remediation-actions {
 	display: flex;
 	flex-wrap: wrap;
 	gap: var(--space-2);
 	width: 100%;
+}
+
+.thread-remediation-confirm {
+	display: grid;
+	gap: var(--space-3);
+}
+
+.thread-remediation-confirm p {
+	margin: 0;
+	color: var(--color-text-secondary);
+}
+
+.thread-remediation-confirm-actions {
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: flex-end;
+	gap: var(--space-2);
 }
 
 .thread-remediation-answer {
@@ -2367,6 +2418,44 @@
 
 .thread-research-recommendation p,
 .thread-research-empty {
+	margin: 0;
+	color: var(--color-text-secondary);
+}
+
+.thread-research-state {
+	display: grid;
+	gap: var(--space-1);
+	padding: var(--space-2);
+	border: 1px solid color-mix(in oklch, var(--color-status-danger) 42%, var(--color-border-subtle));
+	border-radius: var(--radius-md);
+	background: color-mix(in oklch, var(--color-status-danger) 8%, var(--color-surface-card));
+}
+
+.thread-research-state[data-status="research_running"] {
+	border-color: color-mix(in oklch, var(--color-accent) 40%, var(--color-border-subtle));
+	background: color-mix(in oklch, var(--color-accent) 8%, var(--color-surface-card));
+}
+
+.thread-research-state[data-status="research_required"] {
+	border-color: color-mix(in oklch, var(--color-status-warning) 42%, var(--color-border-subtle));
+	background: color-mix(in oklch, var(--color-status-warning) 8%, var(--color-surface-card));
+}
+
+.thread-research-state-head {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-2);
+	font-size: var(--font-size-xs);
+	font-weight: var(--weight-semibold);
+	color: var(--color-text-muted);
+	text-transform: uppercase;
+}
+
+.thread-research-state strong {
+	color: var(--color-text-primary);
+}
+
+.thread-research-state p {
 	margin: 0;
 	color: var(--color-text-secondary);
 }

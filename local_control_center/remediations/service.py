@@ -3279,7 +3279,22 @@ class BlockerRemediationService:
                     "payload": {**team_scheduler_settings_payload, "retryTarget": "team_scheduler"},
                 },
             ],
+            # A brief/backlog that fails validation almost always means the runtime behind
+            # ProductOwnerAgent answered badly, so the runtime repairs lead the settings navigation.
             "product_owner_output_invalid": [
+                {
+                    "actionType": "validate_runtime",
+                    "title": "Validate runtime",
+                    "description": "Re-check the runtime that ProductOwnerAgent used before retrying the loop.",
+                    "payload": {**runtime_payload, "settingsSection": "providers-cli"},
+                    "primary": True,
+                },
+                {
+                    "actionType": "switch_runtime",
+                    "title": "Switch runtime",
+                    "description": "Select a different executable runtime for ProductOwnerAgent.",
+                    "payload": {**runtime_payload, "settingsSection": "providers-cli"},
+                },
                 {
                     "actionType": "open_settings_section",
                     "title": "Open ProductOwner settings",

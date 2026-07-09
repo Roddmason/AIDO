@@ -706,7 +706,9 @@ export function WorkbenchPage({
 	}
 
 	return (
-		<>
+		// `.workbench-canvas` is the query container for `.workbench-layout`: the grid must reflow on the
+		// width of this resizable pane, which is far narrower than the viewport a media query would read.
+		<div className="workbench-canvas">
 			{header}
 			<div className="workbench-layout">
 				<WorkbenchExplorer
@@ -1039,6 +1041,6 @@ export function WorkbenchPage({
 			>
 				<TeamActivityPanel projectId={selectedProject?.id} open={teamOpen} token={token} />
 			</Drawer>
-		</>
+		</div>
 	);
 }

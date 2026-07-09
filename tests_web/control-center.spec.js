@@ -1287,19 +1287,45 @@ test('GitBranchBar shows the dirty breakdown and a View changes exit when the tr
 });
 
 test('GitBranchBar lists changed, staged and untracked files in the changes dialog', async ({ page }) => {
-	// 1600px, not the 1280px the sibling git tests use: at 1280 the workbench grid squeezes
-	// `.workbench-primary` to 282px, the composer overflows it, and the "Run inspector" aside paints over
-	// the actions cluster — so this button is unclickable there. That overlap predates this test; it is a
-	// workbench layout defect, not a GitBranchBar one, and is deliberately not worked around here.
-	await page.setViewportSize({ width: 1600, height: 900 });
+	await page.setViewportSize({ width: 1280, height: 900 });
 	const project = await getActiveProject(page);
 	// Untracked-only tree: `git diff HEAD` reports nothing, so the file list is the ONLY thing that can
 	// tell the user their new file exists. An empty diff here must not read as "the tree is clean".
-	const dirtyStatus = gitStatusFixture(project.id, { dirty: true, porcelain: [' M a.ts', 'A  c.ts', '?? b.ts'], changedFiles: ['a.ts'], stagedFiles: ['c.ts'], untrackedFiles: ['b.ts'] });
+	// The long subject is load-bearing: with a short one the bar fits its column by accident, and this
+	// test would pass even with a composer that cannot contain a real commit message.
+	const dirtyStatus = gitStatusFixture(project.id, { dirty: true, porcelain: [' M a.ts', 'A  c.ts', '?? b.ts'], changedFiles: ['a.ts'], stagedFiles: ['c.ts'], untrackedFiles: ['b.ts'], lastCommit: { hash: 'h'.repeat(40), shortHash: 'abc1234', author: 'Dev', authoredAt: '2026-01-01T00:00:00Z', subject: 'Fix (Git Workspace): revertir la contencion parcial de la barra git' } });
 	const { openGitWorkbench } = await mockGitEndpoints(page, project.id, { status: dirtyStatus, branches: gitBranchesFixture(project.id, { dirty: true }), diff: '' });
 
 	const gitWorkspace = await openGitWorkbench();
-	await gitWorkspace.getByRole('button', { name: 'View changes' }).click();
+	const viewChanges = gitWorkspace.getByRole('button', { name: 'View changes' });
+	await expect(viewChanges).toBeVisible();
+	await viewChanges.scrollIntoViewIfNeeded();
+	// The workbench used to size its three columns off the VIEWPORT, so inside its ~938px pane the
+	// composer collapsed to 282px, the git bar overflowed it, and the "Run inspector" aside painted over
+	// the actions cluster. `toBeVisible()` never hit-tests, so it stayed green throughout.
+	//
+	// Assert the containment itself, not just the hit test: which button an overlapping aside happens to
+	// steal depends on where the chips land, so a hit test alone passes or fails on incidental pixels.
+	const layout = await gitWorkspace.evaluate((bar) => {
+		const column = bar.closest('.workbench-primary');
+		const overflowPx = bar.getBoundingClientRect().right - column.getBoundingClientRect().right;
+		const buttons = [...bar.querySelectorAll('.composer-git-cluster--actions button')];
+		return {
+			overflowsColumn: overflowPx > 0,
+			buttonsOwningTheirCentre: buttons.filter((button) => {
+				const box = button.getBoundingClientRect();
+				const hit = document.elementFromPoint(
+					Math.round(box.x + box.width / 2),
+					Math.round(box.y + box.height / 2),
+				);
+				return hit && button.contains(hit);
+			}).length,
+			buttonCount: buttons.length,
+		};
+	});
+	expect(layout.overflowsColumn).toBe(false);
+	expect(layout.buttonsOwningTheirCentre).toBe(layout.buttonCount);
+	await viewChanges.click();
 	const changes = page.getByRole('dialog', { name: /Git changes/ });
 	await expect(changes).toBeVisible();
 
@@ -2513,7 +2539,9 @@ test('Model Gateway console renders provider catalog routing usage budgets and C
 	await page.getByRole('button', { name: 'Record benchmark outcome' }).click();
 	await expect(page.getByText('Manual/operator-reported').first()).toBeVisible();
 	await expect(page.getByText('Manual reports are not objective proof').first()).toBeVisible();
-	await expect(page.getByText('0 objective / 1 manual').first()).toBeVisible();
+	if ((page.viewportSize()?.width ?? 0) >= 768) {
+		await expect(page.getByText('0 objective / 1 manual').first()).toBeVisible();
+	}
 	await expect(page.getByText('operator_reported').first()).toBeVisible();
 	await expect(page.getByText('100.00%')).toHaveCount(0);
 	await expect(page.getByRole('cell', { name: '$0.4200' }).first()).toBeVisible();

@@ -25,6 +25,7 @@ from local_control_center.shared.time import utc_now
 
 def row_to_remediation(row: sqlite3.Row) -> dict[str, Any]:
     """Map a remediation row to the public camelCase contract."""
+    keys = set(row.keys())
     return {
         "id": row["id"],
         "projectId": row["project_id"],
@@ -36,6 +37,12 @@ def row_to_remediation(row: sqlite3.Row) -> dict[str, Any]:
         "description": redact_secrets(row["description"]),
         "actionType": row["action_type"],
         "payload": redact_secrets(json_loads(row["payload_json"], {})),
+        "technicalReason": redact_secrets(row["technical_reason"]) if "technical_reason" in keys else "",
+        "primary": bool(row["is_primary"]) if "is_primary" in keys else False,
+        "destructive": bool(row["is_destructive"]) if "is_destructive" in keys else False,
+        "confirmationRequired": bool(row["confirmation_required"])
+        if "confirmation_required" in keys
+        else False,
         "status": row["status"],
         "createdAt": row["created_at"],
         "resolvedAt": row["resolved_at"],
@@ -60,6 +67,10 @@ class RemediationActionsRepository:
         description: str,
         action_type: str,
         payload: dict[str, Any] | None = None,
+        technical_reason: str = "",
+        primary: bool = False,
+        destructive: bool = False,
+        confirmation_required: bool = False,
     ) -> dict[str, Any]:
         """Insert a pending action, idempotent for the same pending blocker/action pair."""
         if blocker_type not in BLOCKER_TYPES:
@@ -67,6 +78,10 @@ class RemediationActionsRepository:
         if action_type not in REMEDIATION_ACTION_TYPES:
             raise ValueError(f"Unknown remediation action type: {action_type}")
 
+        clean_payload = redact_secrets(payload or {})
+        clean_title = str(redact_secrets(title or "")).strip()
+        clean_description = str(redact_secrets(description or "")).strip()
+        clean_reason = str(redact_secrets(technical_reason or "")).strip()
         clean_thread_id = str(thread_id or "")
         clean_loop_id = str(loop_id or "")
         existing = self.connection.execute(
@@ -86,7 +101,32 @@ class RemediationActionsRepository:
             (project_id, clean_thread_id, clean_loop_id, stage, blocker_type, action_type),
         ).fetchone()
         if existing:
-            return row_to_remediation(existing)
+            existing_payload = json_loads(existing["payload_json"], {})
+            merged_payload = {**existing_payload, **clean_payload}
+            self.connection.execute(
+                """
+                UPDATE remediation_actions
+                SET title = ?,
+                    description = ?,
+                    payload_json = ?,
+                    technical_reason = ?,
+                    is_primary = ?,
+                    is_destructive = ?,
+                    confirmation_required = ?
+                WHERE id = ?
+                """,
+                (
+                    clean_title or existing["title"],
+                    clean_description or existing["description"],
+                    json_dumps(redact_secrets(merged_payload)),
+                    clean_reason or existing["technical_reason"],
+                    1 if primary or bool(existing["is_primary"]) else 0,
+                    1 if destructive or bool(existing["is_destructive"]) else 0,
+                    1 if confirmation_required or bool(existing["confirmation_required"]) else 0,
+                    existing["id"],
+                ),
+            )
+            return self.get(existing["id"])
 
         action_id = f"remediation-{uuid.uuid4()}"
         timestamp = utc_now()
@@ -94,8 +134,9 @@ class RemediationActionsRepository:
             """
             INSERT INTO remediation_actions
                 (id, project_id, thread_id, loop_id, stage, blocker_type, title, description,
-                 action_type, payload_json, status, created_at, resolved_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, NULL)
+                 action_type, payload_json, technical_reason, is_primary, is_destructive,
+                 confirmation_required, status, created_at, resolved_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, NULL)
             """,
             (
                 action_id,
@@ -104,10 +145,14 @@ class RemediationActionsRepository:
                 clean_loop_id,
                 str(stage or ""),
                 blocker_type,
-                str(redact_secrets(title or "")).strip(),
-                str(redact_secrets(description or "")).strip(),
+                clean_title,
+                clean_description,
                 action_type,
-                json_dumps(redact_secrets(payload or {})),
+                json_dumps(clean_payload),
+                clean_reason,
+                1 if primary else 0,
+                1 if destructive else 0,
+                1 if confirmation_required else 0,
                 timestamp,
             ),
         )
@@ -128,7 +173,9 @@ class RemediationActionsRepository:
 
     def get(self, action_id: str) -> dict[str, Any]:
         """Return one remediation action or raise ``KeyError``."""
-        row = self.connection.execute("SELECT * FROM remediation_actions WHERE id = ?", (action_id,)).fetchone()
+        row = self.connection.execute(
+            "SELECT * FROM remediation_actions WHERE id = ?", (action_id,)
+        ).fetchone()
         if not row:
             raise KeyError(f"Remediation action not found: {action_id}")
         return row_to_remediation(row)

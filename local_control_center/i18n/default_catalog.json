@@ -10803,6 +10803,10 @@
       "en": "Initialize Git",
       "es": "Inicializar Git"
     },
+    "app.threads.remediation.action.addRemote": {
+      "en": "Re-add remote",
+      "es": "Reagregar remote"
+    },
     "app.threads.remediation.action.createBranch": {
       "en": "Create branch",
       "es": "Crear rama"

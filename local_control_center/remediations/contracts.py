@@ -15,7 +15,9 @@ BLOCKER_TYPES = (
     "runtime_output_invalid",
     "git_not_initialized",
     "git_dirty_tree",
+    "git_status_failed",
     "git_branch_missing",
+    "git_remote_missing",
     "gitleaks_missing",
     "gitleaks_failed",
     "qa_failed",
@@ -23,6 +25,21 @@ BLOCKER_TYPES = (
     "worker_not_running",
     "provider_missing_credentials",
     "provider_health_failed",
+    "resource_manager_unconfigured",
+    "resource_manager_approval_required",
+    "team_scheduler_failed",
+    "technical_lead_planning_failed",
+    "product_owner_output_invalid",
+    "research_required",
+    "workspace_root_missing",
+    "workspace_allocation_failed",
+    "review_diff_unavailable",
+    "approval_unavailable",
+    "resource_learning_failed",
+    "project_assessment_failed",
+    "functionality_memory_decision_required",
+    "thread_similarity_decision_required",
+    "thread_intake_decision_required",
 )
 BlockerType = Literal[
     "runtime_not_executable",
@@ -30,7 +47,9 @@ BlockerType = Literal[
     "runtime_output_invalid",
     "git_not_initialized",
     "git_dirty_tree",
+    "git_status_failed",
     "git_branch_missing",
+    "git_remote_missing",
     "gitleaks_missing",
     "gitleaks_failed",
     "qa_failed",
@@ -38,6 +57,21 @@ BlockerType = Literal[
     "worker_not_running",
     "provider_missing_credentials",
     "provider_health_failed",
+    "resource_manager_unconfigured",
+    "resource_manager_approval_required",
+    "team_scheduler_failed",
+    "technical_lead_planning_failed",
+    "product_owner_output_invalid",
+    "research_required",
+    "workspace_root_missing",
+    "workspace_allocation_failed",
+    "review_diff_unavailable",
+    "approval_unavailable",
+    "resource_learning_failed",
+    "project_assessment_failed",
+    "functionality_memory_decision_required",
+    "thread_similarity_decision_required",
+    "thread_intake_decision_required",
 ]
 
 REMEDIATION_ACTION_TYPES = (
@@ -46,11 +80,14 @@ REMEDIATION_ACTION_TYPES = (
     "switch_runtime",
     "continue_plan_only",
     "git_init",
+    "add_remote",
     "create_branch",
     "checkout_branch",
     "run_gitleaks",
     "run_worker_once",
+    "check_network_access",
     "answer_question",
+    "approve_resource_decision",
     "retry_loop",
     "view_diff",
     "save_patch",
@@ -61,11 +98,14 @@ RemediationActionType = Literal[
     "switch_runtime",
     "continue_plan_only",
     "git_init",
+    "add_remote",
     "create_branch",
     "checkout_branch",
     "run_gitleaks",
     "run_worker_once",
+    "check_network_access",
     "answer_question",
+    "approve_resource_decision",
     "retry_loop",
     "view_diff",
     "save_patch",
@@ -88,6 +128,10 @@ class RemediationActionRecord(BaseModel):
     description: str
     action_type: RemediationActionType = Field(alias="actionType")
     payload: dict[str, Any]
+    technical_reason: str = Field(default="", alias="technicalReason")
+    primary: bool = False
+    destructive: bool = False
+    confirmation_required: bool = Field(default=False, alias="confirmationRequired")
     status: RemediationStatus
     created_at: str = Field(alias="createdAt")
     resolved_at: str | None = Field(default=None, alias="resolvedAt")

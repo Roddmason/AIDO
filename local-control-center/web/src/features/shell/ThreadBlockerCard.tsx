@@ -12,8 +12,10 @@
 
 import { AlertTriangle, ClipboardCopy, ExternalLink, Settings2, X } from 'lucide-react';
 import { m } from 'motion/react';
+import { useState } from 'react';
 
-import { Button, Disclosure, useToast } from '../../components/ui';
+import type { JsonObject } from '../../api/generated/openapi';
+import { Button, Disclosure, SelectField, useToast } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { listStagger, panelTransition } from '../../motion/variants';
 import {
@@ -26,7 +28,7 @@ import type { ThreadRemediationsHandle } from './useThreadRemediations';
 type ThreadBlockerListProps = {
 	handle: ThreadRemediationsHandle;
 	/** Opens a Settings section — the recovery path for settings-kind and fallback actions. */
-	onOpenSettings: (section?: string) => void;
+	onOpenSettings: (section?: string, providerId?: string) => void;
 	/** Blocker types the host surfaces elsewhere (e.g. the queued banner owns `worker_not_running`). */
 	excludeBlockerTypes?: readonly string[];
 	labelKey?: string;
@@ -84,6 +86,33 @@ function detailsText(card: BlockerCardModel): string {
 	return JSON.stringify(details, null, 2);
 }
 
+function actionPayload(action: BlockerActionModel): Record<string, unknown> {
+	const payload = action.remediation?.payload;
+	return payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : {};
+}
+
+function settingsProviderId(action: BlockerActionModel): string | undefined {
+	const payload = actionPayload(action);
+	const directProviderId = payload.providerId;
+	if (typeof directProviderId === 'string' && directProviderId.trim()) {
+		return directProviderId.trim();
+	}
+	const providerSetup = payload.providerSetup;
+	if (!providerSetup || typeof providerSetup !== 'object' || Array.isArray(providerSetup)) {
+		return undefined;
+	}
+	const nestedProviderId = (providerSetup as Record<string, unknown>).providerId;
+	return typeof nestedProviderId === 'string' && nestedProviderId.trim()
+		? nestedProviderId.trim()
+		: undefined;
+}
+
+function answerOptions(action: BlockerActionModel): string[] {
+	const options = actionPayload(action).options;
+	if (!Array.isArray(options)) return [];
+	return options.map((option) => String(option).trim()).filter(Boolean);
+}
+
 function ThreadBlockerCard({
 	card,
 	handle,
@@ -91,17 +120,18 @@ function ThreadBlockerCard({
 }: {
 	card: BlockerCardModel;
 	handle: ThreadRemediationsHandle;
-	onOpenSettings: (section?: string) => void;
+	onOpenSettings: (section?: string, providerId?: string) => void;
 }) {
 	const { t } = useI18n();
 	const { notify } = useToast();
+	const [selectedAnswers, setSelectedAnswers] = useState<Record<string, string>>({});
 	const anyBusy = handle.busyId !== null;
 	const hasActions = card.actions.length > 0;
 	const detail = detailsText(card);
 	const dismissId = `${card.key}:dismiss`;
 
-	const runExecute = async (action: BlockerActionModel) => {
-		const result = await handle.execute(action);
+	const runExecute = async (action: BlockerActionModel, payload?: JsonObject) => {
+		const result = await handle.execute(action, payload);
 		if (!result) return;
 		const execution = (result.execution ?? {}) as Record<string, unknown>;
 		const status = typeof execution.status === 'string' ? execution.status : '';
@@ -165,24 +195,68 @@ function ThreadBlockerCard({
 			) : null}
 
 			<div className="thread-remediation-actions">
-				{card.actions.map((action, index) => (
-					<Button
-						key={action.id}
-						variant={index === 0 ? 'primary' : 'secondary'}
-						loading={handle.busyId === action.id}
-						disabled={anyBusy}
-						icon={
-							action.kind === 'settings' ? <ExternalLink aria-hidden="true" size={14} /> : undefined
-						}
-						onClick={
-							action.kind === 'settings'
-								? () => onOpenSettings(action.section)
-								: () => void runExecute(action)
-						}
-					>
-						{t(action.labelKey, action.labelFallback)}
-					</Button>
-				))}
+				{card.actions.map((action, index) => {
+					const options = answerOptions(action);
+					if (action.remediation?.actionType === 'answer_question' && options.length) {
+						const selectedAnswer = selectedAnswers[action.id] ?? '';
+						return (
+							<div className="thread-remediation-answer" key={action.id}>
+								<SelectField
+									label={t('app.threads.remediation.answerLabel', 'Answer')}
+									help={t(
+										'app.threads.remediation.answerHelp',
+										'Choose one of the options requested by the Product Loop.',
+									)}
+									value={selectedAnswer}
+									disabled={anyBusy}
+									onChange={(event) =>
+										setSelectedAnswers((current) => ({
+											...current,
+											[action.id]: event.target.value,
+										}))
+									}
+								>
+									<option value="">
+										{t('app.threads.remediation.answerPlaceholder', 'Select an answer')}
+									</option>
+									{options.map((option) => (
+										<option key={option} value={option}>
+											{option}
+										</option>
+									))}
+								</SelectField>
+								<Button
+									variant={index === 0 ? 'primary' : 'secondary'}
+									loading={handle.busyId === action.id}
+									disabled={anyBusy || !selectedAnswer}
+									onClick={() => void runExecute(action, { answer: selectedAnswer })}
+								>
+									{t(action.labelKey, action.labelFallback)}
+								</Button>
+							</div>
+						);
+					}
+					return (
+						<Button
+							key={action.id}
+							variant={index === 0 ? 'primary' : 'secondary'}
+							loading={handle.busyId === action.id}
+							disabled={anyBusy}
+							icon={
+								action.kind === 'settings' ? (
+									<ExternalLink aria-hidden="true" size={14} />
+								) : undefined
+							}
+							onClick={
+								action.kind === 'settings'
+									? () => onOpenSettings(action.section, settingsProviderId(action))
+									: () => void runExecute(action)
+							}
+						>
+							{t(action.labelKey, action.labelFallback)}
+						</Button>
+					);
+				})}
 
 				{hasActions ? null : (
 					<Button

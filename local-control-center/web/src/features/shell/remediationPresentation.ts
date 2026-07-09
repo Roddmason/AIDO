@@ -14,6 +14,8 @@ import type { RemediationActionRecord } from '../../api/client';
 
 /** How the UI carries out one action: run the backend side effect, or navigate to a settings section. */
 export type RemediationActionKind = 'execute' | 'settings';
+type BlockerType = RemediationActionRecord['blockerType'];
+type ActionType = RemediationActionRecord['actionType'];
 
 /** i18n descriptor for a blocker type: a headline and a one-line "what happened" for non-experts. */
 type BlockerCopy = {
@@ -45,7 +47,7 @@ const GENERIC_BLOCKER: BlockerCopy = {
 };
 
 /** Plain-language copy for every blocker type the backend can raise. */
-export const BLOCKER_COPY: Record<string, BlockerCopy> = {
+export const BLOCKER_COPY: Record<BlockerType, BlockerCopy> = {
 	runtime_not_executable: {
 		titleKey: 'app.threads.remediation.blocker.runtime_not_executable.title',
 		titleFallback: 'No executable runtime',
@@ -86,11 +88,31 @@ export const BLOCKER_COPY: Record<string, BlockerCopy> = {
 		explanationFallback:
 			'The working tree has uncommitted changes AIDO will not overwrite on its own.',
 	},
+	git_status_failed: {
+		titleKey: 'app.threads.remediation.blocker.git_status_failed.title',
+		titleFallback: 'Git status failed',
+		explanationKey: 'app.threads.remediation.blocker.git_status_failed.explanation',
+		explanationFallback:
+			'AIDO could not read the project Git status, so it stopped before planning or execution.',
+		settingsSection: 'workspaces',
+		settingsLabelKey: 'app.threads.remediation.action.openWorkspaceSettings',
+		settingsLabelFallback: 'Open workspace settings',
+	},
 	git_branch_missing: {
 		titleKey: 'app.threads.remediation.blocker.git_branch_missing.title',
 		titleFallback: 'Working branch required',
 		explanationKey: 'app.threads.remediation.blocker.git_branch_missing.explanation',
 		explanationFallback: 'AIDO needs a working branch before it makes changes to the project.',
+	},
+	git_remote_missing: {
+		titleKey: 'app.threads.remediation.blocker.git_remote_missing.title',
+		titleFallback: 'Git remote is unavailable',
+		explanationKey: 'app.threads.remediation.blocker.git_remote_missing.explanation',
+		explanationFallback:
+			'The project has a configured Git remote, but the repository can no longer reach it.',
+		settingsSection: 'workspaces',
+		settingsLabelKey: 'app.threads.remediation.action.openWorkspaceSettings',
+		settingsLabelFallback: 'Open workspace settings',
 	},
 	gitleaks_missing: {
 		titleKey: 'app.threads.remediation.blocker.gitleaks_missing.title',
@@ -143,10 +165,148 @@ export const BLOCKER_COPY: Record<string, BlockerCopy> = {
 		explanationKey: 'app.threads.remediation.blocker.provider_health_failed.explanation',
 		explanationFallback: 'The provider failed its health check, so AIDO stopped before using it.',
 	},
+	resource_manager_unconfigured: {
+		titleKey: 'app.threads.remediation.blocker.resource_manager_unconfigured.title',
+		titleFallback: 'AI resource routing is not configured',
+		explanationKey: 'app.threads.remediation.blocker.resource_manager_unconfigured.explanation',
+		explanationFallback:
+			'ResourceManager could not choose a model/runtime for the scheduled team role.',
+		settingsSection: 'routing',
+		settingsLabelKey: 'app.threads.remediation.action.openRouting',
+		settingsLabelFallback: 'Open routing',
+	},
+	resource_manager_approval_required: {
+		titleKey: 'app.threads.remediation.blocker.resource_manager_approval_required.title',
+		titleFallback: 'AI resource approval required',
+		explanationKey:
+			'app.threads.remediation.blocker.resource_manager_approval_required.explanation',
+		explanationFallback:
+			'ResourceManager selected a model/runtime that needs review before execution.',
+		settingsSection: 'routing',
+		settingsLabelKey: 'app.threads.remediation.action.openRouting',
+		settingsLabelFallback: 'Open routing',
+	},
+	team_scheduler_failed: {
+		titleKey: 'app.threads.remediation.blocker.team_scheduler_failed.title',
+		titleFallback: 'Team scheduling failed',
+		explanationKey: 'app.threads.remediation.blocker.team_scheduler_failed.explanation',
+		explanationFallback:
+			'TeamScheduler could not produce the required role schedule, so execution is blocked.',
+		settingsSection: 'team',
+		settingsLabelKey: 'app.threads.remediation.action.openTeam',
+		settingsLabelFallback: 'Open team',
+	},
+	technical_lead_planning_failed: {
+		titleKey: 'app.threads.remediation.blocker.technical_lead_planning_failed.title',
+		titleFallback: 'Technical planning is incomplete',
+		explanationKey: 'app.threads.remediation.blocker.technical_lead_planning_failed.explanation',
+		explanationFallback:
+			'TechnicalLeadPlanner did not produce role tasks, so DeveloperAgent execution is blocked.',
+		settingsSection: 'team',
+		settingsLabelKey: 'app.threads.remediation.action.openTeam',
+		settingsLabelFallback: 'Open team',
+	},
+	product_owner_output_invalid: {
+		titleKey: 'app.threads.remediation.blocker.product_owner_output_invalid.title',
+		titleFallback: 'ProductOwnerAgent output is incomplete',
+		explanationKey: 'app.threads.remediation.blocker.product_owner_output_invalid.explanation',
+		explanationFallback:
+			'The ProductOwnerAgent did not produce a validated brief or backlog for this loop.',
+		settingsSection: 'team',
+		settingsLabelKey: 'app.threads.remediation.action.openTeam',
+		settingsLabelFallback: 'Open team',
+	},
+	research_required: {
+		titleKey: 'app.threads.remediation.blocker.research_required.title',
+		titleFallback: 'Research evidence required',
+		explanationKey: 'app.threads.remediation.blocker.research_required.explanation',
+		explanationFallback:
+			'AIDO must process a ResearchAgent job before accepting this high-impact decision.',
+		settingsSection: 'research',
+		settingsLabelKey: 'app.threads.remediation.action.openResearch',
+		settingsLabelFallback: 'Open research',
+	},
+	workspace_root_missing: {
+		titleKey: 'app.threads.remediation.blocker.workspace_root_missing.title',
+		titleFallback: 'Workspace root missing',
+		explanationKey: 'app.threads.remediation.blocker.workspace_root_missing.explanation',
+		explanationFallback:
+			'AIDO needs a project workspace root before it can allocate isolated execution.',
+		settingsSection: 'workspaces',
+		settingsLabelKey: 'app.threads.remediation.action.openWorkspaces',
+		settingsLabelFallback: 'Open workspaces',
+	},
+	workspace_allocation_failed: {
+		titleKey: 'app.threads.remediation.blocker.workspace_allocation_failed.title',
+		titleFallback: 'Workspace allocation failed',
+		explanationKey: 'app.threads.remediation.blocker.workspace_allocation_failed.explanation',
+		explanationFallback:
+			'AIDO could not create the isolated workspace or worktree needed for execution.',
+		settingsSection: 'workspaces',
+		settingsLabelKey: 'app.threads.remediation.action.openWorkspaces',
+		settingsLabelFallback: 'Open workspaces',
+	},
+	review_diff_unavailable: {
+		titleKey: 'app.threads.remediation.blocker.review_diff_unavailable.title',
+		titleFallback: 'Review diff is unavailable',
+		explanationKey: 'app.threads.remediation.blocker.review_diff_unavailable.explanation',
+		explanationFallback:
+			'The runtime finished, but AIDO could not capture real changed files for review.',
+	},
+	approval_unavailable: {
+		titleKey: 'app.threads.remediation.blocker.approval_unavailable.title',
+		titleFallback: 'Approval request is unavailable',
+		explanationKey: 'app.threads.remediation.blocker.approval_unavailable.explanation',
+		explanationFallback:
+			'QA and security evidence are ready, but AIDO could not create the approval request.',
+	},
+	resource_learning_failed: {
+		titleKey: 'app.threads.remediation.blocker.resource_learning_failed.title',
+		titleFallback: 'Resource learning failed',
+		explanationKey: 'app.threads.remediation.blocker.resource_learning_failed.explanation',
+		explanationFallback:
+			'AIDO could not persist the cost, token, or quality observation required before approval.',
+		settingsSection: 'routing',
+		settingsLabelKey: 'app.threads.remediation.action.openRouting',
+		settingsLabelFallback: 'Open routing',
+	},
+	project_assessment_failed: {
+		titleKey: 'app.threads.remediation.blocker.project_assessment_failed.title',
+		titleFallback: 'Project assessment failed',
+		explanationKey: 'app.threads.remediation.blocker.project_assessment_failed.explanation',
+		explanationFallback:
+			'AIDO could not read enough project context to hand off safely to ProductOwnerAgent.',
+		settingsSection: 'workspaces',
+		settingsLabelKey: 'app.threads.remediation.action.openWorkspaces',
+		settingsLabelFallback: 'Open workspaces',
+	},
+	functionality_memory_decision_required: {
+		titleKey: 'app.threads.remediation.blocker.functionality_memory_decision_required.title',
+		titleFallback: 'Similar functionality already exists',
+		explanationKey:
+			'app.threads.remediation.blocker.functionality_memory_decision_required.explanation',
+		explanationFallback:
+			'AIDO found existing work and needs your decision before creating or changing anything.',
+	},
+	thread_similarity_decision_required: {
+		titleKey: 'app.threads.remediation.blocker.thread_similarity_decision_required.title',
+		titleFallback: 'Similar thread found',
+		explanationKey:
+			'app.threads.remediation.blocker.thread_similarity_decision_required.explanation',
+		explanationFallback:
+			'AIDO found a related thread and needs your decision before starting duplicate work.',
+	},
+	thread_intake_decision_required: {
+		titleKey: 'app.threads.remediation.blocker.thread_intake_decision_required.title',
+		titleFallback: 'Thread decision required',
+		explanationKey: 'app.threads.remediation.blocker.thread_intake_decision_required.explanation',
+		explanationFallback:
+			'AIDO needs you to choose one of the available options before it queues the loop.',
+	},
 };
 
 /** Button label + execution kind for every backend action type. */
-export const ACTION_COPY: Record<string, ActionCopy> = {
+export const ACTION_COPY: Record<ActionType, ActionCopy> = {
 	open_settings_section: {
 		labelKey: 'app.threads.remediation.action.openConfiguration',
 		labelFallback: 'Open configuration',
@@ -173,6 +333,11 @@ export const ACTION_COPY: Record<string, ActionCopy> = {
 		labelFallback: 'Initialize Git',
 		kind: 'execute',
 	},
+	add_remote: {
+		labelKey: 'app.threads.remediation.action.addRemote',
+		labelFallback: 'Re-add remote',
+		kind: 'execute',
+	},
 	create_branch: {
 		labelKey: 'app.threads.remediation.action.createBranch',
 		labelFallback: 'Create branch',
@@ -194,9 +359,19 @@ export const ACTION_COPY: Record<string, ActionCopy> = {
 		labelFallback: 'Run now',
 		kind: 'execute',
 	},
+	check_network_access: {
+		labelKey: 'app.threads.remediation.action.checkNetworkAccess',
+		labelFallback: 'Check network access',
+		kind: 'execute',
+	},
 	answer_question: {
 		labelKey: 'app.threads.remediation.action.answerQuestion',
 		labelFallback: 'Answer question',
+		kind: 'execute',
+	},
+	approve_resource_decision: {
+		labelKey: 'app.threads.remediation.action.approveResourceDecision',
+		labelFallback: 'Approve resource',
 		kind: 'execute',
 	},
 	retry_loop: {
@@ -223,7 +398,7 @@ export type BlockerActionModel = {
 	labelKey: string;
 	labelFallback: string;
 	kind: RemediationActionKind;
-	/** Present for `execute` actions: the backend record to execute. */
+	/** Backend record behind the action; settings actions keep it so payload hints are not lost. */
 	remediation?: RemediationActionRecord;
 	/** Present for `settings` actions: the section to open. */
 	section?: string;
@@ -274,19 +449,28 @@ export function buildBlockerCards(remediations: RemediationActionRecord[]): Bloc
 		const copy = BLOCKER_COPY[first.blockerType] ?? GENERIC_BLOCKER;
 		const actions: BlockerActionModel[] = [];
 		const coveredSections = new Set<string>();
+		const seenActionTypes = new Set<string>();
 
 		if (copy.settingsSection) {
+			const contextualSettingsRecord = records.find((record) => {
+				const actionCopy = ACTION_COPY[record.actionType];
+				if (actionCopy?.kind !== 'settings') return false;
+				const section =
+					payloadString(record.payload, 'section') || actionCopy.section || 'providers-cli';
+				return section === copy.settingsSection;
+			});
 			actions.push({
 				id: `${key}:settings:${copy.settingsSection}`,
 				labelKey: copy.settingsLabelKey ?? 'app.threads.remediation.action.openConfiguration',
 				labelFallback: copy.settingsLabelFallback ?? 'Open configuration',
 				kind: 'settings',
 				section: copy.settingsSection,
+				remediation: contextualSettingsRecord,
 			});
 			coveredSections.add(copy.settingsSection);
+			if (contextualSettingsRecord) seenActionTypes.add(contextualSettingsRecord.actionType);
 		}
 
-		const seenActionTypes = new Set<string>();
 		for (const record of records) {
 			if (seenActionTypes.has(record.actionType)) continue;
 			seenActionTypes.add(record.actionType);
@@ -303,6 +487,7 @@ export function buildBlockerCards(remediations: RemediationActionRecord[]): Bloc
 					labelFallback: actionCopy.labelFallback,
 					kind: 'settings',
 					section,
+					remediation: record,
 				});
 				continue;
 			}

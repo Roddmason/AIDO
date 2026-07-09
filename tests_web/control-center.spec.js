@@ -1287,7 +1287,11 @@ test('GitBranchBar shows the dirty breakdown and a View changes exit when the tr
 });
 
 test('GitBranchBar lists changed, staged and untracked files in the changes dialog', async ({ page }) => {
-	await page.setViewportSize({ width: 1280, height: 900 });
+	// 1600px, not the 1280px the sibling git tests use: at 1280 the workbench grid squeezes
+	// `.workbench-primary` to 282px, the composer overflows it, and the "Run inspector" aside paints over
+	// the actions cluster — so this button is unclickable there. That overlap predates this test; it is a
+	// workbench layout defect, not a GitBranchBar one, and is deliberately not worked around here.
+	await page.setViewportSize({ width: 1600, height: 900 });
 	const project = await getActiveProject(page);
 	// Untracked-only tree: `git diff HEAD` reports nothing, so the file list is the ONLY thing that can
 	// tell the user their new file exists. An empty diff here must not read as "the tree is clean".

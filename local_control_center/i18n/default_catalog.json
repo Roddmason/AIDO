@@ -1151,6 +1151,34 @@
       "en": "No commits yet",
       "es": "Sin commits aún"
     },
+    "app.statusBar.git.whyGit": {
+      "en": "AIDO delivers work as branches, diffs and secret-scanned commits: without Git it cannot isolate what an agent changed, show you the diff, or roll it back.",
+      "es": "AIDO entrega el trabajo como ramas, diffs y commits escaneados en busca de secretos: sin Git no puede aislar lo que cambió un agente, mostrarte el diff ni revertirlo."
+    },
+    "app.statusBar.git.branchMissingPrefix": {
+      "en": "No commits yet — Git creates branch",
+      "es": "Sin commits aún — Git creará la rama"
+    },
+    "app.statusBar.git.branchMissingSuffix": {
+      "en": "with the first commit",
+      "es": "con el primer commit"
+    },
+    "app.statusBar.git.stagedHeading": {
+      "en": "Staged",
+      "es": "Preparados"
+    },
+    "app.statusBar.git.changedHeading": {
+      "en": "Changed",
+      "es": "Modificados"
+    },
+    "app.statusBar.git.untrackedHeading": {
+      "en": "Untracked",
+      "es": "Sin seguimiento"
+    },
+    "app.statusBar.git.untrackedNotInDiff": {
+      "en": "Untracked files are listed above but never appear in the diff against HEAD.",
+      "es": "Los archivos sin seguimiento se listan arriba, pero nunca aparecen en el diff contra HEAD."
+    },
     "app.statusBar.git.detachedHead": {
       "en": "Detached HEAD",
       "es": "HEAD separado"
@@ -9663,21 +9691,21 @@
       "en": "Phases",
       "es": "Fases"
     },
-    "app.threads.inspector.plan.next": {
-      "en": "Next expected phases",
-      "es": "Próximas fases esperadas"
-    },
-    "app.threads.inspector.plan.noNext": {
-      "en": "No further phases",
-      "es": "No quedan fases posteriores"
-    },
     "app.threads.inspector.plan.blockers": {
       "en": "Blockers",
       "es": "Bloqueos"
     },
-    "app.threads.inspector.plan.noBlockers": {
-      "en": "No blockers recorded.",
-      "es": "No hay bloqueos registrados."
+    "app.threads.inspector.plan.blockedTitle": {
+      "en": "Loop blocked",
+      "es": "Loop bloqueado"
+    },
+    "app.threads.inspector.plan.blockedCta": {
+      "en": "Go to the repair",
+      "es": "Ir a la reparación"
+    },
+    "app.threads.inspector.plan.blockedNoReason": {
+      "en": "The loop is blocked and recorded no machine reason.",
+      "es": "El loop está bloqueado y no registró una causa de máquina."
     },
     "app.threads.inspector.plan.transitions": {
       "en": "Recent transitions",

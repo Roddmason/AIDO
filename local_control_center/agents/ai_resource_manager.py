@@ -24,6 +24,16 @@ LOW_RISK_LEVELS = {"low", "routine"}
 HIGH_RISK_LEVELS = {"high", "critical", "security", "release"}
 CRITICAL_RISK_LEVELS = {"critical", "security", "release"}
 REMOTE_LOCALITIES = {"remote"}
+ROUTING_POLICY_MODES = {"economy", "balanced", "critical", "maximum"}
+ROUTING_POLICY_ALIASES = {
+    "balanced_best_value": "balanced",
+    "best_value": "balanced",
+    "free_first": "economy",
+    "low_cost": "economy",
+    "local_private": "economy",
+    "max_performance": "maximum",
+    "maximum_performance": "maximum",
+}
 TOKEN_KEYS = {
     "input": ("input_tokens", "prompt_tokens"),
     "cached_input": ("cached_input_tokens", "cached_prompt_tokens"),
@@ -45,6 +55,7 @@ class AIResourceRequest:
     privacy_level: str = "remote_allowed"
     budget_remaining_usd: float | None = None
     max_tokens: int | None = None
+    routing_policy: str = "balanced"
     allow_unknown_cost: bool = False
     require_approval_for_unknown_cost: bool = True
     require_multi_model_quorum: bool = False
@@ -139,6 +150,14 @@ def _normalized_risk(risk_level: str) -> str:
     if value in HIGH_RISK_LEVELS:
         return "high"
     return "medium"
+
+
+def _normalized_policy(routing_policy: str) -> str:
+    value = routing_policy.strip().lower().replace("-", "_")
+    mode = ROUTING_POLICY_ALIASES.get(value, value)
+    if mode not in ROUTING_POLICY_MODES:
+        raise ValueError(f"Unsupported AI routing policy: {routing_policy}")
+    return mode
 
 
 def _required_capabilities_missing(required: list[str], capabilities: list[str]) -> list[str]:
@@ -240,11 +259,14 @@ class AIResourceManager:
         candidates: list[dict[str, Any]] = []
         rejected: list[dict[str, Any]] = []
         risk = _normalized_risk(request.risk_level)
+        policy_mode = _normalized_policy(request.routing_policy)
+        effective_risk = "critical" if policy_mode == "critical" else risk
         budget_stop = False
         runtime_statuses: dict[str, dict[str, Any]] | None = None
         unknown_cost_policy: dict[str, Any] = {
             "action": "not_applicable",
             "reason": "cost_known_or_local",
+            "mode": policy_mode,
         }
         for model in self._list_enabled_models():
             rejection = self._hard_reject_reason(model, request)
@@ -262,7 +284,7 @@ class AIResourceManager:
                     rejected.append(self._rejected(model, runtime_rejection))
                     continue
             estimate = self._estimate_cost(model, request)
-            policy = self._unknown_cost_policy(model, request, estimate)
+            policy = self._unknown_cost_policy(model, request, estimate, policy_mode)
             if policy["action"] == "reject":
                 rejected.append(self._rejected(model, policy["reason"]))
                 unknown_cost_policy = policy
@@ -275,17 +297,18 @@ class AIResourceManager:
                 budget_stop = True
                 rejected.append(self._rejected(model, "budget_stop"))
                 continue
-            candidate = self._candidate(model, request, risk, estimate, policy)
+            candidate = self._candidate(model, request, effective_risk, policy_mode, estimate, policy)
             candidates.append(candidate)
 
         selected = max(candidates, key=lambda item: item["score"], default=None)
         if selected and selected.get("unknownCostPolicy", {}).get("action") != "not_applicable":
             unknown_cost_policy = selected["unknownCostPolicy"]
-        reviewer = self._select_reviewer(candidates, selected, risk)
+        reviewer = self._select_reviewer(candidates, selected, effective_risk)
         approval_required = self._requires_approval(
             selected=selected,
             unknown_cost_policy=unknown_cost_policy,
-            risk=risk,
+            risk=effective_risk,
+            policy_mode=policy_mode,
         )
         max_tokens = self._max_tokens(selected, request)
         context_window = int(selected["contextWindow"] or 0) if selected else 0
@@ -294,8 +317,8 @@ class AIResourceManager:
         )
         multi_model_quorum = bool(
             request.require_multi_model_quorum
-            or risk == "critical"
-            or (risk == "high" and selected is not None and selected["score"] < 0.72)
+            or effective_risk == "critical"
+            or (effective_risk == "high" and selected is not None and selected["score"] < 0.72)
         )
         decision = {
             "selected": self._public_selection(selected),
@@ -316,6 +339,9 @@ class AIResourceManager:
             "rejected": rejected,
             "scoreBreakdown": selected.get("scoreBreakdown", {}) if selected else {},
             "policyResult": {
+                "mode": policy_mode,
+                "riskLevel": risk,
+                "effectiveRiskLevel": effective_risk,
                 "unknownCostPolicy": unknown_cost_policy,
                 "scoring": "deterministic_explainable",
                 "opaqueMlUsed": False,
@@ -690,15 +716,25 @@ class AIResourceManager:
         model: dict[str, Any],
         request: AIResourceRequest,
         estimate: dict[str, Any],
+        policy_mode: str,
     ) -> dict[str, Any]:
         if estimate["estimatedCostUsd"] is not None or model["locality"] not in REMOTE_LOCALITIES:
-            return {"action": "not_applicable", "reason": "cost_known_or_local"}
+            return {"action": "not_applicable", "reason": "cost_known_or_local", "mode": policy_mode}
+        if policy_mode == "economy":
+            return {
+                "action": "reject",
+                "reason": "unknown_remote_cost_rejected_by_policy",
+                "providerId": model["providerId"],
+                "model": model["model"],
+                "mode": policy_mode,
+            }
         if request.allow_unknown_cost and not request.require_approval_for_unknown_cost:
             return {
                 "action": "allow",
                 "reason": "unknown_remote_cost_allowed_by_policy",
                 "providerId": model["providerId"],
                 "model": model["model"],
+                "mode": policy_mode,
             }
         if request.require_approval_for_unknown_cost:
             return {
@@ -706,12 +742,14 @@ class AIResourceManager:
                 "reason": "unknown_remote_cost_requires_approval",
                 "providerId": model["providerId"],
                 "model": model["model"],
+                "mode": policy_mode,
             }
         return {
             "action": "reject",
             "reason": "unknown_remote_cost_rejected_by_policy",
             "providerId": model["providerId"],
             "model": model["model"],
+            "mode": policy_mode,
         }
 
     def _candidate(
@@ -719,10 +757,11 @@ class AIResourceManager:
         model: dict[str, Any],
         request: AIResourceRequest,
         risk: str,
+        policy_mode: str,
         estimate: dict[str, Any],
         unknown_cost_policy: dict[str, Any],
     ) -> dict[str, Any]:
-        breakdown = self._score_breakdown(model, request, risk, estimate)
+        breakdown = self._score_breakdown(model, request, risk, policy_mode, estimate)
         return {
             **model,
             "estimatedCostUsd": estimate["estimatedCostUsd"],
@@ -744,69 +783,169 @@ class AIResourceManager:
         model: dict[str, Any],
         request: AIResourceRequest,
         risk: str,
+        policy_mode: str,
         estimate: dict[str, Any],
     ) -> dict[str, float]:
-        weights = self._weights_for_risk(risk)
+        weights = self._weights_for_policy(policy_mode, risk)
+        capability_match = self._capability_match(request.required_capabilities, model["capabilities"])
         quality = self._bounded(float(model["qualityScore"] or 0.5))
         success = self._bounded(float(model["observedSuccessRate"] or 0.5))
         rework = self._bounded(float(model["reworkRate"] or 0.0))
+        rework_rate_score = 1.0 - rework
         cost_efficiency = self._cost_efficiency(estimate["estimatedCostUsd"], request.budget_remaining_usd)
-        locality_fit = 1.0 if model["locality"] == "local" else 0.35 if risk == "low" else 0.65
+        cost_known = self._cost_known_score(model, estimate)
+        privacy_locality = self._privacy_locality_fit(model, request, risk, policy_mode)
         context_fit = self._context_fit(int(model["contextWindow"] or 0), request.context_tokens_estimate)
         latency_penalty = self._latency_penalty(model.get("observedLatencyMs"))
+        latency_score = 1.0 - latency_penalty
+        task_risk = self._task_risk_fit(model, risk)
         rework_penalty = rework * weights["rework"]
         score = (
-            quality * weights["quality"]
+            capability_match * weights["capability"]
+            + quality * weights["quality"]
             + success * weights["success"]
             + cost_efficiency * weights["cost"]
-            + locality_fit * weights["locality"]
+            + cost_known * weights["cost_known"]
+            + privacy_locality * weights["locality"]
             + context_fit * weights["context"]
-            - rework_penalty
-            - latency_penalty * weights["latency"]
+            + rework_rate_score * weights["rework"]
+            + latency_score * weights["latency"]
+            + task_risk * weights["task_risk"]
         )
         return {
             "score": round(score, 6),
+            "capabilityMatchScore": round(capability_match, 6),
+            "capabilityMatchContribution": round(capability_match * weights["capability"], 6),
             "qualityScore": round(quality * weights["quality"], 6),
             "observedSuccessScore": round(success, 6),
+            "historicalSuccessScore": round(success, 6),
             "observedSuccessContribution": round(success * weights["success"], 6),
             "costEfficiencyScore": round(cost_efficiency * weights["cost"], 6),
-            "localityFitScore": round(locality_fit * weights["locality"], 6),
+            "costKnownScore": round(cost_known, 6),
+            "costKnownContribution": round(cost_known * weights["cost_known"], 6),
+            "localityFitScore": round(privacy_locality * weights["locality"], 6),
+            "privacyLocalityScore": round(privacy_locality, 6),
+            "privacyLocalityContribution": round(privacy_locality * weights["locality"], 6),
             "contextFitScore": round(context_fit * weights["context"], 6),
+            "contextSizeScore": round(context_fit, 6),
+            "contextSizeContribution": round(context_fit * weights["context"], 6),
+            "reworkRateScore": round(rework_rate_score, 6),
+            "reworkRateContribution": round(rework_rate_score * weights["rework"], 6),
             "reworkPenalty": round(rework_penalty, 6),
+            "latencyScore": round(latency_score, 6),
+            "latencyContribution": round(latency_score * weights["latency"], 6),
             "latencyPenalty": round(latency_penalty * weights["latency"], 6),
+            "taskRiskScore": round(task_risk, 6),
+            "taskRiskContribution": round(task_risk * weights["task_risk"], 6),
             "priceKnown": 1.0 if estimate["priceKnown"] else 0.0,
         }
 
-    def _weights_for_risk(self, risk: str) -> dict[str, float]:
+    def _weights_for_policy(self, policy_mode: str, risk: str) -> dict[str, float]:
+        if policy_mode == "economy":
+            return {
+                "capability": 0.07,
+                "quality": 0.10,
+                "success": 0.12,
+                "cost": 0.28,
+                "cost_known": 0.10,
+                "locality": 0.18,
+                "context": 0.07,
+                "rework": 0.04,
+                "latency": 0.03,
+                "task_risk": 0.01,
+            }
+        if policy_mode == "maximum":
+            return {
+                "capability": 0.07,
+                "quality": 0.34,
+                "success": 0.18,
+                "cost": 0.03,
+                "cost_known": 0.03,
+                "locality": 0.04,
+                "context": 0.16,
+                "rework": 0.07,
+                "latency": 0.04,
+                "task_risk": 0.04,
+            }
+        if policy_mode == "critical" or risk in {"high", "critical"}:
+            return {
+                "capability": 0.08,
+                "quality": 0.31,
+                "success": 0.20,
+                "cost": 0.04,
+                "cost_known": 0.04,
+                "locality": 0.04,
+                "context": 0.12,
+                "rework": 0.11,
+                "latency": 0.02,
+                "task_risk": 0.04,
+            }
         if risk == "low":
             return {
-                "quality": 0.14,
-                "success": 0.20,
-                "cost": 0.34,
-                "locality": 0.24,
+                "capability": 0.08,
+                "quality": 0.12,
+                "success": 0.16,
+                "cost": 0.26,
+                "cost_known": 0.08,
+                "locality": 0.16,
                 "context": 0.08,
-                "rework": 0.20,
-                "latency": 0.04,
-            }
-        if risk in {"high", "critical"}:
-            return {
-                "quality": 0.40,
-                "success": 0.25,
-                "cost": 0.05,
-                "locality": 0.02,
-                "context": 0.14,
-                "rework": 0.30,
+                "rework": 0.04,
                 "latency": 0.03,
+                "task_risk": 0.01,
             }
         return {
-            "quality": 0.26,
-            "success": 0.24,
-            "cost": 0.20,
+            "capability": 0.08,
+            "quality": 0.22,
+            "success": 0.18,
+            "cost": 0.16,
+            "cost_known": 0.06,
             "locality": 0.10,
-            "context": 0.12,
-            "rework": 0.24,
-            "latency": 0.04,
+            "context": 0.10,
+            "rework": 0.06,
+            "latency": 0.02,
+            "task_risk": 0.02,
         }
+
+    def _capability_match(self, required: list[str], capabilities: list[str]) -> float:
+        required_values = {item.strip().lower() for item in required if item.strip()}
+        if not required_values:
+            return 1.0
+        available = {item.strip().lower() for item in capabilities if item.strip()}
+        return len(required_values & available) / len(required_values)
+
+    def _cost_known_score(self, model: dict[str, Any], estimate: dict[str, Any]) -> float:
+        if model["locality"] not in REMOTE_LOCALITIES:
+            return 1.0
+        return 1.0 if estimate["priceKnown"] else 0.0
+
+    def _privacy_locality_fit(
+        self,
+        model: dict[str, Any],
+        request: AIResourceRequest,
+        risk: str,
+        policy_mode: str,
+    ) -> float:
+        if model["locality"] == "local":
+            return 1.0
+        if request.privacy_level == "local_private":
+            return 0.0
+        if request.privacy_level in {"private", "sensitive", "confidential"}:
+            return 0.35
+        if policy_mode == "economy":
+            return 0.45
+        if risk == "low":
+            return 0.55
+        return 0.75
+
+    def _task_risk_fit(self, model: dict[str, Any], risk: str) -> float:
+        quality = self._bounded(float(model["qualityScore"] or 0.5))
+        success = self._bounded(float(model["observedSuccessRate"] or 0.5))
+        rework_fit = 1.0 - self._bounded(float(model["reworkRate"] or 0.0))
+        if risk in {"high", "critical"}:
+            return self._bounded((quality * 0.45) + (success * 0.45) + (rework_fit * 0.10))
+        if risk == "low":
+            return 1.0 if success >= 0.70 else 0.70
+        return self._bounded((quality * 0.35) + (success * 0.45) + (rework_fit * 0.20))
 
     def _cost_efficiency(self, estimated_cost: float | None, budget_remaining: float | None) -> float:
         if estimated_cost is None:
@@ -849,12 +988,13 @@ class AIResourceManager:
         selected: dict[str, Any] | None,
         unknown_cost_policy: dict[str, Any],
         risk: str,
+        policy_mode: str,
     ) -> bool:
         if selected is None:
             return False
         if unknown_cost_policy.get("action") == "require_approval":
             return True
-        return risk == "critical"
+        return risk == "critical" or policy_mode == "critical"
 
     def _max_tokens(self, selected: dict[str, Any] | None, request: AIResourceRequest) -> int | None:
         if selected is None:

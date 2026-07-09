@@ -18,6 +18,8 @@ from local_control_center.team_scheduler.scheduler import ALL_ROLES, resolve_rol
 TECHNICAL_LEAD_PLANNER_ID = "technical_lead_planner"
 
 ROLE_ALIASES = {
+    "tl": "technical_lead",
+    "tech_lead": "technical_lead",
     "backend": "backend_engineer",
     "backend_developer": "backend_engineer",
     "frontend": "frontend_engineer",
@@ -31,6 +33,8 @@ ROLE_ALIASES = {
 }
 
 ROLE_ORDER = {
+    "technical_lead": 5,
+    "architect": 8,
     "backend_engineer": 10,
     "database_engineer": 15,
     "data_engineer": 16,
@@ -49,6 +53,7 @@ IMPLEMENTATION_ROLES = {
     "database_engineer",
     "data_engineer",
 }
+COORDINATION_ROLES = {"technical_lead", "architect"}
 REVIEW_ROLES = {"qa_engineer", "security_engineer", "pentester"}
 DEVOPS_ROLE = "devops_engineer"
 KNOWN_RISKS = {"low", "medium", "high", "critical"}
@@ -106,6 +111,26 @@ SECURITY_HINTS = (
     "pentest",
     "threat",
 )
+EXPOSED_SURFACE_HINTS = (
+    "public",
+    "external",
+    "exposed",
+    "internet-facing",
+    "webhook",
+    "partner system",
+    "authenticated portal",
+)
+ARCHITECTURE_HINTS = (
+    "architecture",
+    "architectural",
+    "adr",
+    "migration",
+    "modernization",
+    "modernize",
+    "integration",
+    "new system",
+    "contract",
+)
 DEVOPS_HINTS = (
     "build",
     "deploy",
@@ -145,6 +170,8 @@ DEVOPS_FILE_HINTS = (
 )
 
 ROLE_FILE_HINTS = {
+    "technical_lead": ["backlog", "product_loop", "tests_py"],
+    "architect": ["architecture", "docs/adr", "contracts"],
     "backend_engineer": ["api", "service", "repository", "models", "tests_py"],
     "frontend_engineer": ["web/src", "components", "features", ".tsx", ".css"],
     "mobile_engineer": ["mobile", "app"],
@@ -157,6 +184,8 @@ ROLE_FILE_HINTS = {
 }
 
 ROLE_GOALS = {
+    "technical_lead": "Turn ProductOwner intent into an executable technical plan and validate handoffs.",
+    "architect": "Validate architecture, contract and migration decisions required by the story.",
     "backend_engineer": "Implement backend/API behavior required by the story and its acceptance criteria.",
     "frontend_engineer": "Implement the user-facing UI behavior required by the story and its acceptance criteria.",
     "mobile_engineer": "Implement the mobile client behavior required by the story and its acceptance criteria.",
@@ -260,6 +289,8 @@ def _available_team_from_payload(payload: dict[str, Any]) -> list[dict[str, Any]
     return [
         {"agentId": f"planned-{role}", "role": role}
         for role in (
+            "technical_lead",
+            "architect",
             "backend_engineer",
             "frontend_engineer",
             "qa_engineer",
@@ -381,7 +412,58 @@ def _security_active(
     assessment: dict[str, Any],
 ) -> bool:
     text = _haystack(story, criteria, product_brief, intent, risk_context, assessment)
-    return risk_context["level"] in HIGH_RISKS or any(hint in text for hint in SECURITY_HINTS)
+    return (
+        risk_context["level"] in HIGH_RISKS
+        or any(hint in text for hint in SECURITY_HINTS)
+        or any(hint in text for hint in EXPOSED_SURFACE_HINTS)
+    )
+
+
+def _pentest_active(
+    *,
+    story: dict[str, Any],
+    criteria: list[dict[str, Any]],
+    product_brief: dict[str, Any],
+    intent: dict[str, Any],
+    risk_context: dict[str, Any],
+    assessment: dict[str, Any],
+) -> bool:
+    text = _haystack(story, criteria, product_brief, intent, risk_context, assessment)
+    return risk_context["level"] in HIGH_RISKS or "pentest" in text or any(
+        hint in text for hint in EXPOSED_SURFACE_HINTS
+    )
+
+
+def _architecture_active(
+    *,
+    story: dict[str, Any],
+    criteria: list[dict[str, Any]],
+    product_brief: dict[str, Any],
+    intent: dict[str, Any],
+    risk_context: dict[str, Any],
+    assessment: dict[str, Any],
+) -> bool:
+    text = _haystack(story, criteria, product_brief, intent, risk_context, assessment)
+    return risk_context["level"] in HIGH_RISKS or any(hint in text for hint in ARCHITECTURE_HINTS)
+
+
+def _technical_lead_active(
+    *,
+    story: dict[str, Any],
+    criteria: list[dict[str, Any]],
+    product_brief: dict[str, Any],
+    intent: dict[str, Any],
+    risk_context: dict[str, Any],
+    assessment: dict[str, Any],
+) -> bool:
+    return _architecture_active(
+        story=story,
+        criteria=criteria,
+        product_brief=product_brief,
+        intent=intent,
+        risk_context=risk_context,
+        assessment=assessment,
+    )
 
 
 def _devops_active(
@@ -417,6 +499,10 @@ def _roles_for_story(
         ]
     ]
     roles = [role for role in explicit_roles if role in IMPLEMENTATION_ROLES]
+    if "technical_lead" in explicit_roles:
+        roles.append("technical_lead")
+    if "architect" in explicit_roles:
+        roles.append("architect")
     scope = _story_scope(story, product_brief, assessment)
     if "backend" in scope:
         roles.append("backend_engineer")
@@ -437,6 +523,24 @@ def _roles_for_story(
             "backend_engineer",
         )
         roles.append(fallback)
+    if _technical_lead_active(
+        story=story,
+        criteria=criteria,
+        product_brief=product_brief,
+        intent=intent,
+        risk_context=risk_context,
+        assessment=assessment,
+    ):
+        roles.append("technical_lead")
+    if _architecture_active(
+        story=story,
+        criteria=criteria,
+        product_brief=product_brief,
+        intent=intent,
+        risk_context=risk_context,
+        assessment=assessment,
+    ):
+        roles.append("architect")
     if any(role in IMPLEMENTATION_ROLES for role in roles):
         roles.append("qa_engineer")
     if _security_active(
@@ -447,7 +551,16 @@ def _roles_for_story(
         risk_context=risk_context,
         assessment=assessment,
     ):
-        roles.extend(["security_engineer", "pentester"])
+        roles.append("security_engineer")
+        if _pentest_active(
+            story=story,
+            criteria=criteria,
+            product_brief=product_brief,
+            intent=intent,
+            risk_context=risk_context,
+            assessment=assessment,
+        ):
+            roles.append("pentester")
     if _devops_active(story=story, product_brief=product_brief, intent=intent, assessment=assessment):
         roles.append(DEVOPS_ROLE)
     return sorted(
@@ -505,10 +618,20 @@ def _task_dependencies(tasks: list[dict[str, Any]]) -> list[dict[str, str]]:
     dependencies: list[dict[str, str]] = []
     for story_tasks in by_story.values():
         implementation = [task for task in story_tasks if task["role"] in IMPLEMENTATION_ROLES]
+        technical_lead = next((task for task in story_tasks if task["role"] == "technical_lead"), None)
+        architect = next((task for task in story_tasks if task["role"] == "architect"), None)
         security = next((task for task in story_tasks if task["role"] == "security_engineer"), None)
         pentester = next((task for task in story_tasks if task["role"] == "pentester"), None)
         devops = next((task for task in story_tasks if task["role"] == DEVOPS_ROLE), None)
         qa = next((task for task in story_tasks if task["role"] == "qa_engineer"), None)
+        if technical_lead and architect:
+            dependencies.append({"taskId": architect["id"], "dependsOnTaskId": technical_lead["id"]})
+        if technical_lead:
+            dependencies.extend(
+                {"taskId": task["id"], "dependsOnTaskId": technical_lead["id"]} for task in implementation
+            )
+        if architect:
+            dependencies.extend({"taskId": task["id"], "dependsOnTaskId": architect["id"]} for task in implementation)
         if security:
             dependencies.extend(
                 {"taskId": security["id"], "dependsOnTaskId": task["id"]} for task in implementation
@@ -536,6 +659,31 @@ def _task_dependencies(tasks: list[dict[str, Any]]) -> list[dict[str, str]]:
     return unique
 
 
+def _handoff_record(
+    *,
+    from_role: str,
+    to_role: str,
+    artifact_contract: str,
+    phase: str,
+    from_task_id: str | None = None,
+    to_task_id: str | None = None,
+    review_required: bool = False,
+) -> dict[str, Any]:
+    source = from_task_id or from_role
+    target = to_task_id or to_role
+    return {
+        "id": f"handoff-{_slug(source)}-to-{_slug(target)}-{_slug(phase)}",
+        "fromTaskId": from_task_id,
+        "toTaskId": to_task_id,
+        "fromRole": from_role,
+        "toRole": to_role,
+        "artifactContract": artifact_contract,
+        "phase": phase,
+        "status": "planned",
+        "reviewRequired": review_required,
+    }
+
+
 def _assignment_handoffs(tasks: list[dict[str, Any]], dependencies: list[dict[str, str]]) -> list[dict[str, Any]]:
     by_id = {task["id"]: task for task in tasks}
     handoffs: list[dict[str, Any]] = []
@@ -543,18 +691,75 @@ def _assignment_handoffs(tasks: list[dict[str, Any]], dependencies: list[dict[st
         upstream = by_id[dependency["dependsOnTaskId"]]
         downstream = by_id[dependency["taskId"]]
         handoffs.append(
-            {
-                "id": f"handoff-{upstream['id']}-to-{downstream['id']}",
-                "fromTaskId": upstream["id"],
-                "toTaskId": downstream["id"],
-                "fromRole": upstream["role"],
-                "toRole": downstream["role"],
-                "artifactContract": "agent_task_output",
-                "status": "planned",
-                "reviewRequired": downstream["role"] in REVIEW_ROLES,
-            }
+            _handoff_record(
+                from_task_id=upstream["id"],
+                to_task_id=downstream["id"],
+                from_role=upstream["role"],
+                to_role=downstream["role"],
+                artifact_contract="agent_task_output",
+                phase="task_dependency",
+                review_required=downstream["role"] in REVIEW_ROLES,
+            )
         )
-    return handoffs
+    by_story: dict[str, list[dict[str, Any]]] = {}
+    for task in tasks:
+        by_story.setdefault(task["storyId"], []).append(task)
+    for story_tasks in by_story.values():
+        technical_lead = next((task for task in story_tasks if task["role"] == "technical_lead"), None)
+        implementation = [task for task in story_tasks if task["role"] in IMPLEMENTATION_ROLES]
+        if technical_lead:
+            handoffs.append(
+                _handoff_record(
+                    to_task_id=technical_lead["id"],
+                    from_role="product_owner",
+                    to_role="technical_lead",
+                    artifact_contract="product_owner_output",
+                    phase="po_to_tl",
+                )
+            )
+            handoffs.extend(
+                [
+                    _handoff_record(
+                        from_task_id=technical_lead["id"],
+                        to_task_id=task["id"],
+                        from_role="technical_lead",
+                        to_role=task["role"],
+                        artifact_contract="technical_plan",
+                        phase="tl_to_dev",
+                    )
+                    for task in implementation
+                ]
+            )
+        for task in story_tasks:
+            if task["role"] not in {"qa_engineer", "security_engineer"}:
+                continue
+            reviewer_role = task.get("reviewerRole") or "technical_lead"
+            reviewer_task = next((candidate for candidate in story_tasks if candidate["role"] == reviewer_role), None)
+            handoffs.append(
+                _handoff_record(
+                    from_task_id=task["id"],
+                    to_task_id=reviewer_task["id"] if reviewer_task else None,
+                    from_role=task["role"],
+                    to_role=reviewer_role,
+                    artifact_contract="review_request",
+                    phase="qa_security_to_review",
+                    review_required=True,
+                )
+            )
+    seen: set[tuple[str | None, str | None, str, str, str]] = set()
+    unique: list[dict[str, Any]] = []
+    for handoff in handoffs:
+        key = (
+            handoff.get("fromTaskId"),
+            handoff.get("toTaskId"),
+            handoff["fromRole"],
+            handoff["toRole"],
+            handoff["phase"],
+        )
+        if key not in seen:
+            seen.add(key)
+            unique.append(handoff)
+    return unique
 
 
 def _branch_worktree_plan(
@@ -661,9 +866,14 @@ class TechnicalLeadPlanner:
                         "requiredTools": profile["requiredTools"],
                         "runtimePreference": profile["runtimePreference"],
                         "reviewerRole": profile["reviewerRole"],
+                        "qualityGates": profile["qualityGates"],
                         "risk": risk_context,
                         "description": ROLE_GOALS.get(role, "Complete role-specific work for the story."),
-                        "category": "verification" if role in REVIEW_ROLES else "implementation",
+                        "category": "verification"
+                        if role in REVIEW_ROLES
+                        else "coordination"
+                        if role in COORDINATION_ROLES
+                        else "implementation",
                         "priority": story.get("priority") or "medium",
                         "metadata": {
                             "source": TECHNICAL_LEAD_PLANNER_ID,
@@ -674,6 +884,7 @@ class TechnicalLeadPlanner:
                             "requiredTools": profile["requiredTools"],
                             "runtimePreference": profile["runtimePreference"],
                             "reviewerRole": profile["reviewerRole"],
+                            "qualityGates": profile["qualityGates"],
                             "risk": risk_context,
                         },
                     }

@@ -327,6 +327,7 @@ class ModelRouter:
             project_id=request.project_id,
             task_type=request.task_type,
             risk_level=request.risk_level,
+            routing_policy=self._ai_routing_policy(request),
             context_tokens_estimate=request.context_tokens_estimate,
             required_capabilities=self._ai_required_capabilities(request),
             privacy_level=request.privacy_level,
@@ -373,6 +374,18 @@ class ModelRouter:
         row = self.connection.execute("SELECT 1 FROM ai_model_performance WHERE enabled = 1 LIMIT 1").fetchone()
         return row is not None
 
+    def _ai_routing_policy(self, request: RoutingRequest) -> str:
+        mode = request.mode.strip().lower().replace("-", "_")
+        if mode in {"economy", "free_first", "low_cost", "local_private"}:
+            return "economy"
+        if mode in {"critical"}:
+            return "critical"
+        if mode in {"maximum", "max_performance", "maximum_performance"}:
+            return "maximum"
+        if request.risk_level.strip().lower() in {"critical", "security", "release"}:
+            return "critical"
+        return "balanced"
+
     def _ai_required_capabilities(self, request: RoutingRequest) -> list[str]:
         capabilities: list[str] = []
         if request.requires_code_edit:
@@ -401,6 +414,7 @@ class ModelRouter:
         policy_result = {
             "requiresApproval": bool(decision.get("approvalRequired")),
             "rolePolicyId": role_policy["id"],
+            "mode": decision.get("policyResult", {}).get("mode", "balanced"),
             "maxCostPerTaskUsd": role_policy.get("maxCostPerTaskUsd"),
             "allowUnknownCost": bool(role_policy.get("allowUnknownCost", False)),
             "requireApprovalForUnknownCost": bool(role_policy.get("requireApprovalForUnknownCost", True)),

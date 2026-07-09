@@ -26,13 +26,19 @@ from .credentials import CredentialResolver
 from .developer_agent_contract import developer_agent_readiness
 from .model_gateway import cached_ollama_status
 from .provider_accounts import ProviderAccountStore
-from .runtime_provider_config import RuntimeProviderConfiguration, runtime_provider_configuration
+from .runtime_provider_config import (
+    DEFAULT_OLLAMA_BASE_URL,
+    KNOWN_PROVIDER_DEFAULT_BASE_URLS,
+    RuntimeProviderConfiguration,
+    runtime_provider_configuration,
+)
 from .runtime_registry import RuntimeRegistry
 
 RUNTIME_MODES = ["api", "cli", "ollama", "hybrid", "manual"]
 CLI_RUNTIME_IDS = {"codex_cli", "claude_code_cli", "openhands", "swe_agent"}
 API_RUNTIME_KINDS = {"api", "gateway"}
 OPENAI_COMPATIBLE_FORMATS = {"openai_compatible", "responses"}
+OPENAI_COMPATIBLE_KNOWN_BASE_URL_PROVIDERS = set(KNOWN_PROVIDER_DEFAULT_BASE_URLS) - {"anthropic_api"}
 CLI_EXECUTABLE_TOKENS = {
     "codex_cli": ("codex",),
     "claude_code_cli": ("claude",),
@@ -160,12 +166,15 @@ def _status_payload(
 
 def _api_required_configuration(account: dict[str, Any]) -> list[str]:
     api_format = str(account.get("apiFormat") or "")
+    provider_id = str(account["providerId"])
     if api_format == "ollama":
         return ["baseUrl", "model"]
-    if api_format in OPENAI_COMPATIBLE_FORMATS or account["providerId"] in {"openai_compatible", "litellm"}:
-        return ["baseUrl", "apiKey", "model"]
-    if account["providerId"] == "anthropic_api":
+    if provider_id == "anthropic_api":
         return ["apiKey", "model"]
+    if provider_id in OPENAI_COMPATIBLE_KNOWN_BASE_URL_PROVIDERS:
+        return ["apiKey", "model"]
+    if api_format in OPENAI_COMPATIBLE_FORMATS or provider_id in {"openai_compatible", "litellm"}:
+        return ["baseUrl", "apiKey", "model"]
     return ["baseUrl", "apiKey"]
 
 
@@ -439,7 +448,7 @@ def _ollama_provider_status(
         or str(account.get("baseUrl") or "").strip()
         or os.environ.get("OLLAMA_BASE_URL")
         or os.environ.get("OLLAMA_HOST")
-        or ""
+        or (DEFAULT_OLLAMA_BASE_URL if str(account.get("providerId") or "") == "ollama" else "")
     )
     credential_ref = str(account.get("credentialRef") or "").strip() or None
     status = (
@@ -585,14 +594,19 @@ class RuntimeStatusService:
             provider_capabilities = capabilities.get(provider_id, [])
             provider_type = str(account.get("providerType") or "")
             api_format = str(account.get("apiFormat") or "")
+            if api_format == "ollama" and not provider_capabilities:
+                provider_capabilities = capabilities.get("ollama", ["chat"])
             policy_decision = runtime_repo.runtime_policy_decision(
                 provider_id=provider_id, kind=provider_type, project_id=project_id
             )
             if provider_id == "ollama" or api_format == "ollama":
+                ollama_installation = runtime_installations.get(provider_id) or runtime_installations.get(
+                    "ollama"
+                )
                 statuses.append(
                     _ollama_provider_status(
                         account,
-                        runtime_installations.get(provider_id),
+                        ollama_installation,
                         provider_capabilities,
                         policy_decision,
                         configurations.get(provider_id),
@@ -652,10 +666,15 @@ class RuntimeStatusService:
         runtime_repo = RuntimeConfigRepository(self.connection)
         policy = runtime_repo.runtime_execution_policy(project_id=project_id)
         providers = self.list_provider_statuses(project_id=project_id)
+        ollama_provider_ids = {
+            str(account["providerId"])
+            for account in self.accounts.list_provider_accounts()
+            if account["providerId"] == "ollama" or str(account.get("apiFormat") or "") == "ollama"
+        }
         ollama_providers = [
             provider
             for provider in providers
-            if provider["id"] == "ollama" or str(provider["id"]).startswith("ollama-")
+            if provider["id"] in ollama_provider_ids or str(provider["id"]).startswith("ollama-")
         ]
         ollama = next((provider for provider in ollama_providers if provider["id"] == "ollama"), None)
         ollama_available = next((provider for provider in ollama_providers if provider["available"]), None)

@@ -2179,7 +2179,7 @@ def test_model_gateway_plans_allowed_model_call_without_recording_cost_usage(tmp
         assert result["modelCall"]["status"] == "planned"
         assert result["modelCall"]["promptTokens"] == 0
         assert result["modelCall"]["completionTokens"] == 0
-        assert result["modelCall"]["costUsd"] == 0.0
+        assert result["modelCall"]["costUsd"] is None
         assert agents.list_cost_usage() == []
 
 

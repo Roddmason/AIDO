@@ -175,7 +175,9 @@ RUNTIME_PROVIDER_CONFIG_SPECS: tuple[RuntimeProviderConfigSpec, ...] = (
         kind="api",
         variables=(
             RuntimeConfigVariableSpec("apiKey", "AIDO_NVIDIA_API_KEY", secret=True),
-            RuntimeConfigVariableSpec("baseUrl", "AIDO_NVIDIA_BASE_URL", secret=False),
+            RuntimeConfigVariableSpec(
+                "baseUrl", "AIDO_NVIDIA_BASE_URL", secret=False, required=False
+            ),
             RuntimeConfigVariableSpec("model", "AIDO_NVIDIA_MODEL", secret=False),
         ),
     ),
@@ -240,6 +242,26 @@ RUNTIME_PROVIDER_CONFIG_SPECS: tuple[RuntimeProviderConfigSpec, ...] = (
 
 
 _CONFIG_SPECS_BY_PROVIDER = {spec.provider_id: spec for spec in RUNTIME_PROVIDER_CONFIG_SPECS}
+
+DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434"
+
+KNOWN_PROVIDER_DEFAULT_BASE_URLS: dict[str, str] = {
+    "anthropic_api": "https://api.anthropic.com/v1",
+    "deepseek": "https://api.deepseek.com/v1",
+    "gemini": "https://generativelanguage.googleapis.com/v1beta/openai",
+    "groq": "https://api.groq.com/openai/v1",
+    "kimi": "https://api.moonshot.ai/v1",
+    "mistral": "https://api.mistral.ai/v1",
+    "nvidia_nim": "https://integrate.api.nvidia.com/v1",
+    "openai": "https://api.openai.com/v1",
+    "openai_api": "https://api.openai.com/v1",
+    "openrouter": "https://openrouter.ai/api/v1",
+}
+
+
+def known_provider_default_base_url(provider_id: str) -> str | None:
+    """Return the official default endpoint for known API providers, if AIDO owns one."""
+    return KNOWN_PROVIDER_DEFAULT_BASE_URLS.get(str(provider_id or "").strip())
 
 
 def _env_value(environ: Mapping[str, str], name: str) -> str | None:

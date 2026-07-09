@@ -23,6 +23,7 @@ from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.telemetry import record_model_call
 
 from .repository import AgentsRepository
+from .runtime_provider_config import DEFAULT_OLLAMA_BASE_URL
 
 LOCAL_MODEL_PROVIDERS = {"ollama", "local_ollama"}
 REMOTE_MODEL_PROVIDERS = {"openai", "openai_compatible", "openai_agents", "openrouter"}
@@ -74,18 +75,22 @@ def provider_instance(provider_id: str, *, connection: sqlite3.Connection):
     from .providers.openai_api import OpenAIAPIProvider
     from .providers.openai_compatible import OpenAICompatibleProvider
     from .providers.openrouter import OpenRouterProvider
-    from .runtime_provider_config import runtime_provider_configuration
+    from .runtime_provider_config import known_provider_default_base_url, runtime_provider_configuration
 
     try:
         account = ProviderAccountStore(connection).get_provider_account(provider_id)
     except KeyError:
         account = {}
     runtime_configuration = runtime_provider_configuration(provider_id)
-    base_url = (
-        (runtime_configuration.value("baseUrl") if runtime_configuration else None)
-        or account.get("baseUrl")
-        or None
+    runtime_base_url = runtime_configuration.value("baseUrl") if runtime_configuration else None
+    account_base_url = str(account.get("baseUrl") or "").strip()
+    is_endpoint_scoped_ollama = (
+        account.get("apiFormat") == "ollama" and provider_id not in {"ollama", "local_ollama"}
     )
+    if is_endpoint_scoped_ollama:
+        base_url = runtime_base_url if runtime_base_url is not None else account_base_url
+    else:
+        base_url = runtime_base_url or account_base_url or known_provider_default_base_url(provider_id) or None
     credential_ref = (
         (runtime_configuration.configured_env_ref("apiKey") if runtime_configuration else None)
         or account.get("credentialRef")
@@ -201,7 +206,7 @@ class ModelGateway:
         agent_run_id: str | None = None,
         prompt_tokens: int = 0,
         completion_tokens: int = 0,
-        cost_usd: float = 0.0,
+        cost_usd: float | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Graba un model_call con su consumo y emite la telemetría asociada."""
@@ -399,7 +404,7 @@ class ModelGateway:
             status="completed",
             prompt_tokens=usage_result["promptTokens"],
             completion_tokens=usage_result["completionTokens"],
-            cost_usd=float(usage_result["actualCostUsd"] or 0.0),
+            cost_usd=usage_result["actualCostUsd"],
             metadata={
                 "usageLedgerId": usage_result["usage"]["id"],
                 "tokenStatus": usage_result["tokenStatus"],
@@ -722,7 +727,7 @@ def ollama_status(*, base_url: str | None = None, credential_ref: str | None = N
     (available=False con motivo) si el credentialRef esta configurado pero no resuelve, y difiere las
     fuentes de secreto remoto a un health-check explicito. Por defecto (local) no envia credencial.
     """
-    resolved_base_url = (base_url or "http://127.0.0.1:11434").rstrip("/")
+    resolved_base_url = (base_url or DEFAULT_OLLAMA_BASE_URL).rstrip("/")
     headers, blocking_reason = _ollama_status_auth(credential_ref)
     if blocking_reason:
         return {"provider": "ollama", "available": False, "models": [], "reason": blocking_reason}

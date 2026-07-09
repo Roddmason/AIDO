@@ -195,7 +195,9 @@ class UsageLedger:
             """
             SELECT COALESCE(SUM(total_tokens), 0) AS total_tokens,
                    COALESCE(SUM(estimated_cost_usd), 0) AS estimated_cost,
-                   COALESCE(SUM(actual_cost_usd), 0) AS actual_cost
+                   SUM(actual_cost_usd) AS actual_cost,
+                   COUNT(*) AS total_rows,
+                   COUNT(actual_cost_usd) AS actual_cost_rows
             FROM usage_ledger
             """
         ).fetchone()
@@ -208,10 +210,15 @@ class UsageLedger:
             ORDER BY provider_id ASC
             """
         ).fetchall()
+        actual_cost_usd = (
+            float(row["actual_cost"] or 0)
+            if int(row["actual_cost_rows"] or 0) == int(row["total_rows"] or 0)
+            else None
+        )
         return {
             "totalTokens": int(row["total_tokens"] or 0),
             "estimatedCostUsd": float(row["estimated_cost"] or 0),
-            "actualCostUsd": float(row["actual_cost"] or 0),
+            "actualCostUsd": actual_cost_usd,
             "byProvider": [
                 {
                     "providerId": item["provider_id"],

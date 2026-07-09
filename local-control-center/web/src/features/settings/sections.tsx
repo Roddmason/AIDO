@@ -95,6 +95,8 @@ export type SectionContext = {
 	scope: 'general' | 'project';
 	/** Scope id (project id for project sections, null for general). */
 	scopeId: string | null;
+	/** Provider id the runtime setup section should preselect when opened from a remediation. */
+	initialProviderId: string | null;
 	/** Closes the Settings modal; sections whose links navigate to another page
 	 *  must call it so the overlay never survives the navigation it triggered. */
 	closeSettings: () => void;
@@ -249,6 +251,7 @@ export const GENERAL_SECTIONS: SectionDefinition[] = [
 				runtimeProviderConfiguration={ctx.runtimeProviderConfiguration}
 				token={ctx.token}
 				onRefresh={ctx.onRefresh}
+				initialProviderId={ctx.initialProviderId}
 				onNavigate={ctx.closeSettings}
 			/>
 		),

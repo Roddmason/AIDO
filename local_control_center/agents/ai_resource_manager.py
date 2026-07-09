@@ -15,6 +15,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
+from local_control_center.agents.runtime_status import RuntimeStatusService
 from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.serialization import json_dumps, json_loads
 from local_control_center.shared.time import utc_now
@@ -240,6 +241,7 @@ class AIResourceManager:
         rejected: list[dict[str, Any]] = []
         risk = _normalized_risk(request.risk_level)
         budget_stop = False
+        runtime_statuses: dict[str, dict[str, Any]] | None = None
         unknown_cost_policy: dict[str, Any] = {
             "action": "not_applicable",
             "reason": "cost_known_or_local",
@@ -249,6 +251,16 @@ class AIResourceManager:
             if rejection:
                 rejected.append(self._rejected(model, rejection))
                 continue
+            if self._requires_runtime_executable_gate(model):
+                if runtime_statuses is None:
+                    runtime_statuses = self._runtime_statuses_by_provider(project_id=request.project_id)
+                runtime_rejection = self._runtime_executable_reject_reason(
+                    model=model,
+                    runtime_statuses=runtime_statuses,
+                )
+                if runtime_rejection:
+                    rejected.append(self._rejected(model, runtime_rejection))
+                    continue
             estimate = self._estimate_cost(model, request)
             policy = self._unknown_cost_policy(model, request, estimate)
             if policy["action"] == "reject":
@@ -409,6 +421,13 @@ class AIResourceManager:
                 utc_now(),
             ),
         )
+        if token_values["total"] is not None:
+            self._record_observed_tokens(
+                provider_id=provider_id,
+                model=model,
+                runtime=runtime,
+                total_tokens=token_values["total"],
+            )
         row = self.connection.execute(
             "SELECT * FROM ai_cost_observations WHERE id = ?", (observation_id,)
         ).fetchone()
@@ -523,6 +542,55 @@ class AIResourceManager:
         ).fetchone()
         return _row_to_model(row) if row else None
 
+    def _record_observed_tokens(
+        self,
+        *,
+        provider_id: str,
+        model: str,
+        runtime: str,
+        total_tokens: int,
+    ) -> None:
+        self.connection.execute(
+            """
+            UPDATE ai_model_performance
+            SET total_observed_tokens = COALESCE(total_observed_tokens, 0) + ?,
+                updated_at = ?
+            WHERE provider_id = ? AND model = ? AND runtime = ?
+            """,
+            (int(total_tokens), utc_now(), provider_id, model, runtime),
+        )
+
+    @staticmethod
+    def _requires_runtime_executable_gate(model: dict[str, Any]) -> bool:
+        return (
+            model["locality"] in REMOTE_LOCALITIES
+            and str(model.get("runtime") or "").strip().lower() in {"api", "gateway"}
+        )
+
+    def _runtime_statuses_by_provider(self, *, project_id: str | None) -> dict[str, dict[str, Any]]:
+        return {
+            str(status.get("id") or ""): status
+            for status in RuntimeStatusService(self.connection).list_provider_statuses(
+                project_id=project_id
+            )
+            if str(status.get("id") or "").strip()
+        }
+
+    @staticmethod
+    def _runtime_executable_reject_reason(
+        *,
+        model: dict[str, Any],
+        runtime_statuses: dict[str, dict[str, Any]],
+    ) -> str | None:
+        provider_id = str(model.get("providerId") or "").strip()
+        status = runtime_statuses.get(provider_id)
+        if status is None:
+            return f"Provider {provider_id} is not configured in runtime status."
+        if status.get("executable") is True:
+            return None
+        reason = str(status.get("reason") or "").strip()
+        return reason or f"Provider {provider_id} is not executable."
+
     def _hard_reject_reason(self, model: dict[str, Any], request: AIResourceRequest) -> str | None:
         missing = _required_capabilities_missing(request.required_capabilities, model["capabilities"])
         if missing:
@@ -540,6 +608,22 @@ class AIResourceManager:
         output_price = model.get("outputPricePerMtok")
         reasoning_price = model.get("reasoningPricePerMtok")
         reasoning_tokens = int(output_tokens * 0.5) if "reasoning" in request.required_capabilities else 0
+        observed = self._observed_cost_estimate(
+            model=model,
+            estimated_total_tokens=request.context_tokens_estimate + output_tokens + reasoning_tokens,
+        )
+        if observed is not None:
+            return {
+                "estimatedCostUsd": observed["estimatedCostUsd"],
+                "priceKnown": True,
+                "estimatedInputTokens": request.context_tokens_estimate,
+                "estimatedOutputTokens": output_tokens,
+                "estimatedReasoningTokens": reasoning_tokens,
+                "costEstimateSource": "observed_actual_usage",
+                "observedCostPerToken": observed["costPerToken"],
+                "observedCostSamples": observed["sampleCount"],
+                "observedTotalTokens": observed["totalTokens"],
+            }
         if input_price is None or output_price is None or (reasoning_tokens and reasoning_price is None):
             return {
                 "estimatedCostUsd": None,
@@ -547,6 +631,7 @@ class AIResourceManager:
                 "estimatedInputTokens": request.context_tokens_estimate,
                 "estimatedOutputTokens": output_tokens,
                 "estimatedReasoningTokens": reasoning_tokens,
+                "costEstimateSource": "unknown_price",
             }
         total = (float(input_price) * request.context_tokens_estimate) / 1_000_000
         total += (float(output_price) * output_tokens) / 1_000_000
@@ -558,6 +643,46 @@ class AIResourceManager:
             "estimatedInputTokens": request.context_tokens_estimate,
             "estimatedOutputTokens": output_tokens,
             "estimatedReasoningTokens": reasoning_tokens,
+            "costEstimateSource": "static_price",
+        }
+
+    def _observed_cost_estimate(
+        self,
+        *,
+        model: dict[str, Any],
+        estimated_total_tokens: int,
+    ) -> dict[str, Any] | None:
+        if estimated_total_tokens <= 0:
+            return None
+        row = self.connection.execute(
+            """
+            SELECT
+                COUNT(*) AS sample_count,
+                SUM(total_tokens) AS total_tokens,
+                SUM(actual_cost_usd) AS actual_cost_usd
+            FROM ai_cost_observations
+            WHERE provider_id = ?
+              AND model = ?
+              AND runtime = ?
+              AND total_tokens IS NOT NULL
+              AND total_tokens > 0
+              AND actual_cost_usd IS NOT NULL
+            """,
+            (model["providerId"], model["model"], model["runtime"]),
+        ).fetchone()
+        if (
+            row is None
+            or int(row["sample_count"] or 0) == 0
+            or int(row["total_tokens"] or 0) <= 0
+            or row["actual_cost_usd"] is None
+        ):
+            return None
+        cost_per_token = float(row["actual_cost_usd"]) / float(row["total_tokens"])
+        return {
+            "estimatedCostUsd": round(cost_per_token * estimated_total_tokens, 6),
+            "costPerToken": cost_per_token,
+            "sampleCount": int(row["sample_count"]),
+            "totalTokens": int(row["total_tokens"]),
         }
 
     def _unknown_cost_policy(
@@ -602,6 +727,8 @@ class AIResourceManager:
             **model,
             "estimatedCostUsd": estimate["estimatedCostUsd"],
             "priceKnown": estimate["priceKnown"],
+            "costEstimateSource": estimate["costEstimateSource"],
+            "observedCostSamples": estimate.get("observedCostSamples"),
             "estimatedTokens": {
                 "input": estimate["estimatedInputTokens"],
                 "output": estimate["estimatedOutputTokens"],
@@ -846,6 +973,8 @@ class AIResourceManager:
             **self._public_selection(candidate),
             "estimatedCostUsd": candidate.get("estimatedCostUsd"),
             "priceKnown": candidate.get("priceKnown"),
+            "costEstimateSource": candidate.get("costEstimateSource"),
+            "observedCostSamples": candidate.get("observedCostSamples"),
             "score": candidate["score"],
             "scoreBreakdown": candidate["scoreBreakdown"],
             "unknownCostPolicy": candidate["unknownCostPolicy"],

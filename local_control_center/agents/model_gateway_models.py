@@ -472,7 +472,7 @@ class UsageSummaryRecord(BaseModel):
 
     total_tokens: int = Field(alias="totalTokens")
     estimated_cost_usd: float = Field(alias="estimatedCostUsd")
-    actual_cost_usd: float = Field(alias="actualCostUsd")
+    actual_cost_usd: float | None = Field(default=None, alias="actualCostUsd")
     by_provider: list[UsageSummaryProvider] = Field(alias="byProvider")
 
 
@@ -740,7 +740,7 @@ class ModelGatewayOverviewRecord(BaseModel):
     offline: int
     total_tokens_today: int = Field(alias="totalTokensToday")
     estimated_cost_today: float = Field(alias="estimatedCostToday")
-    actual_cost_today: float = Field(alias="actualCostToday")
+    actual_cost_today: float | None = Field(default=None, alias="actualCostToday")
     pending_model_approvals: int = Field(alias="pendingModelApprovals")
     providers_in_cooldown: int = Field(alias="providersInCooldown")
     active_cli_sessions: int = Field(alias="activeCliSessions")

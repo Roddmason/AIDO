@@ -969,6 +969,60 @@ def test_runtime_provider_status_reports_ollama_down_with_real_health_reason(
     assert "connection refused" in ollama["reason"].lower()
 
 
+def test_runtime_provider_status_treats_configured_remote_ollama_as_ollama_runtime(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    clear_runtime_provider_env(monkeypatch)
+    monkeypatch.setattr("shutil.which", lambda _command: None)
+
+    def fake_ollama_status(**kwargs: Any) -> dict[str, Any]:
+        if kwargs.get("base_url") == "http://remote.ollama.test":
+            return {
+                "provider": "ollama_remote",
+                "available": True,
+                "models": ["llama-remote:latest"],
+                "reason": "Remote Ollama responded.",
+            }
+        return {
+            "provider": "ollama",
+            "available": False,
+            "models": [],
+            "reason": "Local Ollama is down.",
+        }
+
+    monkeypatch.setattr(
+        "local_control_center.agents.runtime_status.cached_ollama_status",
+        fake_ollama_status,
+    )
+    store, client, _headers = create_client(tmp_path, monkeypatch)
+    store.connection.execute("UPDATE runtime_installations SET enabled = 1 WHERE runtime_id = 'ollama'")
+    store.connection.execute("UPDATE provider_accounts SET enabled = 0 WHERE provider_id = 'ollama'")
+    store.connection.execute(
+        """
+        UPDATE provider_accounts
+        SET enabled = 1,
+            base_url = ?,
+            credential_ref = '',
+            api_format = 'ollama',
+            last_error = ''
+        WHERE provider_id = 'ollama_remote'
+        """,
+        ("http://remote.ollama.test",),
+    )
+
+    response = client.get("/api/v1/runtime/providers")
+
+    assert response.status_code == 200
+    body = response.json()
+    remote = {provider["id"]: provider for provider in body["providers"]}["ollama_remote"]
+    assert remote["available"] is True
+    assert remote["executable"] is True
+    assert body["ollama"]["provider"] == "ollama_remote"
+    assert body["ollama"]["available"] is True
+    assert body["ollama"]["models"] == ["llama-remote:latest"]
+
+
 def test_openai_compatible_status_requires_config_model_and_explicit_healthcheck(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

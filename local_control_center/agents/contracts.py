@@ -339,7 +339,7 @@ class ModelCallRecord(BaseModel):
     status: ModelCallStatus
     prompt_tokens: int = Field(alias="promptTokens")
     completion_tokens: int = Field(alias="completionTokens")
-    cost_usd: float = Field(alias="costUsd")
+    cost_usd: float | None = Field(default=None, alias="costUsd")
     metadata: dict[str, Any]
     created_at: str = Field(alias="createdAt")
 

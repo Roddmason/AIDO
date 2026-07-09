@@ -20,7 +20,7 @@ from local_control_center.agents.cli_sessions import CliSessionStore
 from local_control_center.agents.credential_preflight import run_credential_preflight
 from local_control_center.agents.credentials import CredentialResolver
 from local_control_center.agents.model_benchmarks import ModelBenchmarkStore
-from local_control_center.agents.model_gateway import ModelGateway
+from local_control_center.agents.model_gateway import ModelGateway, provider_instance
 from local_control_center.agents.pricing_catalog import PricingCatalog
 from local_control_center.agents.provider_accounts import ProviderAccountStore
 from local_control_center.agents.providers.anthropic_api import AnthropicAPIProvider
@@ -223,6 +223,9 @@ def test_phase12_schema_adds_unified_model_runtime_gateway_tables(tmp_path: Path
         usage_columns = {
             row["name"] for row in connection.execute("PRAGMA table_info(usage_ledger)").fetchall()
         }
+        model_call_columns = {
+            row["name"]: row for row in connection.execute("PRAGMA table_info(model_calls)").fetchall()
+        }
 
     assert 12 in migrations
     assert {
@@ -270,6 +273,58 @@ def test_phase12_schema_adds_unified_model_runtime_gateway_tables(tmp_path: Path
     } <= seeded_providers
     assert "metadata_json" in provider_columns
     assert "usage_source" in usage_columns
+    assert model_call_columns["cost_usd"]["notnull"] == 0
+
+
+def test_model_calls_cost_migration_preserves_existing_rows_and_accepts_unknown_cost(
+    tmp_path: Path,
+) -> None:
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        connection.executescript(
+            """
+            CREATE TABLE model_calls (
+                id TEXT PRIMARY KEY,
+                project_id TEXT,
+                agent_run_id TEXT,
+                model_policy_id TEXT,
+                provider TEXT NOT NULL,
+                model TEXT NOT NULL,
+                status TEXT NOT NULL,
+                prompt_tokens INTEGER NOT NULL,
+                completion_tokens INTEGER NOT NULL,
+                cost_usd REAL NOT NULL,
+                metadata TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            INSERT INTO model_calls
+                (id, project_id, agent_run_id, model_policy_id, provider, model, status,
+                 prompt_tokens, completion_tokens, cost_usd, metadata, created_at)
+            VALUES
+                ('model-call-existing', 'project-gateway', NULL, NULL, 'openai_compatible',
+                 'configured_model', 'completed', 10, 5, 0.012, '{}', '2026-01-01T00:00:00Z');
+            """
+        )
+
+        initialize_platform_schema(connection)
+        columns = {
+            row["name"]: row for row in connection.execute("PRAGMA table_info(model_calls)").fetchall()
+        }
+        existing = connection.execute(
+            "SELECT id, cost_usd FROM model_calls WHERE id = 'model-call-existing'"
+        ).fetchone()
+        created = AgentsRepository(connection).record_model_call(
+            project_id="project-gateway",
+            provider="anthropic_api",
+            model="claude-test-model",
+            status="completed",
+            prompt_tokens=11,
+            completion_tokens=5,
+            cost_usd=None,
+        )
+
+    assert columns["cost_usd"]["notnull"] == 0
+    assert existing["cost_usd"] == 0.012
+    assert created["costUsd"] is None
 
 
 def test_phase13_schema_adds_benchmark_outcomes(tmp_path: Path) -> None:
@@ -481,6 +536,42 @@ def test_provider_accounts_reject_raw_credential_refs_and_support_env_scheme(
         },
     )
     assert uppercase_secret.status_code == 400
+
+
+def test_known_openai_compatible_provider_uses_default_base_url_without_manual_entry(
+    tmp_path: Path,
+) -> None:
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        store = ProviderAccountStore(connection)
+        store.upsert_provider_account(
+            {
+                "providerId": "deepseek",
+                "displayName": "DeepSeek",
+                "providerType": "api",
+                "apiFormat": "openai_compatible",
+                "baseUrl": "",
+                "credentialRef": "env:DEEPSEEK_API_KEY",
+                "enabled": True,
+            }
+        )
+        store.upsert_provider_account(
+            {
+                "providerId": "custom_gateway",
+                "displayName": "Custom gateway",
+                "providerType": "api",
+                "apiFormat": "openai_compatible",
+                "baseUrl": "",
+                "credentialRef": "env:CUSTOM_GATEWAY_API_KEY",
+                "enabled": True,
+            }
+        )
+
+        known_provider = provider_instance("deepseek", connection=connection)
+        custom_provider = provider_instance("custom_gateway", connection=connection)
+
+    assert known_provider.base_url == "https://api.deepseek.com/v1"
+    assert custom_provider.base_url == ""
 
 
 def test_credential_resolver_supports_env_keyring_fallbacks_and_redaction(
@@ -916,6 +1007,35 @@ def test_model_gateway_ollama_health_uses_configured_local_server(tmp_path: Path
         server.shutdown()
 
 
+def test_model_gateway_endpoint_scoped_ollama_requires_explicit_base_url(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("AIDO_OLLAMA_BASE_URL", raising=False)
+    monkeypatch.delenv("OLLAMA_BASE_URL", raising=False)
+    monkeypatch.delenv("OLLAMA_HOST", raising=False)
+
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        ProviderAccountStore(connection).upsert_provider_account(
+            {
+                "providerId": "ollama_remote",
+                "providerType": "gateway",
+                "apiFormat": "ollama",
+                "baseUrl": "",
+                "credentialRef": "",
+                "enabled": True,
+            }
+        )
+
+        provider = provider_instance("ollama_remote", connection=connection)
+        health = ModelGateway(connection).provider_health("ollama_remote")
+
+    assert provider.base_url == ""
+    assert health["status"] == "configuration_required"
+    assert "base URL" in health["message"]
+
+
 def test_model_gateway_openai_compatible_executes_real_http_and_records_actual_usage(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1091,7 +1211,7 @@ def test_model_gateway_anthropic_executes_real_http_and_records_actual_usage(
         assert result["usage"]["rawUsage"]["cost_status"] == "unknown"
         assert result["modelCall"]["promptTokens"] == 11
         assert result["modelCall"]["completionTokens"] == 5
-        assert result["modelCall"]["costUsd"] == 0.0
+        assert result["modelCall"]["costUsd"] is None
         assert message_request["path"] == "/v1/messages"
         assert message_request["x_api_key"] == "sk-ant-gateway123456"
         assert message_request["anthropic_version"] == "2023-06-01"
@@ -1172,7 +1292,7 @@ def test_nvidia_nim_without_provider_usage_does_not_invent_cost_or_tokens(
         assert result["usage"]["rawUsage"]["usage_source"] == "unknown"
         assert result["modelCall"]["promptTokens"] == 0
         assert result["modelCall"]["completionTokens"] == 0
-        assert result["modelCall"]["costUsd"] == 0.0
+        assert result["modelCall"]["costUsd"] is None
     finally:
         server.shutdown()
 
@@ -2197,6 +2317,62 @@ def test_usage_ledger_records_estimated_and_actual_usage(tmp_path: Path) -> None
     assert actual["actualCostUsd"] == 0
     assert actual["totalTokens"] == 30
     assert actual["usageSource"] == "actual"
+
+
+def test_usage_ledger_summary_preserves_unknown_actual_cost(tmp_path: Path) -> None:
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        ledger = UsageLedger(connection)
+        ledger.record_usage(
+            provider_id="nvidia_nim",
+            model="auto_best_available",
+            runtime_type="api",
+            role="analyst",
+            request_id="req-estimated",
+            input_tokens=10,
+            output_tokens=5,
+            estimated_cost_usd=0.001,
+            raw_usage={"usage_source": "estimated"},
+        )
+
+        unknown_summary = ledger.summary()
+
+        ledger.record_usage(
+            provider_id="openai_compatible",
+            model="configured_model",
+            runtime_type="api",
+            role="qa",
+            request_id="req-actual",
+            input_tokens=20,
+            output_tokens=10,
+            estimated_cost_usd=0,
+            actual_cost_usd=0,
+            raw_usage={"usage_source": "provider"},
+        )
+        mixed_summary = ledger.summary()
+    with open_sqlite_connection(tmp_path / "actual-only.sqlite") as connection:
+        initialize_platform_schema(connection)
+        ledger = UsageLedger(connection)
+        ledger.record_usage(
+            provider_id="openai_compatible",
+            model="configured_model",
+            runtime_type="api",
+            role="qa",
+            request_id="req-actual-only",
+            input_tokens=20,
+            output_tokens=10,
+            estimated_cost_usd=0,
+            actual_cost_usd=0,
+            raw_usage={"usage_source": "provider"},
+        )
+        actual_summary = ledger.summary()
+
+    assert unknown_summary["estimatedCostUsd"] == 0.001
+    assert unknown_summary["actualCostUsd"] is None
+    assert mixed_summary["estimatedCostUsd"] == 0.001
+    assert mixed_summary["actualCostUsd"] is None
+    assert actual_summary["estimatedCostUsd"] == 0
+    assert actual_summary["actualCostUsd"] == 0
 
 
 def test_route_execute_mock_endpoint_is_not_exposed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from local_control_center.agents.model_gateway import ModelGateway
 from local_control_center.agents.runtime_provider_config import (
     list_runtime_provider_configurations,
     runtime_provider_configuration,
 )
-from local_control_center.agents.model_gateway import ModelGateway
 from local_control_center.agents.runtime_registry import RuntimeRegistry
 from local_control_center.agents.runtime_status import RuntimeStatusService
 from local_control_center.runtime_integrations.config import (
@@ -133,6 +133,24 @@ def test_ollama_configuration_represents_local_or_remote_base_url() -> None:
     assert providers["ollama"]["displayName"] == "Ollama Local/Remote"
     assert providers["ollama"]["configured"] is True
     assert providers["ollama"]["variables"][0]["name"] == "AIDO_OLLAMA_BASE_URL"
+
+
+def test_known_nvidia_provider_config_does_not_require_manual_base_url() -> None:
+    providers = {
+        provider["id"]: provider
+        for provider in list_runtime_provider_configurations(
+            environ={
+                "AIDO_NVIDIA_API_KEY": "unit-test-nvidia-key",
+                "AIDO_NVIDIA_MODEL": "nvidia/model",
+            }
+        )
+    }
+
+    nvidia = providers["nvidia_nim"]
+    base_url = next(variable for variable in nvidia["variables"] if variable["key"] == "baseUrl")
+    assert nvidia["configured"] is True
+    assert nvidia["missing"] == []
+    assert base_url["required"] is False
 
 
 def test_cli_is_the_seeded_default_runtime(tmp_path: Path) -> None:
@@ -457,6 +475,52 @@ def test_project_remote_disabled_blocks_api_execution(tmp_path: Path, monkeypatc
     assert "project.runtime.remote.enabled" in execution["reason"]
 
 
+def test_nvidia_runtime_status_uses_known_default_base_url_without_user_input(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("AIDO_NVIDIA_API_KEY", "unit-test-nvidia-key")
+    monkeypatch.setenv("AIDO_NVIDIA_MODEL", "nvidia/model")
+    monkeypatch.setenv("AIDO_ENABLE_REAL_PROVIDER_CALLS", "true")
+
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        repo = RuntimeConfigRepository(connection)
+        repo.set_runtime_setting("runtime.remote.enabled", True)
+        repo.set_runtime_setting("runtime.nvidia.enabled", True)
+        repo.upsert_installation(
+            {
+                "runtimeId": "nvidia_nim",
+                "kind": "api",
+                "enabled": True,
+                "configurationSource": "manual",
+            }
+        )
+        connection.execute(
+            """
+            UPDATE provider_accounts
+            SET enabled = 1
+            WHERE provider_id = 'nvidia_nim'
+            """
+        )
+        connection.execute(
+            """
+            UPDATE model_catalog
+            SET enabled = 1
+            WHERE provider_id = 'nvidia_nim' AND model = 'auto_best_available'
+            """
+        )
+
+        provider = next(
+            item
+            for item in RuntimeStatusService(connection).list_provider_statuses(project_id="project-a")
+            if item["id"] == "nvidia_nim"
+        )
+
+    assert provider["configured"] is True
+    assert provider["requiredConfiguration"] == ["apiKey", "model"]
+    assert "base URL is not configured" not in provider["reason"]
+
+
 def test_ollama_alias_respects_global_ollama_setting(tmp_path: Path) -> None:
     with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
         initialize_platform_schema(connection)
@@ -644,6 +708,43 @@ def test_ollama_ok_with_mocked_server_reports_prompt_capability(tmp_path: Path, 
     assert ollama["canRunPrompt"] is True
     assert ollama["canEditWorkspace"] is False
     assert ollama["models"] == ["llama3.1:8b"]
+
+
+def test_ollama_legacy_blank_base_url_uses_local_default(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.delenv("AIDO_OLLAMA_BASE_URL", raising=False)
+    monkeypatch.delenv("OLLAMA_BASE_URL", raising=False)
+    monkeypatch.delenv("OLLAMA_HOST", raising=False)
+    observed: dict[str, str | None] = {}
+
+    def fake_ollama_status(**kwargs):
+        observed["base_url"] = kwargs.get("base_url")
+        return {
+            "provider": "ollama",
+            "available": True,
+            "models": ["llama3.1:8b"],
+            "reason": "Local Ollama test daemon is reachable.",
+        }
+
+    monkeypatch.setattr(
+        "local_control_center.agents.runtime_status.cached_ollama_status",
+        fake_ollama_status,
+    )
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        connection.execute(
+            "UPDATE provider_accounts SET enabled = 1, base_url = '' WHERE provider_id = 'ollama'"
+        )
+        ollama = next(
+            item
+            for item in RuntimeStatusService(connection).list_provider_statuses()
+            if item["id"] == "ollama"
+        )
+
+    assert observed["base_url"] == "http://localhost:11434"
+    assert ollama["configured"] is True
+    assert ollama["available"] is True
+    assert ollama["executable"] is True
+    assert "base URL is not configured" not in ollama["reason"]
 
 
 def test_invalid_api_credential_ref_blocks_runtime_with_configuration_reason(

@@ -82,6 +82,7 @@ type RuntimeSetupPanelProps = {
 	runtimeProviderConfiguration: RuntimeProviderConfiguration[] | null;
 	token: string;
 	onRefresh: () => Promise<unknown> | undefined;
+	initialProviderId?: string | null;
 };
 
 const COST_META: Record<
@@ -99,6 +100,7 @@ export function RuntimeSetupPanel({
 	runtimeProviderConfiguration,
 	token,
 	onRefresh,
+	initialProviderId,
 }: RuntimeSetupPanelProps) {
 	const { t } = useI18n();
 	const { notify } = useToast();
@@ -109,6 +111,7 @@ export function RuntimeSetupPanel({
 	const [rolePolicies, setRolePolicies] = useState<ModelGatewayRolePolicy[]>([]);
 	const [wizardOpen, setWizardOpen] = useState(false);
 	const [wizardProviderId, setWizardProviderId] = useState<string | null>(null);
+	const openedInitialProviderRef = useRef<string | null>(null);
 
 	const loadGateway = useCallback(async () => {
 		try {
@@ -128,6 +131,16 @@ export function RuntimeSetupPanel({
 	useEffect(() => {
 		void loadGateway();
 	}, [loadGateway]);
+
+	useEffect(() => {
+		const providerId = initialProviderId?.trim();
+		if (!providerId || openedInitialProviderRef.current === providerId) return;
+		const entry = catalogEntry(providerId);
+		if (!entry || entry.group === 'cli') return;
+		openedInitialProviderRef.current = providerId;
+		setWizardProviderId(providerId);
+		setWizardOpen(true);
+	}, [initialProviderId]);
 
 	const accountById = useMemo(() => {
 		const map = new Map<string, ModelGatewayProviderAccount>();
@@ -323,12 +336,9 @@ export function RuntimeSetupPanel({
 								className="button"
 								type="button"
 								disabled={busyAction !== null}
-								aria-busy={busyAction === action.id}
-								onClick={() => void runSetupAction(action.id)}
+								onClick={() => openWizard(action.id)}
 							>
-								{busyAction === action.id
-									? t('app.runtime.setup.running', 'Running...')
-									: t(action.labelKey, action.label)}
+								{t(action.labelKey, action.label)}
 							</button>
 						))}
 					</div>

@@ -65,6 +65,8 @@ def initialize_platform_schema(connection: sqlite3.Connection) -> None:
     init_phase44_schema(connection)
     init_phase45_schema(connection)
     init_phase46_schema(connection)
+    init_phase47_schema(connection)
+    init_phase48_schema(connection)
     seed_platform_catalogs(connection)
 
 
@@ -494,7 +496,7 @@ def init_phase2_schema(connection: sqlite3.Connection) -> None:
             status TEXT NOT NULL,
             prompt_tokens INTEGER NOT NULL,
             completion_tokens INTEGER NOT NULL,
-            cost_usd REAL NOT NULL,
+            cost_usd REAL,
             metadata TEXT NOT NULL,
             created_at TEXT NOT NULL
         );
@@ -3712,8 +3714,7 @@ def init_phase30_schema(connection: sqlite3.Connection) -> None:
     """
     connection.executescript(
         """
-        DROP VIEW IF EXISTS credentials;
-        CREATE VIEW credentials AS
+        CREATE VIEW IF NOT EXISTS credentials AS
         SELECT
             id,
             name AS label,
@@ -4838,6 +4839,67 @@ def init_phase46_schema(connection: sqlite3.Connection) -> None:
     connection.execute(
         "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
         (46, utc_now()),
+    )
+
+
+def init_phase47_schema(connection: sqlite3.Connection) -> None:
+    """Fase 47: permite costo real desconocido en llamadas a modelos."""
+    columns = {row["name"]: row for row in connection.execute("PRAGMA table_info(model_calls)").fetchall()}
+    cost_column = columns.get("cost_usd")
+    if cost_column is not None and cost_column["notnull"]:
+        connection.executescript(
+            """
+            DROP TABLE IF EXISTS model_calls_cost_nullable;
+            CREATE TABLE model_calls_cost_nullable (
+                id TEXT PRIMARY KEY,
+                project_id TEXT,
+                agent_run_id TEXT,
+                model_policy_id TEXT,
+                provider TEXT NOT NULL,
+                model TEXT NOT NULL,
+                status TEXT NOT NULL,
+                prompt_tokens INTEGER NOT NULL,
+                completion_tokens INTEGER NOT NULL,
+                cost_usd REAL,
+                metadata TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            INSERT INTO model_calls_cost_nullable
+                (id, project_id, agent_run_id, model_policy_id, provider, model, status,
+                 prompt_tokens, completion_tokens, cost_usd, metadata, created_at)
+            SELECT id, project_id, agent_run_id, model_policy_id, provider, model, status,
+                   prompt_tokens, completion_tokens, cost_usd, metadata, created_at
+            FROM model_calls;
+            DROP TABLE model_calls;
+            ALTER TABLE model_calls_cost_nullable RENAME TO model_calls;
+            """
+        )
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (47, utc_now()),
+    )
+
+
+def init_phase48_schema(connection: sqlite3.Connection) -> None:
+    """Fase 48: metadata reparadora explícita (primary/destructive/technicalReason) por remediation."""
+    _add_column_if_missing(
+        connection, "remediation_actions", "technical_reason", "technical_reason TEXT NOT NULL DEFAULT ''"
+    )
+    _add_column_if_missing(
+        connection, "remediation_actions", "is_primary", "is_primary INTEGER NOT NULL DEFAULT 0"
+    )
+    _add_column_if_missing(
+        connection, "remediation_actions", "is_destructive", "is_destructive INTEGER NOT NULL DEFAULT 0"
+    )
+    _add_column_if_missing(
+        connection,
+        "remediation_actions",
+        "confirmation_required",
+        "confirmation_required INTEGER NOT NULL DEFAULT 0",
+    )
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (48, utc_now()),
     )
 
 

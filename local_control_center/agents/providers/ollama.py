@@ -17,7 +17,10 @@ from urllib.error import URLError
 from urllib.request import Request, urlopen
 
 from local_control_center.agents.credentials import CredentialResolver
-from local_control_center.agents.runtime_provider_config import runtime_provider_configuration
+from local_control_center.agents.runtime_provider_config import (
+    DEFAULT_OLLAMA_BASE_URL,
+    runtime_provider_configuration,
+)
 from local_control_center.shared.redaction import redact_secrets
 
 from .base import (
@@ -42,15 +45,24 @@ class OllamaProvider(ModelProvider):
 
     def __init__(self, *, base_url: str | None = None, credential_ref: str | None = None):
         runtime_configuration = runtime_provider_configuration("ollama")
-        self.base_url = (
+        resolved_base_url = (
             base_url
-            or (runtime_configuration.value("baseUrl") if runtime_configuration else None)
-            or os.environ.get("OLLAMA_BASE_URL")
-            or os.environ.get("OLLAMA_HOST")
-            or "http://localhost:11434"
-        ).rstrip("/")
+            if base_url is not None
+            else (
+                (runtime_configuration.value("baseUrl") if runtime_configuration else None)
+                or os.environ.get("OLLAMA_BASE_URL")
+                or os.environ.get("OLLAMA_HOST")
+                or DEFAULT_OLLAMA_BASE_URL
+            )
+        )
+        self.base_url = resolved_base_url.rstrip("/") if resolved_base_url else ""
         self.credential_ref = credential_ref or ""
         self.credential_resolver = CredentialResolver()
+
+    def _base_url_blocking_reason(self) -> str | None:
+        if self.base_url:
+            return None
+        return "Ollama base URL is not configured."
 
     def _auth_headers_or_block(self) -> tuple[dict[str, str], str | None]:
         """Devuelve (cabecera Bearer, motivo de bloqueo) resolviendo el ``credentialRef``.
@@ -71,6 +83,13 @@ class OllamaProvider(ModelProvider):
 
         Falla cerrado como ``misconfigured`` (sin sondear) si hay credentialRef irresoluble.
         """
+        if blocking_reason := self._base_url_blocking_reason():
+            return ProviderHealth(
+                providerId=self.provider_id,
+                status="misconfigured",
+                healthStatus="misconfigured",
+                message=blocking_reason,
+            )
         headers, blocking_reason = self._auth_headers_or_block()
         if blocking_reason:
             return ProviderHealth(
@@ -99,6 +118,8 @@ class OllamaProvider(ModelProvider):
 
     def list_models(self) -> list[ModelInfo]:
         """Lista los modelos descargados desde `/api/tags`; [] si falla la consulta o falta credencial."""
+        if self._base_url_blocking_reason():
+            return []
         headers, blocking_reason = self._auth_headers_or_block()
         if blocking_reason:
             return []
@@ -125,6 +146,8 @@ class OllamaProvider(ModelProvider):
         Raises:
             RuntimeError: si hay un credentialRef configurado que no resuelve (falla cerrado).
         """
+        if blocking_reason := self._base_url_blocking_reason():
+            raise RuntimeError(blocking_reason)
         headers, blocking_reason = self._auth_headers_or_block()
         if blocking_reason:
             raise RuntimeError(blocking_reason)

@@ -428,7 +428,10 @@ def _roles_for_story(
         roles.append("database_engineer")
     if "data" in scope:
         roles.append("data_engineer")
-    if not any(role in IMPLEMENTATION_ROLES for role in roles):
+    available_implementation_roles = [
+        role for role in roles if role in IMPLEMENTATION_ROLES and (not available_roles or role in available_roles)
+    ]
+    if not available_implementation_roles:
         fallback = "backend_engineer" if "backend_engineer" in available_roles else next(
             (role for role in ROLE_ORDER if role in available_roles and role in IMPLEMENTATION_ROLES),
             "backend_engineer",

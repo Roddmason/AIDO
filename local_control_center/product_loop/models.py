@@ -24,6 +24,7 @@ FEEDBACK_ACTION_VALUES = (
     "reopen_story",
     "pause_loop",
     "cancel_loop",
+    "continue",
 )
 FeedbackAction = Literal[
     "accept",
@@ -34,6 +35,7 @@ FeedbackAction = Literal[
     "reopen_story",
     "pause_loop",
     "cancel_loop",
+    "continue",
 ]
 
 FEEDBACK_CLASSIFICATION_VALUES = (

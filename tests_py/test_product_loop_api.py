@@ -6,9 +6,11 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from local_control_center.backlog.repository import BacklogRepository
+from local_control_center.jobs_approvals.repository import JobsRepository
 from local_control_center.product_discovery.repository import ProductDiscoveryRepository
 from local_control_center.product_loop.coordinator import ProductLoopCoordinator
 from local_control_center.projects.repository import ProjectsRepository
+from local_control_center.threads.repository import ThreadsRepository
 
 EMPTY_LOOP_STATE = {
     "loops": [],
@@ -421,6 +423,152 @@ def test_feedback_action_endpoint_is_guarded_classifies_and_exposes_trace(tmp_pa
         aggregate = client.get(f"/api/v1/projects/{project_id}/product-loop").json()
         assert [item["id"] for item in aggregate["feedback"]] == [body["feedback"]["id"]]
         assert aggregate["transitions"][-1]["metadata"]["feedbackId"] == body["feedback"]["id"]
+    finally:
+        runtime.close()
+
+
+def test_review_action_approval_delivers_product_loop_feedback(tmp_path: Path) -> None:
+    runtime, client = _client(tmp_path)
+    try:
+        connection = runtime.connection
+        project = ProjectsRepository(connection).create_project(
+            name="Review approval", path=tmp_path / "review-approval", template_id="other"
+        )
+        project_id = project["id"]
+        coordinator = ProductLoopCoordinator(connection)
+        loop = coordinator.start(project_id=project_id, title="Review approval loop")
+        for state in [
+            "discovering",
+            "brief_ready",
+            "architecture_review",
+            "backlog_ready",
+            "iteration_planning",
+            "executing",
+            "quality_review",
+            "awaiting_approval",
+        ]:
+            loop = coordinator.transition(loop["id"], to_state=state)
+        thread = ThreadsRepository(connection).create_thread(
+            project_id=project_id,
+            owner_type="workspace",
+            owner_id=project_id,
+            title="Review approval thread",
+        )
+        ThreadsRepository(connection).set_status(thread["id"], "awaiting_approval")
+        job = JobsRepository(connection).create_job(
+            project_id=project_id,
+            kind="product_loop_delivery_approval",
+            status="approval_required",
+            payload={"loopId": loop["id"]},
+        )["job"]
+        action = JobsRepository(connection).create_action_request(
+            job_id=job["id"],
+            project_id=project_id,
+            action_type="product_loop.approve_delivery",
+            risk_level="medium",
+            command="approve product loop delivery",
+            payload={"loopId": loop["id"]},
+            reason="Review Product Loop diff, QA, and gitleaks evidence before delivery.",
+        )
+        coordinator.repository.update_loop_context(
+            loop["id"],
+            context={
+                **loop["context"],
+                "durableRun": {
+                    **dict(loop["context"].get("durableRun") or {}),
+                    "approval": {"jobId": job["id"], "actionRequestId": action["id"]},
+                    "thread": {"projectThreadId": thread["id"]},
+                },
+            },
+        )
+
+        token = client.get("/api/v1/security/handshake").json()["token"]
+        approved = client.post(
+            f"/api/v1/jobs/{job['id']}/actions/{action['id']}/approve",
+            json={"reason": "Evidence reviewed from Review inbox."},
+            headers={"X-Local-Control-Token": token},
+        )
+
+        assert approved.status_code == 202
+        aggregate = client.get(f"/api/v1/projects/{project_id}/product-loop").json()
+        assert aggregate["loops"][0]["state"] == "delivered"
+        assert aggregate["feedback"][0]["action"] == "accept"
+        assert aggregate["feedback"][0]["targetId"] == loop["id"]
+        assert ThreadsRepository(connection).get_thread(thread["id"])["status"] == "resolved"
+    finally:
+        runtime.close()
+
+
+def test_review_action_denial_requests_product_loop_delivery_feedback(tmp_path: Path) -> None:
+    runtime, client = _client(tmp_path)
+    try:
+        connection = runtime.connection
+        project = ProjectsRepository(connection).create_project(
+            name="Review denial", path=tmp_path / "review-denial", template_id="other"
+        )
+        project_id = project["id"]
+        coordinator = ProductLoopCoordinator(connection)
+        loop = coordinator.start(project_id=project_id, title="Review denial loop")
+        for state in [
+            "discovering",
+            "brief_ready",
+            "architecture_review",
+            "backlog_ready",
+            "iteration_planning",
+            "executing",
+            "quality_review",
+            "awaiting_approval",
+        ]:
+            loop = coordinator.transition(loop["id"], to_state=state)
+        thread = ThreadsRepository(connection).create_thread(
+            project_id=project_id,
+            owner_type="workspace",
+            owner_id=project_id,
+            title="Review denial thread",
+        )
+        ThreadsRepository(connection).set_status(thread["id"], "awaiting_approval")
+        job = JobsRepository(connection).create_job(
+            project_id=project_id,
+            kind="product_loop_delivery_approval",
+            status="approval_required",
+            payload={"loopId": loop["id"]},
+        )["job"]
+        action = JobsRepository(connection).create_action_request(
+            job_id=job["id"],
+            project_id=project_id,
+            action_type="product_loop.approve_delivery",
+            risk_level="medium",
+            command="approve product loop delivery",
+            payload={"loopId": loop["id"]},
+            reason="Review Product Loop diff, QA, and gitleaks evidence before delivery.",
+        )
+        coordinator.repository.update_loop_context(
+            loop["id"],
+            context={
+                **loop["context"],
+                "durableRun": {
+                    **dict(loop["context"].get("durableRun") or {}),
+                    "approval": {"jobId": job["id"], "actionRequestId": action["id"]},
+                    "thread": {"projectThreadId": thread["id"]},
+                },
+            },
+        )
+
+        token = client.get("/api/v1/security/handshake").json()["token"]
+        denied = client.post(
+            f"/api/v1/jobs/{job['id']}/actions/{action['id']}/deny",
+            json={"reason": "Evidence needs a targeted rework decision."},
+            headers={"X-Local-Control-Token": token},
+        )
+
+        assert denied.status_code == 202
+        aggregate = client.get(f"/api/v1/projects/{project_id}/product-loop").json()
+        assert aggregate["loops"][0]["state"] == "awaiting_feedback"
+        assert aggregate["feedback"][0]["action"] == "request_changes"
+        assert aggregate["feedback"][0]["targetType"] == "loop"
+        assert aggregate["feedback"][0]["targetId"] == loop["id"]
+        assert JobsRepository(connection).get_action_request(action["id"])["status"] == "denied"
+        assert ThreadsRepository(connection).get_thread(thread["id"])["status"] == "open"
     finally:
         runtime.close()
 

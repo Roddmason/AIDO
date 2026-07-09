@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
+from local_control_center.agents.ai_resource_manager import AIResourceManager
 from local_control_center.app import create_app
 from local_control_center.evidence.repository import EvidenceRepository
 from local_control_center.git_workspace.service import GitWorkspaceService
@@ -56,6 +57,28 @@ def _write_fake_gitleaks_clean(bin_dir: Path) -> None:
         command = bin_dir / "gitleaks"
         command.write_text(f"#!{sys.executable}\n{implementation.read_text(encoding='utf-8')}", encoding="utf-8")
         command.chmod(0o755)
+
+
+def _seed_ai_resource(connection) -> None:
+    AIResourceManager(connection).upsert_model_performance(
+        {
+            "providerId": "ollama",
+            "model": "qwen2.5-coder",
+            "runtime": "local",
+            "capabilities": ["chat", "code", "review", "tools", "reasoning", "json"],
+            "contextWindow": 128000,
+            "maxOutputTokens": 4096,
+            "inputPricePerMtok": 0.0,
+            "outputPricePerMtok": 0.0,
+            "observedLatencyMs": 900,
+            "observedSuccessRate": 0.86,
+            "reworkRate": 0.04,
+            "qualityScore": 0.82,
+            "locality": "local",
+            "privacyLevel": "local_private",
+            "evidence": [{"id": "seed-e2e-product-loop-resource", "kind": "test_seed"}],
+        }
+    )
 
 
 class _FilesystemRuntime:
@@ -212,7 +235,7 @@ class _TechnicalLeadRuntime:
                 "storyId": story["id"],
                 "title": f"Implement {story['title']}",
                 "description": "Controlled TechnicalLead task for the real Product Loop E2E.",
-                "role": "developer",
+                "role": "backend_engineer",
                 "category": "implementation",
                 "priority": story["priority"],
                 "estimateHours": 1.0,
@@ -232,6 +255,7 @@ def test_aido_product_loop_real_git_runtime_review_approval_and_secret_hygiene(
 
     store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
     store.init()
+    _seed_ai_resource(store.connection)
     client = TestClient(create_app(runtime=store, static_dir=None))
     headers = _auth_headers(client)
     repo = tmp_path / "real-product-loop-repo"

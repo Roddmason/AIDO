@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import sqlite3
 import uuid
+from collections.abc import Callable
 from contextlib import suppress
 from pathlib import Path
 from typing import Any
@@ -109,6 +110,8 @@ BLOCKED_STATE = "blocked"
 REWORK_STATE = "reworking"
 AWAITING_FEEDBACK_STATE = "awaiting_feedback"
 TERMINAL_STATES = {DELIVERED_STATE, CANCELLED_STATE}
+# Landing states of an abort itself: checking for cancellation again here would recurse forever.
+_ABORT_EXEMPT_STATES = {BLOCKED_STATE, CANCELLED_STATE}
 _RESUMABLE_STATES = {state for state in PRODUCT_LOOP_STATES if state not in TERMINAL_STATES | {BLOCKED_STATE}}
 _TRUSTED_RESOURCE_APPROVAL_METADATA_KEYS = frozenset(
     {"retryOfLoopId", "planOnlyOfLoopId", "continueOfLoopId", "remediationActionId"}
@@ -219,6 +222,18 @@ class ProductLoopTransitionError(ValueError):
 
 class ProductLoopStopConditionError(ValueError):
     """Se lanza cuando una política de parada impide la transición (p. ej. máximo de rework alcanzado)."""
+
+
+class _ProductLoopCancelled(RuntimeError):
+    """Control de flujo interno: el operador canceló el run y el loop debe abortar en el límite de etapa.
+
+    Nunca escapa de ``run_user_message``, que la traduce al estado terminal ``cancelled``.
+    """
+
+    def __init__(self, loop_id: str, thread_id: str | None) -> None:
+        super().__init__(f"Product Loop {loop_id} was cancelled by the operator.")
+        self.loop_id = loop_id
+        self.thread_id = thread_id
 
 
 def is_terminal(state: str) -> bool:
@@ -425,6 +440,8 @@ class ProductLoopCoordinator:
         self.evidence = EvidenceRepository(connection)
         self.events = EventBus(connection)
         self.jobs = JobsRepository(connection)
+        # Set only for the duration of a `run_user_message` that was given a cancellation signal.
+        self._should_abort: Callable[[], bool] | None = None
 
     @staticmethod
     def _state_deadline(state: str, timeouts: dict[str, Any] | None, now: str) -> str | None:
@@ -912,6 +929,11 @@ class ProductLoopCoordinator:
         metadata: dict[str, Any] | None = None,
         thread_id: str | None = None,
     ) -> dict[str, Any]:
+        # Cooperative cancellation checkpoint. Every durable stage advance funnels through here, so a
+        # cancel lands within one stage instead of letting the claimed worker run to completion beside
+        # its replacement run — which is what would make two Product Loops share a thread.
+        if to_state not in _ABORT_EXEMPT_STATES and self._should_abort is not None and self._should_abort():
+            raise _ProductLoopCancelled(loop["id"], thread_id)
         updated = self.transition(
             loop["id"],
             to_state=to_state,
@@ -3256,6 +3278,21 @@ class ProductLoopCoordinator:
             "evidenceRefs": artifact_ids,
         }
 
+    def _cancel_run(self, loop_id: str, *, actor: str, thread_id: str | None) -> dict[str, Any]:
+        """Lleva al estado terminal `cancelled` un loop abortado en vuelo por el operador."""
+        reason = "Execution cancelled by the operator."
+        loop = self.repository.get_loop(loop_id)
+        cancelled = self._transition_run_state(
+            loop,
+            to_state=CANCELLED_STATE,
+            reason=reason,
+            trigger="operator_cancelled",
+            actor=actor,
+            context_patch=self._durable_run_patch(loop, {"status": CANCELLED_STATE, "cancelledReason": reason}),
+            thread_id=thread_id,
+        )
+        return self._run_result(cancelled, status=CANCELLED_STATE, reason=reason)
+
     def run_user_message(
         self,
         *,
@@ -3274,13 +3311,62 @@ class ProductLoopCoordinator:
         product_owner_runner: Any | None = None,
         assessment_runner: Any | None = None,
         technical_lead_runner: Any | None = None,
+        should_abort: Callable[[], bool] | None = None,
     ) -> dict[str, Any]:
         """Run one user message through the durable Product Loop control plane.
 
-        This is intentionally synchronous and fail-closed: every message creates or reuses a persisted
-        project thread/message
-        and then ends in a real question/brief/backlog/execution/rework/block/approval result. Agent,
-        runtime and git dependencies can be injected by tests; production defaults use the real runners.
+        `should_abort` is polled at every stage boundary: when it reports that the operator cancelled the
+        run, the loop stops there and settles in the terminal `cancelled` state instead of finishing
+        alongside a replacement run.
+        """
+        self._should_abort = should_abort
+        try:
+            return self._run_user_message(
+                project_id=project_id,
+                message=message,
+                root=root,
+                title=title,
+                preferred_runtime=preferred_runtime,
+                qa_commands=qa_commands,
+                run_metadata=run_metadata,
+                actor=actor,
+                session_id=session_id,
+                thread_id=thread_id,
+                runtime_runner=runtime_runner,
+                git_service=git_service,
+                product_owner_runner=product_owner_runner,
+                assessment_runner=assessment_runner,
+                technical_lead_runner=technical_lead_runner,
+            )
+        except _ProductLoopCancelled as cancelled:
+            return self._cancel_run(cancelled.loop_id, actor=actor, thread_id=cancelled.thread_id)
+        finally:
+            self._should_abort = None
+
+    def _run_user_message(
+        self,
+        *,
+        project_id: str,
+        message: str,
+        root: str | Path | None = None,
+        title: str | None = None,
+        preferred_runtime: str | None = None,
+        qa_commands: list[Any] | None = None,
+        run_metadata: dict[str, Any] | None = None,
+        actor: str = "operator",
+        session_id: str | None = None,
+        thread_id: str | None = None,
+        runtime_runner: Any | None = None,
+        git_service: Any | None = None,
+        product_owner_runner: Any | None = None,
+        assessment_runner: Any | None = None,
+        technical_lead_runner: Any | None = None,
+    ) -> dict[str, Any]:
+        """Ejecuta el mensaje del usuario en el control plane durable, síncrono y fail-closed.
+
+        Cada mensaje crea o reutiliza un thread/mensaje persistido y termina en un resultado real de
+        pregunta/brief/backlog/ejecución/rework/bloqueo/aprobación. Las dependencias de agentes, runtime
+        y git son inyectables por tests; producción usa los runners reales.
         """
         message_text = str(message or "").strip()
         if not message_text:

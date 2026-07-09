@@ -16,7 +16,11 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from local_control_center.jobs_approvals.repository import JobsRepository
-from local_control_center.jobs_approvals.worker import _finish_thread_after_product_loop
+from local_control_center.jobs_approvals.worker import (
+    _execute_thread_product_loop_job,
+    _finish_thread_after_product_loop,
+)
+from local_control_center.product_loop.coordinator import ProductLoopCoordinator
 from local_control_center.projects.repository import ProjectsRepository
 from local_control_center.threads.repository import ThreadsRepository
 
@@ -276,4 +280,119 @@ def test_note_and_cancel_return_404_for_an_unknown_thread(tmp_path: Path) -> Non
 
     cancel = client.post("/api/v1/threads/thread-missing/cancel", headers=headers, json={})
     assert cancel.status_code == 404, cancel.text
+    runtime.close()
+
+
+class _GitServiceNeverUsed:
+    """Git double que falla si el loop llega a tocarlo: prueba que el abort ocurrió antes del trabajo real."""
+
+    def status(self, project_id: str) -> dict:
+        raise AssertionError("A cancelled Product Loop must abort before checking the git workspace.")
+
+
+def test_cancelled_product_loop_aborts_before_doing_any_stage_work(tmp_path: Path) -> None:
+    """Cancelar debe detener la ejecución en vuelo, no solo marcar la fila del job.
+
+    Sin el abort cooperativo el worker ya reclamado sigue corriendo el loop completo mientras el run de
+    reemplazo arranca: dos product loops concurrentes sobre el mismo hilo.
+    """
+    runtime, _client_unused = _client(tmp_path)
+    project_id = _project(runtime, tmp_path)
+
+    result = ProductLoopCoordinator(runtime.connection, root=tmp_path).run_user_message(
+        project_id=project_id,
+        message=_CSV_EXPORT_GOAL,
+        root=tmp_path,
+        should_abort=lambda: True,
+        git_service=_GitServiceNeverUsed(),
+    )
+
+    assert result["status"] == "cancelled"
+    assert result["loop"]["state"] == "cancelled"
+    # Aborted at the very first stage boundary: the run never advanced past its initial state.
+    states = [transition["toState"] for transition in result["transitions"]]
+    assert states == ["goal_received", "cancelled"], states
+    runtime.close()
+
+
+def test_product_loop_abort_fires_at_the_next_stage_boundary_not_earlier(tmp_path: Path) -> None:
+    """Control positivo y negativo a la vez: el guard no se dispara antes de tiempo (el loop avanza a
+    ``workspace_check``) y sí corta en el siguiente límite de etapa cuando el operador cancela."""
+    runtime, _client_unused = _client(tmp_path)
+    project_id = _project(runtime, tmp_path)
+    checks: list[int] = []
+
+    def should_abort() -> bool:
+        checks.append(1)
+        return len(checks) > 1  # the operator cancels while the loop sits in workspace_check
+
+    result = ProductLoopCoordinator(runtime.connection, root=tmp_path).run_user_message(
+        project_id=project_id,
+        message=_CSV_EXPORT_GOAL,
+        root=tmp_path,
+        should_abort=should_abort,
+        git_service=_GitServiceNeverUsed(),
+    )
+
+    assert result["status"] == "cancelled"
+    # It advanced one real stage before the cancel landed, then stopped at the next boundary.
+    states = [transition["toState"] for transition in result["transitions"]]
+    assert states == ["goal_received", "workspace_check", "cancelled"], states
+    runtime.close()
+
+
+def test_worker_never_starts_the_product_loop_for_an_already_cancelled_job(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Cierra la ventana reclamar→cancelar: si el job ya fue cancelado, el worker no debe arrancar el loop."""
+    runtime, client = _client(tmp_path)
+    headers = _headers(runtime)
+    project_id = _project(runtime, tmp_path)
+    thread = _create_thread(client, headers, project_id)
+    _queue_run(client, headers, thread["id"])
+    connection = runtime.connection
+
+    claimed = JobsRepository(connection).claim_next_job(worker_id="worker-test")
+    assert claimed is not None
+    cancelled = client.post(f"/api/v1/threads/{thread['id']}/cancel", headers=headers, json={})
+    assert cancelled.status_code == 200, cancelled.text
+
+    def _explode(*args, **kwargs):
+        raise AssertionError("The worker must not run the Product Loop for a cancelled job.")
+
+    monkeypatch.setattr("local_control_center.jobs_approvals.worker.ProductLoopCoordinator", _explode)
+    execution = _execute_thread_product_loop_job(
+        claimed["job"], connection=connection, worker_id="worker-test"
+    )
+
+    assert execution["metadata"]["productLoopStatus"] == "cancelled"
+    assert ThreadsRepository(connection).get_thread(thread["id"])["status"] == "open"
+    detail = client.get(f"/api/v1/threads/{thread['id']}").json()
+    assert any(event["type"] == "worker_aborted" for event in detail["events"])
+    runtime.close()
+
+
+def test_completing_a_run_never_resurrects_a_cancelled_job(tmp_path: Path) -> None:
+    """Un worker que termina tarde no puede reescribir el estado terminal `cancelled` del job: de lo
+    contrario la auditoría miente y el guard de cancelación deja de ver el cancel."""
+    runtime, client = _client(tmp_path)
+    headers = _headers(runtime)
+    project_id = _project(runtime, tmp_path)
+    thread = _create_thread(client, headers, project_id)
+    run = _queue_run(client, headers, thread["id"])
+    job_id = run["run"]["jobId"]
+    jobs = JobsRepository(runtime.connection)
+
+    claimed = jobs.claim_next_job(worker_id="worker-test")
+    assert claimed is not None
+    jobs.cancel_job(job_id, reason="Operator stopped the execution.")
+
+    jobs.complete_job_run(
+        job_id=job_id,
+        run_id=claimed["run"]["id"],
+        status="completed",
+        summary="Late finish from the already-cancelled worker.",
+    )
+
+    assert jobs.get_job(job_id)["status"] == "cancelled"
     runtime.close()

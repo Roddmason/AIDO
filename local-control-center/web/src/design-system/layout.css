@@ -1722,11 +1722,11 @@
 
 /* The workbench grid sits inside a user-resizable IDE pane, so the width it has to spend is the
    PANE's, never the viewport's — a viewport media query here reflows at sizes the grid never sees.
-   This wrapper exists only to be the query container. It wraps the grid alone (not the page header)
-   so the `.content-frame` row gap above it is untouched, and every overlay inside the subtree is
-   portalled (Dialog, Drawer, toasts) or anchored to its own trigger (Tooltip), so the layout
-   containment that `container-type` implies has nothing to re-anchor. It takes over the grid + gap the
-   page header and the layout used to get as two rows of `.content-frame`, which now sees only this. */
+   This wrapper exists only to be that query container: it replaces the route's root fragment, so it
+   also has to take over the grid + gap `.content-frame` used to give the page header and the layout as
+   two separate rows. Every overlay in the subtree is portalled (Dialog, Drawer, toasts) or anchored to
+   its own trigger (Tooltip), so the layout containment `container-type` implies has nothing to
+   re-anchor. */
 .workbench-canvas {
 	container-type: inline-size;
 	container-name: workbench;

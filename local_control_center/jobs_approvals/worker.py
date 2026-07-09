@@ -209,6 +209,19 @@ def _execute_thread_product_loop_job(
         )
 
     threads = ThreadsRepository(connection)
+    # Closes the claim→cancel window: the operator may have stopped this job between the claim and here,
+    # and starting the loop now would run it beside the replacement run the operator queued instead.
+    if _thread_job_was_cancelled(threads, job["id"]):
+        threads.record_event(
+            thread_id=thread_id,
+            type="worker_aborted",
+            agent_role="aido_lead",
+            payload={"jobId": job["id"], "reason": "Job was cancelled before the Product Loop started."},
+        )
+        return {
+            "summary": "Product Loop was cancelled before it started.",
+            "metadata": {"kind": job["kind"], "threadId": thread_id, "productLoopStatus": "cancelled"},
+        }
     threads.set_status(thread_id, "running")
     threads.record_event(
         thread_id=thread_id,
@@ -270,6 +283,8 @@ def _execute_thread_product_loop_job(
             run_metadata=run_metadata,
             actor=worker_id or "thread_worker",
             thread_id=thread_id,
+            # Live signal, re-read per stage: a cancel committed on another connection stops this loop.
+            should_abort=lambda: _thread_job_was_cancelled(threads, job["id"]),
         )
     except Exception as error:
         reason = str(redact_secrets(str(error)))

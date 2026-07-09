@@ -698,9 +698,13 @@ class JobsRepository:
 
         El job queda `completed` solo si el run lo está; cualquier otro status lo deja `failed`.
         Summary y metadata se redactan antes de persistir y de emitir `job.<status>`; usa la
-        transacción del caller.
+        transacción del caller. `cancelled` es terminal: un worker que termina tarde no lo reescribe.
         """
         job_status = "completed" if status == "completed" else "failed"
+        # A cancel the operator already issued is the truth: keep it, or the audit trail would claim the
+        # stopped job finished and `_thread_job_was_cancelled` would stop seeing the cancellation.
+        if self.get_job(job_id)["status"] == "cancelled":
+            job_status = "cancelled"
         timestamp = utc_now()
         clean_summary = str(redact_secrets(summary))
         clean_metadata = redact_secrets(metadata or {})

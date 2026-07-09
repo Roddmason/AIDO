@@ -97,6 +97,8 @@ type PipelineSnapshot = {
 	states: StepState[];
 	/** Sequence of the newest milestone event, used to decide whether a `blocked` event is current. */
 	lastMilestoneSeq: number;
+	/** True while the thread is stopped on a blocker, whether or not a remediation was persisted. */
+	blocked: boolean;
 	blockedReason: string;
 	blockedStage: string;
 };
@@ -141,6 +143,7 @@ function derivePipeline(events: ThreadAgentEvent[], threadStatus: string): Pipel
 	return {
 		states,
 		lastMilestoneSeq,
+		blocked: isBlocked,
 		blockedReason: isBlocked ? blockedReason : '',
 		blockedStage: isBlocked ? blockedStage : '',
 	};
@@ -196,6 +199,11 @@ export function ThreadExecutionPanel({
 	const consoleEntries = useMemo(() => mergeConsoleEntries(events, messages), [events, messages]);
 	const workerIsRunning = workerStatus?.running === true;
 	const showRunNow = waitingForWorker && !workerIsRunning;
+	// A blocked run whose blocker the backend never mapped to a remediation still deserves a repair
+	// card; the blocked event carries the only stage and cause we have for it.
+	const remediationFallback = pipeline.blocked
+		? { stage: pipeline.blockedStage, reason: pipeline.blockedReason }
+		: null;
 
 	return (
 		<m.aside
@@ -309,6 +317,7 @@ export function ThreadExecutionPanel({
 				handle={remediations}
 				onOpenSettings={onOpenSettings}
 				excludeBlockerTypes={REMEDIATION_EXCLUDE_IN_PANEL}
+				fallback={remediationFallback}
 			/>
 
 			<ol className="thread-pipeline" aria-label={t('app.threads.pipelineTitle', 'Pipeline steps')}>

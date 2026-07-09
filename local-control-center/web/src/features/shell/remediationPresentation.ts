@@ -3,10 +3,12 @@
  *
  * Turns the flat `/threads/{id}/remediations` records into user-facing {@link BlockerCardModel}s:
  * groups the persisted actions by the blocker they repair, resolves each blocker to a plain-language
- * title + one-line explanation (keyed for i18n), maps every backend `actionType` to a labelled button
- * with an execution kind, and de-duplicates the settings-navigation actions a blocker already exposes
- * through its contextual primary. No React, no I/O — so the mapping is unit-testable in isolation and
- * the components stay thin.
+ * title, a one-line "what happened" and a one-line "what this blocks" (all keyed for i18n), maps every
+ * backend `actionType` to a labelled button with an execution kind, promotes the backend's `primary`
+ * action to the head of the list and de-duplicates the settings-navigation actions a blocker already
+ * exposes through its contextual primary. {@link buildFallbackCard} covers the honest gap: a run the
+ * backend stopped without persisting any repair action. No React, no I/O — so the mapping is
+ * unit-testable in isolation and the components stay thin.
  * @author Rodrigo Mason
  */
 
@@ -17,12 +19,17 @@ export type RemediationActionKind = 'execute' | 'settings';
 type BlockerType = RemediationActionRecord['blockerType'];
 type ActionType = RemediationActionRecord['actionType'];
 
-/** i18n descriptor for a blocker type: a headline and a one-line "what happened" for non-experts. */
+/**
+ * i18n descriptor for a blocker type: a headline, a one-line "what happened" for non-experts, and a
+ * one-line "what this blocks" so the cost of leaving it unresolved is explicit.
+ */
 type BlockerCopy = {
 	titleKey: string;
 	titleFallback: string;
 	explanationKey: string;
 	explanationFallback: string;
+	impactKey: string;
+	impactFallback: string;
 	/** When the fix lives in Settings, the section a contextual primary action should open. */
 	settingsSection?: string;
 	/** Label key for that contextual primary (defaults to the generic "Open configuration"). */
@@ -44,6 +51,21 @@ const GENERIC_BLOCKER: BlockerCopy = {
 	titleFallback: 'Run blocked',
 	explanationKey: 'app.threads.remediation.blocker.generic.explanation',
 	explanationFallback: 'This run stopped and needs a manual step before it can continue.',
+	impactKey: 'app.threads.remediation.blocker.generic.impact',
+	impactFallback: 'The run stays stopped until this blocker is resolved.',
+};
+
+/**
+ * Copy for a run the backend stopped without persisting a single repair action. It is not a real
+ * blocker type: it exists so a blocked thread never renders as an empty panel with a raw event log.
+ */
+const UNRESOLVED_BLOCKER: BlockerCopy = {
+	titleKey: 'app.threads.remediation.blocker.unresolved.title',
+	titleFallback: 'Blocked without a repair plan',
+	explanationKey: 'app.threads.remediation.blocker.unresolved.explanation',
+	explanationFallback: 'AIDO stopped this run but did not persist any repair action for it.',
+	impactKey: 'app.threads.remediation.blocker.unresolved.impact',
+	impactFallback: 'The run stays stopped until you resolve the reported cause by hand.',
 };
 
 /** Plain-language copy for every blocker type the backend can raise. */
@@ -54,6 +76,8 @@ export const BLOCKER_COPY: Record<BlockerType, BlockerCopy> = {
 		explanationKey: 'app.threads.remediation.blocker.runtime_not_executable.explanation',
 		explanationFallback:
 			'AIDO could not find a runtime it can run on this machine, so the work cannot start.',
+		impactKey: 'app.threads.remediation.blocker.runtime_not_executable.impact',
+		impactFallback: 'No agent can run until a runtime is available, so the loop stays blocked.',
 		settingsSection: 'providers-cli',
 		settingsLabelKey: 'app.threads.remediation.action.configureRuntime',
 		settingsLabelFallback: 'Configure runtime',
@@ -63,6 +87,8 @@ export const BLOCKER_COPY: Record<BlockerType, BlockerCopy> = {
 		titleFallback: 'Runtime not authenticated',
 		explanationKey: 'app.threads.remediation.blocker.runtime_auth_missing.explanation',
 		explanationFallback: 'The selected runtime needs credentials before AIDO can use it.',
+		impactKey: 'app.threads.remediation.blocker.runtime_auth_missing.impact',
+		impactFallback: 'Every agent step that uses this runtime stays blocked until it authenticates.',
 		settingsSection: 'providers-cli',
 		settingsLabelKey: 'app.threads.remediation.action.configureRuntime',
 		settingsLabelFallback: 'Configure runtime',
@@ -73,6 +99,8 @@ export const BLOCKER_COPY: Record<BlockerType, BlockerCopy> = {
 		explanationKey: 'app.threads.remediation.blocker.runtime_output_invalid.explanation',
 		explanationFallback:
 			'The runtime answered in a shape AIDO could not use, so the step was stopped.',
+		impactKey: 'app.threads.remediation.blocker.runtime_output_invalid.impact',
+		impactFallback: 'The step produced no usable result, so the loop cannot reach the next stage.',
 	},
 	git_not_initialized: {
 		titleKey: 'app.threads.remediation.blocker.git_not_initialized.title',
@@ -80,6 +108,8 @@ export const BLOCKER_COPY: Record<BlockerType, BlockerCopy> = {
 		explanationKey: 'app.threads.remediation.blocker.git_not_initialized.explanation',
 		explanationFallback:
 			'The project folder has no Git repository yet, so AIDO cannot track changes.',
+		impactKey: 'app.threads.remediation.blocker.git_not_initialized.impact',
+		impactFallback: 'AIDO cannot create branches, diffs, or delivery evidence for this project.',
 	},
 	git_dirty_tree: {
 		titleKey: 'app.threads.remediation.blocker.git_dirty_tree.title',
@@ -87,6 +117,8 @@ export const BLOCKER_COPY: Record<BlockerType, BlockerCopy> = {
 		explanationKey: 'app.threads.remediation.blocker.git_dirty_tree.explanation',
 		explanationFallback:
 			'The working tree has uncommitted changes AIDO will not overwrite on its own.',
+		impactKey: 'app.threads.remediation.blocker.git_dirty_tree.impact',
+		impactFallback: 'Execution is paused so your uncommitted work is never overwritten.',
 	},
 	git_status_failed: {
 		titleKey: 'app.threads.remediation.blocker.git_status_failed.title',
@@ -94,6 +126,8 @@ export const BLOCKER_COPY: Record<BlockerType, BlockerCopy> = {
 		explanationKey: 'app.threads.remediation.blocker.git_status_failed.explanation',
 		explanationFallback:
 			'AIDO could not read the project Git status, so it stopped before planning or execution.',
+		impactKey: 'app.threads.remediation.blocker.git_status_failed.impact',
+		impactFallback: 'Planning and execution stay blocked until AIDO can read the repository state.',
 		settingsSection: 'workspaces',
 		settingsLabelKey: 'app.threads.remediation.action.openWorkspaceSettings',
 		settingsLabelFallback: 'Open workspace settings',
@@ -103,6 +137,8 @@ export const BLOCKER_COPY: Record<BlockerType, BlockerCopy> = {
 		titleFallback: 'Working branch required',
 		explanationKey: 'app.threads.remediation.blocker.git_branch_missing.explanation',
 		explanationFallback: 'AIDO needs a working branch before it makes changes to the project.',
+		impactKey: 'app.threads.remediation.blocker.git_branch_missing.impact',
+		impactFallback: 'AIDO will not modify the project until an isolated working branch exists.',
 	},
 	git_remote_missing: {
 		titleKey: 'app.threads.remediation.blocker.git_remote_missing.title',
@@ -110,6 +146,8 @@ export const BLOCKER_COPY: Record<BlockerType, BlockerCopy> = {
 		explanationKey: 'app.threads.remediation.blocker.git_remote_missing.explanation',
 		explanationFallback:
 			'The project has a configured Git remote, but the repository can no longer reach it.',
+		impactKey: 'app.threads.remediation.blocker.git_remote_missing.impact',
+		impactFallback: 'Anything that needs the configured remote cannot complete.',
 		settingsSection: 'workspaces',
 		settingsLabelKey: 'app.threads.remediation.action.openWorkspaceSettings',
 		settingsLabelFallback: 'Open workspace settings',
@@ -120,6 +158,8 @@ export const BLOCKER_COPY: Record<BlockerType, BlockerCopy> = {
 		explanationKey: 'app.threads.remediation.blocker.gitleaks_missing.explanation',
 		explanationFallback:
 			'The secret scanner required by the security gate is not available on this machine.',
+		impactKey: 'app.threads.remediation.blocker.gitleaks_missing.impact',
+		impactFallback: 'The security gate cannot run, so no delivery reaches approval.',
 		settingsSection: 'providers-cli',
 		settingsLabelKey: 'app.threads.remediation.action.openSecurityTools',
 		settingsLabelFallback: 'Open security tools',
@@ -130,6 +170,8 @@ export const BLOCKER_COPY: Record<BlockerType, BlockerCopy> = {
 		explanationKey: 'app.threads.remediation.blocker.gitleaks_failed.explanation',
 		explanationFallback:
 			'The secret scanner found something that must be removed before delivery continues.',
+		impactKey: 'app.threads.remediation.blocker.gitleaks_failed.impact',
+		impactFallback: 'Delivery is held back to keep a detected secret out of the repository.',
 	},
 	qa_failed: {
 		titleKey: 'app.threads.remediation.blocker.qa_failed.title',
@@ -137,24 +179,32 @@ export const BLOCKER_COPY: Record<BlockerType, BlockerCopy> = {
 		explanationKey: 'app.threads.remediation.blocker.qa_failed.explanation',
 		explanationFallback:
 			'Automated quality checks did not pass, so delivery was paused for review.',
+		impactKey: 'app.threads.remediation.blocker.qa_failed.impact',
+		impactFallback: 'The change stays out of approval until the quality checks pass.',
 	},
 	po_needs_input: {
 		titleKey: 'app.threads.remediation.blocker.po_needs_input.title',
 		titleFallback: 'A product decision is needed',
 		explanationKey: 'app.threads.remediation.blocker.po_needs_input.explanation',
 		explanationFallback: 'AIDO needs you to answer a product question before it keeps going.',
+		impactKey: 'app.threads.remediation.blocker.po_needs_input.impact',
+		impactFallback: 'The loop waits for your answer; nothing is planned or executed meanwhile.',
 	},
 	worker_not_running: {
 		titleKey: 'app.threads.remediation.blocker.worker_not_running.title',
 		titleFallback: 'Worker is not running',
 		explanationKey: 'app.threads.remediation.blocker.worker_not_running.explanation',
 		explanationFallback: 'This thread is queued but no local worker is processing it right now.',
+		impactKey: 'app.threads.remediation.blocker.worker_not_running.impact',
+		impactFallback: 'The queued run will not start until a worker picks it up.',
 	},
 	provider_missing_credentials: {
 		titleKey: 'app.threads.remediation.blocker.provider_missing_credentials.title',
 		titleFallback: 'Provider credentials missing',
 		explanationKey: 'app.threads.remediation.blocker.provider_missing_credentials.explanation',
 		explanationFallback: 'The provider needs credentials before AIDO can reach it.',
+		impactKey: 'app.threads.remediation.blocker.provider_missing_credentials.impact',
+		impactFallback: 'Every model call routed to this provider fails until credentials are stored.',
 		settingsSection: 'providers-cli',
 		settingsLabelKey: 'app.threads.remediation.action.openCredentials',
 		settingsLabelFallback: 'Open credentials',
@@ -164,6 +214,8 @@ export const BLOCKER_COPY: Record<BlockerType, BlockerCopy> = {
 		titleFallback: 'Provider is unhealthy',
 		explanationKey: 'app.threads.remediation.blocker.provider_health_failed.explanation',
 		explanationFallback: 'The provider failed its health check, so AIDO stopped before using it.',
+		impactKey: 'app.threads.remediation.blocker.provider_health_failed.impact',
+		impactFallback: 'AIDO will not send work to a provider that failed its health check.',
 	},
 	resource_manager_unconfigured: {
 		titleKey: 'app.threads.remediation.blocker.resource_manager_unconfigured.title',
@@ -171,6 +223,8 @@ export const BLOCKER_COPY: Record<BlockerType, BlockerCopy> = {
 		explanationKey: 'app.threads.remediation.blocker.resource_manager_unconfigured.explanation',
 		explanationFallback:
 			'ResourceManager could not choose a model/runtime for the scheduled team role.',
+		impactKey: 'app.threads.remediation.blocker.resource_manager_unconfigured.impact',
+		impactFallback: 'No role gets a model or runtime, so execution never starts.',
 		settingsSection: 'routing',
 		settingsLabelKey: 'app.threads.remediation.action.openRouting',
 		settingsLabelFallback: 'Open routing',
@@ -182,6 +236,8 @@ export const BLOCKER_COPY: Record<BlockerType, BlockerCopy> = {
 			'app.threads.remediation.blocker.resource_manager_approval_required.explanation',
 		explanationFallback:
 			'ResourceManager selected a model/runtime that needs review before execution.',
+		impactKey: 'app.threads.remediation.blocker.resource_manager_approval_required.impact',
+		impactFallback: 'Execution waits for you to approve the selected model and its cost.',
 		settingsSection: 'routing',
 		settingsLabelKey: 'app.threads.remediation.action.openRouting',
 		settingsLabelFallback: 'Open routing',
@@ -192,6 +248,8 @@ export const BLOCKER_COPY: Record<BlockerType, BlockerCopy> = {
 		explanationKey: 'app.threads.remediation.blocker.team_scheduler_failed.explanation',
 		explanationFallback:
 			'TeamScheduler could not produce the required role schedule, so execution is blocked.',
+		impactKey: 'app.threads.remediation.blocker.team_scheduler_failed.impact',
+		impactFallback: 'Without a role schedule no agent is assigned and the loop stops here.',
 		settingsSection: 'team',
 		settingsLabelKey: 'app.threads.remediation.action.openTeam',
 		settingsLabelFallback: 'Open team',
@@ -202,6 +260,8 @@ export const BLOCKER_COPY: Record<BlockerType, BlockerCopy> = {
 		explanationKey: 'app.threads.remediation.blocker.technical_lead_planning_failed.explanation',
 		explanationFallback:
 			'TechnicalLeadPlanner did not produce role tasks, so DeveloperAgent execution is blocked.',
+		impactKey: 'app.threads.remediation.blocker.technical_lead_planning_failed.impact',
+		impactFallback: 'DeveloperAgent has no tasks to execute, so implementation cannot start.',
 		settingsSection: 'team',
 		settingsLabelKey: 'app.threads.remediation.action.openTeam',
 		settingsLabelFallback: 'Open team',
@@ -212,6 +272,8 @@ export const BLOCKER_COPY: Record<BlockerType, BlockerCopy> = {
 		explanationKey: 'app.threads.remediation.blocker.product_owner_output_invalid.explanation',
 		explanationFallback:
 			'The ProductOwnerAgent did not produce a validated brief or backlog for this loop.',
+		impactKey: 'app.threads.remediation.blocker.product_owner_output_invalid.impact',
+		impactFallback: 'Without a validated brief or backlog, planning and execution cannot continue.',
 		settingsSection: 'team',
 		settingsLabelKey: 'app.threads.remediation.action.openTeam',
 		settingsLabelFallback: 'Open team',
@@ -222,6 +284,8 @@ export const BLOCKER_COPY: Record<BlockerType, BlockerCopy> = {
 		explanationKey: 'app.threads.remediation.blocker.research_required.explanation',
 		explanationFallback:
 			'AIDO must process a ResearchAgent job before accepting this high-impact decision.',
+		impactKey: 'app.threads.remediation.blocker.research_required.impact',
+		impactFallback: 'The decision waits for research evidence before AIDO adopts it.',
 		settingsSection: 'research',
 		settingsLabelKey: 'app.threads.remediation.action.openResearch',
 		settingsLabelFallback: 'Open research',
@@ -232,6 +296,8 @@ export const BLOCKER_COPY: Record<BlockerType, BlockerCopy> = {
 		explanationKey: 'app.threads.remediation.blocker.workspace_root_missing.explanation',
 		explanationFallback:
 			'AIDO needs a project workspace root before it can allocate isolated execution.',
+		impactKey: 'app.threads.remediation.blocker.workspace_root_missing.impact',
+		impactFallback: 'AIDO cannot isolate execution, so it refuses to touch the project folder.',
 		settingsSection: 'workspaces',
 		settingsLabelKey: 'app.threads.remediation.action.openWorkspaces',
 		settingsLabelFallback: 'Open workspaces',
@@ -242,6 +308,8 @@ export const BLOCKER_COPY: Record<BlockerType, BlockerCopy> = {
 		explanationKey: 'app.threads.remediation.blocker.workspace_allocation_failed.explanation',
 		explanationFallback:
 			'AIDO could not create the isolated workspace or worktree needed for execution.',
+		impactKey: 'app.threads.remediation.blocker.workspace_allocation_failed.impact',
+		impactFallback: 'Execution stays blocked because there is no isolated worktree to work in.',
 		settingsSection: 'workspaces',
 		settingsLabelKey: 'app.threads.remediation.action.openWorkspaces',
 		settingsLabelFallback: 'Open workspaces',
@@ -252,6 +320,8 @@ export const BLOCKER_COPY: Record<BlockerType, BlockerCopy> = {
 		explanationKey: 'app.threads.remediation.blocker.review_diff_unavailable.explanation',
 		explanationFallback:
 			'The runtime finished, but AIDO could not capture real changed files for review.',
+		impactKey: 'app.threads.remediation.blocker.review_diff_unavailable.impact',
+		impactFallback: 'Without real changed files there is nothing to review, so delivery stops.',
 	},
 	approval_unavailable: {
 		titleKey: 'app.threads.remediation.blocker.approval_unavailable.title',
@@ -259,6 +329,8 @@ export const BLOCKER_COPY: Record<BlockerType, BlockerCopy> = {
 		explanationKey: 'app.threads.remediation.blocker.approval_unavailable.explanation',
 		explanationFallback:
 			'QA and security evidence are ready, but AIDO could not create the approval request.',
+		impactKey: 'app.threads.remediation.blocker.approval_unavailable.impact',
+		impactFallback: 'The finished work cannot reach the review board for your approval.',
 	},
 	resource_learning_failed: {
 		titleKey: 'app.threads.remediation.blocker.resource_learning_failed.title',
@@ -266,6 +338,8 @@ export const BLOCKER_COPY: Record<BlockerType, BlockerCopy> = {
 		explanationKey: 'app.threads.remediation.blocker.resource_learning_failed.explanation',
 		explanationFallback:
 			'AIDO could not persist the cost, token, or quality observation required before approval.',
+		impactKey: 'app.threads.remediation.blocker.resource_learning_failed.impact',
+		impactFallback: 'Delivery approval is held back until the run cost and quality are recorded.',
 		settingsSection: 'routing',
 		settingsLabelKey: 'app.threads.remediation.action.openRouting',
 		settingsLabelFallback: 'Open routing',
@@ -276,6 +350,8 @@ export const BLOCKER_COPY: Record<BlockerType, BlockerCopy> = {
 		explanationKey: 'app.threads.remediation.blocker.project_assessment_failed.explanation',
 		explanationFallback:
 			'AIDO could not read enough project context to hand off safely to ProductOwnerAgent.',
+		impactKey: 'app.threads.remediation.blocker.project_assessment_failed.impact',
+		impactFallback: 'ProductOwnerAgent would plan blindly, so AIDO stops before the handoff.',
 		settingsSection: 'workspaces',
 		settingsLabelKey: 'app.threads.remediation.action.openWorkspaces',
 		settingsLabelFallback: 'Open workspaces',
@@ -287,6 +363,8 @@ export const BLOCKER_COPY: Record<BlockerType, BlockerCopy> = {
 			'app.threads.remediation.blocker.functionality_memory_decision_required.explanation',
 		explanationFallback:
 			'AIDO found existing work and needs your decision before creating or changing anything.',
+		impactKey: 'app.threads.remediation.blocker.functionality_memory_decision_required.impact',
+		impactFallback: 'AIDO waits for your decision so it does not duplicate existing work.',
 	},
 	thread_similarity_decision_required: {
 		titleKey: 'app.threads.remediation.blocker.thread_similarity_decision_required.title',
@@ -295,6 +373,8 @@ export const BLOCKER_COPY: Record<BlockerType, BlockerCopy> = {
 			'app.threads.remediation.blocker.thread_similarity_decision_required.explanation',
 		explanationFallback:
 			'AIDO found a related thread and needs your decision before starting duplicate work.',
+		impactKey: 'app.threads.remediation.blocker.thread_similarity_decision_required.impact',
+		impactFallback: 'AIDO waits for your decision so it does not duplicate a related thread.',
 	},
 	thread_intake_decision_required: {
 		titleKey: 'app.threads.remediation.blocker.thread_intake_decision_required.title',
@@ -302,6 +382,8 @@ export const BLOCKER_COPY: Record<BlockerType, BlockerCopy> = {
 		explanationKey: 'app.threads.remediation.blocker.thread_intake_decision_required.explanation',
 		explanationFallback:
 			'AIDO needs you to choose one of the available options before it queues the loop.',
+		impactKey: 'app.threads.remediation.blocker.thread_intake_decision_required.impact',
+		impactFallback: 'The loop is not queued until you pick one of the offered options.',
 	},
 };
 
@@ -317,6 +399,8 @@ export const ACTION_COPY: Record<ActionType, ActionCopy> = {
 		labelFallback: 'Revalidate runtime',
 		kind: 'execute',
 	},
+	// Picking a different runtime is a choice, not a side effect: the backend refuses `switch_runtime`
+	// unless the caller already knows the target id, so the button routes to the runtime catalog.
 	switch_runtime: {
 		labelKey: 'app.threads.remediation.action.switchRuntime',
 		labelFallback: 'Switch to Ollama / API / CLI',
@@ -398,6 +482,10 @@ export type BlockerActionModel = {
 	labelKey: string;
 	labelFallback: string;
 	kind: RemediationActionKind;
+	/** The single recommended repair, rendered as the card's primary button. */
+	primary: boolean;
+	/** Backend flagged the action as able to discard local work: confirm before executing it. */
+	confirmationRequired: boolean;
 	/** Backend record behind the action; settings actions keep it so payload hints are not lost. */
 	remediation?: RemediationActionRecord;
 	/** Present for `settings` actions: the section to open. */
@@ -413,13 +501,20 @@ export type BlockerCardModel = {
 	titleFallback: string;
 	explanationKey: string;
 	explanationFallback: string;
+	impactKey: string;
+	impactFallback: string;
+	/** The machine cause the backend reported (already secret-redacted), shown as the "Cause" fact. */
+	cause: string;
 	/** The blocker's raw reason (from payload), shown inside the collapsed technical detail. */
 	reason: string;
-	/** Actions the user can take, contextual settings primary first. */
+	/** Actions the user can take, the primary repair first. */
 	actions: BlockerActionModel[];
 	/** The persisted records behind this card (for the technical detail and diagnostic copy). */
 	remediations: RemediationActionRecord[];
 };
+
+/** An action before its position in the card is known; `buildBlockerCards` assigns `primary`. */
+type DraftAction = Omit<BlockerActionModel, 'primary'>;
 
 function payloadString(payload: unknown, key: string): string {
 	if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return '';
@@ -427,11 +522,30 @@ function payloadString(payload: unknown, key: string): string {
 	return typeof value === 'string' ? value : '';
 }
 
+/** Destructive remediations are refused by `execute` until the caller confirms them explicitly. */
+function needsConfirmation(record: RemediationActionRecord | undefined): boolean {
+	return Boolean(record?.confirmationRequired || record?.destructive);
+}
+
+/**
+ * Orders the actions so the recommended repair leads. The backend flags exactly one spec as `primary`
+ * per blocker; records persisted before that flag existed fall back to the first action, which keeps
+ * the contextual settings navigation in the lead position it has always had.
+ */
+function withPrimaryFirst(actions: DraftAction[]): BlockerActionModel[] {
+	const primaryId =
+		actions.find((action) => action.remediation?.primary === true)?.id ?? actions[0]?.id;
+	return [
+		...actions.filter((action) => action.id === primaryId),
+		...actions.filter((action) => action.id !== primaryId),
+	].map((action) => ({ ...action, primary: action.id === primaryId }));
+}
+
 /**
  * Groups pending remediations into one card per blocker (same loop + stage + blocker type), resolves
  * their copy, and builds the ordered action list: a contextual settings primary first (when the fix
  * lives in Settings), then the backend actions — dropping any settings action the primary already
- * covers so the same section is not offered twice.
+ * covers so the same section is not offered twice — and finally hoisting the backend's primary repair.
  */
 export function buildBlockerCards(remediations: RemediationActionRecord[]): BlockerCardModel[] {
 	const groups = new Map<string, RemediationActionRecord[]>();
@@ -447,7 +561,7 @@ export function buildBlockerCards(remediations: RemediationActionRecord[]): Bloc
 	for (const [key, records] of groups) {
 		const first = records[0];
 		const copy = BLOCKER_COPY[first.blockerType] ?? GENERIC_BLOCKER;
-		const actions: BlockerActionModel[] = [];
+		const actions: DraftAction[] = [];
 		const coveredSections = new Set<string>();
 		const seenActionTypes = new Set<string>();
 
@@ -464,6 +578,7 @@ export function buildBlockerCards(remediations: RemediationActionRecord[]): Bloc
 				labelKey: copy.settingsLabelKey ?? 'app.threads.remediation.action.openConfiguration',
 				labelFallback: copy.settingsLabelFallback ?? 'Open configuration',
 				kind: 'settings',
+				confirmationRequired: false,
 				section: copy.settingsSection,
 				remediation: contextualSettingsRecord,
 			});
@@ -486,6 +601,7 @@ export function buildBlockerCards(remediations: RemediationActionRecord[]): Bloc
 					labelKey: actionCopy.labelKey,
 					labelFallback: actionCopy.labelFallback,
 					kind: 'settings',
+					confirmationRequired: false,
 					section,
 					remediation: record,
 				});
@@ -496,10 +612,12 @@ export function buildBlockerCards(remediations: RemediationActionRecord[]): Bloc
 				labelKey: actionCopy.labelKey,
 				labelFallback: actionCopy.labelFallback,
 				kind: 'execute',
+				confirmationRequired: needsConfirmation(record),
 				remediation: record,
 			});
 		}
 
+		const reason = payloadString(first.payload, 'reason');
 		cards.push({
 			key,
 			stage: first.stage,
@@ -508,12 +626,38 @@ export function buildBlockerCards(remediations: RemediationActionRecord[]): Bloc
 			titleFallback: copy.titleFallback,
 			explanationKey: copy.explanationKey,
 			explanationFallback: copy.explanationFallback,
-			reason: payloadString(first.payload, 'reason'),
-			actions,
+			impactKey: copy.impactKey,
+			impactFallback: copy.impactFallback,
+			cause: first.technicalReason || reason || first.description,
+			reason,
+			actions: withPrimaryFirst(actions),
 			remediations: records,
 		});
 	}
 	return cards;
+}
+
+/**
+ * Builds the card for a run the backend stopped without persisting any remediation. It carries no
+ * actions and no records, so the host renders the universal recovery pair — open configuration and
+ * copy the diagnostic — instead of leaving the blocked thread as raw technical text in the console.
+ */
+export function buildFallbackCard(stage: string, reason: string): BlockerCardModel {
+	return {
+		key: 'blocker-fallback',
+		stage,
+		blockerType: 'unresolved',
+		titleKey: UNRESOLVED_BLOCKER.titleKey,
+		titleFallback: UNRESOLVED_BLOCKER.titleFallback,
+		explanationKey: UNRESOLVED_BLOCKER.explanationKey,
+		explanationFallback: UNRESOLVED_BLOCKER.explanationFallback,
+		impactKey: UNRESOLVED_BLOCKER.impactKey,
+		impactFallback: UNRESOLVED_BLOCKER.impactFallback,
+		cause: reason,
+		reason,
+		actions: [],
+		remediations: [],
+	};
 }
 
 /**

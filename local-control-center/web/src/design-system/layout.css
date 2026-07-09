@@ -1200,20 +1200,29 @@
  * Within-cluster gap: --space-2 (0.5rem).
  * Between-cluster gap: --space-4 inset on the leading edge of each non-first cluster.
  */
+/* `min-width: 0` + a full-width basis are load-bearing: as a flex item the bar defaults to
+   `min-width: auto`, so it refuses to shrink below its min-content and silently overflows its column.
+   In the workbench that pushed the actions cluster underneath the "Run inspector" aside, making View
+   changes / Remotes / gitleaks unclickable at 1280px wide. */
 .composer-git-bar {
 	display: flex;
 	flex-wrap: wrap;
 	align-items: center;
 	gap: 0;
+	flex-basis: 100%;
+	min-width: 0;
 	padding-top: var(--space-2);
 	border-top: 1px solid var(--color-border-subtle);
 }
 
-/* Each cluster is a flex row with tight internal spacing. */
+/* Each cluster is a flex row with tight internal spacing. It wraps internally for the same reason: a
+   cluster that cannot shrink drags the whole bar past the edge of its container. */
 .composer-git-cluster {
 	display: inline-flex;
+	flex-wrap: wrap;
 	align-items: center;
 	gap: var(--space-2);
+	min-width: 0;
 }
 
 /* Divider between clusters: 1px rule on the leading edge + inset padding (no margin). */
@@ -1418,6 +1427,54 @@
 	line-height: 1.5;
 	white-space: pre;
 	color: var(--color-text-primary);
+}
+
+/* Dirty-tree breakdown: staged / changed / untracked lists above the diff. Scrolls on its own so a large
+   rename batch cannot push the diff viewer out of the dialog. */
+.composer-git-files {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-3);
+	max-height: min(30vh, 16rem);
+	overflow: auto;
+}
+
+.composer-git-file-group {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-1);
+}
+
+.composer-git-file-heading {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	margin: 0;
+	font-size: var(--font-size-xs);
+	font-weight: 600;
+	color: var(--color-text-muted);
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+}
+
+.composer-git-file-count {
+	padding: 0 var(--space-2);
+	border: 1px solid var(--color-border-subtle);
+	border-radius: var(--radius-pill);
+	font-weight: 500;
+	letter-spacing: normal;
+}
+
+.composer-git-file-list {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-1);
+	font-size: var(--font-size-xs);
+	color: var(--color-text-primary);
+	overflow-wrap: anywhere;
 }
 
 .composer-git-remote-list {

@@ -1186,13 +1186,20 @@ function gitBranchesFixture(projectId, overrides = {}) {
 	};
 }
 
-async function mockGitEndpoints(page, projectId, { status, branches, onCreateBranch, onInitGit } = {}) {
+async function mockGitEndpoints(page, projectId, { status, branches, onCreateBranch, onInitGit, diff } = {}) {
 	let currentStatus = status;
 	let currentBranches = branches;
 	await page.route('/api/v1/events', (route) => route.abort());
 	await page.route(`/api/v1/projects/${projectId}/git/status`, async (route) => {
 		await route.fulfill({ json: currentStatus });
 	});
+	if (diff !== undefined) {
+		await page.route(`/api/v1/projects/${projectId}/git/diff`, async (route) => {
+			await route.fulfill({
+				json: { status: 'completed', reason: 'Git diff collected through ToolBroker.', projectId, workspaceId: 'workspace-git-web', root: '/tmp/web-git', diff, changedFiles: [] },
+			});
+		});
+	}
 	await page.route(`/api/v1/projects/${projectId}/git/branches`, async (route) => {
 		if (route.request().method() === 'POST') {
 			const body = route.request().postDataJSON();
@@ -1254,6 +1261,9 @@ test('GitBranchBar offers Initialize Git as the exit when the project has no rep
 
 	const gitWorkspace = await openGitWorkbench();
 	// No dead end: an explicit primary CTA, not just a red dot.
+	await expect(gitWorkspace.getByRole('button', { name: 'Initialize Git' })).toBeVisible();
+	// ...and the CTA states the stakes: why AIDO needs a repository at all.
+	await expect(gitWorkspace.getByText(/without Git it cannot isolate what an agent changed/)).toBeVisible();
 	await gitWorkspace.getByRole('button', { name: 'Initialize Git' }).click();
 	await expect.poll(() => initBody).toEqual({});
 	await expect(page.getByText('Git repository initialized')).toBeVisible({ timeout: 30_000 });
@@ -1274,6 +1284,50 @@ test('GitBranchBar shows the dirty breakdown and a View changes exit when the tr
 	await expect(gitWorkspace.getByText(/1 changed/)).toBeVisible();
 	await expect(gitWorkspace.getByText(/1 staged/)).toBeVisible();
 	await expect(gitWorkspace.getByText(/1 untracked/)).toBeVisible();
+});
+
+test('GitBranchBar lists changed, staged and untracked files in the changes dialog', async ({ page }) => {
+	await page.setViewportSize({ width: 1280, height: 900 });
+	const project = await getActiveProject(page);
+	// Untracked-only tree: `git diff HEAD` reports nothing, so the file list is the ONLY thing that can
+	// tell the user their new file exists. An empty diff here must not read as "the tree is clean".
+	const dirtyStatus = gitStatusFixture(project.id, { dirty: true, porcelain: [' M a.ts', 'A  c.ts', '?? b.ts'], changedFiles: ['a.ts'], stagedFiles: ['c.ts'], untrackedFiles: ['b.ts'] });
+	const { openGitWorkbench } = await mockGitEndpoints(page, project.id, { status: dirtyStatus, branches: gitBranchesFixture(project.id, { dirty: true }), diff: '' });
+
+	const gitWorkspace = await openGitWorkbench();
+	await gitWorkspace.getByRole('button', { name: 'View changes' }).click();
+	const changes = page.getByRole('dialog', { name: /Git changes/ });
+	await expect(changes).toBeVisible();
+
+	// Every group is named, and every file in it is listed by path.
+	await expect(changes.getByRole('heading', { name: /Staged/ })).toBeVisible();
+	await expect(changes.getByText('c.ts', { exact: true })).toBeVisible();
+	await expect(changes.getByRole('heading', { name: /Changed/ })).toBeVisible();
+	await expect(changes.getByText('a.ts', { exact: true })).toBeVisible();
+	await expect(changes.getByRole('heading', { name: /Untracked/ })).toBeVisible();
+	await expect(changes.getByText('b.ts', { exact: true })).toBeVisible();
+	// The empty diff is explained rather than left to imply a clean tree.
+	await expect(changes.getByText(/never appear in the diff against HEAD/)).toBeVisible();
+});
+
+test('GitBranchBar explains the unborn branch when a fresh repository has no commits', async ({ page }) => {
+	await page.setViewportSize({ width: 1280, height: 900 });
+	const project = await getActiveProject(page);
+	// Exactly what `git init --initial-branch dev` leaves behind: HEAD names a branch that has no ref yet,
+	// `git branch --format` lists nothing, and there is no commit. This is where Initialize Git lands.
+	const freshStatus = gitStatusFixture(project.id, { currentBranch: 'dev', lastCommit: null, remotes: [] });
+	const freshBranches = gitBranchesFixture(project.id, { currentBranch: 'dev', localBranches: [], remotes: [] });
+	const { openGitWorkbench } = await mockGitEndpoints(page, project.id, { status: freshStatus, branches: freshBranches });
+
+	const gitWorkspace = await openGitWorkbench();
+	// The workspace cluster used to render nothing at all here. It must name the state and the pending branch.
+	await expect(gitWorkspace.getByText(/No commits yet — Git creates branch/)).toBeVisible();
+	await expect(gitWorkspace.getByText(/dev/).first()).toBeVisible();
+	await expect(gitWorkspace.getByText(/with the first commit/)).toBeVisible();
+	// No branch picker and no create-branch CTA: `git branch` cannot act on an unborn HEAD, so offering
+	// either would be a control that always fails.
+	await expect(gitWorkspace.getByLabel('Git branch')).toHaveCount(0);
+	await expect(gitWorkspace.getByRole('button', { name: 'Create branch' })).toHaveCount(0);
 });
 
 test('GitBranchBar creates a branch through the git branches API', async ({ page }) => {

@@ -206,22 +206,51 @@ export function GitBranchBar({
 		gitPhase === 'no_git' && /executable was not found/i.test(gitStatus?.reason ?? '');
 
 	const hasCommits = Boolean(lastCommit);
-	const detachedOrNoBranch = ready && (currentBranch === 'HEAD' || currentBranch === '');
-	const noCommits = detachedOrNoBranch && !hasCommits;
-	const detachedHead = detachedOrNoBranch && hasCommits;
+	// Git materializes a branch ref only with the first commit: right after `git init --initial-branch dev`
+	// the repo reports currentBranch='dev' while `git branch --format` lists nothing at all. So the signal
+	// for "no branch exists yet" is the ABSENCE OF COMMITS, not an empty currentBranch — keying this off
+	// currentBranch left the freshly-initialized repo (exactly where Initialize Git lands) with an empty
+	// workspace cluster: no branch, no CTA, no explanation.
+	const branchMissing = ready && !hasCommits;
+	const detachedHead = ready && hasCommits && (currentBranch === 'HEAD' || currentBranch === '');
+	// The unborn branch `git init` selected. Empty when HEAD does not even point at a branch name.
+	const unbornBranch = branchMissing && currentBranch !== 'HEAD' ? currentBranch : '';
+	const showPicker = ready && hasCommits;
 	// Fresh repo with a single protected line and no work branch yet: guide toward creating one before
 	// the first change, anticipating the server-side block on committing work directly to main/master.
 	const onlyProtectedBranch =
-		ready &&
-		!detachedOrNoBranch &&
+		showPicker &&
+		!detachedHead &&
 		branchOptions.length <= 1 &&
 		PROTECTED_BRANCHES.has(currentBranch.toLowerCase());
-	const showPicker = ready && hasCommits;
 
 	const dirty = gitStatus?.dirty === true;
 	const changedCount = gitStatus?.changedFiles.length ?? 0;
 	const stagedCount = gitStatus?.stagedFiles.length ?? 0;
 	const untrackedCount = gitStatus?.untrackedFiles.length ?? 0;
+	// The bar only has room for counts; the dialog is where "what exactly is dirty" gets answered. Empty
+	// groups are dropped so the list never pads a two-file change with three empty headings.
+	const fileGroups = useMemo(
+		() =>
+			[
+				{
+					key: 'staged',
+					heading: t('app.statusBar.git.stagedHeading', 'Staged'),
+					files: gitStatus?.stagedFiles ?? [],
+				},
+				{
+					key: 'changed',
+					heading: t('app.statusBar.git.changedHeading', 'Changed'),
+					files: gitStatus?.changedFiles ?? [],
+				},
+				{
+					key: 'untracked',
+					heading: t('app.statusBar.git.untrackedHeading', 'Untracked'),
+					files: gitStatus?.untrackedFiles ?? [],
+				},
+			].filter((group) => group.files.length > 0),
+		[gitStatus?.stagedFiles, gitStatus?.changedFiles, gitStatus?.untrackedFiles, t],
+	);
 	const dirtyBreakdown = [
 		changedCount ? `${changedCount} ${t('app.statusBar.git.changedLabel', 'changed')}` : '',
 		stagedCount ? `${stagedCount} ${t('app.statusBar.git.stagedLabel', 'staged')}` : '',
@@ -542,26 +571,40 @@ export function GitBranchBar({
 						{t('app.statusBar.git.blockedByPolicy', 'Blocked by policy')}
 					</span>
 				) : gitPhase === 'no_git' ? (
-					gitMissing ? (
-						<span className="composer-git-note" data-tone="warn">
-							<AlertTriangle aria-hidden="true" size={14} />
-							{t('app.statusBar.git.gitNotInstalled', 'Git is not installed')}
+					<>
+						{gitMissing ? (
+							<span className="composer-git-note" data-tone="warn">
+								<AlertTriangle aria-hidden="true" size={14} />
+								{t('app.statusBar.git.gitNotInstalled', 'Git is not installed')}
+							</span>
+						) : (
+							<Button
+								variant="primary"
+								icon={<GitBranch aria-hidden="true" size={14} />}
+								loading={gitBusy}
+								disabled={!selectedProject}
+								onClick={() => void initGit()}
+							>
+								{t('app.statusBar.git.initGit', 'Initialize Git')}
+							</Button>
+						)}
+						{/* The CTA alone never says what is lost without a repository; state the stakes next to it. */}
+						<span className="composer-git-note composer-git-note--hint">
+							{t(
+								'app.statusBar.git.whyGit',
+								'AIDO delivers work as branches, diffs and secret-scanned commits: without Git it cannot isolate what an agent changed, show you the diff, or roll it back.',
+							)}
 						</span>
-					) : (
-						<Button
-							variant="primary"
-							icon={<GitBranch aria-hidden="true" size={14} />}
-							loading={gitBusy}
-							disabled={!selectedProject}
-							onClick={() => void initGit()}
-						>
-							{t('app.statusBar.git.initGit', 'Initialize Git')}
-						</Button>
-					)
-				) : noCommits ? (
+					</>
+				) : branchMissing ? (
+					// An unborn branch cannot be created, renamed or checked out: `git branch <name>` fails with
+					// "not a valid object name", and both `checkout -b` and `branch -m` are denied by policy. The
+					// only real exit is the first commit, so name it instead of offering a CTA that would fail.
 					<span className="composer-git-note" data-tone="warn">
 						<GitCommitHorizontal aria-hidden="true" size={14} />
-						{t('app.statusBar.git.noCommits', 'No commits yet')}
+						{unbornBranch
+							? `${t('app.statusBar.git.branchMissingPrefix', 'No commits yet — Git creates branch')} ${unbornBranch} ${t('app.statusBar.git.branchMissingSuffix', 'with the first commit')}`
+							: t('app.statusBar.git.noCommits', 'No commits yet')}
 					</span>
 				) : (
 					<>
@@ -907,6 +950,27 @@ export function GitBranchBar({
 							{t('app.statusBar.git.savePatch', 'Save patch')}
 						</Button>
 					</div>
+					{/* What is dirty, by group. `git status` is the only source that sees untracked files, so this
+					    list — not the diff below — is what makes an untracked-only tree legible. */}
+					{fileGroups.length ? (
+						<div className="composer-git-files">
+							{fileGroups.map((group) => (
+								<section key={group.key} className="composer-git-file-group">
+									<h3 className="composer-git-file-heading">
+										{group.heading}
+										<span className="composer-git-file-count">{group.files.length}</span>
+									</h3>
+									<ul className="composer-git-file-list">
+										{group.files.map((file) => (
+											<li key={file} className="mono">
+												{file}
+											</li>
+										))}
+									</ul>
+								</section>
+							))}
+						</div>
+					) : null}
 					{/* aria-live announces the loading→result transition without stealing the dialog's focus. */}
 					<div className="composer-git-diff" aria-live="polite">
 						{diffBusy ? (
@@ -925,6 +989,16 @@ export function GitBranchBar({
 							</p>
 						)}
 					</div>
+					{/* `git diff HEAD` never reports untracked files, so an untracked-only tree renders an empty
+					    diff. Without this line "No changes against HEAD" reads as "the tree is clean" — a lie. */}
+					{untrackedCount ? (
+						<p className="composer-git-dialog-detail composer-git-note--hint">
+							{t(
+								'app.statusBar.git.untrackedNotInDiff',
+								'Untracked files are listed above but never appear in the diff against HEAD.',
+							)}
+						</p>
+					) : null}
 				</div>
 			</Dialog>
 

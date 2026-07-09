@@ -17,19 +17,17 @@ N8N_EVENT_TYPES = (
     "thread.created",
     "loop.blocked",
     "approval.required",
-    "delivery.ready",
-    "gitleaks.failed",
     "qa.failed",
-    "research.completed",
+    "gitleaks.failed",
+    "delivery.ready",
 )
 N8nEventType = Literal[
     "thread.created",
     "loop.blocked",
     "approval.required",
-    "delivery.ready",
-    "gitleaks.failed",
     "qa.failed",
-    "research.completed",
+    "gitleaks.failed",
+    "delivery.ready",
 ]
 
 
@@ -230,7 +228,7 @@ class N8nEventDeliveryResponse(IntegrationApiModel):
 
 
 class N8nInboundWebhookRequest(IntegrationApiModel):
-    """Webhook inbound desde n8n: solo permite crear thread o loop mediante token scoped."""
+    """Webhook inbound desde n8n: solo permite crear thread, agregar mensaje o pedir status."""
 
     project_id: str = Field(alias="projectId")
     action: str
@@ -241,8 +239,7 @@ class N8nInboundWebhookResponse(IntegrationApiModel):
     """Resultado de un comando inbound permitido desde n8n."""
 
     accepted: bool
-    action: Literal["create_thread", "create_loop", "add_message", "get_status"]
+    action: Literal["create_thread", "add_message", "get_status"]
     thread: dict[str, Any] | None = None
-    loop: dict[str, Any] | None = None
     message: dict[str, Any] | None = None
     status: dict[str, Any] | None = None

@@ -2,7 +2,7 @@
 
 Outbound: envía eventos allowlisted a targets n8n project-scoped, resolviendo el token desde
 ``credentialRef`` y persistiendo entregas con payloads redactados. Inbound: acepta solo creación de
-thread o loop con token scoped; bloquea comandos, secretos y aprobaciones críticas.
+thread, mensaje o consulta de status con token scoped; bloquea comandos, secretos y aprobaciones críticas.
 
 @author Rodrigo Mason
 """
@@ -20,7 +20,6 @@ from typing import Any
 from urllib.parse import urlparse
 
 from local_control_center.agents.credentials import CredentialResolver
-from local_control_center.product_loop.coordinator import ProductLoopCoordinator
 from local_control_center.projects.repository import ProjectsRepository
 from local_control_center.shared.event_bus import EventBus
 from local_control_center.shared.redaction import redact_secrets
@@ -53,7 +52,7 @@ FORBIDDEN_INBOUND_ACTIONS = {
 }
 FORBIDDEN_COMMAND_KEYS = {"command", "commands", "argv", "shell", "cwd", "workingDirectory"}
 FORBIDDEN_APPROVAL_KEYS = {"approve", "approval", "approved", "humanToken", "humanApprovalToken"}
-ALLOWED_INBOUND_ACTIONS = {"create_thread", "create_loop", "add_message", "get_status"}
+ALLOWED_INBOUND_ACTIONS = {"create_thread", "add_message", "get_status"}
 INBOUND_ACTION_ALIASES = {
     "append_message": "add_message",
     "message_add": "add_message",
@@ -375,16 +374,6 @@ class N8nIntegrationService:
                 "accepted": True,
                 "action": "create_thread",
                 "thread": self._create_thread(project_id=project["id"], payload=payload),
-                "loop": None,
-                "message": None,
-                "status": None,
-            }
-        if action_key == "create_loop":
-            return {
-                "accepted": True,
-                "action": "create_loop",
-                "thread": None,
-                "loop": self._create_loop(project_id=project["id"], payload=payload),
                 "message": None,
                 "status": None,
             }
@@ -394,7 +383,6 @@ class N8nIntegrationService:
                 "accepted": True,
                 "action": "add_message",
                 "thread": thread,
-                "loop": None,
                 "message": message,
                 "status": {"threadStatus": thread["status"]},
             }
@@ -404,7 +392,6 @@ class N8nIntegrationService:
                 "accepted": True,
                 "action": "get_status",
                 "thread": thread,
-                "loop": None,
                 "message": None,
                 "status": status,
             }
@@ -570,29 +557,6 @@ class N8nIntegrationService:
             "eventCount": len(events),
             "updatedAt": thread["updatedAt"],
         }
-
-    def _create_loop(self, *, project_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-        title = required_text(payload.get("title"), "Product loop title is required.")
-        context = dict(payload.get("context") or {})
-        context["source"] = context.get("source") or "n8n"
-        loop = ProductLoopCoordinator(self.connection).start(
-            project_id=project_id,
-            title=str(redact_secrets(title)),
-            initiative_id=optional_text(payload.get("initiativeId") or payload.get("initiative_id")),
-            context=redact_secrets(context),
-            correlation_id=optional_text(payload.get("correlationId") or payload.get("correlation_id")),
-            actor="n8n",
-            reason="n8n inbound webhook created product loop.",
-        )
-        self.events.record_audit(
-            project_id=project_id,
-            action="n8n.webhook.loop.create",
-            actor="n8n",
-            target=loop["id"],
-            payload={"initiativeId": loop.get("initiativeId")},
-        )
-        return loop
-
 
 def validate_event_allowlist(values: list[str]) -> list[str]:
     """Normaliza y valida la allowlist de eventos n8n."""

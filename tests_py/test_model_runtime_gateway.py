@@ -570,7 +570,7 @@ def test_known_openai_compatible_provider_uses_default_base_url_without_manual_e
         known_provider = provider_instance("deepseek", connection=connection)
         custom_provider = provider_instance("custom_gateway", connection=connection)
 
-    assert known_provider.base_url == "https://api.deepseek.com/v1"
+    assert known_provider.base_url == "https://api.deepseek.com"
     assert custom_provider.base_url == ""
 
 

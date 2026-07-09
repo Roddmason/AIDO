@@ -35,8 +35,8 @@ type IconComponent = ComponentType<LucideProps>;
 /** How a provider is reached — drives grouping, the kind badge and which wizard fields appear. */
 export type ProviderGroup = 'cli' | 'local' | 'api' | 'gateway';
 
-/** How a provider authenticates: an API key/token, or none (CLI login / local daemon). */
-export type ProviderAuthKind = 'api_key' | 'none';
+/** How a provider authenticates: required token, optional token, or none (CLI login / local daemon). */
+export type ProviderAuthKind = 'api_key' | 'optional_api_key' | 'none';
 
 /** Static presentation + wizard metadata for one catalog provider (joined at runtime with live data). */
 export type ProviderCatalogEntry = {
@@ -53,7 +53,7 @@ export type ProviderCatalogEntry = {
 	defaultBaseUrl: string | null;
 	/** True only for custom/remote/Azure providers whose endpoint the operator must supply. */
 	needsBaseUrl: boolean;
-	/** api_key providers surface the masked key field in the wizard; none providers do not. */
+	/** Drives required, optional, or absent credential fields in the wizard. */
 	authKind: ProviderAuthKind;
 	/** Declared capabilities shown as chips before any model is discovered. */
 	capabilities: string[];
@@ -115,7 +115,7 @@ export const PROVIDER_CATALOG: readonly ProviderCatalogEntry[] = [
 		apiFormat: 'ollama',
 		defaultBaseUrl: null,
 		needsBaseUrl: true,
-		authKind: 'api_key',
+		authKind: 'optional_api_key',
 		capabilities: ['chat', 'self_hosted'],
 		instructionsKey: 'app.runtime.instructions.ollama_remote',
 	},
@@ -178,7 +178,7 @@ export const PROVIDER_CATALOG: readonly ProviderCatalogEntry[] = [
 		Icon: Wind,
 		providerType: 'api',
 		apiFormat: 'openai_compatible',
-		defaultBaseUrl: 'https://api.deepseek.com/v1',
+		defaultBaseUrl: 'https://api.deepseek.com',
 		needsBaseUrl: false,
 		authKind: 'api_key',
 		capabilities: ['chat', 'tools', 'json', 'reasoning'],

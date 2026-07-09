@@ -31,7 +31,7 @@ from local_control_center.shared.migrations import initialize_platform_schema
 from tests_py.control_plane_fixture import ControlPlaneFixture
 
 CATALOG_BASE_URLS = {
-    "deepseek": "https://api.deepseek.com/v1",
+    "deepseek": "https://api.deepseek.com",
     "groq": "https://api.groq.com/openai/v1",
     "mistral": "https://api.mistral.ai/v1",
     "kimi": "https://api.moonshot.ai/v1",
@@ -121,6 +121,153 @@ def enable_remote_provider(
         RuntimeConfigRepository(connection).set_runtime_setting("runtime.remote.enabled", True)
 
 
+def catalog_by_id(client: TestClient) -> dict[str, dict[str, object]]:
+    response = client.get("/api/v1/providers/catalog")
+    assert response.status_code == 200
+    return {item["id"]: item for item in response.json()["providers"]}
+
+
+def test_backend_provider_catalog_declares_required_fields_without_manual_base_url_for_known_presets(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client = create_client(tmp_path, monkeypatch)
+
+    catalog = catalog_by_id(client)
+
+    assert set(catalog) >= {
+        "openai_api",
+        "anthropic_api",
+        "openrouter",
+        "nvidia_nim",
+        "deepseek",
+        "kimi",
+        "mistral",
+        "groq",
+        "gemini",
+        "azure_openai",
+        "ollama",
+        "ollama_remote",
+        "openai_compatible",
+    }
+    assert "baseUrl" not in catalog["deepseek"]["requiredFields"]
+    assert "baseUrl" not in catalog["kimi"]["requiredFields"]
+    assert "baseUrl" in catalog["ollama_remote"]["requiredFields"]
+    assert "baseUrl" in catalog["openai_compatible"]["requiredFields"]
+    assert catalog["deepseek"]["defaultBaseUrl"] == "https://api.deepseek.com"
+    assert catalog["kimi"]["defaultBaseUrl"] == "https://api.moonshot.ai/v1"
+    assert "deepseek-v4-pro" in catalog["deepseek"]["knownModels"]
+    assert "kimi-k2.7-code-highspeed" in catalog["kimi"]["knownModels"]
+    assert "gemini-3.5-flash" in catalog["gemini"]["knownModels"]
+
+
+def test_from_catalog_creates_deepseek_and_kimi_without_manual_base_url(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("AIDO_CATALOG_DEEPSEEK_KEY", "test-catalog-deepseek-token-123456")
+    monkeypatch.setenv("AIDO_CATALOG_KIMI_KEY", "test-catalog-kimi-token-123456")
+    client = create_client(tmp_path, monkeypatch)
+    headers = auth_headers(client)
+
+    deepseek = client.post(
+        "/api/v1/provider-accounts/from-catalog",
+        headers=headers,
+        json={
+            "providerId": "deepseek",
+            "credentialRef": "env:AIDO_CATALOG_DEEPSEEK_KEY",
+            "enabled": True,
+        },
+    )
+    kimi = client.post(
+        "/api/v1/provider-accounts/from-catalog",
+        headers=headers,
+        json={
+            "providerId": "kimi",
+            "credentialRef": "env:AIDO_CATALOG_KIMI_KEY",
+            "enabled": True,
+        },
+    )
+
+    assert deepseek.status_code == 201
+    assert kimi.status_code == 201
+    assert deepseek.json()["provider"]["baseUrl"] == "https://api.deepseek.com"
+    assert kimi.json()["provider"]["baseUrl"] == "https://api.moonshot.ai/v1"
+    assert deepseek.json()["provider"]["credentialRef"] == "env:AIDO_CATALOG_DEEPSEEK_KEY"
+    assert "test-catalog-deepseek-token" not in deepseek.text
+    assert "test-catalog-kimi-token" not in kimi.text
+
+
+def test_from_catalog_requires_base_url_for_remote_ollama_and_custom_provider(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    headers = auth_headers(client)
+
+    remote_ollama = client.post(
+        "/api/v1/provider-accounts/from-catalog",
+        headers=headers,
+        json={"providerId": "ollama_remote", "enabled": True},
+    )
+    remote_ollama_with_url = client.post(
+        "/api/v1/provider-accounts/from-catalog",
+        headers=headers,
+        json={
+            "providerId": "ollama_remote",
+            "baseUrl": "http://127.0.0.1:11434",
+            "enabled": True,
+        },
+    )
+    custom = client.post(
+        "/api/v1/provider-accounts/from-catalog",
+        headers=headers,
+        json={
+            "providerId": "openai_compatible",
+            "credentialRef": "env:AIDO_CUSTOM_PROVIDER_KEY",
+            "enabled": True,
+        },
+    )
+
+    assert remote_ollama.status_code == 422
+    assert remote_ollama_with_url.status_code == 201
+    assert custom.status_code == 422
+    assert "baseUrl" in remote_ollama.json()["detail"]
+    assert not remote_ollama_with_url.json()["provider"]["credentialRef"]
+    assert "baseUrl" in custom.json()["detail"]
+
+
+def test_provider_account_sync_models_uses_catalog_account_and_keeps_credential_secret_hidden(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("AIDO_CUSTOM_SYNC_KEY", "test-catalog-sync-token-123456")
+    client = create_client(tmp_path, monkeypatch)
+    headers = auth_headers(client)
+    base_url, _handler, server = run_recording_server()
+    try:
+        with open_sqlite_connection(Path(os.environ["LOCAL_CONTROL_CENTER_DB"])) as connection:
+            RuntimeConfigRepository(connection).set_runtime_setting("runtime.remote.enabled", True)
+        created = client.post(
+            "/api/v1/provider-accounts/from-catalog",
+            headers=headers,
+            json={
+                "providerId": "openai_compatible",
+                "baseUrl": base_url,
+                "credentialRef": "env:AIDO_CUSTOM_SYNC_KEY",
+                "enabled": True,
+            },
+        )
+        synced = client.post(
+            "/api/v1/provider-accounts/openai_compatible/sync-models",
+            headers=headers,
+        )
+    finally:
+        server.shutdown()
+
+    assert created.status_code == 201
+    assert "test-catalog-sync-token" not in created.text
+    assert synced.status_code == 200
+    assert "test-catalog-sync-token" not in synced.text
+    assert [item["model"] for item in synced.json()["models"]] == ["remote-model"]
+
+
 def test_setup_catalog_seeds_new_providers_with_verified_base_urls(tmp_path: Path) -> None:
     with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
         initialize_platform_schema(connection)
@@ -170,7 +317,7 @@ def test_provider_instance_dispatch_for_new_catalog_ids(tmp_path: Path) -> None:
         deepseek = provider_instance("deepseek", connection=connection)
     assert isinstance(azure, AzureOpenAIProvider)
     assert isinstance(deepseek, OpenAICompatibleProvider)
-    assert deepseek.base_url == "https://api.deepseek.com/v1"
+    assert deepseek.base_url == "https://api.deepseek.com"
 
 
 def test_test_prompt_returns_ok_and_never_exposes_secret(

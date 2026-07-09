@@ -108,14 +108,21 @@ def test_ollama_endpoints_create_local_health_and_catalog_sync(
 
     assert created.status_code == 201
     assert created.json()["endpoint"]["id"] == "ollama-local"
+    assert created.json()["endpoint"]["label"] == "ollama-local"
     assert created.json()["endpoint"]["baseUrl"] == base_url
+    assert created.json()["endpoint"]["latency"] is None
     assert health.status_code == 200
     assert health.json()["health"]["status"] == "available"
     assert health.json()["health"]["models"] == ["llama3:latest", "nomic-embed-text"]
+    assert isinstance(health.json()["health"]["latency"], int)
+    assert health.json()["health"]["latency"] >= 0
+    assert health.json()["health"]["latencyMs"] == health.json()["health"]["latency"]
     assert synced.status_code == 200
     assert [item["model"] for item in synced.json()["models"]] == ["llama3:latest", "nomic-embed-text"]
     assert listed.status_code == 200
-    assert any(item["id"] == "ollama-local" for item in listed.json()["endpoints"])
+    listed_endpoint = next(item for item in listed.json()["endpoints"] if item["id"] == "ollama-local")
+    assert listed_endpoint["label"] == "ollama-local"
+    assert isinstance(listed_endpoint["latency"], int)
     assert [tuple(row) for row in provider_rows] == [("ollama-local", "local", "ollama", base_url)]
     assert [(row["runtime_id"], row["account_label"], row["credential_ref"]) for row in runtime_rows] == [
         ("ollama-local", "ollama-local", None)
@@ -126,11 +133,14 @@ def test_ollama_endpoint_accepts_remote_lan_http_without_auth(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client, headers, store = client_with_store(tmp_path, monkeypatch)
+    payload = endpoint_payload("ollama-remote-lan", "http://192.168.1.50:11434", kind="remote")
+    payload.pop("displayName")
+    payload["label"] = "LAN Ollama"
 
     created = client.post(
         "/api/v1/ollama/endpoints",
         headers=headers,
-        json=endpoint_payload("ollama-remote-lan", "http://192.168.1.50:11434", kind="remote"),
+        json=payload,
     )
     listed = client.get("/api/v1/ollama/endpoints")
     provider = store.connection.execute(
@@ -143,6 +153,8 @@ def test_ollama_endpoint_accepts_remote_lan_http_without_auth(
     ).fetchone()
 
     assert created.status_code == 201
+    assert created.json()["endpoint"]["label"] == "LAN Ollama"
+    assert created.json()["endpoint"]["displayName"] == "LAN Ollama"
     assert created.json()["endpoint"]["kind"] == "remote"
     assert created.json()["endpoint"]["credentialRef"] is None
     assert any(item["id"] == "ollama-remote-lan" for item in listed.json()["endpoints"])
@@ -153,7 +165,7 @@ def test_ollama_endpoint_accepts_remote_lan_http_without_auth(
 def test_ollama_remote_endpoint_uses_optional_credential_ref_as_bearer_header(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("AIDO_OLLAMA_REMOTE_KEY", "sk-ollamaendpoint123456")
+    monkeypatch.setenv("AIDO_OLLAMA_REMOTE_KEY", "test-ollama-endpoint-token-123456")
     base_url, handler, server = run_ollama_tags_server(models=["qwen2.5-coder:14b"])
     try:
         client, headers, _store = client_with_store(tmp_path, monkeypatch)
@@ -173,13 +185,13 @@ def test_ollama_remote_endpoint_uses_optional_credential_ref_as_bearer_header(
 
     assert created.status_code == 201
     assert created.json()["endpoint"]["credentialStatus"] == "configured"
-    assert "sk-ollamaendpoint" not in json.dumps(created.json())
+    assert "test-ollama-endpoint-token" not in json.dumps(created.json())
     assert health.status_code == 200
     assert health.json()["health"]["models"] == ["qwen2.5-coder:14b"]
     assert any(
-        item["authorization"] == "Bearer sk-ollamaendpoint123456" for item in handler.seen_requests
+        item["authorization"] == "Bearer test-ollama-endpoint-token-123456" for item in handler.seen_requests
     )
-    assert "sk-ollamaendpoint" not in json.dumps(health.json())
+    assert "test-ollama-endpoint-token" not in json.dumps(health.json())
 
 
 def test_ollama_endpoint_health_marks_down_endpoint_unavailable(

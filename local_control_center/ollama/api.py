@@ -10,6 +10,7 @@ hacen visible como runtime, y ``model_catalog`` guarda sus modelos por ``provide
 from __future__ import annotations
 
 import re
+import time
 from typing import Any, Literal
 from urllib.parse import urlparse
 
@@ -22,7 +23,7 @@ from local_control_center.agents.providers.ollama import OllamaProvider
 from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
 from local_control_center.shared.event_bus import EventBus
 from local_control_center.shared.redaction import redact_secrets
-from local_control_center.shared.serialization import json_dumps
+from local_control_center.shared.serialization import json_dumps, json_loads
 from local_control_center.shared.time import utc_now
 
 ENDPOINT_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_.:-]{1,95}$")
@@ -39,6 +40,7 @@ class OllamaEndpointCreateRequest(_AliasedModel):
     """Payload para registrar o reemplazar un endpoint Ollama local/remoto."""
 
     id: str
+    label: str | None = None
     display_name: str | None = Field(default=None, alias="displayName")
     base_url: str = Field(alias="baseUrl")
     kind: Literal["local", "remote"] | None = None
@@ -51,6 +53,7 @@ class OllamaEndpointRecord(_AliasedModel):
     """Endpoint Ollama expuesto al cliente sin secretos."""
 
     id: str
+    label: str
     provider_id: str = Field(alias="providerId")
     runtime_id: str = Field(alias="runtimeId")
     display_name: str = Field(alias="displayName")
@@ -62,6 +65,8 @@ class OllamaEndpointRecord(_AliasedModel):
     health_status: str = Field(alias="healthStatus")
     last_health_check_at: str | None = Field(default=None, alias="lastHealthCheckAt")
     last_error: str = Field(alias="lastError")
+    latency: int | None = None
+    latency_ms: int | None = Field(default=None, alias="latencyMs")
     models: list[str] = Field(default_factory=list)
     created_at: str = Field(alias="createdAt")
     updated_at: str = Field(alias="updatedAt")
@@ -88,6 +93,8 @@ class OllamaEndpointHealthRecord(_AliasedModel):
     health_status: str = Field(alias="healthStatus")
     message: str = ""
     last_error: str | None = Field(default=None, alias="lastError")
+    latency: int
+    latency_ms: int = Field(alias="latencyMs")
     models: list[str] = Field(default_factory=list)
 
 
@@ -139,13 +146,36 @@ def _models_for_provider(store: ProviderAccountStore, provider_id: str) -> list[
     return [item["model"] for item in store.list_models(provider_id) if item.get("enabled")]
 
 
+def _latest_latency_for_provider(store: ProviderAccountStore, provider_id: str) -> int | None:
+    row = store.connection.execute(
+        """
+        SELECT payload
+        FROM provider_health_checks
+        WHERE provider_id = ?
+        ORDER BY created_at DESC
+        LIMIT 1
+        """,
+        (provider_id,),
+    ).fetchone()
+    if not row:
+        return None
+    payload = json_loads(row["payload"], {})
+    value = payload.get("latency")
+    if value is None:
+        value = payload.get("latencyMs")
+    return int(value) if isinstance(value, int | float) else None
+
+
 def _endpoint_record(store: ProviderAccountStore, account: dict[str, Any]) -> dict[str, Any]:
     kind = "local" if account["providerType"] == "local" else "remote"
     credential_ref = str(account.get("credentialRef") or "").strip() or None
+    provider_id = str(account["providerId"])
+    latency = _latest_latency_for_provider(store, provider_id)
     return {
-        "id": account["providerId"],
-        "providerId": account["providerId"],
-        "runtimeId": account["providerId"],
+        "id": provider_id,
+        "label": account["displayName"],
+        "providerId": provider_id,
+        "runtimeId": provider_id,
         "displayName": account["displayName"],
         "kind": kind,
         "baseUrl": account.get("baseUrl") or "",
@@ -155,7 +185,9 @@ def _endpoint_record(store: ProviderAccountStore, account: dict[str, Any]) -> di
         "healthStatus": account["healthStatus"],
         "lastHealthCheckAt": account["lastHealthCheckAt"],
         "lastError": account["lastError"],
-        "models": _models_for_provider(store, str(account["providerId"])),
+        "latency": latency,
+        "latencyMs": latency,
+        "models": _models_for_provider(store, provider_id),
         "createdAt": account["createdAt"],
         "updatedAt": account["updatedAt"],
     }
@@ -236,7 +268,9 @@ def _upsert_runtime_records(
 
 
 def _health_payload(endpoint_id: str, provider: OllamaProvider) -> dict[str, Any]:
+    started = time.perf_counter()
     health = provider.health_check().model_dump(by_alias=True)
+    latency = int((time.perf_counter() - started) * 1000)
     if health.get("status") == "not_available":
         health["status"] = "unavailable"
     models = [item.model for item in provider.list_models()] if health.get("status") == "available" else []
@@ -245,6 +279,8 @@ def _health_payload(endpoint_id: str, provider: OllamaProvider) -> dict[str, Any
             **health,
             "id": endpoint_id,
             "providerId": endpoint_id,
+            "latency": latency,
+            "latencyMs": latency,
             "models": models,
         }
     )
@@ -298,7 +334,7 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
             resolver.validate_ref(credential_ref)
         except ValueError as error:
             raise HTTPException(status_code=400, detail=f"Invalid credential_ref: {error}") from error
-        display_name = body.display_name or endpoint_id
+        display_name = body.display_name or body.label or endpoint_id
         provider = providers().upsert_provider_account(
             {
                 "id": endpoint_id,

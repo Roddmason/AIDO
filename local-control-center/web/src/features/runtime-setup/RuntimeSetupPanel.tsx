@@ -21,11 +21,11 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 
 import {
 	detectModelGatewayCliRuntime,
-	discoverModelGatewayProviderModels,
 	getModelGatewayModels,
 	getModelGatewayProviders,
 	getModelGatewayRolePolicies,
 	healthCheckModelGatewayProvider,
+	syncProviderAccountModels,
 	testPromptModelGatewayProvider,
 } from '../../api/client';
 import type {
@@ -216,7 +216,7 @@ export function RuntimeSetupPanel({
 		setBusyAction(`${providerId}:${task}`);
 		try {
 			if (task === 'sync') {
-				const result = await discoverModelGatewayProviderModels(token, providerId);
+				const result = await syncProviderAccountModels(token, providerId);
 				const count = (result as { models?: unknown[] }).models?.length ?? 0;
 				notify({
 					title: t('app.providers.action.modelsSynced', 'Models synced'),

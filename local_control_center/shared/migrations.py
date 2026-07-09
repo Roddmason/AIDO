@@ -1524,7 +1524,7 @@ def init_phase12_schema(connection: sqlite3.Connection) -> None:
             "DeepSeek",
             "api",
             "openai_compatible",
-            "https://api.deepseek.com/v1",
+            "https://api.deepseek.com",
             "",
             0,
             "none",

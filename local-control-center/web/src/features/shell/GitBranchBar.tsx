@@ -765,9 +765,11 @@ export function GitBranchBar({
 							title={gitStatus?.porcelain.join('\n') ?? ''}
 						>
 							<StatusDot tone={dirtyTone} />
-							{dirty
-								? `${t('app.statusBar.git.dirty', 'dirty')} · ${dirtyBreakdown}`
-								: t('app.statusBar.git.clean', 'clean')}
+							<span className="composer-git-item-label">
+								{dirty
+									? `${t('app.statusBar.git.dirty', 'dirty')} · ${dirtyBreakdown}`
+									: t('app.statusBar.git.clean', 'clean')}
+							</span>
 						</span>
 						{(() => {
 							const gitleaksDetail = gitleaks?.reason ?? '';
@@ -817,7 +819,9 @@ export function GitBranchBar({
 							>
 								<GitCommitHorizontal aria-hidden="true" size={14} />
 								<span className="mono">{lastCommit.shortHash}</span>
-								<span>{truncateSubject(lastCommit.subject)}</span>
+								<span className="composer-git-item-label">
+									{truncateSubject(lastCommit.subject)}
+								</span>
 							</span>
 						) : null}
 					</>

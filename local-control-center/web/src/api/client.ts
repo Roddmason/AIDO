@@ -140,6 +140,10 @@ export type ProductLoopAidoDecideRequest =
 	MutationBody<'aido_decide_product_loop_api_v1_projects__project_id__product_loop__loop_id__aido_decide_post'>;
 export type ProductLoopApprovalRequest =
 	MutationBody<'approve_product_brief_api_v1_projects__project_id__product_loop_brief__brief_id__approve_post'>;
+export type ProductLoopFeedbackRequest =
+	MutationBody<'apply_product_loop_feedback_api_v1_projects__project_id__product_loop__loop_id__feedback_post'>;
+export type ProductLoopFeedbackApplyResponse =
+	OperationResponse<'apply_product_loop_feedback_api_v1_projects__project_id__product_loop__loop_id__feedback_post'>;
 export type ProductLoopResumeResponse =
 	OperationResponse<'start_product_loop_api_v1_projects__project_id__product_loop_post'>;
 export type ProductOwnerAgentRunRequest =
@@ -415,6 +419,23 @@ export function approveProductLoopBacklog(
 		'approve_product_loop_backlog_api_v1_projects__project_id__product_loop__loop_id__backlog_approve_post',
 		{ token, pathParams: { project_id: projectId, loop_id: loopId }, body },
 	);
+}
+
+/** Records an operator delivery decision as traceable Product Loop feedback. */
+export function applyProductLoopFeedback(
+	token: string,
+	projectId: string,
+	loopId: string,
+	body: ProductLoopFeedbackRequest,
+) {
+	return requestGeneratedOperation<
+		'apply_product_loop_feedback_api_v1_projects__project_id__product_loop__loop_id__feedback_post',
+		ProductLoopFeedbackApplyResponse
+	>('apply_product_loop_feedback_api_v1_projects__project_id__product_loop__loop_id__feedback_post', {
+		token,
+		pathParams: { project_id: projectId, loop_id: loopId },
+		body,
+	});
 }
 
 /** Runs the Product Owner agent over an idea: it produces and persists the brief, clarification

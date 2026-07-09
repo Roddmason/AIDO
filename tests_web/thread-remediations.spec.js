@@ -14,6 +14,13 @@ import { expect, test } from '@playwright/test';
 // desktop-width viewport so both Playwright projects exercise the inspector and its blocker cards.
 test.use({ viewport: { width: 1280, height: 800 } });
 
+// `injectBlockedEvent` awaits `route.fetch()`, so a background thread poll can still be in flight when
+// Playwright closes the page at teardown. Drop the handlers first — from `afterEach`, so this also runs
+// when an assertion fails early — and ignore whatever the interrupted handlers throw on the way out.
+test.afterEach(async ({ page }) => {
+	await page.unrouteAll({ behavior: 'ignoreErrors' });
+});
+
 async function expectControlPlaneLoaded(page) {
 	await expect(page.getByRole('heading', { name: 'AIDO Control Center' })).toBeVisible({
 		timeout: 30_000,

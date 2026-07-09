@@ -183,6 +183,7 @@ def test_low_risk_prefers_cheap_local_without_reviewer(tmp_path: Path) -> None:
             AIResourceRequest(
                 task_type="small_refactor",
                 risk_level="low",
+                routing_policy="economy",
                 context_tokens_estimate=4000,
                 required_capabilities=["code"],
                 budget_remaining_usd=0.05,
@@ -195,6 +196,7 @@ def test_low_risk_prefers_cheap_local_without_reviewer(tmp_path: Path) -> None:
     assert decision["reviewerSelection"] is None
     assert decision["multiModelQuorum"] is False
     assert decision["approvalRequired"] is False
+    assert decision["policyResult"]["mode"] == "economy"
 
 
 def test_high_risk_prefers_strong_model_and_requires_reviewer(
@@ -265,6 +267,121 @@ def test_high_risk_prefers_strong_model_and_requires_reviewer(
     assert decision["scoreBreakdown"]["qualityScore"] > decision["scoreBreakdown"]["costEfficiencyScore"]
     assert decision["policyResult"]["opaqueMlUsed"] is False
     assert decision["policyResult"]["scoring"] == "deterministic_explainable"
+
+
+def test_score_breakdown_exposes_all_required_routing_factors(tmp_path: Path) -> None:
+    with open_initialized_connection(tmp_path) as connection:
+        manager = AIResourceManager(connection)
+        register_model(
+            manager,
+            provider_id="ollama",
+            model="qwen2.5-coder",
+            runtime="local",
+            locality="local",
+            input_price_per_mtok=0.0,
+            output_price_per_mtok=0.0,
+            quality_score=0.72,
+            success_rate=0.82,
+            rework_rate=0.08,
+            capabilities=["chat", "code"],
+        )
+
+        decision = manager.select_resource(
+            AIResourceRequest(
+                task_type="small_refactor",
+                risk_level="low",
+                routing_policy="economy",
+                context_tokens_estimate=4000,
+                required_capabilities=["code"],
+                privacy_level="local_private",
+                budget_remaining_usd=0.05,
+            )
+        )
+
+    assert {
+        "capabilityMatchScore",
+        "costKnownScore",
+        "latencyScore",
+        "historicalSuccessScore",
+        "reworkRateScore",
+        "contextSizeScore",
+        "privacyLocalityScore",
+        "taskRiskScore",
+    } <= set(decision["scoreBreakdown"])
+    assert decision["scoreBreakdown"]["capabilityMatchScore"] == pytest.approx(1.0)
+    assert decision["scoreBreakdown"]["costKnownScore"] == pytest.approx(1.0)
+    assert decision["scoreBreakdown"]["privacyLocalityScore"] == pytest.approx(1.0)
+
+
+def test_economy_policy_rejects_unknown_remote_cost(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AIDO_TEST_API_KEY", "test-key")
+    with open_initialized_connection(tmp_path) as connection:
+        manager = AIResourceManager(connection)
+        register_model(
+            manager,
+            provider_id="unknown_remote",
+            model="opaque-price",
+            runtime="api",
+            locality="remote",
+            input_price_per_mtok=None,
+            output_price_per_mtok=None,
+            quality_score=0.90,
+            success_rate=0.93,
+        )
+        configure_remote_provider_for_selection(
+            connection,
+            provider_id="unknown_remote",
+            model="opaque-price",
+        )
+
+        decision = manager.select_resource(
+            AIResourceRequest(
+                task_type="analysis",
+                risk_level="low",
+                routing_policy="economy",
+                context_tokens_estimate=8000,
+                required_capabilities=["chat"],
+            )
+        )
+
+    assert decision["selected"] is None
+    assert decision["approvalRequired"] is False
+    assert decision["policyResult"]["mode"] == "economy"
+    assert decision["policyResult"]["unknownCostPolicy"]["action"] == "reject"
+    assert decision["rejected"][0]["reason"] == "unknown_remote_cost_rejected_by_policy"
+
+
+@pytest.mark.parametrize("routing_policy", ["economy", "balanced", "critical", "maximum"])
+def test_named_routing_policies_are_accepted_and_reported(
+    tmp_path: Path,
+    routing_policy: str,
+) -> None:
+    with open_initialized_connection(tmp_path) as connection:
+        manager = AIResourceManager(connection)
+        register_model(
+            manager,
+            provider_id="ollama",
+            model="qwen2.5-coder",
+            runtime="local",
+            locality="local",
+            input_price_per_mtok=0.0,
+            output_price_per_mtok=0.0,
+            quality_score=0.80,
+            success_rate=0.90,
+        )
+
+        decision = manager.select_resource(
+            AIResourceRequest(
+                task_type="implementation",
+                risk_level="medium",
+                routing_policy=routing_policy,
+                context_tokens_estimate=6000,
+                required_capabilities=["code"],
+            )
+        )
+
+    assert decision["selected"]["providerId"] == "ollama"
+    assert decision["policyResult"]["mode"] == routing_policy
 
 
 def test_unknown_remote_cost_requires_approval_unless_policy_allows(

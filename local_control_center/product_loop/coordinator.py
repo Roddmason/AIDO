@@ -1917,6 +1917,7 @@ class ProductLoopCoordinator:
                     "requiredTools",
                     "runtimePreference",
                     "reviewerRole",
+                    "qualityGates",
                     "risk",
                 )
                 if key in spec
@@ -2358,6 +2359,7 @@ class ProductLoopCoordinator:
                     task_id=task["id"],
                     task_type=f"{role}.{role_plan.get('kind') or 'reason'}",
                     risk_level=str(team_schedule.get("risk") or "medium"),
+                    routing_policy=str(team_schedule.get("mode") or "balanced"),
                     context_tokens_estimate=context_tokens,
                     required_capabilities=self._resource_required_capabilities(role_plan),
                     privacy_level=privacy_level,
@@ -2652,6 +2654,7 @@ class ProductLoopCoordinator:
                 task_id=task_id,
                 task_type="product_owner.discovery",
                 risk_level=str(request_meta.get("risk") or "medium"),
+                routing_policy=self._team_mode(request_meta),
                 context_tokens_estimate=self._resource_context_tokens_estimate(request_meta),
                 required_capabilities=["chat"],
                 privacy_level=self._resource_privacy_level(request_meta),

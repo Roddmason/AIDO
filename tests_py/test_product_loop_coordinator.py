@@ -2617,6 +2617,37 @@ def test_run_user_message_refactor_frontend_backend_creates_targeted_team_assign
         assert runtime.run_payloads[0]["resourceSelection"]["providerId"] == "ollama"
 
 
+def test_team_resource_decisions_use_team_mode_as_ai_routing_policy(tmp_path: Path) -> None:
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        _seed_ai_resource(connection)
+        coordinator = ProductLoopCoordinator(connection, root=tmp_path)
+
+        team_schedule, blockers = coordinator._team_schedule_with_resource_decisions(
+            project_id="project-team-policy",
+            loop_id="loop-team-policy",
+            request_meta={},
+            team_schedule={
+                "mode": "economy",
+                "risk": "low",
+                "roles": [
+                    {
+                        "role": "backend_engineer",
+                        "kind": "build",
+                        "capabilities": ["code_edit"],
+                        "budgetUsd": 1.0,
+                        "maxTokens": 2048,
+                    }
+                ],
+                "summary": {},
+            },
+            agent_tasks=[{"id": "task-backend", "role": "backend_engineer"}],
+        )
+
+    assert blockers == []
+    assert team_schedule["roles"][0]["resourceDecision"]["policyResult"]["mode"] == "economy"
+
+
 def test_run_user_message_resource_manager_selection_overrides_preferred_runtime(
     tmp_path: Path,
 ) -> None:

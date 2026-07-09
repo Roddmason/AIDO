@@ -1,9 +1,10 @@
 /**
  * "Add provider" wizard for the Providers & CLI setup catalog. A four-step modal — choose provider,
- * enter an API key or reference (base URL only for custom/remote/Azure), sync and pick models, then
- * validate — that writes through the real control plane: it creates a vault credential (secret in,
- * never out), enables the provider account, discovers its models and runs a real test prompt. The
- * secret lives only in local state and is cleared the moment the provider is saved.
+ * enter a required or optional credential reference (base URL only for custom/remote/Azure), sync
+ * and pick models, then validate — that writes through the real control plane: it creates a vault
+ * credential (secret in, never out), enables the provider account, discovers its models and runs a
+ * real test prompt. The secret lives only in local state and is cleared the moment the provider is
+ * saved.
  * @author Rodrigo Mason
  */
 
@@ -12,11 +13,11 @@ import { useEffect, useMemo, useState } from 'react';
 
 import {
 	createCredential,
-	discoverModelGatewayProviderModels,
+	createProviderAccountFromCatalog,
 	getCredentials,
 	healthCheckModelGatewayProvider,
 	patchModelGatewayModel,
-	patchModelGatewayProvider,
+	syncProviderAccountModels,
 	testPromptModelGatewayProvider,
 } from '../../api/client';
 import type { CredentialBackend, ModelGatewayModel } from '../../api/types';
@@ -29,12 +30,17 @@ type WizardStep = 'provider' | 'credential' | 'models' | 'validate';
 const STEP_ORDER: WizardStep[] = ['provider', 'credential', 'models', 'validate'];
 
 type TestOutcome = { ok: boolean; latencyMs?: number; sample?: string; error?: string | null };
+type CredentialMode = 'none' | 'key' | 'ref';
 
 /** Non-CLI providers the wizard can connect (CLI runtimes are set up via Detect & check on the card). */
 const WIZARD_PROVIDERS = PROVIDER_CATALOG.filter((entry) => entry.group !== 'cli');
 
 function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
+}
+
+function defaultCredentialMode(entry: ProviderCatalogEntry | undefined): CredentialMode {
+	return entry?.authKind === 'optional_api_key' ? 'none' : 'key';
 }
 
 export function AddProviderWizard({
@@ -55,7 +61,7 @@ export function AddProviderWizard({
 	const [providerId, setProviderId] = useState<string>(
 		initialProviderId ?? WIZARD_PROVIDERS[0]?.id ?? '',
 	);
-	const [credMode, setCredMode] = useState<'key' | 'ref'>('key');
+	const [credMode, setCredMode] = useState<CredentialMode>('key');
 	const [apiKey, setApiKey] = useState('');
 	const [credentialRef, setCredentialRef] = useState('');
 	const [baseUrl, setBaseUrl] = useState('');
@@ -75,7 +81,7 @@ export function AddProviderWizard({
 		const seedEntry = catalogEntry(first);
 		setStep('provider');
 		setProviderId(first);
-		setCredMode('key');
+		setCredMode(defaultCredentialMode(seedEntry));
 		setApiKey('');
 		setCredentialRef('');
 		setBaseUrl(seedEntry?.defaultBaseUrl ?? '');
@@ -108,8 +114,12 @@ export function AddProviderWizard({
 	};
 
 	const selectProvider = (id: string) => {
+		const selectedEntry = catalogEntry(id);
 		setProviderId(id);
-		setBaseUrl(catalogEntry(id)?.defaultBaseUrl ?? '');
+		setCredMode(defaultCredentialMode(selectedEntry));
+		setApiKey('');
+		setCredentialRef('');
+		setBaseUrl(selectedEntry?.defaultBaseUrl ?? '');
 		setError('');
 	};
 
@@ -124,7 +134,13 @@ export function AddProviderWizard({
 				return false;
 			}
 			let ref = credentialRef.trim();
-			if (entry.authKind === 'api_key' && credMode === 'key') {
+			if (entry.authKind !== 'none' && credMode === 'ref' && !ref) {
+				setError(
+					t('app.providers.wizard.errorCredentialRef', 'Enter the credential reference.'),
+				);
+				return false;
+			}
+			if (entry.authKind !== 'none' && credMode === 'key') {
 				if (!apiKey.trim()) {
 					setError(t('app.providers.wizard.errorApiKey', 'Enter the API key.'));
 					return false;
@@ -147,9 +163,10 @@ export function AddProviderWizard({
 				});
 				ref = created.credential.credentialRef;
 			}
-			await patchModelGatewayProvider(token, entry.id, {
+			await createProviderAccountFromCatalog(token, {
+				providerId: entry.id,
 				enabled: true,
-				baseUrl: baseUrl.trim() || entry.defaultBaseUrl || '',
+				...(entry.needsBaseUrl ? { baseUrl: baseUrl.trim() } : {}),
 				...(ref ? { credentialRef: ref } : {}),
 			});
 			setApiKey('');
@@ -167,7 +184,7 @@ export function AddProviderWizard({
 		setBusy(true);
 		setError('');
 		try {
-			const result = await discoverModelGatewayProviderModels(token, entry.id);
+			const result = await syncProviderAccountModels(token, entry.id);
 			const models = (result as { models?: ModelGatewayModel[] }).models ?? [];
 			setDiscovered(models);
 			setSelected(new Set(models.map((model) => model.id)));
@@ -286,8 +303,23 @@ export function AddProviderWizard({
 							<SegmentedControl
 								label={t('app.providers.wizard.credMode', 'Credential type')}
 								value={credMode}
-								onChange={(value) => setCredMode(value as 'key' | 'ref')}
+								onChange={(value) => setCredMode(value as CredentialMode)}
 								options={[
+									{ value: 'key', label: t('app.providers.wizard.credModeKey', 'API key') },
+									{ value: 'ref', label: t('app.providers.wizard.credModeRef', 'Reference') },
+								]}
+							/>
+						) : null}
+						{entry.authKind === 'optional_api_key' ? (
+							<SegmentedControl
+								label={t('app.providers.wizard.credMode', 'Credential type')}
+								value={credMode}
+								onChange={(value) => setCredMode(value as CredentialMode)}
+								options={[
+									{
+										value: 'none',
+										label: t('app.providers.wizard.credModeNone', 'No credential'),
+									},
 									{ value: 'key', label: t('app.providers.wizard.credModeKey', 'API key') },
 									{ value: 'ref', label: t('app.providers.wizard.credModeRef', 'Reference') },
 								]}
@@ -318,7 +350,7 @@ export function AddProviderWizard({
 							</div>
 						)}
 
-						{entry.authKind === 'api_key' && credMode === 'key' ? (
+						{entry.authKind !== 'none' && credMode === 'key' ? (
 							<TextField
 								label={t('app.providers.wizard.apiKey', 'API key')}
 								type="password"
@@ -332,7 +364,7 @@ export function AddProviderWizard({
 							/>
 						) : null}
 
-						{entry.authKind === 'api_key' && credMode === 'ref' ? (
+						{entry.authKind !== 'none' && credMode === 'ref' ? (
 							<TextField
 								label={t('app.providers.wizard.credentialRef', 'Credential reference')}
 								value={credentialRef}
@@ -351,6 +383,14 @@ export function AddProviderWizard({
 								{t(
 									'app.providers.wizard.noCredential',
 									'This provider needs no API key; saving enables it.',
+								)}
+							</p>
+						) : null}
+						{entry.authKind === 'optional_api_key' && credMode === 'none' ? (
+							<p className="field-help">
+								{t(
+									'app.providers.wizard.optionalCredential',
+									'This provider can use a bearer token, but it is not required.',
 								)}
 							</p>
 						) : null}

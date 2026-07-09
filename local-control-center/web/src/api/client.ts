@@ -45,6 +45,14 @@ export type ModelGatewayTestPromptRequest =
 	MutationBody<'test_prompt_api_v1_model_gateway_providers__provider_id__test_prompt_post'>;
 export type ModelGatewayTestPromptResponse =
 	OperationResponse<'test_prompt_api_v1_model_gateway_providers__provider_id__test_prompt_post'>;
+export type ProviderCatalogResponse =
+	OperationResponse<'list_catalog_api_v1_providers_catalog_get'>;
+export type ProviderAccountFromCatalogRequest =
+	MutationBody<'create_account_from_catalog_api_v1_provider_accounts_from_catalog_post'>;
+export type ProviderAccountFromCatalogResponse =
+	OperationResponse<'create_account_from_catalog_api_v1_provider_accounts_from_catalog_post'>;
+export type ProviderAccountSyncModelsResponse =
+	OperationResponse<'sync_provider_account_models_api_v1_provider_accounts__account_id__sync_models_post'>;
 export type OllamaEndpointCreateRequest =
 	MutationBody<'create_endpoint_api_v1_ollama_endpoints_post'>;
 export type OllamaEndpointResponse =
@@ -1595,6 +1603,13 @@ export function getModelGatewayProviders(signal?: AbortSignal) {
 	return requestGeneratedOperation('list_providers_api_v1_model_gateway_providers_get', { signal });
 }
 
+export function getProviderCatalog(signal?: AbortSignal) {
+	return requestGeneratedOperation<
+		'list_catalog_api_v1_providers_catalog_get',
+		ProviderCatalogResponse
+	>('list_catalog_api_v1_providers_catalog_get', { signal });
+}
+
 export function getModelGatewayModels(signal?: AbortSignal) {
 	return requestGeneratedOperation('list_models_api_v1_model_gateway_models_get', { signal });
 }
@@ -1751,6 +1766,19 @@ export function patchModelGatewayProvider(
 	);
 }
 
+export function createProviderAccountFromCatalog(
+	token: string,
+	body: ProviderAccountFromCatalogRequest,
+) {
+	return requestGeneratedOperation<
+		'create_account_from_catalog_api_v1_provider_accounts_from_catalog_post',
+		ProviderAccountFromCatalogResponse
+	>('create_account_from_catalog_api_v1_provider_accounts_from_catalog_post', {
+		token,
+		body,
+	});
+}
+
 export function healthCheckModelGatewayProvider(token: string, providerId: string) {
 	return requestGeneratedOperation(
 		'provider_health_check_api_v1_model_gateway_providers__provider_id__health_check_post',
@@ -1769,6 +1797,16 @@ export function discoverModelGatewayProviderModels(token: string, providerId: st
 			pathParams: { provider_id: providerId },
 		},
 	);
+}
+
+export function syncProviderAccountModels(token: string, accountId: string) {
+	return requestGeneratedOperation<
+		'sync_provider_account_models_api_v1_provider_accounts__account_id__sync_models_post',
+		ProviderAccountSyncModelsResponse
+	>('sync_provider_account_models_api_v1_provider_accounts__account_id__sync_models_post', {
+		token,
+		pathParams: { account_id: accountId },
+	});
 }
 
 export function testPromptModelGatewayProvider(

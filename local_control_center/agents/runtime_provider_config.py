@@ -247,7 +247,7 @@ DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434"
 
 KNOWN_PROVIDER_DEFAULT_BASE_URLS: dict[str, str] = {
     "anthropic_api": "https://api.anthropic.com/v1",
-    "deepseek": "https://api.deepseek.com/v1",
+    "deepseek": "https://api.deepseek.com",
     "gemini": "https://generativelanguage.googleapis.com/v1beta/openai",
     "groq": "https://api.groq.com/openai/v1",
     "kimi": "https://api.moonshot.ai/v1",

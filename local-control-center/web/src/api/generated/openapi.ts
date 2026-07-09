@@ -187,16 +187,16 @@ export type ModelGatewayOverviewResponse = { "overview": ModelGatewayOverviewRec
 export type ModelPolicyRecord = { "allowLocal": boolean; "allowRemote": boolean; "createdAt": string; "fallback": Array<ModelProviderCandidate>; "id": string; "maxCostUsd": number; "maxTokens": number; "name": string; "preferred": Array<ModelProviderCandidate>; "status": "active" | "disabled"; "temperature": number; "updatedAt": string };
 export type ModelProviderCandidate = { "model": string; "provider": string };
 export type ModelProviderRecord = { "allowRemote": boolean; "createdAt": string; "id": string; "label": string; "metadata": JsonObject; "provider": string; "status": string; "updatedAt": string };
-export type N8nEventDeliveryRecord = { "createdAt": string; "error": string; "eventType": "thread.created" | "loop.blocked" | "approval.required" | "delivery.ready" | "gitleaks.failed" | "qa.failed" | "research.completed"; "id": string; "projectId": string; "requestPayload": JsonObject; "responseBody": JsonObject; "status": "delivered" | "failed"; "statusCode"?: null | number; "subjectId"?: null | string; "targetId": string };
+export type N8nEventDeliveryRecord = { "createdAt": string; "error": string; "eventType": "thread.created" | "loop.blocked" | "approval.required" | "qa.failed" | "gitleaks.failed" | "delivery.ready"; "id": string; "projectId": string; "requestPayload": JsonObject; "responseBody": JsonObject; "status": "delivered" | "failed"; "statusCode"?: null | number; "subjectId"?: null | string; "targetId": string };
 export type N8nEventDeliveryResponse = { "delivery": N8nEventDeliveryRecord };
-export type N8nEventEmitRequest = { "eventType": "thread.created" | "loop.blocked" | "approval.required" | "delivery.ready" | "gitleaks.failed" | "qa.failed" | "research.completed"; "payload"?: JsonObject; "projectId": string; "subjectId"?: null | string; "targetId"?: null | string };
-export type N8nEventTestRequest = { "eventType"?: "thread.created" | "loop.blocked" | "approval.required" | "delivery.ready" | "gitleaks.failed" | "qa.failed" | "research.completed"; "payload"?: JsonObject; "projectId": string; "targetId"?: null | string };
+export type N8nEventEmitRequest = { "eventType": "thread.created" | "loop.blocked" | "approval.required" | "qa.failed" | "gitleaks.failed" | "delivery.ready"; "payload"?: JsonObject; "projectId": string; "subjectId"?: null | string; "targetId"?: null | string };
+export type N8nEventTestRequest = { "eventType"?: "thread.created" | "loop.blocked" | "approval.required" | "qa.failed" | "gitleaks.failed" | "delivery.ready"; "payload"?: JsonObject; "projectId": string; "targetId"?: null | string };
 export type N8nInboundWebhookRequest = { "action": string; "payload"?: JsonObject; "projectId": string };
-export type N8nInboundWebhookResponse = { "accepted": boolean; "action": "create_thread" | "create_loop" | "add_message" | "get_status"; "loop"?: JsonObject | null; "message"?: JsonObject | null; "status"?: JsonObject | null; "thread"?: JsonObject | null };
-export type N8nIntegrationStatusRecord = { "allowedEventTypes": Array<"thread.created" | "loop.blocked" | "approval.required" | "delivery.ready" | "gitleaks.failed" | "qa.failed" | "research.completed">; "configured": boolean; "enabledTargetCount": number; "eventAllowlist": Array<"thread.created" | "loop.blocked" | "approval.required" | "delivery.ready" | "gitleaks.failed" | "qa.failed" | "research.completed">; "targetCount": number; "targets": Array<N8nWebhookTargetRecord> };
+export type N8nInboundWebhookResponse = { "accepted": boolean; "action": "create_thread" | "add_message" | "get_status"; "message"?: JsonObject | null; "status"?: JsonObject | null; "thread"?: JsonObject | null };
+export type N8nIntegrationStatusRecord = { "allowedEventTypes": Array<"thread.created" | "loop.blocked" | "approval.required" | "qa.failed" | "gitleaks.failed" | "delivery.ready">; "configured": boolean; "enabledTargetCount": number; "eventAllowlist": Array<"thread.created" | "loop.blocked" | "approval.required" | "qa.failed" | "gitleaks.failed" | "delivery.ready">; "targetCount": number; "targets": Array<N8nWebhookTargetRecord> };
 export type N8nIntegrationStatusResponse = { "status": N8nIntegrationStatusRecord };
-export type N8nWebhookTargetCreateRequest = { "allowedEventTypes": Array<"thread.created" | "loop.blocked" | "approval.required" | "delivery.ready" | "gitleaks.failed" | "qa.failed" | "research.completed">; "credentialRef": string; "enabled"?: boolean; "metadata"?: JsonObject; "projectId": string; "url": string };
-export type N8nWebhookTargetRecord = { "allowedEventTypes": Array<"thread.created" | "loop.blocked" | "approval.required" | "delivery.ready" | "gitleaks.failed" | "qa.failed" | "research.completed">; "createdAt": string; "credentialRef": string; "enabled": boolean; "id": string; "metadata": JsonObject; "projectId": string; "updatedAt": string; "url": string };
+export type N8nWebhookTargetCreateRequest = { "allowedEventTypes": Array<"thread.created" | "loop.blocked" | "approval.required" | "qa.failed" | "gitleaks.failed" | "delivery.ready">; "credentialRef": string; "enabled"?: boolean; "metadata"?: JsonObject; "projectId": string; "url": string };
+export type N8nWebhookTargetRecord = { "allowedEventTypes": Array<"thread.created" | "loop.blocked" | "approval.required" | "qa.failed" | "gitleaks.failed" | "delivery.ready">; "createdAt": string; "credentialRef": string; "enabled": boolean; "id": string; "metadata": JsonObject; "projectId": string; "updatedAt": string; "url": string };
 export type N8nWebhookTargetResponse = { "target": N8nWebhookTargetRecord };
 export type NextStep = { "handoffTo"?: null | string; "source": "agent" | "handoff"; "text"?: null | string };
 export type NextStepCreateRequest = { "dueAt"?: null | string; "metadata"?: JsonObject; "owner"?: string; "priority"?: "low" | "medium" | "high" | "urgent"; "projectId": string; "sourceDecisionId"?: null | string; "sourceRiskId"?: null | string; "status"?: "planned" | "in_progress" | "blocked" | "completed" | "cancelled"; "title": string };
@@ -204,10 +204,10 @@ export type NextStepRecord = { "createdAt": string; "dueAt"?: null | string; "id
 export type NextStepResponse = { "nextStep": NextStepRecord };
 export type NextStepUpdateRequest = { "dueAt"?: null | string; "metadata"?: JsonObject | null; "owner"?: null | string; "priority"?: "low" | "medium" | "high" | "urgent" | null; "status"?: "planned" | "in_progress" | "blocked" | "completed" | "cancelled" | null };
 export type NextStepsListResponse = { "nextSteps": Array<NextStepRecord> };
-export type OllamaEndpointCreateRequest = { "baseUrl": string; "credentialRef"?: null | string; "displayName"?: null | string; "enabled"?: boolean; "id": string; "kind"?: "local" | "remote" | null; "metadata"?: JsonObject };
-export type OllamaEndpointHealthRecord = { "healthStatus": string; "id": string; "lastError"?: null | string; "message"?: string; "models"?: Array<string>; "providerId": string; "status": string };
+export type OllamaEndpointCreateRequest = { "baseUrl": string; "credentialRef"?: null | string; "displayName"?: null | string; "enabled"?: boolean; "id": string; "kind"?: "local" | "remote" | null; "label"?: null | string; "metadata"?: JsonObject };
+export type OllamaEndpointHealthRecord = { "healthStatus": string; "id": string; "lastError"?: null | string; "latency": number; "latencyMs": number; "message"?: string; "models"?: Array<string>; "providerId": string; "status": string };
 export type OllamaEndpointHealthResponse = { "health": OllamaEndpointHealthRecord };
-export type OllamaEndpointRecord = { "baseUrl": string; "createdAt": string; "credentialRef"?: null | string; "credentialStatus": string; "displayName": string; "enabled": boolean; "healthStatus": string; "id": string; "kind": "local" | "remote"; "lastError": string; "lastHealthCheckAt"?: null | string; "models"?: Array<string>; "providerId": string; "runtimeId": string; "updatedAt": string };
+export type OllamaEndpointRecord = { "baseUrl": string; "createdAt": string; "credentialRef"?: null | string; "credentialStatus": string; "displayName": string; "enabled": boolean; "healthStatus": string; "id": string; "kind": "local" | "remote"; "label": string; "lastError": string; "lastHealthCheckAt"?: null | string; "latency"?: null | number; "latencyMs"?: null | number; "models"?: Array<string>; "providerId": string; "runtimeId": string; "updatedAt": string };
 export type OllamaEndpointResponse = { "endpoint": OllamaEndpointRecord };
 export type OllamaEndpointsListResponse = { "endpoints": Array<OllamaEndpointRecord> };
 export type OllamaRuntimeProviderStatus = { "available": boolean; "models": Array<string>; "provider": string; "reason"?: string };
@@ -281,11 +281,14 @@ export type PromptResponse = { "promptTemplate": PromptTemplateRecord };
 export type PromptTemplateRecord = { "appliesTo": JsonObject; "body": string; "createdAt": string; "id": string; "mode": string; "name": string; "optimizer": string; "projectId": string; "updatedAt": string; "version": number };
 export type PromptTemplatesListResponse = { "promptTemplates": Array<PromptTemplateRecord> };
 export type PromptUpsertRequest = { "appliesTo"?: JsonObject; "body": string; "id"?: null | string; "mode"?: string; "name": string; "optimizer"?: string; "projectId": string };
+export type ProviderAccountFromCatalogRequest = { "baseUrl"?: null | string; "credentialRef"?: null | string; "displayName"?: null | string; "enabled"?: boolean; "metadata"?: JsonObject; "providerId": string };
 export type ProviderAccountPatchRequest = { "apiFormat"?: null | string; "baseUrl"?: null | string; "credentialRef"?: null | string; "displayName"?: null | string; "enabled"?: boolean | null; "metadata"?: JsonObject | null; "providerType"?: null | string; "quotaMode"?: null | string };
 export type ProviderAccountRecord = { "apiFormat": string; "baseUrl"?: null | string; "createdAt": string; "credentialRef"?: null | string; "credentialStatus": string; "displayName": string; "enabled": boolean; "healthStatus": string; "id": string; "lastError": string; "lastHealthCheckAt"?: null | string; "metadata"?: JsonObject; "providerId": string; "providerType": string; "quotaMode": string; "updatedAt": string };
 export type ProviderAccountResponse = { "provider": ProviderAccountRecord };
 export type ProviderAccountUpsertRequest = { "apiFormat"?: string; "baseUrl"?: string; "credentialRef"?: string; "displayName"?: null | string; "enabled"?: boolean; "metadata"?: JsonObject; "providerId": string; "providerType"?: string; "quotaMode"?: string };
 export type ProviderAccountsListResponse = { "providers": Array<ProviderAccountRecord> };
+export type ProviderCatalogEntryRecord = { "aliases"?: Array<string>; "apiFormat": string; "capabilities": Array<string>; "credentialKind": string; "defaultBaseUrl"?: null | string; "displayName": string; "docsUrl": string; "id": string; "knownModels": Array<string>; "modelSync": JsonObject; "pricingSource": string; "providerType": string; "requiredFields": Array<string> };
+export type ProviderCatalogListResponse = { "providers": Array<ProviderCatalogEntryRecord>; "version": string };
 export type ProviderHealth = { "healthStatus": string; "lastError"?: null | string; "message"?: string; "providerId": string; "status": string };
 export type ProviderHealthResponse = { "health": ProviderHealth };
 export type ProviderLimitPatchRequest = { "cooldownUntil"?: null | string; "currentWindow"?: JsonObject | null; "dailyRequests"?: null | number; "dailyTokens"?: null | number; "last429At"?: null | string; "lastLimitErrorAt"?: null | string; "monthlyBudgetUsd"?: null | number; "monthlyRequests"?: null | number; "monthlyTokens"?: null | number; "rpm"?: null | number; "tpm"?: null | number; "unknownLimitStrategy"?: null | string };
@@ -632,7 +635,10 @@ export const API_ENDPOINTS = [
 	{"method": "GET", "operationId": "team_activity_api_v1_projects__project_id__team_activity_get", "path": "/api/v1/projects/{project_id}/team-activity", "summary": "Team Activity"},
 	{"method": "GET", "operationId": "list_prompts_api_v1_prompts_get", "path": "/api/v1/prompts", "summary": "List Prompts"},
 	{"method": "POST", "operationId": "upsert_prompt_api_v1_prompts_post", "path": "/api/v1/prompts", "summary": "Upsert Prompt"},
+	{"method": "POST", "operationId": "create_account_from_catalog_api_v1_provider_accounts_from_catalog_post", "path": "/api/v1/provider-accounts/from-catalog", "summary": "Create Account From Catalog"},
+	{"method": "POST", "operationId": "sync_provider_account_models_api_v1_provider_accounts__account_id__sync_models_post", "path": "/api/v1/provider-accounts/{account_id}/sync-models", "summary": "Sync Provider Account Models"},
 	{"method": "GET", "operationId": "providers_api_v1_providers_get", "path": "/api/v1/providers", "summary": "Providers"},
+	{"method": "GET", "operationId": "list_catalog_api_v1_providers_catalog_get", "path": "/api/v1/providers/catalog", "summary": "List Catalog"},
 	{"method": "POST", "operationId": "dismiss_remediation_api_v1_remediations__remediation_id__dismiss_post", "path": "/api/v1/remediations/{remediation_id}/dismiss", "summary": "Dismiss Remediation"},
 	{"method": "POST", "operationId": "execute_remediation_api_v1_remediations__remediation_id__execute_post", "path": "/api/v1/remediations/{remediation_id}/execute", "summary": "Execute Remediation"},
 	{"method": "POST", "operationId": "retrieval_reindex_api_v1_retrieval_reindex_post", "path": "/api/v1/retrieval/reindex", "summary": "Retrieval Reindex"},
@@ -739,6 +745,7 @@ export type OperationRequestBodies = {
 	"checkout_git_branch_api_v1_projects__project_id__git_checkout_post": GitCheckoutRequest,
 	"cleanup_artifacts_api_v1_evidence_artifacts_cleanup_post": ArtifactCleanupRequest,
 	"configure_n8n_api_v1_integrations_n8n_configure_post": N8nWebhookTargetCreateRequest,
+	"create_account_from_catalog_api_v1_provider_accounts_from_catalog_post": ProviderAccountFromCatalogRequest,
 	"create_agent_run_api_v1_agent_runs_post": AgentRunCreateRequest,
 	"create_architecture_decision_api_v1_architecture_decisions_post": ArchitectureDecisionCreateRequest,
 	"create_benchmark_outcome_api_v1_model_gateway_benchmark_outcomes_post": ModelBenchmarkOutcomeCreateRequest,
@@ -813,6 +820,7 @@ export type OperationRequestBodies = {
 	"list_benchmark_outcomes_api_v1_model_gateway_benchmark_outcomes_get": never,
 	"list_benchmarks_api_v1_model_gateway_benchmarks_get": never,
 	"list_budget_rules_api_v1_model_gateway_budget_rules_get": never,
+	"list_catalog_api_v1_providers_catalog_get": never,
 	"list_chats_api_v1_legacy_chats_get": never,
 	"list_cli_runtimes_api_v1_model_gateway_cli_runtimes_get": never,
 	"list_cli_sessions_api_v1_model_gateway_cli_sessions_get": never,
@@ -911,6 +919,7 @@ export type OperationRequestBodies = {
 	"start_session_api_v1_cli_sessions_post": CliSessionStartRequest,
 	"start_workflow_api_v1_workflows__workflow_id__start_post": WorkflowStatusChangeRequest,
 	"sync_models_api_v1_ollama_endpoints__endpoint_id__sync_models_post": unknown,
+	"sync_provider_account_models_api_v1_provider_accounts__account_id__sync_models_post": unknown,
 	"sync_skills_api_v1_skills_sync_post": SkillsSyncRequest,
 	"team_activity_api_v1_projects__project_id__team_activity_get": never,
 	"teams_api_v1_teams_get": never,
@@ -967,6 +976,7 @@ export type OperationResponseBodies = {
 	"checkout_git_branch_api_v1_projects__project_id__git_checkout_post": GitCheckoutResponse,
 	"cleanup_artifacts_api_v1_evidence_artifacts_cleanup_post": ArtifactCleanupResponse,
 	"configure_n8n_api_v1_integrations_n8n_configure_post": N8nWebhookTargetResponse,
+	"create_account_from_catalog_api_v1_provider_accounts_from_catalog_post": ProviderAccountResponse,
 	"create_agent_run_api_v1_agent_runs_post": AgentRunResponse,
 	"create_architecture_decision_api_v1_architecture_decisions_post": ArchitectureDecisionResponse,
 	"create_benchmark_outcome_api_v1_model_gateway_benchmark_outcomes_post": ModelBenchmarkOutcomeResponse,
@@ -1041,6 +1051,7 @@ export type OperationResponseBodies = {
 	"list_benchmark_outcomes_api_v1_model_gateway_benchmark_outcomes_get": ModelBenchmarkOutcomesListResponse,
 	"list_benchmarks_api_v1_model_gateway_benchmarks_get": ModelBenchmarksListResponse,
 	"list_budget_rules_api_v1_model_gateway_budget_rules_get": BudgetRulesListResponse,
+	"list_catalog_api_v1_providers_catalog_get": ProviderCatalogListResponse,
 	"list_chats_api_v1_legacy_chats_get": ChatsListResponse,
 	"list_cli_runtimes_api_v1_model_gateway_cli_runtimes_get": CliRuntimesListResponse,
 	"list_cli_sessions_api_v1_model_gateway_cli_sessions_get": CliSessionsListResponse,
@@ -1139,6 +1150,7 @@ export type OperationResponseBodies = {
 	"start_session_api_v1_cli_sessions_post": CliSessionStartResponse,
 	"start_workflow_api_v1_workflows__workflow_id__start_post": WorkflowStartResponse,
 	"sync_models_api_v1_ollama_endpoints__endpoint_id__sync_models_post": OllamaSyncModelsResponse,
+	"sync_provider_account_models_api_v1_provider_accounts__account_id__sync_models_post": DiscoverModelsResponse,
 	"sync_skills_api_v1_skills_sync_post": SkillsSyncResponse,
 	"team_activity_api_v1_projects__project_id__team_activity_get": TeamActivityResponse,
 	"teams_api_v1_teams_get": TeamsListResponse,
@@ -1327,7 +1339,10 @@ export const OPERATIONS_BY_ID = {
 	"team_activity_api_v1_projects__project_id__team_activity_get": {"method": "GET", "operationId": "team_activity_api_v1_projects__project_id__team_activity_get", "path": "/api/v1/projects/{project_id}/team-activity", "summary": "Team Activity"},
 	"list_prompts_api_v1_prompts_get": {"method": "GET", "operationId": "list_prompts_api_v1_prompts_get", "path": "/api/v1/prompts", "summary": "List Prompts"},
 	"upsert_prompt_api_v1_prompts_post": {"method": "POST", "operationId": "upsert_prompt_api_v1_prompts_post", "path": "/api/v1/prompts", "summary": "Upsert Prompt"},
+	"create_account_from_catalog_api_v1_provider_accounts_from_catalog_post": {"method": "POST", "operationId": "create_account_from_catalog_api_v1_provider_accounts_from_catalog_post", "path": "/api/v1/provider-accounts/from-catalog", "summary": "Create Account From Catalog"},
+	"sync_provider_account_models_api_v1_provider_accounts__account_id__sync_models_post": {"method": "POST", "operationId": "sync_provider_account_models_api_v1_provider_accounts__account_id__sync_models_post", "path": "/api/v1/provider-accounts/{account_id}/sync-models", "summary": "Sync Provider Account Models"},
 	"providers_api_v1_providers_get": {"method": "GET", "operationId": "providers_api_v1_providers_get", "path": "/api/v1/providers", "summary": "Providers"},
+	"list_catalog_api_v1_providers_catalog_get": {"method": "GET", "operationId": "list_catalog_api_v1_providers_catalog_get", "path": "/api/v1/providers/catalog", "summary": "List Catalog"},
 	"dismiss_remediation_api_v1_remediations__remediation_id__dismiss_post": {"method": "POST", "operationId": "dismiss_remediation_api_v1_remediations__remediation_id__dismiss_post", "path": "/api/v1/remediations/{remediation_id}/dismiss", "summary": "Dismiss Remediation"},
 	"execute_remediation_api_v1_remediations__remediation_id__execute_post": {"method": "POST", "operationId": "execute_remediation_api_v1_remediations__remediation_id__execute_post", "path": "/api/v1/remediations/{remediation_id}/execute", "summary": "Execute Remediation"},
 	"retrieval_reindex_api_v1_retrieval_reindex_post": {"method": "POST", "operationId": "retrieval_reindex_api_v1_retrieval_reindex_post", "path": "/api/v1/retrieval/reindex", "summary": "Retrieval Reindex"},

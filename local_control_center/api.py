@@ -25,6 +25,7 @@ from fastapi.staticfiles import StaticFiles
 from .agents.api import create_router as create_agents_router
 from .agents.cli_session_stream_api import create_router as create_cli_session_stream_router
 from .agents.model_gateway_api import create_router as create_model_gateway_router
+from .agents.provider_catalog_api import create_router as create_provider_catalog_router
 from .control_plane.models import OverviewResponse
 from .control_plane.overview import build_overview_from_connection
 from .control_plane.runtime import ControlCenterRuntime
@@ -163,6 +164,7 @@ def create_app(
     app.include_router(create_agents_router(platform=platform, require_write=require_write))
     app.include_router(create_cli_session_stream_router(platform=platform, require_write=require_write))
     app.include_router(create_model_gateway_router(platform=platform, require_write=require_write))
+    app.include_router(create_provider_catalog_router(platform=platform, require_write=require_write))
     app.include_router(create_ollama_router(platform=platform, require_write=require_write))
     app.include_router(create_workspaces_router(platform=platform, require_write=require_write))
     app.include_router(create_governance_router(platform=platform, require_write=require_write))

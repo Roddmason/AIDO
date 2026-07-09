@@ -98,6 +98,60 @@ def test_qa_agent_command_ok_records_passed_verdict_and_artifact_hashes(
 
 
 @pytest.mark.skipif(not git_available(), reason="git CLI is not available")
+def test_qa_agent_discovers_package_script_with_default_timeout(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store, client, headers = create_client(tmp_path, monkeypatch)
+    project = create_git_project(store, tmp_path, name="QA Agent Discovered Package")
+    project_path = Path(project["path"])
+    (project_path / "package.json").write_text(
+        '{"private":true,"scripts":{"test":"node -e \\"process.exit(0)\\""}}\n',
+        encoding="utf-8",
+    )
+    assert run_git(["add", "package.json"], cwd=project_path).returncode == 0
+    commit = run_git(
+        [
+            "-c",
+            "user.name=AIDO Tests",
+            "-c",
+            "user.email=aido@example.test",
+            "commit",
+            "-m",
+            "add qa script",
+        ],
+        cwd=project_path,
+    )
+    assert commit.returncode == 0
+    workspace = store.workspaces.allocate_workspace(
+        project_id=project["id"],
+        task_id="qa-agent-discovered-package",
+        agent_id="qa_agent",
+        reason="qa agent discovered package workspace",
+        isolation_type="git_worktree",
+    )
+
+    response = client.post(
+        "/api/v1/agents/qa/runs",
+        headers=headers,
+        json={
+            "projectId": project["id"],
+            "workspaceId": workspace["id"],
+            "taskId": "qa-agent-discovered-package",
+            "commands": [],
+        },
+    )
+
+    assert response.status_code == 202
+    body = response.json()
+    result = body["results"][0]
+    assert body["status"] == "passed"
+    assert result["command"] == "corepack pnpm@10.24.0 run test"
+    assert result["status"] == "passed"
+    assert result["exitCode"] == 0
+
+
+@pytest.mark.skipif(not git_available(), reason="git CLI is not available")
 def test_qa_agent_rejects_command_string(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

@@ -749,12 +749,30 @@ class JobsRepository:
         job_id: str | None = None,
     ) -> dict[str, Any]:
         """Registra un evento de dominio en el bus, atado opcionalmente a proyecto y job."""
-        return EventBus(self.connection).record_event(
-            event_type=event_type,
-            payload=payload,
-            project_id=project_id,
-            job_id=job_id,
-        )
+        try:
+            return EventBus(self.connection).record_event(
+                event_type=event_type,
+                payload=payload,
+                project_id=project_id,
+                job_id=job_id,
+            )
+        except Exception as error:
+            return {
+                "id": "",
+                "jobId": job_id,
+                "projectId": project_id,
+                "type": event_type,
+                "severity": "warning",
+                "payload": redact_secrets(
+                    {
+                        "eventPersistenceFailed": True,
+                        "eventType": event_type,
+                        "reason": str(error),
+                        "payload": payload or {},
+                    }
+                ),
+                "createdAt": utc_now(),
+            }
 
     def list_events(self, project_id: str | None = None) -> list[dict[str, Any]]:
         """Devuelve los eventos del bus, filtrando por proyecto cuando se indica."""

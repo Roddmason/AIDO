@@ -393,7 +393,8 @@ class QAAgentRunner:
         per-command output artifacts, and records the agent run's terminal status.
         """
         workspace = self._workspace(project_id=project_id, workspace_id=workspace_id)
-        normalized = _normalize_commands(commands) if commands else discover_qa_commands(workspace["path"])
+        discovered_or_supplied = commands if commands else discover_qa_commands(workspace["path"])
+        normalized = _normalize_commands(discovered_or_supplied)
         profile = self._ensure_profile()
         agent_run = self.agents.create_agent_run(
             project_id=project_id,

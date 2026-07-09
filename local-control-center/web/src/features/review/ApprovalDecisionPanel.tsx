@@ -62,6 +62,25 @@ export function ApprovalDecisionPanel({
 	onReject: () => void;
 }) {
 	const { t } = useI18n();
+	const productLoopDeliveryApproval =
+		selectedAction.actionType === 'product_loop.approve_delivery';
+	const rejectLabel = productLoopDeliveryApproval
+		? t('app.review.productLoopRequestChanges', 'Request changes')
+		: t('ui.static.reject.4c7c9dde', 'Reject');
+	const decisionHelp = decision.patchGate?.required
+		? t(
+				'app.review.copy.25',
+				'Approve patch also requires complete linked evidence, non-blocking security findings, and a real diff. Reject only requires a recorded reason.',
+			)
+		: productLoopDeliveryApproval
+			? t(
+					'app.review.productLoopDecisionHelp',
+					'Approve delivery or request changes is blocked until this reason is recorded.',
+				)
+			: t(
+					'app.review.copy.26',
+					'Approve or reject is blocked until this reason is recorded.',
+				);
 	return (
 		<AnimatePresence mode="wait">
 			<m.div
@@ -447,15 +466,7 @@ export function ApprovalDecisionPanel({
 							}}
 						/>
 						<div className="field-help">
-							{decision.patchGate?.required
-								? t(
-										'app.review.copy.25',
-										'Approve patch also requires complete linked evidence, non-blocking security findings, and a real diff. Reject only requires a recorded reason.',
-									)
-								: t(
-										'app.review.copy.26',
-										'Approve or reject is blocked until this reason is recorded.',
-									)}
+							{decisionHelp}
 						</div>
 					</div>
 					{decision.decisionError ? (
@@ -480,7 +491,7 @@ export function ApprovalDecisionPanel({
 							disabled={decision.decisionBlocked}
 							onClick={onReject}
 						>
-							{t('ui.static.reject.4c7c9dde', 'Reject')}
+							{rejectLabel}
 						</button>
 					</div>
 				</div>

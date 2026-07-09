@@ -227,6 +227,28 @@ def test_frontend_mutation_helpers_use_generated_request_response_types() -> Non
     assert "body: MutationBody<'update_risk_api_v1_risks__risk_id__patch'>" in client_source
 
 
+def test_thread_remediation_answer_question_uses_option_payload() -> None:
+    card_source = read(SRC / "features" / "shell" / "ThreadBlockerCard.tsx")
+    hook_source = read(SRC / "features" / "shell" / "useThreadRemediations.ts")
+
+    assert "function answerOptions(action: BlockerActionModel): string[]" in card_source
+    assert "action.remediation?.actionType === 'answer_question' && options.length" in card_source
+    assert "<SelectField" in card_source
+    assert "runExecute(action, { answer: selectedAnswer })" in card_source
+    assert "payload?: JsonObject" in hook_source
+    assert "executeRemediation(token, action.remediation?.id ?? '', payload)" in hook_source
+
+
+def test_thread_remediation_continue_plan_only_is_visible_and_executable() -> None:
+    presentation_source = read(SRC / "features" / "shell" / "remediationPresentation.ts")
+    hook_source = read(SRC / "features" / "shell" / "useThreadRemediations.ts")
+
+    assert "continue_plan_only: {" in presentation_source
+    assert "labelFallback: 'Continue plan-only'" in presentation_source
+    assert "kind: 'execute'" in presentation_source
+    assert "executeRemediation(token, action.remediation?.id ?? '', payload)" in hook_source
+
+
 def test_runtime_provider_ui_exposes_healthcheck_state_and_sanitized_reasons() -> None:
     # The runtime provider status table was extracted from the gateway container into its own
     # read-surface panel; the healthcheck/redaction assertions follow it there.
@@ -242,6 +264,117 @@ def test_runtime_provider_ui_exposes_healthcheck_state_and_sanitized_reasons() -
     assert "redactVisibleSecret(row.reason)" in panel_source
     assert "redactVisibleSecret(row.lastError" in panel_source
     assert "row.healthCheckedAt" in panel_source
+
+
+def test_runtime_setup_wizard_uses_preconfigured_base_url_for_known_providers() -> None:
+    setup_source = read(SRC / "features" / "runtime-setup" / "runtimeSetup.ts")
+    wizard_source = read(SRC / "features" / "runtime-setup" / "AddProviderWizard.tsx")
+
+    assert "id: 'nvidia_nim'" in setup_source
+    assert "defaultBaseUrl: 'https://integrate.api.nvidia.com/v1'" in setup_source
+    assert "needsBaseUrl: false" in setup_source
+    assert "entry.needsBaseUrl ? (" in wizard_source
+    assert "Preconfigured — no URL needed." in wizard_source
+    assert "baseUrl.trim() || entry.defaultBaseUrl || ''" in wizard_source
+
+
+def test_provider_credentials_remediation_opens_specific_runtime_setup_provider() -> None:
+    presentation_source = read(SRC / "features" / "shell" / "remediationPresentation.ts")
+    card_source = read(SRC / "features" / "shell" / "ThreadBlockerCard.tsx")
+    app_source = read(SRC / "app" / "App.tsx")
+    modal_source = read(SRC / "features" / "settings" / "SettingsModal.tsx")
+    sections_source = read(SRC / "features" / "settings" / "sections.tsx")
+    settings_source = read(SRC / "features" / "settings" / "SettingsPage.tsx")
+    runtime_setup_source = read(SRC / "features" / "runtime-setup" / "RuntimeSetupPanel.tsx")
+
+    assert "contextualSettingsRecord" in presentation_source
+    assert "remediation: contextualSettingsRecord" in presentation_source
+    assert "function settingsProviderId(action: BlockerActionModel): string | undefined" in card_source
+    assert "onOpenSettings(action.section, settingsProviderId(action))" in card_source
+    assert "const [settingsProviderId, setSettingsProviderId]" in app_source
+    assert "openSettings = useCallback((section?: string, providerId?: string)" in app_source
+    assert "initialProviderId={settingsProviderId}" in app_source
+    assert "initialProviderId?: string | null" in modal_source
+    assert "initialProviderId: initialProviderId ?? null" in modal_source
+    assert "initialProviderId={ctx.initialProviderId}" in sections_source
+    assert "initialProviderId={initialProviderId}" in settings_source
+    assert "initialProviderId?: string | null" in runtime_setup_source
+    assert "setWizardProviderId(providerId)" in runtime_setup_source
+
+
+def test_new_thread_composer_checks_similarity_and_records_operator_choice() -> None:
+    source = read(SRC / "features" / "shell" / "ThreadConversation.tsx")
+
+    assert "findSimilarThreads(project.id, query, 1, controller.signal)" in source
+    assert "top && top.score >= SIMILARITY_THRESHOLD ? top : null" in source
+    assert "const dismissedCandidate = candidate" in source
+    assert "createThread(mutateToken, {" in source
+    assert "postThreadMessage(mutateToken, created.thread.id, {" in source
+    assert "mode: 'create_new_anyway'" in source
+    assert "similarThreadId: dismissedCandidate.threadId" in source
+    assert "markSimilarThread(mutateToken, created.thread.id, dismissedCandidate.threadId" in source
+    assert "postThreadMessage(mutateToken, target, { content, metadata: { mode } })" in source
+
+
+def test_thread_remediation_presentation_has_specific_copy_for_product_loop_blockers() -> None:
+    source = read(SRC / "features" / "shell" / "remediationPresentation.ts")
+
+    for blocker_type in (
+        "resource_manager_unconfigured",
+        "resource_manager_approval_required",
+        "team_scheduler_failed",
+        "technical_lead_planning_failed",
+        "product_owner_output_invalid",
+        "research_required",
+        "workspace_root_missing",
+        "workspace_allocation_failed",
+        "review_diff_unavailable",
+        "approval_unavailable",
+        "resource_learning_failed",
+        "git_status_failed",
+        "project_assessment_failed",
+        "functionality_memory_decision_required",
+        "thread_similarity_decision_required",
+        "thread_intake_decision_required",
+    ):
+        assert f"{blocker_type}:" in source
+
+
+def test_thread_remediation_presentation_is_typed_against_backend_contract() -> None:
+    source = read(SRC / "features" / "shell" / "remediationPresentation.ts")
+
+    assert "type BlockerType = RemediationActionRecord['blockerType'];" in source
+    assert "type ActionType = RemediationActionRecord['actionType'];" in source
+    assert "export const BLOCKER_COPY: Record<BlockerType, BlockerCopy>" in source
+    assert "export const ACTION_COPY: Record<ActionType, ActionCopy>" in source
+
+
+def test_workbench_review_panel_wires_traceable_product_loop_delivery_feedback() -> None:
+    client_source = read(SRC / "api" / "client.ts")
+    page_source = read(SRC / "features" / "workbench" / "WorkbenchPage.tsx")
+    panel_source = read(SRC / "features" / "workbench" / "panels" / "WorkbenchEvidencePanel.tsx")
+
+    assert "export type ProductLoopFeedbackRequest" in client_source
+    assert "export function applyProductLoopFeedback" in client_source
+    assert "applyProductLoopFeedback(token, project.id, activeProductLoop.id" in page_source
+    assert "handleAcceptDelivery" in page_source
+    assert "handleRequestDeliveryChanges" in page_source
+    assert "handleContinueDelivery" in page_source
+    assert "onAcceptDelivery={handleAcceptDelivery}" in page_source
+    assert "onRequestChanges={handleRequestDeliveryChanges}" in page_source
+    assert "onContinueDelivery={handleContinueDelivery}" in page_source
+    assert "action: 'continue'" in page_source
+    assert "targetType: 'task'" in page_source
+    assert "targetId: taskId" in page_source
+    assert "selectedTaskId" in panel_source
+    assert "SelectField" in panel_source
+    assert "onRequestChanges?.(selectedTaskId" in panel_source
+    assert "onContinueDelivery?.(" in panel_source
+    assert "disabled={!canContinueDelivery" in panel_source
+    assert "app.workbench.evidence.continueDelivery" in panel_source
+    assert "disabled={!canRequestChanges" in panel_source
+    assert "activeProductLoop?.state === 'awaiting_feedback'" in panel_source
+    assert "activeProductLoop?.state === 'awaiting_approval' &&" in panel_source
 
 
 def test_agents_page_does_not_fallback_to_unverified_provider_catalogs() -> None:

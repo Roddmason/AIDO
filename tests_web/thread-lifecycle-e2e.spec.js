@@ -223,6 +223,50 @@ function dashboardCommand() {
 	return { command: 'uv', args: ['run', 'python', ...args] };
 }
 
+function pythonCommandForScript(script) {
+	const windowsPython = path.join(repoRoot, '.venv', 'Scripts', 'python.exe');
+	const posixPython = path.join(repoRoot, '.venv', 'bin', 'python');
+	const pythonPath = process.platform === 'win32' ? windowsPython : posixPython;
+	if (existsSync(pythonPath)) {
+		return { command: pythonPath, args: ['-c', script] };
+	}
+	return { command: 'uv', args: ['run', 'python', '-c', script] };
+}
+
+function seedControlledAIResource() {
+	const dbPath = path.join(scratchDir, 'platform.sqlite');
+	const script = `
+from local_control_center.agents.ai_resource_manager import AIResourceManager
+from local_control_center.shared.db import open_sqlite_connection
+from local_control_center.shared.migrations import initialize_platform_schema
+
+with open_sqlite_connection(${JSON.stringify(dbPath)}) as connection:
+    initialize_platform_schema(connection)
+    AIResourceManager(connection).upsert_model_performance({
+        "providerId": "ollama",
+        "model": "qwen2.5-coder",
+        "runtime": "local",
+        "capabilities": ["chat", "code", "review", "tools", "reasoning", "json"],
+        "contextWindow": 128000,
+        "maxOutputTokens": 4096,
+        "inputPricePerMtok": 0.0,
+        "outputPricePerMtok": 0.0,
+        "observedLatencyMs": 900,
+        "observedSuccessRate": 0.86,
+        "reworkRate": 0.04,
+        "qualityScore": 0.82,
+        "locality": "local",
+        "privacyLevel": "local_private",
+        "evidence": [{"id": "seed-thread-lifecycle-e2e-resource", "kind": "test_seed"}],
+    })
+`;
+	const seed = pythonCommandForScript(script);
+	const result = spawnSync(seed.command, seed.args, { cwd: repoRoot, encoding: 'utf8' });
+	if (result.status !== 0) {
+		throw new Error(`seeding controlled AI resource failed: ${result.stderr || result.stdout}`);
+	}
+}
+
 async function waitForDashboardHealth() {
 	const deadline = Date.now() + 120_000;
 	let lastReason = 'not_checked';
@@ -321,6 +365,20 @@ test.describe('Threads lifecycle (real pipeline)', () => {
 		projectRepoDir = path.join(scratchDir, 'lifecycle-sample-project');
 		mkdirSync(path.join(projectRepoDir, 'src'), { recursive: true });
 		writeFileSync(path.join(projectRepoDir, 'src', 'app.txt'), 'initial\n', 'utf8');
+		writeFileSync(
+			path.join(projectRepoDir, 'package.json'),
+			`${JSON.stringify(
+				{
+					private: true,
+					scripts: {
+						test: 'node -e "process.exit(0)"',
+					},
+				},
+				null,
+				2,
+			)}\n`,
+			'utf8',
+		);
 		const init = spawnSync('git', ['init', '--initial-branch', 'main'], { cwd: projectRepoDir });
 		if (init.status !== 0) {
 			runGit(['init'], projectRepoDir);
@@ -345,6 +403,7 @@ test.describe('Threads lifecycle (real pipeline)', () => {
 		dashboardProcess.stderr.on('data', (chunk) => dashboardLog.push(String(chunk)));
 		try {
 			await waitForDashboardHealth();
+			seedControlledAIResource();
 			await arrangeControlledRuntime();
 		} catch (error) {
 			// afterAll never runs when beforeAll throws; stop the spawned server here so a failed
@@ -383,6 +442,7 @@ test.describe('Threads lifecycle (real pipeline)', () => {
 		const apiHeaders = { 'X-Local-Control-Token': token, Origin: baseUrl };
 		let project;
 		let threadId = '';
+		let productLoopId = '';
 
 		await test.step('1. abre un proyecto Git temporal desde el wizard de workspace', async () => {
 			await page.goto(`${baseUrl}/#threads`);
@@ -459,7 +519,9 @@ test.describe('Threads lifecycle (real pipeline)', () => {
 		});
 
 		await test.step('6. el worker corre una pasada real desde el boton Run now', async () => {
-			const runNow = page.getByRole('button', { name: /Run now|Ejecutar ahora/ });
+			const runNow = page
+				.getByTestId('workbench')
+				.getByRole('button', { name: /Run now|Ejecutar ahora/ });
 			await expect(runNow).toBeVisible({ timeout: 20_000 });
 			await runNow.click();
 
@@ -502,6 +564,7 @@ test.describe('Threads lifecycle (real pipeline)', () => {
 			const loop =
 				loops.find((item) => item.state === 'awaiting_approval') ?? loops[loops.length - 1];
 			expect(loop, 'an awaiting_approval product loop must exist').toBeTruthy();
+			productLoopId = loop.id;
 			const durable = loop.context?.durableRun ?? {};
 			expect(durable.review?.state).toBe('captured');
 			expect(durable.review?.changedFiles).toEqual([GENERATED_FILE]);
@@ -540,7 +603,7 @@ test.describe('Threads lifecycle (real pipeline)', () => {
 			expect(Boolean(gitleaks.deliveryBlocked)).toBe(false);
 		});
 
-		await test.step('10. aparece la tarjeta de revision/aprobacion', async () => {
+		await test.step('10. aprueba la entrega desde Review Board con razon humana', async () => {
 			await expect(
 				page.locator('.thread-conversation-head .badge', { hasText: /awaiting approval/ }),
 			).toBeVisible({ timeout: 30_000 });
@@ -561,9 +624,49 @@ test.describe('Threads lifecycle (real pipeline)', () => {
 			// as a real review card fed by the action request the pipeline created.
 			const board = page.locator('.review-board');
 			await expect(board).toBeVisible({ timeout: 20_000 });
-			await expect(page.getByText('product_loop.approve_delivery').first()).toBeVisible({
-				timeout: 20_000,
+			await expect(
+				board.getByRole('button', {
+					name: /Review: product_loop\.approve_delivery .* Lifecycle E2E Project/,
+				}),
+			).toBeVisible({ timeout: 20_000 });
+			const reviewButton = board.getByRole('button', {
+				name: /Review: product_loop\.approve_delivery .* Lifecycle E2E Project/,
 			});
+			await reviewButton.click();
+
+			const review = page.getByRole('dialog', { name: 'Action request review' });
+			await expect(review).toBeVisible({ timeout: 20_000 });
+			await expect(review.getByRole('button', { name: 'Approve', exact: true })).toBeDisabled();
+			await review
+				.getByLabel('Human decision reason')
+				.fill('Reviewed Product Loop diff, QA, and gitleaks evidence from the lifecycle run.');
+			await expect(review.getByRole('button', { name: 'Approve', exact: true })).toBeEnabled();
+			await review.getByRole('button', { name: 'Approve', exact: true }).click();
+			await expect(review).toBeHidden({ timeout: 20_000 });
+
+			const deadline = Date.now() + 60_000;
+			let deliveredLoop = null;
+			while (Date.now() < deadline) {
+				const response = await page.request.get(
+					`${baseUrl}/api/v1/projects/${project.id}/product-loop`,
+				);
+				const body = await response.json();
+				const loops = body.loops ?? body.productLoops ?? [];
+				deliveredLoop = loops.find((item) => item.id === productLoopId) ?? null;
+				const approval = deliveredLoop?.context?.durableRun?.approval ?? {};
+				if (
+					deliveredLoop?.state === 'delivered' &&
+					approval.status === 'approved' &&
+					approval.decision === 'accept'
+				) {
+					break;
+				}
+				await page.waitForTimeout(1000);
+			}
+			const approval = deliveredLoop?.context?.durableRun?.approval ?? {};
+			expect(deliveredLoop?.state).toBe('delivered');
+			expect(approval.status).toBe('approved');
+			expect(approval.decision).toBe('accept');
 
 			await page.goto(`${baseUrl}/#threads`);
 			await expectControlPlaneLoaded(page);

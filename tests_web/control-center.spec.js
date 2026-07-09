@@ -501,6 +501,50 @@ function issueToPatchApprovalFixture(projectId, suffix, { completeEvidence = tru
 	return { workflow, workflowRun, workflowSteps, job, jobRun, agentRun, toolCall, modelCall, permissionDecision, workflowEvents, evidencePackage, artifact, securityArtifact, actionRequest, patchText, securityText };
 }
 
+function productLoopDeliveryApprovalFixture(projectId, suffix) {
+	const now = new Date().toISOString();
+	const jobId = `job-product-loop-${suffix}`;
+	const loopId = `loop-product-loop-${suffix}`;
+	const job = {
+		id: jobId,
+		projectId,
+		kind: 'product_loop_delivery_approval',
+		status: 'approval_required',
+		workflowRunId: null,
+		workflowStepId: null,
+		payload: { loopId },
+		idempotencyKey: null,
+		leaseOwner: null,
+		leaseExpiresAt: null,
+		createdAt: now,
+		updatedAt: now,
+	};
+	const actionRequest = {
+		id: `action-product-loop-${suffix}`,
+		jobId,
+		projectId,
+		actionType: 'product_loop.approve_delivery',
+		status: 'pending',
+		riskLevel: 'medium',
+		reason: 'Review Product Loop diff, QA, and gitleaks evidence before delivery.',
+		command: 'approve product loop delivery',
+		commandArgv: ['product-loop', 'approve-delivery'],
+		payload: { loopId },
+		evidenceRefs: [],
+		diffRefs: [],
+		requestedAt: now,
+		expiresAt: null,
+		decidedAt: null,
+		decidedBy: null,
+		runtimeId: null,
+		workspaceId: null,
+		workspacePath: null,
+		runtime: null,
+		workspace: null,
+	};
+	return { job, actionRequest, loopId };
+}
+
 async function routeIssueToPatchApprovalOverview(page, fixtures) {
 	const overviewResponse = await page.request.get('/api/v1/overview');
 	const overview = await overviewResponse.json();
@@ -555,6 +599,20 @@ async function routeIssueToPatchApprovalOverview(page, fixtures) {
 			});
 		});
 	}
+}
+
+async function routeProductLoopDeliveryApprovalOverview(page, fixture) {
+	const overviewResponse = await page.request.get('/api/v1/overview');
+	const overview = await overviewResponse.json();
+	await page.route('/api/v1/overview', async (route) => {
+		await route.fulfill({
+			json: {
+				...overview,
+				jobs: [fixture.job, ...overview.jobs],
+				actionRequests: [fixture.actionRequest, ...overview.actionRequests],
+			},
+		});
+	});
 }
 
 async function expectNavigationTargetsReachable(page) {
@@ -1128,10 +1186,12 @@ function gitBranchesFixture(projectId, overrides = {}) {
 	};
 }
 
-async function mockGitEndpoints(page, projectId, { status, branches, onCreateBranch } = {}) {
+async function mockGitEndpoints(page, projectId, { status, branches, onCreateBranch, onInitGit } = {}) {
+	let currentStatus = status;
+	let currentBranches = branches;
 	await page.route('/api/v1/events', (route) => route.abort());
 	await page.route(`/api/v1/projects/${projectId}/git/status`, async (route) => {
-		await route.fulfill({ json: status });
+		await route.fulfill({ json: currentStatus });
 	});
 	await page.route(`/api/v1/projects/${projectId}/git/branches`, async (route) => {
 		if (route.request().method() === 'POST') {
@@ -1143,8 +1203,29 @@ async function mockGitEndpoints(page, projectId, { status, branches, onCreateBra
 			});
 			return;
 		}
-		await route.fulfill({ json: branches });
+		await route.fulfill({ json: currentBranches });
 	});
+	if (onInitGit) {
+		await page.route(`/api/v1/projects/${projectId}/git/init`, async (route) => {
+			const result = onInitGit(route.request().postDataJSON());
+			if (result?.status) currentStatus = result.status;
+			if (result?.branches) currentBranches = result.branches;
+			await route.fulfill({
+				status: result?.httpStatus ?? 200,
+				json:
+					result?.response ?? {
+						status: 'completed',
+						reason: 'Git repository initialized.',
+						projectId,
+						workspaceId: currentStatus.workspaceId,
+						defaultBranch: currentStatus.currentBranch || 'main',
+						currentBranch: currentStatus.currentBranch || 'main',
+						gitignoreCreated: false,
+						commitCreated: false,
+					},
+			});
+		});
+	}
 	async function openGitWorkbench() {
 		await page.goto('/#workbench');
 		const gitWorkspace = page.getByRole('group', { name: 'Git workspace' });
@@ -1159,12 +1240,25 @@ test('GitBranchBar offers Initialize Git as the exit when the project has no rep
 	const project = await getActiveProject(page);
 	const notARepo = { ...gitStatusFixture(project.id), status: 'configuration_required', reason: 'Project path is not a Git repository.', currentBranch: '', dirty: false, remotes: [], lastCommit: null };
 	const notARepoBranches = { ...gitBranchesFixture(project.id), status: 'configuration_required', reason: 'Project path is not a Git repository.', currentBranch: '', localBranches: [], remotes: [] };
-	const { openGitWorkbench } = await mockGitEndpoints(page, project.id, { status: notARepo, branches: notARepoBranches });
+	const initializedStatus = gitStatusFixture(project.id, { currentBranch: 'main', remotes: [] });
+	const initializedBranches = gitBranchesFixture(project.id, { currentBranch: 'main', localBranches: ['main'], remotes: [] });
+	let initBody = null;
+	const { openGitWorkbench } = await mockGitEndpoints(page, project.id, {
+		status: notARepo,
+		branches: notARepoBranches,
+		onInitGit: (body) => {
+			initBody = body;
+			return { status: initializedStatus, branches: initializedBranches };
+		},
+	});
 
 	const gitWorkspace = await openGitWorkbench();
 	// No dead end: an explicit primary CTA, not just a red dot.
-	await expect(gitWorkspace.getByRole('button', { name: 'Initialize Git' })).toBeVisible();
-	await expect(gitWorkspace.getByText('no repository')).toBeVisible();
+	await gitWorkspace.getByRole('button', { name: 'Initialize Git' }).click();
+	await expect.poll(() => initBody).toEqual({});
+	await expect(page.getByText('Git repository initialized')).toBeVisible({ timeout: 30_000 });
+	await expect(gitWorkspace.getByLabel('Git branch')).toHaveValue('main', { timeout: 30_000 });
+	await expect(gitWorkspace.getByText('no repository')).toHaveCount(0);
 });
 
 test('GitBranchBar shows the dirty breakdown and a View changes exit when the tree is dirty', async ({ page }) => {
@@ -1662,6 +1756,60 @@ test('Review board requires contextual review before action decision', async ({ 
 	await expect(page.getByText('pipeline.start').first()).toBeVisible();
 	await page.keyboard.press('Escape');
 	await expect(page.getByRole('dialog', { name: 'Approval drawer' })).toBeHidden();
+});
+
+test('Review board labels Product Loop delivery denial as request changes', async ({ page }) => {
+	const project = await getActiveProject(page);
+	const fixture = productLoopDeliveryApprovalFixture(project.id, 'delivery-rework');
+	let denialPayload = null;
+	let approveCalled = false;
+	await routeProductLoopDeliveryApprovalOverview(page, fixture);
+	await page.route(
+		`/api/v1/jobs/${fixture.job.id}/actions/${fixture.actionRequest.id}/approve`,
+		async (route) => {
+			approveCalled = true;
+			await route.fulfill({ status: 409, json: { detail: 'Unexpected approval path.' } });
+		},
+	);
+	await page.route(
+		`/api/v1/jobs/${fixture.job.id}/actions/${fixture.actionRequest.id}/deny`,
+		async (route) => {
+			denialPayload = route.request().postDataJSON();
+			await route.fulfill({
+				status: 202,
+				json: {
+					actionRequest: {
+						...fixture.actionRequest,
+						status: 'denied',
+						reason: denialPayload.reason,
+						decidedBy: 'operator',
+						decidedAt: new Date().toISOString(),
+					},
+					job: fixture.job,
+				},
+			});
+		},
+	);
+
+	await page.goto('/#review-board');
+	await expect(page.getByRole('region', { name: 'Review board' })).toBeVisible();
+	await page.getByRole('button', { name: /Review: product_loop\.approve_delivery/ }).click();
+	const review = page.getByRole('dialog', { name: 'Action request review' });
+	await expect(review).toBeVisible();
+	await expect(review.getByRole('button', { name: 'Approve', exact: true })).toBeDisabled();
+	await expect(review.getByRole('button', { name: 'Request changes', exact: true })).toBeDisabled();
+
+	await review
+		.getByLabel('Human decision reason')
+		.fill('Request scoped rework after reviewing the Product Loop evidence.');
+	await expect(review.getByRole('button', { name: 'Approve', exact: true })).toBeEnabled();
+	await expect(review.getByRole('button', { name: 'Request changes', exact: true })).toBeEnabled();
+	await review.getByRole('button', { name: 'Request changes', exact: true }).click();
+
+	await expect.poll(() => denialPayload?.reason ?? '').toBe(
+		'Request scoped rework after reviewing the Product Loop evidence.',
+	);
+	expect(approveCalled).toBe(false);
 });
 
 test('Review board presents four decision columns instead of a technical table', async ({ page }) => {
@@ -2654,6 +2802,61 @@ test('Runtime settings shows guided setup actions when no runtime is executable'
 		await expect(card).toContainText(provider.reason);
 		await expect(card.getByRole('button', { name: 'Detect & check' })).toBeVisible();
 	}
+});
+
+test('Runtime guided API setup opens provider wizard instead of running a health check first', async ({
+	page,
+}) => {
+	await page.route('/api/v1/runtime/providers', async (route) => {
+		await route.fulfill({ json: runtimeProvidersFixture([]) });
+	});
+	await page.route('/api/v1/runtime/provider-configuration', async (route) => {
+		await route.fulfill({ json: runtimeProviderConfigurationFixture([]) });
+	});
+
+	await page.goto('/#settings-runtime');
+	await expectControlPlaneLoaded(page);
+	const settings = page.getByRole('dialog', { name: 'Settings' });
+	await expect(settings).toBeVisible();
+
+	await settings.getByRole('button', { name: 'Configure NVIDIA NIM' }).click();
+
+	const wizard = page.getByRole('dialog', { name: 'Add provider' });
+	await expect(wizard).toBeVisible();
+	await expect(wizard.getByLabel('Provider', { exact: true })).toHaveValue('nvidia_nim');
+	await wizard.getByRole('button', { name: 'Next' }).click();
+	await expect(wizard.getByText('https://integrate.api.nvidia.com/v1')).toBeVisible();
+	await expect(wizard.getByRole('textbox', { name: 'Base URL' })).toHaveCount(0);
+});
+
+test('Runtime setup wizard does not require manual base URL for known providers', async ({ page }) => {
+	await page.route('/api/v1/runtime/providers', async (route) => {
+		await route.fulfill({ json: runtimeProvidersFixture([]) });
+	});
+	await page.route('/api/v1/runtime/provider-configuration', async (route) => {
+		await route.fulfill({ json: runtimeProviderConfigurationFixture([]) });
+	});
+
+	await page.goto('/#settings-runtime');
+	await expectControlPlaneLoaded(page);
+	const settings = page.getByRole('dialog', { name: 'Settings' });
+	await expect(settings).toBeVisible();
+	await settings.getByRole('button', { name: 'Add provider' }).click();
+
+	const wizard = page.getByRole('dialog', { name: 'Add provider' });
+	await expect(wizard).toBeVisible();
+	await wizard.getByLabel('Provider', { exact: true }).selectOption('nvidia_nim');
+	await wizard.getByRole('button', { name: 'Next' }).click();
+
+	await expect(wizard.getByText('https://integrate.api.nvidia.com/v1')).toBeVisible();
+	await expect(wizard.getByText('Preconfigured — no URL needed.')).toBeVisible();
+	await expect(wizard.getByRole('textbox', { name: 'Base URL' })).toHaveCount(0);
+	await expect(wizard.getByRole('textbox', { name: 'API key' })).toBeVisible();
+
+	await wizard.getByRole('button', { name: 'Back' }).click();
+	await wizard.getByLabel('Provider', { exact: true }).selectOption('openai_compatible');
+	await wizard.getByRole('button', { name: 'Next' }).click();
+	await expect(wizard.getByRole('textbox', { name: 'Base URL' })).toBeVisible();
 });
 
 test('Workbench composer infers task type and hides direct issue_to_patch controls', async ({ page }) => {

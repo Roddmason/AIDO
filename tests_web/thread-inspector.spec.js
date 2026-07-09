@@ -126,6 +126,75 @@ test('Threads: inspector views survive rapid tab switching without a stuck skele
 	).toBeVisible({ timeout: 20_000 });
 });
 
+test('Threads: Research tab shows blocked recovery instead of an empty artifact', async ({
+	page,
+}) => {
+	const firstMessage = `Blocked source recovery card ${Date.now()}`;
+	await page.route('**/api/v1/threads/*', async (route) => {
+		const url = new URL(route.request().url());
+		const pathPrefix = '/api/v1/threads/';
+		const threadPath = url.pathname.slice(url.pathname.indexOf(pathPrefix) + pathPrefix.length);
+		if (route.request().method() !== 'GET' || threadPath.includes('/')) {
+			await route.continue();
+			return;
+		}
+		const response = await route.fetch();
+		const detail = await response.json();
+		const matchesFixture =
+			detail.thread?.title === firstMessage.slice(0, 80) ||
+			detail.messages?.some((message) => message.content === firstMessage);
+		if (!matchesFixture) {
+			await route.fulfill({ response });
+			return;
+		}
+		const blockedReport = {
+			id: 'thread-artifact-research-blocked',
+			artifactId: 'artifact-research-blocked',
+			threadId: detail.thread.id,
+			projectId: detail.thread.projectId,
+			messageId: null,
+			kind: 'research_report',
+			title: 'Research',
+			createdAt: new Date().toISOString(),
+			metadata: {
+				status: 'research_blocked',
+				reason: 'ResearchAgent web search failed: urlopen timed out.',
+				recommendation: {
+					title: 'Research blocked',
+					decision: 'Check network access before retrying ResearchAgent.',
+					sourceCitations: [],
+				},
+				remediation: {
+					action: 'check_network_access',
+					summary: 'Check network access and retry ResearchAgent after official sources are reachable.',
+				},
+				sources: [],
+				discrepancies: [],
+			},
+		};
+		await route.fulfill({
+			response,
+			json: { ...detail, artifacts: [...detail.artifacts, blockedReport] },
+		});
+	});
+	await page.goto('/#threads');
+	await expectControlPlaneLoaded(page);
+	await createLiveThread(page, firstMessage);
+
+	const inspector = page.locator('.inspector-panel');
+	await expect(inspector.locator('.thread-inspector')).toBeVisible({ timeout: 20_000 });
+	await inspector.getByRole('tablist').getByRole('tab', { name: /Research|Investigaci/ }).click();
+	const researchPanel = inspector.locator('.thread-inspector-research');
+
+	await expect(researchPanel.getByText('Research blocked', { exact: true })).toBeVisible({
+		timeout: 20_000,
+	});
+	await expect(researchPanel.getByText(/Check network access before retrying ResearchAgent/)).toBeVisible();
+	await expect(researchPanel.getByText(/ResearchAgent web search failed/)).toBeVisible();
+	await expect(researchPanel.getByText('No sources persisted yet.')).toBeHidden();
+	await page.unrouteAll({ behavior: 'ignoreErrors' });
+});
+
 test('Threads: all eight tabs stay reachable, un-cut and keyboard-navigable in a 320px pane', async ({
 	page,
 }) => {
@@ -211,6 +280,258 @@ test('Threads: all eight tabs stay reachable, un-cut and keyboard-navigable in a
 	// Full labels return once the pane is genuinely wide: the label node leaves sr-only.
 	await threadInspector.evaluate((el) => el.style.setProperty('width', '900px', 'important'));
 	expect(await teamText.evaluate((el) => getComputedStyle(el).position)).toBe('static');
+});
+
+/** A roster of `count` idle agents — long enough to overflow the inspector's tab panel. */
+function longRoster(count) {
+	return Array.from({ length: count }, (_, index) => ({
+		id: `agent-bench-${index}`,
+		name: `Bench agent ${index}`,
+		role: 'developer',
+		runtimeType: 'api',
+		runtimeMode: 'api',
+		runtimeAvailability: {
+			status: 'available',
+			available: true,
+			selectedProviderId: 'anthropic_api',
+			requiredCapabilities: ['chat'],
+		},
+		reviewerPolicy: {},
+		allowedProviders: ['anthropic_api'],
+		maxCostPerRun: 1,
+		maxTokensPerRun: 80000,
+		status: 'active',
+	}));
+}
+
+/** Serves one pending remediation so the tall repair card above the tabs renders deterministically. */
+async function mockPendingRemediation(page) {
+	await page.route('**/api/v1/threads/*/remediations', (route) =>
+		route.fulfill({
+			json: {
+				remediations: [
+					{
+						id: 'remediation-inspector-fixture',
+						projectId: 'project-fixture',
+						threadId: 'thread-fixture',
+						loopId: 'loop-plan-fixture',
+						stage: 'runtime',
+						blockerType: 'runtime_not_executable',
+						title: 'Validate runtime',
+						description: 'Re-check local runtime availability.',
+						actionType: 'validate_runtime',
+						payload: { reason: 'No executable runtime is currently available.' },
+						status: 'pending',
+						createdAt: '2026-07-08T11:30:00.000Z',
+						resolvedAt: null,
+					},
+				],
+			},
+		}),
+	);
+}
+
+test('Threads: a long Team roster scrolls inside its view and never pushes the tabs out of reach', async ({
+	page,
+}) => {
+	// Regression: the repair card pinned above the tabs is tall, and the tablist was the only flexible
+	// sibling — so a blocked thread squeezed `.tabs-root` down to a single pixel, cutting the eight tabs
+	// off and spilling the pane into its own scroll. The card must scroll inside its own region instead.
+	const overview = await (await page.request.get('/api/v1/overview')).json();
+	await page.route('**/api/v1/overview', (route) =>
+		route.fulfill({ json: { ...overview, agentProfiles: longRoster(24) } }),
+	);
+	await mockPendingRemediation(page);
+
+	await page.goto('/#threads');
+	await expectControlPlaneLoaded(page);
+	await createLiveThread(page, `Long roster must not bury the tabs ${Date.now()}`);
+
+	const inspectorPanel = page.locator('.inspector-panel');
+	await expect(inspectorPanel.locator('.thread-inspector')).toBeVisible({ timeout: 20_000 });
+	await expect(inspectorPanel.locator('.thread-remediation-card')).toBeVisible({ timeout: 20_000 });
+
+	const tablist = inspectorPanel.getByRole('tablist');
+	await tablist.getByRole('tab', { name: /Team|Equipo/ }).click();
+	// An all-idle bench keeps its group open, so the full-height roster renders without a click.
+	await expect(inspectorPanel.locator('.thread-inspector-row').first()).toBeVisible({
+		timeout: 20_000,
+	});
+
+	// The repair card keeps its pinned spot but is capped, and scrolls inside its own region.
+	const repair = inspectorPanel.locator('.thread-inspector-repair');
+	const repairBox = await repair.evaluate((el) => ({
+		client: el.clientHeight,
+		scroll: el.scrollHeight,
+		console: el.parentElement.clientHeight,
+	}));
+	expect(repairBox.scroll).toBeGreaterThan(repairBox.client);
+	expect(repairBox.client).toBeLessThanOrEqual(repairBox.console / 2 + 1);
+
+	// The tabs keep their real height — never the 1px sliver the old flex layout left them.
+	const tabsRootHeight = await inspectorPanel
+		.locator('.thread-inspector .tabs-root')
+		.evaluate((el) => el.clientHeight);
+	expect(tabsRootHeight).toBeGreaterThan(repairBox.console / 3);
+
+	// The active view — not the pane — is the scroll container: it overflows, the pane does not.
+	const tabPanel = inspectorPanel.locator('.thread-inspector .tabs-root > [role="tabpanel"]');
+	const view = await tabPanel.evaluate((el) => ({
+		client: el.clientHeight,
+		scroll: el.scrollHeight,
+	}));
+	expect(view.scroll).toBeGreaterThan(view.client);
+	expect(view.client).toBeGreaterThan(100);
+	const paneOverflow = await inspectorPanel.evaluate((el) => el.scrollHeight - el.clientHeight);
+	expect(paneOverflow).toBeLessThanOrEqual(1);
+
+	// Scrolling the roster to its end leaves every tab where it was, fully inside the pane.
+	const before = await tablist.boundingBox();
+	await tabPanel.evaluate((el) => el.scrollTo(0, el.scrollHeight));
+	await expect.poll(() => tabPanel.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
+
+	const after = await tablist.boundingBox();
+	expect(Math.abs(after.y - before.y)).toBeLessThanOrEqual(1);
+	const pane = await inspectorPanel.boundingBox();
+	expect(after.y).toBeGreaterThanOrEqual(pane.y - 1);
+	expect(after.y + after.height).toBeLessThanOrEqual(pane.y + pane.height + 1);
+	for (const name of [/Goal|Objetivo/, /Team|Equipo/, /Settings|Configuraci/]) {
+		await expect(tablist.getByRole('tab', { name })).toBeVisible();
+	}
+
+	await page.unrouteAll({ behavior: 'ignoreErrors' });
+});
+
+/** A product-loop payload whose single active loop sits in `state`, with the given transitions. */
+async function mockProductLoop(page, state, transitions) {
+	const overview = await (await page.request.get('/api/v1/overview')).json();
+	const project = overview.projects.find((item) => item.status === 'active') ?? overview.projects[0];
+	expect(project).toBeTruthy();
+	const base = await (await page.request.get(`/api/v1/projects/${project.id}/product-loop`)).json();
+	const fixture = {
+		...base,
+		loops: [
+			{
+				id: 'loop-plan-fixture',
+				projectId: project.id,
+				title: 'Ship the checkout flow',
+				state,
+				status: 'active',
+				createdAt: '2026-07-08T10:00:00.000Z',
+				updatedAt: '2026-07-08T12:00:00.000Z',
+			},
+		],
+		transitions,
+	};
+	await page.route('**/api/v1/projects/*/product-loop', (route) => route.fulfill({ json: fixture }));
+}
+
+/** One FSM transition row shaped like the backend contract. */
+function transition(overrides) {
+	return {
+		id: 'transition-fixture',
+		loopId: 'loop-plan-fixture',
+		fromState: 'executing',
+		toState: 'blocked',
+		trigger: 'runtime_unavailable',
+		reason: '',
+		actor: 'system',
+		createdAt: '2026-07-08T11:00:00.000Z',
+		...overrides,
+	};
+}
+
+test('Threads: a blocked Plan tab leads with the blocker and hands the operator the repair', async ({
+	page,
+}) => {
+	await mockProductLoop(page, 'blocked', [
+		transition({ id: 'transition-old', reason: 'An earlier block, already history.' }),
+		transition({
+			id: 'transition-current',
+			reason: 'Ollama runtime offline: connection refused on 127.0.0.1:11434.',
+			createdAt: '2026-07-08T11:30:00.000Z',
+		}),
+	]);
+	await mockPendingRemediation(page);
+
+	await page.goto('/#threads');
+	await expectControlPlaneLoaded(page);
+	await createLiveThread(page, `Plan must lead with the blocker ${Date.now()}`);
+
+	const inspector = page.locator('.inspector-panel');
+	await expect(inspector.locator('.thread-inspector')).toBeVisible({ timeout: 20_000 });
+	await inspector.getByRole('tablist').getByRole('tab', { name: /Plan|Planificaci/ }).click();
+
+	// The current block leads the view: it renders above the phase timeline, states the machine reason,
+	// and older blocks stay folded away instead of burying it.
+	const blocker = inspector.locator('.thread-plan-blocker');
+	await expect(blocker).toBeVisible({ timeout: 20_000 });
+	await expect(blocker).toContainText(/Ollama runtime offline/);
+	await expect(blocker).not.toContainText(/already history/);
+	const blockerBox = await blocker.boundingBox();
+	const timelineBox = await inspector.locator('.thread-plan-timeline').boundingBox();
+	expect(blockerBox.y).toBeLessThan(timelineBox.y);
+
+	// Its CTA does not re-implement the repair: it hands focus to the card that carries the backend's
+	// recommended action, which is pinned above the tabs.
+	await blocker.getByRole('button', { name: /Go to the repair|Ir a la reparación/ }).click();
+	const repairCard = inspector.locator('.thread-remediation-card');
+	await expect(repairCard).toBeVisible();
+	const focusInsideRepair = await page.evaluate(() => {
+		const card = document.querySelector('.inspector-panel .thread-remediation-card');
+		return Boolean(
+			document.activeElement?.contains(card) || card?.contains(document.activeElement),
+		);
+	});
+	expect(focusInsideRepair).toBe(true);
+
+	// A halted loop marks no phase as reached — the timeline never fabricates progress.
+	await expect(inspector.locator('.thread-plan-timeline li[data-state="current"]')).toHaveCount(0);
+	await expect(inspector.locator('.thread-plan-timeline li[data-state="done"]')).toHaveCount(0);
+
+	await page.unrouteAll({ behavior: 'ignoreErrors' });
+});
+
+test('Threads: the Plan phases render as a compact vertical timeline that marks the live phase', async ({
+	page,
+}) => {
+	await mockProductLoop(page, 'executing', [
+		transition({ id: 'transition-run', fromState: 'iteration_planning', toState: 'executing' }),
+	]);
+
+	await page.goto('/#threads');
+	await expectControlPlaneLoaded(page);
+	await createLiveThread(page, `Plan phases as a vertical timeline ${Date.now()}`);
+
+	const inspector = page.locator('.inspector-panel');
+	await expect(inspector.locator('.thread-inspector')).toBeVisible({ timeout: 20_000 });
+	await inspector.getByRole('tablist').getByRole('tab', { name: /Plan|Planificaci/ }).click();
+
+	// A healthy loop shows no blocker banner at all — no fabricated "no blockers recorded" filler.
+	await expect(inspector.locator('.thread-plan-timeline')).toBeVisible({ timeout: 20_000 });
+	await expect(inspector.locator('.thread-plan-blocker')).toHaveCount(0);
+
+	// The live phase is marked, and everything before it reads as done.
+	const current = inspector.locator('.thread-plan-timeline li[data-state="current"]');
+	await expect(current).toHaveCount(1);
+	await expect(current).toContainText('executing');
+	await expect(current).toHaveAttribute('aria-current', 'step');
+	await expect(inspector.locator('.thread-plan-timeline li[data-state="done"]')).toHaveCount(6);
+
+	// Vertical, not the old wrapping pill row: every node shares one x centre and descends in y.
+	const nodes = await inspector.locator('.thread-plan-timeline li').evaluateAll((items) =>
+		items.map((item) => {
+			const node = item.querySelector('.thread-plan-timeline-node').getBoundingClientRect();
+			return { x: Math.round(node.x + node.width / 2), y: Math.round(node.y) };
+		}),
+	);
+	expect(nodes).toHaveLength(10);
+	expect(new Set(nodes.map((node) => node.x)).size).toBe(1);
+	for (let index = 1; index < nodes.length; index += 1) {
+		expect(nodes[index].y).toBeGreaterThan(nodes[index - 1].y);
+	}
+
+	await page.unrouteAll({ behavior: 'ignoreErrors' });
 });
 
 test('Threads: the Team tab reads as a manager console — grouped by state, active on top, blocked shows a fix, idle collapsed', async ({

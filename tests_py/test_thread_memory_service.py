@@ -126,6 +126,48 @@ def test_reindex_thread_memory_persists_resolved_functionality(tmp_path: Path) -
         ]
 
 
+def test_reindex_thread_memory_extracts_file_paths_from_artifacts_and_decisions(tmp_path: Path) -> None:
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        project_id = _project(connection, tmp_path)
+        repo = ThreadsRepository(connection)
+        thread = repo.create_thread(
+            project_id=project_id,
+            owner_type="workspace",
+            owner_id="workspace-1",
+            title="Thread memory API",
+            summary="Delivered API memory routes.",
+        )
+        repo.attach_artifact(
+            thread_id=thread["id"],
+            kind="git_patch",
+            title="Similarity patch",
+            artifact_id="artifact-memory-file-paths",
+            payload={"path": "local_control_center/threads/similarity.py"},
+        )
+        decision = repo.create_decision(
+            thread_id=thread["id"],
+            title="API route decision",
+            prompt="Keep memory routes under the existing threads router.",
+            options=["approve", "reject"],
+            metadata={"filePath": "local_control_center/threads/api.py"},
+        )
+        repo.resolve_decision(
+            thread_id=thread["id"],
+            decision_id=decision["id"],
+            resolution="approve existing threads router",
+            decided_by="operator",
+        )
+        repo.set_status(thread["id"], "resolved")
+
+        result = ThreadMemoryService(connection).reindex_thread_memory(thread["id"])
+
+        assert set(result["functionality"]["filePaths"]) >= {
+            "local_control_center/threads/similarity.py",
+            "local_control_center/threads/api.py",
+        }
+
+
 def test_performance_pass_links_similarity_event_to_functionality_registry(tmp_path: Path) -> None:
     with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
         initialize_platform_schema(connection)

@@ -116,10 +116,15 @@ type ResearchRecommendationPayload = {
 	decision?: string;
 	sourceCitations?: ResearchSourcePayload[];
 };
+type ResearchRemediationPayload = {
+	action?: string;
+	summary?: string;
+};
 type ResearchCardPayload = {
 	status?: string;
 	reason?: string;
 	recommendation?: ResearchRecommendationPayload;
+	remediation?: ResearchRemediationPayload;
 	sources?: ResearchSourcePayload[];
 	discrepancies?: Array<Record<string, unknown>>;
 };
@@ -622,6 +627,10 @@ function ThreadResearchCard({ artifact }: { artifact: ThreadArtifact }) {
 	const sources = payload.sources ?? [];
 	const discrepancies = payload.discrepancies ?? [];
 	const recommendation = payload.recommendation ?? {};
+	const remediation = payload.remediation ?? {};
+	const showSourceList = sources.length > 0 || status === 'research_ready';
+	const showRecoveryState =
+		status !== 'research_ready' && Boolean(payload.reason || remediation.summary);
 	return (
 		<m.section
 			className="thread-research-card"
@@ -644,40 +653,53 @@ function ThreadResearchCard({ artifact }: { artifact: ThreadArtifact }) {
 				<p>{recommendation.decision || payload.reason || ''}</p>
 			</div>
 
-			<details className="thread-research-disclosure" open>
-				<summary>{t('app.threads.research.sources', 'Sources')}</summary>
-				<div className="thread-research-source-list">
-					{sources.length ? (
-						sources.map((source, index) => (
-							<div
-								className="thread-research-source"
-								key={source.id || source.artifactId || source.url || `source-${index}`}
-							>
-								<a href={source.url} target="_blank" rel="noreferrer">
-									{source.publisher || source.url}
-								</a>
-								<StatusChip tone={source.trustLevel === 'untrusted' ? 'warn' : 'ok'}>
-									{(source.trustLevel || 'untrusted').replace(/_/g, ' ')}
-								</StatusChip>
-								<div className="thread-research-source-meta">
-									<span>
-										<CalendarClock aria-hidden="true" size={13} />
-										{source.fetchedAt || t('app.threads.research.noDate', 'No date')}
-									</span>
-									<span>
-										<Hash aria-hidden="true" size={13} />
-										{shortHash(source.hash)}
-									</span>
-								</div>
-							</div>
-						))
-					) : (
-						<p className="thread-research-empty">
-							{t('app.threads.research.noSources', 'No sources persisted yet.')}
-						</p>
-					)}
+			{showRecoveryState ? (
+				<div className="thread-research-state" data-status={status}>
+					<div className="thread-research-state-head">
+						<AlertTriangle aria-hidden="true" size={14} />
+						<span>{t('app.threads.research.recovery', 'Recovery')}</span>
+					</div>
+					{payload.reason ? <strong>{payload.reason}</strong> : null}
+					{remediation.summary ? <p>{remediation.summary}</p> : null}
 				</div>
-			</details>
+			) : null}
+
+			{showSourceList ? (
+				<details className="thread-research-disclosure" open>
+					<summary>{t('app.threads.research.sources', 'Sources')}</summary>
+					<div className="thread-research-source-list">
+						{sources.length ? (
+							sources.map((source, index) => (
+								<div
+									className="thread-research-source"
+									key={source.id || source.artifactId || source.url || `source-${index}`}
+								>
+									<a href={source.url} target="_blank" rel="noreferrer">
+										{source.publisher || source.url}
+									</a>
+									<StatusChip tone={source.trustLevel === 'untrusted' ? 'warn' : 'ok'}>
+										{(source.trustLevel || 'untrusted').replace(/_/g, ' ')}
+									</StatusChip>
+									<div className="thread-research-source-meta">
+										<span>
+											<CalendarClock aria-hidden="true" size={13} />
+											{source.fetchedAt || t('app.threads.research.noDate', 'No date')}
+										</span>
+										<span>
+											<Hash aria-hidden="true" size={13} />
+											{shortHash(source.hash)}
+										</span>
+									</div>
+								</div>
+							))
+						) : (
+							<p className="thread-research-empty">
+								{t('app.threads.research.noSources', 'No sources persisted yet.')}
+							</p>
+						)}
+					</div>
+				</details>
+			) : null}
 
 			{discrepancies.length ? (
 				<details className="thread-research-disclosure">
@@ -703,6 +725,7 @@ function researchPayload(metadata: unknown): ResearchCardPayload {
 		status: textValue(record.status),
 		reason: textValue(record.reason),
 		recommendation: recommendationValue(record.recommendation),
+		remediation: remediationValue(record.remediation),
 		sources: arrayValue(record.sources).map(sourceValue),
 		discrepancies: arrayValue(record.discrepancies).filter(isRecord),
 	};
@@ -714,6 +737,14 @@ function recommendationValue(value: unknown): ResearchRecommendationPayload {
 		title: textValue(value.title),
 		decision: textValue(value.decision),
 		sourceCitations: arrayValue(value.sourceCitations).map(sourceValue),
+	};
+}
+
+function remediationValue(value: unknown): ResearchRemediationPayload {
+	if (!isRecord(value)) return {};
+	return {
+		action: textValue(value.action),
+		summary: textValue(value.summary),
 	};
 }
 

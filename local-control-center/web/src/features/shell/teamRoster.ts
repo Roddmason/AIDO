@@ -11,11 +11,14 @@
  */
 import type { AgentProfile } from '../../api/types';
 
-/** The five roster buckets, in manager display order (staffed first, needs-setup last). */
+/**
+ * The five roster buckets, in manager display order: the work in flight leads, the agent that needs a
+ * fix comes next (a block costs the loop more than a queued assignment), then the idle bench.
+ */
 export const AGENT_STATE_ORDER = [
 	'active',
-	'waiting',
 	'blocked',
+	'waiting',
 	'available',
 	'unconfigured',
 ] as const;

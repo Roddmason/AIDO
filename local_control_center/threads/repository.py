@@ -581,6 +581,7 @@ class ThreadsRepository:
                 timestamp,
             ),
         )
+        self._index_thread(thread_id)
         return self.get_decision(decision_id)
 
     def get_decision(self, decision_id: str) -> dict[str, Any]:
@@ -615,6 +616,7 @@ class ThreadsRepository:
         )
         if updated.rowcount == 0:
             raise KeyError(f"Decision not found: {decision_id}")
+        self._index_thread(thread_id)
         return self.get_decision(decision_id)
 
     def list_decisions(self, thread_id: str) -> list[dict[str, Any]]:

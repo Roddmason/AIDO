@@ -275,7 +275,8 @@ def test_runtime_setup_wizard_uses_preconfigured_base_url_for_known_providers() 
     assert "needsBaseUrl: false" in setup_source
     assert "entry.needsBaseUrl ? (" in wizard_source
     assert "Preconfigured — no URL needed." in wizard_source
-    assert "baseUrl.trim() || entry.defaultBaseUrl || ''" in wizard_source
+    assert "createProviderAccountFromCatalog" in wizard_source
+    assert "...(entry.needsBaseUrl ? { baseUrl: baseUrl.trim() } : {})" in wizard_source
 
 
 def test_provider_credentials_remediation_opens_specific_runtime_setup_provider() -> None:

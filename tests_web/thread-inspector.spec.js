@@ -742,3 +742,221 @@ test('Threads: the Team tab reads as a manager console — grouped by state, act
 
 	await page.unrouteAll({ behavior: 'ignoreErrors' });
 });
+
+test('Threads: the pinned repair card fits the narrow inspector instead of hiding its text sideways', async ({
+	page,
+}) => {
+	// Regression: the answer form's side-by-side track (a 14rem field next to its button) was wider than
+	// the whole card in the inspector pane, so the repair region's `overflow: auto` turned the blocker's
+	// own explanation into text the operator could only reach by scrolling sideways.
+	await page.route('**/api/v1/threads/*/remediations', (route) =>
+		route.fulfill({
+			json: {
+				remediations: [
+					{
+						id: 'remediation-answer-fixture',
+						projectId: 'project-fixture',
+						threadId: 'thread-fixture',
+						loopId: 'loop-plan-fixture',
+						stage: 'thread_intake',
+						blockerType: 'thread_decision_required',
+						title: 'Thread decision required',
+						description: 'AIDO needs you to choose one of the available options.',
+						actionType: 'answer_question',
+						payload: {
+							reason: 'What outcome should AIDO optimise for: implementation, or research?',
+							options: ['Continue the existing thread', 'Create a new thread'],
+						},
+						status: 'pending',
+						createdAt: '2026-07-08T11:30:00.000Z',
+						resolvedAt: null,
+					},
+				],
+			},
+		}),
+	);
+
+	await page.goto('/#threads');
+	await expectControlPlaneLoaded(page);
+	await createLiveThread(page, `Repair card must fit the pane ${Date.now()}`);
+
+	const inspector = page.locator('.inspector-panel');
+	const repair = inspector.locator('.thread-inspector-repair');
+	await expect(inspector.locator('.thread-remediation-card')).toBeVisible({ timeout: 20_000 });
+	await expect(inspector.locator('.thread-remediation-answer')).toBeVisible();
+
+	// The answer form stacks: one column, so the field and its button no longer demand a wider card.
+	const columns = await inspector
+		.locator('.thread-remediation-answer')
+		.evaluate((el) => getComputedStyle(el).gridTemplateColumns);
+	expect(columns.split(' ')).toHaveLength(1);
+
+	// Nothing inside the pinned region overflows sideways: no word of the blocker is hidden.
+	const sideways = await repair.evaluate((el) => el.scrollWidth - el.clientWidth);
+	expect(sideways).toBeLessThanOrEqual(1);
+
+	const paneOverflow = await inspector.evaluate((el) => el.scrollWidth - el.clientWidth);
+	expect(paneOverflow).toBeLessThanOrEqual(1);
+
+	// Every card element stays inside the region's right edge.
+	const spills = await repair.evaluate((el) => {
+		const limit = el.getBoundingClientRect().right + 0.5;
+		return [...el.querySelectorAll('*')].filter(
+			(node) => node.getBoundingClientRect().right > limit,
+		).length;
+	});
+	expect(spills).toBe(0);
+
+	await page.unrouteAll({ behavior: 'ignoreErrors' });
+});
+
+/** One idle agent in the given roster state: `available` reports a runtime, `unconfigured` has none. */
+function idleAgent(id, name, available) {
+	return {
+		id,
+		name,
+		role: 'developer',
+		runtimeType: available ? 'api' : 'cli',
+		runtimeMode: available ? 'api' : 'cli',
+		runtimeAvailability: available
+			? {
+					status: 'available',
+					available: true,
+					selectedProviderId: 'anthropic_api',
+					requiredCapabilities: ['chat'],
+				}
+			: {
+					status: 'configuration_required',
+					available: false,
+					requiredCapabilities: ['shell'],
+					candidateProviderIds: ['codex_cli'],
+				},
+		reviewerPolicy: {},
+		allowedProviders: [available ? 'anthropic_api' : 'codex_cli'],
+		maxCostPerRun: 1,
+		maxTokensPerRun: 80000,
+		status: 'active',
+	};
+}
+
+test('Threads: a narrow pane stacks the roster row so the agent name never runs under its state chip', async ({
+	page,
+}) => {
+	// Regression: the row's side column sized itself to the state chip, and a chip like "Unconfigured"
+	// left the body about 46px — the agent name then painted straight across the chip. The row must
+	// stack while the pane is narrow, and keep the two-column layout once it is wide.
+	const overview = await (await page.request.get('/api/v1/overview')).json();
+	const project = overview.projects.find((item) => item.status === 'active') ?? overview.projects[0];
+	expect(project).toBeTruthy();
+	const baseLoop = await (
+		await page.request.get(`/api/v1/projects/${project.id}/product-loop`)
+	).json();
+
+	await page.route('**/api/v1/overview', (route) =>
+		route.fulfill({
+			json: { ...overview, agentProfiles: [idleAgent('agent-unset-a', 'Pia · Needs runtime', false)] },
+		}),
+	);
+	await page.route('**/api/v1/projects/*/product-loop', (route) =>
+		route.fulfill({ json: { ...baseLoop, assignments: [] } }),
+	);
+
+	await page.goto('/#threads');
+	await expectControlPlaneLoaded(page);
+	await createLiveThread(page, `Roster rows must stack in a narrow pane ${Date.now()}`);
+
+	const inspector = page.locator('.inspector-panel');
+	const threadInspector = inspector.locator('.thread-inspector');
+	await expect(threadInspector).toBeVisible({ timeout: 20_000 });
+	await inspector.getByRole('tablist').getByRole('tab', { name: /Team|Equipo/ }).click();
+
+	const row = inspector.locator('.thread-inspector-row[data-state="unconfigured"]');
+	await expect(row).toBeVisible({ timeout: 20_000 });
+
+	const geometry = () =>
+		row.evaluate((el) => {
+			const main = el.querySelector('.thread-inspector-row-main');
+			const side = el.querySelector('.thread-inspector-row-side');
+			const bounds = el.getBoundingClientRect();
+			return {
+				columns: getComputedStyle(el).gridTemplateColumns.split(' ').length,
+				sideBelowMain: side.getBoundingClientRect().top >= main.getBoundingClientRect().bottom - 1,
+				spills: [...el.querySelectorAll('*')].filter(
+					(node) => node.getBoundingClientRect().right > bounds.right + 0.5,
+				).length,
+			};
+		});
+
+	// At a 320px pane the row is a single column: the chip sits under the body, nothing paints across it.
+	await threadInspector.evaluate((el) => el.style.setProperty('width', '288px', 'important'));
+	const narrow = await geometry();
+	expect(narrow.columns).toBe(1);
+	expect(narrow.sideBelowMain).toBe(true);
+	expect(narrow.spills).toBe(0);
+
+	// A wide pane keeps the scannable two-column roster.
+	await threadInspector.evaluate((el) => el.style.setProperty('width', '600px', 'important'));
+	const wide = await geometry();
+	expect(wide.columns).toBe(2);
+	expect(wide.sideBelowMain).toBe(false);
+	expect(wide.spills).toBe(0);
+
+	await page.unrouteAll({ behavior: 'ignoreErrors' });
+});
+
+test('Threads: an idle team still leads with the agents that need configuring, not with the bench', async ({
+	page,
+}) => {
+	// Nothing is running, so no group demands attention. The bench must still collapse: an operator
+	// opening Team on an idle project needs to see the agent that cannot run, not scroll past the
+	// agents that simply have nothing to do.
+	const overview = await (await page.request.get('/api/v1/overview')).json();
+	const project = overview.projects.find((item) => item.status === 'active') ?? overview.projects[0];
+	expect(project).toBeTruthy();
+	const baseLoop = await (
+		await page.request.get(`/api/v1/projects/${project.id}/product-loop`)
+	).json();
+
+	await page.route('**/api/v1/overview', (route) =>
+		route.fulfill({
+			json: {
+				...overview,
+				agentProfiles: [
+					idleAgent('agent-bench-a', 'Nia · Bench', true),
+					idleAgent('agent-bench-b', 'Omar · Bench', true),
+					idleAgent('agent-unset-a', 'Pia · Needs runtime', false),
+				],
+			},
+		}),
+	);
+	// No assignments: every agent falls to an idle state, so `available` and `unconfigured` are the
+	// only groups on the roster.
+	await page.route('**/api/v1/projects/*/product-loop', (route) =>
+		route.fulfill({ json: { ...baseLoop, assignments: [] } }),
+	);
+
+	await page.goto('/#threads');
+	await expectControlPlaneLoaded(page);
+	await createLiveThread(page, `Idle team leads with the unconfigured agent ${Date.now()}`);
+
+	const inspector = page.locator('.inspector-panel');
+	await expect(inspector.locator('.thread-inspector')).toBeVisible({ timeout: 20_000 });
+	await inspector.getByRole('tablist').getByRole('tab', { name: /Team|Equipo/ }).click();
+	await expect(inspector.locator('.thread-inspector-loading')).toBeHidden({ timeout: 20_000 });
+
+	// The bench is folded away behind its count; the agent that needs a runtime is expanded and visible.
+	await expect(
+		inspector.locator('[data-group="available"] .disclosure-trigger').first(),
+	).toHaveAttribute('aria-expanded', 'false', { timeout: 20_000 });
+	await expect(inspector.getByText('Nia · Bench')).toBeHidden();
+	await expect(
+		inspector.locator('[data-group="unconfigured"] .disclosure-trigger').first(),
+	).toHaveAttribute('aria-expanded', 'true');
+	await expect(inspector.getByText('Pia · Needs runtime')).toBeVisible();
+
+	// The tab is never left empty: the bench opens on demand.
+	await inspector.locator('[data-group="available"] .disclosure-trigger').first().click();
+	await expect(inspector.getByText('Nia · Bench')).toBeVisible();
+
+	await page.unrouteAll({ behavior: 'ignoreErrors' });
+});

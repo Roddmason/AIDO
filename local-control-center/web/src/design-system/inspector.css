@@ -322,6 +322,26 @@
 	gap: var(--space-1);
 }
 
+/*
+ * Narrow pane (the default inspector width is already here): the side column sizes to its chip, and a
+ * chip like "Unconfigured" left the main column ~46px — too narrow for the agent name, its runtime line
+ * and its fix button, which then spilled across the chip. Stack the row so the body owns the full width
+ * and the chip sits beneath it, left-aligned with everything else.
+ */
+@container (max-width: 20rem) {
+	.thread-inspector-row {
+		grid-template-columns: minmax(0, 1fr);
+	}
+
+	.thread-inspector-row-side {
+		flex-direction: row;
+		flex-wrap: wrap;
+		align-items: center;
+		justify-content: flex-start;
+		gap: var(--space-2);
+	}
+}
+
 .thread-inspector-cost {
 	font-size: var(--font-size-xs);
 	color: var(--color-text-secondary);

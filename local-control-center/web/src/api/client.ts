@@ -439,11 +439,14 @@ export function applyProductLoopFeedback(
 	return requestGeneratedOperation<
 		'apply_product_loop_feedback_api_v1_projects__project_id__product_loop__loop_id__feedback_post',
 		ProductLoopFeedbackApplyResponse
-	>('apply_product_loop_feedback_api_v1_projects__project_id__product_loop__loop_id__feedback_post', {
-		token,
-		pathParams: { project_id: projectId, loop_id: loopId },
-		body,
-	});
+	>(
+		'apply_product_loop_feedback_api_v1_projects__project_id__product_loop__loop_id__feedback_post',
+		{
+			token,
+			pathParams: { project_id: projectId, loop_id: loopId },
+			body,
+		},
+	);
 }
 
 /** Runs the Product Owner agent over an idea: it produces and persists the brief, clarification

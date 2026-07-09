@@ -470,10 +470,7 @@ export function WorkbenchPage({
 					expectedVersion: activeProductLoop.version,
 				}),
 			t('app.workbench.loop.deliveryChangesRequested', 'Changes requested'),
-			t(
-				'app.workbench.loop.deliveryChangesRequestFailed',
-				'Could not request delivery changes',
-			),
+			t('app.workbench.loop.deliveryChangesRequestFailed', 'Could not request delivery changes'),
 		);
 	};
 
@@ -490,10 +487,7 @@ export function WorkbenchPage({
 					expectedVersion: activeProductLoop.version,
 				}),
 			t('app.workbench.loop.deliveryContinued', 'Delivery continuation recorded'),
-			t(
-				'app.workbench.loop.deliveryContinueFailed',
-				'Could not continue the delivery loop',
-			),
+			t('app.workbench.loop.deliveryContinueFailed', 'Could not continue the delivery loop'),
 		);
 	};
 

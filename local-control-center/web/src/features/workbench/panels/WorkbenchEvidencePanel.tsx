@@ -6,9 +6,8 @@
  */
 import { CheckCircle2, PlayCircle, RefreshCcw } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-
-import { downloadEvidenceArtifact, fetchEvidenceArtifact } from '../../../api/client';
 import type { ProjectProductLoopResponse } from '../../../api/client';
+import { downloadEvidenceArtifact, fetchEvidenceArtifact } from '../../../api/client';
 import type { Overview } from '../../../api/types';
 import { Disclosure } from '../../../components/Disclosure';
 import { Badge, DataTable, Drawer, EmptyState, Surface } from '../../../components/primitives';

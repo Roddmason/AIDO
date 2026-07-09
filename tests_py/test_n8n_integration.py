@@ -10,7 +10,15 @@ from local_control_center.app import create_app
 from local_control_center.threads.repository import ThreadsRepository
 from tests_py.control_plane_fixture import ControlPlaneFixture
 
-N8N_TOKEN = "sk-n8nsecret123456"
+N8N_TOKEN = "sk-aaaaaaaa"
+EXPECTED_N8N_OUTBOUND_EVENTS = [
+    "thread.created",
+    "loop.blocked",
+    "approval.required",
+    "qa.failed",
+    "gitleaks.failed",
+    "delivery.ready",
+]
 
 
 def _client(tmp_path: Path, monkeypatch) -> tuple[TestClient, dict[str, str], ControlPlaneFixture]:
@@ -82,8 +90,30 @@ def test_n8n_status_and_configure_use_requested_api_contract(tmp_path: Path, mon
     assert status["targetCount"] == 1
     assert status["enabledTargetCount"] == 1
     assert status["allowedEventTypes"] == ["thread.created", "approval.required"]
+    assert status["eventAllowlist"] == EXPECTED_N8N_OUTBOUND_EVENTS
     assert status["targets"][0]["url"] == "https://n8n.example.invalid/webhook/aido"
     assert N8N_TOKEN not in current.text
+
+
+def test_n8n_configure_rejects_events_outside_external_automation_contract(
+    tmp_path: Path, monkeypatch
+) -> None:
+    client, headers, store = _client(tmp_path, monkeypatch)
+    project = _project(store, tmp_path)
+
+    response = client.post(
+        "/api/v1/integrations/n8n/configure",
+        headers=headers,
+        json={
+            "projectId": project["id"],
+            "url": "https://n8n.example.invalid/webhook/aido",
+            "credentialRef": "env:AIDO_N8N_TOKEN",
+            "enabled": True,
+            "allowedEventTypes": ["research.completed"],
+        },
+    )
+
+    assert response.status_code == 422
 
 
 def test_n8n_emit_uses_requested_endpoint_with_mocked_outbound_webhook(
@@ -336,7 +366,9 @@ def test_n8n_inbound_webhook_creates_thread_with_scoped_token(tmp_path: Path, mo
     assert [message["content"] for message in messages] == ["Create a QA checklist."]
 
 
-def test_n8n_inbound_webhook_creates_loop_without_executing_commands(tmp_path: Path, monkeypatch) -> None:
+def test_n8n_inbound_webhook_blocks_loop_creation_and_execution_actions(
+    tmp_path: Path, monkeypatch
+) -> None:
     client, headers, store = _client(tmp_path, monkeypatch)
     project = _project(store, tmp_path)
     _target(client, headers, project["id"])
@@ -363,7 +395,7 @@ def test_n8n_inbound_webhook_creates_loop_without_executing_commands(tmp_path: P
     )
     assert blocked_approval.status_code == 403
 
-    created = client.post(
+    blocked_loop = client.post(
         "/api/v1/integrations/n8n/webhook",
         headers={"X-AIDO-N8N-Token": N8N_TOKEN},
         json={
@@ -377,15 +409,9 @@ def test_n8n_inbound_webhook_creates_loop_without_executing_commands(tmp_path: P
         },
     )
 
-    assert created.status_code == 201, created.text
-    loop = created.json()["loop"]
-    assert loop["projectId"] == project["id"]
-    assert loop["state"] == "goal_received"
-    assert loop["status"] == "active"
-    assert loop["context"]["source"] == "n8n"
-    assert loop["context"]["apiKey"] == "[redacted]"
+    assert blocked_loop.status_code == 422
     assert store.jobs.list_jobs(project["id"]) == []
-    assert N8N_TOKEN not in json.dumps(created.json())
+    assert N8N_TOKEN not in json.dumps(blocked_loop.json())
 
 
 def test_n8n_emit_event_blocks_event_not_allowed_for_project_target(tmp_path: Path, monkeypatch) -> None:

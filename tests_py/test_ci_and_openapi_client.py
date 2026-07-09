@@ -305,6 +305,13 @@ def test_generated_openapi_client_is_checked_in_and_v1_only() -> None:
         in content
     )
     for operation in (
+        '"get_n8n_status_api_v1_integrations_n8n_status_get": N8nIntegrationStatusResponse',
+        '"configure_n8n_api_v1_integrations_n8n_configure_post": N8nWebhookTargetCreateRequest',
+        '"configure_n8n_api_v1_integrations_n8n_configure_post": N8nWebhookTargetResponse',
+        '"emit_n8n_api_v1_integrations_n8n_emit_post": N8nEventEmitRequest',
+        '"emit_n8n_api_v1_integrations_n8n_emit_post": N8nEventDeliveryResponse',
+        '"receive_n8n_inbound_api_v1_integrations_n8n_inbound__token__post": N8nInboundWebhookRequest',
+        '"receive_n8n_inbound_api_v1_integrations_n8n_inbound__token__post": N8nInboundWebhookResponse',
         '"upsert_n8n_webhook_target_api_v1_integrations_n8n_webhook_targets_post": '
         "N8nWebhookTargetCreateRequest",
         '"upsert_n8n_webhook_target_api_v1_integrations_n8n_webhook_targets_post": N8nWebhookTargetResponse',
@@ -318,17 +325,21 @@ def test_generated_openapi_client_is_checked_in_and_v1_only() -> None:
         assert operation in content
     n8n_target = _generated_type_line(content, "N8nWebhookTargetCreateRequest")
     n8n_emit = _generated_type_line(content, "N8nEventEmitRequest")
+    n8n_inbound = _generated_type_line(content, "N8nInboundWebhookResponse")
     for event_type in (
         '"thread.created"',
         '"loop.blocked"',
         '"approval.required"',
-        '"delivery.ready"',
-        '"gitleaks.failed"',
         '"qa.failed"',
-        '"research.completed"',
+        '"gitleaks.failed"',
+        '"delivery.ready"',
     ):
         assert event_type in n8n_target
         assert event_type in n8n_emit
+    assert '"research.completed"' not in n8n_target
+    assert '"research.completed"' not in n8n_emit
+    assert '"action": "create_thread" | "add_message" | "get_status"' in n8n_inbound
+    assert '"create_loop"' not in n8n_inbound
     assert '"credentialRef": string' in n8n_target
     assert '"allowedEventTypes": Array<' in n8n_target
     assert "export type IdeConnectionRecord" in content

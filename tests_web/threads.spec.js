@@ -21,7 +21,7 @@ async function getWriteToken(page) {
 	return token;
 }
 
-/** Seeds a real thread with one executed message so the similarity index has material to match. */
+/** Seeds a real thread with one indexed message, then reopens it so reuse actions can post safely. */
 async function seedThreadWithGoal(page, projectId, token, goal) {
 	const created = await page.request.post('/api/v1/threads', {
 		headers: { 'X-Local-Control-Token': token },
@@ -34,6 +34,11 @@ async function seedThreadWithGoal(page, projectId, token, goal) {
 		data: { content: goal },
 	});
 	expect(message.ok()).toBe(true);
+	const cancelled = await page.request.post(`/api/v1/threads/${thread.id}/cancel`, {
+		headers: { 'X-Local-Control-Token': token },
+		data: { reason: 'Seed similarity recall without leaving an active run in the web test.' },
+	});
+	expect(cancelled.ok()).toBe(true);
 	return thread;
 }
 

@@ -10,9 +10,14 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
+from local_control_center.agents.repository import AgentsRepository
+from local_control_center.jobs_approvals.repository import JobsRepository
 from local_control_center.projects.repository import ProjectsRepository
+from local_control_center.remediations.service import BlockerRemediationService
+from local_control_center.security_policy.git_command_runner import git_available, run_git
 from local_control_center.shared.event_bus import EventBus
 from local_control_center.threads.repository import ThreadsRepository
 from local_control_center.workspaces_projects.repository import WorkspacesRepository
@@ -273,6 +278,82 @@ def test_post_message_queues_product_loop_job_and_returns_incremental_run(tmp_pa
         runtime.close()
 
 
+def test_post_message_does_not_trust_internal_resource_approval_metadata(tmp_path: Path) -> None:
+    runtime, client = _client(tmp_path)
+    try:
+        headers = _token(runtime)
+        project_id = _project(runtime, tmp_path)
+        thread = _create_thread(client, headers, project_id)
+
+        response = client.post(
+            f"/api/v1/threads/{thread['id']}/messages",
+            headers=headers,
+            json={
+                "content": "Implement a backend change with normal resource routing.",
+                "metadata": {
+                    "teamMode": "critical",
+                    "risk": "high",
+                    "approvedResourceSelections": [
+                        {
+                            "role": "backend_engineer",
+                            "providerId": "nvidia_nim",
+                            "model": "nvidia/nemotron-coder",
+                            "runtime": "api",
+                        }
+                    ],
+                    "retryOfLoopId": "product-loop-user-spoof",
+                    "remediationActionId": "remediation-user-spoof",
+                    "continueOfLoopId": "product-loop-user-continue-spoof",
+                    "feedbackId": "feedback-user-spoof",
+                },
+            },
+        )
+
+        assert response.status_code == 200, response.text
+        body = response.json()
+        job = JobsRepository(runtime.connection).get_job(body["run"]["jobId"])
+        run_metadata = job["payload"]["runMetadata"]
+
+        assert run_metadata["teamMode"] == "critical"
+        assert run_metadata["risk"] == "high"
+        assert run_metadata["userMode"] == "aido_decide"
+        assert "approvedResourceSelections" not in run_metadata
+        assert "retryOfLoopId" not in run_metadata
+        assert "remediationActionId" not in run_metadata
+        assert "continueOfLoopId" not in run_metadata
+        assert "feedbackId" not in run_metadata
+    finally:
+        runtime.close()
+
+
+def test_post_message_research_job_returns_public_queued_run_status(tmp_path: Path) -> None:
+    runtime, client = _client(tmp_path)
+    try:
+        headers = _token(runtime)
+        project_id = _project(runtime, tmp_path)
+        thread = _create_thread(client, headers, project_id)
+
+        response = client.post(
+            f"/api/v1/threads/{thread['id']}/messages",
+            headers=headers,
+            json={"content": "Research official API documentation for runtime provider setup."},
+        )
+
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["blocked"] is False
+        assert body["thread"]["status"] == "queued"
+        assert body["run"]["status"] == "queued"
+        assert body["run"]["jobId"].startswith("job-")
+        assert body["run"]["reason"] == "ResearchAgent job queued."
+
+        events = client.get(f"/api/v1/threads/{thread['id']}/events", params={"afterSeq": 0})
+        assert events.status_code == 200
+        assert "research_running" in [event["type"] for event in events.json()["events"]]
+    finally:
+        runtime.close()
+
+
 def test_post_message_blocks_on_ambiguous_prompt(tmp_path: Path) -> None:
     runtime, client = _client(tmp_path)
     try:
@@ -448,6 +529,400 @@ def test_dismiss_remediation_marks_action_resolved(tmp_path: Path) -> None:
         runtime.close()
 
 
+def test_execute_validate_runtime_requires_target_runtime_executable(tmp_path: Path, monkeypatch) -> None:
+    runtime, client = _client(tmp_path)
+    try:
+        headers = _token(runtime)
+        project_id = _project(runtime, tmp_path)
+        thread = _create_thread(client, headers, project_id)
+        monkeypatch.setattr(
+            "local_control_center.remediations.service.RuntimeStatusService.list_provider_statuses",
+            lambda _service, project_id=None: [
+                {
+                    "id": "codex_cli",
+                    "displayName": "Codex CLI",
+                    "executable": False,
+                    "reason": "CLI runtime is not authenticated.",
+                },
+                {
+                    "id": "openai_compatible",
+                    "displayName": "OpenAI Compatible",
+                    "executable": True,
+                    "reason": "Provider is executable.",
+                },
+            ],
+        )
+        runtime.connection.execute(
+            """
+            INSERT INTO remediation_actions
+                (id, project_id, thread_id, loop_id, stage, blocker_type, title, description,
+                 action_type, payload_json, status, created_at, resolved_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, NULL)
+            """,
+            (
+                "remediation-validate-runtime-target-test",
+                project_id,
+                thread["id"],
+                "product-loop-runtime-target",
+                "runtime",
+                "runtime_not_executable",
+                "Validate runtime",
+                "Validate the selected runtime.",
+                "validate_runtime",
+                json.dumps({"projectId": project_id, "runtimeId": "codex_cli"}),
+                "2026-01-01T00:00:00.000Z",
+            ),
+        )
+
+        response = client.post(
+            "/api/v1/remediations/remediation-validate-runtime-target-test/execute",
+            headers=headers,
+        )
+
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["execution"]["status"] == "blocked"
+        assert body["execution"]["runtimeId"] == "codex_cli"
+        assert body["remediation"]["status"] == "pending"
+    finally:
+        runtime.close()
+
+
+def test_provider_remediations_validate_and_retry_blocked_provider_or_runtime(tmp_path: Path) -> None:
+    runtime, _client_app = _client(tmp_path)
+    try:
+        project_id = _project(runtime, tmp_path)
+        thread = _create_thread(_client_app, _token(runtime), project_id)
+
+        service = BlockerRemediationService(runtime.connection, root=tmp_path)
+        missing_credentials = service.create_for_blocked_run(
+            project_id=project_id,
+            thread_id=thread["id"],
+            loop_id="product-loop-provider-target",
+            stage="provider",
+            reason="Provider credentials are missing.",
+            details={"providerId": "openrouter"},
+        )
+        unhealthy_provider = service.create_for_blocked_run(
+            project_id=project_id,
+            thread_id=thread["id"],
+            loop_id="product-loop-provider-health",
+            stage="provider",
+            reason="Provider health is unhealthy.",
+            details={"providerId": "openrouter"},
+        )
+        auth_missing = service.create_for_blocked_run(
+            project_id=project_id,
+            thread_id=thread["id"],
+            loop_id="product-loop-runtime-auth",
+            stage="runtime",
+            reason="Runtime is not authenticated.",
+            details={"runtimeId": "codex_cli"},
+        )
+
+        validate_action = next(
+            action for action in missing_credentials if action["actionType"] == "validate_runtime"
+        )
+        assert validate_action["blockerType"] == "provider_missing_credentials"
+        assert validate_action["payload"]["runtimeId"] == "openrouter"
+        assert any(action["actionType"] == "retry_loop" for action in missing_credentials)
+        assert any(action["actionType"] == "retry_loop" for action in unhealthy_provider)
+        assert any(action["actionType"] == "retry_loop" for action in auth_missing)
+    finally:
+        runtime.close()
+
+
+def test_git_branch_missing_remediation_can_retry_after_branch_recovery(tmp_path: Path) -> None:
+    runtime, _client_app = _client(tmp_path)
+    try:
+        project_id = _project(runtime, tmp_path)
+        thread = _create_thread(_client_app, _token(runtime), project_id)
+
+        actions = BlockerRemediationService(runtime.connection, root=tmp_path).create_for_blocked_run(
+            project_id=project_id,
+            thread_id=thread["id"],
+            loop_id="product-loop-git-branch",
+            stage="git",
+            reason="The required execution branch is missing.",
+            details={},
+        )
+
+        action_types = {action["actionType"] for action in actions}
+        assert {"create_branch", "checkout_branch", "retry_loop"}.issubset(action_types)
+    finally:
+        runtime.close()
+
+
+def test_resource_manager_mixed_blockers_keep_approval_and_configuration_actions(tmp_path: Path) -> None:
+    runtime, _client_app = _client(tmp_path)
+    try:
+        project_id = _project(runtime, tmp_path)
+        thread = _create_thread(_client_app, _token(runtime), project_id)
+
+        actions = BlockerRemediationService(runtime.connection, root=tmp_path).create_for_blocked_run(
+            project_id=project_id,
+            thread_id=thread["id"],
+            loop_id="product-loop-resource-mixed",
+            stage="resource_manager",
+            reason="AIResourceManager could not select every required role.",
+            details={
+                "resourceBlockers": [
+                    {
+                        "role": "backend_engineer",
+                        "taskId": "task-backend",
+                        "reason": "No AI resource satisfied policy and capability filters.",
+                        "decision": {
+                            "selected": None,
+                            "approvalRequired": False,
+                            "decisionReason": "No AI resource satisfied policy and capability filters.",
+                        },
+                    },
+                    {
+                        "role": "aido_lead",
+                        "taskId": "task-lead",
+                        "reason": "AIResourceManager selected a resource that requires approval before execution.",
+                        "decision": {
+                            "selected": {
+                                "providerId": "nvidia_nim",
+                                "model": "nvidia/nemotron-coder",
+                                "runtime": "api",
+                            },
+                            "approvalRequired": True,
+                            "decisionReason": "Approval is required before execution.",
+                        },
+                    },
+                ]
+            },
+        )
+
+        action_types = {action["actionType"] for action in actions}
+        approval_action = next(
+            action for action in actions if action["actionType"] == "approve_resource_decision"
+        )
+
+        assert {"approve_resource_decision", "open_settings_section", "retry_loop"}.issubset(action_types)
+        assert approval_action["blockerType"] == "resource_manager_unconfigured"
+        assert approval_action["payload"]["resourceApprovals"][0]["role"] == "aido_lead"
+        assert approval_action["payload"]["resourceApprovals"][0]["providerId"] == "nvidia_nim"
+    finally:
+        runtime.close()
+
+
+@pytest.mark.skipif(not git_available(), reason="git CLI is required for git remediation execution")
+def test_execute_git_init_remediation_initializes_repository_and_resolves_action(tmp_path: Path) -> None:
+    runtime, client = _client(tmp_path)
+    try:
+        headers = _token(runtime)
+        project_id = _project(runtime, tmp_path)
+        project_path = tmp_path / "threads"
+        project_path.mkdir(parents=True, exist_ok=True)
+        thread = _create_thread(client, headers, project_id)
+        runtime.connection.execute(
+            """
+            INSERT INTO remediation_actions
+                (id, project_id, thread_id, loop_id, stage, blocker_type, title, description,
+                 action_type, payload_json, status, created_at, resolved_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, NULL)
+            """,
+            (
+                "remediation-git-init-api-test",
+                project_id,
+                thread["id"],
+                "product-loop-git-init",
+                "git",
+                "git_not_initialized",
+                "Initialize Git repository",
+                "Create Git metadata in the project folder.",
+                "git_init",
+                "{}",
+                "2026-01-01T00:00:00.000Z",
+            ),
+        )
+
+        response = client.post(
+            "/api/v1/remediations/remediation-git-init-api-test/execute",
+            headers=headers,
+        )
+
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["execution"]["status"] == "completed"
+        assert body["execution"]["action"] == "git_init"
+        assert body["execution"]["currentBranch"] == "dev"
+        assert body["execution"]["commitCreated"] is False
+        assert body["remediation"]["status"] == "resolved"
+        assert (project_path / ".git").exists()
+        assert ".env*" in (project_path / ".gitignore").read_text(encoding="utf-8")
+        assert run_git(["branch", "--show-current"], cwd=project_path).stdout.strip() == "dev"
+        assert any(
+            "git init" in call["payload"].get("command", "")
+            for call in AgentsRepository(runtime.connection).list_agent_tool_calls()
+        )
+    finally:
+        runtime.close()
+
+
+def test_execute_switch_runtime_requires_executable_target(tmp_path: Path, monkeypatch) -> None:
+    runtime, client = _client(tmp_path)
+    try:
+        headers = _token(runtime)
+        project_id = _project(runtime, tmp_path)
+        thread = _create_thread(client, headers, project_id)
+        monkeypatch.setattr(
+            "local_control_center.remediations.service.RuntimeStatusService.list_provider_statuses",
+            lambda _service, project_id=None: [
+                {
+                    "id": "claude_code_cli",
+                    "displayName": "Claude Code CLI",
+                    "executable": False,
+                    "reason": "CLI runtime is not authenticated.",
+                },
+            ],
+        )
+        runtime.connection.execute(
+            """
+            INSERT INTO remediation_actions
+                (id, project_id, thread_id, loop_id, stage, blocker_type, title, description,
+                 action_type, payload_json, status, created_at, resolved_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, NULL)
+            """,
+            (
+                "remediation-switch-runtime-target-test",
+                project_id,
+                thread["id"],
+                "product-loop-runtime-switch",
+                "runtime",
+                "runtime_not_executable",
+                "Switch runtime",
+                "Switch to the selected runtime.",
+                "switch_runtime",
+                json.dumps({"projectId": project_id, "runtimeId": "claude_code_cli"}),
+                "2026-01-01T00:00:00.000Z",
+            ),
+        )
+
+        response = client.post(
+            "/api/v1/remediations/remediation-switch-runtime-target-test/execute",
+            headers=headers,
+        )
+
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["execution"]["status"] == "blocked"
+        assert body["execution"]["runtimeId"] == "claude_code_cli"
+        assert body["remediation"]["status"] == "pending"
+        preference = runtime.connection.execute("SELECT default_runtime FROM runtime_preferences").fetchone()
+        assert preference["default_runtime"] != "claude_code_cli"
+    finally:
+        runtime.close()
+
+
+def test_execute_answer_question_rejects_answer_outside_options(tmp_path: Path) -> None:
+    runtime, client = _client(tmp_path)
+    try:
+        headers = _token(runtime)
+        project_id = _project(runtime, tmp_path)
+        thread = _create_thread(client, headers, project_id)
+        decision = ThreadsRepository(runtime.connection).create_decision(
+            thread_id=thread["id"],
+            title="Choose delivery mode",
+            prompt="Which delivery mode should AIDO use?",
+            options=["Plan only", "Execute with QA"],
+        )
+        runtime.connection.execute(
+            """
+            INSERT INTO remediation_actions
+                (id, project_id, thread_id, loop_id, stage, blocker_type, title, description,
+                 action_type, payload_json, status, created_at, resolved_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, NULL)
+            """,
+            (
+                "remediation-answer-question-options-test",
+                project_id,
+                thread["id"],
+                "product-loop-question-options",
+                "product_owner",
+                "po_needs_input",
+                "Answer ProductOwnerAgent question",
+                "Choose one of the offered options.",
+                "answer_question",
+                json.dumps({"threadId": thread["id"], "decisionId": decision["id"]}),
+                "2026-01-01T00:00:00.000Z",
+            ),
+        )
+
+        response = client.post(
+            "/api/v1/remediations/remediation-answer-question-options-test/execute",
+            headers=headers,
+            json={"payload": {"answer": "Do something else"}},
+        )
+
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["execution"]["status"] == "blocked"
+        assert body["execution"]["options"] == ["Plan only", "Execute with QA"]
+        assert body["remediation"]["status"] == "pending"
+        assert ThreadsRepository(runtime.connection).get_decision(decision["id"])["status"] == "pending"
+    finally:
+        runtime.close()
+
+
+def test_execute_answer_question_rejects_client_options_override(tmp_path: Path) -> None:
+    runtime, client = _client(tmp_path)
+    try:
+        headers = _token(runtime)
+        project_id = _project(runtime, tmp_path)
+        thread = _create_thread(client, headers, project_id)
+        decision = ThreadsRepository(runtime.connection).create_decision(
+            thread_id=thread["id"],
+            title="Choose delivery mode",
+            prompt="Which delivery mode should AIDO use?",
+            options=[],
+        )
+        runtime.connection.execute(
+            """
+            INSERT INTO remediation_actions
+                (id, project_id, thread_id, loop_id, stage, blocker_type, title, description,
+                 action_type, payload_json, status, created_at, resolved_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, NULL)
+            """,
+            (
+                "remediation-answer-question-options-override-test",
+                project_id,
+                thread["id"],
+                "product-loop-question-options-override",
+                "product_owner",
+                "po_needs_input",
+                "Answer ProductOwnerAgent question",
+                "Choose one of the offered options.",
+                "answer_question",
+                json.dumps(
+                    {
+                        "threadId": thread["id"],
+                        "decisionId": decision["id"],
+                        "options": ["Plan only", "Execute with QA"],
+                    }
+                ),
+                "2026-01-01T00:00:00.000Z",
+            ),
+        )
+
+        response = client.post(
+            "/api/v1/remediations/remediation-answer-question-options-override-test/execute",
+            headers=headers,
+            json={"payload": {"answer": "Untrusted path", "options": ["Untrusted path"]}},
+        )
+
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["execution"]["status"] == "blocked"
+        assert body["execution"]["options"] == ["Plan only", "Execute with QA"]
+        assert body["remediation"]["status"] == "pending"
+        assert ThreadsRepository(runtime.connection).get_decision(decision["id"])["status"] == "pending"
+    finally:
+        runtime.close()
+
+
 def test_execute_save_patch_persists_evidence_artifact_without_returning_patch(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -513,6 +988,59 @@ def test_execute_save_patch_persists_evidence_artifact_without_returning_patch(
         assert artifact["kind"] == "git_patch"
         assert Path(artifact["path"]).read_text(encoding="utf-8") == patch
         assert body["remediation"]["status"] == "pending"
+    finally:
+        runtime.close()
+
+
+def test_execute_save_patch_blocks_when_diff_is_empty(tmp_path: Path, monkeypatch) -> None:
+    runtime, client = _client(tmp_path)
+    try:
+        headers = _token(runtime)
+        project_id = _project(runtime, tmp_path)
+        thread = _create_thread(client, headers, project_id)
+        monkeypatch.setattr(
+            "local_control_center.remediations.service.GitWorkspaceService.diff",
+            lambda _service, _project_id: {
+                "status": "completed",
+                "changedFiles": [],
+                "diff": "",
+            },
+        )
+        runtime.connection.execute(
+            """
+            INSERT INTO remediation_actions
+                (id, project_id, thread_id, loop_id, stage, blocker_type, title, description,
+                 action_type, payload_json, status, created_at, resolved_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, NULL)
+            """,
+            (
+                "remediation-empty-save-patch-test",
+                project_id,
+                thread["id"],
+                "product-loop-empty-save-patch",
+                "git",
+                "git_dirty_tree",
+                "Save empty patch",
+                "Save should not succeed without a real diff.",
+                "save_patch",
+                "{}",
+                "2026-01-01T00:00:00.000Z",
+            ),
+        )
+
+        response = client.post(
+            "/api/v1/remediations/remediation-empty-save-patch-test/execute",
+            headers=headers,
+        )
+
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["execution"]["status"] == "blocked"
+        assert body["execution"]["action"] == "save_patch"
+        assert "No diff" in body["execution"]["reason"]
+        assert body["remediation"]["status"] == "pending"
+        artifacts = runtime.connection.execute("SELECT * FROM artifacts").fetchall()
+        assert artifacts == []
     finally:
         runtime.close()
 

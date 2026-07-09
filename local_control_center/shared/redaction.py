@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import re
 from typing import Any
+from urllib.parse import urlparse, urlunparse
 
 SECRET_KEY_PATTERN = re.compile(r"(api[_-]?key|authorization|credential|secret|token)", re.I)
 SECRET_VALUE_PATTERN = re.compile(
@@ -31,6 +32,29 @@ SECRET_VALUE_PATTERN = re.compile(
     r")",
     re.I,
 )
+GIT_REMOTE_LINE_PATTERN = re.compile(
+    r"(?m)^(?P<prefix>\S+\s+)(?P<url>\S+)(?P<suffix>\s+\((?:fetch|push)\))$"
+)
+
+
+def _strip_url_userinfo(value: str) -> str:
+    parsed = urlparse(value)
+    if not parsed.scheme or "@" not in parsed.netloc:
+        return value
+    host = parsed.hostname or ""
+    if not host:
+        return "[redacted]"
+    if ":" in host and not host.startswith("["):
+        host = f"[{host}]"
+    netloc = host if parsed.port is None else f"{host}:{parsed.port}"
+    return urlunparse((parsed.scheme, netloc, parsed.path, parsed.params, parsed.query, parsed.fragment))
+
+
+def _sanitize_git_remote_lines(value: str) -> str:
+    def replace(match: re.Match[str]) -> str:
+        return f"{match.group('prefix')}{_strip_url_userinfo(match.group('url'))}{match.group('suffix')}"
+
+    return GIT_REMOTE_LINE_PATTERN.sub(replace, value)
 
 
 def redact_secrets(value: Any, *, key: str = "") -> Any:
@@ -54,5 +78,5 @@ def redact_secrets(value: Any, *, key: str = "") -> Any:
     if isinstance(value, list):
         return [redact_secrets(item) for item in value]
     if isinstance(value, str):
-        return SECRET_VALUE_PATTERN.sub("[redacted]", value)
+        return SECRET_VALUE_PATTERN.sub("[redacted]", _sanitize_git_remote_lines(value))
     return value

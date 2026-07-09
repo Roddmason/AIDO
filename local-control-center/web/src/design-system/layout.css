@@ -2060,6 +2060,25 @@
 	width: 100%;
 }
 
+.thread-remediation-answer {
+	display: grid;
+	grid-template-columns: minmax(14rem, 1fr) auto;
+	align-items: end;
+	gap: var(--space-2);
+	min-width: min(100%, 28rem);
+}
+
+.thread-remediation-answer .field {
+	min-width: 0;
+}
+
+@media (max-width: 640px) {
+	.thread-remediation-answer {
+		grid-template-columns: 1fr;
+		width: 100%;
+	}
+}
+
 /* Dismiss is the lowest-emphasis control on the card: push it to the trailing edge. */
 .thread-remediation-dismiss {
 	margin-inline-start: auto;

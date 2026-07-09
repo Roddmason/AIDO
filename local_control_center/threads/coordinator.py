@@ -23,6 +23,8 @@ from local_control_center.product_loop.intent_classifier import (
     IntentClassificationInput,
     IntentClassifier,
 )
+from local_control_center.product_loop.metadata import RESOURCE_COST_POLICY_METADATA_KEYS
+from local_control_center.remediations.service import BlockerRemediationService
 from local_control_center.shared.db import immediate_transaction
 from local_control_center.shared.redaction import redact_secrets
 from local_control_center.team_scheduler.scheduler import schedule_team
@@ -35,6 +37,7 @@ from local_control_center.threads.similarity import (
 
 # plan_mode values that mean the coordinator must stop and ask the operator before proceeding.
 BLOCKING_PLAN_MODES = ("ask", "blocked")
+PLAN_ONLY_RESOLUTION_MODES = frozenset({"continue_in_plan_only_mode", "continue_plan_only", "plan_only"})
 THREAD_RESEARCH_JOB_KIND = "thread.research.run"
 _SUMMARY_LIMIT = 140
 # Thread statuses with a live run: a new user message here would spawn a concurrent loop, so
@@ -42,6 +45,25 @@ _SUMMARY_LIMIT = 140
 ACTIVE_EXECUTION_STATUSES = ("queued", "running")
 # Job statuses still worth cancelling when the operator stops a thread's execution.
 _CANCELLABLE_JOB_STATUSES = ("queued", "running", "approval_required")
+_PUBLIC_MESSAGE_PROTECTED_PRODUCT_LOOP_METADATA_KEYS = frozenset(
+    {
+        "approvedResourceSelections",
+        "retryOfLoopId",
+        "retryStage",
+        "retryReason",
+        "retryQueuedAt",
+        "planOnlyOfLoopId",
+        "planOnlyStage",
+        "planOnlyReason",
+        "planOnlyQueuedAt",
+        "continueOfLoopId",
+        "continueReason",
+        "continueQueuedAt",
+        "feedbackId",
+        "remediationActionId",
+        *RESOURCE_COST_POLICY_METADATA_KEYS,
+    }
+)
 
 
 class ThreadBusyError(RuntimeError):
@@ -64,6 +86,13 @@ class ThreadCoordinator:
         self.classifier = classifier or IntentClassifier()
         self.jobs = JobsRepository(connection)
         self.root = Path(root).resolve(strict=False) if root is not None else None
+
+    @staticmethod
+    def _public_message_metadata(metadata: dict[str, Any] | None) -> dict[str, Any]:
+        clean = dict(metadata or {})
+        for key in _PUBLIC_MESSAGE_PROTECTED_PRODUCT_LOOP_METADATA_KEYS:
+            clean.pop(key, None)
+        return clean
 
     def post_message(
         self,
@@ -89,7 +118,10 @@ class ThreadCoordinator:
                 f"Thread {thread_id} is {existing_thread['status']}: add a note or cancel the current "
                 "execution before starting a new one."
             )
-        message_metadata = dict(metadata or {})
+        message_metadata = self._public_message_metadata(metadata)
+        effective_user_mode = str(
+            message_metadata.get("userMode") or message_metadata.get("user_mode") or user_mode or "aido_decide"
+        )
         # A `mode` equal to a similarity action means the operator already took the deduplication
         # decision in the new-thread intake; re-blocking here would ask the same question twice.
         similarity_resolved = str(message_metadata.get("mode") or "") in SIMILARITY_ACTIONS
@@ -99,7 +131,7 @@ class ThreadCoordinator:
             project_assessment=project_assessment or {},
             changed_files=tuple(changed_files or ()),
             git_state=git_state or {},
-            user_mode=user_mode,
+            user_mode=effective_user_mode,
         )
 
         with immediate_transaction(self.connection):
@@ -131,6 +163,7 @@ class ThreadCoordinator:
                     thread_id,
                     user_message["id"],
                     similar_candidate,
+                    project_id=existing_thread["projectId"],
                 )
                 self.repository.record_event(
                     thread_id=thread_id,
@@ -182,7 +215,13 @@ class ThreadCoordinator:
 
             blocked = decision.plan_mode in BLOCKING_PLAN_MODES
             if blocked:
-                lead_message, decision_record = self._block(thread_id, user_message["id"], decision)
+                lead_message, decision_record = self._block(
+                    thread_id,
+                    user_message["id"],
+                    decision,
+                    project_id=existing_thread["projectId"],
+                    project_assessment=project_assessment or {},
+                )
                 self.repository.record_event(
                     thread_id=thread_id,
                     type="decision_required",
@@ -215,7 +254,7 @@ class ThreadCoordinator:
                 )
                 thread = self.repository.set_status(thread_id, "queued")
                 run = {
-                    "status": "research_running",
+                    "status": "queued",
                     "jobId": job["id"],
                     "loopId": None,
                     "reason": "ResearchAgent job queued.",
@@ -228,6 +267,7 @@ class ThreadCoordinator:
                     content=content,
                     decision=decision,
                     team_plan=team_plan,
+                    run_metadata={**message_metadata, "userMode": effective_user_mode},
                 )
                 self.repository.record_event(
                     thread_id=thread_id,
@@ -268,6 +308,7 @@ class ThreadCoordinator:
         """Resuelve una decisión pendiente y continúa la ejecución del mensaje bloqueado."""
         if not resolution.strip():
             raise ValueError("Decision resolution is required")
+        queued_job: dict[str, Any] | None = None
         with immediate_transaction(self.connection):
             pending_decision = self.repository.get_decision(decision_id)
             if pending_decision["threadId"] != thread_id:
@@ -301,9 +342,10 @@ class ThreadCoordinator:
                 "similarityCandidateId",
                 "",
             )
-            resolution_mode = resolution.strip().lower().replace(" ", "_")
+            resolution_mode = self._resolution_mode(resolution)
+            can_resume_decision = current["status"] in {"waiting_decision", "awaiting_user", "open"}
             if (
-                current["status"] == "waiting_decision"
+                can_resume_decision
                 and similarity_candidate_id
                 and resolution_mode != "create_new_anyway"
             ):
@@ -323,10 +365,20 @@ class ThreadCoordinator:
                     action=resolution_mode,
                 )
                 thread = self.repository.set_status(thread_id, "resolved")
-            elif current["status"] == "waiting_decision" and source_message is not None:
+            elif can_resume_decision and source_message is not None:
                 forced_decision = self._decision_for_resolution(decision, resolution)
                 team_plan = self._team_plan(forced_decision)
-                job = self._queue_product_loop_run(
+                plan_only = resolution_mode in PLAN_ONLY_RESOLUTION_MODES
+                source_metadata = (
+                    dict(source_message.get("metadata") or {})
+                    if isinstance(source_message.get("metadata"), dict)
+                    else {}
+                )
+                run_metadata = {**source_metadata, "userMode": forced_decision.user_mode}
+                if plan_only:
+                    run_metadata["planOnly"] = True
+                    run_metadata["planOnlyReason"] = resolution
+                queued_job = self._queue_product_loop_run(
                     thread=current,
                     message=source_message,
                     content=source_message["content"],
@@ -337,17 +389,18 @@ class ThreadCoordinator:
                         "resolution": resolution,
                         "decisionId": decision_id,
                     },
+                    run_metadata=run_metadata,
                 )
                 self.repository.record_event(
                     thread_id=thread_id,
                     type="run_queued",
                     agent_role="aido_lead",
                     payload={
-                        "jobId": job["id"],
+                        "jobId": queued_job["id"],
                         "messageId": source_message["id"],
                         "decisionId": decision_id,
                         "resolution": resolution,
-                        "status": job["status"],
+                        "status": queued_job["status"],
                     },
                 )
                 thread = self.repository.set_status(thread_id, "queued")
@@ -359,7 +412,10 @@ class ThreadCoordinator:
                     if current["status"] == "waiting_decision"
                     else current
                 )
-        return {"thread": thread, "decision": decision}
+        result = {"thread": thread, "decision": decision}
+        if queued_job is not None:
+            result["job"] = queued_job
+        return result
 
     def add_operator_note(
         self,
@@ -466,6 +522,8 @@ class ThreadCoordinator:
         thread_id: str,
         message_id: str,
         candidate: dict[str, Any],
+        *,
+        project_id: str,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         prompt = (
             f"Esto parece relacionado con {candidate['title']}. "
@@ -493,13 +551,35 @@ class ThreadCoordinator:
             options=list(SIMILARITY_ACTIONS),
             metadata=metadata,
         )
+        BlockerRemediationService(self.connection, root=self.root).create_for_blocked_run(
+            project_id=project_id,
+            thread_id=thread_id,
+            loop_id="",
+            stage="thread_similarity",
+            reason=prompt,
+            details={
+                "decisionId": decision_record["id"],
+                "candidateThreadId": candidate["threadId"],
+                "candidateTitle": candidate["title"],
+                "score": candidate["score"],
+                "reason": candidate["reason"],
+                "options": list(SIMILARITY_ACTIONS),
+            },
+        )
         return request_message, decision_record
 
     def _block(
-        self, thread_id: str, message_id: str, decision: IntentClassification
+        self,
+        thread_id: str,
+        message_id: str,
+        decision: IntentClassification,
+        *,
+        project_id: str,
+        project_assessment: dict[str, Any] | None = None,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         questions = list(decision.questions) or ["AIDO needs more detail before it can proceed safely."]
         prompt = " ".join(questions)
+        options = self._decision_options(decision)
         request_metadata = {**decision.to_dict(), "sourceMessageId": message_id}
         request_message = self.repository.append_message(
             thread_id=thread_id,
@@ -513,16 +593,103 @@ class ThreadCoordinator:
             message_id=request_message["id"],
             title=f"Decision needed ({decision.plan_mode})",
             prompt=prompt,
-            options=self._decision_options(decision),
+            options=options,
             metadata=request_metadata,
         )
+        remediation_service = BlockerRemediationService(self.connection, root=self.root)
+        remediation_service.create_for_blocked_run(
+            project_id=project_id,
+            thread_id=thread_id,
+            loop_id="",
+            stage="thread_intake",
+            reason=prompt,
+            details={
+                "decisionId": decision_record["id"],
+                "planMode": decision.plan_mode,
+                "prompt": prompt,
+                "options": options,
+                "sourceMessageId": message_id,
+            },
+        )
+        if "runtime_configuration" in decision.required_gates:
+            remediation_service.create_for_blocked_run(
+                project_id=project_id,
+                thread_id=thread_id,
+                loop_id="",
+                stage="runtime",
+                reason=prompt,
+                details=self._runtime_blocker_details(
+                    project_assessment=project_assessment or {},
+                    decision=decision,
+                    decision_id=decision_record["id"],
+                    prompt=prompt,
+                    options=options,
+                    source_message_id=message_id,
+                ),
+            )
         return request_message, decision_record
+
+    @staticmethod
+    def _resolution_mode(resolution: str) -> str:
+        return resolution.strip().lower().replace(" ", "_").replace("-", "_") or "implementation"
 
     @staticmethod
     def _decision_options(decision: IntentClassification) -> list[str]:
         if decision.plan_mode == "blocked":
-            return ["Configure an executable runtime", "Continue in plan-only mode"]
+            return ["Continue in plan-only mode"]
         return ["Diagnosis", "Implementation", "Research"]
+
+    @staticmethod
+    def _runtime_blocker_details(
+        *,
+        project_assessment: dict[str, Any],
+        decision: IntentClassification,
+        decision_id: str,
+        prompt: str,
+        options: list[str],
+        source_message_id: str,
+    ) -> dict[str, Any]:
+        runtime_status = project_assessment.get("runtimeStatus")
+        if not isinstance(runtime_status, dict):
+            runtime_status = {}
+        raw_providers = runtime_status.get("providers")
+        providers = [
+            dict(provider)
+            for provider in raw_providers
+            if isinstance(provider, dict)
+        ] if isinstance(raw_providers, list) else []
+        selected_provider = next(
+            (
+                provider
+                for provider in providers
+                if not bool(provider.get("executable") or provider.get("canEditWorkspace"))
+            ),
+            providers[0] if providers else {},
+        )
+        runtime_id = (
+            runtime_status.get("selectedRuntimeId")
+            or runtime_status.get("activeRuntimeId")
+            or selected_provider.get("id")
+            or selected_provider.get("runtimeId")
+        )
+        details: dict[str, Any] = {
+            "status": "configuration_required",
+            "executable": False,
+            "decisionId": decision_id,
+            "planMode": decision.plan_mode,
+            "requiredGates": list(decision.required_gates),
+            "prompt": prompt,
+            "options": list(options),
+            "sourceMessageId": source_message_id,
+        }
+        if providers:
+            details["providers"] = providers
+        if runtime_status:
+            details["runtimeStatus"] = runtime_status
+        if runtime_id:
+            details["runtimeId"] = str(runtime_id)
+            details["providerId"] = str(runtime_id)
+        return details
 
     def _seed_summary(self, thread_id: str, content: str) -> None:
         thread = self.repository.get_thread(thread_id)
@@ -541,7 +708,10 @@ class ThreadCoordinator:
         decision: IntentClassification,
         team_plan: dict[str, Any],
         decision_payload: dict[str, Any] | None = None,
+        run_metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        clean_run_metadata = redact_secrets(run_metadata or {})
+        plan_only = bool(clean_run_metadata.get("planOnly") or clean_run_metadata.get("plan_only"))
         payload = {
             "threadId": thread["id"],
             "messageId": message["id"],
@@ -551,7 +721,10 @@ class ThreadCoordinator:
             "root": str(self.root) if self.root is not None else None,
             "decision": decision_payload or decision.to_dict(),
             "teamPlan": team_plan,
+            "runMetadata": clean_run_metadata,
         }
+        if plan_only:
+            payload["planOnly"] = True
         created = self.jobs.create_job(
             project_id=thread["projectId"],
             kind="thread.product_loop.run",
@@ -628,7 +801,7 @@ class ThreadCoordinator:
     @staticmethod
     def _decision_for_resolution(decision: dict[str, Any], resolution: str) -> IntentClassification:
         metadata = decision.get("metadata") if isinstance(decision.get("metadata"), dict) else {}
-        resolution_mode = resolution.strip().lower().replace(" ", "_") or "implementation"
+        resolution_mode = ThreadCoordinator._resolution_mode(resolution)
         return IntentClassification(
             intents=_metadata_list(metadata, "intents", ["feature"]),
             risk=_metadata_text(metadata, "risk", "low"),

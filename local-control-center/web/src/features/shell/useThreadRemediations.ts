@@ -18,6 +18,7 @@ import {
 	type RemediationActionRecord,
 	type RemediationExecuteResponse,
 } from '../../api/client';
+import type { JsonObject } from '../../api/generated/openapi';
 import type { Mutate } from '../../app/routes';
 import {
 	type BlockerActionModel,
@@ -31,7 +32,10 @@ export type ThreadRemediationsHandle = {
 	error: boolean;
 	/** Id of the action/card currently mutating, so only that control shows a spinner. */
 	busyId: string | null;
-	execute: (action: BlockerActionModel) => Promise<RemediationExecuteResponse | null>;
+	execute: (
+		action: BlockerActionModel,
+		payload?: JsonObject,
+	) => Promise<RemediationExecuteResponse | null>;
 	dismiss: (card: BlockerCardModel) => Promise<void>;
 	reload: () => void;
 };
@@ -106,12 +110,12 @@ export function useThreadRemediations(
 	}, [threadId]);
 
 	const execute = useCallback(
-		async (action: BlockerActionModel) => {
+		async (action: BlockerActionModel, payload?: JsonObject) => {
 			if (!action.remediation || busyId) return null;
 			setBusyId(action.id);
 			try {
 				const result = await mutate(
-					(token) => executeRemediation(token, action.remediation?.id ?? ''),
+					(token) => executeRemediation(token, action.remediation?.id ?? '', payload),
 					{ awaitRefresh: false },
 				);
 				await refetch();

@@ -481,7 +481,7 @@ type AgentRosterEntry = {
 	profile: AgentProfile;
 	state: AgentState;
 	assignment: AgentAssignment | null;
-	spend: { costUsd: number; calls: number } | null;
+	spend: { knownCostUsd: number; calls: number; unknownCalls: number } | null;
 };
 
 /**
@@ -501,6 +501,7 @@ function TeamPanel({
 	onOpenSettings: (section?: string) => void;
 }) {
 	const { t } = useI18n();
+	const unknownCostLabel = t('app.runtime.card.unknown', 'unknown');
 
 	// Per-agent recorded spend: model calls joined to profiles through agent_runs metadata.
 	const spendByProfile = useMemo(() => {
@@ -509,13 +510,17 @@ function TeamPanel({
 			const profileId = textValue(asRecord(run.metadata).agentProfileId);
 			if (profileId) profileByRun.set(run.id, profileId);
 		}
-		const totals = new Map<string, { costUsd: number; calls: number }>();
+		const totals = new Map<string, { knownCostUsd: number; calls: number; unknownCalls: number }>();
 		for (const call of overview.modelCalls) {
 			if (!call.agentRunId) continue;
 			const profileId = profileByRun.get(call.agentRunId);
 			if (!profileId) continue;
-			const entry = totals.get(profileId) ?? { costUsd: 0, calls: 0 };
-			entry.costUsd += Number.isFinite(call.costUsd) ? call.costUsd : 0;
+			const entry = totals.get(profileId) ?? { knownCostUsd: 0, calls: 0, unknownCalls: 0 };
+			if (typeof call.costUsd === 'number' && Number.isFinite(call.costUsd)) {
+				entry.knownCostUsd += call.costUsd;
+			} else {
+				entry.unknownCalls += 1;
+			}
 			entry.calls += 1;
 			totals.set(profileId, entry);
 		}
@@ -569,7 +574,10 @@ function TeamPanel({
 	const activeCount = countFor('active');
 	const blockedCount = countFor('blocked');
 	const unconfiguredCount = countFor('unconfigured');
-	const totalSpend = [...spendByProfile.values()].reduce((sum, item) => sum + item.costUsd, 0);
+	const spendEntries = [...spendByProfile.values()];
+	const hasUnknownSpend = spendEntries.some((item) => item.unknownCalls > 0);
+	const totalSpend = spendEntries.reduce((sum, item) => sum + item.knownCostUsd, 0);
+	const totalSpendLabel = hasUnknownSpend ? unknownCostLabel : formatCostUsd(totalSpend);
 	// When any agent needs attention the idle groups collapse so the roster leads with the work that
 	// matters; an all-idle team keeps them open so the roster is never hidden behind a closed section.
 	const hasAttention = AGENT_STATE_ORDER.some(
@@ -586,7 +594,7 @@ function TeamPanel({
 				<span className="thread-inspector-subline mono">
 					{t('app.threads.inspector.team.total', 'Agents')} {overview.agentProfiles.length} ·{' '}
 					{t('app.threads.inspector.team.working', 'Working')} {activeCount} ·{' '}
-					{t('app.threads.inspector.team.spend', 'Spend')} {formatCostUsd(totalSpend)}
+					{t('app.threads.inspector.team.spend', 'Spend')} {totalSpendLabel}
 				</span>
 				{blockedCount > 0 ? (
 					<StatusChip tone="danger">
@@ -697,6 +705,7 @@ function TeamAgentCard({
 	onOpenSettings: (section?: string) => void;
 }) {
 	const { t } = useI18n();
+	const unknownCostLabel = t('app.runtime.card.unknown', 'unknown');
 	const { profile, state, assignment, spend } = entry;
 	const availability = profile.runtimeAvailability;
 	const reviewer = asRecord(profile.reviewerPolicy);
@@ -819,7 +828,11 @@ function TeamAgentCard({
 			<div className="thread-inspector-row-side">
 				<StatusChip tone={STATE_TONE[state]}>{stateLabel(t, state)}</StatusChip>
 				<span className="thread-inspector-cost mono">
-					{spend ? formatCostUsd(spend.costUsd) : '—'}
+					{spend
+						? spend.unknownCalls > 0
+							? unknownCostLabel
+							: formatCostUsd(spend.knownCostUsd)
+						: '—'}
 				</span>
 			</div>
 		</>

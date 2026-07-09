@@ -456,7 +456,7 @@ def test_generated_core_runtime_workflow_evidence_contracts_are_strict() -> None
     feedback_record = _generated_type_line(content, "ProductLoopFeedbackRecord")
     expected_feedback_actions = (
         '"accept" | "request_changes" | "change_scope" | "reprioritize" | '
-        '"reject_decision" | "reopen_story" | "pause_loop" | "cancel_loop"'
+        '"reject_decision" | "reopen_story" | "pause_loop" | "cancel_loop" | "continue"'
     )
     expected_feedback_classifications = (
         '"rework_task" | "new_story" | "new_epic" | "brief_revision" | "architecture_revision"'

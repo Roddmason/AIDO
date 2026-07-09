@@ -517,7 +517,7 @@ class AgentsRepository:
         agent_run_id: str | None = None,
         prompt_tokens: int = 0,
         completion_tokens: int = 0,
-        cost_usd: float = 0.0,
+        cost_usd: float | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Record a model call and, when cost is non-zero, a paired `cost_usage` row.

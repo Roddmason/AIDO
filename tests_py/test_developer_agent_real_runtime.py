@@ -141,6 +141,10 @@ class ControlledOllamaHandler(BaseHTTPRequestHandler):
 
 
 class ControlledOpenAICompatibleHandler(BaseHTTPRequestHandler):
+    output_path = "openai-agent-output.txt"
+    output_content = "real openai-compatible developer agent change\n"
+    summary = "changed by controlled openai-compatible runtime"
+
     def do_GET(self) -> None:
         if self.path != "/models":
             self.send_response(404)
@@ -161,11 +165,11 @@ class ControlledOpenAICompatibleHandler(BaseHTTPRequestHandler):
             return
         self.rfile.read(int(self.headers.get("Content-Length") or "0"))
         agent_payload = {
-            "summary": "changed by controlled openai-compatible runtime",
+            "summary": self.summary,
             "files": [
                 {
-                    "path": "openai-agent-output.txt",
-                    "content": "real openai-compatible developer agent change\n",
+                    "path": self.output_path,
+                    "content": self.output_content,
                 }
             ],
             "tests": [],
@@ -186,6 +190,12 @@ class ControlledOpenAICompatibleHandler(BaseHTTPRequestHandler):
         return
 
 
+class ControlledNvidiaNimHandler(ControlledOpenAICompatibleHandler):
+    output_path = "nvidia-agent-output.txt"
+    output_content = "real nvidia nim developer agent change\n"
+    summary = "changed by controlled nvidia nim runtime"
+
+
 def start_controlled_ollama_server() -> tuple[ThreadingHTTPServer, str]:
     server = ThreadingHTTPServer(("127.0.0.1", 0), ControlledOllamaHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -196,6 +206,14 @@ def start_controlled_ollama_server() -> tuple[ThreadingHTTPServer, str]:
 
 def start_controlled_openai_server() -> tuple[ThreadingHTTPServer, str]:
     server = ThreadingHTTPServer(("127.0.0.1", 0), ControlledOpenAICompatibleHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    host, port = server.server_address
+    return server, f"http://{host}:{port}"
+
+
+def start_controlled_nvidia_server() -> tuple[ThreadingHTTPServer, str]:
+    server = ThreadingHTTPServer(("127.0.0.1", 0), ControlledNvidiaNimHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     host, port = server.server_address
@@ -473,6 +491,69 @@ def test_developer_agent_openai_compatible_runtime_applies_structured_patch_in_w
         assert body["evidencePackage"]["qaVerdict"] == "passed"
         assert Path(workspace["path"], "openai-agent-output.txt").exists()
         assert not Path(project["path"], "openai-agent-output.txt").exists()
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+@pytest.mark.skipif(not git_available(), reason="git CLI is not available")
+def test_developer_agent_nvidia_nim_runtime_applies_structured_patch_in_workspace(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    server, base_url = start_controlled_nvidia_server()
+    try:
+        store, client, headers = create_client(tmp_path, monkeypatch)
+        monkeypatch.setenv("AIDO_ENABLE_REAL_PROVIDER_CALLS", "true")
+        monkeypatch.setenv("AIDO_NVIDIA_BASE_URL", base_url)
+        monkeypatch.setenv("AIDO_NVIDIA_API_KEY", "unit-test-nvidia-key")
+        monkeypatch.setenv("AIDO_NVIDIA_MODEL", "controlled-model")
+        runtime_settings = RuntimeConfigRepository(store.connection)
+        runtime_settings.set_runtime_setting("runtime.remote.enabled", True)
+        runtime_settings.set_runtime_setting("runtime.nvidia.enabled", True)
+        store.connection.execute(
+            "UPDATE runtime_installations SET enabled = 1 WHERE runtime_id = 'nvidia_nim'"
+        )
+        store.connection.execute(
+            "UPDATE provider_accounts SET enabled = 1 WHERE provider_id = 'nvidia_nim'"
+        )
+        health = client.post("/api/v1/model-gateway/providers/nvidia_nim/health-check", headers=headers)
+        assert health.status_code == 200
+        assert health.json()["health"]["healthStatus"] == "healthy"
+        project = create_git_project(store, tmp_path, name="Developer NVIDIA Runtime")
+        workspace = store.workspaces.allocate_workspace(
+            project_id=project["id"],
+            task_id="developer-agent-nvidia-nim",
+            agent_id="developer_agent",
+            reason="developer agent nvidia-nim test workspace",
+            isolation_type="git_worktree",
+        )
+
+        response = client.post(
+            "/api/v1/agents/developer/runs",
+            headers=headers,
+            json={
+                "projectId": project["id"],
+                "workspaceId": workspace["id"],
+                "taskId": "developer-agent-nvidia-nim",
+                "instruction": "Create nvidia-agent-output.txt.",
+                "preferredRuntime": "nvidia_nim",
+                "model": "controlled-model",
+                "qaCommands": [[sys.executable, "--version"]],
+                "requireApproval": False,
+            },
+        )
+
+        assert response.status_code == 202
+        body = response.json()
+        assert body["status"] == "completed"
+        assert body["runtimeResult"]["modelCall"]["status"] == "completed"
+        assert body["runtimeResult"]["patchApply"]["status"] == "completed"
+        assert body["runtimeResult"]["outputArtifactId"].startswith("artifact-")
+        assert "nvidia-agent-output.txt" in body["diffSummary"]["changedFiles"]
+        assert body["evidencePackage"]["qaVerdict"] == "passed"
+        assert Path(workspace["path"], "nvidia-agent-output.txt").exists()
+        assert not Path(project["path"], "nvidia-agent-output.txt").exists()
     finally:
         server.shutdown()
         server.server_close()

@@ -35,6 +35,8 @@ export interface SettingsModalProps {
 	projectId: string | undefined;
 	/** Section id to navigate to on open. */
 	initialSection?: string;
+	/** Provider id the runtime setup section should preselect when opened from a remediation. */
+	initialProviderId?: string | null;
 	overview: Overview;
 	selectedProject: Project | null;
 	runtimeProviders: RuntimeProviders | null;
@@ -68,6 +70,7 @@ export function SettingsModal({
 	onClose,
 	projectId,
 	initialSection,
+	initialProviderId,
 	overview,
 	selectedProject,
 	runtimeProviders,
@@ -184,6 +187,7 @@ export function SettingsModal({
 			enumOptionsFor,
 			scope,
 			scopeId,
+			initialProviderId: initialProviderId ?? null,
 			closeSettings: onClose,
 		};
 

@@ -71,6 +71,7 @@ export function RuntimeBody({
 	runtimeProviderConfiguration,
 	token,
 	onRefresh,
+	initialProviderId,
 	onNavigate,
 }: {
 	overview: Overview;
@@ -78,6 +79,7 @@ export function RuntimeBody({
 	runtimeProviderConfiguration: RuntimeProviderConfiguration[] | null;
 	token: string;
 	onRefresh: () => Promise<unknown> | undefined;
+	initialProviderId?: string | null;
 	onNavigate?: () => void;
 }) {
 	const { t } = useI18n();
@@ -88,6 +90,7 @@ export function RuntimeBody({
 				runtimeProviderConfiguration={runtimeProviderConfiguration}
 				token={token}
 				onRefresh={onRefresh}
+				initialProviderId={initialProviderId}
 			/>
 			<div className="settings-readouts">
 				<div>

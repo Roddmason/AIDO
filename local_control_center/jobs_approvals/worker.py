@@ -16,6 +16,8 @@ from typing import Any
 from local_control_center.agents.research_agent import ResearchAgentRunner
 from local_control_center.jobs_approvals.repository import JobsRepository
 from local_control_center.product_loop.coordinator import ProductLoopCoordinator
+from local_control_center.product_loop.metadata import strip_untrusted_resource_cost_policy_metadata
+from local_control_center.remediations.service import BlockerRemediationService
 from local_control_center.shared.db import open_sqlite_connection
 from local_control_center.shared.migrations import initialize_platform_schema
 from local_control_center.shared.redaction import redact_secrets
@@ -222,6 +224,42 @@ def _execute_thread_product_loop_job(
     )
     try:
         root = payload.get("root")
+        run_metadata = (
+            strip_untrusted_resource_cost_policy_metadata(payload.get("runMetadata"))
+            if isinstance(payload.get("runMetadata"), dict)
+            else {}
+        )
+        approved_resource_selections = (
+            payload.get("approvedResourceSelections")
+            if isinstance(payload.get("approvedResourceSelections"), list)
+            else run_metadata.get("approvedResourceSelections")
+        )
+        if not isinstance(approved_resource_selections, list):
+            approved_resource_selections = []
+        run_metadata.update(
+            {
+                "jobId": job["id"],
+                "threadId": thread_id,
+                "messageId": payload.get("messageId"),
+                "decision": payload.get("decision"),
+                "teamPlan": payload.get("teamPlan"),
+                "planOnly": bool(payload.get("planOnly") or run_metadata.get("planOnly")),
+                "planOnlyOfLoopId": payload.get("planOnlyOfLoopId") or run_metadata.get("planOnlyOfLoopId"),
+                "planOnlyStage": payload.get("planOnlyStage") or run_metadata.get("planOnlyStage"),
+                "planOnlyReason": payload.get("planOnlyReason") or run_metadata.get("planOnlyReason"),
+                "planOnlyQueuedAt": payload.get("planOnlyQueuedAt") or run_metadata.get("planOnlyQueuedAt"),
+                "remediationActionId": payload.get("remediationActionId") or run_metadata.get("remediationActionId"),
+                "approvedResourceSelections": approved_resource_selections,
+                "retryOfLoopId": payload.get("retryOfLoopId") or run_metadata.get("retryOfLoopId"),
+                "retryStage": payload.get("retryStage") or run_metadata.get("retryStage"),
+                "retryReason": payload.get("retryReason") or run_metadata.get("retryReason"),
+                "retryQueuedAt": payload.get("retryQueuedAt") or run_metadata.get("retryQueuedAt"),
+                "continueOfLoopId": payload.get("continueOfLoopId") or run_metadata.get("continueOfLoopId"),
+                "feedbackId": payload.get("feedbackId") or run_metadata.get("feedbackId"),
+                "continueReason": payload.get("continueReason") or run_metadata.get("continueReason"),
+                "continueQueuedAt": payload.get("continueQueuedAt") or run_metadata.get("continueQueuedAt"),
+            }
+        )
         result = ProductLoopCoordinator(connection, root=root).run_user_message(
             project_id=project_id,
             message=message,
@@ -229,13 +267,7 @@ def _execute_thread_product_loop_job(
             title=payload.get("title"),
             preferred_runtime=payload.get("preferredRuntime"),
             qa_commands=payload.get("qaCommands") if isinstance(payload.get("qaCommands"), list) else None,
-            run_metadata={
-                "jobId": job["id"],
-                "threadId": thread_id,
-                "messageId": payload.get("messageId"),
-                "decision": payload.get("decision"),
-                "teamPlan": payload.get("teamPlan"),
-            },
+            run_metadata=run_metadata,
             actor=worker_id or "thread_worker",
             thread_id=thread_id,
         )
@@ -255,6 +287,14 @@ def _execute_thread_product_loop_job(
             reason=reason,
             loop_id=None,
             evidence_id=None,
+        )
+        _materialize_product_loop_worker_remediations(
+            threads=threads,
+            project_id=project_id,
+            thread_id=thread_id,
+            job_id=job["id"],
+            reason=reason,
+            root=Path(str(payload.get("root") or ".")).resolve(strict=False),
         )
         raise
 
@@ -353,6 +393,17 @@ def _execute_thread_research_job(
             report_artifact_id=None,
             event_type="blocked",
         )
+        _materialize_research_remediations(
+            threads=threads,
+            project_id=project_id,
+            thread_id=thread_id,
+            job_id=job["id"],
+            reason=reason,
+            root=root,
+            research_status="research_blocked",
+            report_artifact_id=None,
+            result={},
+        )
         raise
 
     status = str(result.get("status") or "research_blocked")
@@ -369,6 +420,18 @@ def _execute_thread_research_job(
         report_artifact_id=report.get("id"),
         event_type=event_type,
     )
+    if thread_status == "blocked":
+        _materialize_research_remediations(
+            threads=threads,
+            project_id=project_id,
+            thread_id=thread_id,
+            job_id=job["id"],
+            reason=reason,
+            root=root,
+            research_status=status,
+            report_artifact_id=report.get("id"),
+            result=result,
+        )
     return {
         "summary": reason,
         "metadata": {
@@ -384,6 +447,8 @@ def _execute_thread_research_job(
 def _thread_status_for_product_loop_result(status: str) -> str:
     if status == "awaiting_approval":
         return "awaiting_approval"
+    if status == "plan_ready":
+        return "open"
     if status in {"completed", "delivered"}:
         return "resolved"
     if status in {"blocked", "failed", "reworking"}:
@@ -394,6 +459,8 @@ def _thread_status_for_product_loop_result(status: str) -> str:
 def _thread_terminal_event_for_product_loop_result(status: str) -> str:
     if status == "awaiting_approval":
         return "approval_required"
+    if status == "plan_ready":
+        return "plan_ready"
     if status in {"completed", "delivered"}:
         return "completed"
     return "blocked"
@@ -493,4 +560,61 @@ def _finish_thread_after_research(
         author="research_agent",
         content=reason,
         metadata=payload,
+    )
+
+
+def _materialize_research_remediations(
+    *,
+    threads: ThreadsRepository,
+    project_id: str,
+    thread_id: str,
+    job_id: str,
+    reason: str,
+    root: Path,
+    research_status: str,
+    report_artifact_id: str | None,
+    result: dict[str, Any],
+) -> None:
+    if _thread_job_was_cancelled(threads, job_id):
+        return
+    remediation = result.get("remediation") if isinstance(result.get("remediation"), dict) else {}
+    research_run = result.get("researchRun") if isinstance(result.get("researchRun"), dict) else {}
+    BlockerRemediationService(threads.connection, root=root).create_for_blocked_run(
+        project_id=project_id,
+        thread_id=thread_id,
+        loop_id=None,
+        stage="research",
+        reason=reason,
+        details={
+            "status": research_status,
+            "jobId": job_id,
+            "researchRunId": research_run.get("id"),
+            "reportArtifactId": report_artifact_id,
+            "remediation": remediation,
+        },
+    )
+
+
+def _materialize_product_loop_worker_remediations(
+    *,
+    threads: ThreadsRepository,
+    project_id: str,
+    thread_id: str,
+    job_id: str,
+    reason: str,
+    root: Path,
+) -> None:
+    if _thread_job_was_cancelled(threads, job_id):
+        return
+    BlockerRemediationService(threads.connection, root=root).create_for_blocked_run(
+        project_id=project_id,
+        thread_id=thread_id,
+        loop_id=None,
+        stage="worker",
+        reason=reason,
+        details={
+            "status": "blocked",
+            "jobId": job_id,
+            "kind": THREAD_PRODUCT_LOOP_JOB_KIND,
+        },
     )

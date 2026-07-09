@@ -81,6 +81,36 @@ def test_jobs_have_atomic_leases_recovery_and_granular_action_approvals(tmp_path
         assert all(job["status"] == "queued" for job in jobs.list_jobs() if job["id"] in claimed_ids)
 
 
+def test_schema_initialization_keeps_credentials_view_safe_for_concurrent_workers(tmp_path: Path) -> None:
+    db_path = tmp_path / "platform.sqlite"
+    with open_sqlite_connection(db_path) as connection:
+        initialize_platform_schema(connection)
+
+    barrier = threading.Barrier(8)
+
+    def initialize_from_worker() -> str:
+        barrier.wait(timeout=5)
+        local_connection = open_sqlite_connection(db_path)
+        try:
+            initialize_platform_schema(local_connection)
+            return local_connection.execute("SELECT credentialRef FROM credentials LIMIT 1").description[0][0]
+        finally:
+            local_connection.close()
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        columns = list(pool.map(lambda _index: initialize_from_worker(), range(8)))
+
+    migration_source = Path("local_control_center/shared/migrations.py").read_text(encoding="utf-8")
+    phase30_source = migration_source.split("def init_phase30_schema", 1)[1].split(
+        "def init_phase31_schema",
+        1,
+    )[0]
+
+    assert columns == ["credentialRef"] * 8
+    assert "DROP VIEW IF EXISTS credentials" not in phase30_source
+    assert "CREATE VIEW IF NOT EXISTS credentials AS" in phase30_source
+
+
 def test_fastapi_contracts_jobs_approvals_sse_and_retrieval(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
     store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
@@ -629,6 +659,68 @@ def test_worker_executes_thread_product_loop_job_and_updates_thread(monkeypatch,
     assert refreshed["status"] == "awaiting_approval"
     assert "worker_claimed" in [event["type"] for event in events]
     assert "approval_required" in [event["type"] for event in events]
+    assert messages[-1]["kind"] == "aido_lead"
+
+
+def test_worker_passes_plan_only_thread_job_and_marks_plan_ready(monkeypatch, tmp_path: Path) -> None:
+    db_path = tmp_path / "platform.sqlite"
+    captured: dict[str, object] = {}
+
+    def fake_run_user_message(self, **kwargs):
+        captured["plan_only"] = kwargs["run_metadata"]["planOnly"]
+        captured["thread_id"] = kwargs["thread_id"]
+        return {
+            "status": "plan_ready",
+            "reason": "Product plan is ready without runtime execution.",
+            "loop": {"id": "product-loop-plan-only", "state": "backlog_ready"},
+            "evidencePackage": {"id": "evidence-plan-only"},
+        }
+
+    monkeypatch.setattr(
+        "local_control_center.product_loop.coordinator.ProductLoopCoordinator.run_user_message",
+        fake_run_user_message,
+    )
+
+    with open_sqlite_connection(db_path) as connection:
+        initialize_platform_schema(connection)
+        project = ProjectsRepository(connection).create_project(
+            name="Plan Worker",
+            path=tmp_path / "plan-worker",
+            template_id="other",
+        )
+        thread = ThreadsRepository(connection).create_thread(
+            project_id=project["id"],
+            owner_type="workspace",
+            owner_id="workspace-1",
+            title="Plan worker",
+        )
+        job = JobsRepository(connection).create_job(
+            project_id=project["id"],
+            kind="thread.product_loop.run",
+            payload={
+                "threadId": thread["id"],
+                "message": "Plan the thread console.",
+                "title": "Plan thread console",
+                "root": str(tmp_path),
+                "planOnly": True,
+            },
+        )["job"]
+
+    result = ConcurrentWorker(db_path=db_path).run_once(worker_id="worker-plan")
+
+    with open_sqlite_connection(db_path) as connection:
+        initialize_platform_schema(connection)
+        repo = ThreadsRepository(connection)
+        refreshed = repo.get_thread(thread["id"])
+        events = repo.list_events(thread["id"])
+        messages = repo.list_messages(thread["id"])
+
+    assert result["job"]["id"] == job["id"]
+    assert result["job"]["status"] == "completed"
+    assert captured == {"plan_only": True, "thread_id": thread["id"]}
+    assert refreshed["status"] == "open"
+    assert "plan_ready" in [event["type"] for event in events]
+    assert "blocked" not in [event["type"] for event in events]
     assert messages[-1]["kind"] == "aido_lead"
 
 

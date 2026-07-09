@@ -283,6 +283,37 @@ def test_git_status_detects_current_branch_and_records_broker_evidence(
     )
 
 
+def test_git_status_detects_branch_dirty_state_and_sanitizes_existing_remotes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store, client, _headers = create_client(tmp_path, monkeypatch)
+    project = create_git_project(store, tmp_path)
+    project_path = Path(project["path"])
+    assert run_git(["checkout", "-b", "feature/status-snapshot"], cwd=project_path).returncode == 0
+    (project_path / "README.md").write_text("# AIDO git workspace\nchanged\n", encoding="utf-8")
+    secret_remote = "https://oauth2:glpat-abcdefghijklmnop@gitlab.com/aido/repo.git"
+    assert run_git(["remote", "add", "origin", secret_remote], cwd=project_path).returncode == 0
+
+    response = client.get(f"/api/v1/projects/{project['id']}/git/status")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "completed"
+    assert body["currentBranch"] == "feature/status-snapshot"
+    assert body["dirty"] is True
+    assert body["changedFiles"] == ["README.md"]
+    assert body["untrackedFiles"] == []
+    assert body["stagedFiles"] == []
+    assert {(remote["name"], remote["direction"]) for remote in body["remotes"]} == {
+        ("origin", "fetch"),
+        ("origin", "push"),
+    }
+    remote_urls = {remote["url"] for remote in body["remotes"]}
+    assert remote_urls == {"https://gitlab.com/aido/repo.git"}
+    assert "glpat-" not in str(body)
+    assert "oauth2:" not in str(body)
+
+
 def test_git_status_rejects_project_nested_inside_another_repo(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

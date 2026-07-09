@@ -67,6 +67,50 @@ def list_approvals(jobs: JobsRepository) -> dict[str, Any]:
     return {"actionRequests": jobs.list_action_requests()}
 
 
+def _product_loop_delivery_loop_id(action: dict[str, Any]) -> str:
+    if action.get("actionType") != "product_loop.approve_delivery":
+        return ""
+    payload = action.get("payload") if isinstance(action.get("payload"), dict) else {}
+    return str(payload.get("loopId") or "").strip()
+
+
+def _apply_product_loop_delivery_feedback(
+    jobs: JobsRepository,
+    *,
+    job_id: str,
+    action_id: str,
+    action_name: str,
+    reason: str,
+) -> dict[str, Any] | None:
+    action = jobs.get_action_request(action_id)
+    loop_id = _product_loop_delivery_loop_id(action)
+    if not loop_id:
+        return None
+    if action["jobId"] != job_id:
+        raise HTTPException(status_code=404, detail=f"Action {action_id} does not belong to job {job_id}")
+    from local_control_center.product_loop.coordinator import (
+        ProductLoopCoordinator,
+        ProductLoopStopConditionError,
+        ProductLoopTransitionError,
+    )
+
+    try:
+        ProductLoopCoordinator(jobs.connection).apply_feedback(
+            loop_id,
+            action=action_name,
+            feedback=reason,
+            actor="operator",
+            target_type="loop",
+            target_id=loop_id,
+        )
+    except (KeyError, ProductLoopStopConditionError, ProductLoopTransitionError, ValueError) as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    return {
+        "job": jobs.get_job(job_id),
+        "actionRequest": jobs.get_action_request(action_id),
+    }
+
+
 def approve_action(
     jobs: JobsRepository,
     job_id: str,
@@ -78,8 +122,18 @@ def approve_action(
     Raises:
         HTTPException: 422 si falta la razón; 409 si la acción ya fue decidida o expiró.
     """
+    reason = required_reason(body)
+    product_loop_result = _apply_product_loop_delivery_feedback(
+        jobs,
+        job_id=job_id,
+        action_id=action_id,
+        action_name="accept",
+        reason=reason,
+    )
+    if product_loop_result is not None:
+        return product_loop_result
     try:
-        return jobs.approve_action(job_id, action_id, reason=required_reason(body))
+        return jobs.approve_action(job_id, action_id, reason=reason)
     except ValueError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
 
@@ -95,7 +149,17 @@ def deny_action(
     Raises:
         HTTPException: 422 si falta la razón; 409 si la acción ya fue decidida.
     """
+    reason = required_reason(body)
+    product_loop_result = _apply_product_loop_delivery_feedback(
+        jobs,
+        job_id=job_id,
+        action_id=action_id,
+        action_name="request_changes",
+        reason=reason,
+    )
+    if product_loop_result is not None:
+        return product_loop_result
     try:
-        return jobs.deny_action(job_id, action_id, reason=required_reason(body))
+        return jobs.deny_action(job_id, action_id, reason=reason)
     except ValueError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error

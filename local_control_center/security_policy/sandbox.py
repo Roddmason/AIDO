@@ -14,6 +14,7 @@ estructurado (sin inyeccion) y la salida capturada se trunca a un maximo de cara
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import time
@@ -100,6 +101,22 @@ def _dangerous_arg(argv: list[str]) -> str | None:
     return None
 
 
+def _resolved_subprocess_argv(argv: list[str]) -> list[str]:
+    """Resolve PATH shims to a CreateProcess-compatible executable without invoking a shell."""
+    resolved = list(argv)
+    executable = resolved[0]
+    if os.name == "nt" and not Path(executable).suffix:
+        for extension in (".exe", ".cmd", ".com"):
+            candidate = shutil.which(f"{executable}{extension}")
+            if candidate and Path(candidate).name.lower() in ALLOWED_EXECUTABLES:
+                resolved[0] = candidate
+                return resolved
+    candidate = shutil.which(executable)
+    if candidate and (os.name != "nt" or Path(candidate).suffix):
+        resolved[0] = candidate
+    return resolved
+
+
 def _validate_restricted_process(argv: Any, cwd: str | None, workspace_path: str | None) -> str | None:
     if not isinstance(argv, list) or not argv or not all(isinstance(item, str) and item for item in argv):
         return "Restricted subprocess requires a structured argv list."
@@ -147,7 +164,7 @@ def open_restricted_text_process(
         raise PermissionError(error)
     run_cwd = str(Path(cwd).resolve(strict=False)) if cwd else None
     return subprocess.Popen(
-        argv,
+        _resolved_subprocess_argv([str(item) for item in argv]),
         cwd=run_cwd,
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
@@ -190,7 +207,7 @@ def run_version_check(
     started = time.perf_counter()
     try:
         completed = subprocess.run(
-            argv,
+            _resolved_subprocess_argv([str(item) for item in argv]),
             cwd=cwd,
             capture_output=True,
             text=True,
@@ -298,7 +315,7 @@ class RestrictedSubprocessSandbox:
         started = time.perf_counter()
         try:
             completed = subprocess.run(
-                argv,
+                _resolved_subprocess_argv([str(item) for item in argv]),
                 cwd=str(run_cwd),
                 capture_output=True,
                 text=True,

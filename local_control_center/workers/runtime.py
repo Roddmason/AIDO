@@ -13,12 +13,13 @@ import shutil
 import sqlite3
 import threading
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from local_control_center.agents.runtime_status import RuntimeStatusService
 from local_control_center.jobs_approvals.repository import JobsRepository
+from local_control_center.remediations.service import BlockerRemediationService
 from local_control_center.settings.repository import UNSET, SettingsRepository
 from local_control_center.shared.db import open_sqlite_connection
 from local_control_center.shared.event_bus import EventBus
@@ -49,6 +50,8 @@ class WorkerPreflight:
     reason: str
     runtime_ids: list[str]
     gitleaks_executable: str | None
+    remediation_stage: str | None = None
+    remediation_details: dict[str, Any] = field(default_factory=dict)
 
 
 def resolve_worker_settings(connection: sqlite3.Connection) -> WorkerSettings:
@@ -142,8 +145,8 @@ class LocalWorkerRuntime:
             self._status = "blocked"
             self._reason = preflight.reason
             self._last_error = preflight.reason
-            self._record_worker_event("worker_failed", {"reason": preflight.reason})
-            self._record_queued_thread_event("worker_failed", {"reason": preflight.reason})
+            self._record_worker_event("worker_failed", self._preflight_failure_payload(preflight))
+            self._record_queued_thread_event("worker_failed", self._preflight_failure_payload(preflight))
             return self.status()
         self._stop_event.clear()
         self._pause_event.clear()
@@ -210,8 +213,8 @@ class LocalWorkerRuntime:
             self._status = "blocked"
             self._reason = preflight.reason
             self._last_error = preflight.reason
-            self._record_worker_event("worker_failed", {"reason": preflight.reason})
-            self._record_queued_thread_event("worker_failed", {"reason": preflight.reason})
+            self._record_worker_event("worker_failed", self._preflight_failure_payload(preflight))
+            self._record_queued_thread_event("worker_failed", self._preflight_failure_payload(preflight))
             return {**self._operation_status(), "runs": []}
         return self._run_batch_once()
 
@@ -263,6 +266,8 @@ class LocalWorkerRuntime:
                 reason="No executable runtime is available for local worker execution.",
                 runtime_ids=[],
                 gitleaks_executable=None,
+                remediation_stage="runtime",
+                remediation_details={"executable": False, "status": "configuration_required"},
             )
         gitleaks_executable = _which_gitleaks()
         if not gitleaks_executable:
@@ -271,6 +276,8 @@ class LocalWorkerRuntime:
                 reason="Gitleaks executable was not found on PATH.",
                 runtime_ids=executable_runtimes,
                 gitleaks_executable=None,
+                remediation_stage="gitleaks",
+                remediation_details={"status": "configuration_required"},
             )
         return WorkerPreflight(
             ok=True,
@@ -278,6 +285,14 @@ class LocalWorkerRuntime:
             runtime_ids=executable_runtimes,
             gitleaks_executable=gitleaks_executable,
         )
+
+    @staticmethod
+    def _preflight_failure_payload(preflight: WorkerPreflight) -> dict[str, Any]:
+        return {
+            "reason": preflight.reason,
+            "remediationStage": preflight.remediation_stage,
+            "remediationDetails": preflight.remediation_details,
+        }
 
     def _loop(self) -> None:
         while not self._stop_event.is_set():
@@ -378,8 +393,40 @@ class LocalWorkerRuntime:
                         }
                     ),
                 )
+                self._create_preflight_remediations(
+                    connection=connection,
+                    job=job,
+                    thread_id=thread_id,
+                    event_type=event_type,
+                    payload=payload or {},
+                )
         finally:
             connection.close()
+
+    def _create_preflight_remediations(
+        self,
+        *,
+        connection: sqlite3.Connection,
+        job: dict[str, Any],
+        thread_id: str,
+        event_type: str,
+        payload: dict[str, Any],
+    ) -> None:
+        if event_type != "worker_failed":
+            return
+        reason = str(payload.get("reason") or "").strip()
+        stage = str(payload.get("remediationStage") or "").strip()
+        details = payload.get("remediationDetails") if isinstance(payload.get("remediationDetails"), dict) else {}
+        if not stage:
+            return
+        BlockerRemediationService(connection, root=self.cwd).create_for_blocked_run(
+            project_id=str(job["projectId"]),
+            thread_id=thread_id,
+            loop_id=None,
+            stage=stage,
+            reason=reason,
+            details={"jobId": job["id"], **details},
+        )
 
 
 def _which_gitleaks() -> str | None:

@@ -994,7 +994,7 @@ class AIResourceManager:
             return False
         if unknown_cost_policy.get("action") == "require_approval":
             return True
-        return risk == "critical" or policy_mode == "critical"
+        return False
 
     def _max_tokens(self, selected: dict[str, Any] | None, request: AIResourceRequest) -> int | None:
         if selected is None:

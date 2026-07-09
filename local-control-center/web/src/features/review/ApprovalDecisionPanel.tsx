@@ -62,8 +62,7 @@ export function ApprovalDecisionPanel({
 	onReject: () => void;
 }) {
 	const { t } = useI18n();
-	const productLoopDeliveryApproval =
-		selectedAction.actionType === 'product_loop.approve_delivery';
+	const productLoopDeliveryApproval = selectedAction.actionType === 'product_loop.approve_delivery';
 	const rejectLabel = productLoopDeliveryApproval
 		? t('app.review.productLoopRequestChanges', 'Request changes')
 		: t('ui.static.reject.4c7c9dde', 'Reject');
@@ -77,10 +76,7 @@ export function ApprovalDecisionPanel({
 					'app.review.productLoopDecisionHelp',
 					'Approve delivery or request changes is blocked until this reason is recorded.',
 				)
-			: t(
-					'app.review.copy.26',
-					'Approve or reject is blocked until this reason is recorded.',
-				);
+			: t('app.review.copy.26', 'Approve or reject is blocked until this reason is recorded.');
 	return (
 		<AnimatePresence mode="wait">
 			<m.div
@@ -465,9 +461,7 @@ export function ApprovalDecisionPanel({
 								decision.setDecisionError('');
 							}}
 						/>
-						<div className="field-help">
-							{decisionHelp}
-						</div>
+						<div className="field-help">{decisionHelp}</div>
 					</div>
 					{decision.decisionError ? (
 						<div className="form-error" role="alert">

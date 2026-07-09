@@ -135,9 +135,7 @@ export function AddProviderWizard({
 			}
 			let ref = credentialRef.trim();
 			if (entry.authKind !== 'none' && credMode === 'ref' && !ref) {
-				setError(
-					t('app.providers.wizard.errorCredentialRef', 'Enter the credential reference.'),
-				);
+				setError(t('app.providers.wizard.errorCredentialRef', 'Enter the credential reference.'));
 				return false;
 			}
 			if (entry.authKind !== 'none' && credMode === 'key') {

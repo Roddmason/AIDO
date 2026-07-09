@@ -510,8 +510,8 @@ type AgentRosterEntry = {
 
 /**
  * The Team tab as a manager console: agents grouped by state (active, waiting, blocked, available,
- * unconfigured) instead of a flat wall of rows. Active work leads; the idle groups collapse whenever
- * anything needs attention so "unknown" never dominates. State, assignment, spend and the why-selected
+ * unconfigured) instead of a flat wall of rows. Active work leads and the bench collapses behind its
+ * count whenever the roster has something more actionable to show. State, assignment, spend and the why-selected
  * rationale are all derived from real data — never fabricated — and a blocked agent carries an inline
  * recovery action that opens the Settings section that fixes it.
  */
@@ -603,10 +603,14 @@ function TeamPanel({
 	const totalSpend = spendEntries.reduce((sum, item) => sum + item.knownCostUsd, 0);
 	const totalSpendLabel = hasUnknownSpend ? unknownCostLabel : formatCostUsd(totalSpend);
 	// When any agent needs attention the idle groups collapse so the roster leads with the work that
-	// matters; an all-idle team keeps them open so the roster is never hidden behind a closed section.
+	// matters. The bench (`available`) also collapses whenever an unconfigured agent is the only other
+	// thing to show, because a runtime that cannot run outranks an agent that simply has nothing to do.
+	// A group only stays open when closing it would leave the tab with no rows at all.
 	const hasAttention = AGENT_STATE_ORDER.some(
 		(state) => ATTENTION_STATES.has(state) && countFor(state) > 0,
 	);
+	const idleGroupDefaultOpen = (state: AgentState) =>
+		state === 'available' ? !hasAttention && unconfiguredCount === 0 : !hasAttention;
 
 	return (
 		<div className="thread-inspector-stack thread-team">
@@ -638,7 +642,7 @@ function TeamPanel({
 						state={state}
 						entries={grouped.get(state) ?? []}
 						collapsible={state === 'available' || state === 'unconfigured'}
-						defaultOpen={!hasAttention}
+						defaultOpen={idleGroupDefaultOpen(state)}
 						onOpenSettings={onOpenSettings}
 					/>
 				))}

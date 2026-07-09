@@ -184,6 +184,45 @@ def test_similarity_index_updates_from_evidence_events_without_leaking_secrets(t
         assert "redacted" in index["normalizedGoal"]
 
 
+def test_similarity_index_updates_from_resolved_decisions_without_leaking_secrets(tmp_path: Path) -> None:
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        project_id = _project(connection, tmp_path)
+        repo = ThreadsRepository(connection)
+        service = ThreadSimilarityService(connection)
+        secret = "sk-" + ("decision" * 3)
+        thread = repo.create_thread(
+            project_id=project_id,
+            owner_type="workspace",
+            owner_id="workspace-1",
+            title="Operational record",
+        )
+
+        before = service.get_index(thread["id"])
+        assert "rollback" not in before["normalizedGoal"]
+
+        decision = repo.create_decision(
+            thread_id=thread["id"],
+            title="Deployment decision",
+            prompt=f"Approve blue green rollback guardrail without exposing {secret}",
+            options=["approve", "reject"],
+            metadata={"path": "local_control_center/product_loop/coordinator.py"},
+        )
+        repo.resolve_decision(
+            thread_id=thread["id"],
+            decision_id=decision["id"],
+            resolution="approve rollback guardrail",
+            decided_by="operator",
+        )
+
+        index = service.get_index(thread["id"])
+        serialized = json_dumps(index)
+        assert "rollback" in index["normalizedGoal"]
+        assert "guardrail" in index["normalizedGoal"]
+        assert secret not in serialized
+        assert "redacted" in index["normalizedGoal"]
+
+
 def test_mark_improve_existing_records_similarity_event(tmp_path: Path) -> None:
     with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
         initialize_platform_schema(connection)

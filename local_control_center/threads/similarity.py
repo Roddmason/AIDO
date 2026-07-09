@@ -1,6 +1,6 @@
 """Servicio de similitud lexical para detectar trabajo ya tratado en otros threads.
 
-Mantiene un índice SQLite derivado de ``project_threads`` + mensajes/artifacts recientes y calcula
+Mantiene un índice SQLite derivado de ``project_threads`` + mensajes/decisiones/artifacts recientes y calcula
 similitud inicial sin proveedores externos: normalización lexical, keywords y overlap de tokens.
 Embeddings/memory_retrieval quedan fuera del camino crítico hasta que exista un contrato operativo
 disponible; el índice relacional sigue siendo la fuente auditable.
@@ -124,6 +124,7 @@ class ThreadSimilarityService:
                 title,
                 summary,
                 self._recent_message_text(thread_id),
+                self._recent_decision_text(thread_id),
                 self._recent_event_text(thread_id),
                 artifact_text,
             ]
@@ -522,12 +523,22 @@ class ThreadSimilarityService:
             SELECT metadata AS value FROM thread_messages WHERE thread_id = ?
             UNION ALL
             SELECT metadata AS value FROM thread_artifacts WHERE thread_id = ?
+            UNION ALL
+            SELECT prompt AS value FROM thread_decisions WHERE thread_id = ?
+            UNION ALL
+            SELECT options AS value FROM thread_decisions WHERE thread_id = ?
+            UNION ALL
+            SELECT resolution AS value FROM thread_decisions WHERE thread_id = ?
+            UNION ALL
+            SELECT metadata AS value FROM thread_decisions WHERE thread_id = ?
             """,
-            (thread_id, thread_id, thread_id, thread_id),
+            (thread_id, thread_id, thread_id, thread_id, thread_id, thread_id, thread_id, thread_id),
         ).fetchall()
         paths: list[str] = []
         for row in rows:
-            for path in _extract_file_paths(json_loads(row["value"], {})):
+            stored_value = row["value"]
+            parsed_value = json_loads(stored_value, stored_value) if isinstance(stored_value, str) else stored_value
+            for path in _extract_file_paths(parsed_value):
                 if path not in paths:
                     paths.append(path)
                 if len(paths) >= MAX_FILE_PATHS:
@@ -569,6 +580,33 @@ class ThreadSimilarityService:
         ).fetchall()
         text = " ".join(str(redact_secrets(row["content"] or "")) for row in rows)
         return text[:MAX_INDEX_TEXT_CHARS]
+
+    def _recent_decision_text(self, thread_id: str) -> str:
+        rows = self.connection.execute(
+            """
+            SELECT title, prompt, options, resolution, metadata FROM thread_decisions
+            WHERE thread_id = ? AND status = 'resolved'
+            ORDER BY COALESCE(decided_at, updated_at, created_at) DESC, rowid DESC
+            LIMIT 5
+            """,
+            (thread_id,),
+        ).fetchall()
+        text_parts: list[str] = []
+        for row in rows:
+            metadata = redact_secrets(json_loads(row["metadata"], {}))
+            options = redact_secrets(json_loads(row["options"], []))
+            text_parts.append(
+                " ".join(
+                    [
+                        str(redact_secrets(row["title"] or "")),
+                        str(redact_secrets(row["prompt"] or "")),
+                        _flatten_text(options),
+                        str(redact_secrets(row["resolution"] or "")),
+                        _flatten_text(metadata),
+                    ]
+                )
+            )
+        return " ".join(text_parts)[:MAX_INDEX_TEXT_CHARS]
 
     def _recent_event_text(self, thread_id: str) -> str:
         rows = self.connection.execute(

@@ -4,8 +4,9 @@
  *
  * Eight tabs turn the thread from a plain chat into an operations console over real data:
  * Goal (thread objective + status), Team (agent roster with availability, assignment, blocked
- * reason, reviewer policy and recorded spend), Plan (product-loop FSM state, phases, blockers,
- * acceptance criteria, quality gates), Backlog (epics → stories → agent tasks), Memory (what
+ * reason, reviewer policy and recorded spend), Plan (a blocked loop stated first with the action
+ * that clears it, then the phase timeline, acceptance criteria and quality gates), Backlog
+ * (epics → stories → agent tasks), Memory (what
  * AIDO recalls about work like this: similar threads, previous decisions, related evidence,
  * lessons learned, prior performance passes and functionality already implemented, all from
  * the thread memory recall endpoint), Research (report artifacts with sources and trust levels),
@@ -30,7 +31,7 @@ import {
 } from 'lucide-react';
 import { AnimatePresence, m } from 'motion/react';
 import type { ReactNode } from 'react';
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 
 import type {
 	ProjectProductLoopResponse,
@@ -144,6 +145,16 @@ export function ThreadInspector({
 	// Actionable repair cards read from the remediations endpoint; pinned above the tabs so a blocked
 	// thread always shows how to unblock it, whichever manager view is open.
 	const remediations = useThreadRemediations(threadId, mutate);
+	const hasRepairCard = remediations.cards.length > 0;
+	const repairRef = useRef<HTMLDivElement>(null);
+	// The Plan tab's blocked banner hands the operator over to the repair card instead of duplicating
+	// its actions. `scrollIntoView` matters only when a tall header spills the pane into its own scroll.
+	const focusRepair = useCallback(() => {
+		const node = repairRef.current;
+		if (!node) return;
+		node.scrollIntoView({ block: 'nearest' });
+		node.focus();
+	}, []);
 
 	const tabs = TAB_DEFS.map((def) => {
 		const Icon = def.icon;
@@ -169,7 +180,14 @@ export function ThreadInspector({
 	} else if (tab === 'team') {
 		panel = <TeamPanel overview={overview} loop={loop} onOpenSettings={onOpenSettings} />;
 	} else if (tab === 'plan') {
-		panel = <PlanPanel loop={loop} />;
+		panel = (
+			<PlanPanel
+				loop={loop}
+				hasRepairCard={hasRepairCard}
+				onFocusRepair={focusRepair}
+				onOpenSettings={onOpenSettings}
+			/>
+		);
 	} else if (tab === 'backlog') {
 		panel = <BacklogPanel loop={loop} />;
 	} else if (tab === 'memory') {
@@ -185,7 +203,13 @@ export function ThreadInspector({
 	return (
 		<div className="thread-inspector">
 			<ThreadVitals threadId={threadId} detail={detail} loop={loop} />
-			<ThreadBlockerList handle={remediations} onOpenSettings={onOpenSettings} />
+			{/* Wrapped only when there is something to repair: an always-mounted wrapper would add a
+			    second flex gap under the vitals on every healthy thread. */}
+			{hasRepairCard ? (
+				<div className="thread-inspector-repair" ref={repairRef} tabIndex={-1}>
+					<ThreadBlockerList handle={remediations} onOpenSettings={onOpenSettings} />
+				</div>
+			) : null}
 			<Tabs
 				label={t('app.threads.inspector.tabsLabel', 'Thread inspector views')}
 				activeTab={tab}
@@ -851,7 +875,58 @@ function activeLoopOf(data: LoopData): LoopRecord | null {
 	return sorted.find((loop) => loop.status === 'active') ?? sorted[0] ?? null;
 }
 
-function PlanPanel({ loop }: { loop: InspectorResource<LoopData> }) {
+/**
+ * The blocked loop, stated first and paired with the one control that clears it. The repair itself is
+ * never re-implemented here: when the thread has a persisted remediation the action moves focus to that
+ * card — the only place carrying the backend's recommended fix — and otherwise it falls back to opening
+ * the configuration, exactly as the card does when the backend offers no runnable action.
+ */
+function PlanBlockerBanner({
+	reason,
+	when,
+	hasRepairCard,
+	onFocusRepair,
+	onOpenSettings,
+}: {
+	reason: string;
+	when: string;
+	hasRepairCard: boolean;
+	onFocusRepair: () => void;
+	onOpenSettings: (section?: string) => void;
+}) {
+	const { t } = useI18n();
+	return (
+		<section className="thread-plan-blocker">
+			<div className="thread-plan-blocker-head">
+				<AlertTriangle aria-hidden="true" size={15} />
+				<strong>{t('app.threads.inspector.plan.blockedTitle', 'Loop blocked')}</strong>
+			</div>
+			<p className="thread-plan-blocker-reason">{reason}</p>
+			<span className="thread-inspector-subline">{when}</span>
+			<Button
+				variant="primary"
+				className="thread-plan-blocker-cta"
+				onClick={hasRepairCard ? onFocusRepair : () => onOpenSettings('providers-cli')}
+			>
+				{hasRepairCard
+					? t('app.threads.inspector.plan.blockedCta', 'Go to the repair')
+					: t('app.threads.remediation.action.openConfiguration', 'Open configuration')}
+			</Button>
+		</section>
+	);
+}
+
+function PlanPanel({
+	loop,
+	hasRepairCard,
+	onFocusRepair,
+	onOpenSettings,
+}: {
+	loop: InspectorResource<LoopData>;
+	hasRepairCard: boolean;
+	onFocusRepair: () => void;
+	onOpenSettings: (section?: string) => void;
+}) {
 	const { t, language } = useI18n();
 	return (
 		<ResourceGate resource={loop}>
@@ -873,13 +948,15 @@ function PlanPanel({ loop }: { loop: InspectorResource<LoopData> }) {
 				);
 				// Blocked and cancelled both halt the loop: no phase may render as "done".
 				const isHalted = activeLoop.state === 'blocked' || activeLoop.state === 'cancelled';
-				const nextPhases = PRODUCT_LOOP_PHASES.filter(
-					(phase) => PRODUCT_LOOP_STATE_ORDER.indexOf(phase) > currentRank,
-				).slice(0, 2);
 				const blockedTransitions = data.transitions
 					.filter((transition) => transition.toState === 'blocked')
 					.slice(-3)
 					.reverse();
+				// The banner states the block that is holding the loop right now; anything older is
+				// history and stays folded away so the current problem is never buried under it.
+				const isBlocked = activeLoop.state === 'blocked';
+				const currentBlock = isBlocked ? blockedTransitions[0] : undefined;
+				const earlierBlocks = currentBlock ? blockedTransitions.slice(1) : blockedTransitions;
 				const recentTransitions = [...data.transitions].slice(-5).reverse();
 				const storiesById = new Map(data.stories.map((story) => [story.id, story]));
 				const criteriaByStory = new Map<string, LoopData['acceptanceCriteria']>();
@@ -898,8 +975,25 @@ function PlanPanel({ loop }: { loop: InspectorResource<LoopData> }) {
 							</StatusChip>
 						</header>
 
+						{isBlocked ? (
+							<PlanBlockerBanner
+								reason={
+									currentBlock?.reason ||
+									(currentBlock ? humanize(currentBlock.trigger) : '') ||
+									t(
+										'app.threads.inspector.plan.blockedNoReason',
+										'The loop is blocked and recorded no machine reason.',
+									)
+								}
+								when={formatWhen(currentBlock?.createdAt ?? activeLoop.updatedAt, language)}
+								hasRepairCard={hasRepairCard}
+								onFocusRepair={onFocusRepair}
+								onOpenSettings={onOpenSettings}
+							/>
+						) : null}
+
 						<SectionTitle>{t('app.threads.inspector.plan.phases', 'Phases')}</SectionTitle>
-						<ol className="thread-inspector-phase-list">
+						<ol className="thread-plan-timeline">
 							{PRODUCT_LOOP_PHASES.map((phase) => {
 								const nodeRank = PRODUCT_LOOP_STATE_ORDER.indexOf(phase);
 								const isCurrent = phase === activeLoop.state;
@@ -910,47 +1004,36 @@ function PlanPanel({ loop }: { loop: InspectorResource<LoopData> }) {
 										data-state={phaseState(isCurrent, isDone)}
 										aria-current={isCurrent ? 'step' : undefined}
 									>
+										<span aria-hidden="true" className="thread-plan-timeline-node" />
 										<span className="mono">{humanize(phase)}</span>
 									</li>
 								);
 							})}
 						</ol>
 
-						<SectionTitle>
-							{t('app.threads.inspector.plan.next', 'Next expected phases')}
-						</SectionTitle>
-						{nextPhases.length ? (
-							<p className="thread-inspector-subline mono">
-								{nextPhases.map(humanize).join(' · ')}
-							</p>
-						) : (
-							<p className="thread-inspector-subline">
-								{t('app.threads.inspector.plan.noNext', 'No further phases')}
-							</p>
-						)}
-
-						<SectionTitle>{t('app.threads.inspector.plan.blockers', 'Blockers')}</SectionTitle>
-						{blockedTransitions.length ? (
-							<ul className="thread-inspector-list">
-								{blockedTransitions.map((transition) => (
-									<li className="thread-inspector-row" key={transition.id}>
-										<div className="thread-inspector-row-main">
-											<strong>{transition.reason || humanize(transition.trigger)}</strong>
-											<span className="thread-inspector-subline">
-												{formatWhen(transition.createdAt, language)}
-											</span>
-										</div>
-										<div className="thread-inspector-row-side">
-											<StatusChip tone="danger">{humanize(transition.toState)}</StatusChip>
-										</div>
-									</li>
-								))}
-							</ul>
-						) : (
-							<p className="thread-inspector-subline">
-								{t('app.threads.inspector.plan.noBlockers', 'No blockers recorded.')}
-							</p>
-						)}
+						{earlierBlocks.length ? (
+							<Disclosure
+								headingLevel={4}
+								title={t('app.threads.inspector.plan.blockers', 'Blockers')}
+								summary={String(earlierBlocks.length)}
+							>
+								<ul className="thread-inspector-list">
+									{earlierBlocks.map((transition) => (
+										<li className="thread-inspector-row" key={transition.id}>
+											<div className="thread-inspector-row-main">
+												<strong>{transition.reason || humanize(transition.trigger)}</strong>
+												<span className="thread-inspector-subline">
+													{formatWhen(transition.createdAt, language)}
+												</span>
+											</div>
+											<div className="thread-inspector-row-side">
+												<StatusChip tone="danger">{humanize(transition.toState)}</StatusChip>
+											</div>
+										</li>
+									))}
+								</ul>
+							</Disclosure>
+						) : null}
 
 						<Disclosure
 							headingLevel={4}
@@ -1435,8 +1518,13 @@ function ResearchReportCard({ artifact }: { artifact: ThreadArtifact }) {
 	const metadata = asRecord(artifact.metadata);
 	const status = textValue(metadata.status) ?? 'research_required';
 	const recommendation = asRecord(metadata.recommendation);
+	const remediation = asRecord(metadata.remediation);
 	const sources = researchSources(artifact.metadata);
 	const discrepancies = arrayValue(metadata.discrepancies);
+	const showRecoveryState =
+		status !== 'research_ready' &&
+		Boolean(textValue(metadata.reason) || textValue(remediation.summary));
+	const showSourceList = sources.length > 0 || status === 'research_ready';
 
 	return (
 		<section className="thread-inspector-research">
@@ -1457,49 +1545,61 @@ function ResearchReportCard({ artifact }: { artifact: ThreadArtifact }) {
 					</span>
 				</div>
 			) : null}
-			<Disclosure
-				headingLevel={4}
-				title={t('app.threads.research.sources', 'Sources')}
-				summary={String(sources.length)}
-			>
-				{sources.length ? (
-					<ul className="thread-inspector-list">
-						{sources.map((source, index) => (
-							<li className="thread-inspector-row" key={source.id ?? source.url ?? `s-${index}`}>
-								<div className="thread-inspector-row-main">
-									{source.url ? (
-										<a href={source.url} target="_blank" rel="noreferrer">
-											{source.publisher ?? source.url}
-											<ExternalLink
-												aria-hidden="true"
-												className="thread-inspector-external-icon"
-												size={12}
-											/>
-											<span className="sr-only">
-												{t('app.threads.inspector.research.newTab', 'opens in a new tab')}
-											</span>
-										</a>
-									) : (
-										<strong>{source.publisher ?? '—'}</strong>
-									)}
-									<span className="thread-inspector-subline">
-										{source.fetchedAt ?? t('app.threads.research.noDate', 'No date')}
-									</span>
-								</div>
-								<div className="thread-inspector-row-side">
-									<StatusChip tone={trustTone(source.trustLevel ?? 'untrusted')}>
-										{humanize(source.trustLevel ?? 'untrusted')}
-									</StatusChip>
-								</div>
-							</li>
-						))}
-					</ul>
-				) : (
-					<p className="thread-inspector-subline">
-						{t('app.threads.research.noSources', 'No sources persisted yet.')}
-					</p>
-				)}
-			</Disclosure>
+			{showRecoveryState ? (
+				<div className="thread-research-state" data-status={status}>
+					<div className="thread-research-state-head">
+						<AlertTriangle aria-hidden="true" size={14} />
+						<span>{t('app.threads.research.recovery', 'Recovery')}</span>
+					</div>
+					{textValue(metadata.reason) ? <strong>{textValue(metadata.reason)}</strong> : null}
+					{textValue(remediation.summary) ? <p>{textValue(remediation.summary)}</p> : null}
+				</div>
+			) : null}
+			{showSourceList ? (
+				<Disclosure
+					headingLevel={4}
+					title={t('app.threads.research.sources', 'Sources')}
+					summary={String(sources.length)}
+				>
+					{sources.length ? (
+						<ul className="thread-inspector-list">
+							{sources.map((source, index) => (
+								<li className="thread-inspector-row" key={source.id ?? source.url ?? `s-${index}`}>
+									<div className="thread-inspector-row-main">
+										{source.url ? (
+											<a href={source.url} target="_blank" rel="noreferrer">
+												{source.publisher ?? source.url}
+												<ExternalLink
+													aria-hidden="true"
+													className="thread-inspector-external-icon"
+													size={12}
+												/>
+												<span className="sr-only">
+													{t('app.threads.inspector.research.newTab', 'opens in a new tab')}
+												</span>
+											</a>
+										) : (
+											<strong>{source.publisher ?? '—'}</strong>
+										)}
+										<span className="thread-inspector-subline">
+											{source.fetchedAt ?? t('app.threads.research.noDate', 'No date')}
+										</span>
+									</div>
+									<div className="thread-inspector-row-side">
+										<StatusChip tone={trustTone(source.trustLevel ?? 'untrusted')}>
+											{humanize(source.trustLevel ?? 'untrusted')}
+										</StatusChip>
+									</div>
+								</li>
+							))}
+						</ul>
+					) : (
+						<p className="thread-inspector-subline">
+							{t('app.threads.research.noSources', 'No sources persisted yet.')}
+						</p>
+					)}
+				</Disclosure>
+			) : null}
 			{discrepancies.length ? (
 				<Disclosure
 					headingLevel={4}

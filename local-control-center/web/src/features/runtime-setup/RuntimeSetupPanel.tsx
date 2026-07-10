@@ -40,11 +40,7 @@ import { useToast } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { redactVisibleSecret } from '../../lib/format';
 import { AddProviderWizard } from './AddProviderWizard';
-import {
-	type CostKnowledge,
-	deriveProviderSetup,
-	type ProviderSetupInfo,
-} from './providerCardModel';
+import { COST_META, deriveProviderSetup, type ProviderSetupInfo } from './providerCardModel';
 import {
 	apiProviderIdsNeedingProbe,
 	catalogEntry,
@@ -83,16 +79,6 @@ type RuntimeSetupPanelProps = {
 	token: string;
 	onRefresh: () => Promise<unknown> | undefined;
 	initialProviderId?: string | null;
-};
-
-const COST_META: Record<
-	CostKnowledge,
-	{ tone: 'ok' | 'warn' | 'info'; labelKey: string; fallback: string }
-> = {
-	known: { tone: 'ok', labelKey: 'app.providers.cost.known', fallback: 'cost known' },
-	free: { tone: 'ok', labelKey: 'app.providers.cost.free', fallback: 'free tier' },
-	unknown: { tone: 'warn', labelKey: 'app.providers.cost.unknown', fallback: 'cost unknown' },
-	none: { tone: 'info', labelKey: 'app.providers.cost.none', fallback: 'no models yet' },
 };
 
 export function RuntimeSetupPanel({

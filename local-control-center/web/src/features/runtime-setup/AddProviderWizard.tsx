@@ -1,39 +1,71 @@
 /**
- * "Add provider" wizard for the Providers & CLI setup catalog. A four-step modal — choose provider,
+ * "Add provider" wizard for the Providers & CLI setup catalog. A five-step modal — choose provider,
  * enter a required or optional credential reference (base URL only for custom/remote/Azure), sync
- * and pick models, then validate — that writes through the real control plane: it creates a vault
- * credential (secret in, never out), enables the provider account, discovers its models and runs a
- * real test prompt. The secret lives only in local state and is cleared the moment the provider is
- * saved.
+ * and pick models, validate, then assign roles — that writes through the real control plane: it
+ * creates a vault credential (secret in, never out), enables the provider account, discovers its
+ * models, runs a real test prompt and routes the chosen model to the selected roles. The API key is
+ * held in an uncontrolled masked input — never in React state, never serialized into the DOM — read
+ * once to create the credential, and cleared the moment the provider is saved.
  * @author Rodrigo Mason
  */
 
-import { CheckCircle2, KeyRound, Link2, RefreshCw, XCircle } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { CheckCircle2, CircleDollarSign, KeyRound, Link2, RefreshCw, XCircle } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import {
 	createCredential,
 	createProviderAccountFromCatalog,
 	getCredentials,
+	getModelGatewayRolePolicies,
 	healthCheckModelGatewayProvider,
 	patchModelGatewayModel,
+	patchModelGatewayRolePolicy,
 	syncProviderAccountModels,
 	testPromptModelGatewayProvider,
 } from '../../api/client';
-import type { CredentialBackend, ModelGatewayModel } from '../../api/types';
+import type { CredentialBackend, ModelGatewayModel, ModelGatewayRolePolicy } from '../../api/types';
 import { Badge, Modal } from '../../components/primitives';
 import { Button, Checkbox, SegmentedControl, SelectField, TextField } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
+import {
+	COST_META,
+	costForModels,
+	nextPreferredCandidates,
+	rolePreferredNeedsUpdate,
+	rolePrefersProvider,
+} from './providerCardModel';
 import { catalogEntry, PROVIDER_CATALOG, type ProviderCatalogEntry } from './runtimeSetup';
 
-type WizardStep = 'provider' | 'credential' | 'models' | 'validate';
-const STEP_ORDER: WizardStep[] = ['provider', 'credential', 'models', 'validate'];
+type WizardStep = 'provider' | 'credential' | 'models' | 'validate' | 'roles';
+const STEP_ORDER: WizardStep[] = ['provider', 'credential', 'models', 'validate', 'roles'];
 
 type TestOutcome = { ok: boolean; latencyMs?: number; sample?: string; error?: string | null };
 type CredentialMode = 'none' | 'key' | 'ref';
 
 /** Non-CLI providers the wizard can connect (CLI runtimes are set up via Detect & check on the card). */
 const WIZARD_PROVIDERS = PROVIDER_CATALOG.filter((entry) => entry.group !== 'cli');
+
+/** What the provider asks the operator for, stated before any field is shown. */
+const AUTH_META: Record<
+	ProviderCatalogEntry['authKind'],
+	{ tone: 'warn' | 'info'; labelKey: string; fallback: string }
+> = {
+	api_key: {
+		tone: 'warn',
+		labelKey: 'app.providers.wizard.authRequired',
+		fallback: 'API key required',
+	},
+	optional_api_key: {
+		tone: 'info',
+		labelKey: 'app.providers.wizard.authOptional',
+		fallback: 'Token optional',
+	},
+	none: {
+		tone: 'info',
+		labelKey: 'app.providers.wizard.authNone',
+		fallback: 'No credential needed',
+	},
+};
 
 function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
@@ -62,15 +94,28 @@ export function AddProviderWizard({
 		initialProviderId ?? WIZARD_PROVIDERS[0]?.id ?? '',
 	);
 	const [credMode, setCredMode] = useState<CredentialMode>('key');
-	const [apiKey, setApiKey] = useState('');
 	const [credentialRef, setCredentialRef] = useState('');
 	const [baseUrl, setBaseUrl] = useState('');
 	const [backends, setBackends] = useState<CredentialBackend[]>([]);
 	const [discovered, setDiscovered] = useState<ModelGatewayModel[]>([]);
 	const [selected, setSelected] = useState<Set<string>>(new Set());
 	const [validation, setValidation] = useState<TestOutcome | null>(null);
+	const [rolePolicies, setRolePolicies] = useState<ModelGatewayRolePolicy[]>([]);
+	const [assignedRoles, setAssignedRoles] = useState<Set<string>>(new Set());
+	const [roleModel, setRoleModel] = useState('');
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState('');
+
+	/**
+	 * The API key stays out of React state: a controlled input mirrors its value into the `value`
+	 * HTML attribute, so the plaintext secret would show up in any DOM serialization. Uncontrolled,
+	 * it lives only in the masked input and is read once, when the credential is created.
+	 */
+	const apiKeyRef = useRef<HTMLInputElement | null>(null);
+	const readApiKey = () => apiKeyRef.current?.value ?? '';
+	const clearApiKey = () => {
+		if (apiKeyRef.current) apiKeyRef.current.value = '';
+	};
 
 	const entry: ProviderCatalogEntry | undefined = catalogEntry(providerId);
 
@@ -82,7 +127,7 @@ export function AddProviderWizard({
 		setStep('provider');
 		setProviderId(first);
 		setCredMode(defaultCredentialMode(seedEntry));
-		setApiKey('');
+		clearApiKey();
 		setCredentialRef('');
 		setBaseUrl(seedEntry?.defaultBaseUrl ?? '');
 		setDiscovered([]);
@@ -92,6 +137,9 @@ export function AddProviderWizard({
 		void getCredentials()
 			.then((payload) => setBackends(payload.backends))
 			.catch(() => setBackends([]));
+		void getModelGatewayRolePolicies()
+			.then((payload) => setRolePolicies(payload.rolePolicies))
+			.catch(() => setRolePolicies([]));
 	}, [open, initialProviderId]);
 
 	const writableBackend = useMemo(
@@ -103,6 +151,29 @@ export function AddProviderWizard({
 		[backends],
 	);
 
+	/** Model ids the operator kept — the only ones a role may be routed to. */
+	const selectedModels = useMemo(
+		() => discovered.filter((model) => selected.has(model.id)).map((model) => model.model),
+		[discovered, selected],
+	);
+
+	/** Pre-check the roles this provider already serves, and re-seed whenever the provider changes. */
+	useEffect(() => {
+		setAssignedRoles(
+			new Set(
+				rolePolicies
+					.filter((policy) => rolePrefersProvider(policy, providerId))
+					.map((policy) => policy.role),
+			),
+		);
+	}, [rolePolicies, providerId]);
+
+	useEffect(() => {
+		setRoleModel((current) =>
+			current && selectedModels.includes(current) ? current : (selectedModels[0] ?? ''),
+		);
+	}, [selectedModels]);
+
 	if (!open || !entry) return null;
 
 	const stepIndex = STEP_ORDER.indexOf(step);
@@ -111,13 +182,16 @@ export function AddProviderWizard({
 		credential: t('app.providers.wizard.stepCredential', 'Credential'),
 		models: t('app.providers.wizard.stepModels', 'Select models'),
 		validate: t('app.providers.wizard.stepValidate', 'Validate'),
+		roles: t('app.providers.wizard.stepRoles', 'Assign roles'),
 	};
+	const auth = AUTH_META[entry.authKind];
+	const cost = COST_META[costForModels(discovered)];
 
 	const selectProvider = (id: string) => {
 		const selectedEntry = catalogEntry(id);
 		setProviderId(id);
 		setCredMode(defaultCredentialMode(selectedEntry));
-		setApiKey('');
+		clearApiKey();
 		setCredentialRef('');
 		setBaseUrl(selectedEntry?.defaultBaseUrl ?? '');
 		setError('');
@@ -139,7 +213,8 @@ export function AddProviderWizard({
 				return false;
 			}
 			if (entry.authKind !== 'none' && credMode === 'key') {
-				if (!apiKey.trim()) {
+				const apiKey = readApiKey().trim();
+				if (!apiKey) {
 					setError(t('app.providers.wizard.errorApiKey', 'Enter the API key.'));
 					return false;
 				}
@@ -167,7 +242,7 @@ export function AddProviderWizard({
 				...(entry.needsBaseUrl ? { baseUrl: baseUrl.trim() } : {}),
 				...(ref ? { credentialRef: ref } : {}),
 			});
-			setApiKey('');
+			clearApiKey();
 			return true;
 		} catch (saveError) {
 			setError(errorMessage(saveError));
@@ -213,17 +288,41 @@ export function AddProviderWizard({
 		}
 	};
 
+	/**
+	 * Route the chosen model to every checked role and stop routing the unchecked ones. A failure here
+	 * must surface: the provider is already saved, but the operator's routing intent was not applied.
+	 */
+	const applyRoleAssignments = async () => {
+		if (!roleModel) return;
+		for (const policy of rolePolicies) {
+			const assign = assignedRoles.has(policy.role);
+			if (!rolePreferredNeedsUpdate(policy, entry.id, roleModel, assign)) continue;
+			await patchModelGatewayRolePolicy(token, policy.id, {
+				preferred: nextPreferredCandidates(
+					policy,
+					entry.id,
+					roleModel,
+					assign,
+				) as ModelGatewayRolePolicy['preferred'],
+			});
+		}
+	};
+
 	const finish = async () => {
 		if (busy) return;
 		setBusy(true);
+		setError('');
 		try {
 			for (const model of discovered) {
 				if (!selected.has(model.id)) {
 					await patchModelGatewayModel(token, model.id, { enabled: false }).catch(() => undefined);
 				}
 			}
+			await applyRoleAssignments();
 			onSaved();
 			onClose();
+		} catch (finishError) {
+			setError(errorMessage(finishError));
 		} finally {
 			setBusy(false);
 		}
@@ -240,6 +339,10 @@ export function AddProviderWizard({
 		}
 		if (step === 'models') {
 			setStep('validate');
+			return;
+		}
+		if (step === 'validate') {
+			setStep('roles');
 			return;
 		}
 	};
@@ -262,6 +365,15 @@ export function AddProviderWizard({
 		});
 	};
 
+	const toggleRole = (role: string) => {
+		setAssignedRoles((current) => {
+			const next = new Set(current);
+			if (next.has(role)) next.delete(role);
+			else next.add(role);
+			return next;
+		});
+	};
+
 	return (
 		<Modal open={open} label={t('app.providers.wizard.title', 'Add provider')} onClose={onClose}>
 			<div className="form-grid">
@@ -278,21 +390,46 @@ export function AddProviderWizard({
 				</ol>
 
 				{step === 'provider' ? (
-					<SelectField
-						label={t('app.providers.wizard.provider', 'Provider')}
-						value={providerId}
-						onChange={(event) => selectProvider(event.target.value)}
-						help={t(
-							'app.providers.wizard.providerHelp',
-							'Pick a provider to connect. CLI runtimes are set up from their card.',
-						)}
-					>
-						{WIZARD_PROVIDERS.map((option) => (
-							<option key={option.id} value={option.id}>
-								{option.displayName}
-							</option>
-						))}
-					</SelectField>
+					<>
+						<SelectField
+							label={t('app.providers.wizard.provider', 'Provider')}
+							value={providerId}
+							onChange={(event) => selectProvider(event.target.value)}
+							help={t(
+								'app.providers.wizard.providerHelp',
+								'Pick a provider to connect. CLI runtimes are set up from their card.',
+							)}
+						>
+							{WIZARD_PROVIDERS.map((option) => (
+								<option key={option.id} value={option.id}>
+									{option.displayName}
+								</option>
+							))}
+						</SelectField>
+						<section
+							className="stack compact"
+							aria-label={t('app.providers.wizard.summaryAria', 'Provider summary')}
+						>
+							<div className="field">
+								<span className="field-label">{t('app.providers.wizard.baseUrl', 'Base URL')}</span>
+								<span className="mono">
+									{entry.defaultBaseUrl ??
+										t('app.providers.wizard.baseUrlOperator', 'You provide the endpoint')}
+								</span>
+							</div>
+							<div className="inline">
+								<span className="field-label">
+									{t('app.providers.wizard.capabilities', 'Capabilities')}
+								</span>
+								{entry.capabilities.map((capability) => (
+									<Badge tone="info" key={capability}>
+										{capability}
+									</Badge>
+								))}
+								<Badge tone={auth.tone}>{t(auth.labelKey, auth.fallback)}</Badge>
+							</div>
+						</section>
+					</>
 				) : null}
 
 				{step === 'credential' ? (
@@ -350,11 +487,11 @@ export function AddProviderWizard({
 
 						{entry.authKind !== 'none' && credMode === 'key' ? (
 							<TextField
+								ref={apiKeyRef}
 								label={t('app.providers.wizard.apiKey', 'API key')}
 								type="password"
-								value={apiKey}
+								defaultValue=""
 								autoComplete="new-password"
-								onChange={(event) => setApiKey(event.target.value)}
 								help={t(
 									'app.providers.wizard.apiKeyHelp',
 									'Stored in the credential vault — never shown again.',
@@ -398,11 +535,17 @@ export function AddProviderWizard({
 				{step === 'models' ? (
 					<>
 						<div className="surface-toolbar">
-							<span className="muted">
-								{discovered.length
-									? `${selected.size}/${discovered.length} ${t('app.providers.wizard.modelsSelected', 'selected')}`
-									: t('app.providers.wizard.modelsEmpty', 'No models synced yet.')}
-							</span>
+							<div className="inline">
+								<span className="muted">
+									{discovered.length
+										? `${selected.size}/${discovered.length} ${t('app.providers.wizard.modelsSelected', 'selected')}`
+										: t('app.providers.wizard.modelsEmpty', 'No models synced yet.')}
+								</span>
+								<Badge tone={cost.tone}>
+									<CircleDollarSign aria-hidden="true" size={12} />
+									<span>{t(cost.labelKey, cost.fallback)}</span>
+								</Badge>
+							</div>
 							<Button
 								onClick={() => void syncModels()}
 								loading={busy}
@@ -455,6 +598,47 @@ export function AddProviderWizard({
 					</>
 				) : null}
 
+				{step === 'roles' ? (
+					selectedModels.length && rolePolicies.length ? (
+						<>
+							<SelectField
+								label={t('app.providers.wizard.roleModel', 'Model for these roles')}
+								value={roleModel}
+								onChange={(event) => setRoleModel(event.target.value)}
+								help={t(
+									'app.providers.wizard.rolesHelp',
+									'Checked roles route to this provider; clearing a role stops routing it here.',
+								)}
+							>
+								{selectedModels.map((model) => (
+									<option key={model} value={model}>
+										{model}
+									</option>
+								))}
+							</SelectField>
+							<div className="stack compact provider-model-list">
+								{rolePolicies.map((policy) => (
+									<Checkbox
+										key={policy.id}
+										label={policy.role}
+										checked={assignedRoles.has(policy.role)}
+										onChange={() => toggleRole(policy.role)}
+									/>
+								))}
+							</div>
+						</>
+					) : (
+						<p className="field-help">
+							{rolePolicies.length
+								? t(
+										'app.providers.wizard.rolesNeedModels',
+										'Sync and select at least one model to assign roles.',
+									)
+								: t('app.providers.wizard.rolesEmpty', 'No role policies are configured yet.')}
+						</p>
+					)
+				) : null}
+
 				{error ? (
 					<div className="form-error" role="alert">
 						{error}
@@ -471,7 +655,7 @@ export function AddProviderWizard({
 							? t('app.providers.wizard.cancel', 'Cancel')
 							: t('app.providers.wizard.back', 'Back')}
 					</Button>
-					{step === 'validate' ? (
+					{step === 'roles' ? (
 						<Button
 							variant="primary"
 							onClick={() => void finish()}

@@ -251,6 +251,62 @@
       "en": "No writable credential backend is configured; use a reference instead.",
       "es": "No hay un backend de credenciales escribible configurado; usa una referencia."
     },
+    "app.providers.wizard.credModeNone": {
+      "en": "No credential",
+      "es": "Sin credencial"
+    },
+    "app.providers.wizard.optionalCredential": {
+      "en": "This provider can use a bearer token, but it is not required.",
+      "es": "Este proveedor puede usar un token bearer, pero no es obligatorio."
+    },
+    "app.providers.wizard.errorCredentialRef": {
+      "en": "Enter the credential reference.",
+      "es": "Ingresa la referencia de credencial."
+    },
+    "app.providers.wizard.summaryAria": {
+      "en": "Provider summary",
+      "es": "Resumen del proveedor"
+    },
+    "app.providers.wizard.capabilities": {
+      "en": "Capabilities",
+      "es": "Capacidades"
+    },
+    "app.providers.wizard.baseUrlOperator": {
+      "en": "You provide the endpoint",
+      "es": "Tú defines el endpoint"
+    },
+    "app.providers.wizard.authRequired": {
+      "en": "API key required",
+      "es": "Requiere clave API"
+    },
+    "app.providers.wizard.authOptional": {
+      "en": "Token optional",
+      "es": "Token opcional"
+    },
+    "app.providers.wizard.authNone": {
+      "en": "No credential needed",
+      "es": "No necesita credencial"
+    },
+    "app.providers.wizard.stepRoles": {
+      "en": "Assign roles",
+      "es": "Asignar roles"
+    },
+    "app.providers.wizard.roleModel": {
+      "en": "Model for these roles",
+      "es": "Modelo para estos roles"
+    },
+    "app.providers.wizard.rolesHelp": {
+      "en": "Checked roles route to this provider; clearing a role stops routing it here.",
+      "es": "Los roles marcados se enrutan a este proveedor; al desmarcarlos deja de enrutarse aquí."
+    },
+    "app.providers.wizard.rolesNeedModels": {
+      "en": "Sync and select at least one model to assign roles.",
+      "es": "Sincroniza y selecciona al menos un modelo para asignar roles."
+    },
+    "app.providers.wizard.rolesEmpty": {
+      "en": "No role policies are configured yet.",
+      "es": "Todavía no hay políticas de rol configuradas."
+    },
     "app.menu.bar": {
       "en": "Application menu",
       "es": "Menú de la aplicación"

@@ -1,15 +1,15 @@
 /**
- * Project Quality section body (project scope): the quality-gate commands that must
- * pass before work is accepted, edited as a wired string-list row, with a worked-example
- * hint so the field reads as a purpose-built panel rather than a bare list. Dedicated to
- * quality gates so it never reuses the Team roster body.
+ * Quality section panel (project scope): the quality-gate commands that must pass before
+ * work is accepted, edited as a wired string-list row, with a worked-example hint so the
+ * field reads as a purpose-built panel rather than a bare list. Dedicated to quality gates
+ * so it never reuses the Team roster panel.
  * @author Rodrigo Mason
  */
 
 import { findSetting, WiredRows } from './SettingsChoiceCards';
 import type { SectionContext } from './sections';
 
-export function QualityGateSettings({ ctx }: { ctx: SectionContext }) {
+export function ProjectQualitySettingsPanel({ ctx }: { ctx: SectionContext }) {
 	const { t } = ctx;
 	const gateCommands = findSetting(ctx.resolved, 'project.quality.gateCommands');
 	const commandCount = Array.isArray(gateCommands?.value) ? gateCommands.value.length : 0;

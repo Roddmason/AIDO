@@ -4568,6 +4568,12 @@
 	color: var(--color-text-secondary);
 }
 
+/* Source chip stacked under a preference's copy: the pill hugs its text instead
+ * of stretching across the grid column. */
+.settings-preference-copy .setting-chip {
+	justify-self: start;
+}
+
 .setting-control {
 	grid-area: control;
 	display: flex;

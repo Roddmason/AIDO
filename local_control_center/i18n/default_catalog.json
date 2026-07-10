@@ -11370,6 +11370,22 @@
     "app.settings.enum.mode.manualDesc": {
       "en": "Pick the runtime for every step by hand.",
       "es": "Elegir el runtime de cada paso manualmente."
+    },
+    "app.settings.chip.source.system": {
+      "en": "System",
+      "es": "Sistema"
+    },
+    "app.settings.chip.source.browser": {
+      "en": "This browser",
+      "es": "Este navegador"
+    },
+    "app.settings.worker.tuningGroup": {
+      "en": "Throughput tuning",
+      "es": "Ajuste de rendimiento"
+    },
+    "app.settings.worker.tuningSummary": {
+      "en": "Poll interval and job concurrency",
+      "es": "Intervalo de sondeo y concurrencia de trabajos"
     }
   }
 }

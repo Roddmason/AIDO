@@ -1,22 +1,26 @@
 /**
- * General section body: interface language (immediate effect, from the live i18n
- * catalog), the startup-worker settings (wired SettingRows passed in by the section
- * registry) and the read-only platform defaults readouts.
+ * General section panel (general scope): interface language (immediate effect, from the
+ * live i18n catalog), the startup-worker panel, and the read-only platform defaults.
+ * The worker rows are composed as a panel over the section context rather than injected
+ * as pre-rendered nodes, so this panel owns its whole surface.
  * @author Rodrigo Mason
  */
 
-import type { ReactNode } from 'react';
-
 import { SegmentedControl } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
-import { PreferenceRow } from './AppearanceBody';
+import { PreferenceChip, PreferenceRow } from './AppearanceSettingsPanel';
+import type { SectionContext } from './sections';
+import { WorkerSettingsPanel } from './WorkerSettingsPanel';
 
-export function GeneralBody({ workerSettings }: { workerSettings: ReactNode }) {
-	const { t, language, languages, setLanguage } = useI18n();
+export function GeneralSettingsPanel({ ctx }: { ctx: SectionContext }) {
+	const { t, catalog, language, languages, setLanguage } = useI18n();
 	const languageOptions = languages.map((item) => ({
 		value: item.code,
 		label: item.nativeName || item.name || item.code,
 	}));
+	// Until the catalog lands there is no default to compare against, so the row reads
+	// as the catalog default rather than claiming an override the operator never made.
+	const isCatalogDefault = !catalog || language === catalog.defaultLanguage;
 
 	return (
 		<div className="stack">
@@ -24,6 +28,13 @@ export function GeneralBody({ workerSettings }: { workerSettings: ReactNode }) {
 				<PreferenceRow
 					title={t('ui.static.interface.language.9407e9ca', 'Interface language')}
 					help={t('app.settings.general.languageHelp', 'Applies immediately across the interface.')}
+					chip={
+						isCatalogDefault ? (
+							<PreferenceChip origin="default" />
+						) : (
+							<PreferenceChip origin="custom" source="browser" />
+						)
+					}
 				>
 					{languageOptions.length > 0 ? (
 						<SegmentedControl
@@ -50,7 +61,7 @@ export function GeneralBody({ workerSettings }: { workerSettings: ReactNode }) {
 						'The background worker that leases jobs when the platform starts.',
 					)}
 				</p>
-				{workerSettings}
+				<WorkerSettingsPanel ctx={ctx} />
 			</section>
 
 			<section className="settings-group">

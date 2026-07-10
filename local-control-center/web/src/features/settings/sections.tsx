@@ -38,20 +38,21 @@ import type {
 	RuntimeProviderConfiguration,
 	RuntimeProviders,
 } from '../../api/types';
-import { AppearanceBody } from './AppearanceBody';
+import { AppearanceSettingsPanel } from './AppearanceSettingsPanel';
 import { AutonomyBody } from './AutonomyBody';
 import { CredentialManagerPanel } from './CredentialManagerPanel';
-import { GeneralBody } from './GeneralBody';
-import { GoalBody } from './GoalBody';
-import { InternetBody } from './InternetBody';
+import { DefaultTeamSettingsPanel } from './DefaultTeamSettingsPanel';
+import { GeneralSettingsPanel } from './GeneralSettingsPanel';
+import { InternetSettingsPanel } from './InternetSettingsPanel';
 import { PluginsPanel } from './PluginsPanel';
+import { ProjectGoalSettingsPanel } from './ProjectGoalSettingsPanel';
 import { ProjectPluginsBody } from './ProjectPluginsBody';
+import { ProjectQualitySettingsPanel } from './ProjectQualitySettingsPanel';
+import { ProjectRoutingSettingsPanel } from './ProjectRoutingSettingsPanel';
 import { ProjectTeamPanel } from './ProjectTeamPanel';
-import { QualityGateSettings } from './QualityGateSettings';
-import { ResearchBody } from './ResearchBody';
-import { RoutingSettings } from './RoutingSettings';
+import { ResearchSettingsPanel } from './ResearchSettingsPanel';
 import { SettingRow } from './SettingRow';
-import { AdvancedBody, DefaultTeamBody, RuntimeBody, WorkspacesBody } from './SettingsPage';
+import { AdvancedBody, RuntimeBody, WorkspacesBody } from './SettingsPage';
 import type { ResolvedSetting, SettingScope } from './useSettings';
 
 /** Context available to every section render function. */
@@ -227,8 +228,8 @@ export const GENERAL_SECTIONS: SectionDefinition[] = [
 		titleKey: 'app.settings.section.general',
 		titleFallback: 'General',
 		icon: SlidersHorizontal,
-		kind: 'display',
-		render: (ctx) => <GeneralBody workerSettings={renderWired(ctx)} />,
+		kind: 'wired',
+		render: (ctx) => <GeneralSettingsPanel ctx={ctx} />,
 	},
 	{
 		id: 'appearance',
@@ -236,7 +237,7 @@ export const GENERAL_SECTIONS: SectionDefinition[] = [
 		titleFallback: 'Appearance',
 		icon: Palette,
 		kind: 'display',
-		render: () => <AppearanceBody />,
+		render: () => <AppearanceSettingsPanel />,
 	},
 	{
 		id: 'providers-cli',
@@ -270,7 +271,9 @@ export const GENERAL_SECTIONS: SectionDefinition[] = [
 		titleFallback: 'Default Team',
 		icon: Users,
 		kind: 'display',
-		render: (ctx) => <DefaultTeamBody overview={ctx.overview} onNavigate={ctx.closeSettings} />,
+		render: (ctx) => (
+			<DefaultTeamSettingsPanel overview={ctx.overview} onNavigate={ctx.closeSettings} />
+		),
 	},
 	{
 		id: 'autonomy',
@@ -306,7 +309,7 @@ export const GENERAL_SECTIONS: SectionDefinition[] = [
 		titleFallback: 'Research',
 		icon: FlaskConical,
 		kind: 'wired',
-		render: (ctx) => <ResearchBody ctx={ctx} />,
+		render: (ctx) => <ResearchSettingsPanel ctx={ctx} />,
 	},
 	{
 		id: 'costs',
@@ -355,7 +358,7 @@ export const PROJECT_SECTIONS: SectionDefinition[] = [
 		titleFallback: 'Goal',
 		icon: Target,
 		kind: 'wired',
-		render: (ctx) => <GoalBody ctx={ctx} />,
+		render: (ctx) => <ProjectGoalSettingsPanel ctx={ctx} />,
 	},
 	{
 		id: 'team',
@@ -371,7 +374,7 @@ export const PROJECT_SECTIONS: SectionDefinition[] = [
 		titleFallback: 'Routing',
 		icon: Route,
 		kind: 'wired',
-		render: (ctx) => <RoutingSettings ctx={ctx} />,
+		render: (ctx) => <ProjectRoutingSettingsPanel ctx={ctx} />,
 	},
 	{
 		id: 'quality',
@@ -379,7 +382,7 @@ export const PROJECT_SECTIONS: SectionDefinition[] = [
 		titleFallback: 'Quality',
 		icon: CheckCircle2,
 		kind: 'wired',
-		render: (ctx) => <QualityGateSettings ctx={ctx} />,
+		render: (ctx) => <ProjectQualitySettingsPanel ctx={ctx} />,
 	},
 	{
 		id: 'project-security',
@@ -406,7 +409,7 @@ export const PROJECT_SECTIONS: SectionDefinition[] = [
 		titleFallback: 'Internet',
 		icon: Globe,
 		kind: 'wired',
-		render: (ctx) => <InternetBody ctx={ctx} />,
+		render: (ctx) => <InternetSettingsPanel ctx={ctx} />,
 	},
 	{
 		id: 'budget',

@@ -91,60 +91,113 @@ def test_frontend_domain_types_are_generated_openapi_aliases() -> None:
         assert stale_manual_type not in source
 
 
+#: Every settings section renders a purpose-built panel; none may fall back to a
+#: placeholder or to a body borrowed from an unrelated section.
+SETTINGS_PANELS = (
+    "GeneralSettingsPanel",
+    "AppearanceSettingsPanel",
+    "WorkerSettingsPanel",
+    "DefaultTeamSettingsPanel",
+    "ProjectGoalSettingsPanel",
+    "ProjectRoutingSettingsPanel",
+    "ProjectQualitySettingsPanel",
+    "ResearchSettingsPanel",
+    "InternetSettingsPanel",
+)
+
+#: Panels whose whole surface is driven by the section context.
+CTX_DRIVEN_PANELS = (
+    "GeneralSettingsPanel",
+    "ProjectGoalSettingsPanel",
+    "ProjectRoutingSettingsPanel",
+    "ProjectQualitySettingsPanel",
+    "ResearchSettingsPanel",
+    "InternetSettingsPanel",
+)
+
+
 def test_settings_team_section_renders_full_available_agent_profile_roster() -> None:
-    settings_page = read(SRC / "features" / "settings" / "SettingsPage.tsx")
-    sections = read(SRC / "features" / "settings" / "sections.tsx")
-    project_team = read(SRC / "features" / "settings" / "ProjectTeamPanel.tsx")
+    settings_dir = SRC / "features" / "settings"
+    default_team = read(settings_dir / "DefaultTeamSettingsPanel.tsx")
+    sections = read(settings_dir / "sections.tsx")
+    project_team = read(settings_dir / "ProjectTeamPanel.tsx")
 
     # Default Team (general) renders the full roster from the overview; the project Team
     # section fetches with the project id so per-project overrides are applied. Neither
     # surface may hardcode roles or reuse a generic shared body for Team/Routing/Quality.
     assert "id: 'team'" in sections
     assert "<ProjectTeamPanel projectId={ctx.scopeId}" in sections
-    assert "<DefaultTeamBody overview={ctx.overview}" in sections
+    assert "<DefaultTeamSettingsPanel overview={ctx.overview}" in sections
     assert "AgentsBody" not in sections
-    assert "overview.agentProfiles" in settings_page
-    assert "runtimeAvailability" in settings_page
-    assert "allowedProviders" in settings_page
-    assert "mobile_engineer" not in settings_page
+    assert "overview.agentProfiles" in default_team
+    assert "runtimeAvailability" in default_team
+    assert "allowedProviders" in default_team
+    assert "mobile_engineer" not in default_team
     assert "getAgentProfiles(projectId" in project_team
     assert "showOverride" in project_team
 
 
 def test_settings_registry_has_no_placeholder_sections() -> None:
-    sections = read(SRC / "features" / "settings" / "sections.tsx")
+    settings_dir = SRC / "features" / "settings"
+    sections = read(settings_dir / "sections.tsx")
 
     assert "SectionPlaceholder" not in sections
     assert "kind: 'placeholder'" not in sections
-    assert not (SRC / "features" / "settings" / "SectionPlaceholder.tsx").exists()
+    assert not (settings_dir / "SectionPlaceholder.tsx").exists()
+
+    # Every named panel exists as its own module and is the one the registry renders,
+    # so no section can quietly fall back to another section's body.
+    for panel in SETTINGS_PANELS:
+        assert (settings_dir / f"{panel}.tsx").exists(), panel
+    assert "<AppearanceSettingsPanel />" in sections
+    assert "<DefaultTeamSettingsPanel overview={ctx.overview}" in sections
+    for panel in CTX_DRIVEN_PANELS:
+        assert f"<{panel} ctx={{ctx}}" in sections, panel
+
+    # WorkerSettingsPanel is composed by General, not registered as its own section.
+    assert "WorkerSettingsPanel" in read(settings_dir / "GeneralSettingsPanel.tsx")
+
+    # AdvancedBody backs the Advanced section only: Appearance must never borrow it.
+    assert sections.count("<AdvancedBody") == 1
 
 
 def test_settings_target_sections_render_dedicated_card_bodies() -> None:
     settings_dir = SRC / "features" / "settings"
-    sections = read(settings_dir / "sections.tsx")
 
-    # Research, Goal, Internet, Routing and Quality no longer fall back to the generic
-    # wired list: each renders its own body built from modern cards, and none of the
-    # Team/Routing/Quality surfaces reuse a shared AgentsBody.
-    for component in (
-        "ResearchBody",
-        "GoalBody",
-        "InternetBody",
-        "RoutingSettings",
-        "QualityGateSettings",
-    ):
-        assert f"<{component} ctx={{ctx}}" in sections, component
-        assert (settings_dir / f"{component}.tsx").exists(), component
-
-    assert "AgentsBody" not in sections
-
-    # The headline enum of each policy body is an accessible radio-card grid, not a
+    # The headline enum of each policy panel is an accessible radio-card grid, not a
     # bare dropdown; the shared selector renders the radiogroup semantics.
     choice_cards = read(settings_dir / "SettingsChoiceCards.tsx")
     assert 'role="radiogroup"' in choice_cards
     assert 'role="radio"' in choice_cards
-    for body in ("ResearchBody", "GoalBody", "InternetBody", "RoutingSettings"):
-        assert "SettingChoiceCards" in read(settings_dir / f"{body}.tsx"), body
+    for panel in (
+        "ResearchSettingsPanel",
+        "ProjectGoalSettingsPanel",
+        "InternetSettingsPanel",
+        "ProjectRoutingSettingsPanel",
+    ):
+        assert "SettingChoiceCards" in read(settings_dir / f"{panel}.tsx"), panel
+
+
+def test_settings_panels_use_cards_and_chips_instead_of_default_tables() -> None:
+    settings_dir = SRC / "features" / "settings"
+
+    # No section panel may open on a data table: dense catalogs belong behind a
+    # Disclosure (Advanced, Workspaces), and rosters render as cards.
+    for panel in SETTINGS_PANELS:
+        assert "DataTable" not in read(settings_dir / f"{panel}.tsx"), panel
+
+    # Progressive disclosure keeps the worker tuning knobs out of the opening view.
+    assert "Disclosure" in read(settings_dir / "WorkerSettingsPanel.tsx")
+    assert "settings-team-grid" in read(settings_dir / "DefaultTeamSettingsPanel.tsx")
+
+    # Wired panels carry the source chip through SettingRow/SettingChoiceCards; the
+    # browser-local preferences carry their own chip with an explicit source.
+    appearance = read(settings_dir / "AppearanceSettingsPanel.tsx")
+    assert 'className="setting-chip"' in appearance
+    assert 'className="setting-chip-source"' in appearance
+    setting_row = read(settings_dir / "SettingRow.tsx")
+    assert 'data-origin="inherited"' in setting_row
+    assert "setting-chip-source" in setting_row
 
 
 def test_settings_hash_aliases_resolve_to_existing_section_ids() -> None:

@@ -1598,6 +1598,94 @@ test('Settings modal opens from sidebar and closes cleanly', async ({ page }) =>
 	await expect(dialog).toBeHidden();
 });
 
+// Any of these means the section rendered a real surface rather than a stub.
+const REAL_SETTINGS_SURFACE =
+	'.setting-row, .settings-preference-row, .settings-choice-grid, .settings-team-grid, .settings-readouts, .settings-dev-groups, .disclosure, .card, .empty-state';
+
+// Copy a placeholder body would leave behind. No section may ship any of it.
+// \bTODO\b, not /todo/: the Spanish catalog is full of the word "todos".
+const PLACEHOLDER_COPY = /placeholder|coming soon|not implemented|to be defined|\bTODO\b/i;
+
+test('every settings section opens and renders real content, never a placeholder', async ({
+	page,
+}) => {
+	await page.goto('/#settings');
+	await expectControlPlaneLoaded(page);
+
+	const dialog = page.getByRole('dialog', { name: 'Settings' });
+	await expect(dialog).toBeVisible();
+
+	const nav = dialog.locator('nav[aria-label="Settings sections"]');
+	const items = nav.locator('.settings-nav-item');
+	const total = await items.count();
+	// General (11) + Project (10) sections; dropping one must fail here, not silently.
+	expect(total).toBe(21);
+
+	const content = dialog.locator('.settings-content');
+	for (let index = 0; index < total; index += 1) {
+		const item = items.nth(index);
+		const label = (await item.textContent()).trim();
+		await item.click();
+
+		// The right pane swapped to the section the operator asked for...
+		await expect(dialog.locator('.settings-content-title')).toHaveText(label);
+		// ...and it rendered a real surface, with no placeholder copy on it. useInnerText
+		// keeps the scan on what the operator sees: collapsed disclosures carry the
+		// translation catalog, whose own key names contain the word "placeholder".
+		await expect(content.locator(REAL_SETTINGS_SURFACE).first()).toBeVisible();
+		await expect(content).not.toContainText(PLACEHOLDER_COPY, { useInnerText: true });
+	}
+});
+
+test('settings panels replace inherited bodies with their own cards and chips', async ({ page }) => {
+	await page.goto('/#settings');
+	await expectControlPlaneLoaded(page);
+
+	const dialog = page.getByRole('dialog', { name: 'Settings' });
+	const nav = dialog.locator('nav[aria-label="Settings sections"]');
+	await expect(dialog).toBeVisible();
+
+	// General owns the worker rows and keeps the throughput knobs behind a disclosure.
+	await nav.getByRole('button', { name: 'General', exact: true }).click();
+	await expect(dialog.locator('.settings-readouts')).toBeVisible();
+	const tuning = dialog.getByRole('button', { name: /Throughput tuning/ });
+	await expect(tuning).toHaveAttribute('aria-expanded', 'false');
+	await tuning.click();
+	await expect(tuning).toHaveAttribute('aria-expanded', 'true');
+	await expect(dialog.locator('.disclosure-region .setting-row').first()).toBeVisible();
+
+	// Appearance is its own panel (never the Advanced body): preference rows with a
+	// source chip, and Motion states the upstream it inherits from.
+	await nav.getByRole('button', { name: 'Appearance', exact: true }).click();
+	await expect(dialog.getByText('Developer consoles')).toBeHidden();
+	await expect(dialog.locator('.settings-preference-row')).toHaveCount(3);
+	await expect(dialog.locator('.settings-preference-row .setting-chip')).toHaveCount(3);
+	await expect(dialog.locator('.setting-chip[data-origin="inherited"]')).toContainText('System');
+
+	// Default Team is a roster of cards, not a table.
+	await nav.getByRole('button', { name: 'Default Team', exact: true }).click();
+	await expect(dialog.locator('.settings-team-grid, .empty-state').first()).toBeVisible();
+	await expect(dialog.locator('table')).toHaveCount(0);
+
+	// Research, Goal, Routing, Quality and Internet each open on their own surface.
+	await nav.getByRole('button', { name: 'Research', exact: true }).click();
+	await expect(dialog.getByRole('radiogroup', { name: 'Internet access' })).toBeVisible();
+
+	await nav.getByRole('button', { name: 'Goal', exact: true }).click();
+	await expect(dialog.getByRole('radiogroup', { name: 'Team mode' })).toBeVisible();
+	await expect(dialog.getByRole('radiogroup', { name: 'Risk posture' })).toBeVisible();
+
+	await nav.getByRole('button', { name: 'Routing', exact: true }).click();
+	await expect(dialog.getByRole('radiogroup', { name: 'Preferred runtime' })).toBeVisible();
+
+	await nav.getByRole('button', { name: 'Quality', exact: true }).click();
+	await expect(dialog.getByRole('heading', { name: 'Gate commands' })).toBeVisible();
+	await expect(dialog.locator('.setting-row .setting-chip').first()).toBeVisible();
+
+	await nav.getByRole('button', { name: 'Internet', exact: true }).click();
+	await expect(dialog.getByRole('radiogroup', { name: 'Project internet policy' })).toBeVisible();
+});
+
 test('Settings modal Autonomy section shows the three level cards', async ({ page }) => {
 	await page.goto('/#threads');
 	await expectControlPlaneLoaded(page);

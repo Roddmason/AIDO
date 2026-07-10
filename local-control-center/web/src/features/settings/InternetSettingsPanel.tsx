@@ -1,9 +1,9 @@
 /**
- * Project Internet section body (project scope): the per-project internet policy as a
- * selectable radio-card grid — a card commit writes a project override, and the chip
- * shows whether the effective value is inherited from General or overridden here —
- * followed by the allowlist domains and the prefer-official-docs preference as wired
- * rows. The allowlist is the project-level counterpart to the general trusted domains.
+ * Internet section panel (project scope): the per-project internet policy as a selectable
+ * radio-card grid — a card commit writes a project override, and the chip shows whether
+ * the effective value is inherited from General or overridden here — followed by the
+ * allowlist domains and the prefer-official-docs preference as wired rows. The allowlist
+ * is the project-level counterpart to the general trusted domains.
  * @author Rodrigo Mason
  */
 
@@ -11,7 +11,7 @@ import { findSetting, SettingChoiceCards, WiredRows } from './SettingsChoiceCard
 import type { SectionContext } from './sections';
 import { INTERNET_POLICY_OPTIONS } from './settingsChoiceOptions';
 
-export function InternetBody({ ctx }: { ctx: SectionContext }) {
+export function InternetSettingsPanel({ ctx }: { ctx: SectionContext }) {
 	const { t } = ctx;
 	const policy = findSetting(ctx.resolved, 'research.internetPolicy');
 	const rest = ctx.resolved.filter((setting) => setting.key !== 'research.internetPolicy');

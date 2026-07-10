@@ -19,19 +19,22 @@ import {
 	getProjectProductLoop,
 	getSettings,
 	getThread,
+	getThreadCostPerformance,
 	getThreadMemory,
 	type ProjectProductLoopResponse,
 	type SettingsResponse,
+	type ThreadCostPerformanceResponse,
 	type ThreadMemoryRecallResponse,
 } from '../../api/client';
 import type { ThreadDetail } from '../../api/types';
 
-/** The eight inspector views, in display order. */
+/** The nine inspector views, in display order. */
 export type ThreadInspectorTab =
 	| 'goal'
 	| 'team'
 	| 'plan'
 	| 'backlog'
+	| 'cost'
 	| 'memory'
 	| 'research'
 	| 'artifacts'
@@ -101,10 +104,10 @@ function useLazyResource<T>(
 }
 
 /**
- * Resolves the five inspector resources. Thread detail and product loop are eager (the
- * pinned vitals strip consumes both on every tab); the roster, memory recall and settings load on
- * their tab's first visit. `threadId` is null on the new-thread intake, which disables the
- * thread-scoped resources (their panels render a guidance empty state instead).
+ * Resolves the six inspector resources. Thread detail and product loop are eager (the
+ * pinned vitals strip consumes both on every tab); the roster, cost/performance, memory recall and
+ * settings load on their tab's first visit. `threadId` is null on the new-thread intake, which
+ * disables the thread-scoped resources (their panels render a guidance empty state instead).
  */
 export function useThreadInspectorData(
 	projectId: string | null,
@@ -134,6 +137,12 @@ export function useThreadInspectorData(
 	// unconfigured.
 	const roster = useLazyResource<AgentProfilesResponse>(projectId, tab === 'team', loadRoster);
 
+	const loadCost = useCallback(
+		(signal: AbortSignal) => getThreadCostPerformance(threadId ?? '', signal),
+		[threadId],
+	);
+	const cost = useLazyResource<ThreadCostPerformanceResponse>(threadId, tab === 'cost', loadCost);
+
 	const memoryTitle = detail.data?.thread.title ?? '';
 	const loadMemory = useCallback(
 		(signal: AbortSignal) => getThreadMemory(threadId ?? '', signal),
@@ -153,5 +162,5 @@ export function useThreadInspectorData(
 	);
 	const settings = useLazyResource<SettingsResponse>(projectId, tab === 'settings', loadSettings);
 
-	return { detail, loop, roster, memory, settings };
+	return { detail, loop, roster, cost, memory, settings };
 }

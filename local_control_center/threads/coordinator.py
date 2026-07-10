@@ -7,6 +7,10 @@ con su ``thread_decision`` pendiente. Cada ejecución deja traza: un evento ``co
 artifact ``intake_classification`` en el hilo. Todo el paso se confirma en una única
 ``immediate_transaction`` para que mensaje, evento, artifact y cambio de estado sean atómicos.
 
+Al encolar un Product Loop sella además la decisión de costo vigente del operador (modo de equipo y
+force-local) sobre la metadata del run, para que los controles de Settings gobiernen la ejecución
+siguiente en vez de solo describirla.
+
 @author Rodrigo Mason
 """
 
@@ -25,9 +29,10 @@ from local_control_center.product_loop.intent_classifier import (
 )
 from local_control_center.product_loop.metadata import RESOURCE_COST_POLICY_METADATA_KEYS
 from local_control_center.remediations.service import BlockerRemediationService
+from local_control_center.settings.resolver import resolve_setting_value
 from local_control_center.shared.db import immediate_transaction
 from local_control_center.shared.redaction import redact_secrets
-from local_control_center.team_scheduler.scheduler import schedule_team
+from local_control_center.team_scheduler.scheduler import MODES, schedule_team
 from local_control_center.threads.repository import ThreadsRepository
 from local_control_center.threads.similarity import (
     HIGH_SIMILARITY_THRESHOLD,
@@ -699,6 +704,34 @@ class ThreadCoordinator:
         snippet = redact_secrets(content.strip().replace("\n", " "))[:_SUMMARY_LIMIT]
         self.connection.execute("UPDATE project_threads SET summary = ? WHERE id = ?", (snippet, thread_id))
 
+    def _with_operator_cost_decision(self, *, project_id: str, metadata: dict[str, Any]) -> dict[str, Any]:
+        """Sella la decisión de costo vigente del operador sobre la metadata del run.
+
+        ``project.loop.teamMode`` (economy/balanced/critical/maximum) es un *default*: una metadata
+        de mensaje con un modo válido lo respeta, porque elegir el modo por ejecución es legítimo.
+        ``project.routing.forceLocal`` NO es un default sino un control de privacidad: cuando está
+        activo fuerza ``privacyLevel=local_private`` por encima de cualquier metadata, de modo que
+        un campo por mensaje jamás pueda relajar una restricción que el operador dejó puesta.
+        Sellarlos aquí deja la decisión en el payload del job, auditable junto al run que la usó.
+        """
+        stamped = dict(metadata)
+        requested_mode = str(stamped.get("teamMode") or stamped.get("team_mode") or "").strip().lower()
+        if requested_mode not in MODES:
+            resolved_mode = resolve_setting_value(
+                connection=self.connection,
+                key="project.loop.teamMode",
+                project_id=project_id,
+            )
+            if resolved_mode in MODES:
+                stamped["teamMode"] = resolved_mode
+        if resolve_setting_value(
+            connection=self.connection,
+            key="project.routing.forceLocal",
+            project_id=project_id,
+        ):
+            stamped["privacyLevel"] = "local_private"
+        return stamped
+
     def _queue_product_loop_run(
         self,
         *,
@@ -710,7 +743,10 @@ class ThreadCoordinator:
         decision_payload: dict[str, Any] | None = None,
         run_metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        clean_run_metadata = redact_secrets(run_metadata or {})
+        clean_run_metadata = self._with_operator_cost_decision(
+            project_id=thread["projectId"],
+            metadata=redact_secrets(run_metadata or {}),
+        )
         plan_only = bool(clean_run_metadata.get("planOnly") or clean_run_metadata.get("plan_only"))
         payload = {
             "threadId": thread["id"],

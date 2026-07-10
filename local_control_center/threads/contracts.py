@@ -466,6 +466,8 @@ class ThreadMemoryRecallResponse(BaseModel):
 
 ThreadCostStatus = Literal["actual", "estimated", "mixed", "unknown"]
 ThreadTokenStatus = Literal["actual", "partial", "unknown", "none"]
+ThreadLatencyStatus = Literal["actual", "partial", "unknown", "none"]
+ThreadTeamMode = Literal["economy", "balanced", "critical", "maximum"]
 
 
 class ThreadBudgetUsedRecord(BaseModel):
@@ -493,6 +495,38 @@ class ThreadTokenSummaryRecord(BaseModel):
     unknown_calls: int = Field(alias="unknownCalls")
     token_status: ThreadTokenStatus = Field(alias="tokenStatus")
     call_count: int = Field(alias="callCount")
+
+
+class ThreadLatencySummaryRecord(BaseModel):
+    """Latencia observada del hilo; ``None`` cuando ninguna llamada registró latencia (jamás ``0``)."""
+
+    p50_ms: int | None = Field(default=None, alias="p50Ms")
+    avg_ms: int | None = Field(default=None, alias="avgMs")
+    max_ms: int | None = Field(default=None, alias="maxMs")
+    known_calls: int = Field(alias="knownCalls")
+    unknown_calls: int = Field(alias="unknownCalls")
+    latency_status: ThreadLatencyStatus = Field(alias="latencyStatus")
+    call_count: int = Field(alias="callCount")
+
+
+class ThreadPremiumApprovalRecord(BaseModel):
+    """Veredicto del gate premium: por qué la política exigió (o no) aprobación humana."""
+
+    required: bool
+    reason: str
+    threshold_usd: float | None = Field(default=None, alias="thresholdUsd")
+    estimated_cost_usd: float | None = Field(default=None, alias="estimatedCostUsd")
+    cost_tier: str | None = Field(default=None, alias="costTier")
+
+
+class ThreadCostPolicyRecord(BaseModel):
+    """Política de costo vigente del proyecto y el veredicto de la última decisión de ruteo."""
+
+    mode: ThreadTeamMode
+    force_local: bool = Field(alias="forceLocal")
+    premium_approval_over_usd: float | None = Field(default=None, alias="premiumApprovalOverUsd")
+    approval_required: bool = Field(alias="approvalRequired")
+    premium_approval: ThreadPremiumApprovalRecord | None = Field(default=None, alias="premiumApproval")
 
 
 class ThreadModelChosenRecord(BaseModel):
@@ -529,7 +563,7 @@ class ThreadQualityReworkRecord(BaseModel):
 
 
 class ThreadCostPerformanceRecord(BaseModel):
-    """Snapshot accionable de costo/rendimiento por hilo: las siete señales del inspector."""
+    """Snapshot accionable de costo/rendimiento por hilo: las señales del inspector y su política."""
 
     thread_id: str = Field(alias="threadId")
     loop_ids: list[str] = Field(alias="loopIds")
@@ -537,12 +571,14 @@ class ThreadCostPerformanceRecord(BaseModel):
     budget_used: ThreadBudgetUsedRecord = Field(alias="budgetUsed")
     cost: ThreadCostSummaryRecord
     tokens: ThreadTokenSummaryRecord
+    latency: ThreadLatencySummaryRecord
     model_chosen: ThreadModelChosenRecord | None = Field(default=None, alias="modelChosen")
     reason_selected: str | None = Field(default=None, alias="reasonSelected")
     cheaper_alternative: ThreadCheaperAlternativeRecord | None = Field(
         default=None, alias="cheaperAlternative"
     )
     quality_rework: ThreadQualityReworkRecord = Field(alias="qualityRework")
+    policy: ThreadCostPolicyRecord
 
 
 class ThreadCostPerformanceResponse(BaseModel):

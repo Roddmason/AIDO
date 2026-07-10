@@ -99,6 +99,9 @@ export type ThreadSimilarityMarkResponse =
 	OperationResponse<'mark_similar_thread_api_v1_threads__thread_id__similar__candidate_id__mark_post'>;
 export type ThreadMemoryRecallResponse =
 	OperationResponse<'thread_memory_api_v1_threads__thread_id__memory_get'>;
+export type ThreadCostPerformanceResponse =
+	OperationResponse<'thread_cost_performance_api_v1_threads__thread_id__cost_performance_get'>;
+export type ThreadCostPerformanceRecord = ThreadCostPerformanceResponse['costPerformance'];
 export type WorkerStatusResponse = OperationResponse<'worker_status_api_v1_workers_status_get'>;
 export type WorkerRunOnceResponse =
 	OperationResponse<'worker_run_once_api_v1_workers_run_once_post'>;
@@ -1192,6 +1195,17 @@ export function getThreadMemory(threadId: string, signal?: AbortSignal) {
 		'thread_memory_api_v1_threads__thread_id__memory_get',
 		ThreadMemoryRecallResponse
 	>('thread_memory_api_v1_threads__thread_id__memory_get', {
+		pathParams: { thread_id: threadId },
+		signal,
+	});
+}
+
+/** Reads the thread's cost/token/latency snapshot and the cost policy governing it; a read, no token. */
+export function getThreadCostPerformance(threadId: string, signal?: AbortSignal) {
+	return requestGeneratedOperation<
+		'thread_cost_performance_api_v1_threads__thread_id__cost_performance_get',
+		ThreadCostPerformanceResponse
+	>('thread_cost_performance_api_v1_threads__thread_id__cost_performance_get', {
 		pathParams: { thread_id: threadId },
 		signal,
 	});

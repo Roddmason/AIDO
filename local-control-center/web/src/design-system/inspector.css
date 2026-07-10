@@ -497,3 +497,41 @@
 	justify-self: start;
 	margin-top: var(--space-1);
 }
+
+/*
+ * Cost tab. The chosen model and the cheaper alternative are two plain cards, not two rows of one
+ * table: they answer different questions ("what ran" vs "what could have run instead"), and a shared
+ * table would imply they are comparable line items of the same ledger.
+ */
+.thread-cost-model,
+.thread-cost-alternative {
+	display: grid;
+	gap: var(--space-1);
+	padding: var(--space-2);
+	background: var(--color-surface-card);
+	border: 1px solid var(--color-border-subtle);
+	border-radius: var(--radius-md);
+}
+
+/* A cheaper option is an opportunity, not a fault: tone the whole border, never a side stripe. */
+.thread-cost-alternative {
+	border-color: var(--color-status-success);
+}
+
+.thread-cost-model-head {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: var(--space-1);
+}
+
+.thread-cost-actions {
+	display: grid;
+	gap: var(--space-2);
+}
+
+.thread-cost-premium {
+	display: grid;
+	justify-items: start;
+	gap: var(--space-1);
+}

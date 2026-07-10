@@ -16,7 +16,7 @@ from __future__ import annotations
 import sqlite3
 from typing import Any
 
-from .registry import REGISTRY, SettingDescriptor
+from .registry import REGISTRY, SettingDescriptor, descriptor_for
 from .repository import UNSET, SettingsRepository
 
 
@@ -92,3 +92,28 @@ def resolve_settings(
     ]
 
     return {"general": general, "project": project}
+
+
+def resolve_setting_value(
+    *,
+    connection: sqlite3.Connection,
+    key: str,
+    project_id: str | None,
+) -> Any:
+    """Resolve one setting's effective value for ``project_id`` under project > general > default.
+
+    The runtime consumer of a setting needs the value, not the inheritance metadata, and must not
+    re-implement the precedence rules. Returns the descriptor default for an unregistered key's
+    absence of a value, and ``None`` when the key is not registered at all.
+    """
+    descriptor = descriptor_for(key)
+    if descriptor is None:
+        return None
+    scope_view = "project" if project_id else "general"
+    resolved = _resolve_one(
+        descriptor=descriptor,
+        repo=SettingsRepository(connection),
+        project_id=project_id,
+        scope_view=scope_view,
+    )
+    return resolved["value"]

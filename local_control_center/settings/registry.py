@@ -8,6 +8,10 @@ grounded in runtime concepts: ``security.shell.profile`` mirrors the policy-engi
 profiles, ``project.loop.teamMode``/``project.loop.risk`` mirror the team-scheduler MODES/RISKS,
 and ``research.internetPolicy`` mirrors the conservative source-policy allowlist posture.
 
+``project.loop.teamMode`` (economy/balanced/critical/maximum) and ``project.routing.forceLocal``
+are the operator's standing cost decision: ``ThreadCoordinator`` stamps both onto every queued
+Product Loop run, so a change here governs the next run rather than only describing it.
+
 @author Rodrigo Mason
 """
 
@@ -120,6 +124,14 @@ REGISTRY: list[SettingDescriptor] = [
         default="hybrid",
         enum=("api", "cli", "ollama", "hybrid", "manual"),
         label_key="app.settings.project.runtime.defaultMode",
+    ),
+    SettingDescriptor(
+        key="project.routing.forceLocal",
+        section="runtime",
+        project_section="runtime",
+        type="boolean",
+        default=False,
+        label_key="app.settings.project.routing.forceLocal",
     ),
     SettingDescriptor(
         key="worker.autostart",

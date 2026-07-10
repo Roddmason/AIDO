@@ -2,7 +2,7 @@
  * Thread Inspector (threads area): the 8-tab "AI manager" console in the right pane.
  *
  * Verifies against the real control plane that the inspector opens with the live thread,
- * pins the loop vitals above the tabs, exposes the eight manager views as real ARIA tabs,
+ * pins the loop vitals above the tabs, exposes the nine manager views as real ARIA tabs,
  * renders the Goal view from actual thread data, and never strands a view on its loading
  * skeleton after rapid tab switching (regression: the in-flight dedup marker must reset
  * synchronously when a tab unmounts mid-fetch).
@@ -46,13 +46,14 @@ test('Threads: the inspector opens as the AI-manager console with pinned loop vi
 	const inspector = page.locator('.inspector-panel');
 	await expect(inspector.locator('.thread-inspector')).toBeVisible({ timeout: 20_000 });
 
-	// The eight manager views exist as real tabs in one tablist.
+	// The nine manager views exist as real tabs in one tablist.
 	const tablist = inspector.getByRole('tablist');
 	const tabNames = [
 		/Goal|Objetivo/,
 		/Team|Equipo/,
 		/Plan/,
 		/Backlog/,
+		/Cost|Costo/,
 		/Memory|Memoria/,
 		/Research|Investigaci/,
 		/Artifacts|Artefactos/,
@@ -199,7 +200,7 @@ test('Threads: Research tab shows blocked recovery instead of an empty artifact'
 	await page.unrouteAll({ behavior: 'ignoreErrors' });
 });
 
-test('Threads: all eight tabs stay reachable, un-cut and keyboard-navigable in a 320px pane', async ({
+test('Threads: all nine tabs stay reachable, un-cut and keyboard-navigable in a 320px pane', async ({
 	page,
 }) => {
 	await page.goto('/#threads');
@@ -223,6 +224,7 @@ test('Threads: all eight tabs stay reachable, un-cut and keyboard-navigable in a
 		/Team|Equipo/,
 		/Plan/,
 		/Backlog/,
+		/Cost|Costo/,
 		/Memory|Memoria/,
 		/Research|Investigaci/,
 		/Artifacts|Artefactos/,
@@ -234,7 +236,7 @@ test('Threads: all eight tabs stay reachable, un-cut and keyboard-navigable in a
 	for (const name of tabNames) {
 		await expect(tablist.getByRole('tab', { name })).toBeVisible();
 	}
-	await expect(tablist.getByRole('tab')).toHaveCount(8);
+	await expect(tablist.getByRole('tab')).toHaveCount(9);
 
 	// Icon-only compaction is genuinely engaged: the label collapses to a visually-hidden node
 	// (position:absolute sr-only) while the tab keeps its accessible name (asserted above).
@@ -339,7 +341,7 @@ test('Threads: a long Team roster scrolls inside its view and never pushes the t
 	page,
 }) => {
 	// Regression: the repair card pinned above the tabs is tall, and the tablist was the only flexible
-	// sibling — so a blocked thread squeezed `.tabs-root` down to a single pixel, cutting the eight tabs
+	// sibling — so a blocked thread squeezed `.tabs-root` down to a single pixel, cutting the nine tabs
 	// off and spilling the pane into its own scroll. The card must scroll inside its own region instead.
 	await page.route('**/api/v1/agent-profiles*', (route) =>
 		route.fulfill({ json: { agentProfiles: longRoster(24) } }),

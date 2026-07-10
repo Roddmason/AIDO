@@ -239,14 +239,11 @@ class ModelRouter:
 
         estimated_cost = selected.get("estimatedCostUsd") if selected else None
         selected_unknown_cost_policy = selected.get("_unknownCostPolicy") if selected else None
-        approval_threshold = role_policy.get("requiresApprovalOverUsd")
-        if approval_threshold is None:
-            approval_threshold = role_policy.get("maxCostPerTaskUsd")
+        approval_threshold = self._premium_threshold(role_policy)
         requires_approval = bool(
             estimated_cost is not None
             and approval_threshold is not None
-            and float(approval_threshold) > 0
-            and float(estimated_cost) > float(approval_threshold)
+            and float(estimated_cost) > approval_threshold
         )
         if (
             selected
@@ -336,6 +333,10 @@ class ModelRouter:
             require_approval_for_unknown_cost=bool(
                 role_policy.get("requireApprovalForUnknownCost", True)
             ),
+            # In the AI-resource path the approval verdict comes from that manager alone (see
+            # `_ai_decision_to_routing_preview`). Hand it the role's premium threshold or an expensive
+            # pick would slip through here while the classic path below still gates it.
+            require_approval_over_usd=self._premium_threshold(role_policy),
             workflow_run_id=request.workflow_run_id,
             workflow_step_id=request.workflow_step_id,
             agent_id=request.agent_id,
@@ -369,6 +370,16 @@ class ModelRouter:
                 }
             )
         return result
+
+    @staticmethod
+    def _premium_threshold(role_policy: dict[str, Any]) -> float | None:
+        """Umbral premium del rol: el explícito y, si no lo hay, el cap por tarea. ``None`` si no aplica."""
+        threshold = role_policy.get("requiresApprovalOverUsd")
+        if threshold is None:
+            threshold = role_policy.get("maxCostPerTaskUsd")
+        if threshold is None or float(threshold) <= 0:
+            return None
+        return float(threshold)
 
     def _has_ai_resource_profiles(self) -> bool:
         row = self.connection.execute("SELECT 1 FROM ai_model_performance WHERE enabled = 1 LIMIT 1").fetchone()

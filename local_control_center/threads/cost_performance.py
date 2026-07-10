@@ -3,12 +3,13 @@
 Un thread no tiene columna propia en ``usage_ledger``/``routing_decisions``; su ejecución se ancla por el
 prefijo de ``task_id`` que el ``ProductLoopCoordinator`` deriva del ``loopId`` (``product-loop-<12>`` y sus
 hermanos ``product-owner-``/``product-loop-research-``). Este servicio resuelve esos prefijos desde los
-eventos del hilo y proyecta las siete señales accionables del inspector: presupuesto usado, estimado vs
-actual, tokens conocidos/desconocidos, modelo elegido, razón, alternativa más barata y calidad/retrabajo.
+eventos del hilo y proyecta las señales accionables del inspector: presupuesto usado, estimado vs actual,
+tokens conocidos/desconocidos, latencia, modelo elegido, razón, alternativa más barata, calidad/retrabajo
+y la política de costo vigente que gobierna la próxima ejecución.
 
-Invariante central (alineado con el motor y con el gate de front): un costo o token desconocido se modela
-como ``None``, nunca como ``0``. Sumar solo conoce valores presentes; si no hay ninguno, el total es
-``None`` y el estado es ``unknown``. Solo lee: no ejecuta rutas ni muta estado.
+Invariante central (alineado con el motor y con el gate de front): un costo, token o latencia desconocidos
+se modelan como ``None``, nunca como ``0``. Sumar solo conoce valores presentes; si no hay ninguno, el
+total es ``None`` y el estado es ``unknown``. Solo lee: no ejecuta rutas ni muta estado.
 
 @author Rodrigo Mason
 """
@@ -18,14 +19,18 @@ from __future__ import annotations
 import sqlite3
 from typing import Any
 
+from local_control_center.agents.ai_resource_manager import AIResourceManager
 from local_control_center.agents.model_benchmarks import ModelBenchmarkStore
 from local_control_center.agents.routing_profiles import RoutingProfileStore
 from local_control_center.agents.usage_ledger import UsageLedger
 from local_control_center.product_loop.repository import ProductLoopRepository
+from local_control_center.settings.resolver import resolve_setting_value
+from local_control_center.team_scheduler.scheduler import MODES
 
 from .repository import ThreadsRepository
 
 DEVELOPER_ROLE = "developer"
+DEFAULT_TEAM_MODE = "balanced"
 
 
 def _task_prefixes_for_loop(loop_id: str) -> list[str]:
@@ -51,6 +56,7 @@ class ThreadCostPerformanceService:
         self.threads = ThreadsRepository(connection)
         self.usage = UsageLedger(connection)
         self.routing = RoutingProfileStore(connection)
+        self.resources = AIResourceManager(connection)
         self.loops = ProductLoopRepository(connection)
         self.benchmarks = ModelBenchmarkStore(connection)
 
@@ -60,11 +66,11 @@ class ThreadCostPerformanceService:
         Raises:
             KeyError: si el hilo no existe.
         """
-        self.threads.get_thread(thread_id)
+        thread = self.threads.get_thread(thread_id)
         loop_ids = self._loop_ids(thread_id)
         prefixes = self._task_prefixes(loop_ids)
         usage_rows = self.usage.list_usage_for_task_prefixes(prefixes)
-        decisions = self.routing.list_routing_decisions_for_task_prefixes(prefixes)
+        decisions = self._routing_decisions(prefixes)
         model_chosen, reason, cheaper = self._routing_view(decisions)
         return {
             "threadId": thread_id,
@@ -73,10 +79,12 @@ class ThreadCostPerformanceService:
             "budgetUsed": self._budget_used(usage_rows, developer_role),
             "cost": self._cost_summary(usage_rows),
             "tokens": self._token_summary(usage_rows),
+            "latency": self._latency_summary(usage_rows),
             "modelChosen": model_chosen,
             "reasonSelected": reason,
             "cheaperAlternative": cheaper,
             "qualityRework": self._quality_rework(loop_ids, model_chosen),
+            "policy": self._policy(thread["projectId"], decisions, developer_role),
         }
 
     def _loop_ids(self, thread_id: str) -> list[str]:
@@ -96,6 +104,19 @@ class ThreadCostPerformanceService:
                 if prefix not in prefixes:
                     prefixes.append(prefix)
         return prefixes
+
+    def _routing_decisions(self, prefixes: list[str]) -> list[dict[str, Any]]:
+        """Devuelve las decisiones de ruteo del hilo desde el rastro que realmente lo ejecutó.
+
+        El Product Loop llama al ``AIResourceManager`` directamente, así que su rastro vive en
+        ``ai_routing_decisions``; ``routing_decisions`` solo se llena cuando el ``ModelRouter`` es el
+        que decide (model gateway, workflows). Se prefiere el primero cuando existe —es el registro de
+        la ejecución del hilo— y se cae al segundo en vez de reportar "sin modelo elegido".
+        """
+        ai_decisions = self.resources.list_routing_decisions_for_task_prefixes(prefixes)
+        if ai_decisions:
+            return ai_decisions
+        return self.routing.list_routing_decisions_for_task_prefixes(prefixes)
 
     def _budget_used(self, usage_rows: list[dict[str, Any]], developer_role: str) -> dict[str, Any]:
         """Gasto acumulado del hilo (actual si se conoce, si no estimado) contra el cap por-run efectivo."""
@@ -171,6 +192,78 @@ class ThreadCostPerformanceService:
             "tokenStatus": token_status,
             "callCount": len(usage_rows),
         }
+
+    def _latency_summary(self, usage_rows: list[dict[str, Any]]) -> dict[str, Any]:
+        """Latencia observada por llamada; una llamada sin latencia registrada es desconocida, no 0 ms.
+
+        ``p50Ms`` es la mediana baja del conjunto observado (sin interpolar un valor que nadie midió).
+        Con cero llamadas medidas los tres agregados son ``None`` y el estado es ``unknown``/``none``.
+        """
+        observed = sorted(int(row["latencyMs"]) for row in usage_rows if row.get("latencyMs") is not None)
+        known_calls = len(observed)
+        unknown_calls = len(usage_rows) - known_calls
+        if not usage_rows:
+            latency_status = "none"
+        elif unknown_calls == 0:
+            latency_status = "actual"
+        elif known_calls == 0:
+            latency_status = "unknown"
+        else:
+            latency_status = "partial"
+        return {
+            "p50Ms": observed[(known_calls - 1) // 2] if known_calls else None,
+            "avgMs": round(sum(observed) / known_calls) if known_calls else None,
+            "maxMs": observed[-1] if known_calls else None,
+            "knownCalls": known_calls,
+            "unknownCalls": unknown_calls,
+            "latencyStatus": latency_status,
+            "callCount": len(usage_rows),
+        }
+
+    def _policy(
+        self,
+        project_id: str,
+        decisions: list[dict[str, Any]],
+        developer_role: str,
+    ) -> dict[str, Any]:
+        """Política de costo vigente y el veredicto de aprobación de la última decisión de ruteo.
+
+        Es la mitad accionable del snapshot: ``mode`` y ``forceLocal`` son lo que el operador dejó
+        puesto y gobierna la próxima ejecución; ``approvalRequired``/``premiumApproval`` son lo que la
+        política dictaminó sobre la ejecución ya registrada.
+        """
+        mode = resolve_setting_value(
+            connection=self.connection, key="project.loop.teamMode", project_id=project_id
+        )
+        latest = decisions[0] if decisions else None
+        policy_result = (latest or {}).get("policyResult") or {}
+        premium = policy_result.get("premiumApproval")
+        return {
+            "mode": mode if mode in MODES else DEFAULT_TEAM_MODE,
+            "forceLocal": bool(
+                resolve_setting_value(
+                    connection=self.connection,
+                    key="project.routing.forceLocal",
+                    project_id=project_id,
+                )
+            ),
+            "premiumApprovalOverUsd": self._premium_threshold(developer_role),
+            "approvalRequired": bool(latest.get("approvalRequired")) if latest else False,
+            "premiumApproval": premium if isinstance(premium, dict) else None,
+        }
+
+    def _premium_threshold(self, developer_role: str) -> float | None:
+        """Umbral premium efectivo del rol ejecutor; espeja la precedencia del coordinator."""
+        try:
+            policy = self.routing.get_role_policy(developer_role)
+        except KeyError:
+            return None
+        threshold = policy.get("requiresApprovalOverUsd")
+        if threshold is None:
+            threshold = policy.get("maxCostPerTaskUsd")
+        if threshold is None or float(threshold) <= 0:
+            return None
+        return float(threshold)
 
     def _routing_view(
         self, decisions: list[dict[str, Any]]

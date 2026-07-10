@@ -1531,6 +1531,21 @@ export function createModelGatewayRolePolicy(
 	});
 }
 
+export function patchModelGatewayRolePolicy(
+	token: string,
+	policyId: string,
+	body: MutationBody<'patch_role_policy_api_v1_model_gateway_role_policies__policy_id__patch'>,
+) {
+	return requestGeneratedOperation(
+		'patch_role_policy_api_v1_model_gateway_role_policies__policy_id__patch',
+		{
+			token,
+			pathParams: { policy_id: policyId },
+			body,
+		},
+	);
+}
+
 export function createRisk(token: string, body: MutationBody<'create_risk_api_v1_risks_post'>) {
 	return requestGeneratedOperation('create_risk_api_v1_risks_post', {
 		token,

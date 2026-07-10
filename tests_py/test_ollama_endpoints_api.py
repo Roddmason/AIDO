@@ -265,3 +265,87 @@ def test_routing_selects_remote_ollama_endpoint_when_local_has_no_model(
     assert payload["selected"]["provider"] == "ollama-remote-lan"
     assert payload["selected"]["model"] == "llama3:latest"
     assert all(item["provider"] != "ollama-local" for item in payload["candidates"])
+
+
+def test_seeded_local_daemon_is_exposed_as_an_ollama_endpoint(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client, _headers, _store = client_with_store(tmp_path, monkeypatch)
+
+    listed = client.get("/api/v1/ollama/endpoints")
+
+    assert listed.status_code == 200
+    endpoints = listed.json()["endpoints"]
+    local = next(item for item in endpoints if item["id"] == "ollama")
+    assert local["kind"] == "local"
+    assert local["baseUrl"] == "http://localhost:11434"
+    # The seeded `ollama_remote` account carries no server URL, so it is a placeholder to configure
+    # through the provider catalog, not an endpoint this surface can validate or sync.
+    assert all(item["id"] != "ollama_remote" for item in endpoints)
+
+
+def test_endpoint_kind_survives_a_provider_type_the_router_did_not_write(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client, _headers, store = client_with_store(tmp_path, monkeypatch)
+    # The provider catalog seeds `ollama_remote` with provider_type 'local'; once an operator gives it
+    # a remote URL through the generic provider API, the endpoint must still read as remote.
+    store.connection.execute(
+        "UPDATE provider_accounts SET base_url = ? WHERE provider_id = 'ollama_remote'",
+        ("http://192.168.1.50:11434",),
+    )
+
+    listed = client.get("/api/v1/ollama/endpoints")
+
+    remote = next(item for item in listed.json()["endpoints"] if item["id"] == "ollama_remote")
+    assert remote["kind"] == "remote"
+    assert dict(
+        store.connection.execute(
+            "SELECT provider_type FROM provider_accounts WHERE provider_id = 'ollama_remote'"
+        ).fetchone()
+    ) == {"provider_type": "local"}
+
+
+def test_explicit_endpoint_kind_is_preserved_over_the_url_host(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client, headers, _store = client_with_store(tmp_path, monkeypatch)
+
+    created = client.post(
+        "/api/v1/ollama/endpoints",
+        headers=headers,
+        json=endpoint_payload("ollama-forced-remote", "http://127.0.0.1:11434", kind="remote"),
+    )
+    listed = client.get("/api/v1/ollama/endpoints")
+
+    assert created.status_code == 201
+    assert created.json()["endpoint"]["kind"] == "remote"
+    forced = next(item for item in listed.json()["endpoints"] if item["id"] == "ollama-forced-remote")
+    assert forced["kind"] == "remote"
+
+
+def test_endpoint_kind_is_inferred_from_the_whole_loopback_range(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client, headers, _store = client_with_store(tmp_path, monkeypatch)
+
+    cases = {
+        "ollama-loopback-alias": ("http://127.0.0.2:11434", "local"),
+        "ollama-loopback-name": ("http://localhost:11434", "local"),
+        "ollama-loopback-v6": ("http://[::1]:11434", "local"),
+        "ollama-lan-host": ("http://192.168.1.50:11434", "remote"),
+        "ollama-named-host": ("https://ollama.internal.example", "remote"),
+    }
+    created = {
+        endpoint_id: client.post(
+            "/api/v1/ollama/endpoints",
+            headers=headers,
+            json={"id": endpoint_id, "baseUrl": base_url, "enabled": False},
+        )
+        for endpoint_id, (base_url, _kind) in cases.items()
+    }
+
+    for endpoint_id, (_base_url, expected_kind) in cases.items():
+        response = created[endpoint_id]
+        assert response.status_code == 201, endpoint_id
+        assert response.json()["endpoint"]["kind"] == expected_kind, endpoint_id

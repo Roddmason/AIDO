@@ -11442,6 +11442,214 @@
     "app.settings.worker.tuningSummary": {
       "en": "Poll interval and job concurrency",
       "es": "Intervalo de sondeo y concurrencia de trabajos"
+    },
+    "app.ollama.title": {
+      "en": "Ollama endpoints",
+      "es": "Endpoints de Ollama"
+    },
+    "app.ollama.summary": {
+      "en": "Run several Ollama servers side by side — the local daemon plus any remote host — and route each role to the one you trust.",
+      "es": "Ejecuta varios servidores Ollama en paralelo — el daemon local y cualquier host remoto — y enruta cada rol al que prefieras."
+    },
+    "app.ollama.configured": {
+      "en": "configured",
+      "es": "configurados"
+    },
+    "app.ollama.addEndpoint": {
+      "en": "Add endpoint",
+      "es": "Agregar endpoint"
+    },
+    "app.ollama.empty": {
+      "en": "No Ollama endpoint is configured yet",
+      "es": "Todavía no hay ningún endpoint de Ollama configurado"
+    },
+    "app.ollama.emptyHint": {
+      "en": "Add the local daemon or a remote server to start routing local models.",
+      "es": "Agrega el daemon local o un servidor remoto para empezar a enrutar modelos locales."
+    },
+    "app.ollama.tokenRequired": {
+      "en": "A local write token is required to change Ollama endpoints.",
+      "es": "Se requiere un token local de escritura para modificar los endpoints de Ollama."
+    },
+    "app.ollama.kind.local": {
+      "en": "local daemon",
+      "es": "daemon local"
+    },
+    "app.ollama.kind.remote": {
+      "en": "remote server",
+      "es": "servidor remoto"
+    },
+    "app.ollama.enabled": {
+      "en": "enabled",
+      "es": "habilitado"
+    },
+    "app.ollama.disabled": {
+      "en": "disabled",
+      "es": "deshabilitado"
+    },
+    "app.ollama.credential": {
+      "en": "bearer token",
+      "es": "token bearer"
+    },
+    "app.ollama.card.baseUrl": {
+      "en": "Base URL",
+      "es": "URL base"
+    },
+    "app.ollama.card.baseUrlUnset": {
+      "en": "not set",
+      "es": "sin definir"
+    },
+    "app.ollama.card.latency": {
+      "en": "Latency",
+      "es": "Latencia"
+    },
+    "app.ollama.card.latencyUnknown": {
+      "en": "not measured",
+      "es": "sin medir"
+    },
+    "app.ollama.card.models": {
+      "en": "Models",
+      "es": "Modelos"
+    },
+    "app.ollama.card.noModels": {
+      "en": "No model synced yet — run Sync models.",
+      "es": "Aún no hay modelos sincronizados — usa Sincronizar modelos."
+    },
+    "app.ollama.card.preferredFor": {
+      "en": "Preferred for roles",
+      "es": "Preferido para los roles"
+    },
+    "app.ollama.card.lastError": {
+      "en": "Last error",
+      "es": "Último error"
+    },
+    "app.ollama.card.noReason": {
+      "en": "No reason reported.",
+      "es": "No se reportó un motivo."
+    },
+    "app.ollama.card.validate": {
+      "en": "Validate",
+      "es": "Validar"
+    },
+    "app.ollama.card.syncModels": {
+      "en": "Sync models",
+      "es": "Sincronizar modelos"
+    },
+    "app.ollama.card.setPreferred": {
+      "en": "Set preferred for role",
+      "es": "Definir preferido por rol"
+    },
+    "app.ollama.action.validateOk": {
+      "en": "Endpoint responded",
+      "es": "El endpoint respondió"
+    },
+    "app.ollama.action.validateFailed": {
+      "en": "Endpoint did not respond",
+      "es": "El endpoint no respondió"
+    },
+    "app.ollama.action.modelsSynced": {
+      "en": "Models synced",
+      "es": "Modelos sincronizados"
+    },
+    "app.ollama.action.failed": {
+      "en": "Endpoint action failed",
+      "es": "La acción sobre el endpoint falló"
+    },
+    "app.ollama.action.preferredSet": {
+      "en": "Role now prefers this endpoint",
+      "es": "El rol ahora prefiere este endpoint"
+    },
+    "app.ollama.action.preferredFailed": {
+      "en": "Could not update the role policy",
+      "es": "No se pudo actualizar la política del rol"
+    },
+    "app.ollama.add.title": {
+      "en": "Add Ollama endpoint",
+      "es": "Agregar endpoint de Ollama"
+    },
+    "app.ollama.add.id": {
+      "en": "Endpoint id",
+      "es": "Id del endpoint"
+    },
+    "app.ollama.add.idHelp": {
+      "en": "Stable identifier used by routing and the model catalog.",
+      "es": "Identificador estable que usan el ruteo y el catálogo de modelos."
+    },
+    "app.ollama.add.displayName": {
+      "en": "Display name",
+      "es": "Nombre visible"
+    },
+    "app.ollama.add.displayNameHelp": {
+      "en": "Shown on the card; defaults to the id.",
+      "es": "Se muestra en la card; por defecto toma el id."
+    },
+    "app.ollama.add.baseUrl": {
+      "en": "Base URL",
+      "es": "URL base"
+    },
+    "app.ollama.add.baseUrlHelp": {
+      "en": "A loopback host registers a local endpoint; any other host registers a remote one.",
+      "es": "Un host de loopback registra un endpoint local; cualquier otro host registra uno remoto."
+    },
+    "app.ollama.add.credentialRef": {
+      "en": "Credential reference",
+      "es": "Referencia de credencial"
+    },
+    "app.ollama.add.credentialRefHelp": {
+      "en": "Optional bearer token reference for an authenticated remote server; the secret is never shown.",
+      "es": "Referencia opcional a un token bearer para un servidor remoto autenticado; el secreto nunca se muestra."
+    },
+    "app.ollama.add.enabled": {
+      "en": "Enable this endpoint",
+      "es": "Habilitar este endpoint"
+    },
+    "app.ollama.add.errorId": {
+      "en": "The id must be lowercase letters, digits, dot, colon, dash or underscore.",
+      "es": "El id solo admite minúsculas, dígitos, punto, dos puntos, guion o guion bajo."
+    },
+    "app.ollama.add.errorBaseUrl": {
+      "en": "Enter an absolute http(s) URL with no query string.",
+      "es": "Ingresa una URL http(s) absoluta y sin query string."
+    },
+    "app.ollama.add.cancel": {
+      "en": "Cancel",
+      "es": "Cancelar"
+    },
+    "app.ollama.add.submit": {
+      "en": "Add endpoint",
+      "es": "Agregar endpoint"
+    },
+    "app.ollama.role.title": {
+      "en": "Set preferred for role",
+      "es": "Definir preferido por rol"
+    },
+    "app.ollama.role.role": {
+      "en": "Role",
+      "es": "Rol"
+    },
+    "app.ollama.role.roleHelp": {
+      "en": "The endpoint becomes the first preferred candidate of this role.",
+      "es": "El endpoint pasa a ser el primer candidato preferido de este rol."
+    },
+    "app.ollama.role.model": {
+      "en": "Model",
+      "es": "Modelo"
+    },
+    "app.ollama.role.modelHelp": {
+      "en": "Only models already synced from this endpoint.",
+      "es": "Solo modelos ya sincronizados desde este endpoint."
+    },
+    "app.ollama.role.policyNote": {
+      "en": "Routing still honours the role permissions: a role that blocks local or remote runtimes keeps blocking this endpoint.",
+      "es": "El ruteo sigue respetando los permisos del rol: un rol que bloquea runtimes locales o remotos sigue bloqueando este endpoint."
+    },
+    "app.ollama.role.cancel": {
+      "en": "Cancel",
+      "es": "Cancelar"
+    },
+    "app.ollama.role.confirm": {
+      "en": "Set as preferred",
+      "es": "Marcar como preferido"
     }
   }
 }

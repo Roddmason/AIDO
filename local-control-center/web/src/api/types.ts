@@ -29,6 +29,7 @@ import type {
 	ModelGatewayOverviewRecord,
 	ModelProviderRecord,
 	NextStepCreateRequest,
+	OllamaEndpointRecord,
 	OverviewResponse,
 	PolicyRevisionRecord,
 	ProjectCreateRequest,
@@ -102,6 +103,7 @@ export type ModelGatewayProviderAccount = ProviderAccountRecord;
 export type ModelGatewayModel = ModelCatalogRecord;
 export type ModelGatewayRoutingProfile = RoutingProfileRecord;
 export type ModelGatewayRolePolicy = RolePolicyRecord;
+export type OllamaEndpoint = OllamaEndpointRecord;
 export type ModelGatewayUsage = UsageLedgerRecord;
 export type ModelGatewayUsageSummary = UsageSummaryRecord;
 export type ModelGatewayRoutingDecision = RoutingDecisionRecord;

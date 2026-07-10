@@ -67,6 +67,7 @@ def initialize_platform_schema(connection: sqlite3.Connection) -> None:
     init_phase46_schema(connection)
     init_phase47_schema(connection)
     init_phase48_schema(connection)
+    init_phase49_schema(connection)
     seed_platform_catalogs(connection)
 
 
@@ -1434,7 +1435,7 @@ def init_phase12_schema(connection: sqlite3.Connection) -> None:
             "ollama",
             "Ollama Local/Remote",
             "local",
-            "custom",
+            "ollama",
             "http://localhost:11434",
             "",
             0,
@@ -4900,6 +4901,27 @@ def init_phase48_schema(connection: sqlite3.Connection) -> None:
     connection.execute(
         "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
         (48, utc_now()),
+    )
+
+
+def init_phase49_schema(connection: sqlite3.Connection) -> None:
+    """Fase 49: normaliza el apiFormat del daemon Ollama local a 'ollama'.
+
+    La cuenta sembrada quedó con api_format 'custom', un valor que nadie lee y que dejaba al
+    daemon local fuera de `/api/v1/ollama/endpoints` (filtra por apiFormat == 'ollama'). Alinearlo
+    con `provider_catalog.ollama` lo expone como el endpoint que ya es, sin cambiar su despacho.
+    """
+    connection.execute(
+        """
+        UPDATE provider_accounts
+        SET api_format = 'ollama', updated_at = ?
+        WHERE provider_id = 'ollama' AND api_format <> 'ollama'
+        """,
+        (utc_now(),),
+    )
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (49, utc_now()),
     )
 
 

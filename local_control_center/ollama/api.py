@@ -9,6 +9,7 @@ hacen visible como runtime, y ``model_catalog`` guarda sus modelos por ``provide
 
 from __future__ import annotations
 
+import ipaddress
 import re
 import time
 from typing import Any, Literal
@@ -27,7 +28,7 @@ from local_control_center.shared.serialization import json_dumps, json_loads
 from local_control_center.shared.time import utc_now
 
 ENDPOINT_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_.:-]{1,95}$")
-LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost"}
+LOOPBACK_HOSTS = {"localhost"}
 
 
 class _AliasedModel(BaseModel):
@@ -127,11 +128,27 @@ def _normalize_base_url(base_url: str) -> str:
     return value
 
 
+def _is_loopback_host(host: str) -> bool:
+    """Indica si el host es de loopback: todo `127.0.0.0/8` y `::1`, no solo `127.0.0.1`."""
+    if host in LOOPBACK_HOSTS:
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
 def _infer_kind(base_url: str, requested: str | None) -> Literal["local", "remote"]:
+    """Clasifica el endpoint; sin `kind` explícito, solo un host de loopback cuenta como local.
+
+    Falla hacia `remote` ante un host no reconocido: un endpoint marcado local se salta las
+    políticas de runtime remoto (`allowRemote`, `privacy_blocks_remote`), así que la duda se
+    resuelve del lado restrictivo.
+    """
     if requested in {"local", "remote"}:
         return requested
     host = (urlparse(base_url).hostname or "").lower()
-    return "local" if host in LOOPBACK_HOSTS else "remote"
+    return "local" if _is_loopback_host(host) else "remote"
 
 
 def _provider_type(kind: str) -> str:
@@ -140,6 +157,24 @@ def _provider_type(kind: str) -> str:
 
 def _is_ollama_account(account: dict[str, Any]) -> bool:
     return str(account.get("apiFormat") or "") == "ollama"
+
+
+def _is_configured_endpoint(account: dict[str, Any]) -> bool:
+    """Un endpoint sin `baseUrl` es una cuenta sembrada, no un servidor al que se pueda hablar."""
+    return _is_ollama_account(account) and bool(str(account.get("baseUrl") or "").strip())
+
+
+def _endpoint_kind(account: dict[str, Any]) -> Literal["local", "remote"]:
+    """Resuelve local/remoto desde la metadata del alta y, si falta, desde el host de la URL.
+
+    `providerType` no sirve como fuente: este router lo escribe como local/gateway, pero el catálogo
+    de providers siembra `ollama_remote` como `local`. La metadata registra la elección original y la
+    URL es la verdad observable para cualquier cuenta creada fuera de este router.
+    """
+    stored = str((account.get("metadata") or {}).get("endpointKind") or "")
+    if stored in {"local", "remote"}:
+        return "local" if stored == "local" else "remote"
+    return _infer_kind(str(account.get("baseUrl") or ""), None)
 
 
 def _models_for_provider(store: ProviderAccountStore, provider_id: str) -> list[str]:
@@ -167,7 +202,7 @@ def _latest_latency_for_provider(store: ProviderAccountStore, provider_id: str) 
 
 
 def _endpoint_record(store: ProviderAccountStore, account: dict[str, Any]) -> dict[str, Any]:
-    kind = "local" if account["providerType"] == "local" else "remote"
+    kind = _endpoint_kind(account)
     credential_ref = str(account.get("credentialRef") or "").strip() or None
     provider_id = str(account["providerId"])
     latency = _latest_latency_for_provider(store, provider_id)
@@ -371,7 +406,7 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
         endpoints = [
             _endpoint_record(store, account)
             for account in store.list_provider_accounts()
-            if _is_ollama_account(account)
+            if _is_configured_endpoint(account)
         ]
         return {"endpoints": endpoints}
 
@@ -392,7 +427,7 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
             status=str(health["status"]),
             payload={**health, "lastHealthCheckAt": now},
         )
-        kind = "local" if account["providerType"] == "local" else "remote"
+        kind = _endpoint_kind(account)
         _upsert_runtime_records(
             runtimes(),
             endpoint_id=endpoint_id,

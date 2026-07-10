@@ -30,6 +30,7 @@ import { useI18n } from '../../i18n/I18nProvider';
 import { TranslationMaintainer } from '../../i18n/TranslationMaintainer';
 import { toneForStatus } from '../../lib/format';
 import type { Language } from '../projects/ProjectsPage';
+import { OllamaEndpointsPanel } from '../runtime-setup/OllamaEndpointsPanel';
 import { RuntimeSetupPanel } from '../runtime-setup/RuntimeSetupPanel';
 import { CredentialManagerPanel } from './CredentialManagerPanel';
 
@@ -80,6 +81,7 @@ export function RuntimeBody({
 				onRefresh={onRefresh}
 				initialProviderId={initialProviderId}
 			/>
+			<OllamaEndpointsPanel token={token} onRefresh={onRefresh} />
 			<div className="settings-readouts">
 				<div>
 					<strong>{t('ui.static.local.control.api.f1f86c0e', 'Local Control API')}</strong>

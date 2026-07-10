@@ -1,9 +1,9 @@
 /**
- * Project Goal section body (project scope): the goal statement as a wired row, then
- * the active loop policy — team mode and risk posture — as two selectable radio-card
- * grids. The loop policy is what seeds every run for this project, so each mode and
- * risk level is shown as an explained option rather than a bare dropdown. Card commits
- * write project overrides; the chip shows inherited-vs-overridden per selector.
+ * Goal section panel (project scope): the goal statement as a wired row, then the active
+ * loop policy — team mode and risk posture — as two selectable radio-card grids. The loop
+ * policy is what seeds every run for this project, so each mode and risk level is shown as
+ * an explained option rather than a bare dropdown. Card commits write project overrides;
+ * the chip shows inherited-vs-overridden per selector.
  * @author Rodrigo Mason
  */
 
@@ -11,7 +11,7 @@ import { findSetting, SettingChoiceCards, WiredRows } from './SettingsChoiceCard
 import type { SectionContext } from './sections';
 import { RISK_OPTIONS, TEAM_MODE_OPTIONS } from './settingsChoiceOptions';
 
-export function GoalBody({ ctx }: { ctx: SectionContext }) {
+export function ProjectGoalSettingsPanel({ ctx }: { ctx: SectionContext }) {
 	const { t } = ctx;
 	const statement = findSetting(ctx.resolved, 'project.goal.statement');
 	const teamMode = findSetting(ctx.resolved, 'project.loop.teamMode');

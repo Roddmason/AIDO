@@ -1,9 +1,9 @@
 /**
- * Research section body (general scope): the internet-access policy as a selectable
+ * Research section panel (general scope): the internet-access policy as a selectable
  * radio-card grid, then the remaining research preferences (prefer official docs,
- * maximum sources, trusted domains) as wired rows. Replaces the generic wired list
- * so the headline policy — the choice that most changes agent behaviour — reads as a
- * set of explained options instead of an opaque dropdown.
+ * maximum sources, trusted domains) as wired rows. The headline policy — the choice that
+ * most changes agent behaviour — reads as a set of explained option cards instead of an
+ * opaque dropdown, and its chip keeps the effective value's source visible.
  * @author Rodrigo Mason
  */
 
@@ -11,7 +11,7 @@ import { findSetting, SettingChoiceCards, WiredRows } from './SettingsChoiceCard
 import type { SectionContext } from './sections';
 import { INTERNET_POLICY_OPTIONS } from './settingsChoiceOptions';
 
-export function ResearchBody({ ctx }: { ctx: SectionContext }) {
+export function ResearchSettingsPanel({ ctx }: { ctx: SectionContext }) {
 	const { t } = ctx;
 	const policy = findSetting(ctx.resolved, 'research.internetPolicy');
 	const rest = ctx.resolved.filter((setting) => setting.key !== 'research.internetPolicy');

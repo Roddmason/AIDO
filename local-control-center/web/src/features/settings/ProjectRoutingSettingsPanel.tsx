@@ -1,8 +1,8 @@
 /**
- * Project Routing section body (project scope): the preferred runtime as a selectable
- * radio-card grid, then the runtime-access toggles and allowed-providers list as wired
- * rows. Dedicated to routing so it never reuses the Team roster body — this surface
- * governs which runtimes and providers a project may use, not who is on the team.
+ * Routing section panel (project scope): the preferred runtime as a selectable radio-card
+ * grid, then the runtime-access toggles and allowed-providers list as wired rows. Dedicated
+ * to routing so it never reuses the Team roster panel — this surface governs which runtimes
+ * and providers a project may use, not who is on the team.
  * @author Rodrigo Mason
  */
 
@@ -10,7 +10,7 @@ import { findSetting, SettingChoiceCards, WiredRows } from './SettingsChoiceCard
 import type { SectionContext } from './sections';
 import { RUNTIME_MODE_OPTIONS } from './settingsChoiceOptions';
 
-export function RoutingSettings({ ctx }: { ctx: SectionContext }) {
+export function ProjectRoutingSettingsPanel({ ctx }: { ctx: SectionContext }) {
 	const { t } = ctx;
 	const defaultMode = findSetting(ctx.resolved, 'project.runtime.defaultMode');
 	const rest = ctx.resolved.filter((setting) => setting.key !== 'project.runtime.defaultMode');

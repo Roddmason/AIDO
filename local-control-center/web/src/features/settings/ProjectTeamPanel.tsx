@@ -14,7 +14,8 @@ import type { AgentProfile } from '../../api/types';
 import { EmptyState } from '../../components/primitives';
 import { ErrorState, Skeleton } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
-import { ConsoleLink, TeamRosterCards } from './SettingsPage';
+import { TeamRosterCards } from './DefaultTeamSettingsPanel';
+import { ConsoleLink } from './SettingsPage';
 
 export function ProjectTeamPanel({
 	projectId,

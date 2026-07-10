@@ -107,17 +107,21 @@ test('Threads: inspector views survive rapid tab switching without a stuck skele
 	await tablist.getByRole('tab', { name: /Plan/ }).click();
 	await tablist.getByRole('tab', { name: /Team|Equipo/ }).click();
 	await tablist.getByRole('tab', { name: /Plan/ }).click();
-	await expect(inspector.locator('.thread-inspector-loading')).toBeHidden({ timeout: 20_000 });
+	// `toHaveCount(0)`, not `toBeHidden`: the tab crossfade keeps the outgoing panel mounted for a
+	// beat, so two skeletons can coexist and a single-element matcher would trip on strict mode
+	// before the transition settles. Zero skeletons is the assertion that was always meant.
+	await expect(inspector.locator('.thread-inspector-loading')).toHaveCount(0, { timeout: 20_000 });
 	await expect(
 		inspector.locator('.thread-inspector-stack, .thread-inspector-list, .empty-state').first(),
 	).toBeVisible({ timeout: 20_000 });
 
-	// Team view: agent roster rows or the honest "no agents" empty state.
+	// Team view: the grouped roster or the honest "no agents" empty state. Rows are not asserted —
+	// a roster whose agents are all idle renders every group folded behind its count, by design.
 	await tablist.getByRole('tab', { name: /Team|Equipo/ }).click();
-	await expect(inspector.locator('.thread-inspector-loading')).toBeHidden({ timeout: 20_000 });
-	await expect(
-		inspector.locator('.thread-inspector-row, .empty-state').first(),
-	).toBeVisible({ timeout: 20_000 });
+	await expect(inspector.locator('.thread-inspector-loading')).toHaveCount(0, { timeout: 20_000 });
+	await expect(inspector.locator('.thread-team, .empty-state').first()).toBeVisible({
+		timeout: 20_000,
+	});
 
 	// Settings view: resolved read-only configuration or its empty state.
 	await tablist.getByRole('tab', { name: /Settings|Configuraci/ }).click();
@@ -337,9 +341,8 @@ test('Threads: a long Team roster scrolls inside its view and never pushes the t
 	// Regression: the repair card pinned above the tabs is tall, and the tablist was the only flexible
 	// sibling — so a blocked thread squeezed `.tabs-root` down to a single pixel, cutting the eight tabs
 	// off and spilling the pane into its own scroll. The card must scroll inside its own region instead.
-	const overview = await (await page.request.get('/api/v1/overview')).json();
-	await page.route('**/api/v1/overview', (route) =>
-		route.fulfill({ json: { ...overview, agentProfiles: longRoster(24) } }),
+	await page.route('**/api/v1/agent-profiles*', (route) =>
+		route.fulfill({ json: { agentProfiles: longRoster(24) } }),
 	);
 	await mockPendingRemediation(page);
 
@@ -353,8 +356,9 @@ test('Threads: a long Team roster scrolls inside its view and never pushes the t
 
 	const tablist = inspectorPanel.getByRole('tablist');
 	await tablist.getByRole('tab', { name: /Team|Equipo/ }).click();
-	// An all-idle bench keeps its group open, so the full-height roster renders without a click.
-	await expect(inspectorPanel.locator('.thread-inspector-row').first()).toBeVisible({
+	// The bench ships folded; unfold it so all 24 rows render and the view has to scroll.
+	await inspectorPanel.locator('[data-group="available"] .disclosure-trigger').first().click();
+	await expect(inspectorPanel.locator('.thread-inspector-row')).toHaveCount(24, {
 		timeout: 20_000,
 	});
 
@@ -639,11 +643,15 @@ test('Threads: the Team tab reads as a manager console — grouped by state, act
 			role: 'devops_engineer',
 			runtimeType: 'cli',
 			runtimeMode: 'cli',
+			// The real backend attaches a reason to `configuration_required` too. An agent that was never
+			// wired to a provider is a setup gap, not a runtime that stopped working, so it must land in
+			// Unconfigured; reading that reason as a block would file the whole unwired bench under Blocked.
 			runtimeAvailability: {
 				status: 'configuration_required',
 				available: false,
+				blockedReason: 'Agent profile has no runtime provider candidates.',
 				requiredCapabilities: ['shell'],
-				candidateProviderIds: ['codex_cli'],
+				candidateProviderIds: [],
 			},
 			reviewerPolicy: {},
 			allowedProviders: ['codex_cli'],
@@ -656,8 +664,9 @@ test('Threads: the Team tab reads as a manager console — grouped by state, act
 	// Snapshot the live plane once, then serve static snapshots so background polls stay fast and stable
 	// (the flat-list roster is what we are replacing). Routes are set BEFORE navigation so the inspector's
 	// project-keyed product-loop resource is intercepted on its first (and only) fetch — otherwise it
-	// caches the real loop and never sees the injected assignments. Overview keeps its real
-	// threads/projects so the created thread stays selected; only `agentProfiles` is swapped.
+	// caches the real loop and never sees the injected assignments. The roster is served from
+	// `/agent-profiles`, the only endpoint that resolves availability against the detected runtimes;
+	// overview is left untouched so the created thread stays selected.
 	const overview = await (await page.request.get('/api/v1/overview')).json();
 	const project = overview.projects.find((item) => item.status === 'active') ?? overview.projects[0];
 	expect(project).toBeTruthy();
@@ -692,8 +701,8 @@ test('Threads: the Team tab reads as a manager console — grouped by state, act
 		],
 	};
 
-	await page.route('**/api/v1/overview', (route) =>
-		route.fulfill({ json: { ...overview, agentProfiles: ROSTER } }),
+	await page.route('**/api/v1/agent-profiles*', (route) =>
+		route.fulfill({ json: { agentProfiles: ROSTER } }),
 	);
 	await page.route('**/api/v1/projects/*/product-loop', (route) =>
 		route.fulfill({ json: loopFixture }),
@@ -709,7 +718,7 @@ test('Threads: the Team tab reads as a manager console — grouped by state, act
 	await expect(inspector.locator('.thread-inspector')).toBeVisible({ timeout: 20_000 });
 
 	await inspector.getByRole('tablist').getByRole('tab', { name: /Team|Equipo/ }).click();
-	await expect(inspector.locator('.thread-inspector-loading')).toBeHidden({ timeout: 20_000 });
+	await expect(inspector.locator('.thread-inspector-loading')).toHaveCount(0, { timeout: 20_000 });
 
 	// The roster is grouped, not a flat wall: the state-group sections exist and the summary counts the
 	// whole bench (6) even though only the working rows are shown.
@@ -728,17 +737,43 @@ test('Threads: the Team tab reads as a manager console — grouped by state, act
 	await expect(blockedCard).toContainText(/Ollama runtime offline/);
 	await expect(blockedCard.getByRole('button', { name: /Resolve|Resolver/ })).toBeVisible();
 
-	// Requirement 3 — "unknown" never dominates: only the attention rows (active+waiting+blocked = 3)
-	// render, while the idle available/unconfigured groups collapse behind their Disclosure.
+	// Requirement 3 — the idle groups never dominate: only the attention rows (active+waiting+blocked = 3)
+	// render, while both available and unconfigured collapse behind their Disclosure count.
 	await expect(
 		inspector.locator(
 			'[data-group="active"] .thread-inspector-row, [data-group="waiting"] .thread-inspector-row, [data-group="blocked"] .thread-inspector-row',
 		),
 	).toHaveCount(3);
-	await expect(
-		inspector.locator('[data-group="available"] .disclosure-trigger').first(),
-	).toHaveAttribute('aria-expanded', 'false');
+	for (const group of ['available', 'unconfigured']) {
+		await expect(
+			inspector.locator(`[data-group="${group}"] .disclosure-trigger`).first(),
+		).toHaveAttribute('aria-expanded', 'false');
+	}
 	await expect(inspector.getByText('Dot · Docs')).toBeHidden();
+	await expect(inspector.getByText('Fen · DevOps')).toBeHidden();
+	// The unwired agent is a setup gap, not a block, even though its payload carries a reason.
+	await expect(inspector.locator('[data-group="blocked"] .thread-inspector-row')).toHaveCount(1);
+	await expect(
+		inspector.locator('[data-group="unconfigured"] .thread-inspector-row'),
+	).toContainText('Fen · DevOps');
+
+	// Requirement 4 — the active agent's card carries the manager's context, from real fields only:
+	// role, runtime/provider, assignment, why it was selected, reviewer, artifact and its cost cap.
+	const activeCard = inspector.locator('.thread-inspector-row[data-state="active"]').first();
+	await expect(activeCard).toContainText('developer · api · anthropic_api');
+	await expect(activeCard).toContainText('Implement the login form');
+	await activeCard.getByRole('button', { name: /Details|Detalles/ }).click();
+	await expect(activeCard).toContainText('balanced_best_value');
+	await expect(activeCard).toContainText('technical lead (peer)');
+	await expect(activeCard).toContainText('artifact-log');
+	await expect(activeCard).toContainText('$2.00');
+	await expect(activeCard).toContainText(/Token cap per run|Tope de tokens/);
+
+	// A runtime that is still pending never reads as if the gateway had already picked one: its
+	// candidates are labelled as candidates.
+	await blockedCard.getByRole('button', { name: /Details|Detalles/ }).click();
+	await expect(blockedCard).toContainText(/Awaiting runtime selection|Esperando selección/);
+	await expect(blockedCard).toContainText(/candidates: ollama|candidatos: ollama/);
 
 	await page.unrouteAll({ behavior: 'ignoreErrors' });
 });
@@ -810,7 +845,11 @@ test('Threads: the pinned repair card fits the narrow inspector instead of hidin
 	await page.unrouteAll({ behavior: 'ignoreErrors' });
 });
 
-/** One idle agent in the given roster state: `available` reports a runtime, `unconfigured` has none. */
+/**
+ * One idle agent in the given roster state: `available` reports a runtime, `unconfigured` has none.
+ * The unconfigured payload mirrors the backend exactly, reason included, so the fixture proves that a
+ * setup gap is not mistaken for a runtime block.
+ */
 function idleAgent(id, name, available) {
 	return {
 		id,
@@ -828,8 +867,9 @@ function idleAgent(id, name, available) {
 			: {
 					status: 'configuration_required',
 					available: false,
+					blockedReason: 'Agent profile has no runtime provider candidates.',
 					requiredCapabilities: ['shell'],
-					candidateProviderIds: ['codex_cli'],
+					candidateProviderIds: [],
 				},
 		reviewerPolicy: {},
 		allowedProviders: [available ? 'anthropic_api' : 'codex_cli'],
@@ -852,10 +892,8 @@ test('Threads: a narrow pane stacks the roster row so the agent name never runs 
 		await page.request.get(`/api/v1/projects/${project.id}/product-loop`)
 	).json();
 
-	await page.route('**/api/v1/overview', (route) =>
-		route.fulfill({
-			json: { ...overview, agentProfiles: [idleAgent('agent-unset-a', 'Pia · Needs runtime', false)] },
-		}),
+	await page.route('**/api/v1/agent-profiles*', (route) =>
+		route.fulfill({ json: { agentProfiles: [idleAgent('agent-unset-a', 'Pia · Needs runtime', false)] } }),
 	);
 	await page.route('**/api/v1/projects/*/product-loop', (route) =>
 		route.fulfill({ json: { ...baseLoop, assignments: [] } }),
@@ -869,6 +907,13 @@ test('Threads: a narrow pane stacks the roster row so the agent name never runs 
 	const threadInspector = inspector.locator('.thread-inspector');
 	await expect(threadInspector).toBeVisible({ timeout: 20_000 });
 	await inspector.getByRole('tablist').getByRole('tab', { name: /Team|Equipo/ }).click();
+
+	// The unconfigured group ships collapsed; open it to measure the row it holds.
+	const unconfiguredTrigger = inspector
+		.locator('[data-group="unconfigured"] .disclosure-trigger')
+		.first();
+	await expect(unconfiguredTrigger).toBeVisible({ timeout: 20_000 });
+	await unconfiguredTrigger.click();
 
 	const row = inspector.locator('.thread-inspector-row[data-state="unconfigured"]');
 	await expect(row).toBeVisible({ timeout: 20_000 });
@@ -904,12 +949,11 @@ test('Threads: a narrow pane stacks the roster row so the agent name never runs 
 	await page.unrouteAll({ behavior: 'ignoreErrors' });
 });
 
-test('Threads: an idle team still leads with the agents that need configuring, not with the bench', async ({
+test('Threads: an idle team folds both idle groups behind their count instead of listing the bench', async ({
 	page,
 }) => {
-	// Nothing is running, so no group demands attention. The bench must still collapse: an operator
-	// opening Team on an idle project needs to see the agent that cannot run, not scroll past the
-	// agents that simply have nothing to do.
+	// Nothing is running, so no group demands attention. Neither idle group may unfold on its own: the
+	// summary strip already states the counts, and one click reveals whichever the operator wants.
 	const overview = await (await page.request.get('/api/v1/overview')).json();
 	const project = overview.projects.find((item) => item.status === 'active') ?? overview.projects[0];
 	expect(project).toBeTruthy();
@@ -917,10 +961,9 @@ test('Threads: an idle team still leads with the agents that need configuring, n
 		await page.request.get(`/api/v1/projects/${project.id}/product-loop`)
 	).json();
 
-	await page.route('**/api/v1/overview', (route) =>
+	await page.route('**/api/v1/agent-profiles*', (route) =>
 		route.fulfill({
 			json: {
-				...overview,
 				agentProfiles: [
 					idleAgent('agent-bench-a', 'Nia · Bench', true),
 					idleAgent('agent-bench-b', 'Omar · Bench', true),
@@ -937,26 +980,78 @@ test('Threads: an idle team still leads with the agents that need configuring, n
 
 	await page.goto('/#threads');
 	await expectControlPlaneLoaded(page);
-	await createLiveThread(page, `Idle team leads with the unconfigured agent ${Date.now()}`);
+	await createLiveThread(page, `Idle team folds the bench ${Date.now()}`);
 
 	const inspector = page.locator('.inspector-panel');
 	await expect(inspector.locator('.thread-inspector')).toBeVisible({ timeout: 20_000 });
 	await inspector.getByRole('tablist').getByRole('tab', { name: /Team|Equipo/ }).click();
-	await expect(inspector.locator('.thread-inspector-loading')).toBeHidden({ timeout: 20_000 });
+	await expect(inspector.locator('.thread-team')).toBeVisible({ timeout: 20_000 });
 
-	// The bench is folded away behind its count; the agent that needs a runtime is expanded and visible.
-	await expect(
-		inspector.locator('[data-group="available"] .disclosure-trigger').first(),
-	).toHaveAttribute('aria-expanded', 'false', { timeout: 20_000 });
-	await expect(inspector.getByText('Nia · Bench')).toBeHidden();
-	await expect(
-		inspector.locator('[data-group="unconfigured"] .disclosure-trigger').first(),
-	).toHaveAttribute('aria-expanded', 'true');
-	await expect(inspector.getByText('Pia · Needs runtime')).toBeVisible();
+	// Both idle groups are folded away behind their count; no agent row is listed.
+	for (const group of ['available', 'unconfigured']) {
+		await expect(
+			inspector.locator(`[data-group="${group}"] .disclosure-trigger`).first(),
+		).toHaveAttribute('aria-expanded', 'false', { timeout: 20_000 });
+	}
+	await expect(inspector.locator('.thread-team .thread-inspector-row:visible')).toHaveCount(0);
 
-	// The tab is never left empty: the bench opens on demand.
+	// Nothing is hidden from the operator: the summary strip states the roster and its warning count.
+	const summary = inspector.locator('.thread-team .thread-inspector-summary');
+	await expect(summary).toContainText('3');
+	await expect(summary.locator('.badge[data-tone="warn"]')).toContainText('1');
+
+	// The bench opens on demand.
 	await inspector.locator('[data-group="available"] .disclosure-trigger').first().click();
 	await expect(inspector.getByText('Nia · Bench')).toBeVisible();
+
+	await page.unrouteAll({ behavior: 'ignoreErrors' });
+});
+
+test('Threads: an all-unwired roster never unfolds into a wall of unknown profiles', async ({
+	page,
+}) => {
+	// Regression: the Team tab read `overview.agentProfiles`, which serves repository rows without
+	// resolving them against the detected runtimes. Every agent therefore arrived with the `unknown`
+	// availability default, fell to `unconfigured`, and the whole roster — 22 agents on a real install —
+	// unfolded as an anonymous wall. The tab must read the endpoint that resolves availability, and the
+	// idle group must stay folded no matter how little else there is to show.
+	const overview = await (await page.request.get('/api/v1/overview')).json();
+	const project = overview.projects.find((item) => item.status === 'active') ?? overview.projects[0];
+	expect(project).toBeTruthy();
+	const baseLoop = await (
+		await page.request.get(`/api/v1/projects/${project.id}/product-loop`)
+	).json();
+
+	const UNWIRED = Array.from({ length: 22 }, (_, index) =>
+		idleAgent(`agent-unwired-${index}`, `Unwired ${index}`, false),
+	);
+	await page.route('**/api/v1/agent-profiles*', (route) =>
+		route.fulfill({ json: { agentProfiles: UNWIRED } }),
+	);
+	await page.route('**/api/v1/projects/*/product-loop', (route) =>
+		route.fulfill({ json: { ...baseLoop, assignments: [] } }),
+	);
+
+	await page.goto('/#threads');
+	await expectControlPlaneLoaded(page);
+	await createLiveThread(page, `An unwired roster stays folded ${Date.now()}`);
+
+	const inspector = page.locator('.inspector-panel');
+	await expect(inspector.locator('.thread-inspector')).toBeVisible({ timeout: 20_000 });
+	await inspector.getByRole('tablist').getByRole('tab', { name: /Team|Equipo/ }).click();
+	await expect(inspector.locator('.thread-team')).toBeVisible({ timeout: 20_000 });
+
+	// Not one of the twenty-two is listed, and none of them is filed under Blocked either.
+	await expect(inspector.locator('.thread-team .thread-inspector-row:visible')).toHaveCount(0);
+	await expect(inspector.locator('[data-group="blocked"]')).toHaveCount(0);
+	await expect(
+		inspector.locator('[data-group="unconfigured"] .disclosure-trigger').first(),
+	).toHaveAttribute('aria-expanded', 'false');
+
+	// The roster is stated, not dumped: the count and the warning chip carry the whole message.
+	const summary = inspector.locator('.thread-team .thread-inspector-summary');
+	await expect(summary).toContainText('22');
+	await expect(summary.locator('.badge[data-tone="warn"]')).toContainText('22');
 
 	await page.unrouteAll({ behavior: 'ignoreErrors' });
 });

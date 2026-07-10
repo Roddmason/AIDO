@@ -34,6 +34,7 @@ import type { ReactNode } from 'react';
 import { useCallback, useMemo, useRef, useState } from 'react';
 
 import type {
+	AgentProfilesResponse,
 	ProjectProductLoopResponse,
 	ResolvedSetting,
 	SettingsResponse,
@@ -141,7 +142,11 @@ export function ThreadInspector({
 }: ThreadInspectorProps) {
 	const { t } = useI18n();
 	const [tab, setTab] = useState<ThreadInspectorTab>('goal');
-	const { detail, loop, memory, settings } = useThreadInspectorData(project.id, threadId, tab);
+	const { detail, loop, roster, memory, settings } = useThreadInspectorData(
+		project.id,
+		threadId,
+		tab,
+	);
 	// Actionable repair cards read from the remediations endpoint; pinned above the tabs so a blocked
 	// thread always shows how to unblock it, whichever manager view is open.
 	const remediations = useThreadRemediations(threadId, mutate);
@@ -178,7 +183,9 @@ export function ThreadInspector({
 	if (tab === 'goal') {
 		panel = <GoalPanel detail={detail} threadId={threadId} />;
 	} else if (tab === 'team') {
-		panel = <TeamPanel overview={overview} loop={loop} onOpenSettings={onOpenSettings} />;
+		panel = (
+			<TeamPanel overview={overview} loop={loop} roster={roster} onOpenSettings={onOpenSettings} />
+		);
 	} else if (tab === 'plan') {
 		panel = (
 			<PlanPanel
@@ -509,17 +516,51 @@ type AgentRosterEntry = {
 };
 
 /**
- * The Team tab as a manager console: agents grouped by state (active, waiting, blocked, available,
- * unconfigured) instead of a flat wall of rows. Active work leads and the bench collapses behind its
- * count whenever the roster has something more actionable to show. State, assignment, spend and the why-selected
- * rationale are all derived from real data — never fabricated — and a blocked agent carries an inline
- * recovery action that opens the Settings section that fixes it.
+ * The Team tab, gated on the agent-profiles roster. The overview snapshot is deliberately not the
+ * roster source: it serves profile rows straight from the repository, without resolving them against
+ * the runtimes detected on this machine, so every agent would arrive with the `unknown` availability
+ * default. Overview still supplies the spend ledger (agent runs joined to model calls).
  */
 function TeamPanel({
 	overview,
 	loop,
+	roster,
 	onOpenSettings,
 }: {
+	overview: Overview;
+	loop: InspectorResource<LoopData>;
+	roster: InspectorResource<AgentProfilesResponse>;
+	onOpenSettings: (section?: string) => void;
+}) {
+	return (
+		<ResourceGate resource={roster}>
+			{(data) => (
+				<TeamRoster
+					profiles={data.agentProfiles}
+					overview={overview}
+					loop={loop}
+					onOpenSettings={onOpenSettings}
+				/>
+			)}
+		</ResourceGate>
+	);
+}
+
+/**
+ * The roster as a manager console: agents grouped by state (active, waiting, blocked, available,
+ * unconfigured) instead of a flat wall of rows. The states that demand attention lead and stay open;
+ * the idle groups always render collapsed behind their count, so a bench of twenty-odd unwired agents
+ * can never bury the live work. State, assignment, spend and the why-selected rationale are all
+ * derived from real data — never fabricated — and a blocked agent carries an inline recovery action
+ * that opens the Settings section that fixes it.
+ */
+function TeamRoster({
+	profiles,
+	overview,
+	loop,
+	onOpenSettings,
+}: {
+	profiles: AgentProfile[];
 	overview: Overview;
 	loop: InspectorResource<LoopData>;
 	onOpenSettings: (section?: string) => void;
@@ -567,7 +608,7 @@ function TeamPanel({
 		return map;
 	}, [loop.data]);
 
-	if (overview.agentProfiles.length === 0) {
+	if (profiles.length === 0) {
 		return (
 			<EmptyState
 				title={t('app.threads.inspector.team.empty', 'No agents configured yet')}
@@ -579,7 +620,7 @@ function TeamPanel({
 		);
 	}
 
-	const entries: AgentRosterEntry[] = overview.agentProfiles.map((profile) => {
+	const entries: AgentRosterEntry[] = profiles.map((profile) => {
 		const assignment = assignmentByAgent.get(profile.id) ?? null;
 		return {
 			profile,
@@ -598,19 +639,12 @@ function TeamPanel({
 	const activeCount = countFor('active');
 	const blockedCount = countFor('blocked');
 	const unconfiguredCount = countFor('unconfigured');
-	const spendEntries = [...spendByProfile.values()];
+	// Sum the roster's own spend, not every profile the ledger ever saw: the roster and the spend ledger
+	// come from different endpoints, so a retired profile with recorded calls must not inflate the total.
+	const spendEntries = entries.flatMap((entry) => (entry.spend ? [entry.spend] : []));
 	const hasUnknownSpend = spendEntries.some((item) => item.unknownCalls > 0);
 	const totalSpend = spendEntries.reduce((sum, item) => sum + item.knownCostUsd, 0);
 	const totalSpendLabel = hasUnknownSpend ? unknownCostLabel : formatCostUsd(totalSpend);
-	// When any agent needs attention the idle groups collapse so the roster leads with the work that
-	// matters. The bench (`available`) also collapses whenever an unconfigured agent is the only other
-	// thing to show, because a runtime that cannot run outranks an agent that simply has nothing to do.
-	// A group only stays open when closing it would leave the tab with no rows at all.
-	const hasAttention = AGENT_STATE_ORDER.some(
-		(state) => ATTENTION_STATES.has(state) && countFor(state) > 0,
-	);
-	const idleGroupDefaultOpen = (state: AgentState) =>
-		state === 'available' ? !hasAttention && unconfiguredCount === 0 : !hasAttention;
 
 	return (
 		<div className="thread-inspector-stack thread-team">
@@ -620,7 +654,7 @@ function TeamPanel({
 				aria-label={t('app.threads.inspector.team.summaryLabel', 'Team overview')}
 			>
 				<span className="thread-inspector-subline mono">
-					{t('app.threads.inspector.team.total', 'Agents')} {overview.agentProfiles.length} ·{' '}
+					{t('app.threads.inspector.team.total', 'Agents')} {profiles.length} ·{' '}
 					{t('app.threads.inspector.team.working', 'Working')} {activeCount} ·{' '}
 					{t('app.threads.inspector.team.spend', 'Spend')} {totalSpendLabel}
 				</span>
@@ -641,8 +675,7 @@ function TeamPanel({
 						key={state}
 						state={state}
 						entries={grouped.get(state) ?? []}
-						collapsible={state === 'available' || state === 'unconfigured'}
-						defaultOpen={idleGroupDefaultOpen(state)}
+						collapsible={!ATTENTION_STATES.has(state)}
 						onOpenSettings={onOpenSettings}
 					/>
 				))}
@@ -653,20 +686,19 @@ function TeamPanel({
 
 /**
  * One roster state as a section. Active/waiting/blocked stay expanded under a plain heading; the idle
- * available/unconfigured groups render inside a Disclosure so a large bench never buries the live work.
+ * available/unconfigured groups render collapsed inside a Disclosure that still states their count,
+ * so a large bench never buries the live work and nothing is hidden — one click reveals it.
  * Empty groups render nothing rather than a fabricated placeholder.
  */
 function AgentGroup({
 	state,
 	entries,
 	collapsible,
-	defaultOpen,
 	onOpenSettings,
 }: {
 	state: AgentState;
 	entries: AgentRosterEntry[];
 	collapsible: boolean;
-	defaultOpen: boolean;
 	onOpenSettings: (section?: string) => void;
 }) {
 	const { t } = useI18n();
@@ -696,12 +728,7 @@ function AgentGroup({
 	if (collapsible) {
 		return (
 			<section className="thread-team-group" data-group={state}>
-				<Disclosure
-					headingLevel={4}
-					title={label}
-					summary={String(entries.length)}
-					defaultOpen={defaultOpen}
-				>
+				<Disclosure headingLevel={4} title={label} summary={String(entries.length)}>
 					{list}
 				</Disclosure>
 			</section>
@@ -750,22 +777,28 @@ function TeamAgentCard({
 		<>
 			<div className="thread-inspector-row-main">
 				<strong>{profile.name}</strong>
-				{availability?.blockedReason ? (
-					<span className="thread-inspector-blocked">
-						<AlertTriangle aria-hidden="true" size={13} />
-						{t('app.threads.inspector.team.blocked', 'Blocked')}: {availability.blockedReason}
-					</span>
-				) : null}
-				{disabledForProject ? (
-					<span className="thread-inspector-blocked">
-						<AlertTriangle aria-hidden="true" size={13} />
-						{t('app.threads.inspector.team.disabledForProject', 'Disabled for this project')}
-					</span>
-				) : null}
+				{/* Identity before diagnosis: a roster is scanned by who the agent is and what runs it, and
+				    only then by what went wrong. The reason carries the agent's own state label, so an
+				    unconfigured agent never reads as "Blocked" while its chip says otherwise. */}
 				<span className="thread-inspector-subline mono">
 					{humanize(profile.role)} · {profile.runtimeType}
 					{availability?.selectedProviderId ? ` · ${availability.selectedProviderId}` : ''}
 				</span>
+				{availability?.blockedReason ? (
+					<span
+						className="thread-inspector-blocked"
+						data-tone={state === 'blocked' ? 'danger' : 'warn'}
+					>
+						<AlertTriangle aria-hidden="true" size={13} />
+						{stateLabel(t, state)}: {availability.blockedReason}
+					</span>
+				) : null}
+				{disabledForProject ? (
+					<span className="thread-inspector-blocked" data-tone="danger">
+						<AlertTriangle aria-hidden="true" size={13} />
+						{t('app.threads.inspector.team.disabledForProject', 'Disabled for this project')}
+					</span>
+				) : null}
 				{assignment ? (
 					<span className="thread-inspector-subline">
 						{t('app.threads.inspector.team.assignment', 'Assignment')}: {assignment.taskTitle} (
@@ -795,13 +828,23 @@ function TeamAgentCard({
 							<dd className="thread-inspector-subline">
 								{selection ? (
 									<>
-										<span className="mono">
-											{selection.provider ??
-												t(
+										{selection.provider ? (
+											<span className="mono">{selection.provider}</span>
+										) : (
+											<span>
+												{t(
 													'app.threads.inspector.team.selectionPending',
 													'Awaiting runtime selection',
 												)}
-										</span>
+											</span>
+										)}
+										{!selection.provider && selection.candidates.length ? (
+											<>
+												{' · '}
+												{t('app.threads.inspector.team.selectionCandidates', 'candidates')}:{' '}
+												<span className="mono">{selection.candidates.join(', ')}</span>
+											</>
+										) : null}
 										{selection.via ? (
 											<>
 												{' · '}

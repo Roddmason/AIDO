@@ -9723,6 +9723,10 @@
       "en": "via",
       "es": "según"
     },
+    "app.threads.inspector.team.selectionCandidates": {
+      "en": "candidates",
+      "es": "candidatos"
+    },
     "app.threads.inspector.team.selectionCaps": {
       "en": "capabilities",
       "es": "capacidades"
@@ -10250,10 +10254,6 @@
     "settings.plugins.viewPermissions": {
       "en": "View permissions",
       "es": "Ver permisos"
-    },
-    "app.threads.inspector.team.blocked": {
-      "en": "Blocked",
-      "es": "Bloqueado"
     },
     "app.threads.inspector.summaryLabel": {
       "en": "Loop vitals",

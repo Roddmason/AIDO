@@ -2,7 +2,7 @@
  * Data source for the Thread Inspector.
  *
  * Thread detail and product loop load eagerly (the pinned loop-vitals strip needs both on
- * every tab); the memory recall and resolved settings stay lazy per tab. Results cache per key
+ * every tab); the agent roster, memory recall and resolved settings stay lazy per tab. Results cache per key
  * and every resource exposes a uniform `{ data, loading, error, reload }` handle so panels
  * render honest loading/error/empty/success states. Reads only — mutations stay with the
  * composer and the product-loop pages. The in-flight dedup marker is cleared synchronously on
@@ -14,6 +14,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
+	type AgentProfilesResponse,
+	getAgentProfiles,
 	getProjectProductLoop,
 	getSettings,
 	getThread,
@@ -99,8 +101,8 @@ function useLazyResource<T>(
 }
 
 /**
- * Resolves the four inspector resources. Thread detail and product loop are eager (the
- * pinned vitals strip consumes both on every tab); the memory recall and settings load on
+ * Resolves the five inspector resources. Thread detail and product loop are eager (the
+ * pinned vitals strip consumes both on every tab); the roster, memory recall and settings load on
  * their tab's first visit. `threadId` is null on the new-thread intake, which disables the
  * thread-scoped resources (their panels render a guidance empty state instead).
  */
@@ -121,6 +123,17 @@ export function useThreadInspectorData(
 	);
 	const loop = useLazyResource<ProjectProductLoopResponse>(projectId, true, loadLoop);
 
+	const loadRoster = useCallback(
+		(signal: AbortSignal) => getAgentProfiles(projectId ?? undefined, signal),
+		[projectId],
+	);
+	// The roster comes from the agent-profiles endpoint, not from the overview snapshot: only this
+	// endpoint resolves each profile against the runtimes actually detected on this machine and joins
+	// the project override. Overview serves the profile rows straight from the repository, so every
+	// agent would arrive with the `unknown` availability default and the whole team would read as
+	// unconfigured.
+	const roster = useLazyResource<AgentProfilesResponse>(projectId, tab === 'team', loadRoster);
+
 	const memoryTitle = detail.data?.thread.title ?? '';
 	const loadMemory = useCallback(
 		(signal: AbortSignal) => getThreadMemory(threadId ?? '', signal),
@@ -140,5 +153,5 @@ export function useThreadInspectorData(
 	);
 	const settings = useLazyResource<SettingsResponse>(projectId, tab === 'settings', loadSettings);
 
-	return { detail, loop, memory, settings };
+	return { detail, loop, roster, memory, settings };
 }

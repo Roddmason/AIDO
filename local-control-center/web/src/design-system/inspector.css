@@ -303,8 +303,9 @@
 	color: var(--color-status-danger);
 }
 
-/* Blocked/disabled agent callout: leads the row body so the unhealthy team member
- * pops during a roster scan. Tone lives in text + icon, never a stripe. */
+/* Blocked/disabled agent callout: sits under the agent's identity so the unhealthy team member
+ * pops during a roster scan. Tone lives in text + icon, never a stripe. An agent that was never
+ * wired to a runtime carries the same callout in the warning tone: it is a setup gap, not a fault. */
 .thread-inspector-blocked {
 	display: inline-flex;
 	align-items: center;
@@ -313,6 +314,10 @@
 	font-weight: var(--weight-medium);
 	color: var(--color-status-danger);
 	overflow-wrap: anywhere;
+}
+
+.thread-inspector-blocked[data-tone="warn"] {
+	color: var(--color-status-warning);
 }
 
 .thread-inspector-row-side {

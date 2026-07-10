@@ -25,7 +25,10 @@ export const AGENT_STATE_ORDER = [
 
 export type AgentState = (typeof AGENT_STATE_ORDER)[number];
 
-/** States that demand the operator's attention; when any is present the idle groups collapse. */
+/**
+ * States that demand the operator's attention. Their groups stay expanded; every other group renders
+ * collapsed behind its count, so an unwired bench of twenty-odd agents can never bury the live work.
+ */
 export const ATTENTION_STATES: ReadonlySet<AgentState> = new Set(['active', 'waiting', 'blocked']);
 
 /** Assignment statuses that mean the agent is actively producing (mirrors the backend builder). */
@@ -47,14 +50,14 @@ export type AgentAssignment = {
 
 /** The governance signals that explain why an agent's runtime was (or was not yet) chosen. */
 export type RuntimeSelection = {
-	/** The provider the gateway selected, or the remaining candidates when none is chosen yet. */
+	/** The provider the gateway actually selected; null while no runtime has been chosen. */
 	provider: string | null;
+	/** The providers still in the running when none is selected yet. */
+	candidates: string[];
 	/** The routing profile or role policy that governed the choice. */
 	via: string | null;
 	/** Capabilities the runtime had to satisfy. */
 	capabilities: string[];
-	/** True when no provider is selected yet (a blocked or unconfigured runtime). */
-	pending: boolean;
 };
 
 /** Reads the availability status, defaulting to `unknown` when the backend omitted it. */
@@ -65,14 +68,20 @@ function availabilityStatus(profile: AgentProfile): string {
 /**
  * True when the agent is held by a runtime block or disabled for the active project — the states
  * that demand a fix before it can run.
+ *
+ * `configuration_required` is deliberately excluded even though the backend attaches a reason to it:
+ * an agent with no provider candidates was never wired up, which is a setup gap (`unconfigured`), not
+ * a runtime that stopped working. Reading its reason as a block would file the whole unwired bench
+ * under Blocked and drown the agents an operator can actually unstick.
  */
 export function isAgentBlocked(profile: AgentProfile): boolean {
+	if (profile.projectOverride?.status === 'disabled') return true;
 	const status = availabilityStatus(profile);
+	if (status === 'configuration_required') return false;
 	return (
 		status === 'blocked' ||
 		status === 'disabled' ||
-		Boolean(profile.runtimeAvailability?.blockedReason) ||
-		profile.projectOverride?.status === 'disabled'
+		Boolean(profile.runtimeAvailability?.blockedReason)
 	);
 }
 
@@ -98,10 +107,13 @@ export function classifyAgentState(
  * Describe why an agent's runtime was selected, from real governance fields only. Returns null when
  * the profile carries no selection signal at all, so an unknown rationale reads as honestly absent
  * rather than fabricated.
+ *
+ * A candidate is never reported as `provider`: an agent whose runtime is still pending must not read
+ * as if the gateway had already picked one for it.
  */
 export function describeRuntimeSelection(profile: AgentProfile): RuntimeSelection | null {
 	const availability = profile.runtimeAvailability;
-	const selected = availability?.selectedProviderId?.trim() || null;
+	const provider = availability?.selectedProviderId?.trim() || null;
 	const candidates = (availability?.candidateProviderIds ?? []).filter(
 		(id): id is string => typeof id === 'string' && id.trim().length > 0,
 	);
@@ -109,7 +121,6 @@ export function describeRuntimeSelection(profile: AgentProfile): RuntimeSelectio
 		(cap): cap is string => typeof cap === 'string' && cap.trim().length > 0,
 	);
 	const via = profile.routingProfileId?.trim() || profile.roleModelPolicyId?.trim() || null;
-	const provider = selected ?? (candidates.length ? candidates.join(' / ') : null);
-	if (!provider && !via && capabilities.length === 0) return null;
-	return { provider, via, capabilities, pending: !selected };
+	if (!provider && !via && candidates.length === 0 && capabilities.length === 0) return null;
+	return { provider, candidates, via, capabilities };
 }

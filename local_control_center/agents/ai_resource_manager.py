@@ -5,6 +5,12 @@ model/runtime performance observations, scores candidates with explicit factors,
 records immutable routing decisions, and preserves unknown usage as unknown rather
 than inventing token or cost values.
 
+Two independent policy gates can force human approval before execution, and both publish
+their evidence under ``policyResult``: the unknown-cost policy (a remote model with no known
+price) and the premium gate (a KNOWN estimated cost above the role's approval threshold).
+Because an unknown cost is never coerced to ``0``, it can never look "cheap enough" to skip
+the premium gate — it is escalated by the unknown-cost policy instead.
+
 @author Rodrigo Mason
 """
 
@@ -58,6 +64,7 @@ class AIResourceRequest:
     routing_policy: str = "balanced"
     allow_unknown_cost: bool = False
     require_approval_for_unknown_cost: bool = True
+    require_approval_over_usd: float | None = None
     require_multi_model_quorum: bool = False
     project_id: str | None = None
     workflow_run_id: str | None = None
@@ -113,6 +120,42 @@ def _row_to_model(row: sqlite3.Row) -> dict[str, Any]:
         "enabled": _bool(row["enabled"]),
         "createdAt": row["created_at"],
         "updatedAt": row["updated_at"],
+    }
+
+
+def _ai_candidate_to_normalized(candidate: dict[str, Any]) -> dict[str, Any]:
+    """Rename an ``ai_routing_decisions`` candidate's ``providerId`` to the shared ``provider`` key."""
+    return {
+        "provider": candidate.get("providerId") or candidate.get("provider"),
+        "model": candidate.get("model"),
+        "runtime": candidate.get("runtime"),
+        "estimatedCostUsd": candidate.get("estimatedCostUsd"),
+        "priceKnown": bool(candidate.get("priceKnown")),
+    }
+
+
+def _row_to_ai_routing_decision(row: sqlite3.Row) -> dict[str, Any]:
+    """Map an `ai_routing_decisions` row to the shared routing-decision dict shape."""
+    policy_result = json_loads(row["policy_result_json"], {})
+    return {
+        "id": row["id"],
+        "taskType": row["task_type"],
+        "mode": policy_result.get("mode"),
+        "selectedProvider": row["selected_provider"],
+        "selectedModel": row["selected_model"],
+        "selectedRuntime": row["selected_runtime"],
+        # The AI resource manager selects a model, not a reasoning effort: absent, not zero.
+        "selectedEffort": None,
+        "taskId": row["task_id"],
+        "estimatedCostUsd": row["estimated_cost_usd"],
+        "costTier": row["cost_tier"],
+        "approvalRequired": _bool(row["approval_required"]),
+        "candidates": [_ai_candidate_to_normalized(item) for item in json_loads(row["candidates_json"], [])],
+        "rejected": json_loads(row["rejected_json"], []),
+        "decisionReason": row["decision_reason"],
+        "scoreBreakdown": json_loads(row["score_breakdown_json"], {}),
+        "policyResult": policy_result,
+        "createdAt": row["created_at"],
     }
 
 
@@ -304,11 +347,14 @@ class AIResourceManager:
         if selected and selected.get("unknownCostPolicy", {}).get("action") != "not_applicable":
             unknown_cost_policy = selected["unknownCostPolicy"]
         reviewer = self._select_reviewer(candidates, selected, effective_risk)
+        premium_approval = self._premium_approval(
+            selected=selected,
+            require_approval_over_usd=request.require_approval_over_usd,
+        )
         approval_required = self._requires_approval(
             selected=selected,
             unknown_cost_policy=unknown_cost_policy,
-            risk=effective_risk,
-            policy_mode=policy_mode,
+            premium_approval=premium_approval,
         )
         max_tokens = self._max_tokens(selected, request)
         context_window = int(selected["contextWindow"] or 0) if selected else 0
@@ -343,6 +389,7 @@ class AIResourceManager:
                 "riskLevel": risk,
                 "effectiveRiskLevel": effective_risk,
                 "unknownCostPolicy": unknown_cost_policy,
+                "premiumApproval": premium_approval,
                 "scoring": "deterministic_explainable",
                 "opaqueMlUsed": False,
             },
@@ -350,6 +397,24 @@ class AIResourceManager:
         if record:
             self._record_routing_decision(request=request, decision=decision)
         return decision
+
+    def list_routing_decisions_for_task_prefixes(self, task_prefixes: list[str]) -> list[dict[str, Any]]:
+        """List this manager's routing decisions whose ``task_id`` starts with any prefix, newest first.
+
+        Rows are normalised to the same camelCase shape ``RoutingProfileStore`` returns, so a reader
+        (the thread cost/performance snapshot) can consume either audit trail without branching on
+        which router produced the decision. Prefixes are internally derived loop ids, never operator
+        input, so they carry no LIKE wildcards. Returns an empty list when no prefixes are given.
+        """
+        prefixes = [prefix for prefix in task_prefixes if prefix]
+        if not prefixes:
+            return []
+        clause = " OR ".join("task_id LIKE ?" for _ in prefixes)
+        rows = self.connection.execute(
+            f"SELECT * FROM ai_routing_decisions WHERE {clause} ORDER BY created_at DESC, rowid DESC",
+            [f"{prefix}%" for prefix in prefixes],
+        ).fetchall()
+        return [_row_to_ai_routing_decision(row) for row in rows]
 
     def record_outcome(
         self,
@@ -982,19 +1047,55 @@ class AIResourceManager:
         ]
         return max(reviewer_candidates, key=lambda item: item["score"], default=None)
 
+    def _premium_approval(
+        self,
+        *,
+        selected: dict[str, Any] | None,
+        require_approval_over_usd: float | None,
+    ) -> dict[str, Any]:
+        """Evalúa el gate premium de la política de rol y devuelve su evidencia auditable.
+
+        Premium es una decisión de política, no una etiqueta: la selección solo lo es cuando su costo
+        estimado es CONOCIDO y supera estrictamente el umbral del rol. Un costo desconocido nunca se
+        trata como 0 ni como premium: lo resuelve la política de costo desconocido, que es la única
+        autorizada a exigir aprobación por falta de precio.
+        """
+        threshold = (
+            float(require_approval_over_usd)
+            if require_approval_over_usd is not None and float(require_approval_over_usd) > 0
+            else None
+        )
+        estimated_cost = selected.get("estimatedCostUsd") if selected else None
+        if selected is None:
+            reason = "no_selection"
+        elif threshold is None:
+            reason = "no_premium_threshold_in_policy"
+        elif estimated_cost is None:
+            reason = "cost_unknown_deferred_to_unknown_cost_policy"
+        elif float(estimated_cost) > threshold:
+            reason = "premium_cost_over_policy_threshold"
+        else:
+            reason = "cost_within_policy_threshold"
+        return {
+            "required": reason == "premium_cost_over_policy_threshold",
+            "reason": reason,
+            "thresholdUsd": threshold,
+            "estimatedCostUsd": estimated_cost,
+            "costTier": self._cost_tier(selected),
+        }
+
     def _requires_approval(
         self,
         *,
         selected: dict[str, Any] | None,
         unknown_cost_policy: dict[str, Any],
-        risk: str,
-        policy_mode: str,
+        premium_approval: dict[str, Any],
     ) -> bool:
         if selected is None:
             return False
         if unknown_cost_policy.get("action") == "require_approval":
             return True
-        return False
+        return bool(premium_approval.get("required"))
 
     def _max_tokens(self, selected: dict[str, Any] | None, request: AIResourceRequest) -> int | None:
         if selected is None:

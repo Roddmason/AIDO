@@ -2,23 +2,26 @@
  * Thread Inspector: the "AI manager" console rendered in the shell's right inspector pane for
  * the threads area.
  *
- * Eight tabs turn the thread from a plain chat into an operations console over real data:
+ * Nine tabs turn the thread from a plain chat into an operations console over real data:
  * Goal (thread objective + status), Team (agent roster with availability, assignment, blocked
  * reason, reviewer policy and recorded spend), Plan (a blocked loop stated first with the action
  * that clears it, then the phase timeline, acceptance criteria and quality gates), Backlog
- * (epics → stories → agent tasks), Memory (what
+ * (epics → stories → agent tasks), Cost (what the run spent, on which model and why, with the
+ * controls that change the next run), Memory (what
  * AIDO recalls about work like this: similar threads, previous decisions, related evidence,
  * lessons learned, prior performance passes and functionality already implemented, all from
  * the thread memory recall endpoint), Research (report artifacts with sources and trust levels),
  * Artifacts (all thread artifacts) and Settings (resolved read-only configuration). A pinned
  * vitals strip above the tabs keeps thread status, loop state and pending decisions visible
  * on every tab. Every tab renders honest loading/error/empty/success states; data loads via
- * {@link useThreadInspectorData}. Read-only by design — mutations stay in the composer.
+ * {@link useThreadInspectorData}. Read-only except for Cost, the one tab whose job is to change
+ * what the next run may spend — every other mutation stays in the composer.
  * @author Rodrigo Mason
  */
 import {
 	AlertTriangle,
 	BrainCircuit,
+	CircleDollarSign,
 	ExternalLink,
 	FileStack,
 	FlaskConical,
@@ -63,6 +66,7 @@ import { formatCostUsd, shortId, threadStatusTone, toneForStatus } from '../../l
 import { cardTransition, crossfade, listStagger } from '../../motion/variants';
 import { PRODUCT_LOOP_PHASES, PRODUCT_LOOP_STATE_ORDER } from '../workbench/productLoopModel';
 import { ThreadBlockerList } from './ThreadBlockerCard';
+import { ThreadCostPanel } from './ThreadCostPanel';
 import {
 	AGENT_STATE_ORDER,
 	type AgentAssignment,
@@ -107,6 +111,12 @@ const TAB_DEFS: ReadonlyArray<{
 		fallback: 'Backlog',
 	},
 	{
+		id: 'cost',
+		icon: CircleDollarSign,
+		labelKey: 'app.threads.inspector.tab.cost',
+		fallback: 'Cost',
+	},
+	{
 		id: 'memory',
 		icon: BrainCircuit,
 		labelKey: 'app.threads.inspector.tab.memory',
@@ -132,7 +142,7 @@ const TAB_DEFS: ReadonlyArray<{
 	},
 ];
 
-/** The threads-area inspector console: eight lazily loaded, read-only views over real data. */
+/** The threads-area inspector console: nine lazily loaded views over real data. */
 export function ThreadInspector({
 	overview,
 	project,
@@ -142,7 +152,7 @@ export function ThreadInspector({
 }: ThreadInspectorProps) {
 	const { t } = useI18n();
 	const [tab, setTab] = useState<ThreadInspectorTab>('goal');
-	const { detail, loop, roster, memory, settings } = useThreadInspectorData(
+	const { detail, loop, roster, cost, memory, settings } = useThreadInspectorData(
 		project.id,
 		threadId,
 		tab,
@@ -197,6 +207,23 @@ export function ThreadInspector({
 		);
 	} else if (tab === 'backlog') {
 		panel = <BacklogPanel loop={loop} />;
+	} else if (tab === 'cost') {
+		panel = threadId ? (
+			<ResourceGate resource={cost}>
+				{(data) => (
+					<ThreadCostPanel
+						threadId={threadId}
+						projectId={project.id}
+						snapshot={data.costPerformance}
+						remediations={remediations}
+						mutate={mutate}
+						onPolicyChanged={cost.reload}
+					/>
+				)}
+			</ResourceGate>
+		) : (
+			<NoThreadState />
+		);
 	} else if (tab === 'memory') {
 		panel = <MemoryPanel threadId={threadId} memory={memory} />;
 	} else if (tab === 'research') {

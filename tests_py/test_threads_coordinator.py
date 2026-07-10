@@ -12,6 +12,7 @@ from pathlib import Path
 from local_control_center.jobs_approvals.repository import JobsRepository
 from local_control_center.projects.repository import ProjectsRepository
 from local_control_center.remediations.service import BlockerRemediationService
+from local_control_center.settings.repository import SettingsRepository
 from local_control_center.shared.db import open_sqlite_connection
 from local_control_center.shared.migrations import initialize_platform_schema
 from local_control_center.threads.coordinator import ThreadCoordinator
@@ -103,6 +104,72 @@ def test_coordinator_queues_product_loop_with_message_run_metadata(tmp_path: Pat
         assert job["payload"]["runMetadata"]["privacyLevel"] == "local_private"
         assert job["payload"]["runMetadata"]["autonomy"] == "guided"
         assert job["payload"]["runMetadata"]["userMode"] == "aido_decide"
+
+
+def _queued_run_metadata(connection, coordinator: ThreadCoordinator, thread: dict, **kwargs) -> dict:
+    result = coordinator.post_message(
+        thread_id=thread["id"],
+        content="Add a new dashboard endpoint to list active workspaces.",
+        project_assessment=RUNTIME_AVAILABLE,
+        **kwargs,
+    )
+    job = JobsRepository(connection).get_job(result["run"]["jobId"])
+    return job["payload"]["runMetadata"]
+
+
+def test_economy_mode_setting_governs_the_next_run(tmp_path: Path) -> None:
+    """El modo elegido en Settings se sella en el run: deja de ser un control cosmético."""
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        thread = _thread(connection, tmp_path)
+        coordinator = ThreadCoordinator(connection, root=tmp_path)
+        SettingsRepository(connection).set_value(
+            "project.loop.teamMode", "project", thread["projectId"], "economy"
+        )
+
+        metadata = _queued_run_metadata(connection, coordinator, thread)
+
+        assert metadata["teamMode"] == "economy"
+        # Force local sigue apagado: la privacidad no se toca sin que el operador lo pida.
+        assert "privacyLevel" not in metadata
+
+
+def test_message_metadata_may_override_the_mode_but_never_relaxes_force_local(tmp_path: Path) -> None:
+    """El modo por mensaje es legítimo; force local es un control de privacidad y no se puede relajar."""
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        thread = _thread(connection, tmp_path)
+        coordinator = ThreadCoordinator(connection, root=tmp_path)
+        settings = SettingsRepository(connection)
+        settings.set_value("project.loop.teamMode", "project", thread["projectId"], "economy")
+        settings.set_value("project.routing.forceLocal", "project", thread["projectId"], True)
+
+        metadata = _queued_run_metadata(
+            connection,
+            coordinator,
+            thread,
+            metadata={"teamMode": "critical", "privacyLevel": "remote_allowed"},
+        )
+
+        assert metadata["teamMode"] == "critical"
+        assert metadata["privacyLevel"] == "local_private"
+
+
+def test_invalid_message_mode_falls_back_to_the_project_setting(tmp_path: Path) -> None:
+    """Un modo inválido por mensaje no gana: se usa la decisión persistida del operador."""
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        thread = _thread(connection, tmp_path)
+        coordinator = ThreadCoordinator(connection, root=tmp_path)
+        SettingsRepository(connection).set_value(
+            "project.loop.teamMode", "project", thread["projectId"], "critical"
+        )
+
+        metadata = _queued_run_metadata(
+            connection, coordinator, thread, metadata={"teamMode": "cheapest_possible"}
+        )
+
+        assert metadata["teamMode"] == "critical"
 
 
 def test_coordinator_blocks_when_runtime_is_unavailable(tmp_path: Path) -> None:

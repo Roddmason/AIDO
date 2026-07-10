@@ -2122,7 +2122,13 @@ class ProductLoopCoordinator:
         ).strip()
         return value or "remote_allowed"
 
-    def _resource_unknown_cost_policy(self, role: str) -> dict[str, bool]:
+    def _resource_cost_policy(self, role: str) -> dict[str, Any]:
+        """Resuelve la política de costo del rol (o la del developer como respaldo), fail-closed.
+
+        ``requiresApprovalOverUsd`` es el umbral premium: por encima de él una selección con costo
+        conocido exige aprobación humana. Espeja la precedencia del ``ModelRouter`` (umbral explícito
+        y, si no lo hay, el cap por tarea). Sin política registrada se asume lo más restrictivo.
+        """
         roles = [role]
         if role != "developer":
             roles.append("developer")
@@ -2131,13 +2137,21 @@ class ProductLoopCoordinator:
                 policy = self.routing_profiles.get_role_policy(policy_role)
             except KeyError:
                 continue
+            threshold = policy.get("requiresApprovalOverUsd")
+            if threshold is None:
+                threshold = policy.get("maxCostPerTaskUsd")
             return {
                 "allowUnknownCost": bool(policy.get("allowUnknownCost", False)),
                 "requireApprovalForUnknownCost": bool(
                     policy.get("requireApprovalForUnknownCost", True)
                 ),
+                "requiresApprovalOverUsd": float(threshold) if threshold is not None else None,
             }
-        return {"allowUnknownCost": False, "requireApprovalForUnknownCost": True}
+        return {
+            "allowUnknownCost": False,
+            "requireApprovalForUnknownCost": True,
+            "requiresApprovalOverUsd": None,
+        }
 
     @staticmethod
     def _public_resource_decision(decision: dict[str, Any]) -> dict[str, Any]:
@@ -2350,7 +2364,7 @@ class ProductLoopCoordinator:
             role = str(role_plan["role"])
             profile = profiles_by_role.get(role) or {}
             task = self._task_for_assignment(role, agent_tasks)
-            unknown_cost_policy = self._resource_unknown_cost_policy(role)
+            cost_policy = self._resource_cost_policy(role)
             decision = manager.select_resource(
                 AIResourceRequest(
                     project_id=project_id,
@@ -2365,10 +2379,9 @@ class ProductLoopCoordinator:
                     privacy_level=privacy_level,
                     budget_remaining_usd=role_plan.get("budgetUsd"),
                     max_tokens=role_plan.get("maxTokens"),
-                    allow_unknown_cost=unknown_cost_policy["allowUnknownCost"],
-                    require_approval_for_unknown_cost=unknown_cost_policy[
-                        "requireApprovalForUnknownCost"
-                    ],
+                    allow_unknown_cost=cost_policy["allowUnknownCost"],
+                    require_approval_for_unknown_cost=cost_policy["requireApprovalForUnknownCost"],
+                    require_approval_over_usd=cost_policy["requiresApprovalOverUsd"],
                 ),
                 record=True,
             )
@@ -2645,7 +2658,7 @@ class ProductLoopCoordinator:
         request_meta: dict[str, Any],
     ) -> tuple[dict[str, Any], dict[str, Any] | None]:
         manager = AIResourceManager(self.connection)
-        unknown_cost_policy = self._resource_unknown_cost_policy("product_owner")
+        cost_policy = self._resource_cost_policy("product_owner")
         decision = manager.select_resource(
             AIResourceRequest(
                 project_id=project_id,
@@ -2658,10 +2671,9 @@ class ProductLoopCoordinator:
                 context_tokens_estimate=self._resource_context_tokens_estimate(request_meta),
                 required_capabilities=["chat"],
                 privacy_level=self._resource_privacy_level(request_meta),
-                allow_unknown_cost=unknown_cost_policy["allowUnknownCost"],
-                require_approval_for_unknown_cost=unknown_cost_policy[
-                    "requireApprovalForUnknownCost"
-                ],
+                allow_unknown_cost=cost_policy["allowUnknownCost"],
+                require_approval_for_unknown_cost=cost_policy["requireApprovalForUnknownCost"],
+                require_approval_over_usd=cost_policy["requiresApprovalOverUsd"],
             ),
             record=True,
         )

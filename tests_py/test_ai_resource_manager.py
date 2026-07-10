@@ -7,6 +7,7 @@ import pytest
 from local_control_center.agents.ai_resource_manager import AIResourceManager, AIResourceRequest
 from local_control_center.agents.model_router import ModelRouter, RoutingRequest
 from local_control_center.agents.provider_accounts import ProviderAccountStore
+from local_control_center.agents.routing_profiles import RoutingProfileStore
 from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
 from local_control_center.shared.db import open_sqlite_connection
 from local_control_center.shared.migrations import initialize_platform_schema
@@ -434,6 +435,150 @@ def test_unknown_remote_cost_requires_approval_unless_policy_allows(
     assert policy_decision["policyResult"]["unknownCostPolicy"]["action"] == "allow"
 
 
+PREMIUM_CONTEXT_TOKENS = 100_000
+
+
+def _premium_request(**overrides) -> AIResourceRequest:
+    return AIResourceRequest(
+        task_type="analysis",
+        risk_level="medium",
+        context_tokens_estimate=PREMIUM_CONTEXT_TOKENS,
+        required_capabilities=["chat"],
+        **overrides,
+    )
+
+
+def _register_priced_remote(manager: AIResourceManager, connection) -> None:
+    """Un remoto con precio CONOCIDO y caro: $30/Mtok * 100k tokens = $3.00 estimados."""
+    register_model(
+        manager,
+        provider_id="premium_remote",
+        model="expensive-frontier",
+        runtime="api",
+        locality="remote",
+        input_price_per_mtok=30.0,
+        output_price_per_mtok=0.0,
+        quality_score=0.95,
+        success_rate=0.95,
+    )
+    configure_remote_provider_for_selection(
+        connection, provider_id="premium_remote", model="expensive-frontier"
+    )
+
+
+def test_premium_selection_requires_approval_when_policy_sets_a_threshold(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Un costo CONOCIDO por encima del umbral del rol exige aprobación; por debajo, no."""
+    monkeypatch.setenv("AIDO_TEST_API_KEY", "test-key")
+    with open_initialized_connection(tmp_path) as connection:
+        manager = AIResourceManager(connection)
+        _register_priced_remote(manager, connection)
+
+        gated = manager.select_resource(_premium_request(require_approval_over_usd=1.00))
+        allowed = manager.select_resource(_premium_request(require_approval_over_usd=10.00))
+
+    assert gated["selected"]["model"] == "expensive-frontier"
+    assert gated["estimatedCostUsd"] == pytest.approx(3.0)
+    assert gated["approvalRequired"] is True
+    premium = gated["policyResult"]["premiumApproval"]
+    assert premium["required"] is True
+    assert premium["reason"] == "premium_cost_over_policy_threshold"
+    assert premium["thresholdUsd"] == pytest.approx(1.00)
+    assert premium["costTier"] == "premium"
+    assert "Approval is required before execution." in gated["decisionReason"]
+
+    assert allowed["approvalRequired"] is False
+    assert allowed["policyResult"]["premiumApproval"]["reason"] == "cost_within_policy_threshold"
+
+
+def test_premium_gate_is_inert_without_a_policy_threshold(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Sin umbral en la política, un costo conocido nunca fuerza aprobación (regresión de db4cd54b)."""
+    monkeypatch.setenv("AIDO_TEST_API_KEY", "test-key")
+    with open_initialized_connection(tmp_path) as connection:
+        manager = AIResourceManager(connection)
+        _register_priced_remote(manager, connection)
+
+        no_threshold = manager.select_resource(_premium_request())
+        zero_threshold = manager.select_resource(_premium_request(require_approval_over_usd=0.0))
+
+    for decision in (no_threshold, zero_threshold):
+        assert decision["approvalRequired"] is False
+        assert decision["policyResult"]["premiumApproval"]["required"] is False
+        assert decision["policyResult"]["premiumApproval"]["reason"] == "no_premium_threshold_in_policy"
+        assert decision["policyResult"]["premiumApproval"]["thresholdUsd"] is None
+
+
+def test_unknown_cost_is_never_treated_as_cheap_enough_to_pass_the_premium_gate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Un costo desconocido NO es 0: no pasa el umbral por barato, lo escala la política de desconocido."""
+    monkeypatch.setenv("AIDO_TEST_API_KEY", "test-key")
+    with open_initialized_connection(tmp_path) as connection:
+        manager = AIResourceManager(connection)
+        register_model(
+            manager,
+            provider_id="unknown_remote",
+            model="opaque-price",
+            runtime="api",
+            locality="remote",
+            input_price_per_mtok=None,
+            output_price_per_mtok=None,
+            quality_score=0.90,
+            success_rate=0.93,
+        )
+        configure_remote_provider_for_selection(
+            connection, provider_id="unknown_remote", model="opaque-price"
+        )
+
+        decision = manager.select_resource(_premium_request(require_approval_over_usd=1000.00))
+
+    assert decision["estimatedCostUsd"] is None
+    assert decision["costTier"] == "unknown"
+    premium = decision["policyResult"]["premiumApproval"]
+    assert premium["estimatedCostUsd"] is None
+    assert premium["required"] is False
+    assert premium["reason"] == "cost_unknown_deferred_to_unknown_cost_policy"
+    # El umbral gigante haría pasar a un costo coaccionado a 0; la aprobación sigue siendo obligatoria.
+    assert decision["approvalRequired"] is True
+    assert decision["policyResult"]["unknownCostPolicy"]["action"] == "require_approval"
+
+
+def test_local_model_under_threshold_never_trips_the_premium_gate(
+    tmp_path: Path,
+) -> None:
+    """El modo Force local es la salida barata: un modelo local sin costo no exige aprobación."""
+    with open_initialized_connection(tmp_path) as connection:
+        manager = AIResourceManager(connection)
+        register_model(
+            manager,
+            provider_id="ollama_local",
+            model="llama-local",
+            runtime="ollama",
+            locality="local",
+            input_price_per_mtok=0.0,
+            output_price_per_mtok=0.0,
+            quality_score=0.72,
+            success_rate=0.80,
+            privacy_level="local_private",
+        )
+
+        decision = manager.select_resource(
+            _premium_request(privacy_level="local_private", require_approval_over_usd=0.01)
+        )
+
+    assert decision["selected"]["providerId"] == "ollama_local"
+    assert decision["localVsRemote"] == "local"
+    assert decision["costTier"] == "cheap"
+    assert decision["approvalRequired"] is False
+    assert decision["policyResult"]["premiumApproval"]["required"] is False
+
+
 def test_remote_api_provider_must_be_executable_before_selection(tmp_path: Path) -> None:
     with open_initialized_connection(tmp_path) as connection:
         manager = AIResourceManager(connection)
@@ -695,3 +840,34 @@ def test_model_router_uses_ai_resource_manager_when_profiles_exist(tmp_path: Pat
     assert result["policyResult"]["opaqueMlUsed"] is False
     assert ai_decision_count == 1
     assert gateway_decision["selected_provider"] == "ollama"
+
+
+def test_model_router_ai_path_still_honors_the_role_premium_threshold(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Con perfiles AI, el veredicto de aprobacion lo da el AIResourceManager: el umbral del rol debe llegarle.
+
+    De lo contrario una seleccion cara pasaria sin aprobacion por el path AI mientras el path clasico si la exige.
+    """
+    monkeypatch.setenv("AIDO_TEST_API_KEY", "test-key")
+    with open_initialized_connection(tmp_path) as connection:
+        manager = AIResourceManager(connection)
+        _register_priced_remote(manager, connection)
+        RoutingProfileStore(connection).patch_role_policy(
+            "developer", {"requiresApprovalOverUsd": 0.50, "allowCli": False}
+        )
+
+        result = ModelRouter(connection).preview(
+            RoutingRequest(
+                role="developer",
+                taskType="analysis",
+                contextTokensEstimate=PREMIUM_CONTEXT_TOKENS,
+            ),
+            record=False,
+        )
+
+    assert result["policyResult"]["source"] == "ai_resource_manager"
+    assert result["selected"]["model"] == "expensive-frontier"
+    assert result["estimatedCostUsd"] == pytest.approx(3.0)
+    assert result["policyResult"]["requiresApproval"] is True

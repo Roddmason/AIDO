@@ -11650,6 +11650,154 @@
     "app.ollama.role.confirm": {
       "en": "Set as preferred",
       "es": "Marcar como preferido"
+    },
+    "app.threads.inspector.tab.cost": {
+      "en": "Cost",
+      "es": "Costo"
+    },
+    "app.threads.inspector.cost.noThreadTitle": {
+      "en": "No live thread",
+      "es": "Sin hilo activo"
+    },
+    "app.threads.inspector.cost.noThreadBody": {
+      "en": "Select a thread to inspect what its run cost.",
+      "es": "Selecciona un hilo para inspeccionar cuánto costó su ejecución."
+    },
+    "app.threads.inspector.cost.summaryLabel": {
+      "en": "Cost decision",
+      "es": "Decisión de costo"
+    },
+    "app.threads.inspector.cost.localOnly": {
+      "en": "Local only",
+      "es": "Solo local"
+    },
+    "app.threads.inspector.cost.approvalPending": {
+      "en": "Approval required",
+      "es": "Requiere aprobación"
+    },
+    "app.threads.inspector.cost.spent": {
+      "en": "Spent",
+      "es": "Gastado"
+    },
+    "app.threads.inspector.cost.emptyTitle": {
+      "en": "Nothing has run yet",
+      "es": "Todavía no se ejecuta nada"
+    },
+    "app.threads.inspector.cost.empty": {
+      "en": "Cost, tokens and latency appear once this thread executes. The controls below still set what the next run may spend.",
+      "es": "El costo, los tokens y la latencia aparecen cuando el hilo se ejecuta. Los controles de abajo igual definen cuánto puede gastar la próxima ejecución."
+    },
+    "app.threads.inspector.cost.noModel": {
+      "en": "No model was selected",
+      "es": "No se eligió ningún modelo"
+    },
+    "app.threads.inspector.cost.noReason": {
+      "en": "The router recorded no rationale for this selection.",
+      "es": "El router no registró una razón para esta selección."
+    },
+    "app.threads.inspector.cost.estimated": {
+      "en": "Estimated cost",
+      "es": "Costo estimado"
+    },
+    "app.threads.inspector.cost.actual": {
+      "en": "Actual cost",
+      "es": "Costo real"
+    },
+    "app.threads.inspector.cost.tokens": {
+      "en": "Tokens",
+      "es": "Tokens totales"
+    },
+    "app.threads.inspector.cost.tokenCalls": {
+      "en": "Calls reporting tokens",
+      "es": "Llamadas que reportan tokens"
+    },
+    "app.threads.inspector.cost.latency": {
+      "en": "Latency p50",
+      "es": "Latencia p50"
+    },
+    "app.threads.inspector.cost.latencyMax": {
+      "en": "Latency max",
+      "es": "Latencia máxima"
+    },
+    "app.threads.inspector.cost.rework": {
+      "en": "Rework rounds",
+      "es": "Rondas de retrabajo"
+    },
+    "app.threads.inspector.cost.modelRework": {
+      "en": "Model rework rate",
+      "es": "Tasa de retrabajo del modelo"
+    },
+    "app.threads.inspector.cost.cheaperTitle": {
+      "en": "A cheaper model would fit",
+      "es": "Un modelo más barato alcanzaba"
+    },
+    "app.threads.inspector.cost.saves": {
+      "en": "saves",
+      "es": "ahorra"
+    },
+    "app.threads.inspector.cost.noComparison": {
+      "en": "The chosen model has no known price, so no cheaper alternative can be compared honestly.",
+      "es": "El modelo elegido no tiene precio conocido, así que no se puede comparar honestamente una alternativa más barata."
+    },
+    "app.threads.inspector.cost.actions": {
+      "en": "Change the next run",
+      "es": "Cambia la próxima ejecución"
+    },
+    "app.threads.inspector.cost.modeLabel": {
+      "en": "Team mode",
+      "es": "Modo del equipo"
+    },
+    "app.threads.inspector.cost.forceLocal": {
+      "en": "Force local models",
+      "es": "Forzar modelos locales"
+    },
+    "app.threads.inspector.cost.forceLocalHelp": {
+      "en": "Blocks every remote provider for this project, whatever a single message asks for.",
+      "es": "Bloquea todos los proveedores remotos de este proyecto, sin importar lo que pida un mensaje puntual."
+    },
+    "app.threads.inspector.cost.allowPremiumOnce": {
+      "en": "Allow premium once",
+      "es": "Permitir premium una vez"
+    },
+    "app.threads.inspector.cost.premiumPending": {
+      "en": "Approves this exact model for one retry — the policy still gates the run after it.",
+      "es": "Aprueba exactamente este modelo para un reintento; la política sigue controlando la ejecución después."
+    },
+    "app.threads.inspector.cost.premiumIdle": {
+      "en": "No premium selection is waiting for approval.",
+      "es": "Ninguna selección premium está esperando aprobación."
+    },
+    "app.threads.inspector.cost.policy": {
+      "en": "Cost policy",
+      "es": "Política de costo"
+    },
+    "app.threads.inspector.cost.threshold": {
+      "en": "Approval required over",
+      "es": "Aprobación requerida sobre"
+    },
+    "app.threads.inspector.cost.noThreshold": {
+      "en": "no threshold",
+      "es": "sin umbral"
+    },
+    "app.threads.inspector.cost.tier": {
+      "en": "Cost tier",
+      "es": "Nivel de costo"
+    },
+    "app.threads.inspector.cost.verdict": {
+      "en": "Policy verdict",
+      "es": "Veredicto de la política"
+    },
+    "app.threads.inspector.cost.calls": {
+      "en": "Model calls",
+      "es": "Llamadas al modelo"
+    },
+    "app.threads.inspector.cost.honesty": {
+      "en": "\"unknown\" means the provider reported no value. It is never counted as zero.",
+      "es": "\"desconocido\" significa que el proveedor no reportó un valor. Nunca se cuenta como cero."
+    },
+    "app.settings.project.routing.forceLocal": {
+      "en": "Force local models",
+      "es": "Forzar modelos locales"
     }
   }
 }

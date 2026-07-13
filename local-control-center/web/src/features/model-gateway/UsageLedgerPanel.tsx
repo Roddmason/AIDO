@@ -20,6 +20,7 @@ export function UsageLedgerPanel({
 	onFilterChange: (value: string) => void;
 }) {
 	const { t } = useI18n();
+	const unknown = t('app.runtime.card.unknown', 'unknown');
 	return (
 		<PanelShell title={t('ui.static.usage.ledger.bc792665', 'Usage history')}>
 			<div className="field">
@@ -92,32 +93,32 @@ export function UsageLedgerPanel({
 					{
 						key: 'input',
 						label: t('ui.static.input.tokens.92f7d222', 'Input tokens'),
-						render: (row) => text(row.inputTokens, '0'),
+						render: (row) => text(row.inputTokens, unknown),
 					},
 					{
 						key: 'cached',
 						label: t('ui.static.cached.input.36e191c9', 'Cached input'),
-						render: (row) => text(row.cachedInputTokens, '0'),
+						render: (row) => text(row.cachedInputTokens, unknown),
 					},
 					{
 						key: 'output',
 						label: t('ui.static.output.tokens.b879f52d', 'Output tokens'),
-						render: (row) => text(row.outputTokens, '0'),
+						render: (row) => text(row.outputTokens, unknown),
 					},
 					{
 						key: 'reasoning',
 						label: t('ui.static.reasoning.tokens.6284e599', 'Reasoning tokens'),
-						render: (row) => text(row.reasoningTokens, '0'),
+						render: (row) => text(row.reasoningTokens, unknown),
 					},
 					{
 						key: 'tool',
 						label: t('ui.static.tool.tokens.472fefe0', 'Tool tokens'),
-						render: (row) => text(row.toolTokens, '0'),
+						render: (row) => text(row.toolTokens, unknown),
 					},
 					{
 						key: 'total',
 						label: t('ui.static.total.tokens.e6dad16e', 'Total tokens'),
-						render: (row) => text(row.totalTokens, '0'),
+						render: (row) => text(row.totalTokens, unknown),
 					},
 					{
 						key: 'est',

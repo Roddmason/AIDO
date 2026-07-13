@@ -71,8 +71,8 @@ class ModelCallSummary(_Aliased):
     provider: str
     model: str
     status: str
-    prompt_tokens: int = Field(alias="promptTokens")
-    completion_tokens: int = Field(alias="completionTokens")
+    prompt_tokens: int | None = Field(alias="promptTokens")
+    completion_tokens: int | None = Field(alias="completionTokens")
     cost_usd: float | None = Field(default=None, alias="costUsd")
     created_at: str = Field(alias="createdAt")
 

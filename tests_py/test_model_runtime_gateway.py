@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import json
 import os
+import sqlite3
 import subprocess
 import sys
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -21,6 +23,7 @@ from local_control_center.agents.credential_preflight import run_credential_pref
 from local_control_center.agents.credentials import CredentialResolver
 from local_control_center.agents.model_benchmarks import ModelBenchmarkStore
 from local_control_center.agents.model_gateway import ModelGateway, provider_instance
+from local_control_center.agents.model_gateway_api import _run_provider_test_prompt
 from local_control_center.agents.pricing_catalog import PricingCatalog
 from local_control_center.agents.provider_accounts import ProviderAccountStore
 from local_control_center.agents.providers.anthropic_api import AnthropicAPIProvider
@@ -33,7 +36,7 @@ from local_control_center.agents.usage_ledger import UsageLedger
 from local_control_center.app import create_app
 from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
 from local_control_center.shared.db import open_sqlite_connection
-from local_control_center.shared.migrations import initialize_platform_schema
+from local_control_center.shared.migrations import _execute_atomic_statements, initialize_platform_schema
 from local_control_center.shared.redaction import redact_secrets
 from tests_py.control_plane_fixture import ControlPlaneFixture
 from tests_py.evidence_helpers import real_qa_evidence_fields
@@ -301,16 +304,42 @@ def test_model_calls_cost_migration_preserves_existing_rows_and_accepts_unknown_
                  prompt_tokens, completion_tokens, cost_usd, metadata, created_at)
             VALUES
                 ('model-call-existing', 'project-gateway', NULL, NULL, 'openai_compatible',
-                 'configured_model', 'completed', 10, 5, 0.012, '{}', '2026-01-01T00:00:00Z');
+                 'configured_model', 'completed', 10, 5, 0.012, '{}', '2026-01-01T00:00:00Z'),
+                ('model-call-unknown', 'project-gateway', NULL, NULL, 'nvidia_nim',
+                 'unknown-model', 'completed', 0, 0, 0,
+                 '{"tokenStatus":"unknown","costStatus":"unknown"}', '2026-01-01T00:00:01Z'),
+                ('model-call-actual-zero', 'project-gateway', NULL, NULL, 'ollama',
+                 'free-model', 'completed', 0, 0, 0,
+                 '{"tokenStatus":"actual","costStatus":"actual"}', '2026-01-01T00:00:02Z'),
+                ('model-call-failed', 'project-gateway', NULL, NULL, 'openai_compatible',
+                 'failed-model', 'failed', 3, 2, 0.01, '{}', '2026-01-01T00:00:03Z'),
+                ('model-call-invalid-metadata', 'project-gateway', NULL, NULL, 'openai_compatible',
+                 'legacy-model', 'completed', 4, 2, 0.02, '{invalid', '2026-01-01T00:00:04Z');
             """
         )
 
+        initialize_platform_schema(connection)
         initialize_platform_schema(connection)
         columns = {
             row["name"]: row for row in connection.execute("PRAGMA table_info(model_calls)").fetchall()
         }
         existing = connection.execute(
-            "SELECT id, cost_usd FROM model_calls WHERE id = 'model-call-existing'"
+            """
+            SELECT id, prompt_tokens, completion_tokens, cost_usd
+            FROM model_calls WHERE id = 'model-call-existing'
+            """
+        ).fetchone()
+        unknown = connection.execute(
+            "SELECT prompt_tokens, completion_tokens, cost_usd FROM model_calls WHERE id = 'model-call-unknown'"
+        ).fetchone()
+        actual_zero = connection.execute(
+            "SELECT prompt_tokens, completion_tokens, cost_usd FROM model_calls WHERE id = 'model-call-actual-zero'"
+        ).fetchone()
+        failed = connection.execute(
+            "SELECT prompt_tokens, completion_tokens, cost_usd FROM model_calls WHERE id = 'model-call-failed'"
+        ).fetchone()
+        invalid_metadata = connection.execute(
+            "SELECT prompt_tokens, completion_tokens, cost_usd FROM model_calls WHERE id = 'model-call-invalid-metadata'"
         ).fetchone()
         created = AgentsRepository(connection).record_model_call(
             project_id="project-gateway",
@@ -323,8 +352,131 @@ def test_model_calls_cost_migration_preserves_existing_rows_and_accepts_unknown_
         )
 
     assert columns["cost_usd"]["notnull"] == 0
+    assert columns["prompt_tokens"]["notnull"] == 0
+    assert columns["completion_tokens"]["notnull"] == 0
     assert existing["cost_usd"] == 0.012
+    assert existing["prompt_tokens"] == 10
+    assert existing["completion_tokens"] == 5
+    assert tuple(unknown) == (None, None, None)
+    assert tuple(actual_zero) == (0, 0, 0)
+    assert tuple(failed) == (None, None, None)
+    assert tuple(invalid_metadata) == (4, 2, 0.02)
     assert created["costUsd"] is None
+
+
+def test_usage_token_migration_preserves_reported_values_and_nulls_unknown_zeros(
+    tmp_path: Path,
+) -> None:
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        connection.executescript(
+            """
+            CREATE TABLE usage_ledger (
+                id TEXT PRIMARY KEY,
+                provider_id TEXT NOT NULL,
+                model TEXT NOT NULL,
+                runtime_type TEXT NOT NULL,
+                agent_id TEXT,
+                role TEXT,
+                workflow_run_id TEXT,
+                workflow_step_id TEXT,
+                job_id TEXT,
+                task_id TEXT,
+                request_id TEXT,
+                session_id TEXT,
+                input_tokens INTEGER NOT NULL,
+                cached_input_tokens INTEGER NOT NULL,
+                output_tokens INTEGER NOT NULL,
+                reasoning_tokens INTEGER NOT NULL,
+                tool_tokens INTEGER NOT NULL,
+                total_tokens INTEGER NOT NULL,
+                estimated_cost_usd REAL,
+                actual_cost_usd REAL,
+                currency TEXT NOT NULL,
+                latency_ms INTEGER,
+                raw_usage_json TEXT NOT NULL,
+                usage_source TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            INSERT INTO usage_ledger
+                (id, provider_id, model, runtime_type, input_tokens, cached_input_tokens,
+                 output_tokens, reasoning_tokens, tool_tokens, total_tokens, currency,
+                 raw_usage_json, usage_source, created_at)
+            VALUES
+                ('usage-actual', 'ollama', 'reported', 'ollama', 10, 0, 5, 0, 0, 15,
+                 'USD', '{"usage_source":"provider"}', 'actual', '2026-01-01T00:00:00Z'),
+                ('usage-unknown', 'nvidia_nim', 'unreported', 'api', 0, 0, 0, 0, 0, 0,
+                 'USD', '{"usage_source":"unknown"}', 'unknown', '2026-01-01T00:00:01Z');
+            """
+        )
+
+        initialize_platform_schema(connection)
+        initialize_platform_schema(connection)
+        columns = {
+            row["name"]: row for row in connection.execute("PRAGMA table_info(usage_ledger)").fetchall()
+        }
+        actual = connection.execute(
+            "SELECT input_tokens, output_tokens, total_tokens FROM usage_ledger WHERE id = 'usage-actual'"
+        ).fetchone()
+        unknown = connection.execute(
+            "SELECT input_tokens, output_tokens, total_tokens FROM usage_ledger WHERE id = 'usage-unknown'"
+        ).fetchone()
+        migration = connection.execute("SELECT 1 FROM schema_migrations WHERE version = 50").fetchone()
+        index = connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'idx_usage_ledger_provider_created'"
+        ).fetchone()
+
+    assert all(columns[name]["notnull"] == 0 for name in ("input_tokens", "output_tokens", "total_tokens"))
+    assert tuple(actual) == (10, 5, 15)
+    assert tuple(unknown) == (None, None, None)
+    assert migration is not None
+    assert index is not None
+
+
+def test_schema_rebuild_rolls_back_ddl_and_data_on_failure(tmp_path: Path) -> None:
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        connection.execute("CREATE TABLE source_rows (id TEXT PRIMARY KEY)")
+        connection.execute("INSERT INTO source_rows (id) VALUES ('preserved')")
+
+        with pytest.raises(sqlite3.OperationalError, match="no such table"):
+            _execute_atomic_statements(
+                connection,
+                [
+                    ("CREATE TABLE staged_rows AS SELECT * FROM source_rows", ()),
+                    ("DROP TABLE source_rows", ()),
+                    ("INSERT INTO missing_table (id) VALUES ('fail')", ()),
+                ],
+            )
+
+        preserved = connection.execute("SELECT id FROM source_rows").fetchone()
+        staged = connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'staged_rows'"
+        ).fetchone()
+
+    assert preserved["id"] == "preserved"
+    assert staged is None
+
+
+def test_provider_test_prompt_keeps_missing_usage_unknown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "local_control_center.agents.model_gateway_api.provider_instance",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            chat_completion=lambda _request: SimpleNamespace(
+                content="ok",
+                usage=SimpleNamespace(
+                    total_tokens=0,
+                    raw_usage={"usage_source": "provider"},
+                ),
+            )
+        ),
+    )
+
+    result = _run_provider_test_prompt("ollama", "test-model", connection=object())
+
+    assert result["ok"] is True
+    assert result["totalTokens"] is None
+    assert result["usageSource"] == "unknown"
 
 
 def test_phase13_schema_adds_benchmark_outcomes(tmp_path: Path) -> None:
@@ -1099,7 +1251,7 @@ def test_model_gateway_openai_compatible_executes_real_http_and_records_actual_u
         assert result["usage"]["inputTokens"] == 7
         assert result["usage"]["cachedInputTokens"] == 2
         assert result["usage"]["outputTokens"] == 5
-        assert result["usage"]["totalTokens"] == 14
+        assert result["usage"]["totalTokens"] == 12
         assert result["usage"]["actualCostUsd"] == 0.000016
         assert result["usage"]["estimatedCostUsd"] is None
         assert result["usage"]["usageSource"] == "actual"
@@ -1281,17 +1433,17 @@ def test_nvidia_nim_without_provider_usage_does_not_invent_cost_or_tokens(
             result = ModelGateway(connection).execute_model_call(plan)
 
         assert result["status"] == "completed"
-        assert result["usage"]["inputTokens"] == 0
-        assert result["usage"]["outputTokens"] == 0
-        assert result["usage"]["totalTokens"] == 0
+        assert result["usage"]["inputTokens"] is None
+        assert result["usage"]["outputTokens"] is None
+        assert result["usage"]["totalTokens"] is None
         assert result["usage"]["estimatedCostUsd"] is None
         assert result["usage"]["actualCostUsd"] is None
         assert result["usage"]["usageSource"] == "unknown"
         assert result["usage"]["tokenStatus"] == "unknown"
         assert result["usage"]["costStatus"] == "unknown"
         assert result["usage"]["rawUsage"]["usage_source"] == "unknown"
-        assert result["modelCall"]["promptTokens"] == 0
-        assert result["modelCall"]["completionTokens"] == 0
+        assert result["modelCall"]["promptTokens"] is None
+        assert result["modelCall"]["completionTokens"] is None
         assert result["modelCall"]["costUsd"] is None
     finally:
         server.shutdown()
@@ -2314,6 +2466,8 @@ def test_usage_ledger_records_estimated_and_actual_usage(tmp_path: Path) -> None
     assert estimated["actualCostUsd"] is None
     assert estimated["rawUsage"]["usage_source"] == "estimated"
     assert estimated["usageSource"] == "estimated"
+    assert estimated["inputTokens"] is None
+    assert estimated["totalTokens"] is None
     assert actual["actualCostUsd"] == 0
     assert actual["totalTokens"] == 30
     assert actual["usageSource"] == "actual"
@@ -2369,10 +2523,44 @@ def test_usage_ledger_summary_preserves_unknown_actual_cost(tmp_path: Path) -> N
 
     assert unknown_summary["estimatedCostUsd"] == 0.001
     assert unknown_summary["actualCostUsd"] is None
+    assert unknown_summary["totalTokens"] is None
     assert mixed_summary["estimatedCostUsd"] == 0.001
     assert mixed_summary["actualCostUsd"] is None
+    assert mixed_summary["totalTokens"] is None
     assert actual_summary["estimatedCostUsd"] == 0
     assert actual_summary["actualCostUsd"] == 0
+    assert actual_summary["totalTokens"] == 30
+
+
+def test_usage_ledger_summary_does_not_present_known_cost_subtotals_as_complete(
+    tmp_path: Path,
+) -> None:
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        ledger = UsageLedger(connection)
+        ledger.record_usage(
+            provider_id="ollama",
+            model="known",
+            runtime_type="ollama",
+            input_tokens=4,
+            output_tokens=2,
+            estimated_cost_usd=0.01,
+            actual_cost_usd=0.01,
+            raw_usage={"usage_source": "actual"},
+        )
+        ledger.record_usage(
+            provider_id="ollama",
+            model="unknown",
+            runtime_type="ollama",
+            raw_usage={"usage_source": "unknown"},
+            usage_source="unknown",
+        )
+
+        summary = ledger.summary()
+
+    assert summary["estimatedCostUsd"] is None
+    assert summary["actualCostUsd"] is None
+    assert summary["byProvider"][0]["estimatedCostUsd"] is None
 
 
 def test_route_execute_mock_endpoint_is_not_exposed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -2736,7 +2924,7 @@ def test_cli_runtime_persists_real_session_and_usage_with_process_isolated(
         "local_control_center.security_policy.sandbox.RestrictedSubprocessSandbox.execute",
         lambda *args, **kwargs: {
             "returnCode": 0,
-            "stdout": '{"event":"token_usage","usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}\n',
+            "stdout": '{"event":"token_usage","usage":{"prompt_tokens":7,"cached_input_tokens":2,"completion_tokens":5,"total_tokens":12}}\n',
             "stderr": "",
         },
     )
@@ -2767,6 +2955,7 @@ def test_cli_runtime_persists_real_session_and_usage_with_process_isolated(
     assert len(ledger) == 1
     assert ledger[0]["runtime_type"] == "cli"
     assert ledger[0]["usage_source"] == "actual"
+    assert ledger[0]["total_tokens"] == 12
 
 
 def test_cli_session_store_writes_redacted_stdout_stderr_and_log_artifacts(tmp_path: Path) -> None:
@@ -2881,7 +3070,8 @@ def test_cli_runtime_records_dangerous_flags_rejection_without_execution(tmp_pat
     assert "dangerous" in (result.error or "")
     assert session["status"] == "blocked"
     assert session["logs_artifact_id"]
-    assert ledger["usage_source"] == "estimated"
+    assert ledger["usage_source"] == "unavailable"
+    assert ledger["total_tokens"] is None
 
 
 def test_cli_runtime_records_invalid_workspace_without_execution(tmp_path: Path) -> None:

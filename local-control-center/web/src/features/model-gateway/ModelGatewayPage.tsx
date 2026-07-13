@@ -606,7 +606,7 @@ export function ModelGatewayPage({
 					/>
 					<Metric
 						label={t('ui.static.tokens.today.6e3f00fd', 'tokens today')}
-						value={gateway.overview.totalTokensToday}
+						value={gateway.overview.totalTokensToday ?? t('app.runtime.card.unknown', 'unknown')}
 					/>
 					<Metric
 						label={t('ui.static.estimated.cost.today.bc1751b9', 'estimated cost today')}

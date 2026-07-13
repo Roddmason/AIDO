@@ -2635,6 +2635,53 @@ test('Model Gateway console renders provider catalog routing usage budgets and C
 	await expect(page.getByRole('cell', { name: '$0.4200' }).first()).toBeVisible();
 });
 
+test('Model Gateway usage renders unreported tokens as unknown instead of zero', async ({ page }) => {
+	await page.route('**/api/v1/model-gateway/usage-ledger', async (route) => {
+		await route.fulfill({
+			json: {
+				usageLedger: [
+					{
+						id: 'usage-unreported',
+						providerId: 'unreported-provider',
+						model: 'unreported-model',
+						runtimeType: 'api',
+						agentId: 'developer_agent',
+						role: 'developer',
+						workflowRunId: null,
+						workflowStepId: null,
+						jobId: null,
+						taskId: null,
+						requestId: null,
+						sessionId: null,
+						inputTokens: null,
+						cachedInputTokens: null,
+						outputTokens: null,
+						reasoningTokens: null,
+						toolTokens: null,
+						totalTokens: null,
+						estimatedCostUsd: null,
+						actualCostUsd: null,
+						currency: 'USD',
+						latencyMs: null,
+						usageSource: 'unknown',
+						tokenStatus: 'unknown',
+						costStatus: 'unknown',
+						rawUsage: { usage_source: 'unknown' },
+						createdAt: '2026-07-12T00:00:00Z',
+					},
+				],
+			},
+		});
+	});
+
+	await page.goto('/#models');
+	await page.getByRole('tab', { name: 'Usage' }).click();
+	const row = page.getByRole('row', { name: /unreported-provider/ });
+	await expect(row).toBeVisible();
+	await expect(row.getByRole('cell', { name: 'unknown', exact: true })).toHaveCount(11);
+	await expect(row.getByRole('cell', { name: '0', exact: true })).toHaveCount(0);
+});
+
 test('Model Gateway first load fetches only the active tab, not every endpoint', async ({ page }) => {
 	let usageRequested = false;
 	let decisionsRequested = false;

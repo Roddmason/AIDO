@@ -17,6 +17,26 @@ from .serialization import json_dumps, json_loads
 from .time import utc_now
 
 
+def _execute_atomic_statements(
+    connection: sqlite3.Connection, statements: list[tuple[str, tuple[object, ...]]]
+) -> None:
+    """Execute a schema rebuild atomically, nesting safely inside an existing transaction."""
+    nested = connection.in_transaction
+    savepoint = "aido_schema_rebuild"
+    connection.execute(f"SAVEPOINT {savepoint}" if nested else "BEGIN IMMEDIATE")
+    try:
+        for statement, parameters in statements:
+            connection.execute(statement, parameters)
+        connection.execute(f"RELEASE SAVEPOINT {savepoint}" if nested else "COMMIT")
+    except Exception:
+        if nested:
+            connection.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
+            connection.execute(f"RELEASE SAVEPOINT {savepoint}")
+        elif connection.in_transaction:
+            connection.execute("ROLLBACK")
+        raise
+
+
 def initialize_platform_schema(connection: sqlite3.Connection) -> None:
     """Aplica todas las fases del esquema en orden y siembra los catálogos de la plataforma."""
     init_base_schema(connection)
@@ -68,6 +88,7 @@ def initialize_platform_schema(connection: sqlite3.Connection) -> None:
     init_phase47_schema(connection)
     init_phase48_schema(connection)
     init_phase49_schema(connection)
+    init_phase50_schema(connection)
     seed_platform_catalogs(connection)
 
 
@@ -495,8 +516,8 @@ def init_phase2_schema(connection: sqlite3.Connection) -> None:
             provider TEXT NOT NULL,
             model TEXT NOT NULL,
             status TEXT NOT NULL,
-            prompt_tokens INTEGER NOT NULL,
-            completion_tokens INTEGER NOT NULL,
+            prompt_tokens INTEGER,
+            completion_tokens INTEGER,
             cost_usd REAL,
             metadata TEXT NOT NULL,
             created_at TEXT NOT NULL
@@ -1230,12 +1251,12 @@ def init_phase12_schema(connection: sqlite3.Connection) -> None:
             task_id TEXT,
             request_id TEXT,
             session_id TEXT,
-            input_tokens INTEGER NOT NULL,
-            cached_input_tokens INTEGER NOT NULL,
-            output_tokens INTEGER NOT NULL,
-            reasoning_tokens INTEGER NOT NULL,
-            tool_tokens INTEGER NOT NULL,
-            total_tokens INTEGER NOT NULL,
+            input_tokens INTEGER,
+            cached_input_tokens INTEGER,
+            output_tokens INTEGER,
+            reasoning_tokens INTEGER,
+            tool_tokens INTEGER,
+            total_tokens INTEGER,
             estimated_cost_usd REAL,
             actual_cost_usd REAL,
             currency TEXT NOT NULL,
@@ -4452,9 +4473,7 @@ def init_phase41_schema(connection: sqlite3.Connection) -> None:
         )
         _mark_legacy_metadata(connection, table="chats", row_id=str(chat["id"]), metadata=metadata)
 
-    pipelines = connection.execute(
-        "SELECT * FROM pipelines ORDER BY created_at ASC, rowid ASC"
-    ).fetchall()
+    pipelines = connection.execute("SELECT * FROM pipelines ORDER BY created_at ASC, rowid ASC").fetchall()
     for pipeline in pipelines:
         chat_id = str(pipeline["chat_id"] or "")
         session_id = str(pipeline["session_id"] or "")
@@ -4848,10 +4867,11 @@ def init_phase47_schema(connection: sqlite3.Connection) -> None:
     columns = {row["name"]: row for row in connection.execute("PRAGMA table_info(model_calls)").fetchall()}
     cost_column = columns.get("cost_usd")
     if cost_column is not None and cost_column["notnull"]:
-        connection.executescript(
-            """
-            DROP TABLE IF EXISTS model_calls_cost_nullable;
-            CREATE TABLE model_calls_cost_nullable (
+        _execute_atomic_statements(
+            connection,
+            [
+                ("DROP TABLE IF EXISTS model_calls_cost_nullable", ()),
+                ("""CREATE TABLE model_calls_cost_nullable (
                 id TEXT PRIMARY KEY,
                 project_id TEXT,
                 agent_run_id TEXT,
@@ -4859,21 +4879,21 @@ def init_phase47_schema(connection: sqlite3.Connection) -> None:
                 provider TEXT NOT NULL,
                 model TEXT NOT NULL,
                 status TEXT NOT NULL,
-                prompt_tokens INTEGER NOT NULL,
-                completion_tokens INTEGER NOT NULL,
+                prompt_tokens INTEGER,
+                completion_tokens INTEGER,
                 cost_usd REAL,
                 metadata TEXT NOT NULL,
                 created_at TEXT NOT NULL
-            );
-            INSERT INTO model_calls_cost_nullable
+            )""", ()),
+                ("""INSERT INTO model_calls_cost_nullable
                 (id, project_id, agent_run_id, model_policy_id, provider, model, status,
                  prompt_tokens, completion_tokens, cost_usd, metadata, created_at)
             SELECT id, project_id, agent_run_id, model_policy_id, provider, model, status,
                    prompt_tokens, completion_tokens, cost_usd, metadata, created_at
-            FROM model_calls;
-            DROP TABLE model_calls;
-            ALTER TABLE model_calls_cost_nullable RENAME TO model_calls;
-            """
+            FROM model_calls""", ()),
+                ("DROP TABLE model_calls", ()),
+                ("ALTER TABLE model_calls_cost_nullable RENAME TO model_calls", ()),
+            ],
         )
     connection.execute(
         "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
@@ -4923,6 +4943,179 @@ def init_phase49_schema(connection: sqlite3.Connection) -> None:
         "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
         (49, utc_now()),
     )
+
+
+def init_phase50_schema(connection: sqlite3.Connection) -> None:
+    """Fase 50: tokens desconocidos son NULL, nunca un cero fabricado."""
+    statements: list[tuple[str, tuple[object, ...]]] = []
+    usage_columns = {
+        row["name"]: row for row in connection.execute("PRAGMA table_info(usage_ledger)").fetchall()
+    }
+    token_columns = {
+        "input_tokens",
+        "cached_input_tokens",
+        "output_tokens",
+        "reasoning_tokens",
+        "tool_tokens",
+        "total_tokens",
+    }
+    if any(name in usage_columns and usage_columns[name]["notnull"] for name in token_columns):
+        statements.extend(
+            [
+                ("DROP TABLE IF EXISTS usage_ledger_tokens_nullable", ()),
+                ("""CREATE TABLE usage_ledger_tokens_nullable (
+                id TEXT PRIMARY KEY,
+                provider_id TEXT NOT NULL,
+                model TEXT NOT NULL,
+                runtime_type TEXT NOT NULL,
+                agent_id TEXT,
+                role TEXT,
+                workflow_run_id TEXT,
+                workflow_step_id TEXT,
+                job_id TEXT,
+                task_id TEXT,
+                request_id TEXT,
+                session_id TEXT,
+                input_tokens INTEGER,
+                cached_input_tokens INTEGER,
+                output_tokens INTEGER,
+                reasoning_tokens INTEGER,
+                tool_tokens INTEGER,
+                total_tokens INTEGER,
+                estimated_cost_usd REAL,
+                actual_cost_usd REAL,
+                currency TEXT NOT NULL,
+                latency_ms INTEGER,
+                raw_usage_json TEXT NOT NULL,
+                usage_source TEXT NOT NULL DEFAULT 'estimated',
+                created_at TEXT NOT NULL
+            )""", ()),
+                ("""INSERT INTO usage_ledger_tokens_nullable
+                (id, provider_id, model, runtime_type, agent_id, role, workflow_run_id,
+                 workflow_step_id, job_id, task_id, request_id, session_id, input_tokens,
+                 cached_input_tokens, output_tokens, reasoning_tokens, tool_tokens, total_tokens,
+                 estimated_cost_usd, actual_cost_usd, currency, latency_ms, raw_usage_json,
+                 usage_source, created_at)
+            SELECT id, provider_id, model, runtime_type, agent_id, role, workflow_run_id,
+                   workflow_step_id, job_id, task_id, request_id, session_id,
+                   CASE WHEN lower(usage_source) IN ('actual', 'provider', 'provider_reported', 'cli_output') THEN input_tokens END,
+                   CASE WHEN lower(usage_source) IN ('actual', 'provider', 'provider_reported', 'cli_output') THEN cached_input_tokens END,
+                   CASE WHEN lower(usage_source) IN ('actual', 'provider', 'provider_reported', 'cli_output') THEN output_tokens END,
+                   CASE WHEN lower(usage_source) IN ('actual', 'provider', 'provider_reported', 'cli_output') THEN reasoning_tokens END,
+                   CASE WHEN lower(usage_source) IN ('actual', 'provider', 'provider_reported', 'cli_output') THEN tool_tokens END,
+                   CASE WHEN lower(usage_source) IN ('actual', 'provider', 'provider_reported', 'cli_output') THEN total_tokens END,
+                   estimated_cost_usd, actual_cost_usd, currency, latency_ms, raw_usage_json,
+                   usage_source, created_at
+            FROM usage_ledger""", ()),
+                ("DROP TABLE usage_ledger", ()),
+                ("ALTER TABLE usage_ledger_tokens_nullable RENAME TO usage_ledger", ()),
+                ("""CREATE INDEX IF NOT EXISTS idx_usage_ledger_provider_created
+                ON usage_ledger(provider_id, created_at)""", ()),
+            ]
+        )
+    statements.append(
+        (
+            """UPDATE usage_ledger
+            SET input_tokens = NULL,
+                cached_input_tokens = NULL,
+                output_tokens = NULL,
+                reasoning_tokens = NULL,
+                tool_tokens = NULL,
+                total_tokens = NULL
+            WHERE lower(usage_source) NOT IN ('actual', 'provider', 'provider_reported', 'cli_output')
+              AND (input_tokens IS NOT NULL OR cached_input_tokens IS NOT NULL
+                   OR output_tokens IS NOT NULL OR reasoning_tokens IS NOT NULL
+                   OR tool_tokens IS NOT NULL OR total_tokens IS NOT NULL)""",
+            (),
+        )
+    )
+
+    model_call_columns = {
+        row["name"]: row for row in connection.execute("PRAGMA table_info(model_calls)").fetchall()
+    }
+    if any(
+        name in model_call_columns and model_call_columns[name]["notnull"]
+        for name in {"prompt_tokens", "completion_tokens"}
+    ):
+        statements.extend(
+            [
+                ("DROP TABLE IF EXISTS model_calls_tokens_nullable", ()),
+                ("""CREATE TABLE model_calls_tokens_nullable (
+                id TEXT PRIMARY KEY,
+                project_id TEXT,
+                agent_run_id TEXT,
+                model_policy_id TEXT,
+                provider TEXT NOT NULL,
+                model TEXT NOT NULL,
+                status TEXT NOT NULL,
+                prompt_tokens INTEGER,
+                completion_tokens INTEGER,
+                cost_usd REAL,
+                metadata TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )""", ()),
+                ("""INSERT INTO model_calls_tokens_nullable
+                (id, project_id, agent_run_id, model_policy_id, provider, model, status,
+                 prompt_tokens, completion_tokens, cost_usd, metadata, created_at)
+            SELECT id, project_id, agent_run_id, model_policy_id, provider, model, status,
+                   prompt_tokens, completion_tokens,
+                   cost_usd, metadata, created_at
+            FROM model_calls""", ()),
+                ("DROP TABLE model_calls", ()),
+                ("ALTER TABLE model_calls_tokens_nullable RENAME TO model_calls", ()),
+            ]
+        )
+    token_status = "CASE WHEN json_valid(metadata) THEN json_extract(metadata, '$.tokenStatus') END"
+    cost_status = "CASE WHEN json_valid(metadata) THEN json_extract(metadata, '$.costStatus') END"
+    statements.extend(
+        [
+            (
+                f"""UPDATE model_calls
+                SET prompt_tokens = CASE
+                        WHEN status = 'completed' AND (
+                            ({token_status}) = 'actual'
+                            OR (({token_status}) IS NULL
+                                AND (prompt_tokens > 0 OR completion_tokens > 0))
+                        ) THEN prompt_tokens
+                    END,
+                    completion_tokens = CASE
+                        WHEN status = 'completed' AND (
+                            ({token_status}) = 'actual'
+                            OR (({token_status}) IS NULL
+                                AND (prompt_tokens > 0 OR completion_tokens > 0))
+                        ) THEN completion_tokens
+                    END,
+                    cost_usd = CASE
+                        WHEN status = 'completed' AND (
+                            ({cost_status}) IN ('actual', 'free', 'estimated')
+                            OR (({cost_status}) IS NULL AND cost_usd > 0)
+                        ) THEN cost_usd
+                    END
+                WHERE
+                    (status <> 'completed' AND (
+                        prompt_tokens IS NOT NULL OR completion_tokens IS NOT NULL OR cost_usd IS NOT NULL
+                    ))
+                    OR (status = 'completed' AND (
+                        (({token_status}) IS NOT NULL AND ({token_status}) <> 'actual'
+                         AND (prompt_tokens IS NOT NULL OR completion_tokens IS NOT NULL))
+                        OR (({token_status}) IS NULL
+                            AND COALESCE(prompt_tokens, 0) = 0
+                            AND COALESCE(completion_tokens, 0) = 0
+                            AND (prompt_tokens IS NOT NULL OR completion_tokens IS NOT NULL))
+                        OR (({cost_status}) IS NOT NULL
+                            AND ({cost_status}) NOT IN ('actual', 'free', 'estimated')
+                            AND cost_usd IS NOT NULL)
+                        OR (({cost_status}) IS NULL AND cost_usd = 0)
+                    ))""",
+                (),
+            ),
+            (
+                "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+                (50, utc_now()),
+            ),
+        ]
+    )
+    _execute_atomic_statements(connection, statements)
 
 
 def _legacy_thread_id(record_id: str) -> str:

@@ -84,13 +84,16 @@ def provider_instance(provider_id: str, *, connection: sqlite3.Connection):
     runtime_configuration = runtime_provider_configuration(provider_id)
     runtime_base_url = runtime_configuration.value("baseUrl") if runtime_configuration else None
     account_base_url = str(account.get("baseUrl") or "").strip()
-    is_endpoint_scoped_ollama = (
-        account.get("apiFormat") == "ollama" and provider_id not in {"ollama", "local_ollama"}
-    )
+    is_endpoint_scoped_ollama = account.get("apiFormat") == "ollama" and provider_id not in {
+        "ollama",
+        "local_ollama",
+    }
     if is_endpoint_scoped_ollama:
         base_url = runtime_base_url if runtime_base_url is not None else account_base_url
     else:
-        base_url = runtime_base_url or account_base_url or known_provider_default_base_url(provider_id) or None
+        base_url = (
+            runtime_base_url or account_base_url or known_provider_default_base_url(provider_id) or None
+        )
     credential_ref = (
         (runtime_configuration.configured_env_ref("apiKey") if runtime_configuration else None)
         or account.get("credentialRef")
@@ -204,8 +207,8 @@ class ModelGateway:
         status: str,
         model_policy_id: str | None = None,
         agent_run_id: str | None = None,
-        prompt_tokens: int = 0,
-        completion_tokens: int = 0,
+        prompt_tokens: int | None = None,
+        completion_tokens: int | None = None,
         cost_usd: float | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
@@ -587,11 +590,12 @@ class ModelGateway:
             workflow_step_id=planned_call.get("workflowStepId"),
             job_id=planned_call.get("jobId"),
             task_id=planned_call.get("taskId"),
-            input_tokens=response.usage.input_tokens if token_status == "actual" else 0,
-            cached_input_tokens=response.usage.cached_input_tokens if token_status == "actual" else 0,
-            output_tokens=response.usage.output_tokens if token_status == "actual" else 0,
-            reasoning_tokens=response.usage.reasoning_tokens if token_status == "actual" else 0,
-            tool_tokens=response.usage.tool_tokens if token_status == "actual" else 0,
+            input_tokens=response.usage.input_tokens if token_status == "actual" else None,
+            cached_input_tokens=response.usage.cached_input_tokens if token_status == "actual" else None,
+            output_tokens=response.usage.output_tokens if token_status == "actual" else None,
+            reasoning_tokens=response.usage.reasoning_tokens if token_status == "actual" else None,
+            tool_tokens=response.usage.tool_tokens if token_status == "actual" else None,
+            total_tokens=response.usage.total_tokens if token_status == "actual" else None,
             estimated_cost_usd=None,
             actual_cost_usd=actual_cost_usd,
             latency_ms=latency_ms,
@@ -603,8 +607,8 @@ class ModelGateway:
             "tokenStatus": token_status,
             "costStatus": cost_status,
             "actualCostUsd": actual_cost_usd,
-            "promptTokens": response.usage.input_tokens if token_status == "actual" else 0,
-            "completionTokens": response.usage.output_tokens if token_status == "actual" else 0,
+            "promptTokens": response.usage.input_tokens if token_status == "actual" else None,
+            "completionTokens": response.usage.output_tokens if token_status == "actual" else None,
         }
 
     def prepare_model_call(

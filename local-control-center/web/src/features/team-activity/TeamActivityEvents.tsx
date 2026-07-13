@@ -61,7 +61,9 @@ export function TeamActivityEvents({ entry }: { entry: TeamActivityEntry }) {
 								<span className="activity-event-meta mono">
 									{t('app.teamActivity.tokenCount', '{n} tokens').replace(
 										'{n}',
-										String(call.promptTokens + call.completionTokens),
+										call.promptTokens == null || call.completionTokens == null
+											? t('app.runtime.card.unknown', 'unknown')
+											: String(call.promptTokens + call.completionTokens),
 									)}
 								</span>
 							</li>

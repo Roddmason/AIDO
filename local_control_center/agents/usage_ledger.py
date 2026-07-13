@@ -57,15 +57,13 @@ def row_to_usage(row: sqlite3.Row) -> dict[str, Any]:
     }
 
 
-def _usage_source_from_raw(raw_usage: dict[str, Any] | None, actual_cost_usd: float | None) -> str:
+def _usage_source_from_raw(raw_usage: dict[str, Any] | None, _actual_cost_usd: float | None) -> str:
     raw_source = str((raw_usage or {}).get("usage_source") or "").strip().lower()
     if raw_source in {"actual", "estimated", "unavailable", "unknown"}:
         return raw_source
     if raw_source in {"not_available", "none"}:
         return "unavailable"
     if raw_source in {"provider", "provider_reported", "cli_output"}:
-        return "actual"
-    if actual_cost_usd is not None:
         return "actual"
     return "estimated"
 
@@ -90,11 +88,12 @@ class UsageLedger:
         task_id: str | None = None,
         request_id: str | None = None,
         session_id: str | None = None,
-        input_tokens: int = 0,
-        cached_input_tokens: int = 0,
-        output_tokens: int = 0,
-        reasoning_tokens: int = 0,
-        tool_tokens: int = 0,
+        input_tokens: int | None = None,
+        cached_input_tokens: int | None = None,
+        output_tokens: int | None = None,
+        reasoning_tokens: int | None = None,
+        tool_tokens: int | None = None,
+        total_tokens: int | None = None,
         estimated_cost_usd: float | None = None,
         actual_cost_usd: float | None = None,
         currency: str = "USD",
@@ -108,10 +107,26 @@ class UsageLedger:
         connection without an explicit commit, so they are atomic only within the caller's
         transaction.
         """
-        total_tokens = input_tokens + cached_input_tokens + output_tokens + reasoning_tokens + tool_tokens
         ledger_id = f"usage-{uuid.uuid4()}"
         sanitized_usage = redact_secrets(raw_usage or {"usage_source": "estimated"})
         resolved_usage_source = usage_source or _usage_source_from_raw(sanitized_usage, actual_cost_usd)
+        if resolved_usage_source == "actual":
+            stored_tokens = (
+                input_tokens,
+                cached_input_tokens,
+                output_tokens,
+                reasoning_tokens,
+                tool_tokens,
+            )
+            if total_tokens is not None:
+                stored_total_tokens = int(total_tokens)
+            elif input_tokens is not None or output_tokens is not None:
+                stored_total_tokens = int(input_tokens or 0) + int(output_tokens or 0)
+            else:
+                stored_total_tokens = sum(int(value or 0) for value in stored_tokens)
+        else:
+            stored_tokens = (None, None, None, None, None)
+            stored_total_tokens = None
         self.connection.execute(
             """
             INSERT INTO usage_ledger
@@ -134,12 +149,8 @@ class UsageLedger:
                 task_id,
                 request_id,
                 session_id,
-                input_tokens,
-                cached_input_tokens,
-                output_tokens,
-                reasoning_tokens,
-                tool_tokens,
-                total_tokens,
+                *stored_tokens,
+                stored_total_tokens,
                 estimated_cost_usd,
                 actual_cost_usd,
                 currency,
@@ -193,18 +204,23 @@ class UsageLedger:
         """Aggregate total tokens and estimated/actual cost overall and per provider."""
         row = self.connection.execute(
             """
-            SELECT COALESCE(SUM(total_tokens), 0) AS total_tokens,
-                   COALESCE(SUM(estimated_cost_usd), 0) AS estimated_cost,
+            SELECT SUM(total_tokens) AS total_tokens,
+                   SUM(estimated_cost_usd) AS estimated_cost,
                    SUM(actual_cost_usd) AS actual_cost,
                    COUNT(*) AS total_rows,
+                   SUM(CASE WHEN usage_source = 'actual' THEN 0 ELSE 1 END) AS unknown_token_rows,
+                   COUNT(estimated_cost_usd) AS estimated_cost_rows,
                    COUNT(actual_cost_usd) AS actual_cost_rows
             FROM usage_ledger
             """
         ).fetchone()
         by_provider = self.connection.execute(
             """
-            SELECT provider_id, COALESCE(SUM(total_tokens), 0) AS total_tokens,
-                   COALESCE(SUM(estimated_cost_usd), 0) AS estimated_cost
+            SELECT provider_id, SUM(total_tokens) AS total_tokens,
+                   SUM(estimated_cost_usd) AS estimated_cost,
+                   COUNT(*) AS total_rows,
+                   SUM(CASE WHEN usage_source = 'actual' THEN 0 ELSE 1 END) AS unknown_token_rows,
+                   COUNT(estimated_cost_usd) AS estimated_cost_rows
             FROM usage_ledger
             GROUP BY provider_id
             ORDER BY provider_id ASC
@@ -215,15 +231,34 @@ class UsageLedger:
             if int(row["actual_cost_rows"] or 0) == int(row["total_rows"] or 0)
             else None
         )
+        total_rows = int(row["total_rows"] or 0)
+        estimated_cost_usd = (
+            0.0
+            if total_rows == 0
+            else float(row["estimated_cost"] or 0)
+            if int(row["estimated_cost_rows"] or 0) == total_rows
+            else None
+        )
+        total_tokens = (
+            0
+            if total_rows == 0
+            else None
+            if int(row["unknown_token_rows"] or 0) > 0
+            else int(row["total_tokens"] or 0)
+        )
         return {
-            "totalTokens": int(row["total_tokens"] or 0),
-            "estimatedCostUsd": float(row["estimated_cost"] or 0),
+            "totalTokens": total_tokens,
+            "estimatedCostUsd": estimated_cost_usd,
             "actualCostUsd": actual_cost_usd,
             "byProvider": [
                 {
                     "providerId": item["provider_id"],
-                    "totalTokens": int(item["total_tokens"] or 0),
-                    "estimatedCostUsd": float(item["estimated_cost"] or 0),
+                    "totalTokens": None
+                    if int(item["unknown_token_rows"] or 0) > 0
+                    else int(item["total_tokens"] or 0),
+                    "estimatedCostUsd": float(item["estimated_cost"] or 0)
+                    if int(item["estimated_cost_rows"] or 0) == int(item["total_rows"] or 0)
+                    else None,
                 }
                 for item in by_provider
             ],

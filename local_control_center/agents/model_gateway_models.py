@@ -436,12 +436,12 @@ class UsageLedgerRecord(BaseModel):
     task_id: str | None = Field(default=None, alias="taskId")
     request_id: str | None = Field(default=None, alias="requestId")
     session_id: str | None = Field(default=None, alias="sessionId")
-    input_tokens: int = Field(alias="inputTokens")
-    cached_input_tokens: int = Field(alias="cachedInputTokens")
-    output_tokens: int = Field(alias="outputTokens")
-    reasoning_tokens: int = Field(alias="reasoningTokens")
-    tool_tokens: int = Field(alias="toolTokens")
-    total_tokens: int = Field(alias="totalTokens")
+    input_tokens: int | None = Field(alias="inputTokens")
+    cached_input_tokens: int | None = Field(alias="cachedInputTokens")
+    output_tokens: int | None = Field(alias="outputTokens")
+    reasoning_tokens: int | None = Field(alias="reasoningTokens")
+    tool_tokens: int | None = Field(alias="toolTokens")
+    total_tokens: int | None = Field(alias="totalTokens")
     estimated_cost_usd: float | None = Field(default=None, alias="estimatedCostUsd")
     actual_cost_usd: float | None = Field(default=None, alias="actualCostUsd")
     currency: str
@@ -463,15 +463,15 @@ class UsageSummaryProvider(BaseModel):
     """Totales de uso agregados por proveedor."""
 
     provider_id: str = Field(alias="providerId")
-    total_tokens: int = Field(alias="totalTokens")
-    estimated_cost_usd: float = Field(alias="estimatedCostUsd")
+    total_tokens: int | None = Field(alias="totalTokens")
+    estimated_cost_usd: float | None = Field(alias="estimatedCostUsd")
 
 
 class UsageSummaryRecord(BaseModel):
     """Resumen de uso: totales globales de tokens y costo y su desglose por proveedor."""
 
-    total_tokens: int = Field(alias="totalTokens")
-    estimated_cost_usd: float = Field(alias="estimatedCostUsd")
+    total_tokens: int | None = Field(alias="totalTokens")
+    estimated_cost_usd: float | None = Field(alias="estimatedCostUsd")
     actual_cost_usd: float | None = Field(default=None, alias="actualCostUsd")
     by_provider: list[UsageSummaryProvider] = Field(alias="byProvider")
 
@@ -717,7 +717,7 @@ class TestPromptRecord(BaseModel):
     ok: bool
     latency_ms: int = Field(alias="latencyMs")
     sample: str = ""
-    total_tokens: int = Field(default=0, alias="totalTokens")
+    total_tokens: int | None = Field(default=None, alias="totalTokens")
     usage_source: str = Field(default="unknown", alias="usageSource")
     error: str | None = None
 
@@ -738,7 +738,7 @@ class ModelGatewayOverviewRecord(BaseModel):
     healthy: int
     degraded: int
     offline: int
-    total_tokens_today: int = Field(alias="totalTokensToday")
+    total_tokens_today: int | None = Field(alias="totalTokensToday")
     estimated_cost_today: float = Field(alias="estimatedCostToday")
     actual_cost_today: float | None = Field(default=None, alias="actualCostToday")
     pending_model_approvals: int = Field(alias="pendingModelApprovals")

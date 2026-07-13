@@ -204,7 +204,7 @@ export function ThreadCostPanel({
 							{cost.actualCostUsd == null ? unknown : formatCostUsd(cost.actualCostUsd)}
 						</Metric>
 						<Metric term={t('app.threads.inspector.cost.tokens', 'Tokens')}>
-							{tokens.tokenStatus === 'unknown' ? unknown : tokens.totalTokens.toLocaleString()}
+							{tokens.totalTokens == null ? unknown : tokens.totalTokens.toLocaleString()}
 						</Metric>
 						<Metric term={t('app.threads.inspector.cost.tokenCalls', 'Calls reporting tokens')}>
 							{`${tokens.knownCalls}/${tokens.callCount}`}

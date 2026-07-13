@@ -24,7 +24,7 @@ from local_control_center.shared.time import utc_now
 
 from .credentials import CredentialResolver
 from .model_benchmarks import ModelBenchmarkStore
-from .model_gateway import ModelGateway, provider_instance
+from .model_gateway import ModelGateway, _provider_usage_reported, provider_instance
 from .model_gateway_models import (
     BudgetRulePatchRequest,
     BudgetRuleResponse,
@@ -165,14 +165,17 @@ def _run_provider_test_prompt(provider_id: str, model: str, *, connection: Any) 
             )
         )
         usage = response.usage
+        raw_usage = getattr(usage, "raw_usage", None) or {}
+        usage_reported = _provider_usage_reported(raw_usage)
+        usage_source = str(raw_usage.get("usage_source") or "provider") if usage_reported else "unknown"
         return {
             "providerId": provider_id,
             "model": model,
             "ok": True,
             "latencyMs": int((time.monotonic() - started) * 1000),
             "sample": str(redact_secrets(response.content or ""))[:TEST_PROMPT_SAMPLE_LIMIT],
-            "totalTokens": int(getattr(usage, "total_tokens", 0) or 0),
-            "usageSource": str((getattr(usage, "raw_usage", None) or {}).get("usage_source") or "unknown"),
+            "totalTokens": int(getattr(usage, "total_tokens", 0) or 0) if usage_reported else None,
+            "usageSource": usage_source,
             "error": None,
         }
     except Exception as error:
@@ -184,7 +187,7 @@ def _run_provider_test_prompt(provider_id: str, model: str, *, connection: Any) 
             "ok": False,
             "latencyMs": int((time.monotonic() - started) * 1000),
             "sample": "",
-            "totalTokens": 0,
+            "totalTokens": None,
             "usageSource": "unknown",
             "error": str(redact_secrets(f"{error.__class__.__name__}: {error}")),
         }

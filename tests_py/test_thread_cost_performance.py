@@ -111,6 +111,7 @@ def test_unknown_cost_never_renders_as_zero(tmp_path: Path) -> None:
     assert snapshot["cost"]["estimatedCostUsd"] is None
     assert snapshot["cost"]["actualCostUsd"] is None
     assert snapshot["tokens"]["tokenStatus"] == "unknown"
+    assert snapshot["tokens"]["totalTokens"] is None
     assert snapshot["tokens"]["unknownCalls"] == 1
     assert snapshot["tokens"]["knownCalls"] == 0
     assert snapshot["qualityRework"]["reworkRounds"] == 2
@@ -121,6 +122,43 @@ def test_unknown_cost_never_renders_as_zero(tmp_path: Path) -> None:
     assert snapshot["latency"]["avgMs"] is None
     assert snapshot["latency"]["maxMs"] is None
     assert snapshot["latency"]["unknownCalls"] == 1
+
+
+def test_partial_cost_never_renders_known_subtotal_as_total(tmp_path: Path) -> None:
+    runtime, client = _client(tmp_path)
+    project_id = _project(runtime, tmp_path)
+    thread = _thread(runtime, project_id, "Partial cost run")
+    loop = _loop(runtime, project_id, {"fsm": {"usage": {"reworkRounds": 0}}})
+    _link_thread_to_loop(runtime, thread["id"], loop["id"])
+    ledger = UsageLedger(runtime.connection)
+    ledger.record_usage(
+        provider_id="ollama",
+        model="known",
+        runtime_type="ollama",
+        role="developer",
+        task_id=_task_id(loop["id"]),
+        input_tokens=4,
+        output_tokens=2,
+        estimated_cost_usd=0.01,
+        actual_cost_usd=0.01,
+        raw_usage={"usage_source": "actual"},
+    )
+    ledger.record_usage(
+        provider_id="ollama",
+        model="unknown",
+        runtime_type="ollama",
+        role="developer",
+        task_id=_task_id(loop["id"]),
+        raw_usage={"usage_source": "unknown"},
+        usage_source="unknown",
+    )
+
+    snapshot = client.get(f"/api/v1/threads/{thread['id']}/cost-performance").json()["costPerformance"]
+
+    assert snapshot["budgetUsed"]["costStatus"] == "partial"
+    assert snapshot["budgetUsed"]["usedUsd"] is None
+    assert snapshot["cost"]["estimatedCostUsd"] is None
+    assert snapshot["cost"]["actualCostUsd"] is None
 
 
 def test_sums_known_cost_and_scopes_by_thread(tmp_path: Path) -> None:

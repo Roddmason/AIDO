@@ -515,8 +515,8 @@ class AgentsRepository:
         status: str,
         model_policy_id: str | None = None,
         agent_run_id: str | None = None,
-        prompt_tokens: int = 0,
-        completion_tokens: int = 0,
+        prompt_tokens: int | None = None,
+        completion_tokens: int | None = None,
         cost_usd: float | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:

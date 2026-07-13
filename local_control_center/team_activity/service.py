@@ -25,7 +25,9 @@ from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.time import utc_now
 
 ACTIVE_RUN_STATUSES = frozenset({"queued", "running", "awaiting_permission", "approval_required"})
-BLOCKED_RUN_STATUSES = frozenset({"blocked", "runtime_unavailable", "qa_failed", "runtime_failed", "timed_out"})
+BLOCKED_RUN_STATUSES = frozenset(
+    {"blocked", "runtime_unavailable", "qa_failed", "runtime_failed", "timed_out"}
+)
 DONE_RUN_STATUSES = frozenset({"cancelled", "completed", "approved", "evidence_ready"})
 ACTIVE_ASSIGNMENT_STATUSES = frozenset({"active", "in_progress", "running", "accepted", "proposed"})
 COMPLETED_ASSIGNMENT_STATUSES = frozenset({"released", "completed", "done"})
@@ -222,8 +224,10 @@ def _model_summary(call: dict[str, Any]) -> dict[str, Any]:
         "provider": call.get("provider") or "unknown",
         "model": call.get("model") or "unknown",
         "status": call.get("status") or "unknown",
-        "promptTokens": int(call.get("promptTokens") or 0),
-        "completionTokens": int(call.get("completionTokens") or 0),
+        "promptTokens": int(call["promptTokens"]) if call.get("promptTokens") is not None else None,
+        "completionTokens": int(call["completionTokens"])
+        if call.get("completionTokens") is not None
+        else None,
         "costUsd": call.get("costUsd"),
         "createdAt": call.get("createdAt") or "",
     }

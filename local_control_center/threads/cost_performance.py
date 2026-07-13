@@ -123,6 +123,7 @@ class ThreadCostPerformanceService:
         used_values: list[float] = []
         has_actual = False
         has_estimated = False
+        unknown_calls = 0
         for row in usage_rows:
             actual = row.get("actualCostUsd")
             estimated = row.get("estimatedCostUsd")
@@ -132,9 +133,13 @@ class ThreadCostPerformanceService:
             elif estimated is not None:
                 used_values.append(float(estimated))
                 has_estimated = True
-        used_usd = sum(used_values) if used_values else None
+            else:
+                unknown_calls += 1
+        used_usd = sum(used_values) if used_values and unknown_calls == 0 else None
         if not used_values:
             cost_status = "unknown"
+        elif unknown_calls:
+            cost_status = "partial"
         elif has_actual and has_estimated:
             cost_status = "mixed"
         elif has_actual:
@@ -168,13 +173,12 @@ class ThreadCostPerformanceService:
         ]
         actual = [float(row["actualCostUsd"]) for row in usage_rows if row.get("actualCostUsd") is not None]
         return {
-            "estimatedCostUsd": sum(estimated) if estimated else None,
-            "actualCostUsd": sum(actual) if actual else None,
+            "estimatedCostUsd": sum(estimated) if len(estimated) == len(usage_rows) and estimated else None,
+            "actualCostUsd": sum(actual) if len(actual) == len(usage_rows) and actual else None,
         }
 
     def _token_summary(self, usage_rows: list[dict[str, Any]]) -> dict[str, Any]:
         """Tokens totales y el desglose conocidos/desconocidos por llamada según ``tokenStatus``."""
-        total_tokens = sum(int(row.get("totalTokens") or 0) for row in usage_rows)
         known_calls = sum(1 for row in usage_rows if row.get("tokenStatus") == "actual")
         unknown_calls = len(usage_rows) - known_calls
         if not usage_rows:
@@ -185,6 +189,11 @@ class ThreadCostPerformanceService:
             token_status = "unknown"
         else:
             token_status = "partial"
+        total_tokens = (
+            sum(int(row.get("totalTokens") or 0) for row in usage_rows)
+            if token_status in {"actual", "none"}
+            else None
+        )
         return {
             "totalTokens": total_tokens,
             "knownCalls": known_calls,

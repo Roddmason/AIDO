@@ -464,7 +464,7 @@ class ThreadMemoryRecallResponse(BaseModel):
     implemented_functionality: list[ThreadMemoryImplementedRecord] = Field(alias="implementedFunctionality")
 
 
-ThreadCostStatus = Literal["actual", "estimated", "mixed", "unknown"]
+ThreadCostStatus = Literal["actual", "estimated", "mixed", "partial", "unknown"]
 ThreadTokenStatus = Literal["actual", "partial", "unknown", "none"]
 ThreadLatencyStatus = Literal["actual", "partial", "unknown", "none"]
 ThreadTeamMode = Literal["economy", "balanced", "critical", "maximum"]
@@ -490,7 +490,7 @@ class ThreadCostSummaryRecord(BaseModel):
 class ThreadTokenSummaryRecord(BaseModel):
     """Tokens del hilo con el desglose de llamadas con uso conocido vs desconocido."""
 
-    total_tokens: int = Field(alias="totalTokens")
+    total_tokens: int | None = Field(alias="totalTokens")
     known_calls: int = Field(alias="knownCalls")
     unknown_calls: int = Field(alias="unknownCalls")
     token_status: ThreadTokenStatus = Field(alias="tokenStatus")

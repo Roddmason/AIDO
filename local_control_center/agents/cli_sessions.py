@@ -273,10 +273,10 @@ class CliSessionStore:
                 output_tokens=int(getattr(usage, "output_tokens", 0)),
                 reasoning_tokens=int(getattr(usage, "reasoning_tokens", 0)),
                 tool_tokens=int(getattr(usage, "tool_tokens", 0)),
+                total_tokens=int(getattr(usage, "total_tokens", 0)),
                 raw_usage=getattr(usage, "raw_usage", None) or {"usage_source": "cli_output"},
                 usage_source="actual",
             )
-        estimated_input = max(1, len((stdout + stderr).split()))
         return UsageLedger(self.connection).record_usage(
             provider_id=runtime,
             model=model or "cli",
@@ -286,8 +286,6 @@ class CliSessionStore:
             workflow_run_id=workflow_run_id,
             workflow_step_id=workflow_step_id,
             session_id=session_id,
-            input_tokens=estimated_input,
-            output_tokens=0,
-            raw_usage={"usage_source": "estimated", "status": status},
-            usage_source="estimated",
+            raw_usage={"usage_source": "unavailable", "status": status},
+            usage_source="unavailable",
         )

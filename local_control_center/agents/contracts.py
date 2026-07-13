@@ -337,8 +337,8 @@ class ModelCallRecord(BaseModel):
     provider: str
     model: str
     status: ModelCallStatus
-    prompt_tokens: int = Field(alias="promptTokens")
-    completion_tokens: int = Field(alias="completionTokens")
+    prompt_tokens: int | None = Field(alias="promptTokens")
+    completion_tokens: int | None = Field(alias="completionTokens")
     cost_usd: float | None = Field(default=None, alias="costUsd")
     metadata: dict[str, Any]
     created_at: str = Field(alias="createdAt")

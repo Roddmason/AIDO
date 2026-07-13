@@ -231,6 +231,16 @@
 	overflow-wrap: anywhere;
 }
 
+/* Status reasons on provider/runtime cards: two lines at most so a grid of cards stays scannable;
+   the full text lives in the title tooltip of the same paragraph. */
+.card-reason {
+	display: -webkit-box;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 2;
+	line-clamp: 2;
+	overflow: hidden;
+}
+
 /* Workspace dialog: mode choice (step 1) and detection cards (step 2). */
 .workspace-mode-grid {
 	display: grid;

@@ -124,6 +124,7 @@ export function ThreadTree({
 						<button
 							type="button"
 							className="thread-workspace-head"
+							title={project.name}
 							aria-expanded={open}
 							aria-controls={`thread-children-${project.id}`}
 							onClick={() => {
@@ -324,6 +325,7 @@ function ThreadRow({ thread, archived, active, actions, onSelect }: ThreadRowPro
 				<button
 					type="button"
 					className="thread-row-select"
+					title={thread.title}
 					onClick={onSelect}
 					onContextMenu={(event) => {
 						event.preventDefault();

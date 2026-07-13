@@ -485,7 +485,9 @@ function ProviderCard({
 					</Badge>
 				) : null}
 			</div>
-			<p className="card-body">{reason}</p>
+			<p className="card-body card-reason" title={reason}>
+				{reason}
+			</p>
 
 			{capabilities.length ? (
 				<div className="inline">
@@ -652,7 +654,9 @@ function ProviderCard({
 					<section className="stack compact">
 						<h5 className="field-label">{t('app.runtime.card.command', 'Command detected')}</h5>
 						{status?.detectedCommand ? (
-							<span className="mono">
+							/* Executable paths are unbreakable tokens: without anywhere-wrap this line sets the
+							   whole card's min-content width and forces a sideways scroll on the card grid. */
+							<span className="mono" style={{ overflowWrap: 'anywhere' }}>
 								{redactVisibleSecret(status.detectedCommand)}
 								{status.version ? ` · ${redactVisibleSecret(status.version)}` : ''}
 							</span>

@@ -7052,3 +7052,98 @@ def test_continue_feedback_queues_real_product_loop_continuation(tmp_path: Path)
             and event["payload"].get("continueOfLoopId") == reworked["loop"]["id"]
             for event in events
         )
+
+
+def _functionality_blocked_run(connection, tmp_path: Path, monkeypatch, name: str) -> dict[str, Any]:
+    project = _workspace_project(connection, tmp_path, name)
+    monkeypatch.setattr(
+        ProductLoopCoordinator,
+        "_existing_functionality_match",
+        lambda self, *, project_id, message: {
+            "id": "functionality-existing-1",
+            "name": "Actualizar Spring Boot",
+            "sourceThreadId": "thread-source-1",
+            "score": 0.7,
+            "reason": "Lexical overlap in test",
+        },
+    )
+    coordinator = ProductLoopCoordinator(connection, root=tmp_path)
+    return coordinator.run_user_message(
+        project_id=project["id"],
+        message="Refactoriza y actualiza Spring Boot",
+        run_metadata={},
+    )
+
+
+def test_blocked_thread_without_stored_actions_gets_backfilled_remediations(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Reproduce el hilo bloqueado huérfano: quedó 'blocked' antes de que existiera la creación de
+    remediaciones, así que /remediations devolvía [] y el operador no tenía ninguna salida."""
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        result = _functionality_blocked_run(connection, tmp_path, monkeypatch, "backfill-orphan")
+        durable = result["loop"]["context"]["durableRun"]
+        thread_id = durable["thread"]["projectThreadId"]
+        # Estado legacy real: hilo 'blocked' y cero filas de remediación persistidas.
+        ThreadsRepository(connection).set_status(thread_id, "blocked")
+        connection.execute("DELETE FROM remediation_actions WHERE thread_id = ?", (thread_id,))
+
+        actions = BlockerRemediationService(connection, root=tmp_path).list_for_thread(
+            thread_id=thread_id
+        )
+
+        action_types = {action["actionType"] for action in actions}
+        assert "retry_loop" in action_types
+        retry = next(action for action in actions if action["actionType"] == "retry_loop")
+        assert retry["loopId"] == result["loop"]["id"]
+        assert retry["status"] == "pending"
+
+
+def test_retry_loop_functionality_block_requires_resolved_decision(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        result = _functionality_blocked_run(connection, tmp_path, monkeypatch, "retry-pending-decision")
+        durable = result["loop"]["context"]["durableRun"]
+        thread_id = durable["thread"]["projectThreadId"]
+        connection.execute("DELETE FROM remediation_actions WHERE thread_id = ?", (thread_id,))
+        service = BlockerRemediationService(connection, root=tmp_path)
+        actions = service.list_for_thread(thread_id=thread_id)
+        retry = next(action for action in actions if action["actionType"] == "retry_loop")
+
+        execution = service.execute(retry["id"], platform=object())
+
+        assert execution["execution"]["status"] == "blocked"
+        assert "decision" in execution["execution"]["reason"].lower()
+
+
+def test_retry_loop_after_resolved_functionality_decision_carries_user_choice(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """El retry de un loop bloqueado por funcionalidad existente debe llevar la elección ya resuelta
+    del usuario; sin ella, el rerun volvería a bloquearse en el mismo gate para siempre."""
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        result = _functionality_blocked_run(connection, tmp_path, monkeypatch, "retry-resolved-decision")
+        durable = result["loop"]["context"]["durableRun"]
+        thread_id = durable["thread"]["projectThreadId"]
+        decision_id = durable["decisionId"]
+        ThreadsRepository(connection).resolve_decision(
+            thread_id=thread_id,
+            decision_id=decision_id,
+            resolution="continue_existing",
+            decided_by="user",
+        )
+        connection.execute("DELETE FROM remediation_actions WHERE thread_id = ?", (thread_id,))
+        service = BlockerRemediationService(connection, root=tmp_path)
+        actions = service.list_for_thread(thread_id=thread_id)
+        retry = next(action for action in actions if action["actionType"] == "retry_loop")
+
+        execution = service.execute(retry["id"], platform=object())
+
+        assert execution["execution"]["status"] == "queued"
+        retry_job = JobsRepository(connection).get_job(execution["execution"]["job"]["id"])
+        assert retry_job["payload"]["runMetadata"]["functionalityDecision"] == "continue_existing"
+        assert ThreadsRepository(connection).get_thread(thread_id)["status"] == "queued"

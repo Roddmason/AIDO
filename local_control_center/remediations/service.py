@@ -30,6 +30,7 @@ from local_control_center.runtime_integrations.repository import RuntimeConfigRe
 from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.time import utc_now
 from local_control_center.threads.repository import ThreadsRepository
+from local_control_center.threads.similarity import SIMILARITY_ACTIONS
 
 # Remediation actions that can discard or overwrite local work; execute() refuses them until the
 # caller explicitly confirms, and their persisted records are flagged ``confirmationRequired``.
@@ -155,10 +156,101 @@ class BlockerRemediationService:
         thread_id: str,
         worker_status: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
-        """List remediations and opportunistically materialize worker recovery for queued threads."""
+        """List remediations, materializing worker recovery and blocked-thread backfill on demand."""
         if worker_status is not None:
-            return self.ensure_worker_remediation(thread_id=thread_id, worker_status=worker_status)
+            actions = self.ensure_worker_remediation(thread_id=thread_id, worker_status=worker_status)
+        else:
+            actions = self.repository.list_for_thread(thread_id)
+        if any(action.get("status") == "pending" for action in actions):
+            return actions
+        return self.ensure_blocked_thread_remediation(thread_id=thread_id, existing=actions)
+
+    def ensure_blocked_thread_remediation(
+        self,
+        *,
+        thread_id: str,
+        existing: list[dict[str, Any]] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Backfill: un hilo bloqueado sin acciones pendientes siempre recibe una salida ejecutable.
+
+        Cubre bloqueos previos a la creación automática de remediaciones (o cuyas filas se
+        perdieron): reconstruye las tarjetas específicas del blocker desde el estado durable del
+        loop y garantiza un ``retry_loop`` real, para que el operador nunca quede frente a un
+        bloqueo sin acción posible.
+        """
+        actions = existing if existing is not None else self.repository.list_for_thread(thread_id)
+        thread = ThreadsRepository(self.connection).get_thread(thread_id)
+        if thread["status"] not in {"blocked", "waiting_decision"}:
+            return actions
+        loop = self._blocked_loop_for_thread(thread_id=thread_id, project_id=thread["projectId"])
+        if loop is None:
+            return actions
+        durable = dict((loop.get("context") or {}).get("durableRun") or {})
+        stage = str(durable.get("blockedStage") or "").strip() or "worker"
+        reason = str(
+            durable.get("blockedReason")
+            or "The Product Loop is blocked and its stored remediation actions are missing."
+        )
+        details = self._backfill_details_from_durable(durable)
+        blocker_type = self._blocker_type(stage=stage, reason=reason, details=details)
+        with suppress(Exception):
+            self.create_for_blocked_run(
+                project_id=thread["projectId"],
+                thread_id=thread_id,
+                loop_id=loop["id"],
+                stage=stage,
+                reason=reason,
+                details=details,
+            )
+        with suppress(Exception):
+            self.repository.create_action(
+                project_id=thread["projectId"],
+                thread_id=thread_id,
+                loop_id=loop["id"],
+                stage=stage,
+                blocker_type=blocker_type,
+                title="Retry loop",
+                description="Queue a real retry of the blocked run from its original message.",
+                action_type="retry_loop",
+                technical_reason=reason,
+                payload={
+                    "projectId": thread["projectId"],
+                    "threadId": thread_id,
+                    "loopId": loop["id"],
+                    "stage": stage,
+                    "reason": reason,
+                    "backfilled": True,
+                },
+            )
         return self.repository.list_for_thread(thread_id)
+
+    def _blocked_loop_for_thread(self, *, thread_id: str, project_id: str) -> dict[str, Any] | None:
+        from local_control_center.product_loop.coordinator import ProductLoopCoordinator
+
+        coordinator = ProductLoopCoordinator(self.connection, root=self.root)
+        for loop in coordinator.list_loops(project_id):
+            if str(loop.get("state") or "") != "blocked":
+                continue
+            durable = dict((loop.get("context") or {}).get("durableRun") or {})
+            thread_ref = durable.get("thread") if isinstance(durable.get("thread"), dict) else {}
+            if str(thread_ref.get("projectThreadId") or "") == thread_id:
+                return loop
+        return None
+
+    @staticmethod
+    def _backfill_details_from_durable(durable: dict[str, Any]) -> dict[str, Any]:
+        functionality = (
+            durable.get("existingFunctionality")
+            if isinstance(durable.get("existingFunctionality"), dict)
+            else {}
+        )
+        return {
+            "decisionId": durable.get("decisionId"),
+            "functionalityId": functionality.get("id"),
+            "sourceThreadId": functionality.get("sourceThreadId"),
+            "score": functionality.get("score"),
+            "options": list(SIMILARITY_ACTIONS),
+        }
 
     def dismiss(self, action_id: str) -> dict[str, Any]:
         """Dismiss one pending remediation action."""
@@ -623,6 +715,22 @@ class BlockerRemediationService:
             "reason": "Patch saved as a local evidence artifact.",
         }
 
+    @staticmethod
+    def _resolved_similarity_decision_mode(
+        *, threads: ThreadsRepository, decision_id: str
+    ) -> str | None:
+        """Devuelve el modo elegido por el usuario si la decisión está resuelta y es válido."""
+        if not decision_id:
+            return None
+        try:
+            decision = threads.get_decision(decision_id)
+        except KeyError:
+            return None
+        if str(decision.get("status") or "") != "resolved":
+            return None
+        mode = str(decision.get("resolution") or "").strip().lower().replace(" ", "_").replace("-", "_")
+        return mode if mode in SIMILARITY_ACTIONS else None
+
     def _retry_loop(self, *, action: dict[str, Any]) -> dict[str, Any]:
         loop_id = str(action.get("loopId") or "").strip()
         if not loop_id:
@@ -694,6 +802,19 @@ class BlockerRemediationService:
                 threads=threads,
             )
 
+        functionality_decision_mode: str | None = None
+        if durable.get("blockedStage") == "functionality_memory":
+            functionality_decision_mode = self._resolved_similarity_decision_mode(
+                threads=threads, decision_id=str(durable.get("decisionId") or "")
+            )
+            if functionality_decision_mode is None:
+                return {
+                    "status": "blocked",
+                    "action": "retry_loop",
+                    "reason": "Resolve the existing-functionality decision on this thread before retrying the loop.",
+                    "decisionId": durable.get("decisionId"),
+                }
+
         message_id = str(thread_ref.get("messageId") or request_meta.get("messageId") or "").strip()
         message = str(durable.get("message") or "").strip()
         source_message = self._source_retry_message(threads=threads, thread_id=thread_id, message_id=message_id)
@@ -727,6 +848,10 @@ class BlockerRemediationService:
             "retryReason": durable.get("blockedReason"),
             "remediationActionId": action["id"],
         }
+        if functionality_decision_mode:
+            # Sin la elección resuelta el rerun volvería a bloquearse en el gate de memoria de
+            # funcionalidad con el mismo mensaje, en un ciclo sin salida para el operador.
+            retry_metadata["functionalityDecision"] = functionality_decision_mode
         jobs = JobsRepository(self.connection)
         existing_job = self._existing_retry_job(
             jobs=jobs,

@@ -340,15 +340,20 @@ class ThreadCoordinator:
                 payload={"decisionId": decision_id, "resolution": resolution},
             )
             current = self.repository.get_thread(thread_id)
-            similarity_candidate_id = _metadata_text(
-                pending_decision.get("metadata")
-                if isinstance(pending_decision.get("metadata"), dict)
-                else {},
-                "similarityCandidateId",
-                "",
+            decision_metadata = (
+                pending_decision.get("metadata") if isinstance(pending_decision.get("metadata"), dict) else {}
+            )
+            similarity_candidate_id = _metadata_text(decision_metadata, "similarityCandidateId", "")
+            # La decisión del gate de funcionalidad existente puede quedar con el hilo en 'blocked'
+            # (la transición del run pisa 'waiting_decision'); resolverla debe poder reanudar el
+            # loop igualmente, o el hilo queda bloqueado para siempre sin salida para el operador.
+            functionality_decision = (
+                _metadata_text(decision_metadata, "source", "") == "functionality_registry"
             )
             resolution_mode = self._resolution_mode(resolution)
-            can_resume_decision = current["status"] in {"waiting_decision", "awaiting_user", "open"}
+            can_resume_decision = current["status"] in {"waiting_decision", "awaiting_user", "open"} or (
+                functionality_decision and current["status"] == "blocked"
+            )
             if (
                 can_resume_decision
                 and similarity_candidate_id
@@ -380,6 +385,10 @@ class ThreadCoordinator:
                     else {}
                 )
                 run_metadata = {**source_metadata, "userMode": forced_decision.user_mode}
+                if functionality_decision:
+                    # El rerun debe llevar la elección del usuario o el gate de memoria de
+                    # funcionalidad volvería a bloquear el mismo mensaje en un ciclo sin fin.
+                    run_metadata["functionalityDecision"] = resolution_mode
                 if plan_only:
                     run_metadata["planOnly"] = True
                     run_metadata["planOnlyReason"] = resolution

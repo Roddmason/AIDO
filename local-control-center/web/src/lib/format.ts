@@ -41,6 +41,13 @@ export function formatDurationMs(ms?: number | null): string {
 	return `${hours}h ${minutes % 60}m`;
 }
 
+/** Renders an ISO timestamp in the user's locale, falling back to the raw value or the empty label. */
+export function formatTime(value: string | null | undefined, emptyLabel = 'not recorded'): string {
+	if (!value) return emptyLabel;
+	const parsed = Date.parse(value);
+	return Number.isNaN(parsed) ? value : new Date(parsed).toLocaleString();
+}
+
 /**
  * Renders a USD cost with adaptive precision (sub-cent costs keep four decimals so a
  * fraction-of-a-cent model call is not rounded to `$0.00`). Returns an em dash for a

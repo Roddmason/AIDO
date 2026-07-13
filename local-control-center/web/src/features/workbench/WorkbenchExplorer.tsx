@@ -8,13 +8,7 @@ import { Bot, FolderKanban, GitBranch, History, Workflow } from 'lucide-react';
 import type { Overview, Project } from '../../api/types';
 import { Badge, EmptyState, Surface } from '../../components/primitives';
 import { useI18n } from '../../i18n/I18nProvider';
-import { shortId, toneForStatus } from '../../lib/format';
-
-function formatTime(value: string | null | undefined, missingLabel: string) {
-	if (!value) return missingLabel;
-	const parsed = Date.parse(value);
-	return Number.isNaN(parsed) ? value : new Date(parsed).toLocaleString();
-}
+import { formatTime, shortId, toneForStatus } from '../../lib/format';
 
 /** Workspace/session/run navigator; selection is controlled by the page via the on* callbacks. */
 export function WorkbenchExplorer({

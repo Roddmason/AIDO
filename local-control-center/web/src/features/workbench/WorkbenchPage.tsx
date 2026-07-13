@@ -33,7 +33,7 @@ import type {
 import { Badge, Drawer, EmptyState, PageHeader, Surface } from '../../components/primitives';
 import { Button, SegmentedControl, TextArea, TextField, useToast } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
-import { shortId, toneForStatus } from '../../lib/format';
+import { formatTime, shortId, toneForStatus } from '../../lib/format';
 import { GitBranchBar } from '../shell/GitBranchBar';
 import { TeamActivityPanel } from '../team-activity/TeamActivityPanel';
 import type { ComposerDraft } from './composerDraft';
@@ -46,7 +46,7 @@ import { WorkbenchDiffPanel } from './panels/WorkbenchDiffPanel';
 import { WorkbenchEvidencePanel } from './panels/WorkbenchEvidencePanel';
 import { buildProductLoopSections, type ProductLoopSectionId } from './productLoopModel';
 import { useProductLoop } from './useProductLoop';
-import { formatTime, NEW_SESSION_ID, useWorkbenchData } from './useWorkbenchData';
+import { NEW_SESSION_ID, useWorkbenchData } from './useWorkbenchData';
 import { WorkbenchExplorer } from './WorkbenchExplorer';
 import { WorkbenchInspector } from './WorkbenchInspector';
 import { WorkbenchTabs } from './WorkbenchTabs';

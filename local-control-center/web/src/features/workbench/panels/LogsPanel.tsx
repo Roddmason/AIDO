@@ -8,7 +8,7 @@ import { useMemo, useState } from 'react';
 import type { Overview } from '../../../api/types';
 import { Badge, DataTable, EmptyState } from '../../../components/primitives';
 import { useI18n } from '../../../i18n/I18nProvider';
-import { shortId, toneForStatus } from '../../../lib/format';
+import { formatTime, shortId, toneForStatus } from '../../../lib/format';
 
 type LogRow = {
 	id: string;
@@ -20,12 +20,6 @@ type LogRow = {
 };
 
 const MAX_ROWS = 200;
-
-function formatTime(value: string | null | undefined, emptyLabel: string) {
-	if (!value) return emptyLabel;
-	const parsed = Date.parse(value);
-	return Number.isNaN(parsed) ? value : new Date(parsed).toLocaleString();
-}
 
 export function LogsPanel({
 	events,

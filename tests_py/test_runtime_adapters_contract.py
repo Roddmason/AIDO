@@ -231,6 +231,183 @@ def test_provider_adapters_require_real_configuration(tmp_path: Path, monkeypatc
     assert openai_compatible.reason
 
 
+def test_ollama_adapter_executes_against_persisted_remote_endpoint(tmp_path: Path, monkeypatch) -> None:
+    calls: list[tuple[str, str | None]] = []
+
+    class Response:
+        def __init__(self, payload: bytes):
+            self.payload = payload
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return self.payload
+
+    def fake_urlopen(request, timeout: int):
+        calls.append((request.full_url, request.get_header("Authorization")))
+        if request.full_url.endswith("/api/tags"):
+            return Response(b'{"models":[{"name":"controlled-model"}]}')
+        return Response(b'{"message":{"content":"persisted endpoint reply"}}')
+
+    monkeypatch.setattr("local_control_center.agents.runtime_adapters.urlopen", fake_urlopen)
+    monkeypatch.setenv("AIDO_TEST_OLLAMA_TOKEN", "controlled-bearer-token")
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        connection.execute(
+            """
+            UPDATE provider_accounts
+            SET enabled = 1, base_url = ?, credential_ref = ?
+            WHERE provider_id = 'ollama'
+            """,
+            ("http://remote-ollama.invalid:11434", "env:AIDO_TEST_OLLAMA_TOKEN"),
+        )
+        connection.commit()
+        request = runtime_request(
+            tmp_path,
+            capability="chat",
+            argv=[],
+            input={
+                "model": "controlled-model",
+                "messages": [{"role": "user", "content": "Use the configured endpoint."}],
+            },
+        )
+        register_runtime_workspace(connection, request)
+
+        result = OllamaAdapter(connection=connection, artifact_root=tmp_path, environ={}).execute(request)
+
+    assert result.status == "completed"
+    assert calls == [
+        ("http://remote-ollama.invalid:11434/api/tags", "Bearer controlled-bearer-token"),
+        ("http://remote-ollama.invalid:11434/api/chat", "Bearer controlled-bearer-token"),
+    ]
+
+
+def test_ollama_adapter_never_forwards_persisted_bearer_to_an_override_host(
+    tmp_path: Path, monkeypatch
+) -> None:
+    calls: list[tuple[str, str | None]] = []
+
+    class Response:
+        def __init__(self, payload: bytes):
+            self.payload = payload
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return self.payload
+
+    def fake_urlopen(request, timeout: int):
+        calls.append((request.full_url, request.get_header("Authorization")))
+        payload = (
+            b'{"models":[{"name":"controlled-model"}]}'
+            if request.full_url.endswith("/api/tags")
+            else b'{"message":{"content":"override reply"}}'
+        )
+        return Response(payload)
+
+    monkeypatch.setattr("local_control_center.agents.runtime_adapters.urlopen", fake_urlopen)
+    monkeypatch.setenv("AIDO_TEST_OLLAMA_TOKEN", "must-not-leave-the-persisted-host")
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        connection.execute(
+            """
+            UPDATE provider_accounts
+            SET enabled = 1, base_url = ?, credential_ref = ?
+            WHERE provider_id = 'ollama'
+            """,
+            ("http://persisted-ollama.invalid:11434", "env:AIDO_TEST_OLLAMA_TOKEN"),
+        )
+        connection.commit()
+        request = runtime_request(
+            tmp_path,
+            capability="chat",
+            argv=[],
+            input={
+                "model": "controlled-model",
+                "messages": [{"role": "user", "content": "Use the override endpoint."}],
+            },
+        )
+        register_runtime_workspace(connection, request)
+
+        result = OllamaAdapter(
+            connection=connection,
+            artifact_root=tmp_path,
+            environ={"AIDO_OLLAMA_BASE_URL": "http://override-ollama.invalid:11434"},
+        ).execute(request)
+
+    assert result.status == "completed"
+    assert calls == [
+        ("http://override-ollama.invalid:11434/api/tags", None),
+        ("http://override-ollama.invalid:11434/api/chat", None),
+    ]
+
+
+def test_ollama_adapter_executes_the_endpoint_selected_in_the_request(tmp_path: Path, monkeypatch) -> None:
+    calls: list[str] = []
+
+    class Response:
+        def __init__(self, payload: bytes):
+            self.payload = payload
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return self.payload
+
+    def fake_urlopen(request, timeout: int):
+        calls.append(request.full_url)
+        payload = (
+            b'{"models":[{"name":"edge-model"}]}'
+            if request.full_url.endswith("/api/tags")
+            else b'{"message":{"content":"edge reply"}}'
+        )
+        return Response(payload)
+
+    monkeypatch.setattr("local_control_center.agents.runtime_adapters.urlopen", fake_urlopen)
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        connection.execute(
+            """
+            UPDATE provider_accounts
+            SET enabled = 1, api_format = 'ollama', base_url = ?
+            WHERE provider_id = 'ollama_remote'
+            """,
+            ("http://edge-ollama.invalid:11434",),
+        )
+        connection.commit()
+        request = runtime_request(
+            tmp_path,
+            capability="chat",
+            argv=[],
+            input={
+                "providerId": "ollama_remote",
+                "model": "edge-model",
+                "messages": [{"role": "user", "content": "Use the selected endpoint."}],
+            },
+        )
+        register_runtime_workspace(connection, request)
+
+        result = OllamaAdapter(connection=connection, artifact_root=tmp_path, environ={}).execute(request)
+
+    assert result.status == "completed"
+    assert calls == [
+        "http://edge-ollama.invalid:11434/api/tags",
+        "http://edge-ollama.invalid:11434/api/chat",
+    ]
+
+
 def test_runtime_adapter_registry_reports_unavailable_for_unregistered_adapter(tmp_path: Path) -> None:
     result = RuntimeAdapterRegistry().execute("missing_adapter", runtime_request(tmp_path))
 

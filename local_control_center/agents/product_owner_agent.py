@@ -91,10 +91,15 @@ class ProductOwnerOutputValidationError(ValueError):
     """Se lanza cuando la salida del runtime no cumple el esquema estricto del ProductOwnerAgent."""
 
 
-def _runtime_mode(runtime_id: str) -> str:
+def _is_ollama_runtime(runtime: dict[str, Any]) -> bool:
+    return str(runtime.get("id") or "") == "ollama" or runtime.get("providerFamily") == "ollama"
+
+
+def _runtime_mode(runtime: dict[str, Any]) -> str:
+    runtime_id = str(runtime.get("id") or "")
     if runtime_id in PRODUCT_OWNER_AGENT_CLI_RUNTIMES:
         return "cli"
-    return "ollama" if runtime_id == "ollama" else "api"
+    return "ollama" if _is_ollama_runtime(runtime) else "api"
 
 
 def _runtime_unavailable_result(reason: str) -> dict[str, Any]:
@@ -411,9 +416,7 @@ class ProductOwnerAgent:
             "epics": epics,
             "userStories": user_stories,
             "risks": self._validate_risks(payload["risks"]),
-            "recommendedNextAction": _required_text(
-                payload, "recommendedNextAction", field="output"
-            ),
+            "recommendedNextAction": _required_text(payload, "recommendedNextAction", field="output"),
             "modelCompleteness": payload.get("completeness")
             if isinstance(payload.get("completeness"), dict)
             else {},
@@ -520,9 +523,7 @@ class ProductOwnerAgent:
             )
         return epics
 
-    def _validate_user_stories(
-        self, value: Any, *, epics: list[dict[str, Any]]
-    ) -> list[dict[str, Any]]:
+    def _validate_user_stories(self, value: Any, *, epics: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if not isinstance(value, list):
             raise ProductOwnerOutputValidationError("userStories must be a list.")
         epic_titles = {epic["title"] for epic in epics}
@@ -571,7 +572,11 @@ class ProductOwnerAgent:
             risks.append(
                 {
                     "severity": _enum_value(
-                        item, "severity", {"low", "medium", "high", "critical"}, "medium", field=f"risks[{index}]"
+                        item,
+                        "severity",
+                        {"low", "medium", "high", "critical"},
+                        "medium",
+                        field=f"risks[{index}]",
                     ),
                     "description": _required_text(item, "description", field=f"risks[{index}]"),
                     "mitigation": str(item.get("mitigation") or "").strip(),
@@ -627,20 +632,25 @@ class ProductOwnerAgentRunner:
         statuses = RuntimeStatusService(self.connection).list_provider_statuses()
         return next((runtime for runtime in statuses if runtime["id"] == runtime_id), None)
 
-    def _ensure_profile(self, runtime_id: str) -> dict[str, Any]:
+    def _ensure_profile(self, runtime: dict[str, Any]) -> dict[str, Any]:
+        runtime_id = str(runtime.get("id") or "")
+        ollama_runtime = _is_ollama_runtime(runtime)
+        remote_runtime = runtime_id in PRODUCT_OWNER_AGENT_REMOTE_API_RUNTIMES or str(
+            runtime.get("kind") or ""
+        ) in {"api", "gateway"}
         return self.agents.upsert_agent_profile(
             {
                 "id": PRODUCT_OWNER_AGENT_ID,
                 "name": "ProductOwnerAgent",
                 "role": "product_owner",
-                "runtimeMode": _runtime_mode(runtime_id),
+                "runtimeMode": _runtime_mode(runtime),
                 "permissionProfile": "plan",
                 "allowedTools": PRODUCT_OWNER_AGENT_ALLOWED_TOOLS,
                 "allowedProviders": [runtime_id] if runtime_id else [],
                 "allowedRuntimes": [runtime_id] if runtime_id else [],
-                "allowRemote": runtime_id in PRODUCT_OWNER_AGENT_REMOTE_API_RUNTIMES,
+                "allowRemote": remote_runtime,
                 "allowCli": runtime_id in PRODUCT_OWNER_AGENT_CLI_RUNTIMES,
-                "allowApi": runtime_id in PRODUCT_OWNER_AGENT_MODEL_RUNTIMES,
+                "allowApi": runtime_id in PRODUCT_OWNER_AGENT_MODEL_RUNTIMES or ollama_runtime,
                 "outputSchema": product_owner_agent_contract()["outputSchema"],
             }
         )
@@ -746,7 +756,8 @@ class ProductOwnerAgentRunner:
     ) -> dict[str, Any]:
         runtime_id = str(runtime["id"])
         model = payload.get("model")
-        if runtime_id == "ollama":
+        ollama_runtime = _is_ollama_runtime(runtime)
+        if ollama_runtime:
             model = model or next(iter(runtime.get("models") or []), None)
         model_eval = broker.evaluate_tool_call(
             project_id=payload["projectId"],
@@ -754,15 +765,22 @@ class ProductOwnerAgentRunner:
             agent_profile=profile,
             job_id=job["id"],
             tool_call={
-                "tool": runtime_id,
+                "tool": "ollama" if ollama_runtime else runtime_id,
                 "workspaceId": workspace["id"],
                 "workspacePath": workspace["path"],
                 "path": workspace["path"],
                 "operation": "product_owner_model_call",
                 "runtimeId": runtime_id,
                 "capability": "chat",
-                "input": {"model": model, "messages": messages, "temperature": 0.1},
-                "networkRequired": runtime_id in PRODUCT_OWNER_AGENT_REMOTE_API_RUNTIMES,
+                "input": {
+                    "providerId": runtime_id,
+                    "model": model,
+                    "messages": messages,
+                    "temperature": 0.1,
+                },
+                "networkRequired": runtime_id in PRODUCT_OWNER_AGENT_REMOTE_API_RUNTIMES
+                or str(runtime.get("kind") or "") in {"api", "gateway"},
+                # Provider credentials are injected by the adapter transport and never enter the prompt.
                 "secretsRequired": False,
                 "approvalGrantId": payload.get("approvalGrantId"),
                 "execute": True,
@@ -1081,8 +1099,7 @@ class ProductOwnerAgentRunner:
             "reason": readiness["reason"],
             "capabilities": [],
         }
-        runtime_id = str(runtime.get("id") or "unresolved")
-        profile = self._ensure_profile(runtime_id)
+        profile = self._ensure_profile(runtime)
         workflow_context = payload.get("workflowContext") or {}
         job = self.jobs.create_job(
             project_id=project_id,
@@ -1278,11 +1295,15 @@ class ProductOwnerAgentRunner:
             return result
         if (payload.get("metadata") or {}).get("requireBriefApproval"):
             result["status"] = BRIEF_READY_STATUS
-            result["reason"] = "ProductOwnerAgent produced a brief awaiting approval before backlog generation."
+            result["reason"] = (
+                "ProductOwnerAgent produced a brief awaiting approval before backlog generation."
+            )
             return result
         if output["status"] == SCOPE_IS_CLEAR_STATUS:
             result["status"] = BRIEF_READY_STATUS
-            result["reason"] = "ProductOwnerAgent produced a mini brief/task scope for a direct technical order."
+            result["reason"] = (
+                "ProductOwnerAgent produced a mini brief/task scope for a direct technical order."
+            )
             return result
         result["backlog"] = self._persist_backlog(
             project_id=project_id,

@@ -506,6 +506,34 @@ def test_model_agent_policies_allow_configured_remote_runtime_adapters() -> None
             assert decision["decision"] == "allow", (operation, runtime_id, decision)
 
 
+def test_product_owner_and_developer_policies_accept_only_verified_named_ollama_binding() -> None:
+    cases = [
+        ("product_owner_model_call", "product_owner_agent", "plan"),
+        ("developer_agent_model_call", "developer_agent", "dev_safe"),
+    ]
+    for operation, agent_id, permission_profile in cases:
+        common = {
+            "tool": "ollama",
+            "operation": operation,
+            "permissionProfile": permission_profile,
+            "agentId": agent_id,
+            "workspaceId": "workspace-test",
+            "workspacePath": "H:\\workspace",
+            "path": "H:\\workspace",
+            "runtimeId": "team_ollama",
+            "agentRunId": "agent-run-test",
+            "providerFamily": "ollama",
+        }
+
+        allowed = evaluate_action({**common, "providerId": "team_ollama"})
+        mismatched = evaluate_action({**common, "providerId": "another_provider"})
+        unverified = evaluate_action({**common, "providerId": "team_ollama", "providerFamily": None})
+
+        assert allowed["decision"] == "allow"
+        assert mismatched["decision"] == "deny"
+        assert unverified["decision"] == "deny"
+
+
 def test_qa_agent_runner_uses_broker_not_direct_subprocess() -> None:
     source = (PRODUCT_ROOT / "agents" / "qa_agent.py").read_text(encoding="utf-8")
 

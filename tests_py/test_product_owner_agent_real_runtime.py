@@ -448,6 +448,24 @@ def test_product_owner_readiness_accepts_configured_remote_model_runtimes() -> N
     assert readiness["candidateRuntimeIds"] == ["openrouter", "nvidia_nim", "anthropic_api"]
 
 
+def test_product_owner_readiness_accepts_a_named_ollama_endpoint() -> None:
+    statuses = [
+        {
+            "id": "edge-ollama",
+            "providerFamily": "ollama",
+            "executable": True,
+            "configured": True,
+            "capabilities": ["chat"],
+            "models": ["edge-model"],
+        }
+    ]
+
+    readiness = product_owner_agent_readiness(statuses, preferred_runtime="edge-ollama")
+
+    assert readiness["executable"] is True
+    assert readiness["selectedRuntimeId"] == "edge-ollama"
+
+
 def test_product_owner_agent_without_real_runtime_returns_unavailable(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

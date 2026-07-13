@@ -35,6 +35,8 @@ from local_control_center.security_policy.sandbox import (
 from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.time import utc_now
 
+from .credentials import CredentialResolver
+from .provider_accounts import ProviderAccountStore
 from .runtime_provider_config import runtime_provider_configuration
 
 RUNTIME_ADAPTER_TOOLS = {
@@ -572,34 +574,79 @@ class OllamaAdapter:
         environ: dict[str, str] | None = None,
     ):
         self.base_url = base_url
+        self.connection = connection
         self.environ = environ
         self.recorder = _ArtifactRecorder(
             connection=connection, artifact_root=artifact_root, adapter_id=self.adapter_id
         )
 
-    def _configured_base_url(self) -> str | None:
-        source = self.environ or os.environ
+    def _persisted_account(self, provider_id: str = "ollama") -> dict[str, Any]:
+        if self.connection is None:
+            return {}
+        try:
+            account = ProviderAccountStore(self.connection).get_provider_account(provider_id)
+        except KeyError:
+            return {}
+        return account if account.get("enabled") else {}
+
+    def _resolved_endpoint(self, provider_id: str = "ollama") -> tuple[str | None, str]:
+        """Resolve URL and credential as one trust unit so a token never crosses hosts."""
+        account = self._persisted_account(provider_id)
+        if provider_id != "ollama":
+            base_url = str(account.get("baseUrl") or "").strip()
+            return (
+                base_url.rstrip("/") or None,
+                str(account.get("credentialRef") or "").strip(),
+            )
+        source = self.environ if self.environ is not None else os.environ
         configuration = runtime_provider_configuration("ollama", environ=source)
-        base_url = (
-            self.base_url
-            or (configuration.value("baseUrl") if configuration else None)
-            or source.get("OLLAMA_BASE_URL")
-            or source.get("OLLAMA_HOST")
-            or ""
-        ).strip()
-        return base_url.rstrip("/") or None
+        explicit_base_url = str(self.base_url or "").strip()
+        if explicit_base_url:
+            return explicit_base_url.rstrip("/"), ""
+        configured_base_url = str((configuration.value("baseUrl") if configuration else None) or "").strip()
+        if configured_base_url:
+            return configured_base_url.rstrip("/"), ""
+        persisted_base_url = str(account.get("baseUrl") or "").strip()
+        if persisted_base_url:
+            return (
+                persisted_base_url.rstrip("/"),
+                str(account.get("credentialRef") or "").strip(),
+            )
+        legacy_base_url = str(source.get("OLLAMA_BASE_URL") or source.get("OLLAMA_HOST") or "").strip()
+        return legacy_base_url.rstrip("/") or None, ""
+
+    def _configured_base_url(self) -> str | None:
+        return self._resolved_endpoint()[0]
+
+    def _auth_headers_or_block(self, credential_ref: str) -> tuple[dict[str, str], str | None]:
+        if not credential_ref:
+            return {}, None
+        resolution = CredentialResolver().resolve(credential_ref)
+        if resolution.configured:
+            return {"Authorization": f"Bearer {resolution.value}"}, None
+        return {}, (f"Ollama credentialRef is {resolution.status}; configure the remote access token.")
 
     def health_check(self) -> dict[str, Any]:
         """Probe `/api/tags` to confirm the Ollama daemon is reachable and list its models."""
-        base_url = self._configured_base_url()
+        return self._health_check_for("ollama")
+
+    def _health_check_for(self, provider_id: str) -> dict[str, Any]:
+        base_url, credential_ref = self._resolved_endpoint(provider_id)
         if not base_url:
             return {
                 "status": "configuration_required",
                 "available": False,
                 "reason": "Ollama base URL is not configured.",
             }
+        headers, blocking_reason = self._auth_headers_or_block(credential_ref)
+        if blocking_reason:
+            return {
+                "status": "configuration_required",
+                "available": False,
+                "reason": blocking_reason,
+            }
         try:
-            request = Request(f"{base_url}/api/tags", method="GET")
+            request = Request(f"{base_url}/api/tags", headers=headers, method="GET")
             with urlopen(request, timeout=5) as response:
                 payload = json.loads(response.read().decode("utf-8"))
         except (OSError, TimeoutError, URLError, json.JSONDecodeError, UnicodeDecodeError) as error:
@@ -624,14 +671,15 @@ class OllamaAdapter:
         blocked when model or messages are missing.
         """
         started_at = utc_now()
-        base_url = self._configured_base_url()
+        provider_id = str(request.input.get("providerId") or "ollama").strip() or "ollama"
+        base_url, credential_ref = self._resolved_endpoint(provider_id)
         if not base_url:
             return _result(
                 status="configuration_required",
                 started_at=started_at,
                 reason="Ollama base URL is not configured.",
             )
-        health = self.health_check()
+        health = self._health_check_for(provider_id)
         if not health.get("available"):
             return _result(status=str(health["status"]), started_at=started_at, reason=str(health["reason"]))
         model = str(request.input.get("model") or "").strip()
@@ -644,6 +692,9 @@ class OllamaAdapter:
             return _result(
                 status="blocked", started_at=started_at, reason="Ollama execution requires input.messages."
             )
+        headers, blocking_reason = self._auth_headers_or_block(credential_ref)
+        if blocking_reason:
+            return _result(status="configuration_required", started_at=started_at, reason=blocking_reason)
         payload = json.dumps(
             {
                 "model": model,
@@ -656,7 +707,11 @@ class OllamaAdapter:
             http_request = Request(
                 f"{base_url}/api/chat",
                 data=payload,
-                headers={"Content-Type": "application/json", "Accept": "application/json"},
+                headers={
+                    **headers,
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                },
                 method="POST",
             )
             with urlopen(http_request, timeout=_bounded_timeout(request)) as response:

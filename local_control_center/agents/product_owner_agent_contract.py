@@ -40,6 +40,10 @@ PRODUCT_OWNER_AGENT_RUNTIME_ORDER = [
 ]
 
 
+def _is_ollama_runtime(runtime: dict[str, Any]) -> bool:
+    return str(runtime.get("id") or "") == "ollama" or runtime.get("providerFamily") == "ollama"
+
+
 def product_owner_agent_contract() -> dict[str, Any]:
     """Describe el contrato del ProductOwnerAgent: esquemas I/O, tools permitidas y runtimes preferidos."""
     return {
@@ -143,7 +147,7 @@ def _product_owner_runtime_reason(runtime: dict[str, Any]) -> str:
     capabilities = set(runtime.get("capabilities") or [])
     if runtime_id in PRODUCT_OWNER_AGENT_CLI_RUNTIMES and "code_edit" not in capabilities:
         return "CLI runtime does not advertise an executable capability for ProductOwnerAgent."
-    if runtime_id == "ollama" and not runtime.get("models"):
+    if _is_ollama_runtime(runtime) and not runtime.get("models"):
         return "Ollama is reachable but no model is available for ProductOwnerAgent execution."
     return str(runtime.get("reason") or "Runtime is not executable for ProductOwnerAgent.")
 
@@ -158,7 +162,7 @@ def is_product_owner_runtime(runtime: dict[str, Any]) -> bool:
         return "code_edit" in capabilities
     if runtime_id in PRODUCT_OWNER_AGENT_REMOTE_API_RUNTIMES:
         return "chat" in capabilities or not capabilities
-    if runtime_id == "ollama":
+    if _is_ollama_runtime(runtime):
         return bool("chat" in capabilities and runtime.get("models"))
     return False
 

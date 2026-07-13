@@ -2177,8 +2177,8 @@ def test_model_gateway_plans_allowed_model_call_without_recording_cost_usage(tmp
         assert result["provider"] == "openrouter"
         assert result["model"] == "oss-model"
         assert result["modelCall"]["status"] == "planned"
-        assert result["modelCall"]["promptTokens"] == 0
-        assert result["modelCall"]["completionTokens"] == 0
+        assert result["modelCall"]["promptTokens"] is None
+        assert result["modelCall"]["completionTokens"] is None
         assert result["modelCall"]["costUsd"] is None
         assert agents.list_cost_usage() == []
 

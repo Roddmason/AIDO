@@ -259,6 +259,24 @@ def test_developer_agent_readiness_accepts_configured_remote_model_runtimes() ->
     assert readiness["candidateRuntimeIds"] == ["openrouter", "nvidia_nim", "anthropic_api"]
 
 
+def test_developer_agent_readiness_accepts_a_named_ollama_endpoint() -> None:
+    statuses = [
+        {
+            "id": "edge-ollama",
+            "providerFamily": "ollama",
+            "executable": True,
+            "configured": True,
+            "capabilities": ["chat"],
+            "models": ["edge-model"],
+        }
+    ]
+
+    readiness = developer_agent_readiness(statuses, preferred_runtime="edge-ollama")
+
+    assert readiness["executable"] is True
+    assert readiness["selectedRuntimeId"] == "edge-ollama"
+
+
 def test_developer_agent_requires_workspace_before_execution(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -514,9 +532,7 @@ def test_developer_agent_nvidia_nim_runtime_applies_structured_patch_in_workspac
         store.connection.execute(
             "UPDATE runtime_installations SET enabled = 1 WHERE runtime_id = 'nvidia_nim'"
         )
-        store.connection.execute(
-            "UPDATE provider_accounts SET enabled = 1 WHERE provider_id = 'nvidia_nim'"
-        )
+        store.connection.execute("UPDATE provider_accounts SET enabled = 1 WHERE provider_id = 'nvidia_nim'")
         health = client.post("/api/v1/model-gateway/providers/nvidia_nim/health-check", headers=headers)
         assert health.status_code == 200
         assert health.json()["health"]["healthStatus"] == "healthy"

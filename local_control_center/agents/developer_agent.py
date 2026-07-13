@@ -55,8 +55,13 @@ RUNTIME_UNAVAILABLE_STATUS = "runtime_unavailable"
 TERMINAL_STATUSES = {"completed", RUNTIME_UNAVAILABLE_STATUS, "qa_failed", "evidence_ready", "failed"}
 
 
-def _runtime_mode(runtime_id: str) -> str:
-    if runtime_id == "ollama":
+def _is_ollama_runtime(runtime: dict[str, Any]) -> bool:
+    return str(runtime.get("id") or "") == "ollama" or runtime.get("providerFamily") == "ollama"
+
+
+def _runtime_mode(runtime: dict[str, Any]) -> str:
+    runtime_id = str(runtime.get("id") or "")
+    if _is_ollama_runtime(runtime):
         return "ollama"
     if runtime_id in DEVELOPER_AGENT_CLI_RUNTIMES:
         return "cli"
@@ -302,20 +307,25 @@ class DeveloperAgentRunner:
         statuses = RuntimeStatusService(self.connection).list_provider_statuses()
         return next((runtime for runtime in statuses if runtime["id"] == runtime_id), None)
 
-    def _create_profile(self, runtime_id: str) -> dict[str, Any]:
+    def _create_profile(self, runtime: dict[str, Any]) -> dict[str, Any]:
+        runtime_id = str(runtime.get("id") or "")
+        ollama_runtime = _is_ollama_runtime(runtime)
+        remote_runtime = runtime_id in DEVELOPER_AGENT_REMOTE_API_RUNTIMES or str(
+            runtime.get("kind") or ""
+        ) in {"api", "gateway"}
         return self.agents.upsert_agent_profile(
             {
                 "id": DEVELOPER_AGENT_ID,
                 "name": "DeveloperAgent",
                 "role": "developer",
-                "runtimeMode": _runtime_mode(runtime_id),
+                "runtimeMode": _runtime_mode(runtime),
                 "permissionProfile": "dev_safe",
                 "allowedTools": DEVELOPER_AGENT_ALLOWED_TOOLS,
                 "allowedProviders": [runtime_id] if runtime_id else [],
                 "allowedRuntimes": [runtime_id] if runtime_id else [],
-                "allowRemote": runtime_id in DEVELOPER_AGENT_REMOTE_API_RUNTIMES,
+                "allowRemote": remote_runtime,
                 "allowCli": runtime_id in DEVELOPER_AGENT_CLI_RUNTIMES,
-                "allowApi": runtime_id in DEVELOPER_AGENT_MODEL_RUNTIMES,
+                "allowApi": runtime_id in DEVELOPER_AGENT_MODEL_RUNTIMES or ollama_runtime,
                 "outputSchema": developer_agent_readiness([])["contract"]["outputSchema"],
             }
         )
@@ -380,7 +390,8 @@ class DeveloperAgentRunner:
     ) -> dict[str, Any]:
         runtime_id = str(runtime["id"])
         model = payload.get("model")
-        if runtime_id == "ollama":
+        ollama_runtime = _is_ollama_runtime(runtime)
+        if ollama_runtime:
             model = model or next(iter(runtime.get("models") or []), None)
         model_eval = broker.evaluate_tool_call(
             project_id=payload["projectId"],
@@ -388,7 +399,7 @@ class DeveloperAgentRunner:
             agent_profile=profile,
             job_id=job["id"],
             tool_call={
-                "tool": runtime_id,
+                "tool": "ollama" if ollama_runtime else runtime_id,
                 "workspaceId": workspace["id"],
                 "workspacePath": workspace["path"],
                 "path": workspace["path"],
@@ -396,6 +407,7 @@ class DeveloperAgentRunner:
                 "runtimeId": runtime_id,
                 "capability": "chat",
                 "input": {
+                    "providerId": runtime_id,
                     "model": model,
                     "messages": _developer_model_messages(
                         instruction=str(payload["instruction"]),
@@ -403,7 +415,9 @@ class DeveloperAgentRunner:
                     ),
                     "temperature": 0.2,
                 },
-                "networkRequired": runtime_id in DEVELOPER_AGENT_REMOTE_API_RUNTIMES,
+                "networkRequired": runtime_id in DEVELOPER_AGENT_REMOTE_API_RUNTIMES
+                or str(runtime.get("kind") or "") in {"api", "gateway"},
+                # Provider credentials are injected by the adapter transport and never enter the prompt.
                 "secretsRequired": False,
                 "approvalGrantId": payload.get("approvalGrantId"),
                 "execute": True,
@@ -467,7 +481,7 @@ class DeveloperAgentRunner:
             "reason": readiness["reason"],
             "capabilities": [],
         }
-        profile = self._create_profile(str(runtime.get("id") or "unresolved"))
+        profile = self._create_profile(runtime)
         if job_id:
             job = self.jobs.get_job(job_id)
             if job["projectId"] != payload["projectId"]:
@@ -515,7 +529,7 @@ class DeveloperAgentRunner:
                         profile=profile,
                         broker=broker,
                     )
-                elif str(runtime["id"]) in DEVELOPER_AGENT_MODEL_RUNTIMES:
+                elif str(runtime["id"]) in DEVELOPER_AGENT_MODEL_RUNTIMES or _is_ollama_runtime(runtime):
                     runtime_result = self._execute_model_runtime(
                         payload=payload,
                         runtime=runtime,

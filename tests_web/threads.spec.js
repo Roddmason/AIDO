@@ -302,6 +302,35 @@ test('Threads: the composer stays fixed at the bottom in a single scroll region 
 	expect(Math.round(composerAfter.y)).toBe(Math.round(composerBefore.y));
 });
 
+test('Threads: the execution console never scrolls sideways inside its pane', async ({ page }) => {
+	await page.goto('/#threads');
+	await expectControlPlaneLoaded(page);
+
+	await page.locator('.thread-workspace-head').first().click();
+	await page.locator('.shell-new-thread').click();
+	await expect(page.getByRole('heading', { name: /What will we work on/ })).toBeVisible();
+
+	const firstMessage = `Execution pane width regression ${Date.now()}`;
+	await page.getByLabel('Message AIDO').fill(firstMessage);
+	await page.getByRole('button', { name: 'Create thread' }).click();
+	await expect(page.getByText(/Run queued|Run encolado/).first()).toBeVisible({ timeout: 20_000 });
+
+	const pane = page.locator('.thread-execution-pane').first();
+	await expect(pane).toBeVisible();
+	// A queued run emits console rows whose job-id chips are far wider than this ~20rem pane; the
+	// ledger must ellipsize them in place instead of turning the pane into a sideways scroller.
+	await expect(pane.locator('.thread-console-chip').first()).toBeVisible({ timeout: 20_000 });
+
+	const overflow = await pane.evaluate((node) => ({
+		pane: node.scrollWidth - node.clientWidth,
+		rows: [...node.querySelectorAll('.thread-console-row')].filter(
+			(row) => row.scrollWidth > row.clientWidth + 1,
+		).length,
+	}));
+	expect(overflow.pane).toBe(0);
+	expect(overflow.rows).toBe(0);
+});
+
 test('Threads: creating a thread still renders the live layout under reduced motion', async ({
 	browser,
 }) => {

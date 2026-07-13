@@ -2627,23 +2627,34 @@ class ProductLoopCoordinator:
                 return False
         return True
 
-    @staticmethod
-    def _developer_runtime_id_for_resource_selection(selected: dict[str, Any]) -> str | None:
+    def _is_ollama_provider(self, provider_id: str) -> bool:
+        if not provider_id:
+            return False
+        row = self.connection.execute(
+            "SELECT api_format FROM provider_accounts WHERE provider_id = ?",
+            (provider_id,),
+        ).fetchone()
+        return bool(row and str(row["api_format"] or "") == "ollama")
+
+    def _developer_runtime_id_for_resource_selection(
+        self, selected: dict[str, Any]
+    ) -> str | None:
         allowed_runtimes = DEVELOPER_AGENT_CLI_RUNTIMES | DEVELOPER_AGENT_MODEL_RUNTIMES
         provider_id = str(selected.get("providerId") or "").strip()
         runtime_id = str(selected.get("runtime") or "").strip()
-        if provider_id in allowed_runtimes:
+        if provider_id in allowed_runtimes or self._is_ollama_provider(provider_id):
             return provider_id
         if runtime_id in allowed_runtimes:
             return runtime_id
         return None
 
-    @staticmethod
-    def _product_owner_runtime_id_for_resource_selection(selected: dict[str, Any]) -> str | None:
+    def _product_owner_runtime_id_for_resource_selection(
+        self, selected: dict[str, Any]
+    ) -> str | None:
         allowed_runtimes = PRODUCT_OWNER_AGENT_CLI_RUNTIMES | PRODUCT_OWNER_AGENT_MODEL_RUNTIMES
         provider_id = str(selected.get("providerId") or "").strip()
         runtime_id = str(selected.get("runtime") or "").strip()
-        if provider_id in allowed_runtimes:
+        if provider_id in allowed_runtimes or self._is_ollama_provider(provider_id):
             return provider_id
         if runtime_id in allowed_runtimes:
             return runtime_id

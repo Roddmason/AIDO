@@ -46,6 +46,30 @@ HAPPY_PATH = [
 ]
 
 
+def test_named_ollama_resource_maps_to_product_owner_and_developer_runtime(tmp_path: Path) -> None:
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        ProviderAccountStore(connection).upsert_provider_account(
+            {
+                "providerId": "team_ollama",
+                "displayName": "Team Ollama",
+                "providerType": "gateway",
+                "apiFormat": "ollama",
+                "baseUrl": "https://ollama.example.test",
+                "enabled": True,
+            }
+        )
+        coordinator = ProductLoopCoordinator(connection, root=tmp_path)
+        selected = {
+            "providerId": "team_ollama",
+            "model": "qwen2.5-coder",
+            "runtime": "local",
+        }
+
+        assert coordinator._product_owner_runtime_id_for_resource_selection(selected) == "team_ollama"
+        assert coordinator._developer_runtime_id_for_resource_selection(selected) == "team_ollama"
+
+
 class _RuntimeUnavailable:
     def __init__(self) -> None:
         self.run_payloads: list[dict[str, Any]] = []

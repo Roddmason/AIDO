@@ -65,6 +65,16 @@ MODEL_RUNTIME_TOOLS = {"ollama", "openai_compatible", "openrouter", "nvidia_nim"
 MODEL_RUNTIME_REASON = "configured Ollama, OpenAI-compatible, OpenRouter, NVIDIA NIM or Anthropic adapters"
 
 
+def _model_runtime_binding_is_valid(input_payload: dict[str, Any], tool: str) -> bool:
+    runtime_id = str(input_payload.get("runtimeId") or "")
+    provider_id = str(input_payload.get("providerId") or runtime_id)
+    if tool not in MODEL_RUNTIME_TOOLS or not runtime_id or provider_id != runtime_id:
+        return False
+    if runtime_id == tool:
+        return True
+    return tool == "ollama" and input_payload.get("providerFamily") == "ollama"
+
+
 def _is_safe_git_arg(value: str | None) -> bool:
     text = (value or "").strip()
     if not text or text != value or text.startswith("-") or len(text) > 200:
@@ -864,7 +874,7 @@ def evaluate_action(input_payload: dict[str, Any]) -> dict[str, Any]:
                 "categories": [*categories, "developer_agent_runtime"],
             }
         if operation == "developer_agent_model_call":
-            if tool not in MODEL_RUNTIME_TOOLS or input_payload.get("runtimeId") != tool:
+            if not _model_runtime_binding_is_valid(input_payload, tool):
                 categories.append("developer_agent_model_runtime_denied")
                 return {
                     "decision": "deny",
@@ -1029,7 +1039,7 @@ def evaluate_action(input_payload: dict[str, Any]) -> dict[str, Any]:
                 "reason": "ProductOwnerAgent CLI runtime execution is allowed inside the allocated workspace.",
                 "categories": [*categories, "product_owner_runtime"],
             }
-        if tool not in MODEL_RUNTIME_TOOLS or input_payload.get("runtimeId") != tool:
+        if not _model_runtime_binding_is_valid(input_payload, tool):
             categories.append("product_owner_model_runtime_denied")
             return {
                 "decision": "deny",

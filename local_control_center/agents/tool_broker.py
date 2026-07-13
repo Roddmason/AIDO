@@ -37,6 +37,14 @@ from .runtime_adapters import (
     WorkspacePatchBrokerAdapter,
 )
 
+MODEL_PROVIDER_TOOLS = {
+    "ollama",
+    "openai_compatible",
+    "openrouter",
+    "nvidia_nim",
+    "anthropic_api",
+}
+
 
 def _valid_argv(value: Any) -> bool:
     return isinstance(value, list) and bool(value) and all(isinstance(item, str) and item for item in value)
@@ -218,6 +226,53 @@ class ToolBroker:
         allowed_tools = agent_profile.get("allowedTools") or []
         return "*" in allowed_tools or tool_name in allowed_tools
 
+    @staticmethod
+    def _profile_allows_value(agent_profile: dict[str, Any], field: str, value: str) -> bool:
+        allowed = set(agent_profile.get(field) or [])
+        return not allowed or "*" in allowed or value in allowed
+
+    def _model_provider_binding(
+        self,
+        *,
+        tool_name: str,
+        runtime_id: str | None,
+        provider_id: str | None,
+    ) -> tuple[dict[str, Any] | None, str | None]:
+        if tool_name not in MODEL_PROVIDER_TOOLS:
+            return None, None
+        if not runtime_id or not provider_id or runtime_id != provider_id:
+            return (
+                {
+                    "decision": "deny",
+                    "riskLevel": "high",
+                    "reason": "Model adapter runtime and provider ids must match.",
+                    "categories": ["model_provider_binding_denied"],
+                },
+                None,
+            )
+        if runtime_id == tool_name:
+            return None, tool_name
+        row = self.connection.execute(
+            "SELECT api_format, enabled FROM provider_accounts WHERE provider_id = ?",
+            (provider_id,),
+        ).fetchone()
+        if (
+            tool_name == "ollama"
+            and row
+            and str(row["api_format"] or "") == "ollama"
+            and bool(row["enabled"])
+        ):
+            return None, "ollama"
+        return (
+            {
+                "decision": "deny",
+                "riskLevel": "high",
+                "reason": "Named model runtime is not bound to an enabled provider for this adapter.",
+                "categories": ["model_provider_binding_denied"],
+            },
+            None,
+        )
+
     def evaluate_tool_call(
         self,
         *,
@@ -247,6 +302,13 @@ class ToolBroker:
         boundary_result, registered_workspace_path = self._execution_workspace_boundary(tool_call)
         workspace_path = registered_workspace_path or tool_call.get("workspacePath") or path
         runtime_id = str(tool_call.get("runtimeId") or tool_call.get("sandbox") or "").strip() or None
+        tool_input = tool_call.get("input") if isinstance(tool_call.get("input"), dict) else {}
+        provider_id = str(tool_input.get("providerId") or runtime_id or "").strip() or None
+        binding_result, provider_family = self._model_provider_binding(
+            tool_name=tool_name,
+            runtime_id=runtime_id,
+            provider_id=provider_id,
+        )
         policy_input = {
             "projectId": project_id,
             "workspaceId": tool_call.get("workspaceId"),
@@ -264,6 +326,8 @@ class ToolBroker:
             "secretsRequired": tool_call.get("secretsRequired"),
             "operation": operation,
             "runtimeId": runtime_id,
+            "providerId": provider_id,
+            "providerFamily": provider_family,
             "workflowKind": tool_call.get("workflowKind"),
             "jobId": job_id or tool_call.get("jobId"),
             "agentRunId": agent_run_id,
@@ -279,6 +343,26 @@ class ToolBroker:
                 "riskLevel": "medium",
                 "reason": f"Tool '{tool_name}' is not allowed by the agent profile.",
                 "categories": ["agent_profile_tool_denied"],
+            }
+        elif binding_result is not None:
+            result = binding_result
+        elif tool_name in MODEL_PROVIDER_TOOLS and not self._profile_allows_value(
+            agent_profile, "allowedProviders", provider_id or ""
+        ):
+            result = {
+                "decision": "deny",
+                "riskLevel": "high",
+                "reason": f"Provider '{provider_id}' is not allowed by the agent profile.",
+                "categories": ["agent_profile_provider_denied"],
+            }
+        elif tool_name in MODEL_PROVIDER_TOOLS and not self._profile_allows_value(
+            agent_profile, "allowedRuntimes", runtime_id or ""
+        ):
+            result = {
+                "decision": "deny",
+                "riskLevel": "high",
+                "reason": f"Runtime '{runtime_id}' is not allowed by the agent profile.",
+                "categories": ["agent_profile_runtime_denied"],
             }
         else:
             result = evaluate_action(policy_input)

@@ -514,6 +514,8 @@ def _ollama_provider_status(
         requires_approval=False,
     )
     payload["models"] = status.get("models") or []
+    payload["providerFamily"] = "ollama"
+    payload["credentialStatus"] = str(account.get("credentialStatus") or "unknown")
     return payload
 
 
@@ -687,8 +689,7 @@ class RuntimeStatusService:
                 "available": bool(ollama_available),
                 "models": list((ollama_available or ollama or {}).get("models") or []),
                 "reason": str(
-                    (ollama_available or ollama or {}).get("reason")
-                    or "Ollama provider is not catalogued."
+                    (ollama_available or ollama or {}).get("reason") or "Ollama provider is not catalogued."
                 ),
             },
             "cli": {

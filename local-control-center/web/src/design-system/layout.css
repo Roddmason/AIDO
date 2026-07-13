@@ -2025,6 +2025,9 @@
 	flex: 0 0 clamp(18rem, 30vw, 24rem);
 	min-height: 0;
 	overflow-y: auto;
+	/* Never a sideways scroller: wide payloads scroll inside their own <pre>, and the ledger rows
+	   below always use the compact layout because this pane caps at 24rem on any viewport. */
+	overflow-x: hidden;
 	display: grid;
 	align-content: start;
 	gap: var(--space-3);
@@ -2033,6 +2036,16 @@
 	background: var(--color-surface-inset);
 	font-family: var(--font-mono);
 	font-size: var(--font-size-sm);
+}
+
+/* A viewport media query can never see this pane's real width (~20rem even on wide desktops), so
+   the console ledger always stacks its body under the clock/seq/actor line inside the pane. */
+.thread-execution-pane .thread-console-row {
+	grid-template-columns: minmax(3.6rem, auto) minmax(2.6rem, auto) minmax(0, 1fr);
+}
+
+.thread-execution-pane .thread-console-body {
+	grid-column: 1 / -1;
 }
 
 .thread-execution-head {
@@ -2384,7 +2397,8 @@
 }
 
 .thread-console-chip {
-	max-width: 18rem;
+	/* Cap against the container too: a fixed 18rem cap alone overflows the narrow execution pane. */
+	max-width: min(18rem, 100%);
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;

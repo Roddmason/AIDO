@@ -551,6 +551,59 @@ def test_resolve_decision_queues_original_message_for_execution(tmp_path: Path) 
         assert job["payload"]["runMetadata"]["userMode"] == "implementation"
 
 
+def test_resolving_functionality_blocker_decision_requeues_blocked_thread(tmp_path: Path) -> None:
+    """Reproduce el loop bloqueado sin salida: el gate de funcionalidad existente deja el hilo en
+    'blocked' (la transición del run pisa 'waiting_decision') y resolver la decisión debe reencolar
+    el run con la elección del usuario en vez de dejar el hilo bloqueado para siempre."""
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        thread = _thread(connection, tmp_path)
+        repo = ThreadsRepository(connection)
+        coordinator = ThreadCoordinator(connection, root=tmp_path)
+
+        repo.append_message(
+            thread_id=thread["id"],
+            kind="user",
+            author="user",
+            content="Refactoriza y actualiza Spring Boot",
+            metadata={},
+        )
+        request = repo.append_message(
+            thread_id=thread["id"],
+            kind="decision_request",
+            author="aido_lead",
+            content="Existing functionality detected: choose how to proceed.",
+            metadata={"source": "functionality_registry", "functionalityId": "functionality-x"},
+        )
+        decision = repo.create_decision(
+            thread_id=thread["id"],
+            message_id=request["id"],
+            title="Existing functionality detected",
+            prompt="Existing functionality detected: choose how to proceed.",
+            options=["continue_existing", "improve_existing", "performance_pass", "create_new_anyway"],
+            metadata={"source": "functionality_registry", "functionalityId": "functionality-x"},
+        )
+        repo.set_status(thread["id"], "blocked")
+
+        resolved = coordinator.resolve_decision(
+            thread_id=thread["id"],
+            decision_id=decision["id"],
+            resolution="continue_existing",
+            decided_by="user",
+        )
+
+        assert resolved["decision"]["status"] == "resolved"
+        assert resolved["thread"]["status"] == "queued"
+        queued_thread_jobs = [
+            job
+            for job in JobsRepository(connection).list_jobs(thread["projectId"])
+            if job["kind"] == "thread.product_loop.run"
+        ]
+        assert len(queued_thread_jobs) == 1
+        payload = queued_thread_jobs[0]["payload"]
+        assert payload["runMetadata"]["functionalityDecision"] == "continue_existing"
+
+
 def test_resolve_decision_recovers_open_thread_with_source_message(tmp_path: Path) -> None:
     with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
         initialize_platform_schema(connection)

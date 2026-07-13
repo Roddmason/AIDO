@@ -89,7 +89,7 @@ async function openProvidersSettings(page) {
 	await expect(page.getByText('Loading control plane')).toBeHidden({ timeout: 30_000 });
 	const settings = page.getByRole('dialog', { name: 'Settings' });
 	await expect(settings).toBeVisible();
-	await expect(settings.getByText('Ollama endpoints')).toBeVisible();
+	await expect(settings.getByText('Ollama endpoints', { exact: true })).toBeVisible();
 	return settings;
 }
 
@@ -119,6 +119,31 @@ test.afterAll(async ({ playwright }, testInfo) => {
 		await context.dispose();
 	}
 	await new Promise((resolve) => tagsServer.close(resolve));
+});
+
+test('Ollama endpoints: a failed initial load shows Retry instead of a false empty state', async ({
+	page,
+}) => {
+	let failLoad = true;
+	await page.route('**/api/v1/ollama/endpoints', async (route) => {
+		if (route.request().method() === 'GET' && failLoad) {
+			await route.fulfill({ status: 503, json: { detail: 'controlled endpoint read failure' } });
+			return;
+		}
+		await route.continue();
+	});
+
+	const settings = await openProvidersSettings(page);
+	const loadFailure = settings.getByRole('alert').filter({
+		hasText: 'Could not load Ollama endpoints',
+	});
+	await expect(loadFailure).toBeVisible();
+	await expect(settings.getByText('No Ollama endpoint is configured yet')).toBeHidden();
+
+	failLoad = false;
+	await loadFailure.getByRole('button', { name: 'Retry' }).click();
+	await expect(loadFailure).toBeHidden();
+	await expect(settings.getByRole('button', { name: 'Add endpoint' })).toBeVisible();
 });
 
 test('Ollama endpoints: adding a remote server registers it as a remote endpoint card', async ({

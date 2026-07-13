@@ -3025,6 +3025,28 @@ test('Runtime settings shows guided setup actions when no runtime is executable'
 	}
 });
 
+test('Runtime guided CLI detection reports transport failure instead of false success', async ({
+	page,
+}) => {
+	await page.route('/api/v1/runtime/providers', async (route) => {
+		await route.fulfill({ json: runtimeProvidersFixture([]) });
+	});
+	await page.route('/api/v1/runtime/provider-configuration', async (route) => {
+		await route.fulfill({ json: runtimeProviderConfigurationFixture([]) });
+	});
+	await page.route('**/api/v1/model-gateway/cli-runtimes/*/detect', async (route) => {
+		await route.fulfill({ status: 503, json: { detail: 'controlled CLI detection failure' } });
+	});
+
+	await page.goto('/#settings-runtime');
+	await expectControlPlaneLoaded(page);
+	const settings = page.getByRole('dialog', { name: 'Settings' });
+	await settings.getByRole('button', { name: 'Detect installed CLIs' }).click();
+
+	await expect(page.getByText('CLI detection failed')).toBeVisible();
+	await expect(page.getByText('CLI detection finished')).toBeHidden();
+});
+
 test('Runtime guided API setup opens provider wizard instead of running a health check first', async ({
 	page,
 }) => {

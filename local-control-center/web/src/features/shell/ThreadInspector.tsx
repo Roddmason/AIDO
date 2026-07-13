@@ -160,7 +160,7 @@ export function ThreadInspector({
 	// Actionable repair cards read from the remediations endpoint; pinned above the tabs so a blocked
 	// thread always shows how to unblock it, whichever manager view is open.
 	const remediations = useThreadRemediations(threadId, mutate);
-	const hasRepairCard = remediations.cards.length > 0;
+	const hasRepairCard = remediations.cards.length > 0 || remediations.error;
 	const repairRef = useRef<HTMLDivElement>(null);
 	// The Plan tab's blocked banner hands the operator over to the repair card instead of duplicating
 	// its actions. `scrollIntoView` matters only when a tall header spills the pane into its own scroll.

@@ -50,15 +50,26 @@ export function OllamaEndpointsPanel({ token, onRefresh }: EndpointsPanelProps) 
 	const [endpoints, setEndpoints] = useState<OllamaEndpoint[]>([]);
 	const [rolePolicies, setRolePolicies] = useState<ModelGatewayRolePolicy[]>([]);
 	const [busyAction, setBusyAction] = useState<string | null>(null);
+	const [endpointLoadError, setEndpointLoadError] = useState<string | null>(null);
+	const [endpointsLoaded, setEndpointsLoaded] = useState(false);
+	const [endpointsLoading, setEndpointsLoading] = useState(false);
 	const [addOpen, setAddOpen] = useState(false);
 	const [roleTarget, setRoleTarget] = useState<EndpointCardModel | null>(null);
 
 	const load = useCallback(async () => {
+		setEndpointsLoading(true);
 		const [endpointsPayload, rolePayload] = await Promise.allSettled([
 			getOllamaEndpoints(),
 			getModelGatewayRolePolicies(),
 		]);
-		if (endpointsPayload.status === 'fulfilled') setEndpoints(endpointsPayload.value.endpoints);
+		if (endpointsPayload.status === 'fulfilled') {
+			setEndpoints(endpointsPayload.value.endpoints);
+			setEndpointLoadError(null);
+		} else {
+			setEndpointLoadError(errorMessage(endpointsPayload.reason));
+		}
+		setEndpointsLoaded(true);
+		setEndpointsLoading(false);
 		// Role policies only enrich the "preferred for" chips; losing them must not hide the cards.
 		if (rolePayload.status === 'fulfilled') setRolePolicies(rolePayload.value.rolePolicies);
 	}, []);
@@ -174,7 +185,32 @@ export function OllamaEndpointsPanel({ token, onRefresh }: EndpointsPanelProps) 
 				)}
 			</p>
 
-			{cards.length === 0 ? (
+			{endpointLoadError ? (
+				<section className="empty-state" role="alert">
+					<strong>{t('app.ollama.loadFailed', 'Could not load Ollama endpoints')}</strong>
+					<span className="field-help">
+						{redactVisibleSecret(
+							endpointLoadError,
+							t(
+								'app.ollama.loadFailedBody',
+								'AIDO could not read the configured endpoints. Retry before adding another one.',
+							),
+						)}
+					</span>
+					<Button
+						variant="primary"
+						loading={endpointsLoading}
+						icon={<RefreshCw aria-hidden="true" size={14} />}
+						onClick={() => void load()}
+					>
+						{t('app.global.retry', 'Retry')}
+					</Button>
+				</section>
+			) : !endpointsLoaded ? (
+				<section className="empty-state" role="status">
+					<strong>{t('app.ollama.loading', 'Loading Ollama endpoints…')}</strong>
+				</section>
+			) : cards.length === 0 ? (
 				<section className="empty-state" aria-live="polite">
 					<strong>{t('app.ollama.empty', 'No Ollama endpoint is configured yet')}</strong>
 					<span className="field-help">
@@ -236,6 +272,7 @@ function EndpointCard({
 	const KindIcon = card.kind === 'local' ? Boxes : Server;
 	const validateBusy = busyAction === `${card.id}:validate`;
 	const syncBusy = busyAction === `${card.id}:sync`;
+	const anyBusy = busyAction !== null;
 
 	return (
 		<article className="card card--static" data-tone={card.healthTone}>
@@ -324,17 +361,23 @@ function EndpointCard({
 				<Button
 					variant="primary"
 					loading={validateBusy}
+					disabled={anyBusy}
 					icon={<PlugZap size={14} />}
 					onClick={onValidate}
 				>
 					{t('app.ollama.card.validate', 'Validate')}
 				</Button>
-				<Button loading={syncBusy} icon={<RefreshCw size={14} />} onClick={onSync}>
+				<Button
+					loading={syncBusy}
+					disabled={anyBusy}
+					icon={<RefreshCw size={14} />}
+					onClick={onSync}
+				>
 					{t('app.ollama.card.syncModels', 'Sync models')}
 				</Button>
 				<Button
 					icon={<Wand2 size={14} />}
-					disabled={card.models.length === 0}
+					disabled={anyBusy || card.models.length === 0}
 					onClick={onSetPreferred}
 				>
 					{t('app.ollama.card.setPreferred', 'Set preferred for role')}

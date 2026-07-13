@@ -534,3 +534,96 @@ test('Remediations: a stopped worker offers Run now', async ({ page }) => {
 	await expect(card).toBeVisible({ timeout: 20_000 });
 	await expect(card.getByRole('button', { name: /Run now|Ejecutar ahora/ })).toBeVisible();
 });
+
+test('Remediations: a failed repair request stays visible and explains what failed', async ({
+	page,
+}) => {
+	let executeAttempts = 0;
+	await mockRemediations(page, [
+		remediation({
+			id: 'remediation-worker-failure',
+			stage: 'worker',
+			blockerType: 'worker_not_running',
+			actionType: 'run_worker_once',
+			title: 'Run worker once',
+			description: 'This thread is queued, but the local worker is not running.',
+			payload: { reason: 'Local worker runtime is not running.' },
+		}),
+	]);
+	await page.route(
+		'**/api/v1/remediations/remediation-worker-failure/execute',
+		async (route) => {
+			executeAttempts += 1;
+			await route.fulfill({
+				status: 503,
+				contentType: 'application/json',
+				body: JSON.stringify({ detail: 'The worker could not start because its lease is unavailable.' }),
+			});
+		},
+	);
+	await page.goto('/#threads');
+	await expectControlPlaneLoaded(page);
+	await createLiveThread(page, `Failed repair feedback ${Date.now()}`);
+
+	const card = blockerCard(page, /Worker is not running|El worker no está corriendo/);
+	await expect(card).toBeVisible({ timeout: 20_000 });
+	await card.getByRole('button', { name: /Run now|Ejecutar ahora/ }).click();
+
+	const notifications = page.getByLabel('Notifications');
+	await expect(
+		notifications.getByText(/Repair action failed|Falló la acción de reparación/),
+	).toBeVisible();
+	await expect(notifications.getByText(/lease is unavailable/)).toBeVisible();
+	await expect(card).toBeVisible();
+	await notifications
+		.getByRole('button', { name: /Refresh actions|Actualizar acciones/ })
+		.click();
+	expect(executeAttempts).toBe(1);
+});
+
+test('Remediations: a failed remediation load offers Retry and recovers the real actions', async ({
+	page,
+}) => {
+	let failLoad = true;
+	await page.route('**/api/v1/threads/*/remediations', async (route) => {
+		if (failLoad) {
+			await route.fulfill({
+				status: 503,
+				contentType: 'application/json',
+				body: JSON.stringify({ detail: 'Remediation storage is temporarily unavailable.' }),
+			});
+			return;
+		}
+		await route.fulfill({
+			status: 200,
+			contentType: 'application/json',
+			body: JSON.stringify({
+				remediations: [
+					remediation({
+						id: 'remediation-load-recovered',
+						stage: 'worker',
+						blockerType: 'worker_not_running',
+						actionType: 'run_worker_once',
+					}),
+				],
+			}),
+		});
+	});
+	await page.goto('/#threads');
+	await expectControlPlaneLoaded(page);
+	await createLiveThread(page, `Remediation load recovery ${Date.now()}`);
+
+	const inspector = page.locator('.inspector-panel');
+	const loadError = inspector.locator('.thread-remediation-load-error');
+	await expect(loadError).toBeVisible({ timeout: 20_000 });
+	await expect(loadError).toContainText(
+		/Could not load repair actions|No se pudieron cargar las acciones de reparación/,
+	);
+
+	failLoad = false;
+	await loadError.getByRole('button', { name: /Retry|Reintentar/ }).click();
+	await expect(
+		blockerCard(page, /Worker is not running|El worker no está corriendo/),
+	).toBeVisible({ timeout: 20_000 });
+	await expect(loadError).toBeHidden();
+});

@@ -14,13 +14,14 @@
  * @author Rodrigo Mason
  */
 
-import { AlertTriangle, ClipboardCopy, ExternalLink, Settings2, X } from 'lucide-react';
+import { AlertTriangle, ClipboardCopy, ExternalLink, RefreshCw, Settings2, X } from 'lucide-react';
 import { m } from 'motion/react';
 import { useState } from 'react';
 
 import type { JsonObject } from '../../api/generated/openapi';
 import { Button, Dialog, Disclosure, SelectField, useToast } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
+import { redactVisibleSecret } from '../../lib/format';
 import { listStagger, panelTransition } from '../../motion/variants';
 import {
 	type BlockerActionModel,
@@ -67,9 +68,9 @@ export function ThreadBlockerList({
 	const cards =
 		showFallback && fallback ? [buildFallbackCard(fallback.stage, fallback.reason)] : persisted;
 
-	// Supplementary surface: stay quiet when there is nothing to repair (or a best-effort load failed)
-	// so healthy threads never grow an empty or error box — the pipeline and console remain primary.
-	if (cards.length === 0) return null;
+	// A failed read is itself actionable: hiding it would leave the operator with stale or missing
+	// repair actions and no way to distinguish that from a healthy thread.
+	if (cards.length === 0 && !handle.error) return null;
 
 	return (
 		<m.section
@@ -80,6 +81,36 @@ export function ThreadBlockerList({
 			initial="initial"
 			animate="animate"
 		>
+			{handle.error ? (
+				<m.article
+					className="thread-remediation-card thread-remediation-load-error"
+					role="alert"
+					variants={panelTransition}
+				>
+					<div className="thread-remediation-title">
+						<AlertTriangle aria-hidden="true" size={15} />
+						<strong>
+							{t('app.threads.remediation.loadFailed', 'Could not load repair actions')}
+						</strong>
+					</div>
+					<p className="thread-remediation-explanation">
+						{t(
+							'app.threads.remediation.loadFailedBody',
+							'AIDO could not read the recovery plan. Retry before changing unrelated configuration.',
+						)}
+					</p>
+					<div className="thread-remediation-primary">
+						<Button
+							variant="primary"
+							icon={<RefreshCw aria-hidden="true" size={14} />}
+							disabled={handle.busyId !== null}
+							onClick={handle.reload}
+						>
+							{t('app.global.retry', 'Retry')}
+						</Button>
+					</div>
+				</m.article>
+			) : null}
 			{cards.map((card) => (
 				<ThreadBlockerCard
 					key={card.key}
@@ -155,22 +186,58 @@ function ThreadBlockerCard({
 	const dismissId = `${card.key}:dismiss`;
 
 	const runExecute = async (action: BlockerActionModel, payload?: JsonObject) => {
-		const result = await handle.execute(action, payload);
-		if (!result) return;
-		const execution = (result.execution ?? {}) as Record<string, unknown>;
-		const status = typeof execution.status === 'string' ? execution.status : '';
-		const reason = typeof execution.reason === 'string' ? execution.reason : undefined;
-		if (status === 'completed' || status === 'queued' || status === 'awaiting_approval') {
+		try {
+			const result = await handle.execute(action, payload);
+			if (!result) return;
+			const execution = (result.execution ?? {}) as Record<string, unknown>;
+			const status = typeof execution.status === 'string' ? execution.status : '';
+			const reason = typeof execution.reason === 'string' ? execution.reason : undefined;
+			if (status === 'completed' || status === 'queued' || status === 'awaiting_approval') {
+				notify({
+					title: t('app.threads.remediation.executeSuccess', 'Repair action ran'),
+					body: reason,
+					tone: 'ok',
+				});
+			} else {
+				notify({
+					title: t('app.threads.remediation.executeBlocked', 'Action needs another step'),
+					body: reason,
+					tone: 'warn',
+				});
+			}
+		} catch (error) {
 			notify({
-				title: t('app.threads.remediation.executeSuccess', 'Repair action ran'),
-				body: reason,
-				tone: 'ok',
+				title: t('app.threads.remediation.executeFailed', 'Repair action failed'),
+				body: redactVisibleSecret(
+					error instanceof Error ? error.message : error,
+					t('app.threads.remediation.executeFailedBody', 'The repair request did not complete.'),
+				),
+				tone: 'danger',
+				durationMs: 0,
+				action: {
+					label: t('app.threads.remediation.refreshActions', 'Refresh actions'),
+					onPress: handle.reload,
+				},
 			});
-		} else {
+		}
+	};
+
+	const dismissCard = async () => {
+		try {
+			await handle.dismiss(card);
+		} catch (error) {
 			notify({
-				title: t('app.threads.remediation.executeBlocked', 'Action needs another step'),
-				body: reason,
-				tone: 'warn',
+				title: t('app.threads.remediation.dismissFailed', 'Could not dismiss repair action'),
+				body: redactVisibleSecret(
+					error instanceof Error ? error.message : error,
+					t('app.threads.remediation.dismissFailedBody', 'The dismiss request did not complete.'),
+				),
+				tone: 'danger',
+				durationMs: 0,
+				action: {
+					label: t('app.threads.remediation.refreshActions', 'Refresh actions'),
+					onPress: handle.reload,
+				},
 			});
 		}
 	};
@@ -339,7 +406,7 @@ function ThreadBlockerCard({
 						icon={<X aria-hidden="true" size={14} />}
 						loading={handle.busyId === dismissId}
 						disabled={anyBusy}
-						onClick={() => void handle.dismiss(card)}
+						onClick={() => void dismissCard()}
 					>
 						{t('app.threads.remediation.dismiss', 'Dismiss')}
 					</Button>

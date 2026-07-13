@@ -10279,6 +10279,22 @@
       "en": "CLI detection finished",
       "es": "Detección de CLIs completada"
     },
+    "app.runtime.setup.detectFailed": {
+      "en": "CLI detection failed",
+      "es": "La detección de CLIs falló"
+    },
+    "app.runtime.setup.detectFailedBody": {
+      "en": "AIDO could not run any CLI detection request.",
+      "es": "AIDO no pudo ejecutar ninguna solicitud de detección de CLI."
+    },
+    "app.runtime.setup.detectPartial": {
+      "en": "CLI detection partially completed",
+      "es": "La detección de CLIs se completó parcialmente"
+    },
+    "app.runtime.setup.detectPartialBody": {
+      "en": "Some CLI checks failed. Retry detection to refresh the remaining runtimes.",
+      "es": "Algunas verificaciones de CLI fallaron. Reintenta la detección para actualizar los runtimes pendientes."
+    },
     "app.runtime.setup.checkDone": {
       "en": "Runtime check finished",
       "es": "Verificación de runtime completada"
@@ -11235,6 +11251,38 @@
       "en": "Action needs another step",
       "es": "La acción necesita otro paso"
     },
+    "app.threads.remediation.executeFailed": {
+      "en": "Repair action failed",
+      "es": "Falló la acción de reparación"
+    },
+    "app.threads.remediation.executeFailedBody": {
+      "en": "The repair request did not complete.",
+      "es": "La solicitud de reparación no se completó."
+    },
+    "app.threads.remediation.refreshActions": {
+      "en": "Refresh actions",
+      "es": "Actualizar acciones"
+    },
+    "app.threads.remediation.dismissFailed": {
+      "en": "Could not dismiss repair action",
+      "es": "No se pudo descartar la acción de reparación"
+    },
+    "app.threads.remediation.dismissFailedBody": {
+      "en": "The dismiss request did not complete.",
+      "es": "La solicitud para descartar la acción no se completó."
+    },
+    "app.threads.remediation.loadFailed": {
+      "en": "Could not load repair actions",
+      "es": "No se pudieron cargar las acciones de reparación"
+    },
+    "app.threads.remediation.loadFailedBody": {
+      "en": "AIDO could not read the recovery plan. Retry before changing unrelated configuration.",
+      "es": "AIDO no pudo leer el plan de recuperación. Reintenta antes de cambiar una configuración no relacionada."
+    },
+    "app.global.retry": {
+      "en": "Retry",
+      "es": "Reintentar"
+    },
     "app.threads.remediation.copied": {
       "en": "Diagnostic copied",
       "es": "Diagnóstico copiado"
@@ -11466,6 +11514,18 @@
     "app.ollama.emptyHint": {
       "en": "Add the local daemon or a remote server to start routing local models.",
       "es": "Agrega el daemon local o un servidor remoto para empezar a enrutar modelos locales."
+    },
+    "app.ollama.loading": {
+      "en": "Loading Ollama endpoints…",
+      "es": "Cargando endpoints de Ollama…"
+    },
+    "app.ollama.loadFailed": {
+      "en": "Could not load Ollama endpoints",
+      "es": "No se pudieron cargar los endpoints de Ollama"
+    },
+    "app.ollama.loadFailedBody": {
+      "en": "AIDO could not read the configured endpoints. Retry before adding another one.",
+      "es": "AIDO no pudo leer los endpoints configurados. Reintenta antes de agregar otro."
     },
     "app.ollama.tokenRequired": {
       "en": "A local write token is required to change Ollama endpoints.",

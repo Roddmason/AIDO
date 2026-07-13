@@ -39,6 +39,12 @@ DANGEROUS_CLI_FLAGS = {
 }
 
 
+def _which_executable(executable: str) -> str | None:
+    from shutil import which
+
+    return which(executable)
+
+
 class RuntimeDetection(BaseModel):
     """Resultado de sondear si un runtime CLI está instalado, con su ruta y versión."""
 
@@ -46,6 +52,18 @@ class RuntimeDetection(BaseModel):
     status: str
     executable: str | None = None
     version: str | None = None
+    message: str = ""
+
+
+class RuntimeAuthStatus(BaseModel):
+    """Veredicto del sondeo de autenticación nativa: authenticated, unauthenticated o unknown.
+
+    ``unknown`` significa que el probe no pudo ejecutarse (binario ausente, timeout, bloqueado);
+    nunca debe degradar una validación previa. El mensaje jamás incluye identidad de la cuenta.
+    """
+
+    runtime: str
+    status: str
     message: str = ""
 
 
@@ -106,15 +124,17 @@ class CliRuntime(ABC):
 
     runtime_id: str
     display_name: str
+    # Subcomando de solo lectura que reporta el estado de login nativo (None = sin probe).
+    auth_status_argv: tuple[str, ...] | None = None
+    # Instrucción accionable que se muestra cuando el CLI no está autenticado.
+    login_hint: str = ""
 
     def __init__(self, *, executable: str, connection: sqlite3.Connection | None = None):
         self.executable = executable
         self.connection = connection
 
     def _which(self) -> str | None:
-        from shutil import which
-
-        return which(self.executable)
+        return _which_executable(self.executable)
 
     def _version(self, executable: str) -> str | None:
         result = subprocess_sandbox.run_version_check(argv=[executable, "--version"], timeout_seconds=5)
@@ -171,6 +191,51 @@ class CliRuntime(ABC):
         detection = self.detect()
         status = "healthy" if detection.status == "installed" else detection.status
         return RuntimeHealth(runtime=self.runtime_id, status=status, message=detection.message)
+
+    def validate_native_auth(self) -> RuntimeAuthStatus:
+        """Sondea el estado de login nativo del CLI con su subcomando de solo lectura.
+
+        Invariante: solo distingue unauthenticated cuando el CLI respondió de forma concluyente;
+        un probe que no pudo ejecutarse (binario ausente, timeout, bloqueado por el sandbox)
+        devuelve ``unknown`` para no degradar validaciones previas por un fallo transitorio.
+        """
+        if not self.auth_status_argv:
+            return RuntimeAuthStatus(
+                runtime=self.runtime_id,
+                status="unknown",
+                message=f"{self.display_name} does not expose a native auth status probe.",
+            )
+        executable = self._which()
+        if not executable:
+            return RuntimeAuthStatus(
+                runtime=self.runtime_id,
+                status="unknown",
+                message=f"{self.display_name} executable was not found for the auth probe.",
+            )
+        result = subprocess_sandbox.run_auth_status_check(
+            argv=[executable, *self.auth_status_argv], timeout_seconds=10
+        )
+        if result.get("blocked") or result.get("timedOut") or result.get("returnCode") is None:
+            return RuntimeAuthStatus(
+                runtime=self.runtime_id,
+                status="unknown",
+                message=str(result.get("reason") or "Auth status probe did not complete."),
+            )
+        return self._parse_auth_probe(result)
+
+    def _parse_auth_probe(self, result: dict[str, Any]) -> RuntimeAuthStatus:
+        """Interpreta el resultado del probe: exit 0 = autenticado; distinto = no autenticado."""
+        if result.get("returnCode") == 0:
+            return RuntimeAuthStatus(
+                runtime=self.runtime_id,
+                status="authenticated",
+                message=f"{self.display_name} native session is logged in.",
+            )
+        return RuntimeAuthStatus(
+            runtime=self.runtime_id,
+            status="unauthenticated",
+            message=self.login_hint or f"{self.display_name} native session is not logged in.",
+        )
 
     @abstractmethod
     def build_command(self, request: RuntimeRequest) -> list[str]:

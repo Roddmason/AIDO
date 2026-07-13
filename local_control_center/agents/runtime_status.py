@@ -346,6 +346,10 @@ def _cli_provider_status(
     can_code_edit = "code_edit" in set(capabilities)
     issue_to_patch_argv, issue_to_patch_argv_error = _configured_argv(configuration, "issueToPatchArgv")
     version = detection.get("version") if detected else None
+    if detected and not version:
+        # El binario sigue presente pero el probe de versión no respondió (p. ej. timeout bajo
+        # carga): usa la última versión persistida en vez de declarar el runtime no disponible.
+        version = (runtime_installation or {}).get("detectedVersion") or None
     command_configured = bool(detection.get("executable"))
     configured = bool(command_configured or (configuration and configuration.configured) or detected)
     available = configured and detected and bool(version)
@@ -384,7 +388,13 @@ def _cli_provider_status(
     elif not account_enabled:
         reason = "CLI runtime is available but no enabled runtime_accounts row is selected for execution."
     elif not authenticated:
-        reason = "CLI runtime version check passed but native CLI authentication has not been validated."
+        native_probe_message = str(
+            ((runtime_account or {}).get("metadata") or {}).get("lastNativeAuthProbe") or ""
+        ).strip()
+        reason = (
+            native_probe_message
+            or "CLI runtime version check passed but native CLI authentication has not been validated."
+        )
     elif not policy_allowed:
         reason = str(policy_decision.get("reason") or "Runtime execution is blocked by policy.")
     elif not has_prompt_capability:
@@ -549,6 +559,65 @@ class RuntimeStatusService:
         self.accounts = ProviderAccountStore(connection)
         self.registry = RuntimeRegistry()
 
+    @staticmethod
+    def _persist_fresh_cli_version(
+        repo: RuntimeConfigRepository,
+        installations: dict[str, dict[str, Any]],
+        runtime_id: str,
+        detection: dict[str, Any],
+    ) -> None:
+        """Guarda la versión recién detectada para que un hipo posterior del probe tenga fallback."""
+        fresh_version = str(detection.get("version") or "").strip()
+        installation = installations.get(runtime_id)
+        if not fresh_version or not installation or not installation.get("id"):
+            return
+        if str(installation.get("detectedVersion") or "") == fresh_version:
+            return
+        installations[runtime_id] = repo.upsert_installation(
+            {"runtimeId": runtime_id, "detectedVersion": fresh_version}
+        )
+
+    def _validate_cli_native_auth(
+        self,
+        repo: RuntimeConfigRepository,
+        accounts: dict[str, dict[str, Any]],
+        installations: dict[str, dict[str, Any]],
+        runtime_id: str,
+        detection: dict[str, Any],
+        command: str | None,
+    ) -> None:
+        """Valida la autenticación nativa de un CLI detectado cuya cuenta aún no está validada.
+
+        Invariantes: una cuenta ya validada (healthy + lastValidationAt) no se re-sondea en el
+        rollup; un probe ``unknown`` (timeout/bloqueado/binario ausente) no escribe nada, para no
+        degradar el estado por un fallo transitorio. Solo un veredicto concluyente persiste.
+        """
+        account = accounts.get(runtime_id)
+        if not account:
+            return
+        if account.get("healthStatus") == "healthy" and account.get("lastValidationAt"):
+            return
+        if detection.get("status") != "installed":
+            return
+        version = detection.get("version") or (installations.get(runtime_id) or {}).get("detectedVersion")
+        if not version:
+            return
+        probe = self.registry.validate_native_auth(runtime_id, executable=command)
+        status = str(probe.get("status") or "unknown")
+        if status not in {"authenticated", "unauthenticated"}:
+            return
+        message = str(redact_secrets(str(probe.get("message") or "")))
+        metadata = {**(account.get("metadata") or {}), "lastNativeAuthProbe": message}
+        patch: dict[str, Any] = {
+            "configurationSource": "native_cli_status",
+            "metadata": metadata,
+        }
+        if status == "authenticated":
+            patch.update({"healthStatus": "healthy", "lastValidationAt": utc_now()})
+        else:
+            patch.update({"healthStatus": "unauthenticated", "lastValidationAt": None})
+        accounts[runtime_id] = repo.update_runtime_account(str(account["id"]), patch)
+
     def list_provider_statuses(self, *, project_id: str | None = None) -> list[dict[str, Any]]:
         """Compute a status payload for every catalogued provider, dispatching by kind.
 
@@ -589,6 +658,17 @@ class RuntimeStatusService:
                     "version": None,
                     "message": configuration.reason if configuration else "CLI command is not configured.",
                 }
+            )
+            self._persist_fresh_cli_version(
+                runtime_repo, runtime_installations, runtime_id, detections[runtime_id]
+            )
+            self._validate_cli_native_auth(
+                runtime_repo,
+                runtime_accounts,
+                runtime_installations,
+                runtime_id,
+                detections[runtime_id],
+                command,
             )
         statuses: list[dict[str, Any]] = []
         for account in self.accounts.list_provider_accounts():

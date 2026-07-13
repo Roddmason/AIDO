@@ -27,6 +27,8 @@ class CodexCliRuntime(CliRuntime):
 
     runtime_id = "codex_cli"
     display_name = "Codex CLI"
+    auth_status_argv = ("login", "status")
+    login_hint = "Codex CLI is not logged in; run `codex login` and retry."
 
     def __init__(
         self,

@@ -284,8 +284,17 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
         detected_executable = payload.get("executable") or executable_hint
         installed = status in {"installed", "healthy"}
         version_checked = bool(version)
-        health_status = "healthy" if installed and (version_checked or check_type == "health") else "offline"
-        last_error = "" if health_status == "healthy" else str(payload.get("message") or status)
+        if installed and (version_checked or check_type == "health"):
+            health_status = "healthy"
+            last_error = ""
+        elif installed:
+            # El binario existe pero el probe de versión no respondió (p. ej. timeout bajo carga):
+            # degradar, no declarar offline, y nunca guardar el mensaje de éxito como error.
+            health_status = "degraded"
+            last_error = "CLI was detected but the version probe did not return a usable version."
+        else:
+            health_status = "offline"
+            last_error = str(payload.get("message") or status)
         timestamp = utc_now()
         try:
             current = runtimes().get_installation(runtime_id)

@@ -88,6 +88,102 @@ test('Threads: create a real thread, select it immediately, and show queued cons
 	expect(detail.thread.status).toBe('queued');
 });
 
+test('Threads: a failed first message keeps the intake and retries the same empty thread', async ({
+	page,
+}) => {
+	await page.goto('/#threads');
+	await expectControlPlaneLoaded(page);
+	const project = await getActiveProject(page);
+	const beforeResponse = await page.request.get(`/api/v1/threads?projectId=${project.id}`);
+	const before = await beforeResponse.json();
+	let postAttempts = 0;
+	await page.route('**/api/v1/threads/*/messages**', async (route) => {
+		if (route.request().method() !== 'POST') {
+			await route.continue();
+			return;
+		}
+		postAttempts += 1;
+		if (postAttempts === 1) {
+			await route.fulfill({
+				status: 503,
+				contentType: 'application/json',
+				body: JSON.stringify({ detail: 'Thread message storage is temporarily unavailable.' }),
+			});
+			return;
+		}
+		await route.continue();
+	});
+
+	await typeGoalInNewThreadIntake(
+		page,
+		`Add a REST endpoint that lists recoverable thread message failures ${Date.now()}`,
+	);
+	const composer = page.getByLabel('Message AIDO');
+	const firstMessage = await composer.inputValue();
+	await page.getByRole('button', { name: 'Create thread' }).click();
+
+	await expect.poll(() => postAttempts, { timeout: 20_000 }).toBe(1);
+	await expect(page.getByRole('heading', { name: /What will we work on/ })).toBeVisible();
+	await expect(page.getByText(/Could not send the message|No se pudo enviar el mensaje/)).toBeVisible();
+	await expect(composer).toHaveValue(firstMessage);
+	const afterFailureResponse = await page.request.get(`/api/v1/threads?projectId=${project.id}`);
+	const afterFailure = await afterFailureResponse.json();
+	expect(afterFailure.threads).toHaveLength(before.threads.length + 1);
+
+	await page.getByRole('button', { name: 'Create thread' }).click();
+	await expect.poll(() => postAttempts, { timeout: 20_000 }).toBe(2);
+	const afterRetryResponse = await page.request.get(`/api/v1/threads?projectId=${project.id}`);
+	const afterRetry = await afterRetryResponse.json();
+	expect(afterRetry.threads).toHaveLength(before.threads.length + 1);
+	const created = afterRetry.threads.find((thread) => thread.title === firstMessage.slice(0, 80));
+	expect(created).toBeTruthy();
+	const detailResponse = await page.request.get(`/api/v1/threads/${created.id}`);
+	const detail = await detailResponse.json();
+	expect(detail.messages.filter((message) => message.kind === 'user')).toHaveLength(1);
+	expect(detail.thread.status).toBe('queued');
+	await expect(page.getByText(firstMessage).first()).toBeVisible({ timeout: 20_000 });
+	await expect(page.getByText(/Run queued|Run encolado/).first()).toBeVisible({ timeout: 20_000 });
+});
+
+test('Threads: a lost first-message response reconciles the persisted run without a duplicate POST', async ({
+	page,
+}) => {
+	await page.goto('/#threads');
+	await expectControlPlaneLoaded(page);
+	const project = await getActiveProject(page);
+	let postAttempts = 0;
+	await page.route('**/api/v1/threads/*/messages**', async (route) => {
+		if (route.request().method() !== 'POST') {
+			await route.continue();
+			return;
+		}
+		postAttempts += 1;
+		const persisted = await route.fetch();
+		expect(persisted.ok()).toBe(true);
+		await route.fulfill({
+			status: 503,
+			contentType: 'application/json',
+			body: JSON.stringify({ detail: 'The response was lost after the message committed.' }),
+		});
+	});
+
+	const firstMessage = `Implement a REST endpoint that reconciles a committed first message after a lost response ${Date.now()}`;
+	await typeGoalInNewThreadIntake(page, firstMessage);
+	await page.getByRole('button', { name: 'Create thread' }).click();
+
+	await expect.poll(() => postAttempts, { timeout: 20_000 }).toBe(1);
+	await expect(page.getByText(/Run queued|Run encolado/).first()).toBeVisible({ timeout: 20_000 });
+	await expect(page.getByText(firstMessage).first()).toBeVisible({ timeout: 20_000 });
+	expect(postAttempts).toBe(1);
+	const listed = await page.request.get(`/api/v1/threads?projectId=${project.id}`);
+	const { threads } = await listed.json();
+	const created = threads.find((thread) => thread.title === firstMessage.slice(0, 80));
+	expect(created).toBeTruthy();
+	const detail = await (await page.request.get(`/api/v1/threads/${created.id}`)).json();
+	expect(detail.messages.filter((message) => message.kind === 'user')).toHaveLength(1);
+	expect(detail.thread.status).toBe('queued');
+});
+
 test('Threads: an ambiguous message makes the coordinator block with a decision request', async ({
 	page,
 }) => {
@@ -152,7 +248,9 @@ test('Threads: the composer stays fixed at the bottom in a single scroll region 
 	expect(created).toBeTruthy();
 	const token = await getWriteToken(page);
 	for (let index = 0; index < 6; index += 1) {
-		const response = await page.request.post(`/api/v1/threads/${created.id}/messages`, {
+		// The thread is already queued: add notes to grow the transcript without attempting six
+		// concurrent Product Loop runs, which the backend correctly rejects fail-closed.
+		const response = await page.request.post(`/api/v1/threads/${created.id}/notes`, {
 			headers: { 'X-Local-Control-Token': token },
 			data: { content: `Add pinned layout overflow event ${index} ${Date.now()}` },
 		});
@@ -172,9 +270,10 @@ test('Threads: the composer stays fixed at the bottom in a single scroll region 
 		})
 		.toBeGreaterThan(260);
 
-	// The outer frame never scrolls — `.thread-live-scroll` is the only scroll region, so the
-	// page never shows a double scrollbar.
-	expect(await outerFrame.evaluate((node) => node.scrollHeight - node.clientHeight)).toBe(0);
+	// The outer frame clips overflow — `.thread-live-scroll` is the only user-scrollable region.
+	// `scrollHeight` may still exceed `clientHeight` for clipped descendants, so the CSS contract is
+	// the reliable browser-visible assertion (an equality check produced false failures).
+	expect(await outerFrame.evaluate((node) => getComputedStyle(node).overflowY)).toBe('hidden');
 
 	await scrollRegion.evaluate((node) => {
 		node.scrollTop = 120;

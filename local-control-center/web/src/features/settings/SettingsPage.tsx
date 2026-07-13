@@ -15,7 +15,7 @@
  */
 
 import { ExternalLink } from 'lucide-react';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 
 import type {
 	Overview,
@@ -72,6 +72,14 @@ export function RuntimeBody({
 	onNavigate?: () => void;
 }) {
 	const { t } = useI18n();
+	const [gatewayRevision, setGatewayRevision] = useState(0);
+	const refreshAfterEndpointMutation = async () => {
+		try {
+			return await onRefresh();
+		} finally {
+			setGatewayRevision((revision) => revision + 1);
+		}
+	};
 	return (
 		<>
 			<RuntimeSetupPanel
@@ -80,8 +88,9 @@ export function RuntimeBody({
 				token={token}
 				onRefresh={onRefresh}
 				initialProviderId={initialProviderId}
+				gatewayRevision={gatewayRevision}
 			/>
-			<OllamaEndpointsPanel token={token} onRefresh={onRefresh} />
+			<OllamaEndpointsPanel token={token} onRefresh={refreshAfterEndpointMutation} />
 			<div className="settings-readouts">
 				<div>
 					<strong>{t('ui.static.local.control.api.f1f86c0e', 'Local Control API')}</strong>

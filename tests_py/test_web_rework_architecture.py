@@ -361,13 +361,13 @@ def test_new_thread_composer_checks_similarity_and_records_operator_choice() -> 
 
     assert "findSimilarThreads(project.id, query, 1, controller.signal)" in source
     assert "top && top.score >= SIMILARITY_THRESHOLD ? top : null" in source
-    assert "const dismissedCandidate = candidate" in source
-    assert "createThread(mutateToken, {" in source
-    assert "postThreadMessage(mutateToken, created.thread.id, {" in source
+    assert "const dismissedCandidate = pending?.dismissedCandidate ?? candidate" in source
+    assert "const created = await createThread(token, {" in source
+    assert "await postThreadMessage(token, pendingThreadId, {" in source
     assert "mode: 'create_new_anyway'" in source
     assert "similarThreadId: dismissedCandidate.threadId" in source
-    assert "markSimilarThread(mutateToken, created.thread.id, dismissedCandidate.threadId" in source
-    assert "postThreadMessage(mutateToken, target, { content, metadata: { mode } })" in source
+    assert "markSimilarThread(token, pendingThreadId, dismissedCandidate.threadId" in source
+    assert "await postThreadMessage(token, target, { content, metadata: { mode } })" in source
 
 
 def test_thread_remediation_presentation_has_specific_copy_for_product_loop_blockers() -> None:

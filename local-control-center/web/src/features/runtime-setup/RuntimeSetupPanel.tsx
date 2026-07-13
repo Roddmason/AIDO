@@ -79,6 +79,7 @@ type RuntimeSetupPanelProps = {
 	token: string;
 	onRefresh: () => Promise<unknown> | undefined;
 	initialProviderId?: string | null;
+	gatewayRevision?: number;
 };
 
 export function RuntimeSetupPanel({
@@ -87,6 +88,7 @@ export function RuntimeSetupPanel({
 	token,
 	onRefresh,
 	initialProviderId,
+	gatewayRevision = 0,
 }: RuntimeSetupPanelProps) {
 	const { t } = useI18n();
 	const { notify } = useToast();
@@ -114,9 +116,10 @@ export function RuntimeSetupPanel({
 		}
 	}, []);
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: both props are deliberate refresh signals after endpoint/runtime mutations.
 	useEffect(() => {
 		void loadGateway();
-	}, [loadGateway]);
+	}, [gatewayRevision, loadGateway, runtimeProviders]);
 
 	useEffect(() => {
 		const providerId = initialProviderId?.trim();
@@ -244,11 +247,35 @@ export function RuntimeSetupPanel({
 		if (!requireToken()) return;
 		setBusyAction('detect_clis');
 		try {
-			await Promise.allSettled(
+			const results = await Promise.allSettled(
 				[...CLI_SETUP_PROVIDER_IDS].map((id) => detectModelGatewayCliRuntime(token, id)),
 			);
 			await Promise.all([onRefresh(), loadGateway()]);
-			notify({ title: t('app.runtime.setup.detectDone', 'CLI detection finished'), tone: 'ok' });
+			const failures = results.filter((result) => result.status === 'rejected');
+			if (failures.length === results.length) {
+				notify({
+					title: t('app.runtime.setup.detectFailed', 'CLI detection failed'),
+					body: redactVisibleSecret(
+						failures[0]?.reason,
+						t(
+							'app.runtime.setup.detectFailedBody',
+							'AIDO could not run any CLI detection request.',
+						),
+					),
+					tone: 'danger',
+				});
+			} else if (failures.length > 0) {
+				notify({
+					title: t('app.runtime.setup.detectPartial', 'CLI detection partially completed'),
+					body: t(
+						'app.runtime.setup.detectPartialBody',
+						'Some CLI checks failed. Retry detection to refresh the remaining runtimes.',
+					),
+					tone: 'warn',
+				});
+			} else {
+				notify({ title: t('app.runtime.setup.detectDone', 'CLI detection finished'), tone: 'ok' });
+			}
 		} finally {
 			setBusyAction(null);
 		}

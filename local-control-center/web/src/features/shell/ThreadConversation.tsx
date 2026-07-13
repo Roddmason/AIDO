@@ -42,6 +42,7 @@ import {
 	cancelThreadExecution,
 	createThread,
 	findSimilarThreads,
+	getThread,
 	getWorkerStatus,
 	markSimilarThread,
 	postThreadMessage,
@@ -197,6 +198,7 @@ export function ThreadConversation({
 		void mutate(async () => undefined, { awaitRefresh: false });
 	};
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: a status transition can require reload even when the event count is unchanged.
 	useEffect(() => {
 		if (!activeThreadId || eventStream.events.length === 0) return;
 		reload();
@@ -220,6 +222,7 @@ export function ThreadConversation({
 			});
 	}, []);
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: thread/status changes are explicit worker-status refresh signals.
 	useEffect(() => {
 		const controller = new AbortController();
 		loadWorkerStatus(controller.signal);
@@ -427,7 +430,6 @@ export function ThreadConversation({
 			<NewThreadComposer
 				overview={overview}
 				project={selectedProject}
-				mutate={mutate}
 				token={token}
 				runtimeProviders={runtimeProviders}
 				onGitRefresh={refreshOverview}
@@ -1214,7 +1216,6 @@ type SimilarityReuseMode = 'improve_existing' | 'performance_pass' | 'create_new
 function NewThreadComposer({
 	overview,
 	project,
-	mutate,
 	token,
 	runtimeProviders,
 	onGitRefresh,
@@ -1223,7 +1224,6 @@ function NewThreadComposer({
 }: {
 	overview: Overview;
 	project: Project;
-	mutate: Mutate;
 	token: string;
 	runtimeProviders: RuntimeProviders | null;
 	onGitRefresh: () => void;
@@ -1236,6 +1236,12 @@ function NewThreadComposer({
 	const [candidate, setCandidate] = useState<ThreadSimilarityCandidate | null>(null);
 	const [reuseBusy, setReuseBusy] = useState<SimilarityReuseMode | null>(null);
 	const [reuseFailed, setReuseFailed] = useState(false);
+	// If thread creation succeeds but the first message fails, retry against the same empty thread.
+	// Navigating before the message is durable would unmount this intake and hide the only error.
+	const pendingCreatedThreadRef = useRef<{
+		threadId: string;
+		dismissedCandidate: ThreadSimilarityCandidate | null;
+	} | null>(null);
 
 	// Debounced similar-work lookup. Best-effort by design: failures stay silent and never block
 	// the composer; the AbortController drops stale in-flight responses when the draft changes.
@@ -1265,54 +1271,69 @@ function NewThreadComposer({
 		// coordinator can refine it from the conversation topic later.
 		const firstLine = firstMessage.split(/\r?\n/)[0]?.trim() ?? '';
 		const threadTitle = (firstLine || firstMessage).slice(0, 80);
-		// Frozen here: the debounce may clear the card while the async creation is in flight.
-		const dismissedCandidate = candidate;
+		// Frozen with the pending thread: the debounce may clear the card while the first message is
+		// retried, but the deduplication decision must remain attached to that original intake.
+		let pending = pendingCreatedThreadRef.current;
+		const dismissedCandidate = pending?.dismissedCandidate ?? candidate;
 		setFailed(false);
 		try {
-			const created = await mutate(
-				(mutateToken) =>
-					createThread(mutateToken, {
-						projectId: project.id,
-						ownerType: 'workspace',
-						ownerId: ownerIdForProject(overview, project),
-						title: threadTitle,
-					}),
-				{ awaitRefresh: false },
-			);
-			onCreated(created.thread.id);
-			await mutate(
-				(mutateToken) =>
-					postThreadMessage(mutateToken, created.thread.id, {
-						content: firstMessage,
-						...(dismissedCandidate
-							? {
-									metadata: {
-										mode: 'create_new_anyway',
-										similarThreadId: dismissedCandidate.threadId,
-									},
-								}
-							: {}),
-					}),
-				{ awaitRefresh: false },
-			);
+			if (!pending) {
+				const created = await createThread(token, {
+					projectId: project.id,
+					ownerType: 'workspace',
+					ownerId: ownerIdForProject(overview, project),
+					title: threadTitle,
+				});
+				pending = { threadId: created.thread.id, dismissedCandidate };
+				pendingCreatedThreadRef.current = pending;
+			}
+			if (!pending) throw new Error('Thread creation did not return a durable thread id.');
+			const pendingThreadId = pending.threadId;
+			await postThreadMessage(token, pendingThreadId, {
+				content: firstMessage,
+				...(dismissedCandidate
+					? {
+							metadata: {
+								mode: 'create_new_anyway',
+								similarThreadId: dismissedCandidate.threadId,
+							},
+						}
+					: {}),
+			});
+			pendingCreatedThreadRef.current = null;
+			onGitRefresh();
+			onCreated(pendingThreadId);
 			if (dismissedCandidate) {
 				// Persist the deduplication decision ("saw similar work, created new anyway") as a real
 				// similarity event; the thread itself is already created, so a failure here stays silent.
 				try {
-					await mutate(
-						(mutateToken) =>
-							markSimilarThread(mutateToken, created.thread.id, dismissedCandidate.threadId, {
-								action: 'create_new_anyway',
-								score: dismissedCandidate.score,
-								reason: dismissedCandidate.reason,
-							}),
-						{ awaitRefresh: false },
-					);
+					await markSimilarThread(token, pendingThreadId, dismissedCandidate.threadId, {
+						action: 'create_new_anyway',
+						score: dismissedCandidate.score,
+						reason: dismissedCandidate.reason,
+					});
 				} catch {
 					// Best-effort audit trail; the created thread must not look broken because of it.
 				}
 			}
 		} catch (creationError) {
+			const pendingThread = pendingCreatedThreadRef.current;
+			if (pendingThread) {
+				try {
+					const detail = await getThread(pendingThread.threadId);
+					const firstMessagePersisted = detail.messages.some(
+						(message) => message.kind === 'user' && message.content === firstMessage,
+					);
+					if (firstMessagePersisted) {
+						pendingCreatedThreadRef.current = null;
+						onGitRefresh();
+						onCreated(pendingThread.threadId);
+						return;
+					}
+				} catch {
+					// Preserve the intake and pending id; a later retry can reconcile before writing again.
+				}
+			}
 			setFailed(true);
 			throw creationError;
 		}
@@ -1326,10 +1347,8 @@ function NewThreadComposer({
 		setReuseFailed(false);
 		setReuseBusy(mode);
 		try {
-			await mutate(
-				(mutateToken) => postThreadMessage(mutateToken, target, { content, metadata: { mode } }),
-				{ awaitRefresh: false },
-			);
+			await postThreadMessage(token, target, { content, metadata: { mode } });
+			onGitRefresh();
 			onCreated(target);
 		} catch {
 			setReuseFailed(true);

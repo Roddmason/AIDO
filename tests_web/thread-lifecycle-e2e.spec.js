@@ -20,9 +20,9 @@ import { expect, request as playwrightRequest, test } from '@playwright/test';
  * surface asserted here (queued banner, worker claim, diff, QA/gitleaks, approval card, archive,
  * rename, similarity recall) must be backed by real control-plane state, never by decoration.
  *
- * The spec owns its own dashboard process (fresh SQLite, isolated workspace root) because the
- * controlled runtime needs `AIDO_OLLAMA_BASE_URL` injected into the server environment before it
- * boots; the shared per-chunk Playwright server stays untouched.
+ * The spec owns its own dashboard process (fresh SQLite, isolated workspace root). The controlled
+ * runtime is configured through the real Ollama settings UI so recovery must persist operator-owned
+ * state before the Product Loop is retried; the shared per-chunk Playwright server stays untouched.
  */
 
 const repoRoot = fileURLToPath(new URL('..', import.meta.url));
@@ -243,7 +243,7 @@ from local_control_center.shared.migrations import initialize_platform_schema
 with open_sqlite_connection(${JSON.stringify(dbPath)}) as connection:
     initialize_platform_schema(connection)
     AIResourceManager(connection).upsert_model_performance({
-        "providerId": "ollama",
+        "providerId": "ollama_remote",
         "model": "qwen2.5-coder",
         "runtime": "local",
         "capabilities": ["chat", "code", "review", "tools", "reasoning", "json"],
@@ -310,24 +310,14 @@ async function stopDashboard() {
 	}
 }
 
-/** Enables the seeded ollama provider account so the worker preflight sees an executable runtime. */
-async function arrangeControlledRuntime() {
+/** Proves the operator-configured Ollama account is now executable; never mutates setup state. */
+async function expectControlledRuntimeReady() {
 	const context = await playwrightRequest.newContext();
 	try {
-		const handshake = await context.get(`${baseUrl}/api/v1/security/handshake`);
-		const { token } = await handshake.json();
-		const headers = { 'X-Local-Control-Token': token, Origin: baseUrl };
-		const patch = await context.patch(`${baseUrl}/api/v1/model-gateway/providers/ollama`, {
-			headers,
-			data: { enabled: true },
-		});
-		if (!patch.ok()) {
-			throw new Error(`enabling the ollama provider failed: ${patch.status()} ${await patch.text()}`);
-		}
 		const status = await context.get(`${baseUrl}/api/v1/agents/developer/status`);
 		const body = await status.json();
 		const readiness = body.developerAgent ?? body;
-		if (readiness.executable !== true || readiness.selectedRuntimeId !== 'ollama') {
+		if (readiness.executable !== true || readiness.selectedRuntimeId !== 'ollama_remote') {
 			throw new Error(`controlled runtime is not executable: ${JSON.stringify(readiness)}`);
 		}
 	} finally {
@@ -393,7 +383,8 @@ test.describe('Threads lifecycle (real pipeline)', () => {
 		mockServer = mock.server;
 		mockBaseUrl = mock.url;
 
-		const env = { ...process.env, AIDO_OLLAMA_BASE_URL: mockBaseUrl };
+		const env = { ...process.env };
+		delete env.AIDO_OLLAMA_BASE_URL;
 		delete env.OLLAMA_BASE_URL;
 		delete env.OLLAMA_HOST;
 		delete env.AIDO_ENABLE_CLI_RUNTIMES;
@@ -404,7 +395,6 @@ test.describe('Threads lifecycle (real pipeline)', () => {
 		try {
 			await waitForDashboardHealth();
 			seedControlledAIResource();
-			await arrangeControlledRuntime();
 		} catch (error) {
 			// afterAll never runs when beforeAll throws; stop the spawned server here so a failed
 			// boot cannot leak an orphan python process holding the port.
@@ -518,14 +508,134 @@ test.describe('Threads lifecycle (real pipeline)', () => {
 			threadId = created.id;
 		});
 
-		await test.step('6. el worker corre una pasada real desde el boton Run now', async () => {
+		await test.step('6. sin runtime, el worker bloquea y persiste una reparación ejecutable', async () => {
 			const runNow = page
-				.getByTestId('workbench')
+				.getByRole('region', { name: /Waiting for worker|Esperando worker/ })
 				.getByRole('button', { name: /Run now|Ejecutar ahora/ });
 			await expect(runNow).toBeVisible({ timeout: 20_000 });
 			await runNow.click();
 
-			// The run-once pass executes the whole Product Loop synchronously; wait on real state.
+			await expect
+				.poll(
+					async () => {
+						const response = await page.request.get(
+							`${baseUrl}/api/v1/threads/${threadId}/remediations`,
+						);
+						const body = await response.json();
+						return body.remediations.some(
+							(action) =>
+								action.blockerType === 'runtime_not_executable' &&
+								action.actionType === 'open_settings_section',
+						);
+					},
+					{ timeout: 120_000 },
+				)
+				.toBe(true);
+			const remediations = await (
+				await page.request.get(`${baseUrl}/api/v1/threads/${threadId}/remediations`)
+			).json();
+			const runtimeActions = remediations.remediations
+				.filter((action) => action.blockerType === 'runtime_not_executable')
+				.map((action) => action.actionType);
+			expect(runtimeActions).toEqual(
+				expect.arrayContaining(['open_settings_section', 'validate_runtime', 'run_worker_once']),
+			);
+			expect(runtimeActions).not.toContain('retry_loop');
+			expect(mockCalls.productOwner).toBe(0);
+			expect(mockCalls.developer).toBe(0);
+			const detail = await (
+				await page.request.get(`${baseUrl}/api/v1/threads/${threadId}`)
+			).json();
+			expect(detail.thread.status).toBe('queued');
+		});
+
+		await test.step('7. el CTA configura y valida Ollama desde la UI real', async () => {
+			const repairCard = page.locator('.thread-execution-pane .thread-remediation-card', {
+				hasText: /No executable runtime|Sin runtime ejecutable/,
+			});
+			await expect(repairCard).toBeVisible({ timeout: 30_000 });
+			await repairCard
+				.getByRole('button', { name: /Configure runtime|Configurar runtime/ })
+				.click();
+
+			const settings = page.getByRole('dialog', { name: 'Settings' });
+			await expect(settings).toBeVisible({ timeout: 20_000 });
+			await settings
+				.getByRole('button', { name: /Add endpoint|Agregar endpoint/, exact: true })
+				.click();
+			const endpointDialog = page.getByRole('dialog', {
+				name: /Add Ollama endpoint|Agregar endpoint de Ollama/,
+			});
+			await expect(endpointDialog).toBeVisible();
+			await endpointDialog.getByLabel(/Endpoint id|Id del endpoint/).fill('ollama_remote');
+			await endpointDialog
+				.getByLabel(/Display name|Nombre para mostrar/)
+				.fill('Lifecycle controlled Ollama');
+			await endpointDialog.getByLabel(/Base URL|URL base/).fill(mockBaseUrl);
+			await endpointDialog
+				.getByRole('button', { name: /Add endpoint|Agregar endpoint/, exact: true })
+				.click();
+			await expect(endpointDialog).toBeHidden({ timeout: 30_000 });
+
+			const endpointCard = settings.locator('.card', {
+				hasText: 'Lifecycle controlled Ollama',
+			});
+			await expect(endpointCard).toBeVisible({ timeout: 30_000 });
+			await endpointCard.getByRole('button', { name: /Validate|Validar/, exact: true }).click();
+			await expect(page.getByText(/Endpoint responded|El endpoint respondió/)).toBeVisible({
+				timeout: 30_000,
+			});
+			const syncModels = endpointCard.getByRole('button', {
+				name: /Sync models|Sincronizar modelos/,
+			});
+			await expect(syncModels).toBeEnabled({ timeout: 30_000 });
+			await syncModels.click();
+			await expect
+				.poll(
+					async () => {
+						const response = await page.request.get(`${baseUrl}/api/v1/ollama/endpoints`);
+						const body = await response.json();
+						const endpoint = body.endpoints.find((item) => item.id === 'ollama_remote');
+						return endpoint ?? null;
+					},
+					{ timeout: 30_000 },
+				)
+				.toEqual(
+					expect.objectContaining({
+						baseUrl: mockBaseUrl,
+						models: expect.arrayContaining(['controlled-model']),
+					}),
+				);
+			const providerCard = settings
+				.locator('article.card', { hasText: 'Lifecycle controlled Ollama' })
+				.filter({
+					has: page.getByRole('button', {
+						name: /Configuration details|Detalles de configuración/,
+					}),
+				});
+			await expect(providerCard.getByText(mockBaseUrl, { exact: true })).toBeVisible({
+				timeout: 30_000,
+			});
+			await settings.getByRole('button', { name: /Close Settings|Cerrar ajustes/ }).click();
+			await expectControlledRuntimeReady();
+		});
+
+		await test.step('8. valida la reparación, reintenta el mismo hilo y llega a aprobación', async () => {
+			const repairCard = page.locator('.thread-execution-pane .thread-remediation-card', {
+				hasText: /No executable runtime|Sin runtime ejecutable/,
+			});
+			await repairCard
+				.getByRole('button', { name: /Revalidate runtime|Revalidar runtime/ })
+				.click();
+			await expect(
+				page.getByLabel('Notifications').getByText(/Repair action ran|Acción de reparación ejecutada/),
+			).toBeVisible();
+
+			const runNow = page
+				.getByRole('region', { name: /Waiting for worker|Esperando worker/ })
+				.getByRole('button', { name: /Run now|Ejecutar ahora/ });
+			await expect(runNow).toBeVisible({ timeout: 30_000 });
+			await runNow.click();
 			const deadline = Date.now() + 240_000;
 			let detail = null;
 			let status = 'queued';
@@ -533,17 +643,17 @@ test.describe('Threads lifecycle (real pipeline)', () => {
 				const response = await page.request.get(`${baseUrl}/api/v1/threads/${threadId}`);
 				detail = await response.json();
 				status = detail.thread.status;
-				if (status !== 'queued' && status !== 'running') break;
+				if (!['queued', 'running'].includes(status)) break;
 				await page.waitForTimeout(2000);
 			}
 			const blocked = (detail?.events ?? []).filter((event) => event.type === 'blocked').pop();
 			expect(
 				status,
-				`product loop must reach approval; blocked payload: ${JSON.stringify(blocked?.payload ?? {})}`,
+				`recovered Product Loop must reach approval; blocked payload: ${JSON.stringify(blocked?.payload ?? {})}`,
 			).toBe('awaiting_approval');
 		});
 
-		await test.step('7. el panel de ejecucion muestra worker_claimed', async () => {
+		await test.step('9. el panel de ejecucion muestra worker_claimed', async () => {
 			const log = page.locator('.thread-execution-log');
 			await expect(
 				log.locator('.thread-console-row[data-type="worker_claimed"]').first(),
@@ -551,7 +661,7 @@ test.describe('Threads lifecycle (real pipeline)', () => {
 			await expect(page.getByText(/Worker assigned|Worker asignado/).first()).toBeVisible();
 		});
 
-		await test.step('8. el runtime controlado produjo un diff real en el worktree', async () => {
+		await test.step('10. el runtime controlado produjo un diff real en el worktree', async () => {
 			expect(mockCalls.productOwner, 'ProductOwnerAgent must hit the controlled runtime').toBeGreaterThan(0);
 			expect(mockCalls.developer, 'DeveloperAgent must hit the controlled runtime').toBeGreaterThan(0);
 			expect(mockCalls.unknown).toBe(0);
@@ -578,7 +688,7 @@ test.describe('Threads lifecycle (real pipeline)', () => {
 			await expect(executingStep).toHaveAttribute('data-state', 'done');
 		});
 
-		await test.step('9. QA y gitleaks aparecen en el pipeline y la consola', async () => {
+		await test.step('11. QA y gitleaks aparecen en el pipeline y la consola', async () => {
 			const qaStep = page.locator('.thread-pipeline-step', { hasText: /QA checks/ });
 			const securityStep = page.locator('.thread-pipeline-step', { hasText: /Security scan/ });
 			await expect(qaStep).toHaveAttribute('data-state', 'done', { timeout: 30_000 });
@@ -603,7 +713,7 @@ test.describe('Threads lifecycle (real pipeline)', () => {
 			expect(Boolean(gitleaks.deliveryBlocked)).toBe(false);
 		});
 
-		await test.step('10. aprueba la entrega desde Review Board con razon humana', async () => {
+		await test.step('12. aprueba la entrega desde Review Board con razon humana', async () => {
 			await expect(
 				page.locator('.thread-conversation-head .badge', { hasText: /awaiting approval/ }),
 			).toBeVisible({ timeout: 30_000 });
@@ -677,7 +787,7 @@ test.describe('Threads lifecycle (real pipeline)', () => {
 			}
 		});
 
-		await test.step('11. archiva el thread desde el menu contextual', async () => {
+		await test.step('13. archiva el thread desde el menu contextual', async () => {
 			await openThreadMenu(page, GOAL.slice(0, 80));
 			await page.getByRole('menuitem', { name: /Archive|Archivar/ }).click();
 			await expect(page.getByText(/Thread archived|Hilo archivado/).first()).toBeVisible({
@@ -686,7 +796,7 @@ test.describe('Threads lifecycle (real pipeline)', () => {
 			await expect(threadRow(page, GOAL.slice(0, 80))).toBeHidden({ timeout: 20_000 });
 		});
 
-		await test.step('12. el toggle de archivados vuelve a mostrar el thread', async () => {
+		await test.step('14. el toggle de archivados vuelve a mostrar el thread', async () => {
 			await page.getByRole('button', { name: /Show archived|Mostrar archivados/ }).click();
 			await expect(page.locator('.thread-archived-head').first()).toBeVisible({
 				timeout: 20_000,
@@ -696,7 +806,7 @@ test.describe('Threads lifecycle (real pipeline)', () => {
 			await expect(archivedRow).toHaveClass(/is-archived/);
 		});
 
-		await test.step('13. desarchiva y renombra el thread', async () => {
+		await test.step('15. desarchiva y renombra el thread', async () => {
 			await openThreadMenu(page, GOAL.slice(0, 80));
 			await page.getByRole('menuitem', { name: /Unarchive|Desarchivar/ }).click();
 			await expect(page.getByText(/Thread restored|Hilo restaurado/).first()).toBeVisible({
@@ -727,7 +837,7 @@ test.describe('Threads lifecycle (real pipeline)', () => {
 			expect(detail.thread.title).toBe(RENAMED_TITLE);
 		});
 
-		await test.step('14. crear un thread similar muestra la sugerencia con el trabajo previo', async () => {
+		await test.step('16. crear un thread similar muestra la sugerencia con el trabajo previo', async () => {
 			await page.locator('.shell-new-thread').click();
 			await expect(page.getByRole('heading', { name: /What will we work on/ })).toBeVisible();
 			await page.getByLabel('Message AIDO').fill(GOAL);

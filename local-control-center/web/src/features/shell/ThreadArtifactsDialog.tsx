@@ -9,7 +9,7 @@ import { getThread, type ThreadDetailResponse } from '../../api/client';
 import type { Thread } from '../../api/types';
 import { Button, Dialog, EmptyState, Skeleton, StatusChip } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
-import { formatTime } from '../workbench/useWorkbenchData';
+import { formatTime } from '../../lib/format';
 
 type ThreadArtifactsDialogProps = {
 	/** Thread whose artifacts are shown; null keeps the dialog closed. */

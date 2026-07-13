@@ -6,18 +6,12 @@
 import type { Overview } from '../../../api/types';
 import { Badge, DataTable, EmptyState, Surface } from '../../../components/primitives';
 import { useI18n } from '../../../i18n/I18nProvider';
-import { shortId, toneForStatus } from '../../../lib/format';
+import { formatTime, shortId, toneForStatus } from '../../../lib/format';
 import type { TimelineArtifactRef, WorkflowTimelineStage } from '../timelineModel';
 import { WorkflowTimeline } from '../WorkflowTimeline';
 import { sortByTimeDesc } from '../workbenchSelectors';
 
 type Signals = { workflows: number; evidence: number; approvals: number; workspaces: number };
-
-function formatTime(value: string | null | undefined, emptyLabel: string) {
-	if (!value) return emptyLabel;
-	const parsed = Date.parse(value);
-	return Number.isNaN(parsed) ? value : new Date(parsed).toLocaleString();
-}
 
 export function TimelinePanel({
 	runTimeline,

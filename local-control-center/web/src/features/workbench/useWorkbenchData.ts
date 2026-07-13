@@ -22,7 +22,7 @@ import type { IssueToPatchResponse } from '../../api/client';
 import type { Overview, Project, RuntimeProviders } from '../../api/types';
 import { useI18n } from '../../i18n/I18nProvider';
 import { evidenceDiffChangedFiles } from '../../lib/diff';
-import { shortId } from '../../lib/format';
+import { formatTime, shortId } from '../../lib/format';
 import type { WorkflowTimelineStage } from './timelineModel';
 import { buildWorkflowTimeline, deliveryStatusToTimeline } from './timelineModel';
 import {
@@ -38,13 +38,6 @@ type JsonRecord = Record<string, unknown>;
 
 /** Sentinel session id meaning "compose a brand-new work session". Shared with the page. */
 export const NEW_SESSION_ID = '__new_work_session__';
-
-/** Renders an ISO timestamp in the user's locale, falling back to the raw/empty label when unparseable. */
-export function formatTime(value: string | undefined, notRecordedLabel = 'not recorded') {
-	if (!value) return notRecordedLabel;
-	const parsed = Date.parse(value);
-	return Number.isNaN(parsed) ? value : new Date(parsed).toLocaleString();
-}
 
 function asRecord(value: unknown): JsonRecord {
 	return value && typeof value === 'object' && !Array.isArray(value) ? (value as JsonRecord) : {};

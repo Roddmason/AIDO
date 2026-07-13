@@ -346,6 +346,7 @@
 	text-align: left;
 	border-radius: var(--radius-sm);
 	cursor: pointer;
+	transition: background-color var(--duration-fast) var(--ease-standard);
 }
 
 .thread-workspace-head {

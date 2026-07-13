@@ -9,10 +9,12 @@ workspace acotado vía --add-dir. La ejecución segura y el registro los hereda 
 
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
+from typing import Any
 
-from .base import CliRuntime, RuntimeRequest
+from .base import CliRuntime, RuntimeAuthStatus, RuntimeRequest
 
 CLAUDE_PROFILES = {
     "claude_sonnet_developer": {"model": "sonnet", "effort": "medium"},
@@ -29,6 +31,8 @@ class ClaudeCodeCliRuntime(CliRuntime):
 
     runtime_id = "claude_code_cli"
     display_name = "Claude Code CLI"
+    auth_status_argv = ("auth", "status", "--json")
+    login_hint = "Claude Code CLI is not logged in; run `claude auth login` and retry."
 
     def __init__(
         self,
@@ -41,6 +45,35 @@ class ClaudeCodeCliRuntime(CliRuntime):
             or os.environ.get("AIDO_CLAUDE_COMMAND")
             or os.environ.get("CLAUDE_CODE_CLI_PATH", "claude"),
             connection=connection,
+        )
+
+    def _parse_auth_probe(self, result: dict[str, Any]) -> RuntimeAuthStatus:
+        """Lee el JSON de `claude auth status --json`: solo `loggedIn` decide, sin exponer identidad.
+
+        El mensaje persiste método de auth como contexto operativo; email/organización jamás
+        salen de aquí porque el payload completo se descarta tras leer los campos booleanos.
+        """
+        if result.get("returnCode") != 0:
+            return RuntimeAuthStatus(
+                runtime=self.runtime_id, status="unauthenticated", message=self.login_hint
+            )
+        try:
+            payload = json.loads(str(result.get("stdout") or ""))
+        except json.JSONDecodeError:
+            return RuntimeAuthStatus(
+                runtime=self.runtime_id,
+                status="unknown",
+                message="Claude Code CLI auth status did not return parseable JSON.",
+            )
+        if not isinstance(payload, dict) or payload.get("loggedIn") is not True:
+            return RuntimeAuthStatus(
+                runtime=self.runtime_id, status="unauthenticated", message=self.login_hint
+            )
+        auth_method = str(payload.get("authMethod") or "native session")
+        return RuntimeAuthStatus(
+            runtime=self.runtime_id,
+            status="authenticated",
+            message=f"Claude Code CLI session is logged in ({auth_method}).",
         )
 
     def build_command(self, request: RuntimeRequest) -> list[str]:

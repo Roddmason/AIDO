@@ -2895,6 +2895,160 @@ def test_cli_detection_missing_binary_returns_not_installed() -> None:
     assert claude.message == "Claude Code CLI not detected"
 
 
+def test_claude_native_auth_probe_parses_logged_in_json_without_leaking_identity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from local_control_center.agents.cli_runtimes import base as cli_base
+
+    monkeypatch.setattr(cli_base, "_which_executable", lambda executable: "C:/tools/claude.exe")
+    monkeypatch.setattr(
+        cli_base.subprocess_sandbox,
+        "run_auth_status_check",
+        lambda **kwargs: {
+            "executed": True,
+            "blocked": False,
+            "timedOut": False,
+            "returnCode": 0,
+            "stdout": json.dumps(
+                {
+                    "loggedIn": True,
+                    "authMethod": "claude.ai",
+                    "email": "person@example.com",
+                    "orgName": "Person's Organization",
+                }
+            ),
+            "stderr": "",
+        },
+    )
+
+    status = ClaudeCodeCliRuntime(executable="claude").validate_native_auth()
+
+    assert status.status == "authenticated"
+    assert "person@example.com" not in status.message
+    assert "Organization" not in status.message
+
+
+def test_claude_native_auth_probe_reports_logged_out_with_login_hint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from local_control_center.agents.cli_runtimes import base as cli_base
+
+    monkeypatch.setattr(cli_base, "_which_executable", lambda executable: "C:/tools/claude.exe")
+    monkeypatch.setattr(
+        cli_base.subprocess_sandbox,
+        "run_auth_status_check",
+        lambda **kwargs: {
+            "executed": True,
+            "blocked": False,
+            "timedOut": False,
+            "returnCode": 0,
+            "stdout": json.dumps({"loggedIn": False}),
+            "stderr": "",
+        },
+    )
+
+    status = ClaudeCodeCliRuntime(executable="claude").validate_native_auth()
+
+    assert status.status == "unauthenticated"
+    assert "claude auth login" in status.message
+
+
+def test_codex_native_auth_probe_uses_exit_code(monkeypatch: pytest.MonkeyPatch) -> None:
+    from local_control_center.agents.cli_runtimes import base as cli_base
+
+    monkeypatch.setattr(cli_base, "_which_executable", lambda executable: "C:/tools/codex.exe")
+    results = {
+        0: {"executed": True, "blocked": False, "timedOut": False, "returnCode": 0, "stdout": "Logged in using ChatGPT", "stderr": ""},
+        1: {"executed": True, "blocked": False, "timedOut": False, "returnCode": 1, "stdout": "", "stderr": "Not logged in"},
+    }
+    current = {"code": 0}
+    monkeypatch.setattr(
+        cli_base.subprocess_sandbox,
+        "run_auth_status_check",
+        lambda **kwargs: results[current["code"]],
+    )
+
+    logged_in = CodexCliRuntime(executable="codex").validate_native_auth()
+    current["code"] = 1
+    logged_out = CodexCliRuntime(executable="codex").validate_native_auth()
+
+    assert logged_in.status == "authenticated"
+    assert logged_out.status == "unauthenticated"
+    assert "codex login" in logged_out.message
+
+
+def test_native_auth_probe_timeout_is_unknown_not_unauthenticated(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from local_control_center.agents.cli_runtimes import base as cli_base
+
+    monkeypatch.setattr(cli_base, "_which_executable", lambda executable: "C:/tools/claude.exe")
+    monkeypatch.setattr(
+        cli_base.subprocess_sandbox,
+        "run_auth_status_check",
+        lambda **kwargs: {
+            "executed": True,
+            "blocked": False,
+            "timedOut": True,
+            "returnCode": None,
+            "stdout": "",
+            "stderr": "",
+        },
+    )
+
+    status = ClaudeCodeCliRuntime(executable="claude").validate_native_auth()
+
+    assert status.status == "unknown"
+
+
+def test_auth_status_sandbox_rejects_unlisted_subcommands() -> None:
+    from local_control_center.security_policy import sandbox
+
+    blocked_argvs = [
+        ["claude", "auth", "login"],
+        ["claude", "auth", "status", "--json", "--extra"],
+        ["codex", "login"],
+        ["codex", "exec", "rm -rf /"],
+        ["claude"],
+    ]
+    for argv in blocked_argvs:
+        result = sandbox.run_auth_status_check(argv=argv)
+        assert result["blocked"] is True, argv
+        assert result["executed"] is False, argv
+
+
+def test_cli_detect_probe_without_version_degrades_instead_of_offline(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from local_control_center.agents.runtime_registry import RuntimeRegistry
+
+    client = create_client(tmp_path, monkeypatch)
+    headers = auth_headers(client)
+
+    def detect(self: RuntimeRegistry, runtime_id: str, *, executable: str | None = None):
+        return {
+            "runtime": runtime_id,
+            "status": "installed",
+            "executable": "C:/tools/codex.exe",
+            "version": None,
+            "message": "Codex CLI detected",
+        }
+
+    monkeypatch.setattr(RuntimeRegistry, "detect", detect)
+
+    response = client.post("/api/v1/model-gateway/cli-runtimes/codex_cli/detect", headers=headers)
+    assert response.status_code == 200
+
+    with open_sqlite_connection(Path(os.environ["LOCAL_CONTROL_CENTER_DB"])) as connection:
+        row = connection.execute(
+            "SELECT health_status, last_error FROM runtime_installations WHERE runtime_id = 'codex_cli'"
+        ).fetchone()
+
+    assert row["health_status"] == "degraded"
+    assert row["last_error"] != "Codex CLI detected"
+    assert "version" in str(row["last_error"]).lower()
+
+
 def test_cli_runtime_blocks_dangerous_flags(tmp_path: Path) -> None:
     runtime = CodexCliRuntime(executable="codex")
 

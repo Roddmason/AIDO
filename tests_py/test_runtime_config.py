@@ -792,3 +792,195 @@ def test_cli_command_env_is_deprecated_optional_override() -> None:
     assert override.configured is True
     assert override.status == "configured"
     assert override.value("command") == "codex"
+
+
+def _claude_only_detect(self: RuntimeRegistry, runtime_id: str, *, executable: str | None = None):
+    return {
+        "runtime": runtime_id,
+        "status": "installed" if runtime_id == "claude_code_cli" else "not_installed",
+        "executable": executable if runtime_id == "claude_code_cli" else None,
+        "version": "2.1.207 (Claude Code)" if runtime_id == "claude_code_cli" else None,
+        "message": "" if runtime_id == "claude_code_cli" else "not installed in test",
+    }
+
+
+def _install_claude_cli(repo: RuntimeConfigRepository) -> None:
+    repo.set_runtime_setting("runtime.cli.enabled", True)
+    repo.upsert_installation(
+        {
+            "runtimeId": "claude_code_cli",
+            "kind": "cli",
+            "executablePath": "C:/tools/claude.exe",
+            "enabled": True,
+            "configurationSource": "manual",
+        }
+    )
+
+
+def test_cli_becomes_executable_when_native_auth_probe_confirms_login(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.delenv("AIDO_CLAUDE_COMMAND", raising=False)
+    monkeypatch.setenv("AIDO_ENABLE_CLI_RUNTIMES", "true")
+    monkeypatch.setattr(RuntimeRegistry, "detect", _claude_only_detect)
+
+    def validate_native_auth(self: RuntimeRegistry, runtime_id: str, *, executable: str | None = None):
+        return {
+            "runtime": runtime_id,
+            "status": "authenticated",
+            "message": "Claude Code CLI session is logged in (claude.ai).",
+        }
+
+    monkeypatch.setattr(RuntimeRegistry, "validate_native_auth", validate_native_auth)
+
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        repo = RuntimeConfigRepository(connection)
+        _install_claude_cli(repo)
+
+        claude = next(
+            item
+            for item in RuntimeStatusService(connection).list_provider_statuses()
+            if item["id"] == "claude_code_cli"
+        )
+        account = next(item for item in repo.list_runtime_accounts("claude_code_cli") if item["isDefault"])
+
+    assert claude["authenticated"] is True
+    assert claude["canRunPrompt"] is True
+    assert claude["executable"] is True
+    assert account["healthStatus"] == "healthy"
+    assert account["lastValidationAt"]
+    assert account["configurationSource"] == "native_cli_status"
+
+
+def test_cli_logged_out_probe_reports_login_command_and_blocks_execution(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.delenv("AIDO_CLAUDE_COMMAND", raising=False)
+    monkeypatch.setenv("AIDO_ENABLE_CLI_RUNTIMES", "true")
+    monkeypatch.setattr(RuntimeRegistry, "detect", _claude_only_detect)
+
+    def validate_native_auth(self: RuntimeRegistry, runtime_id: str, *, executable: str | None = None):
+        return {
+            "runtime": runtime_id,
+            "status": "unauthenticated",
+            "message": "Claude Code CLI is not logged in; run `claude auth login`.",
+        }
+
+    monkeypatch.setattr(RuntimeRegistry, "validate_native_auth", validate_native_auth)
+
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        repo = RuntimeConfigRepository(connection)
+        _install_claude_cli(repo)
+
+        claude = next(
+            item
+            for item in RuntimeStatusService(connection).list_provider_statuses()
+            if item["id"] == "claude_code_cli"
+        )
+        account = next(item for item in repo.list_runtime_accounts("claude_code_cli") if item["isDefault"])
+
+    assert claude["authenticated"] is False
+    assert claude["executable"] is False
+    assert "claude auth login" in claude["reason"]
+    assert account["healthStatus"] == "unauthenticated"
+    assert not account["lastValidationAt"]
+
+
+def test_validated_cli_account_is_not_reprobed_on_status_rollup(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.delenv("AIDO_CLAUDE_COMMAND", raising=False)
+    monkeypatch.setenv("AIDO_ENABLE_CLI_RUNTIMES", "true")
+    monkeypatch.setattr(RuntimeRegistry, "detect", _claude_only_detect)
+
+    def validate_native_auth(self: RuntimeRegistry, runtime_id: str, *, executable: str | None = None):
+        raise AssertionError("a validated account must not trigger a native auth probe")
+
+    monkeypatch.setattr(RuntimeRegistry, "validate_native_auth", validate_native_auth)
+
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        repo = RuntimeConfigRepository(connection)
+        _install_claude_cli(repo)
+        account = next(item for item in repo.list_runtime_accounts("claude_code_cli") if item["isDefault"])
+        repo.update_runtime_account(
+            account["id"],
+            {"healthStatus": "healthy", "lastValidationAt": "2026-06-27T12:00:00Z"},
+        )
+
+        claude = next(
+            item
+            for item in RuntimeStatusService(connection).list_provider_statuses()
+            if item["id"] == "claude_code_cli"
+        )
+
+    assert claude["authenticated"] is True
+    assert claude["executable"] is True
+
+
+def test_cli_version_probe_hiccup_falls_back_to_persisted_version(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.delenv("AIDO_CLAUDE_COMMAND", raising=False)
+    monkeypatch.setenv("AIDO_ENABLE_CLI_RUNTIMES", "true")
+
+    def detect(self: RuntimeRegistry, runtime_id: str, *, executable: str | None = None):
+        payload = _claude_only_detect(self, runtime_id, executable=executable)
+        payload["version"] = None
+        return payload
+
+    monkeypatch.setattr(RuntimeRegistry, "detect", detect)
+
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        repo = RuntimeConfigRepository(connection)
+        _install_claude_cli(repo)
+        repo.upsert_installation(
+            {
+                "runtimeId": "claude_code_cli",
+                "kind": "cli",
+                "executablePath": "C:/tools/claude.exe",
+                "detectedVersion": "2.1.207 (Claude Code)",
+                "enabled": True,
+                "configurationSource": "manual",
+            }
+        )
+        account = next(item for item in repo.list_runtime_accounts("claude_code_cli") if item["isDefault"])
+        repo.update_runtime_account(
+            account["id"],
+            {"healthStatus": "healthy", "lastValidationAt": "2026-06-27T12:00:00Z"},
+        )
+
+        claude = next(
+            item
+            for item in RuntimeStatusService(connection).list_provider_statuses()
+            if item["id"] == "claude_code_cli"
+        )
+
+    assert claude["detected"] is True
+    assert claude["version"] == "2.1.207 (Claude Code)"
+    assert claude["available"] is True
+    assert claude["executable"] is True
+
+
+def test_rollup_persists_fresh_cli_version_for_future_fallback(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.delenv("AIDO_CLAUDE_COMMAND", raising=False)
+    monkeypatch.setenv("AIDO_ENABLE_CLI_RUNTIMES", "true")
+    monkeypatch.setattr(RuntimeRegistry, "detect", _claude_only_detect)
+    monkeypatch.setattr(
+        RuntimeRegistry,
+        "validate_native_auth",
+        lambda self, runtime_id, *, executable=None: {
+            "runtime": runtime_id,
+            "status": "unknown",
+            "message": "probe unavailable in test",
+        },
+    )
+
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        repo = RuntimeConfigRepository(connection)
+        _install_claude_cli(repo)
+
+        RuntimeStatusService(connection).list_provider_statuses()
+        installation = repo.get_installation("claude_code_cli")
+
+    assert installation["detectedVersion"] == "2.1.207 (Claude Code)"

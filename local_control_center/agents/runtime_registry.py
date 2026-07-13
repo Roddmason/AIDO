@@ -351,11 +351,18 @@ _DETECTION_CACHE_TTL_SECONDS = 30.0
 _detection_cache: dict[tuple[str, str | None], tuple[float, dict[str, Any]]] = {}
 _detection_cache_lock = threading.Lock()
 
+# El probe de auth nativa también lanza un subprocess (`claude auth status` / `codex login status`)
+# y su veredicto es estable en ventanas cortas; se cachea aparte de la detección porque solo se
+# consulta mientras la cuenta no está validada y no debe repetirse en cada poll del shell.
+_AUTH_CACHE_TTL_SECONDS = 60.0
+_auth_cache: dict[tuple[str, str | None], tuple[float, dict[str, Any]]] = {}
+
 
 def reset_detection_cache() -> None:
-    """Vacía el caché de detección de runtimes; usar entre tests para evitar fugas de estado global."""
+    """Vacía los cachés de detección y de auth nativa; usar entre tests para evitar fugas globales."""
     with _detection_cache_lock:
         _detection_cache.clear()
+        _auth_cache.clear()
 
 
 class RuntimeRegistry:
@@ -390,3 +397,21 @@ class RuntimeRegistry:
     def health_check(self, runtime_id: str, *, executable: str | None = None) -> dict[str, Any]:
         """Run a runtime's safe version/health check and return its result."""
         return runtime_for(runtime_id, executable=executable).health_check().model_dump(by_alias=True)
+
+    def validate_native_auth(self, runtime_id: str, *, executable: str | None = None) -> dict[str, Any]:
+        """Sondea el estado de login nativo de un runtime CLI, con caché TTL propio.
+
+        Devuelve el payload de ``RuntimeAuthStatus`` (status authenticated/unauthenticated/unknown).
+        Cachea por ``(runtime_id, executable)`` para que el polling del shell no repita el
+        subprocess; el probe corre fuera del candado para no serializar probes entre sí.
+        """
+        key = (runtime_id, executable)
+        now = time.monotonic()
+        with _detection_cache_lock:
+            cached = _auth_cache.get(key)
+            if cached is not None and now - cached[0] < _AUTH_CACHE_TTL_SECONDS:
+                return dict(cached[1])
+        status = runtime_for(runtime_id, executable=executable).validate_native_auth().model_dump()
+        with _detection_cache_lock:
+            _auth_cache[key] = (time.monotonic(), status)
+        return dict(status)

@@ -72,6 +72,7 @@ DANGEROUS_ARG_PREFIXES = (
     "--volume",
 )
 VERSION_ARGS = {"--version", "-V", "version"}
+AUTH_STATUS_ARGS: set[tuple[str, ...]] = {("auth", "status", "--json"), ("login", "status")}
 
 MAX_CAPTURE_CHARS = 4000
 
@@ -203,6 +204,72 @@ def run_version_check(
             "executed": False,
             "blocked": True,
             "reason": "Version check requires an allowed version flag.",
+        }
+    started = time.perf_counter()
+    try:
+        completed = subprocess.run(
+            _resolved_subprocess_argv([str(item) for item in argv]),
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=max(1, min(timeout_seconds, 30)),
+            shell=False,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        return {
+            "executed": True,
+            "blocked": False,
+            "timedOut": True,
+            "returnCode": None,
+            "durationMs": int((time.perf_counter() - started) * 1000),
+            "stdout": _truncate(exc.stdout or ""),
+            "stderr": _truncate(exc.stderr or ""),
+        }
+    except OSError as exc:
+        return {
+            "executed": False,
+            "blocked": True,
+            "reason": str(exc),
+        }
+    return {
+        "executed": True,
+        "blocked": False,
+        "timedOut": False,
+        "returnCode": completed.returncode,
+        "durationMs": int((time.perf_counter() - started) * 1000),
+        "stdout": _truncate(completed.stdout or ""),
+        "stderr": _truncate(completed.stderr or ""),
+    }
+
+
+def run_auth_status_check(
+    *,
+    argv: Any,
+    cwd: str | None = None,
+    timeout_seconds: int = 10,
+) -> dict[str, Any]:
+    """Ejecuta un sondeo de estado de autenticación nativa de un CLI, de solo lectura.
+
+    Invariante: rechaza (``blocked=True``) cualquier argv cuyo sufijo tras el ejecutable no sea
+    exactamente una de las tuplas allowlisted en ``AUTH_STATUS_ARGS`` — nunca ejecuta login,
+    logout ni otros subcomandos. El timeout se acota a [1, 30] s y la salida se trunca.
+    """
+    if (
+        not isinstance(argv, list)
+        or len(argv) < 2
+        or not all(isinstance(item, str) and item for item in argv)
+    ):
+        return {
+            "executed": False,
+            "blocked": True,
+            "reason": "Auth status check requires argv shaped as [executable, *status subcommand].",
+        }
+    if tuple(argv[1:]) not in AUTH_STATUS_ARGS:
+        return {
+            "executed": False,
+            "blocked": True,
+            "reason": "Auth status check requires an allowlisted read-only status subcommand.",
         }
     started = time.perf_counter()
     try:

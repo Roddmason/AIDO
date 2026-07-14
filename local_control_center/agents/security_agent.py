@@ -42,6 +42,7 @@ from .security_agent_contract import (
     SECURITY_AGENT_ID,
     SECURITY_AGENT_MODEL_RUNTIMES,
     SECURITY_AGENT_REMOTE_API_RUNTIMES,
+    is_security_model_runtime,
     security_agent_contract,
     security_agent_status,
 )
@@ -91,6 +92,12 @@ DOCKER_CRITICAL_FLAGS = {"--mount", "--network=host", "--privileged", "--volume"
 MAX_FILE_BYTES = 512 * 1024
 MAX_FILES_SCANNED = 5000
 EXTERNAL_SCANNER_TIMEOUT_SECONDS = 120
+
+
+def _runtime_provider_family(runtime: dict[str, Any]) -> str:
+    runtime_id = str(runtime.get("id") or "")
+    provider_family = str(runtime.get("providerFamily") or "")
+    return "ollama" if runtime_id == "ollama" or provider_family == "ollama" else provider_family
 SCANNER_REPORT_DIR = "security-scanner-reports"
 SEMGREP_CONFIG_CANDIDATES = (".semgrep.yml", ".semgrep.yaml", "semgrep.yml", "semgrep.yaml")
 GITLEAKS_CONFIG_CANDIDATES = (".gitleaks.toml", "gitleaks.toml")
@@ -176,7 +183,10 @@ class SecurityAgentRunner:
         """Report SecurityAgent readiness from current runtime provider statuses."""
         return security_agent_status(RuntimeStatusService(self.connection).list_provider_statuses())
 
-    def _ensure_profile(self) -> dict[str, Any]:
+    def _ensure_profile(self, runtime: dict[str, Any] | None = None) -> dict[str, Any]:
+        runtime_id = str((runtime or {}).get("id") or "")
+        provider_family = _runtime_provider_family(runtime or {})
+        model_runtime = provider_family in SECURITY_AGENT_MODEL_RUNTIMES
         return self.agents.upsert_agent_profile(
             {
                 "id": SECURITY_AGENT_ID,
@@ -185,11 +195,11 @@ class SecurityAgentRunner:
                 "runtimeMode": "manual",
                 "permissionProfile": "qa",
                 "allowedTools": SECURITY_AGENT_ALLOWED_TOOLS,
-                "allowedProviders": list(SECURITY_AGENT_MODEL_RUNTIMES),
-                "allowedRuntimes": list(SECURITY_AGENT_MODEL_RUNTIMES),
+                "allowedProviders": [runtime_id] if model_runtime else [],
+                "allowedRuntimes": [runtime_id] if model_runtime else [],
                 "allowRemote": True,
                 "allowCli": True,
-                "allowApi": True,
+                "allowApi": model_runtime,
                 "outputSchema": security_agent_contract()["outputSchema"],
             }
         )
@@ -958,9 +968,7 @@ class SecurityAgentRunner:
 
     def _model_runtime(self, preferred_runtime: str | None) -> dict[str, Any] | None:
         statuses = RuntimeStatusService(self.connection).list_provider_statuses()
-        eligible = [
-            runtime for runtime in statuses if str(runtime.get("id") or "") in SECURITY_AGENT_MODEL_RUNTIMES
-        ]
+        eligible = [runtime for runtime in statuses if is_security_model_runtime(runtime)]
         if preferred_runtime:
             return next((runtime for runtime in eligible if runtime.get("id") == preferred_runtime), None)
         status = security_agent_status(statuses)
@@ -977,18 +985,20 @@ class SecurityAgentRunner:
         profile: dict[str, Any],
         payload: dict[str, Any],
         findings_payload: dict[str, Any],
+        runtime: dict[str, Any] | None = None,
     ) -> dict[str, Any] | None:
         if not payload.get("runModelAnalysis"):
             return None
-        runtime = self._model_runtime(payload.get("preferredRuntime"))
+        runtime = runtime or self._model_runtime(payload.get("preferredRuntime"))
         if not runtime or not runtime.get("executable"):
             return {
                 "status": "unavailable",
                 "reason": "Optional SecurityAgent model analysis skipped because no executable model runtime is configured.",
             }
         runtime_id = str(runtime["id"])
+        provider_family = _runtime_provider_family(runtime)
         model = payload.get("model")
-        if runtime_id == "ollama":
+        if provider_family == "ollama":
             model = model or next(iter(runtime.get("models") or []), None)
         broker = ToolBroker(self.connection, artifact_root=self.root)
         result = broker.evaluate_tool_call(
@@ -997,7 +1007,7 @@ class SecurityAgentRunner:
             agent_profile=profile,
             job_id=job["id"],
             tool_call={
-                "tool": runtime_id,
+                "tool": provider_family,
                 "workspaceId": workspace["id"],
                 "workspacePath": workspace["path"],
                 "path": workspace["path"],
@@ -1005,6 +1015,7 @@ class SecurityAgentRunner:
                 "runtimeId": runtime_id,
                 "capability": "chat",
                 "input": {
+                    "providerId": runtime_id,
                     "model": model,
                     "messages": [
                         {
@@ -1018,7 +1029,7 @@ class SecurityAgentRunner:
                     ],
                     "temperature": 0.1,
                 },
-                "networkRequired": runtime_id in SECURITY_AGENT_REMOTE_API_RUNTIMES,
+                "networkRequired": provider_family in SECURITY_AGENT_REMOTE_API_RUNTIMES,
                 "secretsRequired": False,
                 "approvalGrantId": payload.get("approvalGrantId"),
                 "execute": True,
@@ -1049,7 +1060,12 @@ class SecurityAgentRunner:
         task_id = str(payload.get("taskId") or "security_agent")
         workflow_run_id = str(payload.get("workflowRunId") or "").strip() or None
         workflow_step_id = str(payload.get("workflowStepId") or "").strip() or None
-        profile = self._ensure_profile()
+        model_runtime = (
+            self._model_runtime(payload.get("preferredRuntime"))
+            if payload.get("runModelAnalysis")
+            else None
+        )
+        profile = self._ensure_profile(model_runtime)
         job_result = self.jobs.create_job(
             project_id=project_id,
             kind="agent.security",
@@ -1116,6 +1132,7 @@ class SecurityAgentRunner:
             profile=profile,
             payload=payload,
             findings_payload=findings_payload,
+            runtime=model_runtime,
         )
         if model_analysis:
             findings_payload["modelAnalysis"] = model_analysis

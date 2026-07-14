@@ -116,10 +116,10 @@ export function RuntimeSetupPanel({
 		}
 	}, []);
 
-	// biome-ignore lint/correctness/useExhaustiveDependencies: both props are deliberate refresh signals after endpoint/runtime mutations.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: gatewayRevision is a deliberate refresh signal after endpoint mutations (loadGateway handles all in-file mutation refreshes directly).
 	useEffect(() => {
 		void loadGateway();
-	}, [gatewayRevision, loadGateway, runtimeProviders]);
+	}, [gatewayRevision, loadGateway]);
 
 	useEffect(() => {
 		const providerId = initialProviderId?.trim();

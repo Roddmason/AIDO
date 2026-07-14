@@ -19,6 +19,8 @@ from typing import Any
 
 import anyio
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -37,6 +39,7 @@ from .i18n.api import create_router as create_i18n_router
 from .integrations.api import create_router as create_integrations_router
 from .jobs_approvals.api import create_router as create_jobs_approvals_router
 from .memory_retrieval.api import create_router as create_memory_retrieval_router
+from .nvidia_nim.api import create_router as create_nvidia_nim_router
 from .ollama.api import create_router as create_ollama_router
 from .pipelines.api import create_router as create_pipelines_router
 from .plugins.api import create_router as create_plugins_router
@@ -108,6 +111,28 @@ def create_app(
     platform.local_worker_runtime = worker_runtime
     store_request_lock = threading.Lock()
 
+    @app.exception_handler(RequestValidationError)
+    async def handle_request_validation_error(
+        request: Request,
+        exc: RequestValidationError,
+    ) -> JSONResponse:
+        """Prevent visual request bodies, especially prompts, from being echoed in 422 responses."""
+        path = request.url.path
+        is_visual_execution = path.startswith("/api/v1/model-gateway/providers/") and path.endswith(
+            ("/images/generations", "/images/edits")
+        )
+        if not is_visual_execution:
+            return await request_validation_exception_handler(request, exc)
+        safe_errors = [
+            {
+                "loc": list(error.get("loc") or []),
+                "msg": str(error.get("msg") or "Invalid request value."),
+                "type": str(error.get("type") or "value_error"),
+            }
+            for error in exc.errors()
+        ]
+        return JSONResponse(status_code=422, content={"detail": safe_errors})
+
     @app.exception_handler(Exception)
     async def handle_unexpected_error(request: Request, exc: Exception) -> JSONResponse:
         correlation_id = resolve_correlation_id(request.headers)
@@ -165,6 +190,7 @@ def create_app(
     app.include_router(create_cli_session_stream_router(platform=platform, require_write=require_write))
     app.include_router(create_model_gateway_router(platform=platform, require_write=require_write))
     app.include_router(create_provider_catalog_router(platform=platform, require_write=require_write))
+    app.include_router(create_nvidia_nim_router())
     app.include_router(create_ollama_router(platform=platform, require_write=require_write))
     app.include_router(create_workspaces_router(platform=platform, require_write=require_write))
     app.include_router(create_governance_router(platform=platform, require_write=require_write))

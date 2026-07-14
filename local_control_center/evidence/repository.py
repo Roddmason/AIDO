@@ -420,6 +420,16 @@ class EvidenceRepository:
             raise KeyError(f"Artifact not found: {artifact_id}")
         return row_to_artifact(row)
 
+    def get_project_artifact(self, *, project_id: str, artifact_id: str) -> dict[str, Any]:
+        """Read one artifact only when both its id and owning project match."""
+        row = self.connection.execute(
+            "SELECT * FROM artifacts WHERE id = ? AND project_id = ?",
+            (artifact_id, project_id),
+        ).fetchone()
+        if not row:
+            raise KeyError(f"Artifact not found for project: {artifact_id}")
+        return row_to_artifact(row)
+
     def update_artifact_metadata(self, *, artifact_id: str, metadata: dict[str, Any]) -> dict[str, Any]:
         """Reemplaza la metadata de un artefacto (redactada) y devuelve la fila actualizada."""
         self.connection.execute(

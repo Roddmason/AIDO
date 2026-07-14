@@ -99,9 +99,9 @@ def evidence_test_result(body: dict[str, Any], command: str) -> dict[str, Any]:
 
 def test_security_agent_status_lists_configured_remote_model_runtimes() -> None:
     statuses = [
-        {"id": "openrouter", "executable": True, "configured": True, "capabilities": ["chat"]},
-        {"id": "nvidia_nim", "executable": True, "configured": True, "capabilities": ["chat"]},
-        {"id": "anthropic_api", "executable": True, "configured": True, "capabilities": ["chat"]},
+        {"id": "openrouter", "providerFamily": "openrouter", "executable": True, "configured": True, "capabilities": ["chat"]},
+        {"id": "nvidia_nim", "providerFamily": "nvidia_nim", "executable": True, "configured": True, "capabilities": ["chat"]},
+        {"id": "anthropic_api", "providerFamily": "anthropic_api", "executable": True, "configured": True, "capabilities": ["chat"]},
     ]
 
     status = security_agent_status(statuses)

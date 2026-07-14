@@ -156,10 +156,10 @@ type ResourceKey =
 const OVERVIEW_RESOURCES: ResourceKey[] = ['overview', 'runtimeConfig'];
 const TAB_RESOURCES: Record<ModelGatewayTab, ResourceKey[]> = {
 	providers: ['providers', 'runtimeProviders', 'runtimeConfig'],
-	catalog: ['models'],
-	routing: ['routingProfiles', 'models'],
+	catalog: ['models', 'providers'],
+	routing: ['routingProfiles', 'models', 'providers'],
 	policies: ['rolePolicies', 'models'],
-	budgets: ['budgetRules', 'providerLimits'],
+	budgets: ['budgetRules', 'providerLimits', 'providers'],
 	usage: ['usageLedger', 'usageSummary'],
 	benchmarks: ['benchmarks', 'benchmarkOutcomes', 'providers', 'models'],
 	decisions: ['routingDecisions'],

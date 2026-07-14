@@ -13,26 +13,122 @@ from __future__ import annotations
 import sqlite3
 import uuid
 from typing import Any
+from urllib.parse import urlparse
 
 from local_control_center.agents.credentials import CredentialResolver
 from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.serialization import json_dumps, json_loads
 from local_control_center.shared.time import utc_now
 
+
+def validate_provider_base_url(
+    value: str | None,
+    *,
+    provider_family: str = "",
+    deployment_mode: str = "custom",
+    api_family: str = "chat_completions",
+    adapter_profile: str = "auto",
+) -> str:
+    """Validate a safe absolute endpoint root before it reaches SQLite."""
+    candidate = str(value or "").strip()
+    if not candidate:
+        return candidate
+    parsed = urlparse(candidate)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ValueError("baseUrl must be an absolute http(s) URL.")
+    if parsed.username is not None or parsed.password is not None:
+        raise ValueError("baseUrl must not contain URL userinfo.")
+    if parsed.params or parsed.query or parsed.fragment:
+        raise ValueError("baseUrl must not include params, query or fragment.")
+    if (
+        provider_family == "nvidia_nim"
+        and not deployment_mode.startswith("self_hosted")
+        and parsed.scheme != "https"
+    ):
+        raise ValueError("baseUrl must use https for hosted or partner NVIDIA NIM endpoints.")
+    if provider_family == "nvidia_nim":
+        path = parsed.path.rstrip("/")
+        if api_family in {"chat_completions", "embeddings"} and not path.endswith("/v1"):
+            raise ValueError("baseUrl must end in /v1 for NVIDIA chat or embeddings.")
+        if api_family == "rerank":
+            if deployment_mode.startswith("self_hosted"):
+                if not path.endswith("/v1"):
+                    raise ValueError("baseUrl must end in /v1 for self-hosted NVIDIA rerank.")
+            else:
+                marker = "/v1/retrieval/"
+                route = path.split(marker, 1)[1] if marker in path else ""
+                if len([segment for segment in route.split("/") if segment]) != 2:
+                    raise ValueError(
+                        "baseUrl must be a model-specific /v1/retrieval/{publisher}/{model} root "
+                        "for hosted NVIDIA rerank."
+                    )
+        if api_family in {"image_generation", "image_editing"}:
+            if deployment_mode.startswith("self_hosted"):
+                if not path.endswith("/v1"):
+                    raise ValueError("baseUrl must end in /v1 for self-hosted NVIDIA visual NIMs.")
+            elif adapter_profile == "nvidia_hosted_prompt_image_generation":
+                marker = "/v1/genai/"
+                route = path.removeprefix(marker) if path.startswith(marker) else ""
+                if len([segment for segment in route.split("/") if segment]) != 2:
+                    raise ValueError(
+                        "baseUrl must be a model-specific /v1/genai/{publisher}/{model} root "
+                        "for hosted NVIDIA image generation."
+                    )
+    return candidate.rstrip("/")
+
 PROVIDER_HEALTH_RESET_FIELDS = {
     "providerType",
     "provider_type",
     "apiFormat",
     "api_format",
+    "providerFamily",
+    "provider_family",
+    "deploymentMode",
+    "deployment_mode",
+    "apiFamily",
+    "api_family",
+    "adapterProfile",
+    "adapter_profile",
     "baseUrl",
     "base_url",
     "credentialRef",
     "credential_ref",
 }
 
+PROVIDER_ACCOUNT_COLUMNS = """
+    id, provider_id, display_name, provider_type, api_format, provider_family,
+    deployment_mode, api_family, adapter_profile, terms_mode, pricing_mode, base_url, credential_ref,
+    enabled, quota_mode, health_status, last_health_check_at, last_error, metadata_json,
+    created_at, updated_at
+"""
+MODEL_CATALOG_COLUMNS = """
+    id, provider_id, model, display_name, model_family, api_family, context_window,
+    max_output_tokens, supports_tools, supports_json, supports_streaming, supports_vision,
+    supports_embeddings, supports_rerank, supports_reasoning, supports_thinking,
+    supports_image_generation, supports_image_editing, effort_levels_json,
+    input_price_per_mtok, cached_input_price_per_mtok, output_price_per_mtok,
+    reasoning_price_per_mtok, free_tier, free_tier_notes, enabled, source, created_at, updated_at
+"""
+PRICING_SNAPSHOT_COLUMNS = """
+    id, provider_id, model, input_price_per_mtok, cached_input_price_per_mtok,
+    output_price_per_mtok, reasoning_price_per_mtok, free_tier, source_ref, effective_at,
+    metadata_json, apply_to_catalog, created_at
+"""
+
 
 def _bool(value: Any) -> bool:
     return bool(int(value)) if isinstance(value, int) else bool(value)
+
+
+def _value_or_existing(
+    body: dict[str, Any], existing: dict[str, Any] | None, field: str, default: Any
+) -> Any:
+    """Use an explicitly supplied value, otherwise preserve the stored value or create default."""
+    if field in body and body[field] is not None:
+        return body[field]
+    if existing is not None and field in existing:
+        return existing[field]
+    return default
 
 
 def credential_status(row: sqlite3.Row) -> str:
@@ -49,6 +145,12 @@ def row_to_provider_account(row: sqlite3.Row) -> dict[str, Any]:
         "displayName": row["display_name"],
         "providerType": row["provider_type"],
         "apiFormat": row["api_format"],
+        "providerFamily": row["provider_family"],
+        "deploymentMode": row["deployment_mode"],
+        "apiFamily": row["api_family"],
+        "adapterProfile": row["adapter_profile"],
+        "termsMode": row["terms_mode"],
+        "pricingMode": row["pricing_mode"],
         "baseUrl": row["base_url"],
         "credentialRef": row["credential_ref"],
         "credentialStatus": credential_status(row),
@@ -73,6 +175,7 @@ def row_to_model_catalog(row: sqlite3.Row) -> dict[str, Any]:
         "model": row["model"],
         "displayName": row["display_name"],
         "modelFamily": row["model_family"],
+        "apiFamily": row["api_family"],
         "contextWindow": row["context_window"],
         "maxOutputTokens": row["max_output_tokens"],
         "supportsTools": _bool(row["supports_tools"]),
@@ -83,6 +186,8 @@ def row_to_model_catalog(row: sqlite3.Row) -> dict[str, Any]:
         "supportsRerank": _bool(row["supports_rerank"]),
         "supportsReasoning": _bool(row["supports_reasoning"]),
         "supportsThinking": _bool(row["supports_thinking"]),
+        "supportsImageGeneration": _bool(row["supports_image_generation"]),
+        "supportsImageEditing": _bool(row["supports_image_editing"]),
         "effortLevels": json_loads(row["effort_levels_json"], []),
         "inputPricePerMtok": row["input_price_per_mtok"],
         "cachedInputPricePerMtok": row["cached_input_price_per_mtok"],
@@ -124,7 +229,9 @@ class ProviderAccountStore:
 
     def list_provider_accounts(self) -> list[dict[str, Any]]:
         """List all provider accounts ordered by provider id."""
-        rows = self.connection.execute("SELECT * FROM provider_accounts ORDER BY provider_id ASC").fetchall()
+        rows = self.connection.execute(
+            f"SELECT {PROVIDER_ACCOUNT_COLUMNS} FROM provider_accounts ORDER BY provider_id ASC"
+        ).fetchall()
         return [row_to_provider_account(row) for row in rows]
 
     def get_provider_account(self, provider_id: str) -> dict[str, Any]:
@@ -134,7 +241,12 @@ class ProviderAccountStore:
             KeyError: if no matching account exists.
         """
         row = self.connection.execute(
-            "SELECT * FROM provider_accounts WHERE provider_id = ? OR id = ?", (provider_id, provider_id)
+            f"""
+            SELECT {PROVIDER_ACCOUNT_COLUMNS}
+            FROM provider_accounts
+            WHERE provider_id = ? OR id = ?
+            """,
+            (provider_id, provider_id),
         ).fetchone()
         if not row:
             raise KeyError(f"Provider account not found: {provider_id}")
@@ -146,22 +258,57 @@ class ProviderAccountStore:
         Metadata and error text are redacted before storage.
         """
         provider_id = str(body["providerId"])
+        try:
+            existing = self.get_provider_account(provider_id)
+        except KeyError:
+            existing = None
         resolver = CredentialResolver()
         credential_ref = resolver.normalize_ref_for_storage(str(body.get("credentialRef", "") or ""))
         resolver.validate_ref(credential_ref)
+        provider_family = _value_or_existing(body, existing, "providerFamily", provider_id)
+        deployment_mode = _value_or_existing(body, existing, "deploymentMode", "custom")
+        api_family = _value_or_existing(body, existing, "apiFamily", "chat_completions")
+        adapter_profile = _value_or_existing(body, existing, "adapterProfile", "auto")
+        terms_mode = _value_or_existing(body, existing, "termsMode", "unspecified")
+        pricing_mode = _value_or_existing(body, existing, "pricingMode", "unknown")
+        provider_type = _value_or_existing(body, existing, "providerType", "api")
+        base_url = validate_provider_base_url(
+            body.get("baseUrl"),
+            provider_family=provider_family,
+            deployment_mode=deployment_mode,
+            api_family=api_family,
+            adapter_profile=adapter_profile,
+        )
+        if provider_family == "nvidia_nim" and provider_type not in {"api", "gateway"}:
+            raise ValueError("NVIDIA NIM providerType must be api or gateway.")
+        if (
+            provider_family == "nvidia_nim"
+            and deployment_mode == "hosted_trial"
+            and (terms_mode != "evaluation" or pricing_mode != "unknown")
+        ):
+            raise ValueError(
+                "NVIDIA NIM hosted_trial requires termsMode evaluation and pricingMode unknown."
+            )
         metadata = redact_secrets(body.get("metadata") or {})
         now = utc_now()
         self.connection.execute(
             """
             INSERT INTO provider_accounts
-                (id, provider_id, display_name, provider_type, api_format, base_url, credential_ref,
+                (id, provider_id, display_name, provider_type, api_format, provider_family,
+                 deployment_mode, api_family, adapter_profile, terms_mode, pricing_mode, base_url, credential_ref,
                  enabled, quota_mode, health_status, last_health_check_at, last_error, metadata_json,
                  created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(provider_id) DO UPDATE SET
                 display_name = excluded.display_name,
                 provider_type = excluded.provider_type,
                 api_format = excluded.api_format,
+                provider_family = excluded.provider_family,
+                deployment_mode = excluded.deployment_mode,
+                api_family = excluded.api_family,
+                adapter_profile = excluded.adapter_profile,
+                terms_mode = excluded.terms_mode,
+                pricing_mode = excluded.pricing_mode,
                 base_url = excluded.base_url,
                 credential_ref = excluded.credential_ref,
                 enabled = excluded.enabled,
@@ -176,9 +323,15 @@ class ProviderAccountStore:
                 body.get("id") or provider_id,
                 provider_id,
                 body.get("displayName") or provider_id,
-                body.get("providerType", "api"),
+                provider_type,
                 body.get("apiFormat", "openai_compatible"),
-                body.get("baseUrl", ""),
+                provider_family,
+                deployment_mode,
+                api_family,
+                adapter_profile,
+                terms_mode,
+                pricing_mode,
+                base_url,
                 credential_ref,
                 1 if body.get("enabled", False) else 0,
                 body.get("quotaMode", "none"),
@@ -208,12 +361,17 @@ class ProviderAccountStore:
         """List catalog models, optionally filtered to one provider, ordered by provider then model."""
         if provider_id:
             rows = self.connection.execute(
-                "SELECT * FROM model_catalog WHERE provider_id = ? ORDER BY provider_id ASC, model ASC",
+                f"""
+                SELECT {MODEL_CATALOG_COLUMNS}
+                FROM model_catalog
+                WHERE provider_id = ?
+                ORDER BY provider_id ASC, model ASC
+                """,
                 (provider_id,),
             ).fetchall()
         else:
             rows = self.connection.execute(
-                "SELECT * FROM model_catalog ORDER BY provider_id ASC, model ASC"
+                f"SELECT {MODEL_CATALOG_COLUMNS} FROM model_catalog ORDER BY provider_id ASC, model ASC"
             ).fetchall()
         return [row_to_model_catalog(row) for row in rows]
 
@@ -223,7 +381,9 @@ class ProviderAccountStore:
         Raises:
             KeyError: if no model has the given id.
         """
-        row = self.connection.execute("SELECT * FROM model_catalog WHERE id = ?", (model_id,)).fetchone()
+        row = self.connection.execute(
+            f"SELECT {MODEL_CATALOG_COLUMNS} FROM model_catalog WHERE id = ?", (model_id,)
+        ).fetchone()
         if not row:
             raise KeyError(f"Model not found: {model_id}")
         return row_to_model_catalog(row)
@@ -235,15 +395,17 @@ class ProviderAccountStore:
         self.connection.execute(
             """
             INSERT INTO model_catalog
-                (id, provider_id, model, display_name, model_family, context_window, max_output_tokens,
-                 supports_tools, supports_json, supports_streaming, supports_vision, supports_embeddings,
-                 supports_rerank, supports_reasoning, supports_thinking, effort_levels_json,
+                (id, provider_id, model, display_name, model_family, api_family, context_window,
+                 max_output_tokens, supports_tools, supports_json, supports_streaming, supports_vision,
+                 supports_embeddings, supports_rerank, supports_reasoning, supports_thinking,
+                 supports_image_generation, supports_image_editing, effort_levels_json,
                  input_price_per_mtok, cached_input_price_per_mtok, output_price_per_mtok,
                  reasoning_price_per_mtok, free_tier, free_tier_notes, enabled, source, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(provider_id, model) DO UPDATE SET
                 display_name = excluded.display_name,
                 model_family = excluded.model_family,
+                api_family = excluded.api_family,
                 context_window = excluded.context_window,
                 max_output_tokens = excluded.max_output_tokens,
                 supports_tools = excluded.supports_tools,
@@ -254,6 +416,8 @@ class ProviderAccountStore:
                 supports_rerank = excluded.supports_rerank,
                 supports_reasoning = excluded.supports_reasoning,
                 supports_thinking = excluded.supports_thinking,
+                supports_image_generation = excluded.supports_image_generation,
+                supports_image_editing = excluded.supports_image_editing,
                 effort_levels_json = excluded.effort_levels_json,
                 input_price_per_mtok = excluded.input_price_per_mtok,
                 cached_input_price_per_mtok = excluded.cached_input_price_per_mtok,
@@ -271,6 +435,7 @@ class ProviderAccountStore:
                 body["model"],
                 body.get("displayName") or body["model"],
                 body.get("modelFamily", ""),
+                body.get("apiFamily", "chat_completions"),
                 int(body.get("contextWindow") or 0),
                 int(body.get("maxOutputTokens") or 0),
                 1 if body.get("supportsTools", False) else 0,
@@ -281,6 +446,8 @@ class ProviderAccountStore:
                 1 if body.get("supportsRerank", False) else 0,
                 1 if body.get("supportsReasoning", False) else 0,
                 1 if body.get("supportsThinking", False) else 0,
+                1 if body.get("supportsImageGeneration", False) else 0,
+                1 if body.get("supportsImageEditing", False) else 0,
                 json_dumps(body.get("effortLevels") or []),
                 body.get("inputPricePerMtok"),
                 body.get("cachedInputPricePerMtok"),
@@ -295,7 +462,7 @@ class ProviderAccountStore:
             ),
         )
         row = self.connection.execute(
-            "SELECT * FROM model_catalog WHERE provider_id = ? AND model = ?",
+            f"SELECT {MODEL_CATALOG_COLUMNS} FROM model_catalog WHERE provider_id = ? AND model = ?",
             (body["providerId"], body["model"]),
         ).fetchone()
         return row_to_model_catalog(row)
@@ -329,7 +496,7 @@ class ProviderAccountStore:
             params.append(model)
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         rows = self.connection.execute(
-            f"SELECT * FROM pricing_snapshots {where} ORDER BY created_at DESC",
+            f"SELECT {PRICING_SNAPSHOT_COLUMNS} FROM pricing_snapshots {where} ORDER BY created_at DESC",
             tuple(params),
         ).fetchall()
         return [row_to_pricing_snapshot(row) for row in rows]
@@ -404,7 +571,7 @@ class ProviderAccountStore:
             KeyError: if no snapshot has the given id.
         """
         row = self.connection.execute(
-            "SELECT * FROM pricing_snapshots WHERE id = ?", (snapshot_id,)
+            f"SELECT {PRICING_SNAPSHOT_COLUMNS} FROM pricing_snapshots WHERE id = ?", (snapshot_id,)
         ).fetchone()
         if not row:
             raise KeyError(f"Pricing snapshot not found: {snapshot_id}")

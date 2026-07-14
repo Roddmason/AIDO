@@ -37,6 +37,15 @@ from local_control_center.shared.time import utc_now
 
 from .credentials import CredentialResolver
 from .provider_accounts import ProviderAccountStore
+from .providers.base import ModelRequest
+from .providers.factory import (
+    ProviderAccountDisabledError,
+    ProviderAdapterFactory,
+    UnsupportedProviderCapabilityError,
+    provider_account_policy_kind,
+    provider_account_requires_credential,
+)
+from .providers.http_transport import urlopen_fail_closed
 from .runtime_provider_config import runtime_provider_configuration
 
 RUNTIME_ADAPTER_TOOLS = {
@@ -647,7 +656,11 @@ class OllamaAdapter:
             }
         try:
             request = Request(f"{base_url}/api/tags", headers=headers, method="GET")
-            with urlopen(request, timeout=5) as response:
+            with urlopen_fail_closed(
+                request,
+                timeout=5,
+                urlopen_override=urlopen,
+            ) as response:
                 payload = json.loads(response.read().decode("utf-8"))
         except (OSError, TimeoutError, URLError, json.JSONDecodeError, UnicodeDecodeError) as error:
             return {
@@ -714,7 +727,11 @@ class OllamaAdapter:
                 },
                 method="POST",
             )
-            with urlopen(http_request, timeout=_bounded_timeout(request)) as response:
+            with urlopen_fail_closed(
+                http_request,
+                timeout=_bounded_timeout(request),
+                urlopen_override=urlopen,
+            ) as response:
                 raw = json.loads(response.read().decode("utf-8"))
         except (OSError, TimeoutError, URLError, json.JSONDecodeError, UnicodeDecodeError) as error:
             return _result(
@@ -844,7 +861,11 @@ class OpenAICompatibleAdapter:
             method="GET",
         )
         try:
-            with urlopen(request, timeout=10) as response:
+            with urlopen_fail_closed(
+                request,
+                timeout=10,
+                urlopen_override=urlopen,
+            ) as response:
                 json.loads(response.read().decode("utf-8"))
         except (OSError, TimeoutError, URLError, json.JSONDecodeError, UnicodeDecodeError) as error:
             return {
@@ -903,7 +924,11 @@ class OpenAICompatibleAdapter:
             method="POST",
         )
         try:
-            with urlopen(http_request, timeout=_bounded_timeout(request)) as response:
+            with urlopen_fail_closed(
+                http_request,
+                timeout=_bounded_timeout(request),
+                urlopen_override=urlopen,
+            ) as response:
                 raw = json.loads(response.read().decode("utf-8"))
         except (OSError, TimeoutError, URLError, json.JSONDecodeError, UnicodeDecodeError) as error:
             return _result(
@@ -921,6 +946,164 @@ class OpenAICompatibleAdapter:
         output_id = self.recorder.record_output(
             request=request,
             name=f"{self.adapter_id.replace('_', '-')}-output.txt",
+            content=clean_content,
+        )
+        evidence_id = self.recorder.create_evidence(
+            request=request,
+            status="completed",
+            exit_code=0,
+            reason=None,
+            artifact_ids=[output_id] if output_id else [],
+        )
+        return _result(
+            status="completed",
+            started_at=started_at,
+            exit_code=0,
+            output_artifact_id=output_id,
+            evidence_package_id=evidence_id,
+            redacted=redacted,
+        )
+
+
+class ProviderFactoryAdapter:
+    """Execute a selected endpoint through the authoritative model-provider factory."""
+
+    def __init__(
+        self,
+        *,
+        provider_family: str,
+        display_name: str,
+        connection: sqlite3.Connection | None,
+        artifact_root: str | Path | None = None,
+    ):
+        self.adapter_id = provider_family
+        self.provider_family = provider_family
+        self.display_name = display_name
+        self.recorder = _ArtifactRecorder(
+            connection=connection,
+            artifact_root=artifact_root,
+            adapter_id=provider_family,
+        )
+
+    def execute(self, request: RuntimeExecutionRequest) -> RuntimeExecutionResult:
+        """Resolve policy/account first, then delegate chat transport to the selected provider."""
+        started_at = utc_now()
+        connection = self.recorder.connection
+        if connection is None:
+            return _result(
+                status="configuration_required",
+                started_at=started_at,
+                reason=f"SQLite provider configuration is required for {self.display_name} execution.",
+            )
+        provider_id = str(request.input.get("providerId") or "").strip()
+        if not provider_id:
+            return _result(
+                status="configuration_required",
+                started_at=started_at,
+                reason=f"{self.display_name} execution requires input.providerId.",
+            )
+        try:
+            account = ProviderAccountStore(connection).get_provider_account(provider_id)
+        except KeyError:
+            return _result(
+                status="configuration_required",
+                started_at=started_at,
+                reason=f"Provider account not found: {provider_id}",
+            )
+        if not account.get("enabled"):
+            return _result(
+                status="configuration_required",
+                started_at=started_at,
+                reason=f"Provider account is disabled: {provider_id}",
+            )
+        if str(account.get("providerFamily") or "") != self.provider_family:
+            return _result(
+                status="blocked",
+                started_at=started_at,
+                reason=(
+                    f"Provider endpoint {provider_id} is not bound to adapter family "
+                    f"{self.provider_family}."
+                ),
+            )
+        policy_decision = RuntimeConfigRepository(connection).runtime_policy_decision(
+            provider_id=provider_id,
+            provider_family=self.provider_family,
+            kind=provider_account_policy_kind(account),
+            project_id=request.project_id,
+        )
+        if not policy_decision.get("allowed"):
+            return _result(
+                status="blocked",
+                started_at=started_at,
+                reason=str(
+                    policy_decision.get("reason")
+                    or f"{self.display_name} execution is disabled by runtime policy."
+                ),
+            )
+        try:
+            provider = ProviderAdapterFactory(connection).resolve_for_execution(provider_id)
+        except UnsupportedProviderCapabilityError as error:
+            return _result(status="blocked", started_at=started_at, reason=error.public_code)
+        except ProviderAccountDisabledError as error:
+            return _result(status="configuration_required", started_at=started_at, reason=str(error))
+
+        base_url = str(getattr(provider, "base_url", "") or "").strip()
+        credential_ref = str(getattr(provider, "credential_ref", "") or "").strip()
+        if not base_url:
+            return _result(
+                status="configuration_required",
+                started_at=started_at,
+                reason=f"{self.display_name} endpoint is missing base URL.",
+            )
+        credential_required = provider_account_requires_credential(account)
+        if credential_required and not credential_ref:
+            return _result(
+                status="configuration_required",
+                started_at=started_at,
+                reason=f"{self.display_name} endpoint is missing credential ref.",
+            )
+        if credential_ref:
+            credential = CredentialResolver().resolve(credential_ref, fetch=False)
+            if credential.status not in {"configured", "unverified"}:
+                return _result(
+                    status="configuration_required",
+                    started_at=started_at,
+                    reason=f"Credential ref for {provider_id} is {credential.status}.",
+                )
+        messages = request.input.get("messages")
+        model = str(request.input.get("model") or "").strip()
+        if not isinstance(messages, list) or not messages:
+            return _result(
+                status="blocked",
+                started_at=started_at,
+                reason=f"{self.display_name} execution requires input.messages.",
+            )
+        if not model:
+            return _result(
+                status="blocked",
+                started_at=started_at,
+                reason=f"{self.display_name} execution requires input.model.",
+            )
+        try:
+            response = provider.chat_completion(
+                ModelRequest(
+                    model=model,
+                    messages=messages,
+                    temperature=request.input.get("temperature"),
+                    maxTokens=request.input.get("maxTokens"),
+                )
+            )
+        except Exception:
+            return _result(
+                status="unavailable",
+                started_at=started_at,
+                reason=f"{self.display_name} execution failed: provider_request_failed",
+                redacted=True,
+            )
+        clean_content, redacted = _redact_text(response.content)
+        output_id = self.recorder.record_output(
+            request=request,
+            name=f"{provider_id.replace('_', '-')}-output.txt",
             content=clean_content,
         )
         evidence_id = self.recorder.create_evidence(
@@ -1083,7 +1266,11 @@ class AnthropicAdapter:
             method="GET",
         )
         try:
-            with urlopen(request, timeout=10) as response:
+            with urlopen_fail_closed(
+                request,
+                timeout=10,
+                urlopen_override=urlopen,
+            ) as response:
                 json.loads(response.read().decode("utf-8"))
         except (OSError, TimeoutError, URLError, json.JSONDecodeError, UnicodeDecodeError) as error:
             return {
@@ -1132,7 +1319,11 @@ class AnthropicAdapter:
             method="POST",
         )
         try:
-            with urlopen(http_request, timeout=_bounded_timeout(request)) as response:
+            with urlopen_fail_closed(
+                http_request,
+                timeout=_bounded_timeout(request),
+                urlopen_override=urlopen,
+            ) as response:
                 raw = json.loads(response.read().decode("utf-8"))
         except (OSError, TimeoutError, URLError, json.JSONDecodeError, UnicodeDecodeError) as error:
             return _result(
@@ -1186,26 +1377,35 @@ class RuntimeAdapterRegistry:
             "openhands": CliVersionAdapter(adapter_id="openhands"),
             "swe-agent": CliVersionAdapter(adapter_id="swe-agent"),
             "swe_agent": CliVersionAdapter(adapter_id="swe_agent"),
-            "ollama": OllamaAdapter(connection=connection, artifact_root=artifact_root, environ=environ),
-            "openai_compatible": OpenAICompatibleAdapter(
-                connection=connection, artifact_root=artifact_root, environ=environ
+            "ollama": ProviderFactoryAdapter(
+                provider_family="ollama",
+                display_name="Ollama",
+                connection=connection,
+                artifact_root=artifact_root,
             ),
-            "openrouter": OpenAICompatibleAdapter(
-                provider_id="openrouter",
+            "openai_compatible": ProviderFactoryAdapter(
+                provider_family="openai_compatible",
+                display_name="OpenAI-compatible",
+                connection=connection,
+                artifact_root=artifact_root,
+            ),
+            "openrouter": ProviderFactoryAdapter(
+                provider_family="openrouter",
                 display_name="OpenRouter",
                 connection=connection,
                 artifact_root=artifact_root,
-                environ=environ,
             ),
-            "nvidia_nim": OpenAICompatibleAdapter(
-                provider_id="nvidia_nim",
+            "nvidia_nim": ProviderFactoryAdapter(
+                provider_family="nvidia_nim",
                 display_name="NVIDIA NIM",
                 connection=connection,
                 artifact_root=artifact_root,
-                environ=environ,
             ),
-            "anthropic_api": AnthropicAdapter(
-                connection=connection, artifact_root=artifact_root, environ=environ
+            "anthropic_api": ProviderFactoryAdapter(
+                provider_family="anthropic_api",
+                display_name="Anthropic",
+                connection=connection,
+                artifact_root=artifact_root,
             ),
         }
 
@@ -1244,6 +1444,10 @@ class RuntimeAdapterBrokerAdapter:
 
     def execute(self, *, tool_call: dict[str, Any], policy_input: dict[str, Any]) -> dict[str, Any]:
         """Validate the tool call into a typed request, run it, and return a broker-shaped result."""
+        input_payload = dict(tool_call.get("input") or {})
+        selected_provider_id = str(policy_input.get("providerId") or "").strip()
+        if selected_provider_id:
+            input_payload["providerId"] = selected_provider_id
         request = RuntimeExecutionRequest.model_validate(
             {
                 "projectId": policy_input["projectId"],
@@ -1257,7 +1461,7 @@ class RuntimeAdapterBrokerAdapter:
                 or tool_call.get("operation")
                 or "runtime_execution",
                 "argv": tool_call.get("argv") or [],
-                "input": tool_call.get("input") or {},
+                "input": input_payload,
                 "timeoutSeconds": tool_call.get("timeoutSeconds") or 30,
                 "approvalGrantId": tool_call.get("approvalGrantId"),
                 "metadata": tool_call.get("metadata") or {},

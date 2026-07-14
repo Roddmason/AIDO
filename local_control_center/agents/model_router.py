@@ -320,6 +320,7 @@ class ModelRouter:
             role_policy = self.routes.get_role_policy(request.role)
         except KeyError:
             role_policy = self.routes.get_role_policy("developer")
+        preferred_provider_ids = self._role_policy_provider_preference(role_policy)
         ai_request = AIResourceRequest(
             project_id=request.project_id,
             task_type=request.task_type,
@@ -327,6 +328,16 @@ class ModelRouter:
             routing_policy=self._ai_routing_policy(request),
             context_tokens_estimate=request.context_tokens_estimate,
             required_capabilities=self._ai_required_capabilities(request),
+            preferred_provider_ids=preferred_provider_ids,
+            blocked_resources=[
+                item for item in role_policy.get("blocked") or [] if isinstance(item, dict)
+            ],
+            context_token_limit=int(role_policy.get("maxTokensPerRun") or 0) or None,
+            role_policy_id=str(role_policy.get("id") or request.role),
+            allow_remote=bool(role_policy.get("allowRemote", False)),
+            allow_local=bool(role_policy.get("allowLocal", False)),
+            allow_cli=bool(role_policy.get("allowCli", False)),
+            allow_api=bool(role_policy.get("allowApi", False)),
             privacy_level=request.privacy_level,
             budget_remaining_usd=request.budget_remaining_usd,
             allow_unknown_cost=bool(role_policy.get("allowUnknownCost", False)),
@@ -372,6 +383,21 @@ class ModelRouter:
         return result
 
     @staticmethod
+    def _role_policy_provider_preference(role_policy: dict[str, Any]) -> list[str]:
+        ordered: list[str] = []
+        for preference in [
+            *(role_policy.get("preferred") or []),
+            *(role_policy.get("fallback") or []),
+            *(role_policy.get("escalation") or []),
+        ]:
+            if not isinstance(preference, dict):
+                continue
+            provider_id = str(preference.get("provider") or "").strip()
+            if provider_id and provider_id not in ordered:
+                ordered.append(provider_id)
+        return ordered
+
+    @staticmethod
     def _premium_threshold(role_policy: dict[str, Any]) -> float | None:
         """Umbral premium del rol: el explícito y, si no lo hay, el cap por tarea. ``None`` si no aplica."""
         threshold = role_policy.get("requiresApprovalOverUsd")
@@ -382,7 +408,14 @@ class ModelRouter:
         return float(threshold)
 
     def _has_ai_resource_profiles(self) -> bool:
-        row = self.connection.execute("SELECT 1 FROM ai_model_performance WHERE enabled = 1 LIMIT 1").fetchone()
+        row = self.connection.execute(
+            """
+            SELECT 1
+            FROM ai_model_performance
+            WHERE enabled = 1 AND profile_source = 'explicit'
+            LIMIT 1
+            """
+        ).fetchone()
         return row is not None
 
     def _ai_routing_policy(self, request: RoutingRequest) -> str:
@@ -430,6 +463,13 @@ class ModelRouter:
             "allowUnknownCost": bool(role_policy.get("allowUnknownCost", False)),
             "requireApprovalForUnknownCost": bool(role_policy.get("requireApprovalForUnknownCost", True)),
             "unknownCostPolicy": decision.get("policyResult", {}).get("unknownCostPolicy", {}),
+            "roleExecutionPolicy": decision.get("policyResult", {}).get(
+                "roleExecutionPolicy", {}
+            ),
+            "providerPreferenceOrder": decision.get("policyResult", {}).get(
+                "providerPreferenceOrder", []
+            ),
+            "selectionOrder": decision.get("policyResult", {}).get("selectionOrder"),
             "source": "ai_resource_manager",
             "opaqueMlUsed": False,
         }
@@ -644,7 +684,8 @@ class ModelRouter:
         capability_score = 1.0
         if request.requires_code_edit and runtime == "cli":
             capability_score += 0.35
-        if request.requires_search and provider["providerId"] == "nvidia_nim":
+        provider_family = str(provider.get("providerFamily") or provider.get("providerId") or "")
+        if request.requires_search and provider_family == "nvidia_nim":
             capability_score += 0.15
         rank = min(
             preferred_rank.get((provider["providerId"], model["model"]), 999),

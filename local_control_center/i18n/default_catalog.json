@@ -3271,6 +3271,138 @@
       "en": "profile default",
       "es": "predeterminado del perfil"
     },
+    "app.modelGateway.limits.windowColumn": {
+      "en": "Window",
+      "es": "Ventana"
+    },
+    "app.modelGateway.limits.previewRequiresProviderModel": {
+      "en": "Provider and model are required to preview effective status.",
+      "es": "El proveedor y el modelo son obligatorios para previsualizar el estado efectivo."
+    },
+    "app.modelGateway.limits.committedReservedRequests": {
+      "en": "Committed / reserved requests",
+      "es": "Solicitudes comprometidas / reservadas"
+    },
+    "app.modelGateway.limits.committedReservedTokens": {
+      "en": "Committed / reserved tokens",
+      "es": "Tokens comprometidos / reservados"
+    },
+    "app.modelGateway.limits.unverifiedTokens": {
+      "en": "Unverified tokens",
+      "es": "Tokens no verificados"
+    },
+    "app.modelGateway.limits.resetsAt": {
+      "en": "Resets at",
+      "es": "Se reinicia a las"
+    },
+    "app.modelGateway.nim.config.chatCompletions": {
+      "en": "Chat completions",
+      "es": "Completado de chat"
+    },
+    "app.modelGateway.nim.config.embeddings": {
+      "en": "Embeddings",
+      "es": "Incrustaciones"
+    },
+    "app.modelGateway.nim.config.rerank": {
+      "en": "Rerank",
+      "es": "Reordenamiento"
+    },
+    "app.modelGateway.nim.config.imageGeneration": {
+      "en": "Image generation",
+      "es": "Generación de imágenes"
+    },
+    "app.modelGateway.nim.config.imageEditing": {
+      "en": "Image editing",
+      "es": "Edición de imágenes"
+    },
+    "app.modelGateway.nim.config.hostedTrial": {
+      "en": "NVIDIA hosted trial",
+      "es": "Prueba alojada por NVIDIA"
+    },
+    "app.modelGateway.nim.config.partnerPaid": {
+      "en": "Partner / paid endpoint",
+      "es": "Endpoint de socio o pago"
+    },
+    "app.modelGateway.nim.config.selfHostedDevelopment": {
+      "en": "Self-hosted development",
+      "es": "Desarrollo autoalojado"
+    },
+    "app.modelGateway.nim.config.selfHostedEnterprise": {
+      "en": "Self-hosted enterprise",
+      "es": "Empresarial autoalojado"
+    },
+    "app.modelGateway.nim.manifest.selectAccountAndModelId": {
+      "en": "Choose an NVIDIA endpoint account and enter the exact provider model id.",
+      "es": "Selecciona una cuenta de endpoint de NVIDIA e ingresa el id exacto del modelo del proveedor."
+    },
+    "app.modelGateway.nim.manifest.tokenFieldsMustBeWholeNumbers": {
+      "en": "Context window and max output tokens must be whole numbers greater than or equal to zero.",
+      "es": "La ventana de contexto y los tokens máximos de salida deben ser números enteros mayores o iguales a cero."
+    },
+    "app.modelGateway.nim.manifest.chatRequiresPositiveLimits": {
+      "en": "Chat manifests require a positive context window and max output token limit.",
+      "es": "Los manifiestos de chat requieren una ventana de contexto y un límite máximo de tokens de salida positivos."
+    },
+    "app.modelGateway.nim.manifest.trialCannotBeFreeTier": {
+      "en": "NVIDIA hosted trial is evaluation access and cannot be declared as a production free tier.",
+      "es": "La prueba alojada por NVIDIA es acceso de evaluación y no puede declararse como nivel gratuito de producción."
+    },
+    "app.modelGateway.nim.manifest.pricingSourceRequired": {
+      "en": "A contract or official pricing source is required before prices can be applied.",
+      "es": "Se requiere un contrato o una fuente oficial de precios antes de poder aplicar los precios."
+    },
+    "app.modelGateway.nim.manifest.pricingSourcePlaceholder": {
+      "en": "https://... or contract reference",
+      "es": "https://... o referencia de contrato"
+    },
+    "app.modelGateway.parallel.projectAndPromptRequired": {
+      "en": "Project and user prompt are required.",
+      "es": "El proyecto y el prompt del usuario son obligatorios."
+    },
+    "app.modelGateway.parallel.noEnabledEndpoint": {
+      "en": "No enabled chat-completions endpoint account is available.",
+      "es": "No hay ninguna cuenta de endpoint de chat-completions habilitada disponible."
+    },
+    "app.modelGateway.parallel.maxParallelismRange": {
+      "en": "Max parallelism must be between 1 and the branch count.",
+      "es": "El paralelismo máximo debe estar entre 1 y la cantidad de ramas."
+    },
+    "app.modelGateway.parallel.quorumRequiresTwo": {
+      "en": "Quorum requires at least two branches and two successful results.",
+      "es": "El quórum requiere al menos dos ramas y dos resultados exitosos."
+    },
+    "app.modelGateway.parallel.branchesMustBeUnique": {
+      "en": "Endpoint/model branches must be unique.",
+      "es": "Las ramas de endpoint/modelo deben ser únicas."
+    },
+    "app.modelGateway.parallel.temperatureRange": {
+      "en": "Temperature must be between 0 and 2.",
+      "es": "La temperatura debe estar entre 0 y 2."
+    },
+    "app.modelGateway.parallel.noBranchResultsTitle": {
+      "en": "No branch results",
+      "es": "Sin resultados de ramas"
+    },
+    "app.modelGateway.parallel.noBranchResultsBody": {
+      "en": "The execution returned no branches.",
+      "es": "La ejecución no devolvió ramas."
+    },
+    "app.modelGateway.parallel.endpointModelColumn": {
+      "en": "Endpoint / model",
+      "es": "Endpoint / modelo"
+    },
+    "app.modelGateway.parallel.tokensColumn": {
+      "en": "Input / output / total",
+      "es": "Entrada / salida / total"
+    },
+    "app.modelGateway.parallel.latencyColumn": {
+      "en": "Latency ms",
+      "es": "Latencia (ms)"
+    },
+    "app.modelGateway.parallel.outputErrorColumn": {
+      "en": "Output / error",
+      "es": "Salida / error"
+    },
     "app.workspace.dialog.title": {
       "en": "New workspace",
       "es": "Nuevo workspace"

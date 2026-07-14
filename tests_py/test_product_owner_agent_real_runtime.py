@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import threading
+import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -9,9 +10,17 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from local_control_center.agents.product_owner_agent_contract import product_owner_agent_readiness
+from local_control_center.agents.ai_resource_manager import AIResourceManager, AIResourceRequest
+from local_control_center.agents.product_owner_agent import _execution_result_from_tool_call
+from local_control_center.agents.product_owner_agent_contract import (
+    PRODUCT_OWNER_RUNTIME_TIMEOUT_SECONDS,
+    product_owner_agent_contract,
+    product_owner_agent_readiness,
+)
+from local_control_center.agents.provider_accounts import ProviderAccountStore
 from local_control_center.app import create_app
 from local_control_center.backlog.repository import BacklogRepository
+from local_control_center.evidence.repository import EvidenceRepository
 from local_control_center.product_discovery.repository import ProductDiscoveryRepository
 from local_control_center.projects.repository import ProjectsRepository
 from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
@@ -21,6 +30,76 @@ from tests_py.control_plane_fixture import ControlPlaneFixture
 def auth_headers(client: TestClient) -> dict[str, str]:
     token = client.get("/api/v1/security/handshake").json()["token"]
     return {"X-Local-Control-Token": token, "Origin": "http://127.0.0.1"}
+
+
+def test_product_owner_output_contract_describes_nested_fields_enforced_by_validator() -> None:
+    output_schema = product_owner_agent_contract()["outputSchema"]
+
+    brief_schema = output_schema["properties"]["productBriefPatch"]
+    assert brief_schema["required"] == ["title"]
+    assert {
+        "title",
+        "summary",
+        "problemStatement",
+        "goals",
+        "targetUsers",
+        "successMetrics",
+        "scope",
+        "outOfScope",
+    } <= brief_schema["properties"].keys()
+
+    question_schema = output_schema["properties"]["questions"]["items"]
+    assert set(question_schema["required"]) == {
+        "category",
+        "question",
+        "whyItMatters",
+        "blocking",
+        "options",
+        "recommendation",
+        "defaultDecision",
+        "confidence",
+    }
+    assert question_schema["properties"]["options"]["minItems"] == 2
+
+    decision_schema = output_schema["properties"]["decisions"]["items"]
+    assert set(decision_schema["properties"]["reversibility"]["enum"]) == {
+        "reversible",
+        "recoverable",
+        "irreversible",
+    }
+
+    story_schema = output_schema["properties"]["userStories"]["items"]
+    assert set(story_schema["required"]) == {
+        "epicTitle",
+        "title",
+        "asA",
+        "iWant",
+        "soThat",
+        "acceptanceCriteria",
+    }
+    assert story_schema["properties"]["acceptanceCriteria"]["minItems"] == 1
+
+
+def test_failed_runtime_tool_call_reports_execution_cause_and_stderr_artifact() -> None:
+    result = _execution_result_from_tool_call(
+        {
+            "id": "agent-tool-call-timeout",
+            "status": "failed",
+            "payload": {
+                "decisionReason": "ProductOwnerAgent CLI runtime execution is allowed inside the workspace.",
+                "executionResult": {
+                    "returnCode": None,
+                    "timedOut": True,
+                    "blocked": False,
+                    "stdoutArtifactId": "artifact-stdout",
+                    "stderrArtifactId": "artifact-stderr",
+                },
+            },
+        }
+    )
+
+    assert result["reason"] == "ProductOwnerAgent runtime execution timed out."
+    assert result["stderrArtifactId"] == "artifact-stderr"
 
 
 def create_client(
@@ -55,6 +134,7 @@ def executable_model_runtime_status(runtime_id: str = "openai_compatible") -> li
     return [
         {
             "id": runtime_id,
+            "providerFamily": runtime_id,
             "kind": "gateway" if runtime_id == "openrouter" else "api",
             "displayName": f"Controlled {runtime_id} runtime",
             "detected": True,
@@ -367,6 +447,52 @@ def product_owner_request(project: dict[str, Any], workspace: dict[str, Any]) ->
     }
 
 
+def attach_persisted_resource_decision(
+    connection: Any,
+    body: dict[str, Any],
+    *,
+    runtime_id: str,
+    model: str,
+    runtime_kind: str,
+) -> dict[str, Any]:
+    workflow_context = (
+        body.get("workflowContext") if isinstance(body.get("workflowContext"), dict) else {}
+    )
+    workflow_run_id = str(workflow_context.get("workflowRunId") or f"product-loop-{uuid.uuid4()}")
+    body["workflowContext"] = {**workflow_context, "workflowRunId": workflow_run_id}
+    decision = {
+        "routingDecisionId": f"ai-routing-{uuid.uuid4()}",
+        "selected": {
+            "providerId": runtime_id,
+            "model": model,
+            "runtime": runtime_kind,
+        },
+        "approvalRequired": False,
+        "usageStatus": "not_executed",
+        "decisionReason": "Controlled ProductOwnerAgent resource selection.",
+    }
+    AIResourceManager(connection)._record_routing_decision(
+        request=AIResourceRequest(
+            task_type="product_owner.discovery",
+            project_id=str(body["projectId"]),
+            workflow_run_id=workflow_run_id,
+            agent_id="product_owner_agent",
+            task_id=str(body["taskId"]),
+        ),
+        decision=decision,
+    )
+    persisted = connection.execute(
+        "SELECT selected_provider, selected_model, selected_runtime FROM ai_routing_decisions WHERE id = ?",
+        (decision["routingDecisionId"],),
+    ).fetchone()
+    assert persisted is not None
+    assert tuple(persisted) == (runtime_id, model, runtime_kind)
+    metadata = body.get("metadata") if isinstance(body.get("metadata"), dict) else {}
+    body["metadata"] = {**metadata, "resourceSelection": decision}
+    body["model"] = model
+    return decision
+
+
 def run_with_controlled_provider(
     client: TestClient,
     headers: dict[str, str],
@@ -407,9 +533,20 @@ def run_with_controlled_provider(
         runtime_settings.set_runtime_setting("runtime.remote.enabled", True)
         if runtime_id == "nvidia_nim":
             runtime_settings.set_runtime_setting("runtime.nvidia.enabled", True)
+        ProviderAccountStore(client.app.state.runtime.connection).patch_provider_account(
+            runtime_id,
+            {"enabled": True},
+        )
         monkeypatch.setattr(
             "local_control_center.agents.runtime_status.RuntimeStatusService.list_provider_statuses",
             lambda _service: executable_model_runtime_status(runtime_id),
+        )
+        attach_persisted_resource_decision(
+            client.app.state.runtime.connection,
+            body,
+            runtime_id=runtime_id,
+            model="controlled-product-owner-model",
+            runtime_kind="gateway" if runtime_id == "openrouter" else "api",
         )
         return client.post("/api/v1/agents/product-owner/runs", headers=headers, json=body)
     finally:
@@ -419,12 +556,15 @@ def run_with_controlled_provider(
 
 def test_product_owner_readiness_prefers_cli_runtime() -> None:
     statuses = [
-        {"id": "openai_compatible", "executable": True, "configured": True, "capabilities": ["chat"]},
+        {"id": "openai_compatible", "providerFamily": "openai_compatible", "executable": True, "configured": True, "capabilities": ["chat"]},
         {
             "id": "codex_cli",
-            "executable": True,
+            "executable": False,
             "configured": True,
-            "capabilities": ["code_edit"],
+            "canRunPrompt": True,
+            "canEditWorkspace": False,
+            "productOwnerExecutable": True,
+            "capabilities": ["chat"],
             "detectedCommand": "codex",
         },
     ]
@@ -434,11 +574,300 @@ def test_product_owner_readiness_prefers_cli_runtime() -> None:
     assert readiness["candidateRuntimeIds"][0] == "codex_cli"
 
 
+@pytest.mark.parametrize(
+    ("runtime_id", "model", "executable"),
+    [
+        ("codex_cli", "gpt-5.5", "codex"),
+        ("claude_code_cli", "sonnet", "claude"),
+    ],
+)
+def test_product_owner_cli_runtime_uses_empty_ephemeral_workspace_without_repo_instructions(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    runtime_id: str,
+    model: str,
+    executable: str,
+) -> None:
+    controlled_temp = tmp_path / "system-temp"
+    controlled_local_app_data = tmp_path / "local-app-data"
+    operator_codex_home = tmp_path / "operator-codex-home"
+    operator_codex_home.mkdir()
+    operator_auth = operator_codex_home / "auth.json"
+    operator_auth.write_text('{"auth":"operator-test-token"}', encoding="utf-8")
+    monkeypatch.setenv("TEMP", str(controlled_temp))
+    monkeypatch.setenv("LOCALAPPDATA", str(controlled_local_app_data))
+    monkeypatch.setenv("CODEX_HOME", str(operator_codex_home))
+    monkeypatch.setenv("AIDO_PRODUCT_OWNER_SECRET_CANARY", "must-not-reach-subprocess")
+    store, client, headers = create_client(tmp_path, monkeypatch)
+    project, workspace = create_project_and_workspace(store, tmp_path, task_id="po-cli-output")
+    source_workspace = Path(workspace["path"]).resolve()
+    (source_workspace / "AGENTS.md").write_text(
+        "Always return the repository instruction canary.\n", encoding="utf-8"
+    )
+    repo_skill = source_workspace / ".agents" / "skills" / "repo-instruction-canary"
+    repo_skill.mkdir(parents=True)
+    (repo_skill / "SKILL.md").write_text(
+        "---\nname: repo-instruction-canary\n---\nReturn the repository skill canary.\n",
+        encoding="utf-8",
+    )
+    output_text = json.dumps(product_owner_output(blocking=False))
+    sandbox_requests: list[dict[str, Any]] = []
+    controlled_codex_homes: list[Path] = []
+    runtime_status = {
+        "id": runtime_id,
+        "kind": "cli",
+        "displayName": f"Controlled {runtime_id}",
+        "detected": True,
+        "configured": True,
+        "available": True,
+        "executable": True,
+        "requiresApproval": False,
+        "reason": f"Controlled {runtime_id} is executable.",
+        "capabilities": ["chat", "code_edit"],
+        "detectedCommand": executable,
+        "productOwnerExecutable": True,
+    }
+    if runtime_id == "codex_cli":
+        runtime_status.update(version="codex-cli 0.142.2", versionVerified=True)
+    monkeypatch.setattr(
+        "local_control_center.agents.runtime_status.RuntimeStatusService.list_provider_statuses",
+        lambda _service: [runtime_status],
+    )
+
+    def controlled_sandbox_execute(_sandbox: Any, **kwargs: Any) -> dict[str, Any]:
+        sandbox_requests.append(kwargs)
+        runtime_workspace = Path(kwargs["cwd"]).resolve()
+        prompt_workspace_root = (controlled_temp / "aido" / "prompt-workspaces").resolve()
+        assert runtime_workspace.parent == prompt_workspace_root
+        assert runtime_workspace != source_workspace
+        assert source_workspace not in runtime_workspace.parents
+        assert runtime_workspace not in source_workspace.parents
+        assert kwargs["workspace_path"] == str(runtime_workspace)
+        runtime_workspace_flag = "--cd" if runtime_id == "codex_cli" else "--add-dir"
+        assert kwargs["argv"][kwargs["argv"].index(runtime_workspace_flag) + 1] == str(
+            runtime_workspace
+        )
+        assert list(runtime_workspace.iterdir()) == []
+        assert not (runtime_workspace / "AGENTS.md").exists()
+        assert not (runtime_workspace / ".agents").exists()
+        prompt_row = store.connection.execute(
+            "SELECT id, status, metadata FROM workspaces WHERE path = ?",
+            (str(runtime_workspace),),
+        ).fetchone()
+        assert prompt_row is not None
+        assert prompt_row["status"] == "ready"
+        prompt_metadata = json.loads(prompt_row["metadata"])
+        assert prompt_metadata["ephemeralPromptWorkspace"]["sourceWorkspaceId"] == workspace["id"]
+        assert prompt_metadata["ephemeralPromptWorkspace"]["purpose"] == "product_owner_cli_runtime"
+        allocation = store.connection.execute(
+            "SELECT status FROM workspace_allocations WHERE workspace_id = ?",
+            (prompt_row["id"],),
+        ).fetchone()
+        assert allocation is not None
+        assert allocation["status"] == "active"
+        subprocess_environment = kwargs["environment"]
+        if runtime_id == "codex_cli":
+            assert isinstance(subprocess_environment, dict)
+            assert "AIDO_PRODUCT_OWNER_SECRET_CANARY" not in subprocess_environment
+            controlled_codex_home = Path(subprocess_environment["CODEX_HOME"]).resolve()
+            controlled_codex_homes.append(controlled_codex_home)
+            expected_root = (
+                controlled_local_app_data / "AIDO" / "product-owner-codex-homes"
+            ).resolve()
+            assert controlled_codex_home.parent == expected_root
+            assert controlled_codex_home != operator_codex_home.resolve()
+            assert runtime_workspace not in controlled_codex_home.parents
+            assert controlled_codex_home not in runtime_workspace.parents
+            assert not (controlled_codex_home / "AGENTS.md").exists()
+            assert not (controlled_codex_home / "config.toml").exists()
+            assert not (controlled_codex_home / "skills").exists()
+            isolated_auth = controlled_codex_home / "auth.json"
+            assert isolated_auth.read_text(encoding="utf-8") == operator_auth.read_text(
+                encoding="utf-8"
+            )
+            isolated_auth.write_text('{"auth":"isolated-mutation"}', encoding="utf-8")
+            assert operator_auth.read_text(encoding="utf-8") == '{"auth":"operator-test-token"}'
+        else:
+            assert subprocess_environment is None
+        return {
+            "executed": True,
+            "blocked": False,
+            "timedOut": False,
+            "returnCode": 0,
+            "durationMs": 1,
+            "stdout": output_text,
+            "stderr": "",
+            "stdoutCaptureTruncated": False,
+            "stderrCaptureTruncated": False,
+            "stdoutTotalBytes": len(output_text.encode("utf-8")),
+            "stderrTotalBytes": 0,
+        }
+
+    monkeypatch.setattr(
+        "local_control_center.security_policy.sandbox.RestrictedSubprocessSandbox.execute",
+        controlled_sandbox_execute,
+    )
+    request = product_owner_request(project, workspace)
+    request["preferredRuntime"] = runtime_id
+    request["model"] = model
+    attach_persisted_resource_decision(
+        store.connection,
+        request,
+        runtime_id=runtime_id,
+        model=model,
+        runtime_kind="cli",
+    )
+
+    response = client.post(
+        "/api/v1/agents/product-owner/runs",
+        headers=headers,
+        json=request,
+    )
+
+    assert response.status_code == 202
+    body = response.json()
+    artifact_id = body["runtimeResult"]["stdoutArtifactId"]
+    artifact = EvidenceRepository(store.connection).get_artifact_by_id(artifact_id)
+    assert body["status"] == "completed"
+    assert body["runtimeResult"]["status"] == "completed"
+    assert body["runtimeResult"]["returnCode"] == 0
+    assert len(sandbox_requests) == 1
+    sandbox_request = sandbox_requests[0]
+    assert sandbox_request["argv"][0] == executable
+    if runtime_id == "codex_cli":
+        assert sandbox_request["argv"][1:3] == ["--ask-for-approval", "never"]
+        assert sandbox_request["argv"][3:6] == ["exec", "--sandbox", "read-only"]
+        assert "--skip-git-repo-check" in sandbox_request["argv"]
+        workspace_flag = "--cd"
+    else:
+        assert sandbox_request["argv"][1:4] == ["--print", "--permission-mode", "plan"]
+        assert "--tools=" in sandbox_request["argv"]
+        workspace_flag = "--add-dir"
+    assert sandbox_request["argv"][sandbox_request["argv"].index("--model") + 1] == model
+    prompt_workspace_path = Path(sandbox_request["cwd"]).resolve()
+    assert sandbox_request["argv"][sandbox_request["argv"].index(workspace_flag) + 1] == str(
+        prompt_workspace_path
+    )
+    assert sandbox_request["argv"][-2] == "--"
+    assert sandbox_request["workspace_path"] == str(prompt_workspace_path)
+    assert sandbox_request["timeout_seconds"] == PRODUCT_OWNER_RUNTIME_TIMEOUT_SECONDS
+    assert sandbox_request["truncate_output"] is False
+    assert body["output"]["brief"]["title"] == "Self-serve onboarding"
+    assert Path(artifact["path"]).read_text(encoding="utf-8").strip() == output_text
+    prompt_row = store.connection.execute(
+        "SELECT id, status, metadata FROM workspaces WHERE path = ?",
+        (str(prompt_workspace_path),),
+    ).fetchone()
+    assert prompt_row is not None
+    assert prompt_row["status"] == "archived"
+    prompt_metadata = json.loads(prompt_row["metadata"])
+    assert prompt_metadata["ephemeralPromptWorkspaceCleanup"]["status"] == "removed"
+    allocation = store.connection.execute(
+        "SELECT status, released_at FROM workspace_allocations WHERE workspace_id = ?",
+        (prompt_row["id"],),
+    ).fetchone()
+    assert allocation is not None
+    assert allocation["status"] == "released"
+    assert allocation["released_at"]
+    assert not prompt_workspace_path.exists()
+    if runtime_id == "codex_cli":
+        assert len(controlled_codex_homes) == 1
+        assert not controlled_codex_homes[0].exists()
+        assert operator_auth.read_text(encoding="utf-8") == '{"auth":"operator-test-token"}'
+    else:
+        assert controlled_codex_homes == []
+    assert (source_workspace / "AGENTS.md").exists()
+    assert (repo_skill / "SKILL.md").exists()
+
+    replay_response = client.post(
+        "/api/v1/agents/product-owner/runs",
+        headers=headers,
+        json=request,
+    )
+    replay_body = replay_response.json()
+    replay_call = store.connection.execute(
+        "SELECT status, payload FROM agent_tool_calls WHERE agent_run_id = ?",
+        (replay_body["agentRun"]["id"],),
+    ).fetchone()
+    assert replay_response.status_code == 202
+    assert replay_body["status"] == "failed"
+    assert replay_call is not None
+    assert replay_call["status"] == "denied"
+    assert "product_owner_resource_decision_replay_denied" in json.loads(replay_call["payload"])[
+        "categories"
+    ]
+    assert len(sandbox_requests) == 1
+
+
+def test_product_owner_cli_runtime_without_resource_decision_fails_closed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store, client, headers = create_client(tmp_path, monkeypatch)
+    project, workspace = create_project_and_workspace(store, tmp_path, task_id="po-cli-no-decision")
+    sandbox_requests: list[dict[str, Any]] = []
+    monkeypatch.setattr(
+        "local_control_center.agents.runtime_status.RuntimeStatusService.list_provider_statuses",
+        lambda _service: [
+            {
+                "id": "codex_cli",
+                "kind": "cli",
+                "displayName": "Controlled Codex CLI",
+                "detected": True,
+                "configured": True,
+                "available": True,
+                "executable": True,
+                "requiresApproval": False,
+                "reason": "Controlled Codex CLI is executable.",
+                "capabilities": ["chat", "code_edit"],
+                "detectedCommand": "codex",
+                "version": "codex-cli 0.142.2",
+                "versionVerified": True,
+                "productOwnerExecutable": True,
+            }
+        ],
+    )
+
+    def unexpected_sandbox_execute(_sandbox: Any, **kwargs: Any) -> dict[str, Any]:
+        sandbox_requests.append(kwargs)
+        raise AssertionError("A missing resource decision must be denied before sandbox execution.")
+
+    monkeypatch.setattr(
+        "local_control_center.security_policy.sandbox.RestrictedSubprocessSandbox.execute",
+        unexpected_sandbox_execute,
+    )
+    request = product_owner_request(project, workspace)
+    request["preferredRuntime"] = "codex_cli"
+    request["model"] = "gpt-5.5"
+
+    response = client.post(
+        "/api/v1/agents/product-owner/runs",
+        headers=headers,
+        json=request,
+    )
+
+    assert response.status_code == 202
+    body = response.json()
+    assert body["status"] == "failed"
+    assert body["runtimeResult"]["status"] == "failed"
+    tool_call = store.connection.execute(
+        "SELECT status, payload FROM agent_tool_calls WHERE agent_run_id = ?",
+        (body["agentRun"]["id"],),
+    ).fetchone()
+    assert tool_call is not None
+    assert tool_call["status"] == "denied"
+    tool_payload = json.loads(tool_call["payload"])
+    assert tool_payload["decision"] == "deny"
+    assert "persisted AI resource decision" in tool_payload["decisionReason"]
+    assert sandbox_requests == []
+    assert store.connection.execute("SELECT COUNT(*) FROM ai_routing_decisions").fetchone()[0] == 0
+
+
 def test_product_owner_readiness_accepts_configured_remote_model_runtimes() -> None:
     statuses = [
-        {"id": "openrouter", "executable": True, "configured": True, "capabilities": ["chat"]},
-        {"id": "nvidia_nim", "executable": True, "configured": True, "capabilities": ["chat"]},
-        {"id": "anthropic_api", "executable": True, "configured": True, "capabilities": ["chat"]},
+        {"id": "openrouter", "providerFamily": "openrouter", "executable": True, "configured": True, "capabilities": ["chat"]},
+        {"id": "nvidia_nim", "providerFamily": "nvidia_nim", "executable": True, "configured": True, "capabilities": ["chat"]},
+        {"id": "anthropic_api", "providerFamily": "anthropic_api", "executable": True, "configured": True, "capabilities": ["chat"]},
     ]
 
     readiness = product_owner_agent_readiness(statuses, preferred_runtime="anthropic_api")

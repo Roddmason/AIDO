@@ -264,11 +264,6 @@ export const PROVIDER_CATALOG: readonly ProviderCatalogEntry[] = [
 	},
 ] as const;
 
-/** Catalog provider ids in display order (the fixed card list). */
-export const RUNTIME_SETUP_PROVIDER_IDS = PROVIDER_CATALOG.map((entry) => entry.id);
-
-export type RuntimeSetupProviderId = string;
-
 const CATALOG_BY_ID = new Map(PROVIDER_CATALOG.map((entry) => [entry.id, entry]));
 
 /** Lookup a catalog entry by provider id (undefined for an unknown id). */

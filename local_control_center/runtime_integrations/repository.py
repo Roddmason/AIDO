@@ -189,12 +189,24 @@ class RuntimeConfigRepository:
         }
 
     def runtime_policy_decision(
-        self, *, provider_id: str, kind: str, project_id: str | None = None
+        self,
+        *,
+        provider_id: str,
+        kind: str,
+        project_id: str | None = None,
+        provider_family: str | None = None,
+        account: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Return whether SQLite runtime policy allows a provider kind for the project."""
         policy = self.runtime_execution_policy(project_id=project_id)
         provider = str(provider_id)
-        runtime_kind = str(kind)
+        family = str(
+            provider_family
+            or (account or {}).get("providerFamily")
+            or self._provider_family(provider)
+            or provider
+        )
+        runtime_kind = "api" if family == "nvidia_nim" else str(kind)
         project_policy = policy["project"]
         allowed_providers = {
             str(item).strip() for item in project_policy.get("allowedProviders") or [] if str(item).strip()
@@ -231,7 +243,7 @@ class RuntimeConfigRepository:
                     "reason": "runtime.remote.enabled is false.",
                     "policy": policy,
                 }
-            if provider == "nvidia_nim" and not global_policy.get("nvidiaEnabled"):
+            if family == "nvidia_nim" and not global_policy.get("nvidiaEnabled"):
                 return {
                     "allowed": False,
                     "reason": "runtime.nvidia.enabled is false.",
@@ -246,6 +258,18 @@ class RuntimeConfigRepository:
         if is_ollama_runtime_id(provider) and not global_policy.get("ollamaEnabled"):
             return {"allowed": False, "reason": "runtime.ollama.enabled is false.", "policy": policy}
         return {"allowed": True, "reason": "", "policy": policy}
+
+    def _provider_family(self, provider_id: str) -> str | None:
+        row = self.connection.execute(
+            """
+            SELECT provider_family
+            FROM provider_accounts
+            WHERE provider_id = ? OR id = ?
+            LIMIT 1
+            """,
+            (provider_id, provider_id),
+        ).fetchone()
+        return str(row["provider_family"] or "").strip() or None if row else None
 
     def _resolved_setting(
         self,

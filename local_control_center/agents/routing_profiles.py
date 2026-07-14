@@ -76,6 +76,11 @@ def row_to_provider_limit(row: sqlite3.Row) -> dict[str, Any]:
         "monthlyRequests": row["monthly_requests"],
         "monthlyTokens": row["monthly_tokens"],
         "monthlyBudgetUsd": row["monthly_budget_usd"],
+        "maxCostPerRequestUsd": row["max_cost_per_request_usd"],
+        "maxConcurrency": row["max_concurrency"],
+        "windowTimezone": row["window_timezone"],
+        "enabled": _bool(row["enabled"]),
+        "fallbackRetryAfterSeconds": row["fallback_retry_after_seconds"],
         "currentWindow": json_loads(row["current_window_json"], {}),
         "cooldownUntil": row["cooldown_until"],
         "last429At": row["last_429_at"],
@@ -299,6 +304,55 @@ class RoutingProfileStore:
         ).fetchall()
         return [row_to_provider_limit(row) for row in rows]
 
+    def create_provider_limit(self, body: dict[str, Any]) -> dict[str, Any]:
+        """Create an endpoint/model policy without accepting client-owned counters."""
+        provider_id = str(body["providerId"])
+        model = str(body["model"])
+        duplicate = self.connection.execute(
+            "SELECT 1 FROM provider_limits WHERE provider_id = ? AND model = ?",
+            (provider_id, model),
+        ).fetchone()
+        if duplicate:
+            raise ValueError(f"Provider limit already exists: {provider_id}/{model}")
+        limit_id = f"provider-limit-{uuid.uuid4()}"
+        now = utc_now()
+        self.connection.execute(
+            """
+            INSERT INTO provider_limits
+                (id, provider_id, model, rpm, tpm, daily_requests, daily_tokens,
+                 monthly_requests, monthly_tokens, monthly_budget_usd,
+                 current_window_json, cooldown_until, last_429_at,
+                 last_limit_error_at, unknown_limit_strategy, max_concurrency,
+                 window_timezone, enabled, fallback_retry_after_seconds,
+                 max_cost_per_request_usd, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '{}', NULL, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                limit_id,
+                provider_id,
+                model,
+                body.get("rpm"),
+                body.get("tpm"),
+                body.get("dailyRequests"),
+                body.get("dailyTokens"),
+                body.get("monthlyRequests"),
+                body.get("monthlyTokens"),
+                body.get("monthlyBudgetUsd"),
+                body.get("unknownLimitStrategy", "conservative"),
+                body.get("maxConcurrency"),
+                body.get("windowTimezone", "UTC"),
+                1 if body.get("enabled", True) else 0,
+                body.get("fallbackRetryAfterSeconds", 300),
+                body.get("maxCostPerRequestUsd"),
+                now,
+                now,
+            ),
+        )
+        row = self.connection.execute(
+            "SELECT * FROM provider_limits WHERE id = ?", (limit_id,)
+        ).fetchone()
+        return row_to_provider_limit(row)
+
     def patch_provider_limit(self, limit_id: str, body: dict[str, Any]) -> dict[str, Any]:
         """Apply a partial update to an existing provider limit row and return it.
 
@@ -317,8 +371,9 @@ class RoutingProfileStore:
             """
             UPDATE provider_limits
             SET rpm = ?, tpm = ?, daily_requests = ?, daily_tokens = ?, monthly_requests = ?,
-                monthly_tokens = ?, monthly_budget_usd = ?, current_window_json = ?, cooldown_until = ?,
-                last_429_at = ?, last_limit_error_at = ?, unknown_limit_strategy = ?, updated_at = ?
+                monthly_tokens = ?, monthly_budget_usd = ?, max_cost_per_request_usd = ?,
+                max_concurrency = ?, window_timezone = ?, enabled = ?,
+                fallback_retry_after_seconds = ?, unknown_limit_strategy = ?, updated_at = ?
             WHERE id = ?
             """,
             (
@@ -329,10 +384,11 @@ class RoutingProfileStore:
                 merged.get("monthlyRequests"),
                 merged.get("monthlyTokens"),
                 merged.get("monthlyBudgetUsd"),
-                json_dumps(merged.get("currentWindow") or {}),
-                merged.get("cooldownUntil"),
-                merged.get("last429At"),
-                merged.get("lastLimitErrorAt"),
+                merged.get("maxCostPerRequestUsd"),
+                merged.get("maxConcurrency"),
+                merged.get("windowTimezone", "UTC"),
+                1 if merged.get("enabled", True) else 0,
+                merged.get("fallbackRetryAfterSeconds", 300),
                 merged.get("unknownLimitStrategy", "conservative"),
                 now,
                 limit_id,

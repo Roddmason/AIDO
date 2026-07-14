@@ -14,6 +14,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 ArtifactKind = Literal[
+    "generated_image",
     "execution_log",
     "screenshot",
     "test_report",

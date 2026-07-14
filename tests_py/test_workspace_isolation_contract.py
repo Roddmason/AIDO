@@ -243,6 +243,54 @@ def test_runtime_path_outside_registered_workspace_is_denied_before_execution(
     assert "outside the allocated workspace" in result["decision"]["reason"]
 
 
+def test_prompt_workspace_archive_refuses_to_delete_outside_controlled_temp_root(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    controlled_temp = tmp_path / "system-temp"
+    monkeypatch.setenv("TEMP", str(controlled_temp))
+    store, _client, _headers = make_app(tmp_path, monkeypatch)
+    project_root = tmp_path / "prompt-project"
+    project_root.mkdir()
+    project = store.create_project(name="Prompt Boundary", path=project_root, template_id="other")
+    repository = WorkspacesRepository(store.connection, root=tmp_path)
+    source_workspace = repository.allocate_workspace(
+        project_id=project["id"],
+        task_id="prompt-source",
+        agent_id="product_owner_agent",
+    )
+    prompt_workspace = repository.allocate_prompt_workspace(
+        project_id=project["id"],
+        task_id="prompt-runtime",
+        agent_id="product_owner_agent",
+        source_workspace_id=source_workspace["id"],
+        reason="prompt cleanup boundary test",
+    )
+    outside = tmp_path / "must-survive"
+    outside.mkdir()
+    sentinel = outside / "sentinel.txt"
+    sentinel.write_text("do not delete\n", encoding="utf-8")
+    store.connection.execute(
+        "UPDATE workspaces SET path = ? WHERE id = ?",
+        (str(outside.resolve()), prompt_workspace["id"]),
+    )
+
+    archived = repository.archive_workspace(prompt_workspace["id"], reason="boundary probe")
+
+    cleanup = archived["metadata"]["ephemeralPromptWorkspaceCleanup"]
+    assert archived["status"] == "archived"
+    assert cleanup["status"] == "refused"
+    assert "outside the controlled temp root" in cleanup["reason"]
+    assert sentinel.read_text(encoding="utf-8") == "do not delete\n"
+    allocation = store.connection.execute(
+        "SELECT status, released_at FROM workspace_allocations WHERE workspace_id = ?",
+        (prompt_workspace["id"],),
+    ).fetchone()
+    assert allocation is not None
+    assert allocation["status"] == "released"
+    assert allocation["released_at"]
+
+
 @pytest.mark.skipif(not git_available(), reason="git CLI is not available")
 def test_workspace_archive_keeps_evidence_after_worktree_cleanup(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch

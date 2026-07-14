@@ -17,19 +17,38 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
+from local_control_center.shared.db import immediate_transaction
 from local_control_center.shared.event_bus import EventBus
 from local_control_center.shared.redaction import redact_secrets
 
 from .credentials import CredentialResolver
-from .model_gateway import provider_instance
-from .model_gateway_models import DiscoverModelsResponse, ProviderAccountResponse
+from .model_gateway_models import (
+    COMPACT_ENDPOINT_ID_PATTERN,
+    ApiFamily,
+    DeploymentMode,
+    DiscoverModelsResponse,
+    PricingMode,
+    ProviderAccountResponse,
+    TermsMode,
+)
 from .provider_accounts import ProviderAccountStore
 from .provider_catalog import (
     PROVIDER_CATALOG_VERSION,
     ProviderCatalogEntry,
-    canonical_provider_id,
     list_provider_catalog,
     provider_catalog_entry,
+)
+from .providers.factory import (
+    ProviderAdapterFactory,
+    ProviderAdapterResolutionError,
+    provider_account_policy_kind,
+    provider_account_requires_credential,
+    provider_account_requires_explicit_model_manifest,
+)
+from .providers.nvidia_nim import NvidiaNimCapabilityError
+
+DEPLOYMENT_MODES_REQUIRING_BASE_URL = frozenset(
+    {"self_hosted_development", "self_hosted_enterprise", "partner_paid"}
 )
 
 
@@ -54,6 +73,12 @@ class ProviderCatalogEntryRecord(CatalogApiModel):
     capabilities: list[str]
     docs_url: str = Field(alias="docsUrl")
     pricing_source: str = Field(alias="pricingSource")
+    provider_family: str = Field(alias="providerFamily")
+    deployment_mode: DeploymentMode = Field(alias="deploymentMode")
+    api_family: ApiFamily = Field(alias="apiFamily")
+    adapter_profile: str = Field(alias="adapterProfile")
+    terms_mode: TermsMode = Field(alias="termsMode")
+    pricing_mode: PricingMode = Field(alias="pricingMode")
     aliases: list[str] = Field(default_factory=list)
 
 
@@ -68,11 +93,34 @@ class ProviderAccountFromCatalogRequest(CatalogApiModel):
     """Request to create/update a provider account from a catalog preset."""
 
     provider_id: str = Field(alias="providerId")
+    instance_id: str | None = Field(
+        default=None,
+        alias="instanceId",
+        min_length=2,
+        max_length=96,
+        pattern=COMPACT_ENDPOINT_ID_PATTERN,
+    )
     display_name: str | None = Field(default=None, alias="displayName")
     base_url: str | None = Field(default=None, alias="baseUrl")
     credential_ref: str | None = Field(default=None, alias="credentialRef")
+    deployment_mode: DeploymentMode | None = Field(default=None, alias="deploymentMode")
+    api_family: ApiFamily | None = Field(default=None, alias="apiFamily")
+    adapter_profile: str | None = Field(
+        default=None,
+        alias="adapterProfile",
+        min_length=2,
+        max_length=96,
+        pattern=COMPACT_ENDPOINT_ID_PATTERN,
+    )
+    terms_mode: TermsMode | None = Field(default=None, alias="termsMode")
+    pricing_mode: PricingMode | None = Field(default=None, alias="pricingMode")
     enabled: bool = True
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+def provider_instance(provider_id: str, *, connection: Any) -> Any:
+    """Resolve a capability-neutral endpoint adapter for catalog synchronization."""
+    return ProviderAdapterFactory(connection).resolve(provider_id)
 
 
 def _catalog_or_404(provider_id: str) -> ProviderCatalogEntry:
@@ -82,11 +130,31 @@ def _catalog_or_404(provider_id: str) -> ProviderCatalogEntry:
     return entry
 
 
+def _catalog_for_account(account: dict[str, Any]) -> ProviderCatalogEntry:
+    """Resolve an account's preset without deriving family from its endpoint id."""
+    metadata = account.get("metadata")
+    if isinstance(metadata, dict):
+        stored_catalog_id = str(metadata.get("providerCatalogId") or "").strip()
+        if stored_catalog_id:
+            return _catalog_or_404(stored_catalog_id)
+
+    for legacy_catalog_id in (account.get("providerFamily"), account.get("providerId")):
+        entry = provider_catalog_entry(str(legacy_catalog_id or "").strip())
+        if entry is not None:
+            return entry
+    raise HTTPException(
+        status_code=404,
+        detail=f"Provider account has no catalog preset: {account.get('providerId')}",
+    )
+
+
 def _normalize_base_url(value: str) -> str:
     candidate = str(value or "").strip()
     parsed = urlparse(candidate)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         raise HTTPException(status_code=422, detail="baseUrl must be an absolute http(s) URL.")
+    if parsed.username is not None or parsed.password is not None:
+        raise HTTPException(status_code=422, detail="baseUrl must not contain URL userinfo.")
     if parsed.params or parsed.query or parsed.fragment:
         raise HTTPException(status_code=422, detail="baseUrl must not include params, query or fragment.")
     return candidate.rstrip("/")
@@ -96,6 +164,26 @@ def _base_url_for_request(entry: ProviderCatalogEntry, body: ProviderAccountFrom
     provided = str(body.base_url or "").strip()
     if provided:
         return _normalize_base_url(provided)
+    deployment_mode = body.deployment_mode or entry.deployment_mode
+    api_family = body.api_family or entry.api_family
+    if (
+        entry.provider_family == "nvidia_nim"
+        and api_family in {"rerank", "image_generation", "image_editing"}
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail=f"baseUrl is required for NVIDIA NIM apiFamily {api_family}.",
+        )
+    if entry.provider_family == "nvidia_nim" and deployment_mode == "custom":
+        raise HTTPException(
+            status_code=422,
+            detail="baseUrl is required for NVIDIA NIM custom deployments.",
+        )
+    if deployment_mode in DEPLOYMENT_MODES_REQUIRING_BASE_URL:
+        raise HTTPException(
+            status_code=422,
+            detail=f"baseUrl is required for deploymentMode {deployment_mode}.",
+        )
     if "baseUrl" in entry.required_fields:
         raise HTTPException(status_code=422, detail=f"baseUrl is required for provider {entry.id}.")
     return entry.default_base_url or ""
@@ -105,7 +193,11 @@ def _credential_ref_for_request(
     entry: ProviderCatalogEntry, body: ProviderAccountFromCatalogRequest
 ) -> str:
     credential_ref = str(body.credential_ref or "").strip()
-    if "credentialRef" in entry.required_fields and not credential_ref:
+    deployment_mode = body.deployment_mode or entry.deployment_mode
+    credential_required = "credentialRef" in entry.required_fields and not str(
+        deployment_mode
+    ).startswith("self_hosted")
+    if credential_required and not credential_ref:
         raise HTTPException(status_code=422, detail=f"credentialRef is required for provider {entry.id}.")
     return credential_ref
 
@@ -123,12 +215,31 @@ def _catalog_metadata(entry: ProviderCatalogEntry, metadata: dict[str, Any]) -> 
     }
 
 
+def _validate_catalog_semantics(
+    entry: ProviderCatalogEntry,
+    body: ProviderAccountFromCatalogRequest,
+) -> None:
+    deployment_mode = body.deployment_mode or entry.deployment_mode
+    if entry.provider_family != "nvidia_nim" or deployment_mode != "hosted_trial":
+        return
+    terms_mode = body.terms_mode or entry.terms_mode
+    pricing_mode = body.pricing_mode or entry.pricing_mode
+    if terms_mode != "evaluation" or pricing_mode != "unknown":
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "NVIDIA NIM hosted_trial requires termsMode evaluation "
+                "and pricingMode unknown."
+            ),
+        )
+
+
 def _requires_remote_policy(account: dict[str, Any]) -> bool:
-    return str(account.get("providerType") or "") in {"api", "gateway"}
+    return provider_account_policy_kind(account) in {"api", "gateway"}
 
 
 def _requires_credential(account: dict[str, Any]) -> bool:
-    return _requires_remote_policy(account) and str(account.get("apiFormat") or "") != "ollama"
+    return provider_account_requires_credential(account)
 
 
 def _validate_sync_preconditions(
@@ -144,13 +255,19 @@ def _validate_sync_preconditions(
         )
     if _requires_remote_policy(account):
         decision = runtime_repo.runtime_policy_decision(
-            provider_id=provider_id, kind=str(account.get("providerType") or "")
+            provider_id=provider_id,
+            provider_family=str(account.get("providerFamily") or ""),
+            kind=provider_account_policy_kind(account),
         )
         if not decision.get("allowed"):
             raise HTTPException(
                 status_code=403,
                 detail=str(decision.get("reason") or "Remote provider sync is disabled."),
             )
+
+
+def _validate_sync_credentials(account: dict[str, Any]) -> None:
+    provider_id = str(account["providerId"])
     credential_ref = str(account.get("credentialRef") or "")
     if _requires_credential(account) and not credential_ref:
         raise HTTPException(status_code=400, detail=f"Credential ref is required for provider {provider_id}.")
@@ -192,11 +309,19 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
         """Create or update a provider account using catalog defaults and required field rules."""
         require_write(request)
         entry = _catalog_or_404(body.provider_id)
+        _validate_catalog_semantics(entry, body)
+        instance_id = body.instance_id or entry.id
         account_payload = {
-            "providerId": canonical_provider_id(body.provider_id),
+            "providerId": instance_id,
             "displayName": body.display_name or entry.display_name,
             "providerType": entry.provider_type,
             "apiFormat": entry.api_format,
+            "providerFamily": entry.provider_family,
+            "deploymentMode": body.deployment_mode or entry.deployment_mode,
+            "apiFamily": body.api_family or entry.api_family,
+            "adapterProfile": body.adapter_profile or entry.adapter_profile,
+            "termsMode": body.terms_mode or entry.terms_mode,
+            "pricingMode": body.pricing_mode or entry.pricing_mode,
             "baseUrl": _base_url_for_request(entry, body),
             "credentialRef": _credential_ref_for_request(entry, body),
             "enabled": body.enabled,
@@ -204,9 +329,27 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
             "metadata": _catalog_metadata(entry, body.metadata),
         }
         try:
-            provider = providers().upsert_provider_account(account_payload)
+            provider_store = providers()
+            if body.instance_id is None:
+                provider = provider_store.upsert_provider_account(account_payload)
+            else:
+                with immediate_transaction(platform.connection):
+                    try:
+                        provider_store.get_provider_account(instance_id)
+                    except KeyError:
+                        pass
+                    else:
+                        raise HTTPException(
+                            status_code=409,
+                            detail=(
+                                f"Provider instance already exists: {instance_id}. "
+                                "Update it through PATCH "
+                                f"/api/v1/model-gateway/providers/{instance_id}."
+                            ),
+                        )
+                    provider = provider_store.upsert_provider_account(account_payload)
         except ValueError as error:
-            raise HTTPException(status_code=400, detail=f"Invalid credential_ref: {error}") from error
+            raise HTTPException(status_code=400, detail=f"Invalid provider account: {error}") from error
         audit(
             "provider_catalog.account.upserted",
             provider["providerId"],
@@ -225,24 +368,39 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
             account = providers().get_provider_account(account_id)
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
-        _catalog_or_404(str(account["providerId"]))
+        catalog_entry = _catalog_for_account(account)
         _validate_sync_preconditions(account, runtime_repo=runtimes())
         provider_id = str(account["providerId"])
+        if provider_account_requires_explicit_model_manifest(account):
+            raise HTTPException(status_code=409, detail="explicit_model_manifest_required")
+        try:
+            provider = provider_instance(provider_id, connection=platform.connection)
+        except ProviderAdapterResolutionError as error:
+            detail = getattr(error, "public_code", error.code)
+            raise HTTPException(status_code=409, detail=detail) from error
+        _validate_sync_credentials(account)
         try:
             discovered = [
                 item.model_dump(by_alias=True)
-                for item in provider_instance(provider_id, connection=platform.connection).list_models()
+                for item in provider.list_models()
             ]
+        except NvidiaNimCapabilityError as error:
+            status_code = 502 if error.code.startswith("provider_") else 409
+            raise HTTPException(status_code=status_code, detail=error.code) from error
         except Exception as error:
             raise HTTPException(
                 status_code=503,
                 detail=redact_secrets(f"Model sync failed for {provider_id}: {error}"),
             ) from error
+        api_family = str(account.get("apiFamily") or "")
         stored = [
             providers().upsert_model(
                 {
                     **item,
                     "providerId": provider_id,
+                    "apiFamily": api_family,
+                    "supportsEmbeddings": api_family == "embeddings",
+                    "supportsRerank": api_family == "rerank",
                     "enabled": True,
                     "source": f"provider_account_sync:{provider_id}",
                 }
@@ -252,7 +410,7 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
         audit(
             "provider_catalog.account.models_synced",
             provider_id,
-            {"providerId": provider_id, "count": len(stored)},
+            {"providerId": provider_id, "catalogId": catalog_entry.id, "count": len(stored)},
         )
         return {"models": stored}
 

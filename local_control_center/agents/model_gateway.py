@@ -22,6 +22,7 @@ from local_control_center.runtime_integrations.repository import RuntimeConfigRe
 from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.telemetry import record_model_call
 
+from .providers.http_transport import urlopen_fail_closed
 from .repository import AgentsRepository
 from .runtime_provider_config import DEFAULT_OLLAMA_BASE_URL
 
@@ -65,57 +66,30 @@ def _public_error(error: BaseException) -> str:
 
 
 def provider_instance(provider_id: str, *, connection: sqlite3.Connection):
-    """Construye el adaptador de proveedor adecuado, resolviendo base_url y credential_ref de su config."""
+    """Backward-compatible chat wrapper over the authoritative provider adapter factory."""
     from .provider_accounts import ProviderAccountStore
-    from .providers.anthropic_api import AnthropicAPIProvider
-    from .providers.azure_openai import AzureOpenAIProvider
-    from .providers.litellm_adapter import LiteLLMAdapter
-    from .providers.nvidia_nim import NvidiaNimProvider
-    from .providers.ollama import OllamaProvider
-    from .providers.openai_api import OpenAIAPIProvider
-    from .providers.openai_compatible import OpenAICompatibleProvider
-    from .providers.openrouter import OpenRouterProvider
-    from .runtime_provider_config import known_provider_default_base_url, runtime_provider_configuration
-
-    try:
-        account = ProviderAccountStore(connection).get_provider_account(provider_id)
-    except KeyError:
-        account = {}
-    runtime_configuration = runtime_provider_configuration(provider_id)
-    runtime_base_url = runtime_configuration.value("baseUrl") if runtime_configuration else None
-    account_base_url = str(account.get("baseUrl") or "").strip()
-    is_endpoint_scoped_ollama = account.get("apiFormat") == "ollama" and provider_id not in {
-        "ollama",
-        "local_ollama",
-    }
-    if is_endpoint_scoped_ollama:
-        base_url = runtime_base_url if runtime_base_url is not None else account_base_url
-    else:
-        base_url = (
-            runtime_base_url or account_base_url or known_provider_default_base_url(provider_id) or None
-        )
-    credential_ref = (
-        (runtime_configuration.configured_env_ref("apiKey") if runtime_configuration else None)
-        or account.get("credentialRef")
-        or None
+    from .providers.factory import (
+        ProviderAdapterFactory,
+        UnsupportedProviderCapabilityError,
     )
-    if provider_id == "nvidia_nim":
-        return NvidiaNimProvider(
-            connection=connection, base_url=base_url or "", credential_ref=credential_ref or ""
+
+    account = ProviderAccountStore(connection).get_provider_account(provider_id)
+    api_family = str(account.get("apiFamily") or "chat_completions")
+    if api_family != "chat_completions":
+        raise UnsupportedProviderCapabilityError(
+            provider_id=provider_id,
+            provider_family=str(account.get("providerFamily") or provider_id),
+            api_family=api_family,
         )
-    if provider_id in {"ollama", "local_ollama"} or account.get("apiFormat") == "ollama":
-        return OllamaProvider(base_url=base_url, credential_ref=credential_ref or None)
-    if provider_id in {"openai", "openai_api"}:
-        return OpenAIAPIProvider(base_url=base_url, credential_ref=credential_ref or "")
-    if provider_id == "anthropic_api":
-        return AnthropicAPIProvider(base_url=base_url, credential_ref=credential_ref or None)
-    if provider_id == "openrouter":
-        return OpenRouterProvider(base_url=base_url, credential_ref=credential_ref or "")
-    if provider_id == "litellm":
-        return LiteLLMAdapter(base_url=base_url, credential_ref=credential_ref or "")
-    if provider_id == "azure_openai" or account.get("apiFormat") == "azure_openai":
-        return AzureOpenAIProvider(base_url=base_url, credential_ref=credential_ref)
-    return OpenAICompatibleProvider(provider_id=provider_id, base_url=base_url, credential_ref=credential_ref)
+
+    return ProviderAdapterFactory(connection).resolve(provider_id)
+
+
+def _provider_adapter_instance(provider_id: str, *, connection: sqlite3.Connection):
+    """Resolve a capability-neutral adapter for passive status and typed boundaries."""
+    from .providers.factory import ProviderAdapterFactory
+
+    return ProviderAdapterFactory(connection).resolve(provider_id)
 
 
 def _provider_usage_reported(raw_usage: dict[str, Any]) -> bool:
@@ -432,13 +406,13 @@ class ModelGateway:
             return {
                 "providerId": provider_id,
                 "status": configuration["status"],
-                "healthStatus": configuration["status"],
+                "healthStatus": configuration.get("healthStatus", configuration["status"]),
                 "message": configuration["reason"],
                 "lastError": None,
                 "models": [],
             }
         try:
-            provider = provider_instance(provider_id, connection=self.repository.connection)
+            provider = _provider_adapter_instance(provider_id, connection=self.repository.connection)
             health = provider.health_check().model_dump(by_alias=True)
             if health.get("status") == "not_available":
                 health["status"] = "unavailable"
@@ -467,6 +441,11 @@ class ModelGateway:
     ) -> dict[str, Any]:
         from .credentials import CredentialResolver
         from .provider_accounts import ProviderAccountStore
+        from .providers.factory import (
+            ProviderAdapterResolutionError,
+            provider_account_policy_kind,
+            provider_account_requires_credential,
+        )
         from .runtime_provider_config import runtime_provider_configuration
 
         try:
@@ -499,7 +478,37 @@ class ModelGateway:
                 or account.get("credentialRef")
                 or ""
             )
-            if not credential_ref and not is_ollama_provider:
+            policy_decision = RuntimeConfigRepository(
+                self.repository.connection
+            ).runtime_policy_decision(
+                provider_id=provider_id,
+                provider_family=str(account.get("providerFamily") or ""),
+                kind=provider_account_policy_kind(account),
+                project_id=project_id,
+            )
+            if not policy_decision.get("allowed"):
+                return {
+                    "status": "blocked",
+                    "reason": str(
+                        policy_decision.get("reason")
+                        or "Runtime execution is blocked by policy."
+                    ),
+                    "runtimeType": resolved_runtime,
+                }
+            try:
+                provider = (
+                    _provider_adapter_instance(provider_id, connection=self.repository.connection)
+                    if for_health
+                    else provider_instance(provider_id, connection=self.repository.connection)
+                )
+            except ProviderAdapterResolutionError as error:
+                return {
+                    "status": "blocked",
+                    "healthStatus": "unsupported",
+                    "reason": getattr(error, "public_code", error.code),
+                    "runtimeType": resolved_runtime,
+                }
+            if not credential_ref and provider_account_requires_credential(account):
                 return {
                     "status": "configuration_required",
                     "reason": "Credential ref is required for remote provider execution.",
@@ -518,21 +527,8 @@ class ModelGateway:
                             f"{credential.message}".strip()
                         ),
                     }
-            provider = provider_instance(provider_id, connection=self.repository.connection)
             if not getattr(provider, "base_url", ""):
                 return {"status": "configuration_required", "reason": "Provider base URL is not configured."}
-            if not for_health:
-                policy_decision = RuntimeConfigRepository(self.repository.connection).runtime_policy_decision(
-                    provider_id=provider_id, kind=provider_type, project_id=project_id
-                )
-                if not policy_decision.get("allowed"):
-                    return {
-                        "status": "blocked",
-                        "reason": str(
-                            policy_decision.get("reason") or "Runtime execution is blocked by policy."
-                        ),
-                        "runtimeType": resolved_runtime,
-                    }
         if provider_type in LOCAL_PROVIDER_TYPES and not (
             provider_id in {"ollama", "local_ollama"} or is_ollama_provider
         ):
@@ -737,10 +733,19 @@ def ollama_status(*, base_url: str | None = None, credential_ref: str | None = N
         return {"provider": "ollama", "available": False, "models": [], "reason": blocking_reason}
     try:
         request = Request(f"{resolved_base_url}/api/tags", headers=headers, method="GET")
-        with urlopen(request, timeout=2) as response:
+        with urlopen_fail_closed(
+            request,
+            timeout=2,
+            urlopen_override=urlopen,
+        ) as response:
             payload = json.loads(response.read().decode("utf-8"))
     except (OSError, TimeoutError, URLError, json.JSONDecodeError) as error:
-        return {"provider": "ollama", "available": False, "models": [], "reason": _public_error(error)}
+        return {
+            "provider": "ollama",
+            "available": False,
+            "models": [],
+            "reason": f"{error.__class__.__name__}: provider request failed",
+        }
 
     models = [str(item.get("name")) for item in payload.get("models", []) if item.get("name")]
     status = "available"

@@ -37,6 +37,9 @@ import { BenchmarksPanel } from './BenchmarksPanel';
 import { BudgetsPanel } from './BudgetsPanel';
 import { CliSessionsPanel } from './CliSessionsPanel';
 import { ModelCatalogPanel } from './ModelCatalogPanel';
+import { NvidiaNimConfigurationPanel } from './NvidiaNimConfigurationPanel';
+import { NvidiaNimModelManifestPanel } from './NvidiaNimModelManifestPanel';
+import { ParallelAIExecutionPanel } from './ParallelAIExecutionPanel';
 import { ProviderAccountsPanel } from './ProviderAccountsPanel';
 import { ProviderLimitsPanel } from './ProviderLimitsPanel';
 import { RoleAssignmentsPanel } from './RoleAssignmentsPanel';
@@ -657,6 +660,11 @@ export function ModelGatewayPage({
 				) : null}
 				{activeTab === 'providers' ? (
 					<>
+						<NvidiaNimConfigurationPanel
+							providers={gateway.providers}
+							token={token}
+							onSaved={() => tabs.refresh('providers')}
+						/>
 						<RuntimeProvidersPanel
 							runtimeRows={runtimeRows}
 							runtimeConfigurationById={runtimeConfigurationById}
@@ -701,9 +709,24 @@ export function ModelGatewayPage({
 						</Surface>
 					</>
 				) : null}
-				{activeTab === 'catalog' ? <ModelCatalogPanel models={gateway.models} /> : null}
+				{activeTab === 'catalog' ? (
+					<>
+						<NvidiaNimModelManifestPanel
+							providers={gateway.providers}
+							token={token}
+							onSaved={() => tabs.refresh('catalog')}
+						/>
+						<ModelCatalogPanel models={gateway.models} />
+					</>
+				) : null}
 				{activeTab === 'routing' ? (
 					<>
+						<ParallelAIExecutionPanel
+							projects={overview.projects}
+							providers={gateway.providers}
+							models={gateway.models}
+							token={token}
+						/>
 						<RoutePreviewPanel
 							form={{
 								role: previewRole,
@@ -934,7 +957,12 @@ export function ModelGatewayPage({
 				{activeTab === 'budgets' ? (
 					<>
 						<BudgetsPanel budgetRules={gateway.budgetRules} />
-						<ProviderLimitsPanel providerLimits={gateway.providerLimits} />
+						<ProviderLimitsPanel
+							providerLimits={gateway.providerLimits}
+							providers={gateway.providers}
+							token={token}
+							onSaved={() => tabs.refresh('budgets')}
+						/>
 					</>
 				) : null}
 				{activeTab === 'usage' ? (

@@ -32,6 +32,11 @@ from local_control_center.agents.providers.nvidia_nim import NvidiaNimProvider
 from local_control_center.agents.providers.openai_compatible import OpenAICompatibleProvider
 from local_control_center.agents.quota_manager import QuotaManager
 from local_control_center.agents.repository import AgentsRepository
+from local_control_center.agents.runtime_registry import (
+    RuntimeCommandUnavailableError,
+    build_product_owner_agent_argv,
+    validate_product_owner_runtime_argv,
+)
 from local_control_center.agents.usage_ledger import UsageLedger
 from local_control_center.app import create_app
 from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
@@ -986,6 +991,8 @@ def test_provider_health_check_does_not_mark_missing_remote_vault_ref_healthy(
             "enabled": True,
         },
     )
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        enable_runtime_policy(connection, remote=True)
     health = client.post(
         "/api/v1/model-gateway/providers/remote_secret_provider/health-check", headers=headers
     )
@@ -1011,6 +1018,64 @@ def test_openai_compatible_provider_uses_credential_resolver(monkeypatch: pytest
     health = provider.health_check()
     assert health.status == "misconfigured"
     assert "sk-testsecret" not in health.message
+
+
+def test_openai_compatible_transport_fails_closed_on_cross_origin_redirect(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target_state: dict[str, object] = {"calls": 0, "authorization": None}
+
+    class RedirectTargetHandler(BaseHTTPRequestHandler):
+        def log_message(self, format: str, *args: object) -> None:
+            return
+
+        def do_GET(self) -> None:
+            target_state["calls"] = int(target_state["calls"]) + 1
+            target_state["authorization"] = self.headers.get("Authorization")
+            body = json.dumps({"data": [{"id": "redirected-model"}]}).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+    target_server = HTTPServer(("127.0.0.1", 0), RedirectTargetHandler)
+    target_thread = threading.Thread(target=target_server.serve_forever, daemon=True)
+    target_thread.start()
+    target_url = f"http://127.0.0.1:{target_server.server_port}/models"
+
+    class RedirectOriginHandler(BaseHTTPRequestHandler):
+        def log_message(self, format: str, *args: object) -> None:
+            return
+
+        def do_GET(self) -> None:
+            self.send_response(302)
+            self.send_header("Location", target_url)
+            self.end_headers()
+
+    origin_server = HTTPServer(("127.0.0.1", 0), RedirectOriginHandler)
+    origin_thread = threading.Thread(target=origin_server.serve_forever, daemon=True)
+    origin_thread.start()
+    monkeypatch.setenv("REDIRECT_TEST_API_KEY", "redirect-secret-token")
+    try:
+        provider = OpenAICompatibleProvider(
+            provider_id="redirect-test",
+            base_url=f"http://127.0.0.1:{origin_server.server_port}/v1",
+            credential_ref="env:REDIRECT_TEST_API_KEY",
+        )
+
+        models = provider.list_models()
+    finally:
+        origin_server.shutdown()
+        origin_server.server_close()
+        origin_thread.join(timeout=5)
+        target_server.shutdown()
+        target_server.server_close()
+        target_thread.join(timeout=5)
+
+    assert models == []
+    assert target_state["calls"] == 0
+    assert target_state["authorization"] is None
 
 
 def test_model_gateway_blocks_unconfigured_openai_compatible_before_http_call(
@@ -1179,6 +1244,7 @@ def test_model_gateway_endpoint_scoped_ollama_requires_explicit_base_url(
                 "enabled": True,
             }
         )
+        enable_runtime_policy(connection, remote=True)
 
         provider = provider_instance("ollama_remote", connection=connection)
         health = ModelGateway(connection).provider_health("ollama_remote")
@@ -1412,10 +1478,13 @@ def test_nvidia_nim_without_provider_usage_does_not_invent_cost_or_tokens(
             store = ProviderAccountStore(connection)
             store.upsert_provider_account(
                 {
-                    "providerId": "nvidia_nim",
-                    "providerType": "api",
-                    "apiFormat": "openai_compatible",
-                    "baseUrl": f"{base_url}/v1",
+                        "providerId": "nvidia_nim",
+                        "providerType": "api",
+                        "apiFormat": "openai_compatible",
+                        "deploymentMode": "self_hosted_development",
+                        "termsMode": "accepted",
+                        "pricingMode": "free",
+                        "baseUrl": f"{base_url}/v1",
                     "credentialRef": "env:NVIDIA_NIM_API_KEY",
                     "enabled": True,
                     "healthStatus": "healthy",
@@ -2369,6 +2438,8 @@ def test_provider_health_real_mode_requires_explicit_env_and_uses_real_adapter_p
         },
     )
     assert response.status_code == 200
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        enable_runtime_policy(connection, remote=True)
 
     health = client.post(
         "/api/v1/model-gateway/providers/openai_compatible/health-check",
@@ -3063,6 +3134,256 @@ def test_cli_runtime_blocks_dangerous_flags(tmp_path: Path) -> None:
                 extra_args=["--dangerously-bypass-approvals-and-sandbox"],
             )
         )
+
+
+def test_codex_cli_builds_current_non_interactive_command_contract(tmp_path: Path) -> None:
+    command = CodexCliRuntime(executable="codex").build_command(
+        RuntimeRequest(
+            runtime="codex_cli",
+            workspace_id="workspace-test",
+            workspace_path=str(tmp_path),
+            prompt="Return JSON only",
+            profile="codex_gpt55_developer",
+        )
+    )
+
+    assert command[:4] == ["codex", "--ask-for-approval", "never", "exec"]
+    assert command[4:8] == ["--sandbox", "workspace-write", "--cd", str(tmp_path.resolve())]
+    assert "--model-reasoning-effort" not in command
+    assert command[command.index("--config") : command.index("--config") + 2] == [
+        "--config",
+        'model_reasoning_effort="high"',
+    ]
+    assert command[-1] == "Return JSON only"
+
+
+def test_claude_cli_separates_variadic_add_dir_from_prompt(tmp_path: Path) -> None:
+    command = ClaudeCodeCliRuntime(executable="claude").build_command(
+        RuntimeRequest(
+            runtime="claude_code_cli",
+            workspace_id="workspace-test",
+            workspace_path=str(tmp_path),
+            prompt="Return JSON only",
+            profile="claude_sonnet_developer",
+        )
+    )
+
+    assert command[-2:] == ["--", "Return JSON only"]
+    assert command[command.index("--permission-mode") : command.index("--permission-mode") + 2] == [
+        "--permission-mode",
+        "acceptEdits",
+    ]
+    assert command[command.index("--add-dir") + 1] == str(tmp_path.resolve())
+    assert command.index("--") > command.index("--add-dir")
+
+
+def test_product_owner_codex_command_is_ephemeral_and_ignores_operator_config(tmp_path: Path) -> None:
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        register_workspace(connection, "workspace-product-owner", tmp_path)
+        command = build_product_owner_agent_argv(
+            runtime={
+                "id": "codex_cli",
+                "detectedCommand": "codex",
+                "version": "codex-cli 0.142.2",
+                "versionVerified": True,
+            },
+            workspace_id="workspace-product-owner",
+            workspace_path=str(tmp_path),
+            prompt="Return JSON only",
+            model="gpt-5.5",
+            agent_id="product_owner_agent",
+            connection=connection,
+        )
+
+    assert command[command.index("--model") : command.index("--model") + 2] == [
+        "--model",
+        "gpt-5.5",
+    ]
+    assert "--ephemeral" in command
+    assert "--ignore-user-config" in command
+    assert "--ignore-rules" in command
+    assert "--strict-config" in command
+    assert "--disable" in command
+    assert "shell_tool" in command
+    assert "shell_snapshot" in command
+    assert "unified_exec" in command
+    assert "in_app_browser" in command
+    assert "memories" in command
+    assert "hooks" in command
+    assert "plugins" in command
+    assert "plugin_sharing" in command
+    assert "skill_mcp_dependency_install" in command
+    assert "tools.web_search=false" in command
+    assert "mcp_servers={}" in command
+    assert "skills.config=[]" in command
+    assert "skills.include_instructions=false" in command
+    assert "project_doc_max_bytes=0" in command
+    assert "project_root_markers=[]" in command
+    assert 'shell_environment_policy.inherit="none"' in command
+    assert "shell_environment_policy.experimental_use_profile=false" in command
+    assert "allow_login_shell=false" in command
+    assert "--skip-git-repo-check" in command
+    assert command[command.index("--sandbox") : command.index("--sandbox") + 2] == [
+        "--sandbox",
+        "read-only",
+    ]
+    assert "workspace-write" not in command
+    assert command[-2:] == ["--", "Return JSON only"]
+    assert validate_product_owner_runtime_argv(
+        runtime_id="codex_cli",
+        argv=command,
+        workspace_path=str(tmp_path),
+    ) is None
+
+
+def test_product_owner_codex_command_rejects_unreviewed_cli_version(tmp_path: Path) -> None:
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        register_workspace(connection, "workspace-product-owner", tmp_path)
+
+        with pytest.raises(RuntimeCommandUnavailableError, match="version is not approved"):
+            build_product_owner_agent_argv(
+                runtime={
+                    "id": "codex_cli",
+                    "detectedCommand": "codex",
+                    "version": "codex-cli 0.143.0",
+                    "versionVerified": True,
+                },
+                workspace_id="workspace-product-owner",
+                workspace_path=str(tmp_path),
+                prompt="Return JSON only",
+                model="gpt-5.5",
+                agent_id="product_owner_agent",
+                connection=connection,
+            )
+
+
+def test_product_owner_codex_command_rejects_stale_persisted_version(tmp_path: Path) -> None:
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        register_workspace(connection, "workspace-product-owner", tmp_path)
+
+        with pytest.raises(RuntimeCommandUnavailableError, match="current runtime probe"):
+            build_product_owner_agent_argv(
+                runtime={
+                    "id": "codex_cli",
+                    "detectedCommand": "codex",
+                    "version": "codex-cli 0.142.2",
+                    "versionVerified": False,
+                },
+                workspace_id="workspace-product-owner",
+                workspace_path=str(tmp_path),
+                prompt="Return JSON only",
+                model="gpt-5.5",
+                agent_id="product_owner_agent",
+                connection=connection,
+            )
+
+
+def test_product_owner_claude_command_uses_plan_permission_mode(tmp_path: Path) -> None:
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        register_workspace(connection, "workspace-product-owner", tmp_path)
+        command = build_product_owner_agent_argv(
+            runtime={"id": "claude_code_cli", "detectedCommand": "claude"},
+            workspace_id="workspace-product-owner",
+            workspace_path=str(tmp_path),
+            prompt="Return JSON only",
+            model="sonnet",
+            agent_id="product_owner_agent",
+            connection=connection,
+        )
+
+    assert command[command.index("--permission-mode") : command.index("--permission-mode") + 2] == [
+        "--permission-mode",
+        "plan",
+    ]
+    assert "--safe-mode" in command
+    assert "--no-session-persistence" in command
+    assert "--tools=" in command
+    assert "acceptEdits" not in command
+    assert validate_product_owner_runtime_argv(
+        runtime_id="claude_code_cli",
+        argv=command,
+        workspace_path=str(tmp_path),
+    ) is None
+
+
+def test_product_owner_runtime_rejects_explicit_argv_override(tmp_path: Path) -> None:
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        register_workspace(connection, "workspace-product-owner", tmp_path)
+
+        with pytest.raises(RuntimeCommandUnavailableError, match="not supported"):
+            build_product_owner_agent_argv(
+                runtime={
+                    "id": "codex_cli",
+                    "detectedCommand": "codex",
+                    "productOwnerAgentArgv": [sys.executable, "-c", "print('unsafe override')"],
+                },
+                workspace_id="workspace-product-owner",
+                workspace_path=str(tmp_path),
+                prompt="Return JSON only",
+                model="gpt-5.5",
+                agent_id="product_owner_agent",
+                connection=connection,
+            )
+
+
+@pytest.mark.parametrize(
+    ("runtime_id", "unsafe_argv"),
+    [
+        (
+            "codex_cli",
+            [
+                "codex",
+                "--ask-for-approval",
+                "never",
+                "exec",
+                "--sandbox",
+                "workspace-write",
+                "--cd",
+                ".",
+                "--ephemeral",
+                "--ignore-user-config",
+                "--",
+                "prompt",
+            ],
+        ),
+        (
+            "claude_code_cli",
+            [
+                "claude",
+                "--print",
+                "--permission-mode",
+                "acceptEdits",
+                "--add-dir",
+                ".",
+                "--safe-mode",
+                "--no-session-persistence",
+                "--tools=",
+                "--",
+                "prompt",
+            ],
+        ),
+    ],
+)
+def test_product_owner_runtime_argv_validator_rejects_mutating_modes(
+    tmp_path: Path,
+    runtime_id: str,
+    unsafe_argv: list[str],
+) -> None:
+    unsafe_argv[unsafe_argv.index(".")] = str(tmp_path.resolve())
+
+    reason = validate_product_owner_runtime_argv(
+        runtime_id=runtime_id,
+        argv=unsafe_argv,
+        workspace_path=str(tmp_path),
+    )
+
+    assert reason is not None
+    assert "canonical read-only" in reason
 
 
 def test_cli_runtime_persists_real_session_and_usage_with_process_isolated(

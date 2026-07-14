@@ -2,26 +2,37 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import subprocess
 import sys
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
 
+from local_control_center.agents.ai_resource_manager import AIResourceManager, AIResourceRequest
 from local_control_center.agents.api import _create_execution_evidence
 from local_control_center.agents.model_gateway import ModelGateway
 from local_control_center.agents.repository import AgentsRepository
+from local_control_center.agents.runtime_registry import build_product_owner_agent_argv
 from local_control_center.agents.tool_broker import ToolBroker
 from local_control_center.app import create_app
 from local_control_center.evidence.repository import EvidenceRepository
 from local_control_center.jobs_approvals.repository import JobsRepository
+from local_control_center.product_loop.repository import ProductLoopRepository
 from local_control_center.projects.repository import ProjectsRepository
+from local_control_center.security_policy import sandbox as sandbox_module
 from local_control_center.security_policy.command_classifier import classify_command
 from local_control_center.security_policy.git_command_runner import git_available, run_git
 from local_control_center.security_policy.policy_engine import evaluate_action
 from local_control_center.security_policy.repository import SecurityPolicyRepository
-from local_control_center.security_policy.sandbox import DockerSandbox
+from local_control_center.security_policy.sandbox import (
+    DockerSandbox,
+    RestrictedSubprocessSandbox,
+)
 from local_control_center.shared.db import open_sqlite_connection
 from local_control_center.shared.migrations import initialize_platform_schema
 from local_control_center.workspaces_projects.repository import WorkspacesRepository
@@ -344,6 +355,30 @@ def test_permission_profiles_apply_argument_level_shell_allowlists(tmp_path: Pat
     )
     assert package_script_hook_blocked["decision"] == "requires_approval"
     assert "package_script_hook" in package_script_hook_blocked["categories"]
+
+
+@pytest.mark.parametrize(
+    "tool",
+    ["openai_compatible", "openrouter", "nvidia_nim", "anthropic_api", "workspace_patch"],
+)
+def test_plan_profile_denies_unscoped_execution_adapters_without_command(tool: str) -> None:
+    result = evaluate_action(
+        {
+            "permissionProfile": "plan",
+            "role": "product_owner",
+            "agentId": "generic-plan-agent",
+            "agentRunId": "agent-run-plan-adapter",
+            "tool": tool,
+            "command": "",
+            "runtimeId": tool,
+            "providerId": tool,
+            "workspaceId": "workspace-plan-adapter",
+            "workspacePath": "H:/workspace-plan-adapter",
+        }
+    )
+
+    assert result["decision"] == "deny"
+    assert "profile_runtime_adapter_denied" in result["categories"]
 
 
 def test_cli_agent_tool_calls_go_through_policy_and_create_action_requests(
@@ -723,6 +758,873 @@ def test_large_tool_execution_output_is_promoted_to_evidence_artifacts(
                 assert artifact["kind"] == "execution_log"
                 assert artifact["hash"]
                 assert Path(artifact["path"]).exists()
+
+
+def test_tool_execution_can_force_complete_stdout_into_an_artifact(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    execution_calls: list[dict[str, object]] = []
+    stdout = '{"status":"completed"}'
+
+    def fake_execute(self, **kwargs):
+        execution_calls.append(kwargs)
+        return {
+            "executed": True,
+            "blocked": False,
+            "timedOut": False,
+            "returnCode": 0,
+            "durationMs": 12,
+            "stdout": stdout,
+            "stderr": "",
+        }
+
+    monkeypatch.setattr(
+        "local_control_center.security_policy.sandbox.RestrictedSubprocessSandbox.execute",
+        fake_execute,
+    )
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        project = ProjectsRepository(connection).create_project(
+            name="Forced Output Artifact",
+            path=tmp_path / "forced-output-artifact",
+            template_id="other",
+        )
+        workspace = allocate_test_workspace(connection, tmp_path, project, task_id="forced-output")
+        profile = AgentsRepository(connection).upsert_agent_profile(
+            {
+                "id": "cli_forced_output",
+                "name": "CLI Forced Output",
+                "role": "implementer",
+                "runtimeMode": "cli",
+                "permissionProfile": "dev_safe",
+                "allowedTools": ["shell"],
+            }
+        )
+        run = AgentsRepository(connection).create_agent_run(
+            project_id=project["id"],
+            agent_profile_id=profile["id"],
+            task_id="forced-output",
+            input_payload={"toolCalls": []},
+            output_payload={},
+            status="running",
+        )
+
+        tool_call = ToolBroker(connection, artifact_root=tmp_path).evaluate_tool_call(
+            project_id=project["id"],
+            agent_run_id=run["id"],
+            agent_profile=profile,
+            tool_call={
+                "tool": "shell",
+                "command": "python --version",
+                "argv": ["python", "--version"],
+                "workspaceId": workspace["id"],
+                "path": workspace["path"],
+                "workspacePath": workspace["path"],
+                "execute": True,
+                "captureStdoutArtifact": True,
+            },
+        )["toolCall"]
+
+        execution_result = tool_call["payload"]["executionResult"]
+        artifact = EvidenceRepository(connection).get_artifact_by_id(
+            execution_result["stdoutArtifactId"]
+        )
+
+    assert execution_calls[0]["truncate_output"] is False
+    assert "stdout" not in execution_result
+    assert execution_result["stdoutTruncated"] is False
+    assert Path(artifact["path"]).read_text(encoding="utf-8") == stdout
+
+
+def test_restricted_subprocess_complete_capture_is_bounded_and_reports_overflow(tmp_path: Path) -> None:
+    emitted_bytes = 1_200_000
+    result = RestrictedSubprocessSandbox().execute(
+        argv=[
+            sys.executable,
+            "-c",
+            (
+                "import sys; "
+                f"sys.stdout.write('o' * {emitted_bytes}); "
+                f"sys.stderr.write('e' * {emitted_bytes})"
+            ),
+        ],
+        cwd=str(tmp_path),
+        workspace_path=str(tmp_path),
+        timeout_seconds=20,
+        truncate_output=False,
+    )
+
+    assert result["returnCode"] == 0
+    assert len(result["stdout"].encode("utf-8")) <= 1_048_576
+    assert len(result["stderr"].encode("utf-8")) <= 1_048_576
+    assert result["stdoutCaptureTruncated"] is True
+    assert result["stderrCaptureTruncated"] is True
+    assert result["stdoutTotalBytes"] == emitted_bytes
+    assert result["stderrTotalBytes"] == emitted_bytes
+
+
+def test_restricted_subprocess_complete_capture_preserves_output_below_limit(tmp_path: Path) -> None:
+    emitted_bytes = 50_000
+    result = RestrictedSubprocessSandbox().execute(
+        argv=[sys.executable, "-c", f"import sys; sys.stdout.write('x' * {emitted_bytes})"],
+        cwd=str(tmp_path),
+        workspace_path=str(tmp_path),
+        timeout_seconds=20,
+        truncate_output=False,
+    )
+
+    assert result["returnCode"] == 0
+    assert result["stdout"] == "x" * emitted_bytes
+    assert result["stdoutCaptureTruncated"] is False
+    assert result["stdoutTotalBytes"] == emitted_bytes
+
+
+def test_restricted_subprocess_timeout_preserves_bounded_stream_prefixes(tmp_path: Path) -> None:
+    result = RestrictedSubprocessSandbox().execute(
+        argv=[
+            sys.executable,
+            "-c",
+            (
+                "import sys,time; "
+                "sys.stdout.write('stdout-before-timeout'); sys.stdout.flush(); "
+                "sys.stderr.write('stderr-before-timeout'); sys.stderr.flush(); "
+                "time.sleep(10)"
+            ),
+        ],
+        cwd=str(tmp_path),
+        workspace_path=str(tmp_path),
+        timeout_seconds=1,
+        truncate_output=False,
+    )
+
+    assert result["timedOut"] is True
+    assert result["returnCode"] is None
+    assert result["stdout"] == "stdout-before-timeout"
+    assert result["stderr"] == "stderr-before-timeout"
+    assert result["stdoutCaptureTruncated"] is False
+    assert result["stderrCaptureTruncated"] is False
+
+
+def test_restricted_subprocess_timeout_terminates_descendant_tree(tmp_path: Path) -> None:
+    started = time.perf_counter()
+    result = RestrictedSubprocessSandbox().execute(
+        argv=[
+            sys.executable,
+            "-c",
+            (
+                "import subprocess,sys,time; "
+                "subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(10)']); "
+                "print('parent-started', flush=True); "
+                "time.sleep(10)"
+            ),
+        ],
+        cwd=str(tmp_path),
+        workspace_path=str(tmp_path),
+        timeout_seconds=1,
+        truncate_output=False,
+    )
+    elapsed_seconds = time.perf_counter() - started
+
+    assert result["timedOut"] is True
+    assert result["returnCode"] is None
+    assert "parent-started" in result["stdout"]
+    assert elapsed_seconds < 5
+
+
+def test_generic_tool_call_cannot_claim_product_owner_internal_runtime_operation(tmp_path: Path) -> None:
+    marker = tmp_path / "must-not-be-created.txt"
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        project = ProjectsRepository(connection).create_project(
+            name="Product owner internal boundary",
+            path=tmp_path / "product-owner-internal-boundary",
+            template_id="other",
+        )
+        workspace = allocate_test_workspace(
+            connection,
+            tmp_path,
+            project,
+            task_id="product-owner-internal-boundary",
+        )
+        profile = AgentsRepository(connection).upsert_agent_profile(
+            {
+                "id": "product_owner_agent",
+                "name": "ProductOwnerAgent",
+                "role": "product_owner",
+                "runtimeMode": "hybrid",
+                "permissionProfile": "plan",
+                "allowedTools": ["shell"],
+            }
+        )
+        run = AgentsRepository(connection).create_agent_run(
+            project_id=project["id"],
+            agent_profile_id=profile["id"],
+            task_id="product-owner-internal-boundary",
+            input_payload={"toolCalls": []},
+            output_payload={},
+            status="running",
+        )
+
+        result = ToolBroker(connection, artifact_root=tmp_path).evaluate_tool_call(
+            project_id=project["id"],
+            agent_run_id=run["id"],
+            agent_profile=profile,
+            tool_call={
+                "tool": "shell",
+                "command": "python -c write-marker",
+                "argv": [sys.executable, "-c", f"from pathlib import Path; Path({str(marker)!r}).write_text('bad')"],
+                "workspaceId": workspace["id"],
+                "workspacePath": workspace["path"],
+                "path": workspace["path"],
+                "operation": "product_owner_runtime",
+                "runtimeId": "codex_cli",
+                "providerTransportRequired": True,
+                "execute": True,
+            },
+        )
+
+    assert result["decision"]["decision"] == "deny"
+    assert "product_owner_internal_operation_denied" in result["decision"]["payload"]["categories"]
+    assert result["toolCall"]["status"] == "denied"
+    assert marker.exists() is False
+
+
+def test_generic_agent_run_cannot_use_product_owner_profile_model_adapters(tmp_path: Path) -> None:
+    adapter_calls: list[dict[str, object]] = []
+
+    class UnexpectedAdapter:
+        def execute(self, **kwargs):
+            adapter_calls.append(kwargs)
+            raise AssertionError("Generic ProductOwnerAgent tool calls must not reach model adapters.")
+
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        project = ProjectsRepository(connection).create_project(
+            name="Product owner generic adapter boundary",
+            path=tmp_path / "product-owner-generic-adapter-boundary",
+            template_id="other",
+        )
+        workspace = allocate_test_workspace(
+            connection,
+            tmp_path,
+            project,
+            task_id="product-owner-generic-adapter-boundary",
+        )
+        profile = AgentsRepository(connection).upsert_agent_profile(
+            {
+                "id": "product_owner_agent",
+                "name": "ProductOwnerAgent",
+                "role": "product_owner",
+                "runtimeMode": "hybrid",
+                "permissionProfile": "plan",
+                "allowedTools": ["nvidia_nim"],
+                "allowedProviders": ["nvidia_nim"],
+                "allowedRuntimes": ["nvidia_nim"],
+            }
+        )
+        run = AgentsRepository(connection).create_agent_run(
+            project_id=project["id"],
+            agent_profile_id=profile["id"],
+            task_id="product-owner-generic-adapter-boundary",
+            input_payload={},
+            output_payload={},
+            status="running",
+        )
+
+        result = ToolBroker(
+            connection,
+            artifact_root=tmp_path,
+            runtime_adapters={"nvidia_nim": UnexpectedAdapter()},
+        ).evaluate_tool_call(
+            project_id=project["id"],
+            agent_run_id=run["id"],
+            agent_profile=profile,
+            tool_call={
+                "tool": "nvidia_nim",
+                "workspaceId": workspace["id"],
+                "workspacePath": workspace["path"],
+                "path": workspace["path"],
+                "runtimeId": "nvidia_nim",
+                "input": {"providerId": "nvidia_nim", "model": "test-model", "messages": []},
+                "execute": True,
+            },
+        )
+
+    assert result["decision"]["decision"] == "deny"
+    assert result["toolCall"]["status"] == "denied"
+    assert "product_owner_generic_tool_call_denied" in result["decision"]["payload"][
+        "categories"
+    ]
+    assert adapter_calls == []
+
+
+def test_product_owner_runtime_must_match_persisted_resource_decision(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    execution_calls: list[dict[str, object]] = []
+    controlled_local_app_data = tmp_path / "local-app-data"
+    controlled_codex_home = (
+        controlled_local_app_data / "AIDO" / "product-owner-codex-homes" / "binding-test"
+    )
+    controlled_codex_home.mkdir(parents=True)
+    monkeypatch.setenv("LOCALAPPDATA", str(controlled_local_app_data))
+    trusted_environment = {"CODEX_HOME": str(controlled_codex_home)}
+
+    def fake_execute(self, **kwargs):
+        execution_calls.append(kwargs)
+        return {"executed": True, "blocked": False, "returnCode": 0, "stdout": "{}", "stderr": ""}
+
+    monkeypatch.setattr(
+        "local_control_center.security_policy.sandbox.RestrictedSubprocessSandbox.execute",
+        fake_execute,
+    )
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        project = ProjectsRepository(connection).create_project(
+            name="Product owner resource binding",
+            path=tmp_path / "product-owner-resource-binding",
+            template_id="other",
+        )
+        workspace = allocate_test_workspace(
+            connection,
+            tmp_path,
+            project,
+            task_id="product-owner-resource-binding",
+        )
+        profile = AgentsRepository(connection).upsert_agent_profile(
+            {
+                "id": "product_owner_agent",
+                "name": "ProductOwnerAgent",
+                "role": "product_owner",
+                "runtimeMode": "hybrid",
+                "permissionProfile": "plan",
+                "allowedTools": ["shell"],
+            }
+        )
+        run = AgentsRepository(connection).create_agent_run(
+            project_id=project["id"],
+            agent_profile_id=profile["id"],
+            task_id="product-owner-resource-binding",
+            input_payload={},
+            output_payload={},
+            workflow_run_id="product-loop-resource-binding",
+            status="running",
+        )
+        resource_decision = {
+            "routingDecisionId": "ai-routing-product-owner-binding",
+            "selected": {"providerId": "codex_cli", "model": "gpt-5.5", "runtime": "cli"},
+            "approvalRequired": False,
+            "usageStatus": "not_executed",
+            "policyResult": {},
+        }
+        AIResourceManager(connection)._record_routing_decision(
+            request=AIResourceRequest(
+                project_id=project["id"],
+                workflow_run_id="product-loop-resource-binding",
+                agent_id=profile["id"],
+                task_id="product-owner-resource-binding",
+                task_type="product_owner.discovery",
+            ),
+            decision=resource_decision,
+        )
+        command = build_product_owner_agent_argv(
+            runtime={
+                "id": "codex_cli",
+                "detectedCommand": "codex",
+                "version": "codex-cli 0.142.2",
+                "versionVerified": True,
+            },
+            workspace_id=workspace["id"],
+            workspace_path=workspace["path"],
+            prompt="Return JSON only",
+            model="gpt-5.6",
+            agent_id=profile["id"],
+            connection=connection,
+        )
+
+        tool_call = {
+            "tool": "shell",
+            "command": " ".join(command),
+            "argv": command,
+            "workspaceId": workspace["id"],
+            "workspacePath": workspace["path"],
+            "path": workspace["path"],
+            "operation": "product_owner_runtime",
+            "runtimeId": "codex_cli",
+            "model": "gpt-5.6",
+            "providerTransportRequired": True,
+            "workspaceReadRequired": False,
+            "networkRequired": False,
+            "secretsRequired": False,
+            "resourceDecisionId": resource_decision["routingDecisionId"],
+            "execute": True,
+        }
+        broker = ToolBroker(connection, artifact_root=tmp_path)
+
+        missing_decision_result = broker.evaluate_tool_call(
+            project_id=project["id"],
+            agent_run_id=run["id"],
+            agent_profile=profile,
+            tool_call=tool_call,
+            trusted_operation="product_owner_runtime",
+            trusted_subprocess_environment=trusted_environment,
+        )
+
+        missing_environment_result = broker.evaluate_tool_call(
+            project_id=project["id"],
+            agent_run_id=run["id"],
+            agent_profile=profile,
+            tool_call=tool_call,
+            trusted_operation="product_owner_runtime",
+            trusted_resource_decision=resource_decision,
+        )
+
+        untrusted_environment_result = broker.evaluate_tool_call(
+            project_id=project["id"],
+            agent_run_id=run["id"],
+            agent_profile=profile,
+            tool_call=tool_call,
+            trusted_operation="product_owner_runtime",
+            trusted_resource_decision=resource_decision,
+            trusted_subprocess_environment={
+                **trusted_environment,
+                "AIDO_PRODUCT_OWNER_SECRET_CANARY": "not-allowlisted",
+            },
+        )
+
+        result = broker.evaluate_tool_call(
+            project_id=project["id"],
+            agent_run_id=run["id"],
+            agent_profile=profile,
+            tool_call=tool_call,
+            trusted_operation="product_owner_runtime",
+            trusted_resource_decision=resource_decision,
+            trusted_subprocess_environment=trusted_environment,
+        )
+
+        matching_command = build_product_owner_agent_argv(
+            runtime={
+                "id": "codex_cli",
+                "detectedCommand": "codex",
+                "version": "codex-cli 0.142.2",
+                "versionVerified": True,
+            },
+            workspace_id=workspace["id"],
+            workspace_path=workspace["path"],
+            prompt="Return JSON only",
+            model="gpt-5.5",
+            agent_id=profile["id"],
+            connection=connection,
+        )
+        matching_tool_call = {
+            **tool_call,
+            "command": " ".join(matching_command),
+            "argv": matching_command,
+            "model": "gpt-5.5",
+        }
+        network_capability_result = broker.evaluate_tool_call(
+            project_id=project["id"],
+            agent_run_id=run["id"],
+            agent_profile=profile,
+            tool_call={**matching_tool_call, "networkRequired": True},
+            trusted_operation="product_owner_runtime",
+            trusted_resource_decision=resource_decision,
+            trusted_subprocess_environment=trusted_environment,
+        )
+        secret_capability_result = broker.evaluate_tool_call(
+            project_id=project["id"],
+            agent_run_id=run["id"],
+            agent_profile=profile,
+            tool_call={**matching_tool_call, "secretsRequired": True},
+            trusted_operation="product_owner_runtime",
+            trusted_resource_decision=resource_decision,
+            trusted_subprocess_environment=trusted_environment,
+        )
+        matching_result = broker.evaluate_tool_call(
+            project_id=project["id"],
+            agent_run_id=run["id"],
+            agent_profile=profile,
+            tool_call=matching_tool_call,
+            trusted_operation="product_owner_runtime",
+            trusted_resource_decision=resource_decision,
+            trusted_subprocess_environment=trusted_environment,
+        )
+
+        loop_repository = ProductLoopRepository(connection)
+        loop = loop_repository.create_loop(
+            {
+                "projectId": project["id"],
+                "title": "Approval-bound product owner run",
+                "state": "resource_manager",
+                "status": "active",
+                "context": {},
+            }
+        )
+        approval_decision = {
+            **resource_decision,
+            "routingDecisionId": "ai-routing-product-owner-approval",
+            "approvalRequired": True,
+        }
+        AIResourceManager(connection)._record_routing_decision(
+            request=AIResourceRequest(
+                project_id=project["id"],
+                workflow_run_id=loop["id"],
+                agent_id=profile["id"],
+                task_id="product-owner-resource-binding",
+                task_type="product_owner.discovery",
+            ),
+            decision=approval_decision,
+        )
+        approval_run = AgentsRepository(connection).create_agent_run(
+            project_id=project["id"],
+            agent_profile_id=profile["id"],
+            task_id="product-owner-resource-binding",
+            input_payload={},
+            output_payload={},
+            workflow_run_id=loop["id"],
+            status="running",
+        )
+        approval_tool_call = {
+            **tool_call,
+            "command": " ".join(matching_command),
+            "argv": matching_command,
+            "model": "gpt-5.5",
+            "resourceDecisionId": approval_decision["routingDecisionId"],
+        }
+        missing_approval_result = broker.evaluate_tool_call(
+            project_id=project["id"],
+            agent_run_id=approval_run["id"],
+            agent_profile=profile,
+            tool_call=approval_tool_call,
+            trusted_operation="product_owner_runtime",
+            trusted_resource_decision=approval_decision,
+            trusted_subprocess_environment=trusted_environment,
+        )
+        loop_repository.update_loop_state(
+            loop["id"],
+            state="resource_manager",
+            previous_state=None,
+            status="active",
+            context={
+                "durableRun": {
+                    "requestMeta": {
+                        "approvedResourceSelections": [
+                            {"role": "product_owner", **approval_decision["selected"]}
+                        ]
+                    }
+                }
+            },
+            version=2,
+        )
+        approved_result = broker.evaluate_tool_call(
+            project_id=project["id"],
+            agent_run_id=approval_run["id"],
+            agent_profile=profile,
+            tool_call=approval_tool_call,
+            trusted_operation="product_owner_runtime",
+            trusted_resource_decision=approval_decision,
+            trusted_subprocess_environment=trusted_environment,
+        )
+
+    assert missing_decision_result["decision"]["decision"] == "deny"
+    assert "product_owner_resource_decision_denied" in missing_decision_result["decision"]["payload"][
+        "categories"
+    ]
+    assert missing_environment_result["decision"]["decision"] == "deny"
+    assert "product_owner_runtime_environment_denied" in missing_environment_result["decision"][
+        "payload"
+    ]["categories"]
+    assert untrusted_environment_result["decision"]["decision"] == "deny"
+    assert "product_owner_runtime_environment_denied" in untrusted_environment_result["decision"][
+        "payload"
+    ]["categories"]
+    assert result["decision"]["decision"] == "deny"
+    assert "product_owner_resource_decision_denied" in result["decision"]["payload"]["categories"]
+    assert result["toolCall"]["status"] == "denied"
+    assert network_capability_result["decision"]["decision"] == "deny"
+    assert secret_capability_result["decision"]["decision"] == "deny"
+    assert "product_owner_capability_boundary_denied" in network_capability_result["decision"][
+        "payload"
+    ]["categories"]
+    assert matching_result["decision"]["decision"] == "allow"
+    assert matching_result["toolCall"]["status"] == "completed"
+    assert missing_approval_result["decision"]["decision"] == "deny"
+    assert approved_result["decision"]["decision"] == "allow"
+    assert approved_result["toolCall"]["status"] == "completed"
+    assert len(execution_calls) == 2
+
+
+def test_product_owner_resource_decision_claim_is_atomic_across_agent_runs(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    db_path = tmp_path / "platform.sqlite"
+    execution_started = threading.Event()
+    release_execution = threading.Event()
+    execution_calls: list[dict[str, object]] = []
+    controlled_local_app_data = tmp_path / "local-app-data"
+    controlled_codex_home = (
+        controlled_local_app_data / "AIDO" / "product-owner-codex-homes" / "atomic-test"
+    )
+    controlled_codex_home.mkdir(parents=True)
+    monkeypatch.setenv("LOCALAPPDATA", str(controlled_local_app_data))
+    trusted_environment = {"CODEX_HOME": str(controlled_codex_home)}
+
+    def blocking_execute(self, **kwargs):
+        execution_calls.append(kwargs)
+        execution_started.set()
+        assert release_execution.wait(timeout=10)
+        return {"executed": True, "blocked": False, "returnCode": 0, "stdout": "{}", "stderr": ""}
+
+    monkeypatch.setattr(
+        "local_control_center.security_policy.sandbox.RestrictedSubprocessSandbox.execute",
+        blocking_execute,
+    )
+    with open_sqlite_connection(db_path) as setup_connection:
+        initialize_platform_schema(setup_connection)
+        project = ProjectsRepository(setup_connection).create_project(
+            name="Atomic Product Owner decision",
+            path=tmp_path / "atomic-product-owner-decision",
+            template_id="other",
+        )
+        workspace = allocate_test_workspace(
+            setup_connection,
+            tmp_path,
+            project,
+            task_id="atomic-product-owner-decision",
+        )
+        profile = AgentsRepository(setup_connection).upsert_agent_profile(
+            {
+                "id": "product_owner_agent",
+                "name": "ProductOwnerAgent",
+                "role": "product_owner",
+                "runtimeMode": "hybrid",
+                "permissionProfile": "plan",
+                "allowedTools": ["shell"],
+            }
+        )
+        runs = [
+            AgentsRepository(setup_connection).create_agent_run(
+                project_id=project["id"],
+                agent_profile_id=profile["id"],
+                task_id="atomic-product-owner-decision",
+                input_payload={},
+                output_payload={},
+                workflow_run_id="product-loop-atomic-decision",
+                status="running",
+            )
+            for _ in range(2)
+        ]
+        resource_decision = {
+            "routingDecisionId": "ai-routing-product-owner-atomic",
+            "selected": {"providerId": "codex_cli", "model": "gpt-5.5", "runtime": "cli"},
+            "approvalRequired": False,
+            "usageStatus": "not_executed",
+            "policyResult": {},
+        }
+        AIResourceManager(setup_connection)._record_routing_decision(
+            request=AIResourceRequest(
+                project_id=project["id"],
+                workflow_run_id="product-loop-atomic-decision",
+                agent_id=profile["id"],
+                task_id="atomic-product-owner-decision",
+                task_type="product_owner.discovery",
+            ),
+            decision=resource_decision,
+        )
+        command = build_product_owner_agent_argv(
+            runtime={
+                "id": "codex_cli",
+                "detectedCommand": "codex",
+                "version": "codex-cli 0.142.2",
+                "versionVerified": True,
+            },
+            workspace_id=workspace["id"],
+            workspace_path=workspace["path"],
+            prompt="Return JSON only",
+            model="gpt-5.5",
+            agent_id=profile["id"],
+            connection=setup_connection,
+        )
+    tool_call = {
+        "tool": "shell",
+        "command": " ".join(command),
+        "argv": command,
+        "workspaceId": workspace["id"],
+        "workspacePath": workspace["path"],
+        "path": workspace["path"],
+        "operation": "product_owner_runtime",
+        "runtimeId": "codex_cli",
+        "providerTransportRequired": True,
+        "workspaceReadRequired": False,
+        "networkRequired": False,
+        "secretsRequired": False,
+        "resourceDecisionId": resource_decision["routingDecisionId"],
+        "execute": True,
+    }
+
+    with (
+        open_sqlite_connection(db_path) as first_connection,
+        open_sqlite_connection(db_path) as second_connection,
+        ThreadPoolExecutor(max_workers=1) as executor,
+    ):
+        first_future = executor.submit(
+            ToolBroker(first_connection, artifact_root=tmp_path).evaluate_tool_call,
+            project_id=project["id"],
+            agent_run_id=runs[0]["id"],
+            agent_profile=profile,
+            tool_call=tool_call,
+            trusted_operation="product_owner_runtime",
+            trusted_resource_decision=resource_decision,
+            trusted_subprocess_environment=trusted_environment,
+        )
+        assert execution_started.wait(timeout=10)
+        second_result = ToolBroker(second_connection, artifact_root=tmp_path).evaluate_tool_call(
+            project_id=project["id"],
+            agent_run_id=runs[1]["id"],
+            agent_profile=profile,
+            tool_call=tool_call,
+            trusted_operation="product_owner_runtime",
+            trusted_resource_decision=resource_decision,
+            trusted_subprocess_environment=trusted_environment,
+        )
+        release_execution.set()
+        first_result = first_future.result(timeout=10)
+        routing_row = second_connection.execute(
+            "SELECT usage_status FROM ai_routing_decisions WHERE id = ?",
+            (resource_decision["routingDecisionId"],),
+        ).fetchone()
+
+    assert first_result["decision"]["decision"] == "allow"
+    assert first_result["toolCall"]["status"] == "completed"
+    assert second_result["decision"]["decision"] == "deny"
+    assert second_result["toolCall"]["status"] == "denied"
+    assert "product_owner_resource_decision_replay_denied" in second_result["decision"]["payload"][
+        "categories"
+    ]
+    assert routing_row is not None
+    assert routing_row["usage_status"] == "completed"
+    assert len(execution_calls) == 1
+
+
+@pytest.mark.parametrize(
+    "timeout_seconds",
+    [0, 901],
+)
+def test_restricted_subprocess_rejects_timeout_outside_contract_before_launch(
+    tmp_path: Path,
+    monkeypatch,
+    timeout_seconds: int,
+) -> None:
+    popen_calls = 0
+    real_popen = subprocess.Popen
+
+    def recording_popen(*args, **kwargs):
+        nonlocal popen_calls
+        popen_calls += 1
+        return real_popen(*args, **kwargs)
+
+    monkeypatch.setattr(
+        "local_control_center.security_policy.sandbox.subprocess.Popen",
+        recording_popen,
+    )
+
+    result = RestrictedSubprocessSandbox().execute(
+        argv=[sys.executable, "-c", "print('must-not-run')"],
+        cwd=str(tmp_path),
+        workspace_path=str(tmp_path),
+        timeout_seconds=timeout_seconds,
+    )
+
+    assert result["executed"] is False
+    assert result["blocked"] is True
+    assert sandbox_module.MAX_RESTRICTED_SUBPROCESS_TIMEOUT_SECONDS == 900
+    assert result["reason"] == (
+        "Restricted subprocess timeout_seconds must be an integer between 1 and "
+        f"{sandbox_module.MAX_RESTRICTED_SUBPROCESS_TIMEOUT_SECONDS}."
+    )
+    assert popen_calls == 0
+
+
+def test_tool_execution_fails_closed_when_required_stdout_capture_overflows(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    stdout_prefix = '{"status":"partial"}\n[truncated]'
+
+    def fake_execute(self, **kwargs):
+        return {
+            "executed": True,
+            "blocked": False,
+            "timedOut": False,
+            "returnCode": 0,
+            "durationMs": 12,
+            "stdout": stdout_prefix,
+            "stderr": "",
+            "stdoutCaptureTruncated": True,
+            "stderrCaptureTruncated": False,
+            "stdoutTotalBytes": 2_000_000,
+            "stderrTotalBytes": 0,
+        }
+
+    monkeypatch.setattr(
+        "local_control_center.security_policy.sandbox.RestrictedSubprocessSandbox.execute",
+        fake_execute,
+    )
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        project = ProjectsRepository(connection).create_project(
+            name="Overflowing Required Output",
+            path=tmp_path / "overflowing-required-output",
+            template_id="other",
+        )
+        workspace = allocate_test_workspace(connection, tmp_path, project, task_id="overflow-output")
+        profile = AgentsRepository(connection).upsert_agent_profile(
+            {
+                "id": "cli_overflow_output",
+                "name": "CLI Overflow Output",
+                "role": "implementer",
+                "runtimeMode": "cli",
+                "permissionProfile": "dev_safe",
+                "allowedTools": ["shell"],
+            }
+        )
+        run = AgentsRepository(connection).create_agent_run(
+            project_id=project["id"],
+            agent_profile_id=profile["id"],
+            task_id="overflow-output",
+            input_payload={"toolCalls": []},
+            output_payload={},
+            status="running",
+        )
+
+        tool_call = ToolBroker(connection, artifact_root=tmp_path).evaluate_tool_call(
+            project_id=project["id"],
+            agent_run_id=run["id"],
+            agent_profile=profile,
+            tool_call={
+                "tool": "shell",
+                "command": "python --version",
+                "argv": ["python", "--version"],
+                "workspaceId": workspace["id"],
+                "path": workspace["path"],
+                "workspacePath": workspace["path"],
+                "execute": True,
+                "captureStdoutArtifact": True,
+            },
+        )["toolCall"]
+
+        execution_result = tool_call["payload"]["executionResult"]
+        artifact = EvidenceRepository(connection).get_artifact_by_id(
+            execution_result["stdoutArtifactId"]
+        )
+
+    assert tool_call["status"] == "failed"
+    assert execution_result["reason"] == "Required stdout exceeded the complete capture limit."
+    assert execution_result["stdoutTruncated"] is True
+    assert Path(artifact["path"]).read_text(encoding="utf-8") == stdout_prefix
 
 
 def test_approved_sensitive_tool_call_requires_and_consumes_permission_grant(

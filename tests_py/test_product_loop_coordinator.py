@@ -11,6 +11,7 @@ import pytest
 import local_control_center.product_loop.coordinator as product_loop_coordinator
 from local_control_center.agents.ai_resource_manager import AIResourceManager
 from local_control_center.agents.provider_accounts import ProviderAccountStore
+from local_control_center.agents.runtime_status import RuntimeStatusService
 from local_control_center.backlog.repository import BacklogRepository
 from local_control_center.evidence.repository import EvidenceRepository
 from local_control_center.git_workspace.service import GitWorkspaceService
@@ -44,6 +45,19 @@ HAPPY_PATH = [
     "awaiting_approval",
     "delivered",
 ]
+
+
+@pytest.fixture(autouse=True)
+def _controlled_ollama_daemon(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "local_control_center.agents.runtime_status.cached_ollama_status",
+        lambda *, base_url=None, credential_ref=None: {
+            "provider": "ollama",
+            "available": True,
+            "models": ["qwen2.5-coder"],
+            "reason": "Controlled Ollama daemon.",
+        },
+    )
 
 
 def test_named_ollama_resource_maps_to_product_owner_and_developer_runtime(tmp_path: Path) -> None:
@@ -427,6 +441,18 @@ def _seed_ai_resource(
     model: str = "qwen2.5-coder",
     capabilities: list[str] | None = None,
 ) -> dict[str, Any]:
+    if provider_id == "ollama":
+        connection.execute(
+            """
+            UPDATE provider_accounts
+            SET enabled = 1,
+                health_status = 'healthy',
+                last_health_check_at = ?,
+                updated_at = ?
+            WHERE provider_id = 'ollama'
+            """,
+            (utc_now(), utc_now()),
+        )
     return AIResourceManager(connection).upsert_model_performance(
         {
             "providerId": provider_id,
@@ -976,6 +1002,131 @@ def test_retry_loop_remediation_queues_real_thread_product_loop_retry(tmp_path: 
         )
 
 
+def test_retry_loop_remediation_rolls_back_job_when_loop_supersede_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        project = _workspace_project(connection, tmp_path, "retry-atomic-rollback")
+        coordinator = ProductLoopCoordinator(connection, root=tmp_path)
+        result = coordinator.run_user_message(
+            project_id=project["id"],
+            message="Implement onboarding readiness.",
+        )
+        loop_id = result["loop"]["id"]
+        thread_id = result["loop"]["context"]["durableRun"]["thread"]["projectThreadId"]
+        action_row = connection.execute(
+            """
+            SELECT id
+            FROM remediation_actions
+            WHERE thread_id = ?
+              AND loop_id = ?
+              AND action_type = 'retry_loop'
+              AND status = 'pending'
+            """,
+            (thread_id, loop_id),
+        ).fetchone()
+        assert action_row is not None
+        initial_event_ids = {
+            event["id"] for event in ThreadsRepository(connection).list_events(thread_id)
+        }
+
+        def fail_supersede(*args: Any, **kwargs: Any) -> dict[str, Any]:
+            raise RuntimeError("forced retry supersede failure")
+
+        monkeypatch.setattr(ProductLoopCoordinator, "transition_in_transaction", fail_supersede)
+
+        with pytest.raises(RuntimeError, match="forced retry supersede failure"):
+            BlockerRemediationService(connection, root=tmp_path).execute(
+                action_row["id"],
+                platform=object(),
+            )
+
+        retry_jobs = [
+            job
+            for job in JobsRepository(connection).list_jobs(project["id"])
+            if job["kind"] == "thread.product_loop.run"
+        ]
+        assert retry_jobs == []
+        assert coordinator.get(loop_id)["state"] == "blocked"
+        assert ThreadsRepository(connection).get_thread(thread_id)["status"] != "queued"
+        assert {
+            event["id"] for event in ThreadsRepository(connection).list_events(thread_id)
+        } == initial_event_ids
+        action = BlockerRemediationService(connection, root=tmp_path).repository.get(action_row["id"])
+        assert action["status"] == "pending"
+
+
+def test_retry_loop_remediation_builds_job_from_context_revalidated_under_lock(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        project = _workspace_project(connection, tmp_path, "retry-fresh-context")
+        coordinator = ProductLoopCoordinator(connection, root=tmp_path)
+        result = coordinator.run_user_message(
+            project_id=project["id"],
+            message="Implement onboarding readiness.",
+        )
+        loop_id = result["loop"]["id"]
+        thread_id = result["loop"]["context"]["durableRun"]["thread"]["projectThreadId"]
+        action_row = connection.execute(
+            """
+            SELECT id
+            FROM remediation_actions
+            WHERE thread_id = ?
+              AND loop_id = ?
+              AND action_type = 'retry_loop'
+              AND status = 'pending'
+            """,
+            (thread_id, loop_id),
+        ).fetchone()
+        assert action_row is not None
+        approved_resources = [
+            {
+                "role": "product_owner",
+                "providerId": "ollama",
+                "model": "qwen3:14b",
+                "runtime": "local",
+            }
+        ]
+        service = BlockerRemediationService(connection, root=tmp_path)
+        original_get = service.repository.get
+        get_calls = 0
+
+        def inject_approval_before_locked_loop_read(action_id: str) -> dict[str, Any]:
+            nonlocal get_calls
+            get_calls += 1
+            if get_calls == 2:
+                current_loop = coordinator.get(loop_id)
+                durable = dict(current_loop["context"]["durableRun"])
+                coordinator.repository.update_loop_context(
+                    loop_id,
+                    context={
+                        **current_loop["context"],
+                        "durableRun": {
+                            **durable,
+                            "resourceApproval": {
+                                "status": "approved",
+                                "approvedResourceSelections": approved_resources,
+                            },
+                        },
+                    },
+                )
+            return original_get(action_id)
+
+        monkeypatch.setattr(service.repository, "get", inject_approval_before_locked_loop_read)
+
+        execution = service.execute(action_row["id"], platform=object())
+
+        retry_job = execution["execution"]["job"]
+        assert get_calls >= 2
+        assert retry_job["payload"]["approvedResourceSelections"] == approved_resources
+        assert retry_job["payload"]["runMetadata"]["approvedResourceSelections"] == approved_resources
+
+
 def test_retry_loop_remediation_rejects_stale_blocked_stage(tmp_path: Path) -> None:
     with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
         initialize_platform_schema(connection)
@@ -1039,25 +1190,12 @@ def test_retry_loop_remediation_rejects_stale_blocked_stage(tmp_path: Path) -> N
         assert coordinator.get(result["loop"]["id"])["state"] == "blocked"
 
 
-def test_retry_loop_remediation_keeps_queued_job_when_thread_status_update_crashes(
+@pytest.mark.parametrize("failure_point", ["thread_status", "thread_event"])
+def test_retry_loop_remediation_rolls_back_when_thread_queue_persistence_fails(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    failure_point: str,
 ) -> None:
-    status_calls = {"queued": 0}
-    original_set_status = ThreadsRepository.set_status
-
-    def crash_queued_thread_status(
-        self: ThreadsRepository,
-        thread_id: str,
-        status: str,
-    ) -> dict[str, Any]:
-        if status == "queued":
-            status_calls["queued"] += 1
-            raise RuntimeError("controlled retry thread status crashed")
-        return original_set_status(self, thread_id, status)
-
-    monkeypatch.setattr(ThreadsRepository, "set_status", crash_queued_thread_status)
-
     with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
         initialize_platform_schema(connection)
         project = _workspace_project(connection, tmp_path, "retry-status-crash")
@@ -1082,22 +1220,66 @@ def test_retry_loop_remediation_keeps_queued_job_when_thread_status_update_crash
             (thread_id, result["loop"]["id"]),
         ).fetchone()
         assert action_row is not None
+        initial_loop = coordinator.get(result["loop"]["id"])
+        initial_event_ids = {
+            event["id"] for event in ThreadsRepository(connection).list_events(thread_id)
+        }
+        original_set_status = ThreadsRepository.set_status
+        original_record_event = ThreadsRepository.record_event
 
-        execution = BlockerRemediationService(connection, root=tmp_path).execute(
-            action_row["id"],
-            platform=object(),
-        )
+        def crash_queued_thread_status(
+            self: ThreadsRepository,
+            target_thread_id: str,
+            status: str,
+        ) -> dict[str, Any]:
+            if failure_point == "thread_status" and status == "queued":
+                raise RuntimeError("controlled retry thread persistence crashed")
+            return original_set_status(self, target_thread_id, status)
 
-        retry_job = JobsRepository(connection).get_job(execution["execution"]["job"]["id"])
+        def crash_run_queued_event(
+            self: ThreadsRepository,
+            *,
+            thread_id: str,
+            type: str,
+            payload: dict[str, Any] | None = None,
+            agent_role: str | None = None,
+            metadata: dict[str, Any] | None = None,
+        ) -> dict[str, Any]:
+            if failure_point == "thread_event" and type == "run_queued":
+                raise RuntimeError("controlled retry thread persistence crashed")
+            return original_record_event(
+                self,
+                thread_id=thread_id,
+                type=type,
+                payload=payload,
+                agent_role=agent_role,
+                metadata=metadata,
+            )
+
+        monkeypatch.setattr(ThreadsRepository, "set_status", crash_queued_thread_status)
+        monkeypatch.setattr(ThreadsRepository, "record_event", crash_run_queued_event)
+
+        with pytest.raises(RuntimeError, match="controlled retry thread persistence crashed"):
+            BlockerRemediationService(connection, root=tmp_path).execute(
+                action_row["id"],
+                platform=object(),
+            )
+
         retried_loop = coordinator.get(result["loop"]["id"])
-        assert status_calls["queued"] == 1
-        assert execution["execution"]["status"] == "queued"
-        assert execution["execution"]["threadStatusUpdate"]["status"] == "failed"
-        assert "controlled retry thread status crashed" in execution["execution"]["threadStatusUpdate"]["reason"]
-        assert retry_job["status"] == "queued"
-        assert retried_loop["state"] == "cancelled"
-        assert retried_loop["context"]["durableRun"]["status"] == "retry_queued"
-        assert execution["remediation"]["status"] == "resolved"
+        retry_jobs = [
+            job
+            for job in JobsRepository(connection).list_jobs(project["id"])
+            if job["kind"] == "thread.product_loop.run"
+        ]
+        assert retry_jobs == []
+        assert retried_loop["state"] == "blocked"
+        assert retried_loop["version"] == initial_loop["version"]
+        assert ThreadsRepository(connection).get_thread(thread_id)["status"] != "queued"
+        assert {
+            event["id"] for event in ThreadsRepository(connection).list_events(thread_id)
+        } == initial_event_ids
+        action = BlockerRemediationService(connection, root=tmp_path).repository.get(action_row["id"])
+        assert action["status"] == "pending"
 
 
 def test_continue_plan_only_remediation_queues_real_plan_only_thread_run(tmp_path: Path) -> None:
@@ -1768,6 +1950,107 @@ def test_run_user_message_incomplete_idea_awaits_user_without_developer_executio
         transitions = [item["toState"] for item in result["transitions"]]
         assert transitions[-2:] == ["discovery", "awaiting_user"]
         assert "backlog_ready" not in transitions
+
+
+@pytest.mark.parametrize("failure_point", ["clarification", "loop_supersede"])
+def test_answer_question_remediation_rolls_back_decision_and_job_when_atomic_step_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failure_point: str,
+) -> None:
+    product_owner = _ProductOwnerRunner(
+        _product_owner_result(
+            "needs_input",
+            questions=[
+                {
+                    "id": "target-user",
+                    "question": "Who is the primary operator for this workflow?",
+                    "category": "users",
+                    "whyItMatters": "The backlog depends on the actor.",
+                    "blocking": True,
+                    "options": ["operations lead", "support lead"],
+                    "recommendation": "operations lead",
+                    "defaultDecision": "operations lead",
+                    "confidence": "medium",
+                    "priority": "high",
+                }
+            ],
+        )
+    )
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        _seed_ai_resource(connection)
+        project = _workspace_project(connection, tmp_path, "answer-atomic-rollback")
+        threads = ThreadsRepository(connection)
+        thread = threads.create_thread(
+            project_id=project["id"],
+            owner_type="workspace",
+            owner_id="workspace-1",
+            title="Answer atomic rollback",
+        )
+        coordinator = ProductLoopCoordinator(connection, root=tmp_path)
+        result = coordinator.run_user_message(
+            project_id=project["id"],
+            message="Build something useful.",
+            runtime_runner=_ControlledRuntime(),
+            git_service=_GitGate(),
+            product_owner_runner=product_owner,
+            assessment_runner=_AssessmentRunner(),
+            thread_id=thread["id"],
+        )
+        loop_id = result["loop"]["id"]
+        decision = threads.list_decisions(thread["id"])[0]
+        question = ProductDiscoveryRepository(connection).list_clarification_questions(
+            project_id=project["id"]
+        )[0]
+        action_row = connection.execute(
+            """
+            SELECT id
+            FROM remediation_actions
+            WHERE thread_id = ?
+              AND loop_id = ?
+              AND blocker_type = 'po_needs_input'
+              AND action_type = 'answer_question'
+              AND status = 'pending'
+            """,
+            (thread["id"], loop_id),
+        ).fetchone()
+        assert action_row is not None
+
+        def fail_atomic_step(*args: Any, **kwargs: Any) -> dict[str, Any]:
+            raise RuntimeError("forced answer transaction failure")
+
+        if failure_point == "clarification":
+            monkeypatch.setattr(
+                BlockerRemediationService,
+                "_record_clarification_answer",
+                fail_atomic_step,
+            )
+        else:
+            monkeypatch.setattr(ProductLoopCoordinator, "transition", fail_atomic_step)
+            monkeypatch.setattr(ProductLoopCoordinator, "transition_in_transaction", fail_atomic_step)
+
+        with pytest.raises(RuntimeError, match="forced answer transaction failure"):
+            BlockerRemediationService(connection, root=tmp_path).execute(
+                action_row["id"],
+                platform=object(),
+                payload={"answer": "operations lead"},
+            )
+
+        queued_jobs = [
+            job
+            for job in JobsRepository(connection).list_jobs(project["id"])
+            if job["kind"] == "thread.product_loop.run"
+        ]
+        discovery = ProductDiscoveryRepository(connection)
+        assert queued_jobs == []
+        assert threads.get_decision(decision["id"])["status"] == "pending"
+        assert threads.get_thread(thread["id"])["status"] == "waiting_decision"
+        assert coordinator.get(loop_id)["state"] == "awaiting_user"
+        assert discovery.list_clarification_answers(question["id"]) == []
+        assert discovery.get_clarification_question(question["id"])["status"] == "open"
+        action = BlockerRemediationService(connection, root=tmp_path).repository.get(action_row["id"])
+        assert action["status"] == "pending"
 
 
 def test_answer_question_remediation_rejects_client_decision_override(
@@ -2871,6 +3154,10 @@ def test_resource_manager_approval_remediation_unblocks_product_owner_resource_s
         _enable_remote_provider_for_resource_selection(connection)
         project = _workspace_project(connection, tmp_path, "po-resource-approval-required")
         coordinator = ProductLoopCoordinator(connection, root=tmp_path)
+        coordinator.routing_profiles.patch_role_policy(
+            "product_owner",
+            {"allowCli": False, "allowLocal": False},
+        )
 
         blocked = coordinator.run_user_message(
             project_id=project["id"],
@@ -2940,6 +3227,7 @@ def test_resource_manager_approval_remediation_unblocks_product_owner_resource_s
             """,
             (thread_id,),
         ).fetchone()
+        assert retry_row is not None
         retry = BlockerRemediationService(connection, root=tmp_path).execute(
             retry_row["id"],
             platform=object(),
@@ -2974,7 +3262,8 @@ def test_resource_manager_approval_remediation_unblocks_product_owner_resource_s
         assert approved_product_owner.status_checks[-1] == "nvidia_nim"
         assert approved_product_owner.run_payloads[0]["preferredRuntime"] == "nvidia_nim"
         assert approved_product_owner.run_payloads[0]["model"] == "nvidia/nemotron-coder"
-        assert product_owner_context["resourceDecision"]["approvalRequired"] is False
+        assert product_owner_context["resourceDecision"]["approvalRequired"] is True
+        assert product_owner_context["resourceDecision"]["approvalSatisfied"] is True
         assert product_owner_context["resourceDecision"]["policyResult"]["approvalOverride"]["approved"] is True
         assert approved_runtime.run_payloads == []
         assert ("resource_manager_approval_required", "approve_resource_decision") in followup_actions
@@ -3151,7 +3440,8 @@ def test_resource_manager_approval_remediation_unblocks_approved_unknown_cost_se
         )
 
         assert approved["status"] == "awaiting_approval"
-        assert execution_role["resourceDecision"]["approvalRequired"] is False
+        assert execution_role["resourceDecision"]["approvalRequired"] is True
+        assert execution_role["resourceDecision"]["approvalSatisfied"] is True
         assert execution_role["resourceDecision"]["policyResult"]["approvalOverride"]["approved"] is True
         assert approved_runtime.run_payloads[0]["preferredRuntime"] == "nvidia_nim"
 
@@ -3354,7 +3644,7 @@ def test_resource_manager_approval_remediation_rejects_non_approval_payload(
 
         assert blocked["status"] == "blocked"
         assert durable["blockedStage"] == "resource_manager"
-        assert "DeveloperAgent runtime" in blocked["reason"]
+        assert "No AI resource satisfied policy and capability filters" in blocked["reason"]
         assert approval["execution"]["status"] == "blocked"
         assert approval["execution"]["action"] == "approve_resource_decision"
         assert approval["remediation"]["status"] == "pending"
@@ -3472,14 +3762,171 @@ def test_run_user_message_ignores_resource_approval_with_fake_internal_marker(
         assert runtime.run_payloads == []
 
 
-def test_run_user_message_blocks_when_resource_manager_has_no_selectable_model(
+def test_run_user_message_uses_catalogued_executable_model_without_performance_profile(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     runtime = _ControlledRuntime()
+    product_owner = _backlog_ready_po()
     planner = _RoleTaskPlanner(["backend_engineer"])
+
+    def executable_cli_statuses(
+        _service: RuntimeStatusService,
+        *,
+        project_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        del project_id
+        return [
+            {
+                "id": "codex_cli",
+                "kind": "cli",
+                "configured": True,
+                "available": True,
+                "executable": True,
+                "capabilities": ["chat", "code_edit", "issue_to_patch", "review"],
+                "reason": "Controlled executable CLI runtime.",
+            },
+            {
+                "id": "claude_code_cli",
+                "kind": "cli",
+                "configured": True,
+                "available": True,
+                "executable": True,
+                "capabilities": ["chat", "code_edit", "issue_to_patch", "review"],
+                "reason": "Controlled executable CLI runtime.",
+            },
+        ]
+
+    monkeypatch.setattr(
+        RuntimeStatusService,
+        "list_provider_statuses",
+        executable_cli_statuses,
+    )
+
     with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
         initialize_platform_schema(connection)
-        project = _workspace_project(connection, tmp_path, "missing-ai-resource")
+        project = _workspace_project(connection, tmp_path, "catalogued-ai-resource")
+        coordinator = ProductLoopCoordinator(connection, root=tmp_path)
+
+        result = coordinator.run_user_message(
+            project_id=project["id"],
+            message="Implement backend onboarding readiness.",
+            runtime_runner=runtime,
+            git_service=_GitGate(),
+            product_owner_runner=product_owner,
+            assessment_runner=_AssessmentRunner(),
+            technical_lead_runner=planner,
+            run_metadata={"teamMode": "balanced", "risk": "medium"},
+        )
+
+        durable = result["loop"]["context"]["durableRun"]
+
+        assert result["status"] == "awaiting_approval"
+        resource_decision = durable["productOwner"]["resourceDecision"]
+        assert resource_decision["selected"]["providerId"] == "codex_cli"
+        assert resource_decision["selected"]["runtime"] == "cli"
+        assert resource_decision["policyResult"]["roleExecutionPolicy"]["allowCli"] is True
+        assert resource_decision["policyResult"]["providerPreferenceOrder"].index(
+            "codex_cli"
+        ) < resource_decision["policyResult"]["providerPreferenceOrder"].index(
+            "claude_code_cli"
+        )
+        assert (
+            resource_decision["policyResult"]["candidateInventory"]
+            == "model_catalog_with_performance_overlay"
+        )
+        assert product_owner.status_checks[-1] == "codex_cli"
+        assert runtime.run_payloads[0]["preferredRuntime"] == "codex_cli"
+
+
+@pytest.mark.parametrize("policy_state", ["cli_disabled", "missing"])
+def test_product_owner_resource_selection_obeys_its_mutable_role_policy_without_fallback(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    policy_state: str,
+) -> None:
+    monkeypatch.setattr(
+        RuntimeStatusService,
+        "list_provider_statuses",
+        lambda _service, *, project_id=None: [
+            {
+                "id": "codex_cli",
+                "kind": "cli",
+                "configured": True,
+                "available": True,
+                "executable": True,
+                "capabilities": ["chat", "code_edit", "issue_to_patch", "review"],
+                "reason": "Controlled executable CLI runtime.",
+            }
+        ],
+    )
+
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        connection.execute("UPDATE model_catalog SET enabled = 0")
+        connection.execute(
+            "UPDATE model_catalog SET enabled = 1 WHERE provider_id = 'codex_cli'"
+        )
+        project = _workspace_project(connection, tmp_path, f"po-policy-{policy_state}")
+        coordinator = ProductLoopCoordinator(connection, root=tmp_path)
+        if policy_state == "cli_disabled":
+            coordinator.routing_profiles.patch_role_policy(
+                "product_owner",
+                {"allowCli": False},
+            )
+        else:
+            connection.execute("DELETE FROM role_model_policies WHERE role = 'product_owner'")
+
+        decision, blocker = coordinator._product_owner_resource_selection(
+            project_id=project["id"],
+            loop_id=f"loop-{policy_state}",
+            task_id=f"task-{policy_state}",
+            request_meta={"teamMode": "balanced", "risk": "medium"},
+        )
+
+    assert decision["selected"] is None
+    assert blocker is not None
+    assert decision["rejected"]
+    assert {item["reason"] for item in decision["rejected"]} == {"role_blocks_cli"}
+    expected_policy_id = "product_owner" if policy_state == "cli_disabled" else None
+    assert decision["policyResult"]["roleExecutionPolicy"]["rolePolicyId"] == (
+        expected_policy_id
+    )
+
+
+def test_run_user_message_blocks_when_catalogued_runtime_is_not_executable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime = _ControlledRuntime()
+
+    def unavailable_cli_statuses(
+        _service: RuntimeStatusService,
+        *,
+        project_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        del project_id
+        return [
+            {
+                "id": "codex_cli",
+                "kind": "cli",
+                "configured": False,
+                "available": False,
+                "executable": False,
+                "capabilities": ["chat", "code_edit", "issue_to_patch", "review"],
+                "reason": "Controlled unavailable CLI runtime.",
+            }
+        ]
+
+    monkeypatch.setattr(
+        RuntimeStatusService,
+        "list_provider_statuses",
+        unavailable_cli_statuses,
+    )
+
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        project = _workspace_project(connection, tmp_path, "unavailable-catalogued-ai-resource")
         coordinator = ProductLoopCoordinator(connection, root=tmp_path)
 
         result = coordinator.run_user_message(
@@ -3489,7 +3936,7 @@ def test_run_user_message_blocks_when_resource_manager_has_no_selectable_model(
             git_service=_GitGate(),
             product_owner_runner=_backlog_ready_po(),
             assessment_runner=_AssessmentRunner(),
-            technical_lead_runner=planner,
+            technical_lead_runner=_RoleTaskPlanner(["backend_engineer"]),
             run_metadata={"teamMode": "balanced", "risk": "medium"},
         )
 
@@ -3499,10 +3946,12 @@ def test_run_user_message_blocks_when_resource_manager_has_no_selectable_model(
 
         assert result["status"] == "blocked"
         assert durable["blockedStage"] == "resource_manager"
-        assert "AIResourceManager" in result["reason"]
+        assert durable["productOwner"]["resourceDecision"]["selected"] is None
         assert runtime.run_payloads == []
-        assert ("resource_manager_unconfigured", "open_settings_section") in actions
-        assert ("resource_manager_unconfigured", "retry_loop") in actions
+        assert ("runtime_not_executable", "open_settings_section") in actions
+        assert ("runtime_not_executable", "validate_runtime") in actions
+        assert ("runtime_not_executable", "switch_runtime") in actions
+        assert ("runtime_not_executable", "retry_loop") in actions
 
 
 def test_run_user_message_blocks_when_product_owner_resource_selection_crashes(
@@ -3697,7 +4146,7 @@ def test_run_user_message_blocks_when_resource_manager_selection_crashes(
         assert ("resource_manager_unconfigured", "retry_loop") in actions
 
 
-def test_run_user_message_blocks_when_resource_manager_selection_cannot_drive_developer_runtime(
+def test_run_user_message_blocks_when_resource_manager_candidate_has_no_runtime_truth(
     tmp_path: Path,
 ) -> None:
     runtime = _ControlledRuntime()
@@ -3730,10 +4179,10 @@ def test_run_user_message_blocks_when_resource_manager_selection_cannot_drive_de
 
         assert result["status"] == "blocked"
         assert result["loop"]["context"]["durableRun"]["blockedStage"] == "resource_manager"
-        assert "DeveloperAgent runtime" in result["reason"]
+        assert "No AI resource satisfied policy and capability filters" in result["reason"]
         assert runtime.run_payloads == []
-        assert ("resource_manager_unconfigured", "open_settings_section") in actions
-        assert ("resource_manager_unconfigured", "retry_loop") in actions
+        assert ("runtime_not_executable", "open_settings_section") in actions
+        assert ("runtime_not_executable", "retry_loop") in actions
 
 
 def test_run_user_message_plan_only_stops_after_team_schedule_without_developer_runtime(
@@ -4322,6 +4771,69 @@ def test_run_user_message_blocks_when_delivery_approval_action_persistence_crash
             """,
             (thread_id,),
         ).fetchone()
+        assert retry_row is not None
+        initial_loop = coordinator.get(result["loop"]["id"])
+        initial_transition_ids = {
+            transition["id"] for transition in coordinator.list_transitions(result["loop"]["id"])
+        }
+        initial_job_ids = {job["id"] for job in JobsRepository(connection).list_jobs(project["id"])}
+        initial_action_request_ids = {
+            request["id"] for request in JobsRepository(connection).list_action_requests()
+        }
+        initial_thread = ThreadsRepository(connection).get_thread(thread_id)
+        initial_thread_event_ids = {
+            event["id"] for event in ThreadsRepository(connection).list_events(thread_id)
+        }
+        original_record_event = ThreadsRepository.record_event
+
+        def crash_late_approval_event(
+            self: ThreadsRepository,
+            *,
+            thread_id: str,
+            type: str,
+            payload: dict[str, Any] | None = None,
+            agent_role: str | None = None,
+            metadata: dict[str, Any] | None = None,
+        ) -> dict[str, Any]:
+            if type == "approval_required":
+                raise RuntimeError("controlled late approval retry failure")
+            return original_record_event(
+                self,
+                thread_id=thread_id,
+                type=type,
+                payload=payload,
+                agent_role=agent_role,
+                metadata=metadata,
+            )
+
+        monkeypatch.setattr(ThreadsRepository, "record_event", crash_late_approval_event)
+        with pytest.raises(RuntimeError, match="controlled late approval retry failure"):
+            BlockerRemediationService(connection, root=tmp_path).execute(
+                retry_row["id"],
+                platform=object(),
+            )
+
+        rolled_back_loop = coordinator.get(result["loop"]["id"])
+        assert rolled_back_loop["state"] == initial_loop["state"]
+        assert rolled_back_loop["version"] == initial_loop["version"]
+        assert {
+            transition["id"] for transition in coordinator.list_transitions(result["loop"]["id"])
+        } == initial_transition_ids
+        assert {
+            job["id"] for job in JobsRepository(connection).list_jobs(project["id"])
+        } == initial_job_ids
+        assert {
+            request["id"] for request in JobsRepository(connection).list_action_requests()
+        } == initial_action_request_ids
+        assert ThreadsRepository(connection).get_thread(thread_id)["status"] == initial_thread["status"]
+        assert {
+            event["id"] for event in ThreadsRepository(connection).list_events(thread_id)
+        } == initial_thread_event_ids
+        assert BlockerRemediationService(connection, root=tmp_path).repository.get(retry_row["id"])[
+            "status"
+        ] == "pending"
+
+        monkeypatch.setattr(ThreadsRepository, "record_event", original_record_event)
         retry = BlockerRemediationService(connection, root=tmp_path).execute(
             retry_row["id"],
             platform=object(),
@@ -4344,6 +4856,16 @@ def test_run_user_message_blocks_when_delivery_approval_action_persistence_crash
         assert retried_loop["state"] == "awaiting_approval"
         assert retried_loop["context"]["durableRun"]["status"] == "awaiting_approval"
         assert retried_loop["context"]["durableRun"]["approval"]["actionRequestId"]
+        assert connection.execute(
+            """
+            SELECT COUNT(*) AS total
+            FROM remediation_actions
+            WHERE loop_id = ?
+              AND blocker_type = 'approval_unavailable'
+              AND status = 'pending'
+            """,
+            (result["loop"]["id"],),
+        ).fetchone()["total"] == 0
 
 
 def test_run_user_message_records_resource_learning_when_developer_runtime_crashes(tmp_path: Path) -> None:
@@ -4897,6 +5419,87 @@ def test_run_user_message_blocks_when_resource_learning_persistence_crashes(
             """,
             (thread_id,),
         ).fetchone()
+        assert retry_row is not None
+        initial_loop = coordinator.get(result["loop"]["id"])
+        initial_transition_ids = {
+            transition["id"] for transition in coordinator.list_transitions(result["loop"]["id"])
+        }
+        initial_job_ids = {job["id"] for job in JobsRepository(connection).list_jobs(project["id"])}
+        initial_action_request_ids = {
+            request["id"] for request in JobsRepository(connection).list_action_requests()
+        }
+        initial_thread = ThreadsRepository(connection).get_thread(thread_id)
+        initial_thread_event_ids = {
+            event["id"] for event in ThreadsRepository(connection).list_events(thread_id)
+        }
+        initial_cost_observation_ids = {
+            row["id"] for row in connection.execute("SELECT id FROM ai_cost_observations").fetchall()
+        }
+        initial_performance_evidence = {
+            row["id"]: row["evidence_json"]
+            for row in connection.execute(
+                "SELECT id, evidence_json FROM ai_model_performance"
+            ).fetchall()
+        }
+        original_record_event = ThreadsRepository.record_event
+
+        def crash_late_resource_learning_event(
+            self: ThreadsRepository,
+            *,
+            thread_id: str,
+            type: str,
+            payload: dict[str, Any] | None = None,
+            agent_role: str | None = None,
+            metadata: dict[str, Any] | None = None,
+        ) -> dict[str, Any]:
+            if type == "approval_required":
+                raise RuntimeError("controlled late resource learning retry failure")
+            return original_record_event(
+                self,
+                thread_id=thread_id,
+                type=type,
+                payload=payload,
+                agent_role=agent_role,
+                metadata=metadata,
+            )
+
+        monkeypatch.setattr(ThreadsRepository, "record_event", crash_late_resource_learning_event)
+        with pytest.raises(RuntimeError, match="controlled late resource learning retry failure"):
+            BlockerRemediationService(connection, root=tmp_path).execute(
+                retry_row["id"],
+                platform=object(),
+            )
+
+        rolled_back_loop = coordinator.get(result["loop"]["id"])
+        assert rolled_back_loop["state"] == initial_loop["state"]
+        assert rolled_back_loop["version"] == initial_loop["version"]
+        assert {
+            transition["id"] for transition in coordinator.list_transitions(result["loop"]["id"])
+        } == initial_transition_ids
+        assert {
+            job["id"] for job in JobsRepository(connection).list_jobs(project["id"])
+        } == initial_job_ids
+        assert {
+            request["id"] for request in JobsRepository(connection).list_action_requests()
+        } == initial_action_request_ids
+        assert ThreadsRepository(connection).get_thread(thread_id)["status"] == initial_thread["status"]
+        assert {
+            event["id"] for event in ThreadsRepository(connection).list_events(thread_id)
+        } == initial_thread_event_ids
+        assert {
+            row["id"] for row in connection.execute("SELECT id FROM ai_cost_observations").fetchall()
+        } == initial_cost_observation_ids
+        assert {
+            row["id"]: row["evidence_json"]
+            for row in connection.execute(
+                "SELECT id, evidence_json FROM ai_model_performance"
+            ).fetchall()
+        } == initial_performance_evidence
+        assert BlockerRemediationService(connection, root=tmp_path).repository.get(retry_row["id"])[
+            "status"
+        ] == "pending"
+
+        monkeypatch.setattr(ThreadsRepository, "record_event", original_record_event)
         retry = BlockerRemediationService(connection, root=tmp_path).execute(
             retry_row["id"],
             platform=object(),
@@ -4922,6 +5525,16 @@ def test_run_user_message_blocks_when_resource_learning_persistence_crashes(
         assert retried_loop["context"]["durableRun"]["status"] == "awaiting_approval"
         assert retried_loop["context"]["durableRun"]["resourceLearning"]["status"] == "recorded"
         assert retried_loop["context"]["durableRun"]["approval"]["actionRequestId"]
+        assert connection.execute(
+            """
+            SELECT COUNT(*) AS total
+            FROM remediation_actions
+            WHERE loop_id = ?
+              AND blocker_type = 'resource_learning_failed'
+              AND status = 'pending'
+            """,
+            (result["loop"]["id"],),
+        ).fetchone()["total"] == 0
 
 
 def test_run_user_message_records_unknown_resource_usage_without_fabricating_tokens(tmp_path: Path) -> None:

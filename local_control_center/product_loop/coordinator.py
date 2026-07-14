@@ -44,6 +44,7 @@ from local_control_center.agents.product_owner_agent_contract import (
     PRODUCT_OWNER_AGENT_CLI_RUNTIMES,
     PRODUCT_OWNER_AGENT_ID,
     PRODUCT_OWNER_AGENT_MODEL_RUNTIMES,
+    PRODUCT_OWNER_AGENT_RUNTIME_ORDER,
 )
 from local_control_center.agents.repository import AgentsRepository
 from local_control_center.agents.routing_profiles import RoutingProfileStore
@@ -2122,15 +2123,20 @@ class ProductLoopCoordinator:
         ).strip()
         return value or "remote_allowed"
 
-    def _resource_cost_policy(self, role: str) -> dict[str, Any]:
-        """Resuelve la política de costo del rol (o la del developer como respaldo), fail-closed.
+    def _resource_role_policy(
+        self,
+        role: str,
+        *,
+        fallback_to_developer: bool = True,
+    ) -> dict[str, Any]:
+        """Normaliza la política mutable del rol para que ResourceManager la aplique fail-closed.
 
         ``requiresApprovalOverUsd`` es el umbral premium: por encima de él una selección con costo
         conocido exige aprobación humana. Espeja la precedencia del ``ModelRouter`` (umbral explícito
         y, si no lo hay, el cap por tarea). Sin política registrada se asume lo más restrictivo.
         """
         roles = [role]
-        if role != "developer":
+        if fallback_to_developer and role != "developer":
             roles.append("developer")
         for policy_role in roles:
             try:
@@ -2140,23 +2146,53 @@ class ProductLoopCoordinator:
             threshold = policy.get("requiresApprovalOverUsd")
             if threshold is None:
                 threshold = policy.get("maxCostPerTaskUsd")
+            preferred_provider_ids: list[str] = []
+            for preference in [
+                *(policy.get("preferred") or []),
+                *(policy.get("fallback") or []),
+                *(policy.get("escalation") or []),
+            ]:
+                if not isinstance(preference, dict):
+                    continue
+                provider_id = str(preference.get("provider") or "").strip()
+                if provider_id and provider_id not in preferred_provider_ids:
+                    preferred_provider_ids.append(provider_id)
             return {
+                "rolePolicyId": str(policy.get("id") or policy_role),
                 "allowUnknownCost": bool(policy.get("allowUnknownCost", False)),
                 "requireApprovalForUnknownCost": bool(
                     policy.get("requireApprovalForUnknownCost", True)
                 ),
                 "requiresApprovalOverUsd": float(threshold) if threshold is not None else None,
+                "maxTokensPerRun": int(policy.get("maxTokensPerRun") or 0) or None,
+                "allowRemote": bool(policy.get("allowRemote", False)),
+                "allowLocal": bool(policy.get("allowLocal", False)),
+                "allowCli": bool(policy.get("allowCli", False)),
+                "allowApi": bool(policy.get("allowApi", False)),
+                "preferredProviderIds": preferred_provider_ids,
+                "blockedResources": [
+                    item for item in policy.get("blocked") or [] if isinstance(item, dict)
+                ],
             }
         return {
+            "rolePolicyId": None,
             "allowUnknownCost": False,
             "requireApprovalForUnknownCost": True,
             "requiresApprovalOverUsd": None,
+            "maxTokensPerRun": None,
+            "allowRemote": False,
+            "allowLocal": False,
+            "allowCli": False,
+            "allowApi": False,
+            "preferredProviderIds": [],
+            "blockedResources": [],
         }
 
     @staticmethod
     def _public_resource_decision(decision: dict[str, Any]) -> dict[str, Any]:
         return redact_secrets(
             {
+                "routingDecisionId": decision.get("routingDecisionId"),
                 "selected": decision.get("selected"),
                 "reviewerSelection": decision.get("reviewerSelection"),
                 "localVsRemote": decision.get("localVsRemote"),
@@ -2166,6 +2202,7 @@ class ProductLoopCoordinator:
                 "maxTokens": decision.get("maxTokens"),
                 "budgetStop": decision.get("budgetStop"),
                 "approvalRequired": decision.get("approvalRequired"),
+                "approvalSatisfied": bool(decision.get("approvalSatisfied")),
                 "estimatedCostUsd": decision.get("estimatedCostUsd"),
                 "usageStatus": decision.get("usageStatus"),
                 "decisionReason": decision.get("decisionReason"),
@@ -2337,13 +2374,29 @@ class ProductLoopCoordinator:
         policy_result["approvalOverride"] = {"approved": True, **approval}
         return {
             **decision,
-            "approvalRequired": False,
+            # Preserve the immutable routing decision. The durable approval satisfies the gate,
+            # but it must not rewrite what AIResourceManager originally required/persisted.
+            "approvalSatisfied": True,
             "decisionReason": (
                 f"{decision.get('decisionReason') or 'Selected AI resource.'} "
                 "Operator approved this exact resource selection for retry."
             ),
             "policyResult": policy_result,
         }
+
+    @staticmethod
+    def _resource_decision_has_pending_approval(decision: dict[str, Any]) -> bool:
+        if not bool(decision.get("approvalRequired")):
+            return False
+        if bool(decision.get("approvalSatisfied")):
+            return False
+        policy_result = decision.get("policyResult") if isinstance(decision.get("policyResult"), dict) else {}
+        override = (
+            policy_result.get("approvalOverride")
+            if isinstance(policy_result.get("approvalOverride"), dict)
+            else {}
+        )
+        return override.get("approved") is not True
 
     def _team_schedule_with_resource_decisions(
         self,
@@ -2364,7 +2417,7 @@ class ProductLoopCoordinator:
             role = str(role_plan["role"])
             profile = profiles_by_role.get(role) or {}
             task = self._task_for_assignment(role, agent_tasks)
-            cost_policy = self._resource_cost_policy(role)
+            resource_policy = self._resource_role_policy(role)
             decision = manager.select_resource(
                 AIResourceRequest(
                     project_id=project_id,
@@ -2379,9 +2432,19 @@ class ProductLoopCoordinator:
                     privacy_level=privacy_level,
                     budget_remaining_usd=role_plan.get("budgetUsd"),
                     max_tokens=role_plan.get("maxTokens"),
-                    allow_unknown_cost=cost_policy["allowUnknownCost"],
-                    require_approval_for_unknown_cost=cost_policy["requireApprovalForUnknownCost"],
-                    require_approval_over_usd=cost_policy["requiresApprovalOverUsd"],
+                    preferred_provider_ids=resource_policy["preferredProviderIds"],
+                    blocked_resources=resource_policy["blockedResources"],
+                    context_token_limit=resource_policy["maxTokensPerRun"],
+                    role_policy_id=resource_policy["rolePolicyId"],
+                    allow_remote=resource_policy["allowRemote"],
+                    allow_local=resource_policy["allowLocal"],
+                    allow_cli=resource_policy["allowCli"],
+                    allow_api=resource_policy["allowApi"],
+                    allow_unknown_cost=resource_policy["allowUnknownCost"],
+                    require_approval_for_unknown_cost=resource_policy[
+                        "requireApprovalForUnknownCost"
+                    ],
+                    require_approval_over_usd=resource_policy["requiresApprovalOverUsd"],
                 ),
                 record=True,
             )
@@ -2402,7 +2465,7 @@ class ProductLoopCoordinator:
                         "decision": public_decision,
                     }
                 )
-            elif bool(decision.get("approvalRequired")):
+            elif self._resource_decision_has_pending_approval(decision):
                 blockers.append(
                     {
                         "role": role,
@@ -2669,7 +2732,33 @@ class ProductLoopCoordinator:
         request_meta: dict[str, Any],
     ) -> tuple[dict[str, Any], dict[str, Any] | None]:
         manager = AIResourceManager(self.connection)
-        cost_policy = self._resource_cost_policy("product_owner")
+        resource_policy = self._resource_role_policy(
+            "product_owner",
+            fallback_to_developer=False,
+        )
+        ollama_providers = {
+            str(row["provider_id"])
+            for row in self.connection.execute(
+                "SELECT provider_id FROM provider_accounts WHERE api_format = 'ollama'"
+            ).fetchall()
+        }
+        allowed_provider_ids = sorted(
+            PRODUCT_OWNER_AGENT_CLI_RUNTIMES
+            | PRODUCT_OWNER_AGENT_MODEL_RUNTIMES
+            | ollama_providers
+        )
+        preferred_provider_ids: list[str] = []
+        ordered_contract_providers: list[str] = []
+        for provider_id in PRODUCT_OWNER_AGENT_RUNTIME_ORDER:
+            ordered_contract_providers.append(provider_id)
+            if provider_id == "ollama":
+                ordered_contract_providers.extend(sorted(ollama_providers - {"ollama"}))
+        for provider_id in [
+            *resource_policy["preferredProviderIds"],
+            *ordered_contract_providers,
+        ]:
+            if provider_id in allowed_provider_ids and provider_id not in preferred_provider_ids:
+                preferred_provider_ids.append(provider_id)
         decision = manager.select_resource(
             AIResourceRequest(
                 project_id=project_id,
@@ -2681,10 +2770,21 @@ class ProductLoopCoordinator:
                 routing_policy=self._team_mode(request_meta),
                 context_tokens_estimate=self._resource_context_tokens_estimate(request_meta),
                 required_capabilities=["chat"],
+                allowed_provider_ids=allowed_provider_ids,
+                preferred_provider_ids=preferred_provider_ids,
+                blocked_resources=resource_policy["blockedResources"],
+                context_token_limit=resource_policy["maxTokensPerRun"],
+                role_policy_id=resource_policy["rolePolicyId"],
+                allow_remote=resource_policy["allowRemote"],
+                allow_local=resource_policy["allowLocal"],
+                allow_cli=resource_policy["allowCli"],
+                allow_api=resource_policy["allowApi"],
                 privacy_level=self._resource_privacy_level(request_meta),
-                allow_unknown_cost=cost_policy["allowUnknownCost"],
-                require_approval_for_unknown_cost=cost_policy["requireApprovalForUnknownCost"],
-                require_approval_over_usd=cost_policy["requiresApprovalOverUsd"],
+                allow_unknown_cost=resource_policy["allowUnknownCost"],
+                require_approval_for_unknown_cost=resource_policy[
+                    "requireApprovalForUnknownCost"
+                ],
+                require_approval_over_usd=resource_policy["requiresApprovalOverUsd"],
             ),
             record=True,
         )
@@ -2703,7 +2803,7 @@ class ProductLoopCoordinator:
                 "reason": decision.get("decisionReason") or "AIResourceManager did not select a resource.",
                 "decision": public_decision,
             }
-        if bool(public_decision.get("approvalRequired")):
+        if self._resource_decision_has_pending_approval(public_decision):
             return public_decision, {
                 "role": "product_owner",
                 "taskId": task_id,
@@ -3736,6 +3836,10 @@ class ProductLoopCoordinator:
             "preferredRuntime": product_owner_preferred_runtime or preferred_runtime,
             "model": product_owner_selected_resource.get("model"),
             "assessment": redact_secrets(assessment_result or {}),
+            "workflowContext": {
+                "workflowRunId": loop["id"],
+                "workflowStepId": "product_owner",
+            },
             "metadata": {
                 "loopId": loop["id"],
                 "thread": thread,
@@ -5397,7 +5501,7 @@ class ProductLoopCoordinator:
         """
         try:
             with immediate_transaction(self.connection):
-                updated, _transition = self._apply_transition(
+                updated = self.transition_in_transaction(
                     loop_id,
                     to_state=to_state,
                     reason=reason,
@@ -5414,6 +5518,43 @@ class ProductLoopCoordinator:
             raise ProductLoopTransitionError(
                 f"Concurrent product loop transition detected for product loop {loop_id}."
             ) from error
+        return updated
+
+    def transition_in_transaction(
+        self,
+        loop_id: str,
+        *,
+        to_state: str,
+        reason: str = "",
+        actor: str = "operator",
+        trigger: str = "",
+        correlation_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
+        expected_version: int | None = None,
+        context_patch: dict[str, Any] | None = None,
+        now: str | None = None,
+        _fsm_patch: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Apply a transition and terminal remediation cleanup in the caller's transaction."""
+        if not self.connection.in_transaction:
+            raise RuntimeError("transition_in_transaction requires an active transaction.")
+        updated, _transition = self._apply_transition(
+            loop_id,
+            to_state=to_state,
+            reason=reason,
+            actor=actor,
+            trigger=trigger,
+            correlation_id=correlation_id,
+            metadata=metadata,
+            expected_version=expected_version,
+            context_patch=context_patch,
+            now=now,
+            _fsm_patch=_fsm_patch,
+        )
+        if updated["state"] in TERMINAL_STATES:
+            RemediationActionsRepository(self.connection).resolve_pending_for_loop_in_transaction(
+                loop_id
+            )
         return updated
 
     def _apply_transition(

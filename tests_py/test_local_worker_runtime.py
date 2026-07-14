@@ -13,7 +13,11 @@ from typing import Any
 from fastapi.testclient import TestClient
 
 from local_control_center.jobs_approvals.repository import JobsRepository
-from local_control_center.jobs_approvals.worker import execute_job
+from local_control_center.jobs_approvals.worker import (
+    _thread_status_for_product_loop_result,
+    _thread_terminal_event_for_product_loop_result,
+    execute_job,
+)
 from local_control_center.projects.repository import ProjectsRepository
 from local_control_center.remediations.service import BlockerRemediationService
 from local_control_center.settings.repository import SettingsRepository
@@ -111,6 +115,11 @@ def _pending_remediation_actions(connection, thread_id: str) -> set[tuple[str, s
         (thread_id,),
     ).fetchall()
     return {(row["blocker_type"], row["action_type"]) for row in rows}
+
+
+def test_worker_preserves_waiting_decision_for_awaiting_user_product_loop() -> None:
+    assert _thread_status_for_product_loop_result("awaiting_user") == "waiting_decision"
+    assert _thread_terminal_event_for_product_loop_result("awaiting_user") == "decision_required"
 
 
 def test_worker_settings_default_autostart_is_enabled(tmp_path: Path) -> None:

@@ -430,6 +430,79 @@ test('Remediations: a ProductOwnerAgent block offers validate and switch runtime
 	).toBeVisible();
 });
 
+test('Remediations: a local-only resource block keeps runtime and routing repairs distinct', async ({
+	page,
+}) => {
+	const technicalReason =
+		'Project privacy is local-only and no executable local AI resource is available.';
+	await mockRemediations(page, [
+		remediation({
+			id: 'remediation-local-runtime',
+			stage: 'resource_manager',
+			blockerType: 'resource_manager_privacy_blocked',
+			actionType: 'open_settings_section',
+			title: 'Configure local runtime',
+			description: 'Enable an executable local AI runtime without weakening project privacy.',
+			technicalReason,
+			primary: true,
+			payload: { reason: technicalReason, section: 'providers-cli' },
+		}),
+		remediation({
+			id: 'remediation-review-routing',
+			stage: 'resource_manager',
+			blockerType: 'resource_manager_privacy_blocked',
+			actionType: 'open_settings_section',
+			title: 'Review routing policy',
+			description: 'Review the project privacy policy without changing it automatically.',
+			technicalReason,
+			payload: { reason: technicalReason, section: 'routing' },
+		}),
+		remediation({
+			id: 'remediation-review-routing-duplicate',
+			stage: 'resource_manager',
+			blockerType: 'resource_manager_privacy_blocked',
+			actionType: 'open_settings_section',
+			title: 'Review routing policy',
+			description: 'Duplicate routing repair fixture that must not render twice.',
+			technicalReason,
+			payload: { reason: technicalReason, section: 'routing' },
+		}),
+	]);
+	await page.goto('/#threads');
+	await expectControlPlaneLoaded(page);
+	await createLiveThread(page, `Privacy blocker remediation ${Date.now()}`);
+
+	const card = blockerCard(
+		page,
+		/Project privacy policy requires a local AI resource|La política de privacidad del proyecto exige un recurso de IA local/,
+	);
+	await expect(card).toBeVisible({ timeout: 20_000 });
+
+	const configureLocal = card.getByRole('button', {
+		name: /Configure local runtime|Configurar runtime local/,
+	});
+	const openRouting = card.getByRole('button', { name: /Open routing|Abrir enrutamiento/ });
+	await expect(configureLocal).toBeVisible();
+	await expect(openRouting).toBeVisible();
+
+	await configureLocal.click();
+	let settings = page.getByRole('dialog', { name: /Settings|Configuración/ });
+	await expect(settings).toBeVisible({ timeout: 10_000 });
+	await expect(
+		settings.getByRole('button', { name: /Providers & CLI|Proveedores y CLI/ }),
+	).toHaveAttribute('aria-current', 'true');
+	await settings.getByRole('button', { name: /Close Settings|Cerrar Configuración/ }).click();
+	await expect(settings).toBeHidden();
+
+	await openRouting.click();
+	settings = page.getByRole('dialog', { name: /Settings|Configuración/ });
+	await expect(settings).toBeVisible({ timeout: 10_000 });
+	await expect(settings.getByRole('button', { name: /Routing|Enrutamiento/ })).toHaveAttribute(
+		'aria-current',
+		'true',
+	);
+});
+
 test('Remediations: a destructive action is confirmed before it executes', async ({ page }) => {
 	let executePayload = null;
 	let remediations = [

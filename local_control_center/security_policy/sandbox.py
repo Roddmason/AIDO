@@ -16,8 +16,11 @@ from __future__ import annotations
 
 import os
 import shutil
+import signal
 import subprocess
+import threading
 import time
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
@@ -75,12 +78,73 @@ VERSION_ARGS = {"--version", "-V", "version"}
 AUTH_STATUS_ARGS: set[tuple[str, ...]] = {("auth", "status", "--json"), ("login", "status")}
 
 MAX_CAPTURE_CHARS = 4000
+MAX_COMPLETE_CAPTURE_BYTES = 1_048_576
+MAX_RESTRICTED_SUBPROCESS_TIMEOUT_SECONDS = 900
+CAPTURE_CHUNK_BYTES = 65_536
+TRUNCATION_MARKER_BYTES = b"\n[truncated]"
 
 
 def _truncate(value: str) -> str:
     if len(value) <= MAX_CAPTURE_CHARS:
         return value
     return value[:MAX_CAPTURE_CHARS] + "\n[truncated]"
+
+
+def _drain_bounded_stream(stream: Any, *, max_bytes: int, state: dict[str, Any]) -> None:
+    """Drena un pipe sin bloquear al hijo y conserva solo un prefijo acotado en memoria."""
+    prefix = bytearray()
+    total_bytes = 0
+    capture_error = False
+    try:
+        while True:
+            chunk = stream.read(CAPTURE_CHUNK_BYTES)
+            if not chunk:
+                break
+            if isinstance(chunk, str):
+                chunk = chunk.encode("utf-8", errors="replace")
+            total_bytes += len(chunk)
+            remaining = max_bytes - len(prefix)
+            if remaining > 0:
+                prefix.extend(chunk[:remaining])
+    except (OSError, ValueError):
+        capture_error = True
+    finally:
+        truncated = capture_error or total_bytes > max_bytes
+        content = bytes(prefix)
+        if truncated:
+            prefix_limit = max(0, max_bytes - len(TRUNCATION_MARKER_BYTES))
+            content = content[:prefix_limit] + TRUNCATION_MARKER_BYTES
+        state.update(
+            {
+                "text": content.decode("utf-8", errors="replace"),
+                "totalBytes": total_bytes,
+                "truncated": truncated,
+            }
+        )
+
+
+def _terminate_process_tree(process: subprocess.Popen[Any]) -> None:
+    """Termina el grupo aislado y usa kill del padre como fallback acotado."""
+    if os.name == "nt":
+        with suppress(OSError, subprocess.TimeoutExpired):
+            subprocess.run(
+                ["taskkill.exe", "/PID", str(process.pid), "/T", "/F"],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=5,
+                shell=False,
+                check=False,
+            )
+    else:
+        with suppress(OSError):
+            os.killpg(process.pid, signal.SIGKILL)
+
+    if process.poll() is None:
+        with suppress(OSError):
+            process.kill()
+    with suppress(subprocess.TimeoutExpired):
+        process.wait(timeout=5)
 
 
 def _inside(path: Path, root: Path) -> bool:
@@ -335,13 +399,30 @@ class RestrictedSubprocessSandbox:
         workspace_path: str | None,
         timeout_seconds: int = 30,
         truncate_output: bool = True,
+        environment: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         """Corre un comando allowlisted dentro del workspace y devuelve su resultado capturado.
 
         Rechaza con ``{"blocked": True, ...}`` (sin lanzar) si argv es invalido, el ejecutable no
         esta allowlisted, hay un flag peligroso o el cwd cae fuera del workspace. El timeout se
-        acota a [1, 120] s; la salida se trunca salvo que ``truncate_output`` sea ``False``.
+        valida en [1, 900] s sin recortarlo silenciosamente. Ambos streams se drenan
+        concurrentemente y su captura queda acotada; ``truncate_output=False`` eleva el límite a
+        1 MiB por stream, pero nunca lo deshabilita. ``environment`` reemplaza el entorno heredado
+        cuando el broker entrega una allowlist construida por una operación interna confiable.
         """
+        if (
+            isinstance(timeout_seconds, bool)
+            or not isinstance(timeout_seconds, int)
+            or not 1 <= timeout_seconds <= MAX_RESTRICTED_SUBPROCESS_TIMEOUT_SECONDS
+        ):
+            return {
+                "executed": False,
+                "blocked": True,
+                "reason": (
+                    "Restricted subprocess timeout_seconds must be an integer between 1 and "
+                    f"{MAX_RESTRICTED_SUBPROCESS_TIMEOUT_SECONDS}."
+                ),
+            }
         if not isinstance(argv, list) or not argv or not all(isinstance(item, str) for item in argv):
             return {
                 "executed": False,
@@ -380,26 +461,27 @@ class RestrictedSubprocessSandbox:
             }
 
         started = time.perf_counter()
+        capture_limit = MAX_CAPTURE_CHARS if truncate_output else MAX_COMPLETE_CAPTURE_BYTES
+        stdout_state: dict[str, Any] = {}
+        stderr_state: dict[str, Any] = {}
+        process_group_kwargs: dict[str, Any]
+        if os.name == "nt":
+            process_group_kwargs = {
+                "creationflags": subprocess.CREATE_NEW_PROCESS_GROUP,
+            }
+        else:
+            process_group_kwargs = {"start_new_session": True}
         try:
-            completed = subprocess.run(
+            process = subprocess.Popen(
                 _resolved_subprocess_argv([str(item) for item in argv]),
                 cwd=str(run_cwd),
-                capture_output=True,
-                text=True,
-                timeout=max(1, min(timeout_seconds, 120)),
+                env=environment,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 shell=False,
-                check=False,
+                **process_group_kwargs,
             )
-        except subprocess.TimeoutExpired as exc:
-            return {
-                "executed": True,
-                "blocked": False,
-                "timedOut": True,
-                "returnCode": None,
-                "durationMs": int((time.perf_counter() - started) * 1000),
-                "stdout": _truncate(exc.stdout or "") if truncate_output else (exc.stdout or ""),
-                "stderr": _truncate(exc.stderr or "") if truncate_output else (exc.stderr or ""),
-            }
         except OSError as exc:
             return {
                 "executed": False,
@@ -407,14 +489,70 @@ class RestrictedSubprocessSandbox:
                 "reason": str(exc),
             }
 
+        if process.stdout is None or process.stderr is None:
+            _terminate_process_tree(process)
+            return {
+                "executed": False,
+                "blocked": True,
+                "reason": "Restricted subprocess could not establish bounded output pipes.",
+            }
+
+        stdout_thread = threading.Thread(
+            target=_drain_bounded_stream,
+            args=(process.stdout,),
+            kwargs={"max_bytes": capture_limit, "state": stdout_state},
+            daemon=True,
+        )
+        stderr_thread = threading.Thread(
+            target=_drain_bounded_stream,
+            args=(process.stderr,),
+            kwargs={"max_bytes": capture_limit, "state": stderr_state},
+            daemon=True,
+        )
+        stdout_thread.start()
+        stderr_thread.start()
+
+        timed_out = False
+        return_code: int | None
+        try:
+            return_code = process.wait(timeout=timeout_seconds)
+        except subprocess.TimeoutExpired:
+            timed_out = True
+            return_code = None
+            _terminate_process_tree(process)
+        finally:
+            stdout_thread.join(timeout=5)
+            stderr_thread.join(timeout=5)
+            if stdout_thread.is_alive():
+                process.stdout.close()
+                stdout_thread.join(timeout=1)
+            if stderr_thread.is_alive():
+                process.stderr.close()
+                stderr_thread.join(timeout=1)
+            if not process.stdout.closed:
+                process.stdout.close()
+            if not process.stderr.closed:
+                process.stderr.close()
+
+        stdout_state.setdefault("text", "")
+        stdout_state.setdefault("totalBytes", 0)
+        stdout_state.setdefault("truncated", stdout_thread.is_alive())
+        stderr_state.setdefault("text", "")
+        stderr_state.setdefault("totalBytes", 0)
+        stderr_state.setdefault("truncated", stderr_thread.is_alive())
+
         return {
             "executed": True,
             "blocked": False,
-            "timedOut": False,
-            "returnCode": completed.returncode,
+            "timedOut": timed_out,
+            "returnCode": return_code,
             "durationMs": int((time.perf_counter() - started) * 1000),
-            "stdout": _truncate(completed.stdout or "") if truncate_output else (completed.stdout or ""),
-            "stderr": _truncate(completed.stderr or "") if truncate_output else (completed.stderr or ""),
+            "stdout": stdout_state["text"],
+            "stderr": stderr_state["text"],
+            "stdoutCaptureTruncated": bool(stdout_state["truncated"]),
+            "stderrCaptureTruncated": bool(stderr_state["truncated"]),
+            "stdoutTotalBytes": int(stdout_state["totalBytes"]),
+            "stderrTotalBytes": int(stderr_state["totalBytes"]),
         }
 
 

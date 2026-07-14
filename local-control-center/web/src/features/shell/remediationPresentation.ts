@@ -219,15 +219,28 @@ export const BLOCKER_COPY: Record<BlockerType, BlockerCopy> = {
 	},
 	resource_manager_unconfigured: {
 		titleKey: 'app.threads.remediation.blocker.resource_manager_unconfigured.title',
-		titleFallback: 'AI resource routing is not configured',
+		titleFallback: 'No eligible AI resource is available',
 		explanationKey: 'app.threads.remediation.blocker.resource_manager_unconfigured.explanation',
 		explanationFallback:
 			'ResourceManager could not choose a model/runtime for the scheduled team role.',
 		impactKey: 'app.threads.remediation.blocker.resource_manager_unconfigured.impact',
 		impactFallback: 'No role gets a model or runtime, so execution never starts.',
-		settingsSection: 'routing',
-		settingsLabelKey: 'app.threads.remediation.action.openRouting',
-		settingsLabelFallback: 'Open routing',
+		settingsSection: 'providers-cli',
+		settingsLabelKey: 'app.threads.remediation.action.configureRuntime',
+		settingsLabelFallback: 'Configure runtime',
+	},
+	resource_manager_privacy_blocked: {
+		titleKey: 'app.threads.remediation.blocker.resource_manager_privacy_blocked.title',
+		titleFallback: 'Project privacy policy requires a local AI resource',
+		explanationKey: 'app.threads.remediation.blocker.resource_manager_privacy_blocked.explanation',
+		explanationFallback:
+			'The project is restricted to local AI resources, but ResourceManager found no executable local model/runtime.',
+		impactKey: 'app.threads.remediation.blocker.resource_manager_privacy_blocked.impact',
+		impactFallback:
+			'The Product Loop stays blocked until a local runtime is configured; AIDO will not weaken the privacy policy automatically.',
+		settingsSection: 'providers-cli',
+		settingsLabelKey: 'app.threads.remediation.action.configureLocalRuntime',
+		settingsLabelFallback: 'Configure local runtime',
 	},
 	resource_manager_approval_required: {
 		titleKey: 'app.threads.remediation.blocker.resource_manager_approval_required.title',
@@ -475,6 +488,17 @@ export const ACTION_COPY: Record<ActionType, ActionCopy> = {
 	},
 };
 
+/** Section-specific labels for generic Settings actions whose destination changes their meaning. */
+const SETTINGS_SECTION_ACTION_COPY: Record<
+	string,
+	Pick<ActionCopy, 'labelKey' | 'labelFallback'>
+> = {
+	routing: {
+		labelKey: 'app.threads.remediation.action.openRouting',
+		labelFallback: 'Open routing',
+	},
+};
+
 /** One rendered action button on a blocker card. */
 export type BlockerActionModel = {
 	/** Stable id for the React key and for tracking the busy action. */
@@ -522,6 +546,17 @@ function payloadString(payload: unknown, key: string): string {
 	return typeof value === 'string' ? value : '';
 }
 
+function settingsSection(record: RemediationActionRecord, actionCopy: ActionCopy): string {
+	return payloadString(record.payload, 'section') || actionCopy.section || 'providers-cli';
+}
+
+/** Settings actions are distinct only when their action type or destination section differs. */
+function actionDedupeKey(record: RemediationActionRecord, actionCopy: ActionCopy): string {
+	if (actionCopy.kind !== 'settings') return record.actionType;
+	const section = settingsSection(record, actionCopy);
+	return `${record.actionType}:${section}`;
+}
+
 /** Destructive remediations are refused by `execute` until the caller confirms them explicitly. */
 function needsConfirmation(record: RemediationActionRecord | undefined): boolean {
 	return Boolean(record?.confirmationRequired || record?.destructive);
@@ -563,14 +598,13 @@ export function buildBlockerCards(remediations: RemediationActionRecord[]): Bloc
 		const copy = BLOCKER_COPY[first.blockerType] ?? GENERIC_BLOCKER;
 		const actions: DraftAction[] = [];
 		const coveredSections = new Set<string>();
-		const seenActionTypes = new Set<string>();
+		const seenActionKeys = new Set<string>();
 
 		if (copy.settingsSection) {
 			const contextualSettingsRecord = records.find((record) => {
 				const actionCopy = ACTION_COPY[record.actionType];
 				if (actionCopy?.kind !== 'settings') return false;
-				const section =
-					payloadString(record.payload, 'section') || actionCopy.section || 'providers-cli';
+				const section = settingsSection(record, actionCopy);
 				return section === copy.settingsSection;
 			});
 			actions.push({
@@ -583,23 +617,27 @@ export function buildBlockerCards(remediations: RemediationActionRecord[]): Bloc
 				remediation: contextualSettingsRecord,
 			});
 			coveredSections.add(copy.settingsSection);
-			if (contextualSettingsRecord) seenActionTypes.add(contextualSettingsRecord.actionType);
+			if (contextualSettingsRecord) {
+				const actionCopy = ACTION_COPY[contextualSettingsRecord.actionType];
+				seenActionKeys.add(actionDedupeKey(contextualSettingsRecord, actionCopy));
+			}
 		}
 
 		for (const record of records) {
-			if (seenActionTypes.has(record.actionType)) continue;
-			seenActionTypes.add(record.actionType);
 			const actionCopy = ACTION_COPY[record.actionType];
 			if (!actionCopy) continue;
+			const dedupeKey = actionDedupeKey(record, actionCopy);
+			if (seenActionKeys.has(dedupeKey)) continue;
+			seenActionKeys.add(dedupeKey);
 			if (actionCopy.kind === 'settings') {
-				const section =
-					payloadString(record.payload, 'section') || actionCopy.section || 'providers-cli';
+				const section = settingsSection(record, actionCopy);
 				if (coveredSections.has(section)) continue;
 				coveredSections.add(section);
+				const sectionActionCopy = SETTINGS_SECTION_ACTION_COPY[section] ?? actionCopy;
 				actions.push({
 					id: `${record.id}:settings`,
-					labelKey: actionCopy.labelKey,
-					labelFallback: actionCopy.labelFallback,
+					labelKey: sectionActionCopy.labelKey,
+					labelFallback: sectionActionCopy.labelFallback,
 					kind: 'settings',
 					confirmationRequired: false,
 					section,

@@ -934,6 +934,8 @@ def test_runtime_provider_status_reports_missing_cli_as_not_detected(
     assert codex["configured"] is False
     assert codex["available"] is False
     assert codex["executable"] is False
+    assert codex["versionVerified"] is False
+    assert codex["productOwnerExecutable"] is False
     assert codex["detectedCommand"] is None
     assert codex["requiredConfiguration"] == ["command", "authentication"]
     assert "not detected" in codex["reason"].lower()

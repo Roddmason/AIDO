@@ -11096,8 +11096,8 @@
       "es": "Todo lo que dependa del remote configurado no puede completarse."
     },
     "app.threads.remediation.blocker.resource_manager_unconfigured.title": {
-      "en": "AI resource routing is not configured",
-      "es": "El enrutamiento de recursos de IA no está configurado"
+      "en": "No eligible AI resource is available",
+      "es": "No hay un recurso de IA elegible disponible"
     },
     "app.threads.remediation.blocker.resource_manager_unconfigured.explanation": {
       "en": "ResourceManager could not choose a model/runtime for the scheduled team role.",
@@ -11106,6 +11106,18 @@
     "app.threads.remediation.blocker.resource_manager_unconfigured.impact": {
       "en": "No role gets a model or runtime, so execution never starts.",
       "es": "Ningún rol recibe modelo ni runtime, así que la ejecución nunca comienza."
+    },
+    "app.threads.remediation.blocker.resource_manager_privacy_blocked.title": {
+      "en": "Project privacy policy requires a local AI resource",
+      "es": "La política de privacidad del proyecto exige un recurso de IA local"
+    },
+    "app.threads.remediation.blocker.resource_manager_privacy_blocked.explanation": {
+      "en": "The project is restricted to local AI resources, but ResourceManager found no executable local model/runtime.",
+      "es": "El proyecto está restringido a recursos de IA locales, pero ResourceManager no encontró un modelo/runtime local ejecutable."
+    },
+    "app.threads.remediation.blocker.resource_manager_privacy_blocked.impact": {
+      "en": "The Product Loop stays blocked until a local runtime is configured; AIDO will not weaken the privacy policy automatically.",
+      "es": "El Product Loop sigue bloqueado hasta configurar un runtime local; AIDO no debilitará la política de privacidad automáticamente."
     },
     "app.threads.remediation.blocker.resource_manager_approval_required.title": {
       "en": "AI resource approval required",
@@ -11278,6 +11290,10 @@
     "app.threads.remediation.action.configureRuntime": {
       "en": "Configure runtime",
       "es": "Configurar runtime"
+    },
+    "app.threads.remediation.action.configureLocalRuntime": {
+      "en": "Configure local runtime",
+      "es": "Configurar runtime local"
     },
     "app.threads.remediation.action.openSecurityTools": {
       "en": "Open security tools",

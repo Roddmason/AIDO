@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import sqlite3
 import uuid
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
 
@@ -309,12 +310,18 @@ class ThreadCoordinator:
         decision_id: str,
         resolution: str,
         decided_by: str | None = None,
+        defer_followup: bool = False,
     ) -> dict[str, Any]:
         """Resuelve una decisión pendiente y continúa la ejecución del mensaje bloqueado."""
         if not resolution.strip():
             raise ValueError("Decision resolution is required")
         queued_job: dict[str, Any] | None = None
-        with immediate_transaction(self.connection):
+        transaction = (
+            nullcontext(self.connection)
+            if self.connection.in_transaction
+            else immediate_transaction(self.connection)
+        )
+        with transaction:
             pending_decision = self.repository.get_decision(decision_id)
             if pending_decision["threadId"] != thread_id:
                 raise KeyError(f"Decision not found: {decision_id}")
@@ -354,7 +361,9 @@ class ThreadCoordinator:
             can_resume_decision = current["status"] in {"waiting_decision", "awaiting_user", "open"} or (
                 functionality_decision and current["status"] == "blocked"
             )
-            if (
+            if defer_followup:
+                thread = current
+            elif (
                 can_resume_decision
                 and similarity_candidate_id
                 and resolution_mode != "create_new_anyway"
@@ -430,6 +439,26 @@ class ThreadCoordinator:
         if queued_job is not None:
             result["job"] = queued_job
         return result
+
+    def resolve_decision_in_transaction(
+        self,
+        *,
+        thread_id: str,
+        decision_id: str,
+        resolution: str,
+        decided_by: str | None = None,
+        defer_followup: bool = False,
+    ) -> dict[str, Any]:
+        """Resolve and queue a decision inside the caller's active write transaction."""
+        if not self.connection.in_transaction:
+            raise RuntimeError("resolve_decision_in_transaction requires an active transaction.")
+        return self.resolve_decision(
+            thread_id=thread_id,
+            decision_id=decision_id,
+            resolution=resolution,
+            decided_by=decided_by,
+            defer_followup=defer_followup,
+        )
 
     def add_operator_note(
         self,

@@ -84,7 +84,7 @@ class RemediationActionsRepository:
         clean_reason = str(redact_secrets(technical_reason or "")).strip()
         clean_thread_id = str(thread_id or "")
         clean_loop_id = str(loop_id or "")
-        existing = self.connection.execute(
+        existing_rows = self.connection.execute(
             """
             SELECT *
             FROM remediation_actions
@@ -96,10 +96,23 @@ class RemediationActionsRepository:
               AND action_type = ?
               AND status = 'pending'
             ORDER BY created_at DESC, rowid DESC
-            LIMIT 1
             """,
             (project_id, clean_thread_id, clean_loop_id, stage, blocker_type, action_type),
-        ).fetchone()
+        ).fetchall()
+
+        def same_action_identity(row: sqlite3.Row) -> bool:
+            existing_payload = json_loads(row["payload_json"], {})
+            if action_type == "open_settings_section":
+                return str(existing_payload.get("section") or "").strip() == str(
+                    clean_payload.get("section") or ""
+                ).strip()
+            if action_type == "answer_question":
+                return str(existing_payload.get("decisionId") or "").strip() == str(
+                    clean_payload.get("decisionId") or ""
+                ).strip()
+            return True
+
+        existing = next((row for row in existing_rows if same_action_identity(row)), None)
         if existing:
             existing_payload = json_loads(existing["payload_json"], {})
             merged_payload = {**existing_payload, **clean_payload}
@@ -171,6 +184,131 @@ class RemediationActionsRepository:
         ).fetchall()
         return [row_to_remediation(row) for row in rows]
 
+    def resolve_pending_for_loop(self, loop_id: str) -> list[dict[str, Any]]:
+        """Resolve every pending action owned by one terminal Product Loop, preserving audit rows."""
+        clean_loop_id = str(loop_id or "").strip()
+        if not clean_loop_id:
+            return []
+        with immediate_transaction(self.connection):
+            action_ids = self.resolve_pending_for_loop_in_transaction(clean_loop_id)
+        return [self.get(action_id) for action_id in action_ids]
+
+    def resolve_pending_for_loop_in_transaction(self, loop_id: str) -> list[str]:
+        """Resolve a terminal loop's actions inside the caller's existing SQLite transaction."""
+        if not self.connection.in_transaction:
+            raise RuntimeError("resolve_pending_for_loop_in_transaction requires an active transaction.")
+        clean_loop_id = str(loop_id or "").strip()
+        if not clean_loop_id:
+            return []
+        rows = self.connection.execute(
+            """
+            SELECT remediation_actions.id
+            FROM remediation_actions
+            INNER JOIN product_loops ON product_loops.id = remediation_actions.loop_id
+            WHERE remediation_actions.loop_id = ?
+              AND remediation_actions.status = 'pending'
+              AND product_loops.state IN ('cancelled', 'delivered')
+            ORDER BY remediation_actions.created_at ASC, remediation_actions.rowid ASC
+            """,
+            (clean_loop_id,),
+        ).fetchall()
+        action_ids = [str(row["id"]) for row in rows]
+        if action_ids:
+            self.connection.execute(
+                """
+                UPDATE remediation_actions
+                SET status = 'resolved', resolved_at = ?
+                WHERE loop_id = ?
+                  AND status = 'pending'
+                  AND loop_id IN (
+                      SELECT id
+                      FROM product_loops
+                      WHERE state IN ('cancelled', 'delivered')
+                  )
+                """,
+                (utc_now(), clean_loop_id),
+            )
+        return action_ids
+
+    def resolve_pending_for_blocker_in_transaction(
+        self,
+        loop_id: str,
+        *,
+        stage: str,
+        blocker_type: str,
+    ) -> list[str]:
+        """Resolve one superseded loop blocker family inside the caller's transaction."""
+        if not self.connection.in_transaction:
+            raise RuntimeError("resolve_pending_for_blocker_in_transaction requires an active transaction.")
+        clean_loop_id = str(loop_id or "").strip()
+        clean_stage = str(stage or "").strip()
+        clean_blocker_type = str(blocker_type or "").strip()
+        if not clean_loop_id or not clean_stage or not clean_blocker_type:
+            return []
+        rows = self.connection.execute(
+            """
+            SELECT id
+            FROM remediation_actions
+            WHERE loop_id = ?
+              AND stage = ?
+              AND blocker_type = ?
+              AND status = 'pending'
+            ORDER BY created_at ASC, rowid ASC
+            """,
+            (clean_loop_id, clean_stage, clean_blocker_type),
+        ).fetchall()
+        action_ids = [str(row["id"]) for row in rows]
+        if action_ids:
+            self.connection.execute(
+                """
+                UPDATE remediation_actions
+                SET status = 'resolved', resolved_at = ?
+                WHERE loop_id = ?
+                  AND stage = ?
+                  AND blocker_type = ?
+                  AND status = 'pending'
+                """,
+                (utc_now(), clean_loop_id, clean_stage, clean_blocker_type),
+            )
+        return action_ids
+
+    def resolve_pending_from_terminal_loops(self, thread_id: str) -> list[dict[str, Any]]:
+        """Reconcile legacy pending rows whose Product Loop is already cancelled or delivered."""
+        clean_thread_id = str(thread_id or "").strip()
+        if not clean_thread_id:
+            return []
+        rows = self.connection.execute(
+            """
+            SELECT remediation_actions.id
+            FROM remediation_actions
+            INNER JOIN product_loops ON product_loops.id = remediation_actions.loop_id
+            WHERE remediation_actions.thread_id = ?
+              AND remediation_actions.status = 'pending'
+              AND product_loops.state IN ('cancelled', 'delivered')
+            ORDER BY remediation_actions.created_at ASC, remediation_actions.rowid ASC
+            """,
+            (clean_thread_id,),
+        ).fetchall()
+        action_ids = [str(row["id"]) for row in rows]
+        if not action_ids:
+            return []
+        with immediate_transaction(self.connection):
+            self.connection.execute(
+                """
+                UPDATE remediation_actions
+                SET status = 'resolved', resolved_at = ?
+                WHERE thread_id = ?
+                  AND status = 'pending'
+                  AND loop_id IN (
+                      SELECT id
+                      FROM product_loops
+                      WHERE state IN ('cancelled', 'delivered')
+                  )
+                """,
+                (utc_now(), clean_thread_id),
+            )
+        return [self.get(action_id) for action_id in action_ids]
+
     def get(self, action_id: str) -> dict[str, Any]:
         """Return one remediation action or raise ``KeyError``."""
         row = self.connection.execute(
@@ -182,18 +320,24 @@ class RemediationActionsRepository:
 
     def mark_status(self, action_id: str, status: str) -> dict[str, Any]:
         """Update a remediation lifecycle status."""
+        with immediate_transaction(self.connection):
+            return self.mark_status_in_transaction(action_id, status)
+
+    def mark_status_in_transaction(self, action_id: str, status: str) -> dict[str, Any]:
+        """Update a remediation lifecycle status inside the caller's active transaction."""
+        if not self.connection.in_transaction:
+            raise RuntimeError("mark_status_in_transaction requires an active transaction.")
         if status not in REMEDIATION_STATUSES:
             raise ValueError(f"Unknown remediation status: {status}")
         resolved_at = utc_now() if status in {"resolved", "dismissed", "failed"} else None
-        with immediate_transaction(self.connection):
-            updated = self.connection.execute(
-                """
-                UPDATE remediation_actions
-                SET status = ?, resolved_at = ?
-                WHERE id = ?
-                """,
-                (status, resolved_at, action_id),
-            )
-            if updated.rowcount == 0:
-                raise KeyError(f"Remediation action not found: {action_id}")
+        updated = self.connection.execute(
+            """
+            UPDATE remediation_actions
+            SET status = ?, resolved_at = ?
+            WHERE id = ?
+            """,
+            (status, resolved_at, action_id),
+        )
+        if updated.rowcount == 0:
+            raise KeyError(f"Remediation action not found: {action_id}")
         return self.get(action_id)

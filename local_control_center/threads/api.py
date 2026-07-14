@@ -16,6 +16,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Body, HTTPException, Request
 
+from local_control_center.remediations.service import BlockerRemediationService
 from local_control_center.shared.event_bus import row_to_audit
 
 from .contracts import (
@@ -442,14 +443,18 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         body: ThreadDecisionResolveRequest,
         request: Request,
     ) -> dict[str, Any]:
-        """Resuelve una decisión pendiente del hilo y lo reabre en ``open``."""
+        """Resuelve una decisión y reanuda solo cuando el batch pendiente queda completo."""
         require_write(request)
         try:
-            return coordinator().resolve_decision(
+            return BlockerRemediationService(
+                platform.connection,
+                root=getattr(platform, "cwd", None),
+            ).resolve_thread_decision(
                 thread_id=thread_id,
                 decision_id=decision_id,
                 resolution=body.resolution,
                 decided_by=body.decided_by,
+                platform=platform,
             )
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error

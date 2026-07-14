@@ -284,6 +284,7 @@ function ThreadVitals({
 		detail.data?.decisions.filter((decision) => decision.status === 'pending').length ?? 0;
 	if (!thread && !activeLoop) return null;
 	return (
+		// biome-ignore lint/a11y/useSemanticElements: labeled group of read-only status chips; role=group + aria-label is valid ARIA — the native <fieldset> is for form controls, not this.
 		<div
 			className="thread-inspector-summary"
 			role="group"
@@ -675,6 +676,7 @@ function TeamRoster({
 
 	return (
 		<div className="thread-inspector-stack thread-team">
+			{/* biome-ignore lint/a11y/useSemanticElements: labeled group of read-only status chips; role=group + aria-label is valid ARIA — the native <fieldset> is for form controls, not this. */}
 			<div
 				className="thread-inspector-summary"
 				role="group"

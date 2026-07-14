@@ -141,6 +141,7 @@ export function ThreadCostPanel({
 
 	return (
 		<div className="thread-inspector-stack">
+			{/* biome-ignore lint/a11y/useSemanticElements: labeled group of read-only status chips; role=group + aria-label is valid ARIA — the native <fieldset> is for form controls, not this. */}
 			<div
 				className="thread-inspector-summary"
 				role="group"

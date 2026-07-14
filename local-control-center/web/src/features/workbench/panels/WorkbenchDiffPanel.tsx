@@ -45,7 +45,9 @@ export function WorkbenchDiffPanel({
 	}, [artifacts, evidenceId]);
 
 	const packageId = patchArtifact?.evidencePackageId ?? evidenceId;
+	const patchArtifactId = patchArtifact?.id ?? '';
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: patchArtifactId is the stable identity for patchArtifact; keying on object identity refetches on every 5s poll and flickers the diff.
 	useEffect(() => {
 		if (!patchArtifact || !packageId) {
 			setText('');
@@ -74,7 +76,7 @@ export function WorkbenchDiffPanel({
 		return () => {
 			cancelled = true;
 		};
-	}, [token, packageId, patchArtifact, t]);
+	}, [token, packageId, patchArtifactId, t]);
 
 	if (!patchArtifact) {
 		return (

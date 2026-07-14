@@ -3,7 +3,7 @@
 - **Fecha:** 2026-07-14
 - **Autor:** Rodrigo Mason (con asistencia)
 - **Estado:** Aprobado para plan de implementación
-- **Alcance:** Solo Sub-proyecto A. El Sub-proyecto B (enrutamiento consciente de uso de CLI/API) tendrá su propio spec.
+- **Alcance:** Solo Sub-proyecto A (A1 tolerancia de `category`, A2 reintento de reparación acotado, A3 feedback en `retry_loop` opcional, A4 garantía "ningún bloqueo sin salida"). El Sub-proyecto B (enrutamiento consciente de uso de CLI/API) tendrá su propio spec.
 
 ## 1. Contexto y problema
 
@@ -25,6 +25,14 @@ ProductOwnerAgent output must be a JSON object: questions[0].category must be on
 
 El `category` **solo alimenta priorización y deduplicación** de preguntas (`impact_score`, `CATEGORY_IMPACT`, `question_dedup_key`, `BRIEF_FIELD_CATEGORY`); **no afecta la corrección** del brief ni del backlog. Botar toda la salida por un sinónimo cosmético es fragilidad desproporcionada.
 
+### Causa raíz secundaria — bloqueo sin plan de reparación (evidencia)
+
+Evidencia observada en producción: el panel "Ejecución" muestra **"Bloqueado sin plan de reparación"** con diagnóstico `{ "stage": "", "blockerType": "unresolved", "reason": "...category must be one of [...]", "remediationIds": [] }`. Es decir, el hilo quedó `blocked` con **cero acciones de remediación persistidas** y el front cayó a `buildFallbackCard` (sin botón de reintento).
+
+El backfill que debería garantizar siempre una salida ejecutable, `ensure_blocked_thread_remediation`, **solo actúa si encuentra un loop en estado exactamente `"blocked"`** para el hilo — `local_control_center/remediations/service.py:311-318` (`_blocked_loop_for_thread`: `if str(loop.get("state") or "") != "blocked": continue`). Además, `list_for_thread` invoca antes `resolve_pending_from_terminal_loops`, que **cierra** las acciones pendientes cuyo loop quedó `cancelled`/`delivered` — `local_control_center/remediations/repository.py:275-310`.
+
+**Hipótesis (respaldada por código + evidencia "Worker detenido", a confirmar con test de reproducción):** la cascada de reintentos (`retry_loop` re-encola y supersede loops, `service.py:1129-1151`) sumada a la **detención del worker** deja el último loop del hilo en un estado que **no** es `"blocked"` (running/cancelled/superseded) mientras el **hilo** sigue `blocked`. Entonces `_blocked_loop_for_thread` devuelve `None`, no hay backfill, `remediationIds: []`, y el operador queda sin acción posible. A1 evita el bloqueo de `category` hacia adelante, pero **no** rehabilita el hilo ya bloqueado ni cubre bloqueos futuros por otras causas que caigan en la misma divergencia de estado.
+
 ## 2. Objetivo y criterio de éxito verificable
 
 Una corrida cuyo runtime emite un `category` cercano (u otro roce de esquema recuperable) deja de morir en `blocked`: se auto-corrige y produce un brief/backlog válido. Si la salida es genuinamente irrecuperable, bloquea con motivo claro **tras un tope de intentos**, no al primer roce.
@@ -35,7 +43,8 @@ Una corrida cuyo runtime emite un `category` cercano (u otro roce de esquema rec
 - C2. `validate_impact_question(question(category="<desconocido>"))["category"] == "scope"` (default seguro) y se registra una nota de auditoría; **no** lanza.
 - C3. Un runtime que devuelve JSON inválido en el intento 1 y válido en el intento 2 hace que `ProductOwnerAgentRunner.run` **complete** (no `failed_validation`), con exactamente 2 invocaciones del runtime.
 - C4. Un runtime que devuelve JSON inválido en ambos intentos termina en `failed_validation` con el **último** error como motivo (bloqueo honesto, no bucle infinito).
-- C5. Las suites `test_impact_question_engine.py` y `test_product_owner_*` quedan verdes tras actualizar los casos de comportamiento intencionalmente cambiado; `test:py` y `ruff` pasan.
+- C6. Un hilo con `status="blocked"` pero **sin** ningún loop en estado exactamente `"blocked"` (divergencia por cascada de reintentos + worker detenido) recibe igual, vía backfill, al menos una acción `retry_loop` ejecutable — nunca la tarjeta muerta "sin plan de reparación".
+- C5. Las suites `test_impact_question_engine.py`, `test_product_owner_*` y `test_remediation_blocker_experience.py` quedan verdes tras actualizar los casos de comportamiento intencionalmente cambiado; `test:py` y `ruff` pasan.
 
 ## 3. Reproducción (antes / después)
 
@@ -79,6 +88,13 @@ Una corrida cuyo runtime emite un `category` cercano (u otro roce de esquema rec
 - Requiere: (1) `service.py` agrega `productOwnerRepairContext` a `runMetadata` del job de reintento; (2) el run del product loop propaga ese `runMetadata` al `payload.metadata.repairContext` del `ProductOwnerAgent`; (3) `_execute_and_persist` siembra el contexto de reparación del intento 0 desde `payload` si viene.
 - Se implementa **al final**; si el presupuesto del slice se acota, A1+A2 ya entregan auto-reparación automática sin click y A3 puede diferirse a un fast-follow.
 
+### A4 · Garantía "ningún bloqueo sin salida" — `local_control_center/remediations/service.py`
+
+- Problema: `ensure_blocked_thread_remediation` (`service.py:248-305`) solo hace backfill si `_blocked_loop_for_thread` (`service.py:307-318`) encuentra un loop en estado exactamente `"blocked"`. Ante divergencia de estado (loop más reciente en running/cancelled/superseded pero hilo `blocked`), devuelve `None` → sin backfill → tarjeta muerta.
+- Fix quirúrgico: cuando `_blocked_loop_for_thread` devuelve `None` y el hilo está `blocked`, caer a un **nuevo** `_fallback_loop_for_thread(thread_id, project_id)` que elige el loop **más reciente** del hilo (cualquier estado), priorizando el más reciente cuyo durable tenga `blockedReason` seteado (fue bloqueado alguna vez); de ese loop se leen `blockedStage`/`blockedReason` durables y se garantiza el `retry_loop` con la misma lógica ya existente. Orden determinista (`created_at ASC, rowid ASC`) para elegir "más reciente" sin flakiness.
+- No introduce duplicados: el backfill solo se invoca cuando `list_for_thread` no encontró **ninguna** acción pendiente (`service.py:167-168`), justo el caso de la tarjeta muerta.
+- No se toca `_blocked_loop_for_thread` (contrato compartido intacto); A4 es una ruta de respaldo aditiva dentro de `ensure_blocked_thread_remediation`.
+
 ## 5. Cambios de comportamiento y compatibilidad
 
 - **Intencional (documentado):** `questions.category` deja de rechazar valores desconocidos; los coerce (sinónimo conocido → canónica; desconocido → `scope`) con nota de auditoría. Esto invalida dos aserciones actuales que deben actualizarse:
@@ -101,6 +117,8 @@ Una corrida cuyo runtime emite un `category` cercano (u otro roce de esquema rec
 - **Unit/integración (`tests_py/test_product_owner_*`):**
   - Reparación: stub de runtime que devuelve inválido→válido → `run` completa con 2 invocaciones (C3). Reusar el arnés de inyección de runtime de `tests_py/test_product_owner_agent_real_runtime.py` (los runtimes de modelo/provider controlado devuelven JSON; los CLI reales no garantizan JSON estricto).
   - Tope: inválido×2 → `failed_validation` con el último error (C4).
+- **A4 (`tests_py/test_remediation_blocker_experience.py` o vecino):**
+  - Reproducir la divergencia: hilo `blocked` cuyo único loop quedó en estado `!= "blocked"` (p. ej. `superseded`/`cancelled`) con `blockedReason` durable → `list_for_thread` devuelve al menos un `retry_loop` ejecutable (C6). Aserción negativa previa: sin el fix, devuelve `[]`.
 - **Regresión:** `test_product_owner_assessment_grounding.py`, `test_workflow_product_owner_intake.py`, `test_aido_product_loop_real_e2e.py`, `test_remediation_blocker_experience.py` verdes.
 - **Gates:** `uv run pytest tests_py/test_impact_question_engine.py tests_py/test_product_owner_*.py -q` → luego `ruff format` + `ruff check` (asegurar **LF**, sin warning "CRLF will be replaced") → luego `test:py` completo (incluye gates de arquitectura). Sin `test:web` (no hay cambios de web).
 - **Autor/docstrings:** no se crean módulos productivos nuevos (se editan existentes que ya declaran `@author Rodrigo Mason`); las funciones públicas nuevas (`normalize_category`) llevan docstring D103.
@@ -118,7 +136,7 @@ Comandos a ejecutar y evidenciar:
 
 1. `uv run pytest tests_py/test_impact_question_engine.py tests_py/test_product_owner_agent_real_runtime.py -q`
 2. `uv run pytest tests_py/test_product_owner_assessment_grounding.py tests_py/test_workflow_product_owner_intake.py tests_py/test_remediation_blocker_experience.py -q`
-3. `ruff format local_control_center/agents/impact_question_engine.py local_control_center/agents/product_owner_agent.py && ruff check local_control_center/agents/impact_question_engine.py local_control_center/agents/product_owner_agent.py`
+3. `ruff format local_control_center/agents/impact_question_engine.py local_control_center/agents/product_owner_agent.py local_control_center/remediations/service.py && ruff check local_control_center/agents/impact_question_engine.py local_control_center/agents/product_owner_agent.py local_control_center/remediations/service.py`
 4. `test:py` completo (gate de arquitectura + i18n).
 
 El slice se declara listo solo con la salida real de estos comandos vista y verde, o con el bloqueo exacto reportado.

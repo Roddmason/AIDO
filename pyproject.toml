@@ -9,6 +9,7 @@ dependencies = [
 	"keyring>=25.0.0",
 	"uvicorn>=0.37.0",
 	"numpy>=1.26.0",
+	"tzdata>=2025.2",
 ]
 
 [project.optional-dependencies]

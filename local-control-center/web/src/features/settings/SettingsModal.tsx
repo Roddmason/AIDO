@@ -109,7 +109,11 @@ export function SettingsModal({
 		}
 	}, [open, activeSection]);
 
-	const { general, project, loading, error, setValue, clearValue } = useSettings(projectId, open);
+	const { general, project, loading, error, setValue, clearValue } = useSettings(
+		projectId,
+		open,
+		token,
+	);
 
 	const allSections = [...GENERAL_SECTIONS, ...PROJECT_SECTIONS];
 	const filteredGeneral = searchQuery

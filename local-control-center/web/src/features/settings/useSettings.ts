@@ -9,7 +9,6 @@ import { useCallback, useEffect, useState } from 'react';
 import type { ResolvedSetting, SettingsResponse } from '../../api/client';
 import { deleteSetting, getSettings, putSetting } from '../../api/client';
 import type { JsonValue } from '../../api/generated/openapi';
-import { useControlPlane } from '../../hooks/useControlPlane';
 
 export type { ResolvedSetting };
 
@@ -31,8 +30,11 @@ export type SettingsState = {
 };
 
 /** Loads resolved settings for both scopes while `enabled`; disabled or missing id clears state. */
-export function useSettings(projectId: string | undefined, enabled: boolean): SettingsState {
-	const { token } = useControlPlane();
+export function useSettings(
+	projectId: string | undefined,
+	enabled: boolean,
+	token: string,
+): SettingsState {
 	const [data, setData] = useState<SettingsResponse | null>(null);
 	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState('');

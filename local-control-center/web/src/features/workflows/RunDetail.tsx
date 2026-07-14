@@ -62,6 +62,7 @@ export function RunDetail({
 	const [previewLoadingId, setPreviewLoadingId] = useState('');
 	const [downloadLoadingId, setDownloadLoadingId] = useState('');
 	const [previewError, setPreviewError] = useState('');
+	const previewRequestRef = useRef(0);
 	const [jobMutationReason, setJobMutationReason] = useState('');
 	const [jobMutationBusyId, setJobMutationBusyId] = useState('');
 	const [jobMutationError, setJobMutationError] = useState('');
@@ -113,21 +114,23 @@ export function RunDetail({
 			setPreviewError(t('app.workbench.evidence.incomplete', 'Artifact metadata is incomplete.'));
 			return;
 		}
+		const generation = ++previewRequestRef.current;
 		setPreviewArtifact(artifact);
 		setPreviewPayload(null);
 		setPreviewError('');
 		setPreviewLoadingId(artifactId);
 		try {
 			const payload = await fetchEvidenceArtifact(token, evidenceId, artifactId);
-			setPreviewPayload(payload);
+			if (previewRequestRef.current === generation) setPreviewPayload(payload);
 		} catch (error) {
-			setPreviewError(
-				error instanceof Error
-					? error.message
-					: t('app.workflows.errArtifactPreview', 'Artifact preview failed.'),
-			);
+			if (previewRequestRef.current === generation)
+				setPreviewError(
+					error instanceof Error
+						? error.message
+						: t('app.workflows.errArtifactPreview', 'Artifact preview failed.'),
+				);
 		} finally {
-			setPreviewLoadingId('');
+			if (previewRequestRef.current === generation) setPreviewLoadingId('');
 		}
 	};
 

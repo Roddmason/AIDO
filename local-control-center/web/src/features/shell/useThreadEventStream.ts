@@ -32,6 +32,7 @@ export function useThreadEventStream(
 	const [error, setError] = useState('');
 	const lastSeqRef = useRef(0);
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: refreshKey is an intentional re-fetch trigger (bumped by the parent to force a fresh poll), a dependency by design not read inside the effect body.
 	useEffect(() => {
 		if (!threadId) {
 			setEvents([]);

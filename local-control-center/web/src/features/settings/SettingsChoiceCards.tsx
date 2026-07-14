@@ -196,6 +196,7 @@ export function SettingChoiceCards({
 					const selected = option.value === current;
 					const Icon = option.icon;
 					return (
+						// biome-ignore lint/a11y/useSemanticElements: intentional WAI-ARIA radio-group card (role=radio in a role=radiogroup with roving tabIndex + onKeyDown); a native <input type=radio> would lose the card layout and roving-focus model.
 						<button
 							key={option.value}
 							ref={(node) => {

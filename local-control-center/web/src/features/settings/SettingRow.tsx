@@ -156,10 +156,11 @@ export function SettingRow({ setting, onSet, onRevert, enumOptions, help }: Sett
 	const [localValue, setLocalValue] = useState<string>(() => toLocalValue(setting));
 	const [localChecked, setLocalChecked] = useState<boolean>(Boolean(setting.value));
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: reset only when this row's identity (key + scope) or its persisted value changes, not on every list refetch — useSettings.refresh() refetches the whole list after any sibling save and would otherwise hand this row a new `setting` object with the same values, wiping an in-progress edit.
 	useEffect(() => {
 		setLocalValue(toLocalValue(setting));
 		setLocalChecked(Boolean(setting.value));
-	}, [setting]);
+	}, [setting.key, scope, toLocalValue(setting)]);
 
 	const isNumberEmpty = setting.type === 'number' && localValue.trim() === '';
 	// Belt-and-suspenders: type="number" inputs sanitize most malformed text to '',

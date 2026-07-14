@@ -79,7 +79,9 @@ samp {
 	   above with `outline: none; box-shadow: var(--shadow-focus)` at higher specificity —
 	   !important is required so every control keeps a visible focus indicator. */
 	:focus-visible {
+		/* biome-ignore lint/complexity/noImportantStyles: forced-colors mode needs !important so every control keeps a visible focus outline (per-component rules override it otherwise). */
 		outline: 2px solid !important;
+		/* biome-ignore lint/complexity/noImportantStyles: forced-colors mode needs !important so every control keeps a visible focus outline (per-component rules override it otherwise). */
 		outline-offset: 2px !important;
 	}
 }

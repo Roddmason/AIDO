@@ -80,7 +80,9 @@ export function WorkbenchEvidencePanel({
 
 	const securityArtifact = useMemo(() => findSecurityArtifact(scopedArtifacts), [scopedArtifacts]);
 	const securityPackageId = securityArtifact?.evidencePackageId ?? evidenceId;
+	const securityArtifactId = securityArtifact?.id ?? '';
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: securityArtifactId is the intended trigger; the artifacts prop is a fresh object every ~5s poll, so keying on object identity blanks+refetches findings every tick.
 	useEffect(() => {
 		setSecurityText('');
 		setSecurityError('');
@@ -110,7 +112,7 @@ export function WorkbenchEvidencePanel({
 		return () => {
 			active = false;
 		};
-	}, [securityArtifact, securityPackageId, token, t]);
+	}, [securityArtifactId, securityPackageId, token, t]);
 
 	const openPreview = async (packageId: string, artifactId: string, title: string) => {
 		setPreview({ open: true, title, text: '', loading: true, error: '' });

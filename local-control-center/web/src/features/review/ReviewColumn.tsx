@@ -41,9 +41,9 @@ export function ReviewColumn({
 		>
 			<header className="review-column-header">
 				<StatusDot tone={COLUMN_TONE[column]} />
-				<span id={headerId} className="review-column-title">
+				<h2 id={headerId} className="review-column-title">
 					{meta.title}
-				</span>
+				</h2>
 				<span className="review-column-count">
 					<Badge tone={items.length ? COLUMN_TONE[column] : undefined}>{items.length}</Badge>
 				</span>

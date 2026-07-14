@@ -707,8 +707,10 @@ function ThreadResearchCard({ artifact }: { artifact: ThreadArtifact }) {
 				<details className="thread-research-disclosure">
 					<summary>{t('app.threads.research.discrepancies', 'Discrepancies')}</summary>
 					<ul className="thread-research-discrepancies">
-						{discrepancies.map((item, index) => (
-							<li key={`${String(item.topic ?? 'discrepancy')}-${index}`}>
+						{discrepancies.map((item) => (
+							<li
+								key={`${String(item.topic ?? 'discrepancy')}::${String(item.conflictingValues ?? '')}`}
+							>
 								<strong>{String(item.topic ?? 'source conflict')}</strong>
 								<span>{String(item.conflictingValues ?? '')}</span>
 							</li>
@@ -880,7 +882,7 @@ function ThreadComposerBox({
 	const { t } = useI18n();
 	const [value, setValue] = useState(initialValue);
 	const [localBusy, setLocalBusy] = useState(false);
-	const { project: projectSettings, setValue: setSetting } = useSettings(project.id, true);
+	const { project: projectSettings, setValue: setSetting } = useSettings(project.id, true, token);
 	const [permBusy, setPermBusy] = useState(false);
 
 	const autonomy = projectSettings.find((setting) => setting.key === 'autonomy.level');
